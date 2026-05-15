@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "supabase:keepalive": "node scripts/supabase-keepalive.mjs",
+    "supabase:keepalive:verify": "node scripts/supabase-keepalive-verify.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

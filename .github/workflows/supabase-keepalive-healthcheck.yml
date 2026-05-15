@@ -1,0 +1,56 @@
+name: Supabase Keepalive Health Check
+
+# Redundant detector: runs daily on a different schedule than
+# `supabase-keepalive.yml` and fails loudly if the Supabase heartbeat row is
+# older than MAX_STALE_HOURS. GitHub's "failed workflow" notification email is
+# the alerting channel — no third-party service required.
+
+on:
+  schedule:
+    # 14:00 UTC daily — offset from the 6-hourly keepalive (00/06/12/18) so a
+    # check lands between runs.
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Supabase keepalive freshness
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Allow up to 12h of staleness — keepalive runs every 6h, so a single
+          # missed run is fine, two in a row is not.
+          MAX_STALE_HOURS: "12"
+        run: npm run supabase:keepalive:verify
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "❌ Supabase keepalive health check FAILED."
+          echo ""
+          echo "What this means:"
+          echo "  The keepalive workflow is not producing fresh activity."
+          echo "  If left unattended, Supabase will pause the project."
+          echo ""
+          echo "Recovery steps (see README.md \"Supabase keepalive\"):"
+          echo "  1. Check workflow state: gh api repos/<owner>/<repo>/actions/workflows"
+          echo "  2. Re-enable if disabled: gh api .../enable -X PUT"
+          echo "  3. Dispatch manually: gh workflow run \"Supabase Keepalive\""
+          echo "  4. Verify secrets exist: gh secret list"
+          exit 1

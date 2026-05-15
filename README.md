@@ -112,23 +112,67 @@ npm run lint             # Run ESLint
 npm run supabase:keepalive  # Update keepalive timestamp in Supabase
 ```
 
-## Supabase Keepalive Cron
+## Supabase Keepalive (operational note)
 
-This repository includes a GitHub Actions cron job at `.github/workflows/supabase-keepalive.yml`.
+Supabase free-tier projects are auto-paused after 7 days of inactivity. This
+repo has **two** GitHub Actions workflows that keep the project active and
+detect failure:
 
-- Schedule: daily at `03:11 UTC`
-- Behavior: updates `app_settings.setting_key = system.supabase_keepalive` with the latest UTC timestamp
+- **`.github/workflows/supabase-keepalive.yml`** — every 6h, writes a heartbeat
+  row to `app_settings.system.supabase_keepalive`, queries the `sessions`
+  table, then commits a small heartbeat file to `.github/keepalive-heartbeat`
+  and pushes. The push is what keeps the **repo** active — GitHub disables
+  scheduled workflows after 60 days of no commits to the default branch, which
+  is how we got paused the first time.
+- **`.github/workflows/supabase-keepalive-healthcheck.yml`** — daily at 14:00
+  UTC, reads back the heartbeat row and fails loudly if it is more than 12h
+  stale. GitHub's built-in failed-workflow email is the alert channel.
 
 Required GitHub repository secrets:
 
 - `VITE_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-You can also run it manually:
+Required repo setting: **Settings → Actions → General → Workflow permissions**
+must be set to **"Read and write permissions"** so the heartbeat push works.
+
+### Manual ops
 
 ```bash
+# Run the keepalive against Supabase (locally, with .env loaded)
 npm run supabase:keepalive
+
+# Verify the heartbeat row is fresh
+npm run supabase:keepalive:verify
 ```
+
+### Recovery: project got paused / keepalive stopped working
+
+If the Supabase pause email arrives again, work through these steps:
+
+```bash
+# 1. List workflows and check state — look for "disabled_inactivity"
+gh api repos/Skale-Club/car-insights-ai/actions/workflows
+
+# 2. Re-enable if disabled (use the workflow id from step 1)
+gh api repos/Skale-Club/car-insights-ai/actions/workflows/<id>/enable -X PUT
+
+# 3. Verify both required secrets still exist
+gh secret list --repo Skale-Club/car-insights-ai
+
+# 4. Dispatch both workflows manually to confirm they work
+gh workflow run "Supabase Keepalive"             --repo Skale-Club/car-insights-ai --ref main
+gh workflow run "Supabase Keepalive Health Check" --repo Skale-Club/car-insights-ai --ref main
+
+# 5. Tail the most recent run
+gh run list --workflow="Supabase Keepalive" --repo Skale-Club/car-insights-ai --limit 3
+
+# 6. Unpause the Supabase project itself (manual, via dashboard):
+#    https://supabase.com/dashboard/project/drqmrddxlrlbqnydumjm
+```
+
+If the heartbeat **commit-push** specifically is failing (script ran fine but
+no commit appeared), check the workflow permissions setting above.
 
 ## 🔐 Security
 
