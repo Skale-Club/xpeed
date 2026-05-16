@@ -29,3 +29,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase CLI internal cache (auto-generated, version detection)
+supabase/.temp/
