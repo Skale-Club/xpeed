@@ -157,6 +157,7 @@ export type Database = {
           id: string
           message: string
           parameter_key: string
+          resolved: boolean | null
           session_id: string
           severity: string
         }
@@ -167,6 +168,7 @@ export type Database = {
           id?: string
           message: string
           parameter_key: string
+          resolved?: boolean | null
           session_id: string
           severity: string
         }
@@ -177,6 +179,7 @@ export type Database = {
           id?: string
           message?: string
           parameter_key?: string
+          resolved?: boolean | null
           session_id?: string
           severity?: string
         }

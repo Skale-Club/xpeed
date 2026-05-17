@@ -80,11 +80,21 @@ export async function createConversation(
     title: string = 'New Conversation',
     carProfileId?: string
 ): Promise<ChatConversation> {
+    // Explicitly fetch + set user_id: the chat_conversations RLS INSERT policy
+    // checks `auth.uid() = user_id`, and the table has no BEFORE INSERT trigger
+    // to auto-populate it (unlike sessions / car_profiles). Without this the
+    // INSERT silently fails with RLS rejection.
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+        throw new Error('User not authenticated');
+    }
+
     const { data, error } = await supabase
         .from('chat_conversations')
         .insert({
             title,
             car_profile_id: carProfileId || null,
+            user_id: user.id,
         })
         .select()
         .single();

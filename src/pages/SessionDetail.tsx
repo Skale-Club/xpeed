@@ -14,14 +14,17 @@ import { useToast } from '@/hooks/use-toast';
 import { PageLoader } from '@/components/PageLoader';
 
 import AIAnalysisCard from '@/components/AIAnalysisCard';
+import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
+
+type SessionWithStoredCsv = Session & { source_csv?: string | null };
 
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [session, setSession] = useState<any>(null);
-  const [flags, setFlags] = useState<any[]>([]);
-  const [rows, setRows] = useState<any[]>([]);
+  const [session, setSession] = useState<SessionWithStoredCsv | null>(null);
+  const [flags, setFlags] = useState<SessionFlag[]>([]);
+  const [rows, setRows] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
 
@@ -34,9 +37,9 @@ export default function SessionDetail() {
         getSessionFlags(id),
         getSessionRows(id),
       ]);
-      setSession(s);
-      setFlags(f);
-      setRows(r);
+      setSession(s as unknown as SessionWithStoredCsv | null);
+      setFlags(f as unknown as SessionFlag[]);
+      setRows(r as unknown as SessionRow[]);
     } finally {
       setLoading(false);
     }
@@ -48,7 +51,7 @@ export default function SessionDetail() {
     if (!id || !session || rows.length === 0) return;
 
     // Build a pseudo-parsed structure from stored rows
-    const summary = session.summary as any;
+    const summary = session.summary as (SessionSummary & { headerMapping?: Record<string, string>; timeColumn?: string }) | null;
     const headerMapping = summary?.headerMapping || {};
 
     // Extract unique parameters from rows
@@ -73,7 +76,7 @@ export default function SessionDetail() {
       evidence: f.evidence as unknown as Record<string, unknown>,
     })));
 
-    setFlags(await getSessionFlags(id));
+    setFlags((await getSessionFlags(id)) as unknown as SessionFlag[]);
     toast({ title: 'Re-evaluated', description: `${newFlags.length} flags after re-computation.` });
   }, [id, session, rows, toast]);
 
@@ -113,7 +116,7 @@ export default function SessionDetail() {
     );
   }
 
-  const summary = session.summary as any;
+  const summary = session.summary as (SessionSummary & { headerMapping?: Record<string, string> }) | null;
   const headerMapping = summary?.headerMapping || {};
   const summaries = summary?.summaries || [];
 
@@ -153,8 +156,8 @@ export default function SessionDetail() {
           duration={session.duration_seconds}
           rowCount={session.row_count}
           parameterCount={summaries.length}
-          attentionCount={flags.filter((f: any) => f.severity === 'attention').length}
-          criticalCount={flags.filter((f: any) => f.severity === 'critical').length}
+          attentionCount={flags.filter((f) => f.severity === 'attention').length}
+          criticalCount={flags.filter((f) => f.severity === 'critical').length}
         />
 
         {session.gemini_analysis && (

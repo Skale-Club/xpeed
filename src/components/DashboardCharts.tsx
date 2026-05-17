@@ -3,9 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, BarChart, Bar, ComposedChart } from 'recharts';
 import { format } from 'date-fns';
 import { useSettings } from '@/contexts/SettingsContext';
+import type { Session, SessionSummaryItem } from '@/types/session';
 
 interface DashboardChartsProps {
-  sessions: any[];
+  sessions: Session[];
+}
+
+interface ChartPoint {
+  date: Date;
+  formattedDate: string;
+  [seriesKey: string]: number | string | Date | null | undefined;
 }
 
 interface ChartConfig {
@@ -143,14 +150,14 @@ export default function DashboardCharts({ sessions }: DashboardChartsProps) {
     const availableKeys = new Set<string>();
     
     // Helper to find value in a session summary
-    const findValue = (summaryItems: any[], targetKey: string, type: 'max' | 'avg' | 'min' = 'max') => {
+    const findValue = (summaryItems: SessionSummaryItem[], targetKey: string, type: 'max' | 'avg' | 'min' = 'max'): number | null => {
       const searchTerms = KEY_MAPPING[targetKey] || [targetKey];
-      
-      const item = summaryItems.find((s: any) => 
+
+      const item = summaryItems.find((s) =>
         searchTerms.some(term => {
           const nTerm = normalize(term);
           return (
-            (s.canonical_key && normalize(s.canonical_key) === nTerm) || 
+            (s.canonical_key && normalize(s.canonical_key) === nTerm) ||
             (s.parameter_key && normalize(s.parameter_key).includes(nTerm)) ||
             (s.label && normalize(s.label).includes(nTerm))
           );
@@ -159,17 +166,18 @@ export default function DashboardCharts({ sessions }: DashboardChartsProps) {
 
       if (item) {
         availableKeys.add(targetKey);
-        return item[type];
+        const raw = item[type];
+        return typeof raw === 'number' ? raw : null;
       }
       return null;
     };
 
     // 3. Build data points
-    const data = sortedSessions.map(session => {
-      const summaries = (session.summary as any)?.summaries || [];
+    const data: ChartPoint[] = sortedSessions.map(session => {
+      const summaries: SessionSummaryItem[] = session.summary?.summaries || [];
       const sessionDate = session.session_start ? new Date(session.session_start) : new Date(session.uploaded_at);
-      
-      const point: any = {
+
+      const point: ChartPoint = {
         date: sessionDate,
         formattedDate: format(sessionDate, 'MMM d, HH:mm'), // Added time for better distinction
       };

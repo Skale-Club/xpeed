@@ -24,22 +24,28 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { PageLoader } from '@/components/PageLoader';
 import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
+
+// Lightweight rule shape consumed by the SessionCharts component. The full
+// schema lives in lib/default-rules.ts; we only need a structural alias here
+// to avoid leaking `any` into component props.
+type ChartRule = Record<string, unknown>;
 
 export default function HistoryPage() {
   const navigate = useNavigate();
   const { selectedCarId, selectedCar } = useCarsContext();
   const { timezone } = useSettings();
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [flagCounts, setFlagCounts] = useState<Record<string, { attention: number; critical: number }>>({});
   const [loading, setLoading] = useState(true);
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
 
   // Session navigation state
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [displayedSession, setDisplayedSession] = useState<any>(null);
-  const [flags, setFlags] = useState<any[]>([]);
-  const [rows, setRows] = useState<any[]>([]);
-  const [rules, setRules] = useState<any[]>([]);
+  const [displayedSession, setDisplayedSession] = useState<Session | null>(null);
+  const [flags, setFlags] = useState<SessionFlag[]>([]);
+  const [rows, setRows] = useState<SessionRow[]>([]);
+  const [rules, setRules] = useState<ChartRule[]>([]);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   // Editing state
@@ -71,7 +77,7 @@ export default function HistoryPage() {
     }
   };
 
-  const handleDownloadSessionCsv = async (session: any) => {
+  const handleDownloadSessionCsv = async (session: Session & { source_csv?: string | null }) => {
     setDownloadingCsv(true);
     try {
       await downloadSessionCSV(session.source_file_path, session.source_filename, session.source_csv, session.id);
@@ -92,18 +98,18 @@ export default function HistoryPage() {
         return;
       }
 
-      const s = await getSessions(selectedCarId);
+      const s = (await getSessions(selectedCarId)) as unknown as Session[];
       setSessions(s);
       setSelectedIndex(0);
 
       // Load flag counts for history list
       const counts: Record<string, { attention: number; critical: number }> = {};
       await Promise.all(
-        s.slice(0, 50).map(async (session: any) => {
-          const flags = await getSessionFlags(session.id);
+        s.slice(0, 50).map(async (session) => {
+          const flagsForSession = await getSessionFlags(session.id);
           counts[session.id] = {
-            attention: flags.filter((f: any) => f.severity === 'attention').length,
-            critical: flags.filter((f: any) => f.severity === 'critical').length,
+            attention: flagsForSession.filter((f) => f.severity === 'attention').length,
+            critical: flagsForSession.filter((f) => f.severity === 'critical').length,
           };
         })
       );
@@ -129,9 +135,9 @@ export default function HistoryPage() {
           getSessionFlags(session.id),
           getSessionRows(session.id),
         ]);
-        setFlags(f);
-        setRows(r);
-        setRules(DEFAULT_PRIUS_RULES);
+        setFlags(f as unknown as SessionFlag[]);
+        setRows(r as unknown as SessionRow[]);
+        setRules(DEFAULT_PRIUS_RULES as unknown as ChartRule[]);
       } catch (error) {
         console.error("Error loading session details:", error);
       } finally {
@@ -147,7 +153,7 @@ export default function HistoryPage() {
     return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
   };
 
-  const summary = displayedSession?.summary as any;
+  const summary = displayedSession?.summary as (SessionSummary & { headerMapping?: Record<string, string> }) | null | undefined;
   const headerMapping = summary?.headerMapping || {};
   const summaries = summary?.summaries || [];
 
@@ -284,8 +290,8 @@ export default function HistoryPage() {
                   duration={displayedSession.duration_seconds}
                   rowCount={displayedSession.row_count}
                   parameterCount={summaries.length}
-                  attentionCount={flags.filter((f: any) => f.severity === 'attention').length}
-                  criticalCount={flags.filter((f: any) => f.severity === 'critical').length}
+                  attentionCount={flags.filter((f) => f.severity === 'attention').length}
+                  criticalCount={flags.filter((f) => f.severity === 'critical').length}
                 />
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

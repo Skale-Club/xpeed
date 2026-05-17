@@ -26,7 +26,7 @@ export default function LoginPage() {
     try {
       await signIn(email, password);
       navigate('/');
-    } catch (err: any) {
+    } catch (err: unknown) {
       let errorMessage = err instanceof Error ? err.message : 'Failed to sign in';
       
       // Provide helpful error messages

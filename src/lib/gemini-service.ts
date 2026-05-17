@@ -68,7 +68,7 @@ export async function chatWithVehicleData(
     apiKey: string,
     history: { role: 'user' | 'model'; parts: string }[],
     message: string,
-    context: any,
+    context: Record<string, unknown>,
     modelName: string = 'gemini-2.5-flash'
 ): Promise<string> {
     if (!apiKey) {

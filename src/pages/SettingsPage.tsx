@@ -29,8 +29,9 @@ export default function SettingsPage() {
   const [model, setModel] = useState('gemini-2.5-flash');
   const { toast } = useToast();
   
-  // @ts-ignore: Intl.supportedValuesOf is relatively new
-  const timezones = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf('timeZone') : [Intl.DateTimeFormat().resolvedOptions().timeZone];
+  const timezones = typeof Intl.supportedValuesOf === 'function'
+    ? Intl.supportedValuesOf('timeZone')
+    : [Intl.DateTimeFormat().resolvedOptions().timeZone];
 
   // Load existing API key status on mount
   useEffect(() => {

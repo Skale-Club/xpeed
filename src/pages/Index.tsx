@@ -13,6 +13,7 @@ import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, Ch
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { subDays } from 'date-fns';
 import { toast } from 'sonner';
+import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
 
 interface DashboardStats {
   totalSessions: number;
@@ -43,14 +44,14 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [dateRange, setDateRange] = useState('30d');
-  const [allSessions, setAllSessions] = useState<any[]>([]);
+  const [allSessions, setAllSessions] = useState<Session[]>([]);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [generalStats, setGeneralStats] = useState({
     totalDistance: 0,
     avgFuel: 0,
     problemCount: 0,
     healthScore: 100,
-    problems: [] as any[]
+    problems: [] as SessionFlag[]
   });
   const [isProblemsOpen, setIsProblemsOpen] = useState(false);
   const [showResolvedProblems, setShowResolvedProblems] = useState(false);
@@ -92,7 +93,7 @@ const Index = () => {
     setStatsLoading(true);
     try {
       const sessions = await getSessions(selectedCarId);
-      setAllSessions(sessions);
+      setAllSessions(sessions as unknown as Session[]);
     } finally {
       setLoading(false);
     }
@@ -130,8 +131,8 @@ const Index = () => {
 
         for (const session of sessionsForTrend) {
           const flags = await getSessionFlags(session.id);
-          const attention = flags.filter((f: any) => f.severity === 'attention').length;
-          const critical = flags.filter((f: any) => f.severity === 'critical').length;
+          const attention = flags.filter((f) => f.severity === 'attention').length;
+          const critical = flags.filter((f) => f.severity === 'critical').length;
           
           // Simple scoring: 100 - (critical * 20) - (attention * 5)
           const sessionScore = Math.max(0, 100 - (critical * 20) - (attention * 5));
@@ -188,12 +189,12 @@ const Index = () => {
             const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
             allSessions.forEach(session => {
-                const summaries = session.summary?.summaries || [];
-                const getMetric = (keys: string[]) => summaries.find((s: any) => 
+                const summaries: SessionSummaryItem[] = session.summary?.summaries || [];
+                const getMetric = (keys: string[]): SessionSummaryItem | undefined => summaries.find((s) =>
                     keys.some(k => {
                         const nKey = normalize(k);
                         return (
-                            (s.canonical_key && normalize(s.canonical_key) === nKey) || 
+                            (s.canonical_key && normalize(s.canonical_key) === nKey) ||
                             (s.parameter_key && normalize(s.parameter_key).includes(nKey)) ||
                             (s.label && normalize(s.label).includes(nKey))
                         );
@@ -285,10 +286,10 @@ const Index = () => {
             });
 
             const avgFuel = fuelEffCount > 0 ? totalFuelEff / fuelEffCount : 0;
-            const flags = await getFlagsForSessions(allSessions.map(s => s.id));
-            
+            const flags = (await getFlagsForSessions(allSessions.map(s => s.id))) as unknown as SessionFlag[];
+
             // Filter active flags for KPI count
-            const activeFlags = flags.filter((f: any) => !f.resolved);
+            const activeFlags = flags.filter((f) => !f.resolved);
 
             setGeneralStats({
                 totalDistance: totalDist,

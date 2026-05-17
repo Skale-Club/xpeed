@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import type { User, Session } from '@supabase/supabase-js';
+import type { User, Session, AuthError } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
@@ -8,7 +8,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{ data: { user: User | null; session: Session | null }; error: any }>;
+  signUp: (email: string, password: string) => Promise<{ data: { user: User | null; session: Session | null }; error: AuthError | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
@@ -21,17 +21,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Listen for auth changes FIRST — this is the authoritative source.
+    // onAuthStateChange fires synchronously with the cached session on subscribe,
+    // so setLoading(false) happens after the first event regardless of source.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
       setLoading(false);
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Trigger initial session check; the listener above will receive its result.
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
+      setUser(initialSession?.user ?? null);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -48,12 +51,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithGoogle = async () => {
     // Prefer a canonical app URL in production to avoid OAuth returning to preview domains.
     const appUrl = import.meta.env.VITE_APP_URL?.replace(/\/$/, '');
+
+    if (!appUrl && import.meta.env.PROD) {
+      throw new Error(
+        'VITE_APP_URL is not configured. Set it in your environment to enable Google OAuth.'
+      );
+    }
+
+    if (!appUrl) {
+      console.warn(
+        '[AuthContext] VITE_APP_URL not set — falling back to window.location.origin. ' +
+        'This will only work if the current origin is registered as an OAuth redirect URI.'
+      );
+    }
+
     const redirectTo = appUrl || window.location.origin;
-    
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: redirectTo,
+        redirectTo,
       },
     });
     if (error) {

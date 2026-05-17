@@ -8,18 +8,29 @@ import { getSessionRows } from '@/lib/db';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { useSettings } from '@/contexts/SettingsContext';
+import type { Session, SessionSummaryItem } from '@/types/session';
 
 interface LatestTripCardProps {
-  sessions: any[];
+  sessions: Session[];
   onUploadClick: () => void;
   onSessionUpdate?: () => void;
+}
+
+interface TrendPoint {
+  date: Date;
+  formattedDate?: string;
+  value?: number;
+  duration?: number;
+  maxSpeed?: number;
+  avgFuel?: number | null;
+  [key: string]: unknown;
 }
 
 export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: LatestTripCardProps) {
   const navigate = useNavigate();
   const { distanceUnit } = useSettings();
   const [selectedId, setSelectedId] = useState<string>('latest');
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Determine the active session or aggregation mode
@@ -63,19 +74,19 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
     let totalDuration = 0;
     let totalDistance = 0;
     let maxSpeed = 0;
-    let fuelRates: number[] = [];
+    const fuelRates: number[] = [];
 
     const trendData = sessions.map(session => {
-        const summaries = session.summary?.summaries || [];
+        const summaries: SessionSummaryItem[] = session.summary?.summaries || [];
         // Helper to normalize keys for searching (removes spaces, underscores, case-insensitive)
         const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-        const getMetric = (keys: string[]) => {
-            return summaries.find((s: any) => 
+        const getMetric = (keys: string[]): SessionSummaryItem | undefined => {
+            return summaries.find((s) =>
             keys.some(k => {
                 const nKey = normalize(k);
                 return (
-                    (s.canonical_key && normalize(s.canonical_key) === nKey) || 
+                    (s.canonical_key && normalize(s.canonical_key) === nKey) ||
                     (s.parameter_key && normalize(s.parameter_key).includes(nKey)) ||
                     (s.label && normalize(s.label).includes(nKey))
                 );
@@ -133,17 +144,17 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
   // Session-specific logic
   const durationMinutes = activeSession ? (activeSession.duration_seconds ? Math.round(activeSession.duration_seconds / 60) : 0) : 0;
   
-  const summaries = activeSession?.summary?.summaries || [];
-  
+  const summaries: SessionSummaryItem[] = activeSession?.summary?.summaries || [];
+
   // Helper to normalize keys for searching (removes spaces, underscores, case-insensitive)
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  const getMetric = (keys: string[]) => {
-    return summaries.find((s: any) => 
+  const getMetric = (keys: string[]): SessionSummaryItem | undefined => {
+    return summaries.find((s) =>
       keys.some(k => {
         const nKey = normalize(k);
         return (
-            (s.canonical_key && normalize(s.canonical_key) === nKey) || 
+            (s.canonical_key && normalize(s.canonical_key) === nKey) ||
             (s.parameter_key && normalize(s.parameter_key).includes(nKey)) ||
             (s.label && normalize(s.label).includes(nKey))
         );
@@ -259,13 +270,14 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
         if (mounted) {
             const speedKey = speedSummary?.parameter_key;
             if (speedKey) {
-                const data = rows.map((r: any) => {
-                    let val = r.data[speedKey];
+                const data: TrendPoint[] = rows.map((r) => {
+                    const data = r.data as Record<string, unknown>;
+                    let val = data[speedKey];
                     if (typeof val === 'number' && distanceUnit === 'mi') {
                         val *= 0.621371;
                     }
-                    return { value: val };
-                }).filter((d: any) => typeof d.value === 'number');
+                    return { value: typeof val === 'number' ? val : undefined, date: new Date() };
+                }).filter((d) => typeof d.value === 'number');
                 setChartData(data);
             } else {
                 setChartData([]);

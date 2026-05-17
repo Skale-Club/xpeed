@@ -175,7 +175,7 @@ export default function CarsPage() {
             {cars.map((car) => (
               <Card
                 key={car.id}
-                className={`bg-card border-border cursor-pointer transition-all ${
+                className={`group bg-card border-border cursor-pointer transition-all ${
                   selectedCarId === car.id ? 'ring-2 ring-primary' : 'hover:border-primary/50'
                 }`}
                 onClick={() => selectCar(car.id)}

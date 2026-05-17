@@ -61,8 +61,8 @@ export function GeneralInfoCard({ stats, onProblemsClick }: GeneralInfoCardProps
   // However, for consistency, let's assume stats.avgFuel is passed as-is from the sensor.
   // If the sensor says "61.9" (MPG), we should just display it.
   
-  let fuelValue = stats.avgFuel;
-  let fuelUnit = distanceUnit === 'mi' ? 'MPG' : 'L/100km'; 
+  const fuelValue = stats.avgFuel;
+  const fuelUnit = distanceUnit === 'mi' ? 'MPG' : 'L/100km';
   
   // Logic: If the value is > 20, it's likely MPG. If it's < 15, it's likely L/100km (or km/L).
   // This is a heuristic because we lost the unit metadata.

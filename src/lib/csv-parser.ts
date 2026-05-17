@@ -111,7 +111,7 @@ export function parseCSV(text: string): ParsedCSV {
   const valueHeader = headers.find(h => h.trim().toUpperCase() === 'VALUE');
 
   if (pidHeader && valueHeader && timeColumn) {
-    const grouped = new Map<string, Record<string, any>>();
+    const grouped = new Map<string, Record<string, unknown>>();
     const newHeadersSet = new Set<string>();
     newHeadersSet.add(timeColumn.key);
 

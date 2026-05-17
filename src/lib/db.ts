@@ -16,13 +16,27 @@ function ensureCsvExtension(filename: string): string {
 }
 
 export async function getDefaultCarProfile() {
-  const { data } = await supabase.from('car_profiles').select('*').limit(1).maybeSingle();
-  if (data) return data;
-  const { data: newProfile } = await supabase
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user) {
+    throw new Error('User not authenticated');
+  }
+
+  // Scope the lookup to the authenticated user — otherwise we may return another
+  // user's car profile via the legacy "Allow all access" policy on row 0.
+  const { data } = await supabase
     .from('car_profiles')
-    .insert({ name: '2010 Prius', notes: 'Toyota Prius Gen 3' })
+    .select('*')
+    .eq('user_id', user.id)
+    .limit(1)
+    .maybeSingle();
+  if (data) return data;
+
+  const { data: newProfile, error: insertError } = await supabase
+    .from('car_profiles')
+    .insert({ name: '2010 Prius', notes: 'Toyota Prius Gen 3', user_id: user.id })
     .select()
     .single();
+  if (insertError) throw insertError;
   return newProfile!;
 }
 
@@ -105,12 +119,12 @@ export async function deleteSession(sessionId: string) {
   }
 }
 
-export async function updateSession(sessionId: string, updates: Record<string, any>) {
+export async function updateSession(sessionId: string, updates: Record<string, unknown>) {
   const { error } = await supabase
     .from('sessions')
-    .update(updates)
+    .update(updates as never)
     .eq('id', sessionId);
-  
+
   if (error) throw error;
 }
 
@@ -276,9 +290,9 @@ export async function deleteSessionFlags(sessionId: string) {
 export async function toggleFlagResolved(flagId: string, resolved: boolean) {
   const { error } = await supabase
     .from('session_flags')
-    .update({ resolved } as any) // TODO: Update types when column is official
+    .update({ resolved })
     .eq('id', flagId);
-  
+
   if (error) throw error;
 }
 
