@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Upload, BarChart3, History, Settings, Gauge, SlidersHorizontal, Car, Plus, ChevronDown, Loader2, LogOut, User, Wrench } from 'lucide-react';
+import { Upload, BarChart3, History, Settings, Gauge, SlidersHorizontal, Car, Plus, ChevronDown, Loader2, LogOut, User, Wrench, Shield } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
+import { useAdminStatus } from '@/hooks/use-admin-status';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -24,13 +25,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { ChatBubble } from '@/components/ChatBubble';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Dashboard', icon: Gauge },
-  { to: '/history', label: 'History', icon: History },
-  { to: '/cars', label: 'Cars', icon: Car },
-  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
+  { to: '/history', i18nKey: 'nav.history', icon: History },
+  { to: '/cars', i18nKey: 'nav.cars', icon: Car },
+  { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench },
+  { to: '/settings', i18nKey: 'nav.settings', icon: Settings },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -38,7 +41,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { cars, selectedCar, selectedCarId, loading: carsLoading, selectCar, createCar, refresh } = useCarsContext();
+  const { isAdmin } = useAdminStatus();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newCarName, setNewCarName] = useState('');
   const [newCarNotes, setNewCarNotes] = useState('');
@@ -172,9 +177,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className="flex items-center gap-1">
-            {NAV_ITEMS.map(item => {
+            {[...NAV_ITEMS, ...(isAdmin ? [{ to: '/admin', i18nKey: 'nav.admin', icon: Shield }] : [])].map(item => {
               const active = location.pathname === item.to ||
                 (item.to !== '/' && location.pathname.startsWith(item.to));
+              const label = t(item.i18nKey, item.i18nKey.split('.').pop() ?? '');
               return (
                 <Link
                   key={item.to}
@@ -185,10 +191,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     }`}
                 >
                   <item.icon className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{item.label}</span>
+                  <span className="hidden sm:inline">{label}</span>
                 </Link>
               );
             })}
+            <LanguageSwitcher />
             
             {/* User Menu */}
             <DropdownMenu>

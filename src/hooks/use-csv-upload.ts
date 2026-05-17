@@ -168,42 +168,52 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         evidence: f.evidence as unknown as Record<string, unknown>,
       })));
 
-      // Optional: Analyze with Gemini if API key is configured
+      // Analyze with Gemini. Edge Function (server-side admin key) preferred;
+      // falls back to per-user client-side key if Edge returns null.
       try {
         updateProgress(95, 'Analyzing with AI...');
-        const { getGeminiApiKey, getGeminiModel, updateSessionWithGeminiAnalysis } = await import('@/lib/db');
-        const { analyzeSession } = await import('@/lib/gemini-service');
+        const { updateSessionWithGeminiAnalysis } = await import('@/lib/db');
+        const { analyzeSessionViaEdge } = await import('@/lib/ai-client');
 
-        const apiKey = await getGeminiApiKey();
-        const model = await getGeminiModel();
-        if (apiKey) {
-          // Convert summaries array to object for Gemini
-          const summariesObj: Record<string, { count: number; min: number; max: number; avg: number; }> = {};
-          summaries.forEach(s => {
-            summariesObj[s.parameter_key] = {
-              count: s.count,
-              min: s.min,
-              max: s.max,
-              avg: s.avg
-            };
-          });
+        // Compact summary payload for the Edge Function (string form keeps the
+        // function generic and avoids leaking PII).
+        const summaryLines: string[] = [
+          `File: ${file.name}`,
+          `Rows: ${parsed.rows.length}`,
+          durationSeconds ? `Duration: ${Math.round(durationSeconds / 60)} min` : '',
+          parsed.activeDtcs.length ? `Active DTCs: ${parsed.activeDtcs.join(', ')}` : '',
+          flags.length ? `Flags: ${flags.map(f => `${f.severity}/${f.canonical_key}`).join('; ')}` : 'No flags',
+          'Key params:',
+          ...summaries.slice(0, 10).map(s => `  - ${s.label || s.canonical_key}: avg=${s.avg.toFixed(1)} min=${s.min.toFixed(1)} max=${s.max.toFixed(1)}`),
+        ].filter(Boolean);
 
-          const analysis = await analyzeSession(apiKey, {
-            filename: file.name,
-            rowCount: parsed.rows.length,
-            durationSeconds,
-            summaries: summariesObj,
-            flags: flags.map(f => ({
-              severity: f.severity,
-              message: f.message,
-              canonical_key: f.canonical_key,
-            })),
-          }, model);
+        const analysis = await analyzeSessionViaEdge(summaryLines.join('\n'));
 
+        if (analysis) {
           await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
+        } else {
+          // Fallback: try direct client-side path if user has their own key configured
+          const { getGeminiApiKey, getGeminiModel } = await import('@/lib/db');
+          const { analyzeSession } = await import('@/lib/gemini-service');
+          const apiKey = await getGeminiApiKey();
+          const model = await getGeminiModel();
+          if (apiKey) {
+            const summariesObj: Record<string, { count: number; min: number; max: number; avg: number }> = {};
+            summaries.forEach(s => {
+              summariesObj[s.parameter_key] = { count: s.count, min: s.min, max: s.max, avg: s.avg };
+            });
+            const fallback = await analyzeSession(apiKey, {
+              filename: file.name,
+              rowCount: parsed.rows.length,
+              durationSeconds,
+              summaries: summariesObj,
+              flags: flags.map(f => ({ severity: f.severity, message: f.message, canonical_key: f.canonical_key })),
+            }, model);
+            await updateSessionWithGeminiAnalysis(session.id, fallback as unknown as Record<string, unknown>);
+          }
         }
       } catch (aiError) {
-        // AI analysis is optional, don't fail the upload if it errors
+        // AI analysis is optional; don't fail the upload if it errors.
         console.warn('Gemini analysis failed:', aiError);
       }
 

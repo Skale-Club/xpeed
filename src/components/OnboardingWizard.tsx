@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Car, Upload, CheckCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ type Step = 1 | 2 | 3 | 4;
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { createCar } = useCarsContext();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [newCarId, setNewCarId] = useState<string | null>(null);
@@ -138,7 +140,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             ))}
           </div>
           <div className="text-xs text-muted-foreground font-mono text-center mb-6">
-            Step {currentStep} of 4
+            {t('common.step', 'Step')} {currentStep} {t('common.of', 'of')} 4
           </div>
 
           {/* Step content (key triggers fade-in remount) */}
@@ -150,14 +152,14 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                 </div>
                 <div>
                   <h2 className="text-xl font-mono font-bold text-foreground mb-2">
-                    Welcome to Car Insights
+                    {t('onboarding.welcome_title')}
                   </h2>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Let&apos;s get you set up. We&apos;ll register your first vehicle and optionally upload your first OBD2 session — takes about a minute.
+                    {t('onboarding.welcome_body')}
                   </p>
                 </div>
                 <Button onClick={() => goTo(2)} className="font-mono text-xs" size="lg">
-                  Get Started <ArrowRight className="w-4 h-4 ml-2" />
+                  {t('onboarding.get_started')} <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
             )}
@@ -298,14 +300,14 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                 </div>
                 <div>
                   <h2 className="text-xl font-mono font-bold text-foreground mb-2">
-                    You&apos;re all set!
+                    {t('onboarding.done_title')}
                   </h2>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Your vehicle is registered. Head to the dashboard to start exploring your data, ask the AI about your trips, or upload more sessions.
+                    {t('onboarding.done_body')}
                   </p>
                 </div>
                 <Button onClick={onComplete} className="font-mono text-xs" size="lg">
-                  Go to Dashboard <ArrowRight className="w-4 h-4 ml-2" />
+                  {t('onboarding.go_to_dashboard')} <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
             )}

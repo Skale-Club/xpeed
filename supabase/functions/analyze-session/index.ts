@@ -1,19 +1,12 @@
-// Supabase Edge Function: server-side Gemini analysis
-// Improvement D1: removes the need for users to manage their own Gemini API key.
+// Supabase Edge Function: server-side Gemini session analysis.
+// - Reads Gemini API key from app_settings (DB), falls back to env var.
+// - Enforces per-user daily quota (10 analyses/day free tier).
+// - Returns structured analysis JSON.
 //
-// Auth: requires a Supabase JWT (forwarded automatically by supabase-js).
-// Secrets: GEMINI_API_KEY (set via `supabase secrets set GEMINI_API_KEY=...`)
-//
-// Request body:
-//   {
-//     sessionSummary: string;   // pre-formatted summary the client built
-//     model?: string;           // gemini model id, default gemini-2.5-flash
-//   }
-// Response:
-//   { analysis: { summary: string; key_findings: string[]; recommended_action: string } }
-
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { getGeminiApiKey, getDefaultGeminiModel } from "../_shared/admin-config.ts";
+import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,38 +23,51 @@ interface GeminiPart { text: string }
 interface GeminiCandidate { content?: { parts?: GeminiPart[] } }
 interface GeminiResponse { candidates?: GeminiCandidate[] }
 
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    // 1. Authenticate
+    const userId = await getUserIdFromAuth(req.headers.get("Authorization"));
+    if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    // 2. Quota check
+    try {
+      await consumeQuota(userId, "analysis");
+    } catch (err: any) {
+      if (err?.status === 429) {
+        return jsonResponse({
+          error: err.message,
+          remaining: err.remaining,
+          limit: err.limit,
+        }, 429);
+      }
+      throw err;
+    }
+
+    // 3. Resolve Gemini key (DB first, env fallback)
+    const apiKey = await getGeminiApiKey();
     if (!apiKey) {
-      return new Response(
-        JSON.stringify({ error: "Server is missing GEMINI_API_KEY" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      return jsonResponse(
+        { error: "AI features are not configured. Ask an admin to set the Gemini API key in the Admin panel." },
+        503,
       );
     }
 
-    // Require an authenticated Supabase user — even though we don't query the DB
-    // directly here, this prevents anonymous abuse of the Gemini quota.
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ error: "Missing Authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    // 4. Parse body
+    const body = (await req.json()) as AnalyzeRequest;
+    if (!body.sessionSummary || typeof body.sessionSummary !== "string") {
+      return jsonResponse({ error: "Missing sessionSummary" }, 400);
     }
 
-    const { sessionSummary, model = "gemini-2.5-flash" } = (await req.json()) as AnalyzeRequest;
-    if (!sessionSummary || typeof sessionSummary !== "string") {
-      return new Response(
-        JSON.stringify({ error: "Missing or invalid sessionSummary" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
+    const model = body.model || await getDefaultGeminiModel();
     const prompt = `You are an automotive diagnostic assistant. Given the OBD2 session data below, produce a JSON response with three fields:
 - summary: a 2-3 sentence plain-English overview of the session
 - key_findings: an array of 1-4 short bullet strings (most notable observations)
@@ -70,7 +76,7 @@ serve(async (req) => {
 Output ONLY valid JSON, no prose around it.
 
 Session data:
-${sessionSummary}`;
+${body.sessionSummary}`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const geminiRes = await fetch(geminiUrl, {
@@ -88,10 +94,8 @@ ${sessionSummary}`;
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
-      return new Response(
-        JSON.stringify({ error: `Gemini error: ${errText}` }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      console.error("Gemini error:", errText);
+      return jsonResponse({ error: `Upstream AI error` }, 502);
     }
 
     const data: GeminiResponse = await geminiRes.json();
@@ -104,14 +108,9 @@ ${sessionSummary}`;
       parsed = { summary: rawText, key_findings: [], recommended_action: "" };
     }
 
-    return new Response(
-      JSON.stringify({ analysis: parsed }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return jsonResponse({ analysis: parsed });
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: err?.message || String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    console.error("analyze-session error:", err);
+    return jsonResponse({ error: err?.message || String(err) }, 500);
   }
 });

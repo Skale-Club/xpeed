@@ -8,6 +8,7 @@ import { Menu, X, Sparkles, Plus } from 'lucide-react';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
 import { getGeminiApiKey, getGeminiModel } from '@/lib/db';
+import { chatViaEdge } from '@/lib/ai-client';
 import {
     getConversations,
     createConversation,
@@ -105,9 +106,13 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         loadConversationMessages();
     }, [currentConversation]);
 
-    // Custom send handler that uses Gemini directly
+    // Send handler: prefer the server-side Edge Function (admin Gemini key);
+    // fall back to direct client-side Gemini call if the user has their own
+    // key configured. Either way the user gets an answer.
     const handleSendMessage = useCallback(async (text: string) => {
-        if (!text.trim() || !apiKey) return;
+        // We accept the message even without a per-user apiKey because the
+        // Edge Function might be configured with an admin key.
+        if (!text.trim()) return;
 
         setLoading(true);
         const userMessageId = crypto.randomUUID();
@@ -136,42 +141,46 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             // Save user message
             await saveMessage(conversationId, 'user', [{ type: 'text', text }]);
 
-            // Call Gemini API
-            const { GoogleGenerativeAI } = await import('@google/generative-ai');
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: modelName });
+            // Build history (last 10 turns) for both Edge + fallback paths
+            const historyMessages = messages.slice(-10).map(m => ({
+                role: (m.role === 'user' ? 'user' : 'model') as 'user' | 'model',
+                parts: m.content,
+            }));
 
-            const systemPrompt = `You are Car Insights AI, an expert automotive assistant.
+            let responseText: string | null = null;
+
+            // 1) Try Edge Function (server-side admin key, structured prompt, quota-enforced)
+            responseText = await chatViaEdge(
+                historyMessages,
+                text,
+                (contextData ?? {}) as unknown as Record<string, unknown>,
+                modelName,
+            );
+
+            // 2) Fallback: direct Gemini call if Edge returned null AND user has own key
+            if (responseText === null && apiKey) {
+                const { GoogleGenerativeAI } = await import('@google/generative-ai');
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const systemPrompt = `You are Car Insights AI, an expert automotive assistant.
 You have access to the following vehicle data context:
 ${JSON.stringify(contextData, null, 2)}
 
-Answer the user's questions based on this data. Be concise, helpful, and friendly.
-If the answer isn't in the data, use your general automotive knowledge but clarify that it's general advice.
-Always prioritize safety and recommend professional inspection for serious issues.`;
+Answer the user's questions based on this data. Be concise, helpful, and friendly.`;
+                const chat = model.startChat({
+                    history: [
+                        { role: 'user', parts: [{ text: systemPrompt }] },
+                        { role: 'model', parts: [{ text: 'Understood.' }] },
+                        ...historyMessages.map(h => ({ role: h.role, parts: [{ text: h.parts }] })),
+                    ],
+                });
+                const result = await chat.sendMessage(text);
+                responseText = (await result.response).text();
+            }
 
-            // Build history from previous messages
-            const historyMessages = messages.slice(-10).map(m => ({
-                role: m.role === 'user' ? 'user' : 'model',
-                parts: [{ text: m.content }],
-            }));
-
-            const chat = model.startChat({
-                history: [
-                    {
-                        role: 'user',
-                        parts: [{ text: systemPrompt }],
-                    },
-                    {
-                        role: 'model',
-                        parts: [{ text: 'Understood. I am ready to answer questions about the vehicle based on the provided data.' }],
-                    },
-                    ...historyMessages,
-                ],
-            });
-
-            const result = await chat.sendMessage(text);
-            const response = await result.response;
-            const responseText = response.text();
+            if (responseText === null) {
+                throw new Error('AI service is unavailable. Ask an admin to configure the Gemini API key, or set your own key in Settings.');
+            }
 
             // Save assistant message
             const assistantMessageId = crypto.randomUUID();
@@ -338,7 +347,7 @@ Always prioritize safety and recommend professional inspection for serious issue
                             setInput={setInput}
                             onSend={handleSendMessage}
                             isLoading={loading}
-                            disabled={!apiKey}
+                            disabled={false}
                         />
                     </div>
                 </CardContent>

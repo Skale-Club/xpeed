@@ -4,6 +4,7 @@
     "history": "Historial",
     "cars": "Vehículos",
     "maintenance": "Mantenimiento",
+    "admin": "Admin",
     "settings": "Ajustes",
     "chat": "Asistente IA"
   },
@@ -23,7 +24,9 @@
     "required": "Requerido",
     "optional": "Opcional",
     "error": "Error",
-    "success": "Listo"
+    "success": "Listo",
+    "step": "Paso",
+    "of": "de"
   },
   "dashboard": {
     "title": "Panel",

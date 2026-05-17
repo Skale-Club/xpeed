@@ -15,6 +15,8 @@ import { subDays } from 'date-fns';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
 import ActiveFlagsBanner from '@/components/ActiveFlagsBanner';
+import HealthGauge from '@/components/HealthGauge';
+import StatCard from '@/components/StatCard';
 import { supabase } from '@/integrations/supabase/client';
 
 interface DashboardStats {
@@ -484,15 +486,47 @@ const Index = () => {
           </div>
         ) : (
           <>
+          {/* At-a-glance: health gauge + key KPIs (mobile-first: stacks vertically) */}
+          <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-4 sm:gap-6 mb-6 items-center">
+            <div className="flex justify-center">
+              <HealthGauge score={generalStats.healthScore} status={stats.status} size={140} />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <StatCard
+                icon={Activity}
+                label="Sessions"
+                value={stats.totalSessions}
+              />
+              <StatCard
+                icon={Gauge}
+                label={distanceUnit === 'mi' ? 'Miles' : 'Kilometers'}
+                value={Math.round(generalStats.totalDistance).toLocaleString()}
+              />
+              <StatCard
+                icon={Clock}
+                label="Drive Time"
+                value={`${Math.round(stats.totalDurationSeconds / 60)}`}
+                unit="min"
+              />
+              <StatCard
+                icon={AlertTriangle}
+                label="Active Problems"
+                value={generalStats.problemCount}
+                tone={generalStats.problemCount > 0 ? (generalStats.problems.some(p => !p.resolved && p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
+                onClick={() => setIsProblemsOpen(true)}
+              />
+            </div>
+          </div>
+
           {/* KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <LatestTripCard 
-              sessions={allSessions} 
-              onUploadClick={() => setIsUploadOpen(true)} 
+            <LatestTripCard
+              sessions={allSessions}
+              onUploadClick={() => setIsUploadOpen(true)}
               onSessionUpdate={loadDashboard}
             />
-            <GeneralInfoCard 
-              stats={generalStats} 
+            <GeneralInfoCard
+              stats={generalStats}
               onProblemsClick={() => setIsProblemsOpen(true)}
             />
           </div>
