@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { getUserCars, createCarProfile, updateCarProfile, deleteCarProfile, type CarProfile } from '@/lib/db';
+import { getUserCars, createCarProfile, updateCarProfile, deleteCarProfile, type CarProfile, type CarProfileInput } from '@/lib/db';
 
 const STORAGE_KEY = 'selected_car_id';
 
@@ -54,10 +54,13 @@ export function useCars() {
     }
   }, []);
 
-  const createCar = useCallback(async (name: string, notes?: string) => {
+  const createCar = useCallback(async (
+    nameOrInput: string | CarProfileInput,
+    notes?: string,
+  ) => {
     try {
       setError(null);
-      const newCar = await createCarProfile(name, notes);
+      const newCar = await createCarProfile(nameOrInput, notes);
       setCars(prev => [newCar, ...prev]);
       // Auto-select the new car
       setSelectedCarId(newCar.id);
@@ -68,11 +71,11 @@ export function useCars() {
     }
   }, []);
 
-  const updateCar = useCallback(async (id: string, updates: Partial<Pick<CarProfile, 'name' | 'notes'>>) => {
+  const updateCar = useCallback(async (id: string, updates: Partial<CarProfileInput>) => {
     try {
       setError(null);
       await updateCarProfile(id, updates);
-      setCars(prev => prev.map(car => 
+      setCars(prev => prev.map(car =>
         car.id === id ? { ...car, ...updates } : car
       ));
     } catch (err) {

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCarsContext } from '@/contexts/CarsContext';
+import type { CarProfile } from '@/lib/db';
 import { PageLoader } from '@/components/PageLoader';
 import { Car, Plus, Trash2, Edit2, Check, X, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -16,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
+} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,34 +28,84 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog';
+
+function buildHeadline(car: CarProfile): string {
+  if (car.year && car.make && car.model) {
+    return `${car.year} ${car.make} ${car.model}`;
+  }
+  if (car.make && car.model) {
+    return `${car.make} ${car.model}`;
+  }
+  return car.name;
+}
 
 export default function CarsPage() {
   const { cars, selectedCarId, selectCar, createCar, updateCar, deleteCar, loading } = useCarsContext();
-  
   const { toast } = useToast();
+
+  // Dialog + per-card state
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingCar, setEditingCar] = useState<string | null>(null);
-  const [newCarName, setNewCarName] = useState('');
-  const [newCarNotes, setNewCarNotes] = useState('');
-  const [editName, setEditName] = useState('');
-  const [editNotes, setEditNotes] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
+  // Add form state
+  const [newYear, setNewYear] = useState('');
+  const [newMake, setNewMake] = useState('');
+  const [newModel, setNewModel] = useState('');
+  const [newTrim, setNewTrim] = useState('');
+  const [newVin, setNewVin] = useState('');
+  const [newNotes, setNewNotes] = useState('');
+
+  // Edit form state
+  const [editYear, setEditYear] = useState('');
+  const [editMake, setEditMake] = useState('');
+  const [editModel, setEditModel] = useState('');
+  const [editTrim, setEditTrim] = useState('');
+  const [editVin, setEditVin] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
+  const resetAddForm = () => {
+    setNewYear('');
+    setNewMake('');
+    setNewModel('');
+    setNewTrim('');
+    setNewVin('');
+    setNewNotes('');
+  };
+
   const handleCreateCar = async () => {
-    if (!newCarName.trim()) {
-      toast({ title: 'Error', description: 'Please enter a car name', variant: 'destructive' });
+    const trimmedMake = newMake.trim();
+    const trimmedModel = newModel.trim();
+    if (!trimmedMake || !trimmedModel) {
+      toast({ title: 'Error', description: 'Make and model are required', variant: 'destructive' });
+      return;
+    }
+    const yearNum = newYear ? parseInt(newYear, 10) : undefined;
+    if (newYear && (isNaN(yearNum!) || yearNum! < 1900 || yearNum! > 2100)) {
+      toast({ title: 'Error', description: 'Enter a valid year (1900–2100)', variant: 'destructive' });
+      return;
+    }
+    const trimmedVin = newVin.trim();
+    if (trimmedVin && trimmedVin.length !== 17) {
+      toast({ title: 'Error', description: 'VIN must be exactly 17 characters (or left blank)', variant: 'destructive' });
       return;
     }
 
     setIsCreating(true);
     try {
-      await createCar(newCarName.trim(), newCarNotes.trim() || undefined);
-      toast({ title: 'Success', description: 'Car added successfully' });
-      setNewCarName('');
-      setNewCarNotes('');
+      await createCar({
+        year: yearNum ?? null,
+        make: trimmedMake,
+        model: trimmedModel,
+        trim: newTrim.trim() || null,
+        vin: trimmedVin || null,
+        notes: newNotes.trim() || null,
+      });
+      toast({ title: 'Success', description: 'Vehicle added successfully' });
+      resetAddForm();
       setIsAddDialogOpen(false);
     } catch (error) {
       toast({ title: 'Error', description: String(error), variant: 'destructive' });
@@ -64,15 +115,38 @@ export default function CarsPage() {
   };
 
   const handleUpdateCar = async (id: string) => {
-    if (!editName.trim()) {
-      toast({ title: 'Error', description: 'Please enter a car name', variant: 'destructive' });
+    const trimmedMake = editMake.trim();
+    const trimmedModel = editModel.trim();
+    if (!trimmedMake || !trimmedModel) {
+      toast({ title: 'Error', description: 'Make and model are required', variant: 'destructive' });
+      return;
+    }
+    const yearNum = editYear ? parseInt(editYear, 10) : undefined;
+    if (editYear && (isNaN(yearNum!) || yearNum! < 1900 || yearNum! > 2100)) {
+      toast({ title: 'Error', description: 'Enter a valid year (1900–2100)', variant: 'destructive' });
+      return;
+    }
+    const trimmedVin = editVin.trim();
+    if (trimmedVin && trimmedVin.length !== 17) {
+      toast({ title: 'Error', description: 'VIN must be exactly 17 characters (or left blank)', variant: 'destructive' });
       return;
     }
 
     setIsUpdating(true);
     try {
-      await updateCar(id, { name: editName.trim(), notes: editNotes.trim() || null });
-      toast({ title: 'Success', description: 'Car updated successfully' });
+      const name = yearNum
+        ? `${yearNum} ${trimmedMake} ${trimmedModel}`
+        : `${trimmedMake} ${trimmedModel}`;
+      await updateCar(id, {
+        name,
+        year: yearNum ?? null,
+        make: trimmedMake,
+        model: trimmedModel,
+        trim: editTrim.trim() || null,
+        vin: trimmedVin || null,
+        notes: editNotes.trim() || null,
+      });
+      toast({ title: 'Success', description: 'Vehicle updated successfully' });
       setEditingCar(null);
     } catch (error) {
       toast({ title: 'Error', description: String(error), variant: 'destructive' });
@@ -85,7 +159,7 @@ export default function CarsPage() {
     setIsDeleting(id);
     try {
       await deleteCar(id);
-      toast({ title: 'Success', description: 'Car deleted successfully' });
+      toast({ title: 'Success', description: 'Vehicle deleted successfully' });
     } catch (error) {
       toast({ title: 'Error', description: String(error), variant: 'destructive' });
     } finally {
@@ -93,10 +167,14 @@ export default function CarsPage() {
     }
   };
 
-  const startEditing = (car: { id: string; name: string; notes: string | null }) => {
+  const startEditing = (car: CarProfile) => {
     setEditingCar(car.id);
-    setEditName(car.name);
-    setEditNotes(car.notes || '');
+    setEditYear(car.year?.toString() ?? '');
+    setEditMake(car.make ?? '');
+    setEditModel(car.model ?? '');
+    setEditTrim(car.trim ?? '');
+    setEditVin(car.vin ?? '');
+    setEditNotes(car.notes ?? '');
   };
 
   return (
@@ -107,7 +185,7 @@ export default function CarsPage() {
             <Car className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-mono font-bold text-foreground">My Vehicles</h2>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <Dialog open={isAddDialogOpen} onOpenChange={(open) => { setIsAddDialogOpen(open); if (!open) resetAddForm(); }}>
             <DialogTrigger asChild>
               <Button size="sm" className="font-mono text-xs">
                 <Plus className="w-3.5 h-3.5 mr-2" />
@@ -121,23 +199,63 @@ export default function CarsPage() {
                   Register a new vehicle to track its OBD2 data separately.
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="car-name">Vehicle Name</Label>
+              <div className="grid grid-cols-2 gap-3 py-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-year">Year</Label>
                   <Input
-                    id="car-name"
-                    placeholder="e.g., 2015 Honda Civic"
-                    value={newCarName}
-                    onChange={(e) => setNewCarName(e.target.value)}
+                    id="new-year"
+                    type="number"
+                    min={1900}
+                    max={2100}
+                    placeholder="2023"
+                    value={newYear}
+                    onChange={(e) => setNewYear(e.target.value)}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="car-notes">Notes (Optional)</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-make">Make *</Label>
                   <Input
-                    id="car-notes"
-                    placeholder="e.g., VIN, mileage, modifications..."
-                    value={newCarNotes}
-                    onChange={(e) => setNewCarNotes(e.target.value)}
+                    id="new-make"
+                    placeholder="Toyota"
+                    value={newMake}
+                    onChange={(e) => setNewMake(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <Label htmlFor="new-model">Model *</Label>
+                  <Input
+                    id="new-model"
+                    placeholder="Camry"
+                    value={newModel}
+                    onChange={(e) => setNewModel(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-trim">Trim</Label>
+                  <Input
+                    id="new-trim"
+                    placeholder="LX"
+                    value={newTrim}
+                    onChange={(e) => setNewTrim(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="new-vin">VIN</Label>
+                  <Input
+                    id="new-vin"
+                    placeholder="17 characters"
+                    maxLength={17}
+                    value={newVin}
+                    onChange={(e) => setNewVin(e.target.value.toUpperCase())}
+                  />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <Label htmlFor="new-notes">Notes</Label>
+                  <Input
+                    id="new-notes"
+                    placeholder="Purchased Aug 2023, 42k miles..."
+                    value={newNotes}
+                    onChange={(e) => setNewNotes(e.target.value)}
                   />
                 </div>
               </div>
@@ -172,138 +290,180 @@ export default function CarsPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {cars.map((car) => (
-              <Card
-                key={car.id}
-                className={`group bg-card border-border cursor-pointer transition-all ${
-                  selectedCarId === car.id ? 'ring-2 ring-primary' : 'hover:border-primary/50'
-                }`}
-                onClick={() => selectCar(car.id)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Car className="w-5 h-5 text-primary" />
+            {cars.map((car) => {
+              const headline = buildHeadline(car);
+              const isEditing = editingCar === car.id;
+              return (
+                <Card
+                  key={car.id}
+                  className={`group bg-card border-border cursor-pointer transition-all ${
+                    selectedCarId === car.id ? 'ring-2 ring-primary' : 'hover:border-primary/50'
+                  }`}
+                  onClick={() => !isEditing && selectCar(car.id)}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <Car className="w-5 h-5 text-primary" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          {isEditing ? (
+                            <div className="grid grid-cols-2 gap-1.5">
+                              <Input
+                                value={editYear}
+                                onChange={(e) => setEditYear(e.target.value)}
+                                className="h-7 text-xs col-span-1"
+                                placeholder="Year"
+                                type="number"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <Input
+                                value={editMake}
+                                onChange={(e) => setEditMake(e.target.value)}
+                                className="h-7 text-xs col-span-1"
+                                placeholder="Make *"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <Input
+                                value={editModel}
+                                onChange={(e) => setEditModel(e.target.value)}
+                                className="h-7 text-xs col-span-2"
+                                placeholder="Model *"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <Input
+                                value={editTrim}
+                                onChange={(e) => setEditTrim(e.target.value)}
+                                className="h-7 text-xs col-span-1"
+                                placeholder="Trim"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <Input
+                                value={editVin}
+                                onChange={(e) => setEditVin(e.target.value.toUpperCase())}
+                                className="h-7 text-xs col-span-1"
+                                placeholder="VIN"
+                                maxLength={17}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <Input
+                                value={editNotes}
+                                onChange={(e) => setEditNotes(e.target.value)}
+                                className="h-7 text-xs col-span-2"
+                                placeholder="Notes"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <CardTitle className="text-sm font-mono truncate">{headline}</CardTitle>
+                              {car.trim && (
+                                <p className="text-xs text-muted-foreground mt-0.5">{car.trim} Trim</p>
+                              )}
+                              {car.vin && (
+                                <p className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
+                                  VIN {car.vin}
+                                </p>
+                              )}
+                              {car.notes && (
+                                <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{car.notes}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        {editingCar === car.id ? (
-                          <div className="space-y-2">
-                            <Input
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                              className="h-7 text-sm"
-                              placeholder="Car name"
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                            <Input
-                              value={editNotes}
-                              onChange={(e) => setEditNotes(e.target.value)}
-                              className="h-6 text-xs"
-                              placeholder="Notes"
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isEditing ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateCar(car.id);
+                              }}
+                              disabled={isUpdating}
+                            >
+                              {isUpdating ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Check className="w-3.5 h-3.5 text-green-600" />
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingCar(null);
+                              }}
+                            >
+                              <X className="w-3.5 h-3.5 text-destructive" />
+                            </Button>
+                          </>
                         ) : (
                           <>
-                            <CardTitle className="text-sm font-mono">{car.name}</CardTitle>
-                            {car.notes && (
-                              <p className="text-xs text-muted-foreground line-clamp-1">{car.notes}</p>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEditing(car);
+                              }}
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Vehicle</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete &quot;{headline}&quot;? This will also delete all associated sessions and data.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteCar(car.id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    disabled={isDeleting === car.id}
+                                  >
+                                    {isDeleting === car.id && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {editingCar === car.id ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUpdateCar(car.id);
-                            }}
-                            disabled={isUpdating}
-                          >
-                            {isUpdating ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5 text-green-600" />
-                            )}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingCar(null);
-                            }}
-                          >
-                            <X className="w-3.5 h-3.5 text-destructive" />
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEditing(car);
-                            }}
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Vehicle</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to delete "{car.name}"? This will also delete all associated sessions and data.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteCar(car.id)}
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  disabled={isDeleting === car.id}
-                                >
-                                  {isDeleting === car.id && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {selectedCarId === car.id && (
-                    <div className="flex items-center gap-2 text-xs text-primary font-medium">
-                      <Check className="w-3.5 h-3.5" />
-                      Currently Selected
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {selectedCarId === car.id && !isEditing && (
+                      <div className="flex items-center gap-2 text-xs text-primary font-medium">
+                        <Check className="w-3.5 h-3.5" />
+                        Currently Selected
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>

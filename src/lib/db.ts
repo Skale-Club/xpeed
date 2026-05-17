@@ -390,9 +390,26 @@ export interface CarProfile {
   id: string;
   name: string;
   notes: string | null;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  trim: string | null;
+  vin: string | null;
   created_at: string;
   user_id?: string;
   is_admin?: boolean;
+}
+
+// Write-only shape used by create/update functions — keeps id/created_at/user_id
+// from leaking into mutation payloads.
+export interface CarProfileInput {
+  name?: string;
+  notes?: string | null;
+  make?: string | null;
+  model?: string | null;
+  year?: number | null;
+  trim?: string | null;
+  vin?: string | null;
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {
@@ -406,13 +423,41 @@ export async function getUserCars(): Promise<CarProfile[]> {
     throw new Error(`Failed to fetch cars: ${error.message}`);
   }
 
-  return data || [];
+  return (data || []) as unknown as CarProfile[];
 }
 
-export async function createCarProfile(name: string, notes?: string): Promise<CarProfile> {
+export async function createCarProfile(
+  nameOrInput: string | CarProfileInput,
+  notes?: string,
+): Promise<CarProfile> {
+  // Legacy positional call: createCarProfile('My Car', 'notes')
+  let input: CarProfileInput;
+  if (typeof nameOrInput === 'string') {
+    input = { name: nameOrInput, notes };
+  } else {
+    input = nameOrInput;
+  }
+
+  // Auto-generate display name when omitted but year+make+model are present.
+  if (!input.name?.trim() && input.year && input.make && input.model) {
+    input = { ...input, name: `${input.year} ${input.make} ${input.model}`.trim() };
+  }
+
+  if (!input.name?.trim()) {
+    throw new Error('Vehicle name is required (or provide year + make + model)');
+  }
+
   const { data, error } = await supabase
     .from('car_profiles')
-    .insert({ name, notes })
+    .insert({
+      name: input.name,
+      notes: input.notes ?? null,
+      make: input.make ?? null,
+      model: input.model ?? null,
+      year: input.year ?? null,
+      trim: input.trim ?? null,
+      vin: input.vin ?? null,
+    })
     .select()
     .single();
 
@@ -420,10 +465,13 @@ export async function createCarProfile(name: string, notes?: string): Promise<Ca
     throw new Error(`Failed to create car profile: ${error.message}`);
   }
 
-  return data;
+  return data as unknown as CarProfile;
 }
 
-export async function updateCarProfile(id: string, updates: Partial<Pick<CarProfile, 'name' | 'notes'>>): Promise<void> {
+export async function updateCarProfile(
+  id: string,
+  updates: Partial<CarProfileInput>,
+): Promise<void> {
   const { error } = await supabase
     .from('car_profiles')
     .update(updates)
@@ -456,6 +504,6 @@ export async function getCarById(id: string): Promise<CarProfile | null> {
     throw new Error(`Failed to fetch car: ${error.message}`);
   }
 
-  return data;
+  return data as unknown as CarProfile | null;
 }
 

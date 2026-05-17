@@ -36,10 +36,11 @@ import { PageLoader } from '@/components/PageLoader';
 import { LatestTripCard } from '@/components/LatestTripCard';
 import { GeneralInfoCard } from '@/components/GeneralInfoCard';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
+  const { cars, selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
   const { timezone, distanceUnit } = useSettings();
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -55,7 +56,19 @@ const Index = () => {
   });
   const [isProblemsOpen, setIsProblemsOpen] = useState(false);
   const [showResolvedProblems, setShowResolvedProblems] = useState(false);
-  
+
+  // First-run redirect: brand-new users with 0 cars should land in the
+  // onboarding wizard, not on a blank dashboard. We honor a localStorage flag
+  // so users who completed the wizard and then deleted all their cars still
+  // see the regular empty state.
+  useEffect(() => {
+    if (carsLoading) return;
+    const alreadyOnboarded = localStorage.getItem(ONBOARDING_KEY) === 'true';
+    if (!alreadyOnboarded && cars.length === 0) {
+      navigate('/onboarding', { replace: true });
+    }
+  }, [carsLoading, cars.length, navigate]);
+
   // Computed & Derived State
   
   const filteredSessions = useMemo(() => {

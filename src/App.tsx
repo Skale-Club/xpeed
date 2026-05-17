@@ -17,6 +17,7 @@ const SessionDetail = lazy(() => import("./pages/SessionDetail"));
 const HistoryPage = lazy(() => import("./pages/HistoryPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const CarsPage = lazy(() => import("./pages/CarsPage"));
+const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const SetupAdminPage = lazy(() => import("./pages/SetupAdminPage"));
@@ -60,6 +61,7 @@ const App = () => (
               <Route path="/session/:id" element={<AuthenticatedLayout><SessionDetail /></AuthenticatedLayout>} />
               <Route path="/history" element={<AuthenticatedLayout><HistoryPage /></AuthenticatedLayout>} />
               <Route path="/cars" element={<AuthenticatedLayout><CarsPage /></AuthenticatedLayout>} />
+              <Route path="/onboarding" element={<AuthenticatedLayout><OnboardingPage /></AuthenticatedLayout>} />
               <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
               
               {/* 404 */}

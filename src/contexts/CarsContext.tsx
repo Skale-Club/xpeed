@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useCars } from '@/hooks/use-cars';
-import type { CarProfile } from '@/lib/db';
+import type { CarProfile, CarProfileInput } from '@/lib/db';
 
 interface CarsContextType {
   cars: CarProfile[];
@@ -8,8 +8,8 @@ interface CarsContextType {
   selectedCarId: string | null;
   loading: boolean;
   error: string | null;
-  createCar: (name: string, notes?: string) => Promise<CarProfile>;
-  updateCar: (id: string, updates: Partial<Pick<CarProfile, 'name' | 'notes'>>) => Promise<void>;
+  createCar: (nameOrInput: string | CarProfileInput, notes?: string) => Promise<CarProfile>;
+  updateCar: (id: string, updates: Partial<CarProfileInput>) => Promise<void>;
   deleteCar: (id: string) => Promise<void>;
   selectCar: (id: string | null) => void;
   refresh: () => Promise<void>;
