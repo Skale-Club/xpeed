@@ -14,6 +14,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { subDays } from 'date-fns';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
+import ActiveFlagsBanner from '@/components/ActiveFlagsBanner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DashboardStats {
   totalSessions: number;
@@ -68,6 +70,26 @@ const Index = () => {
       navigate('/onboarding', { replace: true });
     }
   }, [carsLoading, cars.length, navigate]);
+
+  // Improvement E3: subscribe to new sessions for the selected car so
+  // the dashboard updates without a manual refresh.
+  useEffect(() => {
+    if (!selectedCarId) return;
+    const channel = supabase
+      .channel(`sessions-${selectedCarId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'sessions', filter: `car_profile_id=eq.${selectedCarId}` },
+        (payload) => {
+          toast.message('New session uploaded — refreshing…');
+          // Prepend the new session optimistically
+          const newSession = payload.new as unknown as Session;
+          setAllSessions((prev) => [newSession, ...prev]);
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [selectedCarId]);
 
   // Computed & Derived State
   
@@ -400,6 +422,12 @@ const Index = () => {
   return (
     <AppLayout>
       <div className="space-y-6">
+        {/* Mobile-first: active flags banner above everything else */}
+        <ActiveFlagsBanner
+          flags={generalStats.problems}
+          onClick={() => setIsProblemsOpen(true)}
+        />
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>

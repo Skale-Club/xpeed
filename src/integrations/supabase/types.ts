@@ -55,12 +55,14 @@ export type Database = {
       car_profiles: {
         Row: {
           created_at: string
+          engine_type: string | null
           id: string
           is_admin: boolean | null
           make: string | null
           model: string | null
           name: string
           notes: string | null
+          ruleset_id: string | null
           trim: string | null
           user_id: string | null
           vin: string | null
@@ -68,12 +70,14 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          engine_type?: string | null
           id?: string
           is_admin?: boolean | null
           make?: string | null
           model?: string | null
           name?: string
           notes?: string | null
+          ruleset_id?: string | null
           trim?: string | null
           user_id?: string | null
           vin?: string | null
@@ -81,12 +85,14 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          engine_type?: string | null
           id?: string
           is_admin?: boolean | null
           make?: string | null
           model?: string | null
           name?: string
           notes?: string | null
+          ruleset_id?: string | null
           trim?: string | null
           user_id?: string | null
           vin?: string | null
@@ -245,6 +251,7 @@ export type Database = {
       }
       sessions: {
         Row: {
+          active_dtcs: Json | null
           car_profile_id: string | null
           columns: Json | null
           created_at: string
@@ -262,6 +269,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          active_dtcs?: Json | null
           car_profile_id?: string | null
           columns?: Json | null
           created_at?: string
@@ -279,6 +287,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          active_dtcs?: Json | null
           car_profile_id?: string | null
           columns?: Json | null
           created_at?: string

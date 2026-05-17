@@ -138,6 +138,7 @@ export async function createSession(
   sessionStart?: string | null,
   sourceFilePath?: string | null,
   sourceCsv?: string | null,
+  activeDtcs?: string[],
 ) {
   const { data } = await supabase
     .from('sessions')
@@ -151,6 +152,7 @@ export async function createSession(
       session_start: sessionStart || null,
       source_file_path: sourceFilePath || null,
       source_csv: sourceCsv || null,
+      active_dtcs: (activeDtcs ?? []) as unknown as never,
     })
     .select()
     .single();
@@ -386,6 +388,8 @@ export async function updateSessionWithGeminiAnalysis(
 }
 
 // Car management functions
+export type EngineType = 'petrol' | 'diesel' | 'hybrid' | 'electric';
+
 export interface CarProfile {
   id: string;
   name: string;
@@ -395,6 +399,8 @@ export interface CarProfile {
   year: number | null;
   trim: string | null;
   vin: string | null;
+  engine_type: EngineType | null;
+  ruleset_id: string | null;
   created_at: string;
   user_id?: string;
   is_admin?: boolean;
@@ -410,6 +416,8 @@ export interface CarProfileInput {
   year?: number | null;
   trim?: string | null;
   vin?: string | null;
+  engine_type?: EngineType | null;
+  ruleset_id?: string | null;
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {

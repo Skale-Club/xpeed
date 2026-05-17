@@ -1,0 +1,60 @@
+import type { DefaultRule } from '@/lib/default-rules';
+
+export const GENERIC_PETROL_RULES: DefaultRule[] = [
+  {
+    canonical_key: 'coolant_temp', parameter_key: 'coolant_temp', label: 'Coolant Temp', unit: '°C',
+    normal_min: 80, normal_max: 105,
+    warn_min: null, warn_max: 110,
+    critical_min: null, critical_max: 118,
+    min_duration_seconds: 30,
+    notes: 'Attention: Coolant ran high for a sustained period. Check coolant level and radiator airflow. Critical: Stop driving once safe; pressure-test the cooling system before driving further.',
+  },
+  {
+    canonical_key: 'engine_rpm', parameter_key: 'engine_rpm', label: 'Engine RPM', unit: 'rpm',
+    normal_min: 0, normal_max: 4500,
+    warn_min: null, warn_max: 6000,
+    critical_min: null, critical_max: 6800,
+    min_duration_seconds: 10,
+    notes: 'Sustained near-redline RPM stresses internals. Check that you are not running a stuck-down throttle or wrong gear.',
+  },
+  {
+    canonical_key: 'stft_b1', parameter_key: 'stft_b1', label: 'Short Term Fuel Trim B1', unit: '%',
+    normal_min: -10, normal_max: 10,
+    warn_min: -15, warn_max: 15,
+    critical_min: -25, critical_max: 25,
+    min_duration_seconds: 30,
+    notes: 'Persistent STFT swings indicate vacuum leaks, MAF problems, or O2 sensor drift.',
+  },
+  {
+    canonical_key: 'ltft_b1', parameter_key: 'ltft_b1', label: 'Long Term Fuel Trim B1', unit: '%',
+    normal_min: -8, normal_max: 8,
+    warn_min: -12, warn_max: 12,
+    critical_min: -18, critical_max: 18,
+    min_duration_seconds: 60,
+    notes: 'LTFT consistently high/low signals long-running fuel mixture imbalance.',
+  },
+  {
+    canonical_key: 'battery_voltage_12v', parameter_key: 'battery_voltage_12v', label: '12V Battery', unit: 'V',
+    normal_min: 12.2, normal_max: 14.8,
+    warn_min: 12.0, warn_max: 15.2,
+    critical_min: 11.5, critical_max: null,
+    min_duration_seconds: 30,
+    notes: 'Low 12V readings = degraded battery or charging issue. Get the battery and alternator tested.',
+  },
+  {
+    canonical_key: 'intake_air_temp', parameter_key: 'intake_air_temp', label: 'Intake Air Temp', unit: '°C',
+    normal_min: null, normal_max: 55,
+    warn_min: null, warn_max: 70,
+    critical_min: null, critical_max: 85,
+    min_duration_seconds: 60,
+    notes: 'High IAT reduces engine efficiency and increases knock risk.',
+  },
+  {
+    canonical_key: 'engine_load', parameter_key: 'engine_load', label: 'Engine Load', unit: '%',
+    normal_min: 0, normal_max: 85,
+    warn_min: null, warn_max: 92,
+    critical_min: null, critical_max: 97,
+    min_duration_seconds: 20,
+    notes: 'Sustained high load elevates temperatures and fuel consumption.',
+  },
+];

@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { VitePWA } from "vite-plugin-pwa";
+
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   server: {
     host: "0.0.0.0",
     port: 5000,
@@ -10,10 +12,83 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react()].filter(Boolean),
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: "autoUpdate",
+      includeAssets: ["favicon.ico", "robots.txt"],
+      manifest: {
+        name: "Car Insights AI",
+        short_name: "CarInsights",
+        description: "OBD2 diagnostics with AI-powered insights",
+        theme_color: "#0a0a0a",
+        background_color: "#0a0a0a",
+        display: "standalone",
+        start_url: "/",
+        scope: "/",
+        icons: [
+          // Re-use the existing favicon as a low-fi PWA icon for now.
+          // Replace with proper 192/512 PNGs in /public for production polish.
+          { src: "/favicon.ico", sizes: "64x64 32x32 24x24 16x16", type: "image/x-icon" },
+        ],
+      },
+      workbox: {
+        // Don't try to precache the giant Recharts chunk on first paint.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            // Cache Supabase REST reads for offline session viewing.
+            urlPattern: ({ url }) => url.hostname.endsWith(".supabase.co") && url.pathname.startsWith("/rest/"),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "supabase-reads",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
+          {
+            // NHTSA VIN decoder.
+            urlPattern: ({ url }) => url.hostname.endsWith("nhtsa.dot.gov"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "nhtsa-vin",
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+        ],
+      },
+      devOptions: {
+        // Keep the SW out of `npm run dev` so HMR isn't fighting with caching.
+        enabled: false,
+      },
+    }),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Recharts is the single biggest chunk (~390KB). Keep it isolated so
+          // it loads on demand for chart-heavy routes only.
+          recharts: ["recharts"],
+          // shadcn/Radix primitives.
+          "radix-ui": [
+            "@radix-ui/react-accordion", "@radix-ui/react-alert-dialog",
+            "@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu",
+            "@radix-ui/react-select", "@radix-ui/react-tabs",
+            "@radix-ui/react-tooltip", "@radix-ui/react-popover",
+            "@radix-ui/react-toast",
+          ],
+          supabase: ["@supabase/supabase-js"],
+          gemini: ["@google/generative-ai"],
+          i18n: ["i18next", "react-i18next", "i18next-browser-languagedetector"],
+        },
+      },
     },
   },
 }));

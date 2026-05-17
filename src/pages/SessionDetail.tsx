@@ -14,6 +14,10 @@ import { useToast } from '@/hooks/use-toast';
 import { PageLoader } from '@/components/PageLoader';
 
 import AIAnalysisCard from '@/components/AIAnalysisCard';
+import DTCPanel from '@/components/DTCPanel';
+import PhotoUpload from '@/components/PhotoUpload';
+import { createSharedReport } from '@/lib/db-extras';
+import { Share2 } from 'lucide-react';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
 
 type SessionWithStoredCsv = Session & { source_csv?: string | null };
@@ -149,6 +153,24 @@ export default function SessionDetail() {
             <Button variant="outline" size="sm" onClick={handleRecompute} className="text-xs">
               <RefreshCw className="w-3 h-3 mr-1" /> Re-evaluate
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              onClick={async () => {
+                if (!session) return;
+                try {
+                  const report = await createSharedReport(session.id, 30);
+                  const url = `${window.location.origin}/share/${report.id}`;
+                  await navigator.clipboard.writeText(url);
+                  toast({ title: 'Share link copied', description: `Expires in 30 days. ${url}` });
+                } catch (err) {
+                  toast({ title: 'Could not create share link', description: String(err), variant: 'destructive' });
+                }
+              }}
+            >
+              <Share2 className="w-3 h-3 mr-1" /> Share with mechanic
+            </Button>
           </div>
         </div>
 
@@ -164,10 +186,22 @@ export default function SessionDetail() {
           <AIAnalysisCard analysis={session.gemini_analysis} />
         )}
 
+        {/* Improvement A2: DTC codes panel */}
+        {((session as { active_dtcs?: string[] }).active_dtcs?.length ?? 0) > 0 && (
+          <div>
+            <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Active Trouble Codes</h3>
+            <DTCPanel codes={(session as { active_dtcs?: string[] }).active_dtcs || []} />
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Parameters</h3>
-            <SessionCharts rows={rows} headerMapping={headerMapping} rules={DEFAULT_PRIUS_RULES} />
+          <div className="lg:col-span-2 space-y-6">
+            <div>
+              <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Parameters</h3>
+              <SessionCharts rows={rows} headerMapping={headerMapping} rules={DEFAULT_PRIUS_RULES} />
+            </div>
+            {/* Improvement C3: photo upload */}
+            <PhotoUpload sessionId={session.id} />
           </div>
           <div>
             <h3 className="text-sm font-mono font-semibold text-foreground mb-3">All Flags</h3>

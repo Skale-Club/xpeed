@@ -1,0 +1,105 @@
+{
+  "nav": {
+    "dashboard": "Painel",
+    "history": "Histórico",
+    "cars": "Veículos",
+    "maintenance": "Manutenção",
+    "settings": "Configurações",
+    "chat": "Assistente AI"
+  },
+  "common": {
+    "loading": "Carregando…",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "delete": "Excluir",
+    "edit": "Editar",
+    "add": "Adicionar",
+    "continue": "Continuar",
+    "back": "Voltar",
+    "skip": "Pular",
+    "close": "Fechar",
+    "yes": "Sim",
+    "no": "Não",
+    "required": "Obrigatório",
+    "optional": "Opcional",
+    "error": "Erro",
+    "success": "Sucesso"
+  },
+  "dashboard": {
+    "title": "Painel",
+    "health_score": "Índice de Saúde",
+    "total_sessions": "Sessões Totais",
+    "total_distance": "Distância Total",
+    "avg_fuel": "Consumo Médio",
+    "active_problems": "Problemas Ativos",
+    "latest_trip": "Última Viagem",
+    "trends": "Tendências",
+    "no_data": "Nenhum dado ainda. Faça upload da primeira sessão.",
+    "status_excellent": "Excelente",
+    "status_good": "Bom",
+    "status_attention": "Atenção",
+    "status_critical": "Crítico"
+  },
+  "onboarding": {
+    "welcome_title": "Bem-vindo ao Car Insights",
+    "welcome_body": "Vamos configurar tudo. Registre seu primeiro veículo e, opcionalmente, faça upload da primeira sessão OBD2 — leva cerca de um minuto.",
+    "get_started": "Começar",
+    "add_car_title": "Adicione Seu Carro",
+    "add_car_body": "Conte sobre o veículo que será monitorado.",
+    "upload_title": "Faça Upload da Primeira Sessão",
+    "upload_body": "Arraste um CSV exportado do Torque Pro, OBD Fusion ou qualquer logger OBD2.",
+    "done_title": "Tudo pronto!",
+    "done_body": "Seu veículo está registrado. Vá para o painel para explorar seus dados.",
+    "go_to_dashboard": "Ir para o Painel",
+    "decode_vin": "Preencher pelo VIN"
+  },
+  "cars": {
+    "title": "Meus Veículos",
+    "add_vehicle": "Adicionar Veículo",
+    "no_vehicles": "Nenhum Veículo Ainda",
+    "year": "Ano",
+    "make": "Marca",
+    "model": "Modelo",
+    "trim": "Versão",
+    "vin": "VIN/Chassi",
+    "notes": "Notas",
+    "currently_selected": "Selecionado"
+  },
+  "flags": {
+    "title": "Alertas",
+    "no_flags": "Nenhum alerta detectado nesta sessão.",
+    "critical": "Crítico",
+    "attention": "Atenção",
+    "what_happened": "O que aconteceu",
+    "why_it_matters": "Por que importa",
+    "what_to_do": "O que fazer",
+    "ask_ai": "Perguntar à AI sobre isso",
+    "resolve": "Marcar resolvido",
+    "unresolve": "Reabrir"
+  },
+  "dtc": {
+    "title": "Códigos de Falha",
+    "no_dtcs": "Nenhum código de falha ativo nesta sessão.",
+    "severity_minor": "Leve",
+    "severity_moderate": "Moderado",
+    "severity_severe": "Grave",
+    "likely_causes": "Causas prováveis",
+    "repair_difficulty": "Dificuldade de reparo"
+  },
+  "maintenance": {
+    "title": "Histórico de Manutenção",
+    "add_event": "Adicionar Serviço",
+    "no_events": "Nenhum histórico de serviço registrado.",
+    "event_type": "Tipo de Serviço",
+    "performed_at": "Data",
+    "odometer": "Odômetro (km)",
+    "cost": "Custo",
+    "shop": "Oficina"
+  },
+  "chat": {
+    "title": "Assistente AI",
+    "ask_anything": "Pergunte sobre seu carro",
+    "new_conversation": "Nova Conversa",
+    "send": "Enviar"
+  }
+}

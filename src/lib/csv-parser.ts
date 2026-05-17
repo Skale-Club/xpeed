@@ -1,10 +1,39 @@
 import { matchCanonicalKey } from './canonical-params';
+import { extractDtcs } from './dtc-codes';
 
 export interface ParsedCSV {
   headers: string[];
   rows: Record<string, number | string | null>[];
   headerMapping: Record<string, { canonical_key: string; label: string; unit: string } | null>;
   timeColumn: { type: 'timestamp' | 'seconds' | 'index'; key: string } | null;
+  // All unique DTC codes seen anywhere in the file (from common columns like
+  // "DTC", "Trouble Codes", "P-Code"). Empty array when no such column exists.
+  activeDtcs: string[];
+}
+
+const DTC_COLUMN_HINTS = [
+  'dtc', 'troublecode', 'troublecodes', 'pcode', 'p-code', 'fault', 'faultcode',
+  'diagnostictroublecode', 'diagnosticcode',
+];
+
+/**
+ * Walk the parsed rows looking for any column whose name suggests it contains
+ * DTC strings, and aggregate all unique codes encountered.
+ */
+export function extractSessionDtcs(headers: string[], rows: Record<string, number | string | null>[]): string[] {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const dtcCols = headers.filter(h => DTC_COLUMN_HINTS.includes(norm(h)));
+  if (dtcCols.length === 0) return [];
+
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const col of dtcCols) {
+      const val = row[col];
+      if (val == null) continue;
+      for (const code of extractDtcs(val)) seen.add(code);
+    }
+  }
+  return Array.from(seen).sort();
 }
 
 function detectDelimiter(firstLine: string): string {
@@ -86,7 +115,7 @@ function detectTimeColumn(headers: string[], sampleRows: Record<string, string>[
 export function parseCSV(text: string): ParsedCSV {
   const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
   if (lines.length < 2) {
-    return { headers: [], rows: [], headerMapping: {}, timeColumn: null };
+    return { headers: [], rows: [], headerMapping: {}, timeColumn: null, activeDtcs: [] };
   }
 
   const delimiter = detectDelimiter(lines[0]);
@@ -161,7 +190,8 @@ export function parseCSV(text: string): ParsedCSV {
       headers: newHeaders,
       rows: newRows,
       headerMapping: newHeaderMapping,
-      timeColumn: timeColumn
+      timeColumn: timeColumn,
+      activeDtcs: extractSessionDtcs(newHeaders, newRows),
     };
   }
 
@@ -186,5 +216,5 @@ export function parseCSV(text: string): ParsedCSV {
     return row;
   });
 
-  return { headers, rows, headerMapping, timeColumn };
+  return { headers, rows, headerMapping, timeColumn, activeDtcs: extractSessionDtcs(headers, rows) };
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Car, Upload, CheckCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { Car, Upload, CheckCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
 import UploadCard from '@/components/UploadCard';
+import { decodeVin } from '@/lib/vin-decoder';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -29,6 +30,33 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [vin, setVin] = useState('');
   const [notes, setNotes] = useState('');
   const [creating, setCreating] = useState(false);
+  const [decoding, setDecoding] = useState(false);
+  const [engineType, setEngineType] = useState<'petrol' | 'diesel' | 'hybrid' | 'electric' | null>(null);
+
+  const handleDecodeVin = async () => {
+    if (vin.trim().length !== 17) {
+      toast({ title: 'Invalid VIN', description: 'VIN must be exactly 17 characters.', variant: 'destructive' });
+      return;
+    }
+    setDecoding(true);
+    try {
+      const decoded = await decodeVin(vin.trim());
+      if (!decoded) {
+        toast({ title: 'Could not decode', description: 'NHTSA returned no useful data for this VIN.', variant: 'destructive' });
+        return;
+      }
+      if (decoded.year) setYear(String(decoded.year));
+      if (decoded.make) setMake(decoded.make);
+      if (decoded.model) setModel(decoded.model);
+      if (decoded.trim) setTrim(decoded.trim);
+      if (decoded.engineType) setEngineType(decoded.engineType);
+      toast({ title: 'VIN decoded', description: `${decoded.year || ''} ${decoded.make || ''} ${decoded.model || ''}`.trim() });
+    } catch (err) {
+      toast({ title: 'Decode error', description: String(err), variant: 'destructive' });
+    } finally {
+      setDecoding(false);
+    }
+  };
 
   const goTo = (step: Step) => setCurrentStep(step);
 
@@ -75,6 +103,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         trim: trim.trim() || null,
         vin: trimmedVin || null,
         notes: notes.trim() || null,
+        engine_type: engineType,
       });
       setNewCarId(car.id);
       toast({ title: 'Vehicle registered', description: car.name });
@@ -184,13 +213,26 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="onb-vin">VIN</Label>
-                    <Input
-                      id="onb-vin"
-                      placeholder="17 characters"
-                      maxLength={17}
-                      value={vin}
-                      onChange={(e) => setVin(e.target.value.toUpperCase())}
-                    />
+                    <div className="flex gap-1">
+                      <Input
+                        id="onb-vin"
+                        placeholder="17 characters"
+                        maxLength={17}
+                        value={vin}
+                        onChange={(e) => setVin(e.target.value.toUpperCase())}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        title="Auto-fill year/make/model from VIN via NHTSA"
+                        onClick={handleDecodeVin}
+                        disabled={decoding || vin.trim().length !== 17}
+                        className="px-2"
+                      >
+                        {decoding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
                   </div>
                   <div className="space-y-1.5 col-span-2">
                     <Label htmlFor="onb-notes">Notes</Label>

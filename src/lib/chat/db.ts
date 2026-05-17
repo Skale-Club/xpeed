@@ -4,7 +4,10 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { ChatMessage, ChatConversation, ChatContext, MessagePart, Attachment } from './types';
 import { getSessions } from '@/lib/db';
+import { listMaintenanceEvents } from '@/lib/db-extras';
+import { computeTrends } from '@/lib/trends';
 import type { Json } from '@/integrations/supabase/types';
+import type { Session } from '@/types/session';
 
 // Type helper to convert DB row to ChatConversation
 function toConversation(row: {
@@ -206,6 +209,8 @@ export async function deleteMessagesFrom(conversationId: string, fromMessageId: 
 }
 
 // Build context for the AI from vehicle data
+// Improvement D2: enrich with trends, active DTCs, and maintenance history so
+// the AI can answer "is X getting worse?" with real numbers, not guesses.
 export async function buildChatContext(carProfileId?: string | null): Promise<ChatContext> {
     if (!carProfileId) {
         return {
@@ -227,8 +232,8 @@ export async function buildChatContext(carProfileId?: string | null): Promise<Ch
             console.error('Failed to fetch car profile:', carError);
         }
 
-        // Get sessions
-        const sessions = await getSessions(carProfileId);
+        // Get sessions (typed for trend analysis)
+        const sessions = (await getSessions(carProfileId)) as unknown as Session[];
         const recentSessions = sessions.slice(0, 5).map((s) => ({
             date: s.uploaded_at,
             filename: s.source_filename,
@@ -236,15 +241,48 @@ export async function buildChatContext(carProfileId?: string | null): Promise<Ch
             summary: s.summary as Record<string, unknown> | null,
         }));
 
+        // Aggregate unique active DTCs across recent sessions
+        const activeDtcs = Array.from(new Set(
+            sessions.slice(0, 10).flatMap((s) => {
+                const dtcs = (s as Session & { active_dtcs?: string[] }).active_dtcs;
+                return Array.isArray(dtcs) ? dtcs : [];
+            })
+        ));
+
+        // Compute per-parameter trends (recent N vs prior M sessions)
+        const trends = computeTrends(sessions, 5, 20).slice(0, 8); // top 8 by delta
+
+        // Maintenance history (last 12 months)
+        let maintenance: Array<{ type: string; date: string; odometer?: number | null }> = [];
+        try {
+            const events = await listMaintenanceEvents(carProfileId);
+            const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+            maintenance = events
+                .filter(e => new Date(e.performed_at) >= cutoff)
+                .slice(0, 10)
+                .map(e => ({ type: e.event_type, date: e.performed_at, odometer: e.odometer_km }));
+        } catch (mErr) {
+            // Non-fatal — table might not be migrated yet.
+            console.warn('Maintenance context unavailable:', mErr);
+        }
+
         return {
             vehicle: carProfile
                 ? {
                     name: carProfile.name,
                     notes: carProfile.notes,
+                    make: (carProfile as { make?: string | null }).make ?? null,
+                    model: (carProfile as { model?: string | null }).model ?? null,
+                    year: (carProfile as { year?: number | null }).year ?? null,
+                    vin: (carProfile as { vin?: string | null }).vin ?? null,
+                    engine_type: (carProfile as { engine_type?: string | null }).engine_type ?? null,
                 }
                 : null,
             recentSessions,
             sessionCount: sessions.length,
+            trends,
+            activeDtcs,
+            maintenance,
         };
     } catch (error) {
         console.error('Failed to build chat context:', error);

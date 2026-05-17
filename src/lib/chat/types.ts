@@ -36,6 +36,11 @@ export interface ChatContext {
     vehicle: {
         name: string;
         notes: string | null;
+        make?: string | null;
+        model?: string | null;
+        year?: number | null;
+        vin?: string | null;
+        engine_type?: string | null;
     } | null;
     recentSessions: Array<{
         date: string;
@@ -44,6 +49,18 @@ export interface ChatContext {
         summary: Record<string, unknown> | null;
     }>;
     sessionCount: number;
+    // Improvement D2: enriched fields for trend-aware AI answers
+    trends?: Array<{
+        canonical_key: string;
+        label?: string;
+        current_avg: number;
+        historic_avg: number;
+        delta_pct: number;
+        trend: 'improving' | 'declining' | 'stable';
+        sample_count: number;
+    }>;
+    activeDtcs?: string[];
+    maintenance?: Array<{ type: string; date: string; odometer?: number | null }>;
 }
 
 // Helper to convert DB message to UI message

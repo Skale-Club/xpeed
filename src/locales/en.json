@@ -1,0 +1,105 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "history": "History",
+    "cars": "Vehicles",
+    "maintenance": "Maintenance",
+    "settings": "Settings",
+    "chat": "AI Assistant"
+  },
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "continue": "Continue",
+    "back": "Back",
+    "skip": "Skip",
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No",
+    "required": "Required",
+    "optional": "Optional",
+    "error": "Error",
+    "success": "Success"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "health_score": "Health Score",
+    "total_sessions": "Total Sessions",
+    "total_distance": "Total Distance",
+    "avg_fuel": "Avg Fuel",
+    "active_problems": "Active Problems",
+    "latest_trip": "Latest Trip",
+    "trends": "Trends",
+    "no_data": "No data yet. Upload your first session to get started.",
+    "status_excellent": "Excellent",
+    "status_good": "Good",
+    "status_attention": "Attention",
+    "status_critical": "Critical"
+  },
+  "onboarding": {
+    "welcome_title": "Welcome to Car Insights",
+    "welcome_body": "Let's get you set up. We'll register your first vehicle and optionally upload your first OBD2 session — takes about a minute.",
+    "get_started": "Get Started",
+    "add_car_title": "Add Your Car",
+    "add_car_body": "Tell us about the vehicle you'll be tracking.",
+    "upload_title": "Upload Your First Session",
+    "upload_body": "Drop a CSV export from Torque Pro, OBD Fusion, or any OBD2 logger.",
+    "done_title": "You're all set!",
+    "done_body": "Your vehicle is registered. Head to the dashboard to start exploring your data.",
+    "go_to_dashboard": "Go to Dashboard",
+    "decode_vin": "Auto-fill from VIN"
+  },
+  "cars": {
+    "title": "My Vehicles",
+    "add_vehicle": "Add Vehicle",
+    "no_vehicles": "No Vehicles Yet",
+    "year": "Year",
+    "make": "Make",
+    "model": "Model",
+    "trim": "Trim",
+    "vin": "VIN",
+    "notes": "Notes",
+    "currently_selected": "Currently Selected"
+  },
+  "flags": {
+    "title": "Flags",
+    "no_flags": "No flags detected for this session.",
+    "critical": "Critical",
+    "attention": "Attention",
+    "what_happened": "What happened",
+    "why_it_matters": "Why it matters",
+    "what_to_do": "What to do",
+    "ask_ai": "Ask AI about this",
+    "resolve": "Mark resolved",
+    "unresolve": "Reopen"
+  },
+  "dtc": {
+    "title": "Diagnostic Trouble Codes",
+    "no_dtcs": "No active DTCs in this session.",
+    "severity_minor": "Minor",
+    "severity_moderate": "Moderate",
+    "severity_severe": "Severe",
+    "likely_causes": "Likely causes",
+    "repair_difficulty": "Repair difficulty"
+  },
+  "maintenance": {
+    "title": "Maintenance Log",
+    "add_event": "Add Service Event",
+    "no_events": "No service history recorded yet.",
+    "event_type": "Service Type",
+    "performed_at": "Date",
+    "odometer": "Odometer (km)",
+    "cost": "Cost",
+    "shop": "Shop"
+  },
+  "chat": {
+    "title": "AI Assistant",
+    "ask_anything": "Ask about your car",
+    "new_conversation": "New Conversation",
+    "send": "Send"
+  }
+}

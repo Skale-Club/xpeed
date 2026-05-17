@@ -18,6 +18,8 @@ const HistoryPage = lazy(() => import("./pages/HistoryPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const CarsPage = lazy(() => import("./pages/CarsPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
+const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
+const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const SetupAdminPage = lazy(() => import("./pages/SetupAdminPage"));
@@ -62,8 +64,12 @@ const App = () => (
               <Route path="/history" element={<AuthenticatedLayout><HistoryPage /></AuthenticatedLayout>} />
               <Route path="/cars" element={<AuthenticatedLayout><CarsPage /></AuthenticatedLayout>} />
               <Route path="/onboarding" element={<AuthenticatedLayout><OnboardingPage /></AuthenticatedLayout>} />
+              <Route path="/maintenance" element={<AuthenticatedLayout><MaintenancePage /></AuthenticatedLayout>} />
               <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
-              
+
+              {/* Public shared diagnostic report */}
+              <Route path="/share/:id" element={<PublicLayout><SharedReport /></PublicLayout>} />
+
               {/* 404 */}
               <Route path="*" element={<PublicLayout><NotFound /></PublicLayout>} />
             </Routes>

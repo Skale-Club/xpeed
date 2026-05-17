@@ -1,10 +1,13 @@
 import { useState, useCallback } from 'react';
 import { parseCSV } from '@/lib/csv-parser';
 import { computeParameterSummaries, evaluateRules } from '@/lib/insight-engine';
-import { DEFAULT_PRIUS_RULES } from '@/lib/default-rules';
 import {
-  createSession, insertSessionRows, insertSessionFlags, uploadSessionCSV, removeSessionCSV, deleteSession
+  createSession, insertSessionRows, insertSessionFlags, uploadSessionCSV, removeSessionCSV, deleteSession,
+  getCarById,
 } from '@/lib/db';
+import { refreshParameterBaselines } from '@/lib/db-extras';
+import { resolveRulesetForCar } from '@/lib/rule-resolver';
+import { downsampleSessionRows } from '@/lib/downsample';
 import { useToast } from '@/hooks/use-toast';
 
 export function useCSVUpload(onComplete: (sessionId: string) => void, carProfileId?: string) {
@@ -43,8 +46,12 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
 
       updateProgress(28, 'Computing insights...');
       const summaries = computeParameterSummaries(parsed);
-      
-      const flags = evaluateRules(parsed, DEFAULT_PRIUS_RULES);
+
+      // Resolve the right ruleset for this car (make/model/year aware) instead
+      // of always using Prius rules. Falls back to engine_type, then generic petrol.
+      const car = await getCarById(carProfileId);
+      const ruleset = resolveRulesetForCar(car);
+      const flags = evaluateRules(parsed, ruleset.rules);
 
       // Estimate duration
       let durationSeconds: number | undefined;
@@ -105,16 +112,23 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         customName || file.name,
         parsed.rows.length,
         parsed.headers,
-        { summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn },
+        {
+          summaries,
+          headerMapping: parsed.headerMapping,
+          timeColumn: parsed.timeColumn,
+          rulesetId: ruleset.id,
+          rulesetMatchedVia: ruleset.matched_via,
+        },
         durationSeconds,
         sessionStart,
         sourceFilePath,
         text,
+        parsed.activeDtcs,
       );
       createdSessionId = session.id;
 
       updateProgress(58, 'Saving data rows (0%)...');
-      const dbRows = parsed.rows.map((row, idx) => {
+      const rawDbRows = parsed.rows.map((row, idx) => {
         let t_seconds: number | null = null;
         let t_timestamp: string | null = null;
         if (parsed.timeColumn) {
@@ -137,6 +151,11 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
 
         return { t_seconds, t_timestamp, data };
       });
+
+      // Cap stored rows at 2000 via LTTB downsampling. The full CSV is still
+      // preserved in storage (source_csv), so users can always re-derive
+      // the original data; the DB just gets a chart-friendly summary.
+      const dbRows = downsampleSessionRows(rawDbRows, 2000);
 
       await insertSessionRows(session.id, dbRows, (percent) => {
         const weightedProgress = 58 + (percent * 0.3);
@@ -188,8 +207,16 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         console.warn('Gemini analysis failed:', aiError);
       }
 
+      // Refresh rolling baselines for this car (used by anomaly detection).
+      // Best-effort; never block the upload completion.
+      try {
+        await refreshParameterBaselines(carProfileId);
+      } catch (baselineErr) {
+        console.warn('Baseline refresh skipped:', baselineErr);
+      }
+
       updateProgress(100, 'Upload complete!');
-      toast({ title: 'Upload complete!', description: `${parsed.rows.length} rows, ${flags.length} flags detected.` });
+      toast({ title: 'Upload complete!', description: `${parsed.rows.length} rows, ${flags.length} flags, ${parsed.activeDtcs.length} DTCs.` });
       onComplete(session.id);
     } catch (err) {
       console.error(err);

@@ -11,6 +11,11 @@ export interface DefaultRule {
   critical_max: number | null;
   min_duration_seconds: number;
   notes: string;
+  // New structured action fields (Improvement B1).
+  // When omitted, FlagsPanel falls back to parsing `notes` for backward compat.
+  what_happened?: string;
+  why_it_matters?: string;
+  what_to_do?: string;
 }
 
 export const DEFAULT_PRIUS_RULES: DefaultRule[] = [
@@ -20,7 +25,10 @@ export const DEFAULT_PRIUS_RULES: DefaultRule[] = [
     warn_min: null, warn_max: 105,
     critical_min: null, critical_max: 115,
     min_duration_seconds: 30,
-    notes: 'Attention: Coolant temperature ran high for a sustained period. If this repeats, check coolant level, radiator airflow, and consider a cooling system inspection. Critical: Coolant temperature reached a critical zone. Avoid heavy load; if this repeats, stop driving and get the cooling system checked.'
+    notes: 'Attention: Coolant temperature ran high for a sustained period. If this repeats, check coolant level, radiator airflow, and consider a cooling system inspection. Critical: Coolant temperature reached a critical zone. Avoid heavy load; if this repeats, stop driving and get the cooling system checked.',
+    what_happened: 'Engine coolant temperature exceeded the normal operating range and stayed there long enough to be a real signal, not noise.',
+    why_it_matters: 'Sustained over-temp warps the cylinder head, blows the head gasket, and degrades coolant chemistry. Hybrids share the inverter cooling loop, so it can affect electric drive too.',
+    what_to_do: 'Once safe, stop and let the engine cool. Check coolant level when cold (never open a hot radiator). If the level is fine, get the cooling system pressure-tested — likely thermostat, water pump, or radiator fan.',
   },
   {
     canonical_key: 'engine_rpm', parameter_key: 'engine_rpm', label: 'Engine RPM', unit: 'rpm',

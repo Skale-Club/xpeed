@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Upload, BarChart3, History, Settings, Gauge, SlidersHorizontal, Car, Plus, ChevronDown, Loader2, LogOut, User } from 'lucide-react';
+import { Upload, BarChart3, History, Settings, Gauge, SlidersHorizontal, Car, Plus, ChevronDown, Loader2, LogOut, User, Wrench } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: Gauge },
   { to: '/history', label: 'History', icon: History },
   { to: '/cars', label: 'Cars', icon: Car },
+  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
