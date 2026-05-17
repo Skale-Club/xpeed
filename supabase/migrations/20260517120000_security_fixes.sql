@@ -2,11 +2,36 @@
 -- Phase 03: Critical Security & Bug Fixes
 -- Created: 2026-05-17
 
--- 1. Add trigger for chat_conversations to auto-set user_id on INSERT
---    (reuses existing set_user_id() SECURITY DEFINER function from multi_car_support migration)
+-- 1. Ensure set_user_id() exists. It was originally created in
+--    20260209104400_multi_car_support.sql but the remote DB shows it missing
+--    (likely dropped manually or never installed). Defensively recreate it
+--    here using CREATE OR REPLACE — idempotent.
+CREATE OR REPLACE FUNCTION public.set_user_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.user_id = auth.uid();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 2. Add trigger for chat_conversations to auto-set user_id on INSERT
 DROP TRIGGER IF EXISTS set_chat_conversations_user_id ON public.chat_conversations;
 CREATE TRIGGER set_chat_conversations_user_id
   BEFORE INSERT ON public.chat_conversations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_user_id();
+
+-- 2a. Also reattach the triggers that the original migration declared,
+--     in case they were dropped too.
+DROP TRIGGER IF EXISTS set_car_profiles_user_id ON public.car_profiles;
+CREATE TRIGGER set_car_profiles_user_id
+  BEFORE INSERT ON public.car_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_user_id();
+
+DROP TRIGGER IF EXISTS set_sessions_user_id ON public.sessions;
+CREATE TRIGGER set_sessions_user_id
+  BEFORE INSERT ON public.sessions
   FOR EACH ROW
   EXECUTE FUNCTION public.set_user_id();
 
