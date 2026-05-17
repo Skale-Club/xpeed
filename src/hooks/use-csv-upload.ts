@@ -168,15 +168,16 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         evidence: f.evidence as unknown as Record<string, unknown>,
       })));
 
-      // Analyze with Gemini. Edge Function (server-side admin key) preferred;
-      // falls back to per-user client-side key if Edge returns null.
+      // Analyze with Gemini via the shared admin-configured Edge Function.
+      // Single provider for all users — no per-user API key path.
+      // Failure here is non-fatal: the session is already saved.
       try {
         updateProgress(95, 'Analyzing with AI...');
         const { updateSessionWithGeminiAnalysis } = await import('@/lib/db');
         const { analyzeSessionViaEdge } = await import('@/lib/ai-client');
 
         // Compact summary payload for the Edge Function (string form keeps the
-        // function generic and avoids leaking PII).
+        // function generic and avoids leaking PII into a JSON dump).
         const summaryLines: string[] = [
           `File: ${file.name}`,
           `Rows: ${parsed.rows.length}`,
@@ -188,33 +189,14 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         ].filter(Boolean);
 
         const analysis = await analyzeSessionViaEdge(summaryLines.join('\n'));
-
         if (analysis) {
           await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
-        } else {
-          // Fallback: try direct client-side path if user has their own key configured
-          const { getGeminiApiKey, getGeminiModel } = await import('@/lib/db');
-          const { analyzeSession } = await import('@/lib/gemini-service');
-          const apiKey = await getGeminiApiKey();
-          const model = await getGeminiModel();
-          if (apiKey) {
-            const summariesObj: Record<string, { count: number; min: number; max: number; avg: number }> = {};
-            summaries.forEach(s => {
-              summariesObj[s.parameter_key] = { count: s.count, min: s.min, max: s.max, avg: s.avg };
-            });
-            const fallback = await analyzeSession(apiKey, {
-              filename: file.name,
-              rowCount: parsed.rows.length,
-              durationSeconds,
-              summaries: summariesObj,
-              flags: flags.map(f => ({ severity: f.severity, message: f.message, canonical_key: f.canonical_key })),
-            }, model);
-            await updateSessionWithGeminiAnalysis(session.id, fallback as unknown as Record<string, unknown>);
-          }
         }
+        // else: Edge Function returned null (admin hasn't configured the key,
+        // user is over quota, or the call failed). Session is still saved
+        // successfully — just without the AI summary.
       } catch (aiError) {
-        // AI analysis is optional; don't fail the upload if it errors.
-        console.warn('Gemini analysis failed:', aiError);
+        console.warn('Gemini analysis skipped:', aiError);
       }
 
       // Refresh rolling baselines for this car (used by anomaly detection).

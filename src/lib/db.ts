@@ -329,48 +329,6 @@ export async function saveGeminiModel(model: string): Promise<void> {
   }
 }
 
-// Gemini API key management
-export async function getGeminiApiKey(): Promise<string | null> {
-  const { data } = await supabase
-    .from('app_settings')
-    .select('setting_value')
-    .eq('setting_key', 'gemini_api_key')
-    .maybeSingle();
-
-  return data?.setting_value || null;
-}
-
-export async function saveGeminiApiKey(apiKey: string): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-
-  const { error } = await supabase
-    .from('app_settings')
-    .upsert({
-      setting_key: 'gemini_api_key',
-      setting_value: apiKey,
-      encrypted: false, // Note: In production, consider encrypting this
-      user_id: user.id,
-    }, {
-      onConflict: 'setting_key,user_id'
-    });
-
-  if (error) {
-    throw new Error(`Failed to save API key: ${error.message}`);
-  }
-}
-
-export async function deleteGeminiApiKey(): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-
-  await supabase
-    .from('app_settings')
-    .delete()
-    .eq('setting_key', 'gemini_api_key')
-    .eq('user_id', user.id);
-}
-
 export async function updateSessionWithGeminiAnalysis(
   sessionId: string,
   analysis: Record<string, unknown>

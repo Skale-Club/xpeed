@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Menu, X, Sparkles, Plus } from 'lucide-react';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
-import { getGeminiApiKey, getGeminiModel } from '@/lib/db';
+import { getGeminiModel } from '@/lib/db';
 import { chatViaEdge } from '@/lib/ai-client';
 import {
     getConversations,
@@ -38,7 +38,6 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const [currentConversation, setCurrentConversation] = useState<ChatConversation | null>(null);
     const [messages, setMessages] = useState<UIMessage[]>([]);
     const [input, setInput] = useState('');
-    const [apiKey, setApiKey] = useState<string | null>(null);
     const [modelName, setModelName] = useState<string>('gemini-2.5-flash');
     const [contextData, setContextData] = useState<ChatContextType | null>(null);
     const [loading, setLoading] = useState(false);
@@ -47,11 +46,9 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const { toast } = useToast();
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Load API key and model
+    // Load default Gemini model preference (admin-configured key lives server-side)
     useEffect(() => {
         async function loadSettings() {
-            const key = await getGeminiApiKey();
-            setApiKey(key);
             const model = await getGeminiModel();
             setModelName(model || 'gemini-2.5-flash');
         }
@@ -147,39 +144,17 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 parts: m.content,
             }));
 
-            let responseText: string | null = null;
-
-            // 1) Try Edge Function (server-side admin key, structured prompt, quota-enforced)
-            responseText = await chatViaEdge(
+            // Single-provider AI: only the shared admin-configured Edge Function.
+            // If it returns null, surface a friendly error rather than silently failing.
+            const responseText = await chatViaEdge(
                 historyMessages,
                 text,
                 (contextData ?? {}) as unknown as Record<string, unknown>,
                 modelName,
             );
 
-            // 2) Fallback: direct Gemini call if Edge returned null AND user has own key
-            if (responseText === null && apiKey) {
-                const { GoogleGenerativeAI } = await import('@google/generative-ai');
-                const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: modelName });
-                const systemPrompt = `You are Car Insights AI, an expert automotive assistant.
-You have access to the following vehicle data context:
-${JSON.stringify(contextData, null, 2)}
-
-Answer the user's questions based on this data. Be concise, helpful, and friendly.`;
-                const chat = model.startChat({
-                    history: [
-                        { role: 'user', parts: [{ text: systemPrompt }] },
-                        { role: 'model', parts: [{ text: 'Understood.' }] },
-                        ...historyMessages.map(h => ({ role: h.role, parts: [{ text: h.parts }] })),
-                    ],
-                });
-                const result = await chat.sendMessage(text);
-                responseText = (await result.response).text();
-            }
-
             if (responseText === null) {
-                throw new Error('AI service is unavailable. Ask an admin to configure the Gemini API key, or set your own key in Settings.');
+                throw new Error('AI is temporarily unavailable. Either the daily limit was hit or the admin has not finished setup.');
             }
 
             // Save assistant message

@@ -1,9 +1,7 @@
 // Client-side wrapper that calls the server-side Edge Functions for Gemini AI.
-// Improvement D1: keeps the Gemini API key on the server, not in the user's DB.
-//
-// Falls back to the legacy direct-client path (gemini-service.ts) if the user
-// has their own API key configured — this preserves backward compatibility
-// while the Edge Functions get rolled out.
+// SINGLE PROVIDER MODEL: one Gemini API key per system, configured by an
+// admin via /admin. There is no per-user fallback path — users without
+// admin-configured AI see a clear "AI unavailable" message instead.
 
 import { supabase } from '@/integrations/supabase/client';
 
