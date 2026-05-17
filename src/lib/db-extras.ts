@@ -191,6 +191,93 @@ export async function getDashboardStats(
   return data as unknown as DashboardStatsResult | null;
 }
 
+// ---------- Admin / system secrets ----------
+
+/**
+ * Returns true if the current authenticated user is an admin (has at least one
+ * car_profile with is_admin = true). Uses the SECURITY DEFINER function so RLS
+ * doesn't block the check.
+ */
+export async function isAdminUser(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_admin_user' as never);
+  if (error) {
+    console.warn('isAdminUser check failed:', error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+export interface AdminSetting {
+  setting_key: string;
+  setting_value: string | null;
+  label: string;
+  description: string;
+  is_secret: boolean;
+}
+
+/**
+ * The canonical list of admin-managed system settings. The UI iterates over
+ * this and lets the admin set each value. Keep in sync with whatever the
+ * Edge Functions actually read.
+ */
+export const KNOWN_ADMIN_SETTINGS: Omit<AdminSetting, 'setting_value'>[] = [
+  {
+    setting_key: 'admin_secret_gemini_api_key',
+    label: 'Gemini API Key',
+    description: 'Used by analyze-session and chat Edge Functions for AI features. Get one at aistudio.google.com.',
+    is_secret: true,
+  },
+  {
+    setting_key: 'admin_gemini_model',
+    label: 'Default Gemini Model',
+    description: 'Model used by analyze-session and chat Edge Functions. Default: gemini-2.5-flash.',
+    is_secret: false,
+  },
+];
+
+export async function listAdminSettings(): Promise<AdminSetting[]> {
+  const keys = KNOWN_ADMIN_SETTINGS.map(s => s.setting_key);
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('setting_key, setting_value')
+    .is('user_id', null)
+    .in('setting_key', keys);
+
+  if (error) {
+    console.error('Failed to load admin settings:', error);
+    return KNOWN_ADMIN_SETTINGS.map(meta => ({ ...meta, setting_value: null }));
+  }
+
+  return KNOWN_ADMIN_SETTINGS.map(meta => {
+    const row = (data || []).find((r) => r.setting_key === meta.setting_key);
+    return { ...meta, setting_value: row?.setting_value ?? null };
+  });
+}
+
+export async function upsertAdminSetting(settingKey: string, value: string | null): Promise<void> {
+  // We upsert via two-step because Supabase upsert on partial unique indexes
+  // is fiddly. Try update first; insert if not found.
+  const { data: existing } = await supabase
+    .from('app_settings')
+    .select('id')
+    .is('user_id', null)
+    .eq('setting_key', settingKey)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('app_settings')
+      .update({ setting_value: value })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('app_settings')
+      .insert({ setting_key: settingKey, setting_value: value, encrypted: false, user_id: null });
+    if (error) throw error;
+  }
+}
+
 // ---------- Baselines ----------
 
 export async function refreshParameterBaselines(carProfileId: string): Promise<void> {
