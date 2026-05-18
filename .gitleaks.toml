@@ -1,0 +1,6 @@
+[allowlist]
+description = "False positives"
+regexes = [
+  # OBD2 parameter keys like battery_voltage_12v are not API keys
+  '''battery_voltage''',
+]

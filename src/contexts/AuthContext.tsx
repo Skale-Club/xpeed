@@ -21,16 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listen for auth changes FIRST — this is the authoritative source.
-    // onAuthStateChange fires synchronously with the cached session on subscribe,
-    // so setLoading(false) happens after the first event regardless of source.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setLoading(false);
     });
 
-    // Trigger initial session check; the listener above will receive its result.
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       setSession(initialSession);
       setUser(initialSession?.user ?? null);
@@ -41,15 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
   };
 
   const signInWithGoogle = async () => {
-    // Prefer a canonical app URL in production to avoid OAuth returning to preview domains.
     const appUrl = import.meta.env.VITE_APP_URL?.replace(/\/$/, '');
 
     if (!appUrl && import.meta.env.PROD) {
@@ -69,9 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo,
-      },
+      options: { redirectTo },
     });
     if (error) {
       console.error('Google OAuth error:', error.message);
@@ -80,10 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
     return { data, error };
   };
@@ -101,16 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      loading,
-      signIn,
-      signInWithGoogle,
-      signUp,
-      signOut,
-      resetPassword,
-    }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signInWithGoogle, signUp, signOut, resetPassword }}>
       {children}
     </AuthContext.Provider>
   );
