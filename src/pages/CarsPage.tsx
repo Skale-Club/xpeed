@@ -8,6 +8,7 @@ import { useCarsContext } from '@/contexts/CarsContext';
 import type { CarProfile } from '@/lib/db';
 import { PageLoader } from '@/components/PageLoader';
 import { Car, Plus, Trash2, Edit2, Check, X, Loader2 } from 'lucide-react';
+import { AddVehicleForm } from '@/components/AddVehicleForm';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -41,23 +42,14 @@ function buildHeadline(car: CarProfile): string {
 }
 
 export default function CarsPage() {
-  const { cars, selectedCarId, selectCar, createCar, updateCar, deleteCar, loading } = useCarsContext();
+  const { cars, selectedCarId, selectCar, updateCar, deleteCar, loading } = useCarsContext();
   const { toast } = useToast();
 
   // Dialog + per-card state
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingCar, setEditingCar] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
-
-  // Add form state
-  const [newYear, setNewYear] = useState('');
-  const [newMake, setNewMake] = useState('');
-  const [newModel, setNewModel] = useState('');
-  const [newTrim, setNewTrim] = useState('');
-  const [newVin, setNewVin] = useState('');
-  const [newNotes, setNewNotes] = useState('');
 
   // Edit form state
   const [editYear, setEditYear] = useState('');
@@ -66,53 +58,6 @@ export default function CarsPage() {
   const [editTrim, setEditTrim] = useState('');
   const [editVin, setEditVin] = useState('');
   const [editNotes, setEditNotes] = useState('');
-
-  const resetAddForm = () => {
-    setNewYear('');
-    setNewMake('');
-    setNewModel('');
-    setNewTrim('');
-    setNewVin('');
-    setNewNotes('');
-  };
-
-  const handleCreateCar = async () => {
-    const trimmedMake = newMake.trim();
-    const trimmedModel = newModel.trim();
-    if (!trimmedMake || !trimmedModel) {
-      toast({ title: 'Error', description: 'Make and model are required', variant: 'destructive' });
-      return;
-    }
-    const yearNum = newYear ? parseInt(newYear, 10) : undefined;
-    if (newYear && (isNaN(yearNum!) || yearNum! < 1900 || yearNum! > 2100)) {
-      toast({ title: 'Error', description: 'Enter a valid year (1900–2100)', variant: 'destructive' });
-      return;
-    }
-    const trimmedVin = newVin.trim();
-    if (trimmedVin && trimmedVin.length !== 17) {
-      toast({ title: 'Error', description: 'VIN must be exactly 17 characters (or left blank)', variant: 'destructive' });
-      return;
-    }
-
-    setIsCreating(true);
-    try {
-      await createCar({
-        year: yearNum ?? null,
-        make: trimmedMake,
-        model: trimmedModel,
-        trim: newTrim.trim() || null,
-        vin: trimmedVin || null,
-        notes: newNotes.trim() || null,
-      });
-      toast({ title: 'Success', description: 'Vehicle added successfully' });
-      resetAddForm();
-      setIsAddDialogOpen(false);
-    } catch (error) {
-      toast({ title: 'Error', description: String(error), variant: 'destructive' });
-    } finally {
-      setIsCreating(false);
-    }
-  };
 
   const handleUpdateCar = async (id: string) => {
     const trimmedMake = editMake.trim();
@@ -185,7 +130,7 @@ export default function CarsPage() {
             <Car className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-mono font-bold text-foreground">My Vehicles</h2>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={(open) => { setIsAddDialogOpen(open); if (!open) resetAddForm(); }}>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="font-mono text-xs">
                 <Plus className="w-3.5 h-3.5 mr-2" />
@@ -199,75 +144,10 @@ export default function CarsPage() {
                   Register a new vehicle to track its OBD2 data separately.
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-3 py-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-year">Year</Label>
-                  <Input
-                    id="new-year"
-                    type="number"
-                    min={1900}
-                    max={2100}
-                    placeholder="2023"
-                    value={newYear}
-                    onChange={(e) => setNewYear(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-make">Make *</Label>
-                  <Input
-                    id="new-make"
-                    placeholder="Toyota"
-                    value={newMake}
-                    onChange={(e) => setNewMake(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5 col-span-2">
-                  <Label htmlFor="new-model">Model *</Label>
-                  <Input
-                    id="new-model"
-                    placeholder="Camry"
-                    value={newModel}
-                    onChange={(e) => setNewModel(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-trim">Trim</Label>
-                  <Input
-                    id="new-trim"
-                    placeholder="LX"
-                    value={newTrim}
-                    onChange={(e) => setNewTrim(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-vin">VIN</Label>
-                  <Input
-                    id="new-vin"
-                    placeholder="17 characters"
-                    maxLength={17}
-                    value={newVin}
-                    onChange={(e) => setNewVin(e.target.value.toUpperCase())}
-                  />
-                </div>
-                <div className="space-y-1.5 col-span-2">
-                  <Label htmlFor="new-notes">Notes</Label>
-                  <Input
-                    id="new-notes"
-                    placeholder="Purchased Aug 2023, 42k miles..."
-                    value={newNotes}
-                    onChange={(e) => setNewNotes(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleCreateCar} disabled={isCreating}>
-                  {isCreating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  Add Vehicle
-                </Button>
-              </DialogFooter>
+              <AddVehicleForm
+                onSuccess={() => setIsAddDialogOpen(false)}
+                onCancel={() => setIsAddDialogOpen(false)}
+              />
             </DialogContent>
           </Dialog>
         </div>

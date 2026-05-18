@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Upload, BarChart3, History, Settings, Gauge, SlidersHorizontal, Car, Plus, ChevronDown, Loader2, LogOut, User, Wrench, Shield } from 'lucide-react';
+import { AddVehicleForm } from '@/components/AddVehicleForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAdminStatus } from '@/hooks/use-admin-status';
@@ -21,8 +22,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { ChatBubble } from '@/components/ChatBubble';
 import { useTranslation } from 'react-i18next';
@@ -40,15 +39,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
-  const { cars, selectedCar, selectedCarId, loading: carsLoading, selectCar, createCar, refresh } = useCarsContext();
+  const { cars, selectedCar, selectedCarId, loading: carsLoading, selectCar, refresh } = useCarsContext();
   const { isAdmin } = useAdminStatus();
-  const { toast } = useToast();
   const { t } = useTranslation();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [newCarName, setNewCarName] = useState('');
-  const [newCarNotes, setNewCarNotes] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { toast } = useToast();
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -59,26 +55,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       toast({ title: 'Error', description: 'Failed to sign out', variant: 'destructive' });
     } finally {
       setIsLoggingOut(false);
-    }
-  };
-
-  const handleCreateCar = async () => {
-    if (!newCarName.trim()) {
-      toast({ title: 'Error', description: 'Please enter a car name', variant: 'destructive' });
-      return;
-    }
-
-    setIsCreating(true);
-    try {
-      await createCar(newCarName.trim(), newCarNotes.trim() || undefined);
-      toast({ title: 'Success', description: 'Car added successfully' });
-      setNewCarName('');
-      setNewCarNotes('');
-      setIsAddDialogOpen(false);
-    } catch (error) {
-      toast({ title: 'Error', description: String(error), variant: 'destructive' });
-    } finally {
-      setIsCreating(false);
     }
   };
 
@@ -140,35 +116,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                           Register a new vehicle to track its OBD2 data separately.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="car-name">Vehicle Name</Label>
-                          <Input
-                            id="car-name"
-                            placeholder="e.g., 2015 Honda Civic"
-                            value={newCarName}
-                            onChange={(e) => setNewCarName(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="car-notes">Notes (Optional)</Label>
-                          <Input
-                            id="car-notes"
-                            placeholder="e.g., VIN, mileage, modifications..."
-                            value={newCarNotes}
-                            onChange={(e) => setNewCarNotes(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleCreateCar} disabled={isCreating}>
-                          {isCreating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                          Add Vehicle
-                        </Button>
-                      </DialogFooter>
+                      <AddVehicleForm
+                        onSuccess={() => { setIsAddDialogOpen(false); refresh(); }}
+                        onCancel={() => setIsAddDialogOpen(false)}
+                      />
                     </DialogContent>
                   </Dialog>
                 </DropdownMenuContent>
