@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getSessions, getSessionFlags, getFlagsForSessions, toggleFlagResolved } from '@/lib/db';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, Eye, EyeOff } from 'lucide-react';
+import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, Eye, EyeOff, Upload } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { subDays } from 'date-fns';
 import { toast } from 'sonner';
@@ -440,7 +440,7 @@ const Index = () => {
               Vehicle Health Overview
             </p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <Select value={dateRange} onValueChange={setDateRange}>
               <SelectTrigger className="w-[150px] bg-card border-border h-9 text-xs">
                 <Calendar className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
@@ -453,6 +453,17 @@ const Index = () => {
                 <SelectItem value="all">All Time</SelectItem>
               </SelectContent>
             </Select>
+            {allSessions.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 text-xs gap-1.5"
+                onClick={() => setIsUploadOpen(true)}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Upload
+              </Button>
+            )}
             {stats.lastUpload && (
               <div className="text-right hidden sm:block">
                 <p className="text-xs text-muted-foreground font-mono">Last Sync</p>
@@ -464,8 +475,8 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Empty State */}
-        {stats.totalSessions === 0 ? (
+        {/* True empty state — no sessions ever uploaded */}
+        {allSessions.length === 0 ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2">
               <UploadCard onComplete={handleUploadComplete} carProfileId={selectedCarId || undefined} />
@@ -486,8 +497,23 @@ const Index = () => {
           </div>
         ) : (
           <>
+          {/* No sessions in selected period — but data exists */}
+          {stats.totalSessions === 0 && (
+            <Card className="bg-card border-border">
+              <CardContent className="py-10 text-center space-y-3">
+                <Calendar className="w-10 h-10 text-muted-foreground/40 mx-auto" />
+                <p className="text-sm font-mono text-muted-foreground">
+                  No sessions in the selected period.
+                </p>
+                <Button size="sm" variant="outline" onClick={() => setDateRange('all')}>
+                  Show All Time
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* At-a-glance: health gauge + key KPIs (mobile-first: stacks vertically) */}
-          <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-4 sm:gap-6 mb-6 items-center">
+          {stats.totalSessions > 0 && <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-4 sm:gap-6 mb-6 items-center">
             <div className="flex justify-center">
               <HealthGauge score={generalStats.healthScore} status={stats.status} size={140} />
             </div>
@@ -519,6 +545,7 @@ const Index = () => {
           </div>
 
           {/* KPI Cards */}
+          {stats.totalSessions > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <LatestTripCard
               sessions={allSessions}
@@ -530,6 +557,7 @@ const Index = () => {
               onProblemsClick={() => setIsProblemsOpen(true)}
             />
           </div>
+          )}
 
           <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
               <DialogContent className="sm:max-w-md">
@@ -634,6 +662,7 @@ const Index = () => {
           </Dialog>
 
           {/* Sensor Trends */}
+          {stats.totalSessions > 0 && (
           <div className="space-y-4 mt-6">
             <h3 className="text-sm font-mono font-semibold text-foreground flex items-center gap-2">
               <Activity className="w-4 h-4 text-primary" />
@@ -641,6 +670,7 @@ const Index = () => {
             </h3>
             <DashboardCharts sessions={filteredSessions} />
           </div>
+          )}
         </>
       )}
     </div>
