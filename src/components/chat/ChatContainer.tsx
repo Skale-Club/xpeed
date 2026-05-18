@@ -186,7 +186,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         } finally {
             setLoading(false);
         }
-    }, [apiKey, modelName, currentConversation, selectedCar, contextData, messages, toast]);
+    }, [modelName, currentConversation, selectedCar, contextData, messages, toast]);
 
     const handleNewConversation = async () => {
         setCurrentConversation(null);
@@ -284,18 +284,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     <div className="flex-1 flex flex-col">
                         {/* Messages */}
                         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-                            {!apiKey ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center">
-                                    <Sparkles className="w-12 h-12 text-muted-foreground mb-4" />
-                                    <h3 className="text-lg font-semibold mb-2">API Key Required</h3>
-                                    <p className="text-muted-foreground mb-4">
-                                        Please configure your Gemini API Key in Settings to start chatting.
-                                    </p>
-                                    <Button onClick={() => window.location.href = '/settings'}>
-                                        Go to Settings
-                                    </Button>
-                                </div>
-                            ) : messages.length === 0 && !loading ? (
+                            {messages.length === 0 && !loading ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
                                     <Sparkles className="w-12 h-12 text-primary mb-4" />
                                     <h3 className="text-lg font-semibold mb-2">
