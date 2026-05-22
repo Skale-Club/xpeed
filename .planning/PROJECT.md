@@ -1,8 +1,8 @@
 # car-insights-ai — Project
 
 **Created:** 2026-05-17  
-**Last Updated:** 2026-05-17  
-**Status:** Active Development
+**Last Updated:** 2026-05-22  
+**Status:** Active Development — Milestone v1.1
 
 ## What is this?
 
@@ -16,6 +16,16 @@ A React + Supabase SPA for OBD2 car diagnostics powered by Gemini AI. Users uplo
 - **Backend:** Supabase (auth, PostgreSQL, RLS, storage)
 - **AI:** Google Gemini 2.5 Flash (analysis + chat)
 - **Hosting:** Vercel (SPA)
+
+## Current Milestone: v1.1 MCP Server
+
+**Goal:** Build an MCP (Model Context Protocol) server that exposes Car Insights AI's data (cars, sessions, DTCs, maintenance, trends, chat) as tools/resources for LLMs and AI agents, with per-user auth token management in settings.
+
+**Target features:**
+- MCP server exposing tools for car profiles, sessions, DTC lookup, maintenance, trends, and Gemini analysis
+- Auth token generation/management in Settings page
+- Supabase JWT-based authentication for the MCP server
+- Integration-ready for Claude Desktop, Cursor, OpenCode, etc.
 
 ## Current State
 
@@ -46,14 +56,16 @@ A React + Supabase SPA for OBD2 car diagnostics powered by Gemini AI. Users uplo
 
 ## Roadmap
 
-| Phase | Title | Priority | Status |
-|-------|-------|----------|--------|
-| 01 | Supabase Keepalive Hardening | P0 | ✅ Done |
-| 02 | Complete Car Onboarding Wizard | P1 | 📋 Planned |
-| 03 | Critical Security & Bug Fixes | P0 | 📋 Planned |
-| 04 | Performance Optimization | P1 | 📋 Planned |
-| 05 | UI/UX & Dashboard Enhancement | P2 | 📋 Planned |
-| 06 | Test Coverage & Quality | P1 | 📋 Planned |
+| Phase | Title | Milestone | Priority | Status |
+|-------|-------|-----------|----------|--------|
+| 01 | Supabase Keepalive Hardening | v1.0 | P0 | ✅ Done |
+| 02 | Complete Car Onboarding Wizard | v1.0 | P1 | 📋 Planned |
+| 03 | Critical Security & Bug Fixes | v1.0 | P0 | 📋 Planned |
+| 04 | Performance Optimization | v1.0 | P1 | 📋 Planned |
+| 05 | UI/UX & Dashboard Enhancement | v1.0 | P2 | 📋 Planned |
+| 06 | Test Coverage & Quality | v1.0 | P1 | 📋 Planned |
+| 07 | MCP Server Core | v1.1 | P0 | 🚧 In Progress |
+| 08 | MCP Tools & Settings UI | v1.1 | P0 | 📋 Planned |
 
 ## Success Metrics
 
