@@ -19,13 +19,15 @@ A React + Supabase SPA for OBD2 car diagnostics powered by Gemini AI. Users uplo
 
 ## Current Milestone: v1.1 MCP Server
 
-**Goal:** Build an MCP (Model Context Protocol) server that exposes Car Insights AI's data (cars, sessions, DTCs, maintenance, trends, chat) as tools/resources for LLMs and AI agents, with per-user auth token management in settings.
+**Goal:** Build an MCP (Model Context Protocol) server as a Supabase Edge Function that exposes Car Insights AI data (cars, sessions, DTCs, maintenance, trends, chat) as tools/resources for LLMs and AI agents, with per-user auth token management in Settings.
 
 **Target features:**
-- MCP server exposing tools for car profiles, sessions, DTC lookup, maintenance, trends, and Gemini analysis
-- Auth token generation/management in Settings page
-- Supabase JWT-based authentication for the MCP server
-- Integration-ready for Claude Desktop, Cursor, OpenCode, etc.
+- MCP server as Edge Function (Deno) with Streamable HTTP transport
+- Read-only tools: cars, sessions, flags, DTC lookup, maintenance
+- Analysis tools: trends, health summary, dashboard stats, session search
+- AI tools: Gemini analysis, chat with vehicle context
+- Auth token generation/management in Settings page (30-day long-lived tokens)
+- Production hardening: pagination, sanitization, rate limiting, audit logging
 
 ## Current State
 
@@ -64,8 +66,10 @@ A React + Supabase SPA for OBD2 car diagnostics powered by Gemini AI. Users uplo
 | 04 | Performance Optimization | v1.0 | P1 | 📋 Planned |
 | 05 | UI/UX & Dashboard Enhancement | v1.0 | P2 | 📋 Planned |
 | 06 | Test Coverage & Quality | v1.0 | P1 | 📋 Planned |
-| 07 | MCP Server Core | v1.1 | P0 | 🚧 In Progress |
-| 08 | MCP Tools & Settings UI | v1.1 | P0 | 📋 Planned |
+| 07 | Foundation & Core Read-Only Tools | v1.1 | P0 | 🚧 In Progress |
+| 08 | Analysis & Trends | v1.1 | P1 | 📋 Planned |
+| 09 | AI Integration & Settings UI | v1.1 | P0 | 📋 Planned |
+| 10 | Mutations, Resources & Hardening | v1.1 | P2 | 📋 Planned |
 
 ## Success Metrics
 
