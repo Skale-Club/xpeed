@@ -122,6 +122,9 @@ export default function McpTokensSection() {
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-mono font-medium text-foreground truncate">
                       {t.name}
+                      {t.token_prefix && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">{t.token_prefix}…</span>
+                      )}
                       {isRevoked && <span className="ml-2 text-[9px] uppercase text-destructive">revoked</span>}
                     </div>
                     <div className="text-[10px] text-muted-foreground font-mono">

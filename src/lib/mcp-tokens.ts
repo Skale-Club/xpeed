@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 export interface McpToken {
   id: string;
   name: string;
+  token_prefix: string | null;
   last_used_at: string | null;
   created_at: string;
   revoked_at: string | null;
@@ -27,7 +28,7 @@ function generateRawToken(): string {
 export async function listMcpTokens(): Promise<McpToken[]> {
   const { data, error } = await supabase
     .from('mcp_tokens' as never)
-    .select('id, name, last_used_at, created_at, revoked_at')
+    .select('id, name, token_prefix, last_used_at, created_at, revoked_at')
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data || []) as unknown as McpToken[];
@@ -36,11 +37,12 @@ export async function listMcpTokens(): Promise<McpToken[]> {
 export async function createMcpToken(name: string): Promise<{ token: string; row: McpToken }> {
   const raw = generateRawToken();
   const hash = await sha256Hex(raw);
+  const prefix = raw.slice(0, 8);
 
   const { data, error } = await supabase
     .from('mcp_tokens' as never)
-    .insert({ name, token_hash: hash } as never)
-    .select('id, name, last_used_at, created_at, revoked_at')
+    .insert({ name, token_hash: hash, token_prefix: prefix } as never)
+    .select('id, name, token_prefix, last_used_at, created_at, revoked_at')
     .single();
 
   if (error) throw error;
