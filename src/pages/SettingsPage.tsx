@@ -6,6 +6,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import McpTokensSection from '@/components/McpTokensSection';
 
 export default function SettingsPage() {
   const { distanceUnit, setDistanceUnit, timezone, setTimezone } = useSettings();
@@ -80,6 +81,9 @@ export default function SettingsPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* MCP Tokens */}
+        <McpTokensSection />
 
         {/* About */}
         <Card className="bg-card border-border">

@@ -1,11 +1,11 @@
 // Car Insights MCP Server — JSON-RPC 2.0 over HTTP (MCP protocol 2024-11-05)
-// Auth: X-API-Key header matched against app_settings.mcp_api_key
-// Uses service role to bypass RLS (trusted AI-agent-only endpoint).
+// Auth: per-user tokens stored in public.mcp_tokens (SHA-256 hash).
+// Accepts token via X-API-Key header, Authorization: Bearer <token>, or ?key= query param.
+// Uses service role to bypass RLS but scopes every query to the resolved token owner.
 //
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getAdminSetting } from "../_shared/admin-config.ts";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,10 +27,27 @@ function jsonRpcError(id: unknown, code: number, message: string, status = 200):
   });
 }
 
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Validate vehicle_id belongs to userId. Returns true if owned, false otherwise.
+async function ownsVehicle(db: SupabaseClient, userId: string, vehicleId: string): Promise<boolean> {
+  const { data } = await db
+    .from("car_profiles")
+    .select("id")
+    .eq("id", vehicleId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return !!data;
+}
+
 const TOOLS = [
   {
     name: "list_vehicles",
-    description: "List all vehicle profiles. Returns id, name, make, model, year, engine_type.",
+    description: "List all vehicle profiles owned by the authenticated user. Returns id, name, make, model, year, engine_type.",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
   {
@@ -101,20 +118,43 @@ serve(async (req) => {
   }
 
   // --- Auth ---
-  // Accept key via: X-API-Key header, Authorization: Bearer <key>, or ?key= query param.
   const url = new URL(req.url);
   const bearerHeader = req.headers.get("Authorization") || "";
   const bearerToken = bearerHeader.startsWith("Bearer ") ? bearerHeader.slice(7) : null;
-  const apiKey =
+  const rawToken =
     req.headers.get("X-API-Key") ||
     req.headers.get("x-api-key") ||
     bearerToken ||
     url.searchParams.get("key");
 
-  const storedKey = await getAdminSetting("mcp_api_key");
-  if (!storedKey || !apiKey || apiKey !== storedKey) {
-    return jsonRpcError(null, -32001, "Unauthorized: missing or invalid API key", 401);
+  if (!rawToken) {
+    return jsonRpcError(null, -32001, "Unauthorized: missing API key", 401);
   }
+
+  // --- DB client (service role) ---
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+
+  // Resolve token hash → user_id
+  const tokenHash = await sha256Hex(rawToken);
+  const { data: tokenRow } = await db
+    .from("mcp_tokens")
+    .select("id, user_id, revoked_at")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (!tokenRow || tokenRow.revoked_at) {
+    return jsonRpcError(null, -32001, "Unauthorized: invalid or revoked token", 401);
+  }
+
+  const userId = tokenRow.user_id as string;
+
+  // Best-effort: bump last_used_at (don't block on failure)
+  db.from("mcp_tokens")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", tokenRow.id)
+    .then(() => {}, () => {});
 
   // --- Parse JSON-RPC ---
   let body: { jsonrpc?: string; id?: unknown; method?: string; params?: Record<string, unknown> };
@@ -127,18 +167,13 @@ serve(async (req) => {
   const { id = null, method, params = {} } = body;
   if (!method) return jsonRpcError(id, -32600, "Invalid Request: missing method");
 
-  // --- DB client (service role) ---
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
-
   // --- MCP protocol methods ---
   switch (method) {
     case "initialize":
       return jsonRpc(id, {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "car-insights-mcp", version: "1.0.0" },
+        serverInfo: { name: "car-insights-mcp", version: "2.0.0" },
       });
 
     case "notifications/initialized":
@@ -157,6 +192,7 @@ serve(async (req) => {
           const { data, error } = await db
             .from("car_profiles")
             .select("id, name, make, model, year, engine_type, created_at")
+            .eq("user_id", userId)
             .order("created_at", { ascending: false });
           if (error) return jsonRpcError(id, -32603, error.message);
           return jsonRpc(id, { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
@@ -164,11 +200,16 @@ serve(async (req) => {
 
         // ---- list_sessions ----
         case "list_sessions": {
+          const vid = args.vehicle_id as string;
+          if (!(await ownsVehicle(db, userId, vid))) {
+            return jsonRpcError(id, -32004, "Forbidden: vehicle not owned by token user");
+          }
           const limit = Math.min(Number(args.limit) || 10, 50);
           const { data, error } = await db
             .from("sessions")
             .select("id, source_filename, uploaded_at, row_count, duration_seconds, active_dtcs, gemini_analysis")
-            .eq("car_profile_id", args.vehicle_id as string)
+            .eq("car_profile_id", vid)
+            .eq("user_id", userId)
             .order("uploaded_at", { ascending: false })
             .limit(limit);
           if (error) return jsonRpcError(id, -32603, error.message);
@@ -177,19 +218,22 @@ serve(async (req) => {
 
         // ---- get_session_detail ----
         case "get_session_detail": {
-          const [sessionRes, flagsRes] = await Promise.all([
-            db
-              .from("sessions")
-              .select("id, source_filename, uploaded_at, row_count, duration_seconds, active_dtcs, columns, summary, gemini_analysis")
-              .eq("id", args.session_id as string)
-              .single(),
-            db
-              .from("session_flags")
-              .select("severity, canonical_key, parameter_key, message, evidence, created_at")
-              .eq("session_id", args.session_id as string)
-              .order("severity"),
-          ]);
+          const sid = args.session_id as string;
+          const sessionRes = await db
+            .from("sessions")
+            .select("id, source_filename, uploaded_at, row_count, duration_seconds, active_dtcs, columns, summary, gemini_analysis, user_id")
+            .eq("id", sid)
+            .eq("user_id", userId)
+            .maybeSingle();
           if (sessionRes.error) return jsonRpcError(id, -32603, sessionRes.error.message);
+          if (!sessionRes.data) return jsonRpcError(id, -32004, "Forbidden: session not found or not owned");
+
+          const flagsRes = await db
+            .from("session_flags")
+            .select("severity, canonical_key, parameter_key, message, evidence, created_at")
+            .eq("session_id", sid)
+            .order("severity");
+
           const result = { session: sessionRes.data, flags: flagsRes.data ?? [] };
           return jsonRpc(id, { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
         }
@@ -197,6 +241,10 @@ serve(async (req) => {
         // ---- get_vehicle_health ----
         case "get_vehicle_health": {
           const vid = args.vehicle_id as string;
+          if (!(await ownsVehicle(db, userId, vid))) {
+            return jsonRpcError(id, -32004, "Forbidden: vehicle not owned by token user");
+          }
+
           const [baselinesRes, recentSessionsRes] = await Promise.all([
             db
               .from("parameter_baselines")
@@ -207,11 +255,11 @@ serve(async (req) => {
               .from("sessions")
               .select("id, uploaded_at")
               .eq("car_profile_id", vid)
+              .eq("user_id", userId)
               .order("uploaded_at", { ascending: false })
               .limit(5),
           ]);
 
-          // Fetch flags for recent sessions
           let recentFlags: any[] = [];
           if (recentSessionsRes.data && recentSessionsRes.data.length > 0) {
             const sessionIds = recentSessionsRes.data.map((s: any) => s.id);
@@ -234,11 +282,16 @@ serve(async (req) => {
 
         // ---- list_maintenance ----
         case "list_maintenance": {
+          const vid = args.vehicle_id as string;
+          if (!(await ownsVehicle(db, userId, vid))) {
+            return jsonRpcError(id, -32004, "Forbidden: vehicle not owned by token user");
+          }
           const limit = Math.min(Number(args.limit) || 20, 100);
           const { data, error } = await db
             .from("maintenance_events")
             .select("id, type, date, odometer, notes, created_at")
-            .eq("car_profile_id", args.vehicle_id as string)
+            .eq("car_profile_id", vid)
+            .eq("user_id", userId)
             .order("date", { ascending: false })
             .limit(limit);
           if (error) return jsonRpcError(id, -32603, error.message);
@@ -248,13 +301,16 @@ serve(async (req) => {
         // ---- list_flags ----
         case "list_flags": {
           const vid = args.vehicle_id as string;
+          if (!(await ownsVehicle(db, userId, vid))) {
+            return jsonRpcError(id, -32004, "Forbidden: vehicle not owned by token user");
+          }
           const limit = Math.min(Number(args.limit) || 30, 100);
 
-          // Get session IDs for this vehicle
           const { data: sessions } = await db
             .from("sessions")
             .select("id")
-            .eq("car_profile_id", vid);
+            .eq("car_profile_id", vid)
+            .eq("user_id", userId);
 
           if (!sessions || sessions.length === 0) {
             return jsonRpc(id, { content: [{ type: "text", text: "[]" }] });
