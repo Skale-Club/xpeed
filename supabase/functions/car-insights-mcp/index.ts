@@ -101,10 +101,19 @@ serve(async (req) => {
   }
 
   // --- Auth ---
-  const apiKey = req.headers.get("X-API-Key") || req.headers.get("x-api-key");
+  // Accept key via: X-API-Key header, Authorization: Bearer <key>, or ?key= query param.
+  const url = new URL(req.url);
+  const bearerHeader = req.headers.get("Authorization") || "";
+  const bearerToken = bearerHeader.startsWith("Bearer ") ? bearerHeader.slice(7) : null;
+  const apiKey =
+    req.headers.get("X-API-Key") ||
+    req.headers.get("x-api-key") ||
+    bearerToken ||
+    url.searchParams.get("key");
+
   const storedKey = await getAdminSetting("mcp_api_key");
   if (!storedKey || !apiKey || apiKey !== storedKey) {
-    return jsonRpcError(null, -32001, "Unauthorized: missing or invalid X-API-Key", 401);
+    return jsonRpcError(null, -32001, "Unauthorized: missing or invalid API key", 401);
   }
 
   // --- Parse JSON-RPC ---

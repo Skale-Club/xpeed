@@ -233,6 +233,12 @@ export const KNOWN_ADMIN_SETTINGS: Omit<AdminSetting, 'setting_value'>[] = [
     description: 'Model used by analyze-session and chat Edge Functions. Default: gemini-2.5-flash.',
     is_secret: false,
   },
+  {
+    setting_key: 'mcp_api_key',
+    label: 'MCP API Key',
+    description: 'Protects the car-insights-mcp endpoint used by AI agents (Claude.ai, ChatGPT, etc). Generate any strong random string. Pass as X-API-Key header, Authorization: Bearer, or ?key= query param.',
+    is_secret: true,
+  },
 ];
 
 export async function listAdminSettings(): Promise<AdminSetting[]> {
