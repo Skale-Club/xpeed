@@ -278,6 +278,84 @@ export async function upsertAdminSetting(settingKey: string, value: string | nul
   }
 }
 
+// ---------- Vehicle Issues ----------
+
+export type IssueSeverity = 'attention' | 'critical' | 'info';
+export type IssueStatus   = 'open' | 'monitoring' | 'resolved' | 'dismissed';
+
+export interface VehicleIssue {
+  id: string;
+  car_profile_id: string;
+  user_id: string;
+  canonical_key: string | null;
+  dtc_code: string | null;
+  title: string;
+  description: string | null;
+  severity: IssueSeverity;
+  status: IssueStatus;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type VehicleIssueInput = Pick<
+  VehicleIssue,
+  'car_profile_id' | 'title' | 'severity'
+> & Partial<Pick<VehicleIssue, 'dtc_code' | 'description' | 'canonical_key'>>;
+
+export type VehicleIssuePatch = Partial<Pick<
+  VehicleIssue,
+  'status' | 'severity' | 'title' | 'description' | 'resolution_note' | 'resolved_at'
+>>;
+
+export async function listVehicleIssues(carProfileId: string): Promise<VehicleIssue[]> {
+  const { data, error } = await supabase
+    .from('vehicle_issues' as never)
+    .select('*')
+    .eq('car_profile_id', carProfileId)
+    .order('last_seen_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as unknown as VehicleIssue[];
+}
+
+export async function createVehicleIssue(input: VehicleIssueInput): Promise<VehicleIssue> {
+  const { data, error } = await supabase
+    .from('vehicle_issues' as never)
+    .insert(input as never)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as unknown as VehicleIssue;
+}
+
+export async function updateVehicleIssue(id: string, patch: VehicleIssuePatch): Promise<VehicleIssue> {
+  const payload: VehicleIssuePatch & { resolved_at?: string | null } = { ...patch };
+  if (patch.status === 'resolved' && !payload.resolved_at) {
+    payload.resolved_at = new Date().toISOString();
+  } else if (patch.status && patch.status !== 'resolved') {
+    payload.resolved_at = null;
+  }
+  const { data, error } = await supabase
+    .from('vehicle_issues' as never)
+    .update(payload as never)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as unknown as VehicleIssue;
+}
+
+export async function deleteVehicleIssue(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('vehicle_issues' as never)
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}
+
 // ---------- Baselines ----------
 
 export async function refreshParameterBaselines(carProfileId: string): Promise<void> {
