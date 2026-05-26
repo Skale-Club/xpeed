@@ -50,11 +50,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setIsLoggingOut(true);
     try {
       await signOut();
-      navigate('/login');
-    } catch (error) {
-      toast({ title: 'Error', description: 'Failed to sign out', variant: 'destructive' });
+    } catch {
+      // ignore — we clear local state regardless
     } finally {
-      setIsLoggingOut(false);
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/login';
     }
   };
 
