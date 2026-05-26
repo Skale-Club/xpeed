@@ -345,6 +345,20 @@ export async function updateSessionWithGeminiAnalysis(
   }
 }
 
+export async function storeSessionReport(
+  sessionId: string,
+  report: Record<string, unknown>
+): Promise<void> {
+  const { error } = await supabase
+    .from('sessions')
+    .update({ report: report as unknown as never })
+    .eq('id', sessionId);
+
+  if (error) {
+    throw new Error(`Failed to store session report: ${error.message}`);
+  }
+}
+
 // Car management functions
 export type EngineType = 'petrol' | 'diesel' | 'hybrid' | 'electric';
 

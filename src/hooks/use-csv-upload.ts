@@ -3,11 +3,12 @@ import { parseCSV } from '@/lib/csv-parser';
 import { computeParameterSummaries, evaluateRules } from '@/lib/insight-engine';
 import {
   createSession, insertSessionRows, insertSessionFlags, uploadSessionCSV, removeSessionCSV, deleteSession,
-  getCarById,
+  getCarById, storeSessionReport,
 } from '@/lib/db';
 import { refreshParameterBaselines } from '@/lib/db-extras';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import { downsampleSessionRows } from '@/lib/downsample';
+import { generateReport } from '@/lib/report-generator';
 import { useToast } from '@/hooks/use-toast';
 
 export function useCSVUpload(onComplete: (sessionId: string) => void, carProfileId?: string) {
@@ -168,33 +169,39 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         evidence: f.evidence as unknown as Record<string, unknown>,
       })));
 
+      // Generate structured report (deterministic, no AI).
+      // Store it on the session so the edge function can read it instead of
+      // receiving a raw CSV dump as a string.
+      try {
+        const report = generateReport({
+          sessionId: session.id,
+          filename: file.name,
+          parsed,
+          summaries,
+          flags,
+          durationSeconds,
+          sessionStart,
+          car,
+          rulesetId: ruleset.id,
+          rulesetMatchedVia: ruleset.matched_via,
+        });
+        await storeSessionReport(session.id, report as unknown as Record<string, unknown>);
+      } catch (reportErr) {
+        console.warn('Report generation skipped:', reportErr);
+      }
+
       // Analyze with Gemini via the shared admin-configured Edge Function.
       // Single provider for all users — no per-user API key path.
       // Failure here is non-fatal: the session is already saved.
       try {
         updateProgress(95, 'Analyzing with AI...');
         const { updateSessionWithGeminiAnalysis } = await import('@/lib/db');
-        const { analyzeSessionViaEdge } = await import('@/lib/ai-client');
+        const { analyzeSessionById } = await import('@/lib/ai-client');
 
-        // Compact summary payload for the Edge Function (string form keeps the
-        // function generic and avoids leaking PII into a JSON dump).
-        const summaryLines: string[] = [
-          `File: ${file.name}`,
-          `Rows: ${parsed.rows.length}`,
-          durationSeconds ? `Duration: ${Math.round(durationSeconds / 60)} min` : '',
-          parsed.activeDtcs.length ? `Active DTCs: ${parsed.activeDtcs.join(', ')}` : '',
-          flags.length ? `Flags: ${flags.map(f => `${f.severity}/${f.canonical_key}`).join('; ')}` : 'No flags',
-          'Key params:',
-          ...summaries.slice(0, 10).map(s => `  - ${s.label || s.canonical_key}: avg=${s.avg.toFixed(1)} min=${s.min.toFixed(1)} max=${s.max.toFixed(1)}`),
-        ].filter(Boolean);
-
-        const analysis = await analyzeSessionViaEdge(summaryLines.join('\n'));
+        const analysis = await analyzeSessionById(session.id);
         if (analysis) {
           await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
         }
-        // else: Edge Function returned null (admin hasn't configured the key,
-        // user is over quota, or the call failed). Session is still saved
-        // successfully — just without the AI summary.
       } catch (aiError) {
         console.warn('Gemini analysis skipped:', aiError);
       }
