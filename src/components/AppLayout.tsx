@@ -3,6 +3,10 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { ChatBubble } from '@/components/ChatBubble';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <SidebarProvider>
+      <AppSidebar />
       <SidebarInset>
         <header className="flex h-12 items-center gap-3 border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-40 px-4">
           <SidebarTrigger />
@@ -20,5 +24,7 @@ import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
       </SidebarInset>
 
       <ChatBubble />
+      <PWAInstallPrompt />
+    </SidebarProvider>
   );
 }
