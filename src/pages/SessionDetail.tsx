@@ -8,10 +8,11 @@ import { Button } from '@/components/ui/button';
 import { getSession, getSessionFlags, getSessionRows, deleteSessionFlags, insertSessionFlags, downloadSessionCSV } from '@/lib/db';
 import { evaluateRules } from '@/lib/insight-engine';
 import { DEFAULT_PRIUS_RULES } from '@/lib/default-rules';
-import { ArrowLeft, RefreshCw, Download, Loader2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Download, Loader2, Activity } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 import { PageLoader } from '@/components/PageLoader';
+import { useViewMode } from '@/hooks/use-view-mode';
 
 import AIAnalysisCard from '@/components/AIAnalysisCard';
 import DTCPanel from '@/components/DTCPanel';
@@ -31,6 +32,7 @@ export default function SessionDetail() {
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const { toggle: toggleViewMode, isAdvanced } = useViewMode();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -154,6 +156,16 @@ export default function SessionDetail() {
               <RefreshCw className="w-3 h-3 mr-1" /> Re-evaluate
             </Button>
             <Button
+              variant={isAdvanced ? 'default' : 'outline'}
+              size="sm"
+              className="text-xs gap-1"
+              onClick={toggleViewMode}
+              title={isAdvanced ? 'Switch to Simple view' : 'Switch to Advanced view'}
+            >
+              <Activity className="w-3 h-3" />
+              {isAdvanced ? 'Simple' : 'Advanced'}
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               className="text-xs"
@@ -196,15 +208,17 @@ export default function SessionDetail() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <div>
-              <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Parameters</h3>
-              <SessionCharts rows={rows} headerMapping={headerMapping} rules={DEFAULT_PRIUS_RULES} />
-            </div>
+            {isAdvanced && (
+              <div>
+                <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Sensor Parameters</h3>
+                <SessionCharts rows={rows} headerMapping={headerMapping} rules={DEFAULT_PRIUS_RULES} />
+              </div>
+            )}
             {/* Improvement C3: photo upload */}
             <PhotoUpload sessionId={session.id} />
           </div>
           <div>
-            <h3 className="text-sm font-mono font-semibold text-foreground mb-3">All Flags</h3>
+            <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Flags</h3>
             <FlagsPanel flags={flags} />
           </div>
         </div>

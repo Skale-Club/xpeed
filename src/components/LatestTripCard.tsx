@@ -300,10 +300,10 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
             <div className="bg-primary/10 p-4 rounded-full mb-4">
                 <BarChart3 className="w-8 h-8 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">No Trips Yet</h3>
-            <p className="text-sm text-muted-foreground mb-4">Upload your first OBD2 CSV file to see trip analysis.</p>
+            <h3 className="text-lg font-semibold mb-2">No Sessions Yet</h3>
+            <p className="text-sm text-muted-foreground mb-4">Upload your first OBD2 CSV file to see session analysis.</p>
             <Button onClick={onUploadClick} className="gap-2">
-                <Plus className="w-4 h-4" /> New Trip
+                <Plus className="w-4 h-4" /> New Session
             </Button>
         </Card>
       );
@@ -324,7 +324,7 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
              <div className="flex flex-col">
-                <h3 className="text-lg font-semibold text-foreground">Trip Analysis</h3>
+                <h3 className="text-lg font-semibold text-foreground">Session Analysis</h3>
                 {activeSession && !isAggregated && (
                     <span className="text-xs text-muted-foreground font-mono">
                         {new Date(activeSession.session_start || activeSession.uploaded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -333,7 +333,7 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
                 )}
                 {isAggregated && (
                     <span className="text-xs text-muted-foreground font-mono">
-                        All Time Summary ({sessions.length} trips)
+                        All Time Summary ({sessions.length} sessions)
                     </span>
                 )}
              </div>
@@ -348,7 +348,7 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
                         className="h-8 w-8" 
                         onClick={handlePrevTrip}
                         disabled={!canGoPrev}
-                        title="Previous Trip (Older)"
+                        title="Previous Session (Older)"
                     >
                         <ChevronLeft className="w-4 h-4" />
                     </Button>
@@ -358,7 +358,7 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
                         className="h-8 w-8" 
                         onClick={handleNextTrip}
                         disabled={!canGoNext}
-                        title="Next Trip (Newer)"
+                        title="Next Session (Newer)"
                     >
                         <ChevronRight className="w-4 h-4" />
                     </Button>
@@ -367,10 +367,10 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
 
             <Select value={selectedId} onValueChange={setSelectedId}>
                 <SelectTrigger className="w-[180px] h-8 text-xs">
-                    <SelectValue placeholder="Select Trip" />
+                    <SelectValue placeholder="Select Session" />
                 </SelectTrigger>
                 <SelectContent align="end">
-                    <SelectItem value="latest">Latest Trip</SelectItem>
+                    <SelectItem value="latest">Latest Session</SelectItem>
                     <SelectItem value="all">Merge All (Summary)</SelectItem>
                     <div className="h-px bg-border my-1" />
                     {sessions.map(s => {
@@ -477,7 +477,7 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
 
         <div className="flex gap-3 mt-6">
             <Button variant="outline" className="flex-1 gap-2 border-dashed" onClick={onUploadClick}>
-                <Plus className="w-4 h-4" /> New Trip
+                <Plus className="w-4 h-4" /> New Session
             </Button>
             <Button 
                 className="flex-1 gap-2" 
