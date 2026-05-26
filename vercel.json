@@ -1,11 +1,8 @@
 {
   "routes": [
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+    { "handle": "filesystem" },
+    { "src": "/\\.well-known/oauth-protected-resource", "dest": "/api/wellknown/oauth-protected-resource" },
+    { "src": "/\\.well-known/oauth-authorization-server", "dest": "/api/wellknown/oauth-authorization-server" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }

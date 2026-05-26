@@ -1,24 +1,36 @@
 // Xpeed MCP Server — JSON-RPC 2.0 over HTTP (MCP protocol 2024-11-05)
 //
-// Auth — dual mode (both accepted simultaneously):
-//   1. Supabase JWT   — Authorization: Bearer <supabase-jwt>
-//      Works with any JWT issued by this project (email, Google OAuth, etc.)
-//      JWT is verified via auth.getUser() using the project anon key.
-//   2. API key token  — X-API-Key: <token>  |  Authorization: Bearer <token>  |  ?key=<token>
-//      Opaque per-user tokens stored as SHA-256 hashes in public.mcp_tokens.
-//      Generated in app Settings → MCP Tokens. Support revocation.
+// Auth — three accepted modes:
+//   1. Xpeed OAuth JWT — Authorization: Bearer <our-issued-jwt>
+//      Issued by /api/oauth/token after Dynamic Client Registration + PKCE flow.
+//      HS256-signed with XPEED_OAUTH_JWT_SECRET. iss claim matches XPEED_APP_URL.
+//   2. Supabase JWT   — Authorization: Bearer <supabase-jwt>
+//      Any JWT issued by this Supabase project (email, Google OAuth, etc.)
+//   3. API key token  — X-API-Key: <token> | Authorization: Bearer <token> | ?key=<token>
+//      Opaque per-user tokens (SHA-256 hashed) from public.mcp_tokens.
 //
-// Detection: tokens with two dots are treated as JWTs; everything else as API keys.
+// On 401, returns WWW-Authenticate header pointing to OAuth metadata so Claude.ai
+// Custom Connector can discover the authorization server.
 //
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const APP_URL = Deno.env.get("XPEED_APP_URL") || "https://xpeed-skaleclub.vercel.app";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-api-key, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-api-key, content-type, mcp-protocol-version",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "WWW-Authenticate",
 };
+
+function withAuthChallenge(headers: Record<string, string>): Record<string, string> {
+  return {
+    ...headers,
+    "WWW-Authenticate": `Bearer realm="xpeed-mcp", resource_metadata="${APP_URL}/.well-known/oauth-protected-resource"`,
+  };
+}
 
 function jsonRpc(id: unknown, result: unknown, status = 200): Response {
   return new Response(JSON.stringify({ jsonrpc: "2.0", id, result }), {
@@ -27,10 +39,11 @@ function jsonRpc(id: unknown, result: unknown, status = 200): Response {
   });
 }
 
-function jsonRpcError(id: unknown, code: number, message: string, status = 200): Response {
+function jsonRpcError(id: unknown, code: number, message: string, status = 200, challenge = false): Response {
+  const headers = { ...corsHeaders, "Content-Type": "application/json" };
   return new Response(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: challenge ? withAuthChallenge(headers) : headers,
   });
 }
 
@@ -40,10 +53,61 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function b64urlDecode(input: string): Uint8Array {
+  const pad = (4 - (input.length % 4)) % 4;
+  const b64 = input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
+  const bin = atob(b64);
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+
+function b64urlEncode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 function looksLikeJwt(token: string): boolean {
-  // JWTs are header.payload.signature — three base64url segments separated by dots
   const parts = token.split(".");
   return parts.length === 3 && parts.every(p => p.length > 0);
+}
+
+interface JWTPayload {
+  iss?: string;
+  sub?: string;
+  aud?: string | string[];
+  exp?: number;
+  iat?: number;
+  scope?: string;
+  token_use?: string;
+}
+
+function decodeJWTPayload(token: string): JWTPayload | null {
+  try {
+    const [, payloadB64] = token.split(".");
+    const json = new TextDecoder().decode(b64urlDecode(payloadB64));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+async function verifyXpeedJWT(token: string, secret: string): Promise<JWTPayload | null> {
+  const [headerB64, payloadB64, sigB64] = token.split(".");
+  if (!headerB64 || !payloadB64 || !sigB64) return null;
+
+  const data = `${headerB64}.${payloadB64}`;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["verify"],
+  );
+  const sig = b64urlDecode(sigB64);
+  const valid = await crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(data));
+  if (!valid) return null;
+
+  const payload = decodeJWTPayload(token);
+  if (!payload) return null;
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
 }
 
 async function ownsVehicle(db: SupabaseClient, userId: string, vehicleId: string): Promise<boolean> {
@@ -79,9 +143,7 @@ const TOOLS = [
     description: "Full detail for one session: AI analysis, key findings, recommended action, and all diagnostic flags.",
     inputSchema: {
       type: "object",
-      properties: {
-        session_id: { type: "string", description: "Session UUID" },
-      },
+      properties: { session_id: { type: "string", description: "Session UUID" } },
       required: ["session_id"],
     },
   },
@@ -90,9 +152,7 @@ const TOOLS = [
     description: "Parameter baselines (rolling 20-session averages) plus recent critical/attention flags for a vehicle.",
     inputSchema: {
       type: "object",
-      properties: {
-        vehicle_id: { type: "string", description: "Car profile UUID" },
-      },
+      properties: { vehicle_id: { type: "string", description: "Car profile UUID" } },
       required: ["vehicle_id"],
     },
   },
@@ -132,8 +192,8 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const jwtSecret = Deno.env.get("XPEED_OAUTH_JWT_SECRET");
 
-  // --- Extract raw token ---
   const url = new URL(req.url);
   const bearerHeader = req.headers.get("Authorization") || "";
   const bearerToken = bearerHeader.startsWith("Bearer ") ? bearerHeader.slice(7) : null;
@@ -144,28 +204,38 @@ serve(async (req) => {
     url.searchParams.get("key");
 
   if (!rawToken) {
-    return jsonRpcError(null, -32001, "Unauthorized: missing token or API key", 401);
+    return jsonRpcError(null, -32001, "Unauthorized: missing token", 401, true);
   }
 
-  // Service-role DB client for API key lookups and all data queries
   const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  // --- Resolve user_id from token (JWT or API key) ---
-  let userId: string;
+  let userId: string | null = null;
 
   if (looksLikeJwt(rawToken)) {
-    // Path 1: Supabase JWT (email auth, Google OAuth, any provider)
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${rawToken}` } },
-      auth: { persistSession: false },
-    });
-    const { data: { user }, error } = await userClient.auth.getUser();
-    if (error || !user) {
-      return jsonRpcError(null, -32001, "Unauthorized: invalid or expired JWT", 401);
+    const payload = decodeJWTPayload(rawToken);
+
+    // Path A: our own OAuth JWT (iss === APP_URL)
+    if (payload && payload.iss === APP_URL && jwtSecret) {
+      const verified = await verifyXpeedJWT(rawToken, jwtSecret);
+      if (verified && verified.sub) {
+        userId = verified.sub;
+      } else {
+        return jsonRpcError(null, -32001, "Unauthorized: invalid Xpeed OAuth JWT", 401, true);
+      }
+    } else {
+      // Path B: Supabase JWT
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${rawToken}` } },
+        auth: { persistSession: false },
+      });
+      const { data: { user }, error } = await userClient.auth.getUser();
+      if (error || !user) {
+        return jsonRpcError(null, -32001, "Unauthorized: invalid or expired JWT", 401, true);
+      }
+      userId = user.id;
     }
-    userId = user.id;
   } else {
-    // Path 2: API key token (opaque, stored as SHA-256 hash)
+    // Path C: API key token (opaque)
     const tokenHash = await sha256Hex(rawToken);
     const { data: tokenRow } = await db
       .from("mcp_tokens")
@@ -174,16 +244,19 @@ serve(async (req) => {
       .maybeSingle();
 
     if (!tokenRow || tokenRow.revoked_at) {
-      return jsonRpcError(null, -32001, "Unauthorized: invalid or revoked API key", 401);
+      return jsonRpcError(null, -32001, "Unauthorized: invalid or revoked API key", 401, true);
     }
 
     userId = tokenRow.user_id as string;
 
-    // Best-effort last_used_at bump (fire-and-forget)
     db.from("mcp_tokens")
       .update({ last_used_at: new Date().toISOString() })
       .eq("id", tokenRow.id)
       .then(() => {}, () => {});
+  }
+
+  if (!userId) {
+    return jsonRpcError(null, -32001, "Unauthorized", 401, true);
   }
 
   // --- Parse JSON-RPC body ---
@@ -197,13 +270,12 @@ serve(async (req) => {
   const { id = null, method, params = {} } = body;
   if (!method) return jsonRpcError(id, -32600, "Invalid Request: missing method");
 
-  // --- MCP protocol dispatch ---
   switch (method) {
     case "initialize":
       return jsonRpc(id, {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "xpeed-mcp", version: "3.0.0" },
+        serverInfo: { name: "xpeed-mcp", version: "4.0.0" },
       });
 
     case "notifications/initialized":

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,8 @@ import { Separator } from '@/components/ui/separator';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const nextPath = searchParams.get('next');
   const { signIn, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,7 +27,8 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      navigate('/');
+      // Honor ?next=... for return-to flows (e.g. OAuth authorize)
+      navigate(nextPath && nextPath.startsWith('/') ? nextPath : '/');
     } catch (err: unknown) {
       let errorMessage = err instanceof Error ? err.message : 'Failed to sign in';
       
