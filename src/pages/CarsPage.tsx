@@ -269,7 +269,7 @@ export default function CarsPage() {
                               {isUpdating ? (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                               ) : (
-                                <Check className="w-3.5 h-3.5 text-green-600" />
+                                <Check className="w-3.5 h-3.5 text-success" />
                               )}
                             </Button>
                             <Button

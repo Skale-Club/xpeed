@@ -36,8 +36,8 @@ export const DEFAULT_BRAND: BrandConfig = {
   icon_192_url: '/favicon.ico',
   icon_512_url: '/favicon.ico',
   og_image_url: '/og-image-default.png',
-  theme_color: '#0a0a0a',
-  background_color: '#0a0a0a',
+  theme_color: '#141414',
+  background_color: '#141414',
 };
 
 // --- Image loading + canvas helpers ---

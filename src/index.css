@@ -5,38 +5,46 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Design tokens — single source of truth for theming.
+   *   Brand accent: #f2f208 (yellow) — HSL 60 94% 49%
+   *   Dark surface base: #141414 (neutral gray) — HSL 0 0% 8%
+   * Semantic colors (success, warn, destructive, critical) keep their
+   * meaning regardless of brand and are NOT brand-accent.
+   */
   :root {
-    --background: 220 20% 10%;
-    --foreground: 210 20% 90%;
+    /* Surface scale — shades of #141414 */
+    --background: 0 0% 8%;       /* #141414 */
+    --foreground: 0 0% 92%;
 
-    --card: 220 18% 13%;
-    --card-foreground: 210 20% 90%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 92%;
 
-    --popover: 220 18% 15%;
-    --popover-foreground: 210 20% 90%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 92%;
 
-    --primary: 174 72% 46%;
-    --primary-foreground: 220 20% 8%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 85%;
 
-    --secondary: 220 16% 18%;
-    --secondary-foreground: 210 20% 85%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 56%;
 
-    --muted: 220 14% 16%;
-    --muted-foreground: 215 12% 55%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 92%;
 
-    --accent: 220 16% 20%;
-    --accent-foreground: 210 20% 90%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
 
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 14% 20%;
-    --input: 220 14% 20%;
-    --ring: 174 72% 46%;
+    /* Brand accent — #f2f208 */
+    --primary: 60 94% 49%;
+    --primary-foreground: 0 0% 8%;
+    --ring: 60 94% 49%;
 
     --radius: 0.5rem;
 
-    /* Custom tokens */
+    /* Semantic tokens — unchanged by branding */
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
     --warn: 38 92% 55%;
     --warn-foreground: 38 100% 12%;
     --critical: 0 72% 55%;
@@ -44,21 +52,24 @@
     --success: 152 60% 42%;
     --success-foreground: 152 80% 10%;
 
-    --chart-teal: 174 72% 46%;
+    /* Chart palette — series colors. chart-teal repurposed to brand yellow
+       since the primary accent moved off teal. */
+    --chart-teal: 60 94% 49%;
     --chart-amber: 38 92% 55%;
     --chart-red: 0 72% 55%;
     --chart-blue: 210 80% 55%;
     --chart-green: 152 60% 42%;
     --chart-purple: 270 60% 60%;
 
-    --sidebar-background: 220 20% 8%;
-    --sidebar-foreground: 210 20% 85%;
-    --sidebar-primary: 174 72% 46%;
-    --sidebar-primary-foreground: 220 20% 8%;
-    --sidebar-accent: 220 16% 14%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 220 14% 18%;
-    --sidebar-ring: 174 72% 46%;
+    /* Sidebar — slightly darker than main surface for contrast */
+    --sidebar-background: 0 0% 6%;
+    --sidebar-foreground: 0 0% 85%;
+    --sidebar-primary: 60 94% 49%;
+    --sidebar-primary-foreground: 0 0% 8%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 92%;
+    --sidebar-border: 0 0% 16%;
+    --sidebar-ring: 60 94% 49%;
 
     font-family: 'Inter', system-ui, sans-serif;
   }

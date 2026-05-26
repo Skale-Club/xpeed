@@ -4,6 +4,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { format } from 'date-fns';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Session, SessionSummaryItem } from '@/types/session';
+import { CHART_PALETTE } from '@/lib/chart-palette';
 
 interface DashboardChartsProps {
   sessions: Session[];
@@ -38,8 +39,8 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     type: 'area',
     yAxisUnit: 'km/h',
     series: [
-      { key: 'vehicle_speed', label: 'Max Speed', color: '#3b82f6', type: 'area' },
-      { key: 'vehicle_speed_avg', label: 'Avg Speed', color: '#60a5fa', type: 'line' }
+      { key: 'vehicle_speed', label: 'Max Speed', color: CHART_PALETTE.blue, type: 'area' },
+      { key: 'vehicle_speed_avg', label: 'Avg Speed', color: CHART_PALETTE.blueLight, type: 'line' }
     ]
   },
   {
@@ -48,12 +49,12 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     type: 'line',
     yAxisUnit: '°C',
     series: [
-      { key: 'coolant_temp', label: 'Coolant', color: '#ef4444' },
-      { key: 'intake_air_temp', label: 'Intake', color: '#f59e0b' },
-      { key: 'ambient_air_temp', label: 'Ambient', color: '#10b981' },
-      { key: 'catalyst_temp', label: 'Catalyst', color: '#8b5cf6' },
-      { key: 'oil_temp', label: 'Oil', color: '#ec4899' },
-      { key: 'transmission_temp', label: 'Trans', color: '#6366f1' }
+      { key: 'coolant_temp', label: 'Coolant', color: CHART_PALETTE.red },
+      { key: 'intake_air_temp', label: 'Intake', color: CHART_PALETTE.amber },
+      { key: 'ambient_air_temp', label: 'Ambient', color: CHART_PALETTE.green },
+      { key: 'catalyst_temp', label: 'Catalyst', color: CHART_PALETTE.purple },
+      { key: 'oil_temp', label: 'Oil', color: CHART_PALETTE.pink },
+      { key: 'transmission_temp', label: 'Trans', color: CHART_PALETTE.indigo }
     ]
   },
   {
@@ -63,9 +64,9 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     yAxisUnit: 'V',
     yAxisDomain: [10, 16],
     series: [
-      { key: 'battery_voltage_12v', label: 'Battery Max', color: '#10b981' },
-      { key: 'obd_module_voltage', label: 'OBD Module', color: '#3b82f6' },
-      { key: 'control_module_voltage', label: 'Control Module', color: '#f59e0b' }
+      { key: 'battery_voltage_12v', label: 'Battery Max', color: CHART_PALETTE.green },
+      { key: 'obd_module_voltage', label: 'OBD Module', color: CHART_PALETTE.blue },
+      { key: 'control_module_voltage', label: 'Control Module', color: CHART_PALETTE.amber }
     ]
   },
   {
@@ -73,8 +74,8 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     title: 'Engine Performance',
     type: 'composed',
     series: [
-      { key: 'engine_rpm', label: 'Max RPM', color: '#8b5cf6', type: 'bar', yAxisId: 'left' },
-      { key: 'engine_load', label: 'Avg Load %', color: '#ec4899', type: 'line', yAxisId: 'right' }
+      { key: 'engine_rpm', label: 'Max RPM', color: CHART_PALETTE.purple, type: 'bar', yAxisId: 'left' },
+      { key: 'engine_load', label: 'Avg Load %', color: CHART_PALETTE.pink, type: 'line', yAxisId: 'right' }
     ]
   },
   {
@@ -83,8 +84,8 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     type: 'line',
     yAxisUnit: '%',
     series: [
-      { key: 'stft_b1', label: 'STFT B1', color: '#f59e0b' },
-      { key: 'stft_b2', label: 'STFT B2', color: '#ef4444' }
+      { key: 'stft_b1', label: 'STFT B1', color: CHART_PALETTE.amber },
+      { key: 'stft_b2', label: 'STFT B2', color: CHART_PALETTE.red }
     ]
   },
   {
@@ -92,8 +93,8 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     title: 'Fuel Economy',
     type: 'line',
     series: [
-      { key: 'mpg_or_fuel_rate', label: 'Fuel Rate', color: '#10b981' },
-      { key: 'average_fuel_consumption', label: 'Avg Consumption', color: '#3b82f6' }
+      { key: 'mpg_or_fuel_rate', label: 'Fuel Rate', color: CHART_PALETTE.green },
+      { key: 'average_fuel_consumption', label: 'Avg Consumption', color: CHART_PALETTE.blue }
     ]
   },
   {
@@ -102,8 +103,8 @@ const AVAILABLE_CHARTS: ChartConfig[] = [
     type: 'line',
     yAxisUnit: 'V',
     series: [
-      { key: 'o2_b1s1', label: 'O2 B1S1', color: '#8b5cf6' },
-      { key: 'o2_b1s2', label: 'O2 B1S2', color: '#ec4899' }
+      { key: 'o2_b1s1', label: 'O2 B1S1', color: CHART_PALETTE.purple },
+      { key: 'o2_b1s2', label: 'O2 B1S2', color: CHART_PALETTE.pink }
     ]
   }
 ];

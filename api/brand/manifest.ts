@@ -19,7 +19,7 @@ interface BrandConfig {
   background_color: string;
 }
 
-const DEFAULT_THEME = '#0a0a0a';
+const DEFAULT_THEME = '#141414';
 
 async function fetchBrandConfig(supabaseUrl: string, anonKey: string): Promise<BrandConfig | null> {
   try {

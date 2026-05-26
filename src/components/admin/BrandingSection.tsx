@@ -287,7 +287,7 @@ export default function BrandingSection() {
                     value={themeColor}
                     onChange={(e) => setThemeColor(e.target.value)}
                     className="font-mono text-xs"
-                    placeholder="#0a0a0a"
+                    placeholder="#141414"
                   />
                 </div>
               </div>
@@ -304,7 +304,7 @@ export default function BrandingSection() {
                     value={backgroundColor}
                     onChange={(e) => setBackgroundColor(e.target.value)}
                     className="font-mono text-xs"
-                    placeholder="#0a0a0a"
+                    placeholder="#141414"
                   />
                 </div>
               </div>

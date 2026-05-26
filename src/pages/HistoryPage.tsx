@@ -253,10 +253,10 @@ export default function HistoryPage() {
                     placeholder="Session Name"
                   />
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSaveName}>
-                    <Check className="h-3.5 w-3.5 text-green-500" />
+                    <Check className="h-3.5 w-3.5 text-success" />
                   </Button>
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingName(false)}>
-                    <X className="h-3.5 w-3.5 text-red-500" />
+                    <X className="h-3.5 w-3.5 text-destructive" />
                   </Button>
                 </div>
               ) : (
