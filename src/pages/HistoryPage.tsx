@@ -22,7 +22,7 @@ import { DEFAULT_PRIUS_RULES } from '@/lib/default-rules';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { PageLoader } from '@/components/PageLoader';
-import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2, ChevronsRight, ChevronsLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
 
@@ -237,7 +237,7 @@ export default function HistoryPage() {
                   title={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
                   aria-label={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
                 >
-                  {insightsCollapsed ? <PanelRightOpen className="w-4 h-4" /> : <PanelRightClose className="w-4 h-4" />}
+                  {insightsCollapsed ? <ChevronsLeft className="w-4 h-4" /> : <ChevronsRight className="w-4 h-4" />}
                 </Button>
 
                 {sessions.length > 1 && (

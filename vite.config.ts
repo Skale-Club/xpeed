@@ -52,6 +52,14 @@ export default defineConfig(() => ({
       workbox: {
         // Don't try to precache the giant Recharts chunk on first paint.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Force the new SW to take control of all open tabs immediately so
+        // updates land without requiring a second reload after the SW fetches
+        // them. Without these flags, "autoUpdate" still leaves stale assets
+        // running until every tab is closed.
+        skipWaiting: true,
+        clientsClaim: true,
+        // Avoid SW returning a stale index.html on hard refresh.
+        cleanupOutdatedCaches: true,
         // Share target POST handler runs before Workbox routes.
         importScripts: ["/sw-share-target.js"],
         runtimeCaching: [
