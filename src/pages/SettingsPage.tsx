@@ -93,7 +93,7 @@ export default function SettingsPage() {
               <h3 className="text-sm font-mono font-semibold text-foreground">About</h3>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Car Insights AI is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
+              Xpeed is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
               and similar apps. Manage multiple vehicles and track their health separately. Always consult a
               professional for serious vehicle issues.
             </p>

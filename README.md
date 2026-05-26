@@ -1,4 +1,4 @@
-# 🚗 Car Insights AI
+# 🚗 Xpeed
 
 > AI-powered automotive analysis system for vehicle profile management and personalized insights.
 
@@ -10,7 +10,7 @@
 
 ## 📋 About
 
-Car Insights AI is a modern web platform that uses artificial intelligence to provide detailed vehicle analysis. The system allows users to create personalized car profiles, perform intelligent queries, and obtain valuable insights about maintenance, performance, and technical specifications.
+Xpeed is a modern web platform that uses artificial intelligence to provide detailed vehicle analysis. The system allows users to create personalized car profiles, perform intelligent queries, and obtain valuable insights about maintenance, performance, and technical specifications.
 
 ### ✨ Key Features
 
@@ -221,5 +221,5 @@ Built with ❤️ by Skale Club team
 ---
 
 <p align="center">
-  <strong>Car Insights AI</strong> - Artificial intelligence at the service of your vehicle
+  <strong>Xpeed</strong> - Artificial intelligence at the service of your vehicle
 </p>

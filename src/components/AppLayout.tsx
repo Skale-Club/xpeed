@@ -62,10 +62,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             <Link to="/" className="flex items-center gap-3">
               <div className="w-9 h-9 flex items-center justify-center">
-                <img src="/logo.svg" alt="Car Insights AI Logo" className="w-full h-full" />
+                <img src="/logo.svg" alt="Xpeed Logo" className="w-full h-full" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-foreground leading-none tracking-tight">Car Insights AI</h1>
+                <h1 className="text-base font-bold text-foreground leading-none tracking-tight">Xpeed</h1>
                 <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium opacity-70">Vehicle Diagnostics</p>
               </div>
             </Link>

@@ -250,7 +250,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                 <Sparkles className="w-4 h-4 text-primary" />
                             </div>
                             <div>
-                                <CardTitle className="text-lg">Car Insights AI</CardTitle>
+                                <CardTitle className="text-lg">Xpeed</CardTitle>
                                 <p className="text-xs text-muted-foreground">
                                     {selectedCar ? selectedCar.name : 'No Vehicle Selected'}
                                 </p>
