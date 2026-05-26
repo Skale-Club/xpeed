@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Car, Upload, CheckCircle, ArrowRight } from 'lucide-react';
+import { Car, Upload, CheckCircle, ArrowRight, LogOut } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import UploadCard from '@/components/UploadCard';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
+import { supabase } from '@/integrations/supabase/client';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -19,8 +20,24 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   const goTo = (step: Step) => setCurrentStep(step);
 
+  const handleLogout = async () => {
+    try { await supabase.auth.signOut(); } catch { /* ignore */ }
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = '/login';
+  };
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="absolute top-4 right-4 text-muted-foreground gap-1.5"
+        onClick={handleLogout}
+      >
+        <LogOut className="w-3.5 h-3.5" />
+        Sign Out
+      </Button>
       <Card className="w-full max-w-lg border-border">
         <CardContent className="pt-8 pb-8 px-8">
           {/* Progress dots */}
