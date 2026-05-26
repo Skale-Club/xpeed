@@ -9,6 +9,7 @@ import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
+import BrandHead from "@/components/BrandHead";
 import { Analytics } from "@vercel/analytics/react";
 
 // Lazy imports
@@ -52,6 +53,7 @@ const App = () => (
     <TooltipProvider>
       <AuthProvider>
         <SettingsProvider>
+          <BrandHead />
           <Toaster />
           <Sonner />
           <BrowserRouter>

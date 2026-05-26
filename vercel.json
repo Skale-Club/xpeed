@@ -1,5 +1,6 @@
 {
   "routes": [
+    { "src": "/manifest\\.webmanifest", "dest": "/api/brand/manifest" },
     { "handle": "filesystem" },
     { "src": "/\\.well-known/oauth-protected-resource", "dest": "/api/wellknown/oauth-protected-resource" },
     { "src": "/\\.well-known/oauth-authorization-server", "dest": "/api/wellknown/oauth-authorization-server" },

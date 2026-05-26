@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Car } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -19,6 +20,8 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const brand = useBrand();
+  const useCustomLogo = !isDefaultBrand(brand);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,8 +72,12 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
       <div className="w-full max-w-md space-y-6">
         {/* Logo */}
         <div className="flex flex-col items-center space-y-2">
-          <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full">
-            <Car className="w-8 h-8 text-primary" />
+          <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full overflow-hidden">
+            {useCustomLogo ? (
+              <img src={brand.logo_url} alt="Logo" className="w-12 h-12 object-contain" />
+            ) : (
+              <Car className="w-8 h-8 text-primary" />
+            )}
           </div>
           <h1 className="text-2xl font-bold text-foreground">Xpeed</h1>
           <p className="text-sm text-muted-foreground">Sign in to your account</p>
@@ -131,7 +138,7 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
               </Button>
             </form>
 
-            {/* Google OAuth — hidden until VITE_APP_URL is configured */}
+            {/* Google OAuth — hidden until configured */}
 
             <div className="mt-4 text-center text-sm">
               <span className="text-muted-foreground">Don't have an account? </span>
