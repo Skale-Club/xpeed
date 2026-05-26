@@ -22,7 +22,7 @@ import { DEFAULT_PRIUS_RULES } from '@/lib/default-rules';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { PageLoader } from '@/components/PageLoader';
-import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2 } from 'lucide-react';
+import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
 
@@ -52,6 +52,14 @@ export default function HistoryPage() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+
+  // Right column collapse state — persisted across reloads
+  const [insightsCollapsed, setInsightsCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('xpeed_insights_collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('xpeed_insights_collapsed', insightsCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [insightsCollapsed]);
 
   // Reset editing when session changes
   useEffect(() => {
@@ -181,16 +189,56 @@ export default function HistoryPage() {
       <div className="space-y-8">
         {/* Session Details Panel — 2-column layout:
             left (2/3): header + filename + KPIs + Key Parameters
-            right (1/3): stacked action buttons (top) + Insights panel */}
+            right (1/3, collapsible): stacked action buttons + Insights panel */}
         {displayedSession && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={`grid grid-cols-1 gap-6 ${insightsCollapsed ? 'lg:grid-cols-1' : 'lg:grid-cols-3'}`}>
             {/* Left column */}
-            <div className="lg:col-span-2 space-y-4">
+            <div className={`space-y-4 ${insightsCollapsed ? '' : 'lg:col-span-2'}`}>
               <div className="flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                   <HistoryIcon className="w-5 h-5 text-primary" />
                   <h2 className="text-lg font-mono font-bold text-foreground">Session Details</h2>
                 </div>
+
+                {/* When right column is collapsed, surface the actions inline so they stay reachable */}
+                {insightsCollapsed && (
+                  <div className="flex items-center gap-1 ml-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => handleDownloadSessionCsv(displayedSession)}
+                      disabled={downloadingCsv}
+                    >
+                      {downloadingCsv ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3 mr-1" />
+                      )}
+                      CSV
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-primary hover:text-primary h-7"
+                      onClick={() => navigate(`/session/${displayedSession.id}`)}
+                    >
+                      Full Analysis <ArrowRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Collapse / expand the right column. Persists across reloads. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-7 w-7 ${insightsCollapsed ? '' : 'ml-auto'}`}
+                  onClick={() => setInsightsCollapsed((c) => !c)}
+                  title={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
+                  aria-label={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
+                >
+                  {insightsCollapsed ? <PanelRightOpen className="w-4 h-4" /> : <PanelRightClose className="w-4 h-4" />}
+                </Button>
 
                 {sessions.length > 1 && (
                   <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5 border border-border/50">
@@ -280,40 +328,42 @@ export default function HistoryPage() {
               )}
             </div>
 
-            {/* Right column — stacked action buttons + Insights */}
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs justify-start"
-                  onClick={() => handleDownloadSessionCsv(displayedSession)}
-                  disabled={downloadingCsv}
-                >
-                  {downloadingCsv ? (
-                    <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                  ) : (
-                    <Download className="w-3 h-3 mr-2" />
-                  )}
-                  Download CSV
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate(`/session/${displayedSession.id}`)}
-                  className="text-xs text-primary hover:text-primary justify-start"
-                >
-                  Full Analysis <ArrowRight className="w-3 h-3 ml-2" />
-                </Button>
-              </div>
-
-              {!detailsLoading && (
-                <div>
-                  <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Insights</h3>
-                  <FlagsPanel flags={flags} limit={5} />
+            {/* Right column — stacked action buttons + Insights. Collapsible. */}
+            {!insightsCollapsed && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs justify-start"
+                    onClick={() => handleDownloadSessionCsv(displayedSession)}
+                    disabled={downloadingCsv}
+                  >
+                    {downloadingCsv ? (
+                      <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="w-3 h-3 mr-2" />
+                    )}
+                    Download CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigate(`/session/${displayedSession.id}`)}
+                    className="text-xs text-primary hover:text-primary justify-start"
+                  >
+                    Full Analysis <ArrowRight className="w-3 h-3 ml-2" />
+                  </Button>
                 </div>
-              )}
-            </div>
+
+                {!detailsLoading && (
+                  <div>
+                    <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Insights</h3>
+                    <FlagsPanel flags={flags} limit={5} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
