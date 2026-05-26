@@ -1,4 +1,5 @@
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect } from "react";
+import { getAppIconBaseUrl, buildIconUrl, applyFaviconToDocument } from "@/lib/app-icon";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -28,6 +29,18 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
+function useDynamicFavicon() {
+  useEffect(() => {
+    getAppIconBaseUrl().then((baseUrl) => {
+      if (!baseUrl) return;
+      applyFaviconToDocument(
+        buildIconUrl(baseUrl, 'icon-192.png'),
+        buildIconUrl(baseUrl, 'apple-touch-icon.png'),
+      );
+    });
+  }, []);
+}
+
 // Wrapper component to provide Cars context only for authenticated routes
 const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => (
   <PrivateRoute>
@@ -45,7 +58,9 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => (
   </Suspense>
 );
 
-const App = () => (
+const App = () => {
+  useDynamicFavicon();
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
@@ -82,5 +97,8 @@ const App = () => (
     </TooltipProvider>
   </QueryClientProvider>
 );
+
+  );
+};
 
 export default App;

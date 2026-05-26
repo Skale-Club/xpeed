@@ -26,6 +26,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ChatBubble } from '@/components/ChatBubble';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { useAppIcon } from '@/hooks/use-app-icon';
+import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 const NAV_ITEMS = [
   { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
@@ -45,6 +47,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const { toast } = useToast();
+  const { icon192 } = useAppIcon();
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -66,7 +69,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-4">
             <Link to="/" className="flex items-center gap-3">
               <div className="w-9 h-9 flex items-center justify-center">
-                <img src="/logo.svg" alt="Car Insights AI Logo" className="w-full h-full" />
+                <img src={icon192 ?? '/logo.svg'} alt="Car Insights AI Logo" className="w-full h-full object-contain" />
               </div>
               <div>
                 <h1 className="text-base font-bold text-foreground leading-none tracking-tight">Car Insights AI</h1>
@@ -191,6 +194,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Chat Bubble */}
       <ChatBubble />
+
+      {/* PWA install prompt */}
+      <PWAInstallPrompt />
     </div>
   );
 }

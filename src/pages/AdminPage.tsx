@@ -11,6 +11,7 @@ import { useAdminStatus } from '@/hooks/use-admin-status';
 import { listAdminSettings, upsertAdminSetting, type AdminSetting } from '@/lib/db-extras';
 import { useToast } from '@/hooks/use-toast';
 import { PageLoader } from '@/components/PageLoader';
+import { AppIconUpload } from '@/components/AppIconUpload';
 
 interface SettingRowState {
   value: string;
@@ -86,6 +87,8 @@ export default function AdminPage() {
             (Gemini API key) are stored in the database and consumed only by trusted Edge Functions.
           </AlertDescription>
         </Alert>
+
+        <AppIconUpload />
 
         {loading ? (
           <Card><CardContent className="p-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-primary" /></CardContent></Card>

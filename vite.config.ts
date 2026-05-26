@@ -1,10 +1,26 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vitejs.dev/config/
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const supabaseUrl = env.VITE_SUPABASE_URL ?? '';
+  const iconBase = supabaseUrl
+    ? `${supabaseUrl}/storage/v1/object/public/app-icons`
+    : '';
+
+  const pwaIcons = iconBase
+    ? [
+        { src: `${iconBase}/icon-192.png`, sizes: '192x192', type: 'image/png' },
+        { src: `${iconBase}/icon-512.png`, sizes: '512x512', type: 'image/png' },
+        { src: `${iconBase}/icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        { src: `${iconBase}/apple-touch-icon.png`, sizes: '180x180', type: 'image/png' },
+      ]
+    : [{ src: '/favicon.ico', sizes: '64x64 32x32 24x24 16x16', type: 'image/x-icon' }];
+
+  return ({
   server: {
     host: "0.0.0.0",
     port: 5000,
@@ -26,11 +42,7 @@ export default defineConfig(() => ({
         display: "standalone",
         start_url: "/",
         scope: "/",
-        icons: [
-          // Re-use the existing favicon as a low-fi PWA icon for now.
-          // Replace with proper 192/512 PNGs in /public for production polish.
-          { src: "/favicon.ico", sizes: "64x64 32x32 24x24 16x16", type: "image/x-icon" },
-        ],
+        icons: pwaIcons,
       },
       workbox: {
         // Don't try to precache the giant Recharts chunk on first paint.
@@ -91,4 +103,5 @@ export default defineConfig(() => ({
       },
     },
   },
-}));
+  });
+});
