@@ -15,7 +15,8 @@ import {
 } from '@/lib/mcp-tokens';
 import { supabase } from '@/integrations/supabase/client';
 
-const MCP_ENDPOINT = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xpeed-mcp`;
+// Always relative to the app's own origin — works on any domain automatically.
+const MCP_ENDPOINT = `${window.location.origin}/api/mcp`;
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';

@@ -11,6 +11,15 @@ export default defineConfig(() => ({
     hmr: {
       overlay: false,
     },
+    // Proxy /api/mcp to the Supabase edge function during local development.
+    // In production this route is handled by api/mcp.ts (Vercel Edge Function).
+    proxy: {
+      "/api/mcp": {
+        target: (process.env.VITE_SUPABASE_URL ?? "") + "/functions/v1/xpeed-mcp",
+        changeOrigin: true,
+        rewrite: () => "",
+      },
+    },
   },
   plugins: [
     react(),
