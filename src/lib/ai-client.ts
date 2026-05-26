@@ -16,7 +16,31 @@ export interface ChatContext {
 }
 
 /**
- * Server-side analysis via Edge Function.
+ * Server-side analysis via Edge Function — passes session_id so the
+ * edge function reads the structured report from the DB.
+ */
+export async function analyzeSessionById(
+  sessionId: string,
+  model: string = 'gemini-2.5-flash',
+): Promise<AnalysisResult | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('analyze-session', {
+      body: { sessionId, model },
+    });
+    if (error) {
+      console.warn('Edge analyze-session failed:', error.message);
+      return null;
+    }
+    return (data?.analysis as AnalysisResult) ?? null;
+  } catch (err) {
+    console.warn('Edge analyze-session threw:', err);
+    return null;
+  }
+}
+
+/**
+ * Legacy: pass a pre-formatted summary string directly.
+ * Kept for backward compatibility with any callers that still use it.
  */
 export async function analyzeSessionViaEdge(
   sessionSummary: string,

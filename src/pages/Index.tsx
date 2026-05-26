@@ -18,6 +18,7 @@ import ActiveFlagsBanner from '@/components/ActiveFlagsBanner';
 import HealthGauge from '@/components/HealthGauge';
 import StatCard from '@/components/StatCard';
 import { supabase } from '@/integrations/supabase/client';
+import { useViewMode } from '@/hooks/use-view-mode';
 
 interface DashboardStats {
   totalSessions: number;
@@ -39,6 +40,7 @@ import { PageLoader } from '@/components/PageLoader';
 
 import { LatestTripCard } from '@/components/LatestTripCard';
 import { GeneralInfoCard } from '@/components/GeneralInfoCard';
+import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 
@@ -60,6 +62,7 @@ const Index = () => {
   });
   const [isProblemsOpen, setIsProblemsOpen] = useState(false);
   const [showResolvedProblems, setShowResolvedProblems] = useState(false);
+  const { mode: viewMode, toggle: toggleViewMode, isAdvanced } = useViewMode();
 
   // First-run redirect: brand-new users with 0 cars should land in the
   // onboarding wizard, not on a blank dashboard. We honor a localStorage flag
@@ -467,6 +470,18 @@ const Index = () => {
                 Upload
               </Button>
             )}
+            {allSessions.length > 0 && (
+              <Button
+                size="sm"
+                variant={isAdvanced ? 'default' : 'outline'}
+                className="h-9 text-xs gap-1.5"
+                onClick={toggleViewMode}
+                title={isAdvanced ? 'Switch to Simple view' : 'Switch to Advanced view'}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                {isAdvanced ? 'Simple' : 'Advanced'}
+              </Button>
+            )}
             {stats.lastUpload && (
               <div className="text-right hidden sm:block">
                 <p className="text-xs text-muted-foreground font-mono">Last Sync</p>
@@ -539,7 +554,7 @@ const Index = () => {
               />
               <StatCard
                 icon={AlertTriangle}
-                label="Active Problems"
+                label="Active Issues"
                 value={generalStats.problemCount}
                 tone={generalStats.problemCount > 0 ? (generalStats.problems.some(p => !p.resolved && p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
                 onClick={() => setIsProblemsOpen(true)}
@@ -565,7 +580,7 @@ const Index = () => {
           <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
               <DialogContent className="sm:max-w-md">
                   <DialogHeader>
-                      <DialogTitle>Upload New Trip</DialogTitle>
+                      <DialogTitle>Upload New Session</DialogTitle>
                   </DialogHeader>
                   <UploadCard onComplete={handleUploadComplete} carProfileId={selectedCarId || undefined} />
               </DialogContent>
@@ -576,7 +591,7 @@ const Index = () => {
                   <DialogHeader className="flex flex-row items-center justify-between pr-8">
                       <DialogTitle className="flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                          Vehicle Health Issues
+                          Active Issues
                       </DialogTitle>
                       <Button 
                         variant="ghost" 
@@ -599,7 +614,7 @@ const Index = () => {
                               </p>
                               <p className="text-sm mt-1">
                                 {generalStats.problems.length > 0 && !showResolvedProblems 
-                                    ? "All recorded problems have been marked as resolved." 
+                                    ? "All recorded issues have been resolved."
                                     : "No diagnostic trouble codes or warnings found in recorded history."}
                               </p>
                           </div>
@@ -664,14 +679,23 @@ const Index = () => {
               </DialogContent>
           </Dialog>
 
-          {/* Sensor Trends */}
+          {/* Adaptive engine-type metrics */}
           {stats.totalSessions > 0 && (
+            <AdaptiveMetricsSection
+              engineType={selectedCar?.engine_type}
+              latestSession={allSessions[0] ?? null}
+              carId={selectedCarId || ''}
+            />
+          )}
+
+          {/* Sensor Trends — advanced mode only */}
+          {stats.totalSessions > 0 && isAdvanced && (
           <div className="space-y-4 mt-6">
             <h3 className="text-sm font-mono font-semibold text-foreground flex items-center gap-2">
               <Activity className="w-4 h-4 text-primary" />
               Detailed Analytics & Trends
             </h3>
-            <DashboardCharts sessions={filteredSessions} />
+            <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />
           </div>
           )}
         </>

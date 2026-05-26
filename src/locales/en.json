@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "Dashboard",
+    "issues": "Issues",
     "history": "History",
     "cars": "Vehicles",
     "maintenance": "Maintenance",
@@ -34,8 +35,8 @@
     "total_sessions": "Total Sessions",
     "total_distance": "Total Distance",
     "avg_fuel": "Avg Fuel",
-    "active_problems": "Active Problems",
-    "latest_trip": "Latest Trip",
+    "active_problems": "Active Issues",
+    "latest_trip": "Latest Session",
     "trends": "Trends",
     "no_data": "No data yet. Upload your first session to get started.",
     "status_excellent": "Excellent",

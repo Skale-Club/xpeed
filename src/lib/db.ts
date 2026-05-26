@@ -345,6 +345,39 @@ export async function updateSessionWithGeminiAnalysis(
   }
 }
 
+export async function updateSessionVersioning(
+  sessionId: string,
+  fields: {
+    ruleset_id: string;
+    ruleset_matched_via: string;
+    report_version: number;
+    processing_version: string;
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from('sessions')
+    .update(fields as unknown as never)
+    .eq('id', sessionId);
+
+  if (error) {
+    throw new Error(`Failed to update session versioning: ${error.message}`);
+  }
+}
+
+export async function storeSessionReport(
+  sessionId: string,
+  report: Record<string, unknown>
+): Promise<void> {
+  const { error } = await supabase
+    .from('sessions')
+    .update({ report: report as unknown as never })
+    .eq('id', sessionId);
+
+  if (error) {
+    throw new Error(`Failed to store session report: ${error.message}`);
+  }
+}
+
 // Car management functions
 export type EngineType = 'petrol' | 'diesel' | 'hybrid' | 'electric';
 
@@ -359,6 +392,7 @@ export interface CarProfile {
   vin: string | null;
   engine_type: EngineType | null;
   ruleset_id: string | null;
+  country: string | null;
   created_at: string;
   user_id?: string;
   is_admin?: boolean;
@@ -376,6 +410,7 @@ export interface CarProfileInput {
   vin?: string | null;
   engine_type?: EngineType | null;
   ruleset_id?: string | null;
+  country?: string | null;
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {
@@ -423,6 +458,7 @@ export async function createCarProfile(
       year: input.year ?? null,
       trim: input.trim ?? null,
       vin: input.vin ?? null,
+      country: input.country ?? null,
     })
     .select()
     .single();

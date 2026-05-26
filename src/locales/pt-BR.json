@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "Painel",
+    "issues": "Problemas",
     "history": "Histórico",
     "cars": "Veículos",
     "maintenance": "Manutenção",
@@ -35,7 +36,7 @@
     "total_distance": "Distância Total",
     "avg_fuel": "Consumo Médio",
     "active_problems": "Problemas Ativos",
-    "latest_trip": "Última Viagem",
+    "latest_trip": "Última Sessão",
     "trends": "Tendências",
     "no_data": "Nenhum dado ainda. Faça upload da primeira sessão.",
     "status_excellent": "Excelente",

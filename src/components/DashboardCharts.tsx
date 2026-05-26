@@ -5,9 +5,12 @@ import { format } from 'date-fns';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Session, SessionSummaryItem } from '@/types/session';
 import { CHART_PALETTE } from '@/lib/chart-palette';
+import type { EngineType } from '@/lib/db';
+import { ENGINE_TYPE_CONFIGS } from '@/lib/dashboard-config';
 
 interface DashboardChartsProps {
   sessions: Session[];
+  engineType?: EngineType | null;
 }
 
 interface ChartPoint {
@@ -134,7 +137,7 @@ const KEY_MAPPING: Record<string, string[]> = {
   'o2_b1s2': ['o2_b1s2', 'oxygen sensor 2', 'o2s2']
 };
 
-export default function DashboardCharts({ sessions }: DashboardChartsProps) {
+export default function DashboardCharts({ sessions, engineType }: DashboardChartsProps) {
   const { distanceUnit } = useSettings();
 
   const { processedData, activeCharts } = useMemo(() => {
@@ -211,12 +214,21 @@ export default function DashboardCharts({ sessions }: DashboardChartsProps) {
     });
 
     // 4. Determine which charts to show based on available data
-    const active = AVAILABLE_CHARTS.filter(chart => 
+    const available = AVAILABLE_CHARTS.filter(chart =>
       chart.series.some(s => availableKeys.has(s.key))
     );
 
+    // Reorder to put engine-type priority charts first
+    const priorityIds = engineType ? ENGINE_TYPE_CONFIGS[engineType]?.priorityChartIds ?? [] : [];
+    const active = priorityIds.length > 0
+      ? [
+          ...priorityIds.map(id => available.find(c => c.id === id)).filter((c): c is ChartConfig => !!c),
+          ...available.filter(c => !priorityIds.includes(c.id)),
+        ]
+      : available;
+
     return { processedData: data, activeCharts: active };
-  }, [sessions, distanceUnit]);
+  }, [sessions, distanceUnit, engineType]);
 
   if (sessions.length === 0) return null;
 

@@ -104,7 +104,7 @@ export function GeneralInfoCard({ stats, onProblemsClick }: GeneralInfoCardProps
       subtext: fuelStatus.text
     },
     {
-      label: 'Problems Found',
+      label: 'Active Issues',
       value: stats.problemCount,
       unit: 'issues',
       icon: stats.problemCount > 0 ? AlertTriangle : CheckCircle,

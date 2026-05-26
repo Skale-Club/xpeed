@@ -61,6 +61,10 @@ const ENGINE_FALLBACKS: Record<string, DefaultRule[]> = {
   petrol: GENERIC_PETROL_RULES,
 };
 
+// Bump when thresholds, rule logic, or the set of bundled rulesets change.
+// Sessions store this at upload time so future reprocessing can target stale ones.
+export const RULES_VERSION = '1.0';
+
 export interface ResolvedRuleset {
   id: string;
   rules: DefaultRule[];
