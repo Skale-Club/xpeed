@@ -53,7 +53,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore — we clear local state regardless
     } finally {
-      localStorage.clear();
+      // Only remove Supabase auth keys — preserve app flags like onboarding_completed
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('sb-'))
+        .forEach(k => localStorage.removeItem(k));
       sessionStorage.clear();
       window.location.href = '/login';
     }

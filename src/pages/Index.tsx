@@ -68,7 +68,10 @@ const Index = () => {
   useEffect(() => {
     if (carsLoading) return;
     const alreadyOnboarded = localStorage.getItem(ONBOARDING_KEY) === 'true';
-    if (!alreadyOnboarded && cars.length === 0) {
+    if (cars.length > 0) {
+      // User has vehicles — mark onboarding done so logout+login never re-triggers it
+      if (!alreadyOnboarded) localStorage.setItem(ONBOARDING_KEY, 'true');
+    } else if (!alreadyOnboarded) {
       navigate('/onboarding', { replace: true });
     }
   }, [carsLoading, cars.length, navigate]);

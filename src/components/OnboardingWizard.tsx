@@ -22,7 +22,9 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   const handleLogout = async () => {
     try { await supabase.auth.signOut(); } catch { /* ignore */ }
-    localStorage.clear();
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('sb-'))
+      .forEach(k => localStorage.removeItem(k));
     sessionStorage.clear();
     window.location.href = '/login';
   };
