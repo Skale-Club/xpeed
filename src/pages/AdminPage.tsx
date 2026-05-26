@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -51,7 +50,26 @@ export default function AdminPage() {
   }, [isAdmin, adminLoading, toast]);
 
   if (adminLoading) return <PageLoader />;
-  if (!isAdmin) return <Navigate to="/" replace />;
+  if (!isAdmin) return (
+    <AppLayout>
+      <div className="max-w-md mx-auto pt-12 space-y-4">
+        <div className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-destructive" />
+          <h2 className="text-lg font-mono font-bold text-foreground">Admin Access Required</h2>
+        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="w-4 h-4" />
+          <AlertDescription className="text-xs space-y-2">
+            <p>Your account is not marked as admin in the database.</p>
+            <p className="font-mono bg-destructive/10 rounded px-2 py-1 mt-2 select-all">
+              UPDATE public.car_profiles SET is_admin = true WHERE user_id = (SELECT id FROM auth.users WHERE email = 'skale.club@gmail.com' LIMIT 1);
+            </p>
+            <p>Run the SQL above no <strong>Supabase Dashboard → SQL Editor</strong>, depois recarregue a página.</p>
+          </AlertDescription>
+        </Alert>
+      </div>
+    </AppLayout>
+  );
 
   const handleSave = async (settingKey: string) => {
     const row = state[settingKey];
