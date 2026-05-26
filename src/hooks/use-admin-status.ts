@@ -7,11 +7,11 @@ import { useAuth } from '@/contexts/AuthContext';
  * Returns { isAdmin, loading } so consumers can render placeholders while
  * the answer is in flight.
  */
-const cache = new Map<string, boolean>();
+export const adminStatusCache = new Map<string, boolean>();
 
 export function useAdminStatus(): { isAdmin: boolean; loading: boolean } {
   const { user, loading: authLoading } = useAuth();
-  const cached = user ? cache.get(user.id) : undefined;
+  const cached = user ? adminStatusCache.get(user.id) : undefined;
   const [isAdmin, setIsAdmin] = useState<boolean>(cached ?? false);
   const [loading, setLoading] = useState<boolean>(cached === undefined);
 
@@ -21,8 +21,8 @@ export function useAdminStatus(): { isAdmin: boolean; loading: boolean } {
       setIsAdmin(false);
       return;
     }
-    if (cache.has(user.id)) {
-      setIsAdmin(cache.get(user.id)!);
+    if (adminStatusCache.has(user.id)) {
+      setIsAdmin(adminStatusCache.get(user.id)!);
       setLoading(false);
       return;
     }
@@ -31,7 +31,7 @@ export function useAdminStatus(): { isAdmin: boolean; loading: boolean } {
       try {
         const result = await isAdminUser();
         if (cancelled) return;
-        cache.set(user.id, result);
+        adminStatusCache.set(user.id, result);
         setIsAdmin(result);
       } catch {
         if (!cancelled) setIsAdmin(false);

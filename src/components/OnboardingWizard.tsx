@@ -5,7 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import UploadCard from '@/components/UploadCard';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
-import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { logout } from '@/lib/logout';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -15,19 +16,13 @@ type Step = 1 | 2 | 3 | 4;
 
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [newCarId, setNewCarId] = useState<string | null>(null);
 
   const goTo = (step: Step) => setCurrentStep(step);
 
-  const handleLogout = async () => {
-    try { await supabase.auth.signOut(); } catch { /* ignore */ }
-    Object.keys(localStorage)
-      .filter(k => k.startsWith('sb-'))
-      .forEach(k => localStorage.removeItem(k));
-    sessionStorage.clear();
-    window.location.href = '/login';
-  };
+  const handleLogout = () => logout(queryClient);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">

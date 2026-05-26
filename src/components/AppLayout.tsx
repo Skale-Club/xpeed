@@ -26,6 +26,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ChatBubble } from '@/components/ChatBubble';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { useQueryClient } from '@tanstack/react-query';
+import { logout } from '@/lib/logout';
 
 const NAV_ITEMS = [
   { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
@@ -38,28 +40,18 @@ const NAV_ITEMS = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { cars, selectedCar, selectedCarId, loading: carsLoading, selectCar, refresh } = useCarsContext();
   const { isAdmin } = useAdminStatus();
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const { toast } = useToast();
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
-    try {
-      await signOut();
-    } catch {
-      // ignore — we clear local state regardless
-    } finally {
-      // Only remove Supabase auth keys — preserve app flags like onboarding_completed
-      Object.keys(localStorage)
-        .filter(k => k.startsWith('sb-'))
-        .forEach(k => localStorage.removeItem(k));
-      sessionStorage.clear();
-      window.location.href = '/login';
-    }
+    await logout(queryClient);
   };
 
   return (
