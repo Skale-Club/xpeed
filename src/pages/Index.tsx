@@ -39,6 +39,7 @@ import { PageLoader } from '@/components/PageLoader';
 
 import { LatestTripCard } from '@/components/LatestTripCard';
 import { GeneralInfoCard } from '@/components/GeneralInfoCard';
+import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 
@@ -664,6 +665,15 @@ const Index = () => {
               </DialogContent>
           </Dialog>
 
+          {/* Adaptive engine-type metrics */}
+          {stats.totalSessions > 0 && (
+            <AdaptiveMetricsSection
+              engineType={selectedCar?.engine_type}
+              latestSession={allSessions[0] ?? null}
+              carId={selectedCarId || ''}
+            />
+          )}
+
           {/* Sensor Trends */}
           {stats.totalSessions > 0 && (
           <div className="space-y-4 mt-6">
@@ -671,7 +681,7 @@ const Index = () => {
               <Activity className="w-4 h-4 text-primary" />
               Detailed Analytics & Trends
             </h3>
-            <DashboardCharts sessions={filteredSessions} />
+            <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />
           </div>
           )}
         </>
