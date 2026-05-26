@@ -163,6 +163,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   {user?.email}
                 </div>
                 <DropdownMenuSeparator />
+                {isAdmin && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin" className="flex items-center">
+                      <Shield className="w-3.5 h-3.5 mr-2" />
+                      Admin Panel
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>
                   {isLoggingOut ? (
                     <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
