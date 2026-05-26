@@ -9,6 +9,7 @@ import { refreshParameterBaselines } from '@/lib/db-extras';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import { downsampleSessionRows } from '@/lib/downsample';
 import { generateReport, REPORT_VERSION, PROCESSING_VERSION } from '@/lib/report-generator';
+import { reconcileIssues } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
 
 export function useCSVUpload(onComplete: (sessionId: string) => void, carProfileId?: string) {
@@ -196,6 +197,19 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
         ]);
       } catch (reportErr) {
         console.warn('Report generation skipped:', reportErr);
+      }
+
+      // Reconcile flags into the persistent vehicle_issues table.
+      // Non-fatal — session is already saved even if this fails.
+      try {
+        const { data: { user } } = await import('@/integrations/supabase/client').then(
+          (m) => m.supabase.auth.getUser()
+        );
+        if (user) {
+          await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart);
+        }
+      } catch (issueErr) {
+        console.warn('Issue reconciliation skipped:', issueErr);
       }
 
       // Analyze with Gemini via the shared admin-configured Edge Function.

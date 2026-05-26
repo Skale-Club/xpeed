@@ -27,6 +27,7 @@ const SignupPage = lazy(() => import("./pages/SignupPage"));
 const SetupAdminPage = lazy(() => import("./pages/SetupAdminPage"));
 const ShareImportPage = lazy(() => import("./pages/ShareImportPage"));
 const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
+const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -72,6 +73,7 @@ const App = () => (
               <Route path="/admin" element={<AuthenticatedLayout><AdminPage /></AuthenticatedLayout>} />
               <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
               <Route path="/import" element={<AuthenticatedLayout><ShareImportPage /></AuthenticatedLayout>} />
+              <Route path="/issues" element={<AuthenticatedLayout><IssuesPage /></AuthenticatedLayout>} />
 
               {/* OAuth 2.1 authorization endpoint */}
               <Route path="/oauth/authorize" element={<PublicLayout><OAuthAuthorize /></PublicLayout>} />
