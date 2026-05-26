@@ -4,6 +4,10 @@ import type { CarProfile } from './db';
 
 export const REPORT_VERSION = 1;
 
+// Composite version string: bump either constant when the pipeline changes
+// significantly, then old sessions can be identified and reprocessed.
+export const PROCESSING_VERSION = `rules-1.0/report-${REPORT_VERSION}`;
+
 export interface SessionReport {
   version: typeof REPORT_VERSION;
   generated_at: string;

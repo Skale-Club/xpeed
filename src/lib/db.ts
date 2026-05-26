@@ -345,6 +345,25 @@ export async function updateSessionWithGeminiAnalysis(
   }
 }
 
+export async function updateSessionVersioning(
+  sessionId: string,
+  fields: {
+    ruleset_id: string;
+    ruleset_matched_via: string;
+    report_version: number;
+    processing_version: string;
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from('sessions')
+    .update(fields as unknown as never)
+    .eq('id', sessionId);
+
+  if (error) {
+    throw new Error(`Failed to update session versioning: ${error.message}`);
+  }
+}
+
 export async function storeSessionReport(
   sessionId: string,
   report: Record<string, unknown>

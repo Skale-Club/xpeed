@@ -3,12 +3,12 @@ import { parseCSV } from '@/lib/csv-parser';
 import { computeParameterSummaries, evaluateRules } from '@/lib/insight-engine';
 import {
   createSession, insertSessionRows, insertSessionFlags, uploadSessionCSV, removeSessionCSV, deleteSession,
-  getCarById, storeSessionReport,
+  getCarById, storeSessionReport, updateSessionVersioning,
 } from '@/lib/db';
 import { refreshParameterBaselines } from '@/lib/db-extras';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import { downsampleSessionRows } from '@/lib/downsample';
-import { generateReport } from '@/lib/report-generator';
+import { generateReport, REPORT_VERSION, PROCESSING_VERSION } from '@/lib/report-generator';
 import { useToast } from '@/hooks/use-toast';
 
 export function useCSVUpload(onComplete: (sessionId: string) => void, carProfileId?: string) {
@@ -185,7 +185,15 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
           rulesetId: ruleset.id,
           rulesetMatchedVia: ruleset.matched_via,
         });
-        await storeSessionReport(session.id, report as unknown as Record<string, unknown>);
+        await Promise.all([
+          storeSessionReport(session.id, report as unknown as Record<string, unknown>),
+          updateSessionVersioning(session.id, {
+            ruleset_id: ruleset.id,
+            ruleset_matched_via: ruleset.matched_via,
+            report_version: REPORT_VERSION,
+            processing_version: PROCESSING_VERSION,
+          }),
+        ]);
       } catch (reportErr) {
         console.warn('Report generation skipped:', reportErr);
       }
