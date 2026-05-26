@@ -359,6 +359,7 @@ export interface CarProfile {
   vin: string | null;
   engine_type: EngineType | null;
   ruleset_id: string | null;
+  country: string | null;
   created_at: string;
   user_id?: string;
   is_admin?: boolean;
@@ -376,6 +377,7 @@ export interface CarProfileInput {
   vin?: string | null;
   engine_type?: EngineType | null;
   ruleset_id?: string | null;
+  country?: string | null;
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {
@@ -423,6 +425,7 @@ export async function createCarProfile(
       year: input.year ?? null,
       trim: input.trim ?? null,
       vin: input.vin ?? null,
+      country: input.country ?? null,
     })
     .select()
     .single();
