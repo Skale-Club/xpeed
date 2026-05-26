@@ -69,7 +69,7 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
           <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full">
             <Car className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Car Insights AI</h1>
+          <h1 className="text-2xl font-bold text-foreground">Xpeed</h1>
           <p className="text-sm text-muted-foreground">Sign in to your account</p>
         </div>
 

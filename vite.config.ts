@@ -18,8 +18,8 @@ export default defineConfig(() => ({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "robots.txt"],
       manifest: {
-        name: "Car Insights AI",
-        short_name: "CarInsights",
+        name: "Xpeed",
+        short_name: "Xpeed",
         description: "OBD2 diagnostics with AI-powered insights",
         theme_color: "#0a0a0a",
         background_color: "#0a0a0a",
