@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Car, Plus, ChevronDown, Gauge, History, Settings, Wrench, Shield,
   LogOut, Loader2, User, Languages,
@@ -23,7 +23,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
 import {
@@ -59,7 +58,6 @@ const LANGS = [
 
 export function AppSidebar() {
   const location = useLocation();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { cars, selectedCar, selectedCarId, selectCar, refresh } = useCarsContext();
   const { isAdmin } = useAdminStatus();
@@ -81,10 +79,8 @@ export function AppSidebar() {
     await logout(queryClient);
   };
 
-  const navItems = [
-    ...NAV_ITEMS,
-    ...(isAdmin ? [{ to: '/admin', i18nKey: 'nav.admin', icon: Shield }] : []),
-  ];
+  const navItems = NAV_ITEMS;
+  const adminActive = location.pathname.startsWith('/admin');
 
   return (
     <Sidebar collapsible="icon">
@@ -184,9 +180,21 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* Footer: Language + User */}
+      {/* Footer: Admin (if admin) + Language + User */}
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
+          {/* Admin Panel — only visible to admins */}
+          {isAdmin && (
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={adminActive} tooltip={t('nav.admin', 'Admin')}>
+                <Link to="/admin" onClick={handleNavClick}>
+                  <Shield />
+                  <span>{t('nav.admin', 'Admin')}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+
           {/* Language Switcher */}
           <SidebarMenuItem>
             <DropdownMenu>
@@ -227,14 +235,6 @@ export function AppSidebar() {
                   {user?.email}
                 </div>
                 <DropdownMenuSeparator />
-                {isAdmin && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/admin" onClick={handleNavClick} className="flex items-center">
-                      <Shield className="w-3.5 h-3.5 mr-2" />
-                      Admin Panel
-                    </Link>
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>
                   {isLoggingOut ? (
                     <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
