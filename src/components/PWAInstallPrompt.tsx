@@ -1,11 +1,11 @@
 import { X, Download, Share, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePwaInstall } from '@/hooks/use-pwa-install';
-import { useAppIcon } from '@/hooks/use-app-icon';
+import { useBrand } from '@/hooks/use-brand';
 
 export function PWAInstallPrompt() {
   const { showPrompt, isIOS, install, dismiss } = usePwaInstall();
-  const { icon192 } = useAppIcon();
+  const brand = useBrand();
 
   if (!showPrompt) return null;
 
@@ -15,8 +15,8 @@ export function PWAInstallPrompt() {
         {/* Header */}
         <div className="flex items-center gap-3 p-4 pb-3">
           <div className="w-12 h-12 rounded-xl overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center border border-border">
-            {icon192 ? (
-              <img src={icon192} alt="App icon" className="w-full h-full object-cover" />
+            {brand.logo_url ? (
+              <img src={brand.logo_url} alt="App icon" className="w-full h-full object-cover" />
             ) : (
               <Download className="w-6 h-6 text-primary" />
             )}

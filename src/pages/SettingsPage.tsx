@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import McpTokensSection from '@/components/McpTokensSection';
 
 interface McpToken {
   id: string;
@@ -194,6 +195,10 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* MCP Tokens */}
+        <McpTokensSection />
+
+        {/* About */}
         <Card className="bg-card border-border">
           <CardContent className="p-4">
             <div className="flex items-center gap-3 mb-2">
@@ -201,7 +206,7 @@ export default function SettingsPage() {
               <h3 className="text-sm font-mono font-semibold text-foreground">About</h3>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Car Insights AI is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
+              Xpeed is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
               and similar apps. Manage multiple vehicles and track their health separately. Always consult a
               professional for serious vehicle issues.
             </p>

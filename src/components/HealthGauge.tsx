@@ -1,4 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { CHART_PALETTE } from '@/lib/chart-palette';
 
 interface HealthGaugeProps {
   score: number;        // 0..100
@@ -7,10 +8,10 @@ interface HealthGaugeProps {
 }
 
 const STATUS_COLOR: Record<HealthGaugeProps['status'], string> = {
-  Excellent: '#10b981',
-  Good:      '#10b981',
-  Attention: '#f59e0b',
-  Critical:  '#ef4444',
+  Excellent: CHART_PALETTE.green,
+  Good:      CHART_PALETTE.green,
+  Attention: CHART_PALETTE.amber,
+  Critical:  CHART_PALETTE.red,
 };
 
 export default function HealthGauge({ score, status, size = 160 }: HealthGaugeProps) {

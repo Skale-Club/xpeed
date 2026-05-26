@@ -1,5 +1,4 @@
-import React, { Suspense, lazy, useEffect } from "react";
-import { getAppIconBaseUrl, buildIconUrl, applyFaviconToDocument } from "@/lib/app-icon";
+import React, { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +9,7 @@ import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
+import BrandHead from "@/components/BrandHead";
 import { Analytics } from "@vercel/analytics/react";
 
 // Lazy imports
@@ -25,23 +25,12 @@ const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const SetupAdminPage = lazy(() => import("./pages/SetupAdminPage"));
+const ShareImportPage = lazy(() => import("./pages/ShareImportPage"));
+const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
-function useDynamicFavicon() {
-  useEffect(() => {
-    getAppIconBaseUrl().then((baseUrl) => {
-      if (!baseUrl) return;
-      applyFaviconToDocument(
-        buildIconUrl(baseUrl, 'icon-192.png'),
-        buildIconUrl(baseUrl, 'apple-touch-icon.png'),
-      );
-    });
-  }, []);
-}
-
-// Wrapper component to provide Cars context only for authenticated routes
 const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => (
   <PrivateRoute>
     <CarsProvider>
@@ -58,13 +47,12 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => (
   </Suspense>
 );
 
-const App = () => {
-  useDynamicFavicon();
-  return (
+const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
         <SettingsProvider>
+          <BrandHead />
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -73,7 +61,7 @@ const App = () => {
               <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
               <Route path="/signup" element={<PublicLayout><SignupPage /></PublicLayout>} />
               <Route path="/setup-admin" element={<PublicLayout><SetupAdminPage /></PublicLayout>} />
-              
+
               {/* Protected Routes */}
               <Route path="/" element={<AuthenticatedLayout><Index /></AuthenticatedLayout>} />
               <Route path="/session/:id" element={<AuthenticatedLayout><SessionDetail /></AuthenticatedLayout>} />
@@ -83,6 +71,10 @@ const App = () => {
               <Route path="/maintenance" element={<AuthenticatedLayout><MaintenancePage /></AuthenticatedLayout>} />
               <Route path="/admin" element={<AuthenticatedLayout><AdminPage /></AuthenticatedLayout>} />
               <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
+              <Route path="/import" element={<AuthenticatedLayout><ShareImportPage /></AuthenticatedLayout>} />
+
+              {/* OAuth 2.1 authorization endpoint */}
+              <Route path="/oauth/authorize" element={<PublicLayout><OAuthAuthorize /></PublicLayout>} />
 
               {/* Public shared diagnostic report */}
               <Route path="/share/:id" element={<PublicLayout><SharedReport /></PublicLayout>} />
@@ -97,8 +89,5 @@ const App = () => {
     </TooltipProvider>
   </QueryClientProvider>
 );
-
-  );
-};
 
 export default App;

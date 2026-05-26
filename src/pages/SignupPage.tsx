@@ -8,10 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Car, CheckCircle } from 'lucide-react';
+import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 
 export default function SignupPage() {
   const navigate = useNavigate();
   const { signUp, signInWithGoogle } = useAuth();
+  const brand = useBrand();
+  const useCustomLogo = !isDefaultBrand(brand);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -70,8 +73,8 @@ export default function SignupPage() {
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center space-y-2">
-            <div className="w-16 h-16 flex items-center justify-center bg-green-100 rounded-full">
-              <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="w-16 h-16 flex items-center justify-center bg-success/10 rounded-full">
+              <CheckCircle className="w-8 h-8 text-success" />
             </div>
             <h1 className="text-2xl font-bold text-foreground">Account Created!</h1>
           </div>
@@ -96,10 +99,14 @@ export default function SignupPage() {
       <div className="w-full max-w-md space-y-6">
         {/* Logo */}
         <div className="flex flex-col items-center space-y-2">
-          <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full">
-            <Car className="w-8 h-8 text-primary" />
+          <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full overflow-hidden">
+            {useCustomLogo ? (
+              <img src={brand.logo_url} alt="Logo" className="w-12 h-12 object-contain" />
+            ) : (
+              <Car className="w-8 h-8 text-primary" />
+            )}
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Car Insights AI</h1>
+          <h1 className="text-2xl font-bold text-foreground">Xpeed</h1>
           <p className="text-sm text-muted-foreground">Create your account</p>
         </div>
 
@@ -173,7 +180,7 @@ export default function SignupPage() {
               </Button>
             </form>
 
-            {/* Google OAuth — hidden until VITE_APP_URL is configured */}
+            {/* Google OAuth — hidden until configured */}
 
             <div className="mt-4 text-center text-sm">
               <span className="text-muted-foreground">Already have an account? </span>

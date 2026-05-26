@@ -22,7 +22,7 @@ import { DEFAULT_PRIUS_RULES } from '@/lib/default-rules';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { PageLoader } from '@/components/PageLoader';
-import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2 } from 'lucide-react';
+import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2, ChevronsRight, ChevronsLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
 
@@ -52,6 +52,14 @@ export default function HistoryPage() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+
+  // Right column collapse state — persisted across reloads
+  const [insightsCollapsed, setInsightsCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('xpeed_insights_collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('xpeed_insights_collapsed', insightsCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [insightsCollapsed]);
 
   // Reset editing when session changes
   useEffect(() => {
@@ -179,132 +187,182 @@ export default function HistoryPage() {
   return (
     <AppLayout>
       <div className="space-y-8">
-        {/* Session Details Panel */}
+        {/* Session Details Panel — 2-column layout:
+            left (2/3): header + filename + KPIs + Key Parameters
+            right (1/3, collapsible): stacked action buttons + Insights panel */}
         {displayedSession && (
-          <div className="space-y-4">
-             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+          <div className={`grid grid-cols-1 gap-6 ${insightsCollapsed ? 'lg:grid-cols-1' : 'lg:grid-cols-3'}`}>
+            {/* Left column */}
+            <div className={`space-y-4 ${insightsCollapsed ? '' : 'lg:col-span-2'}`}>
+              <div className="flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                   <HistoryIcon className="w-5 h-5 text-primary" />
                   <h2 className="text-lg font-mono font-bold text-foreground">Session Details</h2>
                 </div>
-                
+
+                {/* When right column is collapsed, surface the actions inline so they stay reachable */}
+                {insightsCollapsed && (
+                  <div className="flex items-center gap-1 ml-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => handleDownloadSessionCsv(displayedSession)}
+                      disabled={downloadingCsv}
+                    >
+                      {downloadingCsv ? (
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                      ) : (
+                        <Download className="w-3 h-3 mr-1" />
+                      )}
+                      CSV
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-primary hover:text-primary h-7"
+                      onClick={() => navigate(`/session/${displayedSession.id}`)}
+                    >
+                      Full Analysis <ArrowRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Collapse / expand the right column. Persists across reloads. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-7 w-7 ${insightsCollapsed ? '' : 'ml-auto'}`}
+                  onClick={() => setInsightsCollapsed((c) => !c)}
+                  title={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
+                  aria-label={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
+                >
+                  {insightsCollapsed ? <ChevronsLeft className="w-4 h-4" /> : <ChevronsRight className="w-4 h-4" />}
+                </Button>
+
                 {sessions.length > 1 && (
                   <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5 border border-border/50">
-                     <Button
-                       variant="ghost" 
-                       size="icon"
-                       className="h-7 w-7"
-                       disabled={selectedIndex >= sessions.length - 1}
-                       onClick={() => setSelectedIndex(i => i + 1)}
-                       title="Older Session"
-                     >
-                       <ChevronLeft className="w-4 h-4" />
-                     </Button>
-                     <span className="text-xs font-mono text-muted-foreground px-2 min-w-[3rem] text-center select-none">
-                       {selectedIndex + 1} / {sessions.length}
-                     </span>
-                     <Button
-                       variant="ghost" 
-                       size="icon"
-                       className="h-7 w-7"
-                       disabled={selectedIndex <= 0}
-                       onClick={() => setSelectedIndex(i => i - 1)}
-                       title="Newer Session"
-                     >
-                       <ChevronRight className="w-4 h-4" />
-                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={selectedIndex >= sessions.length - 1}
+                      onClick={() => setSelectedIndex(i => i + 1)}
+                      title="Older Session"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <span className="text-xs font-mono text-muted-foreground px-2 min-w-[3rem] text-center select-none">
+                      {selectedIndex + 1} / {sessions.length}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      disabled={selectedIndex <= 0}
+                      onClick={() => setSelectedIndex(i => i - 1)}
+                      title="Newer Session"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => handleDownloadSessionCsv(displayedSession)}
-                  disabled={downloadingCsv}
-                >
-                  {downloadingCsv ? (
-                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                  ) : (
-                    <Download className="w-3 h-3 mr-1" />
-                  )}
-                  Download CSV
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate(`/session/${displayedSession.id}`)}
-                  className="text-xs text-primary hover:text-primary"
-                >
-                  Full Analysis <ArrowRight className="w-3 h-3 ml-1" />
-                </Button>
-              </div>
-            </div>
 
-            <div className="mb-4">
-              {isEditingName ? (
-                <div className="flex items-center gap-1 mb-1">
-                  <Input 
-                    className="h-7 w-[250px] text-xs font-mono" 
-                    value={newName} 
-                    onChange={(e) => setNewName(e.target.value)} 
-                    placeholder="Session Name"
-                  />
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSaveName}>
-                    <Check className="h-3.5 w-3.5 text-green-500" />
-                  </Button>
-                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingName(false)}>
-                    <X className="h-3.5 w-3.5 text-red-500" />
-                  </Button>
+              <div>
+                {isEditingName ? (
+                  <div className="flex items-center gap-1 mb-1">
+                    <Input
+                      className="h-7 w-[250px] text-xs font-mono"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Session Name"
+                    />
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSaveName}>
+                      <Check className="h-3.5 w-3.5 text-success" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingName(false)}>
+                      <X className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 group/name mb-1">
+                    <h3 className="text-sm font-bold font-mono text-foreground">{displayedSession.source_filename}</h3>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 opacity-0 group-hover/name:opacity-100 transition-opacity"
+                      onClick={() => {
+                        setNewName(displayedSession.source_filename);
+                        setIsEditingName(true);
+                      }}
+                    >
+                      <Pencil className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </div>
+                )}
+                <div className="text-xs text-muted-foreground font-mono">
+                  {new Date(displayedSession.session_start || displayedSession.uploaded_at).toLocaleString(undefined, { timeZone: timezone })}
+                </div>
+              </div>
+
+              {detailsLoading ? (
+                <div className="h-[400px] flex items-center justify-center border border-dashed border-border rounded-lg">
+                  <PageLoader fullScreen={false} />
                 </div>
               ) : (
-                <div className="flex items-center gap-2 group/name mb-1">
-                  <h3 className="text-sm font-bold font-mono text-foreground">{displayedSession.source_filename}</h3>
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    className="h-6 w-6 opacity-0 group-hover/name:opacity-100 transition-opacity" 
-                    onClick={() => {
-                      setNewName(displayedSession.source_filename);
-                      setIsEditingName(true);
-                    }}
-                  >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
-                  </Button>
-                </div>
-              )}
-              <div className="text-xs text-muted-foreground font-mono">
-                {new Date(displayedSession.session_start || displayedSession.uploaded_at).toLocaleString(undefined, { timeZone: timezone })}
-              </div>
-            </div>
+                <>
+                  <SessionKPIs
+                    duration={displayedSession.duration_seconds}
+                    rowCount={displayedSession.row_count}
+                    parameterCount={summaries.length}
+                    attentionCount={flags.filter((f) => f.severity === 'attention').length}
+                    criticalCount={flags.filter((f) => f.severity === 'critical').length}
+                  />
 
-            {detailsLoading ? (
-              <div className="h-[400px] flex items-center justify-center border border-dashed border-border rounded-lg">
-                <PageLoader fullScreen={false} />
-              </div>
-            ) : (
-              <>
-                <SessionKPIs
-                  duration={displayedSession.duration_seconds}
-                  rowCount={displayedSession.row_count}
-                  parameterCount={summaries.length}
-                  attentionCount={flags.filter((f) => f.severity === 'attention').length}
-                  criticalCount={flags.filter((f) => f.severity === 'critical').length}
-                />
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  <div className="lg:col-span-2">
+                  <div>
                     <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Key Parameters</h3>
                     <SessionCharts rows={rows} headerMapping={headerMapping} rules={rules} />
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* Right column — stacked action buttons + Insights. Collapsible. */}
+            {!insightsCollapsed && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs justify-start"
+                    onClick={() => handleDownloadSessionCsv(displayedSession)}
+                    disabled={downloadingCsv}
+                  >
+                    {downloadingCsv ? (
+                      <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="w-3 h-3 mr-2" />
+                    )}
+                    Download CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigate(`/session/${displayedSession.id}`)}
+                    className="text-xs text-primary hover:text-primary justify-start"
+                  >
+                    Full Analysis <ArrowRight className="w-3 h-3 ml-2" />
+                  </Button>
+                </div>
+
+                {!detailsLoading && (
                   <div>
                     <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Insights</h3>
                     <FlagsPanel flags={flags} limit={5} />
                   </div>
-                </div>
-              </>
+                )}
+              </div>
             )}
           </div>
         )}

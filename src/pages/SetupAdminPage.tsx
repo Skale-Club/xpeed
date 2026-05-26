@@ -301,12 +301,12 @@ Click "Go to Login" button below.`
                 Send Password Reset Email
               </Button>
 
-              <Button onClick={autoConfirmEmail} disabled={loading} variant="outline" className="w-full text-green-600">
+              <Button onClick={autoConfirmEmail} disabled={loading} variant="outline" className="w-full text-success">
                 {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <MailCheck className="w-4 h-4 mr-2" />}
                 🚀 Auto-Confirm Email
               </Button>
 
-              <Button onClick={confirmEmailInstructions} disabled={loading} variant="ghost" className="w-full text-blue-600">
+              <Button onClick={confirmEmailInstructions} disabled={loading} variant="ghost" className="w-full text-primary">
                 📖 View Manual Instructions
               </Button>
             </div>

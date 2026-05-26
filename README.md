@@ -1,4 +1,4 @@
-# 🚗 Car Insights AI
+# 🚗 Xpeed
 
 > AI-powered automotive analysis system for vehicle profile management and personalized insights.
 
@@ -10,7 +10,7 @@
 
 ## 📋 About
 
-Car Insights AI is a modern web platform that uses artificial intelligence to provide detailed vehicle analysis. The system allows users to create personalized car profiles, perform intelligent queries, and obtain valuable insights about maintenance, performance, and technical specifications.
+Xpeed is a modern web platform that uses artificial intelligence to provide detailed vehicle analysis. The system allows users to create personalized car profiles, perform intelligent queries, and obtain valuable insights about maintenance, performance, and technical specifications.
 
 ### ✨ Key Features
 
@@ -57,8 +57,8 @@ Car Insights AI is a modern web platform that uses artificial intelligence to pr
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/Skale-Club/car-insights-ai.git
-cd car-insights-ai
+git clone https://github.com/Skale-Club/xpeed.git
+cd xpeed
 ```
 
 2. **Install dependencies**
@@ -152,20 +152,20 @@ If the Supabase pause email arrives again, work through these steps:
 
 ```bash
 # 1. List workflows and check state — look for "disabled_inactivity"
-gh api repos/Skale-Club/car-insights-ai/actions/workflows
+gh api repos/Skale-Club/xpeed/actions/workflows
 
 # 2. Re-enable if disabled (use the workflow id from step 1)
-gh api repos/Skale-Club/car-insights-ai/actions/workflows/<id>/enable -X PUT
+gh api repos/Skale-Club/xpeed/actions/workflows/<id>/enable -X PUT
 
 # 3. Verify both required secrets still exist
-gh secret list --repo Skale-Club/car-insights-ai
+gh secret list --repo Skale-Club/xpeed
 
 # 4. Dispatch both workflows manually to confirm they work
-gh workflow run "Supabase Keepalive"             --repo Skale-Club/car-insights-ai --ref main
-gh workflow run "Supabase Keepalive Health Check" --repo Skale-Club/car-insights-ai --ref main
+gh workflow run "Supabase Keepalive"             --repo Skale-Club/xpeed --ref main
+gh workflow run "Supabase Keepalive Health Check" --repo Skale-Club/xpeed --ref main
 
 # 5. Tail the most recent run
-gh run list --workflow="Supabase Keepalive" --repo Skale-Club/car-insights-ai --limit 3
+gh run list --workflow="Supabase Keepalive" --repo Skale-Club/xpeed --limit 3
 
 # 6. Unpause the Supabase project itself (manual, via dashboard):
 #    https://supabase.com/dashboard/project/drqmrddxlrlbqnydumjm
@@ -221,5 +221,5 @@ Built with ❤️ by Skale Club team
 ---
 
 <p align="center">
-  <strong>Car Insights AI</strong> - Artificial intelligence at the service of your vehicle
+  <strong>Xpeed</strong> - Artificial intelligence at the service of your vehicle
 </p>

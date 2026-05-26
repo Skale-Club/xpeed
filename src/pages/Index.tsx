@@ -68,7 +68,10 @@ const Index = () => {
   useEffect(() => {
     if (carsLoading) return;
     const alreadyOnboarded = localStorage.getItem(ONBOARDING_KEY) === 'true';
-    if (!alreadyOnboarded && cars.length === 0) {
+    if (cars.length > 0) {
+      // User has vehicles — mark onboarding done so logout+login never re-triggers it
+      if (!alreadyOnboarded) localStorage.setItem(ONBOARDING_KEY, 'true');
+    } else if (!alreadyOnboarded) {
       navigate('/onboarding', { replace: true });
     }
   }, [carsLoading, cars.length, navigate]);
@@ -542,7 +545,7 @@ const Index = () => {
                 onClick={() => setIsProblemsOpen(true)}
               />
             </div>
-          </div>
+          </div>}
 
           {/* KPI Cards */}
           {stats.totalSessions > 0 && (
@@ -588,7 +591,7 @@ const Index = () => {
                   <div className="flex-1 overflow-y-auto pr-2">
                       {visibleProblems.length === 0 ? (
                           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-center">
-                              <CheckCircle className="w-16 h-16 mb-4 text-emerald-500 opacity-20" />
+                              <CheckCircle className="w-16 h-16 mb-4 text-success opacity-20" />
                               <p className="text-lg font-medium text-foreground">
                                 {generalStats.problems.length > 0 && !showResolvedProblems 
                                     ? "No active issues" 
@@ -611,7 +614,7 @@ const Index = () => {
                                       <div className="flex items-start justify-between gap-2">
                                           <div className="flex items-center gap-2">
                                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                                  flag.severity === 'critical' ? 'bg-destructive/10 text-destructive' : 'bg-yellow-500/10 text-yellow-600'
+                                                  flag.severity === 'critical' ? 'bg-destructive/10 text-destructive' : 'bg-warn/10 text-warn'
                                               }`}>
                                                   {flag.severity || 'WARN'}
                                               </span>
@@ -630,7 +633,7 @@ const Index = () => {
                                                 onClick={() => handleToggleResolved(flag.id, flag.resolved)}
                                                 title={flag.resolved ? "Mark as Unresolved" : "Mark as Resolved"}
                                               >
-                                                {flag.resolved ? <CheckSquare className="w-4 h-4 text-emerald-500" /> : <Square className="w-4 h-4" />}
+                                                {flag.resolved ? <CheckSquare className="w-4 h-4 text-success" /> : <Square className="w-4 h-4" />}
                                               </Button>
                                           </div>
                                       </div>

@@ -27,6 +27,15 @@ export default defineConfig(({ mode }) => {
     hmr: {
       overlay: false,
     },
+    // Proxy /api/mcp to the Supabase edge function during local development.
+    // In production this route is handled by api/mcp.ts (Vercel Edge Function).
+    proxy: {
+      "/api/mcp": {
+        target: (process.env.VITE_SUPABASE_URL ?? "") + "/functions/v1/xpeed-mcp",
+        changeOrigin: true,
+        rewrite: () => "",
+      },
+    },
   },
   plugins: [
     react(),
@@ -34,19 +43,37 @@ export default defineConfig(({ mode }) => {
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "robots.txt"],
       manifest: {
-        name: "Car Insights AI",
-        short_name: "CarInsights",
+        name: "Xpeed",
+        short_name: "Xpeed",
         description: "OBD2 diagnostics with AI-powered insights",
-        theme_color: "#0a0a0a",
-        background_color: "#0a0a0a",
+        theme_color: "#141414",
+        background_color: "#141414",
         display: "standalone",
         start_url: "/",
         scope: "/",
         icons: pwaIcons,
+        share_target: {
+          action: "/import",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            files: [{ name: "csv", accept: ["text/csv", ".csv"] }],
+          },
+        },
       },
       workbox: {
         // Don't try to precache the giant Recharts chunk on first paint.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Force the new SW to take control of all open tabs immediately so
+        // updates land without requiring a second reload after the SW fetches
+        // them. Without these flags, "autoUpdate" still leaves stale assets
+        // running until every tab is closed.
+        skipWaiting: true,
+        clientsClaim: true,
+        // Avoid SW returning a stale index.html on hard refresh.
+        cleanupOutdatedCaches: true,
+        // Share target POST handler runs before Workbox routes.
+        importScripts: ["/sw-share-target.js"],
         runtimeCaching: [
           {
             // Cache Supabase REST reads for offline session viewing.
