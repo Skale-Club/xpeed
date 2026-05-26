@@ -31,10 +31,20 @@ export default defineConfig(() => ({
           // Replace with proper 192/512 PNGs in /public for production polish.
           { src: "/favicon.ico", sizes: "64x64 32x32 24x24 16x16", type: "image/x-icon" },
         ],
+        share_target: {
+          action: "/import",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            files: [{ name: "csv", accept: ["text/csv", ".csv"] }],
+          },
+        },
       },
       workbox: {
         // Don't try to precache the giant Recharts chunk on first paint.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Share target POST handler runs before Workbox routes.
+        importScripts: ["/sw-share-target.js"],
         runtimeCaching: [
           {
             // Cache Supabase REST reads for offline session viewing.

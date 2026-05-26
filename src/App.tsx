@@ -24,6 +24,7 @@ const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
 const SetupAdminPage = lazy(() => import("./pages/SetupAdminPage"));
+const ShareImportPage = lazy(() => import("./pages/ShareImportPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -68,6 +69,7 @@ const App = () => (
               <Route path="/maintenance" element={<AuthenticatedLayout><MaintenancePage /></AuthenticatedLayout>} />
               <Route path="/admin" element={<AuthenticatedLayout><AdminPage /></AuthenticatedLayout>} />
               <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
+              <Route path="/import" element={<AuthenticatedLayout><ShareImportPage /></AuthenticatedLayout>} />
 
               {/* Public shared diagnostic report */}
               <Route path="/share/:id" element={<PublicLayout><SharedReport /></PublicLayout>} />

@@ -542,7 +542,7 @@ const Index = () => {
                 onClick={() => setIsProblemsOpen(true)}
               />
             </div>
-          </div>
+          </div>}
 
           {/* KPI Cards */}
           {stats.totalSessions > 0 && (
