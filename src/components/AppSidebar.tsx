@@ -48,8 +48,7 @@ const NAV_ITEMS = [
   { to: '/history', i18nKey: 'nav.history', icon: History },
   { to: '/cars', i18nKey: 'nav.cars', icon: Car },
   { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench },
-  { to: '/issues',      i18nKey: 'nav.issues',      icon: AlertTriangle },
-  { to: '/settings',   i18nKey: 'nav.settings',   icon: Settings },
+  { to: '/settings', i18nKey: 'nav.settings', icon: Settings },
 ];
 
 const LANGS = [
