@@ -578,7 +578,7 @@ const Index = () => {
           )}
 
           <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-              <DialogContent className="sm:max-w-md">
+              <DialogContent className="sm:max-w-md max-sm:top-4 max-sm:translate-y-0 max-sm:left-3 max-sm:right-3 max-sm:w-auto max-sm:max-w-none max-h-[calc(100dvh-6rem)] overflow-y-auto">
                   <DialogHeader>
                       <DialogTitle>Upload New Session</DialogTitle>
                   </DialogHeader>

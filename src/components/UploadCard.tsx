@@ -80,8 +80,7 @@ export default function UploadCard({ onComplete, carProfileId, variant = 'defaul
 
   return (
     <Card
-      className="relative overflow-hidden border-dashed border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all cursor-pointer"
-      onClick={() => !uploading && inputRef.current?.click()}
+      className="relative overflow-hidden border-dashed border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all"
       onDragOver={e => e.preventDefault()}
       onDrop={handleDrop}
     >
@@ -91,33 +90,45 @@ export default function UploadCard({ onComplete, carProfileId, variant = 'defaul
           style={{ width: `${progressValue}%` }}
         />
       )}
-      <CardContent className="relative z-10 flex flex-col items-center justify-center py-8 gap-3">
-        {uploading ? (
-          <>
-            <Loader2 className="w-8 h-8 text-primary animate-spin" />
-            <p className="text-sm font-mono text-primary">{progressLabel}</p>
-            <p className="text-xs font-mono text-primary/80">{progressValue}%</p>
-          </>
-        ) : (
-          <>
-            <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center">
-              <FileUp className="w-6 h-6 text-primary" />
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-foreground">Drop CSV or click to upload</p>
-              <p className="text-xs text-muted-foreground mt-1">Car Scanner ELM OBD2 export</p>
-            </div>
-            
-            <div className="w-full max-w-xs mt-2" onClick={e => e.stopPropagation()}>
-              <Input 
-                placeholder="Session Name (Optional)" 
-                value={sessionName}
-                onChange={(e) => setSessionName(e.target.value)}
-                className="h-8 text-center"
-              />
-            </div>
-          </>
+      <CardContent className="relative z-10 flex flex-col gap-3 py-5 px-4">
+        {/* Session name — top so keyboard never hides the upload button */}
+        {!uploading && (
+          <div onClick={e => e.stopPropagation()}>
+            <Input
+              placeholder="Session name (optional)"
+              value={sessionName}
+              onChange={e => setSessionName(e.target.value)}
+              className="h-9 text-sm"
+            />
+          </div>
         )}
+
+        {/* Upload trigger — always below input so it stays above the keyboard */}
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => !uploading && inputRef.current?.click()}
+          className="flex flex-col items-center justify-center gap-3 py-6 rounded-lg border border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 active:bg-primary/15 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full"
+        >
+          {uploading ? (
+            <>
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              <p className="text-sm font-mono text-primary">{progressLabel}</p>
+              <p className="text-xs font-mono text-primary/80">{progressValue}%</p>
+            </>
+          ) : (
+            <>
+              <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center">
+                <FileUp className="w-6 h-6 text-primary" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground">Tap to choose CSV</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Car Scanner / OBD Fusion export</p>
+              </div>
+            </>
+          )}
+        </button>
+
         <input
           ref={inputRef}
           type="file"

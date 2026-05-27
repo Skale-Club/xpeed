@@ -1,70 +1,106 @@
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, Sparkles, Globe, Info, Key, Copy, Check, Trash2, Plus } from 'lucide-react';
+import { Settings, Sparkles, Globe, Info, Smartphone, Share, Download } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import McpTokensSection from '@/components/McpTokensSection';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-interface McpToken {
-  id: string;
-  name: string;
-  token_prefix: string;
-  expires_at: string | null;
-  last_used_at: string | null;
-  created_at: string;
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+function usePWAInstall() {
+  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (navigator as { standalone?: boolean }).standalone === true;
+    setIsInstalled(standalone);
+
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as { MSStream?: unknown }).MSStream;
+    setIsIOS(ios);
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const install = async () => {
+    if (!prompt) return;
+    await prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    if (outcome === 'accepted') setPrompt(null);
+  };
+
+  return { prompt, isInstalled, isIOS, install };
+}
+
+function PWASection() {
+  const { prompt, isInstalled, isIOS, install } = usePWAInstall();
+
+  return (
+    <Card className="bg-card border-border">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <Smartphone className="w-5 h-5 text-primary" />
+          <h3 className="text-sm font-mono font-semibold text-foreground">Install App</h3>
+        </div>
+
+        {isInstalled ? (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Xpeed is running as an installed app. To reinstall, remove it from your home screen and use the button below.
+          </p>
+        ) : isIOS ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              To install on iPhone / iPad:
+            </p>
+            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Tap the <Share className="w-3 h-3 inline mb-0.5" /> Share button in Safari</li>
+              <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+              <li>Tap <strong>Add</strong> to confirm</li>
+            </ol>
+          </div>
+        ) : prompt ? (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Install Xpeed on your home screen for faster access and offline support.
+            </p>
+            <Button size="sm" className="gap-2" onClick={install}>
+              <Download className="w-3.5 h-3.5" />
+              Add to Home Screen
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Open Xpeed in Chrome or Edge on Android, or Safari on iPhone/iPad, to install it as an app.
+            If already installed, remove from home screen first to trigger reinstall.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function SettingsPage() {
   const { distanceUnit, setDistanceUnit, timezone, setTimezone } = useSettings();
-  const [tokens, setTokens] = useState<McpToken[]>([]);
-  const [newToken, setNewToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   const timezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
     : [Intl.DateTimeFormat().resolvedOptions().timeZone];
-
-  useEffect(() => {
-    loadTokens();
-  }, []);
-
-  async function api(action: string, body?: Record<string, unknown>) {
-    return supabase.functions.invoke('manage-mcp-tokens', { body: { action, ...body } });
-  }
-
-  async function loadTokens() {
-    setLoading(true);
-    const { data, error } = await api('list');
-    if (!error && data?.tokens) setTokens(data.tokens);
-    setLoading(false);
-  }
-
-  async function generateToken() {
-    const { data, error } = await api('create', { name: `MCP Token ${new Date().toLocaleDateString()}` });
-    if (error) return;
-    setNewToken(data.token);
-    await loadTokens();
-  }
-
-  async function revokeToken(id: string) {
-    await api('revoke', { token_id: id });
-    setTokens((prev) => prev.filter((t) => t.id !== id));
-  }
-
-  async function copyToken() {
-    if (newToken) {
-      await navigator.clipboard.writeText(newToken);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }
 
   return (
     <AppLayout>
@@ -74,144 +110,104 @@ export default function SettingsPage() {
           <h2 className="text-lg font-mono font-bold text-foreground">Settings</h2>
         </div>
 
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <Globe className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-mono font-semibold text-foreground">Preferences</h3>
-            </div>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-xs font-mono">Distance Unit</Label>
-                <Select value={distanceUnit} onValueChange={(v: 'km' | 'mi') => setDistanceUnit(v)}>
-                  <SelectTrigger className="font-mono text-xs">
-                    <SelectValue placeholder="Select unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="km">Kilometers (km)</SelectItem>
-                    <SelectItem value="mi">Miles (mi)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground">
-                  Used for displaying distances and speed.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-mono">Timezone</Label>
-                <Select value={timezone} onValueChange={setTimezone}>
-                  <SelectTrigger className="font-mono text-xs">
-                    <SelectValue placeholder="Select timezone" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[250px]">
-                    {timezones.map((tz) => (
-                      <SelectItem key={tz} value={tz}>
-                        {tz.replace(/_/g, ' ')}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground">
-                  Used for displaying dates and times.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="app" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-4">
+            <TabsTrigger value="app" className="text-xs gap-1.5">
+              <Globe className="w-3.5 h-3.5" />
+              App
+            </TabsTrigger>
+            <TabsTrigger value="integrations" className="text-xs gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Integrations
+            </TabsTrigger>
+            <TabsTrigger value="about" className="text-xs gap-1.5">
+              <Info className="w-3.5 h-3.5" />
+              About
+            </TabsTrigger>
+          </TabsList>
 
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <Key className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-mono font-semibold text-foreground">MCP Integration</h3>
-            </div>
-
-            <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-              MCP (Model Context Protocol) tokens allow AI agents like Claude Desktop, Cursor, and OpenCode
-              to read your vehicle data. Tokens expire in 30 days.
-            </p>
-
-            {newToken && (
-              <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-md">
-                <p className="text-xs font-mono font-semibold text-amber-600 dark:text-amber-400 mb-1">
-                  Save this token — it will not be shown again!
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-background p-2 rounded border break-all select-all">
-                    {newToken}
-                  </code>
-                  <Button variant="outline" size="icon" onClick={copyToken} className="shrink-0">
-                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </Button>
+          {/* App tab: preferences + PWA */}
+          <TabsContent value="app" className="space-y-4 mt-0">
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <Globe className="w-5 h-5 text-primary" />
+                  <h3 className="text-sm font-mono font-semibold text-foreground">Preferences</h3>
                 </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-mono text-muted-foreground">
-                {tokens.length} active token{tokens.length !== 1 ? 's' : ''}
-              </span>
-              <Button variant="outline" size="sm" onClick={generateToken} className="gap-1">
-                <Plus className="w-3.5 h-3.5" />
-                Generate Token
-              </Button>
-            </div>
-
-            {loading ? (
-              <p className="text-xs text-muted-foreground">Loading tokens...</p>
-            ) : tokens.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No active tokens. Generate one to connect MCP clients.</p>
-            ) : (
-              <div className="space-y-2">
-                {tokens.map((token) => (
-                  <div key={token.id} className="flex items-center justify-between p-2 bg-muted/50 rounded border">
-                    <div className="min-w-0">
-                      <p className="text-xs font-mono font-medium truncate">{token.name}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {token.token_prefix}...
-                        {token.last_used_at && ` \u00B7 Last used ${new Date(token.last_used_at).toLocaleDateString()}`}
-                        {token.expires_at && ` \u00B7 Expires ${new Date(token.expires_at).toLocaleDateString()}`}
-                      </p>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => revokeToken(token.id)} className="text-destructive shrink-0">
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-mono">Distance Unit</Label>
+                    <Select value={distanceUnit} onValueChange={(v: 'km' | 'mi') => setDistanceUnit(v)}>
+                      <SelectTrigger className="font-mono text-xs">
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="km">Kilometers (km)</SelectItem>
+                        <SelectItem value="mi">Miles (mi)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">Used for distances and speed.</p>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-mono">Timezone</Label>
+                    <Select value={timezone} onValueChange={setTimezone}>
+                      <SelectTrigger className="font-mono text-xs">
+                        <SelectValue placeholder="Select timezone" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[250px]">
+                        {timezones.map((tz) => (
+                          <SelectItem key={tz} value={tz}>
+                            {tz.replace(/_/g, ' ')}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[10px] text-muted-foreground">Used for displaying dates.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-mono font-semibold text-foreground">AI Assistant</h3>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              AI features (session analysis + chat) are powered by a shared Google Gemini key configured by the
-              system administrator. No per-user setup is required. Daily fair-use limits apply.
-            </p>
-          </CardContent>
-        </Card>
+            <PWASection />
+          </TabsContent>
 
-        {/* MCP Tokens */}
-        <McpTokensSection />
+          {/* Integrations tab: MCP + AI */}
+          <TabsContent value="integrations" className="space-y-4 mt-0">
+            <McpTokensSection />
 
-        {/* About */}
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <Info className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-mono font-semibold text-foreground">About</h3>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Xpeed is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
-              and similar apps. Manage multiple vehicles and track their health separately. Always consult a
-              professional for serious vehicle issues.
-            </p>
-          </CardContent>
-        </Card>
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  <h3 className="text-sm font-mono font-semibold text-foreground">AI Assistant</h3>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  AI features (session analysis + chat) are powered by a shared Google Gemini key configured
+                  by the system administrator. No per-user setup required. Daily fair-use limits apply.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* About tab */}
+          <TabsContent value="about" className="space-y-4 mt-0">
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <Info className="w-5 h-5 text-primary" />
+                  <h3 className="text-sm font-mono font-semibold text-foreground">About Xpeed</h3>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Xpeed is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
+                  and similar apps. Manage multiple vehicles and track their health separately.
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                  Always consult a professional mechanic for serious vehicle issues.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );
