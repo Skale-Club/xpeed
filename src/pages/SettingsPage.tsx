@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, Sparkles, Globe, Info, Smartphone, Share, Download } from 'lucide-react';
+import { Settings, Sparkles, Globe, Info, Smartphone, Share, Download, Save, RotateCcw } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import McpTokensSection from '@/components/McpTokensSection';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { toast } from 'sonner';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -98,6 +99,27 @@ function PWASection() {
 export default function SettingsPage() {
   const { distanceUnit, setDistanceUnit, timezone, setTimezone } = useSettings();
 
+  // Pending (unsaved) state — changes are staged here before the user hits Save
+  const [pendingUnit, setPendingUnit] = useState<'km' | 'mi'>(distanceUnit);
+  const [pendingTZ, setPendingTZ] = useState(timezone);
+
+  // Keep pending in sync if context ever resets (e.g. on first load)
+  useEffect(() => { setPendingUnit(distanceUnit); }, [distanceUnit]);
+  useEffect(() => { setPendingTZ(timezone); }, [timezone]);
+
+  const isDirty = pendingUnit !== distanceUnit || pendingTZ !== timezone;
+
+  const handleSave = () => {
+    setDistanceUnit(pendingUnit);
+    setTimezone(pendingTZ);
+    toast.success('Settings saved');
+  };
+
+  const handleDiscard = () => {
+    setPendingUnit(distanceUnit);
+    setPendingTZ(timezone);
+  };
+
   const timezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
     : [Intl.DateTimeFormat().resolvedOptions().timeZone];
@@ -105,10 +127,39 @@ export default function SettingsPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Settings className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-mono font-bold text-foreground">Settings</h2>
+        {/* Header — Save button appears inline on desktop when dirty */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Settings className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-mono font-bold text-foreground">Settings</h2>
+          </div>
+          {isDirty && (
+            <div className="hidden sm:flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-150">
+              <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleDiscard}>
+                <RotateCcw className="w-3 h-3" />
+                Discard
+              </Button>
+              <Button size="sm" className="gap-1.5 text-xs" onClick={handleSave}>
+                <Save className="w-3.5 h-3.5" />
+                Save
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Mobile floating Save button — visible only on small screens when dirty */}
+        {isDirty && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 sm:hidden animate-in fade-in slide-in-from-bottom-3 duration-200">
+            <Button variant="outline" size="sm" className="gap-1.5 shadow-lg bg-background" onClick={handleDiscard}>
+              <RotateCcw className="w-3 h-3" />
+              Discard
+            </Button>
+            <Button size="default" className="gap-2 shadow-lg px-6" onClick={handleSave}>
+              <Save className="w-4 h-4" />
+              Save Changes
+            </Button>
+          </div>
+        )}
 
         <Tabs defaultValue="app" className="w-full">
           <TabsList className="grid w-full grid-cols-3 mb-4">
@@ -137,8 +188,8 @@ export default function SettingsPage() {
                 <div className="grid gap-5 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="text-xs font-mono">Distance Unit</Label>
-                    <Select value={distanceUnit} onValueChange={(v: 'km' | 'mi') => setDistanceUnit(v)}>
-                      <SelectTrigger className="font-mono text-xs">
+                    <Select value={pendingUnit} onValueChange={(v: 'km' | 'mi') => setPendingUnit(v)}>
+                      <SelectTrigger className={`font-mono text-xs ${pendingUnit !== distanceUnit ? 'border-primary' : ''}`}>
                         <SelectValue placeholder="Select unit" />
                       </SelectTrigger>
                       <SelectContent>
@@ -150,8 +201,8 @@ export default function SettingsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label className="text-xs font-mono">Timezone</Label>
-                    <Select value={timezone} onValueChange={setTimezone}>
-                      <SelectTrigger className="font-mono text-xs">
+                    <Select value={pendingTZ} onValueChange={setPendingTZ}>
+                      <SelectTrigger className={`font-mono text-xs ${pendingTZ !== timezone ? 'border-primary' : ''}`}>
                         <SelectValue placeholder="Select timezone" />
                       </SelectTrigger>
                       <SelectContent className="max-h-[250px]">
