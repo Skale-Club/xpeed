@@ -20,6 +20,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const CarsPage = lazy(() => import("./pages/CarsPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
+const VehicleIssuesPage = lazy(() => import("./pages/VehicleIssuesPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -70,6 +71,7 @@ const App = () => (
               <Route path="/cars" element={<AuthenticatedLayout><CarsPage /></AuthenticatedLayout>} />
               <Route path="/onboarding" element={<AuthenticatedLayout><OnboardingPage /></AuthenticatedLayout>} />
               <Route path="/maintenance" element={<AuthenticatedLayout><MaintenancePage /></AuthenticatedLayout>} />
+              <Route path="/issues" element={<AuthenticatedLayout><VehicleIssuesPage /></AuthenticatedLayout>} />
               <Route path="/admin" element={<AuthenticatedLayout><AdminPage /></AuthenticatedLayout>} />
               <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
               <Route path="/import" element={<AuthenticatedLayout><ShareImportPage /></AuthenticatedLayout>} />
