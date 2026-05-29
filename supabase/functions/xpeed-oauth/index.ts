@@ -76,6 +76,48 @@ function oauthError(code: string, description: string, status = 400): Response {
   return json({ error: code, error_description: description }, status);
 }
 
+// --- Security helpers (S09-3 audit log, S11-2 rate limit) ---
+
+function clientIp(req: Request): string {
+  const xff = req.headers.get("x-forwarded-for");
+  return (xff ? xff.split(",")[0] : "").trim() || req.headers.get("x-real-ip") || "unknown";
+}
+
+// Fire-and-forget security event log. Never throws into the request path.
+async function logSecurityEvent(
+  db: any,
+  eventType: string,
+  detail: Record<string, unknown>,
+  userId: string | null = null,
+  ip: string | null = null,
+): Promise<void> {
+  try {
+    await db.from("security_events").insert({ event_type: eventType, user_id: userId, ip, detail });
+  } catch (e) {
+    console.error("security_events insert failed:", (e as any)?.message ?? e);
+  }
+}
+
+// Returns true if ALLOWED, false if the per-IP window limit is exceeded.
+async function rateLimitOk(db: any, bucket: string, max: number, windowSeconds: number): Promise<boolean> {
+  try {
+    const { data, error } = await db.rpc("check_rate_limit", {
+      p_bucket: bucket,
+      p_max: max,
+      p_window_seconds: windowSeconds,
+    });
+    if (error) {
+      // Fail open on limiter error so a DB blip can't lock out the OAuth flow.
+      console.error("rate limit check failed:", error.message);
+      return true;
+    }
+    return data !== false;
+  } catch (e) {
+    console.error("rate limit check threw:", (e as any)?.message ?? e);
+    return true;
+  }
+}
+
 // --- Route handlers ---
 
 async function handleRegister(req: Request, db: any): Promise<Response> {
@@ -226,6 +268,7 @@ async function handleToken(
   db: any,
   issuer: string,
   jwtSecret: string,
+  ip: string = "unknown",
 ): Promise<Response> {
   let params: URLSearchParams;
   const contentType = req.headers.get("Content-Type") || "";
@@ -301,6 +344,10 @@ async function handleToken(
         .eq("client_id", rtRow.client_id)
         .eq("user_id", rtRow.user_id)
         .is("revoked_at", null);
+      // S09-3: this is a real attack signal — record it for alerting.
+      await logSecurityEvent(db, "oauth_refresh_token_reuse", {
+        client_id: rtRow.client_id,
+      }, rtRow.user_id, ip);
       return oauthError("invalid_grant", "Refresh token reuse detected — all tokens revoked", 400);
     }
 
@@ -340,9 +387,23 @@ serve(async (req) => {
   const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
   if (req.method === "POST") {
-    if (path === "/register") return handleRegister(req, db);
+    const ip = clientIp(req);
+    // S11-2: per-IP rate limits on the public OAuth endpoints.
+    if (path === "/register") {
+      if (!(await rateLimitOk(db, `oauth_register:${ip}`, 10, 3600))) {
+        await logSecurityEvent(db, "oauth_register_rate_limited", { path }, null, ip);
+        return oauthError("temporarily_unavailable", "Too many registrations, try again later", 429);
+      }
+      return handleRegister(req, db);
+    }
     if (path === "/issue-code") return handleIssueCode(req, db, supabaseUrl, anonKey);
-    if (path === "/token") return handleToken(req, db, issuer, jwtSecret);
+    if (path === "/token") {
+      if (!(await rateLimitOk(db, `oauth_token:${ip}`, 60, 60))) {
+        await logSecurityEvent(db, "oauth_token_rate_limited", { path }, null, ip);
+        return oauthError("temporarily_unavailable", "Too many token requests, slow down", 429);
+      }
+      return handleToken(req, db, issuer, jwtSecret, ip);
+    }
   }
 
   return oauthError("not_found", `${req.method} ${path}`, 404);

@@ -7,8 +7,16 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "npm:zod@3.23.8";
 import { getGeminiApiKey, getDefaultGeminiModel } from "../_shared/admin-config.ts";
 import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
+
+// S04: validate + bound the request before spending quota / calling Gemini.
+const AnalyzeBodySchema = z.object({
+  sessionId: z.string().uuid().optional(),
+  sessionSummary: z.string().max(50000).optional(),
+  model: z.string().regex(/^[a-zA-Z0-9.\-]{1,64}$/).optional(),
+});
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -137,14 +145,15 @@ serve(async (req) => {
     }
 
     // 4. Parse body
-    const body = (await req.json()) as AnalyzeRequest;
-    // S04-1: body.model is interpolated into the Gemini URL path — restrict to a
-    // safe model-id charset so a crafted value can't path-confuse the upstream call.
-    const requestedModel = body.model;
-    if (requestedModel !== undefined && !/^[a-zA-Z0-9.\-]{1,64}$/.test(requestedModel)) {
-      return jsonResponse({ error: "Invalid model" }, 400);
+    // S04: validate body (sessionId UUID, bounded summary, safe model-id charset).
+    // model is interpolated into the Gemini URL path, so the charset guard also
+    // prevents path-confusion of the upstream call.
+    const parsedBody = AnalyzeBodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsedBody.success) {
+      return jsonResponse({ error: "Invalid request body" }, 400);
     }
-    const model = requestedModel || await getDefaultGeminiModel();
+    const body = parsedBody.data;
+    const model = body.model || await getDefaultGeminiModel();
 
     // 5. Build the session context — prefer structured report from DB
     let sessionContext: string;

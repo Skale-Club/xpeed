@@ -53,6 +53,14 @@ export async function consumeQuota(userId: string, kind: QuotaKind): Promise<{ r
     // S09-4: fail CLOSED for the costly path; the quota exists to cap paid spend,
     // so a tracking failure must not lift the cap silently.
     console.error("Quota RPC failed, denying request:", msg);
+    // S09-3: record the failure so repeated quota-service errors are visible.
+    try {
+      await (client as any).from("security_events").insert({
+        event_type: "quota_service_failure",
+        user_id: userId,
+        detail: { kind, error: msg },
+      });
+    } catch { /* never block on logging */ }
     const err = new Error("Quota service unavailable");
     (err as any).status = 429;
     (err as any).remaining = 0;

@@ -5,8 +5,21 @@
 //
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { z } from "npm:zod@3.23.8";
 import { getGeminiApiKey, getDefaultGeminiModel } from "../_shared/admin-config.ts";
 import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
+
+// S04: validate request shape and bound sizes before doing any work / spending
+// quota. Caps prevent token/cost inflation via huge message or history payloads.
+const ChatBodySchema = z.object({
+  message: z.string().min(1).max(8000),
+  model: z.string().regex(/^[a-zA-Z0-9.\-]{1,64}$/).optional(),
+  context: z.record(z.unknown()).optional(),
+  history: z
+    .array(z.object({ role: z.enum(["user", "model"]), parts: z.string().max(8000) }))
+    .max(50)
+    .optional(),
+});
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -165,11 +178,12 @@ serve(async (req) => {
       );
     }
 
-    // 4. Parse body
-    const body = (await req.json()) as ChatRequest;
-    if (!body.message || typeof body.message !== "string") {
-      return jsonResponse({ error: "Missing message" }, 400);
+    // 4. Parse + validate body (S04)
+    const parsed = ChatBodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return jsonResponse({ error: "Invalid request body" }, 400);
     }
+    const body = parsed.data;
 
     const model = body.model || await getDefaultGeminiModel();
     const systemPrompt = buildSystemPrompt(body.context || {});
