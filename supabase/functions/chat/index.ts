@@ -202,7 +202,8 @@ serve(async (req) => {
 
     return jsonResponse({ reply, quota: quotaInfo });
   } catch (err: any) {
+    // S09-2: log detail server-side only; never echo internal/DB messages to the client.
     console.error("chat error:", err);
-    return jsonResponse({ error: err?.message || String(err) }, 500);
+    return jsonResponse({ error: "Internal error" }, 500);
   }
 });

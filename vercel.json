@@ -1,9 +1,24 @@
 {
-  "routes": [
-    { "src": "/manifest\\.webmanifest", "dest": "/api/brand/manifest" },
-    { "handle": "filesystem" },
-    { "src": "/\\.well-known/oauth-protected-resource", "dest": "/api/wellknown/oauth-protected-resource" },
-    { "src": "/\\.well-known/oauth-authorization-server", "dest": "/api/wellknown/oauth-authorization-server" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/manifest.webmanifest", "destination": "/api/brand/manifest" },
+    { "source": "/.well-known/oauth-protected-resource", "destination": "/api/wellknown/oauth-protected-resource" },
+    { "source": "/.well-known/oauth-authorization-server", "destination": "/api/wellknown/oauth-authorization-server" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://vpic.nhtsa.dot.gov; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests"
+        },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()" }
+      ]
+    }
   ]
 }

@@ -138,17 +138,27 @@ serve(async (req) => {
 
     // 4. Parse body
     const body = (await req.json()) as AnalyzeRequest;
-    const model = body.model || await getDefaultGeminiModel();
+    // S04-1: body.model is interpolated into the Gemini URL path — restrict to a
+    // safe model-id charset so a crafted value can't path-confuse the upstream call.
+    const requestedModel = body.model;
+    if (requestedModel !== undefined && !/^[a-zA-Z0-9.\-]{1,64}$/.test(requestedModel)) {
+      return jsonResponse({ error: "Invalid model" }, 400);
+    }
+    const model = requestedModel || await getDefaultGeminiModel();
 
     // 5. Build the session context — prefer structured report from DB
     let sessionContext: string;
 
     if (body.sessionId) {
       const db = getServiceClient();
+      // SECURITY (S13-1): service-role client bypasses RLS — MUST scope to the
+      // authenticated caller's own rows or any user could read another user's
+      // session report (VIN, DTCs, parameters) by passing their sessionId.
       const { data: sessionRow, error: dbErr } = await (db as any)
         .from("sessions")
         .select("report")
         .eq("id", body.sessionId)
+        .eq("user_id", userId)
         .maybeSingle();
 
       if (dbErr) {
@@ -213,7 +223,8 @@ ${sessionContext}`;
 
     return jsonResponse({ analysis: parsed });
   } catch (err: any) {
+    // S09-2: log detail server-side only; never echo internal/DB messages to the client.
     console.error("analyze-session error:", err);
-    return jsonResponse({ error: err?.message || String(err) }, 500);
+    return jsonResponse({ error: "Internal error" }, 500);
   }
 });
