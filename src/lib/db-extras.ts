@@ -232,15 +232,15 @@ export interface AdminSetting {
  */
 export const KNOWN_ADMIN_SETTINGS: Omit<AdminSetting, 'setting_value'>[] = [
   {
-    setting_key: 'admin_secret_gemini_api_key',
-    label: 'Gemini API Key',
-    description: 'Used by analyze-session and chat Edge Functions for AI features. Get one at aistudio.google.com.',
+    setting_key: 'admin_secret_openrouter_api_key',
+    label: 'OpenRouter API Key',
+    description: 'Used by analyze-session and chat Edge Functions for AI features. Get one at openrouter.ai/keys.',
     is_secret: true,
   },
   {
-    setting_key: 'admin_gemini_model',
-    label: 'Default Gemini Model',
-    description: 'Model used by analyze-session and chat Edge Functions. Default: gemini-2.5-flash.',
+    setting_key: 'admin_openrouter_model',
+    label: 'Default AI Model',
+    description: 'OpenRouter model id used by analyze-session and chat. e.g. openai/gpt-4o-mini, anthropic/claude-3.5-haiku, google/gemini-2.0-flash-001. Default: openai/gpt-4o-mini.',
     is_secret: false,
   },
 ];

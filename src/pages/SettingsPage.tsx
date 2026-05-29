@@ -233,7 +233,7 @@ export default function SettingsPage() {
                   <h3 className="text-sm font-mono font-semibold text-foreground">AI Assistant</h3>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  AI features (session analysis + chat) are powered by a shared Google Gemini key configured
+                  AI features (session analysis + chat) are powered by a shared OpenRouter key configured
                   by the system administrator. No per-user setup required. Daily fair-use limits apply.
                 </p>
               </CardContent>

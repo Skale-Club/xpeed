@@ -30,9 +30,8 @@ interface AnalyzeRequest {
   model?: string;
 }
 
-interface GeminiPart { text: string }
-interface GeminiCandidate { content?: { parts?: GeminiPart[] } }
-interface GeminiResponse { candidates?: GeminiCandidate[] }
+interface OpenRouterChoice { message?: { content?: string } }
+interface OpenRouterResponse { choices?: OpenRouterChoice[] }
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -135,25 +134,22 @@ serve(async (req) => {
       throw err;
     }
 
-    // 3. Resolve Gemini key
-    const apiKey = await getGeminiApiKey();
+    // 3. Resolve API key (OpenRouter, configured in /admin)
+    const apiKey = await getOpenRouterApiKey();
     if (!apiKey) {
       return jsonResponse(
-        { error: "AI features are not configured. Ask an admin to set the Gemini API key in the Admin panel." },
+        { error: "AI features are not configured. Ask an admin to set the OpenRouter API key in the Admin panel." },
         503,
       );
     }
 
-    // 4. Parse body
-    // S04: validate body (sessionId UUID, bounded summary, safe model-id charset).
-    // model is interpolated into the Gemini URL path, so the charset guard also
-    // prevents path-confusion of the upstream call.
+    // 4. Parse + validate body (S04: sessionId UUID, bounded summary, model-id charset).
     const parsedBody = AnalyzeBodySchema.safeParse(await req.json().catch(() => null));
     if (!parsedBody.success) {
       return jsonResponse({ error: "Invalid request body" }, 400);
     }
     const body = parsedBody.data;
-    const model = body.model || await getDefaultGeminiModel();
+    const model = body.model || await getDefaultModel();
 
     // 5. Build the session context — prefer structured report from DB
     let sessionContext: string;
@@ -189,7 +185,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Provide sessionId or sessionSummary" }, 400);
     }
 
-    // 6. Build prompt and call Gemini
+    // 6. Build prompt and call OpenRouter
     const prompt = `You are an automotive diagnostic assistant. Given the OBD2 session data below, produce a JSON response with three fields:
 - summary: a 2-3 sentence plain-English overview of the session
 - key_findings: an array of 1-4 short bullet strings (most notable observations)
@@ -200,28 +196,31 @@ Output ONLY valid JSON, no prose around it.
 Session data:
 ${sessionContext}`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const geminiRes = await fetch(geminiUrl, {
+    const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://xpeed.skale.club",
+        "X-Title": "Xpeed",
+      },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 600,
-          responseMimeType: "application/json",
-        },
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 600,
+        response_format: { type: "json_object" },
       }),
     });
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error("Gemini error:", errText);
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      console.error("OpenRouter error:", errText);
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
 
-    const data: GeminiResponse = await geminiRes.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    const data: OpenRouterResponse = await aiRes.json();
+    const rawText = data.choices?.[0]?.message?.content ?? "{}";
 
     let parsed: Record<string, unknown> = {};
     try {

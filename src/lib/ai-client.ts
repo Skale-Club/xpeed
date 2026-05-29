@@ -1,6 +1,7 @@
-// Client-side wrapper that calls the server-side Edge Functions for Gemini AI.
-// SINGLE PROVIDER MODEL: one Gemini API key per system, configured by an
-// admin via /admin. There is no per-user fallback path — users without
+// Client-side wrapper that calls the server-side Edge Functions for AI.
+// SINGLE PROVIDER MODEL: one OpenRouter API key per system, configured by an
+// admin via /admin. The model is also chosen in /admin — the client does not
+// hardcode one; the Edge Function resolves it from app_settings. Users without
 // admin-configured AI see a clear "AI unavailable" message instead.
 
 import { supabase } from '@/integrations/supabase/client';
@@ -21,11 +22,11 @@ export interface ChatContext {
  */
 export async function analyzeSessionById(
   sessionId: string,
-  model: string = 'gemini-2.5-flash',
+  model?: string,
 ): Promise<AnalysisResult | null> {
   try {
     const { data, error } = await supabase.functions.invoke('analyze-session', {
-      body: { sessionId, model },
+      body: model ? { sessionId, model } : { sessionId },
     });
     if (error) {
       console.warn('Edge analyze-session failed:', error.message);
@@ -44,11 +45,11 @@ export async function analyzeSessionById(
  */
 export async function analyzeSessionViaEdge(
   sessionSummary: string,
-  model: string = 'gemini-2.5-flash',
+  model?: string,
 ): Promise<AnalysisResult | null> {
   try {
     const { data, error } = await supabase.functions.invoke('analyze-session', {
-      body: { sessionSummary, model },
+      body: model ? { sessionSummary, model } : { sessionSummary },
     });
     if (error) {
       console.warn('Edge analyze-session failed:', error.message);
@@ -68,11 +69,11 @@ export async function chatViaEdge(
   history: { role: 'user' | 'model'; parts: string }[],
   message: string,
   context: ChatContext,
-  model: string = 'gemini-2.5-flash',
+  model?: string,
 ): Promise<string | null> {
   try {
     const { data, error } = await supabase.functions.invoke('chat', {
-      body: { history, message, context, model },
+      body: model ? { history, message, context, model } : { history, message, context },
     });
     if (error) {
       console.warn('Edge chat failed:', error.message);

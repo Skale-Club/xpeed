@@ -298,36 +298,9 @@ export async function toggleFlagResolved(flagId: string, resolved: boolean) {
   if (error) throw error;
 }
 
-// AI Settings
-export async function getGeminiModel(): Promise<string> {
-  const { data } = await supabase
-    .from('app_settings')
-    .select('setting_value')
-    .eq('setting_key', 'gemini_model')
-    .maybeSingle();
-
-  return data?.setting_value || 'gemini-2.5-flash';
-}
-
-export async function saveGeminiModel(model: string): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('User not authenticated');
-
-  const { error } = await supabase
-    .from('app_settings')
-    .upsert({
-      setting_key: 'gemini_model',
-      setting_value: model,
-      encrypted: false,
-      user_id: user.id,
-    }, {
-      onConflict: 'setting_key,user_id'
-    });
-
-  if (error) {
-    throw new Error(`Failed to save model preference: ${error.message}`);
-  }
-}
+// AI Settings — the model is admin-configured server-side
+// (app_settings.admin_openrouter_model) and resolved by the Edge Functions.
+// No per-user client model preference.
 
 export async function updateSessionWithGeminiAnalysis(
   sessionId: string,

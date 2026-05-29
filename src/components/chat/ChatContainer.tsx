@@ -7,7 +7,6 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Menu, X, Sparkles, Plus } from 'lucide-react';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
-import { getGeminiModel } from '@/lib/db';
 import { chatViaEdge } from '@/lib/ai-client';
 import {
     getConversations,
@@ -38,7 +37,6 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const [currentConversation, setCurrentConversation] = useState<ChatConversation | null>(null);
     const [messages, setMessages] = useState<UIMessage[]>([]);
     const [input, setInput] = useState('');
-    const [modelName, setModelName] = useState<string>('gemini-2.5-flash');
     const [contextData, setContextData] = useState<ChatContextType | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -46,14 +44,8 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const { toast } = useToast();
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Load default Gemini model preference (admin-configured key lives server-side)
-    useEffect(() => {
-        async function loadSettings() {
-            const model = await getGeminiModel();
-            setModelName(model || 'gemini-2.5-flash');
-        }
-        loadSettings();
-    }, []);
+    // Model is admin-configured server-side (app_settings.admin_openrouter_model);
+    // the client does not choose or send a model.
 
     // Load conversations on mount
     useEffect(() => {
@@ -150,7 +142,6 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 historyMessages,
                 text,
                 (contextData ?? {}) as unknown as Record<string, unknown>,
-                modelName,
             );
 
             if (responseText === null) {

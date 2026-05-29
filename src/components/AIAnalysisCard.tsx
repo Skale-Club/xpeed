@@ -29,7 +29,7 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
           </div>
         </div>
         <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5 font-mono">
-          Powered by Gemini
+          Powered by AI
         </Badge>
       </div>
       

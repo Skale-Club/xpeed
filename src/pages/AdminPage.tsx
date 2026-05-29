@@ -102,7 +102,7 @@ export default function AdminPage() {
           <AlertTriangle className="w-4 h-4" />
           <AlertDescription className="text-xs">
             These settings are <strong>global</strong>. They affect every user of the system. Secret values
-            (Gemini API key) are stored in the database and consumed only by trusted Edge Functions.
+            (OpenRouter API key) are stored in the database and consumed only by trusted Edge Functions.
           </AlertDescription>
         </Alert>
 

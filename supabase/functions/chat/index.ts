@@ -6,7 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { z } from "npm:zod@3.23.8";
-import { getGeminiApiKey, getDefaultGeminiModel } from "../_shared/admin-config.ts";
+import { getOpenRouterApiKey, getDefaultModel } from "../_shared/admin-config.ts";
 import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
 
 // S04: validate request shape and bound sizes before doing any work / spending
@@ -34,9 +34,8 @@ interface ChatRequest {
   model?: string;
 }
 
-interface GeminiPart { text: string }
-interface GeminiCandidate { content?: { parts?: GeminiPart[] } }
-interface GeminiResponse { candidates?: GeminiCandidate[] }
+interface OpenRouterChoice { message?: { content?: string } }
+interface OpenRouterResponse { choices?: OpenRouterChoice[] }
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -169,11 +168,11 @@ serve(async (req) => {
       throw err;
     }
 
-    // 3. Resolve API key
-    const apiKey = await getGeminiApiKey();
+    // 3. Resolve API key (OpenRouter, configured in /admin)
+    const apiKey = await getOpenRouterApiKey();
     if (!apiKey) {
       return jsonResponse(
-        { error: "AI features are not configured. Ask an admin to set the Gemini API key in the Admin panel." },
+        { error: "AI features are not configured. Ask an admin to set the OpenRouter API key in the Admin panel." },
         503,
       );
     }
@@ -185,34 +184,43 @@ serve(async (req) => {
     }
     const body = parsed.data;
 
-    const model = body.model || await getDefaultGeminiModel();
+    const model = body.model || await getDefaultModel();
     const systemPrompt = buildSystemPrompt(body.context || {});
 
-    const contents = [
-      { role: "user", parts: [{ text: systemPrompt }] },
-      { role: "model", parts: [{ text: "Got it — I'll keep my answers grounded in the data you provided." }] },
-      ...(body.history || []).map(h => ({ role: h.role, parts: [{ text: h.parts }] })),
-      { role: "user", parts: [{ text: body.message }] },
+    // OpenAI-compatible chat messages (OpenRouter). role "model" -> "assistant".
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...(body.history || []).map(h => ({
+        role: h.role === "model" ? "assistant" : "user",
+        content: h.parts,
+      })),
+      { role: "user", content: body.message },
     ];
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const geminiRes = await fetch(geminiUrl, {
+    const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://xpeed.skale.club",
+        "X-Title": "Xpeed",
+      },
       body: JSON.stringify({
-        contents,
-        generationConfig: { temperature: 0.5, maxOutputTokens: 800 },
+        model,
+        messages,
+        temperature: 0.5,
+        max_tokens: 800,
       }),
     });
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error("Gemini error:", errText);
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      console.error("OpenRouter error:", errText);
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
 
-    const data: GeminiResponse = await geminiRes.json();
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const data: OpenRouterResponse = await aiRes.json();
+    const reply = data.choices?.[0]?.message?.content ?? "";
 
     return jsonResponse({ reply, quota: quotaInfo });
   } catch (err: any) {

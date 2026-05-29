@@ -47,20 +47,24 @@ export async function getAdminSetting(settingKey: string): Promise<string | null
   }
 }
 
+// Default OpenRouter model used ONLY when the admin panel has no model set.
+// Change the live model in /admin (admin_openrouter_model) — no redeploy needed.
+const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini";
+
 /**
- * Resolve the Gemini API key: DB-configured value first, env fallback.
+ * Resolve the OpenRouter API key. Panel-only (no env): the key is configured in
+ * /admin and stored in app_settings (admin_secret_openrouter_api_key).
  */
-export async function getGeminiApiKey(): Promise<string | null> {
-  const fromDb = await getAdminSetting("admin_secret_gemini_api_key");
-  if (fromDb && fromDb.trim()) return fromDb.trim();
-  return Deno.env.get("GEMINI_API_KEY") ?? null;
+export async function getOpenRouterApiKey(): Promise<string | null> {
+  const fromDb = await getAdminSetting("admin_secret_openrouter_api_key");
+  return fromDb && fromDb.trim() ? fromDb.trim() : null;
 }
 
 /**
- * Resolve the default Gemini model: DB value first, env, then fixed default.
+ * Resolve the default model. Panel-first (admin_openrouter_model), then a fixed
+ * code fallback. Admin sets the real model id in /admin.
  */
-export async function getDefaultGeminiModel(): Promise<string> {
-  const fromDb = await getAdminSetting("admin_gemini_model");
-  if (fromDb && fromDb.trim()) return fromDb.trim();
-  return Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
+export async function getDefaultModel(): Promise<string> {
+  const fromDb = await getAdminSetting("admin_openrouter_model");
+  return fromDb && fromDb.trim() ? fromDb.trim() : DEFAULT_OPENROUTER_MODEL;
 }
