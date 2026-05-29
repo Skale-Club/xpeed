@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sparkles, Loader2, Eye, EyeOff, CheckCircle, Plug } from 'lucide-react';
 import { listAdminSettings, upsertAdminSetting } from '@/lib/db-extras';
-import { chatViaEdge } from '@/lib/ai-client';
+import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 const KEY_SETTING = 'admin_secret_openrouter_api_key';
@@ -81,22 +81,43 @@ export default function AIProviderSection() {
     }
   };
 
+  const REASON_LABEL: Record<string, string> = {
+    no_key: 'No API key. Type or save a key first.',
+    invalid_key: 'Invalid API key (OpenRouter rejected it — 401).',
+    insufficient_credits: 'OpenRouter account has no credits (402).',
+    model_not_found: 'Model not found — check the exact slug at openrouter.ai/models (404).',
+    rate_limited: 'Rate limited by OpenRouter (429). Try again shortly.',
+    provider_error: 'OpenRouter returned an error.',
+    network_error: 'Could not reach OpenRouter.',
+    unauthorized: 'Your session expired. Reload and try again.',
+    forbidden: 'Admin access required.',
+  };
+
   const handleTest = async () => {
     setTesting(true);
     try {
-      const reply = await chatViaEdge(
-        [],
-        'Reply with the single word: OK',
-        {},
-      );
-      if (reply && reply.trim().length > 0) {
-        toast({ title: 'Connection OK', description: `Model replied: "${reply.slice(0, 60)}"` });
+      // Test the EXACT values typed in the form (even if not saved yet). The
+      // ai-health function reads fresh (no cache), uses no quota, and returns
+      // the real reason on failure.
+      const { data, error } = await supabase.functions.invoke('ai-health', {
+        body: {
+          apiKey: apiKey.trim() || undefined,
+          model: model.trim() || undefined,
+        },
+      });
+
+      if (error) {
+        // Transport / gateway-level failure (rare).
+        toast({ title: 'Test failed', description: error.message, variant: 'destructive' });
+        return;
+      }
+
+      if (data?.ok) {
+        toast({ title: 'Connection OK ✓', description: data.message || `Model "${data.model}" responded.` });
       } else {
-        toast({
-          title: 'No reply',
-          description: 'The AI endpoint returned nothing. Check the key and model, then save first.',
-          variant: 'destructive',
-        });
+        const label = REASON_LABEL[data?.reason] || 'Test failed.';
+        const detail = data?.message ? ` — ${String(data.message).slice(0, 160)}` : '';
+        toast({ title: 'Test failed', description: `${label}${detail}`, variant: 'destructive' });
       }
     } catch (err) {
       toast({ title: 'Test failed', description: String(err), variant: 'destructive' });
@@ -203,8 +224,8 @@ export default function AIProviderSection() {
                 {saving && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
                 Save
               </Button>
-              <Button size="sm" variant="outline" disabled={testing || !keyStored} onClick={handleTest}
-                title={keyStored ? 'Send a test message through the chat function' : 'Save a key first'}>
+              <Button size="sm" variant="outline" disabled={testing || (!apiKey.trim() && !keyStored)} onClick={handleTest}
+                title="Validate the key + model against OpenRouter (no quota used)">
                 {testing ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Plug className="w-3.5 h-3.5 mr-2" />}
                 Test connection
               </Button>
