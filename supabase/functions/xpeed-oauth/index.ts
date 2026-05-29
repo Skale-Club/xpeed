@@ -109,7 +109,7 @@ async function handleRegister(req: Request, db: any): Promise<Response> {
     token_endpoint_auth_method,
     client_metadata: metadata,
   });
-  if (dbErr) return oauthError("server_error", dbErr.message, 500);
+  if (dbErr) { console.error("oauth register dbErr:", dbErr.message); return oauthError("server_error", "Registration failed", 500); }
 
   return json({
     client_id,
@@ -173,7 +173,7 @@ async function handleIssueCode(
     scope: scope || "mcp",
     expires_at,
   });
-  if (insErr) return oauthError("server_error", insErr.message, 500);
+  if (insErr) { console.error("oauth issue-code insErr:", insErr.message); return oauthError("server_error", "Could not issue code", 500); }
 
   return json({ code });
 }
@@ -210,7 +210,7 @@ async function issueTokens(
     expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString(),
     previous_token_hash: previousRefreshHash,
   });
-  if (rtErr) return oauthError("server_error", rtErr.message, 500);
+  if (rtErr) { console.error("oauth refresh rtErr:", rtErr.message); return oauthError("server_error", "Token request failed", 500); }
 
   return json({
     access_token,

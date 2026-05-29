@@ -10,6 +10,7 @@ import { SettingsProvider } from "@/contexts/SettingsContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
 import BrandHead from "@/components/BrandHead";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Analytics } from "@vercel/analytics/react";
 
 // Lazy imports
@@ -25,7 +26,6 @@ const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
-const SetupAdminPage = lazy(() => import("./pages/SetupAdminPage"));
 const ShareImportPage = lazy(() => import("./pages/ShareImportPage"));
 const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -57,11 +57,11 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <ErrorBoundary>
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
               <Route path="/signup" element={<PublicLayout><SignupPage /></PublicLayout>} />
-              <Route path="/setup-admin" element={<PublicLayout><SetupAdminPage /></PublicLayout>} />
 
               {/* Protected Routes */}
               <Route path="/" element={<AuthenticatedLayout><Index /></AuthenticatedLayout>} />
@@ -84,6 +84,7 @@ const App = () => (
               {/* 404 */}
               <Route path="*" element={<PublicLayout><NotFound /></PublicLayout>} />
             </Routes>
+            </ErrorBoundary>
           </BrowserRouter>
           <Analytics />
         </SettingsProvider>

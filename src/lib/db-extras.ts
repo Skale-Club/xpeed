@@ -115,9 +115,19 @@ export async function listSessionPhotos(sessionId: string): Promise<SessionPhoto
   return (data || []) as unknown as SessionPhoto[];
 }
 
-export function getPhotoUrl(storagePath: string): string {
-  const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+// SECURITY (S08-1): session-photos is a PRIVATE bucket. getPublicUrl() produced
+// unsigned /object/public/ URLs that (a) 403 at runtime and (b) would leak every
+// user's photos if the bucket were ever flipped public. Use short-lived signed
+// URLs instead and keep the bucket private.
+export async function getPhotoUrl(storagePath: string, expiresInSeconds = 3600): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(PHOTO_BUCKET)
+    .createSignedUrl(storagePath, expiresInSeconds);
+  if (error) {
+    console.error('Failed to sign photo URL:', error.message);
+    return null;
+  }
+  return data?.signedUrl ?? null;
 }
 
 export async function deleteSessionPhoto(photo: SessionPhoto): Promise<void> {

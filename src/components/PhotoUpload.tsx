@@ -24,6 +24,7 @@ const TYPE_LABELS: Record<PhotoType, string> = {
 export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<SessionPhoto[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [photoType, setPhotoType] = useState<PhotoType>('dashboard');
@@ -34,6 +35,11 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
     try {
       const data = await listSessionPhotos(sessionId);
       setPhotos(data);
+      // Resolve short-lived signed URLs for the private bucket (S08-1).
+      const entries = await Promise.all(
+        data.map(async (p) => [p.id, await getPhotoUrl(p.storage_path)] as const),
+      );
+      setPhotoUrls(Object.fromEntries(entries.filter(([, url]) => url) as [string, string][]));
     } catch (err) {
       console.error('Failed to load photos:', err);
     } finally {
@@ -131,7 +137,9 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {photos.map(p => (
               <div key={p.id} className="relative group rounded border border-border overflow-hidden">
-                <img src={getPhotoUrl(p.storage_path)} alt={p.caption || ''} className="w-full h-28 object-cover" />
+                {photoUrls[p.id] && (
+                  <img src={photoUrls[p.id]} alt={p.caption || ''} className="w-full h-28 object-cover" />
+                )}
                 <button
                   type="button"
                   onClick={() => handleDelete(p)}

@@ -30,6 +30,19 @@ export function useCSVUpload(onComplete: (sessionId: string) => void, carProfile
       return;
     }
 
+    // S04-2: guard against oversized/pathological CSVs before reading the whole
+    // file into memory and parsing it (self-DoS protection). Matches the 50 MB
+    // session-csv storage bucket ceiling but stops work earlier.
+    const MAX_CSV_BYTES = 25 * 1024 * 1024;
+    if (file.size > MAX_CSV_BYTES) {
+      toast({ title: 'File too large', description: 'CSV files must be under 25 MB.', variant: 'destructive' });
+      return;
+    }
+    if (file.name && !/\.csv$/i.test(file.name)) {
+      toast({ title: 'Invalid file', description: 'Please select a .csv file.', variant: 'destructive' });
+      return;
+    }
+
     setUploading(true);
     setProgressValue(0);
     setProgressLabel('');

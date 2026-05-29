@@ -32,36 +32,35 @@ export async function consumeQuota(userId: string, kind: QuotaKind): Promise<{ r
   const limit = DEFAULT_LIMITS[kind];
   const client = getAdminClient();
 
-  // Count today's usage
-  const startOfDay = new Date();
-  startOfDay.setUTCHours(0, 0, 0, 0);
+  // S11-1: atomic check+insert via SECURITY DEFINER RPC with an advisory lock,
+  // so concurrent requests cannot race past the cap. Returns remaining allowance,
+  // or raises 'quota_exceeded' (Postgres code P0001) when the limit is reached.
+  const { data: remaining, error } = await (client as any).rpc("consume_quota", {
+    p_user_id: userId,
+    p_kind: kind,
+    p_limit: limit,
+  });
 
-  const { data: usage, error: countErr } = await (client as any)
-    .from("user_quotas")
-    .select("id", { count: "exact" })
-    .eq("user_id", userId)
-    .eq("kind", kind)
-    .gte("created_at", startOfDay.toISOString());
-
-  if (countErr) {
-    // Quota table might not exist or there's a DB blip — fail open
-    // (don't block the user just because quota tracking is broken).
-    console.warn("Quota count failed, allowing through:", countErr.message);
-    return { remaining: limit, limit };
-  }
-
-  const used = Array.isArray(usage) ? usage.length : 0;
-  if (used >= limit) {
-    const err = new Error(`Daily limit reached: ${used}/${limit} ${kind}`);
+  if (error) {
+    const msg = String(error.message ?? "");
+    if (msg.includes("quota_exceeded")) {
+      const err = new Error(`Daily limit reached: ${limit}/${limit} ${kind}`);
+      (err as any).status = 429;
+      (err as any).remaining = 0;
+      (err as any).limit = limit;
+      throw err;
+    }
+    // S09-4: fail CLOSED for the costly path; the quota exists to cap paid spend,
+    // so a tracking failure must not lift the cap silently.
+    console.error("Quota RPC failed, denying request:", msg);
+    const err = new Error("Quota service unavailable");
     (err as any).status = 429;
     (err as any).remaining = 0;
     (err as any).limit = limit;
     throw err;
   }
 
-  // Record the use
-  await (client as any).from("user_quotas").insert({ user_id: userId, kind });
-  return { remaining: limit - used - 1, limit };
+  return { remaining: typeof remaining === "number" ? remaining : limit - 1, limit };
 }
 
 /**

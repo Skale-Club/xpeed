@@ -13,7 +13,9 @@ import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const nextPath = searchParams.get('next');
+  // S02: only allow in-app paths; reject protocol-relative (`//evil.com`) and absolute URLs.
+  const rawNext = searchParams.get('next');
+  const nextPath = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
   const { signIn, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +33,7 @@ export default function LoginPage() {
     try {
       await signIn(email, password);
       // Honor ?next=... for return-to flows (e.g. OAuth authorize)
-      navigate(nextPath && nextPath.startsWith('/') ? nextPath : '/');
+      navigate(nextPath ?? '/');
     } catch (err: unknown) {
       let errorMessage = err instanceof Error ? err.message : 'Failed to sign in';
       

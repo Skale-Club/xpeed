@@ -75,14 +75,34 @@ export async function getSession(client: SupabaseClient, sessionId: string, user
   return data;
 }
 
+// SECURITY (S13-2): session_flags / session_rows have NO user_id column — they
+// are scoped only by session_id. Under MCP-token auth the client is service-role
+// (bypasses RLS), so we must verify the parent session is owned by the caller
+// before returning any child rows. The previous `.eq("user_id", userId)` filter
+// targeted a non-existent column and "worked" only because the query errored.
+async function assertSessionOwned(
+  client: SupabaseClient,
+  sessionId: string,
+  userId: string,
+): Promise<void> {
+  const { data, error } = await client
+    .from("sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to verify session ownership: ${error.message}`);
+  if (!data) throw new Error("Forbidden: session not owned");
+}
+
 export async function getSessionFlags(
   client: SupabaseClient,
   sessionId: string,
   includeResolved: boolean = false,
   userId?: string,
 ): Promise<SessionFlag[]> {
+  if (userId) await assertSessionOwned(client, sessionId, userId);
   let query = client.from("session_flags").select("id, session_id, severity, canonical_key, parameter_key, message, resolved, created_at").eq("session_id", sessionId);
-  if (userId) query = query.eq("user_id", userId);
   if (!includeResolved) query = query.or("resolved.is.null,resolved.eq.false");
   query = query.order("created_at", { ascending: false });
 
@@ -98,8 +118,8 @@ export async function getSessionRows(
   limit: number = 100,
   userId?: string,
 ): Promise<PaginatedResult<SessionRow>> {
+  if (userId) await assertSessionOwned(client, sessionId, userId);
   let query = client.from("session_rows").select("id, t_seconds, t_timestamp, data", { count: "exact" }).eq("session_id", sessionId);
-  if (userId) query = query.eq("user_id", userId);
   query = query.order("t_seconds", { ascending: true, nullsFirst: false }).limit(limit + 1);
   if (cursor) query = query.gt("t_seconds", cursor);
 
