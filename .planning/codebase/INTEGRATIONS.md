@@ -1,168 +1,147 @@
 # External Integrations
 
-**Analysis Date:** 2026-05-17
+**Analysis Date:** 2026-05-29
 
 ## APIs & External Services
 
-**Google Gemini AI:**
-- Purpose: OBD2 session analysis and AI chat with vehicle context
-- SDK/Client: `@google/generative-ai` 0.24 (`src/lib/gemini-service.ts`)
-- Default model: `gemini-2.5-flash` (configurable; `gemini-2.0-flash` used for API key validation)
-- Auth: User-provided API key stored in the `app_settings` Supabase table under the key `gemini_api_key`; NOT a build-time env var
-- Functions exposed:
-  - `analyzeSession(apiKey, sessionData, modelName?)` — sends OBD2 summary data, returns structured JSON `{summary, insights, recommendations}`
-  - `chatWithVehicleData(apiKey, history, message, context, modelName?)` — multi-turn chat with vehicle data injected as system context
-  - `validateApiKey(apiKey, modelName?)` — fires a test prompt to confirm the key works
+**AI / Machine Learning:**
+- Google Gemini API - Powers session analysis and vehicle chat assistant
+  - SDK: `@google/generative-ai` (Edge Function side), `@ai-sdk/react` + `ai` (client side)
+  - Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
+  - Auth: API key resolved from DB (`app_settings.admin_secret_gemini_api_key`) with env fallback `GEMINI_API_KEY`
+  - Used in: `supabase/functions/analyze-session/index.ts`, `supabase/functions/chat/index.ts`
+  - Default model: `gemini-2.5-flash` (DB-configurable, key `admin_gemini_model`)
+  - Quota: 10 analyses/user/day, 30 chat messages/user/day (enforced in `supabase/functions/_shared/quota.ts`)
 
-**Vercel Analytics:**
-- Purpose: Page-view and performance tracking
-- SDK/Client: `@vercel/analytics` 1.6
-- Integration point: `<Analytics />` component rendered at the bottom of `src/App.tsx` (outside all routing)
-- Config: Zero-config; works automatically on Vercel deployments
+**Vehicle Data:**
+- NHTSA vPIC API - Free VIN decoding, no API key required
+  - Endpoint: `https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/{VIN}?format=json`
+  - Client: `src/lib/vin-decoder.ts`
+  - Timeout: 5 seconds (`AbortSignal.timeout(5000)`)
+  - Cached by PWA service worker (CacheFirst, 30-day expiry, 200 entry limit)
 
 ## Data Storage
 
-**Database — Supabase PostgreSQL:**
-- Provider: Supabase (hosted)
-- Project ID: `drqmrddxlrlbqnydumjm` (see `supabase/config.toml`)
-- Connection env vars: `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY`
-- Client instantiation: `src/integrations/supabase/client.ts` — typed with generated `Database` type from `src/integrations/supabase/types.ts`
-- Client options: `auth.storage = localStorage`, `persistSession: true`, `autoRefreshToken: true`
-- ORM/Query layer: Supabase JS SDK (`supabase.from(...).select/insert/update/delete`)
+**Databases:**
+- Supabase PostgreSQL (project `drqmrddxlrlbqnydumjm`)
+  - Connection: `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` (frontend anon key)
+  - Service role: `SUPABASE_SERVICE_ROLE_KEY` (Edge Functions and scripts only)
+  - Client: `@supabase/supabase-js` 2.95, singleton at `src/integrations/supabase/client.ts`
+  - Key tables: `car_profiles`, `sessions`, `session_flags`, `maintenance_events`, `parameter_baselines`, `app_settings`, `mcp_tokens`, `oauth_clients`, `oauth_authorization_codes`, `oauth_refresh_tokens`, `user_quotas`, `vehicle_issues`, `shared_reports`, `rule_library`
+  - Migrations: `supabase/migrations/` (30+ migration files)
 
-**Database Schema (all tables with RLS enabled):**
-
-| Table | Purpose | Key Fields |
-|-------|---------|-----------|
-| `car_profiles` | Vehicle profiles per user | `id`, `user_id`, `name`, `notes`, `is_admin`, `created_at` |
-| `sessions` | OBD2 upload sessions | `id`, `car_profile_id`, `user_id`, `source_filename`, `source_file_path`, `source_csv`, `uploaded_at`, `duration_seconds`, `summary`, `gemini_analysis` |
-| `session_rows` | Time-series data points | `id`, `session_id`, `t_seconds`, `t_timestamp`, `data` (JSONB) |
-| `session_flags` | Diagnostic alerts | `id`, `session_id`, `severity`, `canonical_key`, `parameter_key`, `message`, `evidence` (JSONB), `resolved` |
-| `parameter_rules` | Per-car threshold rules | `id`, `car_profile_id`, `canonical_key`, `parameter_key`, `label`, `unit`, `normal_min/max`, `warn_min/max`, `critical_min/max` |
-| `chat_conversations` | AI chat sessions | `id`, `user_id`, `car_profile_id`, `title`, `created_at`, `updated_at` |
-| `chat_messages` | Chat message parts | `id`, `conversation_id`, `role` (`user`/`assistant`), `parts` (JSONB), `attachments` (JSONB), `created_at` |
-| `app_settings` | User/system key-value store | `id`, `setting_key`, `setting_value`, `user_id`, `encrypted`, `created_at`, `updated_at` |
-
-**Row Level Security:**
-- All tables enforce user-scoped RLS; policies use `auth.uid() = user_id`
-- `chat_messages` RLS is indirect: checks `conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = auth.uid())`
-- Triggers auto-set `user_id` on insert for `car_profiles` and `sessions` via `public.set_user_id()` function
-
-**File Storage — Supabase Storage:**
-- Bucket: `session-csv` (private, max 50 MB, MIME types: `text/csv`, `application/vnd.ms-excel`)
-- Migration: `supabase/migrations/20260219105200_session_csv_storage.sql`
-- Path pattern: `{userId}/{carProfileId}/{timestamp}-{uuid}-{filename}`
-- RLS: folder-based; first path segment must equal `auth.uid()`
-- Operations live in `src/lib/db.ts`: `uploadSessionCSV()`, `downloadSessionCSV()`
-- Path stored in `sessions.source_file_path` column
+**File Storage:**
+- Supabase Storage
+  - Bucket `session-csv` - Stores uploaded OBD2 CSV files
+  - Bucket `app-icons` - Admin-uploaded PWA icons (192px, 512px, apple-touch-icon)
+  - Bucket `brand-assets` (migration `20260527000008_brand_assets_bucket.sql`) - Branding images
+  - Referenced in: `src/lib/db.ts` (`SESSION_CSV_BUCKET`), `vite.config.ts` (icon URLs)
 
 **Caching:**
-- TanStack React Query (`@tanstack/react-query` 5.83) — client-side server-state cache
-- Single `QueryClient` instance created in `src/App.tsx`; no explicit stale-time configuration observed
-- No external remote cache (Redis, etc.)
+- PWA service worker (Workbox) - Offline-first caching for Supabase REST reads and NHTSA VIN API
+- Edge Function in-memory cache - 60-second TTL for `app_settings` reads in `supabase/functions/_shared/admin-config.ts`
 
 ## Authentication & Identity
 
-**Auth Provider: Supabase Auth**
-- Implementation: `src/contexts/AuthContext.tsx` — React context wrapping the whole app
-- Session storage: `localStorage` (configured in `src/integrations/supabase/client.ts`)
-- Auto token refresh: enabled
+**Auth Provider:**
+- Supabase Auth - Primary authentication system
+  - Implementation: `src/contexts/AuthContext.tsx`
+  - Methods supported: email/password, Google OAuth
+  - Session storage: `localStorage` (configured in `src/integrations/supabase/client.ts`)
+  - Google OAuth redirect: `VITE_APP_URL` env var (must be registered as OAuth redirect URI in Supabase dashboard)
 
-**Supported auth methods:**
-- Email + password: `supabase.auth.signInWithPassword()`, `signUp()`, `resetPasswordForEmail()`
-- Google OAuth: `supabase.auth.signInWithOAuth({ provider: 'google' })`
-  - Redirect URL: `VITE_APP_URL` env var (strips trailing slash); falls back to `window.location.origin`
-  - Migration enabling Google OAuth: `supabase/migrations/20260219161400_google_oauth.sql`
+**MCP / AI Agent Auth (OAuth 2.1 Server):**
+- Custom OAuth 2.1 server implemented as Supabase Edge Functions + Vercel Edge proxies
+  - Authorization endpoint: `/oauth/authorize` (SPA page `src/pages/OAuthAuthorize.tsx`)
+  - Token endpoint: `/api/oauth/token` (proxy `api/oauth/token.ts` → `supabase/functions/xpeed-oauth/token`)
+  - Registration endpoint: `/api/oauth/register` (proxy `api/oauth/register.ts` → `supabase/functions/xpeed-oauth/register`)
+  - Grant types: `authorization_code` (PKCE S256 required), `refresh_token` (rotated)
+  - Access tokens: HS256 JWTs, 1-hour TTL, signed with `XPEED_OAUTH_JWT_SECRET`
+  - Refresh tokens: opaque 48-byte random strings, SHA-256 hashed at rest, 30-day TTL
+  - Discovery docs: `/.well-known/oauth-authorization-server` (`api/wellknown/oauth-authorization-server.ts`), `/.well-known/oauth-protected-resource` (`api/wellknown/oauth-protected-resource.ts`)
 
-**Auth context API** (`src/contexts/AuthContext.tsx`):
-- `user: User | null` — current Supabase user
-- `session: Session | null` — current session
-- `loading: boolean` — true during initial session fetch
-- `signIn(email, password)`, `signInWithGoogle()`, `signUp(email, password)`, `signOut()`, `resetPassword(email)`
-
-**Protected routing:**
-- `src/components/PrivateRoute.tsx` — redirects unauthenticated users; used via `AuthenticatedLayout` in `src/App.tsx`
-- `CarsProvider` is only mounted inside authenticated routes
+**API Key Tokens:**
+- Opaque per-user tokens stored SHA-256 hashed in `mcp_tokens` table
+  - Management UI: `src/components/McpTokensSection.tsx`
+  - Client lib: `src/lib/mcp-tokens.ts`
+  - Edge Function manager: `supabase/functions/manage-mcp-tokens/index.ts`
+  - Accepted via `X-API-Key` header or `?key=` query param on the MCP server
 
 ## Monitoring & Observability
 
+**Analytics:**
+- Vercel Analytics - Page view tracking
+  - Package: `@vercel/analytics` 1.6
+  - Injected in: `src/App.tsx` (`<Analytics />` component)
+
 **Error Tracking:**
-- None configured (no Sentry, Datadog, etc.)
-- Errors logged to browser console via `console.error()` throughout `src/`
+- None detected (no Sentry, DataDog, or similar)
 
 **Logs:**
-- Browser console (development and production browser-side)
-- Supabase dashboard logs (server-side queries, auth events)
-- Vercel platform logs (build and serverless function logs)
-
-**Analytics:**
-- Vercel Analytics — automatic page views; `<Analytics />` in `src/App.tsx`
+- `console.log` / `console.error` / `console.warn` throughout Edge Functions
+- Supabase Edge Function logs accessible via Supabase dashboard
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Vercel — SPA deployment
-- `vercel.json` configures catch-all rewrite to `/index.html` for React Router
+- Vercel - Production SPA + Edge Functions (`api/` directory)
+  - Production URL: `https://xpeed-skaleclub.vercel.app`
+  - Edge Functions runtime: Vercel Edge Runtime (TypeScript, `export const config = { runtime: 'edge' }`)
 
-**CI Pipeline — GitHub Actions:**
+**CI Pipeline:**
+- GitHub Actions
+  - `supabase-keepalive.yml` - Runs every 6 hours, writes heartbeat to `app_settings`, commits `keepalive-heartbeat` file to prevent repo deactivation
+  - `supabase-keepalive-healthcheck.yml` - Health check variant
+  - Uses secrets: `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 
-1. **`supabase-keepalive.yml`** — runs every 6 hours via cron `0 */6 * * *`
-   - Calls `npm run supabase:keepalive` → `scripts/supabase-keepalive.mjs`
-   - Uses service role key to write/read `app_settings` and query `sessions`
-   - After success: commits a heartbeat file to `main` with `[skip ci]` to prevent GitHub from disabling the workflow after 60 days of inactivity
-   - Secrets required: `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+**Supabase Edge Functions:**
+- `supabase/functions/analyze-session/` - AI session analysis
+- `supabase/functions/chat/` - AI chat with vehicle context
+- `supabase/functions/xpeed-mcp/` - MCP server (JSON-RPC 2.0)
+- `supabase/functions/xpeed-oauth/` - OAuth 2.1 authorization server
+- `supabase/functions/manage-mcp-tokens/` - MCP token CRUD
+- `supabase/functions/car-insights-mcp/` - Additional MCP tools (car insights)
+- `supabase/functions/mcp-server/` - Modular MCP server with service/tool split
 
-2. **`supabase-keepalive-healthcheck.yml`** — health check companion workflow
+## MCP (Model Context Protocol) Server
 
-**Build:**
-- Command: `vite build`
-- Output: `dist/`
-- Dev server: `vite` on `0.0.0.0:5000`
+- Exposes Xpeed data to AI agents (Claude.ai Custom Connectors, etc.)
+  - Protocol: JSON-RPC 2.0 over HTTP, MCP protocol version `2024-11-05`
+  - Endpoint: `/api/mcp` (Vercel proxy) → `supabase/functions/xpeed-mcp`
+  - Tools: `list_vehicles`, `list_sessions`, `get_session_detail`, `get_vehicle_health`, `list_maintenance`, `list_flags`
+  - Auth: accepts Xpeed OAuth JWT, Supabase JWT, or opaque API key token
 
 ## Environment Configuration
 
 **Required env vars:**
+- `VITE_SUPABASE_URL` - Supabase project URL (e.g. `https://drqmrddxlrlbqnydumjm.supabase.co`)
+- `VITE_SUPABASE_PUBLISHABLE_KEY` - Supabase anon/publishable key
+- `VITE_APP_URL` - Production app URL for OAuth redirects (e.g. `https://xpeed-skaleclub.vercel.app`)
+- `SUPABASE_SERVICE_ROLE_KEY` - Server-side service role key (scripts and CI only)
 
-| Variable | Used by | Purpose |
-|----------|---------|---------|
-| `VITE_SUPABASE_URL` | Browser + keepalive scripts | Supabase project API URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser | Supabase anon/public key |
-| `VITE_APP_URL` | Browser | Canonical app URL for Google OAuth redirect |
-| `SUPABASE_SERVICE_ROLE_KEY` | GitHub Actions scripts only | Admin Supabase operations (keepalive) |
+**Optional env vars:**
+- `XPEED_OAUTH_JWT_SECRET` - Required for OAuth 2.1 server to sign JWTs (set as Supabase Edge Function secret)
+- `GEMINI_API_KEY` - Fallback if not stored in DB
+- `GEMINI_MODEL` - Fallback model name if not stored in DB
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` - For setup/admin scripts only
+- `VITE_ADMIN_EMAIL` / `VITE_ADMIN_PASSWORD` - Client-side admin access (dev only)
 
 **Secrets location:**
-- Local: `.env` file (not committed)
-- CI: GitHub Actions repository secrets
-- User API keys: `app_settings` table in Supabase (per-user, `setting_key = 'gemini_api_key'`)
+- Supabase Edge Function secrets (set via Supabase CLI or dashboard): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `XPEED_OAUTH_JWT_SECRET`, `XPEED_APP_URL`
+- GitHub Actions secrets: `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- Vercel environment variables: all `VITE_*` vars plus `SUPABASE_SERVICE_ROLE_KEY`
+- DB-stored secrets (admin-configurable): Gemini API key, Gemini model name (in `app_settings` table, accessed via `supabase/functions/_shared/admin-config.ts`)
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None explicitly configured
+- `/import` - PWA Web Share Target receives CSV files via POST (multipart/form-data), handled by `src/pages/ShareImportPage.tsx`
+- `/oauth/authorize` - OAuth 2.1 authorization page (user consent UI), `src/pages/OAuthAuthorize.tsx`
 
-**Outgoing (OAuth callbacks):**
-- Google OAuth redirect: `VITE_APP_URL` (or `window.location.origin`) — Supabase handles the OAuth exchange and sets the session
-- Password reset redirect: `{window.location.origin}/reset-password`
-
-## Data Flow
-
-**OBD2 Session Analysis Flow:**
-1. User uploads CSV → `src/lib/db.ts:uploadSessionCSV()` stores file in Supabase Storage (`session-csv` bucket)
-2. Session record created in `sessions` table; CSV parsed into `session_rows` (batched inserts of 200)
-3. Diagnostic flags computed and inserted into `session_flags`
-4. Aggregated summary sent to Gemini: `src/lib/gemini-service.ts:analyzeSession()`
-5. Gemini returns `{summary, insights, recommendations}`; stored in `sessions.gemini_analysis`
-6. Displayed in `src/pages/SessionDetail.tsx`
-
-**AI Chat Flow:**
-1. User opens chat in `src/components/chat/ChatContainer.tsx`
-2. Conversation created in `chat_conversations` via `src/lib/chat/db.ts:createConversation()`
-3. Vehicle context assembled from `car_profiles` + recent `sessions`: `buildChatContext(carProfileId)`
-4. User message saved to `chat_messages` (parts format: `[{type:'text', text:'...'}]`)
-5. Full message history + context sent to Gemini: `chatWithVehicleData()`
-6. AI response saved to `chat_messages` with `role: 'assistant'`
-7. Messages rendered in `src/components/chat/MessageList.tsx` using `react-markdown`
+**Outgoing:**
+- Gemini API REST calls from Edge Functions (no webhook, request/response pattern)
+- NHTSA VIN API REST calls from browser (`src/lib/vin-decoder.ts`)
 
 ---
 
-*Integration audit: 2026-05-17*
+*Integration audit: 2026-05-29*

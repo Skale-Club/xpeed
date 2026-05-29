@@ -1,316 +1,325 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-05-17
+**Analysis Date:** 2026-05-29
 
 ## Directory Layout
 
 ```
-car-insights-ai/
-├── src/
-│   ├── main.tsx                    # App bootstrap, mounts <App /> into #root
-│   ├── App.tsx                     # Root providers + route definitions
-│   ├── App.css                     # Global CSS resets
-│   ├── index.css                   # Tailwind directives + CSS variables (theme tokens)
-│   ├── vite-env.d.ts               # Vite env type declarations
-│   │
-│   ├── pages/                      # Route-level components (lazy-loaded)
-│   │   ├── Index.tsx               # Dashboard — health overview, sessions, trends
-│   │   ├── SessionDetail.tsx       # Single session — KPIs, flags, charts, AI analysis
-│   │   ├── HistoryPage.tsx         # Full session history list
-│   │   ├── CarsPage.tsx            # Car profile management CRUD
-│   │   ├── SettingsPage.tsx        # User settings (Gemini API key, model, units)
-│   │   ├── LoginPage.tsx           # Email + Google login
-│   │   ├── SignupPage.tsx          # New account signup
-│   │   ├── SetupAdminPage.tsx      # One-time admin profile setup
-│   │   └── NotFound.tsx            # 404 fallback
-│   │
-│   ├── components/                 # Feature components
-│   │   ├── AppLayout.tsx           # Authenticated shell: header, nav, footer, ChatBubble
-│   │   ├── PrivateRoute.tsx        # Auth guard — redirects to /login if unauthenticated
-│   │   ├── ChatBubble.tsx          # FAB toggling ChatContainer
-│   │   ├── UploadCard.tsx          # Drag-and-drop CSV uploader, uses useCSVUpload
-│   │   ├── DashboardCharts.tsx     # Recharts line/bar charts over filtered sessions
-│   │   ├── LatestTripCard.tsx      # Summary card for the most recent session
-│   │   ├── GeneralInfoCard.tsx     # Cumulative distance, fuel, problem count KPIs
-│   │   ├── SessionKPIs.tsx         # Per-session metric cards (used in SessionDetail)
-│   │   ├── SessionCharts.tsx       # Time-series charts for a single session's rows
-│   │   ├── FlagsPanel.tsx          # Diagnostic flag list with severity badges
-│   │   ├── AIAnalysisCard.tsx      # Renders gemini_analysis JSON (summary, insights, recs)
-│   │   ├── NavLink.tsx             # Styled router link wrapper
-│   │   ├── PageLoader.tsx          # Centered spinner for Suspense fallback
-│   │   │
-│   │   ├── chat/                   # Self-contained AI chat feature
-│   │   │   ├── ChatContainer.tsx   # Orchestrator: state, Gemini calls, conversation mgmt
-│   │   │   ├── ChatInput.tsx       # Textarea + send button
-│   │   │   ├── ChatSidebar.tsx     # Conversation list with select/delete actions
-│   │   │   └── MessageList.tsx     # Message bubble renderer (user/assistant)
-│   │   │
-│   │   └── ui/                     # shadcn/ui primitives (auto-generated, do not edit)
-│   │       ├── button.tsx
-│   │       ├── card.tsx
-│   │       ├── dialog.tsx
-│   │       ├── dropdown-menu.tsx
-│   │       ├── input.tsx
-│   │       ├── select.tsx
-│   │       ├── toast.tsx
-│   │       ├── toaster.tsx
-│   │       ├── sonner.tsx
-│   │       ├── progress.tsx
-│   │       ├── chart.tsx           # Recharts wrapper with theme tokens
-│   │       └── ...                 # (30+ additional shadcn primitives)
-│   │
-│   ├── contexts/                   # React context providers
-│   │   ├── AuthContext.tsx         # user, session, loading, signIn, signOut, etc.
-│   │   ├── CarsContext.tsx         # Thin wrapper around useCars hook
-│   │   └── SettingsContext.tsx     # distanceUnit, timezone (localStorage-backed)
-│   │
-│   ├── hooks/                      # Custom React hooks
-│   │   ├── use-cars.ts             # Car list state + localStorage selection persistence
-│   │   ├── use-csv-upload.ts       # Full CSV → session ingestion pipeline
-│   │   ├── use-toast.ts            # Re-export of shadcn useToast
-│   │   └── use-mobile.tsx          # Responsive breakpoint detection
-│   │
-│   ├── lib/                        # Domain logic + service layer
-│   │   ├── db.ts                   # All Supabase queries: sessions, cars, flags, storage, AI settings
-│   │   ├── csv-parser.ts           # OBD2 CSV parser (wide + long/pivot formats)
-│   │   ├── canonical-params.ts     # OBD2 header → canonical key mapping table
-│   │   ├── insight-engine.ts       # computeParameterSummaries(), evaluateRules()
-│   │   ├── default-rules.ts        # Hardcoded Prius diagnostic thresholds
-│   │   ├── gemini-service.ts       # analyzeSession(), validateApiKey(), chatWithVehicleData()
-│   │   ├── utils.ts                # cn() Tailwind class merger (clsx + tailwind-merge)
-│   │   │
-│   │   └── chat/                   # Chat feature services
-│   │       ├── db.ts               # Supabase CRUD for conversations + messages + buildChatContext()
-│   │       └── types.ts            # ChatMessage, ChatConversation, ChatContext, MessagePart types + helpers
-│   │
+xpeed/
+├── src/                        # React SPA source
+│   ├── main.tsx                # Entry point — mounts React root, registers vite:preloadError
+│   ├── App.tsx                 # Provider tree + React Router route definitions
+│   ├── App.css                 # Global CSS overrides
+│   ├── index.css               # Tailwind base + CSS variables (dark theme)
+│   ├── vite-env.d.ts           # Vite env type shims
+│   ├── pages/                  # Route-level page components (one per route)
+│   ├── components/             # Reusable React components
+│   │   ├── ui/                 # Shadcn/ui primitives (auto-generated, do not edit)
+│   │   ├── admin/              # Admin-only components (BrandingSection)
+│   │   └── chat/               # Chat UI sub-components
+│   ├── contexts/               # React Context providers (auth, cars, settings)
+│   ├── hooks/                  # Custom React hooks (data fetching, UI utilities)
+│   ├── lib/                    # Business logic, data access, utilities
+│   │   ├── default-rules/      # Static OBD2 ruleset files per vehicle model
+│   │   └── chat/               # Chat-specific DB helpers and types
 │   ├── integrations/
-│   │   └── supabase/
-│   │       ├── client.ts           # Singleton supabase client (auto-generated)
-│   │       └── types.ts            # Generated TypeScript types for all DB tables
-│   │
-│   ├── scripts/                    # One-off utility scripts (run with tsx/ts-node, not part of app bundle)
-│   │   └── (see scripts/ at root)
-│   │
-│   └── test/
-│       ├── setup.ts                # Vitest test setup
-│       └── example.test.ts         # Placeholder test
+│   │   └── supabase/           # Generated Supabase client + type definitions
+│   ├── locales/                # i18n translation files (en, pt-BR, es-ES)
+│   ├── types/                  # Shared TypeScript domain types
+│   ├── scripts/                # One-off admin scripts (create-admin.ts)
+│   └── test/                   # Test setup and example tests
 │
-├── supabase/
-│   ├── migrations/                 # SQL migration files applied to Supabase
-│   │   ├── 20260206193301_*.sql    # Initial schema: car_profiles, sessions, session_rows, parameter_rules, session_flags
-│   │   ├── 20260209095500_gemini_integration.sql     # app_settings table, sessions.gemini_analysis column
-│   │   ├── 20260209104400_multi_car_support.sql      # user_id on car_profiles + sessions, user-scoped RLS
-│   │   ├── 20260209105600_auth_setup.sql             # Full RLS policy set for all tables, set_user_id() trigger
-│   │   ├── 20260209110700_admin_support.sql          # Admin role support
-│   │   ├── 20260209111600_add_is_admin_column.sql    # is_admin column on car_profiles
-│   │   ├── 20260209182800_add_resolved_to_flags.sql  # resolved BOOL column on session_flags
-│   │   ├── 20260219104900_add_source_csv_column.sql  # sessions.source_csv TEXT column
-│   │   ├── 20260219105200_session_csv_storage.sql    # session-csv storage bucket setup
-│   │   ├── 20260219161400_google_oauth.sql           # Google OAuth provider setup
-│   │   ├── 20260219161500_google_oauth_fix.sql       # OAuth redirect URL fix
-│   │   └── 20260308_chat_system.sql                  # chat_conversations + chat_messages tables, RLS, triggers
-│   └── config.toml                 # Supabase CLI project config
+├── supabase/                   # Supabase backend
+│   ├── migrations/             # 46 SQL migration files (schema history)
+│   ├── functions/              # Deno Edge Functions
+│   │   ├── _shared/            # Shared Deno modules (quota.ts, admin-config.ts)
+│   │   ├── analyze-session/    # AI session analysis (Gemini)
+│   │   ├── chat/               # AI chat (Gemini)
+│   │   ├── mcp-server/         # MCP JSON-RPC 2.1 server
+│   │   │   ├── services/       # Data service modules (cars, sessions, dtc, maintenance)
+│   │   │   └── tools/          # MCP tool definitions
+│   │   ├── xpeed-oauth/        # OAuth 2.1 server (PKCE, JWT, refresh tokens)
+│   │   ├── manage-mcp-tokens/  # MCP token management
+│   │   ├── car-insights-mcp/   # MCP variant
+│   │   └── xpeed-mcp/          # MCP variant
+│   ├── config.toml             # Supabase project config
+│   └── setup_db.sql            # Legacy setup script (superseded by migrations)
 │
-├── scripts/                        # Dev/admin scripts (not bundled)
-│   ├── supabase-keepalive.mjs      # Pings Supabase to prevent free-tier pause
-│   ├── supabase-keepalive-verify.mjs # Verifies keepalive is working
-│   ├── apply-resolved-migration.ts # One-off: applies resolved column migration
-│   ├── run-migration.ts            # Generic migration runner
-│   ├── recreate-admin.ts           # Recreates admin car profile
-│   ├── inspect-summaries.ts        # Debug: prints session summaries
-│   ├── inspect-summary.ts          # Debug: prints single session summary
-│   ├── check_migration_capability.ts # Checks migration permissions
-│   └── test-parser.ts              # Manual CSV parser test runner
+├── api/                        # Vercel Edge Function API routes
+│   ├── brand/
+│   │   └── manifest.ts         # Dynamic PWA web manifest (reads brand config from DB)
+│   ├── oauth/
+│   │   ├── issue-code.ts       # Proxy → xpeed-oauth/issue-code
+│   │   ├── register.ts         # Proxy → xpeed-oauth/register
+│   │   └── token.ts            # Proxy → xpeed-oauth/token
+│   ├── wellknown/
+│   │   ├── oauth-authorization-server.ts  # OAuth 2.1 discovery metadata
+│   │   └── oauth-protected-resource.ts   # OAuth protected resource metadata
+│   └── mcp.ts                  # MCP proxy endpoint
 │
-├── public/
-│   └── logo.svg                    # App logo
-│
-├── .planning/
-│   └── codebase/                   # GSD architecture documents (this file)
-│
-├── package.json                    # Dependencies and scripts
-├── vite.config.ts                  # Vite build config with path alias @/ → src/
-├── tailwind.config.ts              # Tailwind theme (extends with custom colors, fonts)
-├── tsconfig.json                   # TypeScript config (references app + node)
-├── tsconfig.app.json               # App TypeScript config
-├── tsconfig.node.json              # Node TypeScript config (for vite.config, scripts)
-├── vitest.config.ts                # Vitest test runner config
-├── eslint.config.js                # ESLint flat config
-├── postcss.config.js               # PostCSS (Tailwind + autoprefixer)
-├── components.json                 # shadcn/ui CLI config (style, paths, aliases)
-└── vercel.json                     # Vercel deployment config (SPA rewrite rules)
+├── public/                     # Static assets served as-is
+├── plans/                      # Legacy planning docs (superseded by .planning/)
+├── scripts/                    # Shell/Node utility scripts
+├── .planning/                  # GSD planning system
+│   ├── codebase/               # Codebase analysis docs (this file lives here)
+│   ├── phases/                 # Implementation phase plans
+│   ├── research/               # Research notes
+│   └── seeds/                  # Seed data / initial state docs
+├── index.html                  # Vite HTML entry
+├── package.json                # Dependencies and scripts
+├── vite.config.ts              # Vite build config (path alias @/ → src/)
+├── vitest.config.ts            # Vitest test config
+├── tsconfig.json               # TypeScript config (project references)
+├── tsconfig.app.json           # App-specific TS config
+├── tailwind.config.ts          # Tailwind config (dark mode, custom colors)
+├── components.json             # Shadcn/ui component config
+├── vercel.json                 # Vercel routing rules (SPA fallback, manifest route)
+└── eslint.config.js            # ESLint config
 ```
-
----
 
 ## Directory Purposes
 
-### `src/pages/`
-Route-level components. Each corresponds to one route in `App.tsx`. They:
-- Fetch their own data via `useEffect` + `useState` calling `src/lib/db.ts`.
-- Consume `useCarsContext()` for the selected car and `useSettings()` for display preferences.
-- Are all lazy-loaded with `React.lazy`.
+**`src/pages/`:**
+- Purpose: One file per route; page components orchestrate data loading and user interaction
+- Contains: 17 page components
+- Key files:
+  - `src/pages/Index.tsx` — dashboard (stats, charts, latest session, flags, upload)
+  - `src/pages/SessionDetail.tsx` — full session view (KPIs, flags, charts, AI analysis, photos)
+  - `src/pages/CarsPage.tsx` — vehicle management
+  - `src/pages/HistoryPage.tsx` — session list with filters
+  - `src/pages/MaintenancePage.tsx` — maintenance log CRUD
+  - `src/pages/VehicleIssuesPage.tsx` — persistent issue tracker
+  - `src/pages/AdminPage.tsx` — system settings + branding (admin-only)
+  - `src/pages/OnboardingPage.tsx` — first-run wizard for new users
+  - `src/pages/OAuthAuthorize.tsx` — OAuth 2.1 user consent screen
+  - `src/pages/SharedReport.tsx` — public shared diagnostic report (no auth)
+  - `src/pages/ShareImportPage.tsx` — import a shared session
 
-### `src/components/`
-Feature components that are not route-level. Subdivided:
-- Root level: shared feature components used across multiple pages (e.g., `AppLayout`, `UploadCard`, `FlagsPanel`).
-- `chat/`: fully self-contained chat feature — all four components are only used together.
-- `ui/`: shadcn/ui primitives. Never edit these directly; regenerate via `npx shadcn-ui add`.
+**`src/components/`:**
+- Purpose: Reusable UI components consumed by pages
+- Key files:
+  - `src/components/AppLayout.tsx` — shell: SidebarProvider + AppSidebar + ChatBubble + PWAInstallPrompt
+  - `src/components/AppSidebar.tsx` — main nav (Dashboard, Issues, History, Cars, Maintenance, Settings) + car switcher
+  - `src/components/PrivateRoute.tsx` — auth guard; redirects to `/login` if no user
+  - `src/components/UploadCard.tsx` — CSV file drag-drop + upload trigger
+  - `src/components/AIAnalysisCard.tsx` — Gemini analysis display + trigger
+  - `src/components/OnboardingWizard.tsx` — multi-step first-run wizard
+  - `src/components/BrandHead.tsx` — injects dynamic brand favicon/title/theme-color into `<head>`
+  - `src/components/DashboardCharts.tsx` — health trend bar charts
+  - `src/components/SessionCharts.tsx` — per-session time series charts
+  - `src/components/HealthGauge.tsx` — circular health score gauge
+  - `src/components/FlagsPanel.tsx` — session flags list with severity badges
+  - `src/components/DTCPanel.tsx` — DTC code display with lookup
+  - `src/components/McpTokensSection.tsx` — MCP token management UI
+  - `src/components/chat/ChatContainer.tsx` — chat panel with history
+  - `src/components/ui/` — Shadcn/ui primitives (40+ components); generated, never hand-edited
 
-### `src/contexts/`
-React Context providers. Import pattern:
-```typescript
-import { useAuth } from '@/contexts/AuthContext';
-import { useCarsContext } from '@/contexts/CarsContext';
-import { useSettings } from '@/contexts/SettingsContext';
-```
+**`src/contexts/`:**
+- Purpose: React Context providers for global state
+- Key files:
+  - `src/contexts/AuthContext.tsx` — auth state + signIn/signOut/signInWithGoogle/resetPassword
+  - `src/contexts/CarsContext.tsx` — car list + selectedCar; wraps `use-cars.ts`
+  - `src/contexts/SettingsContext.tsx` — distanceUnit (km/mi) + timezone; persists to localStorage
 
-### `src/hooks/`
-Custom hooks with non-trivial state. Key rule: hooks may call `src/lib/db.ts` but do NOT call Supabase directly.
+**`src/hooks/`:**
+- Purpose: Stateful data fetching and reusable UI logic
+- Key files:
+  - `src/hooks/use-cars.ts` — car profile CRUD + selectedCarId state
+  - `src/hooks/use-csv-upload.ts` — full 12-step OBD2 session upload pipeline
+  - `src/hooks/use-admin-status.ts` — admin role check with module-level cache
+  - `src/hooks/use-brand.ts` — loads brand config from DB
+  - `src/hooks/use-view-mode.ts` — simple/advanced mode toggle (persisted in localStorage)
 
-### `src/lib/`
-Two distinct sub-categories:
-- **Domain logic** (`csv-parser.ts`, `canonical-params.ts`, `insight-engine.ts`, `default-rules.ts`): pure functions, no external dependencies beyond each other.
-- **Service/data access** (`db.ts`, `gemini-service.ts`, `chat/db.ts`): async functions with Supabase or Gemini API calls.
+**`src/lib/`:**
+- Purpose: All business logic and data access; no React in this layer
+- Key files:
+  - `src/lib/db.ts` — primary Supabase data access (sessions, cars, flags, rows, app_settings)
+  - `src/lib/db-extras.ts` — extended data access (maintenance, photos, shared reports, dashboard RPC, admin settings, vehicle_issues v2, baselines)
+  - `src/lib/db-issues.ts` — vehicle_issues CRUD (v1 schema variant)
+  - `src/lib/csv-parser.ts` — OBD2 CSV parsing; canonical key mapping; DTC extraction
+  - `src/lib/canonical-params.ts` — column name → canonical key normalization dictionary
+  - `src/lib/insight-engine.ts` — `computeParameterSummaries()` + `evaluateRules()`: the core rule engine
+  - `src/lib/rule-resolver.ts` — vehicle-aware ruleset selection
+  - `src/lib/default-rules.ts` — re-exports default Prius rules (legacy entry point)
+  - `src/lib/default-rules/` — 7 ruleset files + 3 generic engine-type fallbacks
+  - `src/lib/report-generator.ts` — assembles versioned `SessionReport` struct
+  - `src/lib/issue-reconciler.ts` — upserts `vehicle_issues` rows after session processing
+  - `src/lib/trends.ts` — parameter trend computation for AI context
+  - `src/lib/ai-client.ts` — client-side wrappers for `analyze-session` and `chat` Edge Functions
+  - `src/lib/mcp-tokens.ts` — MCP token CRUD
+  - `src/lib/brand.ts` — brand asset pipeline (resize → upload → config persistence)
+  - `src/lib/vehicle-library.ts` — NHTSA API + `vehicle_makes_cache` table
+  - `src/lib/dashboard-config.ts` — dashboard layout/configuration
+  - `src/lib/chart-palette.ts` — chart color palette utilities
+  - `src/lib/downsample.ts` — session row downsampling before DB insert
+  - `src/lib/dtc-codes.ts` — DTC code lookup dictionary
+  - `src/lib/vin-decoder.ts` — VIN parsing utilities
+  - `src/lib/i18n.ts` — i18next initialization
+  - `src/lib/logout.ts` — sign-out + cache clear helper
+  - `src/lib/utils.ts` — `cn()` Tailwind class merge utility
 
-### `src/integrations/supabase/`
-Auto-generated by Supabase CLI. Do not edit `client.ts` or `types.ts` by hand; regenerate with `supabase gen types typescript`.
+**`src/integrations/supabase/`:**
+- Purpose: Auto-generated Supabase integration files; do not hand-edit
+- Key files:
+  - `src/integrations/supabase/client.ts` — singleton `supabase` client (localStorage session, autoRefreshToken)
+  - `src/integrations/supabase/types.ts` — generated TypeScript types from DB schema
 
-### `supabase/migrations/`
-Sequential SQL migration files. Applied in filename order. Each migration is additive — do not edit previously applied migrations; add new ones.
+**`src/types/`:**
+- Purpose: Shared domain TypeScript type definitions
+- Key files:
+  - `src/types/session.ts` — Session, SessionFlag, SessionRow, SessionSummary, SessionSummaryItem, DashboardProblem
 
-### `scripts/`
-Dev-only utilities run with `npx tsx scripts/filename.ts`. Not part of the app bundle. Used for database inspection, admin setup, and keepalive maintenance.
+**`src/locales/`:**
+- Purpose: i18n translation JSON files
+- Files: `en.json`, `pt-BR.json`, `es-ES.json`
 
----
+**`supabase/migrations/`:**
+- Purpose: Full migration history — 46 SQL files, all schema changes tracked here
+- Migration phases:
+  - `20260206*` — initial schema
+  - `20260209*` — Gemini integration, multi-car support, auth setup, admin support, resolved flags
+  - `20260219*` — CSV storage, Google OAuth
+  - `20260308*` — chat system (conversations + messages)
+  - `20260517*` — major feature batch: extended car profiles, dashboard stats RPC, security fixes, rule library tables, maintenance log, baselines+DTCs, session photos, shared reports, health score v2, admin secrets, user quotas
+  - `20260522*` — MCP tokens
+  - `20260526*` + `20260527*` — admin grants, data fixes, OAuth server tables, brand assets bucket
+  - `20260528*` — vehicle library cache, session report column, session versioning, vehicle_issues v2, security hardening, anon RLS fixes
+
+**`supabase/functions/`:**
+- Purpose: Deno Edge Functions for server-side logic
+- Key directories:
+  - `supabase/functions/analyze-session/` — Gemini session analysis
+  - `supabase/functions/chat/` — Gemini conversational AI
+  - `supabase/functions/mcp-server/` — MCP JSON-RPC 2.1 server with services/ and tools/ subdirectories
+  - `supabase/functions/xpeed-oauth/` — OAuth 2.1 authorization server
+  - `supabase/functions/_shared/` — shared Deno modules imported by multiple functions
+
+**`api/`:**
+- Purpose: Vercel Edge Function routes (TypeScript, deployed as Vercel serverless)
+- Vercel routes are defined in `vercel.json`; all unmatched paths fall back to `index.html` (SPA routing)
 
 ## Key File Locations
 
-**App entry:**
-- `src/main.tsx` — Vite entry point
-- `src/App.tsx` — provider tree + router
+**Entry Points:**
+- `src/main.tsx` — React DOM mount + error handler
+- `src/App.tsx` — Provider tree + all route definitions
+- `index.html` — Vite HTML shell
 
-**Auth gate:**
-- `src/components/PrivateRoute.tsx`
-- `src/contexts/AuthContext.tsx`
+**Configuration:**
+- `vite.config.ts` — build config, `@/` alias → `src/`
+- `tailwind.config.ts` — dark mode, color tokens
+- `components.json` — Shadcn/ui settings
+- `vercel.json` — Vercel routing rules
+- `supabase/config.toml` — Supabase project config
 
-**Car selection (global):**
-- `src/contexts/CarsContext.tsx`
-- `src/hooks/use-cars.ts`
+**Core Logic:**
+- `src/lib/insight-engine.ts` — OBD2 rule evaluation
+- `src/lib/csv-parser.ts` — CSV ingestion
+- `src/lib/rule-resolver.ts` — ruleset selection
+- `src/lib/report-generator.ts` — session report assembly
+- `src/lib/issue-reconciler.ts` — issue lifecycle management
+- `src/hooks/use-csv-upload.ts` — complete upload orchestration
 
-**All Supabase queries:**
-- `src/lib/db.ts` — primary (sessions, cars, flags, AI settings)
-- `src/lib/chat/db.ts` — chat feature
+**Data Access:**
+- `src/lib/db.ts` — core tables
+- `src/lib/db-extras.ts` — extended tables + RPCs
+- `src/integrations/supabase/client.ts` — Supabase client singleton
 
-**CSV processing:**
-- `src/lib/csv-parser.ts` → `src/lib/canonical-params.ts` → `src/lib/insight-engine.ts` → `src/lib/default-rules.ts`
-- `src/hooks/use-csv-upload.ts` — pipeline orchestrator
+**AI:**
+- `src/lib/ai-client.ts` — client-side AI wrappers
+- `supabase/functions/analyze-session/index.ts` — server-side session analysis
+- `supabase/functions/chat/index.ts` — server-side chat
+- `supabase/functions/_shared/admin-config.ts` — API key resolution
+- `supabase/functions/_shared/quota.ts` — rate limiting
 
-**AI / Gemini:**
-- `src/lib/gemini-service.ts` — upload-time analysis
-- `src/components/chat/ChatContainer.tsx` — interactive chat (inline Gemini call)
-
-**Chat feature:**
-- `src/components/ChatBubble.tsx` — entry FAB
-- `src/components/chat/ChatContainer.tsx` — state + logic
-- `src/components/chat/ChatSidebar.tsx` — conversation list
-- `src/components/chat/MessageList.tsx` — message rendering
-- `src/components/chat/ChatInput.tsx` — input box
-- `src/lib/chat/db.ts` — Supabase CRUD
-- `src/lib/chat/types.ts` — TypeScript types
-
-**Theme / Styling:**
-- `src/index.css` — CSS custom properties (design tokens)
-- `tailwind.config.ts` — Tailwind theme extension
-
-**Database schema:**
-- `supabase/migrations/` — all migrations in order
-
----
+**Testing:**
+- `src/test/setup.ts` — Vitest setup
+- `src/test/example.test.ts` — example test
+- `vitest.config.ts` — test runner config
 
 ## Naming Conventions
 
 **Files:**
-- Pages: PascalCase with `Page` suffix where ambiguous — `SettingsPage.tsx`, `CarsPage.tsx`, `LoginPage.tsx`. Entry page is `Index.tsx`.
-- Components: PascalCase — `AppLayout.tsx`, `ChatContainer.tsx`, `FlagsPanel.tsx`.
-- Hooks: kebab-case with `use-` prefix — `use-cars.ts`, `use-csv-upload.ts`.
-- Lib utilities: kebab-case — `csv-parser.ts`, `insight-engine.ts`, `default-rules.ts`.
-- Context files: PascalCase with `Context` suffix — `AuthContext.tsx`, `CarsContext.tsx`.
+- Pages: PascalCase, descriptive noun + "Page" suffix — `CarsPage.tsx`, `MaintenancePage.tsx`
+- Components: PascalCase noun — `AppLayout.tsx`, `HealthGauge.tsx`
+- Hooks: `use-kebab-case.ts` — `use-csv-upload.ts`, `use-admin-status.ts`
+- Lib utilities: `kebab-case.ts` — `csv-parser.ts`, `insight-engine.ts`, `rule-resolver.ts`
+- Context providers: PascalCase + "Context" — `AuthContext.tsx`, `CarsContext.tsx`
+- Types: PascalCase in `src/types/` — `session.ts`
 
-**Exports:**
-- Pages: `export default`.
-- Components: mix of named and default exports (most feature components use `export default`; shadcn/ui components use named exports).
-- Hooks: named export — `export function useCars()`.
-- Context hooks: named export — `export function useAuth()`, `export function useCarsContext()`.
-- Lib functions: named exports.
-
----
+**Directories:**
+- Source: lowercase plural nouns — `pages/`, `components/`, `hooks/`, `contexts/`, `lib/`, `types/`
+- Supabase: lowercase with hyphens — `analyze-session/`, `mcp-server/`, `_shared/`
 
 ## Where to Add New Code
 
 **New page/route:**
-1. Create `src/pages/NewPage.tsx` with `export default`.
-2. Add `const NewPage = lazy(() => import('./pages/NewPage'))` in `src/App.tsx`.
-3. Add `<Route path="/new" element={<AuthenticatedLayout><NewPage /></AuthenticatedLayout>} />`.
-4. Add nav item to `NAV_ITEMS` array in `src/components/AppLayout.tsx` if needed.
+1. Create `src/pages/NewFeaturePage.tsx`
+2. Add `lazy(() => import('./pages/NewFeaturePage'))` in `src/App.tsx`
+3. Add `<Route path="/new-feature" element={<AuthenticatedLayout><NewFeaturePage /></AuthenticatedLayout>} />` in `src/App.tsx`
+4. Add nav item to `NAV_ITEMS` in `src/components/AppSidebar.tsx`
 
-**New feature component:**
-- Stateless or lightly stateful UI: `src/components/MyFeature.tsx`
-- Chat sub-component: `src/components/chat/MyComponent.tsx`
-- shadcn/ui primitive: `npx shadcn-ui add <component>` → auto-places in `src/components/ui/`
+**New database table:**
+1. Create `supabase/migrations/YYYYMMDDHHMMSS_description.sql`
+2. Add helper functions to `src/lib/db.ts` or `src/lib/db-extras.ts`
+3. Regenerate types: `supabase gen types typescript --linked > src/integrations/supabase/types.ts`
 
-**New database query function:**
-- Session/car/flag related → add to `src/lib/db.ts`
-- Chat related → add to `src/lib/chat/db.ts`
-- Export as a named async function following the existing pattern: call `supabase`, handle error by throwing.
+**New vehicle ruleset:**
+1. Create `src/lib/default-rules/make-model.ts` following existing patterns
+2. Add to `RULESETS` array in `src/lib/rule-resolver.ts` (most specific first)
 
-**New Supabase table or schema change:**
-- Create a new migration file: `supabase/migrations/YYYYMMDDHHMMSS_description.sql`
-- Run via Supabase CLI or `scripts/run-migration.ts`
-- Regenerate TypeScript types: `supabase gen types typescript --project-id <id> > src/integrations/supabase/types.ts`
+**New Edge Function:**
+1. Create `supabase/functions/function-name/index.ts`
+2. Import `_shared/quota.ts` and `_shared/admin-config.ts` if needed
+3. If it needs a client-side wrapper, add to `src/lib/ai-client.ts` or a new lib file
 
-**New custom hook:**
-- Add `src/hooks/use-my-feature.ts`
-- Pattern: export a single named function `export function useMyFeature() { ... }`
-- May call `src/lib/db.ts` functions; do NOT import from `@/integrations/supabase/client` directly.
+**New Vercel API route:**
+1. Create `api/path/handler.ts` with `export const config = { runtime: 'edge' }`
+2. Add route to `vercel.json` if not auto-discovered
 
-**New context:**
-- Add `src/contexts/MyContext.tsx` with `Provider` component and `useMyContext()` hook.
-- Mount the provider in `src/App.tsx` at the appropriate level (global → inside `QueryClientProvider`; auth-only → inside `AuthenticatedLayout`).
+**New UI component:**
+- Feature-specific: `src/components/ComponentName.tsx`
+- Admin-only: `src/components/admin/ComponentName.tsx`
+- Chat-specific: `src/components/chat/ComponentName.tsx`
+- Primitive (Shadcn): `src/components/ui/component-name.tsx` (use `npx shadcn-ui@latest add <name>`)
 
-**New diagnostic rule:**
-- Add to `src/lib/default-rules.ts` following the `Rule` interface from `src/lib/insight-engine.ts`.
-- Canonical key must be defined in `src/lib/canonical-params.ts`.
+**New hook:**
+- `src/hooks/use-feature-name.ts`
+- If it wraps a context, expose it as both the hook and via a Context provider (see CarsContext pattern)
 
----
+**Shared types:**
+- Domain types: `src/types/session.ts` or new file in `src/types/`
+- DB-layer types: export interfaces directly from `src/lib/db.ts` or `src/lib/db-extras.ts`
 
 ## Special Directories
 
-**`.planning/codebase/`:**
-- Purpose: GSD architecture documents for AI-assisted development.
-- Generated: Yes (by GSD map-codebase).
-- Committed: Yes.
-
-**`supabase/migrations/`:**
-- Purpose: Ordered SQL migrations for Supabase Postgres.
-- Generated: No — hand-written.
-- Committed: Yes — source of truth for schema.
-
 **`src/components/ui/`:**
-- Purpose: shadcn/ui component library (Radix UI + Tailwind wrappers).
-- Generated: Yes — via `npx shadcn-ui add`.
-- Committed: Yes — customization expected.
+- Purpose: Shadcn/ui primitive components
+- Generated: Yes (via `npx shadcn-ui@latest add`)
+- Committed: Yes
+- Convention: Do not hand-edit; prefer wrapping in feature components
 
 **`src/integrations/supabase/`:**
-- Purpose: Auto-generated Supabase client and TypeScript DB types.
-- Generated: Yes — via Supabase CLI.
-- Committed: Yes — types must stay in sync with DB schema.
+- Purpose: Auto-generated Supabase client and type definitions
+- Generated: Yes (via `supabase gen types`)
+- Committed: Yes
+- Convention: Never hand-edit `types.ts`; regenerate when schema changes
 
-**`scripts/`:**
-- Purpose: Dev/admin scripts (not bundled into the app).
-- Generated: No.
-- Committed: Yes.
+**`supabase/.temp/`:**
+- Purpose: Supabase CLI temporary files (linked project ref, version cache)
+- Generated: Yes
+- Committed: Yes (project ref needed for CLI operations)
+
+**`.planning/`:**
+- Purpose: GSD planning system — codebase analysis docs, phase plans, research
+- Generated: Yes (by GSD commands)
+- Committed: Yes
+
+**`.kilo/worktrees/`:**
+- Purpose: Git worktrees for parallel development branches
+- Generated: Yes (by kilo/git)
+- Committed: Partially (worktree metadata)
 
 ---
 
-*Structure analysis: 2026-05-17*
+*Structure analysis: 2026-05-29*

@@ -1,176 +1,222 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-05-17
+**Analysis Date:** 2026-05-29
 
 ## Naming Patterns
 
 **Files:**
-- React page components: PascalCase — `CarsPage.tsx`, `HistoryPage.tsx`, `SessionDetail.tsx`
-- React shared components: PascalCase — `FlagsPanel.tsx`, `AppLayout.tsx`, `ChatContainer.tsx`
-- Custom hooks: kebab-case with `use-` prefix — `use-cars.ts`, `use-csv-upload.ts`, `use-toast.ts`
-- Library/utility modules: kebab-case — `csv-parser.ts`, `insight-engine.ts`, `default-rules.ts`, `canonical-params.ts`
-- Context files: PascalCase with `Context` suffix — `CarsContext.tsx`, `AuthContext.tsx`, `SettingsContext.tsx`
-- Supabase DB layer: flat name `db.ts`, with chat-specific layer at `src/lib/chat/db.ts`
-- Type definition files: descriptive noun — `src/lib/chat/types.ts`
+- React components: PascalCase `.tsx` — `AppLayout.tsx`, `AddVehicleForm.tsx`, `DTCPanel.tsx`
+- Pages: PascalCase `.tsx` ending in `Page` or descriptive noun — `LoginPage.tsx`, `SessionDetail.tsx`, `SharedReport.tsx`
+- Hooks: kebab-case `.ts` prefixed with `use-` — `use-cars.ts`, `use-admin-status.ts`, `use-csv-upload.ts`
+- Library/utility modules: kebab-case `.ts` — `csv-parser.ts`, `vin-decoder.ts`, `insight-engine.ts`
+- Context files: PascalCase `.tsx` ending in `Context` — `AuthContext.tsx`, `CarsContext.tsx`
+- Type definition files: singular noun `.ts` — `session.ts`
+- Sub-directories of components: lowercase — `src/components/ui/`, `src/components/chat/`, `src/components/admin/`
 
 **Functions:**
-- Component event handlers: `handle` prefix — `handleCreateCar`, `handleDeleteCar`, `handleUpdateCar`, `handleSendMessage`
-- Hook-exported operations: camelCase verb-noun — `createCar`, `updateCar`, `deleteCar`, `selectCar`, `refresh`
-- DB layer exports: camelCase verb-noun — `getUserCars`, `createCarProfile`, `uploadSessionCSV`, `insertSessionFlags`
-- Pure utility exports: camelCase verb-noun — `parseCSV`, `evaluateRules`, `computeParameterSummaries`, `matchCanonicalKey`
-- Internal helpers: camelCase, unexported — `detectDelimiter`, `parseCSVLine`, `estimateSampleInterval`, `extractMessage`, `isNumeric`
-- Context hook exports: `use` prefix matching context — `useCarsContext`, `useAuth`
+- React components: PascalCase — `export default function LoginPage()`, `export function AppSidebar()`
+- Hooks: camelCase prefixed with `use` — `useCars()`, `useAuth()`, `useSettings()`
+- Event handlers: camelCase prefixed with `handle` — `handleSubmit`, `handleDecodeVin`, `handleGoogleSignIn`
+- Async data-fetching utilities: camelCase verb phrases — `getSessions()`, `createCarProfile()`, `deleteCarProfile()`
+- Context consumer hooks: camelCase — `useAuth()`, `useSettings()`, `useCarsContext()`
 
 **Variables:**
-- State variables: camelCase — `selectedCarId`, `newCarName`, `progressValue`, `uploading`
-- Boolean loading state on hooks: no prefix — `loading`, `uploading`
-- Boolean UI state in components: `is` prefix — `isCreating`, `isUpdating`, `isDeleting`, `isAddDialogOpen`
-- Module-level constants: SCREAMING_SNAKE_CASE — `DEFAULT_PRIUS_RULES`, `CANONICAL_PARAMS`, `PRIUS_PRIORITY_KEYS`, `SESSION_CSV_BUCKET`, `SESSION_LIST_SELECT`, `STORAGE_KEY`
+- camelCase throughout — `selectedCarId`, `trimmedMake`, `googleLoading`
+- Boolean state: present-tense descriptive — `loading`, `creating`, `decoding`, `isAdmin`, `isInstalled`
+- Constant arrays/objects in components: SCREAMING_SNAKE_CASE — `ENGINE_TYPES`, `SESSION_CSV_BUCKET`, `SESSION_LIST_SELECT`
+- localStorage keys: lowercase with underscores — `'selected_car_id'`, `'settings_distanceUnit'`, `'settings_timezone'`
 
-**Types and Interfaces:**
-- PascalCase throughout — `CarProfile`, `ParsedCSV`, `SessionFlag`, `FlagEvidence`, `ChatMessage`, `ChatConversation`
-- `interface` preferred over `type` for object shapes
-- Props interfaces named `[ComponentName]Props` — `FlagsPanelProps`, `ChatContainerProps`
-- Context type interfaces named `[Name]ContextType` — `CarsContextType`, `AuthContextType`
-- Exported interfaces for cross-module data contracts; unexported interfaces for internal shapes (e.g., `Rule` in `src/lib/insight-engine.ts`)
+**Types/Interfaces:**
+- `interface` for object shapes — `AddVehicleFormProps`, `AuthContextType`, `SettingRowState`
+- `type` for unions and aliases — `SessionSeverity`, `DistanceUnit`, `CarProfileInput`
+- Props interfaces: PascalCase component name + `Props` suffix — `DTCPanelProps`, `HealthGaugeProps`
+- Context types: PascalCase ending in `ContextType` — `AuthContextType`, `SettingsContextType`
 
 ## Code Style
 
 **Formatting:**
-- No Prettier config file — formatting is not enforced by tooling; rely on editor defaults
-- Indentation: 2 spaces (consistently observed)
-- Semicolons: present at end of statements
-- Quotes: single quotes in `.ts` files; double quotes in some JSX attribute strings
-- Trailing commas: used in multi-line object/array literals
+- No Prettier config detected — formatting is not enforced by tooling
+- Indentation: 2 spaces (observed consistently)
+- Trailing commas present in multi-line structures
+- Single quotes for imports in most files; some files use double quotes (mixed, no enforced rule)
 
 **Linting:**
-- ESLint 9 flat config at `eslint.config.js`
-- Extends `js.configs.recommended` + `typescript-eslint.configs.recommended`
-- Plugins: `eslint-plugin-react-hooks` (recommended rules), `eslint-plugin-react-refresh`
-- `@typescript-eslint/no-unused-vars`: **disabled** — unused variables are not flagged
-- `react-refresh/only-export-components`: warn (allows constant exports alongside components)
-- No import order rule enforced
+- ESLint via `eslint.config.js` using flat config format
+- Extends: `@eslint/js` recommended + `typescript-eslint` recommended
+- Plugins: `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`
+- `react-hooks/recommended` rules enforced
+- `@typescript-eslint/no-unused-vars` is turned **off** — unused variables are not flagged
+- `react-refresh/only-export-components` set to warn (allows constant exports)
+
+## TypeScript Strictness
+
+**Settings** (`tsconfig.app.json`):
+- `strict: false` — strict mode is disabled
+- `noImplicitAny: false` — implicit `any` is allowed
+- `noUnusedLocals: false` — unused locals not checked
+- `noUnusedParameters: false` — unused parameters not checked
+- `noFallthroughCasesInSwitch: false` — switch fallthrough not checked
+- Target: `ES2020`, module: `ESNext` bundler mode
+
+**Practical implications:**
+- Type assertions and `any` types appear without compiler errors
+- Functions can omit return type annotations
+- Optional chaining `?.` and nullish coalescing `??` used throughout
 
 ## Import Organization
 
-**Observed order (not linter-enforced):**
-1. React primitives — `import { useState, useEffect } from 'react'`
-2. Third-party routing/utility libraries — `react-router-dom`, `lucide-react`, `@google/generative-ai`
-3. Shadcn/ui primitives — `@/components/ui/card`, `@/components/ui/button`
-4. Internal shared components — `@/components/AppLayout`, `@/components/PageLoader`
-5. Contexts — `@/contexts/CarsContext`, `@/contexts/AuthContext`
-6. Hooks — `@/hooks/use-toast`, `@/hooks/use-cars`
-7. Library/utility modules — `@/lib/db`, `@/lib/csv-parser`, `@/lib/gemini-service`
-8. Type-only imports — `import type { CarProfile } from '@/lib/db'`
-
 **Path Aliases:**
-- `@/` maps to `src/` — configured in `vitest.config.ts` and Vite config
-- Used exclusively throughout — no `../` relative traversal across directories
-- Example: `import { parseCSV } from '@/lib/csv-parser'`
+- `@/*` maps to `./src/*` — configured in both `vite.config.ts` and `tsconfig.app.json`
+- Use `@/` for all internal imports; relative paths are not used
+
+**Order (observed pattern — not enforced by linter):**
+1. React and React ecosystem (`react`, `react-dom`, `react-router-dom`)
+2. Third-party libraries (`@tanstack/react-query`, `lucide-react`, etc.)
+3. Internal contexts via `@/contexts/`
+4. Internal hooks via `@/hooks/`
+5. Internal lib utilities via `@/lib/`
+6. Internal components via `@/components/`
+7. Types via `@/types/`
+
+**Example:**
+```typescript
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+```
 
 ## Error Handling
 
-**Strategy:** Library functions throw; hooks catch + re-throw; components catch + toast.
+**Patterns:**
+- `try/catch` blocks in all async operations — errors caught and surfaced via `toast()`
+- Error messages: `error instanceof Error ? error.message : String(error)` — consistent pattern
+- Auth errors: thrown from context methods, caught at call site
+- DB functions in `src/lib/db.ts`: throw errors directly; callers wrap in try/catch
+- Non-critical failures (AI analysis, storage upload): logged with `console.warn()` and silently skipped
+- Critical failures: surfaced via `toast({ variant: 'destructive' })` or local `setError()` state
 
-**DB layer pattern (`src/lib/db.ts`):**
+**Toast usage for errors:**
 ```typescript
-export async function getUserCars(): Promise<CarProfile[]> {
-  const { data, error } = await supabase.from('car_profiles').select('*')...;
-  if (error) {
-    throw new Error(`Failed to fetch cars: ${error.message}`);
-  }
-  return data || [];
-}
+toast({
+  title: 'Could not register vehicle',
+  description: error instanceof Error ? error.message : String(error),
+  variant: 'destructive',
+});
 ```
 
-**Hook pattern (`src/hooks/use-cars.ts`):**
+**Local error state for forms:**
 ```typescript
-const createCar = useCallback(async (name: string, notes?: string) => {
-  try {
-    setError(null);
-    const newCar = await createCarProfile(name, notes);
-    setCars(prev => [newCar, ...prev]);
-    return newCar;
-  } catch (err) {
-    setError(err instanceof Error ? err.message : 'Failed to create car');
-    throw err; // re-throw so page handler can also respond
-  }
-}, []);
+const [error, setError] = useState('');
+// then in handler:
+setError(err instanceof Error ? err.message : 'Failed to sign in');
 ```
-
-**Component pattern (`src/pages/CarsPage.tsx`):**
-```typescript
-try {
-  await createCar(newCarName.trim(), newCarNotes.trim() || undefined);
-  toast({ title: 'Success', description: 'Car added successfully' });
-} catch (error) {
-  toast({ title: 'Error', description: String(error), variant: 'destructive' });
-}
-```
-
-**Rollback pattern** used in `src/hooks/use-csv-upload.ts` — on upload failure, orphaned session or storage file is cleaned up in the catch block.
-
-**Optional subsystems** isolated with their own try/catch and `console.warn` so they don't propagate to the parent: Gemini AI analysis during upload is an example.
 
 ## Logging
 
-**Framework:** `console.*` only — no structured logging library
+**Framework:** `console.*` — no structured logging library
 
 **Patterns:**
-- `console.error('Context:', error)` — unexpected failures that interrupt flow (DB errors, Gemini API errors)
-- `console.warn('Context:', error)` — recoverable/non-critical failures (storage unavailable, AI analysis failed)
-- No log IDs, no structured metadata, no log levels beyond these two tiers
+- `console.error()` for unexpected failures in event handlers and page-level effects
+- `console.warn()` for non-fatal degraded paths (AI skipped, storage unavailable)
+- No `console.log()` for debug output in source files (clean production code)
+- Log format: short string prefix + error value — `console.error('Failed to rename session:', error)`
+
+## Form Handling
+
+**Approach:**
+- Forms primarily use **controlled `useState`** — individual `useState` for each field (see `src/components/AddVehicleForm.tsx`, `src/pages/LoginPage.tsx`)
+- `react-hook-form` is installed and `src/components/ui/form.tsx` wraps it (shadcn form primitives), but forms in the app do NOT currently use `useForm` with Zod schemas
+- Validation is manual: inline checks before submit, toast on failure
+- `zod` is installed as a dependency but not actively used for form schemas in the current codebase
+
+**Manual validation pattern:**
+```typescript
+if (!trimmedYear || !trimmedMake || !trimmedModel) {
+  toast({ title: 'Missing fields', description: 'Year, make, and model are required.', variant: 'destructive' });
+  return;
+}
+```
 
 ## Comments
 
 **When to Comment:**
-- Section dividers within long files: `// Car management functions`, `// AI Settings`, `// Chat Database Operations`
-- Non-obvious priority logic: `// Priority 1: timestamp/date/time column...`, `// Priority 2: numeric time column`
-- State management intent: `// Auto-select first car if none selected or if selected car is not in the list`
-- Temporary workarounds: `// TODO: Update types when column is official` (`src/lib/db.ts:279`)
+- Inline comments explain non-obvious decisions — `// Scope the lookup to the authenticated user`
+- Section comments in long files — `// Lazy imports`, `// Public Routes`, `// Protected Routes`
+- Warning comments on generated files — `// This file is automatically generated. Do not edit it directly.`
 
 **JSDoc/TSDoc:**
-- Used selectively in `src/lib/gemini-service.ts` only — all exported functions have `/** */` block comments
-- Not used in components, hooks, or DB layer
+- Not used — no JSDoc annotations observed in source files
 
-## TypeScript Conventions
+## Component Design
 
-**Type assertions (systemic patterns to be aware of):**
-- `as unknown as never` — used in all Supabase insert calls for JSON column types: `columns as unknown as never`, `summary as unknown as never`, `data as unknown as never` (across `src/lib/db.ts`)
-- `as any` — used where `session.summary` JSON shape is not narrowed: `src/pages/HistoryPage.tsx:150`, `src/pages/SessionDetail.tsx:51`, `src/lib/db.ts:279`
-- `as unknown as Record<string, unknown>` — used for evidence/analysis types at module boundaries
-- `@ts-ignore` — single occurrence in `src/pages/SettingsPage.tsx:32` for `Intl.supportedValuesOf`
+**Structure:**
+- Props interface defined at top of file before component
+- Named exports (`export function`) for reusable components
+- Default exports (`export default function`) for pages and some layout components
+- No barrel `index.ts` files — import directly from full file path
 
-**Non-null assertions:**
-- `data!` used after successful Supabase `.single()` on insert — assumes no error occurred
-- Pattern: `const { data } = await supabase.from('x').insert({}).select().single(); return data!;`
+**Props pattern:**
+```typescript
+interface AddVehicleFormProps {
+  onSuccess: (carId: string) => void;
+  onCancel: () => void;
+}
 
-**Optional vs union:**
-- `param?: string` preferred over `param: string | undefined` for function parameters
-- `string | null` used for nullable database fields
+export function AddVehicleForm({ onSuccess, onCancel }: AddVehicleFormProps) {
+```
 
-**Type imports:**
-- `import type { ... }` used for type-only imports from Supabase — `import type { User, Session } from '@supabase/supabase-js'`
+**Children prop:**
+```typescript
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+```
+
+## Context Pattern
+
+Contexts use the provider + hook pattern consistently across all three contexts in `src/contexts/`:
+
+```typescript
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) { ... }
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+```
+
+Guard clause throws if hook is used outside provider — enforced in all contexts (`AuthContext.tsx`, `CarsContext.tsx`, `SettingsContext.tsx`).
 
 ## Module Design
 
 **Exports:**
-- Default export for React components — `export default function FlagsPanel(...)`
-- Named exports for hooks, utility functions, types, context providers
-- Context files export both Provider (default or named) and the consumer hook from the same file
+- One primary export per file (component/function/hook)
+- Additional named exports for related types or constants in same file
+- No barrel files (`index.ts`) — imports use full file paths
 
-**Barrel files:**
-- Not used — import directly from source files
-- `src/components/ui/` has individual files, not an index re-export
+**UI Components:**
+- `src/components/ui/` contains shadcn/ui components — treat as read-only generated code
+- Application components in `src/components/` follow the same patterns but are writable
 
-**Single responsibility:**
-- `src/lib/db.ts` — all Supabase data access (sessions, cars, flags, settings, storage)
-- `src/lib/chat/db.ts` — chat-specific Supabase operations
-- `src/lib/csv-parser.ts` — CSV parsing only
-- `src/lib/insight-engine.ts` — rule evaluation only
-- `src/lib/gemini-service.ts` — Gemini API calls only
-- `src/lib/canonical-params.ts` — OBD2 parameter definitions and matching
+## Styling
+
+**Approach:** Tailwind CSS utility classes exclusively — no CSS modules, no inline `style` props
+- `cn()` utility from `src/lib/utils.ts` used for conditional class merging (`clsx` + `tailwind-merge`)
+- Design tokens via CSS variables (`bg-background`, `text-foreground`, `border-border`, `text-muted-foreground`)
+- Dark mode via `next-themes` provider and Tailwind's CSS variable system
+- `font-mono` used for technical/code-like labels and data values
+
+```typescript
+import { cn } from "@/lib/utils";
+
+className={cn("px-3 py-1 rounded-full text-xs font-mono border", isActive && "bg-primary")}
+```
 
 ---
 
-*Convention analysis: 2026-05-17*
+*Convention analysis: 2026-05-29*
