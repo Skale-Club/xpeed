@@ -97,11 +97,15 @@ function detectTimeColumn(headers: string[], sampleRows: Record<string, string>[
     }
   }
 
-  // Priority 2: numeric time column
-  const timeKeywords = ['time', 't', 'seconds', 'elapsed'];
+  // Priority 2: numeric time column. Match short/ambiguous tokens like "t"
+  // only exactly — otherwise any header containing the letter "t" (e.g.
+  // "Coolant Temp", "Throttle Pos") would be misread as the time column.
+  // Longer keywords may still match as substrings (e.g. "Trip Time", "Elapsed (s)").
+  const exactTimeKeys = ['t', 'time', 'seconds', 'elapsed'];
+  const substringTimeKeys = ['time', 'seconds', 'elapsed'];
   for (const h of headers) {
     const lower = h.toLowerCase().trim();
-    if (timeKeywords.includes(lower) || timeKeywords.some(kw => lower.includes(kw))) {
+    if (exactTimeKeys.includes(lower) || substringTimeKeys.some(kw => lower.includes(kw))) {
       const sample = sampleRows[0]?.[h];
       if (sample && isNumeric(sample)) {
         return { type: 'seconds', key: h };
