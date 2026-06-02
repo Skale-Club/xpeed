@@ -41,6 +41,9 @@ export default defineConfig(({ mode }) => {
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // Emit an external registerSW.js instead of an inline <script>, so the
+      // strict CSP (script-src 'self') doesn't block service-worker registration.
+      injectRegister: "script",
       includeAssets: ["favicon.ico", "robots.txt"],
       manifest: {
         name: "Xpeed",

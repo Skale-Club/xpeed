@@ -177,7 +177,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         } finally {
             setLoading(false);
         }
-    }, [modelName, currentConversation, selectedCar, contextData, messages, toast]);
+    }, [currentConversation, selectedCar, contextData, messages, toast]);
 
     const handleNewConversation = async () => {
         setCurrentConversation(null);
