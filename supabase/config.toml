@@ -1,1 +1,18 @@
 project_id = "drqmrddxlrlbqnydumjm"
+
+# Public endpoints called by external clients (Claude.ai MCP connector) that do
+# NOT carry a Supabase JWT — they authenticate themselves inside the function
+# (OAuth 2.1 tokens / API keys). They MUST keep verify_jwt = false, otherwise the
+# Edge gateway rejects every request with UNAUTHORIZED_NO_AUTH_HEADER before our
+# code runs. Keeping this in config.toml ensures redeploys never reset it.
+[functions.xpeed-oauth]
+verify_jwt = false
+
+[functions.xpeed-mcp]
+verify_jwt = false
+
+[functions.car-insights-mcp]
+verify_jwt = false
+
+[functions.mcp-server]
+verify_jwt = false
