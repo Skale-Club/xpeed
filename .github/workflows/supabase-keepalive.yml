@@ -40,34 +40,6 @@ jobs:
         if: success()
         run: echo "✅ Keepalive completed successfully at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
-      # Why: GitHub disables scheduled workflows after 60 days of repo
-      # inactivity (no commits to the default branch). This step pushes a tiny
-      # heartbeat commit on every successful run, resetting that clock. The
-      # `[skip ci]` tag keeps other workflows from triggering on this commit.
-      - name: Commit heartbeat to keep repo active
-        if: success()
-        run: |
-          TS=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-          mkdir -p .github
-          echo "Last keepalive: $TS" > .github/keepalive-heartbeat
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/keepalive-heartbeat
-          if git diff --cached --quiet; then
-            echo "No heartbeat change to commit"
-            exit 0
-          fi
-          git commit -m "chore: keepalive heartbeat $TS [skip ci]"
-          # Rebase on top of any intervening pushes to avoid non-fast-forward
-          # rejections; retry once if the push races.
-          for attempt in 1 2 3; do
-            git pull --rebase origin main && git push origin HEAD:main && exit 0
-            echo "Push attempt $attempt failed, retrying..."
-            sleep $((attempt * 5))
-          done
-          echo "❌ Failed to push heartbeat after 3 attempts"
-          exit 1
-
       - name: Report failure
         if: failure()
         run: |
