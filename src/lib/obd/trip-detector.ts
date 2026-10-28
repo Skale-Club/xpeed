@@ -9,6 +9,12 @@ export interface TripReading {
   ecuAlive: boolean;
   speedKmh: number | null;
   rpm: number | null;
+  /**
+   * The adapter itself could not be reached (Bluetooth stall, reconnecting), so
+   * this says nothing about the car: it does not count toward "car turned
+   * off", only toward a much longer grace period.
+   */
+  linkDown?: boolean;
 }
 
 export type TripEndReason = 'car-off' | 'parked' | 'manual' | 'disconnected';
@@ -28,6 +34,10 @@ export interface TripDetectorOptions {
   parkedAfterMs: number;
   /** Shorter trips are discarded. */
   minTripMs: number;
+  /** Adapter unreachable this long (without a word from the car) ends the trip. */
+  linkGraceMs: number;
+  /** An automatic trip that never went faster than this is warm-up in a parking spot, not a trip. */
+  movementKmh: number;
 }
 
 export const DEFAULT_TRIP_OPTIONS: TripDetectorOptions = {
@@ -37,6 +47,10 @@ export const DEFAULT_TRIP_OPTIONS: TripDetectorOptions = {
   // Long enough that a hybrid crawling in a jam with the engine off is not cut in two.
   parkedAfterMs: 10 * 60_000,
   minTripMs: 60_000,
+  // Long enough for a Bluetooth stall or a reconnect, short enough that a trip
+  // doesn't stay open for hours after the phone left the car.
+  linkGraceMs: 150_000,
+  movementKmh: 5,
 };
 
 const MIN_MANUAL_TRIP_MS = 5_000;
@@ -46,6 +60,12 @@ export class TripDetector {
   private manual = false;
   private lastAlive: number | null = null;
   private lastActive: number | null = null;
+  // Time the adapter was unreachable since the car last answered: not car silence.
+  private downMs = 0;
+  private lastAt: number | null = null;
+  // Whether this trip ever moved (and whether speed was reported at all).
+  private moved = false;
+  private speedSeen = false;
   // Set when the user ends a trip by hand while driving: no new automatic
   // trip until the car is switched off or parked, or one would start at once.
   private autoHeld = false;
@@ -63,7 +83,12 @@ export class TripDetector {
 
   /** The car is answering right now (on / READY). */
   carOn(now: number): boolean {
-    return this.lastAlive !== null && now - this.lastAlive < this.opts.offAfterMs;
+    return this.lastAlive !== null && this.silentFor(now) < this.opts.offAfterMs;
+  }
+
+  /** How long the car has been silent, not counting time the adapter couldn't be reached. */
+  private silentFor(at: number): number {
+    return this.lastAlive === null ? Infinity : at - this.lastAlive - this.downMs;
   }
 
   private active(r: TripReading): boolean {
@@ -75,31 +100,63 @@ export class TripDetector {
     const end = Math.max(start, at);
     // A trip the user ends by hand is kept unless it's a mis-tap.
     const minMs = reason === 'manual' ? MIN_MANUAL_TRIP_MS : this.opts.minTripMs;
+    // An automatic trip that never moved (a cold hybrid warming up in READY, parked) isn't a trip.
+    const phantom = !this.manual && reason !== 'manual' && this.speedSeen && !this.moved;
     this.start = null;
     this.manual = false;
-    return { type: 'end', at: end, reason, keep: end - start >= minMs };
+    return { type: 'end', at: end, reason, keep: end - start >= minMs && !phantom };
+  }
+
+  /** Note what this reading says about movement, for the trip in progress. */
+  private noteMovement(r: TripReading) {
+    if (!r.ecuAlive || r.speedKmh == null) return;
+    this.speedSeen = true;
+    if (r.speedKmh >= this.opts.movementKmh) this.moved = true;
+  }
+
+  private begin(at: number) {
+    this.start = at;
+    this.moved = false;
+    this.speedSeen = false;
   }
 
   /** Feed one cycle. With `autoStart` off, trips only begin via startManual(). */
   update(r: TripReading, autoStart = true): TripEvent[] {
     const events: TripEvent[] = [];
+
+    if (r.linkDown) {
+      // Nothing is known about the car: only a long absence ends the trip.
+      if (this.lastAt !== null) this.downMs += Math.max(0, r.at - this.lastAt);
+      this.lastAt = r.at;
+      if (this.start !== null && (this.lastAlive === null || r.at - this.lastAlive >= this.opts.linkGraceMs)) {
+        events.push(this.end(this.lastAlive ?? r.at, 'disconnected'));
+      }
+      return events;
+    }
+
     // Was the car off, or parked, up to this cycle? (Checked before this reading counts.)
-    const wasOff = this.lastAlive === null || r.at - this.lastAlive >= this.opts.offAfterMs;
+    const wasOff = this.silentFor(r.at) >= this.opts.offAfterMs;
     const wasParked = this.lastActive === null || r.at - this.lastActive >= this.opts.parkedAfterMs;
-    if (r.ecuAlive) this.lastAlive = r.at;
+    if (r.ecuAlive) {
+      this.lastAlive = r.at;
+      this.downMs = 0;
+    }
+    this.lastAt = r.at;
     const active = this.active(r);
     if (active) this.lastActive = r.at;
 
     if (this.start === null) {
       if (wasOff || wasParked) this.autoHeld = false;
       if (active && autoStart && !this.autoHeld) {
-        this.start = r.at;
+        this.begin(r.at);
+        this.noteMovement(r);
         events.push({ type: 'start', at: r.at });
       }
       return events;
     }
+    this.noteMovement(r);
 
-    if (this.lastAlive === null || r.at - this.lastAlive >= this.opts.offAfterMs) {
+    if (this.lastAlive === null || this.silentFor(r.at) >= this.opts.offAfterMs) {
       events.push(this.end(this.lastAlive ?? r.at, 'car-off'));
     } else if (!this.manual && this.lastActive !== null && r.at - this.lastActive >= this.opts.parkedAfterMs) {
       events.push(this.end(this.lastActive, 'parked'));
@@ -113,7 +170,7 @@ export class TripDetector {
       this.manual = true;
       return [];
     }
-    this.start = at;
+    this.begin(at);
     this.manual = true;
     this.autoHeld = false;
     this.lastActive = at;
