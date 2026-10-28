@@ -147,6 +147,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 historyMessages,
                 text,
                 (contextData ?? {}) as unknown as Record<string, unknown>,
+                selectedCar?.id,
             );
 
             // Save assistant message

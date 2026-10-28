@@ -71,9 +71,11 @@ export async function chatViaEdge(
   history: { role: 'user' | 'model'; parts: string }[],
   message: string,
   context: ChatContext,
+  /** The car the owner is asking about; the server checks it is theirs and builds the context itself. */
+  carProfileId?: string | null,
 ): Promise<string> {
   const { data, error } = await supabase.functions.invoke('chat', {
-    body: { history, message, context, language: i18n.resolvedLanguage },
+    body: { history, message, context, language: i18n.resolvedLanguage, ...(carProfileId ? { carProfileId } : {}) },
   });
   if (error) throw new AiError(await failureKind(error));
   const reply = data?.reply as string | undefined;
