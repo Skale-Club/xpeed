@@ -4,9 +4,20 @@
 import { registerPlugin } from '@capacitor/core';
 import { isNativeApp } from './native-ble';
 
+interface ServiceOptions {
+  title: string;
+  text: string;
+  /**
+   * Keep the CPU awake (a wake lock) so the web layer can poll the car. Only
+   * while a trip is recorded or the car is on: waiting for a parked car, the
+   * notification alone keeps the connection alive and the phone can sleep.
+   */
+  awake: boolean;
+}
+
 interface TripServicePlugin {
-  start(options: { title: string; text: string }): Promise<void>;
-  update(options: { title: string; text: string }): Promise<void>;
+  start(options: ServiceOptions): Promise<void>;
+  update(options: ServiceOptions): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -15,12 +26,12 @@ const TripService = registerPlugin<TripServicePlugin>('TripService');
 let started = false;
 
 /** Show (or update) the persistent "Xpeed" notification; no-op on the web. */
-export async function showBackgroundService(title: string, text: string): Promise<void> {
+export async function showBackgroundService(title: string, text: string, awake = true): Promise<void> {
   if (!isNativeApp()) return;
   try {
-    if (started) await TripService.update({ title, text });
+    if (started) await TripService.update({ title, text, awake });
     else {
-      await TripService.start({ title, text });
+      await TripService.start({ title, text, awake });
       started = true;
     }
   } catch (err) {

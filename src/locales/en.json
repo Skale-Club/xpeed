@@ -225,6 +225,7 @@
     "savedHint": "You can see it in History.",
     "saveFailed": "Couldn't save the trip",
     "saveFailedHint": "It's kept on this device and will be saved by itself when there's internet.",
+    "saveFailedNoCopy": "It couldn't be kept on this device either, so leave the app open: it keeps trying while it's open.",
     "rpm": "engine rpm",
     "engineTemp": "engine °C",
     "unsupported": "This browser can't connect to the car. Open Xpeed in Chrome on Android or on a computer.",

@@ -13,6 +13,7 @@ vi.mock('@/contexts/CarsContext', () => ({
   useCarsContext: () => ({ selectedCar: { name: 'Prius' }, selectedCarId: 'car-1' }),
 }));
 vi.mock('@/hooks/use-csv-upload', () => ({ ingestSessionCsv: ingestMock }));
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
 // No earlier upload of the same trip to replace.
 vi.mock('@/lib/db', () => ({ findSessionStartedAt: vi.fn(async () => null), deleteSession: vi.fn(async () => undefined) }));
 

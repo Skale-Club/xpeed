@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { channelLabel } from '@/lib/obd/pid-names';
-import { useObd } from '@/contexts/ObdScannerContext';
+import { useObd, useObdLive } from '@/contexts/ObdScannerContext';
 import { BlocksWidget, ChartWidget, GaugeWidget, ValueWidget } from '@/components/live/widgets';
 import {
   HV_BLOCK_RE, defaultLayout, loadLayout, moveWidget, newWidgetId, saveLayout, type LiveWidget, type WidgetKind,
@@ -36,7 +36,8 @@ function formatElapsed(seconds: number): string {
 export default function LivePage() {
   const { t } = useTranslation();
   const obd = useObd();
-  const { status, connection, channels, values, cycleMs, recording } = obd;
+  const { status, connection, channels, recording } = obd;
+  const { values, cycleMs } = useObdLive();
   const { selectedCar, selectedCarId } = useCarsContext();
   const live = status === 'live';
 

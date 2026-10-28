@@ -4,7 +4,7 @@
 // mode 21 modules on 7E2/7E3. Replies arrive in 20-byte chunks like BLE.
 
 export const VIN = 'JTDKN3DU5A0123456';
-const VIN_HEX = `490201${Array.from(VIN).map((c) => c.charCodeAt(0).toString(16).toUpperCase()).join('')}`;
+const vinHex = (vin: string) => `490201${Array.from(vin).map((c) => c.charCodeAt(0).toString(16).toUpperCase()).join('')}`;
 
 export interface FakeCarOptions {
   /** Number of initial GATT connects that fail (flaky Bluetooth). */
@@ -33,13 +33,19 @@ export function createFakeCar(options: FakeCarOptions = {}) {
   let connectCalls = 0;
   let failUntil = 0;
   let carOn = true;
+  let vin = VIN;
+  /** Supported-PID bitmap answered to 0100 (8 hex digits). */
+  let supported = 'BE1FA813';
+  let stalled = false;
+  /** What ATRV reports. A running car (or a hybrid in READY) charges the 12 V battery (~14 V); a parked one sits near 12.4 V. */
+  let voltage = '12.4V';
   // Engine fault codes (mode 03 reply on CAN: count, then 2 bytes per code); "04" clears them.
   let storedCodes = '430201330420';
 
   const reply = (cmd: string, header: string): string => {
     if (cmd === 'ATZ' || cmd === 'ATI') return 'ELM327 v1.5';
     if (cmd === 'ATDPN') return 'A6';
-    if (cmd === 'ATRV') return '12.4V';
+    if (cmd === 'ATRV') return voltage;
     if (cmd.startsWith('AT')) return 'OK';
     // Ignition off: the adapter is powered by the OBD port, but no ECU answers.
     if (!carOn) return cmd === '0100' ? 'SEARCHING...\rUNABLE TO CONNECT' : 'NO DATA';
@@ -51,12 +57,12 @@ export function createFakeCar(options: FakeCarOptions = {}) {
       return '44';
     }
     const table: Record<string, string> = {
-      '0100': 'SEARCHING...\r4100BE1FA813',
+      '0100': `SEARCHING...\r4100${supported}`,
       '0120': '412000000000',
       '03': storedCodes,
       '07': '4700',
       '0A': '4A00',
-      '0902': ['014', `0:${VIN_HEX.slice(0, 12)}`, `1:${VIN_HEX.slice(12, 26)}`, `2:${VIN_HEX.slice(26)}`].join('\r'),
+      '0902': ['014', `0:${vinHex(vin).slice(0, 12)}`, `1:${vinHex(vin).slice(12, 26)}`, `2:${vinHex(vin).slice(26)}`].join('\r'),
     };
     if (table[cmd]) return table[cmd];
     if (cmd.startsWith('01')) {
@@ -82,6 +88,7 @@ export function createFakeCar(options: FakeCarOptions = {}) {
       const cmd = pending.trim();
       pending = '';
       sent.push(cmd);
+      if (stalled) return;
       if (cmd.startsWith('ATSH')) header = cmd.slice(4);
       const out = new TextEncoder().encode(`${reply(cmd, header)}\r\r>`);
       setTimeout(() => {
@@ -113,6 +120,19 @@ export function createFakeCar(options: FakeCarOptions = {}) {
     connectCalls: () => connectCalls,
     /** Switch the ignition on/off. */
     setCarOn: (on: boolean) => { carOn = on; },
+    /** Plug the adapter into another car: its VIN, which standard PIDs it supports (0100 bitmap) and their values. */
+    swapCar: (next: { vin?: string; supported?: string; pidData?: Record<string, string> }) => {
+      if (next.vin) vin = next.vin;
+      if (next.supported) supported = next.supported;
+      if (next.pidData) {
+        for (const k of Object.keys(pidData)) delete pidData[k];
+        Object.assign(pidData, next.pidData);
+      }
+    },
+    /** Change what the adapter reports as the supply voltage, e.g. setVoltage('14.1V') for a running engine. */
+    setVoltage: (v: string) => { voltage = v; },
+    /** The adapter stops answering (a Bluetooth stall): commands get no reply at all. */
+    stall: (on: boolean) => { stalled = on; },
     /** Change a live value, e.g. setPid('0D', '3C') for 60 km/h. */
     setPid: (pid: string, hex: string) => { pidData[pid] = hex; },
     /** Replace the engine's confirmed fault codes, e.g. setStoredCodes('43010420') or '4300' for none. */
