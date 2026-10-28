@@ -42,7 +42,7 @@ export default function HealthGauge({ score, status, size = 160 }: HealthGaugePr
         </PieChart>
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-        <div className="text-3xl font-mono font-bold tabular-nums" style={{ color }}>
+        <div className="text-3xl font-bold tabular-nums" style={{ color }}>
           {clamped}
         </div>
         <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mt-0.5">

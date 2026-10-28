@@ -136,11 +136,11 @@ export default function CarsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Car className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-mono font-bold text-foreground">{t('vehicle.myCars', 'My cars')}</h2>
+            <h2 className="text-lg font-bold text-foreground">{t('vehicle.myCars', 'My cars')}</h2>
           </div>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="font-mono text-xs">
+              <Button size="sm">
                 <Plus className="w-3.5 h-3.5 mr-2" />
                 {t('vehicle.add', 'Add car')}
               </Button>
@@ -166,7 +166,7 @@ export default function CarsPage() {
           <Card className="bg-card border-border">
             <CardContent className="py-12 text-center">
               <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-mono font-semibold text-foreground mb-2">{t('vehicle.none', 'No cars yet')}</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-2">{t('vehicle.none', 'No cars yet')}</h3>
               <p className="text-xs text-muted-foreground mb-4">
                 {t('vehicle.noneHint', 'Add your car to start checking it.')}
               </p>
@@ -248,7 +248,7 @@ export default function CarsPage() {
                             </div>
                           ) : (
                             <>
-                              <CardTitle className="text-sm font-mono truncate">{headline}</CardTitle>
+                              <CardTitle className="text-sm truncate">{headline}</CardTitle>
                               {car.trim && (
                                 <p className="text-xs text-muted-foreground mt-0.5">{car.trim}</p>
                               )}

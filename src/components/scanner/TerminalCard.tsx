@@ -46,7 +46,7 @@ export function TerminalCard({ onSend }: Props) {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-mono flex items-center gap-2">
+        <CardTitle className="text-sm flex items-center gap-2">
           <SquareTerminal className="w-4 h-4" />
           {t('scanner.terminal.title', 'Terminal')}
         </CardTitle>

@@ -156,7 +156,7 @@ export default function MaintenancePage() {
           <div className="flex items-start gap-2 min-w-0">
             <Wrench className="w-5 h-5 text-primary shrink-0 mt-0.5" />
             <div className="min-w-0">
-              <h2 className="text-lg font-mono font-bold text-foreground">{t('maint.title', 'Service history')}</h2>
+              <h2 className="text-lg font-bold text-foreground">{t('maint.title', 'Service history')}</h2>
               {selectedCar && <p className="text-sm text-muted-foreground truncate">{selectedCar.name}</p>}
             </div>
           </div>
@@ -236,7 +236,7 @@ export default function MaintenancePage() {
           <Card className="bg-card border-border">
             <CardContent className="py-12 text-center">
               <Wrench className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-mono font-semibold text-foreground mb-2">{t('maint.emptyTitle', 'No services recorded yet')}</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-2">{t('maint.emptyTitle', 'No services recorded yet')}</h3>
               <p className="text-xs text-muted-foreground mb-4">
                 {t('maint.emptyBody', "Write down what's been done (oil changes, brake pads, tire rotations) so we can give you better advice.")}
               </p>
@@ -253,13 +253,13 @@ export default function MaintenancePage() {
                 <CardContent className="p-3 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-sm font-mono font-semibold text-foreground">{typeLabel(ev.event_type)}</span>
-                      <span className="text-xs text-muted-foreground font-mono">{formatDate(ev.performed_at)}</span>
+                      <span className="text-sm font-semibold text-foreground">{typeLabel(ev.event_type)}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{formatDate(ev.performed_at)}</span>
                       {ev.odometer_km != null && (
-                        <span className="text-xs text-muted-foreground font-mono">{t('maint.kmValue', '{{km}} km', { km: formatKm(ev.odometer_km) })}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{t('maint.kmValue', '{{km}} km', { km: formatKm(ev.odometer_km) })}</span>
                       )}
                       {ev.cost != null && (
-                        <span className="text-xs text-muted-foreground font-mono">{formatMoney(ev.cost)}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{formatMoney(ev.cost)}</span>
                       )}
                       {ev.shop && (
                         <span className="text-xs text-muted-foreground">{t('maint.atWorkshop', 'Workshop: {{name}}', { name: ev.shop })}</span>

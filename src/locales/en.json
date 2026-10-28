@@ -10,7 +10,8 @@
     "chat": "AI Assistant",
     "scanner": "Scanner (advanced)",
     "live": "Live",
-    "navigation": "Menu"
+    "navigation": "Menu",
+    "more": "More"
   },
   "common": {
     "loading": "Loading…",
@@ -406,7 +407,8 @@
       "trips": "Trips",
       "distance": "Distance",
       "time": "Time driving"
-    }
+    },
+    "hello": "Hi, {{name}}"
   },
   "history": {
     "title": "Trips",

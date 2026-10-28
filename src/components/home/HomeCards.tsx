@@ -12,18 +12,22 @@ import { formatDistance, formatDuration, formatTripDate, tripDate, tripDistanceK
 export function CarHealthCard({ problems, lastTrip }: { problems: VehicleIssue[]; lastTrip: Session | null }) {
   const { t, i18n } = useTranslation();
   const urgent = problems.some((p) => URGENCY[p.severity] === 'urgent');
-  const [Icon, tone, title, hint] = urgent
-    ? [AlertCircle, 'text-destructive', t('home.health.urgent', 'See a mechanic'), t('home.health.urgentHint', 'Something needs attention soon.')]
+  const [Icon, tone, surface, title, hint] = urgent
+    ? [AlertCircle, 'text-destructive', 'border-destructive/30 bg-destructive/[0.07]', t('home.health.urgent', 'See a mechanic'), t('home.health.urgentHint', 'Something needs attention soon.')]
     : problems.length
-      ? [AlertTriangle, 'text-warn', t('home.health.watch', 'Keep an eye on it'), t('problems.needAttention', { count: problems.length, defaultValue: '{{count}} problems need attention' })]
-      : [CheckCircle2, 'text-success', t('home.health.ok', 'All good'), t('home.health.okHint', 'No problems found.')];
+      ? [AlertTriangle, 'text-warn', 'border-warn/30 bg-warn/[0.07]', t('home.health.watch', 'Keep an eye on it'), t('problems.needAttention', { count: problems.length, defaultValue: '{{count}} problems need attention' })]
+      : [CheckCircle2, 'text-success', 'border-success/30 bg-success/[0.07]', t('home.health.ok', 'All good'), t('home.health.okHint', 'No problems found.')];
+
+  const circle = urgent ? 'bg-destructive/15' : problems.length ? 'bg-warn/15' : 'bg-success/15';
 
   return (
-    <Card data-testid="car-health">
-      <CardContent className="p-4 flex items-center gap-4">
-        <Icon className={`w-9 h-9 shrink-0 ${tone}`} />
+    <Card data-testid="car-health" className={surface}>
+      <CardContent className="flex items-center gap-4 p-4 sm:p-5">
+        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${circle} ${tone}`}>
+          <Icon className="h-6 w-6" />
+        </span>
         <div className="flex-1 min-w-0">
-          <p className="text-lg font-semibold">{title}</p>
+          <p className="text-lg font-bold tracking-tight">{title}</p>
           <p className="text-sm text-muted-foreground">{hint}</p>
           <p className="text-xs text-muted-foreground mt-1">
             {lastTrip
@@ -32,7 +36,7 @@ export function CarHealthCard({ problems, lastTrip }: { problems: VehicleIssue[]
           </p>
         </div>
         {problems.length > 0 && (
-          <Link to="/issues" className="text-sm text-primary hover:underline shrink-0">{t('home.health.see', 'See')}</Link>
+          <Link to="/issues" className="shrink-0 rounded-full bg-background/60 px-3 py-1.5 text-sm font-medium hover:bg-background">{t('home.health.see', 'See')}</Link>
         )}
       </CardContent>
     </Card>
@@ -52,7 +56,9 @@ export function LastTripSummary({ session }: { session: Session }) {
     <Card>
       <CardContent className="p-0">
         <Link to={`/session/${session.id}`} className="flex items-center gap-3 p-4 hover:bg-accent/40 rounded-lg" data-testid="last-trip">
-          <Route className="w-5 h-5 text-primary shrink-0" />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <Route className="h-5 w-5 text-primary" />
+          </span>
           <div className="flex-1 min-w-0">
             <p className="text-xs text-muted-foreground">{t('home.lastTrip', 'Last trip')}</p>
             <p className="font-medium truncate">{tripTitle(session, t)}</p>
@@ -60,7 +66,7 @@ export function LastTripSummary({ session }: { session: Session }) {
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </Link>
-        <div className="border-t border-border px-4 py-2 text-right">
+        <div className="border-t border-border/60 px-4 py-2.5 text-right">
           <Link to="/history" className="text-xs text-primary hover:underline">{t('home.allTrips', 'See all trips')}</Link>
         </div>
       </CardContent>
@@ -82,9 +88,9 @@ export function TripTotals({ sessions }: { sessions: Session[] }) {
     <div className="grid grid-cols-3 gap-2" data-testid="trip-totals">
       {items.map(([label, value]) => (
         <Card key={label}>
-          <CardContent className="p-3 px-1.5 text-center">
-            <p className="text-sm sm:text-base font-semibold tabular-nums whitespace-nowrap">{value}</p>
-            <p className="text-[11px] text-muted-foreground">{label}</p>
+          <CardContent className="px-1.5 py-4 text-center">
+            <p className="whitespace-nowrap text-base font-bold tracking-tight tabular-nums sm:text-lg">{value}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p>
           </CardContent>
         </Card>
       ))}

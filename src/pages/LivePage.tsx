@@ -111,7 +111,7 @@ export default function LivePage() {
       <div ref={containerRef} className={`space-y-4 ${fullscreen ? 'bg-background p-4 overflow-auto h-screen' : ''}`}>
         <div className="flex flex-wrap items-center gap-2">
           <Activity className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-mono font-bold text-foreground mr-auto">
+          <h2 className="text-lg font-bold text-foreground mr-auto">
             {t('live.title', 'Live panel')}
             {selectedCar && <span className="text-muted-foreground font-normal"> — {selectedCar.name}</span>}
           </h2>

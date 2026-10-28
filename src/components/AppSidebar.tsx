@@ -114,7 +114,7 @@ export function AppSidebar() {
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="w-full gap-2 font-mono text-xs justify-between">
+                  <Button variant="outline" size="sm" className="w-full gap-2 text-sm justify-between">
                     <div className="flex items-center gap-2 min-w-0">
                       <Car className="w-3.5 h-3.5 flex-shrink-0" />
                       <span className="truncate">{selectedCar ? selectedCar.name : t('sidebar.selectCar', 'Choose your car')}</span>
@@ -176,7 +176,7 @@ export function AppSidebar() {
                 const label = t(item.i18nKey, item.i18nKey.split('.').pop() ?? '');
                 return (
                   <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton asChild isActive={active} tooltip={label}>
+                    <SidebarMenuButton asChild isActive={active} tooltip={label} className="h-9 rounded-lg data-[active=true]:bg-primary/10 data-[active=true]:font-semibold data-[active=true]:text-primary">
                       <Link to={item.to} onClick={handleNavClick}>
                         <item.icon />
                         <span>{label}</span>

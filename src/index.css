@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,69 +7,68 @@
 @layer base {
   /*
    * Design tokens — single source of truth for theming.
-   *   Brand accent: #f2f208 (yellow) — HSL 60 94% 49%
-   *   Dark surface base: #141414 (neutral gray) — HSL 0 0% 8%
+   *   Brand accent: #F5E663 (soft yellow) — HSL 54 88% 67%, for actions only
+   *   Dark surface base: #111214 (graphite) — HSL 225 8% 7%
    * Semantic colors (success, warn, destructive, critical) keep their
    * meaning regardless of brand and are NOT brand-accent.
    */
   :root {
-    /* Surface scale — shades of #141414 */
-    --background: 0 0% 8%;       /* #141414 */
-    --foreground: 0 0% 92%;
+    /* Surface scale — graphite, a touch cool */
+    --background: 225 8% 7%;      /* #111214 */
+    --foreground: 220 14% 94%;
 
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 92%;
+    --card: 225 7% 10%;           /* #18191c */
+    --card-foreground: 220 14% 94%;
 
-    --popover: 0 0% 12%;
-    --popover-foreground: 0 0% 92%;
+    --popover: 225 7% 11%;
+    --popover-foreground: 220 14% 94%;
 
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 0 0% 85%;
+    --secondary: 225 6% 15%;
+    --secondary-foreground: 220 10% 86%;
 
-    --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 56%;
+    --muted: 225 6% 13%;
+    --muted-foreground: 220 6% 60%;
 
-    --accent: 0 0% 16%;
-    --accent-foreground: 0 0% 92%;
+    --accent: 225 6% 16%;
+    --accent-foreground: 220 14% 94%;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
+    --border: 225 6% 17%;
+    --input: 225 6% 20%;
 
-    /* Brand accent — #f2f208 */
-    --primary: 60 94% 49%;
-    --primary-foreground: 0 0% 8%;
-    --ring: 60 94% 49%;
+    /* Brand accent — #F5E663 */
+    --primary: 54 88% 67%;
+    --primary-foreground: 225 10% 8%;
+    --ring: 54 88% 67%;
 
-    --radius: 0.5rem;
+    --radius: 0.875rem;
 
     /* Semantic tokens — unchanged by branding */
-    --destructive: 0 72% 55%;
+    --destructive: 0 75% 60%;
     --destructive-foreground: 0 0% 100%;
-    --warn: 38 92% 55%;
+    --warn: 38 92% 58%;
     --warn-foreground: 38 100% 12%;
-    --critical: 0 72% 55%;
+    --critical: 0 75% 60%;
     --critical-foreground: 0 0% 100%;
-    --success: 152 60% 42%;
+    --success: 152 58% 46%;
     --success-foreground: 152 80% 10%;
 
-    /* Chart palette — series colors. chart-teal repurposed to brand yellow
-       since the primary accent moved off teal. */
-    --chart-teal: 60 94% 49%;
-    --chart-amber: 38 92% 55%;
-    --chart-red: 0 72% 55%;
-    --chart-blue: 210 80% 55%;
-    --chart-green: 152 60% 42%;
-    --chart-purple: 270 60% 60%;
+    /* Chart palette — series colors; the first one follows the brand. */
+    --chart-teal: 54 88% 67%;
+    --chart-amber: 38 92% 58%;
+    --chart-red: 0 75% 60%;
+    --chart-blue: 212 85% 62%;
+    --chart-green: 152 58% 46%;
+    --chart-purple: 265 70% 68%;
 
-    /* Sidebar — slightly darker than main surface for contrast */
-    --sidebar-background: 0 0% 6%;
-    --sidebar-foreground: 0 0% 85%;
-    --sidebar-primary: 60 94% 49%;
-    --sidebar-primary-foreground: 0 0% 8%;
-    --sidebar-accent: 0 0% 12%;
-    --sidebar-accent-foreground: 0 0% 92%;
-    --sidebar-border: 0 0% 16%;
-    --sidebar-ring: 60 94% 49%;
+    /* Sidebar — a step darker than the page */
+    --sidebar-background: 225 8% 6%;
+    --sidebar-foreground: 220 10% 82%;
+    --sidebar-primary: 54 88% 67%;
+    --sidebar-primary-foreground: 225 10% 8%;
+    --sidebar-accent: 225 6% 13%;
+    --sidebar-accent-foreground: 220 14% 94%;
+    --sidebar-border: 225 6% 14%;
+    --sidebar-ring: 54 88% 67%;
 
     font-family: 'Inter', system-ui, sans-serif;
   }
@@ -82,10 +81,16 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    /* A faint warm glow at the top keeps the dark page from feeling flat. */
+    background-image: radial-gradient(ellipse 80% 40% at 50% -10%, hsl(var(--primary) / 0.06), transparent 70%);
+    background-attachment: fixed;
+    font-feature-settings: "cv11", "ss01";
   }
 
+  /* Friendly headings; the monospace font is kept for codes, VINs and raw data. */
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.015em;
   }
 
   .font-mono {

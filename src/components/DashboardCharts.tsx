@@ -237,7 +237,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
       {activeCharts.map(chart => (
         <Card key={chart.id} className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-mono text-muted-foreground">
+            <CardTitle className="text-sm text-muted-foreground">
                 {chart.title} {chart.yAxisUnit ? `(${chart.yAxisUnit})` : ''}
             </CardTitle>
           </CardHeader>

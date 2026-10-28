@@ -107,7 +107,7 @@ export default function McpTokensSection() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Plug className="w-5 h-5 text-primary" />
-            <h3 className="text-sm font-mono font-semibold text-foreground">MCP Server</h3>
+            <h3 className="text-sm font-semibold text-foreground">MCP Server</h3>
           </div>
           <Button size="sm" onClick={() => setShowCreateDialog(true)} className="font-mono text-xs">
             <Plus className="w-3.5 h-3.5 mr-1" /> New Token

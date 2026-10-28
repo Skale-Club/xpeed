@@ -49,7 +49,7 @@ export default function StatCard({
           <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground truncate">
             {label}
           </div>
-          <div className={`text-lg font-mono font-bold ${TONE_CLASS[tone]} flex items-baseline gap-1`}>
+          <div className={`text-lg font-bold ${TONE_CLASS[tone]} flex items-baseline gap-1`}>
             <span className="tabular-nums">{value}</span>
             {unit && <span className="text-xs font-normal text-muted-foreground">{unit}</span>}
           </div>

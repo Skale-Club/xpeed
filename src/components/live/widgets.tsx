@@ -37,7 +37,7 @@ export function GaugeWidget({ label, unit, value, min, max }: Readout & { min: n
       <svg viewBox="0 0 120 112" className="w-full max-w-[220px]">
         <path d={arc(60, 60, 48, START_DEG, START_DEG + SWEEP_DEG)} fill="none" stroke={TRACK} strokeWidth="9" strokeLinecap="round" />
         {value != null && <path d={arc(60, 60, 48, START_DEG, end)} fill="none" stroke={ACCENT} strokeWidth="9" strokeLinecap="round" />}
-        <text x="60" y="60" textAnchor="middle" className="fill-foreground font-mono font-bold" fontSize="22">{formatValue(value, unit)}</text>
+        <text x="60" y="60" textAnchor="middle" className="fill-foreground font-bold" fontSize="22">{formatValue(value, unit)}</text>
         <text x="60" y="76" textAnchor="middle" className="fill-muted-foreground" fontSize="10">{unit}</text>
         <text x="26" y="108" textAnchor="middle" className="fill-muted-foreground" fontSize="8">{min}</text>
         <text x="94" y="108" textAnchor="middle" className="fill-muted-foreground" fontSize="8">{max}</text>
@@ -51,7 +51,7 @@ export function ValueWidget({ label, unit, value }: Readout) {
   return (
     <div className="flex flex-col justify-center h-full">
       <p className="text-xs text-muted-foreground truncate" title={label}>{label}</p>
-      <p className="font-mono text-3xl font-bold text-foreground tabular-nums leading-tight">
+      <p className="text-3xl font-bold text-foreground tabular-nums leading-tight">
         {formatValue(value, unit)}
         <span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span>
       </p>
@@ -98,7 +98,7 @@ export function ChartWidget({ label, unit, points, now, windowMs }: Omit<Readout
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-xs text-muted-foreground truncate" title={label}>{label}</p>
-        <p className="font-mono text-lg font-bold tabular-nums">
+        <p className="text-lg font-bold tabular-nums">
           {formatValue(current, unit)}<span className="text-xs font-normal text-muted-foreground ml-1">{unit}</span>
         </p>
       </div>

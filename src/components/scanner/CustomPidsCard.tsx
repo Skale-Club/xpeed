@@ -51,7 +51,7 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-mono flex items-center gap-2">
+        <CardTitle className="text-sm flex items-center gap-2">
           <SlidersHorizontal className="w-4 h-4" />
           {t('scanner.custom.title', 'Custom PIDs')}
         </CardTitle>

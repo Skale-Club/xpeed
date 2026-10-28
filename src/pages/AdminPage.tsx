@@ -15,7 +15,7 @@ export default function AdminPage() {
       <div className="max-w-md mx-auto pt-12 space-y-4">
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-destructive" />
-          <h2 className="text-lg font-mono font-bold text-foreground">Admin Access Required</h2>
+          <h2 className="text-lg font-bold text-foreground">Admin Access Required</h2>
         </div>
         <Alert variant="destructive">
           <AlertTriangle className="w-4 h-4" />
@@ -36,7 +36,7 @@ export default function AdminPage() {
       <div className="space-y-6">
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-mono font-bold text-foreground">Super-Admin Panel</h2>
+          <h2 className="text-lg font-bold text-foreground">Super-Admin Panel</h2>
         </div>
 
         <Alert>

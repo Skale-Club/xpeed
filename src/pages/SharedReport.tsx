@@ -59,7 +59,7 @@ export default function SharedReport() {
         <Card className="max-w-md w-full border-border">
           <CardContent className="p-6 text-center">
             <AlertCircle className="w-10 h-10 text-destructive mx-auto mb-3" />
-            <h2 className="text-base font-mono font-semibold text-foreground">{t('sharedReport.unavailableTitle', 'Report unavailable')}</h2>
+            <h2 className="text-base font-semibold text-foreground">{t('sharedReport.unavailableTitle', 'Report unavailable')}</h2>
             <p className="text-sm text-muted-foreground mt-2">
               {t('sharedReport.unavailableBody', 'This link may have expired or been turned off. Ask the car owner for a new link.')}
             </p>
@@ -104,7 +104,7 @@ export default function SharedReport() {
                 )}
               </div>
               <div>
-                <h1 className="text-xl font-mono font-bold text-foreground">{carHeadline as string}</h1>
+                <h1 className="text-xl font-bold text-foreground">{carHeadline as string}</h1>
                 <p className="text-xs text-muted-foreground font-mono">
                   {t('sharedReport.subtitle', 'Diagnostic report — {{date}}', {
                     date: sessionDate
@@ -150,13 +150,13 @@ export default function SharedReport() {
 
         {/* DTCs section */}
         <section className="mb-4 print:break-inside-avoid">
-          <h2 className="text-sm font-mono font-semibold text-foreground mb-2">{t('sharedReport.faultCodes', 'Fault codes found')}</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-2">{t('sharedReport.faultCodes', 'Fault codes found')}</h2>
           <DTCPanel codes={dtcs} />
         </section>
 
         {/* Flags section */}
         <section className="mb-4 print:break-inside-avoid">
-          <h2 className="text-sm font-mono font-semibold text-foreground mb-2">{t('sharedReport.unusualReadings', 'Unusual readings')}</h2>
+          <h2 className="text-sm font-semibold text-foreground mb-2">{t('sharedReport.unusualReadings', 'Unusual readings')}</h2>
           {readings.length === 0 ? (
             <p className="text-xs text-muted-foreground">{t('sharedReport.noReadings', 'Nothing unusual in this trip.')}</p>
           ) : (

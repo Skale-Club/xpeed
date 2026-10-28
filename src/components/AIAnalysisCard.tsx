@@ -22,7 +22,7 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
             <Sparkles className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h3 className="text-lg font-mono font-bold text-foreground">AI Diagnostic Report</h3>
+            <h3 className="text-lg font-bold text-foreground">AI Diagnostic Report</h3>
             <p className="text-xs text-muted-foreground font-mono">
               Generated {new Date(analysis.timestamp).toLocaleString()}
             </p>
@@ -37,7 +37,7 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
         {/* Summary Section */}
         {analysis.summary && (
           <div className="bg-background/50 rounded-lg p-4 border border-border/50">
-            <h4 className="text-sm font-mono font-bold text-foreground mb-3 flex items-center gap-2 uppercase tracking-wider">
+            <h4 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-primary" />
               Executive Summary
             </h4>
@@ -50,7 +50,7 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
         {/* Insights Section */}
         {analysis.insights && analysis.insights.length > 0 && (
           <div>
-            <h4 className="text-sm font-mono font-bold text-foreground mb-4 flex items-center gap-2 uppercase tracking-wider text-amber-500">
+            <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2 uppercase tracking-wider text-amber-500">
               <Lightbulb className="w-4 h-4" />
               Key Insights
             </h4>
@@ -81,7 +81,7 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
         {/* Recommendations Section */}
         {analysis.recommendations && analysis.recommendations.length > 0 && (
           <div>
-            <h4 className="text-sm font-mono font-bold text-foreground mb-4 flex items-center gap-2 uppercase tracking-wider text-emerald-500">
+            <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2 uppercase tracking-wider text-emerald-500">
               <CheckCircle2 className="w-4 h-4" />
               Recommended Actions
             </h4>

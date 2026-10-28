@@ -105,7 +105,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       <CardContent className="p-4 space-y-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-mono font-semibold text-foreground">{t('photos.title', 'Photos')}</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t('photos.title', 'Photos')}</h3>
         </div>
 
         <div className="grid grid-cols-[1fr_2fr_auto] gap-2 items-end">

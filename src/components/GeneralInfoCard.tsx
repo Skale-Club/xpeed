@@ -143,7 +143,7 @@ export function GeneralInfoCard({ stats, onProblemsClick }: GeneralInfoCardProps
                 <m.icon className="w-4 h-4" />
                 <span>{m.label}</span>
               </div>
-              <div className={`text-3xl font-bold font-mono tracking-tight ${m.color}`}>
+              <div className={`text-3xl font-bold tracking-tight ${m.color}`}>
                 {m.value}<span className="text-sm text-muted-foreground ml-1 font-sans font-normal">{m.unit}</span>
               </div>
               {m.subtext && (

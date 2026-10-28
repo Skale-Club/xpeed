@@ -66,7 +66,7 @@ export function EcuScanCard({ findEcus, sweepMode21 }: Props) {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-mono flex items-center gap-2">
+        <CardTitle className="text-sm flex items-center gap-2">
           <Radar className="w-4 h-4" />
           {t('scanner.scan.title', 'ECU discovery')}
         </CardTitle>

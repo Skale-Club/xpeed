@@ -56,7 +56,7 @@ export function AdaptiveMetricsSection({ engineType, latestSession, carId }: Ada
       <Card className="bg-card border-border border-dashed">
         <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 py-4 px-4">
           <div>
-            <p className="text-sm font-mono font-semibold text-foreground">Engine type not set</p>
+            <p className="text-sm font-semibold text-foreground">Engine type not set</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Set your vehicle's engine type to unlock adaptive dashboard metrics.
             </p>
@@ -96,7 +96,7 @@ export function AdaptiveMetricsSection({ engineType, latestSession, carId }: Ada
             <CardContent className="px-3 py-2.5">
               <p className="text-[10px] text-muted-foreground font-mono truncate">{metric.label}</p>
               <p
-                className={`text-xl font-bold font-mono mt-0.5 ${
+                className={`text-xl font-bold mt-0.5 ${
                   tone === 'critical' ? 'text-destructive' : tone === 'warn' ? 'text-yellow-500' : 'text-foreground'
                 }`}
               >

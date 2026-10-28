@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
 import { useOpenProblems } from '@/hooks/use-open-problems';
 import { useObd } from '@/contexts/ObdScannerContext';
+import { useAuth } from '@/contexts/AuthContext';
 import HealthGauge from '@/components/HealthGauge';
 import StatCard from '@/components/StatCard';
 import { supabase } from '@/integrations/supabase/client';
@@ -48,6 +49,8 @@ import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 const Index = () => {
   const navigate = useNavigate();
   const { lastTrip } = useObd();
+  const { user } = useAuth();
+  const firstName = (user?.user_metadata?.full_name as string | undefined)?.trim().split(/\s+/)[0];
   const { cars, selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
   // Same list as the Problems page; refreshed when a trip gets saved.
   const openProblems = useOpenProblems(selectedCarId, lastTrip);
@@ -388,7 +391,7 @@ const Index = () => {
         <Card className="bg-card border-border">
           <CardContent className="py-12 text-center">
             <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-            <h3 className="text-sm font-mono font-semibold text-foreground mb-2">No Vehicle Selected</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-2">No Vehicle Selected</h3>
             <p className="text-xs text-muted-foreground mb-4">
               Please select or add a vehicle to view the dashboard.
             </p>
@@ -411,22 +414,36 @@ const Index = () => {
 
   return (
     <AppLayout>
-      <div className="space-y-5 max-w-4xl">
-        <h2 className="text-2xl font-bold text-foreground">{selectedCar?.name || t('home.title', 'Home')}</h2>
+      <div className="space-y-5">
+        <div>
+          {firstName && <p className="text-sm text-muted-foreground">{t('home.hello', 'Hi, {{name}}', { name: firstName })}</p>}
+          <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{selectedCar?.name || t('home.title', 'Home')}</h2>
+        </div>
 
-        {/* 1. Is my car OK? */}
-        <CarHealthCard problems={openProblems} lastTrip={allSessions[0] ?? null} />
+        {/* Phones: one column in this order. Wide screens: the trip on the left, the car's state on the right. */}
+        <div className="grid gap-5 lg:grid-cols-5 lg:items-start">
+          {/* 1. Is my car OK? */}
+          <div className="lg:col-span-2 lg:col-start-4 lg:row-start-1">
+            <CarHealthCard problems={openProblems} lastTrip={allSessions[0] ?? null} />
+          </div>
 
-        {/* 2. The one action: start / follow a trip */}
-        <TripCard />
+          {/* 2. The one action: start / follow a trip */}
+          <div className="lg:col-span-3 lg:col-start-1 lg:row-span-3 lg:row-start-1">
+            <TripCard />
+          </div>
 
-        {/* 3. Last trip and totals */}
-        {allSessions.length > 0 && (
-          <>
-            <LastTripSummary session={allSessions[0]} />
-            <TripTotals sessions={allSessions} />
-          </>
-        )}
+          {/* 3. Last trip and totals */}
+          {allSessions.length > 0 && (
+            <>
+              <div className="lg:col-span-2 lg:col-start-4">
+                <LastTripSummary session={allSessions[0]} />
+              </div>
+              <div className="lg:col-span-2 lg:col-start-4">
+                <TripTotals sessions={allSessions} />
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Everything technical stays one tap away, closed by default */}
         {allSessions.length > 0 && (

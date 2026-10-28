@@ -10,7 +10,8 @@
     "scanner": "Escáner (avanzado)",
     "live": "En vivo",
     "navigation": "Menú",
-    "issues": "Problemas"
+    "issues": "Problemas",
+    "more": "Más"
   },
   "common": {
     "loading": "Cargando…",
@@ -406,7 +407,8 @@
       "trips": "Viajes",
       "distance": "Distancia",
       "time": "Tiempo conduciendo"
-    }
+    },
+    "hello": "Hola, {{name}}"
   },
   "history": {
     "title": "Viajes",

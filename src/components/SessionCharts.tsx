@@ -49,7 +49,7 @@ export function ParameterChart({
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-2 px-4 pt-3">
-        <CardTitle className="text-xs font-mono text-muted-foreground flex items-center gap-2">
+        <CardTitle className="text-xs text-muted-foreground flex items-center gap-2">
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
           {label}
           {unit && <span className="text-muted-foreground/60">({unit})</span>}

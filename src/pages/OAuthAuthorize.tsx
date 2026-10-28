@@ -124,7 +124,7 @@ export default function OAuthAuthorize() {
           <CardContent className="p-6 space-y-3">
             <div className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
-              <h1 className="font-mono text-sm font-semibold">Invalid OAuth Request</h1>
+              <h1 className="text-sm font-semibold">Invalid OAuth Request</h1>
             </div>
             <p className="text-xs text-muted-foreground font-mono">{paramErr}</p>
           </CardContent>
@@ -154,7 +154,7 @@ export default function OAuthAuthorize() {
               <ShieldCheck className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="font-mono text-sm font-semibold text-foreground">Authorize Connection</h1>
+              <h1 className="text-sm font-semibold text-foreground">Authorize Connection</h1>
               <p className="text-[10px] text-muted-foreground font-mono">Xpeed MCP Server</p>
             </div>
           </div>

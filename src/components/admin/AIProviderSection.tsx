@@ -129,7 +129,7 @@ export default function AIProviderSection() {
   return (
     <Card className="border-border">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-mono flex items-center gap-2">
+        <CardTitle className="text-sm flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-primary" />
           AI Provider (OpenRouter)
           {keyStored && <CheckCircle className="w-3.5 h-3.5 text-success" />}

@@ -10,7 +10,8 @@
     "chat": "Assistente AI",
     "scanner": "Scanner (avançado)",
     "live": "Ao vivo",
-    "navigation": "Menu"
+    "navigation": "Menu",
+    "more": "Mais"
   },
   "common": {
     "loading": "Carregando…",
@@ -406,7 +407,8 @@
       "trips": "Viagens",
       "distance": "Distância",
       "time": "Tempo dirigindo"
-    }
+    },
+    "hello": "Olá, {{name}}"
   },
   "history": {
     "title": "Viagens",

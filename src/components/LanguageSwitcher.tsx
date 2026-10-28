@@ -21,7 +21,7 @@ export default function LanguageSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-2 font-mono text-xs">
+        <Button variant="ghost" size="sm" className="gap-2 text-xs">
           <Languages className="w-3.5 h-3.5" />
           <span>{current.flag} {current.label}</span>
         </Button>

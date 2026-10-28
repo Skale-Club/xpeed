@@ -38,14 +38,14 @@ export function TripCard() {
   }, [recording?.active]);
 
   const quick = (header: string, label: string, unit: string) => (
-    <div className="text-center">
-      <p className="font-mono text-2xl font-bold tabular-nums">{formatValue(values[header], unit)}</p>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+    <div className="rounded-xl bg-background/60 px-2 py-3 text-center">
+      <p className="text-3xl font-bold leading-none tracking-tight tabular-nums">{formatValue(values[header], unit)}</p>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">{label}</p>
     </div>
   );
 
   const readings = status === 'live' && (
-    <div className="grid grid-cols-3 gap-2 py-2">
+    <div className="grid grid-cols-3 gap-2">
       {quick(SPEED, 'km/h', 'km/h')}
       {quick(RPM, t('trip.rpm', 'engine rpm'), 'rpm')}
       {quick(COOLANT, t('trip.engineTemp', 'engine °C'), '°C')}
@@ -66,9 +66,12 @@ export function TripCard() {
     body = (
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-pulse" />
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive/60" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
+          </span>
           <p className="font-semibold">{t('trip.recording', 'Recording your trip')}</p>
-          <span className="ml-auto font-mono tabular-nums">{elapsed(recording.startedAt, now)}</span>
+          <span className="ml-auto rounded-full bg-destructive/10 px-2.5 py-0.5 font-mono text-sm tabular-nums text-destructive">{elapsed(recording.startedAt, now)}</span>
         </div>
         {readings || (
           <p className="text-sm text-muted-foreground">{t('trip.paused', 'Waiting for the car… the trip continues when it answers again.')}</p>
@@ -131,7 +134,7 @@ export function TripCard() {
   } else {
     body = (
       <div className="space-y-3">
-        <Button size="lg" className="w-full h-14 text-base" onClick={() => void obd.startTrip()}>
+        <Button size="lg" className="h-14 w-full text-base shadow-[0_8px_30px_-10px_hsl(var(--primary)/0.6)]" onClick={() => void obd.startTrip()}>
           <Play className="w-5 h-5 mr-2" />
           {t('trip.start', 'Start trip')}
         </Button>
@@ -165,10 +168,12 @@ export function TripCard() {
   const connected = status === 'live' || status === 'waiting' || status === 'reconnecting';
 
   return (
-    <Card className="bg-card border-border">
-      <CardContent className="p-4 space-y-4">
+    <Card className={recording?.active ? 'border-destructive/30' : undefined}>
+      <CardContent className="space-y-4 p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <Bluetooth className="w-4 h-4 text-primary" />
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">
+            <Bluetooth className="h-3.5 w-3.5 text-primary" />
+          </span>
           <h3 className="text-sm font-semibold">{t('trip.title', 'Your car')}</h3>
           {connected && !recording?.active && (
             <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={obd.disconnect}>
@@ -193,7 +198,7 @@ export function TripCard() {
         )}
 
         {status !== 'unsupported' && (
-          <label className="flex items-start gap-3 border-t border-border pt-3 cursor-pointer">
+          <label className="flex cursor-pointer items-start gap-3 border-t border-border/60 pt-4">
             <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Always on')} />
             <span className="text-xs">
               <span className="font-medium block">{t('trip.alwaysOn', 'Always on')}</span>

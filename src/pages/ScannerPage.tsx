@@ -29,7 +29,7 @@ function LiveTile({ channel, value }: { channel: LiveChannel; value: number | nu
     <Card className="bg-card border-border">
       <CardContent className="p-3 space-y-2">
         <p className="text-[11px] text-muted-foreground leading-tight truncate" title={channel.name}>{channel.name}</p>
-        <p className="font-mono text-xl font-bold text-foreground tabular-nums">
+        <p className="text-xl font-bold text-foreground tabular-nums">
           {formatValue(value, channel.unit)}
           <span className="text-xs font-normal text-muted-foreground ml-1">{channel.unit}</span>
         </p>
@@ -86,7 +86,7 @@ export default function ScannerPage() {
       <div className="space-y-6 max-w-5xl">
         <div className="flex items-center gap-2">
           <Bluetooth className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-mono font-bold text-foreground">
+          <h2 className="text-lg font-bold text-foreground">
             {t('scanner.title', 'OBD2 Scanner')}
             {selectedCar && <span className="text-muted-foreground font-normal"> — {selectedCar.name}</span>}
           </h2>
@@ -105,7 +105,7 @@ export default function ScannerPage() {
         {/* Connection */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-mono flex items-center gap-2">
+            <CardTitle className="text-sm flex items-center gap-2">
               {live ? <BluetoothConnected className="w-4 h-4 text-success" /> : <Bluetooth className="w-4 h-4" />}
               {t('scanner.adapter', 'Adapter')}
             </CardTitle>
@@ -160,7 +160,7 @@ export default function ScannerPage() {
         {/* Live data */}
         {live && (
           <div className="space-y-3">
-            <h3 className="text-sm font-mono font-bold text-foreground">{t('scanner.liveData', 'Live data')}</h3>
+            <h3 className="text-sm font-bold text-foreground">{t('scanner.liveData', 'Live data')}</h3>
             {channels.length === 0 ? (
               <p className="text-xs text-muted-foreground">{t('scanner.noPids', 'The ECU did not report any supported parameters.')}</p>
             ) : (
@@ -175,7 +175,7 @@ export default function ScannerPage() {
         {live && (
           <Card className="bg-card border-border">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <CardTitle className="text-sm flex items-center gap-2">
                 <ScanSearch className="w-4 h-4" />
                 {t('scanner.diagnostics', 'Diagnostics')}
               </CardTitle>

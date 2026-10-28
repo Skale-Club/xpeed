@@ -40,7 +40,7 @@ export default function SessionKPIs({ duration, rowCount, parameterCount, attent
         <Card key={kpi.label} className="bg-card border-border">
           <CardContent className="p-4 flex flex-col items-center gap-1">
             <kpi.icon className={`w-5 h-5 ${kpi.color}`} />
-            <span className="text-2xl font-mono font-bold text-foreground">{kpi.value}</span>
+            <span className="text-2xl font-bold text-foreground">{kpi.value}</span>
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{kpi.label}</span>
           </CardContent>
         </Card>

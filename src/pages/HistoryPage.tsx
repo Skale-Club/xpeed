@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Pencil, Trash2, Route, Play } from 'lucide-react';
+import { Pencil, Trash2, Route, Play } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -129,34 +129,35 @@ export default function HistoryPage() {
               return (
                 <Card key={trip.id} data-testid="trip-row">
                   <CardContent className="p-0 flex items-center">
-                    <Link to={`/session/${trip.id}`} className="flex-1 min-w-0 flex items-center gap-3 p-3 hover:bg-accent/40 rounded-l-lg">
+                    <Link to={`/session/${trip.id}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-l-2xl p-3.5 hover:bg-accent/40">
                       <span
-                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${problems.length === 0 ? 'bg-success' : urgent ? 'bg-destructive' : 'bg-warn'}`}
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${problems.length === 0 ? 'bg-success/15 text-success' : urgent ? 'bg-destructive/15 text-destructive' : 'bg-warn/15 text-warn'}`}
                         aria-hidden
-                      />
+                      >
+                        <Route className="h-[18px] w-[18px]" />
+                      </span>
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{tripTitle(trip, t)}</p>
+                        <p className="truncate font-semibold">{tripTitle(trip, t)}</p>
                         <p className="text-xs text-muted-foreground">
                           {[formatTripDate(tripDate(trip), i18n.resolvedLanguage), ...facts].join(' · ')}
                         </p>
-                        <p className={`text-xs ${problems.length === 0 ? 'text-success' : urgent ? 'text-destructive' : 'text-warn'}`}>
+                        <p className={`text-xs font-medium ${problems.length === 0 ? 'text-success' : urgent ? 'text-destructive' : 'text-warn'}`}>
                           {problems.length === 0
                             ? t('history.noProblems', 'All good')
                             : t('history.problems', { count: problems.length, defaultValue: '{{count}} problems' })}
                         </p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto shrink-0" />
                     </Link>
-                    <div className="flex flex-col border-l border-border">
+                    <div className="flex items-center gap-0.5 pr-2">
                       <Button
-                        size="icon" variant="ghost" className="h-9 w-9 rounded-none"
+                        size="icon" variant="ghost" className="h-8 w-8 rounded-full text-muted-foreground"
                         aria-label={t('history.rename', 'Rename')}
                         onClick={() => { setRenaming(trip); setNewName(tripTitle(trip, t)); }}
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
                       <Button
-                        size="icon" variant="ghost" className="h-9 w-9 rounded-none text-muted-foreground hover:text-destructive"
+                        size="icon" variant="ghost" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive"
                         aria-label={t('history.delete', 'Delete')}
                         onClick={() => setDeleting(trip)}
                       >

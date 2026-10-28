@@ -205,7 +205,7 @@ export default function LoginPage() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">{logo}</div>
-            <span className="font-mono text-lg font-bold">Xpeed</span>
+            <span className="text-lg font-bold">Xpeed</span>
           </div>
           <Button size="sm" variant="outline" onClick={openLogin} data-testid="landing-sign-in">
             {t('landing.signInShort', 'Sign in')}

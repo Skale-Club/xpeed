@@ -15,7 +15,7 @@ export function ChatBubble() {
       <Button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50 transition-all duration-300",
+          "fixed bottom-[5.5rem] right-4 md:bottom-6 md:right-6 h-14 w-14 rounded-full shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] z-50 transition-all duration-300",
           isOpen ? "rotate-90 scale-0 opacity-0" : "scale-100 opacity-100"
         )}
         size="icon"
