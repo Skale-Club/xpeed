@@ -7,6 +7,7 @@ import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { ConnectionPill } from '@/components/trip/ConnectionPill';
 import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { MobileTabBar } from '@/components/MobileTabBar';
+import { NewCarDialog } from '@/components/trip/NewCarDialog';
 import { BrandLogo } from '@/components/BrandLogo';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -41,6 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       <MobileTabBar />
       <ChatBubble />
+      <NewCarDialog />
       <PWAInstallPrompt />
     </SidebarProvider>
   );

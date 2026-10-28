@@ -10,9 +10,11 @@ import { loadCustomPids, saveCustomPids, type CustomPid } from '@/lib/obd/custom
 import { buildScannerCsv, scannerFilename } from '@/lib/obd/session-csv';
 import { findRememberedAdapter, isBluetoothAvailable } from '@/lib/obd/elm327';
 import { isNativeApp } from '@/lib/obd/native-ble';
+import { isMobileDevice } from '@/lib/device';
 import { deleteTripCopy, listTripCopies, saveTripCopy, tripKey, type StoredTrip } from '@/lib/obd/trip-store';
 import { hideBackgroundService, showBackgroundService } from '@/lib/obd/trip-service';
 import { DEFAULT_TRIP_OPTIONS } from '@/lib/obd/trip-detector';
+import { identifyVin, isValidVin, vinFitsCar, type CarIdentity } from '@/lib/vin';
 
 // The Bluetooth OBD connection belongs to the whole signed-in app, not to one
 // page. In "always on" mode it also runs the car on its own: it reconnects
@@ -45,10 +47,18 @@ export interface SavedTrip {
 type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   customPids: CustomPid[];
   updateCustomPids: (pids: CustomPid[]) => void;
+  /** Always on is in effect (chosen, and this is a phone or tablet). */
   alwaysOn: boolean;
+  /** This device can run always on (phone/tablet); computers start trips by hand. */
+  canStayOn: boolean;
   setAlwaysOn: (on: boolean) => void;
   savingTrip: boolean;
   lastTrip: SavedTrip | null;
+  /** The adapter is in a car that isn't in "My cars" yet (from its VIN). */
+  newCarFound: CarIdentity | null;
+  /** Add the car found by VIN (with the brand/model the owner typed when the VIN didn't tell) and switch to it. */
+  addFoundCar: (details?: { make?: string; model?: string }) => Promise<void>;
+  dismissFoundCar: () => void;
 };
 
 const ObdScannerContext = createContext<ObdScannerContextType | undefined>(undefined);
@@ -56,7 +66,7 @@ const ObdScannerContext = createContext<ObdScannerContextType | undefined>(undef
 export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
-  const { selectedCarId } = useCarsContext();
+  const { cars = [], selectedCarId, selectCar, createCar, updateCar, loading: carsLoading } = useCarsContext();
   const carIdRef = useRef(selectedCarId);
   carIdRef.current = selectedCarId;
 
@@ -67,7 +77,9 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     saveCustomPids(selectedCarId, pids);
   }, [selectedCarId]);
 
-  const [alwaysOn, setAlwaysOnState] = useState(readAlwaysOn);
+  const [canStayOn] = useState(isMobileDevice);
+  const [alwaysOnChosen, setAlwaysOnState] = useState(readAlwaysOn);
+  const alwaysOn = alwaysOnChosen && canStayOn;
   const setAlwaysOn = useCallback((on: boolean) => {
     setAlwaysOnState(on);
     try {
@@ -180,6 +192,69 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const obd = useObdScanner({ customPids, alwaysOn, onTripEnd: (trip) => void saveTrip(trip), onTripDropped: dropTrip });
   const { status, recording, getRecording, connect } = obd;
 
+  // ---------- Which car is this? (by VIN) ----------
+  // Switch to the car the adapter is plugged into, learn the VIN of the car in
+  // use, or offer to add a car that isn't in "My cars" yet.
+  const [newCarFound, setNewCarFound] = useState<CarIdentity | null>(null);
+  const handledVinRef = useRef<string | null>(null);
+
+  /** The trip being recorded (if it just started) belongs to this car. */
+  const switchToCar = useCallback((id: string, name: string) => {
+    if (id !== carIdRef.current) {
+      selectCar(id);
+      toast({ title: t('vin.recognized', 'Recognized your {{name}}', { name }) });
+    }
+    if (currentTripRef.current) currentTripRef.current = { ...currentTripRef.current, carId: id };
+  }, [selectCar, toast, t]);
+
+  useEffect(() => {
+    const vin = obd.vin?.toUpperCase();
+    if (!isValidVin(vin) || carsLoading || handledVinRef.current === vin) return;
+    handledVinRef.current = vin;
+    void (async () => {
+      const known = cars.find((c) => c.vin?.toUpperCase() === vin);
+      if (known) return switchToCar(known.id, known.name);
+
+      const identity = await identifyVin(vin);
+      const selected = cars.find((c) => c.id === carIdRef.current);
+      // The car in use has no VIN yet and could be this one; otherwise another
+      // car without VIN whose maker and year match.
+      const match = selected && !selected.vin && vinFitsCar(identity, selected)
+        ? selected
+        : cars.find((c) => !c.vin && !!identity.make && c.make?.toLowerCase() === identity.make.toLowerCase() && vinFitsCar(identity, c));
+      if (match) {
+        try {
+          await updateCar(match.id, {
+            vin,
+            ...(!match.engine_type && identity.engineType ? { engine_type: identity.engineType } : {}),
+            ...(!match.trim && identity.trim ? { trim: identity.trim } : {}),
+          });
+        } catch (err) {
+          console.warn('Could not save the VIN:', err);
+        }
+        return switchToCar(match.id, match.name);
+      }
+      setNewCarFound(identity);
+    })();
+  }, [obd.vin, cars, carsLoading, updateCar, switchToCar]);
+
+  const addFoundCar = useCallback(async (details: { make?: string; model?: string } = {}) => {
+    const found = newCarFound;
+    if (!found) return;
+    const car = await createCar({
+      make: (details.make?.trim() || found.make) ?? undefined,
+      model: (details.model?.trim() || found.model) ?? undefined,
+      year: found.year ?? undefined,
+      trim: found.trim,
+      vin: found.vin,
+      engine_type: found.engineType,
+    });
+    setNewCarFound(null);
+    switchToCar(car.id, car.name);
+  }, [newCarFound, createCar, switchToCar]);
+
+  const dismissFoundCar = useCallback(() => setNewCarFound(null), []);
+
   // A trip started: remember which car it belongs to.
   const recordingStart = recording?.startedAt.getTime() ?? null;
   useEffect(() => {
@@ -252,7 +327,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   }, [linked, serviceText]);
 
   return (
-    <ObdScannerContext.Provider value={{ ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip }}>
+    <ObdScannerContext.Provider value={{ ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, newCarFound, addFoundCar, dismissFoundCar, canStayOn }}>
       {children}
     </ObdScannerContext.Provider>
   );

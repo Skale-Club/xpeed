@@ -148,6 +148,19 @@ function customChannels(pids: CustomPid[]): LiveChannel[] {
 }
 
 
+/** The VIN, asking the engine module directly on CAN (several modules may answer a broadcast). */
+async function readCarVin(elm: Elm327, isCan: boolean): Promise<string | null> {
+  for (const header of isCan ? ['7E0', null] : [null]) {
+    try {
+      const vin = parseVin(await elm.request('0902', header, 5000));
+      if (vin) return vin;
+    } catch {
+      // not reported this way
+    }
+  }
+  return null;
+}
+
 function recordingColumns(samples: ScannerSample[]): string[] {
   const columns: string[] = [];
   const seen = new Set<string>();
@@ -170,6 +183,9 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   const [cycleMs, setCycleMs] = useState<number | null>(null);
   const [recording, setRecording] = useState<RecordingState | null>(null);
   const [autoPaused, setAutoPaused] = useState(false);
+  /** The car's VIN (chassis number), read once per connection; null if the car doesn't report it. */
+  const [vin, setVin] = useState<string | null>(null);
+  const vinTriedRef = useRef(false);
 
   const elmRef = useRef<Elm327 | null>(null);
   const linkRef = useRef<ObdLink | null>(null);
@@ -349,6 +365,13 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         faultRef.current = await readFaultCodes(elm, info.isCan);
         lastFaultRead = Date.now();
         if (!alive()) return;
+        // Which car is this? Asked once per connection (some cars don't say).
+        if (!vinTriedRef.current) {
+          vinTriedRef.current = true;
+          const read = await readCarVin(elm, info.isCan);
+          if (!alive()) return;
+          if (read) setVin(read);
+        }
         if (manualPendingRef.current) handleTripEvents(detectorRef.current.startManual(Date.now()));
       }
 
@@ -493,6 +516,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
     setLinkFailed(false);
     const session = ++sessionRef.current;
     reconnectingRef.current = false;
+    vinTriedRef.current = false;
+    setVin(null);
     linkRef.current?.close();
     resetConnectionState();
     standardRef.current = [];
@@ -657,7 +682,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   const getHistory = useCallback(() => historyRef.current, []);
 
   return {
-    status, error, linkFailed, connection, channels, values, cycleMs, recording, autoPaused, getHistory,
+    status, error, linkFailed, connection, channels, values, cycleMs, recording, autoPaused, vin, getHistory,
     connect, disconnect, startTrip, stopTrip, readDtcs, clearDtcs, readVin, sendRaw, findEcus, sweepMode21,
     getRecording,
   };

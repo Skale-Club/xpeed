@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Play, Square, Loader2, Bluetooth, Moon, CheckCircle2, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
+import { Play, Square, Loader2, Bluetooth, BluetoothOff, Moon, CheckCircle2, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useObd } from '@/contexts/ObdScannerContext';
-import { formatValue } from '@/lib/obd/format';
+import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
 
 const SPEED = 'Vehicle speed (km/h)';
 const RPM = 'Engine RPM (rpm)';
@@ -27,7 +27,7 @@ function elapsed(from: Date, now: number) {
 export function TripCard() {
   const { t } = useTranslation();
   const obd = useObd();
-  const { status, recording, values, alwaysOn, setAlwaysOn, savingTrip, lastTrip, linkFailed, error } = obd;
+  const { status, recording, values, alwaysOn, setAlwaysOn, canStayOn, savingTrip, lastTrip, linkFailed, error } = obd;
   const [help, setHelp] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -37,18 +37,32 @@ export function TripCard() {
     return () => clearInterval(id);
   }, [recording?.active]);
 
-  const quick = (header: string, label: string, unit: string) => (
-    <div className="rounded-xl bg-background/60 px-2 py-3 text-center">
-      <p className="text-3xl font-bold leading-none tracking-tight tabular-nums">{formatValue(values[header], unit)}</p>
-      <p className="mt-1.5 text-[11px] text-muted-foreground">{label}</p>
-    </div>
-  );
+  const speed = values[SPEED] ?? null;
+  const rpm = values[RPM] ?? null;
+  const coolant = values[COOLANT] ?? null;
+  const tempTone = coolantTone(coolant);
+  const tempWord = {
+    primary: null,
+    cold: t('trip.gauge.warming', 'warming up'),
+    success: t('trip.gauge.normal', 'normal'),
+    warn: t('trip.gauge.hot', 'hot'),
+    danger: t('trip.gauge.tooHot', 'too hot'),
+  }[tempTone];
+  // Moving with the engine stopped: a hybrid on electric power.
+  const electric = speed != null && speed >= 3 && rpm === 0;
 
   const readings = status === 'live' && (
     <div className="grid grid-cols-3 gap-2">
-      {quick(SPEED, 'km/h', 'km/h')}
-      {quick(RPM, t('trip.rpm', 'engine rpm'), 'rpm')}
-      {quick(COOLANT, t('trip.engineTemp', 'engine °C'), '°C')}
+      <QuickGauge value={speed} unit="km/h" label="km/h" max={160} />
+      <QuickGauge
+        value={rpm}
+        unit="rpm"
+        label={t('trip.rpm', 'engine rpm')}
+        max={6000}
+        tone={electric ? 'success' : rpm != null && rpm > 4500 ? 'warn' : 'primary'}
+        status={electric ? t('trip.gauge.electric', 'electric') : null}
+      />
+      <QuickGauge value={coolant} unit="°C" label={t('trip.engineTemp', 'engine °C')} min={40} max={120} tone={tempTone} status={tempWord} />
     </div>
   );
 
@@ -125,18 +139,28 @@ export function TripCard() {
               : t('trip.autoHint', 'Recording starts by itself when you drive off.')}
           </p>
         )}
-        <Button size="lg" className="w-full" onClick={() => void obd.startTrip()}>
-          <Play className="w-4 h-4 mr-2" />
-          {t('trip.startNow', 'Record now')}
+        <Button size="lg" className="h-14 w-full text-base shadow-[0_8px_30px_-10px_hsl(var(--primary)/0.6)]" onClick={() => void obd.startTrip()}>
+          <Play className="mr-2 h-5 w-5" />
+          {t('trip.start', 'Start trip')}
         </Button>
       </div>
     );
   } else {
     body = (
       <div className="space-y-3">
-        <Button size="lg" className="h-14 w-full text-base shadow-[0_8px_30px_-10px_hsl(var(--primary)/0.6)]" onClick={() => void obd.startTrip()}>
-          <Play className="w-5 h-5 mr-2" />
-          {t('trip.start', 'Start trip')}
+        {/* Not linked: connect first; "Start trip" shows once the adapter answers. */}
+        <div className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-background/40 p-3" data-testid="not-connected">
+          <BluetoothOff className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+          <div>
+            <p className="font-semibold">{t('trip.notConnected', 'Adapter not connected')}</p>
+            <p className="text-sm text-muted-foreground">
+              {t('trip.notConnectedHint', 'Plug the adapter in under the steering wheel, turn the car on and connect. Then you can start your trip.')}
+            </p>
+          </div>
+        </div>
+        <Button size="lg" className="h-14 w-full text-base" onClick={() => void obd.connect()}>
+          <Bluetooth className="mr-2 h-5 w-5" />
+          {t('trip.connect', 'Connect to the car')}
         </Button>
         {error && (
           <p className="text-sm text-destructive">
@@ -153,9 +177,9 @@ export function TripCard() {
           <ol className="text-sm text-muted-foreground list-decimal pl-5 space-y-1">
             <li>{t('trip.step1', 'Plug the Bluetooth adapter into the port under the steering wheel.')}</li>
             <li>{t('trip.step2', 'Turn the car on.')}</li>
-            <li>{t('trip.step3', 'Tap "Start trip" and pick the adapter in the list (only the first time).')}</li>
+            <li>{t('trip.step3connect', 'Tap "Connect to the car" and pick the adapter in the list (only the first time).')}</li>
             <li className="list-none -ml-5 pt-1">
-              <button type="button" className="text-xs text-primary hover:underline" onClick={() => void obd.startTrip({ showAll: true })}>
+              <button type="button" className="text-xs text-primary hover:underline" onClick={() => void obd.connect({ showAll: true })}>
                 {t('trip.showAll', "Adapter not in the list? Show all Bluetooth devices")}
               </button>
             </li>
@@ -197,7 +221,7 @@ export function TripCard() {
           </p>
         )}
 
-        {status !== 'unsupported' && (
+        {status !== 'unsupported' && canStayOn && (
           <label className="flex cursor-pointer items-start gap-3 border-t border-border/60 pt-4">
             <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Always on')} />
             <span className="text-xs">

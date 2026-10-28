@@ -54,13 +54,17 @@ describe('TripCard', () => {
     expect(screen.queryByRole('button', { name: /start trip/i })).not.toBeInTheDocument();
   });
 
-  it('starts a trip with one tap, records, and saves it when ended', async () => {
+  it('connects first, then starts a trip, records, and saves it when ended', async () => {
     const { requestDevice } = installFakeBluetooth();
     localStorage.setItem('xpeed.obd.alwaysOn', 'false'); // only the button starts trips
     renderCard();
     expect(pill()).toHaveTextContent('Car not connected');
+    // Not connected: a note to connect, and no "Start trip" yet
+    expect(screen.getByTestId('not-connected')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /start trip/i })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /start trip/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start trip/i }, { timeout: 5000 }));
     expect(await screen.findByText('Recording your trip', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('Recording trip');
     expect(requestDevice).toHaveBeenCalledTimes(1);
@@ -93,7 +97,7 @@ describe('TripCard', () => {
     fake.setCarOn(false);
     renderCard();
 
-    fireEvent.click(screen.getByRole('button', { name: /start trip/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
     expect(await screen.findByText(/waiting for the car/i, { selector: 'p' }, { timeout: 15000 })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('Waiting for the car');
     expect(ingestMock).not.toHaveBeenCalled();
@@ -118,11 +122,13 @@ describe('TripCard', () => {
   it('reconnects by itself when the adapter drops, and remembers it for next time', async () => {
     const fake = installFakeBluetooth();
     const { unmount } = renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /start trip/i }));
-    await screen.findByText('Recording your trip', {}, { timeout: 3000 });
+    // Always on: once connected, the moving car starts recording by itself
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    await screen.findByText('Recording your trip', {}, { timeout: 5000 });
 
     fake.dropLink();
-    await waitFor(() => expect(pill()).toHaveTextContent(/Connecting/));
+    // A second Bluetooth link is opened by itself, and the trip keeps recording
+    await waitFor(() => expect(fake.connectCalls()).toBe(2), { timeout: 8000 });
     await waitFor(() => expect(pill()).toHaveTextContent('Recording trip'), { timeout: 8000 });
     expect(fake.requestDevice).toHaveBeenCalledTimes(1);
     // The loop on the dropped link is gone: nothing flips the card back to "waiting".
@@ -140,8 +146,9 @@ describe('TripCard', () => {
     const fake = installFakeBluetooth();
     // First visit links the adapter so it is remembered.
     const { unmount } = renderCard();
-    fireEvent.click(screen.getByRole('button', { name: /start trip/i }));
-    await screen.findByText('Recording your trip', {}, { timeout: 3000 });
+    // Always on: once connected, the moving car starts recording by itself
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    await screen.findByText('Recording your trip', {}, { timeout: 5000 });
     unmount();
 
     // Next start: the adapter is out of range for the first attempt.
@@ -160,5 +167,17 @@ describe('TripCard', () => {
     fireEvent.click(toggle);
     expect(toggle).not.toBeChecked();
     expect(localStorage.getItem('xpeed.obd.alwaysOn')).toBe('false');
+  });
+
+  it('offers always-on only on phones and tablets', () => {
+    const phone = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0 Safari/537.36' });
+    try {
+      installFakeBluetooth();
+      renderCard();
+      expect(screen.queryByRole('switch', { name: /always on/i })).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: phone });
+    }
   });
 });

@@ -248,7 +248,18 @@
       "evening": "Viagem da noite",
       "night": "Viagem de madrugada"
     },
-    "autoPausedHint": "Gravação pausada até você desligar o carro."
+    "autoPausedHint": "Gravação pausada até você desligar o carro.",
+    "gauge": {
+      "warming": "aquecendo",
+      "normal": "normal",
+      "hot": "quente",
+      "tooHot": "muito quente",
+      "electric": "elétrico"
+    },
+    "notConnected": "Adaptador não conectado",
+    "notConnectedHint": "Encaixe o adaptador embaixo do volante, ligue o carro e conecte. Depois é só iniciar a viagem.",
+    "connect": "Conectar ao carro",
+    "step3connect": "Toque em \"Conectar ao carro\" e escolha o adaptador na lista (só na primeira vez)."
   },
   "pill": {
     "recording": "Gravando viagem",
@@ -796,5 +807,13 @@
     "s1": "Compre um adaptador OBD2 com \"Bluetooth LE\" no nome (por exemplo Veepeak OBDCheck BLE).",
     "s2": "Encaixe embaixo do volante e ligue o carro.",
     "s3": "Entre com o seu celular e toque em \"Iniciar viagem\". A partir daí o Xpeed cuida do resto."
+  },
+  "vin": {
+    "recognized": "Reconhecemos o seu {{name}}",
+    "newTitle": "Carro novo conectado",
+    "newBody": "O adaptador está num {{car}} que ainda não está nos seus carros. Adicionar, para as viagens e os problemas dele ficarem separados?",
+    "newBodyUnknown": "O adaptador está num carro que ainda não está nos seus carros. Adicionar, para as viagens e os problemas dele ficarem separados?",
+    "noYear": "Não conseguimos saber o ano por este chassi. Adicione o carro em Meus carros.",
+    "notNow": "Agora não"
   }
 }

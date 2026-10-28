@@ -248,7 +248,18 @@
       "evening": "Evening trip",
       "night": "Night trip"
     },
-    "autoPausedHint": "Recording is paused until you switch the car off."
+    "autoPausedHint": "Recording is paused until you switch the car off.",
+    "gauge": {
+      "warming": "warming up",
+      "normal": "normal",
+      "hot": "hot",
+      "tooHot": "too hot",
+      "electric": "electric"
+    },
+    "notConnected": "Adapter not connected",
+    "notConnectedHint": "Plug the adapter in under the steering wheel, turn the car on and connect. Then you can start your trip.",
+    "connect": "Connect to the car",
+    "step3connect": "Tap \"Connect to the car\" and pick the adapter in the list (only the first time)."
   },
   "pill": {
     "recording": "Recording trip",
@@ -796,5 +807,13 @@
     "s1": "Get an OBD2 adapter with \"Bluetooth LE\" in the name (for example Veepeak OBDCheck BLE).",
     "s2": "Plug it in under the steering wheel and turn the car on.",
     "s3": "Sign in with your phone and tap \"Start trip\". From then on Xpeed does the rest."
+  },
+  "vin": {
+    "recognized": "Recognized your {{name}}",
+    "newTitle": "New car connected",
+    "newBody": "The adapter is in a {{car}} that is not in your cars yet. Add it so its trips and problems stay separate?",
+    "newBodyUnknown": "The adapter is in a car that is not in your cars yet. Add it so its trips and problems stay separate?",
+    "noYear": "We couldn't tell the year from this VIN. Add the car in My cars instead.",
+    "notNow": "Not now"
   }
 }

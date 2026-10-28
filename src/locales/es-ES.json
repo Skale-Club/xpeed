@@ -248,7 +248,18 @@
       "evening": "Viaje de la noche",
       "night": "Viaje de madrugada"
     },
-    "autoPausedHint": "La grabación está en pausa hasta que apagues el coche."
+    "autoPausedHint": "La grabación está en pausa hasta que apagues el coche.",
+    "gauge": {
+      "warming": "calentando",
+      "normal": "normal",
+      "hot": "caliente",
+      "tooHot": "muy caliente",
+      "electric": "eléctrico"
+    },
+    "notConnected": "Adaptador no conectado",
+    "notConnectedHint": "Conecta el adaptador debajo del volante, enciende el coche y conéctate. Después podrás iniciar el viaje.",
+    "connect": "Conectar al coche",
+    "step3connect": "Toca \"Conectar al coche\" y elige el adaptador en la lista (solo la primera vez)."
   },
   "pill": {
     "recording": "Grabando viaje",
@@ -796,5 +807,13 @@
     "s1": "Consigue un adaptador OBD2 con \"Bluetooth LE\" en el nombre (por ejemplo Veepeak OBDCheck BLE).",
     "s2": "Conéctalo debajo del volante y enciende el coche.",
     "s3": "Entra con tu móvil y toca \"Iniciar viaje\". A partir de ahí Xpeed se encarga del resto."
+  },
+  "vin": {
+    "recognized": "Reconocimos tu {{name}}",
+    "newTitle": "Coche nuevo conectado",
+    "newBody": "El adaptador está en un {{car}} que aún no está en tus coches. ¿Añadirlo, para que sus viajes y problemas queden aparte?",
+    "newBodyUnknown": "El adaptador está en un coche que aún no está en tus coches. ¿Añadirlo, para que sus viajes y problemas queden aparte?",
+    "noYear": "No pudimos saber el año con este número de bastidor. Añade el coche en Mis coches.",
+    "notNow": "Ahora no"
   }
 }
