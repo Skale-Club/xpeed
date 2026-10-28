@@ -1,7 +1,8 @@
 name: Android APK
 
-# Builds the signed Android app (Capacitor) and publishes it at a fixed link:
-# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk
+# Builds the signed Android app (Capacitor) and publishes it at fixed links:
+# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk       (bundled web app)
+# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed-live.apk  (loads xpeed.skale.club)
 on:
   push:
     branches: [main, feat/android-app]
@@ -58,10 +59,30 @@ jobs:
       - name: Collect APK
         run: cp android/app/build/outputs/apk/release/app-release.apk xpeed.apk
 
+      # Second variant: the app loads the production site instead of the bundled
+      # copy, so web changes reach phones without reinstalling (capacitor.config.ts).
+      - name: Point the app at the live site
+        run: npx cap sync android
+        env:
+          CAP_SERVER_URL: https://xpeed.skale.club
+
+      - name: Build signed live-site APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/xpeed-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+
+      - name: Collect live-site APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk xpeed-live.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: xpeed-apk-${{ github.run_number }}
-          path: xpeed.apk
+          path: |
+            xpeed.apk
+            xpeed-live.apk
 
       - name: Publish to the android-latest release
         env:
@@ -73,4 +94,4 @@ jobs:
           else
             gh release edit android-latest --notes "$notes"
           fi
-          gh release upload android-latest xpeed.apk --clobber
+          gh release upload android-latest xpeed.apk xpeed-live.apk --clobber
