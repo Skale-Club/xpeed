@@ -259,7 +259,8 @@
     "notConnected": "Adaptador no conectado",
     "notConnectedHint": "Conecta el adaptador debajo del volante, enciende el coche y conéctate. Después podrás iniciar el viaje.",
     "connect": "Conectar al coche",
-    "step3connect": "Toca \"Conectar al coche\" y elige el adaptador en la lista (solo la primera vez)."
+    "step3connect": "Toca \"Conectar al coche\" y elige el adaptador en la lista (solo la primera vez).",
+    "unsupportedAndroid": "Este navegador no se conecta al coche. Descarga la app para Android:"
   },
   "pill": {
     "recording": "Grabando viaje",
@@ -486,13 +487,7 @@
       "timezoneHint": "Se ajusta sola según el dispositivo; cámbiala solo si las fechas salen mal."
     },
     "install": {
-      "title": "Instalar la app",
-      "installed": "Xpeed está instalada en este dispositivo.",
-      "ios1": "Toca el botón Compartir de Safari",
-      "ios2": "Elige \"Añadir a pantalla de inicio\"",
-      "ios3": "Toca \"Añadir\"",
-      "button": "Añadir a la pantalla de inicio",
-      "other": "Abre Xpeed en Chrome de Android (o en Safari del iPhone) para instalarla."
+      "title": "Instalar la app"
     },
     "advanced": {
       "title": "Herramientas avanzadas",
@@ -821,5 +816,24 @@
     "newBodyUnknown": "El adaptador está en un coche que aún no está en tus coches. ¿Añadirlo, para que sus viajes y problemas queden aparte?",
     "noYear": "No pudimos saber el año con este número de bastidor. Añade el coche en Mis coches.",
     "notNow": "Ahora no"
+  },
+  "install": {
+    "android": {
+      "title": "Descarga la app para Android",
+      "subtitle": "Graba tus viajes sola, incluso con la pantalla apagada.",
+      "download": "Descargar la app",
+      "step1": "Toca Descargar la app y espera a que termine.",
+      "step2": "Abre el archivo xpeed.apk desde la notificación o la carpeta Descargas.",
+      "step3": "Si Android lo pide, permite instalar apps desde este navegador.",
+      "step4": "Toca Instalar, luego Abrir, e inicia sesión con la misma cuenta.",
+      "playStore": "Android puede avisar que la app no es de Play Store. Es normal: viene directo del sitio de Xpeed."
+    },
+    "ios": {
+      "noBluetooth": "En el iPhone, Xpeed todavía no se conecta al coche: Safari no tiene Bluetooth. Puedes ver tus viajes y problemas y hablar con la IA."
+    },
+    "appTitle": "La app",
+    "installed": "Estás usando la app de Xpeed.",
+    "version": "Versión {{version}} (build {{build}})",
+    "computer": "Para grabar viajes, abre xpeed.skale.club en un celular Android y descarga la app allí."
   }
 }

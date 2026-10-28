@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
+import { AndroidAppDownload, IphoneNoBluetooth } from '@/components/InstallApp';
+import { installKind } from '@/lib/device';
 
 const SPEED = 'Vehicle speed (km/h)';
 const RPM = 'Engine RPM (rpm)';
@@ -68,12 +70,21 @@ export function TripCard() {
 
   let body: JSX.Element;
   if (status === 'unsupported') {
-    body = (
-      <div className="flex gap-3 items-start">
-        <AlertCircle className="w-5 h-5 text-warn shrink-0 mt-0.5" />
-        <p className="text-sm text-muted-foreground">
-          {t('trip.unsupported', "This browser can't connect to the car. Open Xpeed in Chrome on Android or on a computer.")}
-        </p>
+    // No Bluetooth here: on iPhone say so plainly; on Android offer the app, which always has it.
+    const kind = installKind();
+    body = kind === 'ios' ? (
+      <IphoneNoBluetooth />
+    ) : (
+      <div className="space-y-3">
+        <div className="flex gap-3 items-start">
+          <AlertCircle className="w-5 h-5 text-warn shrink-0 mt-0.5" />
+          <p className="text-sm text-muted-foreground">
+            {kind === 'android'
+              ? t('trip.unsupportedAndroid', "This browser can't connect to the car. Get the Android app:")
+              : t('trip.unsupported', "This browser can't connect to the car. Open Xpeed in Chrome on Android or on a computer.")}
+          </p>
+        </div>
+        {kind === 'android' && <AndroidAppDownload />}
       </div>
     );
   } else if (recording?.active) {

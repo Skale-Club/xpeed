@@ -259,7 +259,8 @@
     "notConnected": "Adapter not connected",
     "notConnectedHint": "Plug the adapter in under the steering wheel, turn the car on and connect. Then you can start your trip.",
     "connect": "Connect to the car",
-    "step3connect": "Tap \"Connect to the car\" and pick the adapter in the list (only the first time)."
+    "step3connect": "Tap \"Connect to the car\" and pick the adapter in the list (only the first time).",
+    "unsupportedAndroid": "This browser can't connect to the car. Get the Android app:"
   },
   "pill": {
     "recording": "Recording trip",
@@ -486,13 +487,7 @@
       "timezoneHint": "Set automatically from this device; change it only if dates look wrong."
     },
     "install": {
-      "title": "Install the app",
-      "installed": "Xpeed is installed on this device.",
-      "ios1": "Tap the Share button in Safari",
-      "ios2": "Choose \"Add to Home Screen\"",
-      "ios3": "Tap \"Add\"",
-      "button": "Add to Home Screen",
-      "other": "Open Xpeed in Chrome on Android (or Safari on iPhone) to install it."
+      "title": "Install the app"
     },
     "advanced": {
       "title": "Advanced tools",
@@ -821,5 +816,24 @@
     "newBodyUnknown": "The adapter is in a car that is not in your cars yet. Add it so its trips and problems stay separate?",
     "noYear": "We couldn't tell the year from this VIN. Add the car in My cars instead.",
     "notNow": "Not now"
+  },
+  "install": {
+    "android": {
+      "title": "Get the Android app",
+      "subtitle": "Records your trips by itself, even with the screen off.",
+      "download": "Download the app",
+      "step1": "Tap Download the app and wait for it to finish.",
+      "step2": "Open xpeed.apk from the notification or your Downloads folder.",
+      "step3": "If Android asks, allow installing apps from this browser.",
+      "step4": "Tap Install, then Open, and sign in with the same account.",
+      "playStore": "Android may warn that the app isn't from the Play Store. That's expected: it comes straight from Xpeed's site."
+    },
+    "ios": {
+      "noBluetooth": "On iPhone, Xpeed can't connect to the car yet: Safari has no Bluetooth. You can still see your trips and problems and talk to the AI."
+    },
+    "appTitle": "The app",
+    "installed": "You're using the Xpeed app.",
+    "version": "Version {{version}} (build {{build}})",
+    "computer": "To record trips, open xpeed.skale.club on an Android phone and get the app there."
   }
 }

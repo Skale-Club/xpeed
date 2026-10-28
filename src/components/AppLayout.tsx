@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { ChatBubble } from '@/components/ChatBubble';
-import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
+import { InstallPrompt } from '@/components/InstallPrompt';
 import { ConnectionPill } from '@/components/trip/ConnectionPill';
 import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { MobileTabBar } from '@/components/MobileTabBar';
@@ -43,7 +43,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <MobileTabBar />
       <ChatBubble />
       <NewCarDialog />
-      <PWAInstallPrompt />
+      <InstallPrompt />
     </SidebarProvider>
   );
 }

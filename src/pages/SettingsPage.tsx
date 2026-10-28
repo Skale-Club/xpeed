@@ -1,83 +1,68 @@
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, Globe, Info, Smartphone, Share, Download, Wrench } from 'lucide-react';
+import { Settings, Globe, Info, Smartphone, Wrench } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
 import { isNativeApp } from '@/lib/obd/native-ble';
+import { installKind } from '@/lib/device';
+import { AndroidAppDownload, IosAddToHome, IphoneNoBluetooth } from '@/components/InstallApp';
 import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
-import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import McpTokensSection from '@/components/McpTokensSection';
 
-interface BeforeInstallPromptEvent extends Event {
-  prompt(): Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
-
-function usePWAInstall() {
-  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-
+/** "Version 1.0 (build 19)" inside the Android app. */
+function useAppVersion(): { version: string; build: string } | null {
+  const [info, setInfo] = useState<{ version: string; build: string } | null>(null);
   useEffect(() => {
-    const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (navigator as { standalone?: boolean }).standalone === true;
-    setIsInstalled(standalone);
-
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as { MSStream?: unknown }).MSStream;
-    setIsIOS(ios);
-
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setPrompt(e as BeforeInstallPromptEvent);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    if (!isNativeApp()) return;
+    let cancelled = false;
+    void import('@capacitor/app')
+      .then(({ App }) => App.getInfo())
+      .then((i) => { if (!cancelled) setInfo({ version: i.version, build: i.build }); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
   }, []);
-
-  const install = async () => {
-    if (!prompt) return;
-    await prompt.prompt();
-    const { outcome } = await prompt.userChoice;
-    if (outcome === 'accepted') setPrompt(null);
-  };
-
-  return { prompt, isInstalled, isIOS, install };
+  return info;
 }
 
-function PWASection() {
+/** What to install on this device: the Android app, Safari's home-screen icon, or nothing. */
+function InstallSection() {
   const { t } = useTranslation();
-  const { prompt, isInstalled, isIOS, install } = usePWAInstall();
+  const kind = installKind();
+  const version = useAppVersion();
 
   return (
-    <Card className="bg-card border-border">
-      <CardContent className="p-4 space-y-2">
+    <Card className="bg-card border-border" data-testid="install-section">
+      <CardContent className="p-4 space-y-3">
         <div className="flex items-center gap-3">
           <Smartphone className="w-5 h-5 text-primary" />
-          <h3 className="text-sm font-semibold">{t('settings.install.title', 'Install the app')}</h3>
+          <h3 className="text-sm font-semibold">
+            {kind === 'native' ? t('install.appTitle', 'The app') : t('settings.install.title', 'Install the app')}
+          </h3>
         </div>
-        {isInstalled ? (
-          <p className="text-sm text-muted-foreground">{t('settings.install.installed', 'Xpeed is installed on this device.')}</p>
-        ) : isIOS ? (
-          <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-            <li>{t('settings.install.ios1', 'Tap the Share button in Safari')} <Share className="w-3 h-3 inline mb-0.5" /></li>
-            <li>{t('settings.install.ios2', 'Choose "Add to Home Screen"')}</li>
-            <li>{t('settings.install.ios3', 'Tap "Add"')}</li>
-          </ol>
-        ) : prompt ? (
-          <Button size="sm" className="gap-2" onClick={install}>
-            <Download className="w-3.5 h-3.5" />
-            {t('settings.install.button', 'Add to Home Screen')}
-          </Button>
+        {kind === 'native' ? (
+          <p className="text-sm text-muted-foreground">
+            {t('install.installed', "You're using the Xpeed app.")}
+            {version && <> {t('install.version', 'Version {{version}} (build {{build}})', version)}</>}
+          </p>
+        ) : kind === 'android' ? (
+          <>
+            <p className="text-sm text-muted-foreground">{t('install.android.subtitle', 'Records your trips by itself, even with the screen off.')}</p>
+            <AndroidAppDownload />
+          </>
+        ) : kind === 'ios' ? (
+          <>
+            <IosAddToHome />
+            <IphoneNoBluetooth />
+          </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            {t('settings.install.other', 'Open Xpeed in Chrome on Android (or Safari on iPhone) to install it.')}
+            {t('install.computer', 'To record trips, open xpeed.skale.club on an Android phone and get the app there.')}
           </p>
         )}
       </CardContent>
@@ -149,7 +134,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {!isNativeApp() && <PWASection />}
+        <InstallSection />
 
         <Card className="bg-card border-border">
           <CardContent className="p-4 space-y-3">
