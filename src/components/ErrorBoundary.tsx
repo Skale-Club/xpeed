@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import i18n from '@/lib/i18n';
 
 interface Props {
   children: ReactNode;
@@ -36,13 +37,13 @@ export class ErrorBoundary extends Component<Props, State> {
       if (this.props.fallback) return this.props.fallback;
       return (
         <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 p-6 text-center">
-          <h1 className="text-lg font-semibold">Something went wrong</h1>
+          <h1 className="text-lg font-semibold">{i18n.t('assistant.errorTitle', 'Something went wrong')}</h1>
           <p className="max-w-md text-sm text-muted-foreground">
-            An unexpected error occurred while rendering this page. You can try again or reload the app.
+            {i18n.t('errors.boundaryBody', 'This screen had an unexpected problem. You can try again or go back to the start.')}
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={this.handleReset}>Try again</Button>
-            <Button onClick={() => window.location.assign('/')}>Go home</Button>
+            <Button variant="outline" onClick={this.handleReset}>{i18n.t('problems.retry', 'Try again')}</Button>
+            <Button onClick={() => window.location.assign('/')}>{i18n.t('errors.goHome', 'Go to the start')}</Button>
           </div>
         </div>
       );

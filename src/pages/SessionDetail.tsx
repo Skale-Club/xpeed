@@ -49,6 +49,7 @@ export default function SessionDetail() {
   const [rows, setRows] = useState<SessionRow[]>([]);
   const [rules, setRules] = useState<DefaultRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
@@ -56,6 +57,7 @@ export default function SessionDetail() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
+    setLoadFailed(false);
     try {
       const [s, f, r] = await Promise.all([getSession(id), getSessionFlags(id), getSessionRows(id)]);
       const trip = s as unknown as SessionWithStoredCsv | null;
@@ -65,6 +67,10 @@ export default function SessionDetail() {
       // Same car-specific rules as when the trip was saved (not always the Prius ones).
       const car = trip?.car_profile_id ? await getCarById(trip.car_profile_id) : null;
       setRules(resolveRulesetForCar(car).rules);
+    } catch (err) {
+      // A network error is not "trip not found": say so and let the owner retry.
+      console.error('Could not load the trip:', err);
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -100,11 +106,11 @@ export default function SessionDetail() {
       await downloadSessionCSV(session.source_file_path, session.source_filename, session.source_csv, session.id);
     } catch (error) {
       console.error('Failed to download CSV:', error);
-      toast({ title: 'Download failed', description: 'Could not download the CSV file.', variant: 'destructive' });
+      toast({ title: t('tripDetail.downloadFailed', 'Download failed'), description: t('tripDetail.downloadFailedHint', 'Could not download the CSV file.'), variant: 'destructive' });
     } finally {
       setDownloadingCsv(false);
     }
-  }, [session, toast]);
+  }, [session, toast, t]);
 
   /** A read-only report link the owner can send to a mechanic (expires in 30 days). */
   const shareWithMechanic = async () => {
@@ -133,6 +139,23 @@ export default function SessionDetail() {
     return (
       <AppLayout>
         <PageLoader fullScreen={false} />
+      </AppLayout>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <AppLayout>
+        <div className="text-center py-12 space-y-4" role="alert">
+          <p className="font-semibold">{t('tripDetail.loadFailed', "Couldn't load this trip")}</p>
+          <p className="text-sm text-muted-foreground">{t('problems.checkFailedHint', 'Check your connection and try again.')}</p>
+          <div className="flex justify-center gap-2">
+            <Button onClick={() => void load()}>
+              <RefreshCw className="w-4 h-4 mr-2" /> {t('problems.retry', 'Try again')}
+            </Button>
+            <Button variant="ghost" onClick={() => navigate('/')}>{t('tripDetail.home', 'Go to Home')}</Button>
+          </div>
+        </div>
       </AppLayout>
     );
   }
@@ -255,10 +278,10 @@ export default function SessionDetail() {
                   disabled={downloadingCsv || (!session.source_file_path && !session.source_csv)}
                 >
                   {downloadingCsv ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
-                  Download CSV
+                  {t('tripDetail.downloadCsv', 'Download CSV')}
                 </Button>
                 <Button variant="outline" size="sm" className="text-xs" onClick={() => void handleRecompute()}>
-                  <RefreshCw className="w-3 h-3 mr-1" /> Re-evaluate
+                  <RefreshCw className="w-3 h-3 mr-1" /> {t('tripDetail.reevaluate', 'Re-evaluate')}
                 </Button>
               </div>
               <SessionKPIs

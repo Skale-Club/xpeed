@@ -46,7 +46,57 @@
     "status_excellent": "Excelente",
     "status_good": "Bueno",
     "status_attention": "Atención",
-    "status_critical": "Crítico"
+    "status_critical": "Crítico",
+    "engineNotSet": "Tipo de combustible sin indicar",
+    "engineNotSetHint": "Indica qué combustible usa tu coche para ver aquí sus lecturas principales.",
+    "completeCar": "Editar mi coche",
+    "keyReadings": "{{engine}} — lecturas principales (último viaje)",
+    "metric": {
+      "coolant_temp": "Temperatura del motor",
+      "engine_load": "Carga del motor",
+      "stft_b1": "Mezcla de combustible (corto plazo)",
+      "engine_rpm": "Régimen máximo",
+      "hybrid_battery_soc": "Carga de la batería",
+      "inverter_temp": "Temperatura del inversor",
+      "mpg_or_fuel_rate": "Consumo de combustible",
+      "battery_voltage_12v": "Voltaje de la batería del coche",
+      "vehicle_speed": "Velocidad máxima"
+    },
+    "valueType": {
+      "avg": "Media",
+      "max": "Máximo",
+      "min": "Mínimo"
+    },
+    "charts": {
+      "speed": "Velocidad",
+      "temperature": "Temperaturas",
+      "voltage": "Voltaje",
+      "engine": "Motor",
+      "fuel_trim": "Mezcla de combustible (corto plazo)",
+      "fuel_econ": "Consumo",
+      "emissions": "Sensores de escape"
+    },
+    "series": {
+      "vehicle_speed": "Velocidad máxima",
+      "vehicle_speed_avg": "Velocidad media",
+      "coolant_temp": "Refrigerante",
+      "intake_air_temp": "Aire de admisión",
+      "ambient_air_temp": "Aire exterior",
+      "catalyst_temp": "Catalizador",
+      "oil_temp": "Aceite",
+      "transmission_temp": "Caja de cambios",
+      "battery_voltage_12v": "Batería (máx.)",
+      "obd_module_voltage": "Adaptador",
+      "control_module_voltage": "Centralita",
+      "engine_rpm": "Régimen máximo",
+      "engine_load": "Carga media %",
+      "stft_b1": "Banco 1",
+      "stft_b2": "Banco 2",
+      "mpg_or_fuel_rate": "Caudal de combustible",
+      "average_fuel_consumption": "Consumo medio",
+      "o2_b1s1": "Sensor de oxígeno 1",
+      "o2_b1s2": "Sensor de oxígeno 2"
+    }
   },
   "cars": {
     "title": "Mis Vehículos",
@@ -70,7 +120,15 @@
     "what_to_do": "Qué hacer",
     "ask_ai": "Preguntar a la IA",
     "resolve": "Marcar resuelto",
-    "unresolve": "Reabrir"
+    "unresolve": "Reabrir",
+    "all_normal": "Todas las lecturas son normales",
+    "resolved": "resuelto",
+    "max": "máx.",
+    "avg": "media",
+    "out_of_range": "{{value}}% fuera de lo normal",
+    "hide_guidance": "Ocultar",
+    "show_guidance": "¿Qué debo hacer?",
+    "more": "+{{count}} más"
   },
   "dtc": {
     "title": "Códigos de Diagnóstico",
@@ -190,14 +248,14 @@
   },
   "live": {
     "title": "Panel en vivo",
-    "blocks": "Bloques de la batería HV",
+    "blocks": "Batería híbrida",
     "record": "Grabar",
     "customize": "Personalizar",
     "fullscreen": "Pantalla completa",
     "exitFullscreen": "Salir de pantalla completa",
     "recordingStopped": "Grabación detenida ({{count}} muestras).",
     "saveOnScanner": "Guárdala en la página Escáner",
-    "connectHint": "Conecta el adaptador OBD2 para ver los datos en vivo. La conexión sigue activa mientras navegas por la app.",
+    "connectHint": "Conecta con tu coche para ver las lecturas en directo. La conexión sigue activa mientras te mueves por la app.",
     "empty": "Sin widgets: usa Personalizar para añadir.",
     "customizeHint": "Elige qué muestra el panel. Se guarda para este vehículo en este dispositivo.",
     "moveUp": "Subir",
@@ -214,7 +272,7 @@
       "gauge": "Indicador",
       "chart": "Gráfico",
       "value": "Número",
-      "blocks": "Bloques HV"
+      "blocks": "Batería híbrida"
     }
   },
   "trip": {
@@ -273,7 +331,12 @@
     "notConnectedHint": "Conecta el adaptador debajo del volante, enciende el coche y conéctate. Después podrás iniciar el viaje.",
     "connect": "Conectar al coche",
     "step3connect": "Toca \"Conectar al coche\" y elige el adaptador en la lista (solo la primera vez).",
-    "unsupportedAndroid": "Este navegador no se conecta al coche. Descarga la app para Android:"
+    "unsupportedAndroid": "Este navegador no se conecta al coche. Descarga la app para Android:",
+    "units": {
+      "min": "min",
+      "h": "h",
+      "s": "s"
+    }
   },
   "pill": {
     "recording": "Grabando viaje",
@@ -424,7 +487,15 @@
     "aiBadge": "Aviso de la IA",
     "ai": {
       "meaning": "Algo en las lecturas de un viaje llamó la atención."
-    }
+    },
+    "markedFixed": "Marcado como solucionado",
+    "markedIgnored": "Problema ignorado",
+    "undo": "Deshacer",
+    "checkFailed": "No pudimos revisar tu coche",
+    "checkFailedHint": "Revisa tu conexión e inténtalo de nuevo.",
+    "retry": "Intentar de nuevo",
+    "ignoreUrgentTitle": "¿Ignorar un problema urgente?",
+    "ignoreUrgentBody": "Este problema necesita atención pronto. Si lo ignoras, dejamos de avisarte. Puedes recuperarlo en la pestaña \"Resueltos o ignorados\"."
   },
   "home": {
     "title": "Inicio",
@@ -439,14 +510,25 @@
       "urgentHint": "Algo necesita atención pronto.",
       "lastCheck": "Última revisión en un viaje el {{when}}.",
       "noTrips": "Aún no hay viajes: empieza uno abajo para revisar tu coche.",
-      "see": "Ver"
+      "see": "Ver",
+      "checking": "Revisando tu coche…"
     },
     "totals": {
       "trips": "Viajes",
       "distance": "Distancia",
       "time": "Tiempo conduciendo"
     },
-    "hello": "Hola, {{name}}"
+    "hello": "Hola, {{name}}",
+    "newTrip": "Se añadió un nuevo viaje",
+    "tripsFailed": "No pudimos cargar tus viajes.",
+    "range": {
+      "label": "Periodo",
+      "7d": "Últimos 7 días",
+      "30d": "Últimos 30 días",
+      "90d": "Últimos 3 meses",
+      "all": "Todo el tiempo",
+      "none": "Ningún viaje en este periodo."
+    }
   },
   "history": {
     "title": "Viajes",
@@ -463,7 +545,8 @@
     "renameTitle": "Renombrar viaje",
     "newName": "Nombre del viaje",
     "deleteTitle": "¿Borrar este viaje?",
-    "deleteBody": "Se eliminarán sus datos y gráficos. La lista de problemas del coche conserva el historial."
+    "deleteBody": "Se eliminarán sus datos y gráficos. La lista de problemas del coche conserva el historial.",
+    "showMore": "Mostrar viajes más antiguos"
   },
   "tripDetail": {
     "shareText": "Informe de mi coche: {{title}}",
@@ -479,7 +562,14 @@
     "problemsTitle": "Problemas en este viaje",
     "noProblems": "No se encontró nada mal en este viaje.",
     "allProblems": "Ver todos los problemas del coche",
-    "share": "Enviar al mecánico"
+    "share": "Enviar al mecánico",
+    "samples": "Lecturas",
+    "parameters": "Sensores",
+    "loadFailed": "No pudimos cargar este viaje",
+    "downloadFailed": "Falló la descarga",
+    "downloadFailedHint": "No se pudo descargar el archivo CSV.",
+    "downloadCsv": "Descargar CSV",
+    "reevaluate": "Volver a evaluar"
   },
   "sidebar": {
     "tagline": "Tu coche, sin complicaciones",
@@ -553,7 +643,8 @@
     "delete": "Eliminar",
     "deleteTitle": "¿Eliminar este coche?",
     "deleteBody": "Se borrarán \"{{name}}\" y todos sus viajes y problemas.",
-    "selected": "Seleccionado"
+    "selected": "Seleccionado",
+    "editTitle": "Editar tu coche"
   },
   "onboard": {
     "progress": "Paso {{n}} de {{total}}",
@@ -574,7 +665,7 @@
     "adapterHint": "El pequeño aparato que se enchufa bajo el volante.",
     "none": "Aún no tengo adaptador",
     "noneHint": "Te decimos cuál comprar.",
-    "adapterNext": "En la siguiente pantalla, toca \"Iniciar viaje\" con el coche encendido. La app encuentra el adaptador y graba todos los viajes desde entonces.",
+    "adapterNext": "En la siguiente pantalla, con el coche encendido, toca \"Conectar al coche\" y elige el adaptador. Desde entonces tus viajes se graban.",
     "noneNext": "Compra un adaptador OBD2 con \"Bluetooth LE\" o \"BLE\" en el nombre (por ejemplo Veepeak OBDCheck BLE o Vgate iCar Pro BLE). Los modelos baratos \"Bluetooth 2.0\" o Wi-Fi no funcionan con Xpeed.",
     "finish": "Ir a mi coche",
     "later": "Decidir después"
@@ -623,7 +714,11 @@
       "serpentine_belt": "Correa de accesorios (alternador)",
       "inspection": "Revisión general",
       "other": "Otro"
-    }
+    },
+    "currencyLabel": "Moneda",
+    "deleteTitle": "¿Eliminar este servicio?",
+    "deleteBody": "\"{{type}}\" del {{date}} se quitará del historial.",
+    "deleteConfirm": "Eliminar"
   },
   "sharedReport": {
     "unavailableTitle": "Informe no disponible",
@@ -667,7 +762,9 @@
       "scanner": "Pantalla del escáner",
       "engine_bay": "Motor (capó abierto)",
       "other": "Otro"
-    }
+    },
+    "deleteTitle": "¿Eliminar esta foto?",
+    "deleteBody": "Se quitará de este viaje y no se puede recuperar."
   },
   "auth": {
     "signInFailed": "No hemos podido iniciar tu sesión. Inténtalo de nuevo.",
@@ -685,7 +782,7 @@
     "signIn": "Iniciar sesión",
     "noAccount": "¿No tienes cuenta?",
     "signUp": "Regístrate",
-    "signInTerms": "Al iniciar sesión, aceptas nuestros Términos del servicio y nuestra Política de privacidad.",
+    "signInTerms": "La primera vez que entras, se crea tu cuenta de Xpeed.",
     "passwordsDontMatch": "Las dos contraseñas no coinciden.",
     "passwordTooShort": "Tu contraseña necesita al menos 6 caracteres.",
     "alreadyRegistered": "Ya existe una cuenta con este correo. Prueba a iniciar sesión.",
@@ -742,7 +839,9 @@
     "thinking": "El asistente está pensando…",
     "open": "Hablar con el asistente del coche",
     "limitReached": "Ya usaste las preguntas de hoy. El asistente vuelve mañana.",
-    "notConfigured": "El asistente aún no está activado. Pide a quien administra tu Xpeed que lo active."
+    "notConfigured": "El asistente aún no está activado. Pide a quien administra tu Xpeed que lo active.",
+    "deleteTitle": "¿Eliminar esta conversación?",
+    "deleteBody": "\"{{title}}\" y sus mensajes se eliminarán. No se puede deshacer."
   },
   "pwa": {
     "appIcon": "Icono de la app",
@@ -759,7 +858,7 @@
   },
   "faultCodes": {
     "noneTitle": "Ningún código de avería",
-    "noneBody": "Tu coche no ha informado de ningún código de avería durante este viaje.",
+    "noneBody": "Tu coche no ha informado de ningún código de avería.",
     "severity": {
       "minor": "Leve",
       "moderate": "Moderado",
@@ -820,7 +919,7 @@
     "howTitle": "Cómo funciona",
     "s1": "Consigue un adaptador OBD2 con \"Bluetooth LE\" en el nombre (por ejemplo Veepeak OBDCheck BLE).",
     "s2": "Conéctalo debajo del volante y enciende el coche.",
-    "s3": "Entra con tu móvil y toca \"Iniciar viaje\". A partir de ahí Xpeed se encarga del resto."
+    "s3": "Entra con tu móvil, toca \"Conectar al coche\" y elige el adaptador. Desde entonces Xpeed se encarga del resto."
   },
   "vin": {
     "recognized": "Reconocimos tu {{name}}",
@@ -870,5 +969,17 @@
     "5B": "Vida restante de la batería híbrida",
     "5E": "Consumo de combustible",
     "battery": "Tensión de la batería"
+  },
+  "aiReport": {
+    "title": "Informe del viaje con IA",
+    "generated": "Generado el {{when}}",
+    "poweredBy": "Hecho con IA",
+    "summary": "Resumen",
+    "insights": "Lo que destacó",
+    "actions": "Qué hacer"
+  },
+  "errors": {
+    "boundaryBody": "Esta pantalla tuvo un problema inesperado. Puedes intentarlo de nuevo o volver al inicio.",
+    "goHome": "Ir al inicio"
   }
 }

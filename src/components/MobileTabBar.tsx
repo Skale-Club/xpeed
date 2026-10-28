@@ -24,7 +24,7 @@ export function MobileTabBar() {
   const { setOpenMobile } = useSidebar();
   const { selectedCarId } = useCarsContext();
   const { lastTrip } = useObd();
-  const problems = useOpenProblems(selectedCarId, lastTrip);
+  const { problems } = useOpenProblems(selectedCarId, lastTrip);
 
   const isActive = (to: string) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to));
   const item = 'flex flex-1 flex-col items-center justify-center pt-2 pb-1 text-[11px] font-medium transition-colors';

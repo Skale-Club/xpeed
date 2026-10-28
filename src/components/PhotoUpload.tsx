@@ -10,6 +10,7 @@ import {
   type SessionPhoto, type PhotoType,
 } from '@/lib/db-extras';
 import { useToast } from '@/hooks/use-toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface PhotoUploadProps {
   sessionId: string;
@@ -32,6 +33,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [photoType, setPhotoType] = useState<PhotoType>('dashboard');
   const [caption, setCaption] = useState('');
+  const [deleting, setDeleting] = useState<SessionPhoto | null>(null);
   const { toast } = useToast();
 
   const loadPhotos = useCallback(async () => {
@@ -155,14 +157,15 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
                 {photoUrls[p.id] && (
                   <img src={photoUrls[p.id]} alt={p.caption || ''} className="w-full h-28 object-cover" />
                 )}
+                {/* Always visible on touch screens; on a mouse it appears on hover or focus. */}
                 <button
                   type="button"
-                  onClick={() => handleDelete(p)}
-                  className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 rounded p-1"
+                  onClick={() => setDeleting(p)}
+                  className="absolute top-1 right-1 flex h-10 w-10 items-center justify-center rounded-lg bg-background/80 transition-opacity focus-visible:opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
                   title={t('photos.delete', 'Delete photo')}
                   aria-label={t('photos.delete', 'Delete photo')}
                 >
-                  <Trash2 className="w-3 h-3 text-destructive" />
+                  <Trash2 className="w-4 h-4 text-destructive" />
                 </button>
                 {p.caption && (
                   <div className="absolute bottom-0 inset-x-0 bg-background/70 backdrop-blur-sm px-1.5 py-0.5 text-[10px] text-foreground truncate">
@@ -174,6 +177,15 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
           </div>
         )}
       </CardContent>
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(open) => { if (!open) setDeleting(null); }}
+        title={t('photos.deleteTitle', 'Delete this photo?')}
+        description={t('photos.deleteBody', "It will be removed from this trip and can't be brought back.")}
+        confirmLabel={t('photos.delete', 'Delete photo')}
+        onConfirm={() => { if (deleting) void handleDelete(deleting); setDeleting(null); }}
+      />
     </Card>
   );
 }

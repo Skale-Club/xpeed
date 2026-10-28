@@ -1,16 +1,51 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle2, AlertTriangle, AlertCircle, ChevronRight, Route } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertCircle, ChevronRight, Loader2, Route } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { VehicleIssue } from '@/lib/db-issues';
 import type { Session } from '@/types/session';
 import { URGENCY } from '@/lib/problems';
 import { formatDistance, formatDuration, formatTripDate, tripDate, tripDistanceKm, tripTitle } from '@/lib/trips';
 
-/** "Is my car OK?" in one sentence, from the same problem list as the Problems page. */
-export function CarHealthCard({ problems, lastTrip }: { problems: VehicleIssue[]; lastTrip: Session | null }) {
+/**
+ * "Is my car OK?" in one sentence, from the same problem list as the Problems
+ * page. No verdict until the list has loaded; if it can't be loaded, say so
+ * instead of "all good".
+ */
+export function CarHealthCard({ problems, loading = false, error = false, onRetry, lastTrip }: {
+  problems: VehicleIssue[];
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
+  lastTrip: Session | null;
+}) {
   const { t, i18n } = useTranslation();
+
+  if (loading || error) {
+    return (
+      <Card data-testid="car-health" className={error ? 'border-destructive/30 bg-destructive/[0.07]' : undefined} role={error ? 'alert' : 'status'}>
+        <CardContent className="flex items-center gap-4 p-4 sm:p-5">
+          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${error ? 'bg-destructive/15 text-destructive' : 'bg-muted text-muted-foreground'}`}>
+            {error ? <AlertCircle className="h-6 w-6" /> : <Loader2 className="h-6 w-6 animate-spin" />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-lg font-bold tracking-tight">
+              {error ? t('problems.checkFailed', "Couldn't check your car") : t('home.health.checking', 'Checking your car…')}
+            </p>
+            {error && <p className="text-sm text-muted-foreground">{t('problems.checkFailedHint', 'Check your connection and try again.')}</p>}
+          </div>
+          {error && onRetry && (
+            <Button size="sm" variant="outline" className="shrink-0" onClick={onRetry}>
+              {t('problems.retry', 'Try again')}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
   const urgent = problems.some((p) => URGENCY[p.severity] === 'urgent');
   const [Icon, tone, surface, title, hint] = urgent
     ? [AlertCircle, 'text-destructive', 'border-destructive/30 bg-destructive/[0.07]', t('home.health.urgent', 'See a mechanic'), t('home.health.urgentHint', 'Something needs attention soon.')]
@@ -36,7 +71,7 @@ export function CarHealthCard({ problems, lastTrip }: { problems: VehicleIssue[]
           </p>
         </div>
         {problems.length > 0 && (
-          <Link to="/issues" className="shrink-0 rounded-full bg-background/60 px-3 py-1.5 text-sm font-medium hover:bg-background">{t('home.health.see', 'See')}</Link>
+          <Link to="/issues" className="shrink-0 rounded-full bg-background/60 px-4 py-2.5 text-sm font-medium hover:bg-background">{t('home.health.see', 'See')}</Link>
         )}
       </CardContent>
     </Card>

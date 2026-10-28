@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useObd } from '@/contexts/ObdScannerContext';
+import { useSettings } from '@/contexts/SettingsContext';
 import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
 import { AndroidAppDownload, IphoneNoBluetooth } from '@/components/InstallApp';
 import { installKind } from '@/lib/device';
@@ -30,6 +31,7 @@ export function TripCard() {
   const { t } = useTranslation();
   const obd = useObd();
   const { status, recording, values, alwaysOn, setAlwaysOn, canStayOn, savingTrip, lastTrip, linkFailed, error } = obd;
+  const { distanceUnit } = useSettings();
   const [help, setHelp] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -50,12 +52,16 @@ export function TripCard() {
     warn: t('trip.gauge.hot', 'hot'),
     danger: t('trip.gauge.tooHot', 'too hot'),
   }[tempTone];
+  // The car reports km/h; show the unit chosen in Settings.
+  const miles = distanceUnit === 'mi';
+  const speedShown = speed != null && miles ? speed * 0.621371 : speed;
+  const speedUnit = miles ? 'mph' : 'km/h';
   // Moving with the engine stopped: a hybrid on electric power.
   const electric = speed != null && speed >= 3 && rpm === 0;
 
   const readings = status === 'live' && (
     <div className="grid grid-cols-3 gap-2">
-      <QuickGauge value={speed} unit="km/h" label="km/h" max={160} />
+      <QuickGauge value={speedShown} unit={speedUnit} label={speedUnit} max={miles ? 100 : 160} />
       <QuickGauge
         value={rpm}
         unit="rpm"

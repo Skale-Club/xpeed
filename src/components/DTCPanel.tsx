@@ -49,7 +49,7 @@ export default function DTCPanel({ codes, onAskAi }: DTCPanelProps) {
           <CheckCircle className="w-5 h-5 text-success" />
           <div>
             <p className="text-sm font-medium text-foreground">{t('faultCodes.noneTitle', 'No fault codes')}</p>
-            <p className="text-xs text-muted-foreground">{t('faultCodes.noneBody', "Your car didn't report any fault codes during this trip.")}</p>
+            <p className="text-xs text-muted-foreground">{t('faultCodes.noneBody', "Your car didn't report any fault codes.")}</p>
           </div>
         </CardContent>
       </Card>

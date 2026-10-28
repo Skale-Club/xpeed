@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -48,7 +49,9 @@ export default function FlagsPanel({
   rules = DEFAULT_PRIUS_RULES,
   onAskAi,
 }: FlagsPanelProps) {
+  const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const num = (n: unknown) => new Intl.NumberFormat(i18n.resolvedLanguage || undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(n));
 
   // Sort: criticals first, then attentions, both above resolved
   const sorted = [...flags].sort((a, b) => {
@@ -64,8 +67,8 @@ export default function FlagsPanel({
         <CardContent className="p-4 flex items-center gap-3">
           <CheckCircle className="w-5 h-5 text-success" />
           <div>
-            <p className="text-sm font-medium text-foreground">All parameters look normal</p>
-            <p className="text-xs text-muted-foreground">No attention or critical flags detected.</p>
+            <p className="text-sm font-medium text-foreground">{t('flags.all_normal', 'All readings look normal')}</p>
+            <p className="text-xs text-muted-foreground">{t('flags.no_flags', 'No flags detected for this session.')}</p>
           </div>
         </CardContent>
       </Card>
@@ -98,19 +101,19 @@ export default function FlagsPanel({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-[10px] uppercase font-mono font-bold tracking-wider ${isCritical ? 'text-destructive' : 'text-warn'}`}>
-                      {flag.severity}
+                      {t(`flags.${isCritical ? 'critical' : 'attention'}`, isCritical ? 'Critical' : 'Attention')}
                     </span>
                     <span className="text-[10px] font-mono text-muted-foreground">{flag.canonical_key}</span>
                     {flag.resolved && (
-                      <span className="text-[10px] font-mono text-success px-1.5 rounded bg-success/10">resolved</span>
+                      <span className="text-[10px] font-mono text-success px-1.5 rounded bg-success/10">{t('flags.resolved', 'resolved')}</span>
                     )}
                   </div>
                   <p className="text-xs text-foreground leading-relaxed">{flag.message}</p>
                   {evidence && (
                     <div className="flex gap-3 mt-2 text-[10px] font-mono text-muted-foreground">
-                      {evidence.max !== undefined && <span>max: {Number(evidence.max).toFixed(1)}</span>}
-                      {evidence.avg !== undefined && <span>avg: {Number(evidence.avg).toFixed(1)}</span>}
-                      {evidence.pct_out_of_range !== undefined && <span>{Number(evidence.pct_out_of_range).toFixed(1)}% out</span>}
+                      {evidence.max !== undefined && <span>{t('flags.max', 'max')}: {num(evidence.max)}</span>}
+                      {evidence.avg !== undefined && <span>{t('flags.avg', 'avg')}: {num(evidence.avg)}</span>}
+                      {evidence.pct_out_of_range !== undefined && <span>{t('flags.out_of_range', '{{value}}% out of range', { value: num(evidence.pct_out_of_range) })}</span>}
                     </div>
                   )}
 
@@ -119,28 +122,28 @@ export default function FlagsPanel({
                       <button
                         type="button"
                         onClick={() => setExpanded(s => ({ ...s, [flagKey]: !s[flagKey] }))}
-                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-mono text-primary hover:underline"
+                        className="mt-2 inline-flex min-h-10 items-center gap-1 text-xs text-primary hover:underline"
                       >
                         {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        {isExpanded ? 'Hide guidance' : 'What should I do?'}
+                        {isExpanded ? t('flags.hide_guidance', 'Hide') : t('flags.show_guidance', 'What should I do?')}
                       </button>
                       {isExpanded && (
                         <div className="mt-2 space-y-2 border-t border-border/50 pt-2">
                           {what_happened && (
                             <div>
-                              <div className="text-[10px] font-mono uppercase text-muted-foreground mb-0.5">What happened</div>
+                              <div className="text-[10px] font-mono uppercase text-muted-foreground mb-0.5">{t('flags.what_happened', 'What happened')}</div>
                               <p className="text-xs text-foreground/90 leading-relaxed">{what_happened}</p>
                             </div>
                           )}
                           {why_it_matters && (
                             <div>
-                              <div className="text-[10px] font-mono uppercase text-muted-foreground mb-0.5">Why it matters</div>
+                              <div className="text-[10px] font-mono uppercase text-muted-foreground mb-0.5">{t('flags.why_it_matters', 'Why it matters')}</div>
                               <p className="text-xs text-foreground/90 leading-relaxed">{why_it_matters}</p>
                             </div>
                           )}
                           {what_to_do && (
                             <div>
-                              <div className="text-[10px] font-mono uppercase text-warn mb-0.5">What to do</div>
+                              <div className="text-[10px] font-mono uppercase text-warn mb-0.5">{t('flags.what_to_do', 'What to do')}</div>
                               <p className="text-xs text-foreground leading-relaxed">{what_to_do}</p>
                             </div>
                           )}
@@ -153,7 +156,7 @@ export default function FlagsPanel({
                               onClick={() => onAskAi(flag)}
                             >
                               <Sparkles className="w-3 h-3 mr-1" />
-                              Ask AI about this
+                              {t('flags.ask_ai', 'Ask AI about this')}
                             </Button>
                           )}
                         </div>
@@ -167,7 +170,7 @@ export default function FlagsPanel({
         );
       })}
       {limit && sorted.length > limit && (
-        <p className="text-xs text-muted-foreground text-center">+{sorted.length - limit} more flags</p>
+        <p className="text-xs text-muted-foreground text-center">{t('flags.more', '+{{count}} more', { count: sorted.length - limit })}</p>
       )}
     </div>
   );

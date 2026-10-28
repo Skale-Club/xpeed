@@ -22,6 +22,7 @@ import { useObd } from '@/contexts/ObdScannerContext';
 import { formatValue } from '@/lib/obd/format';
 import { channelLabel } from '@/lib/obd/pid-names';
 import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
+import { WaitingNotice } from '@/components/trip/WaitingNotice';
 import { CustomPidsCard } from '@/components/scanner/CustomPidsCard';
 import { TerminalCard } from '@/components/scanner/TerminalCard';
 import { EcuScanCard } from '@/components/scanner/EcuScanCard';
@@ -173,6 +174,11 @@ export default function ScannerPage() {
                 <Button size="sm" variant="ghost" onClick={scanner.disconnect}>
                   {t('scanner.disconnect', 'Disconnect')}
                 </Button>
+              </div>
+            ) : status === 'waiting' || status === 'reconnecting' ? (
+              // Linked but the car isn't answering (or the link is being found again): say so, and allow disconnecting.
+              <div className="flex justify-center py-2">
+                <WaitingNotice status={status} alwaysOn={scanner.alwaysOn} onDisconnect={scanner.disconnect} />
               </div>
             ) : (
               <>

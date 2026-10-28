@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, BarChart, Bar, ComposedChart } from 'recharts';
-import { format } from 'date-fns';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Bar, ComposedChart } from 'recharts';
+import { useTranslation } from 'react-i18next';
+import { formatTripDate } from '@/lib/trips';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Session, SessionSummaryItem } from '@/types/session';
 import { CHART_PALETTE } from '@/lib/chart-palette';
@@ -139,6 +140,8 @@ const KEY_MAPPING: Record<string, string[]> = {
 
 export default function DashboardCharts({ sessions, engineType }: DashboardChartsProps) {
   const { distanceUnit } = useSettings();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage;
 
   const { processedData, activeCharts } = useMemo(() => {
     if (sessions.length === 0) return { processedData: [], activeCharts: [] };
@@ -183,7 +186,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
 
       const point: ChartPoint = {
         date: sessionDate,
-        formattedDate: format(sessionDate, 'MMM d, HH:mm'), // Added time for better distinction
+        formattedDate: formatTripDate(sessionDate, language), // date and time, in the app language
       };
 
       // Extract all potential values
@@ -228,9 +231,12 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
       : available;
 
     return { processedData: data, activeCharts: active };
-  }, [sessions, distanceUnit, engineType]);
+  }, [sessions, distanceUnit, engineType, language]);
 
   if (sessions.length === 0) return null;
+
+  // The speed chart is converted to the chosen distance unit above; label it to match.
+  const unitOf = (chart: ChartConfig) => (chart.id === 'speed' && distanceUnit === 'mi' ? 'mph' : chart.yAxisUnit);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -238,7 +244,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
         <Card key={chart.id} className="bg-card border-border">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">
-                {chart.title} {chart.yAxisUnit ? `(${chart.yAxisUnit})` : ''}
+                {t(`dashboard.charts.${chart.id}`, chart.title)} {unitOf(chart) ? `(${unitOf(chart)})` : ''}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -259,7 +265,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                             key={s.key}
                             yAxisId={s.yAxisId || 'left'}
                             dataKey={s.key} 
-                            name={s.label} 
+                            name={t(`dashboard.series.${s.key}`, s.label)} 
                             fill={s.color} 
                             radius={[4, 4, 0, 0]}
                             hide={!processedData.some(d => d[s.key] != null)}
@@ -273,7 +279,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                           yAxisId={s.yAxisId || 'left'}
                           type="monotone"
                           dataKey={s.key}
-                          name={s.label}
+                          name={t(`dashboard.series.${s.key}`, s.label)}
                           stroke={s.color}
                           strokeWidth={2}
                           dot={{ r: 4, fill: s.color }}
@@ -291,7 +297,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                         fontSize={12} 
                         tickLine={false} 
                         axisLine={false} 
-                        unit={chart.yAxisUnit ? ` ${chart.yAxisUnit}` : ''} 
+                        unit={unitOf(chart) ? ` ${unitOf(chart)}` : ''} 
                         domain={chart.yAxisDomain || ['auto', 'auto']}
                     />
                     <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }} labelStyle={{ color: '#888' }} />
@@ -301,7 +307,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                         key={s.key}
                         type="monotone" 
                         dataKey={s.key} 
-                        name={s.label} 
+                        name={t(`dashboard.series.${s.key}`, s.label)} 
                         stroke={s.color} 
                         strokeWidth={2}
                         dot={{ r: 4, fill: s.color }}
@@ -310,10 +316,6 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                       />
                     ))}
                   </LineChart>
-                ) : chart.type === 'bar' ? (
-                     <BarChart data={processedData}>
-                        {/* ... similar implementation ... */}
-                     </BarChart>
                 ) : (
                   // Default to Area/Line (AreaChart can handle lines too if fill is transparent)
                   <AreaChart data={processedData}>
@@ -332,7 +334,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                         fontSize={12} 
                         tickLine={false} 
                         axisLine={false} 
-                        unit={chart.yAxisUnit ? ` ${chart.yAxisUnit}` : ''} 
+                        unit={unitOf(chart) ? ` ${unitOf(chart)}` : ''} 
                         domain={chart.yAxisDomain || ['auto', 'auto']}
                     />
                     <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }} labelStyle={{ color: '#888' }} />
@@ -342,7 +344,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                         key={s.key}
                         type="monotone" 
                         dataKey={s.key} 
-                        name={s.label} 
+                        name={t(`dashboard.series.${s.key}`, s.label)} 
                         stroke={s.color} 
                         fill={s.type === 'area' ? `url(#color-${s.key})` : 'transparent'} 
                         fillOpacity={1}

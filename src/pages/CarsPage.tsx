@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,9 +9,11 @@ import { useCarsContext } from '@/contexts/CarsContext';
 import type { CarProfile, EngineType } from '@/lib/db';
 import { FuelTypePicker } from '@/components/FuelTypePicker';
 import { PageLoader } from '@/components/PageLoader';
-import { Car, Plus, Trash2, Edit2, Check, X, Loader2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { Car, Plus, Trash2, Edit2, Check, Loader2 } from 'lucide-react';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
 import { useToast } from '@/hooks/use-toast';
+import { isValidCarYear } from '@/lib/car-year';
 import {
   Dialog,
   DialogContent,
@@ -21,17 +23,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+
+type CarWithEngine = CarProfile & { engine_type?: EngineType | null };
 
 function buildHeadline(car: CarProfile): string {
   if (car.year && car.make && car.model) {
@@ -49,9 +42,9 @@ export default function CarsPage() {
 
   // Dialog + per-card state
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [editingCar, setEditingCar] = useState<string | null>(null);
+  const [editingCar, setEditingCar] = useState<CarProfile | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [deletingCar, setDeletingCar] = useState<CarProfile | null>(null);
 
   // Edit form state
   const [editYear, setEditYear] = useState('');
@@ -63,7 +56,9 @@ export default function CarsPage() {
   const [editEngine, setEditEngine] = useState<EngineType | null>(null);
   const { t } = useTranslation();
 
-  const handleUpdateCar = async (id: string) => {
+  const handleUpdateCar = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!editingCar) return;
     const trimmedMake = editMake.trim();
     const trimmedModel = editModel.trim();
     if (!trimmedMake || !trimmedModel) {
@@ -71,7 +66,7 @@ export default function CarsPage() {
       return;
     }
     const yearNum = editYear ? parseInt(editYear, 10) : undefined;
-    if (editYear && (isNaN(yearNum!) || yearNum! < 1900 || yearNum! > 2100)) {
+    if (yearNum !== undefined && !isValidCarYear(yearNum)) {
       toast({ title: t('vehicle.badYear', 'Check the year.'), variant: 'destructive' });
       return;
     }
@@ -86,7 +81,7 @@ export default function CarsPage() {
       const name = yearNum
         ? `${yearNum} ${trimmedMake} ${trimmedModel}`
         : `${trimmedMake} ${trimmedModel}`;
-      await updateCar(id, {
+      await updateCar(editingCar.id, {
         name,
         year: yearNum ?? null,
         make: trimmedMake,
@@ -106,28 +101,25 @@ export default function CarsPage() {
     }
   };
 
-  const handleDeleteCar = async (id: string) => {
-    setIsDeleting(id);
+  const handleDeleteCar = async (car: CarProfile) => {
     try {
-      await deleteCar(id);
+      await deleteCar(car.id);
       toast({ title: t('vehicle.deleted', 'Car removed') });
     } catch (error) {
       console.error(error);
       toast({ title: t('vehicle.deleteFailed', "Couldn't remove the car"), variant: 'destructive' });
-    } finally {
-      setIsDeleting(null);
     }
   };
 
   const startEditing = (car: CarProfile) => {
-    setEditingCar(car.id);
+    setEditingCar(car);
     setEditYear(car.year?.toString() ?? '');
     setEditMake(car.make ?? '');
     setEditModel(car.model ?? '');
     setEditTrim(car.trim ?? '');
     setEditVin(car.vin ?? '');
     setEditNotes(car.notes ?? '');
-    setEditEngine((car as CarProfile & { engine_type?: EngineType | null }).engine_type ?? null);
+    setEditEngine((car as CarWithEngine).engine_type ?? null);
   };
 
   return (
@@ -177,194 +169,125 @@ export default function CarsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {cars.map((car) => {
               const headline = buildHeadline(car);
-              const isEditing = editingCar === car.id;
+              const selected = selectedCarId === car.id;
+              const engine = (car as CarWithEngine).engine_type;
               return (
-                <Card
-                  key={car.id}
-                  className={`group bg-card border-border cursor-pointer transition-all ${
-                    selectedCarId === car.id ? 'ring-2 ring-primary' : 'hover:border-primary/50'
-                  }`}
-                  onClick={() => !isEditing && selectCar(car.id)}
-                >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start gap-3 min-w-0 flex-1">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <li key={car.id}>
+                  <Card className={`bg-card border-border transition-all ${selected ? 'ring-2 ring-primary' : 'hover:border-primary/50'}`}>
+                    <CardContent className="flex items-start gap-1 p-4">
+                      {/* Choosing the car is a real button: keyboard, screen reader and touch all work. */}
+                      <button
+                        type="button"
+                        onClick={() => selectCar(car.id)}
+                        aria-pressed={selected}
+                        className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <span className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                           <Car className="w-5 h-5 text-primary" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          {isEditing ? (
-                            <div className="grid grid-cols-2 gap-1.5">
-                              <Input
-                                value={editYear}
-                                onChange={(e) => setEditYear(e.target.value)}
-                                className="h-7 text-xs col-span-1"
-                                placeholder={t('vehicle.year', 'Year')}
-                                type="number"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Input
-                                value={editMake}
-                                onChange={(e) => setEditMake(e.target.value)}
-                                className="h-7 text-xs col-span-1"
-                                placeholder={`${t('vehicle.make', 'Brand')} *`}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Input
-                                value={editModel}
-                                onChange={(e) => setEditModel(e.target.value)}
-                                className="h-7 text-xs col-span-2"
-                                placeholder={`${t('vehicle.model', 'Model')} *`}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Input
-                                value={editTrim}
-                                onChange={(e) => setEditTrim(e.target.value)}
-                                className="h-7 text-xs col-span-1"
-                                placeholder={t('vehicle.trim', 'Version')}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Input
-                                value={editVin}
-                                onChange={(e) => setEditVin(e.target.value.toUpperCase())}
-                                className="h-7 text-xs col-span-1"
-                                placeholder={t('vehicle.vinShort', 'Chassis')}
-                                maxLength={17}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Input
-                                value={editNotes}
-                                onChange={(e) => setEditNotes(e.target.value)}
-                                className="h-7 text-xs col-span-2"
-                                placeholder={t('vehicle.notes', 'Notes')}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <div className="col-span-2" onClick={(e) => e.stopPropagation()}>
-                                <FuelTypePicker value={editEngine} onChange={setEditEngine} />
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <CardTitle className="text-sm truncate">{headline}</CardTitle>
-                              {car.trim && (
-                                <p className="text-xs text-muted-foreground mt-0.5">{car.trim}</p>
-                              )}
-                              {car.vin && (
-                                <p className="text-[10px] text-muted-foreground font-mono mt-0.5 truncate">
-                                  {t('vehicle.vinShort', 'Chassis')} {car.vin}
-                                </p>
-                              )}
-                              {(car as CarProfile & { engine_type?: EngineType | null }).engine_type && (
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {t(`vehicle.fuelType.${(car as CarProfile & { engine_type?: EngineType | null }).engine_type}`)}
-                                </p>
-                              )}
-                              {car.notes && (
-                                <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{car.notes}</p>
-                              )}
-                            </>
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{headline}</span>
+                          {car.trim && <span className="mt-0.5 block text-xs text-muted-foreground">{car.trim}</span>}
+                          {car.vin && (
+                            <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
+                              {t('vehicle.vinShort', 'Chassis')} {car.vin}
+                            </span>
                           )}
-                        </div>
+                          {engine && <span className="mt-0.5 block text-xs text-muted-foreground">{t(`vehicle.fuelType.${engine}`)}</span>}
+                          {car.notes && <span className="mt-1 line-clamp-1 block text-xs text-muted-foreground">{car.notes}</span>}
+                          {selected && (
+                            <span className="mt-2 flex items-center gap-1.5 text-xs font-medium text-primary">
+                              <Check className="w-3.5 h-3.5" />
+                              {t('vehicle.selected', 'Selected')}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center">
+                        <Button size="icon" variant="ghost" aria-label={t('vehicle.edit', 'Edit')} onClick={() => startEditing(car)}>
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          aria-label={t('vehicle.delete', 'Remove')}
+                          onClick={() => setDeletingCar(car)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {isEditing ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleUpdateCar(car.id);
-                              }}
-                              disabled={isUpdating}
-                            >
-                              {isUpdating ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5 text-success" />
-                              )}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingCar(null);
-                              }}
-                            >
-                              <X className="w-3.5 h-3.5 text-destructive" />
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0"
-                              aria-label={t('vehicle.edit', 'Edit')}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                startEditing(car);
-                              }}
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                  aria-label={t('vehicle.delete', 'Remove')}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>{t('vehicle.deleteTitle', 'Remove this car?')}</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    {t('vehicle.deleteBody', '"{{name}}" and all its trips and problems will be deleted.', { name: headline })}
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteCar(car.id)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    disabled={isDeleting === car.id}
-                                  >
-                                    {isDeleting === car.id && <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />}
-                                    {t('vehicle.delete', 'Remove')}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    {selectedCarId === car.id && !isEditing && (
-                      <div className="flex items-center gap-2 text-xs text-primary font-medium">
-                        <Check className="w-3.5 h-3.5" />
-                        {t('vehicle.selected', 'Selected')}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
       </div>
+
+      {/* Editing a car: a labelled form in a dialog, not cramped fields inside the card */}
+      <Dialog open={!!editingCar} onOpenChange={(open) => { if (!open && !isUpdating) setEditingCar(null); }}>
+        <DialogContent>
+          <form onSubmit={(e) => void handleUpdateCar(e)} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>{t('vehicle.editTitle', 'Edit your car')}</DialogTitle>
+              <DialogDescription className="sr-only">{t('sidebar.addCarHint', 'Each car keeps its own trips and problems.')}</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="car-year">{t('vehicle.year', 'Year')}</Label>
+                <Input id="car-year" type="number" inputMode="numeric" value={editYear} onChange={(e) => setEditYear(e.target.value)} placeholder="2020" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="car-make">{t('vehicle.make', 'Brand')} *</Label>
+                <Input id="car-make" value={editMake} onChange={(e) => setEditMake(e.target.value)} required />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="car-model">{t('vehicle.model', 'Model')} *</Label>
+                <Input id="car-model" value={editModel} onChange={(e) => setEditModel(e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="car-trim">{t('vehicle.trim', 'Version')}</Label>
+                <Input id="car-trim" value={editTrim} onChange={(e) => setEditTrim(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="car-vin">{t('vehicle.vinShort', 'Chassis')}</Label>
+                <Input id="car-vin" value={editVin} maxLength={17} onChange={(e) => setEditVin(e.target.value.toUpperCase())} placeholder={t('vehicle.vinPlaceholder', '17 characters')} />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="car-notes">{t('vehicle.notes', 'Notes')}</Label>
+                <Input id="car-notes" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label>{t('vehicle.fuel', 'Fuel')}</Label>
+                <FuelTypePicker value={editEngine} onChange={setEditEngine} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditingCar(null)} disabled={isUpdating}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button type="submit" disabled={isUpdating}>
+                {isUpdating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {t('common.save', 'Save')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={!!deletingCar}
+        onOpenChange={(open) => { if (!open) setDeletingCar(null); }}
+        title={t('vehicle.deleteTitle', 'Remove this car?')}
+        description={deletingCar ? t('vehicle.deleteBody', '"{{name}}" and all its trips and problems will be deleted.', { name: buildHeadline(deletingCar) }) : undefined}
+        confirmLabel={t('vehicle.delete', 'Remove')}
+        onConfirm={() => { if (deletingCar) void handleDeleteCar(deletingCar); setDeletingCar(null); }}
+      />
     </AppLayout>
   );
 }

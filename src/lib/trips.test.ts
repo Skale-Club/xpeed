@@ -24,7 +24,8 @@ describe('trip facts', () => {
     expect(tripDistanceKm(session({ summary: null }) as never)).toBeNull();
     expect(formatDistance(20, 'km')).toBe('20 km');
     expect(formatDistance(20, 'mi')).toBe('12 mi');
-    expect(formatDistance(5, 'mi')).toBe('3.1 mi');
+    expect(formatDistance(5, 'mi')).toBe('3,1 mi'); // numbers follow the app language
+    expect(formatDistance(5, 'mi', 'en')).toBe('3.1 mi');
     expect(formatDistance(null, 'km')).toBeNull();
   });
 
@@ -43,6 +44,13 @@ describe('trip facts', () => {
     expect(tripTitle(at(2) as never, i18n.t)).toBe('Viagem de madrugada');
     expect(tripTitle(session({ source_filename: 'Trip 28 Oct, 15:30' }) as never, i18n.t)).toMatch(/^Viagem d[ae] /);
     expect(tripTitle(session({ source_filename: 'Ida pra praia' }) as never, i18n.t)).toBe('Ida pra praia');
+    // Renamed by the owner, even starting with the same word the app uses
+    expect(tripTitle(session({ source_filename: 'Viagem para Santos' }) as never, i18n.t)).toBe('Viagem para Santos');
+    expect(tripTitle(session({ source_filename: 'Trip to Santos 2' }) as never, i18n.t)).toBe('Trip to Santos 2');
+    // The names the app generates, in each language
+    for (const name of ['Trip Oct 28, 03:30 PM', 'Viagem 28 de out. 15:30', 'Viaje 28 oct, 15:30', 'Live scan 28/10/2026 15:30:00']) {
+      expect(tripTitle(session({ source_filename: name }) as never, i18n.t)).toMatch(/^Viagem d[ae] /);
+    }
   });
 });
 

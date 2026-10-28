@@ -12,6 +12,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { useCarsContext } from '@/contexts/CarsContext';
 import { channelLabel } from '@/lib/obd/pid-names';
 import { useObd } from '@/contexts/ObdScannerContext';
+import { useSettings } from '@/contexts/SettingsContext';
+import { WaitingNotice } from '@/components/trip/WaitingNotice';
 import { BlocksWidget, ChartWidget, GaugeWidget, ValueWidget } from '@/components/live/widgets';
 import {
   HV_BLOCK_RE, defaultLayout, loadLayout, moveWidget, newWidgetId, saveLayout, type LiveWidget, type WidgetKind,
@@ -36,8 +38,9 @@ function formatElapsed(seconds: number): string {
 export default function LivePage() {
   const { t } = useTranslation();
   const obd = useObd();
-  const { status, connection, channels, values, cycleMs, recording } = obd;
+  const { status, connection, channels, values, recording } = obd;
   const { selectedCar, selectedCarId } = useCarsContext();
+  const { advancedTools } = useSettings();
   const live = status === 'live';
 
   const [saved, setSaved] = useState<LiveWidget[] | null>(() => loadLayout(selectedCarId));
@@ -118,21 +121,19 @@ export default function LivePage() {
           </h2>
 
           {live && connection && (
-            <>
-              <Badge variant="outline" className="font-mono">{connection.deviceName}</Badge>
-              {cycleMs !== null && <Badge variant="secondary" className="font-mono">{(cycleMs / 1000).toFixed(1)} s</Badge>}
-            </>
+            <Badge variant="outline" className="max-w-[40vw] truncate">{connection.deviceName}</Badge>
           )}
 
+          {/* Says what it does: it starts, or ends, the recording of a trip. */}
           {live && (recording?.active ? (
             <Button size="sm" variant="destructive" onClick={obd.stopTrip}>
               <Square className="w-3.5 h-3.5 mr-2" />
-              REC {formatElapsed((now - recording.startedAt.getTime()) / 1000)}
+              {t('trip.stop', 'End trip')} · <span className="tabular-nums">{formatElapsed((now - recording.startedAt.getTime()) / 1000)}</span>
             </Button>
           ) : (
             <Button size="sm" variant="outline" onClick={() => void obd.startTrip()} disabled={channels.length === 0}>
               <Circle className="w-3.5 h-3.5 mr-2 text-destructive" />
-              {t('live.record', 'Record')}
+              {t('trip.start', 'Start trip')}
             </Button>
           ))}
 
@@ -144,7 +145,7 @@ export default function LivePage() {
               </Button>
             </SheetTrigger>
             <SheetContent className="overflow-auto">
-              <LayoutEditor widgets={widgets} available={available} hasBlocks={blockChannels.length > 0} onChange={setWidgets} />
+              <LayoutEditor widgets={widgets} available={available} byHeader={byHeader} hasBlocks={blockChannels.length > 0} onChange={setWidgets} />
             </SheetContent>
           </Sheet>
 
@@ -156,22 +157,31 @@ export default function LivePage() {
         {!live ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">
-              <Bluetooth className="w-8 h-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground max-w-md">
-                {status === 'unsupported'
-                  ? t('scanner.unsupportedTitle', 'Bluetooth is not available in this browser')
-                  : t('live.connectHint', 'Connect your OBD2 adapter to see live data. The connection stays on while you move around the app.')}
-              </p>
-              {obd.error && <p className="text-xs text-destructive">{obd.error}</p>}
-              <div className="flex gap-2">
-                <Button onClick={() => void obd.connect()} disabled={status !== 'idle'}>
-                  {status === 'connecting' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bluetooth className="w-4 h-4 mr-2" />}
-                  {status === 'connecting' ? t('scanner.connecting', 'Connecting…') : t('scanner.connect', 'Connect adapter')}
-                </Button>
-                <Button variant="ghost" asChild>
-                  <Link to="/scanner">{t('nav.scanner', 'Scanner')}</Link>
-                </Button>
-              </div>
+              {status === 'waiting' || status === 'reconnecting' ? (
+                <WaitingNotice status={status} alwaysOn={obd.alwaysOn} onDisconnect={obd.disconnect} />
+              ) : (
+                <>
+                  <Bluetooth className="w-8 h-8 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    {status === 'unsupported'
+                      ? t('scanner.unsupportedTitle', 'Bluetooth is not available in this browser')
+                      : t('live.connectHint', 'Connect to your car to see its readings live. The connection stays on while you move around the app.')}
+                  </p>
+                  {obd.error && <p className="text-xs text-destructive">{obd.error}</p>}
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button onClick={() => void obd.connect()} disabled={status !== 'idle'}>
+                      {status === 'connecting' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bluetooth className="w-4 h-4 mr-2" />}
+                      {status === 'connecting' ? t('scanner.connecting', 'Connecting…') : t('trip.connect', 'Connect to the car')}
+                    </Button>
+                    {/* The Scanner is for mechanics: only offered when Advanced tools is on. */}
+                    {advancedTools && (
+                      <Button variant="ghost" asChild>
+                        <Link to="/scanner">{t('nav.scanner', 'Scanner (advanced)')}</Link>
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         ) : widgets.length === 0 ? (
@@ -192,9 +202,10 @@ export default function LivePage() {
 
 const KIND_LABEL: Record<WidgetKind, string> = { gauge: 'Gauge', chart: 'Chart', value: 'Number', blocks: 'HV blocks' };
 
-function LayoutEditor({ widgets, available, hasBlocks, onChange }: {
+function LayoutEditor({ widgets, available, byHeader, hasBlocks, onChange }: {
   widgets: LiveWidget[];
   available: string[];
+  byHeader: Map<string, LiveChannel>;
   hasBlocks: boolean;
   onChange: (w: LiveWidget[] | null) => void;
 }) {
@@ -202,7 +213,12 @@ function LayoutEditor({ widgets, available, hasBlocks, onChange }: {
   const [kind, setKind] = useState<WidgetKind>('gauge');
   const [channel, setChannel] = useState('');
   const kindLabel = (k: WidgetKind) => t(`live.kind.${k}`, KIND_LABEL[k]);
-  const selectClass = 'h-8 rounded-md border border-input bg-background px-2 text-xs';
+  // Names in the app language, like on the panel itself; the raw header only if the car's channel is gone.
+  const nameOf = (header: string) => {
+    const ch = byHeader.get(header);
+    return ch ? channelLabel(ch, t) : header.replace(/ \([^)]*\)$/, '');
+  };
+  const selectClass = 'h-10 rounded-md border border-input bg-background px-2 text-sm';
 
   const add = () => {
     if (kind === 'blocks') onChange([...widgets, { id: newWidgetId(), kind }]);
@@ -218,17 +234,17 @@ function LayoutEditor({ widgets, available, hasBlocks, onChange }: {
 
       <div className="space-y-1">
         {widgets.map((w, i) => (
-          <div key={w.id} className="flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs">
-            <span className="w-16 shrink-0 text-muted-foreground">{kindLabel(w.kind)}</span>
-            <span className="flex-1 truncate" title={w.channel}>{w.kind === 'blocks' ? '—' : w.channel}</span>
-            <Button size="icon" variant="ghost" className="h-6 w-6" disabled={i === 0} aria-label={t('live.moveUp', 'Move up')} onClick={() => onChange(moveWidget(widgets, w.id, -1))}>
-              <ArrowUp className="w-3 h-3" />
+          <div key={w.id} className="flex items-center gap-1 rounded-md border border-border py-1 pl-2 pr-1 text-sm">
+            <span className="w-16 shrink-0 text-xs text-muted-foreground">{kindLabel(w.kind)}</span>
+            <span className="flex-1 truncate" title={w.channel ? nameOf(w.channel) : undefined}>{w.kind === 'blocks' || !w.channel ? '—' : nameOf(w.channel)}</span>
+            <Button size="icon" variant="ghost" disabled={i === 0} aria-label={t('live.moveUp', 'Move up')} onClick={() => onChange(moveWidget(widgets, w.id, -1))}>
+              <ArrowUp className="w-4 h-4" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-6 w-6" disabled={i === widgets.length - 1} aria-label={t('live.moveDown', 'Move down')} onClick={() => onChange(moveWidget(widgets, w.id, 1))}>
-              <ArrowDown className="w-3 h-3" />
+            <Button size="icon" variant="ghost" disabled={i === widgets.length - 1} aria-label={t('live.moveDown', 'Move down')} onClick={() => onChange(moveWidget(widgets, w.id, 1))}>
+              <ArrowDown className="w-4 h-4" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-6 w-6" aria-label={t('live.remove', 'Remove')} onClick={() => onChange(widgets.filter((x) => x.id !== w.id))}>
-              <Trash2 className="w-3 h-3" />
+            <Button size="icon" variant="ghost" aria-label={t('live.remove', 'Remove')} onClick={() => onChange(widgets.filter((x) => x.id !== w.id))}>
+              <Trash2 className="w-4 h-4" />
             </Button>
           </div>
         ))}
@@ -245,10 +261,10 @@ function LayoutEditor({ widgets, available, hasBlocks, onChange }: {
           {kind !== 'blocks' && (
             <select aria-label={t('live.widgetChannel', 'Parameter')} className={`${selectClass} flex-1 min-w-0`} value={channel} onChange={(e) => setChannel(e.target.value)}>
               <option value="">{t('live.pickChannel', 'Choose a parameter…')}</option>
-              {available.map((h) => <option key={h} value={h}>{h}</option>)}
+              {available.map((h) => <option key={h} value={h}>{nameOf(h)}</option>)}
             </select>
           )}
-          <Button size="sm" variant="outline" onClick={add} disabled={kind !== 'blocks' && !channel}>
+          <Button variant="outline" onClick={add} disabled={kind !== 'blocks' && !channel}>
             <Plus className="w-3.5 h-3.5 mr-1" />
             {t('live.add', 'Add')}
           </Button>
@@ -256,7 +272,7 @@ function LayoutEditor({ widgets, available, hasBlocks, onChange }: {
         {available.length === 0 && <p className="text-[11px] text-muted-foreground">{t('live.connectFirst', 'Connect the adapter to list the parameters your car reports.')}</p>}
       </div>
 
-      <Button size="sm" variant="ghost" onClick={() => onChange(null)}>
+      <Button variant="ghost" onClick={() => onChange(null)}>
         <RotateCcw className="w-3.5 h-3.5 mr-2" />
         {t('live.reset', 'Reset to default')}
       </Button>

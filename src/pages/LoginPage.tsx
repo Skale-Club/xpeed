@@ -131,7 +131,7 @@ function SignInPanel({ nextPath }: { nextPath: string }) {
           {withEmail ? t('landing.usePhone', 'Use my phone number instead') : t('landing.useEmail', 'I have an account with email and password')}
         </button>
         <p className="text-center text-xs text-muted-foreground">
-          {t('auth.signInTerms', 'By signing in, you agree to our Terms of Service and Privacy Policy.')}
+          {t('auth.signInTerms', 'The first time you sign in, your Xpeed account is created.')}
         </p>
       </div>
   );
@@ -192,7 +192,7 @@ export default function LoginPage() {
   const steps = [
     { icon: Bluetooth, text: t('landing.s1', 'Get an OBD2 adapter with "Bluetooth LE" in the name (for example Veepeak OBDCheck BLE).') },
     { icon: Car, text: t('landing.s2', 'Plug it in under the steering wheel and turn the car on.') },
-    { icon: Smartphone, text: t('landing.s3', 'Sign in with your phone and tap "Start trip". From then on Xpeed does the rest.') },
+    { icon: Smartphone, text: t('landing.s3', 'Sign in with your phone, tap "Connect to the car" and pick the adapter. From then on Xpeed does the rest.') },
   ];
 
   return (
