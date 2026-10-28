@@ -58,7 +58,7 @@ describe('ScannerPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
 
     // Live values decoded from the emulator
-    expect(await screen.findByText('1726', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText('1726', {}, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText('50')).toBeInTheDocument();
     expect(screen.getByText('83')).toBeInTheDocument();
     expect(await screen.findByText('12.40')).toBeInTheDocument(); // ATRV, since PID 42 is unsupported
@@ -70,7 +70,7 @@ describe('ScannerPage', () => {
     // Trouble codes
     fireEvent.click(screen.getByRole('button', { name: /read trouble codes/i }));
     // Each OBD module is asked on its own address, so this takes a few round trips.
-    expect(await screen.findByText('P0133', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText('P0133', {}, { timeout: 10000 })).toBeInTheDocument();
     expect(screen.getByText('P0420')).toBeInTheDocument();
 
     // VIN
@@ -105,7 +105,7 @@ describe('ScannerPage', () => {
     expect(header).toContain('Engine RPM (rpm)');
     expect(header).toContain('Battery voltage (V)');
     expect(firstRow).toContain('1726');
-  }, 20000);
+  }, 40000);
 
   it('retries a flaky Bluetooth connect', async () => {
     const fake = installFakeBluetooth(2);
@@ -180,7 +180,7 @@ describe('ScannerPage', () => {
     await screen.findByText('1726', {}, { timeout: 3000 });
 
     fireEvent.click(screen.getByRole('button', { name: /find ecus/i }));
-    expect(await screen.findByText('12 addresses did not answer.', {}, { timeout: 8000 })).toBeInTheDocument();
+    expect(await screen.findByText('12 addresses did not answer.', {}, { timeout: 20000 })).toBeInTheDocument();
     expect(screen.getByText('7E0')).toBeInTheDocument();
     expect(screen.getByText('7E2')).toBeInTheDocument();
     expect(screen.getByText('7E3')).toBeInTheDocument();
@@ -189,7 +189,7 @@ describe('ScannerPage', () => {
 
     const scan7E2 = () => screen.getAllByRole('button', { name: /scan pids/i })[1];
     fireEvent.click(scan7E2());
-    expect(await screen.findByText('ECU 7E2: 2 data blocks', {}, { timeout: 8000 })).toBeInTheDocument();
+    expect(await screen.findByText('ECU 7E2: 2 data blocks', {}, { timeout: 20000 })).toBeInTheDocument();
     expect(sent).toContain('21FF');
     expect(sent.filter((c) => /^21[0-9A-F]{2}$/.test(c)).length).toBeGreaterThanOrEqual(255);
     expect(document.querySelectorAll('.text-warn')).toHaveLength(0);
@@ -197,7 +197,7 @@ describe('ScannerPage', () => {
     // Second sweep: the live byte of 2101 is highlighted
     await waitFor(() => expect(scan7E2()).toBeEnabled());
     fireEvent.click(scan7E2());
-    await waitFor(() => expect(document.querySelectorAll('.text-warn').length).toBe(1), { timeout: 8000 });
+    await waitFor(() => expect(document.querySelectorAll('.text-warn').length).toBe(1), { timeout: 20000 });
 
     fireEvent.click(screen.getByRole('button', { name: /copy/i }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
@@ -207,7 +207,7 @@ describe('ScannerPage', () => {
     // Live polling resumes after the scan
     const before = sent.length;
     await waitFor(() => expect(sent.slice(before).some((c) => c.startsWith('01'))).toBe(true));
-  }, 30000);
+  }, 60000);
 
   it('adds the Prius Gen3 preset and reads each shared ECU block once per cycle', async () => {
     const { sent } = installFakeBluetooth();

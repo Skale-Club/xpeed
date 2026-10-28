@@ -67,7 +67,7 @@ describe('LivePage', () => {
     renderApp();
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
 
-    await waitFor(() => expect(gauge('Engine RPM')).toHaveAttribute('aria-valuenow', '1726'), { timeout: 3000 });
+    await waitFor(() => expect(gauge('Engine RPM')).toHaveAttribute('aria-valuenow', '1726'), { timeout: 8000 });
     expect(gauge('Vehicle speed')).toHaveAttribute('aria-valuenow', '50');
     expect(gauge('Engine coolant temperature')).toHaveAttribute('aria-valuenow', '83');
     expect(screen.getAllByTestId('widget-chart')).toHaveLength(2);
@@ -81,7 +81,7 @@ describe('LivePage', () => {
     const { requestDevice } = installFakeBluetooth();
     renderApp('/scanner');
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
-    expect(await screen.findByText('1726', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText('1726', {}, { timeout: 8000 })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'go /live' }));
     await waitFor(() => expect(gauge('Engine RPM')).toHaveAttribute('aria-valuenow', '1726'));
@@ -89,14 +89,14 @@ describe('LivePage', () => {
     expect(await screen.findByText('1726')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
     expect(requestDevice).toHaveBeenCalledTimes(1);
-  }, 15000);
+  }, 30000);
 
   it('draws the HV block bars when the Prius preset is loaded', async () => {
     localStorage.setItem('xpeed.obd.customPids.car-1', JSON.stringify(PID_PRESETS[0].pids()));
     installFakeBluetooth();
     renderApp();
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
-    const widget = await screen.findByTestId('widget-blocks', {}, { timeout: 3000 });
+    const widget = await screen.findByTestId('widget-blocks', {}, { timeout: 8000 });
     expect(within(widget).getByText('HV battery blocks')).toBeInTheDocument();
     for (let i = 1; i <= 14; i++) expect(screen.getByTestId(`hv-block-${i}`)).toBeInTheDocument();
     // Emulated 2181 only carries 9 data bytes: blocks 1–4 have values, the rest are missing
@@ -108,7 +108,7 @@ describe('LivePage', () => {
     installFakeBluetooth();
     const { unmount } = renderApp();
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
-    await waitFor(() => expect(gauge('Engine RPM')).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(gauge('Engine RPM')).toBeInTheDocument(), { timeout: 8000 });
 
     fireEvent.click(screen.getByRole('button', { name: /customize/i }));
     const sheet = await screen.findByRole('dialog');
@@ -129,7 +129,7 @@ describe('LivePage', () => {
     installFakeBluetooth();
     renderApp();
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
-    await waitFor(() => expect(gauge('Battery voltage')).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(gauge('Battery voltage')).toBeInTheDocument(), { timeout: 8000 });
     noGauge('Engine RPM');
 
     fireEvent.click(screen.getByRole('button', { name: /customize/i }));

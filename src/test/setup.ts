@@ -1,4 +1,9 @@
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
+
+// Screens wait on the simulated adapter (fault codes per module, VIN); under a
+// full parallel run that can take more than the default second.
+configure({ asyncUtilTimeout: 5000 });
 
 // Tests run as a phone, where "always on" is available (see lib/device.ts).
 Object.defineProperty(navigator, "userAgent", {
