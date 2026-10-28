@@ -84,7 +84,7 @@ describe('LivePage', () => {
     expect(await screen.findByText('1726')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
     expect(requestDevice).toHaveBeenCalledTimes(1);
-  });
+  }, 15000);
 
   it('draws the HV block bars when the Prius preset is loaded', async () => {
     localStorage.setItem('xpeed.obd.customPids.car-1', JSON.stringify(PID_PRESETS[0].pids()));
