@@ -14,6 +14,8 @@ import { buildScannerCsv, scannerFilename } from '@/lib/obd/session-csv';
 import { findRememberedAdapter, isBluetoothAvailable } from '@/lib/obd/elm327';
 import { isBluetoothReady, isNativeApp } from '@/lib/obd/native-ble';
 import { isMobileDevice } from '@/lib/device';
+import { setTripRecording } from '@/lib/pwa-update';
+import { beforeLogout } from '@/lib/logout';
 import {
   appendTripSamples, deleteTripCopy, getTripCopy, listTripCopies, saveTripCopy, tripKey, type StoredTrip,
 } from '@/lib/obd/trip-store';
@@ -400,6 +402,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     };
   }, [selectedCarId, userId, flushCopies]);
 
+  // Before signing out (the session still works): send up the trips waiting on this
+  // device. Copies that still can't go up stay, tied to this user, for next time.
+  useEffect(() => beforeLogout(() => flushCopies()), [flushCopies]);
+
   // On app start in always-on mode: reconnect to the adapter used last time, no chooser.
   const resumedRef = useRef(false);
   useEffect(() => {
@@ -417,6 +423,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // The browser only keeps running with the screen on; the Android app has its
   // own service, so there the screen stays on only while the car is on.
   useScreenWakeLock(isNativeApp() ? driving : linked);
+  // A new app version waits while the car is connected or a trip is open: reloading would drop both.
+  useEffect(() => {
+    setTripRecording(driving);
+  }, [driving]);
 
   // Android app: a persistent notification keeps everything running with the screen off.
   // It starts only once Bluetooth permission is granted (a link has been open, or the
