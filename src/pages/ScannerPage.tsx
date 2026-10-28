@@ -79,13 +79,15 @@ export default function ScannerPage() {
 
   const live = status === 'live';
   const allCodes = dtcs ? Array.from(new Set([...dtcs.stored, ...dtcs.pending, ...dtcs.permanent])) : [];
+  // A clear erases stored and pending codes; permanent ones only the car itself can erase.
+  const clearable = dtcs ? Array.from(new Set([...dtcs.stored, ...dtcs.pending])) : [];
 
   const run = async (kind: 'dtc' | 'clear' | 'vin', fn: () => Promise<void>) => {
     setBusy(kind);
     try {
       await fn();
     } catch (err) {
-      toast({ title: t('scanner.error', 'Scanner error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+      toast({ title: t('scanner.error', "Couldn't talk to the car"), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     } finally {
       setBusy(null);
     }
@@ -106,7 +108,11 @@ export default function ScannerPage() {
   const handleReadVin = () => run('vin', async () => setVin(await scanner.readVin()));
   const handleClearDtcs = () => run('clear', async () => {
     await scanner.clearDtcs();
-    toast({ title: t('scanner.cleared', 'Trouble codes cleared'), variant: 'success' });
+    toast({
+      title: t('scanner.cleared', 'Codes cleared in the car'),
+      description: t('scanner.clearedHint', "The check-engine light should go off. If the fault is still there, the car turns it on again after testing."),
+      variant: 'success',
+    });
     await readAndSync();
   });
 
@@ -234,7 +240,7 @@ export default function ScannerPage() {
 
             {tab === 'readings' && (
               channels.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">{t('scanner.noPids', 'The ECU did not report any supported parameters.')}</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">{t('scanner.noPids', "The car didn't report any reading this app understands.")}</p>
               ) : (
                 <div className="space-y-3" data-testid="readings-dashboard">
                   {headline.length > 0 && (
@@ -271,10 +277,10 @@ export default function ScannerPage() {
               <div className="space-y-4">
                 <Card>
                   <CardContent className="space-y-4 p-4">
-                    <p className="text-sm text-muted-foreground">{t('scanner.codesHint', 'Reads every module of the car. Whatever it finds also goes to Problems.')}</p>
+                    <p className="text-sm text-muted-foreground">{t('scanner.codesHint', "Asks every module in the car which fault codes it has stored. Reading changes nothing in the car. What it finds also goes to Problems in the app.")}</p>
                     <Button className="w-full sm:w-auto" onClick={handleReadDtcs} disabled={busy !== null}>
                       {busy === 'dtc' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ScanSearch className="mr-2 h-4 w-4" />}
-                      {t('scanner.readDtcs', 'Read trouble codes')}
+                      {t('scanner.readDtcs', "Read the car's fault codes")}
                     </Button>
                     {dtcs && (
                       <div className="space-y-2">
@@ -288,6 +294,9 @@ export default function ScannerPage() {
                             ))}
                           </div>
                         )}
+                        {(dtcs.pending.length > 0 || dtcs.permanent.length > 0) && (
+                          <p className="text-xs text-muted-foreground">{t('scanner.codesLegend', 'Pending: the car saw it once and is still confirming. Permanent: only the car itself erases it, after confirming the fault is gone.')}</p>
+                        )}
                         <DTCPanel codes={allCodes} />
                       </div>
                     )}
@@ -299,12 +308,12 @@ export default function ScannerPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-semibold">{t('scanner.vinTitle', 'Chassis number (VIN)')}</p>
                       {vin !== undefined && (
-                        <p className="select-all font-mono text-sm">{vin ?? t('scanner.vinUnavailable', 'not reported by this vehicle')}</p>
+                        <p className="select-all font-mono text-sm">{vin ?? t('scanner.vinUnavailable', "this car doesn't report it")}</p>
                       )}
                     </div>
                     <Button size="sm" variant="outline" onClick={handleReadVin} disabled={busy !== null}>
                       {busy === 'vin' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Fingerprint className="mr-2 h-3.5 w-3.5" />}
-                      {t('scanner.readVin', 'Read VIN')}
+                      {t('scanner.readVin', 'Read from the car')}
                     </Button>
                   </CardContent>
                 </Card>
@@ -313,26 +322,47 @@ export default function ScannerPage() {
                 <Card className="border-destructive/30">
                   <CardContent className="space-y-3 p-4">
                     <div>
-                      <p className="text-sm font-semibold text-destructive">{t('scanner.dangerTitle', 'Clear fault codes')}</p>
-                      <p className="text-xs text-muted-foreground">{t('scanner.dangerBody', 'Turns off the check-engine light and erases the codes. It does not fix anything: if the fault is still there, the code comes back.')}</p>
+                      <p className="text-sm font-semibold text-destructive">{t('scanner.dangerTitle', 'Clear the codes in the car')}</p>
+                      <p className="text-xs text-muted-foreground">{t('scanner.dangerBody', "Erases the codes from the car's memory and turns off the check-engine light on the dashboard. It doesn't fix anything: if the fault is still there, the car stores the code again and the light comes back on. That's also how you check whether a problem is really gone.")}</p>
                     </div>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button size="sm" variant="outline" className="text-destructive" disabled={busy !== null}>
                           {busy === 'clear' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Eraser className="mr-2 h-3.5 w-3.5" />}
-                          {t('scanner.clearDtcs', 'Clear codes')}
+                          {t('scanner.clearDtcs', 'Clear the codes in the car')}
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>{t('scanner.clearTitle', 'Clear trouble codes?')}</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t('scanner.clearBody', 'This turns off the check-engine light and erases stored codes, freeze-frame data and readiness monitors. The fault itself is not fixed and the code will come back if it persists. Do this with the engine off and the ignition on.')}
+                          <AlertDialogTitle>{t('scanner.clearTitle', 'Clear the codes in the car?')}</AlertDialogTitle>
+                          <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-left text-sm text-muted-foreground">
+                              {/* Exactly what changes in the car, what doesn't, and what the app does. */}
+                              {dtcs ? (
+                                clearable.length > 0 && (
+                                  <p className="font-medium text-foreground">
+                                    {t('scanner.clearList', 'Codes that will be erased in the car: {{codes}}', { codes: clearable.join(', ') })}
+                                  </p>
+                                )
+                              ) : (
+                                <p className="font-medium text-foreground">{t('scanner.clearReadFirst', "Read the car's codes first to see what will be erased.")}</p>
+                              )}
+                              {dtcs && dtcs.permanent.length > 0 && (
+                                <p>{t('scanner.clearPermanent', 'Permanent codes ({{codes}}) are not erased: the car erases them itself once it confirms the fault is gone.', { codes: dtcs.permanent.join(', ') })}</p>
+                              )}
+                              <ul className="list-disc space-y-1.5 pl-4">
+                                <li>{t('scanner.clearInCar', 'In the car: the fault codes, the check-engine light, the snapshot of when the fault happened (freeze frame) and the readiness tests are erased.')}</li>
+                                <li>{t('scanner.clearNotFixed', 'Nothing is repaired: if the fault is still there, the car stores the code and turns the light on again when it tests that system — this can take a few days of driving.')}</li>
+                                <li>{t('scanner.clearInspection', 'Until the car finishes its tests, it can fail a vehicle inspection.')}</li>
+                                <li>{t('scanner.clearInApp', 'In the app: these problems are marked as solved; if a code comes back, the problem reappears as "came back".')}</li>
+                              </ul>
+                              <p>{t('scanner.clearHow', 'Do it with the engine off and the ignition on.')}</p>
+                            </div>
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleClearDtcs}>{t('scanner.clearConfirm', 'Clear codes')}</AlertDialogAction>
+                          <AlertDialogAction onClick={handleClearDtcs}>{t('scanner.clearConfirm', 'Clear in the car')}</AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>

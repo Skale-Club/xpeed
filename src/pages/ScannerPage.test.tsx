@@ -69,19 +69,21 @@ describe('ScannerPage', () => {
 
     // Trouble codes, VIN and clearing live in their own tab
     fireEvent.click(screen.getByRole('tab', { name: /^codes/i }));
-    fireEvent.click(screen.getByRole('button', { name: /read trouble codes/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read the car's fault codes/i }));
     // Each OBD module is asked on its own address, so this takes a few round trips.
     expect(await screen.findByText('P0133', {}, { timeout: 10000 })).toBeInTheDocument();
     expect(screen.getByText('P0420')).toBeInTheDocument();
 
     // VIN
-    fireEvent.click(screen.getByRole('button', { name: /read vin/i }));
+    fireEvent.click(screen.getByRole('button', { name: /read from the car/i }));
     expect(await screen.findByText(VIN)).toBeInTheDocument();
 
     // Clear codes goes through a confirmation dialog
     expect(sent).not.toContain('04');
-    fireEvent.click(screen.getByRole('button', { name: /clear codes/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /^clear codes$/i, hidden: false }));
+    fireEvent.click(screen.getByRole('button', { name: /clear the codes in the car/i }));
+    // The confirmation says exactly which codes go, and that it happens in the car
+    expect(await screen.findByText(/Codes that will be erased in the car: .*P0133/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /^clear in the car$/i, hidden: false }));
     await waitFor(() => expect(sent).toContain('04'));
 
     // Only supported PIDs are polled
