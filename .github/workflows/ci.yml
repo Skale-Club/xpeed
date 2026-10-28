@@ -37,6 +37,10 @@ jobs:
 
       - name: Unit tests
         run: npx vitest run
+        env:
+          # Some modules create the Supabase client on import; tests never reach it.
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
 
       - name: Production build
         run: npm run build
