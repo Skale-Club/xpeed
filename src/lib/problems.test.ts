@@ -124,4 +124,18 @@ describe('syncAiWarnings', () => {
       details: { source: 'ai', meaning: warning.meaning, action: 'Agende uma revisão.' },
     });
   });
+
+  it('never brings back a warning the owner ignored or marked as fixed', async () => {
+    const { syncAiWarnings } = await import('./issue-reconciler');
+    const { ignoreIssue, resolveIssue } = await import('./db-issues');
+    const car = 'car-ai-dismissed';
+    const base = { title: 'Algo', meaning: 'Algo nas leituras.', action: 'Fique de olho.', urgency: 'watch' as const };
+    await syncAiWarnings(car, 'u1', [{ ...base, key: 'first_one' }, { ...base, key: 'second_one' }], 's1', '2026-10-27T08:00:00.000Z');
+    await ignoreIssue(issueFor(car, 'ai:first_one')!.id as string);
+    await resolveIssue(issueFor(car, 'ai:second_one')!.id as string);
+
+    await syncAiWarnings(car, 'u1', [{ ...base, key: 'first_one', urgency: 'urgent' }, { ...base, key: 'second_one' }], 's2', '2026-10-28T08:00:00.000Z');
+    expect(issueFor(car, 'ai:first_one')).toMatchObject({ status: 'ignored', severity: 'warning', last_session_id: 's1' });
+    expect(issueFor(car, 'ai:second_one')).toMatchObject({ status: 'resolved', last_session_id: 's1' });
+  });
 });

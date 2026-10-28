@@ -107,6 +107,16 @@ function formatOpenProblems(issues: any[], sessionId: string): string {
 /** Problems the AI raises itself are stored with keys like "ai:coolant_slow_warmup". */
 const AI_PREFIX = "ai:";
 
+/** AI warnings the owner already ignored or marked as fixed: never to be raised again. */
+function formatDismissedWarnings(issues: any[]): string {
+  if (issues.length === 0) return "";
+  const lines = ["YOUR EARLIER WARNINGS THE OWNER DISMISSED (never raise these concerns again, under any key or wording):"];
+  for (const i of issues.slice(0, 20)) {
+    lines.push(`  - "${i.title}" (key: ${i.canonical_key.slice(AI_PREFIX.length)}) — ${i.status === "ignored" ? "ignored" : "marked as fixed"}`);
+  }
+  return lines.join("\n");
+}
+
 // What the AI may add to the car's problem list. Anything malformed is dropped.
 const WarningSchema = z.object({
   key: z.string().regex(/^[a-z0-9_]{3,40}$/),
@@ -168,6 +178,15 @@ serve(async (req) => {
       .in("status", ["active", "recurred"])
       .order("last_seen_at", { ascending: false });
 
+    const { data: dismissed } = await (db as any)
+      .from("vehicle_issues")
+      .select("canonical_key, title, status")
+      .eq("car_profile_id", sessionRow.car_profile_id)
+      .eq("user_id", userId)
+      .like("canonical_key", `${AI_PREFIX}%`)
+      .in("status", ["ignored", "resolved"])
+      .order("last_seen_at", { ascending: false });
+
     // 4. Quota, now that the call will really happen.
     try {
       await consumeQuota(userId, "analysis");
@@ -193,7 +212,7 @@ Reply with JSON only, with four fields:
     meaning: one sentence on what you saw and why it matters.
     action: one sentence on what the owner should do.
     urgency: "urgent" (stop driving / see a mechanic now), "soon" (book a check-up), "watch" (keep an eye on it) or "later" (mention at the next service).
-  Only add a warning when the readings clearly support it; when in doubt, leave it out. Empty array when there is nothing new. Never repeat something a fault code or a listed problem already says.
+  Only add a warning when the readings clearly support it; when in doubt, leave it out. Empty array when there is nothing new. Never repeat something a fault code or a listed problem already says, and never bring back a warning the owner dismissed (listed at the end, if any).
 
 Rules:
 - Use only the data below; never invent readings or causes. If the data is too thin to judge, say so.
@@ -202,7 +221,9 @@ ${hybrid ? "- This is a hybrid: engine speed at 0 while moving is normal (electr
 
 ${formatReport(report)}
 
-${formatOpenProblems(issues ?? [], body.sessionId)}`;
+${formatOpenProblems(issues ?? [], body.sessionId)}
+
+${formatDismissedWarnings(dismissed ?? [])}`.trim();
 
     const aiRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",

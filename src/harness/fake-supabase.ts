@@ -57,6 +57,13 @@ class Query implements PromiseLike<Result> {
   eq(col: string, v: unknown) { this.filters.push((r) => r[col] === v); return this; }
   neq(col: string, v: unknown) { this.filters.push((r) => r[col] !== v); return this; }
   is(col: string, v: unknown) { this.filters.push((r) => (r[col] ?? null) === v); return this; }
+  // SQL LIKE with % wildcards only, enough for prefix searches.
+  like(col: string, pattern: string) {
+    const escape = (part: string) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^${pattern.split('%').map(escape).join('.*')}$`);
+    this.filters.push((r) => re.test(String(r[col] ?? '')));
+    return this;
+  }
   in(col: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[col])); return this; }
   gte(col: string, v: string | number) { this.filters.push((r) => (r[col] as string | number) >= v); return this; }
   lte(col: string, v: string | number) { this.filters.push((r) => (r[col] as string | number) <= v); return this; }

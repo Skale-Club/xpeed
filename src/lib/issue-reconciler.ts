@@ -147,8 +147,23 @@ export async function syncAiWarnings(
   occurredAt: string = new Date().toISOString(),
 ): Promise<void> {
   const seen: Seen = { carProfileId, userId, sessionId, occurredAt };
+  // A warning the owner ignored or marked as fixed never comes back, even if the AI raises it again.
+  let dismissed = new Set<string>();
+  try {
+    const { data } = await supabase
+      .from('vehicle_issues')
+      .select('canonical_key')
+      .eq('car_profile_id', carProfileId)
+      .like('canonical_key', `${AI_PREFIX}%`)
+      .in('status', ['ignored', 'resolved']);
+    dismissed = new Set(((data ?? []) as { canonical_key: string }[]).map((i) => i.canonical_key));
+  } catch (err) {
+    console.warn('Could not read dismissed AI warnings:', err);
+    return;
+  }
   for (const w of warnings) {
     if (!/^[a-z0-9_]{3,40}$/.test(w.key) || !URGENCY_SEVERITY[w.urgency]) continue;
+    if (dismissed.has(`${AI_PREFIX}${w.key}`)) continue;
     await upsertProblem({
       canonical_key: `${AI_PREFIX}${w.key}`,
       title: w.title,
