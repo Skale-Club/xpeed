@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Bluetooth, BluetoothConnected, Loader2, ScanSearch, Eraser, Fingerprint, Info,
+  Bluetooth, BluetoothConnected, Loader2, ScanSearch, Eraser, Fingerprint, Info, Search,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import DTCPanel from '@/components/DTCPanel';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -21,23 +21,29 @@ import { useToast } from '@/hooks/use-toast';
 import type { DtcReadout, LiveChannel } from '@/hooks/use-obd-scanner';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { formatValue } from '@/lib/obd/format';
+import { channelLabel } from '@/lib/obd/pid-names';
 import { CustomPidsCard } from '@/components/scanner/CustomPidsCard';
 import { TerminalCard } from '@/components/scanner/TerminalCard';
 import { EcuScanCard } from '@/components/scanner/EcuScanCard';
 
-function LiveTile({ channel, value }: { channel: LiveChannel; value: number | null | undefined }) {
+type Tab = 'readings' | 'codes' | 'tools';
+
+/** One reading as a row: name on the left, value on the right, a thin bar for where it sits in its range. */
+function ReadingRow({ label, channel, value }: { label: string; channel: LiveChannel; value: number | null | undefined }) {
   const pct = value == null ? 0 : ((value - channel.min) / (channel.max - channel.min)) * 100;
   return (
-    <Card className="bg-card border-border">
-      <CardContent className="p-3 space-y-2">
-        <p className="text-[11px] text-muted-foreground leading-tight truncate" title={channel.name}>{channel.name}</p>
-        <p className="text-xl font-bold text-foreground tabular-nums">
-          {formatValue(value, channel.unit)}
-          <span className="text-xs font-normal text-muted-foreground ml-1">{channel.unit}</span>
+    <div className="px-4 py-3" data-testid="reading-row">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="min-w-0 truncate text-sm text-muted-foreground" title={label}>{label}</p>
+        <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">
+          <span>{formatValue(value, channel.unit)}</span>
+          <span className="ml-1 text-xs font-normal text-muted-foreground">{channel.unit}</span>
         </p>
-        <Progress value={Math.max(0, Math.min(100, pct))} className="h-1" />
-      </CardContent>
-    </Card>
+      </div>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -53,6 +59,8 @@ export default function ScannerPage() {
   const [dtcs, setDtcs] = useState<DtcReadout | null>(null);
   const [vin, setVin] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState<'dtc' | 'clear' | 'vin' | null>(null);
+  const [tab, setTab] = useState<Tab>('readings');
+  const [query, setQuery] = useState('');
 
   // Reset diagnostics when the connection goes away.
   useEffect(() => {
@@ -95,15 +103,30 @@ export default function ScannerPage() {
     await readAndSync();
   });
 
+  const shown = channels
+    .map((ch) => ({ ch, label: channelLabel(ch, t) }))
+    .filter(({ label }) => label.toLowerCase().includes(query.trim().toLowerCase()));
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'readings', label: t('scanner.tabs.readings', 'Readings') },
+    { key: 'codes', label: t('scanner.tabs.codes', 'Codes') },
+    { key: 'tools', label: t('scanner.tabs.tools', 'Tools') },
+  ];
+
+  const customPidsCard = (
+    <CustomPidsCard
+      pids={customPids}
+      onChange={updateCustomPids}
+      headersUnsupported={live && connection ? !connection.isCan : false}
+    />
+  );
+
   return (
     <AppLayout>
-      <div className="space-y-6 max-w-5xl">
-        <div className="flex items-center gap-2">
-          <Bluetooth className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-bold text-foreground">
-            {t('scanner.title', 'OBD2 Scanner')}
-            {selectedCar && <span className="text-muted-foreground font-normal"> — {selectedCar.name}</span>}
-          </h2>
+      <div className="max-w-3xl space-y-4">
+        <div>
+          <h2 className="text-xl font-bold">{t('scanner.title', 'OBD2 Scanner')}</h2>
+          {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
         </div>
 
         {status === 'unsupported' && (
@@ -116,152 +139,190 @@ export default function ScannerPage() {
           </Alert>
         )}
 
-        {/* Connection */}
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              {live ? <BluetoothConnected className="w-4 h-4 text-success" /> : <Bluetooth className="w-4 h-4" />}
-              {t('scanner.adapter', 'Adapter')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* Connection: one line when connected, how-to and the button when not. */}
+        <Card>
+          <CardContent className="space-y-3 p-4">
             {live && connection ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant="outline" className="font-mono">{connection.deviceName}</Badge>
-                <Badge variant="outline" className="font-mono">{connection.version}</Badge>
-                <Badge variant="outline" className="font-mono">
-                  {t('scanner.protocol', 'Protocol')} {connection.protocol}{connection.isCan ? ' (CAN)' : ''}
-                </Badge>
-                {connection.multiPid && (
-                  <Badge variant="outline" className="font-mono">multi-PID</Badge>
-                )}
-                {cycleMs !== null && channels.length > 0 && (
-                  <Badge variant="secondary" className="font-mono">
-                    {t('scanner.refresh', 'Refresh')} {(cycleMs / 1000).toFixed(1)} s
-                  </Badge>
-                )}
+              <div className="flex items-center gap-3">
+                <BluetoothConnected className="h-5 w-5 shrink-0 text-success" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">
+                    {t('scanner.connected', 'Connected')} · <span className="font-mono">{connection.deviceName}</span>
+                  </p>
+                  <p className="flex flex-wrap gap-x-1.5 text-xs text-muted-foreground" data-testid="connection-details">
+                    <span>{connection.version}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{t('scanner.protocol', 'Protocol')} {connection.protocol}{connection.isCan ? ' (CAN)' : ''}</span>
+                    {connection.multiPid && <><span aria-hidden="true">·</span><span>multi-PID</span></>}
+                    {cycleMs !== null && channels.length > 0 && (
+                      <><span aria-hidden="true">·</span><span>{t('scanner.updates', 'updates every {{seconds}} s', { seconds: (cycleMs / 1000).toFixed(1) })}</span></>
+                    )}
+                  </p>
+                </div>
+                <Button size="sm" variant="ghost" onClick={scanner.disconnect}>
+                  {t('scanner.disconnect', 'Disconnect')}
+                </Button>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                {t('scanner.howTo', 'Plug a Bluetooth LE ELM327 adapter (e.g. Vgate iCar Pro BLE, OBDLink CX, Veepeak BLE+) into the OBD2 port, turn the ignition on, then connect. Classic-Bluetooth and Wi-Fi adapters cannot be used from a browser.')}
-              </p>
+              <>
+                <div className="flex items-center gap-3">
+                  <Bluetooth className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <p className="text-sm font-semibold">{t('scanner.notConnectedTitle', 'Connect the adapter')}</p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('scanner.howTo', 'Plug a Bluetooth LE ELM327 adapter (e.g. Vgate iCar Pro BLE, OBDLink CX, Veepeak BLE+) into the OBD2 port, turn the ignition on, then connect. Classic-Bluetooth and Wi-Fi adapters cannot be used from a browser.')}
+                </p>
+                <Button className="w-full sm:w-auto" onClick={() => void scanner.connect()} disabled={status !== 'idle'}>
+                  {status === 'connecting'
+                    ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    : <Bluetooth className="mr-2 h-4 w-4" />}
+                  {status === 'connecting' ? t('scanner.connecting', 'Connecting…') : t('scanner.connect', 'Connect adapter')}
+                </Button>
+              </>
             )}
             {scanner.error && <p className="text-xs text-destructive">{scanner.error}</p>}
             {scanner.linkFailed && (
-              <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
+              <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
                 <li>{t('scanner.linkHintBusy', "The adapter accepts only one connection: close Car Scanner/Torque on your phone or turn the phone's Bluetooth off.")}</li>
                 <li>{t('scanner.linkHintPower', 'Make sure the ignition is on and the adapter light is on, then unplug and replug it to wake it up.')}</li>
                 <li>{t('scanner.linkHintPaired', 'If you paired it in the system Bluetooth settings before, remove it there and try again.')}</li>
               </ul>
             )}
-            <div className="flex gap-2">
-              {live ? (
-                <Button size="sm" variant="outline" onClick={scanner.disconnect}>
-                  {t('scanner.disconnect', 'Disconnect')}
-                </Button>
-              ) : (
-                <Button size="sm" onClick={() => void scanner.connect()} disabled={status !== 'idle'}>
-                  {status === 'connecting'
-                    ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                    : <Bluetooth className="w-3.5 h-3.5 mr-2" />}
-                  {status === 'connecting' ? t('scanner.connecting', 'Connecting…') : t('scanner.connect', 'Connect adapter')}
-                </Button>
-              )}
-            </div>
           </CardContent>
         </Card>
 
-        {/* Live data */}
-        {live && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-bold text-foreground">{t('scanner.liveData', 'Live data')}</h3>
-            {channels.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{t('scanner.noPids', 'The ECU did not report any supported parameters.')}</p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {channels.map((ch) => <LiveTile key={ch.header} channel={ch} value={values[ch.header]} />)}
-              </div>
-            )}
-          </div>
-        )}
+        {!live ? (
+          // Custom PIDs can be set up before connecting.
+          customPidsCard
+        ) : (
+          <>
+            {/* Same underline tabs as the Problems page. */}
+            <div className="flex gap-1 border-b border-border" role="tablist">
+              {tabs.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === key}
+                  onClick={() => setTab(key)}
+                  className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm ${tab === key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                >
+                  {label}
+                  {key === 'readings' && <span className="ml-1.5 text-xs text-muted-foreground">{channels.length}</span>}
+                  {key === 'codes' && allCodes.length > 0 && <span className="ml-1.5 text-xs text-destructive">{allCodes.length}</span>}
+                </button>
+              ))}
+            </div>
 
-        {/* Diagnostics */}
-        {live && (
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <ScanSearch className="w-4 h-4" />
-                {t('scanner.diagnostics', 'Diagnostics')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={handleReadDtcs} disabled={busy !== null}>
-                  {busy === 'dtc' ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <ScanSearch className="w-3.5 h-3.5 mr-2" />}
-                  {t('scanner.readDtcs', 'Read trouble codes')}
-                </Button>
-                <Button size="sm" variant="outline" onClick={handleReadVin} disabled={busy !== null}>
-                  {busy === 'vin' ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Fingerprint className="w-3.5 h-3.5 mr-2" />}
-                  {t('scanner.readVin', 'Read VIN')}
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="outline" className="text-destructive" disabled={busy !== null}>
-                      {busy === 'clear' ? <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> : <Eraser className="w-3.5 h-3.5 mr-2" />}
-                      {t('scanner.clearDtcs', 'Clear codes')}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t('scanner.clearTitle', 'Clear trouble codes?')}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t('scanner.clearBody', 'This turns off the check-engine light and erases stored codes, freeze-frame data and readiness monitors. The fault itself is not fixed and the code will come back if it persists. Do this with the engine off and the ignition on.')}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleClearDtcs}>{t('scanner.clearConfirm', 'Clear codes')}</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-
-              {vin !== undefined && (
-                <p className="text-xs">
-                  <span className="text-muted-foreground">VIN: </span>
-                  <span className="font-mono font-bold select-all">{vin ?? t('scanner.vinUnavailable', 'not reported by this vehicle')}</span>
-                </p>
-              )}
-
-              {dtcs && (
-                <div className="space-y-2">
-                  {(dtcs.pending.length > 0 || dtcs.permanent.length > 0) && (
-                    <div className="flex flex-wrap gap-1.5 text-[11px]">
-                      {dtcs.pending.map((c) => (
-                        <Badge key={`p-${c}`} variant="outline" className="font-mono">{c} · {t('scanner.pending', 'pending')}</Badge>
-                      ))}
-                      {dtcs.permanent.map((c) => (
-                        <Badge key={`x-${c}`} variant="outline" className="font-mono">{c} · {t('scanner.permanent', 'permanent')}</Badge>
-                      ))}
+            {tab === 'readings' && (
+              channels.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">{t('scanner.noPids', 'The ECU did not report any supported parameters.')}</p>
+              ) : (
+                <div className="space-y-3">
+                  {channels.length > 6 && (
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder={t('scanner.search', 'Search a reading')}
+                        aria-label={t('scanner.search', 'Search a reading')}
+                        className="pl-9"
+                      />
                     </div>
                   )}
-                  <DTCPanel codes={allCodes} />
+                  <Card className="overflow-hidden">
+                    <div className="divide-y divide-border">
+                      {shown.map(({ ch, label }) => <ReadingRow key={ch.header} label={label} channel={ch} value={values[ch.header]} />)}
+                    </div>
+                    {shown.length === 0 && <p className="p-4 text-center text-sm text-muted-foreground">{t('scanner.noMatch', 'No reading matches.')}</p>}
+                  </Card>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+              )
+            )}
 
-        <CustomPidsCard
-          pids={customPids}
-          onChange={updateCustomPids}
-          headersUnsupported={live && connection ? !connection.isCan : false}
-        />
+            {tab === 'codes' && (
+              <div className="space-y-4">
+                <Card>
+                  <CardContent className="space-y-4 p-4">
+                    <p className="text-sm text-muted-foreground">{t('scanner.codesHint', 'Reads every module of the car. Whatever it finds also goes to Problems.')}</p>
+                    <Button className="w-full sm:w-auto" onClick={handleReadDtcs} disabled={busy !== null}>
+                      {busy === 'dtc' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ScanSearch className="mr-2 h-4 w-4" />}
+                      {t('scanner.readDtcs', 'Read trouble codes')}
+                    </Button>
+                    {dtcs && (
+                      <div className="space-y-2">
+                        {(dtcs.pending.length > 0 || dtcs.permanent.length > 0) && (
+                          <div className="flex flex-wrap gap-1.5 text-[11px]">
+                            {dtcs.pending.map((c) => (
+                              <Badge key={`p-${c}`} variant="outline" className="font-mono">{c} · {t('scanner.pending', 'pending')}</Badge>
+                            ))}
+                            {dtcs.permanent.map((c) => (
+                              <Badge key={`x-${c}`} variant="outline" className="font-mono">{c} · {t('scanner.permanent', 'permanent')}</Badge>
+                            ))}
+                          </div>
+                        )}
+                        <DTCPanel codes={allCodes} />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-        {live && <TerminalCard onSend={scanner.sendRaw} />}
+                <Card>
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{t('scanner.vinTitle', 'Chassis number (VIN)')}</p>
+                      {vin !== undefined && (
+                        <p className="select-all font-mono text-sm">{vin ?? t('scanner.vinUnavailable', 'not reported by this vehicle')}</p>
+                      )}
+                    </div>
+                    <Button size="sm" variant="outline" onClick={handleReadVin} disabled={busy !== null}>
+                      {busy === 'vin' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Fingerprint className="mr-2 h-3.5 w-3.5" />}
+                      {t('scanner.readVin', 'Read VIN')}
+                    </Button>
+                  </CardContent>
+                </Card>
 
-        {live && connection?.isCan && (
-          <EcuScanCard findEcus={scanner.findEcus} sweepMode21={scanner.sweepMode21} />
+                {/* Clearing erases what the mechanic needs, so it sits apart, with a warning. */}
+                <Card className="border-destructive/30">
+                  <CardContent className="space-y-3 p-4">
+                    <div>
+                      <p className="text-sm font-semibold text-destructive">{t('scanner.dangerTitle', 'Clear fault codes')}</p>
+                      <p className="text-xs text-muted-foreground">{t('scanner.dangerBody', 'Turns off the check-engine light and erases the codes. It does not fix anything: if the fault is still there, the code comes back.')}</p>
+                    </div>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" variant="outline" className="text-destructive" disabled={busy !== null}>
+                          {busy === 'clear' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Eraser className="mr-2 h-3.5 w-3.5" />}
+                          {t('scanner.clearDtcs', 'Clear codes')}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>{t('scanner.clearTitle', 'Clear trouble codes?')}</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t('scanner.clearBody', 'This turns off the check-engine light and erases stored codes, freeze-frame data and readiness monitors. The fault itself is not fixed and the code will come back if it persists. Do this with the engine off and the ignition on.')}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleClearDtcs}>{t('scanner.clearConfirm', 'Clear codes')}</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {tab === 'tools' && (
+              <div className="space-y-4">
+                {customPidsCard}
+                <TerminalCard onSend={scanner.sendRaw} />
+                {connection?.isCan && <EcuScanCard findEcus={scanner.findEcus} sweepMode21={scanner.sweepMode21} />}
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppLayout>

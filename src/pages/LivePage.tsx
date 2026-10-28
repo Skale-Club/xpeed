@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useCarsContext } from '@/contexts/CarsContext';
+import { channelLabel } from '@/lib/obd/pid-names';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { BlocksWidget, ChartWidget, GaugeWidget, ValueWidget } from '@/components/live/widgets';
 import {
@@ -95,7 +96,7 @@ export default function LivePage() {
       );
     }
     const ch: LiveChannel | undefined = w.channel ? byHeader.get(w.channel) : undefined;
-    const label = ch?.name ?? w.channel?.replace(/ \([^)]*\)$/, '') ?? '';
+    const label = ch ? channelLabel(ch, t) : w.channel?.replace(/ \([^)]*\)$/, '') ?? '';
     const unit = ch?.unit ?? w.channel?.match(/\(([^)]*)\)$/)?.[1] ?? '';
     const value = w.channel ? values[w.channel] : null;
     if (w.kind === 'gauge') return <GaugeWidget label={label} unit={unit} value={value} min={ch?.min ?? 0} max={ch?.max ?? 100} />;

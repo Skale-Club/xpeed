@@ -149,7 +149,8 @@
       "formula": "Fórmula",
       "add": "Adicionar PID",
       "addPreset": "Adicionar preset: {{label}}",
-      "removeAll": "Remover todos"
+      "removeAll": "Remover todos",
+      "new": "Novo PID"
     },
     "terminal": {
       "title": "Terminal",
@@ -173,7 +174,21 @@
       "silent": "{{count}} endereços não responderam.",
       "result": "ECU {{header}}: {{count}} blocos de dados",
       "copy": "Copiar"
-    }
+    },
+    "tabs": {
+      "readings": "Leituras",
+      "codes": "Códigos",
+      "tools": "Ferramentas"
+    },
+    "search": "Buscar uma leitura",
+    "noMatch": "Nenhuma leitura com esse nome.",
+    "connected": "Conectado",
+    "notConnectedTitle": "Conecte o adaptador",
+    "codesHint": "Lê todos os módulos do carro. O que encontrar também vai para Problemas.",
+    "vinTitle": "Número do chassi (VIN)",
+    "dangerTitle": "Apagar códigos de falha",
+    "dangerBody": "Apaga a luz de injeção e os códigos. Não conserta nada: se o defeito continuar, o código volta.",
+    "updates": "atualiza a cada {{seconds}} s"
   },
   "live": {
     "title": "Painel live",
@@ -835,5 +850,27 @@
     "installed": "Você está usando o app do Xpeed.",
     "version": "Versão {{version}} (build {{build}})",
     "computer": "Para gravar viagens, abra xpeed.skale.club num celular Android e baixe o app por lá."
+  },
+  "pids": {
+    "0C": "Rotação do motor",
+    "0D": "Velocidade",
+    "05": "Temperatura do motor",
+    "04": "Carga do motor",
+    "11": "Posição do acelerador",
+    "06": "Correção de combustível curta (B1)",
+    "07": "Correção de combustível longa (B1)",
+    "0F": "Temperatura do ar de admissão",
+    "10": "Fluxo de ar (MAF)",
+    "0B": "Pressão do coletor (MAP)",
+    "0E": "Avanço de ignição",
+    "14": "Sonda lambda B1S1",
+    "15": "Sonda lambda B1S2",
+    "3C": "Temperatura do catalisador",
+    "42": "Tensão do módulo",
+    "46": "Temperatura externa",
+    "2F": "Nível de combustível",
+    "5B": "Vida restante da bateria híbrida",
+    "5E": "Consumo de combustível",
+    "battery": "Tensão da bateria"
   }
 }

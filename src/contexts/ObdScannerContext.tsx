@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, type Context, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useObdScanner, type TripResult } from '@/hooks/use-obd-scanner';
@@ -61,7 +61,11 @@ type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   dismissFoundCar: () => void;
 };
 
-const ObdScannerContext = createContext<ObdScannerContextType | undefined>(undefined);
+// Same context object when the dev server reloads this file: otherwise screens
+// reloaded with it look for a provider that is no longer the one on screen.
+const ObdScannerContext: Context<ObdScannerContextType | undefined> =
+  import.meta.hot?.data.ObdScannerContext ?? createContext<ObdScannerContextType | undefined>(undefined);
+if (import.meta.hot) import.meta.hot.data.ObdScannerContext = ObdScannerContext;
 
 export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation();

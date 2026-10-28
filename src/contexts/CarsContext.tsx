@@ -15,7 +15,11 @@ interface CarsContextType {
   refresh: () => Promise<void>;
 }
 
-const CarsContext = createContext<CarsContextType | undefined>(undefined);
+// Same context object when the dev server reloads this file: otherwise screens
+// reloaded with it look for a provider that is no longer the one on screen.
+const CarsContext: React.Context<CarsContextType | undefined> =
+  import.meta.hot?.data.CarsContext ?? createContext<CarsContextType | undefined>(undefined);
+if (import.meta.hot) import.meta.hot.data.CarsContext = CarsContext;
 
 export function CarsProvider({ children }: { children: ReactNode }) {
   const carsState = useCars();

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, type Context, useContext, useState, useEffect, ReactNode } from 'react';
 
 type DistanceUnit = 'km' | 'mi';
 
@@ -12,7 +12,11 @@ interface SettingsContextType {
   setAdvancedTools: (on: boolean) => void;
 }
 
-const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+// Same context object when the dev server reloads this file: otherwise screens
+// reloaded with it look for a provider that is no longer the one on screen.
+const SettingsContext: Context<SettingsContextType | undefined> =
+  import.meta.hot?.data.SettingsContext ?? createContext<SettingsContextType | undefined>(undefined);
+if (import.meta.hot) import.meta.hot.data.SettingsContext = SettingsContext;
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>('km');

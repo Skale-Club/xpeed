@@ -18,7 +18,11 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+// Same context object when the dev server reloads this file: otherwise screens
+// reloaded with it look for a provider that is no longer the one on screen.
+const AuthContext: React.Context<AuthContextType | undefined> =
+  import.meta.hot?.data.AuthContext ?? createContext<AuthContextType | undefined>(undefined);
+if (import.meta.hot) import.meta.hot.data.AuthContext = AuthContext;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);

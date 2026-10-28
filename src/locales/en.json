@@ -149,7 +149,8 @@
       "formula": "Formula",
       "add": "Add PID",
       "addPreset": "Add preset: {{label}}",
-      "removeAll": "Remove all"
+      "removeAll": "Remove all",
+      "new": "New PID"
     },
     "terminal": {
       "title": "Terminal",
@@ -173,7 +174,21 @@
       "silent": "{{count}} addresses did not answer.",
       "result": "ECU {{header}}: {{count}} data blocks",
       "copy": "Copy"
-    }
+    },
+    "tabs": {
+      "readings": "Readings",
+      "codes": "Codes",
+      "tools": "Tools"
+    },
+    "search": "Search a reading",
+    "noMatch": "No reading matches.",
+    "connected": "Connected",
+    "notConnectedTitle": "Connect the adapter",
+    "codesHint": "Reads every module of the car. Whatever it finds also goes to Problems.",
+    "vinTitle": "Chassis number (VIN)",
+    "dangerTitle": "Clear fault codes",
+    "dangerBody": "Turns off the check-engine light and erases the codes. It does not fix anything: if the fault is still there, the code comes back.",
+    "updates": "updates every {{seconds}} s"
   },
   "live": {
     "title": "Live panel",
@@ -835,5 +850,27 @@
     "installed": "You're using the Xpeed app.",
     "version": "Version {{version}} (build {{build}})",
     "computer": "To record trips, open xpeed.skale.club on an Android phone and get the app there."
+  },
+  "pids": {
+    "0C": "Engine RPM",
+    "0D": "Vehicle speed",
+    "05": "Engine coolant temperature",
+    "04": "Calculated engine load",
+    "11": "Throttle position",
+    "06": "Short term fuel trim B1",
+    "07": "Long term fuel trim B1",
+    "0F": "Intake air temperature",
+    "10": "Mass air flow",
+    "0B": "Manifold absolute pressure",
+    "0E": "Timing advance",
+    "14": "O2 sensor B1S1",
+    "15": "Sensor B1S2 voltage",
+    "3C": "Catalyst temperature",
+    "42": "Control module voltage",
+    "46": "Ambient air temperature",
+    "2F": "Fuel level",
+    "5B": "Hybrid battery remaining life",
+    "5E": "Engine fuel rate",
+    "battery": "Battery voltage"
   }
 }

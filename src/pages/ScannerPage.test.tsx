@@ -67,7 +67,8 @@ describe('ScannerPage', () => {
     expect(screen.getByText('multi-PID')).toBeInTheDocument();
     expect(sent.some((c) => /^01(0[45]|0C|0D|0E|0F|1[01]){2,}/.test(c) && c.length > 4)).toBe(true);
 
-    // Trouble codes
+    // Trouble codes, VIN and clearing live in their own tab
+    fireEvent.click(screen.getByRole('tab', { name: /^codes/i }));
     fireEvent.click(screen.getByRole('button', { name: /read trouble codes/i }));
     // Each OBD module is asked on its own address, so this takes a few round trips.
     expect(await screen.findByText('P0133', {}, { timeout: 10000 })).toBeInTheDocument();
@@ -138,7 +139,8 @@ describe('ScannerPage', () => {
     expect(screen.getByText('1726')).toBeInTheDocument();
     await waitFor(() => expect(sent.filter((c) => c === 'ATSH7DF').length).toBeGreaterThan(0));
 
-    // Terminal: reads to a specific ECU work…
+    // Terminal (Tools tab): reads to a specific ECU work…
+    fireEvent.click(screen.getByRole('tab', { name: /tools/i }));
     fireEvent.change(screen.getByLabelText('Header'), { target: { value: '7e3' } });
     fireEvent.change(screen.getByLabelText('Command'), { target: { value: '21 ce' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -155,6 +157,7 @@ describe('ScannerPage', () => {
 
   it('adds a custom PID by hand and rejects unsafe requests', async () => {
     renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /new pid/i }));
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Reset' } });
     fireEvent.change(screen.getByLabelText('Request'), { target: { value: '1101' } });
     fireEvent.change(screen.getByLabelText('Formula'), { target: { value: 'A' } });
@@ -178,6 +181,7 @@ describe('ScannerPage', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
     await screen.findByText('1726', {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('tab', { name: /tools/i }));
 
     fireEvent.click(screen.getByRole('button', { name: /find ecus/i }));
     expect(await screen.findByText('12 addresses did not answer.', {}, { timeout: 20000 })).toBeInTheDocument();
@@ -224,6 +228,7 @@ describe('ScannerPage', () => {
     const second = sent.indexOf('2174', first + 1);
     expect(sent.slice(first + 1, second).filter((c) => c === '2181')).toHaveLength(1);
 
+    fireEvent.click(screen.getByRole('tab', { name: /tools/i }));
     fireEvent.click(screen.getByRole('button', { name: /remove all/i }));
     expect(screen.queryByText('HV block 14')).not.toBeInTheDocument();
     localStorage.clear();

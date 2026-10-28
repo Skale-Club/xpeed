@@ -23,6 +23,8 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
   const { t } = useTranslation();
   const [form, setForm] = useState(EMPTY);
   const [formError, setFormError] = useState<string | null>(null);
+  // The form only opens on demand; the list and presets are what most people need.
+  const [showForm, setShowForm] = useState(false);
 
   const set = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -45,6 +47,7 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
     }
     setFormError(null);
     setForm(EMPTY);
+    setShowForm(false);
     onChange([...pids, pid]);
   };
 
@@ -86,6 +89,7 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
           </div>
         )}
 
+        {showForm && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="col-span-2 space-y-1">
             <Label htmlFor="cp-name" className="text-[11px]">{t('scanner.custom.name', 'Name')}</Label>
@@ -116,7 +120,8 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
             <Input id="cp-max" value={form.max} onChange={set('max')} inputMode="decimal" className="h-8 text-xs" />
           </div>
         </div>
-        {formError && <p className="text-xs text-destructive">{formError}</p>}
+        )}
+        {showForm && formError && <p className="text-xs text-destructive">{formError}</p>}
 
         <div className="flex flex-wrap gap-2">
           {PID_PRESETS.map((preset) => (
@@ -138,10 +143,22 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={add}>
-            <Plus className="w-3.5 h-3.5 mr-2" />
-            {t('scanner.custom.add', 'Add PID')}
-          </Button>
+          {showForm ? (
+            <>
+              <Button size="sm" onClick={add}>
+                <Plus className="w-3.5 h-3.5 mr-2" />
+                {t('scanner.custom.add', 'Add PID')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowForm(false); setFormError(null); }}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => setShowForm(true)}>
+              <Plus className="w-3.5 h-3.5 mr-2" />
+              {t('scanner.custom.new', 'New PID')}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
