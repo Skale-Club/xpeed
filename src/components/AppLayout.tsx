@@ -7,11 +7,10 @@ import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { ConnectionPill } from '@/components/trip/ConnectionPill';
 import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { MobileTabBar } from '@/components/MobileTabBar';
-import { useBrand } from '@/hooks/use-brand';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
-  const brand = useBrand();
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -20,7 +19,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl">
           {/* Phones navigate with the tab bar at the bottom; the logo goes home. */}
           <Link to="/" className="flex items-center gap-2 md:hidden" aria-label="Xpeed">
-            <img src={brand.logo_url} alt="" className="h-7 w-7 object-contain" />
+            <BrandLogo className="h-7 w-7" alt="" />
             <span className="text-base font-bold tracking-tight">Xpeed</span>
           </Link>
           <SidebarTrigger className="hidden md:inline-flex" />

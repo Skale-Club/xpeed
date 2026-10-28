@@ -3,7 +3,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Shield, AlertTriangle } from 'lucide-react';
 import { useAdminStatus } from '@/hooks/use-admin-status';
 import { PageLoader } from '@/components/PageLoader';
-import BrandingSection from '@/components/admin/BrandingSection';
 import AIProviderSection from '@/components/admin/AIProviderSection';
 
 export default function AdminPage() {
@@ -49,7 +48,13 @@ export default function AdminPage() {
 
         <AIProviderSection />
 
-        <BrandingSection />
+        {/* The logo has one source so the site, the icons and the Android app always match. */}
+        <Alert>
+          <AlertDescription className="text-xs">
+            Logo and icons come from <code>branding/mark.svg</code> in the project. Edit it, run <code>npm run brand</code> and
+            deploy: the site, favicon, home-screen icons, link preview and Android app icon all change together.
+          </AlertDescription>
+        </Alert>
       </div>
     </AppLayout>
   );

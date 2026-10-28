@@ -10,7 +10,6 @@ import { SettingsProvider } from "@/contexts/SettingsContext";
 import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
-import BrandHead from "@/components/BrandHead";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -58,7 +57,6 @@ const App = () => (
     <TooltipProvider>
       <AuthProvider>
         <SettingsProvider>
-          <BrandHead />
           <Toaster />
           <Sonner />
           <BrowserRouter>

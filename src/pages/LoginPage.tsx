@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PhoneSignIn } from '@/components/auth/PhoneSignIn';
-import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
+import { BrandLogo } from '@/components/BrandLogo';
 import { isNativeApp } from '@/lib/obd/native-ble';
 
 // The public page: what Xpeed does, in plain words, and sign-in in a popup
@@ -152,7 +152,6 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const brand = useBrand();
   const native = isNativeApp();
   // S02: only allow in-app paths; reject protocol-relative (`//evil.com`) and absolute URLs.
   const rawNext = searchParams.get('next');
@@ -166,16 +165,13 @@ export default function LoginPage() {
     if (user) navigate(nextPath, { replace: true });
   }, [user, nextPath, navigate]);
 
-  const logo = !isDefaultBrand(brand)
-    ? <img src={brand.logo_url} alt="" className="h-7 w-7 object-contain" />
-    : <Car className="h-5 w-5 text-primary" />;
 
   if (native) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-2 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">{logo}</div>
+            <BrandLogo className="h-14 w-14" />
             <h1 className="text-2xl font-bold">Xpeed</h1>
             <p className="text-sm text-muted-foreground">{t('landing.tagline', 'Know if your car is OK, in plain words.')}</p>
           </div>
@@ -204,7 +200,7 @@ export default function LoginPage() {
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">{logo}</div>
+            <BrandLogo />
             <span className="text-lg font-bold">Xpeed</span>
           </div>
           <Button size="sm" variant="outline" onClick={openLogin} data-testid="landing-sign-in">
@@ -272,7 +268,7 @@ export default function LoginPage() {
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="max-h-[92vh] w-[92%] max-w-md gap-0 overflow-y-auto rounded-2xl p-5 sm:p-7" data-testid="login-dialog">
           <DialogHeader className="space-y-3 pb-5 text-center sm:text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">{logo}</div>
+            <BrandLogo className="mx-auto h-12 w-12" />
             <DialogTitle className="text-xl">{t('landing.signInTitle', 'Sign in or create your account')}</DialogTitle>
             <DialogDescription>{t('landing.signInHint', 'With your phone number: we text you a code. No password.')}</DialogDescription>
           </DialogHeader>

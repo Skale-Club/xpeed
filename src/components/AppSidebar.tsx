@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAdminStatus } from '@/hooks/use-admin-status';
-import { useBrand } from '@/hooks/use-brand';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
@@ -76,7 +76,6 @@ export function AppSidebar() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const brand = useBrand();
   const currentLang = LANGS.find((l) => i18n.resolvedLanguage?.startsWith(l.code.split('-')[0])) || LANGS[0];
 
   const handleNavClick = () => {
@@ -97,9 +96,7 @@ export function AppSidebar() {
       {/* Logo */}
       <SidebarHeader className="border-b border-sidebar-border">
         <Link to="/" className="flex items-center gap-3 px-2 py-2" onClick={handleNavClick}>
-          <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
-            <img src={brand.logo_url} alt="Xpeed" className="w-full h-full object-contain" />
-          </div>
+          <BrandLogo />
           <div className="group-data-[collapsible=icon]:hidden">
             <p className="text-sm font-bold leading-none tracking-tight">Xpeed</p>
             <p className="text-[10px] text-sidebar-foreground/50 uppercase tracking-widest font-medium mt-0.5">

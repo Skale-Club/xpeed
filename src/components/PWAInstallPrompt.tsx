@@ -2,12 +2,10 @@ import { X, Download, Share, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { usePwaInstall } from '@/hooks/use-pwa-install';
-import { useBrand } from '@/hooks/use-brand';
 
 export function PWAInstallPrompt() {
   const { t } = useTranslation();
   const { showPrompt, isIOS, install, dismiss } = usePwaInstall();
-  const brand = useBrand();
 
   if (!showPrompt) return null;
 
@@ -17,11 +15,7 @@ export function PWAInstallPrompt() {
         {/* Header */}
         <div className="flex items-center gap-3 p-4 pb-3">
           <div className="w-12 h-12 rounded-xl overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center border border-border">
-            {brand.logo_url ? (
-              <img src={brand.logo_url} alt={t('pwa.appIcon', 'App icon')} className="w-full h-full object-cover" />
-            ) : (
-              <Download className="w-6 h-6 text-primary" />
-            )}
+            <img src="/icon-192.png" alt={t('pwa.appIcon', 'App icon')} className="w-full h-full object-cover" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-foreground leading-tight">{t('pwa.title', 'Add to Home Screen')}</p>

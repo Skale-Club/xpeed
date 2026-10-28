@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { CarQuestions, type CarAnswers } from '@/components/CarQuestions';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
-import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useCarsContext } from '@/contexts/CarsContext';
@@ -28,7 +28,6 @@ interface OnboardingWizardProps {
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const brand = useBrand();
   const { user } = useAuth();
   const { createCar, updateCar } = useCarsContext();
 
@@ -90,9 +89,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             {step === 'welcome' && (
               <>
                 <div className="text-center space-y-3">
-                  <div className="w-16 h-16 mx-auto rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-                    {!isDefaultBrand(brand) ? <img src={brand.logo_url} alt="" className="w-12 h-12 object-contain" /> : <Car className="w-8 h-8 text-primary" />}
-                  </div>
+                  <BrandLogo className="mx-auto h-16 w-16" />
                   <h2 className="text-xl font-bold">{t('onboard.welcome', 'Welcome to Xpeed')}</h2>
                   <ul className="text-sm text-muted-foreground space-y-1">
                     <li>{t('onboard.point1', 'See if your car is OK, in plain words')}</li>

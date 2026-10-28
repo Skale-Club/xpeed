@@ -9,7 +9,7 @@ import DTCPanel from '@/components/DTCPanel';
 import { describeProblem } from '@/lib/problems';
 import { formatDuration, tripProblems, tripTitle } from '@/lib/trips';
 import type { Session, SessionFlag } from '@/types/session';
-import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
+import { BrandLogo } from '@/components/BrandLogo';
 
 interface ReportPayload {
   session?: Record<string, unknown> | null;
@@ -28,8 +28,6 @@ export default function SharedReport() {
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const brand = useBrand();
-  const useCustomLogo = !isDefaultBrand(brand);
 
   useEffect(() => {
     if (!id) {
@@ -96,13 +94,7 @@ export default function SharedReport() {
         <header className="mb-6 print:mb-4">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-                {useCustomLogo ? (
-                  <img src={brand.logo_url} alt={t('sharedReport.logoAlt', 'Logo')} className="w-7 h-7 object-contain" />
-                ) : (
-                  <Car className="w-5 h-5 text-primary" />
-                )}
-              </div>
+              <BrandLogo className="h-10 w-10" alt={t('sharedReport.logoAlt', 'Logo')} />
               <div>
                 <h1 className="text-xl font-bold text-foreground">{carHeadline as string}</h1>
                 <p className="text-xs text-muted-foreground font-mono">
@@ -180,9 +172,7 @@ export default function SharedReport() {
         </section>
 
         <footer className="mt-8 pt-4 border-t border-border flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-mono">
-          {useCustomLogo && (
-            <img src={brand.logo_url} alt="" className="w-3.5 h-3.5 object-contain opacity-70" />
-          )}
+          <BrandLogo className="h-3.5 w-3.5 opacity-70" alt="" />
           <span>{t('sharedReport.footer', 'Made with Xpeed · View-only diagnostic report')}</span>
         </footer>
       </div>

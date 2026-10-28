@@ -12,7 +12,8 @@
     "supabase:keepalive": "node scripts/supabase-keepalive.mjs",
     "supabase:keepalive:verify": "node scripts/supabase-keepalive-verify.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "brand": "node scripts/brand-assets.mjs"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^8.3.0",
@@ -94,6 +95,7 @@
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
     "postcss": "^8.5.6",
+    "sharp": "^0.33.5",
     "supabase": "^2.102.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
