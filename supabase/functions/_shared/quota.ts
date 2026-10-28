@@ -7,7 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const DEFAULT_LIMITS = {
   chat_messages: 30,        // chat msgs/user/day
-  analysis: 10,             // session analyses/user/day
+  analysis: 20,             // trip summaries/user/day (always-on records every trip; short uneventful ones are skipped)
 };
 
 export type QuotaKind = keyof typeof DEFAULT_LIMITS;

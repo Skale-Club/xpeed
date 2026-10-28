@@ -679,7 +679,7 @@
     "close": "Close",
     "askAboutCar": "Ask about your {{name}}",
     "chooseCar": "Choose a car to get started",
-    "intro": "I can explain what your car's readings mean, tell you what a fault code means in plain words, and suggest when it needs a check-up.",
+    "intro": "I can explain what your car's problems and trips mean in plain words, tell you what to do next, and help you connect the adapter.",
     "unavailable": "The assistant is not available right now",
     "placeholder": "Ask anything about your car…",
     "send": "Send",
@@ -688,7 +688,9 @@
     "noChats": "No conversations yet",
     "deleteChat": "Delete conversation",
     "thinking": "The assistant is thinking…",
-    "open": "Ask the car assistant"
+    "open": "Ask the car assistant",
+    "limitReached": "You've used today's questions. The assistant is back tomorrow.",
+    "notConfigured": "The assistant isn't switched on yet. Ask whoever runs your Xpeed to turn it on."
   },
   "pwa": {
     "appIcon": "App icon",

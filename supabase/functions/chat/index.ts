@@ -1,7 +1,9 @@
-// Supabase Edge Function: server-side Gemini chat with vehicle context.
-// - Reads Gemini API key from app_settings (DB), falls back to env var.
-// - Enforces per-user daily quota (30 chat msgs/day free tier).
-// - Builds a STRUCTURED human-readable system prompt instead of dumping JSON.
+// Supabase Edge Function: the in-app car assistant (OpenRouter).
+// - Key + model come from the admin panel (app_settings).
+// - Per-user daily quota (30 msgs/day), spent only when an answer is possible.
+// - Builds a structured, human-readable system prompt from the car's state as
+//   the app shows it (open problems, latest trips, trends, maintenance), plus
+//   how the app itself works so it can help with the adapter and recording.
 //
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
@@ -18,7 +20,6 @@ const LanguageSchema = z.enum(["en", "pt-BR", "es-ES"]).optional();
 const ChatBodySchema = z.object({
   language: LanguageSchema,
   message: z.string().min(1).max(8000),
-  model: z.string().regex(/^[a-zA-Z0-9.\-]{1,64}$/).optional(),
   context: z.record(z.unknown()).optional(),
   history: z
     .array(z.object({ role: z.enum(["user", "model"]), parts: z.string().max(8000) }))
@@ -32,15 +33,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-interface ChatRequest {
-  history: { role: "user" | "model"; parts: string }[];
-  message: string;
-  context: Record<string, unknown>;
-  model?: string;
-}
-
-interface OpenRouterChoice { message?: { content?: string } }
-interface OpenRouterResponse { choices?: OpenRouterChoice[] }
+interface OpenRouterResponse { choices?: { message?: { content?: string } }[] }
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -54,7 +47,6 @@ interface Vehicle {
   year?: number | null;
   make?: string | null;
   model?: string | null;
-  vin?: string | null;
   engine_type?: string | null;
   notes?: string | null;
 }
@@ -68,84 +60,99 @@ interface Trend {
   trend: string;
 }
 
+interface Problem { title: string; meaning: string; action: string; code: string; severity: string; cameBack: number; lastSeen: string }
+interface Trip { date: string; minutes: number | null; km: number | null; avgSpeedKmh: number | null; faultCodes: string[]; summary: string | null }
 interface MaintenanceItem { type: string; date: string; odometer?: number | null }
+
+// What the assistant needs to know about the app to help with setup questions.
+const APP_GUIDE = `HOW THE XPEED APP WORKS (use this to answer questions about the app itself):
+- The car is read through a small OBD2 adapter plugged in under the steering wheel. Only "Bluetooth LE"/"BLE" adapters work (e.g. Veepeak OBDCheck BLE, Vgate iCar Pro BLE); classic "Bluetooth 2.0" or Wi-Fi adapters do not.
+- It works in the Xpeed Android app, or in Chrome/Edge on Android or a computer. iPhone/Safari cannot connect to the adapter.
+- To start: turn the car on, open Home and tap "Start trip"; the first time, pick the adapter from the list. The app remembers it.
+- "Always on" mode: leave the app open in the car; it reconnects by itself, records every trip automatically and rests while the car is off. Very short trips are not kept.
+- If it can't connect: only one app can use the adapter at a time (close Car Scanner, Torque or similar), make sure the car is on, then try again.
+- Each trip is checked automatically: the car's fault codes are read and anything unusual becomes a problem on the Problems page, with what to do. "Send to mechanic" on a trip creates a report link.`;
 
 function fmtVehicle(v: Vehicle | null | undefined): string {
   if (!v) return "Unknown vehicle";
   const parts: string[] = [];
-  if (v.year && v.make && v.model) {
-    parts.push(`${v.year} ${v.make} ${v.model}`);
-  } else if (v.name) {
-    parts.push(v.name);
-  }
+  if (v.year && v.make && v.model) parts.push(`${v.year} ${v.make} ${v.model}`);
+  else if (v.name) parts.push(v.name);
   if (v.engine_type) parts.push(`(${v.engine_type})`);
-  if (v.vin) parts.push(`VIN: ${v.vin}`);
   if (v.notes) parts.push(`Notes: ${v.notes}`);
   return parts.join(" ");
 }
 
 function buildSystemPrompt(context: Record<string, unknown>): string {
   const lines: string[] = [];
-  lines.push("You are a friendly, concrete automotive diagnostic assistant. Use only the data below to answer the user's question. If the data is insufficient, say so honestly.");
+  lines.push("You are the car assistant inside the Xpeed app. You help an owner with no mechanical knowledge understand their car, using only the data below. If the data doesn't answer the question, say so honestly.");
   lines.push("");
 
-  // Vehicle
   const vehicle = context.vehicle as Vehicle | null | undefined;
-  lines.push(`VEHICLE: ${fmtVehicle(vehicle)}`);
+  lines.push(`CAR: ${fmtVehicle(vehicle)}`);
+  lines.push(`TRIPS RECORDED: ${(context.sessionCount as number) ?? 0}`);
 
-  // Session stats
-  const sessionCount = (context.sessionCount as number) ?? 0;
-  lines.push(`SESSIONS RECORDED: ${sessionCount}`);
-
-  // Recent sessions
-  const recentSessions = (context.recentSessions as Array<{ date?: string; filename?: string; duration?: number | null }>) || [];
-  if (recentSessions.length > 0) {
-    lines.push("");
-    lines.push(`RECENT SESSIONS (${recentSessions.length}):`);
-    for (const s of recentSessions.slice(0, 5)) {
-      const date = s.date ? new Date(s.date).toLocaleDateString() : "?";
-      const dur = s.duration ? `${Math.round(s.duration / 60)} min` : "duration unknown";
-      lines.push(`  - ${date} — ${s.filename || "session"} (${dur})`);
+  // Open problems: exactly what the Problems page shows the user.
+  const problems = (context.openProblems as Problem[]) || [];
+  lines.push("");
+  if (problems.length === 0) {
+    lines.push("OPEN PROBLEMS: none (the app shows the car as OK).");
+  } else {
+    lines.push(`OPEN PROBLEMS (${problems.length}, as shown on the Problems page):`);
+    for (const p of problems.slice(0, 10)) {
+      const back = p.cameBack > 0 ? `, came back ${p.cameBack}x after being fixed` : "";
+      lines.push(`  - [${p.severity}] ${p.title} (code ${p.code}${back}; last seen ${String(p.lastSeen).slice(0, 10)}): ${p.meaning} What to do: ${p.action}`);
     }
   }
 
-  // Active DTCs
-  const dtcs = (context.activeDtcs as string[]) || [];
-  if (dtcs.length > 0) {
+  const trips = (context.lastTrips as Trip[]) || [];
+  if (trips.length > 0) {
     lines.push("");
-    lines.push(`ACTIVE TROUBLE CODES (${dtcs.length}): ${dtcs.join(", ")}`);
+    lines.push("LATEST TRIPS (newest first):");
+    for (const t of trips) {
+      const facts = [
+        t.minutes != null ? `${t.minutes} min` : null,
+        t.km != null ? `${t.km} km` : null,
+        t.avgSpeedKmh != null ? `avg ${t.avgSpeedKmh} km/h` : null,
+        t.faultCodes?.length ? `fault codes ${t.faultCodes.join(", ")}` : null,
+      ].filter(Boolean).join(", ");
+      lines.push(`  - ${String(t.date).slice(0, 16).replace("T", " ")}: ${facts || "no details"}${t.summary ? ` (summary: ${t.summary})` : ""}`);
+    }
   }
 
-  // Trends — most actionable signal
+  // Trends: is something slowly getting worse?
   const trends = (context.trends as Trend[]) || [];
   const significant = trends.filter(t => Math.abs(t.delta_pct) >= 5).slice(0, 5);
   if (significant.length > 0) {
     lines.push("");
-    lines.push("TRENDS (recent 5 vs prior 20 sessions):");
+    lines.push("TRENDS (last 5 trips vs the 20 before):");
     for (const t of significant) {
-      const direction = t.delta_pct > 0 ? "↑" : "↓";
-      const label = t.label || t.canonical_key;
-      lines.push(`  - ${label} ${direction} ${Math.abs(t.delta_pct).toFixed(1)}% (current ${t.current_avg} vs historic ${t.historic_avg}) — ${t.trend}`);
+      const direction = t.delta_pct > 0 ? "up" : "down";
+      lines.push(`  - ${t.label || t.canonical_key} ${direction} ${Math.abs(t.delta_pct).toFixed(1)}% (now ${t.current_avg} vs before ${t.historic_avg}), ${t.trend}`);
     }
   }
 
-  // Maintenance
   const maintenance = (context.maintenance as MaintenanceItem[]) || [];
   if (maintenance.length > 0) {
     lines.push("");
-    lines.push(`MAINTENANCE (last 12 months, ${maintenance.length} events):`);
+    lines.push(`SERVICES IN THE LAST 12 MONTHS (${maintenance.length}):`);
     for (const m of maintenance.slice(0, 5)) {
-      const odo = m.odometer ? ` @ ${m.odometer.toLocaleString()} km` : "";
+      const odo = m.odometer ? ` at ${m.odometer.toLocaleString()} km` : "";
       lines.push(`  - ${m.date}: ${m.type}${odo}`);
     }
   }
 
   lines.push("");
+  lines.push(APP_GUIDE);
+  lines.push("");
   lines.push("GUIDELINES:");
-  lines.push("- Be concrete. Reference specific values from the context when relevant.");
-  lines.push("- Prefer practical next steps over generic advice.");
-  lines.push("- If you reference a DTC code, briefly explain what it means.");
-  lines.push("- Keep responses under 200 words unless the user explicitly asks for detail.");
+  lines.push("- Be concrete: refer to the problems and trips above when relevant, by their plain names.");
+  lines.push("- Safety first: if there is a critical problem (e.g. engine running hot) or the user describes warning lights, smoke, smells, strange noises or overheating, tell them to stop somewhere safe and get help before anything else.");
+  lines.push("- Never invent readings, causes or prices. You give hints from data, not a diagnosis; suggest a mechanic for anything uncertain.");
+  if (String(vehicle?.engine_type ?? "").toLowerCase() === "hybrid") {
+    lines.push("- This car is a hybrid: the engine stopping while driving (engine speed 0) is normal electric mode.");
+  }
+  lines.push("- Keep answers under 150 words unless the user asks for detail.");
 
   return lines.join("\n");
 }
@@ -158,7 +165,23 @@ serve(async (req) => {
     const userId = await getUserIdFromAuth(req.headers.get("Authorization"));
     if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
 
-    // 2. Quota check
+    // 2. Parse + validate body (S04)
+    const parsed = ChatBodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return jsonResponse({ error: "Invalid request body" }, 400);
+    }
+    const body = parsed.data;
+
+    // 3. Resolve API key (OpenRouter, configured in /admin)
+    const apiKey = await getOpenRouterApiKey();
+    if (!apiKey) {
+      return jsonResponse(
+        { error: "AI features are not configured. Ask an admin to set the OpenRouter API key in the Admin panel.", code: "not_configured" },
+        503,
+      );
+    }
+
+    // 4. Quota, only once an answer is possible
     let quotaInfo: { remaining: number; limit: number } | undefined;
     try {
       quotaInfo = await consumeQuota(userId, "chat_messages");
@@ -166,6 +189,7 @@ serve(async (req) => {
       if (err?.status === 429) {
         return jsonResponse({
           error: "You have reached today's chat limit on the free tier. Try again tomorrow.",
+          code: "limit_reached",
           remaining: 0,
           limit: err.limit,
         }, 429);
@@ -173,26 +197,9 @@ serve(async (req) => {
       throw err;
     }
 
-    // 3. Resolve API key (OpenRouter, configured in /admin)
-    const apiKey = await getOpenRouterApiKey();
-    if (!apiKey) {
-      return jsonResponse(
-        { error: "AI features are not configured. Ask an admin to set the OpenRouter API key in the Admin panel." },
-        503,
-      );
-    }
-
-    // 4. Parse + validate body (S04)
-    const parsed = ChatBodySchema.safeParse(await req.json().catch(() => null));
-    if (!parsed.success) {
-      return jsonResponse({ error: "Invalid request body" }, 400);
-    }
-    const body = parsed.data;
-
-    const model = body.model || await getDefaultModel();
     const languageName = LANGUAGE_NAMES[body.language ?? "en"];
     const systemPrompt = buildSystemPrompt(body.context || {}) +
-      `\n\nAlways reply in ${languageName}, in plain everyday words for someone with no mechanical knowledge; briefly explain any technical term you have to use.`;
+      `\n\nAlways reply in ${languageName}, in plain everyday words; briefly explain any technical term you have to use.`;
 
     // OpenAI-compatible chat messages (OpenRouter). role "model" -> "assistant".
     const messages = [
@@ -213,7 +220,7 @@ serve(async (req) => {
         "X-Title": "Xpeed",
       },
       body: JSON.stringify({
-        model,
+        model: await getDefaultModel(),
         messages,
         temperature: 0.5,
         max_tokens: 800,
@@ -221,8 +228,7 @@ serve(async (req) => {
     });
 
     if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error("OpenRouter error:", errText);
+      console.error("OpenRouter error:", await aiRes.text());
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
 

@@ -679,7 +679,7 @@
     "close": "Cerrar",
     "askAboutCar": "Pregunta sobre tu {{name}}",
     "chooseCar": "Elige un coche para empezar",
-    "intro": "Puedo explicarte qué significan las lecturas de tu coche, decirte con palabras sencillas qué quiere decir un código de avería y avisarte de cuándo necesita una revisión.",
+    "intro": "Puedo explicarte con palabras sencillas los problemas y viajes de tu coche, decirte qué hacer y ayudarte a conectar el adaptador.",
     "unavailable": "El asistente no está disponible ahora mismo",
     "placeholder": "Pregunta lo que quieras sobre tu coche…",
     "send": "Enviar",
@@ -688,7 +688,9 @@
     "noChats": "Aún no hay conversaciones",
     "deleteChat": "Borrar conversación",
     "thinking": "El asistente está pensando…",
-    "open": "Hablar con el asistente del coche"
+    "open": "Hablar con el asistente del coche",
+    "limitReached": "Ya usaste las preguntas de hoy. El asistente vuelve mañana.",
+    "notConfigured": "El asistente aún no está activado. Pide a quien administra tu Xpeed que lo active."
   },
   "pwa": {
     "appIcon": "Icono de la app",

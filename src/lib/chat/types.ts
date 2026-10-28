@@ -42,13 +42,26 @@ export interface ChatContext {
         vin?: string | null;
         engine_type?: string | null;
     } | null;
-    recentSessions: Array<{
-        date: string;
-        filename: string;
-        duration: number | null;
-        summary: Record<string, unknown> | null;
-    }>;
     sessionCount: number;
+    /** Open problems as the Problems page shows them, in the app's language. */
+    openProblems?: Array<{
+        title: string;
+        meaning: string;
+        action: string;
+        code: string;
+        severity: string;
+        cameBack: number;
+        lastSeen: string;
+    }>;
+    /** Latest trips, newest first, with the AI summary when there is one. */
+    lastTrips?: Array<{
+        date: string;
+        minutes: number | null;
+        km: number | null;
+        avgSpeedKmh: number | null;
+        faultCodes: string[];
+        summary: string | null;
+    }>;
     // Improvement D2: enriched fields for trend-aware AI answers
     trends?: Array<{
         canonical_key: string;
@@ -59,7 +72,6 @@ export interface ChatContext {
         trend: 'improving' | 'declining' | 'stable';
         sample_count: number;
     }>;
-    activeDtcs?: string[];
     maintenance?: Array<{ type: string; date: string; odometer?: number | null }>;
 }
 

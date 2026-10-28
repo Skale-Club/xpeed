@@ -1,8 +1,7 @@
 // Client-side wrapper that calls the server-side Edge Functions for AI.
 // SINGLE PROVIDER MODEL: one OpenRouter API key per system, configured by an
-// admin via /admin. The model is also chosen in /admin — the client does not
-// hardcode one; the Edge Function resolves it from app_settings. Users without
-// admin-configured AI see a clear "AI unavailable" message instead.
+// admin via /admin, which also picks the model. Users without admin-configured
+// AI get a clear "AI unavailable" message instead.
 
 import { supabase } from '@/integrations/supabase/client';
 import i18n from '@/lib/i18n';
@@ -17,74 +16,57 @@ export interface ChatContext {
   [key: string]: unknown;
 }
 
+/** Why the AI did not answer, so the app can say something useful. */
+export type AiFailure = 'limit_reached' | 'not_configured' | 'unavailable';
+
+export class AiError extends Error {
+  constructor(public kind: AiFailure) {
+    super(kind);
+  }
+}
+
+// supabase-js wraps non-2xx replies in a FunctionsHttpError whose `context` is the Response.
+async function failureKind(error: unknown): Promise<AiFailure> {
+  const response = (error as { context?: Response })?.context;
+  if (response && typeof response.status === 'number') {
+    if (response.status === 429) return 'limit_reached';
+    if (response.status === 503) return 'not_configured';
+  }
+  return 'unavailable';
+}
+
 /**
- * Server-side analysis via Edge Function — passes session_id so the
- * edge function reads the structured report from the DB.
+ * Plain-language summary of a saved trip. The edge function reads the trip
+ * report and the car's open problems from the database. Returns null when the
+ * AI is unavailable; the trip itself is already saved either way.
  */
-export async function analyzeSessionById(
-  sessionId: string,
-  model?: string,
-): Promise<AnalysisResult | null> {
+export async function analyzeSessionById(sessionId: string): Promise<AnalysisResult | null> {
   try {
-    const language = i18n.resolvedLanguage;
     const { data, error } = await supabase.functions.invoke('analyze-session', {
-      body: model ? { sessionId, model, language } : { sessionId, language },
+      body: { sessionId, language: i18n.resolvedLanguage },
     });
     if (error) {
-      console.warn('Edge analyze-session failed:', error.message);
+      console.warn('Trip analysis unavailable:', await failureKind(error));
       return null;
     }
     return (data?.analysis as AnalysisResult) ?? null;
   } catch (err) {
-    console.warn('Edge analyze-session threw:', err);
+    console.warn('Trip analysis threw:', err);
     return null;
   }
 }
 
-/**
- * Legacy: pass a pre-formatted summary string directly.
- * Kept for backward compatibility with any callers that still use it.
- */
-export async function analyzeSessionViaEdge(
-  sessionSummary: string,
-  model?: string,
-): Promise<AnalysisResult | null> {
-  try {
-    const { data, error } = await supabase.functions.invoke('analyze-session', {
-      body: model ? { sessionSummary, model } : { sessionSummary },
-    });
-    if (error) {
-      console.warn('Edge analyze-session failed:', error.message);
-      return null;
-    }
-    return (data?.analysis as AnalysisResult) ?? null;
-  } catch (err) {
-    console.warn('Edge analyze-session threw:', err);
-    return null;
-  }
-}
-
-/**
- * Server-side chat via Edge Function.
- */
+/** Server-side chat. Throws AiError saying why when there is no answer. */
 export async function chatViaEdge(
   history: { role: 'user' | 'model'; parts: string }[],
   message: string,
   context: ChatContext,
-  model?: string,
-): Promise<string | null> {
-  try {
-    const language = i18n.resolvedLanguage;
-    const { data, error } = await supabase.functions.invoke('chat', {
-      body: model ? { history, message, context, model, language } : { history, message, context, language },
-    });
-    if (error) {
-      console.warn('Edge chat failed:', error.message);
-      return null;
-    }
-    return (data?.reply as string) ?? null;
-  } catch (err) {
-    console.warn('Edge chat threw:', err);
-    return null;
-  }
+): Promise<string> {
+  const { data, error } = await supabase.functions.invoke('chat', {
+    body: { history, message, context, language: i18n.resolvedLanguage },
+  });
+  if (error) throw new AiError(await failureKind(error));
+  const reply = data?.reply as string | undefined;
+  if (!reply) throw new AiError('unavailable');
+  return reply;
 }

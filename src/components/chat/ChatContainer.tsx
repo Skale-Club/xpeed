@@ -8,7 +8,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Menu, X, Sparkles, Plus } from 'lucide-react';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
-import { chatViaEdge } from '@/lib/ai-client';
+import { AiError, chatViaEdge } from '@/lib/ai-client';
 import {
     getConversations,
     createConversation,
@@ -139,16 +139,12 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             }));
 
             // Single-provider AI: only the shared admin-configured Edge Function.
-            // If it returns null, surface a friendly error rather than silently failing.
+            // It throws AiError saying why when there is no answer (handled below).
             const responseText = await chatViaEdge(
                 historyMessages,
                 text,
                 (contextData ?? {}) as unknown as Record<string, unknown>,
             );
-
-            if (responseText === null) {
-                throw new Error('AI is temporarily unavailable. Either the daily limit was hit or the admin has not finished setup.');
-            }
 
             // Save assistant message
             const assistantMessageId = crypto.randomUUID();
@@ -169,9 +165,14 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             }
         } catch (error) {
             console.error('Chat error:', error);
+            const kind = error instanceof AiError ? error.kind : 'unavailable';
             toast({
                 title: t('assistant.errorTitle', 'Something went wrong'),
-                description: t('assistant.replyFailed', "The assistant couldn't answer right now. Please try again in a moment."),
+                description: kind === 'limit_reached'
+                    ? t('assistant.limitReached', "You've used today's questions. The assistant is back tomorrow.")
+                    : kind === 'not_configured'
+                        ? t('assistant.notConfigured', "The assistant isn't switched on yet. Ask whoever runs your Xpeed to turn it on.")
+                        : t('assistant.replyFailed', "The assistant couldn't answer right now. Please try again in a moment."),
                 variant: 'destructive',
             });
             // Remove the user message on error

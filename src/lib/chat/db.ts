@@ -4,6 +4,10 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { ChatMessage, ChatConversation, ChatContext, MessagePart, Attachment } from './types';
 import { getSessions } from '@/lib/db';
+import { getIssuesForCar } from '@/lib/db-issues';
+import { describeProblem } from '@/lib/problems';
+import { tripAverageSpeed, tripDate, tripDistanceKm } from '@/lib/trips';
+import i18n from '@/lib/i18n';
 import { listMaintenanceEvents } from '@/lib/db-extras';
 import { computeTrends } from '@/lib/trends';
 import type { Json } from '@/integrations/supabase/types';
@@ -208,16 +212,12 @@ export async function deleteMessagesFrom(conversationId: string, fromMessageId: 
     }
 }
 
-// Build context for the AI from vehicle data
-// Improvement D2: enrich with trends, active DTCs, and maintenance history so
-// the AI can answer "is X getting worse?" with real numbers, not guesses.
+// Build context for the AI from vehicle data: the same open problems the
+// Problems page shows, the latest trips (with their AI summaries), trends and
+// maintenance, so answers match what the user sees in the app.
 export async function buildChatContext(carProfileId?: string | null): Promise<ChatContext> {
     if (!carProfileId) {
-        return {
-            vehicle: null,
-            recentSessions: [],
-            sessionCount: 0,
-        };
+        return { vehicle: null, sessionCount: 0 };
     }
 
     try {
@@ -234,20 +234,37 @@ export async function buildChatContext(carProfileId?: string | null): Promise<Ch
 
         // Get sessions (typed for trend analysis)
         const sessions = (await getSessions(carProfileId)) as unknown as Session[];
-        const recentSessions = sessions.slice(0, 5).map((s) => ({
-            date: s.uploaded_at,
-            filename: s.source_filename,
-            duration: s.duration_seconds,
-            summary: s.summary as Record<string, unknown> | null,
-        }));
+        const round = (n: number | null) => (n == null ? null : Math.round(n));
 
-        // Aggregate unique active DTCs across recent sessions
-        const activeDtcs = Array.from(new Set(
-            sessions.slice(0, 10).flatMap((s) => {
-                const dtcs = (s as Session & { active_dtcs?: string[] }).active_dtcs;
-                return Array.isArray(dtcs) ? dtcs : [];
-            })
-        ));
+        // Open problems, worded exactly like the Problems page.
+        let openProblems: ChatContext['openProblems'] = [];
+        try {
+            const issues = await getIssuesForCar(carProfileId);
+            openProblems = issues
+                .filter((i) => i.status === 'active' || i.status === 'recurred')
+                .slice(0, 10)
+                .map((i) => {
+                    const text = describeProblem(i, i18n.t);
+                    return {
+                        title: text.title, meaning: text.meaning, action: text.action, code: text.code,
+                        severity: i.severity, cameBack: i.recurrence_count, lastSeen: i.last_seen_at,
+                    };
+                });
+        } catch (pErr) {
+            console.warn('Problems context unavailable:', pErr);
+        }
+
+        const lastTrips = sessions.slice(0, 3).map((s) => {
+            const ai = s.gemini_analysis as { summary?: unknown } | null;
+            return {
+                date: tripDate(s).toISOString(),
+                minutes: s.duration_seconds ? Math.round(s.duration_seconds / 60) : null,
+                km: round(tripDistanceKm(s)),
+                avgSpeedKmh: round(tripAverageSpeed(s)),
+                faultCodes: (s as Session & { active_dtcs?: string[] }).active_dtcs ?? [],
+                summary: typeof ai?.summary === 'string' ? ai.summary : null,
+            };
+        });
 
         // Compute per-parameter trends (recent N vs prior M sessions)
         const trends = computeTrends(sessions, 5, 20).slice(0, 8); // top 8 by delta
@@ -278,18 +295,14 @@ export async function buildChatContext(carProfileId?: string | null): Promise<Ch
                     engine_type: (carProfile as { engine_type?: string | null }).engine_type ?? null,
                 }
                 : null,
-            recentSessions,
             sessionCount: sessions.length,
+            openProblems,
+            lastTrips,
             trends,
-            activeDtcs,
             maintenance,
         };
     } catch (error) {
         console.error('Failed to build chat context:', error);
-        return {
-            vehicle: null,
-            recentSessions: [],
-            sessionCount: 0,
-        };
+        return { vehicle: null, sessionCount: 0 };
     }
 }

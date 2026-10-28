@@ -19,6 +19,9 @@ export class EmptyCsvError extends Error {
   }
 }
 
+/** Trips shorter than this get an AI summary only if something stood out. */
+const MIN_ANALYZED_TRIP_S = 3 * 60;
+
 export interface IngestResult {
   sessionId: string;
   rows: number;
@@ -214,20 +217,24 @@ export async function ingestSessionCsv(
       console.warn('Issue reconciliation skipped:', issueErr);
     }
 
-    // Analyze with Gemini via the shared admin-configured Edge Function.
-    // Single provider for all users — no per-user API key path.
+    // Plain-language AI summary via the shared admin-configured Edge Function.
+    // With always-on recording a day can hold many short hops, so a short trip
+    // where nothing stood out gets no summary (saves the daily AI quota).
     // Failure here is non-fatal: the session is already saved.
-    try {
-      updateProgress(95, 'Analyzing with AI...');
-      const { updateSessionWithGeminiAnalysis } = await import('@/lib/db');
-      const { analyzeSessionById } = await import('@/lib/ai-client');
+    const worthAnalyzing = (durationSeconds ?? 0) >= MIN_ANALYZED_TRIP_S || flags.some((f) => f.severity !== 'normal') || parsed.activeDtcs.length > 0;
+    if (worthAnalyzing) {
+      try {
+        updateProgress(95, 'Analyzing with AI...');
+        const { updateSessionWithGeminiAnalysis } = await import('@/lib/db');
+        const { analyzeSessionById } = await import('@/lib/ai-client');
 
-      const analysis = await analyzeSessionById(session.id);
-      if (analysis) {
-        await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
+        const analysis = await analyzeSessionById(session.id);
+        if (analysis) {
+          await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
+        }
+      } catch (aiError) {
+        console.warn('AI analysis skipped:', aiError);
       }
-    } catch (aiError) {
-      console.warn('Gemini analysis skipped:', aiError);
     }
 
     // Refresh rolling baselines for this car (used by anomaly detection).

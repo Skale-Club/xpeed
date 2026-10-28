@@ -167,6 +167,8 @@ export const supabase = {
   rpc: async (name: string, args: Row = {}) => ({ data: rpcs[name]?.(args) ?? null, error: null }),
   functions: {
     invoke: async (name: string, opts?: { body?: Row }) => {
+      // Handy from the console: what the app sent to the AI last.
+      (window as unknown as { __lastAiCall: unknown }).__lastAiCall = { name, body: opts?.body };
       await new Promise((r) => setTimeout(r, 400));
       if (name === 'analyze-session') {
         return {
