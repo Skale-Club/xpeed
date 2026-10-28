@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatSidebar } from './ChatSidebar';
@@ -32,6 +33,7 @@ interface UIMessage {
 }
 
 export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
+    const { t } = useTranslation();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [conversations, setConversations] = useState<ChatConversation[]>([]);
     const [currentConversation, setCurrentConversation] = useState<ChatConversation | null>(null);
@@ -168,8 +170,8 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         } catch (error) {
             console.error('Chat error:', error);
             toast({
-                title: 'Error',
-                description: 'Failed to get response from AI',
+                title: t('assistant.errorTitle', 'Something went wrong'),
+                description: t('assistant.replyFailed', "The assistant couldn't answer right now. Please try again in a moment."),
                 variant: 'destructive',
             });
             // Remove the user message on error
@@ -177,7 +179,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         } finally {
             setLoading(false);
         }
-    }, [currentConversation, selectedCar, contextData, messages, toast]);
+    }, [currentConversation, selectedCar, contextData, messages, toast, t]);
 
     const handleNewConversation = async () => {
         setCurrentConversation(null);
@@ -200,8 +202,8 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             }
         } catch (error) {
             toast({
-                title: 'Error',
-                description: 'Failed to delete conversation',
+                title: t('assistant.errorTitle', 'Something went wrong'),
+                description: t('assistant.deleteFailed', "Couldn't delete this conversation. Please try again."),
                 variant: 'destructive',
             });
         }
@@ -233,6 +235,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             size="icon"
                             onClick={() => setSidebarOpen(!sidebarOpen)}
                             className="md:hidden"
+                            aria-label={t('assistant.showHistory', 'Show past conversations')}
                         >
                             <Menu className="h-5 w-5" />
                         </Button>
@@ -243,7 +246,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             <div>
                                 <CardTitle className="text-lg">Xpeed</CardTitle>
                                 <p className="text-xs text-muted-foreground">
-                                    {selectedCar ? selectedCar.name : 'No Vehicle Selected'}
+                                    {selectedCar ? selectedCar.name : t('assistant.noCarSelected', 'No car selected')}
                                 </p>
                             </div>
                         </div>
@@ -251,9 +254,9 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     <div className="flex items-center gap-2">
                         <Button variant="ghost" size="sm" onClick={handleNewConversation}>
                             <Plus className="h-4 w-4 mr-1" />
-                            New
+                            {t('assistant.newChat', 'New chat')}
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={onClose}>
+                        <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('assistant.close', 'Close')}>
                             <X className="h-5 w-5" />
                         </Button>
                     </div>
@@ -280,12 +283,11 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                     <Sparkles className="w-12 h-12 text-primary mb-4" />
                                     <h3 className="text-lg font-semibold mb-2">
                                         {contextData?.vehicle
-                                            ? `Ask about your ${contextData.vehicle.name}`
-                                            : 'Select a vehicle to get started'}
+                                            ? t('assistant.askAboutCar', 'Ask about your {{name}}', { name: contextData.vehicle.name })
+                                            : t('assistant.chooseCar', 'Choose a car to get started')}
                                     </h3>
                                     <p className="text-muted-foreground max-w-md">
-                                        I can help you analyze your vehicle's OBD2 data, explain diagnostic codes,
-                                        and provide maintenance recommendations.
+                                        {t('assistant.intro', "I can explain what your car's readings mean, tell you what a fault code means in plain words, and suggest when it needs a check-up.")}
                                     </p>
                                 </div>
                             ) : (

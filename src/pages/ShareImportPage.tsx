@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { FileUp, Loader2, AlertCircle, Car } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { useCarsContext } from '@/contexts/CarsContext';
@@ -14,7 +15,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+type FileError = 'noCache' | 'noFile' | 'readFailed';
+
 export default function ShareImportPage() {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { cars, loading: carsLoading, selectedCarId: contextCarId } = useCarsContext();
@@ -22,7 +26,7 @@ export default function ShareImportPage() {
   const [selectedCarId, setSelectedCarId] = useState<string>('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [loadingFile, setLoadingFile] = useState(true);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<FileError | null>(null);
 
   const { upload, uploading, progressLabel, progressValue } = useCSVUpload(
     (sessionId) => navigate(`/session/${sessionId}`),
@@ -46,13 +50,13 @@ export default function ShareImportPage() {
     (async () => {
       try {
         if (!('caches' in window)) {
-          setFileError('Cache API not available in this browser.');
+          setFileError('noCache');
           return;
         }
         const cache = await caches.open('share-target-v1');
         const response = await cache.match('/pending-csv');
         if (!response) {
-          setFileError('No CSV file received. Please share the file from Car Scanner again.');
+          setFileError('noFile');
           return;
         }
         const fileName = decodeURIComponent(
@@ -63,7 +67,7 @@ export default function ShareImportPage() {
         setPendingFile(file);
         await cache.delete('/pending-csv');
       } catch (err) {
-        setFileError('Failed to read the shared file. Please try again.');
+        setFileError('readFailed');
       } finally {
         setLoadingFile(false);
       }
@@ -76,6 +80,12 @@ export default function ShareImportPage() {
 
   const isReady = !loadingFile && !carsLoading && !!pendingFile && !!selectedCarId;
 
+  const fileErrorText: Record<FileError, string> = {
+    noCache: t('importPage.errorNoCache', "This browser can't receive shared files. Please open the app and import the file from there."),
+    noFile: t('importPage.errorNoFile', "We didn't receive a file. Please share it from the Car Scanner app again."),
+    readFailed: t('importPage.errorReadFailed', "We couldn't open the shared file. Please try again."),
+  };
+
   return (
     <AppLayout>
       <div className="max-w-lg mx-auto pt-8">
@@ -83,7 +93,7 @@ export default function ShareImportPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <FileUp className="w-5 h-5 text-primary" />
-              Import from Car Scanner
+              {t('importPage.title', 'Import a trip from Car Scanner')}
             </CardTitle>
           </CardHeader>
 
@@ -92,12 +102,12 @@ export default function ShareImportPage() {
             {loadingFile ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Reading shared file…
+                {t('importPage.readingFile', 'Opening the file you shared…')}
               </div>
             ) : fileError ? (
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <AlertCircle className="w-4 h-4" />
-                {fileError}
+                {fileErrorText[fileError]}
               </div>
             ) : pendingFile ? (
               <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
@@ -111,27 +121,26 @@ export default function ShareImportPage() {
             {/* Car selector */}
             {!fileError && (
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">Vehicle</label>
+                <label className="text-sm font-medium text-foreground">{t('importPage.carLabel', 'Which car was it?')}</label>
                 {carsLoading ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading vehicles…
+                    {t('importPage.loadingCars', 'Loading your cars…')}
                   </div>
                 ) : cars.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No vehicles found. Add one in{' '}
+                    {t('importPage.noCars', "You haven't added a car yet.")}{' '}
                     <button
                       className="underline text-primary"
                       onClick={() => navigate('/cars')}
                     >
-                      Cars
+                      {t('importPage.addCar', 'Add a car')}
                     </button>
-                    .
                   </p>
                 ) : (
                   <Select value={selectedCarId} onValueChange={setSelectedCarId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a vehicle" />
+                    <SelectTrigger aria-label={t('importPage.carLabel', 'Which car was it?')}>
+                      <SelectValue placeholder={t('importPage.chooseCar', 'Choose a car')} />
                     </SelectTrigger>
                     <SelectContent>
                       {cars.map((car) => (
@@ -172,12 +181,12 @@ export default function ShareImportPage() {
                   {uploading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Uploading… {progressValue}%
+                      {t('importPage.importing', 'Importing… {{percent}}%', { percent: progressValue })}
                     </>
                   ) : (
                     <>
                       <FileUp className="w-4 h-4 mr-2" />
-                      Import CSV
+                      {t('importPage.importButton', 'Import trip')}
                     </>
                   )}
                 </Button>
@@ -187,7 +196,7 @@ export default function ShareImportPage() {
                 onClick={() => navigate('/')}
                 disabled={uploading}
               >
-                {fileError ? 'Go to Dashboard' : 'Cancel'}
+                {fileError ? t('importPage.goHome', 'Go to Home') : t('common.cancel', 'Cancel')}
               </Button>
             </div>
           </CardContent>

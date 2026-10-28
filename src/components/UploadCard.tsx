@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Upload, FileUp, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,6 +13,7 @@ interface UploadCardProps {
 }
 
 export default function UploadCard({ onComplete, carProfileId, variant = 'default' }: UploadCardProps) {
+  const { t } = useTranslation();
   const { upload, uploading, progressLabel, progressValue } = useCSVUpload(onComplete, carProfileId);
   const inputRef = useRef<HTMLInputElement>(null);
   const [sessionName, setSessionName] = useState('');
@@ -54,10 +56,10 @@ export default function UploadCard({ onComplete, carProfileId, variant = 'defaul
             )}
             <div>
               <p className="text-sm font-medium text-foreground">
-                {uploading ? progressLabel : "Upload new log"}
+                {uploading ? progressLabel : t('upload.compactTitle', 'Import a trip recording')}
               </p>
               {!uploading && (
-                <p className="text-xs text-muted-foreground">Drop CSV or click to upload</p>
+                <p className="text-xs text-muted-foreground">{t('upload.compactHint', 'Drop the CSV file here or tap to choose it')}</p>
               )}
             </div>
           </div>
@@ -91,11 +93,11 @@ export default function UploadCard({ onComplete, carProfileId, variant = 'defaul
         />
       )}
       <CardContent className="relative z-10 flex flex-col gap-3 py-5 px-4">
-        {/* Session name — top so keyboard never hides the upload button */}
+        {/* Trip name — top so keyboard never hides the upload button */}
         {!uploading && (
           <div onClick={e => e.stopPropagation()}>
             <Input
-              placeholder="Session name (optional)"
+              placeholder={t('upload.namePlaceholder', 'Trip name (optional)')}
               value={sessionName}
               onChange={e => setSessionName(e.target.value)}
               className="h-9 text-sm"
@@ -122,8 +124,8 @@ export default function UploadCard({ onComplete, carProfileId, variant = 'defaul
                 <FileUp className="w-6 h-6 text-primary" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium text-foreground">Tap to choose CSV</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Car Scanner / OBD Fusion export</p>
+                <p className="text-sm font-medium text-foreground">{t('upload.chooseFile', 'Tap to choose the CSV file')}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t('upload.sourceHint', 'Exported from the Car Scanner or OBD Fusion app')}</p>
               </div>
             </>
           )}

@@ -7,7 +7,7 @@ export interface DecodedVin {
   make: string | null;
   model: string | null;
   trim: string | null;
-  engineType: 'petrol' | 'diesel' | 'hybrid' | 'electric' | null;
+  engineType: 'flex' | 'petrol' | 'diesel' | 'hybrid' | 'electric' | null;
   bodyClass: string | null;
   manufacturer: string | null;
 }
@@ -34,7 +34,8 @@ function inferEngineType(results: NhtsaResult[]): DecodedVin['engineType'] {
   if (electrification.includes('bev') || electrification.includes('battery electric')) return 'electric';
   if (electrification.includes('hev') || electrification.includes('phev') || electrification.includes('hybrid')) return 'hybrid';
   if (fuel1.includes('diesel')) return 'diesel';
-  if (fuel1.includes('gasoline') || fuel1.includes('petrol') || fuel1.includes('ethanol') || fuel1.includes('flexible')) return 'petrol';
+  if (fuel1.includes('ethanol') || fuel1.includes('flexible')) return 'flex';
+  if (fuel1.includes('gasoline') || fuel1.includes('petrol')) return 'petrol';
   return null;
 }
 

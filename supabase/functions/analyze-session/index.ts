@@ -12,10 +12,15 @@ import { getGeminiApiKey, getDefaultGeminiModel } from "../_shared/admin-config.
 import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
 
 // S04: validate + bound the request before spending quota / calling Gemini.
+// The app sends its UI language so answers come back in it (older clients send nothing → English).
+const LANGUAGE_NAMES = { "en": "English", "pt-BR": "Brazilian Portuguese", "es-ES": "Spanish" } as const;
+const LanguageSchema = z.enum(["en", "pt-BR", "es-ES"]).optional();
+
 const AnalyzeBodySchema = z.object({
   sessionId: z.string().uuid().optional(),
   sessionSummary: z.string().max(50000).optional(),
   model: z.string().regex(/^[a-zA-Z0-9.\-]{1,64}$/).optional(),
+  language: LanguageSchema,
 });
 
 const corsHeaders = {
@@ -186,11 +191,13 @@ serve(async (req) => {
     }
 
     // 6. Build prompt and call OpenRouter
-    const prompt = `You are an automotive diagnostic assistant. Given the OBD2 session data below, produce a JSON response with three fields:
-- summary: a 2-3 sentence plain-English overview of the session
-- key_findings: an array of 1-4 short bullet strings (most notable observations)
+    const languageName = LANGUAGE_NAMES[body.language ?? "en"];
+    const prompt = `You are an automotive diagnostic assistant writing for a car owner with no mechanical knowledge. Given the OBD2 trip data below, produce a JSON response with three fields:
+- summary: a 2-3 sentence overview of the trip in plain, everyday words (no jargon, sensor names or codes)
+- key_findings: an array of 1-4 short bullet strings (most notable observations, also in plain words)
 - recommended_action: one short sentence telling the driver what (if anything) to do next
 
+Write every text value in ${languageName}. Keep the JSON field names in English.
 Output ONLY valid JSON, no prose around it.
 
 Session data:

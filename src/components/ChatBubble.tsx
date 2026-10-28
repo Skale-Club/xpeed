@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { MessageCircle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ChatContainer } from './chat/ChatContainer';
 
 export function ChatBubble() {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -17,6 +19,7 @@ export function ChatBubble() {
           isOpen ? "rotate-90 scale-0 opacity-0" : "scale-100 opacity-100"
         )}
         size="icon"
+        aria-label={t('assistant.open', 'Ask the car assistant')}
       >
         <MessageCircle className="h-6 w-6" />
       </Button>

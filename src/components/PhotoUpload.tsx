@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Image as ImageIcon, Loader2, Trash2, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,14 +15,16 @@ interface PhotoUploadProps {
   sessionId: string;
 }
 
+// English defaults; translations live under photos.types.<type>.
 const TYPE_LABELS: Record<PhotoType, string> = {
   dashboard: 'Dashboard / warning lights',
   scanner: 'Scanner screen',
-  engine_bay: 'Engine bay',
+  engine_bay: 'Under the hood',
   other: 'Other',
 };
 
 export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<SessionPhoto[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
@@ -54,11 +57,19 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
-      toast({ title: 'Invalid file', description: 'Please select an image (jpg, png, webp).', variant: 'destructive' });
+      toast({
+        title: t('photos.invalidTitle', "That's not a photo"),
+        description: t('photos.invalidBody', 'Please choose an image (JPG, PNG or WebP).'),
+        variant: 'destructive',
+      });
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast({ title: 'Too large', description: 'Maximum photo size is 10 MB.', variant: 'destructive' });
+      toast({
+        title: t('photos.tooLargeTitle', 'Photo too large'),
+        description: t('photos.tooLargeBody', 'Photos can be up to 10 MB.'),
+        variant: 'destructive',
+      });
       return;
     }
     setUploading(true);
@@ -66,14 +77,18 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       const photo = await uploadSessionPhoto(file, sessionId, photoType, caption.trim() || undefined);
       setPhotos(prev => [...prev, photo]);
       setCaption('');
-      toast({ title: 'Photo uploaded' });
+      toast({ title: t('photos.uploaded', 'Photo added') });
     } catch (err) {
       console.error('Photo upload failed:', err);
-      toast({ title: 'Upload failed', description: String(err), variant: 'destructive' });
+      toast({
+        title: t('photos.uploadFailed', "Couldn't add the photo"),
+        description: t('photos.tryAgain', 'Please check your connection and try again.'),
+        variant: 'destructive',
+      });
     } finally {
       setUploading(false);
     }
-  }, [sessionId, photoType, caption, toast]);
+  }, [sessionId, photoType, caption, t, toast]);
 
   const handleDelete = useCallback(async (photo: SessionPhoto) => {
     try {
@@ -81,39 +96,39 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       setPhotos(prev => prev.filter(p => p.id !== photo.id));
     } catch (err) {
       console.error('Photo delete failed:', err);
-      toast({ title: 'Delete failed', variant: 'destructive' });
+      toast({ title: t('photos.deleteFailed', "Couldn't delete the photo"), variant: 'destructive' });
     }
-  }, [toast]);
+  }, [t, toast]);
 
   return (
     <Card className="border-border bg-card">
       <CardContent className="p-4 space-y-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-mono font-semibold text-foreground">Photos</h3>
+          <h3 className="text-sm font-mono font-semibold text-foreground">{t('photos.title', 'Photos')}</h3>
         </div>
 
         <div className="grid grid-cols-[1fr_2fr_auto] gap-2 items-end">
           <div>
             <Select value={photoType} onValueChange={(v) => setPhotoType(v as PhotoType)}>
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-xs" aria-label={t('photos.typeLabel', 'What the photo shows')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(TYPE_LABELS) as PhotoType[]).map(t => (
-                  <SelectItem key={t} value={t}>{TYPE_LABELS[t]}</SelectItem>
+                {(Object.keys(TYPE_LABELS) as PhotoType[]).map(type => (
+                  <SelectItem key={type} value={type}>{t(`photos.types.${type}`, TYPE_LABELS[type])}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <Input
-            placeholder="Caption (optional)"
+            placeholder={t('photos.captionPlaceholder', 'Short description (optional)')}
             value={caption}
             onChange={e => setCaption(e.target.value)}
             className="h-8 text-xs"
           />
           <Button size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
-            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Add'}
+            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : t('photos.add', 'Add photo')}
           </Button>
         </div>
 
@@ -131,7 +146,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
 
         {photos.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-4">
-            Add a photo of a warning light, scanner screen, or anything visual. AI will see it too.
+            {t('photos.empty', 'Add a photo of a warning light, the scanner screen or anything else you can see. The assistant will look at it too.')}
           </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -144,7 +159,8 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
                   type="button"
                   onClick={() => handleDelete(p)}
                   className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 rounded p-1"
-                  title="Delete photo"
+                  title={t('photos.delete', 'Delete photo')}
+                  aria-label={t('photos.delete', 'Delete photo')}
                 >
                   <Trash2 className="w-3 h-3 text-destructive" />
                 </button>

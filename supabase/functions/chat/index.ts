@@ -11,7 +11,12 @@ import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
 
 // S04: validate request shape and bound sizes before doing any work / spending
 // quota. Caps prevent token/cost inflation via huge message or history payloads.
+// The app sends its UI language so answers come back in it (older clients send nothing → English).
+const LANGUAGE_NAMES = { "en": "English", "pt-BR": "Brazilian Portuguese", "es-ES": "Spanish" } as const;
+const LanguageSchema = z.enum(["en", "pt-BR", "es-ES"]).optional();
+
 const ChatBodySchema = z.object({
+  language: LanguageSchema,
   message: z.string().min(1).max(8000),
   model: z.string().regex(/^[a-zA-Z0-9.\-]{1,64}$/).optional(),
   context: z.record(z.unknown()).optional(),
@@ -185,7 +190,9 @@ serve(async (req) => {
     const body = parsed.data;
 
     const model = body.model || await getDefaultModel();
-    const systemPrompt = buildSystemPrompt(body.context || {});
+    const languageName = LANGUAGE_NAMES[body.language ?? "en"];
+    const systemPrompt = buildSystemPrompt(body.context || {}) +
+      `\n\nAlways reply in ${languageName}, in plain everyday words for someone with no mechanical knowledge; briefly explain any technical term you have to use.`;
 
     // OpenAI-compatible chat messages (OpenRouter). role "model" -> "assistant".
     const messages = [

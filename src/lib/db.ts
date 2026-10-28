@@ -352,7 +352,8 @@ export async function storeSessionReport(
 }
 
 // Car management functions
-export type EngineType = 'petrol' | 'diesel' | 'hybrid' | 'electric';
+// 'flex' = Brazilian flex-fuel (gasoline/ethanol); analysed like petrol.
+export type EngineType = 'flex' | 'petrol' | 'diesel' | 'hybrid' | 'electric';
 
 export interface CarProfile {
   id: string;

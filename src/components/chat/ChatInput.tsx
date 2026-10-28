@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Loader2 } from 'lucide-react';
@@ -12,6 +13,7 @@ interface ChatInputProps {
 }
 
 export function ChatInput({ input, setInput, onSend, isLoading, disabled }: ChatInputProps) {
+    const { t } = useTranslation();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Auto-resize textarea
@@ -44,7 +46,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={disabled ? "API Key required" : "Ask about your vehicle..."}
+                    placeholder={disabled ? t('assistant.unavailable', 'The assistant is not available right now') : t('assistant.placeholder', 'Ask anything about your car…')}
                     disabled={isLoading || disabled}
                     className="min-h-[44px] max-h-[200px] resize-none flex-1"
                     rows={1}
@@ -54,6 +56,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                     size="icon"
                     disabled={!input.trim() || isLoading || disabled}
                     className="h-11 w-11 flex-shrink-0"
+                    aria-label={t('assistant.send', 'Send')}
                 >
                     {isLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -63,7 +66,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                 </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-                Press Enter to send, Shift+Enter for new line
+                {t('assistant.enterHint', 'Press Enter to send, Shift+Enter for a new line')}
             </p>
         </form>
     );

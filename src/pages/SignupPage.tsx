@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { Loader2, Car, CheckCircle } from 'lucide-react';
 import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 
 export default function SignupPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { signUp, signInWithGoogle } = useAuth();
   const brand = useBrand();
@@ -28,12 +30,12 @@ export default function SignupPage() {
     setError('');
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwordsDontMatch', "The two passwords don't match."));
       return;
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setError(t('auth.passwordTooShort', 'Your password needs at least 6 characters.'));
       return;
     }
 
@@ -49,7 +51,12 @@ export default function SignupPage() {
         setSuccess(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign up');
+      const message = err instanceof Error ? err.message : '';
+      setError(
+        message.includes('already registered')
+          ? t('auth.alreadyRegistered', 'There is already an account with this email. Try signing in instead.')
+          : message || t('auth.signUpFailed', "We couldn't create your account. Please try again."),
+      );
     } finally {
       setLoading(false);
     }
@@ -63,7 +70,7 @@ export default function SignupPage() {
       await signInWithGoogle();
       // OAuth redirect will handle navigation
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign up with Google');
+      setError(err instanceof Error ? err.message : t('auth.googleSignUpFailed', "We couldn't sign you up with Google. Please try again."));
       setGoogleLoading(false);
     }
   };
@@ -76,16 +83,16 @@ export default function SignupPage() {
             <div className="w-16 h-16 flex items-center justify-center bg-success/10 rounded-full">
               <CheckCircle className="w-8 h-8 text-success" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">Account Created!</h1>
+            <h1 className="text-2xl font-bold text-foreground">{t('auth.accountCreated', 'Account created!')}</h1>
           </div>
 
           <Card>
             <CardContent className="pt-6 text-center space-y-4">
               <p className="text-sm text-muted-foreground">
-                Please check your email to verify your account before signing in.
+                {t('auth.checkEmail', 'Check your email and open the link we sent to confirm your account. Then you can sign in.')}
               </p>
               <Button onClick={() => navigate('/login')} className="w-full">
-                Go to Sign In
+                {t('auth.goToSignIn', 'Go to sign in')}
               </Button>
             </CardContent>
           </Card>
@@ -101,20 +108,20 @@ export default function SignupPage() {
         <div className="flex flex-col items-center space-y-2">
           <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full overflow-hidden">
             {useCustomLogo ? (
-              <img src={brand.logo_url} alt="Logo" className="w-12 h-12 object-contain" />
+              <img src={brand.logo_url} alt={t('auth.logoAlt', 'Logo')} className="w-12 h-12 object-contain" />
             ) : (
               <Car className="w-8 h-8 text-primary" />
             )}
           </div>
           <h1 className="text-2xl font-bold text-foreground">Xpeed</h1>
-          <p className="text-sm text-muted-foreground">Create your account</p>
+          <p className="text-sm text-muted-foreground">{t('auth.signUpSubtitle', 'Create your account')}</p>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Create Account</CardTitle>
+            <CardTitle>{t('auth.createAccount', 'Create account')}</CardTitle>
             <CardDescription>
-              Start tracking your vehicle diagnostics
+              {t('auth.signUpDescription', "Start keeping an eye on your car's health.")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -126,11 +133,11 @@ export default function SignupPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('auth.email', 'Email')}</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder={t('auth.emailPlaceholder', 'you@example.com')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -138,7 +145,7 @@ export default function SignupPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('auth.password', 'Password')}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -148,12 +155,12 @@ export default function SignupPage() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Must be at least 6 characters
+                  {t('auth.passwordHint', 'At least 6 characters')}
                 </p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Label htmlFor="confirmPassword">{t('auth.confirmPassword', 'Confirm password')}</Label>
                 <Input
                   id="confirmPassword"
                   type="password"
@@ -172,10 +179,10 @@ export default function SignupPage() {
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating account...
+                    {t('auth.creatingAccount', 'Creating your account…')}
                   </>
                 ) : (
-                  'Create Account'
+                  t('auth.createAccount', 'Create account')
                 )}
               </Button>
             </form>
@@ -183,16 +190,16 @@ export default function SignupPage() {
             {/* Google OAuth — hidden until configured */}
 
             <div className="mt-4 text-center text-sm">
-              <span className="text-muted-foreground">Already have an account? </span>
+              <span className="text-muted-foreground">{t('auth.haveAccount', 'Already have an account?')} </span>
               <Link to="/login" className="text-primary hover:underline">
-                Sign in
+                {t('auth.signIn', 'Sign in')}
               </Link>
             </div>
           </CardContent>
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          By creating an account, you agree to our Terms of Service and Privacy Policy
+          {t('auth.signUpTerms', 'By creating an account, you agree to our Terms of Service and Privacy Policy.')}
         </p>
       </div>
     </div>

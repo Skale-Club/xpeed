@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,24 +17,25 @@ import {
 } from '@/lib/db-extras';
 import { Wrench, Plus, Trash2, Loader2 } from 'lucide-react';
 
+// English defaults; translations live under maint.types.<type>.
 const TYPE_LABELS: Record<MaintenanceType, string> = {
   oil_change: 'Oil change',
-  coolant_flush: 'Coolant flush',
+  coolant_flush: 'Coolant (radiator fluid) change',
   brake_pads_front: 'Front brake pads',
   brake_pads_rear: 'Rear brake pads',
   brake_fluid: 'Brake fluid',
-  transmission_fluid: 'Transmission fluid',
-  air_filter: 'Air filter',
-  cabin_filter: 'Cabin filter',
+  transmission_fluid: 'Gearbox oil',
+  air_filter: 'Engine air filter',
+  cabin_filter: 'Cabin (A/C) air filter',
   spark_plugs: 'Spark plugs',
-  battery_12v: '12V battery',
-  battery_hv: 'HV battery',
-  tires: 'Tires',
+  battery_12v: 'Car battery (12V)',
+  battery_hv: 'Hybrid / electric battery',
+  tires: 'New tires',
   tire_rotation: 'Tire rotation',
   wheel_alignment: 'Wheel alignment',
   timing_belt: 'Timing belt',
-  serpentine_belt: 'Serpentine / accessory belt',
-  inspection: 'Inspection',
+  serpentine_belt: 'Accessory (fan) belt',
+  inspection: 'General check-up',
   other: 'Other',
 };
 
@@ -45,7 +47,15 @@ const TYPE_ORDER: MaintenanceType[] = [
   'inspection', 'other',
 ];
 
+// Costs are shown in the currency of the app language; how they are stored is unchanged.
+const CURRENCY_BY_LANGUAGE: Record<string, string> = {
+  en: 'USD',
+  'pt-BR': 'BRL',
+  'es-ES': 'EUR',
+};
+
 export default function MaintenancePage() {
+  const { t, i18n } = useTranslation();
   const { selectedCar, selectedCarId } = useCarsContext();
   const { toast } = useToast();
   const [events, setEvents] = useState<MaintenanceEvent[]>([]);
@@ -61,6 +71,19 @@ export default function MaintenancePage() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const language = i18n.resolvedLanguage || 'en';
+  const typeLabel = (value: MaintenanceType) => t(`maint.types.${value}`, TYPE_LABELS[value]);
+  const formatMoney = (value: number) =>
+    new Intl.NumberFormat(language, { style: 'currency', currency: CURRENCY_BY_LANGUAGE[language] ?? 'USD' }).format(value);
+  // Service dates are stored as "YYYY-MM-DD"; parsing that as UTC shows the
+  // previous day west of Greenwich (e.g. Brazil), so read it as a local date.
+  const formatDate = (iso: string) => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const date = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+    return date.toLocaleDateString(language);
+  };
+  const formatKm = (km: number) => new Intl.NumberFormat(language).format(km);
+
   const load = useCallback(async () => {
     if (!selectedCarId) {
       setLoading(false);
@@ -72,11 +95,11 @@ export default function MaintenancePage() {
       setEvents(data);
     } catch (err) {
       console.error(err);
-      toast({ title: 'Error', description: 'Failed to load maintenance events', variant: 'destructive' });
+      toast({ title: t('maint.loadFailed', "Couldn't load the service history"), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
-  }, [selectedCarId, toast]);
+  }, [selectedCarId, t, toast]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -95,13 +118,18 @@ export default function MaintenancePage() {
         notes: notes.trim() || null,
       });
       setEvents(prev => [ev, ...prev]);
-      toast({ title: 'Service event added' });
+      toast({ title: t('maint.added', 'Service saved') });
       setIsAddOpen(false);
       setType('oil_change');
       setDate(new Date().toISOString().slice(0, 10));
       setOdometer(''); setCost(''); setShop(''); setNotes('');
     } catch (err) {
-      toast({ title: 'Error', description: String(err), variant: 'destructive' });
+      console.error(err);
+      toast({
+        title: t('maint.saveFailed', "Couldn't save the service"),
+        description: t('maint.tryAgain', 'Please check your connection and try again.'),
+        variant: 'destructive',
+      });
     } finally {
       setSaving(false);
     }
@@ -112,7 +140,12 @@ export default function MaintenancePage() {
       await deleteMaintenanceEvent(id);
       setEvents(prev => prev.filter(e => e.id !== id));
     } catch (err) {
-      toast({ title: 'Error', description: String(err), variant: 'destructive' });
+      console.error(err);
+      toast({
+        title: t('maint.deleteFailed', "Couldn't delete the service"),
+        description: t('maint.tryAgain', 'Please check your connection and try again.'),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -123,63 +156,64 @@ export default function MaintenancePage() {
           <div className="flex items-center gap-2">
             <Wrench className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-mono font-bold text-foreground">
-              Maintenance Log {selectedCar && <span className="text-muted-foreground font-normal">— {selectedCar.name}</span>}
+              {t('maint.title', 'Service history')}{' '}
+              {selectedCar && <span className="text-muted-foreground font-normal">— {selectedCar.name}</span>}
             </h2>
           </div>
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={!selectedCarId}>
                 <Plus className="w-3.5 h-3.5 mr-2" />
-                Add Service Event
+                {t('maint.addButton', 'Add a service')}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Record a service event</DialogTitle>
+                <DialogTitle>{t('maint.dialogTitle', 'Record a service')}</DialogTitle>
                 <DialogDescription>
-                  Service history feeds the AI assistant and powers due-soon reminders.
+                  {t('maint.dialogDescription', 'Writing down what was done to your car helps the assistant give better advice and remind you when something is due.')}
                 </DialogDescription>
               </DialogHeader>
               <div className="grid grid-cols-2 gap-3 py-4">
                 <div className="col-span-2 space-y-1.5">
-                  <Label htmlFor="m-type">Service type *</Label>
+                  <Label htmlFor="m-type">{t('maint.typeLabel', 'What was done *')}</Label>
                   <Select value={type} onValueChange={(v) => setType(v as MaintenanceType)}>
                     <SelectTrigger id="m-type">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {TYPE_ORDER.map(t => (
-                        <SelectItem key={t} value={t}>{TYPE_LABELS[t]}</SelectItem>
+                      {TYPE_ORDER.map(value => (
+                        <SelectItem key={value} value={value}>{typeLabel(value)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="m-date">Date *</Label>
+                  <Label htmlFor="m-date">{t('maint.dateLabel', 'Date *')}</Label>
                   <Input id="m-date" type="date" value={date} onChange={e => setDate(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="m-odo">Odometer (km)</Label>
+                  <Label htmlFor="m-odo">{t('maint.mileageLabel', 'Mileage (km)')}</Label>
                   <Input id="m-odo" type="number" placeholder="120000" value={odometer} onChange={e => setOdometer(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="m-cost">Cost</Label>
-                  <Input id="m-cost" type="number" placeholder="80.00" value={cost} onChange={e => setCost(e.target.value)} />
+                  <Label htmlFor="m-cost">{t('maint.costLabel', 'Cost')}</Label>
+                  <Input id="m-cost" type="number" placeholder="80" value={cost} onChange={e => setCost(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="m-shop">Shop</Label>
-                  <Input id="m-shop" placeholder="Optional" value={shop} onChange={e => setShop(e.target.value)} />
+                  <Label htmlFor="m-shop">{t('maint.workshopLabel', 'Workshop')}</Label>
+                  <Input id="m-shop" placeholder={t('maint.optional', 'Optional')} value={shop} onChange={e => setShop(e.target.value)} />
                 </div>
                 <div className="col-span-2 space-y-1.5">
-                  <Label htmlFor="m-notes">Notes</Label>
-                  <Input id="m-notes" placeholder="e.g. used 5W-30 synthetic" value={notes} onChange={e => setNotes(e.target.value)} />
+                  <Label htmlFor="m-notes">{t('maint.notesLabel', 'Notes')}</Label>
+                  <Input id="m-notes" placeholder={t('maint.notesPlaceholder', 'e.g. used 5W-30 synthetic oil')} value={notes} onChange={e => setNotes(e.target.value)} />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => setIsAddOpen(false)}>{t('common.cancel', 'Cancel')}</Button>
                 <Button onClick={handleAdd} disabled={saving}>
                   {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  Save
+                  {t('common.save', 'Save')}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -189,7 +223,7 @@ export default function MaintenancePage() {
         {!selectedCarId ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 text-center text-sm text-muted-foreground">
-              Select a vehicle to view its maintenance history.
+              {t('maint.noCar', 'Choose a car in the menu to see its service history.')}
             </CardContent>
           </Card>
         ) : loading ? (
@@ -202,13 +236,13 @@ export default function MaintenancePage() {
           <Card className="bg-card border-border">
             <CardContent className="py-12 text-center">
               <Wrench className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-mono font-semibold text-foreground mb-2">No service history yet</h3>
+              <h3 className="text-sm font-mono font-semibold text-foreground mb-2">{t('maint.emptyTitle', 'No services recorded yet')}</h3>
               <p className="text-xs text-muted-foreground mb-4">
-                Record what you've done — oil changes, brake pads, tire rotations — to power smarter insights.
+                {t('maint.emptyBody', "Write down what's been done (oil changes, brake pads, tire rotations) so we can give you better advice.")}
               </p>
               <Button size="sm" onClick={() => setIsAddOpen(true)}>
                 <Plus className="w-3.5 h-3.5 mr-2" />
-                Add First Service
+                {t('maint.addFirst', 'Add your first service')}
               </Button>
             </CardContent>
           </Card>
@@ -219,16 +253,16 @@ export default function MaintenancePage() {
                 <CardContent className="p-3 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-sm font-mono font-semibold text-foreground">{TYPE_LABELS[ev.event_type]}</span>
-                      <span className="text-xs text-muted-foreground font-mono">{new Date(ev.performed_at).toLocaleDateString()}</span>
+                      <span className="text-sm font-mono font-semibold text-foreground">{typeLabel(ev.event_type)}</span>
+                      <span className="text-xs text-muted-foreground font-mono">{formatDate(ev.performed_at)}</span>
                       {ev.odometer_km != null && (
-                        <span className="text-xs text-muted-foreground font-mono">{ev.odometer_km.toLocaleString()} km</span>
+                        <span className="text-xs text-muted-foreground font-mono">{t('maint.kmValue', '{{km}} km', { km: formatKm(ev.odometer_km) })}</span>
                       )}
                       {ev.cost != null && (
-                        <span className="text-xs text-muted-foreground font-mono">${ev.cost.toFixed(2)}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{formatMoney(ev.cost)}</span>
                       )}
                       {ev.shop && (
-                        <span className="text-xs text-muted-foreground">@ {ev.shop}</span>
+                        <span className="text-xs text-muted-foreground">{t('maint.atWorkshop', 'Workshop: {{name}}', { name: ev.shop })}</span>
                       )}
                     </div>
                     {ev.notes && (
@@ -240,6 +274,8 @@ export default function MaintenancePage() {
                     variant="ghost"
                     className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                     onClick={() => handleDelete(ev.id)}
+                    aria-label={t('maint.deleteAria', 'Delete this service')}
+                    title={t('maint.deleteAria', 'Delete this service')}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

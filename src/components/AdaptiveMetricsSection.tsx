@@ -17,6 +17,7 @@ const ENGINE_ICONS: Record<EngineType, React.ElementType> = {
   hybrid: Leaf,
   electric: Zap,
   petrol: Flame,
+  flex: Flame,
   diesel: Settings2,
 };
 

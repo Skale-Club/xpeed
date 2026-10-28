@@ -17,6 +17,17 @@ export interface EngineTypeConfig {
   priorityChartIds: string[];
 }
 
+const PETROL_CONFIG: EngineTypeConfig = {
+  label: 'Petrol',
+  heroMetrics: [
+    { canonical_key: 'coolant_temp', label: 'Coolant Temp', unit: '°C', format: 'integer', valueType: 'max', warnAbove: 100, criticalAbove: 115 },
+    { canonical_key: 'engine_load', label: 'Engine Load', unit: '%', format: 'integer', valueType: 'avg', warnAbove: 80, criticalAbove: 95 },
+    { canonical_key: 'stft_b1', label: 'Fuel Trim B1', unit: '%', format: 'decimal1', valueType: 'avg', warnAbove: 10, criticalAbove: 25 },
+    { canonical_key: 'engine_rpm', label: 'Max RPM', unit: 'rpm', format: 'integer', valueType: 'max' },
+  ],
+  priorityChartIds: ['engine', 'fuel_trim', 'fuel_econ', 'temperature', 'speed', 'voltage', 'emissions'],
+};
+
 export const ENGINE_TYPE_CONFIGS: Record<EngineType, EngineTypeConfig> = {
   hybrid: {
     label: 'Hybrid',
@@ -38,16 +49,8 @@ export const ENGINE_TYPE_CONFIGS: Record<EngineType, EngineTypeConfig> = {
     ],
     priorityChartIds: ['voltage', 'temperature', 'speed', 'engine', 'fuel_econ', 'fuel_trim', 'emissions'],
   },
-  petrol: {
-    label: 'Petrol',
-    heroMetrics: [
-      { canonical_key: 'coolant_temp', label: 'Coolant Temp', unit: '°C', format: 'integer', valueType: 'max', warnAbove: 100, criticalAbove: 115 },
-      { canonical_key: 'engine_load', label: 'Engine Load', unit: '%', format: 'integer', valueType: 'avg', warnAbove: 80, criticalAbove: 95 },
-      { canonical_key: 'stft_b1', label: 'Fuel Trim B1', unit: '%', format: 'decimal1', valueType: 'avg', warnAbove: 10, criticalAbove: 25 },
-      { canonical_key: 'engine_rpm', label: 'Max RPM', unit: 'rpm', format: 'integer', valueType: 'max' },
-    ],
-    priorityChartIds: ['engine', 'fuel_trim', 'fuel_econ', 'temperature', 'speed', 'voltage', 'emissions'],
-  },
+  petrol: PETROL_CONFIG,
+  flex: { ...PETROL_CONFIG, label: 'Flex' },
   diesel: {
     label: 'Diesel',
     heroMetrics: [

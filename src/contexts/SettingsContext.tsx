@@ -7,6 +7,9 @@ interface SettingsContextType {
   timezone: string;
   setDistanceUnit: (unit: DistanceUnit) => void;
   setTimezone: (timezone: string) => void;
+  /** Show technical tools (Scanner, terminal, custom PIDs, developer integrations). */
+  advancedTools: boolean;
+  setAdvancedTools: (on: boolean) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -14,6 +17,9 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>('km');
   const [timezone, setTimezoneState] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [advancedTools, setAdvancedToolsState] = useState<boolean>(() => {
+    try { return localStorage.getItem('settings_advancedTools') === 'true'; } catch { return false; }
+  });
 
   useEffect(() => {
     const savedDistanceUnit = localStorage.getItem('settings_distanceUnit') as DistanceUnit;
@@ -33,8 +39,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('settings_timezone', tz);
   };
 
+  const setAdvancedTools = (on: boolean) => {
+    setAdvancedToolsState(on);
+    try { localStorage.setItem('settings_advancedTools', String(on)); } catch { /* not persisted */ }
+  };
+
   return (
-    <SettingsContext.Provider value={{ distanceUnit, timezone, setDistanceUnit, setTimezone }}>
+    <SettingsContext.Provider value={{ distanceUnit, timezone, setDistanceUnit, setTimezone, advancedTools, setAdvancedTools }}>
       {children}
     </SettingsContext.Provider>
   );

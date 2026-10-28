@@ -1,4 +1,5 @@
 import { Bot, User } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +15,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, isLoading }: MessageListProps) {
+    const { t } = useTranslation();
     return (
         <div className="space-y-4">
             {messages.map((message) => (
@@ -56,7 +58,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
             ))}
 
             {isLoading && (
-                <div className="flex justify-start gap-3">
+                <div className="flex justify-start gap-3" role="status" aria-label={t('assistant.thinking', 'The assistant is thinking…')}>
                     <div className="w-8 h-8 rounded-full bg-primary/10 flex-shrink-0 flex items-center justify-center">
                         <Bot className="w-4 h-4 text-primary animate-pulse" />
                     </div>

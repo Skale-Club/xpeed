@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAdminStatus } from '@/hooks/use-admin-status';
 import { useBrand } from '@/hooks/use-brand';
+import { useSettings } from '@/contexts/SettingsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
@@ -42,16 +43,17 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
+// Everyday places first; the technical Scanner only shows with "Advanced tools" on.
 const NAV_ITEMS = [
   { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
-  { to: '/scanner', i18nKey: 'nav.scanner', icon: Bluetooth },
   { to: '/live', i18nKey: 'nav.live', icon: Activity },
   { to: '/issues', i18nKey: 'nav.issues', icon: AlertTriangle },
   { to: '/history', i18nKey: 'nav.history', icon: History },
-  { to: '/cars', i18nKey: 'nav.cars', icon: Car },
   { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench },
-  { to: '/settings', i18nKey: 'nav.settings', icon: Settings },
+  { to: '/cars', i18nKey: 'nav.cars', icon: Car },
 ];
+const ADVANCED_ITEMS = [{ to: '/scanner', i18nKey: 'nav.scanner', icon: Bluetooth }];
+const SETTINGS_ITEM = { to: '/settings', i18nKey: 'nav.settings', icon: Settings };
 
 const LANGS = [
   { code: 'en', label: 'English', flag: '🇺🇸' },
@@ -82,7 +84,8 @@ export function AppSidebar() {
     await logout(queryClient);
   };
 
-  const navItems = NAV_ITEMS;
+  const { advancedTools } = useSettings();
+  const navItems = [...NAV_ITEMS, ...(advancedTools ? ADVANCED_ITEMS : []), SETTINGS_ITEM];
   const adminActive = location.pathname.startsWith('/admin');
 
   return (
@@ -96,7 +99,7 @@ export function AppSidebar() {
           <div className="group-data-[collapsible=icon]:hidden">
             <p className="text-sm font-bold leading-none tracking-tight">Xpeed</p>
             <p className="text-[10px] text-sidebar-foreground/50 uppercase tracking-widest font-medium mt-0.5">
-              Vehicle Diagnostics
+              {t('sidebar.tagline', 'Your car, simply')}
             </p>
           </div>
         </Link>
@@ -110,13 +113,13 @@ export function AppSidebar() {
                   <Button variant="outline" size="sm" className="w-full gap-2 font-mono text-xs justify-between">
                     <div className="flex items-center gap-2 min-w-0">
                       <Car className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span className="truncate">{selectedCar ? selectedCar.name : 'Select Car'}</span>
+                      <span className="truncate">{selectedCar ? selectedCar.name : t('sidebar.selectCar', 'Choose your car')}</span>
                     </div>
                     <ChevronDown className="w-3 h-3 flex-shrink-0" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
-                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Select Vehicle</div>
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t('sidebar.selectCar', 'Choose your car')}</div>
                   <DropdownMenuSeparator />
                   {cars.map((car) => (
                     <DropdownMenuItem
@@ -132,16 +135,16 @@ export function AppSidebar() {
                   <DialogTrigger asChild>
                     <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                       <Plus className="w-3.5 h-3.5 mr-2" />
-                      Add New Car
+                      {t('sidebar.addCar', 'Add a car')}
                     </DropdownMenuItem>
                   </DialogTrigger>
                 </DropdownMenuContent>
               </DropdownMenu>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Add New Vehicle</DialogTitle>
+                  <DialogTitle>{t('sidebar.addCar', 'Add a car')}</DialogTitle>
                   <DialogDescription>
-                    Register a new vehicle to track its OBD2 data separately.
+                    {t('sidebar.addCarHint', 'Each car keeps its own trips and problems.')}
                   </DialogDescription>
                 </DialogHeader>
                 <AddVehicleForm
@@ -244,7 +247,7 @@ export function AppSidebar() {
                   ) : (
                     <LogOut className="w-3.5 h-3.5 mr-2" />
                   )}
-                  Sign Out
+                  {t('sidebar.signOut', 'Sign out')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

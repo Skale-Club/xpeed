@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Plus, Trash2, MessageSquare, X } from 'lucide-react';
@@ -23,6 +24,7 @@ export function ChatSidebar({
     onNewConversation,
     onClose,
 }: ChatSidebarProps) {
+    const { t, i18n } = useTranslation();
     return (
         <>
             {/* Mobile overlay */}
@@ -42,12 +44,12 @@ export function ChatSidebar({
                 )}
             >
                 <div className="p-4 border-b flex items-center justify-between">
-                    <h2 className="font-semibold">History</h2>
+                    <h2 className="font-semibold">{t('assistant.pastChats', 'Past conversations')}</h2>
                     <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={onNewConversation} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={onNewConversation} className="h-8 w-8" aria-label={t('assistant.newChat', 'New chat')}>
                             <Plus className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 md:hidden">
+                        <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 md:hidden" aria-label={t('assistant.close', 'Close')}>
                             <X className="h-4 w-4" />
                         </Button>
                     </div>
@@ -57,7 +59,7 @@ export function ChatSidebar({
                     <div className="p-2 space-y-1">
                         {conversations.length === 0 ? (
                             <p className="text-sm text-muted-foreground text-center p-4">
-                                No conversations yet
+                                {t('assistant.noChats', 'No conversations yet')}
                             </p>
                         ) : (
                             conversations.map((conv) => (
@@ -75,13 +77,14 @@ export function ChatSidebar({
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm truncate">{conv.title}</p>
                                         <p className="text-xs text-muted-foreground">
-                                            {new Date(conv.updated_at).toLocaleDateString()}
+                                            {new Date(conv.updated_at).toLocaleDateString(i18n.resolvedLanguage || undefined)}
                                         </p>
                                     </div>
                                     <Button
                                         variant="ghost"
                                         size="icon"
                                         className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        aria-label={t('assistant.deleteChat', 'Delete conversation')}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             onDeleteConversation(conv.id);

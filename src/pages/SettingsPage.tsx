@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, Sparkles, Globe, Info, Smartphone, Share, Download, Save, RotateCcw } from 'lucide-react';
+import { Settings, Globe, Info, Smartphone, Share, Download, Wrench } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Switch } from '@/components/ui/switch';
+import { isNativeApp } from '@/lib/obd/native-ble';
 import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
 import { Button } from '@/components/ui/button';
@@ -9,8 +13,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import McpTokensSection from '@/components/McpTokensSection';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { toast } from 'sonner';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -50,45 +52,32 @@ function usePWAInstall() {
 }
 
 function PWASection() {
+  const { t } = useTranslation();
   const { prompt, isInstalled, isIOS, install } = usePWAInstall();
 
   return (
     <Card className="bg-card border-border">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-3 mb-3">
+      <CardContent className="p-4 space-y-2">
+        <div className="flex items-center gap-3">
           <Smartphone className="w-5 h-5 text-primary" />
-          <h3 className="text-sm font-mono font-semibold text-foreground">Install App</h3>
+          <h3 className="text-sm font-semibold">{t('settings.install.title', 'Install the app')}</h3>
         </div>
-
         {isInstalled ? (
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Xpeed is running as an installed app. To reinstall, remove it from your home screen and use the button below.
-          </p>
+          <p className="text-sm text-muted-foreground">{t('settings.install.installed', 'Xpeed is installed on this device.')}</p>
         ) : isIOS ? (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              To install on iPhone / iPad:
-            </p>
-            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Tap the <Share className="w-3 h-3 inline mb-0.5" /> Share button in Safari</li>
-              <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
-              <li>Tap <strong>Add</strong> to confirm</li>
-            </ol>
-          </div>
+          <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+            <li>{t('settings.install.ios1', 'Tap the Share button in Safari')} <Share className="w-3 h-3 inline mb-0.5" /></li>
+            <li>{t('settings.install.ios2', 'Choose "Add to Home Screen"')}</li>
+            <li>{t('settings.install.ios3', 'Tap "Add"')}</li>
+          </ol>
         ) : prompt ? (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Install Xpeed on your home screen for faster access and offline support.
-            </p>
-            <Button size="sm" className="gap-2" onClick={install}>
-              <Download className="w-3.5 h-3.5" />
-              Add to Home Screen
-            </Button>
-          </div>
+          <Button size="sm" className="gap-2" onClick={install}>
+            <Download className="w-3.5 h-3.5" />
+            {t('settings.install.button', 'Add to Home Screen')}
+          </Button>
         ) : (
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Open Xpeed in Chrome or Edge on Android, or Safari on iPhone/iPad, to install it as an app.
-            If already installed, remove from home screen first to trigger reinstall.
+          <p className="text-sm text-muted-foreground">
+            {t('settings.install.other', 'Open Xpeed in Chrome on Android (or Safari on iPhone) to install it.')}
           </p>
         )}
       </CardContent>
@@ -96,29 +85,16 @@ function PWASection() {
   );
 }
 
+const LANGS = [
+  { code: 'pt-BR', label: 'Português (Brasil)' },
+  { code: 'en', label: 'English' },
+  { code: 'es-ES', label: 'Español' },
+];
+
 export default function SettingsPage() {
-  const { distanceUnit, setDistanceUnit, timezone, setTimezone } = useSettings();
-
-  // Pending (unsaved) state — changes are staged here before the user hits Save
-  const [pendingUnit, setPendingUnit] = useState<'km' | 'mi'>(distanceUnit);
-  const [pendingTZ, setPendingTZ] = useState(timezone);
-
-  // Keep pending in sync if context ever resets (e.g. on first load)
-  useEffect(() => { setPendingUnit(distanceUnit); }, [distanceUnit]);
-  useEffect(() => { setPendingTZ(timezone); }, [timezone]);
-
-  const isDirty = pendingUnit !== distanceUnit || pendingTZ !== timezone;
-
-  const handleSave = () => {
-    setDistanceUnit(pendingUnit);
-    setTimezone(pendingTZ);
-    toast.success('Settings saved');
-  };
-
-  const handleDiscard = () => {
-    setPendingUnit(distanceUnit);
-    setPendingTZ(timezone);
-  };
+  const { t, i18n } = useTranslation();
+  const { distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
+  const currentLang = LANGS.find((l) => i18n.resolvedLanguage === l.code)?.code ?? 'en';
 
   const timezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
@@ -126,139 +102,92 @@ export default function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-4">
-        {/* Header — Save button appears inline on desktop when dirty */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Settings className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-mono font-bold text-foreground">Settings</h2>
-          </div>
-          {isDirty && (
-            <div className="hidden sm:flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-150">
-              <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleDiscard}>
-                <RotateCcw className="w-3 h-3" />
-                Discard
-              </Button>
-              <Button size="sm" className="gap-1.5 text-xs" onClick={handleSave}>
-                <Save className="w-3.5 h-3.5" />
-                Save
-              </Button>
-            </div>
-          )}
+      <div className="space-y-4 max-w-2xl">
+        <div className="flex items-center gap-2">
+          <Settings className="w-5 h-5 text-primary" />
+          <h2 className="text-xl font-bold">{t('settings.title', 'Settings')}</h2>
         </div>
 
-        {/* Mobile floating Save button — visible only on small screens when dirty */}
-        {isDirty && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 sm:hidden animate-in fade-in slide-in-from-bottom-3 duration-200">
-            <Button variant="outline" size="sm" className="gap-1.5 shadow-lg bg-background" onClick={handleDiscard}>
-              <RotateCcw className="w-3 h-3" />
-              Discard
-            </Button>
-            <Button size="default" className="gap-2 shadow-lg px-6" onClick={handleSave}>
-              <Save className="w-4 h-4" />
-              Save Changes
-            </Button>
-          </div>
-        )}
+        {/* Preferences apply immediately — no separate save step */}
+        <Card className="bg-card border-border">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <Globe className="w-5 h-5 text-primary" />
+              <h3 className="text-sm font-semibold">{t('settings.prefs.title', 'Preferences')}</h3>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="set-lang">{t('settings.prefs.language', 'Language')}</Label>
+                <Select value={currentLang} onValueChange={(v) => void i18n.changeLanguage(v)}>
+                  <SelectTrigger id="set-lang"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LANGS.map((l) => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-unit">{t('settings.prefs.distance', 'Distance')}</Label>
+                <Select value={distanceUnit} onValueChange={(v: 'km' | 'mi') => setDistanceUnit(v)}>
+                  <SelectTrigger id="set-unit"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="km">{t('settings.prefs.km', 'Kilometers (km)')}</SelectItem>
+                    <SelectItem value="mi">{t('settings.prefs.mi', 'Miles (mi)')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="set-tz">{t('settings.prefs.timezone', 'Time zone')}</Label>
+                <Select value={timezone} onValueChange={setTimezone}>
+                  <SelectTrigger id="set-tz"><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-[250px]">
+                    {timezones.map((tz) => <SelectItem key={tz} value={tz}>{tz.replace(/_/g, ' ')}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t('settings.prefs.timezoneHint', 'Set automatically from this device; change it only if dates look wrong.')}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        <Tabs defaultValue="app" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-4">
-            <TabsTrigger value="app" className="text-xs gap-1.5">
-              <Globe className="w-3.5 h-3.5" />
-              App
-            </TabsTrigger>
-            <TabsTrigger value="integrations" className="text-xs gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              Integrations
-            </TabsTrigger>
-            <TabsTrigger value="about" className="text-xs gap-1.5">
-              <Info className="w-3.5 h-3.5" />
-              About
-            </TabsTrigger>
-          </TabsList>
+        {!isNativeApp() && <PWASection />}
 
-          {/* App tab: preferences + PWA */}
-          <TabsContent value="app" className="space-y-4 mt-0">
-            <Card className="bg-card border-border">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3 mb-4">
-                  <Globe className="w-5 h-5 text-primary" />
-                  <h3 className="text-sm font-mono font-semibold text-foreground">Preferences</h3>
-                </div>
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-mono">Distance Unit</Label>
-                    <Select value={pendingUnit} onValueChange={(v: 'km' | 'mi') => setPendingUnit(v)}>
-                      <SelectTrigger className={`font-mono text-xs ${pendingUnit !== distanceUnit ? 'border-primary' : ''}`}>
-                        <SelectValue placeholder="Select unit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="km">Kilometers (km)</SelectItem>
-                        <SelectItem value="mi">Miles (mi)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-muted-foreground">Used for distances and speed.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-mono">Timezone</Label>
-                    <Select value={pendingTZ} onValueChange={setPendingTZ}>
-                      <SelectTrigger className={`font-mono text-xs ${pendingTZ !== timezone ? 'border-primary' : ''}`}>
-                        <SelectValue placeholder="Select timezone" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[250px]">
-                        {timezones.map((tz) => (
-                          <SelectItem key={tz} value={tz}>
-                            {tz.replace(/_/g, ' ')}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[10px] text-muted-foreground">Used for displaying dates.</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <PWASection />
-          </TabsContent>
-
-          {/* Integrations tab: MCP + AI */}
-          <TabsContent value="integrations" className="space-y-4 mt-0">
-            <McpTokensSection />
-
-            <Card className="bg-card border-border">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                  <h3 className="text-sm font-mono font-semibold text-foreground">AI Assistant</h3>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  AI features (session analysis + chat) are powered by a shared OpenRouter key configured
-                  by the system administrator. No per-user setup required. Daily fair-use limits apply.
+        <Card className="bg-card border-border">
+          <CardContent className="p-4 space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <Switch checked={advancedTools} onCheckedChange={setAdvancedTools} aria-label={t('settings.advanced.title', 'Advanced tools')} />
+              <span>
+                <span className="text-sm font-semibold flex items-center gap-2"><Wrench className="w-4 h-4" /> {t('settings.advanced.title', 'Advanced tools')}</span>
+                <span className="text-sm text-muted-foreground block">
+                  {t('settings.advanced.hint', 'For mechanics and enthusiasts: shows the Scanner (terminal, custom PIDs, module discovery, clearing fault codes) and developer integrations.')}
+                </span>
+              </span>
+            </label>
+            {advancedTools && (
+              <div className="space-y-4 border-t border-border pt-3">
+                <Link to="/scanner" className="text-sm text-primary hover:underline">{t('settings.advanced.openScanner', 'Open the Scanner')}</Link>
+                <McpTokensSection />
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.advanced.ai', 'AI features (trip analysis and the assistant) use a shared key set up by the administrator. Daily fair-use limits apply.')}
                 </p>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-          {/* About tab */}
-          <TabsContent value="about" className="space-y-4 mt-0">
-            <Card className="bg-card border-border">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <Info className="w-5 h-5 text-primary" />
-                  <h3 className="text-sm font-mono font-semibold text-foreground">About Xpeed</h3>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Xpeed is a personal data viewer for OBD2 logs exported from Car Scanner, Torque Pro,
-                  and similar apps. Manage multiple vehicles and track their health separately.
-                </p>
-                <p className="text-xs text-muted-foreground leading-relaxed mt-2">
-                  Always consult a professional mechanic for serious vehicle issues.
-                </p>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        <Card className="bg-card border-border">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center gap-3">
+              <Info className="w-5 h-5 text-primary" />
+              <h3 className="text-sm font-semibold">{t('settings.about.title', 'About Xpeed')}</h3>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.about.body', 'Xpeed reads your car through a small Bluetooth adapter, records your trips and explains in plain words what needs attention.')}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );

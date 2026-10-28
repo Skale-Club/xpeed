@@ -5,6 +5,7 @@
 // admin-configured AI see a clear "AI unavailable" message instead.
 
 import { supabase } from '@/integrations/supabase/client';
+import i18n from '@/lib/i18n';
 
 export interface AnalysisResult {
   summary: string;
@@ -25,8 +26,9 @@ export async function analyzeSessionById(
   model?: string,
 ): Promise<AnalysisResult | null> {
   try {
+    const language = i18n.resolvedLanguage;
     const { data, error } = await supabase.functions.invoke('analyze-session', {
-      body: model ? { sessionId, model } : { sessionId },
+      body: model ? { sessionId, model, language } : { sessionId, language },
     });
     if (error) {
       console.warn('Edge analyze-session failed:', error.message);
@@ -72,8 +74,9 @@ export async function chatViaEdge(
   model?: string,
 ): Promise<string | null> {
   try {
+    const language = i18n.resolvedLanguage;
     const { data, error } = await supabase.functions.invoke('chat', {
-      body: model ? { history, message, context, model } : { history, message, context },
+      body: model ? { history, message, context, model, language } : { history, message, context, language },
     });
     if (error) {
       console.warn('Edge chat failed:', error.message);

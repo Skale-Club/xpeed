@@ -59,6 +59,7 @@ const ENGINE_FALLBACKS: Record<string, DefaultRule[]> = {
   electric: TESLA_MODEL3_RULES, // closest analogue we have
   diesel: GENERIC_DIESEL_RULES,
   petrol: GENERIC_PETROL_RULES,
+  flex: GENERIC_PETROL_RULES,
 };
 
 // Bump when thresholds, rule logic, or the set of bundled rulesets change.

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 
 export default function LoginPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // S02: only allow in-app paths; reject protocol-relative (`//evil.com`) and absolute URLs.
@@ -35,19 +37,13 @@ export default function LoginPage() {
       // Honor ?next=... for return-to flows (e.g. OAuth authorize)
       navigate(nextPath ?? '/');
     } catch (err: unknown) {
-      let errorMessage = err instanceof Error ? err.message : 'Failed to sign in';
-      
+      let errorMessage = err instanceof Error ? err.message : t('auth.signInFailed', "We couldn't sign you in. Please try again.");
+
       // Provide helpful error messages
       if (errorMessage.includes('Invalid login')) {
-        errorMessage = 'Invalid email or password.';
+        errorMessage = t('auth.wrongEmailOrPassword', 'Wrong email or password. Please check and try again.');
       } else if (errorMessage.includes('Email not confirmed')) {
-        errorMessage = `Email not confirmed.
-
-To fix this, go to Supabase Dashboard > SQL Editor and run:
-
-UPDATE auth.users SET email_confirmed_at = NOW() WHERE email = '${email}';
-
-Or visit: /setup-admin and click "Auto-Confirm Email"`;
+        errorMessage = t('auth.emailNotConfirmed', "Your email isn't confirmed yet. Open the link we sent to your inbox, then sign in again.");
       }
       
       setError(errorMessage);
@@ -64,7 +60,7 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
       await signInWithGoogle();
       // OAuth redirect will handle navigation
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in with Google');
+      setError(err instanceof Error ? err.message : t('auth.googleSignInFailed', "We couldn't sign you in with Google. Please try again."));
       setGoogleLoading(false);
     }
   };
@@ -76,20 +72,20 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
         <div className="flex flex-col items-center space-y-2">
           <div className="w-16 h-16 flex items-center justify-center bg-primary/10 rounded-full overflow-hidden">
             {useCustomLogo ? (
-              <img src={brand.logo_url} alt="Logo" className="w-12 h-12 object-contain" />
+              <img src={brand.logo_url} alt={t('auth.logoAlt', 'Logo')} className="w-12 h-12 object-contain" />
             ) : (
               <Car className="w-8 h-8 text-primary" />
             )}
           </div>
           <h1 className="text-2xl font-bold text-foreground">Xpeed</h1>
-          <p className="text-sm text-muted-foreground">Sign in to your account</p>
+          <p className="text-sm text-muted-foreground">{t('auth.signInSubtitle', 'Sign in to your account')}</p>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Welcome back</CardTitle>
+            <CardTitle>{t('auth.welcomeBack', 'Welcome back')}</CardTitle>
             <CardDescription>
-              Enter your credentials to access your dashboard
+              {t('auth.signInDescription', 'Enter your email and password to see your car.')}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -101,11 +97,11 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('auth.email', 'Email')}</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder={t('auth.emailPlaceholder', 'you@example.com')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -113,7 +109,7 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('auth.password', 'Password')}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -132,10 +128,10 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Signing in...
+                    {t('auth.signingIn', 'Signing in…')}
                   </>
                 ) : (
-                  'Sign In'
+                  t('auth.signIn', 'Sign in')
                 )}
               </Button>
             </form>
@@ -143,16 +139,16 @@ Or visit: /setup-admin and click "Auto-Confirm Email"`;
             {/* Google OAuth — hidden until configured */}
 
             <div className="mt-4 text-center text-sm">
-              <span className="text-muted-foreground">Don't have an account? </span>
+              <span className="text-muted-foreground">{t('auth.noAccount', "Don't have an account?")} </span>
               <Link to="/signup" className="text-primary hover:underline">
-                Sign up
+                {t('auth.signUp', 'Sign up')}
               </Link>
             </div>
           </CardContent>
         </Card>
 
         <p className="text-center text-xs text-muted-foreground">
-          By signing in, you agree to our Terms of Service and Privacy Policy
+          {t('auth.signInTerms', 'By signing in, you agree to our Terms of Service and Privacy Policy.')}
         </p>
       </div>
     </div>
