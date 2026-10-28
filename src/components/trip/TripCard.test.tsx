@@ -71,6 +71,15 @@ describe('TripCard', () => {
     await waitFor(() => expect(ingestMock).toHaveBeenCalledTimes(1));
     expect(ingestMock.mock.calls[0][1]).toBe('car-1');
     expect(ingestMock.mock.calls[0][2]).toMatch(/^Trip /);
+    // Fault codes read when the car came on travel with the trip (→ Problems list)
+    const csv = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(ingestMock.mock.calls[0][0]);
+    });
+    const [header, firstRow] = csv.split('\n');
+    expect(header.endsWith(',DTC')).toBe(true);
+    expect(firstRow.endsWith('P0133 P0420')).toBe(true);
     expect(await screen.findByText('Last trip saved.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/session/trip-1');
     // Still connected, ready for the next trip

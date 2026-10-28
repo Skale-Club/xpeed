@@ -208,7 +208,7 @@ export async function ingestSessionCsv(
         (m) => m.supabase.auth.getUser()
       );
       if (user) {
-        await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart);
+        await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart, parsed.activeDtcs);
       }
     } catch (issueErr) {
       console.warn('Issue reconciliation skipped:', issueErr);

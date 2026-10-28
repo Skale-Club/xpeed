@@ -273,5 +273,125 @@
     "available": "A new version of the app is available.",
     "install": "Update",
     "later": "Later"
+  },
+  "problems": {
+    "title": "Problems",
+    "noCar": "Choose a car in the menu to see its problems.",
+    "loadFailed": "Couldn't load the problems",
+    "actionFailed": "Couldn't save that change",
+    "allGood": "All good",
+    "allGoodHint": "Nothing needs your attention right now. We keep checking on every trip.",
+    "needAttention_one": "{{count}} problem needs attention",
+    "needAttention_other": "{{count}} problems need attention",
+    "urgentHint": "At least one is urgent — see what to do.",
+    "notUrgentHint": "Nothing urgent. See what to do below.",
+    "bannerHint": "Tap to see what to do.",
+    "tabOpen": "Need attention",
+    "tabClosed": "Resolved or ignored",
+    "emptyOpen": "No problems here.",
+    "emptyClosed": "Nothing resolved or ignored yet.",
+    "cameBack_one": "Came back after being fixed",
+    "cameBack_other": "Came back after being fixed ({{count}}×)",
+    "resolved": "Resolved",
+    "ignored": "Ignored",
+    "whatToDo": "What to do",
+    "seen": "First seen {{first}} · last seen {{last}}",
+    "viewTrip": "View the trip",
+    "forMechanic": "For the mechanic",
+    "markResolved": "It's fixed",
+    "ignore": "Ignore",
+    "reopen": "Reopen",
+    "urgency": {
+      "urgent": "Urgent",
+      "soon": "Book a check-up",
+      "watch": "Keep an eye on it",
+      "later": "Can wait"
+    },
+    "generic": {
+      "meaning": "A reading was outside its normal range during a trip.",
+      "action": "Keep an eye on it; if it keeps happening, mention it at your next service."
+    },
+    "dtc": {
+      "title": "The car stored a fault code",
+      "meaning": "The car's computer recorded a fault in the {{area}}.",
+      "area": {
+        "powertrain": "engine or gearbox",
+        "chassis": "brakes, suspension or steering",
+        "body": "body and comfort systems",
+        "network": "communication between modules"
+      },
+      "action": {
+        "severe": "See a mechanic as soon as possible and show them this code.",
+        "moderate": "Book a check-up and show the mechanic this code.",
+        "minor": "It can wait for your next service; mention this code."
+      }
+    },
+    "catalog": {
+      "coolant_temp": {
+        "title": "Engine running hot",
+        "meaning": "The engine temperature stayed above normal for a while.",
+        "action": "Check the coolant level with the engine cold. If the temperature gauge climbs again, pull over safely and see a mechanic."
+      },
+      "engine_rpm": {
+        "title": "Engine revving very high",
+        "meaning": "The engine spun close to its limit for a long time.",
+        "action": "Avoid revving hard, especially with a cold engine or in a low gear. If it wasn't you, have it checked."
+      },
+      "battery_voltage_12v": {
+        "title": "Weak 12 V battery",
+        "meaning": "The small 12 V battery's voltage went outside the normal range.",
+        "action": "Ask for a battery and charging-system test at your next service, or sooner if the car is slow to start."
+      },
+      "intake_air_temp": {
+        "title": "Hot air going into the engine",
+        "meaning": "The air the engine breathes was hotter than normal.",
+        "action": "Check the air filter and that nothing blocks the air intake."
+      },
+      "fuel_trim": {
+        "title": "Fuel mixture out of balance",
+        "meaning": "The engine is correcting its air–fuel mix more than usual.",
+        "action": "Often an air leak, a dirty sensor or injectors. Book a check-up; it's not urgent if the car drives fine."
+      },
+      "engine_load": {
+        "title": "Engine working very hard",
+        "meaning": "The engine ran near full effort for a long time.",
+        "action": "Normal on steep hills or with a heavy load. If it happens on regular drives, have it checked."
+      },
+      "oil_temp": {
+        "title": "Engine oil running hot",
+        "meaning": "The engine oil got hotter than normal.",
+        "action": "Check the oil level and when it was last changed."
+      },
+      "transmission_temp": {
+        "title": "Gearbox running hot",
+        "meaning": "The transmission fluid got hotter than normal.",
+        "action": "Avoid towing or heavy loads and have the transmission fluid checked."
+      },
+      "motor_temp": {
+        "title": "Electric motor running hot",
+        "meaning": "An electric drive motor got hotter than normal.",
+        "action": "Drive gently and have the cooling system checked by a specialist."
+      },
+      "hv_battery": {
+        "title": "Hybrid battery outside its normal range",
+        "meaning": "The high-voltage battery's charge or voltage went outside the usual range.",
+        "action": "If it keeps happening, have the hybrid battery checked by a hybrid specialist."
+      },
+      "hv_battery_temp": {
+        "title": "Hybrid battery running hot",
+        "meaning": "The high-voltage battery got hotter than normal.",
+        "action": "Check that the battery cooling vent (usually near the rear seat) is not blocked or dirty."
+      },
+      "inverter_temp": {
+        "title": "Hybrid system running hot",
+        "meaning": "The hybrid system's inverter got hotter than normal.",
+        "action": "Check the inverter coolant level and have the hybrid cooling pump checked."
+      },
+      "catalyst_temp": {
+        "title": "Catalytic converter very hot",
+        "meaning": "The exhaust catalytic converter got hotter than normal.",
+        "action": "This can come from misfires or a rich mixture. Book a check-up."
+      }
+    }
   }
 }

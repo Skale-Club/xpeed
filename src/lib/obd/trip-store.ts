@@ -11,6 +11,7 @@ export interface StoredTrip {
   endedAt?: number;
   columns: string[];
   samples: ScannerSample[];
+  dtcs?: string[];
 }
 
 const DB_NAME = 'xpeed-obd';

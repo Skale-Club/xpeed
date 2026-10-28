@@ -272,5 +272,125 @@
     "available": "Hay una nueva versión de la app disponible.",
     "install": "Actualizar",
     "later": "Más tarde"
+  },
+  "problems": {
+    "title": "Problemas",
+    "noCar": "Elige un coche en el menú para ver sus problemas.",
+    "loadFailed": "No se pudieron cargar los problemas",
+    "actionFailed": "No se pudo guardar el cambio",
+    "allGood": "Todo bien",
+    "allGoodHint": "Nada necesita tu atención ahora. Seguimos revisando en cada viaje.",
+    "needAttention_one": "{{count}} problema necesita atención",
+    "needAttention_other": "{{count}} problemas necesitan atención",
+    "urgentHint": "Al menos uno es urgente: mira qué hacer.",
+    "notUrgentHint": "Nada urgente. Mira abajo qué hacer.",
+    "bannerHint": "Toca para ver qué hacer.",
+    "tabOpen": "Necesitan atención",
+    "tabClosed": "Resueltos o ignorados",
+    "emptyOpen": "No hay problemas aquí.",
+    "emptyClosed": "Aún no hay nada resuelto ni ignorado.",
+    "cameBack_one": "Volvió después de resolverse",
+    "cameBack_other": "Volvió después de resolverse ({{count}}×)",
+    "resolved": "Resuelto",
+    "ignored": "Ignorado",
+    "whatToDo": "Qué hacer",
+    "seen": "Visto por primera vez el {{first}} · última vez el {{last}}",
+    "viewTrip": "Ver el viaje",
+    "forMechanic": "Para el mecánico",
+    "markResolved": "Ya está resuelto",
+    "ignore": "Ignorar",
+    "reopen": "Reabrir",
+    "urgency": {
+      "urgent": "Urgente",
+      "soon": "Pide una revisión",
+      "watch": "Vigílalo",
+      "later": "Puede esperar"
+    },
+    "generic": {
+      "meaning": "Una lectura estuvo fuera de lo normal durante un viaje.",
+      "action": "Vigílalo; si sigue pasando, coméntalo en la próxima revisión."
+    },
+    "dtc": {
+      "title": "El coche registró un código de avería",
+      "meaning": "El ordenador del coche registró una avería en {{area}}.",
+      "area": {
+        "powertrain": "el motor o la caja de cambios",
+        "chassis": "frenos, suspensión o dirección",
+        "body": "la carrocería y el confort",
+        "network": "la comunicación entre módulos"
+      },
+      "action": {
+        "severe": "Acude a un taller lo antes posible y enséñales este código.",
+        "moderate": "Pide una revisión y enseña este código al mecánico.",
+        "minor": "Puede esperar a la próxima revisión; menciona este código."
+      }
+    },
+    "catalog": {
+      "coolant_temp": {
+        "title": "Motor calentándose",
+        "meaning": "La temperatura del motor estuvo por encima de lo normal un tiempo.",
+        "action": "Comprueba el nivel de refrigerante con el motor frío. Si la temperatura vuelve a subir, detente en un lugar seguro y acude a un taller."
+      },
+      "engine_rpm": {
+        "title": "Motor muy revolucionado",
+        "meaning": "El motor giró cerca de su límite durante mucho tiempo.",
+        "action": "Evita acelerar demasiado, sobre todo con el motor frío o en marcha corta. Si no fuiste tú, que lo revisen."
+      },
+      "battery_voltage_12v": {
+        "title": "Batería de 12 V débil",
+        "meaning": "La tensión de la batería pequeña (12 V) salió de lo normal.",
+        "action": "Pide una prueba de batería y del sistema de carga en la próxima revisión, o antes si al coche le cuesta arrancar."
+      },
+      "intake_air_temp": {
+        "title": "Aire caliente entrando al motor",
+        "meaning": "El aire que aspira el motor estaba más caliente de lo normal.",
+        "action": "Revisa el filtro de aire y que nada bloquee la toma de aire."
+      },
+      "fuel_trim": {
+        "title": "Mezcla de combustible desajustada",
+        "meaning": "El motor está corrigiendo la mezcla de aire y combustible más de lo normal.",
+        "action": "Suele ser una entrada de aire, un sensor sucio o los inyectores. Pide una revisión; no es urgente si el coche va bien."
+      },
+      "engine_load": {
+        "title": "Motor haciendo mucho esfuerzo",
+        "meaning": "El motor trabajó cerca de su límite durante mucho tiempo.",
+        "action": "Es normal en cuestas fuertes o con mucha carga. Si pasa a diario, que lo revisen."
+      },
+      "oil_temp": {
+        "title": "Aceite del motor calentándose",
+        "meaning": "El aceite del motor se calentó más de lo normal.",
+        "action": "Comprueba el nivel de aceite y cuándo se cambió por última vez."
+      },
+      "transmission_temp": {
+        "title": "Caja de cambios calentándose",
+        "meaning": "El aceite de la transmisión se calentó más de lo normal.",
+        "action": "Evita remolcar o llevar mucho peso y pide que revisen el aceite de la caja."
+      },
+      "motor_temp": {
+        "title": "Motor eléctrico calentándose",
+        "meaning": "Un motor eléctrico de tracción se calentó más de lo normal.",
+        "action": "Conduce con suavidad y pide a un especialista que revise la refrigeración."
+      },
+      "hv_battery": {
+        "title": "Batería híbrida fuera de lo normal",
+        "meaning": "La carga o la tensión de la batería de alta tensión salió de su rango habitual.",
+        "action": "Si sigue pasando, llévala a un taller especializado en híbridos."
+      },
+      "hv_battery_temp": {
+        "title": "Batería híbrida calentándose",
+        "meaning": "La batería de alta tensión se calentó más de lo normal.",
+        "action": "Comprueba que la ventilación de la batería (normalmente junto al asiento trasero) no esté bloqueada ni sucia."
+      },
+      "inverter_temp": {
+        "title": "Sistema híbrido calentándose",
+        "meaning": "El inversor del sistema híbrido se calentó más de lo normal.",
+        "action": "Comprueba el refrigerante del inversor y pide que revisen la bomba de refrigeración del híbrido."
+      },
+      "catalyst_temp": {
+        "title": "Catalizador muy caliente",
+        "meaning": "El catalizador del escape se calentó más de lo normal.",
+        "action": "Puede deberse a fallos de encendido o mezcla rica. Pide una revisión."
+      }
+    }
   }
 }

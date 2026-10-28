@@ -82,7 +82,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     const carId = carIdRef.current;
     // Keep a copy until the save succeeds; a later app start retries it.
     await saveInProgressTrip({
-      carId, startedAt: trip.startedAt.getTime(), endedAt: trip.endedAt.getTime(), columns: trip.columns, samples: trip.samples,
+      carId, startedAt: trip.startedAt.getTime(), endedAt: trip.endedAt.getTime(), columns: trip.columns, samples: trip.samples, dtcs: trip.dtcs,
     });
     if (!carId) {
       toast({ title: t('trip.noCar', 'Choose your car to save this trip'), variant: 'destructive' });
@@ -90,7 +90,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     }
     setSavingTrip(true);
     try {
-      const csv = buildScannerCsv(trip.columns, trip.samples);
+      const csv = buildScannerCsv(trip.columns, trip.samples, trip.dtcs);
       const file = new File([csv], scannerFilename(trip.startedAt), { type: 'text/csv' });
       const result = await ingestSessionCsv(file, carId, tripName(trip.startedAt));
       await clearInProgressTrip();
@@ -121,7 +121,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       const snap = getRecording();
       if (snap.startedAt && snap.samples.length) {
         void saveInProgressTrip({
-          carId: carIdRef.current, startedAt: snap.startedAt.getTime(), columns: snap.columns, samples: snap.samples,
+          carId: carIdRef.current, startedAt: snap.startedAt.getTime(), columns: snap.columns, samples: snap.samples, dtcs: snap.dtcs,
         });
       }
     }, BACKUP_MS);
@@ -142,6 +142,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         reason: 'disconnected',
         columns: stored.columns,
         samples: stored.samples,
+        dtcs: stored.dtcs ?? [],
       }, true);
     });
   }, [selectedCarId, saveTrip]);

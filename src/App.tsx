@@ -24,7 +24,7 @@ const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
 const ScannerPage = lazy(() => import("./pages/ScannerPage"));
 const LivePage = lazy(() => import("./pages/LivePage"));
-const VehicleIssuesPage = lazy(() => import("./pages/VehicleIssuesPage"));
+const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -80,7 +80,7 @@ const App = () => (
                 <Route path="/scanner" element={<ScannerPage />} />
                 <Route path="/live" element={<LivePage />} />
                 <Route path="/maintenance" element={<MaintenancePage />} />
-                <Route path="/issues" element={<VehicleIssuesPage />} />
+                <Route path="/issues" element={<IssuesPage />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/import" element={<ShareImportPage />} />

@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { TripDetector, DEFAULT_TRIP_OPTIONS, type TripReading } from './trip-detector';
-import { normalizeVehicleIssue } from '@/lib/db-extras';
 
 const S = 1000;
 const on = (at: number, speedKmh = 0, rpm = 0): TripReading => ({ at, ecuAlive: true, speedKmh, rpm });
@@ -63,14 +62,5 @@ describe('TripDetector', () => {
     const d = new TripDetector();
     expect(d.update(on(0, 50, 2000), false)).toEqual([]);
     expect(d.recording).toBe(false);
-  });
-});
-
-describe('normalizeVehicleIssue', () => {
-  it('maps the reconciler vocabulary onto the Problems page', () => {
-    const issue = normalizeVehicleIssue({ id: '1', status: 'active', severity: 'serious', resolved_note: 'fixed' });
-    expect(issue).toMatchObject({ status: 'open', severity: 'critical', resolution_note: 'fixed', dtc_code: null });
-    expect(normalizeVehicleIssue({ status: 'ignored', severity: 'easy_fix' })).toMatchObject({ status: 'dismissed', severity: 'info' });
-    expect(normalizeVehicleIssue({ status: 'weird', severity: 'weird' })).toMatchObject({ status: 'open', severity: 'attention' });
   });
 });

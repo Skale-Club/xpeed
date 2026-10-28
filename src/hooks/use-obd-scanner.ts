@@ -58,6 +58,8 @@ export interface TripResult {
   reason: TripEndReason;
   columns: string[];
   samples: ScannerSample[];
+  /** Stored + pending fault codes read when the car came on. */
+  dtcs: string[];
 }
 
 export interface ObdScannerOptions {
@@ -133,6 +135,19 @@ function customChannels(pids: CustomPid[]): LiveChannel[] {
   }));
 }
 
+/** Stored and pending fault codes; failures just mean "none read". */
+async function readFaultCodes(elm: Elm327, isCan: boolean): Promise<string[]> {
+  const codes = new Set<string>();
+  for (const [mode, responseByte] of [['03', 0x43], ['07', 0x47]] as const) {
+    try {
+      parseDtcReply(await elm.request(mode, null, 5000), responseByte, isCan).forEach((c) => codes.add(c));
+    } catch {
+      // no answer
+    }
+  }
+  return Array.from(codes);
+}
+
 function recordingColumns(samples: ScannerSample[]): string[] {
   const columns: string[] = [];
   const seen = new Set<string>();
@@ -170,6 +185,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
   const historyRef = useRef<HistoryPoint[]>([]);
   const detectorRef = useRef(new TripDetector());
   const tripStartRef = useRef<Date | null>(null);
+  const dtcsRef = useRef<string[]>([]);
   const manualPendingRef = useRef(false);
   const alwaysOnRef = useRef(alwaysOn);
   const onTripEndRef = useRef(onTripEnd);
@@ -209,7 +225,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
       samplesRef.current = [];
       if (samples.length === 0) continue;
       onTripEndRef.current?.({
-        startedAt, endedAt: new Date(e.at), reason: e.reason, columns: recordingColumns(samples), samples,
+        startedAt, endedAt: new Date(e.at), reason: e.reason, columns: recordingColumns(samples), samples, dtcs: dtcsRef.current,
       });
     }
   }, []);
@@ -308,6 +324,9 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
         liveRef.current = true;
         setConnection({ ...info, deviceName: link.name, multiPid: multiRef.current });
         setStatus('live');
+        // Check the car's fault codes each time it comes on, so trips carry them.
+        dtcsRef.current = await readFaultCodes(elm, info.isCan);
+        if (!alive()) return;
         if (manualPendingRef.current) handleTripEvents(detectorRef.current.startManual(Date.now()));
       }
 
@@ -581,6 +600,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
   /** Snapshot of the trip being recorded (for crash recovery). */
   const getRecording = useCallback(() => ({
     startedAt: tripStartRef.current,
+    dtcs: dtcsRef.current,
     columns: recordingColumns(samplesRef.current),
     samples: samplesRef.current,
   }), []);

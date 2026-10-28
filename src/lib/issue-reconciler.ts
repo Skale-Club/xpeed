@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { SessionFlag } from './insight-engine';
 import type { IssueSeverity } from './db-issues';
+import { DTC_PREFIX, dtcSeverity } from './problems';
 
 // Map session flag severities to issue severity levels.
 // 'warning' and 'easy_fix' are reserved for future rule granularity.
@@ -8,26 +9,40 @@ function toIssueSeverity(flagSeverity: string): IssueSeverity {
   return flagSeverity === 'critical' ? 'critical' : 'serious';
 }
 
+interface ProblemItem {
+  canonical_key: string;
+  title: string;
+  severity: IssueSeverity;
+  evidence: unknown;
+}
+
 /**
- * After a session's flags are saved, reconcile them with the persistent
- * vehicle_issues table. Creates new issues, updates existing ones, and
- * records occurrences — without ever deleting historical data.
+ * After a session's flags are saved, reconcile them — and the fault codes
+ * the car reported (`dtcs`) — with the persistent vehicle_issues table.
+ * Creates new issues, updates existing ones, and records occurrences —
+ * without ever deleting historical data.
  */
 export async function reconcileIssues(
   sessionId: string,
   carProfileId: string,
   userId: string,
   flags: SessionFlag[],
-  sessionStart: string | null
+  sessionStart: string | null,
+  dtcs: string[] = [],
 ): Promise<void> {
   // Only process flags that indicate a real problem (not 'normal')
-  const problemFlags = flags.filter((f) => f.severity !== 'normal');
-  if (problemFlags.length === 0) return;
+  const items: ProblemItem[] = [
+    ...flags
+      .filter((f) => f.severity !== 'normal')
+      .map((f) => ({ canonical_key: f.canonical_key, title: f.message, severity: toIssueSeverity(f.severity), evidence: f.evidence })),
+    ...dtcs.map((code) => ({ canonical_key: `${DTC_PREFIX}${code}`, title: code, severity: dtcSeverity(code), evidence: { code } })),
+  ];
+  if (items.length === 0) return;
 
   const occurredAt = sessionStart ?? new Date().toISOString();
 
-  for (const flag of problemFlags) {
-    const severity = toIssueSeverity(flag.severity);
+  for (const flag of items) {
+    const severity = flag.severity;
 
     try {
       // Look up existing issue for this vehicle + canonical key
@@ -48,7 +63,7 @@ export async function reconcileIssues(
             car_profile_id: carProfileId,
             user_id: userId,
             canonical_key: flag.canonical_key,
-            title: flag.message,
+            title: flag.title,
             severity,
             status: 'active',
             first_seen_at: occurredAt,

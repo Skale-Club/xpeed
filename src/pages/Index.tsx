@@ -7,15 +7,17 @@ import DashboardCharts from '@/components/DashboardCharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getSessions, getSessionFlags, getFlagsForSessions, toggleFlagResolved } from '@/lib/db';
+import { getSessions, getSessionFlags, getFlagsForSessions } from '@/lib/db';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, Eye, EyeOff, Upload } from 'lucide-react';
+import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, Upload } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { subDays } from 'date-fns';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
-import ActiveFlagsBanner from '@/components/ActiveFlagsBanner';
+import { ProblemsBanner } from '@/components/ProblemsBanner';
+import { useOpenProblems } from '@/hooks/use-open-problems';
+import { useObd } from '@/contexts/ObdScannerContext';
 import HealthGauge from '@/components/HealthGauge';
 import StatCard from '@/components/StatCard';
 import { supabase } from '@/integrations/supabase/client';
@@ -47,7 +49,10 @@ import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 
 const Index = () => {
   const navigate = useNavigate();
+  const { lastTrip } = useObd();
   const { cars, selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
+  // Same list as the Problems page; refreshed when a trip gets saved.
+  const openProblems = useOpenProblems(selectedCarId, lastTrip);
   const { timezone, distanceUnit } = useSettings();
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -61,8 +66,6 @@ const Index = () => {
     healthScore: 100,
     problems: [] as SessionFlag[]
   });
-  const [isProblemsOpen, setIsProblemsOpen] = useState(false);
-  const [showResolvedProblems, setShowResolvedProblems] = useState(false);
   const { mode: viewMode, toggle: toggleViewMode, isAdvanced } = useViewMode();
 
   // First-run redirect: brand-new users with 0 cars should land in the
@@ -340,7 +343,7 @@ const Index = () => {
                 avgFuel: avgFuel,
                 problemCount: activeFlags.length,
                 healthScore: Math.max(0, 100 - (activeFlags.length * 5)),
-                problems: flags // Store all, filter in UI based on showResolvedProblems
+                problems: flags // per-trip alerts; the Problems list itself comes from useOpenProblems
             });
         } catch (error) {
             console.error('Failed to calculate general stats:', error);
@@ -372,34 +375,6 @@ const Index = () => {
     }
   };
 
-  const handleToggleResolved = async (flagId: string, currentResolved: boolean) => {
-    try {
-        await toggleFlagResolved(flagId, !currentResolved);
-        
-        // Optimistic update
-        setGeneralStats(prev => {
-            const updatedProblems = prev.problems.map(p => 
-                p.id === flagId ? { ...p, resolved: !currentResolved } : p
-            );
-            
-            const activeCount = updatedProblems.filter(p => !p.resolved).length;
-            
-            return {
-                ...prev,
-                problems: updatedProblems,
-                problemCount: activeCount,
-                healthScore: Math.max(0, 100 - (activeCount * 5))
-            };
-        });
-        
-        toast.success(currentResolved ? 'Issue marked as unresolved' : 'Issue marked as resolved');
-    } catch (err) {
-        console.error('Failed to toggle resolved status:', err);
-        toast.error('Failed to update status');
-    }
-  };
-
-  const visibleProblems = generalStats.problems.filter(p => showResolvedProblems || !p.resolved);
 
   if (!selectedCarId && !carsLoading) {
     return (
@@ -432,10 +407,7 @@ const Index = () => {
     <AppLayout>
       <div className="space-y-6">
         {/* Mobile-first: active flags banner above everything else */}
-        <ActiveFlagsBanner
-          flags={generalStats.problems}
-          onClick={() => setIsProblemsOpen(true)}
-        />
+        <ProblemsBanner problems={openProblems} />
 
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -559,9 +531,9 @@ const Index = () => {
               <StatCard
                 icon={AlertTriangle}
                 label="Active Issues"
-                value={generalStats.problemCount}
-                tone={generalStats.problemCount > 0 ? (generalStats.problems.some(p => !p.resolved && p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
-                onClick={() => setIsProblemsOpen(true)}
+                value={openProblems.length}
+                tone={openProblems.length > 0 ? (openProblems.some(p => p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
+                onClick={() => navigate('/issues')}
               />
             </div>
           </div>}
@@ -575,8 +547,8 @@ const Index = () => {
               onSessionUpdate={loadDashboard}
             />
             <GeneralInfoCard
-              stats={generalStats}
-              onProblemsClick={() => setIsProblemsOpen(true)}
+              stats={{ ...generalStats, problemCount: openProblems.length }}
+              onProblemsClick={() => navigate('/issues')}
             />
           </div>
           )}
@@ -590,98 +562,6 @@ const Index = () => {
               </DialogContent>
           </Dialog>
 
-          <Dialog open={isProblemsOpen} onOpenChange={setIsProblemsOpen}>
-              <DialogContent className="sm:max-w-md max-h-[80vh] overflow-hidden flex flex-col">
-                  <DialogHeader className="flex flex-row items-center justify-between pr-8">
-                      <DialogTitle className="flex items-center gap-2">
-                          <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                          Active Issues
-                      </DialogTitle>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                        onClick={() => setShowResolvedProblems(!showResolvedProblems)}
-                        title={showResolvedProblems ? "Hide Resolved" : "Show Resolved"}
-                      >
-                        {showResolvedProblems ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </Button>
-                  </DialogHeader>
-                  <div className="flex-1 overflow-y-auto pr-2">
-                      {visibleProblems.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-center">
-                              <CheckCircle className="w-16 h-16 mb-4 text-success opacity-20" />
-                              <p className="text-lg font-medium text-foreground">
-                                {generalStats.problems.length > 0 && !showResolvedProblems 
-                                    ? "No active issues" 
-                                    : "All Systems Normal"}
-                              </p>
-                              <p className="text-sm mt-1">
-                                {generalStats.problems.length > 0 && !showResolvedProblems 
-                                    ? "All recorded issues have been resolved."
-                                    : "No diagnostic trouble codes or warnings found in recorded history."}
-                              </p>
-                          </div>
-                      ) : (
-                          <div className="space-y-3 py-2">
-                              {visibleProblems.map((flag, i) => (
-                                  <div key={flag.id || i} className={`flex flex-col gap-1 p-3 rounded-lg border transition-colors ${
-                                      flag.resolved 
-                                        ? 'bg-muted/10 border-border/30 opacity-60' 
-                                        : 'bg-muted/30 border-border/50 hover:bg-muted/50'
-                                  }`}>
-                                      <div className="flex items-start justify-between gap-2">
-                                          <div className="flex items-center gap-2">
-                                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                                  flag.severity === 'critical' ? 'bg-destructive/10 text-destructive' : 'bg-warn/10 text-warn'
-                                              }`}>
-                                                  {flag.severity || 'WARN'}
-                                              </span>
-                                              <span className={`font-mono font-bold text-sm ${flag.resolved ? 'line-through text-muted-foreground' : ''}`}>
-                                                  {flag.canonical_key || flag.parameter_key || 'UNKNOWN'}
-                                              </span>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                                  {new Date(flag.sessions?.uploaded_at).toLocaleDateString(undefined, { timeZone: timezone })}
-                                              </span>
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6 -mr-2 text-muted-foreground hover:text-primary"
-                                                onClick={() => handleToggleResolved(flag.id, flag.resolved)}
-                                                title={flag.resolved ? "Mark as Unresolved" : "Mark as Resolved"}
-                                              >
-                                                {flag.resolved ? <CheckSquare className="w-4 h-4 text-success" /> : <Square className="w-4 h-4" />}
-                                              </Button>
-                                          </div>
-                                      </div>
-                                      <p className="text-sm text-foreground/90 leading-snug">
-                                          {flag.message || 'No detailed description available for this issue.'}
-                                      </p>
-                                      <div className="flex items-center justify-between mt-1">
-                                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                              <Clock className="w-3 h-3" />
-                                              <span>Session: {flag.sessions?.source_filename}</span>
-                                          </div>
-                                          {(flag.canonical_key || flag.parameter_key) && (
-                                              <Button 
-                                                variant="ghost" 
-                                                size="sm" 
-                                                className="h-5 text-[10px] px-2 hover:bg-background"
-                                                onClick={() => window.open(`https://www.google.com/search?q=OBD2+issue+${flag.canonical_key || flag.parameter_key}+solution`, '_blank')}
-                                              >
-                                                Search Solution <ExternalLink className="w-3 h-3 ml-1" />
-                                              </Button>
-                                          )}
-                                      </div>
-                                  </div>
-                              ))}
-                          </div>
-                      )}
-                  </div>
-              </DialogContent>
-          </Dialog>
 
           {/* Adaptive engine-type metrics */}
           {stats.totalSessions > 0 && (
