@@ -398,6 +398,9 @@ export class Elm327 {
    * answer), so callers can wait in standby and try again.
    */
   async connectVehicle(version: string, timeoutMs = 15000): Promise<ElmInfo | null> {
+    // The last request may have gone to one ECU (e.g. a 7E2 custom PID): probe
+    // the car on the broadcast address again, or a parked car is never seen.
+    await this.resetAddressing().catch(() => undefined);
     // The first OBD request triggers the protocol search, which can take a while.
     let probe: string[];
     try {
@@ -415,6 +418,20 @@ export class Elm327 {
     this.defaultHeader = functionalHeader(dpn);
     this.header = this.defaultHeader;
     return { version, protocol: dpn, isCan: /^[6-9A-C]$/.test(dpn) };
+  }
+
+  /** Back to the broadcast header and the adapter's automatic receive filter. */
+  private resetAddressing(): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.defaultHeader && this.header !== this.defaultHeader) {
+        await this.exec(`ATSH${this.defaultHeader}`, 3000);
+        this.header = this.defaultHeader;
+      }
+      if (this.receive) {
+        await this.exec('ATAR', 3000);
+        this.receive = null;
+      }
+    });
   }
 
   /** What the ECU answered to the last failed connectVehicle() (for error messages). */

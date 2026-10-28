@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TripDetector, DEFAULT_TRIP_OPTIONS, type TripReading } from './trip-detector';
+import { reconnectDelay, standbyProbeDelay } from '@/hooks/use-obd-scanner';
 
 const S = 1000;
 const on = (at: number, speedKmh = 0, rpm = 0): TripReading => ({ at, ecuAlive: true, speedKmh, rpm });
@@ -82,5 +83,18 @@ describe('TripDetector', () => {
     const d = new TripDetector();
     expect(d.update(on(0, 50, 2000), false)).toEqual([]);
     expect(d.recording).toBe(false);
+  });
+});
+
+describe('waiting for the car without draining the battery', () => {
+  it('checks a parked car less often after a while', () => {
+    expect(standbyProbeDelay(0)).toBe(4000);
+    expect(standbyProbeDelay(15 * 60 * S)).toBe(10_000);
+  });
+
+  it('backs off retrying an adapter that stays out of reach', () => {
+    expect(reconnectDelay(0)).toBe(5000);
+    expect(reconnectDelay(20 * 60 * S)).toBe(30_000);
+    expect(reconnectDelay(3 * 60 * 60 * S)).toBe(120_000);
   });
 });

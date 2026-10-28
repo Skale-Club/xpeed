@@ -63,39 +63,51 @@ function normalize(line: string): string {
 /**
  * Group reply lines into messages. Handles ISO 15765 multi-frame output with
  * headers off ("014" length line, then "0:..", "1:..") and trims padding.
- * Each ECU that answers produces its own message.
+ * Each ECU that answers produces its own message. With headers off, frames
+ * from two ECUs answering at once can't be told apart if they interleave, so
+ * a multi-frame message whose frames arrive out of sequence or come up short
+ * is dropped (a blank reading for one cycle) rather than decoded wrongly.
  */
 export function collectMessages(lines: string[]): number[][] {
   const messages: number[][] = [];
-  let current: number[] | null = null;
-  let expected: number | null = null;
+  let current: { bytes: number[]; expected: number | null; next: number; bad: boolean } | null = null;
+  let pendingLength: number | null = null;
 
   const finish = () => {
-    if (current && expected !== null) current.splice(expected);
+    if (current) {
+      const { bytes, expected } = current;
+      if (expected !== null && bytes.length < expected) current.bad = true;
+      if (!current.bad) messages.push(expected !== null ? bytes.slice(0, expected) : bytes);
+    }
     current = null;
-    expected = null;
   };
 
   for (const raw of lines) {
     const l = normalize(raw);
     const frame = l.match(/^([0-9A-F]):([0-9A-F]+)$/);
     if (frame) {
-      if (frame[1] === '0' || !current) {
-        const len = expected;
+      const index = parseInt(frame[1], 16);
+      if (index === 0) {
         finish();
-        expected = len;
-        current = [];
-        messages.push(current);
+        current = { bytes: [], expected: pendingLength, next: 1, bad: false };
+        pendingLength = null;
+      } else if (!current || index !== current.next) {
+        // A frame that doesn't follow the previous one: another ECU's reply is mixed in.
+        if (current) current.bad = true;
+        continue;
+      } else {
+        current.next = (current.next + 1) % 16;
       }
-      current.push(...hexToBytes(frame[2]));
+      current.bytes.push(...hexToBytes(frame[2]));
       continue;
     }
     if (/^[0-9A-F]{3}$/.test(l)) {
       finish();
-      expected = parseInt(l, 16);
+      pendingLength = parseInt(l, 16);
       continue;
     }
     finish();
+    pendingLength = null;
     if (/^[0-9A-F]+$/.test(l) && l.length % 2 === 0) messages.push(hexToBytes(l));
   }
   finish();

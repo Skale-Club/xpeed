@@ -72,6 +72,10 @@ class Query implements PromiseLike<Result> {
   delete() { this.mode = 'delete'; return this; }
 
   private run(): Result {
+    // From the console: __harnessOffline = true makes every query fail, like no signal.
+    if ((window as unknown as { __harnessOffline?: boolean }).__harnessOffline) {
+      return { data: null, error: { message: 'Failed to fetch (harness offline)' } };
+    }
     const table = db[this.table];
     const match = (r: Row) => this.filters.every((f) => f(r));
     let out: Row[] = [];

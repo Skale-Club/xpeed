@@ -34,7 +34,8 @@ export const DEFAULT_TRIP_OPTIONS: TripDetectorOptions = {
   startSpeedKmh: 3,
   startRpm: 400,
   offAfterMs: 20_000,
-  parkedAfterMs: 5 * 60_000,
+  // Long enough that a hybrid crawling in a jam with the engine off is not cut in two.
+  parkedAfterMs: 10 * 60_000,
   minTripMs: 60_000,
 };
 

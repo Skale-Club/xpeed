@@ -13,6 +13,8 @@ vi.mock('@/contexts/CarsContext', () => ({
   useCarsContext: () => ({ selectedCar: { name: 'Prius' }, selectedCarId: 'car-1' }),
 }));
 vi.mock('@/hooks/use-csv-upload', () => ({ ingestSessionCsv: ingestMock }));
+// No earlier upload of the same trip to replace.
+vi.mock('@/lib/db', () => ({ findSessionStartedAt: vi.fn(async () => null), deleteSession: vi.fn(async () => undefined) }));
 
 function renderCard() {
   return render(
@@ -123,11 +125,30 @@ describe('TripCard', () => {
     await waitFor(() => expect(pill()).toHaveTextContent(/Connecting/));
     await waitFor(() => expect(pill()).toHaveTextContent('Recording trip'), { timeout: 8000 });
     expect(fake.requestDevice).toHaveBeenCalledTimes(1);
+    // The loop on the dropped link is gone: nothing flips the card back to "waiting".
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(pill()).toHaveTextContent('Recording trip');
 
     // Next visit: connects to the remembered adapter without the chooser
     unmount();
     renderCard();
     await waitFor(() => expect(pill()).toHaveTextContent(/Car connected|Recording trip/), { timeout: 5000 });
+    expect(fake.requestDevice).toHaveBeenCalledTimes(1);
+  }, 30000);
+
+  it('always-on: keeps looking for the remembered adapter when it is out of reach at start', async () => {
+    const fake = installFakeBluetooth();
+    // First visit links the adapter so it is remembered.
+    const { unmount } = renderCard();
+    fireEvent.click(screen.getByRole('button', { name: /start trip/i }));
+    await screen.findByText('Recording your trip', {}, { timeout: 3000 });
+    unmount();
+
+    // Next start: the adapter is out of range for the first attempt.
+    fake.failNextConnects(1);
+    renderCard();
+    await waitFor(() => expect(pill()).toHaveTextContent(/Looking for|Connecting/), { timeout: 3000 });
+    await waitFor(() => expect(pill()).toHaveTextContent(/Car connected|Recording trip/), { timeout: 9000 });
     expect(fake.requestDevice).toHaveBeenCalledTimes(1);
   }, 30000);
 

@@ -31,6 +31,7 @@ export function createFakeCar(options: FakeCarOptions = {}) {
   const failConnects = options.failConnects ?? 0;
   const sent: string[] = [];
   let connectCalls = 0;
+  let failUntil = 0;
   let carOn = true;
 
   const reply = (cmd: string, header: string): string => {
@@ -91,7 +92,7 @@ export function createFakeCar(options: FakeCarOptions = {}) {
     connected: true,
     connect: async () => {
       connectCalls++;
-      if (connectCalls <= failConnects) throw new DOMException('Connection Error: Connection attempt failed.', 'NetworkError');
+      if (connectCalls <= failConnects || connectCalls <= failUntil) throw new DOMException('Connection Error: Connection attempt failed.', 'NetworkError');
       server.connected = true;
       header = '7DF';
       return server;
@@ -109,6 +110,8 @@ export function createFakeCar(options: FakeCarOptions = {}) {
     setCarOn: (on: boolean) => { carOn = on; },
     /** Change a live value, e.g. setPid('0D', '3C') for 60 km/h. */
     setPid: (pid: string, hex: string) => { pidData[pid] = hex; },
+    /** The next `n` Bluetooth connects fail (adapter out of range). */
+    failNextConnects: (n: number) => { failUntil = connectCalls + n; },
     /** The adapter drops the Bluetooth link (e.g. it went to sleep). */
     dropLink: () => {
       server.connected = false;

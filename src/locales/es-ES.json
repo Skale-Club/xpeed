@@ -210,7 +210,7 @@
     "saved": "Viaje guardado",
     "savedHint": "Está en el Historial.",
     "saveFailed": "No se pudo guardar el viaje",
-    "saveFailedHint": "Quedó guardado en este dispositivo y se guardará la próxima vez que abras la app.",
+    "saveFailedHint": "Se guardó en el dispositivo y se subirá sola cuando haya internet.",
     "rpm": "revoluciones",
     "engineTemp": "motor °C",
     "unsupported": "Este navegador no puede conectarse al coche. Abre Xpeed en Chrome de Android o del ordenador.",

@@ -8,6 +8,11 @@ export interface ScannerSample {
   values: Record<string, number | null>;
 }
 
+/** Column names come from custom PIDs too, so they may contain commas or quotes. */
+function quote(name: string): string {
+  return /[",\r\n]/.test(name) ? `"${name.replace(/"/g, '""')}"` : name;
+}
+
 function fmt(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(v)) return '';
   return String(Math.round(v * 1000) / 1000);
@@ -20,7 +25,7 @@ function fmt(v: number | null | undefined): string {
  */
 export function buildScannerCsv(columns: string[], samples: ScannerSample[], dtcs: string[] = []): string {
   const header = ['Time (s)', ...columns, ...(dtcs.length ? ['DTC'] : [])];
-  const lines = [header.join(',')];
+  const lines = [header.map(quote).join(',')];
   samples.forEach((s, i) => {
     const row = [fmt(s.t), ...columns.map((c) => fmt(s.values[c]))];
     if (dtcs.length) row.push(i === 0 ? dtcs.join(' ') : '');

@@ -40,9 +40,12 @@ export async function ingestSessionCsv(
   carProfileId: string,
   customName?: string,
   updateProgress: (value: number, label: string) => void = () => undefined,
+  /** Called once the trip, its rows and flags are in the database (before report, AI and baselines). */
+  onStored?: (sessionId: string) => void | Promise<void>,
 ): Promise<IngestResult> {
   let sourceFilePath: string | null = null;
   let createdSessionId: string | null = null;
+  let stored = false;
   try {
     updateProgress(6, 'Reading file...');
     const text = await file.text();
@@ -174,6 +177,9 @@ export async function ingestSessionCsv(
       ...f,
       evidence: f.evidence as unknown as Record<string, unknown>,
     })));
+    // From here on the trip is kept even if a later step fails (no rollback).
+    stored = true;
+    await onStored?.(session.id);
 
     // Generate structured report (deterministic, no AI).
     // Store it on the session so the edge function can read it instead of
@@ -248,6 +254,7 @@ export async function ingestSessionCsv(
     updateProgress(100, 'Upload complete!');
     return { sessionId: session.id, rows: parsed.rows.length, flags: flags.length, dtcs: parsed.activeDtcs.length };
   } catch (err) {
+    if (stored) throw err;
     if (createdSessionId) {
       try {
         await deleteSession(createdSessionId);

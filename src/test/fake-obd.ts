@@ -17,5 +17,6 @@ export function installFakeBluetooth(failConnects = 0) {
     requestDevice,
     setCarOn: car.setCarOn,
     dropLink: car.dropLink,
+    failNextConnects: car.failNextConnects,
   };
 }

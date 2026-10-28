@@ -54,6 +54,19 @@ export async function getSessions(carProfileId?: string) {
   return data || [];
 }
 
+/** The trip of this car that started at this exact second, if it was already uploaded. */
+export async function findSessionStartedAt(carProfileId: string, startedAt: Date): Promise<string | null> {
+  const second = new Date(Math.floor(startedAt.getTime() / 1000) * 1000).toISOString();
+  const { data } = await supabase
+    .from('sessions')
+    .select('id')
+    .eq('car_profile_id', carProfileId)
+    .eq('session_start', second)
+    .limit(1)
+    .maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
 export async function getSession(id: string) {
   const { data } = await supabase
     .from('sessions')

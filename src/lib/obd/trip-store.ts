@@ -1,13 +1,18 @@
-// Crash-safe copy of the trip being recorded, kept in IndexedDB (trips can
-// outgrow localStorage). If the tab reloads mid-trip or saving fails, the
-// next app start finds it here and saves it.
+// Crash-safe copies of trips, kept in IndexedDB (trips can outgrow
+// localStorage). Every trip has its own entry, from the first backup while it
+// is being recorded until it is safely in the database, so a trip that could
+// not be saved (no signal in a garage) is never overwritten by the next one.
 
 import type { ScannerSample } from './session-csv';
 
 export interface StoredTrip {
+  /** Entry key; see tripKey(). */
+  id: string;
+  /** The car selected when the trip started. */
   carId: string | null;
   /** Epoch ms. */
   startedAt: number;
+  /** Set once the trip is over and waiting to be saved. */
   endedAt?: number;
   columns: string[];
   samples: ScannerSample[];
@@ -16,7 +21,9 @@ export interface StoredTrip {
 
 const DB_NAME = 'xpeed-obd';
 const STORE = 'trips';
-const KEY = 'current';
+
+/** One entry per trip, keyed by its start time. */
+export const tripKey = (startedAt: number) => `trip-${startedAt}`;
 
 function openDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
@@ -46,15 +53,36 @@ async function run<T>(mode: IDBTransactionMode, op: (store: IDBObjectStore) => I
   }).finally(() => db.close()) as Promise<T | null>;
 }
 
-export async function saveInProgressTrip(trip: StoredTrip): Promise<void> {
-  await run('readwrite', (s) => s.put(trip, KEY));
+export async function saveTripCopy(trip: StoredTrip): Promise<void> {
+  await run('readwrite', (s) => s.put(trip, trip.id));
 }
 
-export async function loadInProgressTrip(): Promise<StoredTrip | null> {
-  const trip = await run<StoredTrip>('readonly', (s) => s.get(KEY));
-  return trip && Array.isArray(trip.samples) ? trip : null;
+/** Every trip copy on this device, oldest first. */
+export async function listTripCopies(): Promise<StoredTrip[]> {
+  const db = await openDb();
+  if (!db) return [];
+  const found: StoredTrip[] = [];
+  await new Promise<void>((resolve) => {
+    try {
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return resolve();
+        // Older app versions kept a single entry under "current", without an id.
+        found.push({ ...(cursor.value as Omit<StoredTrip, 'id'>), id: String(cursor.key) });
+        cursor.continue();
+      };
+      req.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+  db.close();
+  return found
+    .filter((t) => Array.isArray(t.samples) && t.samples.length > 0 && typeof t.startedAt === 'number')
+    .sort((a, b) => a.startedAt - b.startedAt);
 }
 
-export async function clearInProgressTrip(): Promise<void> {
-  await run('readwrite', (s) => s.delete(KEY));
+export async function deleteTripCopy(id: string): Promise<void> {
+  await run('readwrite', (s) => s.delete(id));
 }

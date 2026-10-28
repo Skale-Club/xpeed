@@ -69,6 +69,9 @@ public class TripServicePlugin extends Plugin {
     @PluginMethod
     public void stop(PluginCall call) {
         Context context = getContext();
+        // stopService() is asynchronous: mark it stopped now so a start right
+        // after this really starts it again instead of only updating the notification.
+        TripService.running = false;
         context.stopService(new Intent(context, TripService.class));
         call.resolve();
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   LIVE_PIDS, ADAPTER_VOLTAGE, pidHeader, parseMode01, parseSupportedPids,
-  parseDtcReply, parseVin, decodeDtc, parseAdapterVoltage, parseMultiMode01, parseCustomReply,
+  parseDtcReply, parseVin, decodeDtc, parseAdapterVoltage, parseMultiMode01, parseCustomReply, collectMessages,
 } from './pids';
 import { compileFormula, FormulaError } from './formula';
 import { validateCustomPid, validateTerminalCommand } from './custom-pids';
@@ -134,6 +134,13 @@ describe('scanner CSV', () => {
     expect(parsed.activeDtcs).toEqual(['P0133', 'P0420']);
   });
 
+  it('keeps a custom PID name with a comma in one column', () => {
+    const name = 'Battery Block, V01 (V)';
+    const parsed = parseCSV(buildScannerCsv([name], [{ t: 0, values: { [name]: 15.2 } }, { t: 1, values: { [name]: 15.1 } }]));
+    expect(parsed.headers).toContain(name);
+    expect(parsed.rows[1][name]).toBe(15.1);
+  });
+
   it('builds a filename the upload hook can date', () => {
     const name = scannerFilename(new Date(2026, 9, 28, 15, 30, 5));
     expect(name).toBe('xpeed-scan_2026-10-28 15-30-05.csv');
@@ -162,6 +169,19 @@ function fakeLink(reply: (cmd: string) => string | null): ObdLink & { sent: stri
     close() {},
   };
 }
+
+describe('multi-frame replies from several ECUs', () => {
+  it('keeps clean replies and drops one whose frames got mixed with another ECU', () => {
+    const clean = collectMessages(['00B', '0:61810102030405', '1:060708090000']);
+    expect(clean).toEqual([[0x61, 0x81, 1, 2, 3, 4, 5, 6, 7, 8, 9]]);
+    // Two ECUs answering at once with headers off: frames interleave and can't
+    // be told apart, so neither reply is used (blank for one cycle, never wrong).
+    const mixed = collectMessages(['00B', '0:61810102030405', '00B', '0:61810A0B0C0D0E', '1:0F101112000000', '1:060708090000']);
+    expect(mixed).toEqual([]);
+    // A frame out of sequence spoils its message instead of shifting the bytes.
+    expect(collectMessages(['00B', '0:61810102030405', '2:060708090000'])).toEqual([]);
+  });
+});
 
 describe('Elm327', () => {
   it('serializes commands and reassembles chunked replies', async () => {
@@ -283,6 +303,25 @@ describe('Elm327 headers', () => {
     link.sent.length = 0;
     await Promise.all([elm.request('2181', '7E3'), elm.request('2181', '7E3'), elm.request('010C'), elm.request('2181', '7E3')]);
     expect(link.sent).toEqual(['ATSH7E3', '2181', '2181', 'ATSH7DF', '010C', 'ATSH7E3', '2181']);
+  });
+
+  it('looks for the car on the broadcast address again after talking to one ECU', async () => {
+    let header = '7DF';
+    const link = fakeLink((cmd) => {
+      if (cmd.startsWith('ATSH')) header = cmd.slice(4);
+      // Like a Prius hybrid ECU: 7E2 answers mode 21 but not 0100.
+      if (cmd === '0100') return header === '7E2' ? 'NO DATA' : '4100BE1FA813';
+      if (cmd === 'ATDPN') return 'A6';
+      if (cmd === '2181') return '61810102';
+      return 'OK';
+    });
+    const elm = new Elm327(link);
+    const version = await elm.initAdapter();
+    expect(await elm.connectVehicle(version)).not.toBeNull();
+    await elm.request('2181', '7E2');
+    // Car switched off and on: the standby probe must reach the engine ECU again.
+    expect(await elm.connectVehicle(version)).not.toBeNull();
+    expect(header).toBe('7DF');
   });
 
   it('refuses ECU headers on non-CAN protocols', async () => {

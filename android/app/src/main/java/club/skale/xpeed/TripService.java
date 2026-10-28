@@ -53,6 +53,16 @@ public class TripService extends Service {
         return START_NOT_STICKY;
     }
 
+    /**
+     * The user swiped Xpeed away: the web layer that talks to the car is gone,
+     * so drop the notification and the wake lock instead of keeping them forever.
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
     @Override
     public void onDestroy() {
         running = false;

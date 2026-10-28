@@ -34,6 +34,9 @@ export async function connectNativeLink(
   const { BleClient } = await import('@capacitor-community/bluetooth-le');
   await BleClient.initialize({ androidNeverForLocation: true });
   if (Capacitor.getPlatform() === 'android' && !(await BleClient.isEnabled())) {
+    // Ask to turn Bluetooth on only when the person tapped to connect; the
+    // background reconnect just waits for it instead of prompting every few seconds.
+    if (opts.deviceId) throw new Error('Bluetooth is off.');
     await BleClient.requestEnable();
   }
 
