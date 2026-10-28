@@ -3,6 +3,4 @@
      Edit this file, then run `npm run brand` to regenerate the app logo,
      favicon, PWA icons, share image and Android icons/splash in one go. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 657.39 657.39">
-  <polygon points="606.66 182.39 475 50.74 328.7 197.04 182.39 50.74 50.74 182.39 197.04 328.7 50.74 475 182.39 606.66 328.7 460.35 475 606.66 606.66 475 460.35 328.7 606.66 182.39"/>
-  <polygon points="50.74 219.15 50.74 438.24 160.28 328.7 50.74 219.15"/>
-</svg>
+  <polygon points="606.66 182.39 475 50.74 328.7 197.04 182.39 50.74 50.74 182.39 197.04 328.7 50.74 475 182.39 606.66 328.7 460.35 475 606.66 606.66 475 460.35 328.7 606.66 182.39"/></svg>
