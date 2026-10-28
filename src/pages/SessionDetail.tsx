@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ArrowLeft, RefreshCw, Download, Loader2, Share2, CheckCircle2, ChevronDown, ChevronUp, Clock, Route, Gauge,
+  ArrowLeft, RefreshCw, Download, Loader2, CheckCircle2, ChevronDown, ChevronUp, Clock, Route, Gauge,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import SessionKPIs from '@/components/SessionKPIs';
@@ -11,21 +11,21 @@ import SessionCharts from '@/components/SessionCharts';
 import AIAnalysisCard from '@/components/AIAnalysisCard';
 import DTCPanel from '@/components/DTCPanel';
 import PhotoUpload from '@/components/PhotoUpload';
+import ShareReportSection from '@/components/ShareReportSection';
 import { PageLoader } from '@/components/PageLoader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
-  getSession, getSessionFlags, getSessionRows, deleteSessionFlags, insertSessionFlags, downloadSessionCSV, getCarById,
+  getSession, getSessionFlags, getSessionRows, replaceSessionFlags, downloadSessionCSV, getCarById,
 } from '@/lib/db';
-import { createSharedReport } from '@/lib/db-extras';
 import { evaluateRules } from '@/lib/insight-engine';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import type { DefaultRule } from '@/lib/default-rules';
 import { URGENCY, describeProblem } from '@/lib/problems';
 import {
-  formatDistance, formatDuration, formatTripDate, publicAppUrl, tripAverageSpeed, tripDate, tripDistanceKm, tripProblems, tripTitle,
+  formatDistance, formatDuration, formatTripDate, tripAverageSpeed, tripDate, tripDistanceKm, tripProblems, tripTitle,
 } from '@/lib/trips';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
 
@@ -50,7 +50,6 @@ export default function SessionDetail() {
   const [rules, setRules] = useState<DefaultRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
-  const [sharing, setSharing] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
 
   const load = useCallback(async () => {
@@ -65,6 +64,8 @@ export default function SessionDetail() {
       // Same car-specific rules as when the trip was saved (not always the Prius ones).
       const car = trip?.car_profile_id ? await getCarById(trip.car_profile_id) : null;
       setRules(resolveRulesetForCar(car).rules);
+    } catch (error) {
+      console.error('Failed to load the trip:', error);
     } finally {
       setLoading(false);
     }
@@ -87,10 +88,15 @@ export default function SessionDetail() {
       timeColumn: summary?.timeColumn || null,
     };
     const newFlags = evaluateRules(pseudoParsed as never, rules);
-    await deleteSessionFlags(id);
-    await insertSessionFlags(id, newFlags.map((f) => ({ ...f, evidence: f.evidence as unknown as Record<string, unknown> })));
-    setFlags((await getSessionFlags(id)) as unknown as SessionFlag[]);
-    toast({ title: 'Re-evaluated', description: `${newFlags.length} flags after re-computation.` });
+    try {
+      // The new flags are computed above; they replace the old ones only once they are saved.
+      await replaceSessionFlags(id, newFlags.map((f) => ({ ...f, evidence: f.evidence as unknown as Record<string, unknown> })));
+      setFlags((await getSessionFlags(id)) as unknown as SessionFlag[]);
+      toast({ title: 'Re-evaluated', description: `${newFlags.length} flags after re-computation.` });
+    } catch (error) {
+      console.error('Failed to re-evaluate the trip:', error);
+      toast({ title: 'Re-evaluate failed', description: 'The trip was left as it was. Try again.', variant: 'destructive' });
+    }
   }, [id, session, rows, rules, toast]);
 
   const handleDownloadCsv = useCallback(async () => {
@@ -105,29 +111,6 @@ export default function SessionDetail() {
       setDownloadingCsv(false);
     }
   }, [session, toast]);
-
-  /** A read-only report link the owner can send to a mechanic (expires in 30 days). */
-  const shareWithMechanic = async () => {
-    if (!session) return;
-    setSharing(true);
-    try {
-      const report = await createSharedReport(session.id, 30);
-      const url = `${publicAppUrl()}/share/${report.id}`;
-      const title = tripTitle(session, t);
-      if (navigator.share) {
-        await navigator.share({ title, text: t('tripDetail.shareText', 'Report of my car: {{title}}', { title }), url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast({ title: t('tripDetail.linkCopied', 'Link copied'), description: t('tripDetail.linkCopiedHint', 'Paste it in a message to your mechanic. It works for 30 days.') });
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return; // closed the share sheet
-      console.error(err);
-      toast({ title: t('tripDetail.shareFailed', "Couldn't create the link"), variant: 'destructive' });
-    } finally {
-      setSharing(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -229,10 +212,7 @@ export default function SessionDetail() {
         </div>
 
         {/* 3. Send to the mechanic */}
-        <Button size="lg" className="w-full" onClick={() => void shareWithMechanic()} disabled={sharing}>
-          {sharing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Share2 className="w-4 h-4 mr-2" />}
-          {t('tripDetail.share', 'Send to the mechanic')}
-        </Button>
+        <ShareReportSection session={session} />
 
         <PhotoUpload sessionId={session.id} />
 

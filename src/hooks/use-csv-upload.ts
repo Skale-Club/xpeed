@@ -138,7 +138,8 @@ export async function ingestSessionCsv(
       durationSeconds,
       sessionStart,
       sourceFilePath,
-      text,
+      // The full CSV goes in the row only when storage didn't take it; otherwise the row stays light.
+      sourceFilePath ? null : text,
       parsed.activeDtcs,
     );
     createdSessionId = session.id;
@@ -169,8 +170,8 @@ export async function ingestSessionCsv(
     });
 
     // Cap stored rows at 2000 via LTTB downsampling. The full CSV is still
-    // preserved in storage (source_csv), so users can always re-derive
-    // the original data; the DB just gets a chart-friendly summary.
+    // preserved in storage (or, if that failed, in sessions.source_csv), so users
+    // can always re-derive the original data; the DB just gets a chart-friendly summary.
     const dbRows = downsampleSessionRows(rawDbRows, 2000);
 
     await insertSessionRows(session.id, dbRows, (percent) => {
@@ -183,7 +184,10 @@ export async function ingestSessionCsv(
       ...f,
       evidence: f.evidence as unknown as Record<string, unknown>,
     })));
-    // From here on the trip is kept even if a later step fails (no rollback).
+    // From here on the trip is kept even if a later step fails (no rollback). Reaching this
+    // line means the session, every data row and the flags were saved: createSession,
+    // insertSessionRows and insertSessionFlags throw on any database error, which lands in the
+    // rollback below, so onStored (which lets the caller drop its backup copy) never runs early.
     stored = true;
     await onStored?.(session.id);
 

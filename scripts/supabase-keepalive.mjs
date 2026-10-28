@@ -64,19 +64,28 @@ console.log(`Target: ${supabaseUrl}`);
 // Execute multiple operations to ensure activity is registered
 await retryWithBackoff(async () => {
   // Operation 1: Write heartbeat to app_settings
-  const { error: upsertError } = await supabase.from("app_settings").upsert(
-    [
-      {
-        setting_key: "system.supabase_keepalive",
-        setting_value: JSON.stringify(heartbeatPayload),
-        encrypted: false,
-      },
-    ],
-    { onConflict: "setting_key" },
-  );
-
-  if (upsertError) {
-    throw new Error(`Upsert failed: ${upsertError.message}`);
+  // app_settings is unique per (user_id, setting_key) through partial indexes, which
+  // ON CONFLICT (setting_key) can't use: update the system row, insert it if missing.
+  const heartbeat = {
+    setting_value: JSON.stringify(heartbeatPayload),
+    encrypted: false,
+  };
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("app_settings")
+    .update(heartbeat)
+    .is("user_id", null)
+    .eq("setting_key", "system.supabase_keepalive")
+    .select("id");
+  if (updateError) {
+    throw new Error(`Update failed: ${updateError.message}`);
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    const { error: insertError } = await supabase
+      .from("app_settings")
+      .insert({ setting_key: "system.supabase_keepalive", ...heartbeat });
+    if (insertError) {
+      throw new Error(`Insert failed: ${insertError.message}`);
+    }
   }
   console.log("✓ Heartbeat written to app_settings");
 }, 3);

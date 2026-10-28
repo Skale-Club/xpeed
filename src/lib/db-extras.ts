@@ -160,6 +160,28 @@ export async function createSharedReport(sessionId: string, expiresInDays: numbe
   return data as unknown as SharedReport;
 }
 
+/** The links the signed-in user has made for one trip (still working, newest first). */
+export async function listSharedReports(sessionId: string): Promise<SharedReport[]> {
+  const { data, error } = await supabase
+    .from('shared_reports' as never)
+    .select('id, session_id, user_id, expires_at, view_count, created_at')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const now = Date.now();
+  return ((data || []) as unknown as SharedReport[])
+    .filter((r) => !r.expires_at || new Date(r.expires_at).getTime() > now);
+}
+
+/** Turn a link off: whoever has it can no longer open the report. */
+export async function revokeSharedReport(reportId: string): Promise<void> {
+  const { error } = await supabase
+    .from('shared_reports' as never)
+    .delete()
+    .eq('id', reportId);
+  if (error) throw error;
+}
+
 export async function getSharedReport(reportId: string): Promise<Record<string, unknown> | null> {
   // RPC bypasses RLS to allow anon reads of shared links.
   const { data, error } = await supabase
@@ -265,27 +287,30 @@ export async function listAdminSettings(): Promise<AdminSetting[]> {
 }
 
 export async function upsertAdminSetting(settingKey: string, value: string | null): Promise<void> {
-  // We upsert via two-step because Supabase upsert on partial unique indexes
-  // is fiddly. Try update first; insert if not found.
-  const { data: existing } = await supabase
-    .from('app_settings')
-    .select('id')
-    .is('user_id', null)
-    .eq('setting_key', settingKey)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await supabase
+  // Two steps because upsert (ON CONFLICT) can't target the partial unique index for system
+  // rows. Update the system row (user_id IS NULL) first and see whether it changed anything;
+  // insert only when there was none. If another save inserts it in between, the insert fails
+  // with a unique violation and the update is simply repeated.
+  const update = async (): Promise<boolean> => {
+    const { data, error } = await supabase
       .from('app_settings')
       .update({ setting_value: value })
-      .eq('id', existing.id);
+      .is('user_id', null)
+      .eq('setting_key', settingKey)
+      .select('id');
     if (error) throw error;
-  } else {
-    const { error } = await supabase
-      .from('app_settings')
-      .insert({ setting_key: settingKey, setting_value: value, encrypted: false, user_id: null });
-    if (error) throw error;
-  }
+    return (data?.length ?? 0) > 0;
+  };
+
+  if (await update()) return;
+
+  const { error } = await supabase
+    .from('app_settings')
+    .insert({ setting_key: settingKey, setting_value: value, encrypted: false, user_id: null });
+  if (!error) return;
+
+  if (error.code === '23505' && (await update())) return;
+  throw error;
 }
 
 // ---------- Baselines ----------

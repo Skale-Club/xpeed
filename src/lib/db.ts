@@ -3,6 +3,12 @@ import { supabase } from '@/integrations/supabase/client';
 const SESSION_CSV_BUCKET = 'session-csv';
 const SESSION_LIST_SELECT =
   'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, gemini_analysis';
+// The trip page also needs the fault codes and versions. Never `*`: sessions.source_csv holds
+// the whole CSV (megabytes) and the stored report is large; both are fetched only when needed.
+const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, active_dtcs, ruleset_id, ruleset_matched_via, report_version, processing_version`;
+/** session_rows are read in pages: the API caps a response (1000 rows) and a trip stores 2000+. */
+const ROW_PAGE_SIZE = 1000;
+const ROW_PAGE_LIMIT = 100;
 
 function sanitizeFileName(filename: string): string {
   return filename
@@ -70,9 +76,18 @@ export async function findSessionStartedAt(carProfileId: string, startedAt: Date
 export async function getSession(id: string) {
   const { data } = await supabase
     .from('sessions')
-    .select('*')
+    .select(SESSION_DETAIL_SELECT)
     .eq('id', id)
     .maybeSingle();
+  if (!data) return data;
+
+  // Trips saved before the CSV went to storage keep it in the row. Only those need it fetched
+  // (the page enables "Download CSV" from it); newer trips have source_file_path instead.
+  const trip = data as unknown as Record<string, unknown>;
+  if (!trip.source_file_path) {
+    const { data: csv } = await supabase.from('sessions').select('source_csv').eq('id', id).maybeSingle();
+    return { ...trip, source_csv: csv?.source_csv ?? null } as unknown as typeof data;
+  }
   return data;
 }
 
@@ -96,12 +111,24 @@ export async function getFlagsForSessions(sessionIds: string[]) {
 }
 
 export async function getSessionRows(sessionId: string) {
-  const { data } = await supabase
+  const rows: Awaited<ReturnType<typeof fetchRowsPage>> = [];
+  for (let page = 0; page < ROW_PAGE_LIMIT; page++) {
+    const chunk = await fetchRowsPage(sessionId, page * ROW_PAGE_SIZE);
+    rows.push(...chunk);
+    if (chunk.length < ROW_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+async function fetchRowsPage(sessionId: string, from: number) {
+  const { data, error } = await supabase
     .from('session_rows')
     .select('*')
     .eq('session_id', sessionId)
     .order('t_seconds', { ascending: true })
-    .limit(1000);
+    .order('id', { ascending: true }) // stable order across pages when times repeat
+    .range(from, from + ROW_PAGE_SIZE - 1);
+  if (error) throw new Error(`Failed to load trip data: ${error.message}`);
   return data || [];
 }
 
@@ -153,7 +180,7 @@ export async function createSession(
   sourceCsv?: string | null,
   activeDtcs?: string[],
 ) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('sessions')
     .insert({
       car_profile_id: carProfileId,
@@ -167,9 +194,12 @@ export async function createSession(
       source_csv: sourceCsv || null,
       active_dtcs: (activeDtcs ?? []) as unknown as never,
     })
-    .select()
+    .select('id')
     .single();
-  return data!;
+  if (error || !data) {
+    throw new Error(`Failed to save the trip: ${error?.message ?? 'no data returned'}`);
+  }
+  return data as unknown as { id: string };
 }
 
 export async function uploadSessionCSV(file: File, carProfileId: string): Promise<string> {
@@ -275,7 +305,8 @@ export async function insertSessionRows(
       t_timestamp: r.t_timestamp,
       data: r.data as unknown as never,
     }));
-    await supabase.from('session_rows').insert(chunk);
+    const { error } = await supabase.from('session_rows').insert(chunk);
+    if (error) throw new Error(`Failed to save trip data: ${error.message}`);
     if (onProgress) {
       onProgress(Math.min(100, Math.round(((i + chunkSize) / rows.length) * 100)));
     }
@@ -295,11 +326,54 @@ export async function insertSessionFlags(
     message: f.message,
     evidence: f.evidence as unknown as never,
   }));
-  await supabase.from('session_flags').insert(rows);
+  const { error } = await supabase.from('session_flags').insert(rows);
+  if (error) throw new Error(`Failed to save trip flags: ${error.message}`);
 }
 
 export async function deleteSessionFlags(sessionId: string) {
-  await supabase.from('session_flags').delete().eq('session_id', sessionId);
+  const { error } = await supabase.from('session_flags').delete().eq('session_id', sessionId);
+  if (error) throw new Error(`Failed to clear trip flags: ${error.message}`);
+}
+
+type FlagInput = Parameters<typeof insertSessionFlags>[1];
+
+/**
+ * Swap a trip's flags for a freshly computed set without a window in which it has none:
+ * the new flags go in first, then the previous ones are removed. If inserting fails the
+ * old flags are untouched; if the cleanup fails the new ones are rolled back.
+ */
+export async function replaceSessionFlags(sessionId: string, flags: FlagInput) {
+  const { data: previous, error: readError } = await supabase
+    .from('session_flags')
+    .select('id')
+    .eq('session_id', sessionId);
+  if (readError) throw new Error(`Failed to read trip flags: ${readError.message}`);
+  const oldIds = (previous || []).map((f) => f.id);
+
+  let newIds: string[] = [];
+  if (flags.length > 0) {
+    const { data: inserted, error: insertError } = await supabase
+      .from('session_flags')
+      .insert(flags.map((f) => ({
+        session_id: sessionId,
+        severity: f.severity,
+        canonical_key: f.canonical_key,
+        parameter_key: f.parameter_key,
+        message: f.message,
+        evidence: f.evidence as unknown as never,
+      })))
+      .select('id');
+    if (insertError) throw new Error(`Failed to save trip flags: ${insertError.message}`);
+    newIds = (inserted || []).map((f) => f.id);
+  }
+
+  if (oldIds.length > 0) {
+    const { error: deleteError } = await supabase.from('session_flags').delete().in('id', oldIds);
+    if (deleteError) {
+      if (newIds.length > 0) await supabase.from('session_flags').delete().in('id', newIds);
+      throw new Error(`Failed to replace trip flags: ${deleteError.message}`);
+    }
+  }
 }
 
 export async function toggleFlagResolved(flagId: string, resolved: boolean) {
@@ -356,7 +430,7 @@ export async function storeSessionReport(
 ): Promise<void> {
   const { error } = await supabase
     .from('sessions')
-    .update({ report: report as unknown as never })
+    .update({ report: report as unknown as never } as never)
     .eq('id', sessionId);
 
   if (error) {
@@ -445,7 +519,8 @@ export async function createCarProfile(
       year: input.year ?? null,
       trim: input.trim ?? null,
       vin: input.vin ?? null,
-      country: input.country ?? null,
+      // car_profiles.country is NOT NULL DEFAULT 'US': leave it out when unset so the default applies.
+      ...(input.country ? { country: input.country } : {}),
       engine_type: input.engine_type ?? null,
     })
     .select()
@@ -462,9 +537,12 @@ export async function updateCarProfile(
   id: string,
   updates: Partial<CarProfileInput>,
 ): Promise<void> {
+  // country can't be cleared (NOT NULL): an unset value means "leave it as it is".
+  const { country, ...rest } = updates;
+  const payload = country ? { ...rest, country } : rest;
   const { error } = await supabase
     .from('car_profiles')
-    .update(updates)
+    .update(payload)
     .eq('id', id);
 
   if (error) {

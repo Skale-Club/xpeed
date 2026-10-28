@@ -3,29 +3,20 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Shield, AlertTriangle } from 'lucide-react';
 import { useAdminStatus } from '@/hooks/use-admin-status';
 import { PageLoader } from '@/components/PageLoader';
+import { useTranslation } from 'react-i18next';
 import AIProviderSection from '@/components/admin/AIProviderSection';
 
 export default function AdminPage() {
+  const { t } = useTranslation();
   const { isAdmin, loading: adminLoading } = useAdminStatus();
 
   if (adminLoading) return <PageLoader />;
+  // Not an admin: say nothing about admins, e-mails or how to become one.
   if (!isAdmin) return (
     <AppLayout>
-      <div className="max-w-md mx-auto pt-12 space-y-4">
-        <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5 text-destructive" />
-          <h2 className="text-lg font-bold text-foreground">Admin Access Required</h2>
-        </div>
-        <Alert variant="destructive">
-          <AlertTriangle className="w-4 h-4" />
-          <AlertDescription className="text-xs space-y-2">
-            <p>Your account is not marked as admin in the database.</p>
-            <p className="font-mono bg-destructive/10 rounded px-2 py-1 mt-2 select-all">
-              UPDATE public.car_profiles SET is_admin = true WHERE user_id = (SELECT id FROM auth.users WHERE email = 'skale.club@gmail.com' LIMIT 1);
-            </p>
-            <p>Run the SQL above no <strong>Supabase Dashboard → SQL Editor</strong>, depois recarregue a página.</p>
-          </AlertDescription>
-        </Alert>
+      <div className="max-w-md mx-auto pt-12 text-center space-y-2">
+        <h2 className="text-lg font-bold text-foreground">{t('adminPage.notAvailable', 'Not available')}</h2>
+        <p className="text-sm text-muted-foreground">{t('adminPage.notAvailableBody', 'There is nothing to see on this page.')}</p>
       </div>
     </AppLayout>
   );

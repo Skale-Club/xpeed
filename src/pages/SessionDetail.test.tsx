@@ -11,11 +11,14 @@ const db = vi.hoisted(() => ({
   getSessionFlags: vi.fn(async () => []),
   getSessionRows: vi.fn(async () => []),
   getCarById: vi.fn(async () => ({ id: 'car-1', make: 'Toyota', model: 'Prius', year: 2010, engine_type: 'hybrid' })),
-  deleteSessionFlags: vi.fn(),
-  insertSessionFlags: vi.fn(),
+  replaceSessionFlags: vi.fn(async () => undefined),
   downloadSessionCSV: vi.fn(),
 }));
-const extras = vi.hoisted(() => ({ createSharedReport: vi.fn(async () => ({ id: 'rep-1' })) }));
+const extras = vi.hoisted(() => ({
+  createSharedReport: vi.fn(async () => ({ id: 'rep-1' })),
+  listSharedReports: vi.fn(async () => [] as unknown[]),
+  revokeSharedReport: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/db', () => db);
 vi.mock('@/lib/db-extras', () => extras);
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
@@ -81,8 +84,40 @@ describe('SessionDetail', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     renderTrip();
     fireEvent.click(await screen.findByRole('button', { name: /send to the mechanic/i }));
+    // The owner is told the link is public and shows the VIN before it exists
+    expect(await screen.findByText(/anyone who has the link/i)).toBeInTheDocument();
+    expect(screen.getByText(/VIN/)).toBeInTheDocument();
+    expect(extras.createSharedReport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /create link/i }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/share/rep-1`));
     expect(extras.createSharedReport).toHaveBeenCalledWith('t1', 30);
     expect(await screen.findByText('Link copied')).toBeInTheDocument();
+  });
+
+  it('lists the links made for the trip and turns one off', async () => {
+    db.getSession.mockResolvedValueOnce(TRIP);
+    extras.listSharedReports.mockResolvedValueOnce([
+      { id: 'rep-9', session_id: 't1', user_id: 'u1', expires_at: null, view_count: 3, created_at: '2026-10-20T10:00:00Z' },
+    ]);
+    renderTrip();
+    const links = await screen.findByTestId('shared-links');
+    expect(links).toHaveTextContent('opened 3 times');
+    fireEvent.click(screen.getByRole('button', { name: 'Turn off' }));
+    await waitFor(() => expect(extras.revokeSharedReport).toHaveBeenCalledWith('rep-9'));
+    expect(await screen.findByText('Link turned off')).toBeInTheDocument();
+    expect(screen.queryByTestId('shared-links')).not.toBeInTheDocument();
+  });
+
+  it('keeps the trip as it was and says so when re-evaluating fails', async () => {
+    db.getSession.mockResolvedValueOnce(TRIP);
+    db.getSessionRows.mockResolvedValueOnce([{ id: 'r1', session_id: 't1', t_seconds: 0, t_timestamp: null, data: { coolant: 90 } }] as never);
+    db.replaceSessionFlags.mockRejectedValueOnce(new Error('network down'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    renderTrip();
+    fireEvent.click(await screen.findByRole('button', { name: /technical details/i }));
+    fireEvent.click(screen.getByRole('button', { name: /re-evaluate/i }));
+    expect(await screen.findByText('Re-evaluate failed')).toBeInTheDocument();
+    expect(db.getSessionFlags).toHaveBeenCalledTimes(1); // not re-read as if it had worked
+    consoleError.mockRestore();
   });
 });
