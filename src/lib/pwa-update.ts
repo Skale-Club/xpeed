@@ -87,7 +87,11 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     if (!updateWaiting || isTripRecording() || recentlyApplied()) return;
     updateWaiting = false;
     markApplied();
-    // Sends SKIP_WAITING; the page reloads once the new worker controls it.
+    // The register helper only reloads when a worker already controlled the page at
+    // load; on a first visit it doesn't, and the page would keep running old code
+    // against the new cache. Reload ourselves once the new worker takes over.
+    navigator.serviceWorker?.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+    // Sends SKIP_WAITING; the new worker then takes control.
     void updateServiceWorker(true);
   };
 
