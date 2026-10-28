@@ -16,7 +16,7 @@ export function AddVehicleForm({ onSuccess, onCancel }: AddVehicleFormProps) {
 
   const handleSubmit = async (answers: CarAnswers) => {
     const car = await createCar(answers);
-    toast({ title: t('vehicle.added', 'Car added'), description: car.name });
+    toast({ title: t('vehicle.added', 'Car added'), description: car.name, variant: 'success' });
     onSuccess(car.id);
   };
 

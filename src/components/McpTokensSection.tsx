@@ -93,7 +93,7 @@ export default function McpTokensSection() {
     setRevokingId(id);
     try {
       await revokeMcpToken(id);
-      toast({ title: 'Token revoked' });
+      toast({ title: 'Token revoked', variant: 'success' });
       await load();
     } catch (err) {
       toast({ title: 'Failed to revoke', description: String(err), variant: 'destructive' });

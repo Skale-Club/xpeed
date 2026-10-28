@@ -116,7 +116,7 @@ describe('SessionDetail', () => {
     renderTrip();
     fireEvent.click(await screen.findByRole('button', { name: /technical details/i }));
     fireEvent.click(screen.getByRole('button', { name: /re-evaluate/i }));
-    expect(await screen.findByText('Re-evaluate failed')).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't check the trip again")).toBeInTheDocument();
     expect(db.getSessionFlags).toHaveBeenCalledTimes(1); // not re-read as if it had worked
     consoleError.mockRestore();
   });

@@ -122,7 +122,8 @@ describe('IssuesPage safety nets', () => {
     const first = (await screen.findAllByTestId('problem-card'))[0];
     fireEvent.click(within(first).getByRole('button', { name: "It's fixed" }));
     await screen.findByText('Marked as fixed');
-    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    // Toasts can stack now; the newest (this one) comes first.
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Undo' }))[0]);
     await waitFor(() => expect(api.reopenIssue).toHaveBeenCalledWith('b'));
   });
 });

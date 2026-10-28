@@ -573,7 +573,9 @@
     "reevaluate": "Volver a evaluar",
     "reevaluated": "Revisado de nuevo",
     "reevaluatedCount_one": "{{count}} lectura fuera de lo normal",
-    "reevaluatedCount_other": "{{count}} lecturas fuera de lo normal"
+    "reevaluatedCount_other": "{{count}} lecturas fuera de lo normal",
+    "reevaluateFailed": "No se pudo revisar de nuevo",
+    "reevaluateFailedHint": "El viaje quedó como estaba. Inténtalo de nuevo."
   },
   "sharing": {
     "confirmTitle": "¿Crear un enlace público?",
@@ -1005,5 +1007,27 @@
   "errors": {
     "boundaryBody": "Esta pantalla tuvo un problema inesperado. Puedes intentarlo de nuevo o volver al inicio.",
     "goHome": "Ir al inicio"
+  },
+  "params": {
+    "coolant_temp": "Temperatura del motor",
+    "engine_rpm": "Revoluciones del motor",
+    "vehicle_speed": "Velocidad",
+    "stft_b1": "Corrección de combustible corta (B1)",
+    "ltft_b1": "Corrección de combustible larga (B1)",
+    "battery_voltage_12v": "Batería 12 V",
+    "intake_air_temp": "Temperatura del aire de admisión",
+    "engine_load": "Carga del motor",
+    "throttle_position": "Posición del acelerador",
+    "maf": "Flujo de aire (MAF)",
+    "map": "Presión del colector (MAP)",
+    "o2_b1s1": "Sonda lambda B1S1",
+    "o2_b1s2": "Sonda lambda B1S2",
+    "catalyst_temp": "Temperatura del catalizador",
+    "ambient_air_temp": "Temperatura exterior",
+    "fuel_system_status": "Sistema de combustible",
+    "hybrid_battery_soc": "Carga de la batería híbrida",
+    "inverter_temp": "Temperatura del inversor",
+    "mpg_or_fuel_rate": "Consumo de combustible",
+    "fuel_level": "Nivel de combustible"
   }
 }

@@ -2,8 +2,21 @@ import * as React from "react";
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 
-const TOAST_LIMIT = 1;
-const TOAST_REMOVE_DELAY = 1000000;
+// Up to three at once; when more arrive, the least important goes first, so a
+// confirmation never pushes an error off the screen.
+const TOAST_LIMIT = 3;
+const TOAST_REMOVE_DELAY = 1000;
+const IMPORTANCE: Record<string, number> = { destructive: 3, warning: 2, default: 1, success: 0 };
+
+function keepMostImportant(toasts: ToasterToast[]): ToasterToast[] {
+  const open = toasts.filter((t) => t.open !== false);
+  if (open.length <= TOAST_LIMIT) return toasts;
+  // Newest first in the list: drop the oldest of the least important level.
+  const rank = (t: ToasterToast) => IMPORTANCE[t.variant ?? 'default'] ?? 1;
+  const lowest = Math.min(...open.map(rank));
+  const drop = [...open].reverse().find((t) => rank(t) === lowest);
+  return keepMostImportant(toasts.filter((t) => t !== drop));
+}
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -73,7 +86,7 @@ export const reducer = (state: State, action: Action): State => {
     case "ADD_TOAST":
       return {
         ...state,
-        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+        toasts: keepMostImportant([action.toast, ...state.toasts]),
       };
 
     case "UPDATE_TOAST":

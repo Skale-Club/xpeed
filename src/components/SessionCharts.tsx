@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { CANONICAL_PARAMS, PRIUS_PRIORITY_KEYS } from '@/lib/canonical-params';
@@ -117,6 +118,7 @@ interface SessionChartsProps {
 }
 
 export default function SessionCharts({ rows, headerMapping, rules }: SessionChartsProps) {
+  const { t } = useTranslation();
   // Sort by Prius priority
   const sortedHeaders = useMemo(() => {
     return Object.entries(headerMapping)
@@ -142,7 +144,7 @@ export default function SessionCharts({ rows, headerMapping, rules }: SessionCha
             rows={rows}
             parameterKey={key}
             canonicalKey={ck}
-            label={mapping?.label || key}
+            label={mapping ? t(`params.${mapping.canonical_key}`, mapping.label) : key}
             unit={mapping?.unit || ''}
             warnMax={rule?.warn_max}
             criticalMax={rule?.critical_max}

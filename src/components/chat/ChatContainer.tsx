@@ -230,10 +230,10 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
 
                 <DialogPrimitive.Content
                     aria-describedby={undefined}
-                    className="fixed inset-0 z-50 flex flex-col border bg-card text-card-foreground shadow-2xl animate-in slide-in-from-right duration-300 focus:outline-none sm:inset-y-4 sm:left-auto sm:right-4 sm:w-full sm:max-w-4xl sm:rounded-lg"
+                    className="fixed inset-3 z-50 flex flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl animate-in slide-in-from-right duration-300 focus:outline-none sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[calc(100%-2rem)] sm:max-w-4xl"
                 >
                 <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                         <Button
                             variant="ghost"
                             size="icon"
@@ -244,24 +244,30 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                         >
                             <Menu className="h-5 w-5" />
                         </Button>
-                        <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <div className="w-8 h-8 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
                                 <Sparkles className="w-4 h-4 text-primary" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <DialogPrimitive.Title asChild>
                                     <CardTitle className="text-lg">Xpeed</CardTitle>
                                 </DialogPrimitive.Title>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="truncate text-xs text-muted-foreground">
                                     {selectedCar ? selectedCar.name : t('assistant.noCarSelected', 'No car selected')}
                                 </p>
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" onClick={handleNewConversation}>
-                            <Plus className="h-4 w-4 mr-1" />
-                            {t('assistant.newChat', 'New chat')}
+                    <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleNewConversation}
+                            aria-label={t('assistant.newChat', 'New chat')}
+                            className="h-10 w-10 px-0 sm:w-auto sm:px-4"
+                        >
+                            <Plus className="h-4 w-4 sm:mr-1" />
+                            <span className="hidden sm:inline">{t('assistant.newChat', 'New chat')}</span>
                         </Button>
                         <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('assistant.close', 'Close')}>
                             <X className="h-5 w-5" />

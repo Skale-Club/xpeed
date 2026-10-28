@@ -81,7 +81,7 @@ const Index = () => {
           const newSession = payload.new as unknown as Session;
           setAllSessions((prev) => (prev.some((s) => s.id === newSession.id) ? prev : [newSession, ...prev]));
           if (Date.now() - ownSaveAt.current > OWN_SAVE_WINDOW_MS) {
-            toast({ title: t('home.newTrip', 'A new trip was added') });
+            toast({ title: t('home.newTrip', 'A new trip was added'), variant: 'default' });
           }
         },
       )

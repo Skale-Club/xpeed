@@ -573,7 +573,9 @@
     "reevaluate": "Re-evaluate",
     "reevaluated": "Checked again",
     "reevaluatedCount_one": "{{count}} reading out of range",
-    "reevaluatedCount_other": "{{count}} readings out of range"
+    "reevaluatedCount_other": "{{count}} readings out of range",
+    "reevaluateFailed": "Couldn't check the trip again",
+    "reevaluateFailedHint": "The trip was left as it was. Try again."
   },
   "sharing": {
     "confirmTitle": "Make a public link?",
@@ -1005,5 +1007,27 @@
   "errors": {
     "boundaryBody": "This screen had an unexpected problem. You can try again or go back to the start.",
     "goHome": "Go to the start"
+  },
+  "params": {
+    "coolant_temp": "Coolant Temp",
+    "engine_rpm": "Engine RPM",
+    "vehicle_speed": "Vehicle Speed",
+    "stft_b1": "Short Term Fuel Trim B1",
+    "ltft_b1": "Long Term Fuel Trim B1",
+    "battery_voltage_12v": "12V Battery",
+    "intake_air_temp": "Intake Air Temp",
+    "engine_load": "Engine Load",
+    "throttle_position": "Throttle Position",
+    "maf": "MAF",
+    "map": "MAP",
+    "o2_b1s1": "O2 Sensor B1S1",
+    "o2_b1s2": "O2 Sensor B1S2",
+    "catalyst_temp": "Catalyst Temp",
+    "ambient_air_temp": "Ambient Temp",
+    "fuel_system_status": "Fuel System",
+    "hybrid_battery_soc": "HV Battery SOC",
+    "inverter_temp": "Inverter Temp",
+    "mpg_or_fuel_rate": "Fuel Rate",
+    "fuel_level": "Fuel Level"
   }
 }

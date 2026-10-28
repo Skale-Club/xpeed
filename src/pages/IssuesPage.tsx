@@ -83,6 +83,7 @@ export default function IssuesPage() {
       if (action !== 'reopen') {
         toast({
           title: action === 'resolve' ? t('problems.markedFixed', 'Marked as fixed') : t('problems.markedIgnored', 'Problem ignored'),
+          variant: 'success',
           action: (
             <ToastAction altText={t('problems.undo', 'Undo')} onClick={() => void act(issue, 'reopen')}>
               {t('problems.undo', 'Undo')}

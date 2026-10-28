@@ -52,7 +52,7 @@ export function EcuScanCard({ findEcus, sweepMode21 }: Props) {
   const copy = async (header: string) => {
     try {
       await navigator.clipboard.writeText(formatSweep(header, sweeps[header] ?? []));
-      toast({ title: t('scanner.scan.copied', 'Copied — paste it in the chat') });
+      toast({ title: t('scanner.scan.copied', 'Copied — paste it in the chat'), variant: 'success' });
     } catch {
       toast({ title: t('scanner.scan.copyFailed', 'Could not copy to the clipboard'), variant: 'destructive' });
     }

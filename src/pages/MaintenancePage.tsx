@@ -138,7 +138,7 @@ export default function MaintenancePage() {
         notes: notes.trim() || null,
       });
       setEvents(prev => [ev, ...prev]);
-      toast({ title: t('maint.added', 'Service saved') });
+      toast({ title: t('maint.added', 'Service saved'), variant: 'success' });
       setIsAddOpen(false);
       setType('oil_change');
       setDate(todayLocal());

@@ -8,7 +8,7 @@ interface AIAnalysisCardProps {
     summary: string;
     insights: string[];
     recommendations: string[];
-    timestamp: string;
+    timestamp?: string;
   };
 }
 
@@ -25,9 +25,12 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
           </div>
           <div>
             <h3 className="text-lg font-bold text-foreground">{t('aiReport.title', 'AI trip report')}</h3>
-            <p className="text-xs text-muted-foreground">
-              {t('aiReport.generated', 'Generated {{when}}', { when: new Date(analysis.timestamp).toLocaleString(i18n.resolvedLanguage || undefined) })}
-            </p>
+            {/* Trip summaries from the server carry no time of their own; show it only when there is one. */}
+            {analysis.timestamp && !Number.isNaN(new Date(analysis.timestamp).getTime()) && (
+              <p className="text-xs text-muted-foreground">
+                {t('aiReport.generated', 'Generated {{when}}', { when: new Date(analysis.timestamp).toLocaleString(i18n.resolvedLanguage || undefined) })}
+              </p>
+            )}
           </div>
         </div>
         <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5 shrink-0">

@@ -247,7 +247,7 @@
     "updates": "atualiza a cada {{seconds}} s"
   },
   "live": {
-    "title": "Painel live",
+    "title": "Painel ao vivo",
     "blocks": "Bateria híbrida",
     "record": "Gravar",
     "customize": "Personalizar",
@@ -573,7 +573,9 @@
     "reevaluate": "Reavaliar",
     "reevaluated": "Verificado de novo",
     "reevaluatedCount_one": "{{count}} leitura fora do normal",
-    "reevaluatedCount_other": "{{count}} leituras fora do normal"
+    "reevaluatedCount_other": "{{count}} leituras fora do normal",
+    "reevaluateFailed": "Não foi possível verificar de novo",
+    "reevaluateFailedHint": "A viagem ficou como estava. Tente de novo."
   },
   "sharing": {
     "confirmTitle": "Criar um link público?",
@@ -1005,5 +1007,27 @@
   "errors": {
     "boundaryBody": "Esta tela teve um problema inesperado. Você pode tentar de novo ou voltar ao início.",
     "goHome": "Ir para o início"
+  },
+  "params": {
+    "coolant_temp": "Temperatura do motor",
+    "engine_rpm": "Rotação do motor",
+    "vehicle_speed": "Velocidade",
+    "stft_b1": "Correção de combustível curta (B1)",
+    "ltft_b1": "Correção de combustível longa (B1)",
+    "battery_voltage_12v": "Bateria 12 V",
+    "intake_air_temp": "Temperatura do ar de admissão",
+    "engine_load": "Carga do motor",
+    "throttle_position": "Posição do acelerador",
+    "maf": "Fluxo de ar (MAF)",
+    "map": "Pressão do coletor (MAP)",
+    "o2_b1s1": "Sonda lambda B1S1",
+    "o2_b1s2": "Sonda lambda B1S2",
+    "catalyst_temp": "Temperatura do catalisador",
+    "ambient_air_temp": "Temperatura externa",
+    "fuel_system_status": "Sistema de combustível",
+    "hybrid_battery_soc": "Carga da bateria híbrida",
+    "inverter_temp": "Temperatura do inversor",
+    "mpg_or_fuel_rate": "Consumo de combustível",
+    "fuel_level": "Nível de combustível"
   }
 }

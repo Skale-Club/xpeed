@@ -47,6 +47,7 @@ export default function ShareReportSection({ session }: { session: Pick<Session,
         await navigator.clipboard.writeText(url);
         toast({
           title: t('tripDetail.linkCopied', 'Link copied'),
+          variant: 'success',
           description: t('tripDetail.linkCopiedHint', 'Paste it in a message to your mechanic. It works for 30 days.'),
         });
       }
@@ -64,7 +65,7 @@ export default function ShareReportSection({ session }: { session: Pick<Session,
     try {
       await revokeSharedReport(id);
       setLinks((current) => current.filter((l) => l.id !== id));
-      toast({ title: t('sharing.turnedOff', 'Link turned off') });
+      toast({ title: t('sharing.turnedOff', 'Link turned off'), variant: 'success' });
     } catch (err) {
       console.error(err);
       toast({ title: t('sharing.turnOffFailed', "Couldn't turn the link off"), variant: 'destructive' });

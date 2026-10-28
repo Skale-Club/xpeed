@@ -73,7 +73,7 @@ export default function AIProviderSection() {
         await upsertAdminSetting(MODEL_SETTING, v);
         setInitialModel(v);
       }
-      toast({ title: 'Saved', description: 'AI provider settings updated.' });
+      toast({ title: 'Saved', description: 'AI provider settings updated.', variant: 'success' });
     } catch (err) {
       toast({ title: 'Save failed', description: String(err), variant: 'destructive' });
     } finally {
@@ -113,7 +113,7 @@ export default function AIProviderSection() {
       }
 
       if (data?.ok) {
-        toast({ title: 'Connection OK ✓', description: data.message || `Model "${data.model}" responded.` });
+        toast({ title: 'Connection OK', description: data.message || `Model "${data.model}" responded.`, variant: 'success' });
       } else {
         const label = REASON_LABEL[data?.reason] || 'Test failed.';
         const detail = data?.message ? ` — ${String(data.message).slice(0, 160)}` : '';

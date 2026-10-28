@@ -62,17 +62,17 @@ export default function CarsPage() {
     const trimmedMake = editMake.trim();
     const trimmedModel = editModel.trim();
     if (!trimmedMake || !trimmedModel) {
-      toast({ title: t('vehicle.missingEdit', 'Fill in brand and model.'), variant: 'destructive' });
+      toast({ title: t('vehicle.missingEdit', 'Fill in brand and model.'), variant: 'warning' });
       return;
     }
     const yearNum = editYear ? parseInt(editYear, 10) : undefined;
     if (yearNum !== undefined && !isValidCarYear(yearNum)) {
-      toast({ title: t('vehicle.badYear', 'Check the year.'), variant: 'destructive' });
+      toast({ title: t('vehicle.badYear', 'Check the year.'), variant: 'warning' });
       return;
     }
     const trimmedVin = editVin.trim();
     if (trimmedVin && trimmedVin.length !== 17) {
-      toast({ title: t('vehicle.vinInvalid', 'The chassis number (VIN) has 17 characters.'), variant: 'destructive' });
+      toast({ title: t('vehicle.vinInvalid', 'The chassis number (VIN) has 17 characters.'), variant: 'warning' });
       return;
     }
 
@@ -91,7 +91,7 @@ export default function CarsPage() {
         notes: editNotes.trim() || null,
         engine_type: editEngine,
       });
-      toast({ title: t('vehicle.saved', 'Car updated') });
+      toast({ title: t('vehicle.saved', 'Car updated'), variant: 'success' });
       setEditingCar(null);
     } catch (error) {
       console.error(error);
@@ -104,7 +104,7 @@ export default function CarsPage() {
   const handleDeleteCar = async (car: CarProfile) => {
     try {
       await deleteCar(car.id);
-      toast({ title: t('vehicle.deleted', 'Car removed') });
+      toast({ title: t('vehicle.deleted', 'Car removed'), variant: 'success' });
     } catch (error) {
       console.error(error);
       toast({ title: t('vehicle.deleteFailed', "Couldn't remove the car"), variant: 'destructive' });

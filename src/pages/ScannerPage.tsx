@@ -98,7 +98,7 @@ export default function ScannerPage() {
     if (selectedCar && user) {
       const { resolved } = await syncFaultCodes(selectedCar.id, user.id, readout, null);
       if (resolved > 0) {
-        toast({ title: t('problems.synced', 'Problems updated'), description: t('problems.syncedHint', { count: resolved }) });
+        toast({ title: t('problems.synced', 'Problems updated'), description: t('problems.syncedHint', { count: resolved }), variant: 'success' });
       }
     }
   };
@@ -106,7 +106,7 @@ export default function ScannerPage() {
   const handleReadVin = () => run('vin', async () => setVin(await scanner.readVin()));
   const handleClearDtcs = () => run('clear', async () => {
     await scanner.clearDtcs();
-    toast({ title: t('scanner.cleared', 'Trouble codes cleared') });
+    toast({ title: t('scanner.cleared', 'Trouble codes cleared'), variant: 'success' });
     await readAndSync();
   });
 

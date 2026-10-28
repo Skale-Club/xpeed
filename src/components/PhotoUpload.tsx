@@ -62,7 +62,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       toast({
         title: t('photos.invalidTitle', "That's not a photo"),
         description: t('photos.invalidBody', 'Please choose an image (JPG, PNG or WebP).'),
-        variant: 'destructive',
+        variant: 'warning',
       });
       return;
     }
@@ -70,7 +70,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       toast({
         title: t('photos.tooLargeTitle', 'Photo too large'),
         description: t('photos.tooLargeBody', 'Photos can be up to 10 MB.'),
-        variant: 'destructive',
+        variant: 'warning',
       });
       return;
     }
@@ -79,7 +79,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       const photo = await uploadSessionPhoto(file, sessionId, photoType, caption.trim() || undefined);
       setPhotos(prev => [...prev, photo]);
       setCaption('');
-      toast({ title: t('photos.uploaded', 'Photo added') });
+      toast({ title: t('photos.uploaded', 'Photo added'), variant: 'success' });
     } catch (err) {
       console.error('Photo upload failed:', err);
       toast({

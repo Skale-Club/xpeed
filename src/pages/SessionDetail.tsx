@@ -98,11 +98,12 @@ export default function SessionDetail() {
       setFlags((await getSessionFlags(id)) as unknown as SessionFlag[]);
       toast({
         title: t('tripDetail.reevaluated', 'Checked again'),
+        variant: 'success',
         description: t('tripDetail.reevaluatedCount', { count: newFlags.length, defaultValue: '{{count}} readings out of range' }),
       });
     } catch (error) {
       console.error('Failed to re-evaluate the trip:', error);
-      toast({ title: 'Re-evaluate failed', description: 'The trip was left as it was. Try again.', variant: 'destructive' });
+      toast({ title: t('tripDetail.reevaluateFailed', "Couldn't check the trip again"), description: t('tripDetail.reevaluateFailedHint', 'The trip was left as it was. Try again.'), variant: 'destructive' });
     }
   }, [id, session, rows, rules, toast]);
 

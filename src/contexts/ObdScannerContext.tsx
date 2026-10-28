@@ -165,7 +165,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     if (copy.endedAt == null && currentTripRef.current?.id === id) return; // still being recorded
     const carId = copy.carId ?? carIdRef.current;
     if (!carId) {
-      if (announceFailure()) toast({ title: t('trip.noCar', 'Choose your car to save this trip'), variant: 'destructive' });
+      if (announceFailure()) toast({ title: t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
       return;
     }
     const forget = async () => {
@@ -198,6 +198,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       toast({
         title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
         description: t('trip.savedHint', 'You can see it in History.'),
+        variant: 'success',
       });
     } catch (err) {
       console.error('Trip save failed:', err);
@@ -208,7 +209,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
           description: kept
             ? t('trip.saveFailedHint', "It's kept on this device and will be saved by itself when there's internet.")
             : t('trip.saveFailedNoCopy', "It couldn't be kept on this device either, so leave the app open: it keeps trying while it's open."),
-          variant: 'destructive',
+          variant: kept ? 'warning' : 'destructive',
         });
       }
     } finally {
@@ -297,7 +298,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const switchToCar = useCallback((id: string, name: string) => {
     if (id !== carIdRef.current) {
       selectCar(id);
-      toast({ title: t('vin.recognized', 'Recognized your {{name}}', { name }) });
+      toast({ title: t('vin.recognized', 'Recognized your {{name}}', { name }), variant: 'success' });
     }
     if (currentTripRef.current) currentTripRef.current = { ...currentTripRef.current, carId: id };
   }, [selectCar, toast, t]);
