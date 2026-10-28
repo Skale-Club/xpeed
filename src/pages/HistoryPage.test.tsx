@@ -41,9 +41,9 @@ afterEach(() => {
 describe('HistoryPage', () => {
   it('shows an empty state that leads to starting a trip', async () => {
     db.getSessions.mockResolvedValueOnce([]);
-    db.getFlagsForSessions.mockResolvedValueOnce([]);
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);
     expect(await screen.findByText('No trips yet')).toBeInTheDocument();
+    expect(db.getFlagsForSessions).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /start trip/i })).toBeInTheDocument();
   });
 
@@ -85,4 +85,31 @@ describe('HistoryPage', () => {
     await waitFor(() => expect(db.deleteSession).toHaveBeenCalledWith('new'));
     await waitFor(() => expect(screen.getAllByTestId('trip-row')).toHaveLength(1));
   });
+});
+
+describe('HistoryPage paging', () => {
+  it('shows 50 trips at a time and fetches problems only for the trips on screen', async () => {
+    const many = Array.from({ length: 120 }, (_, i) => ({
+      id: `t${i}`, source_filename: 'Trip', session_start: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
+      uploaded_at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), duration_seconds: 600, summary: null, active_dtcs: [],
+    }));
+    db.getSessions.mockResolvedValueOnce(many);
+    db.getFlagsForSessions.mockResolvedValue([]);
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>);
+
+    expect(await screen.findAllByTestId('trip-row')).toHaveLength(50);
+    expect(db.getFlagsForSessions).toHaveBeenCalledTimes(1);
+    expect(db.getFlagsForSessions.mock.calls[0][0]).toHaveLength(50);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show older trips' }));
+    await waitFor(() => expect(screen.getAllByTestId('trip-row')).toHaveLength(100));
+    expect(db.getFlagsForSessions).toHaveBeenCalledTimes(2);
+    // Every request stays small, however many trips there are
+    for (const [ids] of db.getFlagsForSessions.mock.calls) expect(ids.length).toBeLessThanOrEqual(50);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show older trips' }));
+    await waitFor(() => expect(screen.getAllByTestId('trip-row')).toHaveLength(120));
+    expect(screen.queryByRole('button', { name: 'Show older trips' })).not.toBeInTheDocument();
+    db.getFlagsForSessions.mockReset();
+  }, 30000);
 });

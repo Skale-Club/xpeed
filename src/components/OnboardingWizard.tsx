@@ -142,7 +142,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
                 {choice === 'adapter' && (
                   <p className="text-sm text-muted-foreground">
-                    {t('onboard.adapterNext', 'On the next screen, tap "Start trip" with the car on. The app finds the adapter and records every trip from then on.')}
+                    {t('onboard.adapterNext', 'On the next screen, with the car on, tap "Connect to the car" and pick the adapter. From then on your trips are recorded.')}
                   </p>
                 )}
                 {choice === 'none' && (

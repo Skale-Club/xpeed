@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   listMaintenanceEvents, createMaintenanceEvent, deleteMaintenanceEvent,
   type MaintenanceEvent, type MaintenanceType,
@@ -47,12 +48,21 @@ const TYPE_ORDER: MaintenanceType[] = [
   'inspection', 'other',
 ];
 
-// Costs are shown in the currency of the app language; how they are stored is unchanged.
+// A new service starts in the currency of the app language; the owner can pick another,
+// and each service keeps (and shows) the currency it was saved with.
 const CURRENCY_BY_LANGUAGE: Record<string, string> = {
   en: 'USD',
   'pt-BR': 'BRL',
   'es-ES': 'EUR',
 };
+const CURRENCIES = ['BRL', 'USD', 'EUR'];
+
+/** Today as the owner's calendar sees it ("YYYY-MM-DD"), not the UTC date. */
+function todayLocal(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
 
 export default function MaintenancePage() {
   const { t, i18n } = useTranslation();
@@ -64,17 +74,27 @@ export default function MaintenancePage() {
 
   // Add form state
   const [type, setType] = useState<MaintenanceType>('oil_change');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocal);
   const [odometer, setOdometer] = useState('');
   const [cost, setCost] = useState('');
+  // null: not chosen by the owner, so it follows the app language.
+  const [pickedCurrency, setPickedCurrency] = useState<string | null>(null);
   const [shop, setShop] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<MaintenanceEvent | null>(null);
 
   const language = i18n.resolvedLanguage || 'en';
+  const languageCurrency = CURRENCY_BY_LANGUAGE[language] ?? 'USD';
+  const currency = pickedCurrency ?? languageCurrency;
   const typeLabel = (value: MaintenanceType) => t(`maint.types.${value}`, TYPE_LABELS[value]);
-  const formatMoney = (value: number) =>
-    new Intl.NumberFormat(language, { style: 'currency', currency: CURRENCY_BY_LANGUAGE[language] ?? 'USD' }).format(value);
+  const formatMoney = (value: number, code: string | null) => {
+    try {
+      return new Intl.NumberFormat(language, { style: 'currency', currency: code || languageCurrency }).format(value);
+    } catch {
+      return `${value} ${code ?? ''}`.trim();
+    }
+  };
   // Service dates are stored as "YYYY-MM-DD"; parsing that as UTC shows the
   // previous day west of Greenwich (e.g. Brazil), so read it as a local date.
   const formatDate = (iso: string) => {
@@ -113,7 +133,7 @@ export default function MaintenancePage() {
         performed_at: date,
         odometer_km: odometer ? parseInt(odometer, 10) : null,
         cost: cost ? parseFloat(cost) : null,
-        currency: cost ? 'USD' : null,
+        currency: cost ? currency : null,
         shop: shop.trim() || null,
         notes: notes.trim() || null,
       });
@@ -121,7 +141,7 @@ export default function MaintenancePage() {
       toast({ title: t('maint.added', 'Service saved') });
       setIsAddOpen(false);
       setType('oil_change');
-      setDate(new Date().toISOString().slice(0, 10));
+      setDate(todayLocal());
       setOdometer(''); setCost(''); setShop(''); setNotes('');
     } catch (err) {
       console.error(err);
@@ -198,7 +218,17 @@ export default function MaintenancePage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="m-cost">{t('maint.costLabel', 'Cost')}</Label>
-                  <Input id="m-cost" type="number" placeholder="80" value={cost} onChange={e => setCost(e.target.value)} />
+                  <div className="flex gap-2">
+                    <Input id="m-cost" type="number" inputMode="decimal" min="0" step="0.01" placeholder="80" value={cost} onChange={e => setCost(e.target.value)} className="min-w-0 flex-1" />
+                    <select
+                      aria-label={t('maint.currencyLabel', 'Currency')}
+                      className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+                      value={currency}
+                      onChange={e => setPickedCurrency(e.target.value)}
+                    >
+                      {CURRENCIES.map(code => <option key={code} value={code}>{code}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="m-shop">{t('maint.workshopLabel', 'Workshop')}</Label>
@@ -259,7 +289,7 @@ export default function MaintenancePage() {
                         <span className="text-xs text-muted-foreground tabular-nums">{t('maint.kmValue', '{{km}} km', { km: formatKm(ev.odometer_km) })}</span>
                       )}
                       {ev.cost != null && (
-                        <span className="text-xs text-muted-foreground tabular-nums">{formatMoney(ev.cost)}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{formatMoney(ev.cost, ev.currency)}</span>
                       )}
                       {ev.shop && (
                         <span className="text-xs text-muted-foreground">{t('maint.atWorkshop', 'Workshop: {{name}}', { name: ev.shop })}</span>
@@ -270,14 +300,14 @@ export default function MaintenancePage() {
                     )}
                   </div>
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                    onClick={() => handleDelete(ev.id)}
+                    className="shrink-0 text-destructive hover:text-destructive"
+                    onClick={() => setDeleting(ev)}
                     aria-label={t('maint.deleteAria', 'Delete this service')}
                     title={t('maint.deleteAria', 'Delete this service')}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </CardContent>
               </Card>
@@ -285,6 +315,15 @@ export default function MaintenancePage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(open) => { if (!open) setDeleting(null); }}
+        title={t('maint.deleteTitle', 'Delete this service?')}
+        description={deleting ? t('maint.deleteBody', '"{{type}}" from {{date}} will be removed from the history.', { type: typeLabel(deleting.event_type), date: formatDate(deleting.performed_at) }) : undefined}
+        confirmLabel={t('maint.deleteConfirm', 'Delete')}
+        onConfirm={() => { if (deleting) void handleDelete(deleting.id); setDeleting(null); }}
+      />
     </AppLayout>
   );
 }

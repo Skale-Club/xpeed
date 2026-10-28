@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { EngineType } from '@/lib/db';
+import { isValidCarYear } from '@/lib/car-year';
 
 export interface CarAnswers {
   make: string;
@@ -53,7 +54,7 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
   const goBack = () => (index === 0 ? onExit() : setStep(QUESTIONS[index - 1]));
 
   const yearNum = parseInt(year, 10);
-  const yearValid = yearNum >= 1950 && yearNum <= new Date().getFullYear() + 1;
+  const yearValid = isValidCarYear(yearNum);
 
   const pickMake = (value: string) => {
     setMake(value);

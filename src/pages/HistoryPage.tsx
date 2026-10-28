@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Pencil, Trash2, Route, Play } from 'lucide-react';
+import { Pencil, Trash2, Route, Play, Loader2 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,6 +23,10 @@ import type { Session, SessionFlag } from '@/types/session';
 
 type Trip = Session & { active_dtcs?: string[] | null };
 
+/** Trips shown at a time; their flags are fetched with them, in chunks of FLAG_CHUNK ids. */
+const PAGE_SIZE = 50;
+const FLAG_CHUNK = 50;
+
 export default function HistoryPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -30,16 +34,35 @@ export default function HistoryPage() {
   const { selectedCarId, selectedCar } = useCarsContext();
   const { distanceUnit } = useSettings();
   const [trips, setTrips] = useState<Trip[]>([]);
+  // Only trips whose flags have been fetched have an entry here (an empty list = nothing wrong).
   const [flags, setFlags] = useState<Record<string, SessionFlag[]>>({});
   const [loading, setLoading] = useState(true);
+  const tRef = useRef(t);
+  tRef.current = t;
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [renaming, setRenaming] = useState<Trip | null>(null);
   const [newName, setNewName] = useState('');
   const [deleting, setDeleting] = useState<Trip | null>(null);
+
+  /** The flags of these trips, a few ids per request so the URL never grows without limit. */
+  const fetchFlags = useCallback(async (ids: string[]) => {
+    const grouped: Record<string, SessionFlag[]> = {};
+    for (let i = 0; i < ids.length; i += FLAG_CHUNK) {
+      const chunk = ids.slice(i, i + FLAG_CHUNK);
+      const found = (await getFlagsForSessions(chunk)) as unknown as SessionFlag[];
+      for (const id of chunk) grouped[id] = [];
+      for (const f of found) (grouped[f.session_id] ??= []).push(f);
+    }
+    return grouped;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setShown(PAGE_SIZE);
+      setFlags({});
       if (!selectedCarId) {
         setTrips([]);
         setLoading(false);
@@ -50,20 +73,34 @@ export default function HistoryPage() {
           .sort((a, b) => tripDate(b).getTime() - tripDate(a).getTime());
         if (cancelled) return;
         setTrips(list);
-        const all = (await getFlagsForSessions(list.slice(0, 100).map((s) => s.id))) as unknown as SessionFlag[];
+        const grouped = await fetchFlags(list.slice(0, PAGE_SIZE).map((s) => s.id));
         if (cancelled) return;
-        const grouped: Record<string, SessionFlag[]> = {};
-        for (const f of all) (grouped[f.session_id] ??= []).push(f);
         setFlags(grouped);
       } catch (err) {
         console.error(err);
-        toast({ title: t('history.loadFailed', "Couldn't load your trips"), variant: 'destructive' });
+        if (!cancelled) toast({ title: tRef.current('history.loadFailed', "Couldn't load your trips"), variant: 'destructive' });
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedCarId, t, toast]);
+    // The list is for the car, not for the language: switching language must not refetch it.
+  }, [selectedCarId, toast, fetchFlags]);
+
+  const showMore = async () => {
+    const next = shown + PAGE_SIZE;
+    setLoadingMore(true);
+    try {
+      const grouped = await fetchFlags(trips.slice(shown, next).map((s) => s.id));
+      setFlags((prev) => ({ ...prev, ...grouped }));
+      setShown(next);
+    } catch (err) {
+      console.error(err);
+      toast({ title: t('history.loadFailed', "Couldn't load your trips"), variant: 'destructive' });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const saveName = async () => {
     if (!renaming || !newName.trim()) return;
@@ -119,7 +156,8 @@ export default function HistoryPage() {
           </Card>
         ) : (
           <div className="space-y-2">
-            {trips.map((trip) => {
+            {trips.slice(0, shown).map((trip) => {
+              const checked = flags[trip.id] !== undefined;
               const problems = tripProblems(flags[trip.id] ?? [], trip.active_dtcs);
               const urgent = problems.some((p) => p.severity === 'critical');
               const facts = [
@@ -131,7 +169,7 @@ export default function HistoryPage() {
                   <CardContent className="p-0 flex items-center">
                     <Link to={`/session/${trip.id}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-l-2xl p-3.5 hover:bg-accent/40">
                       <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${problems.length === 0 ? 'bg-success/15 text-success' : urgent ? 'bg-destructive/15 text-destructive' : 'bg-warn/15 text-warn'}`}
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${!checked && problems.length === 0 ? 'bg-muted text-muted-foreground' : problems.length === 0 ? 'bg-success/15 text-success' : urgent ? 'bg-destructive/15 text-destructive' : 'bg-warn/15 text-warn'}`}
                         aria-hidden
                       >
                         <Route className="h-[18px] w-[18px]" />
@@ -141,33 +179,42 @@ export default function HistoryPage() {
                         <p className="text-xs text-muted-foreground">
                           {[formatTripDate(tripDate(trip), i18n.resolvedLanguage), ...facts].join(' · ')}
                         </p>
-                        <p className={`text-xs font-medium ${problems.length === 0 ? 'text-success' : urgent ? 'text-destructive' : 'text-warn'}`}>
-                          {problems.length === 0
-                            ? t('history.noProblems', 'All good')
-                            : t('history.problems', { count: problems.length, defaultValue: '{{count}} problems' })}
-                        </p>
+                        {/* No verdict for a trip whose flags aren't loaded: "All good" would be a guess. */}
+                        {(checked || problems.length > 0) && (
+                          <p className={`text-xs font-medium ${problems.length === 0 ? 'text-success' : urgent ? 'text-destructive' : 'text-warn'}`}>
+                            {problems.length === 0
+                              ? t('history.noProblems', 'All good')
+                              : t('history.problems', { count: problems.length, defaultValue: '{{count}} problems' })}
+                          </p>
+                        )}
                       </div>
                     </Link>
                     <div className="flex items-center gap-0.5 pr-2">
                       <Button
-                        size="icon" variant="ghost" className="h-8 w-8 rounded-full text-muted-foreground"
+                        size="icon" variant="ghost" className="rounded-full text-muted-foreground"
                         aria-label={t('history.rename', 'Rename')}
                         onClick={() => { setRenaming(trip); setNewName(tripTitle(trip, t)); }}
                       >
-                        <Pencil className="w-3.5 h-3.5" />
+                        <Pencil className="w-4 h-4" />
                       </Button>
                       <Button
-                        size="icon" variant="ghost" className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive"
+                        size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive"
                         aria-label={t('history.delete', 'Delete')}
                         onClick={() => setDeleting(trip)}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
               );
             })}
+            {trips.length > shown && (
+              <Button variant="outline" className="w-full" onClick={() => void showMore()} disabled={loadingMore}>
+                {loadingMore && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {t('history.showMore', 'Show older trips')}
+              </Button>
+            )}
           </div>
         )}
       </div>

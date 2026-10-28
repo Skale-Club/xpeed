@@ -4,7 +4,9 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatSidebar } from './ChatSidebar';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Menu, X, Sparkles, Plus } from 'lucide-react';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
@@ -41,6 +43,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const [input, setInput] = useState('');
     const [contextData, setContextData] = useState<ChatContextType | null>(null);
     const [loading, setLoading] = useState(false);
+    const [pendingDelete, setPendingDelete] = useState<ChatConversation | null>(null);
 
     const { selectedCar } = useCarsContext();
     const { toast } = useToast();
@@ -217,18 +220,17 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         }
     }, [messages]);
 
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 z-50 flex">
-            {/* Backdrop */}
-            <div
-                className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-                onClick={onClose}
-            />
+        // A real dialog: Escape closes it, focus stays inside and goes back to the
+        // button that opened it. A full-screen sheet on phones, a panel on the right from sm up.
+        <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+            <DialogPrimitive.Portal>
+                <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in-0" />
 
-            {/* Chat Window */}
-            <Card className="fixed bottom-4 right-4 top-4 w-full max-w-4xl z-50 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+                <DialogPrimitive.Content
+                    aria-describedby={undefined}
+                    className="fixed inset-0 z-50 flex flex-col border bg-card text-card-foreground shadow-2xl animate-in slide-in-from-right duration-300 focus:outline-none sm:inset-y-4 sm:left-auto sm:right-4 sm:w-full sm:max-w-4xl sm:rounded-lg"
+                >
                 <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
                     <div className="flex items-center gap-2">
                         <Button
@@ -237,6 +239,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             onClick={() => setSidebarOpen(!sidebarOpen)}
                             className="md:hidden"
                             aria-label={t('assistant.showHistory', 'Show past conversations')}
+                            aria-expanded={sidebarOpen}
                         >
                             <Menu className="h-5 w-5" />
                         </Button>
@@ -245,7 +248,9 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                 <Sparkles className="w-4 h-4 text-primary" />
                             </div>
                             <div>
-                                <CardTitle className="text-lg">Xpeed</CardTitle>
+                                <DialogPrimitive.Title asChild>
+                                    <CardTitle className="text-lg">Xpeed</CardTitle>
+                                </DialogPrimitive.Title>
                                 <p className="text-xs text-muted-foreground">
                                     {selectedCar ? selectedCar.name : t('assistant.noCarSelected', 'No car selected')}
                                 </p>
@@ -270,7 +275,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                         conversations={conversations}
                         currentConversationId={currentConversation?.id}
                         onSelectConversation={handleSelectConversation}
-                        onDeleteConversation={handleDeleteConversation}
+                        onDeleteConversation={(id) => setPendingDelete(conversations.find((c) => c.id === id) ?? null)}
                         onNewConversation={handleNewConversation}
                         onClose={() => setSidebarOpen(false)}
                     />
@@ -309,7 +314,17 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                         />
                     </div>
                 </CardContent>
-            </Card>
-        </div>
+
+                <ConfirmDialog
+                    open={!!pendingDelete}
+                    onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+                    title={t('assistant.deleteTitle', 'Delete this conversation?')}
+                    description={t('assistant.deleteBody', "\"{{title}}\" and its messages will be removed. This can't be undone.", { title: pendingDelete?.title ?? '' })}
+                    confirmLabel={t('assistant.deleteChat', 'Delete conversation')}
+                    onConfirm={() => { if (pendingDelete) void handleDeleteConversation(pendingDelete.id); setPendingDelete(null); }}
+                />
+                </DialogPrimitive.Content>
+            </DialogPrimitive.Portal>
+        </DialogPrimitive.Root>
     );
 }

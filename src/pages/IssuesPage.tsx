@@ -5,6 +5,9 @@ import { AlertTriangle, CalendarClock, CheckCircle2, History, Loader2, RotateCcw
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ToastAction } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { notifyProblemsChanged } from '@/hooks/use-open-problems';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
 import { getIssuesForCar, ignoreIssue, reopenIssue, resolveIssue, type VehicleIssue } from '@/lib/db-issues';
@@ -25,14 +28,19 @@ const URGENCY_DEFAULT: Record<Urgency, string> = {
   later: 'Can wait',
 };
 
+type Action = 'resolve' | 'ignore' | 'reopen';
+
 export default function IssuesPage() {
   const { t, i18n } = useTranslation();
   const { selectedCar } = useCarsContext();
   const { toast } = useToast();
   const [issues, setIssues] = useState<VehicleIssue[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Starts true: no verdict ("all good" or not) until the list has loaded.
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [tab, setTab] = useState<'open' | 'closed'>('open');
   const [actingOn, setActingOn] = useState<string | null>(null);
+  const [confirmIgnore, setConfirmIgnore] = useState<VehicleIssue | null>(null);
 
   // "28 Oct, 13:39"; the year only when it isn't this year.
   const formatDate = (iso: string) => {
@@ -47,19 +55,20 @@ export default function IssuesPage() {
   const load = useCallback(async () => {
     if (!carId) return;
     setLoading(true);
+    setLoadFailed(false);
     try {
       setIssues(await getIssuesForCar(carId));
     } catch (err) {
       console.error(err);
-      toast({ title: t('problems.loadFailed', "Couldn't load the problems"), variant: 'destructive' });
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [carId, t, toast]);
+  }, [carId]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const act = async (issue: VehicleIssue, action: 'resolve' | 'ignore' | 'reopen') => {
+  const act = async (issue: VehicleIssue, action: Action) => {
     setActingOn(issue.id);
     try {
       if (action === 'resolve') await resolveIssue(issue.id);
@@ -69,12 +78,30 @@ export default function IssuesPage() {
       setIssues((prev) => prev.map((i) => (i.id === issue.id
         ? { ...i, status, resolved_at: action === 'resolve' ? new Date().toISOString() : action === 'reopen' ? null : i.resolved_at }
         : i)));
+      // The home card and the tab-bar badge show the same list.
+      notifyProblemsChanged();
+      if (action !== 'reopen') {
+        toast({
+          title: action === 'resolve' ? t('problems.markedFixed', 'Marked as fixed') : t('problems.markedIgnored', 'Problem ignored'),
+          action: (
+            <ToastAction altText={t('problems.undo', 'Undo')} onClick={() => void act(issue, 'reopen')}>
+              {t('problems.undo', 'Undo')}
+            </ToastAction>
+          ),
+        });
+      }
     } catch (err) {
       console.error(err);
       toast({ title: t('problems.actionFailed', "Couldn't save that change"), variant: 'destructive' });
     } finally {
       setActingOn(null);
     }
+  };
+
+  // Ignoring something urgent is the one change worth a second thought.
+  const requestAct = (issue: VehicleIssue, action: Action) => {
+    if (action === 'ignore' && URGENCY[issue.severity] === 'urgent') setConfirmIgnore(issue);
+    else void act(issue, action);
   };
 
   const open = issues.filter(isOpenProblem);
@@ -89,6 +116,8 @@ export default function IssuesPage() {
     );
   }
 
+  const shown = tab === 'open' ? open : closed;
+
   return (
     <AppLayout>
       <div className="max-w-3xl space-y-5">
@@ -97,8 +126,23 @@ export default function IssuesPage() {
           <p className="text-sm text-muted-foreground">{selectedCar.name}</p>
         </div>
 
-        {/* One-line answer to "is my car OK?" */}
-        {!loading && (
+        {loadFailed && (
+          <Card className="border-destructive/40" role="alert">
+            <CardContent className="p-4 flex flex-wrap items-center gap-3">
+              <AlertTriangle className="w-6 h-6 text-destructive shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold">{t('problems.checkFailed', "Couldn't check your car")}</p>
+                <p className="text-sm text-muted-foreground">{t('problems.checkFailedHint', 'Check your connection and try again.')}</p>
+              </div>
+              <Button variant="outline" onClick={() => void load()}>
+                <RotateCcw className="w-4 h-4 mr-2" /> {t('problems.retry', 'Try again')}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* One-line answer to "is my car OK?" — only once the list has loaded */}
+        {!loading && !loadFailed && (
           <Card className={open.length ? 'border-warn/40' : 'border-success/40'}>
             <CardContent className="p-4 flex items-center gap-3">
               {open.length === 0
@@ -122,29 +166,35 @@ export default function IssuesPage() {
           </Card>
         )}
 
-        <div className="flex gap-1 border-b border-border">
-          {(['open', 'closed'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`px-3 py-2 text-sm border-b-2 -mb-px ${tab === key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            >
-              {key === 'open' ? t('problems.tabOpen', 'Need attention') : t('problems.tabClosed', 'Resolved or ignored')}
-              <span className="ml-1.5 text-xs text-muted-foreground">{key === 'open' ? open.length : closed.length}</span>
-            </button>
-          ))}
-        </div>
+        {!loadFailed && (
+          <div className="flex gap-1 border-b border-border" role="tablist" aria-label={t('problems.title', 'Problems')}>
+            {(['open', 'closed'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`problems-tab-${key}`}
+                aria-selected={tab === key}
+                aria-controls="problems-panel"
+                onClick={() => setTab(key)}
+                className={`px-3 py-2.5 text-sm border-b-2 -mb-px ${tab === key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+              >
+                {key === 'open' ? t('problems.tabOpen', 'Need attention') : t('problems.tabClosed', 'Resolved or ignored')}
+                {!loading && <span className="ml-1.5 text-xs text-muted-foreground">{key === 'open' ? open.length : closed.length}</span>}
+              </button>
+            ))}
+          </div>
+        )}
 
-        {loading ? (
+        {loadFailed ? null : loading ? (
           <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
-        ) : (tab === 'open' ? open : closed).length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">
+        ) : shown.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center" role="tabpanel" id="problems-panel" aria-labelledby={`problems-tab-${tab}`}>
             {tab === 'open' ? t('problems.emptyOpen', 'No problems here.') : t('problems.emptyClosed', 'Nothing resolved or ignored yet.')}
           </p>
         ) : (
-          <div className="space-y-3">
-            {[...(tab === 'open' ? open : closed)]
+          <div className="space-y-3" role="tabpanel" id="problems-panel" aria-labelledby={`problems-tab-${tab}`}>
+            {[...shown]
               .sort((a, b) => URGENCY_ORDER.indexOf(URGENCY[a.severity]) - URGENCY_ORDER.indexOf(URGENCY[b.severity]))
               .map((issue) => (
                 <ProblemCard
@@ -152,12 +202,21 @@ export default function IssuesPage() {
                   issue={issue}
                   acting={actingOn === issue.id}
                   formatDate={formatDate}
-                  onAct={(a) => void act(issue, a)}
+                  onAct={(a) => requestAct(issue, a)}
                 />
               ))}
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!confirmIgnore}
+        onOpenChange={(o) => { if (!o) setConfirmIgnore(null); }}
+        title={t('problems.ignoreUrgentTitle', 'Ignore an urgent problem?')}
+        description={t('problems.ignoreUrgentBody', 'This one needs attention soon. If you ignore it, we stop reminding you. You can bring it back from the "Resolved or ignored" tab.')}
+        confirmLabel={t('problems.ignore', 'Ignore')}
+        onConfirm={() => { if (confirmIgnore) void act(confirmIgnore, 'ignore'); setConfirmIgnore(null); }}
+      />
     </AppLayout>
   );
 }
@@ -166,7 +225,7 @@ function ProblemCard({ issue, acting, formatDate, onAct }: {
   issue: VehicleIssue;
   acting: boolean;
   formatDate: (iso: string) => string;
-  onAct: (action: 'resolve' | 'ignore' | 'reopen') => void;
+  onAct: (action: Action) => void;
 }) {
   const { t, i18n } = useTranslation();
   const ago = (iso: string) => timeAgo(iso, i18n.resolvedLanguage);

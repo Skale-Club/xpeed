@@ -6,6 +6,7 @@ import i18n from '@/lib/i18n';
 import LivePage from './LivePage';
 import ScannerPage from './ScannerPage';
 import { ObdScannerProvider } from '@/contexts/ObdScannerContext';
+import { SettingsProvider } from '@/contexts/SettingsContext';
 import { installFakeBluetooth } from '@/test/fake-obd';
 import { PID_PRESETS } from '@/lib/obd/presets';
 
@@ -28,14 +29,16 @@ function GoTo({ to }: { to: string }) {
 function renderApp(path = '/live') {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <ObdScannerProvider>
-        <GoTo to="/live" />
-        <GoTo to="/scanner" />
-        <Routes>
-          <Route path="/live" element={<LivePage />} />
-          <Route path="/scanner" element={<ScannerPage />} />
-        </Routes>
-      </ObdScannerProvider>
+      <SettingsProvider>
+        <ObdScannerProvider>
+          <GoTo to="/live" />
+          <GoTo to="/scanner" />
+          <Routes>
+            <Route path="/live" element={<LivePage />} />
+            <Route path="/scanner" element={<ScannerPage />} />
+          </Routes>
+        </ObdScannerProvider>
+      </SettingsProvider>
     </MemoryRouter>,
   );
 }
@@ -58,14 +61,16 @@ describe('LivePage', () => {
   it('asks to connect when no adapter is linked', () => {
     installFakeBluetooth();
     renderApp();
-    expect(screen.getByText(/Connect your OBD2 adapter/)).toBeInTheDocument();
+    expect(screen.getByText(/Connect to your car to see its readings live/)).toBeInTheDocument();
+    // The Scanner is for mechanics: no link to it unless Advanced tools is on
+    expect(screen.queryByRole('link', { name: /scanner/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId('widget-gauge')).not.toBeInTheDocument();
   });
 
   it('connects and shows default gauges, numbers and charts', async () => {
     installFakeBluetooth();
     renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
 
     await waitFor(() => expect(gauge('Engine RPM')).toHaveAttribute('aria-valuenow', '1726'), { timeout: 8000 });
     expect(gauge('Vehicle speed')).toHaveAttribute('aria-valuenow', '50');
@@ -95,9 +100,9 @@ describe('LivePage', () => {
     localStorage.setItem('xpeed.obd.customPids.car-1', JSON.stringify(PID_PRESETS[0].pids()));
     installFakeBluetooth();
     renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
     const widget = await screen.findByTestId('widget-blocks', {}, { timeout: 8000 });
-    expect(within(widget).getByText('HV battery blocks')).toBeInTheDocument();
+    expect(within(widget).getByText('Hybrid battery')).toBeInTheDocument();
     for (let i = 1; i <= 14; i++) expect(screen.getByTestId(`hv-block-${i}`)).toBeInTheDocument();
     // Emulated 2181 only carries 9 data bytes: blocks 1–4 have values, the rest are missing
     await waitFor(() => expect(within(screen.getByTestId('hv-block-1')).getByText('0.31')).toBeInTheDocument());
@@ -107,7 +112,7 @@ describe('LivePage', () => {
   it('customizes the layout and remembers it per vehicle', async () => {
     installFakeBluetooth();
     const { unmount } = renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
     await waitFor(() => expect(gauge('Engine RPM')).toBeInTheDocument(), { timeout: 8000 });
 
     fireEvent.click(screen.getByRole('button', { name: /customize/i }));
@@ -128,7 +133,7 @@ describe('LivePage', () => {
     delete (navigator as unknown as Record<string, unknown>).bluetooth;
     installFakeBluetooth();
     renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
     await waitFor(() => expect(gauge('Battery voltage')).toBeInTheDocument(), { timeout: 8000 });
     noGauge('Engine RPM');
 

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import IssuesPage from './IssuesPage';
+import { Toaster } from '@/components/ui/toaster';
 import type { VehicleIssue } from '@/lib/db-issues';
 
 const issue = (over: Partial<VehicleIssue>): VehicleIssue => ({
@@ -79,9 +80,49 @@ describe('IssuesPage', () => {
     await waitFor(() => expect(api.resolveIssue).toHaveBeenCalledWith('b'));
     await waitFor(() => expect(screen.getAllByTestId('problem-card')).toHaveLength(1));
 
-    fireEvent.click(screen.getByRole('button', { name: /Resolved or ignored/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Resolved or ignored/ }));
     expect(screen.getAllByTestId('problem-card')).toHaveLength(2);
     fireEvent.click(within(screen.getAllByTestId('problem-card')[0]).getByRole('button', { name: 'Reopen' }));
     await waitFor(() => expect(api.reopenIssue).toHaveBeenCalled());
+  });
+});
+
+describe('IssuesPage safety nets', () => {
+  it('never says "all good" when the problems could not be loaded, and can try again', async () => {
+    api.getIssuesForCar.mockRejectedValueOnce(new Error('offline'));
+    renderPage();
+    expect(await screen.findByText("Couldn't check your car")).toBeInTheDocument();
+    expect(screen.queryByText('All good')).not.toBeInTheDocument();
+
+    api.getIssuesForCar.mockResolvedValueOnce([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('All good')).toBeInTheDocument();
+  });
+
+  it('gives no verdict while loading', () => {
+    api.getIssuesForCar.mockReturnValueOnce(new Promise(() => undefined));
+    renderPage();
+    expect(screen.queryByText('All good')).not.toBeInTheDocument();
+  });
+
+  it('asks before ignoring an urgent problem', async () => {
+    api.getIssuesForCar.mockResolvedValueOnce(ISSUES);
+    renderPage();
+    const urgent = (await screen.findAllByTestId('problem-card'))[0];
+    fireEvent.click(within(urgent).getByRole('button', { name: 'Ignore' }));
+    expect(await screen.findByText('Ignore an urgent problem?')).toBeInTheDocument();
+    expect(api.ignoreIssue).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Ignore' }));
+    await waitFor(() => expect(api.ignoreIssue).toHaveBeenCalledWith('b'));
+  });
+
+  it('offers to undo after marking a problem as fixed', async () => {
+    api.getIssuesForCar.mockResolvedValueOnce(ISSUES);
+    render(<MemoryRouter><IssuesPage /><Toaster /></MemoryRouter>);
+    const first = (await screen.findAllByTestId('problem-card'))[0];
+    fireEvent.click(within(first).getByRole('button', { name: "It's fixed" }));
+    await screen.findByText('Marked as fixed');
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(api.reopenIssue).toHaveBeenCalledWith('b'));
   });
 });

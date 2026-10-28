@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import McpTokensSection from '@/components/McpTokensSection';
+import { LANGUAGES, currentLanguage } from '@/lib/languages';
 
 /** "Version 1.0 (build 19)" inside the Android app. */
 function useAppVersion(): { version: string; build: string } | null {
@@ -70,16 +71,10 @@ function InstallSection() {
   );
 }
 
-const LANGS = [
-  { code: 'pt-BR', label: 'Português (Brasil)' },
-  { code: 'en', label: 'English' },
-  { code: 'es-ES', label: 'Español' },
-];
-
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
-  const currentLang = LANGS.find((l) => i18n.resolvedLanguage === l.code)?.code ?? 'en';
+  const currentLang = currentLanguage(i18n.resolvedLanguage).code;
 
   const timezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
@@ -106,7 +101,7 @@ export default function SettingsPage() {
                 <Select value={currentLang} onValueChange={(v) => void i18n.changeLanguage(v)}>
                   <SelectTrigger id="set-lang"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {LANGS.map((l) => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
+                    {LANGUAGES.map((l) => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

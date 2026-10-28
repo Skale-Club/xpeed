@@ -1,71 +1,44 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { TripCard } from '@/components/trip/TripCard';
 import DashboardCharts from '@/components/DashboardCharts';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getSessions, getSessionFlags, getFlagsForSessions } from '@/lib/db';
+import { getSessions } from '@/lib/db';
 import { useCarsContext } from '@/contexts/CarsContext';
-import { useSettings } from '@/contexts/SettingsContext';
-import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, ChevronDown, ChevronUp } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { Car, Calendar, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { subDays } from 'date-fns';
-import { toast } from 'sonner';
-import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
+import { useToast } from '@/hooks/use-toast';
+import type { Session } from '@/types/session';
 import { useOpenProblems } from '@/hooks/use-open-problems';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { useAuth } from '@/contexts/AuthContext';
-import HealthGauge from '@/components/HealthGauge';
-import StatCard from '@/components/StatCard';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from 'react-i18next';
 import { CarHealthCard, LastTripSummary, TripTotals } from '@/components/home/HomeCards';
-
-interface DashboardStats {
-  totalSessions: number;
-  totalDurationSeconds: number;
-  healthScore: number; // 0-100
-  status: 'Excellent' | 'Good' | 'Attention' | 'Critical';
-  lastUpload: Date | null;
-}
-
-interface TrendData {
-  id: string;
-  date: string;
-  attention: number;
-  critical: number;
-  score: number;
-}
-
 import { PageLoader } from '@/components/PageLoader';
-
-import { LatestTripCard } from '@/components/LatestTripCard';
-import { GeneralInfoCard } from '@/components/GeneralInfoCard';
 import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 
+/** A trip saved on this device announces itself; a realtime insert within this long of it isn't news. */
+const OWN_SAVE_WINDOW_MS = 30_000;
+
 const Index = () => {
   const navigate = useNavigate();
-  const { lastTrip } = useObd();
+  const { toast } = useToast();
+  const { lastTrip, savingTrip } = useObd();
   const { user } = useAuth();
   const firstName = (user?.user_metadata?.full_name as string | undefined)?.trim().split(/\s+/)[0];
   const { cars, selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
-  // Same list as the Problems page; refreshed when a trip gets saved.
-  const openProblems = useOpenProblems(selectedCarId, lastTrip);
-  const { timezone, distanceUnit } = useSettings();
+  // Same list as the Problems page; refreshed when a trip gets saved. This is
+  // the one source for "is my car OK?" on this page.
+  const problems = useOpenProblems(selectedCarId, lastTrip);
   const [loading, setLoading] = useState(true);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const [sessionsFailed, setSessionsFailed] = useState(false);
   const [dateRange, setDateRange] = useState('30d');
   const [allSessions, setAllSessions] = useState<Session[]>([]);
-  const [generalStats, setGeneralStats] = useState({
-    totalDistance: 0,
-    avgFuel: 0,
-    problemCount: 0,
-    healthScore: 100,
-    problems: [] as SessionFlag[]
-  });
   const { t } = useTranslation();
   // Technical sections are closed by default; remember the choice on this device.
   const [showTechnical, setShowTechnical] = useState<boolean>(() => {
@@ -90,8 +63,13 @@ const Index = () => {
     }
   }, [carsLoading, cars.length, navigate]);
 
-  // Improvement E3: subscribe to new sessions for the selected car so
-  // the dashboard updates without a manual refresh.
+  // When this device last saved a trip itself (its own "Trip saved" message already told the owner).
+  const ownSaveAt = useRef(0);
+  useEffect(() => {
+    if (savingTrip || lastTrip) ownSaveAt.current = Date.now();
+  }, [savingTrip, lastTrip]);
+
+  // A trip recorded elsewhere (another phone, the importer) shows up here by itself.
   useEffect(() => {
     if (!selectedCarId) return;
     const channel = supabase
@@ -100,290 +78,62 @@ const Index = () => {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'sessions', filter: `car_profile_id=eq.${selectedCarId}` },
         (payload) => {
-          toast.message('New session uploaded — refreshing…');
-          // Prepend the new session optimistically
           const newSession = payload.new as unknown as Session;
-          setAllSessions((prev) => [newSession, ...prev]);
+          setAllSessions((prev) => (prev.some((s) => s.id === newSession.id) ? prev : [newSession, ...prev]));
+          if (Date.now() - ownSaveAt.current > OWN_SAVE_WINDOW_MS) {
+            toast({ title: t('home.newTrip', 'A new trip was added') });
+          }
         },
       )
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [selectedCarId]);
+  }, [selectedCarId, toast, t]);
 
-  // Computed & Derived State
-  
+  // Only the latest answer for the selected car may land: an older, slower
+  // request must not overwrite a newer one.
+  const requestId = useRef(0);
+  const fetchSessions = useCallback(async (carId: string) => {
+    const mine = ++requestId.current;
+    try {
+      const sessions = (await getSessions(carId)) as unknown as Session[];
+      if (mine !== requestId.current) return;
+      setAllSessions(sessions);
+      setSessionsFailed(false);
+    } catch (err) {
+      console.warn('Could not load trips:', err);
+      if (mine === requestId.current) setSessionsFailed(true);
+    }
+  }, []);
+
+  // The page waits for the first load of the car's trips, and for nothing after that.
+  useEffect(() => {
+    if (!selectedCarId) {
+      requestId.current++;
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setAllSessions([]);
+    void fetchSessions(selectedCarId).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selectedCarId, fetchSessions]);
+
+  // A trip just got saved: refresh the list quietly, without the page loader.
+  useEffect(() => {
+    if (!lastTrip || !selectedCarId) return;
+    void fetchSessions(selectedCarId);
+  }, [lastTrip, selectedCarId, fetchSessions]);
+
   const filteredSessions = useMemo(() => {
     if (allSessions.length === 0) return [];
-    
     const now = new Date();
     let cutoff = new Date(0);
     if (dateRange === '7d') cutoff = subDays(now, 7);
     if (dateRange === '30d') cutoff = subDays(now, 30);
     if (dateRange === '90d') cutoff = subDays(now, 90);
-
-    return allSessions.filter(s => new Date(s.session_start || s.uploaded_at) >= cutoff);
+    return allSessions.filter((s) => new Date(s.session_start || s.uploaded_at) >= cutoff);
   }, [allSessions, dateRange]);
-
-  const recentSessions = useMemo(() => {
-    return allSessions.slice(0, 3);
-  }, [allSessions]);
-
-  const [stats, setStats] = useState<DashboardStats>({
-    totalSessions: 0,
-    totalDurationSeconds: 0,
-    healthScore: 100,
-    status: 'Excellent',
-    lastUpload: null
-  });
-  const [trendData, setTrendData] = useState<TrendData[]>([]);
-
-  // A trip just got saved: refresh the list quietly, without the page loader.
-  useEffect(() => {
-    if (!lastTrip || !selectedCarId) return;
-    getSessions(selectedCarId)
-      .then((sessions) => setAllSessions(sessions as unknown as Session[]))
-      .catch((err) => console.warn('Could not refresh trips:', err));
-  }, [lastTrip, selectedCarId]);
-
-  const loadDashboard = useCallback(async () => {
-    if (!selectedCarId) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setStatsLoading(true);
-    try {
-      const sessions = await getSessions(selectedCarId);
-      setAllSessions(sessions as unknown as Session[]);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCarId]);
-
-  useEffect(() => { loadDashboard(); }, [loadDashboard]);
-
-  // Calculate Stats based on filtered sessions
-  useEffect(() => {
-    const processStats = async () => {
-      setStatsLoading(true);
-      try {
-        if (filteredSessions.length === 0) {
-          setStats({
-            totalSessions: 0,
-            totalDurationSeconds: 0,
-            healthScore: 100,
-            status: 'Excellent',
-            lastUpload: null
-          });
-          setTrendData([]);
-          setStatsLoading(false);
-          return;
-        }
-
-        // Calculate aggregated stats for the range
-        const totalDuration = filteredSessions.reduce((acc, s) => acc + (s.duration_seconds || 0), 0);
-        const lastUpload = new Date(allSessions[0].uploaded_at); // Last upload is global
-
-        // Analyze sessions for trends (up to 20 for better granularity in charts)
-        const sessionsForTrend = filteredSessions.slice(0, 20).reverse(); // Oldest to newest
-        const trends: TrendData[] = [];
-        let totalWeightedScore = 0;
-        let totalWeight = 0;
-
-        for (const session of sessionsForTrend) {
-          const flags = await getSessionFlags(session.id);
-          const attention = flags.filter((f) => f.severity === 'attention').length;
-          const critical = flags.filter((f) => f.severity === 'critical').length;
-          
-          // Simple scoring: 100 - (critical * 20) - (attention * 5)
-          const sessionScore = Math.max(0, 100 - (critical * 20) - (attention * 5));
-          
-          trends.push({
-            id: session.id,
-            date: new Date(session.session_start || session.uploaded_at).toLocaleDateString(undefined, { timeZone: timezone, month: 'short', day: 'numeric' }),
-            attention,
-            critical,
-            score: sessionScore
-          });
-
-          const weight = 1; 
-          totalWeightedScore += sessionScore * weight;
-          totalWeight += weight;
-        }
-
-        const avgScore = totalWeight > 0 ? Math.round(totalWeightedScore / totalWeight) : 100;
-        
-        let status: DashboardStats['status'] = 'Excellent';
-        if (avgScore < 60) status = 'Critical';
-        else if (avgScore < 80) status = 'Attention';
-        else if (avgScore < 95) status = 'Good';
-
-        setStats({
-          totalSessions: filteredSessions.length,
-          totalDurationSeconds: totalDuration,
-          healthScore: avgScore,
-          status,
-          lastUpload
-        });
-        setTrendData(trends);
-      } catch (error) {
-        console.error('Failed to process stats:', error);
-      } finally {
-        setStatsLoading(false);
-      }
-    };
-
-    processStats();
-  }, [filteredSessions, allSessions, timezone]);
-
-  // Calculate General Stats (Distance, Fuel, Problems)
-  useEffect(() => {
-    const calculateGeneralStats = async () => {
-        if (allSessions.length === 0) return;
-
-        try {
-            let totalDist = 0;
-            let totalFuelEff = 0;
-            let fuelEffCount = 0;
-
-            // Helper to normalize keys
-            const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-            allSessions.forEach(session => {
-                const summaries: SessionSummaryItem[] = session.summary?.summaries || [];
-                const getMetric = (keys: string[]): SessionSummaryItem | undefined => summaries.find((s) =>
-                    keys.some(k => {
-                        const nKey = normalize(k);
-                        return (
-                            (s.canonical_key && normalize(s.canonical_key) === nKey) ||
-                            (s.parameter_key && normalize(s.parameter_key).includes(nKey)) ||
-                            (s.label && normalize(s.label).includes(nKey))
-                        );
-                    })
-                );
-
-                const speed = getMetric(['vehicle_speed', 'speed', 'vss', '0x0d']);
-                const durationHours = (session.duration_seconds || 0) / 3600;
-                let avgSpeed = speed?.avg || 0;
-                
-                // Calculate distance
-                // Note: We calculate in KM first (base unit), then convert at display time
-                // OR we can convert here if GeneralInfoCard expects the unit already
-                // Looking at GeneralInfoCard usage, it takes raw numbers.
-                // Let's assume we store "distance" in the unit the user wants?
-                // No, better to calculate "base distance" (km) and let the UI component handle display if it knows the unit.
-                // However, GeneralInfoCard is a "dumb" component that just displays what's passed.
-                // So we should convert HERE.
-                
-                if (distanceUnit === 'mi') {
-                    avgSpeed *= 0.621371;
-                }
-
-                if (avgSpeed > 0 && durationHours > 0) {
-                    totalDist += avgSpeed * durationHours;
-                }
-
-                // Fuel Consumption Calculation (Matches LatestTripCard logic)
-                // Priority 1: Calculated Robust (Speed / Rate)
-                // Priority 2: Average Fuel Consumption (if sane)
-
-                const avgFuelSummary = getMetric(['average_fuel_consumption', 'avg_fuel', 'avg fuel', 'average fuel consumption (today)', 'average fuel consumption']);
-                const fuelRateSummary = getMetric(['mpg_or_fuel_rate', 'fuel_rate', 'fuel', '0x5e']);
-                
-                let sessionMPG = 0;
-                let calculatedMPG = 0;
-
-                // Method A: Speed / Rate
-                if (fuelRateSummary?.avg && avgSpeed > 0) {
-                    const rate = fuelRateSummary.avg;
-                    // Note: avgSpeed is already converted to miles if distanceUnit is 'mi'
-                    // We need speed in MPH and KPH to determine unit of rate
-                    
-                    // Recover base speed (km/h) and mph
-                    let speedKmh = avgSpeed;
-                    let speedMph = avgSpeed;
-                    
-                    if (distanceUnit === 'mi') {
-                        speedKmh = avgSpeed / 0.621371;
-                    } else {
-                        speedMph = avgSpeed * 0.621371;
-                    }
-
-                    if (rate < 2.5) {
-                        // Assume Gallons/Hour
-                        if (rate > 0) calculatedMPG = speedMph / rate;
-                    } else {
-                        // Assume Liters/Hour
-                        if (rate > 0 && speedKmh > 0) calculatedMPG = (2.35215 * speedKmh) / rate;
-                    }
-                }
-
-                // Method B: Explicit Value
-                if (avgFuelSummary?.avg) {
-                    const val = avgFuelSummary.avg;
-                    if (val < 150) {
-                        calculatedMPG = val; // Assume MPG
-                    }
-                }
-
-                // Decide which value to accumulate
-                // We want to accumulate a value that matches the user's unit preference
-                // If calculatedMPG is valid (>0, <200), we use it.
-                // If user wants L/100km, we convert MPG -> L/100km
-                
-                if (calculatedMPG > 0 && calculatedMPG < 200) {
-                    if (distanceUnit === 'mi') {
-                        sessionMPG = calculatedMPG;
-                    } else {
-                        // Convert MPG to L/100km for accumulation
-                        sessionMPG = 235.215 / calculatedMPG;
-                    }
-                }
-
-                if (sessionMPG > 0) {
-                    totalFuelEff += sessionMPG;
-                    fuelEffCount++;
-                }
-            });
-
-            const avgFuel = fuelEffCount > 0 ? totalFuelEff / fuelEffCount : 0;
-            const flags = (await getFlagsForSessions(allSessions.map(s => s.id))) as unknown as SessionFlag[];
-
-            // Filter active flags for KPI count
-            const activeFlags = flags.filter((f) => !f.resolved);
-
-            setGeneralStats({
-                totalDistance: totalDist,
-                avgFuel: avgFuel,
-                problemCount: activeFlags.length,
-                healthScore: Math.max(0, 100 - (activeFlags.length * 5)),
-                problems: flags // per-trip alerts; the Problems list itself comes from useOpenProblems
-            });
-        } catch (error) {
-            console.error('Failed to calculate general stats:', error);
-        }
-    };
-
-    calculateGeneralStats();
-  }, [allSessions, distanceUnit]);
-
-  const formatDuration = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Critical': return 'text-destructive';
-      case 'Attention': return 'text-warn';
-      case 'Good': return 'text-primary';
-      default: return 'text-success';
-    }
-  };
-
 
   if (!selectedCarId && !carsLoading) {
     return (
@@ -391,12 +141,10 @@ const Index = () => {
         <Card className="bg-card border-border">
           <CardContent className="py-12 text-center">
             <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-            <h3 className="text-sm font-semibold text-foreground mb-2">No Vehicle Selected</h3>
-            <p className="text-xs text-muted-foreground mb-4">
-              Please select or add a vehicle to view the dashboard.
-            </p>
+            <h3 className="text-sm font-semibold text-foreground mb-2">{t('vehicle.none', 'No cars yet')}</h3>
+            <p className="text-xs text-muted-foreground mb-4">{t('vehicle.noneHint', 'Add your car to start checking it.')}</p>
             <Button size="sm" onClick={() => navigate('/cars')}>
-              Manage Vehicles
+              {t('nav.cars', 'My cars')}
             </Button>
           </CardContent>
         </Card>
@@ -404,7 +152,7 @@ const Index = () => {
     );
   }
 
-  if (loading || statsLoading) {
+  if (loading) {
     return (
       <AppLayout>
         <PageLoader fullScreen={false} />
@@ -420,11 +168,28 @@ const Index = () => {
           <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{selectedCar?.name || t('home.title', 'Home')}</h2>
         </div>
 
+        {sessionsFailed && (
+          <Card className="border-warn/40" role="alert">
+            <CardContent className="flex flex-wrap items-center gap-3 p-4">
+              <p className="flex-1 min-w-0 text-sm">{t('home.tripsFailed', "Couldn't load your trips.")}</p>
+              <Button variant="outline" size="sm" onClick={() => selectedCarId && void fetchSessions(selectedCarId)}>
+                <RotateCcw className="w-3.5 h-3.5 mr-2" /> {t('problems.retry', 'Try again')}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Phones: one column in this order. Wide screens: the trip on the left, the car's state on the right. */}
         <div className="grid gap-5 lg:grid-cols-5 lg:items-start">
           {/* 1. Is my car OK? */}
           <div className="lg:col-span-2 lg:col-start-4 lg:row-start-1">
-            <CarHealthCard problems={openProblems} lastTrip={allSessions[0] ?? null} />
+            <CarHealthCard
+              problems={problems.problems}
+              loading={problems.loading}
+              error={problems.error}
+              onRetry={problems.reload}
+              lastTrip={allSessions[0] ?? null}
+            />
           </div>
 
           {/* 2. The one action: start / follow a trip */}
@@ -451,7 +216,7 @@ const Index = () => {
             <button
               type="button"
               onClick={() => setShowTechnical((v) => !v)}
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              className="inline-flex min-h-10 items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
               aria-expanded={showTechnical}
             >
               {showTechnical ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -461,59 +226,25 @@ const Index = () => {
             {showTechnical && (
               <div className="space-y-6 mt-4">
                 <Select value={dateRange} onValueChange={setDateRange}>
-                  <SelectTrigger className="w-[150px] bg-card border-border h-9 text-xs">
+                  <SelectTrigger className="w-[170px] bg-card border-border h-10 text-xs" aria-label={t('home.range.label', 'Period')}>
                     <Calendar className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-                    <SelectValue placeholder="Date Range" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="7d">Last 7 Days</SelectItem>
-                    <SelectItem value="30d">Last 30 Days</SelectItem>
-                    <SelectItem value="90d">Last 3 Months</SelectItem>
-                    <SelectItem value="all">All Time</SelectItem>
+                    <SelectItem value="7d">{t('home.range.7d', 'Last 7 days')}</SelectItem>
+                    <SelectItem value="30d">{t('home.range.30d', 'Last 30 days')}</SelectItem>
+                    <SelectItem value="90d">{t('home.range.90d', 'Last 3 months')}</SelectItem>
+                    <SelectItem value="all">{t('home.range.all', 'All time')}</SelectItem>
                   </SelectContent>
                 </Select>
 
-                {stats.totalSessions === 0 ? (
-                  <p className="text-sm text-muted-foreground">No sessions in the selected period.</p>
+                {filteredSessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{t('home.range.none', 'No trips in this period.')}</p>
                 ) : (
                   <>
-                    <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-4 sm:gap-6 items-center">
-                      <div className="flex justify-center">
-                        <HealthGauge score={generalStats.healthScore} status={stats.status} size={140} />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                        <StatCard icon={Activity} label="Sessions" value={stats.totalSessions} />
-                        <StatCard
-                          icon={Gauge}
-                          label={distanceUnit === 'mi' ? 'Miles' : 'Kilometers'}
-                          value={Math.round(generalStats.totalDistance).toLocaleString()}
-                        />
-                        <StatCard icon={Clock} label="Drive Time" value={`${Math.round(stats.totalDurationSeconds / 60)}`} unit="min" />
-                        <StatCard
-                          icon={AlertTriangle}
-                          label="Active Issues"
-                          value={openProblems.length}
-                          tone={openProblems.length > 0 ? (openProblems.some(p => p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
-                          onClick={() => navigate('/issues')}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <LatestTripCard
-                        sessions={allSessions}
-                        onSessionUpdate={loadDashboard}
-                      />
-                      <GeneralInfoCard
-                        stats={{ ...generalStats, problemCount: openProblems.length }}
-                        onProblemsClick={() => navigate('/issues')}
-                      />
-                    </div>
-
                     <AdaptiveMetricsSection
                       engineType={selectedCar?.engine_type}
                       latestSession={allSessions[0] ?? null}
-                      carId={selectedCarId || ''}
                     />
 
                     <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />

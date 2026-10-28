@@ -5,6 +5,7 @@ import i18n from '@/lib/i18n';
 import { TripCard } from './TripCard';
 import { ConnectionPill } from './ConnectionPill';
 import { ObdScannerProvider } from '@/contexts/ObdScannerContext';
+import { SettingsProvider } from '@/contexts/SettingsContext';
 import { installFakeBluetooth } from '@/test/fake-obd';
 
 const ingestMock = vi.hoisted(() => vi.fn(async (_file: File, _carId: string, _name?: string) => ({ sessionId: 'trip-1', rows: 1, flags: 0, dtcs: 0 })));
@@ -19,10 +20,12 @@ vi.mock('@/lib/db', () => ({ findSessionStartedAt: vi.fn(async () => null), dele
 function renderCard() {
   return render(
     <MemoryRouter>
-      <ObdScannerProvider>
-        <ConnectionPill />
-        <TripCard />
-      </ObdScannerProvider>
+      <SettingsProvider>
+        <ObdScannerProvider>
+          <ConnectionPill />
+          <TripCard />
+        </ObdScannerProvider>
+      </SettingsProvider>
     </MemoryRouter>,
   );
 }

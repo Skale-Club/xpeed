@@ -1,12 +1,11 @@
 import React, { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Outlet, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
-import { SettingsProvider } from "@/contexts/SettingsContext";
+import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
 import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
@@ -46,7 +45,14 @@ const AuthenticatedLayout = () => (
   </PrivateRoute>
 );
 
-const PublicLayout = ({ children }: { children: React.ReactNode }) => (
+// The Scanner is for mechanics and enthusiasts: it is there only when "Advanced
+// tools" is on in Settings. Otherwise a link or bookmark lands on the Live panel.
+const AdvancedToolsRoute = ({ children }: { children: React.ReactNode }) => {
+  const { advancedTools } = useSettings();
+  return advancedTools ? <>{children}</> : <Navigate to="/live" replace />;
+};
+
+const PublicLayout =({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={<PageLoader />}>
     {children}
   </Suspense>
@@ -58,7 +64,6 @@ const App = () => (
       <AuthProvider>
         <SettingsProvider>
           <Toaster />
-          <Sonner />
           <BrowserRouter>
             <ErrorBoundary>
             <Routes>
@@ -74,7 +79,7 @@ const App = () => (
                 <Route path="/history" element={<HistoryPage />} />
                 <Route path="/cars" element={<CarsPage />} />
                 <Route path="/onboarding" element={<OnboardingPage />} />
-                <Route path="/scanner" element={<ScannerPage />} />
+                <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
                 <Route path="/live" element={<LivePage />} />
                 <Route path="/maintenance" element={<MaintenancePage />} />
                 <Route path="/issues" element={<IssuesPage />} />

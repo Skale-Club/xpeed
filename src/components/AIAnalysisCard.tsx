@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sparkles, Lightbulb, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -12,34 +13,35 @@ interface AIAnalysisCardProps {
 }
 
 export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
+  const { t, i18n } = useTranslation();
   if (!analysis) return null;
 
   return (
     <Card className="bg-card border-border border-primary/30 shadow-sm overflow-hidden">
-      <div className="bg-primary/5 border-b border-primary/10 px-6 py-4 flex items-center justify-between">
+      <div className="bg-primary/5 border-b border-primary/10 px-6 py-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shadow-inner">
+          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shadow-inner shrink-0">
             <Sparkles className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-foreground">AI Diagnostic Report</h3>
-            <p className="text-xs text-muted-foreground font-mono">
-              Generated {new Date(analysis.timestamp).toLocaleString()}
+            <h3 className="text-lg font-bold text-foreground">{t('aiReport.title', 'AI trip report')}</h3>
+            <p className="text-xs text-muted-foreground">
+              {t('aiReport.generated', 'Generated {{when}}', { when: new Date(analysis.timestamp).toLocaleString(i18n.resolvedLanguage || undefined) })}
             </p>
           </div>
         </div>
-        <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5 font-mono">
-          Powered by AI
+        <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5 shrink-0">
+          {t('aiReport.poweredBy', 'Powered by AI')}
         </Badge>
       </div>
-      
+
       <CardContent className="p-6 space-y-8">
         {/* Summary Section */}
         {analysis.summary && (
           <div className="bg-background/50 rounded-lg p-4 border border-border/50">
-            <h4 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2 uppercase tracking-wider">
+            <h4 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-              Executive Summary
+              {t('aiReport.summary', 'Summary')}
             </h4>
             <p className="text-base text-muted-foreground leading-relaxed">
               {analysis.summary}
@@ -50,22 +52,22 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
         {/* Insights Section */}
         {analysis.insights && analysis.insights.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2 uppercase tracking-wider text-amber-500">
+            <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-amber-500">
               <Lightbulb className="w-4 h-4" />
-              Key Insights
+              {t('aiReport.insights', 'What stood out')}
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {analysis.insights.map((insight, idx) => {
                 const isCritical = insight.toLowerCase().includes('critical') || insight.toLowerCase().includes('severe');
                 const isWarning = insight.toLowerCase().includes('warning') || insight.toLowerCase().includes('attention');
-                
+
                 return (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`
                       relative p-4 rounded-lg border bg-card/50 transition-colors
-                      ${isCritical ? 'border-destructive/40 bg-destructive/5' : 
-                        isWarning ? 'border-amber-500/40 bg-amber-500/5' : 
+                      ${isCritical ? 'border-destructive/40 bg-destructive/5' :
+                        isWarning ? 'border-amber-500/40 bg-amber-500/5' :
                         'border-border hover:border-primary/30'}
                     `}
                   >
@@ -81,9 +83,9 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
         {/* Recommendations Section */}
         {analysis.recommendations && analysis.recommendations.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2 uppercase tracking-wider text-emerald-500">
+            <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-emerald-500">
               <CheckCircle2 className="w-4 h-4" />
-              Recommended Actions
+              {t('aiReport.actions', 'What to do')}
             </h4>
             <div className="space-y-3">
               {analysis.recommendations.map((rec, idx) => (
