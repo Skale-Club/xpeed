@@ -35,6 +35,48 @@ const PILL_PATHS = Array.from({ length: PILLS }, (_, i) => {
   return `M ${point(deg, INNER)} L ${point(deg, OUTER)}`;
 });
 
+/** The dial of upright pills with the number inside; the same drawing everywhere a reading is a dial. */
+export function PillDial({ value, unit, label, min = 0, max, tone = 'primary', className }: {
+  value: number | null;
+  unit: string;
+  label: string;
+  min?: number;
+  max: number;
+  tone?: GaugeTone;
+  className?: string;
+}) {
+  const fraction = value == null ? 0 : Math.min(1, Math.max(0, (value - min) / (max - min)));
+  const lit = fraction > 0 ? Math.max(1, Math.round(fraction * PILLS)) : 0;
+  const text = formatValue(value, unit);
+  return (
+    <svg viewBox="0 0 100 54" className={cn('w-full max-w-[140px]', TONE_TEXT[tone], className)} role="img" aria-label={`${text} ${label}`}>
+      {PILL_PATHS.map((d, i) => (
+        <path
+          key={i}
+          d={d}
+          fill="none"
+          stroke={i < lit ? 'currentColor' : 'hsl(var(--border))'}
+          strokeWidth={STROKE}
+          strokeLinecap="round"
+          className="transition-[stroke] duration-500"
+        />
+      ))}
+      {/* The number is part of the drawing, so it scales with the dial on any screen. */}
+      <text
+        x="50"
+        y="49"
+        textAnchor="middle"
+        fontSize={NUMBER_SIZE}
+        fontWeight={700}
+        className="fill-foreground"
+        style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}
+      >
+        {text}
+      </text>
+    </svg>
+  );
+}
+
 /**
  * One big reading on the trip card: the number inside a dial of pills that
  * light up with the value (any value above the minimum lights at least one),
@@ -52,36 +94,9 @@ export function QuickGauge({
   tone?: GaugeTone;
   status?: string | null;
 }) {
-  const fraction = value == null ? 0 : Math.min(1, Math.max(0, (value - min) / (max - min)));
-  const lit = fraction > 0 ? Math.max(1, Math.round(fraction * PILLS)) : 0;
-  const text = formatValue(value, unit);
   return (
     <div className="flex flex-col items-center rounded-xl bg-background/60 px-2 pb-2.5 pt-2" data-testid="quick-gauge">
-      <svg viewBox="0 0 100 54" className={cn('w-full max-w-[140px]', TONE_TEXT[tone])} role="img" aria-label={`${text} ${label}`}>
-        {PILL_PATHS.map((d, i) => (
-          <path
-            key={i}
-            d={d}
-            fill="none"
-            stroke={i < lit ? 'currentColor' : 'hsl(var(--border))'}
-            strokeWidth={STROKE}
-            strokeLinecap="round"
-            className="transition-[stroke] duration-500"
-          />
-        ))}
-        {/* The number is part of the drawing, so it scales with the dial on any screen. */}
-        <text
-          x="50"
-          y="49"
-          textAnchor="middle"
-          fontSize={NUMBER_SIZE}
-          fontWeight={700}
-          className="fill-foreground"
-          style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}
-        >
-          {text}
-        </text>
-      </svg>
+      <PillDial value={value} unit={unit} label={label} min={min} max={max} tone={tone} />
       <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
       <p className={cn('mt-0.5 h-4 text-[11px] font-semibold', TONE_TEXT[tone])}>{status ?? ''}</p>
     </div>

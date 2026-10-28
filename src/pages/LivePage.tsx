@@ -15,6 +15,7 @@ import { useObd, useObdLive } from '@/contexts/ObdScannerContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { WaitingNotice } from '@/components/trip/WaitingNotice';
 import { BlocksWidget, ChartWidget, GaugeWidget, ValueWidget } from '@/components/live/widgets';
+import { coolantTone } from '@/components/trip/QuickGauge';
 import {
   HV_BLOCK_RE, defaultLayout, loadLayout, moveWidget, newWidgetId, saveLayout, type LiveWidget, type WidgetKind,
 } from '@/lib/obd/live-layout';
@@ -103,7 +104,20 @@ export default function LivePage() {
     const label = ch ? channelLabel(ch, t) : w.channel?.replace(/ \([^)]*\)$/, '') ?? '';
     const unit = ch?.unit ?? w.channel?.match(/\(([^)]*)\)$/)?.[1] ?? '';
     const value = w.channel ? values[w.channel] : null;
-    if (w.kind === 'gauge') return <GaugeWidget label={label} unit={unit} value={value} min={ch?.min ?? 0} max={ch?.max ?? 100} />;
+    if (w.kind === 'gauge') {
+      // Engine temperature is coloured by how warm it is, like on the trip card.
+      const coolant = ch?.def?.pid === 0x05;
+      return (
+        <GaugeWidget
+          label={label}
+          unit={unit}
+          value={value}
+          min={coolant ? 40 : ch?.min ?? 0}
+          max={coolant ? 120 : ch?.def?.pid === 0x0c ? 6000 : ch?.max ?? 100}
+          tone={coolant ? coolantTone(value ?? null) : 'primary'}
+        />
+      );
+    }
     if (w.kind === 'chart') {
       const points = history.map((h) => ({ at: h.at, v: w.channel ? h.values[w.channel] ?? null : null }));
       return <ChartWidget label={label} unit={unit} points={points} now={chartNow} windowMs={CHART_WINDOW_MS} />;

@@ -1,27 +1,11 @@
+import { PillDial, type GaugeTone } from '@/components/trip/QuickGauge';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { formatValue } from '@/lib/obd/format';
 
 // Live-panel widgets. Hand-drawn SVG instead of a chart library: they redraw
 // several times a second and only need a few primitives.
 
-const TRACK = 'hsl(var(--muted))';
 const ACCENT = CHART_PALETTE.yellow;
-
-// Gauge arc: 270° sweep starting bottom-left (135°), clockwise on screen.
-const START_DEG = 135;
-const SWEEP_DEG = 270;
-
-function polar(cx: number, cy: number, r: number, deg: number) {
-  const rad = (deg * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-function arc(cx: number, cy: number, r: number, fromDeg: number, toDeg: number) {
-  const a = polar(cx, cy, r, fromDeg);
-  const b = polar(cx, cy, r, toDeg);
-  const large = toDeg - fromDeg > 180 ? 1 : 0;
-  return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`;
-}
 
 interface Readout {
   label: string;
@@ -29,20 +13,16 @@ interface Readout {
   value: number | null | undefined;
 }
 
-export function GaugeWidget({ label, unit, value, min, max }: Readout & { min: number; max: number }) {
-  const frac = value == null ? 0 : Math.max(0, Math.min(1, (value - min) / (max - min)));
-  const end = START_DEG + Math.max(frac, 0.001) * SWEEP_DEG;
+export function GaugeWidget({ label, unit, value, min, max, tone }: Readout & { min: number; max: number; tone?: GaugeTone }) {
   return (
     <div className="flex flex-col items-center" role="meter" aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value ?? undefined}>
-      <svg viewBox="0 0 120 112" className="w-full max-w-[220px]">
-        <path d={arc(60, 60, 48, START_DEG, START_DEG + SWEEP_DEG)} fill="none" stroke={TRACK} strokeWidth="9" strokeLinecap="round" />
-        {value != null && <path d={arc(60, 60, 48, START_DEG, end)} fill="none" stroke={ACCENT} strokeWidth="9" strokeLinecap="round" />}
-        <text x="60" y="60" textAnchor="middle" className="fill-foreground font-bold" fontSize="22">{formatValue(value, unit)}</text>
-        <text x="60" y="76" textAnchor="middle" className="fill-muted-foreground" fontSize="10">{unit}</text>
-        <text x="26" y="108" textAnchor="middle" className="fill-muted-foreground" fontSize="8">{min}</text>
-        <text x="94" y="108" textAnchor="middle" className="fill-muted-foreground" fontSize="8">{max}</text>
-      </svg>
-      <p className="text-xs text-muted-foreground text-center mt-1 truncate max-w-full" title={label}>{label}</p>
+      <PillDial value={value ?? null} unit={unit} label={label} min={min} max={max} tone={tone} className="max-w-[200px]" />
+      <div className="mt-1 flex w-full max-w-[200px] justify-between px-1 text-[10px] tabular-nums text-muted-foreground">
+        <span>{min}</span>
+        <span>{unit}</span>
+        <span>{max}</span>
+      </div>
+      <p className="mt-0.5 max-w-full truncate text-center text-xs text-muted-foreground" title={label}>{label}</p>
     </div>
   );
 }
