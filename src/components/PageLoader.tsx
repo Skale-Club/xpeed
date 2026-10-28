@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface PageLoaderProps {
   className?: string;
@@ -8,6 +9,7 @@ interface PageLoaderProps {
 }
 
 export const PageLoader = ({ className, fullScreen = true }: PageLoaderProps) => {
+  const { t } = useTranslation();
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -26,7 +28,7 @@ export const PageLoader = ({ className, fullScreen = true }: PageLoaderProps) =>
     )}>
       <div className="flex flex-col items-center gap-2">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-sm font-mono text-muted-foreground">Loading...</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading", "Loading…")}</p>
       </div>
     </div>
   );

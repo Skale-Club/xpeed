@@ -96,7 +96,10 @@ export default function SessionDetail() {
       // The new flags are computed above; they replace the old ones only once they are saved.
       await replaceSessionFlags(id, newFlags.map((f) => ({ ...f, evidence: f.evidence as unknown as Record<string, unknown> })));
       setFlags((await getSessionFlags(id)) as unknown as SessionFlag[]);
-      toast({ title: 'Re-evaluated', description: `${newFlags.length} flags after re-computation.` });
+      toast({
+        title: t('tripDetail.reevaluated', 'Checked again'),
+        description: t('tripDetail.reevaluatedCount', { count: newFlags.length, defaultValue: '{{count}} readings out of range' }),
+      });
     } catch (error) {
       console.error('Failed to re-evaluate the trip:', error);
       toast({ title: 'Re-evaluate failed', description: 'The trip was left as it was. Try again.', variant: 'destructive' });

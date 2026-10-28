@@ -570,7 +570,10 @@
     "downloadFailed": "Download failed",
     "downloadFailedHint": "Could not download the CSV file.",
     "downloadCsv": "Download CSV",
-    "reevaluate": "Re-evaluate"
+    "reevaluate": "Re-evaluate",
+    "reevaluated": "Checked again",
+    "reevaluatedCount_one": "{{count}} reading out of range",
+    "reevaluatedCount_other": "{{count}} readings out of range"
   },
   "sharing": {
     "confirmTitle": "Make a public link?",

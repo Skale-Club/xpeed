@@ -102,11 +102,13 @@ export async function getSessionFlags(sessionId: string) {
 
 export async function getFlagsForSessions(sessionIds: string[]) {
   if (sessionIds.length === 0) return [];
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('session_flags')
     .select('*, sessions(source_filename, uploaded_at)')
     .in('session_id', sessionIds)
     .order('severity');
+  // A failed read must not look like "no flags" (that reads as "all good" in Trips).
+  if (error) throw new Error(`Failed to fetch flags: ${error.message}`);
   return data || [];
 }
 

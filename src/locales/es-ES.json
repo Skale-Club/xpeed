@@ -570,7 +570,10 @@
     "downloadFailed": "Falló la descarga",
     "downloadFailedHint": "No se pudo descargar el archivo CSV.",
     "downloadCsv": "Descargar CSV",
-    "reevaluate": "Volver a evaluar"
+    "reevaluate": "Volver a evaluar",
+    "reevaluated": "Revisado de nuevo",
+    "reevaluatedCount_one": "{{count}} lectura fuera de lo normal",
+    "reevaluatedCount_other": "{{count}} lecturas fuera de lo normal"
   },
   "sharing": {
     "confirmTitle": "¿Crear un enlace público?",

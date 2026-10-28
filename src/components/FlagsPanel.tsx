@@ -4,6 +4,7 @@ import { AlertTriangle, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Sparkl
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { DEFAULT_PRIUS_RULES, type DefaultRule } from '@/lib/default-rules';
+import { describeProblem } from '@/lib/problems';
 
 interface Flag {
   id?: string;
@@ -85,9 +86,17 @@ export default function FlagsPanel({
         const isExpanded = expanded[flagKey];
         const rule = findRule(rules, flag.canonical_key);
         const severity = isCritical ? 'critical' : 'attention';
-        const what_happened = rule?.what_happened;
-        const why_it_matters = rule?.why_it_matters;
-        const what_to_do = rule?.what_to_do || (rule?.notes ? fallbackActionMessages(rule.notes, severity).what_to_do : null);
+        // Known readings use the translated wording of the Problems page; the rule's
+        // own texts (English only) remain for anything the catalog doesn't cover.
+        const known = describeProblem({ canonical_key: flag.canonical_key, title: flag.message }, t);
+        const translated = known.title !== flag.message;
+        const english = (i18n.resolvedLanguage ?? 'en').startsWith('en');
+        const message = translated ? known.title : flag.message;
+        const what_happened = translated ? known.meaning : rule?.what_happened;
+        const why_it_matters = translated && !english ? null : rule?.why_it_matters;
+        const what_to_do = translated
+          ? known.action
+          : rule?.what_to_do || (rule?.notes ? fallbackActionMessages(rule.notes, severity).what_to_do : null);
         const hasGuidance = !!(what_happened || why_it_matters || what_to_do);
 
         return (
@@ -108,7 +117,7 @@ export default function FlagsPanel({
                       <span className="text-[10px] font-mono text-success px-1.5 rounded bg-success/10">{t('flags.resolved', 'resolved')}</span>
                     )}
                   </div>
-                  <p className="text-xs text-foreground leading-relaxed">{flag.message}</p>
+                  <p className="text-xs text-foreground leading-relaxed">{message}</p>
                   {evidence && (
                     <div className="flex gap-3 mt-2 text-[10px] font-mono text-muted-foreground">
                       {evidence.max !== undefined && <span>{t('flags.max', 'max')}: {num(evidence.max)}</span>}
