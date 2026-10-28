@@ -300,7 +300,6 @@
     "resolved": "Resuelto",
     "ignored": "Ignorado",
     "whatToDo": "Qué hacer",
-    "seen": "Visto por primera vez el {{first}} · última vez el {{last}}",
     "viewTrip": "Ver el viaje",
     "forMechanic": "Para el mecánico",
     "markResolved": "Ya está resuelto",
@@ -404,7 +403,14 @@
     "codeGone": "Resuelto: el coche ya no registra este código",
     "synced": "Problemas actualizados",
     "syncedHint_one": "{{count}} código que el coche ya no registra se marcó como resuelto.",
-    "syncedHint_other": "{{count}} códigos que el coche ya no registra se marcaron como resueltos."
+    "syncedHint_other": "{{count}} códigos que el coche ya no registra se marcaron como resueltos.",
+    "appeared": "Apareció",
+    "lastSeen": "Última vez",
+    "resolvedAgo": "Resuelto {{ago}}",
+    "aiBadge": "Aviso de la IA",
+    "ai": {
+      "meaning": "Algo en las lecturas de un viaje llamó la atención."
+    }
   },
   "home": {
     "title": "Inicio",

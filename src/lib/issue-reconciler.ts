@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase as typedClient } from '@/integrations/supabase/client';
 import type { SessionFlag } from './insight-engine';
-import type { IssueSeverity } from './db-issues';
-import { CODE_GONE_NOTE, DTC_PREFIX, PENDING_SUFFIX, dtcSeverity } from './problems';
+import type { IssueDetails, IssueSeverity } from './db-issues';
+import type { AiWarning } from './ai-client';
+import { AI_PREFIX, CODE_GONE_NOTE, DTC_PREFIX, PENDING_SUFFIX, URGENCY_SEVERITY, dtcSeverity } from './problems';
 
 // Map session flag severities to issue severity levels.
 // 'warning' and 'easy_fix' are reserved for future rule granularity.
@@ -20,6 +21,8 @@ interface ProblemItem {
   title: string;
   severity: IssueSeverity;
   evidence: unknown;
+  /** Plain-language text for AI warnings; kept up to date with the latest wording. */
+  details?: IssueDetails;
 }
 
 interface Seen {
@@ -56,6 +59,7 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
           last_seen_at: occurredAt,
           first_session_id: sessionId,
           last_session_id: sessionId,
+          ...(item.details ? { details: item.details } : {}),
         } as unknown as never)
         .select('id')
         .single();
@@ -80,6 +84,7 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
         // A pending code that gets confirmed takes the confirmed wording; never the other way round.
         ...(escalates ? { title: item.title } : {}),
         ...(sessionId ? { last_session_id: sessionId } : {}),
+        ...(item.details ? { details: item.details } : {}),
       };
       if (prev.status === 'resolved') {
         updates.status = 'recurred';
@@ -126,6 +131,31 @@ export async function reconcileIssues(
   for (const f of flags) {
     if (f.severity === 'normal') continue;
     await upsertProblem({ canonical_key: f.canonical_key, title: f.message, severity: toIssueSeverity(f.severity), evidence: f.evidence }, seen);
+  }
+}
+
+/**
+ * Put the concerns the AI saw in a trip on the car's problem list, next to
+ * the ones from fault codes and rules. The same concern seen again (same key)
+ * updates its problem; AI warnings never close by themselves.
+ */
+export async function syncAiWarnings(
+  carProfileId: string,
+  userId: string,
+  warnings: AiWarning[],
+  sessionId: string,
+  occurredAt: string = new Date().toISOString(),
+): Promise<void> {
+  const seen: Seen = { carProfileId, userId, sessionId, occurredAt };
+  for (const w of warnings) {
+    if (!/^[a-z0-9_]{3,40}$/.test(w.key) || !URGENCY_SEVERITY[w.urgency]) continue;
+    await upsertProblem({
+      canonical_key: `${AI_PREFIX}${w.key}`,
+      title: w.title,
+      severity: URGENCY_SEVERITY[w.urgency],
+      evidence: { source: 'ai', title: w.title, meaning: w.meaning },
+      details: { source: 'ai', meaning: w.meaning, action: w.action },
+    }, seen);
   }
 }
 

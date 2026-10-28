@@ -300,7 +300,6 @@
     "resolved": "Resolved",
     "ignored": "Ignored",
     "whatToDo": "What to do",
-    "seen": "First seen {{first}} · last seen {{last}}",
     "viewTrip": "View the trip",
     "forMechanic": "For the mechanic",
     "markResolved": "It's fixed",
@@ -404,7 +403,14 @@
     "codeGone": "Resolved: the car no longer reports this code",
     "synced": "Problems updated",
     "syncedHint_one": "{{count}} fault code the car no longer reports was marked as resolved.",
-    "syncedHint_other": "{{count}} fault codes the car no longer reports were marked as resolved."
+    "syncedHint_other": "{{count}} fault codes the car no longer reports were marked as resolved.",
+    "appeared": "Appeared",
+    "lastSeen": "Last seen",
+    "resolvedAgo": "Resolved {{ago}}",
+    "aiBadge": "AI warning",
+    "ai": {
+      "meaning": "Something in the readings of a trip caught our attention."
+    }
   },
   "home": {
     "title": "Home",

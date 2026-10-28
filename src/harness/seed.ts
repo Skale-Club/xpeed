@@ -102,6 +102,16 @@ export function seedDatabase(): Record<string, Row[]> {
         status: 'resolved', first_seen_at: daysAgo(30), last_seen_at: daysAgo(20), first_session_id: null, last_session_id: null,
         resolved_at: daysAgo(15), resolved_note: null, recurrence_count: 0, created_at: daysAgo(30),
       },
+      {
+        id: 'i-4', car_profile_id: CAR_ID, user_id: USER_ID, canonical_key: 'ai:engine_slow_warmup', title: 'Motor demorando a esquentar', severity: 'warning',
+        status: 'active', first_seen_at: daysAgo(6), last_seen_at: daysAgo(1), first_session_id: null, last_session_id: 's-2',
+        resolved_at: null, resolved_note: null, recurrence_count: 0, created_at: daysAgo(6),
+        details: {
+          source: 'ai',
+          meaning: 'Nas últimas viagens o motor levou bem mais tempo que o normal para chegar à temperatura de trabalho.',
+          action: 'Peça para verificarem a válvula termostática na próxima revisão.',
+        },
+      },
     ],
     vehicle_issue_occurrences: [],
     maintenance_events: [

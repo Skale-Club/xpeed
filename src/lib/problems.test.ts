@@ -94,3 +94,34 @@ describe('syncFaultCodes', () => {
     expect(issueFor(car, 'dtc:P0420')).toMatchObject({ status: 'recurred', recurrence_count: 1 });
   });
 });
+
+describe('syncAiWarnings', () => {
+  beforeEach(async () => { await i18n.changeLanguage('pt-BR'); });
+
+  it('puts what the AI saw on the problem list, in its own words', async () => {
+    const { syncAiWarnings } = await import('./issue-reconciler');
+    const car = 'car-ai';
+    const warning = {
+      key: 'engine_slow_warmup',
+      title: 'Motor demorando a esquentar',
+      meaning: 'O motor levou mais tempo que o normal para esquentar.',
+      action: 'Peça para verificarem a válvula termostática.',
+      urgency: 'watch' as const,
+    };
+    await syncAiWarnings(car, 'u1', [warning, { ...warning, key: 'Bad Key!' }], 's1', '2026-10-27T08:00:00.000Z');
+
+    const issue = issueFor(car, 'ai:engine_slow_warmup')!;
+    expect(issue).toMatchObject({ status: 'active', severity: 'warning', title: 'Motor demorando a esquentar', first_session_id: 's1' });
+    const text = describeProblem(issue as never, i18n.t);
+    expect(text).toMatchObject({ title: warning.title, meaning: warning.meaning, action: warning.action });
+    // Malformed keys never reach the list
+    expect(table('vehicle_issues').filter((i) => i.car_profile_id === car)).toHaveLength(1);
+
+    // Seen again, worse: same problem, later date, higher urgency, newer wording.
+    await syncAiWarnings(car, 'u1', [{ ...warning, urgency: 'soon', action: 'Agende uma revisão.' }], 's2', '2026-10-28T08:00:00.000Z');
+    expect(issueFor(car, 'ai:engine_slow_warmup')).toMatchObject({
+      severity: 'serious', last_session_id: 's2', last_seen_at: '2026-10-28T08:00:00.000Z',
+      details: { source: 'ai', meaning: warning.meaning, action: 'Agende uma revisão.' },
+    });
+  });
+});

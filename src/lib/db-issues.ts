@@ -17,7 +17,15 @@ export interface VehicleIssue {
   resolved_at: string | null;
   resolved_note: string | null;
   recurrence_count: number;
+  /** Warnings the AI raised itself: what it means and what to do, in the owner's language. */
+  details?: IssueDetails | null;
   created_at: string;
+}
+
+export interface IssueDetails {
+  source: 'ai';
+  meaning: string;
+  action: string;
 }
 
 export interface IssueOccurrence {

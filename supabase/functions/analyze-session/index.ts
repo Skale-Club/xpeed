@@ -94,9 +94,40 @@ function formatOpenProblems(issues: any[], sessionId: string): string {
       isNew ? "NEW in this trip" : seenNow ? "seen again in this trip" : "not seen in this trip",
       i.status === "recurred" ? `came back after being fixed (${i.recurrence_count}x)` : null,
     ].filter(Boolean).join(", ");
-    lines.push(`  - ${i.canonical_key.startsWith("dtc:") ? `fault code ${i.canonical_key.slice(4)}` : i.title} — ${tags}`);
+    const name = i.canonical_key.startsWith("dtc:")
+      ? `fault code ${i.canonical_key.slice(4)}`
+      : i.canonical_key.startsWith(AI_PREFIX)
+        ? `your earlier warning "${i.title}" (key: ${i.canonical_key.slice(AI_PREFIX.length)})`
+        : i.title;
+    lines.push(`  - ${name} — ${tags}`);
   }
   return lines.join("\n");
+}
+
+/** Problems the AI raises itself are stored with keys like "ai:coolant_slow_warmup". */
+const AI_PREFIX = "ai:";
+
+// What the AI may add to the car's problem list. Anything malformed is dropped.
+const WarningSchema = z.object({
+  key: z.string().regex(/^[a-z0-9_]{3,40}$/),
+  title: z.string().trim().min(3).max(80),
+  meaning: z.string().trim().min(3).max(300),
+  action: z.string().trim().min(3).max(300),
+  urgency: z.enum(["urgent", "soon", "watch", "later"]),
+});
+
+function cleanWarnings(raw: unknown): z.infer<typeof WarningSchema>[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: z.infer<typeof WarningSchema>[] = [];
+  for (const item of raw) {
+    const w = WarningSchema.safeParse(item);
+    if (!w.success || seen.has(w.data.key)) continue;
+    seen.add(w.data.key);
+    out.push(w.data);
+    if (out.length === 3) break;
+  }
+  return out;
 }
 
 serve(async (req) => {
@@ -152,10 +183,17 @@ serve(async (req) => {
     const languageName = LANGUAGE_NAMES[body.language ?? "en"];
     const prompt = `You explain a car trip to its owner, who has no mechanical knowledge. The trip was recorded automatically by the app from the car's diagnostic port.
 
-Reply with JSON only, with three fields:
+Reply with JSON only, with four fields:
 - summary: 2-3 sentences in plain, everyday words (no sensor names, units jargon or codes).
 - key_findings: 0-4 short strings, only things that matter to the owner. Say whether a known problem showed up again or was not seen this time. Empty array if nothing stands out.
 - recommended_action: one short sentence. If there is a CRITICAL reading (for example the engine running hot) or a severe fault code, tell them clearly to stop somewhere safe or not to drive far, and to see a mechanic. If nothing is wrong, say no action is needed.
+- warnings: 0-3 concerns YOU see in the readings that the car's fault codes, the critical readings and the open problems below do NOT already cover, so the owner can track them on their problem list. Examples: the engine never warming up fully (possible thermostat), the 12 V battery voltage low with the engine running (charging), fuel trims drifting, a temperature creeping up trip after trip. Each one is an object:
+    key: short English snake_case id for the concern (e.g. "engine_slow_warmup"). If it is the same concern as one of your earlier warnings listed below, reuse that key exactly.
+    title: 2-6 words, plain language.
+    meaning: one sentence on what you saw and why it matters.
+    action: one sentence on what the owner should do.
+    urgency: "urgent" (stop driving / see a mechanic now), "soon" (book a check-up), "watch" (keep an eye on it) or "later" (mention at the next service).
+  Only add a warning when the readings clearly support it; when in doubt, leave it out. Empty array when there is nothing new. Never repeat something a fault code or a listed problem already says.
 
 Rules:
 - Use only the data below; never invent readings or causes. If the data is too thin to judge, say so.
@@ -178,7 +216,7 @@ ${formatOpenProblems(issues ?? [], body.sessionId)}`;
         model: await getDefaultModel(),
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 600,
+        max_tokens: 1000,
         response_format: { type: "json_object" },
       }),
     });
@@ -197,6 +235,7 @@ ${formatOpenProblems(issues ?? [], body.sessionId)}`;
       parsed = { summary: rawText, key_findings: [], recommended_action: "" };
     }
     if (!Array.isArray(parsed.key_findings)) parsed.key_findings = [];
+    parsed.warnings = cleanWarnings(parsed.warnings);
 
     return jsonResponse({ analysis: parsed });
   } catch (err: any) {

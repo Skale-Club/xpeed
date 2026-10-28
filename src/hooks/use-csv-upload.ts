@@ -9,7 +9,7 @@ import { refreshParameterBaselines } from '@/lib/db-extras';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import { downsampleSessionRows } from '@/lib/downsample';
 import { generateReport, REPORT_VERSION, PROCESSING_VERSION } from '@/lib/report-generator';
-import { reconcileIssues, syncFaultCodes, type FaultCodeSync } from '@/lib/issue-reconciler';
+import { reconcileIssues, syncAiWarnings, syncFaultCodes, type FaultCodeSync } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
 
 export class EmptyCsvError extends Error {
@@ -218,10 +218,12 @@ export async function ingestSessionCsv(
 
     // Reconcile flags into the persistent vehicle_issues table.
     // Non-fatal — session is already saved even if this fails.
+    let userId: string | null = null;
     try {
       const { data: { user } } = await import('@/integrations/supabase/client').then(
         (m) => m.supabase.auth.getUser()
       );
+      userId = user?.id ?? null;
       if (user) {
         await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart);
         await syncFaultCodes(
@@ -250,6 +252,10 @@ export async function ingestSessionCsv(
         const analysis = await analyzeSessionById(session.id);
         if (analysis) {
           await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
+          // Concerns the AI saw that no fault code or rule covers go to the problem list too.
+          if (userId && analysis.warnings?.length) {
+            await syncAiWarnings(carProfileId, userId, analysis.warnings, session.id, sessionStart ?? undefined);
+          }
         }
       } catch (aiError) {
         console.warn('AI analysis skipped:', aiError);

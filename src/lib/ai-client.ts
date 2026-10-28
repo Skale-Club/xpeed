@@ -10,6 +10,16 @@ export interface AnalysisResult {
   summary: string;
   key_findings: string[];
   recommended_action: string;
+  /** Concerns the AI saw in the readings that no fault code or rule covers; they go to the problem list. */
+  warnings?: AiWarning[];
+}
+
+export interface AiWarning {
+  key: string;
+  title: string;
+  meaning: string;
+  action: string;
+  urgency: 'urgent' | 'soon' | 'watch' | 'later';
 }
 
 export interface ChatContext {

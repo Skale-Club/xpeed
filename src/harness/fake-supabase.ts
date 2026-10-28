@@ -189,6 +189,13 @@ export const supabase = {
               summary: 'Viagem tranquila: motor e bateria híbrida dentro do normal.',
               key_findings: ['Temperatura do motor normal', 'Nenhum código de falha novo'],
               recommended_action: 'Nada a fazer agora.',
+              warnings: [{
+                key: 'idle_rpm_unsteady',
+                title: 'Marcha lenta irregular',
+                meaning: 'Parado, a rotação do motor oscilou mais do que o normal.',
+                action: 'Se notar o carro tremendo parado, peça uma limpeza do corpo de borboleta.',
+                urgency: 'watch',
+              }],
             },
           },
           error: null,
