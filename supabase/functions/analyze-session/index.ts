@@ -3,14 +3,15 @@
 //   plus the car's open problems, so the summary can say what is new, what
 //   came back and what didn't show up this time.
 // - Key + model come from the admin panel (app_settings).
-// - Per-user daily quota, spent only once the request can actually be served.
+// - Per-user daily quota, spent only once the request can actually be served; a failed
+//   AI call gives its unit back.
 //
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "npm:zod@3.23.8";
 import { getOpenRouterApiKey, getDefaultModel } from "../_shared/admin-config.ts";
-import { consumeQuota, getUserIdFromAuth } from "../_shared/quota.ts";
+import { consumeQuota, getUserIdFromAuth, refundQuota } from "../_shared/quota.ts";
 
 // The app sends its UI language so answers come back in it (older clients send nothing → English).
 const LANGUAGE_NAMES = { "en": "English", "pt-BR": "Brazilian Portuguese", "es-ES": "Spanish" } as const;
@@ -143,9 +144,12 @@ function cleanWarnings(raw: unknown): z.infer<typeof WarningSchema>[] {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  let userId: string | null = null;
+  let quotaSpent = false;
+
   try {
     // 1. Who is asking, and is the request well formed? (Before spending quota.)
-    const userId = await getUserIdFromAuth(req.headers.get("Authorization"));
+    userId = await getUserIdFromAuth(req.headers.get("Authorization"));
     if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
 
     const parsedBody = AnalyzeBodySchema.safeParse(await req.json().catch(() => null));
@@ -190,6 +194,7 @@ serve(async (req) => {
     // 4. Quota, now that the call will really happen.
     try {
       await consumeQuota(userId, "analysis");
+      quotaSpent = true;
     } catch (err: any) {
       if (err?.status === 429) {
         return jsonResponse({ error: err.message, code: "limit_reached", remaining: err.remaining, limit: err.limit }, 429);
@@ -244,6 +249,8 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
 
     if (!aiRes.ok) {
       console.error("OpenRouter error:", await aiRes.text());
+      await refundQuota(userId, "analysis");
+      quotaSpent = false;
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
 
@@ -262,6 +269,7 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
   } catch (err: any) {
     // S09-2: log detail server-side only; never echo internal/DB messages to the client.
     console.error("analyze-session error:", err);
+    if (userId && quotaSpent) await refundQuota(userId, "analysis");
     return jsonResponse({ error: "Internal error" }, 500);
   }
 });

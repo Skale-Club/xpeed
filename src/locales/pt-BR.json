@@ -481,6 +481,26 @@
     "allProblems": "Ver todos os problemas do carro",
     "share": "Enviar para o mecânico"
   },
+  "sharing": {
+    "confirmTitle": "Criar um link público?",
+    "confirmBody": "Qualquer pessoa com o link consegue abrir este relatório sem entrar na conta. Ele mostra o chassi (VIN) do carro, os códigos de falha e as leituras fora do normal. O link funciona por {{days}} dias e você pode desativá-lo quando quiser.",
+    "confirmAction": "Criar link",
+    "linksTitle": "Links que você criou para esta viagem",
+    "linkLine": "Criado em {{date}} · aberto {{count}} vezes",
+    "worksUntil": "vale até {{date}}",
+    "turnOff": "Desativar",
+    "turnedOff": "Link desativado",
+    "turnOffFailed": "Não foi possível desativar o link"
+  },
+  "adminPage": {
+    "notAvailable": "Indisponível",
+    "notAvailableBody": "Não há nada para ver nesta página."
+  },
+  "mcpTokens": {
+    "expires": "Expira em {{date}}",
+    "expired": "expirado",
+    "expiryNote": "Os tokens deixam de funcionar após um ano; crie um novo nessa hora."
+  },
   "sidebar": {
     "tagline": "Seu carro, sem complicação",
     "selectCar": "Escolha seu carro",

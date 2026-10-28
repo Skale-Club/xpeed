@@ -481,6 +481,26 @@
     "allProblems": "See all of the car's problems",
     "share": "Send to the mechanic"
   },
+  "sharing": {
+    "confirmTitle": "Make a public link?",
+    "confirmBody": "Anyone who has the link can open this report without signing in. It shows the car's VIN (chassis number), its fault codes and unusual readings. The link works for {{days}} days, and you can turn it off at any time.",
+    "confirmAction": "Create link",
+    "linksTitle": "Links you made for this trip",
+    "linkLine": "Made {{date}} · opened {{count}} times",
+    "worksUntil": "works until {{date}}",
+    "turnOff": "Turn off",
+    "turnedOff": "Link turned off",
+    "turnOffFailed": "Couldn't turn the link off"
+  },
+  "adminPage": {
+    "notAvailable": "Not available",
+    "notAvailableBody": "There is nothing to see on this page."
+  },
+  "mcpTokens": {
+    "expires": "Expires {{date}}",
+    "expired": "expired",
+    "expiryNote": "Tokens stop working after one year; make a new one then."
+  },
   "sidebar": {
     "tagline": "Your car, simply",
     "selectCar": "Choose your car",

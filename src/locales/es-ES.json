@@ -481,6 +481,26 @@
     "allProblems": "Ver todos los problemas del coche",
     "share": "Enviar al mecánico"
   },
+  "sharing": {
+    "confirmTitle": "¿Crear un enlace público?",
+    "confirmBody": "Cualquiera que tenga el enlace puede abrir este informe sin iniciar sesión. Muestra el VIN (número de bastidor) del coche, sus códigos de avería y las lecturas inusuales. El enlace funciona durante {{days}} días y puedes desactivarlo cuando quieras.",
+    "confirmAction": "Crear enlace",
+    "linksTitle": "Enlaces que creaste para este viaje",
+    "linkLine": "Creado el {{date}} · abierto {{count}} veces",
+    "worksUntil": "válido hasta {{date}}",
+    "turnOff": "Desactivar",
+    "turnedOff": "Enlace desactivado",
+    "turnOffFailed": "No se pudo desactivar el enlace"
+  },
+  "adminPage": {
+    "notAvailable": "No disponible",
+    "notAvailableBody": "No hay nada que ver en esta página."
+  },
+  "mcpTokens": {
+    "expires": "Caduca el {{date}}",
+    "expired": "caducado",
+    "expiryNote": "Los tokens dejan de funcionar al cabo de un año; crea uno nuevo entonces."
+  },
   "sidebar": {
     "tagline": "Tu coche, sin complicaciones",
     "selectCar": "Elige tu coche",

@@ -24,6 +24,11 @@ function getAdminClient() {
   return adminClient;
 }
 
+/** The shared service-role client (bypasses RLS: scope every query to the caller). */
+export function getServiceClient() {
+  return getAdminClient();
+}
+
 /**
  * Throws if the user has exceeded their daily quota for the given kind.
  * Otherwise records one usage and returns the remaining count.
@@ -69,6 +74,20 @@ export async function consumeQuota(userId: string, kind: QuotaKind): Promise<{ r
   }
 
   return { remaining: typeof remaining === "number" ? remaining : limit - 1, limit };
+}
+
+/**
+ * Give back the unit consumeQuota took, because the AI call it paid for failed
+ * (upstream error, empty answer, crash). Best-effort: a failed refund is logged, never thrown.
+ * Needs the refund_quota() function from migration 20261029000000.
+ */
+export async function refundQuota(userId: string, kind: QuotaKind): Promise<void> {
+  try {
+    const { error } = await (getAdminClient() as any).rpc("refund_quota", { p_user_id: userId, p_kind: kind });
+    if (error) console.error("Quota refund failed:", error.message);
+  } catch (e) {
+    console.error("Quota refund threw:", (e as any)?.message ?? e);
+  }
 }
 
 /**

@@ -9,6 +9,18 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+/**
+ * The caller's IP as Vercel saw it. Vercel sets x-real-ip / x-forwarded-for itself (anything the
+ * client sent is overwritten), so the Supabase function can rate-limit per caller instead of
+ * seeing every request come from Vercel.
+ */
+function forwardClientIp(req: Request, headers: Headers): void {
+  const ip = req.headers.get('x-real-ip') ?? req.headers.get('x-forwarded-for')?.split(',')[0].trim();
+  if (!ip) return;
+  headers.set('x-forwarded-for', ip);
+  headers.set('x-real-ip', ip);
+}
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -22,9 +34,12 @@ export default async function handler(req: Request): Promise<Response> {
     );
   }
 
+  const forwarded = new Headers({ 'Content-Type': req.headers.get('Content-Type') ?? 'application/json' });
+  forwardClientIp(req, forwarded);
+
   const upstream = await fetch(`${supabaseUrl}/functions/v1/xpeed-oauth/token`, {
     method: req.method,
-    headers: { 'Content-Type': req.headers.get('Content-Type') ?? 'application/json' },
+    headers: forwarded,
     body: req.body,
     // @ts-ignore
     duplex: 'half',

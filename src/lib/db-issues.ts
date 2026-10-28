@@ -39,7 +39,7 @@ export interface IssueOccurrence {
 
 export async function getIssuesForCar(carProfileId: string): Promise<VehicleIssue[]> {
   const { data, error } = await supabase
-    .from('vehicle_issues')
+    .from('vehicle_issues' as never)
     .select('*')
     .eq('car_profile_id', carProfileId)
     .order('last_seen_at', { ascending: false });
@@ -50,7 +50,7 @@ export async function getIssuesForCar(carProfileId: string): Promise<VehicleIssu
 
 export async function getOccurrencesForIssue(issueId: string): Promise<IssueOccurrence[]> {
   const { data, error } = await supabase
-    .from('vehicle_issue_occurrences')
+    .from('vehicle_issue_occurrences' as never)
     .select('*')
     .eq('issue_id', issueId)
     .order('occurred_at', { ascending: false });
@@ -61,7 +61,7 @@ export async function getOccurrencesForIssue(issueId: string): Promise<IssueOccu
 
 export async function resolveIssue(issueId: string, note?: string): Promise<void> {
   const { error } = await supabase
-    .from('vehicle_issues')
+    .from('vehicle_issues' as never)
     .update({
       status: 'resolved',
       resolved_at: new Date().toISOString(),
@@ -74,7 +74,7 @@ export async function resolveIssue(issueId: string, note?: string): Promise<void
 
 export async function ignoreIssue(issueId: string): Promise<void> {
   const { error } = await supabase
-    .from('vehicle_issues')
+    .from('vehicle_issues' as never)
     .update({ status: 'ignored' } as unknown as never)
     .eq('id', issueId);
 
@@ -83,7 +83,7 @@ export async function ignoreIssue(issueId: string): Promise<void> {
 
 export async function reopenIssue(issueId: string): Promise<void> {
   const { error } = await supabase
-    .from('vehicle_issues')
+    .from('vehicle_issues' as never)
     .update({
       status: 'active',
       resolved_at: null,

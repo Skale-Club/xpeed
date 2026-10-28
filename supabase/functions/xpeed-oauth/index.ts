@@ -12,6 +12,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { clientIpFrom, isAllowedRedirectUri } from "./validation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,9 +79,23 @@ function oauthError(code: string, description: string, status = 400): Response {
 
 // --- Security helpers (S09-3 audit log, S11-2 rate limit) ---
 
+// The caller's IP comes from the Vercel proxies (api/oauth/*), which forward it as
+// x-forwarded-for / x-real-ip; without that every request would look like Vercel's own IP.
 function clientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for");
-  return (xff ? xff.split(",")[0] : "").trim() || req.headers.get("x-real-ip") || "unknown";
+  return clientIpFrom(req.headers);
+}
+
+// Opportunistic housekeeping (no pg_cron here): now and then drop stale rate-limit rows and
+// expired/revoked OAuth codes and refresh tokens. Needs cleanup_stale_security_rows() from
+// migration 20261029000000; a failure is only logged.
+async function maybeCleanup(db: any): Promise<void> {
+  if (Math.random() >= 0.02) return;
+  try {
+    const { error } = await db.rpc("cleanup_stale_security_rows");
+    if (error) console.error("oauth cleanup failed:", error.message);
+  } catch (e) {
+    console.error("oauth cleanup threw:", (e as any)?.message ?? e);
+  }
 }
 
 // Fire-and-forget security event log. Never throws into the request path.
@@ -132,9 +147,10 @@ async function handleRegister(req: Request, db: any): Promise<Response> {
   if (!Array.isArray(redirect_uris) || redirect_uris.length === 0) {
     return oauthError("invalid_redirect_uri", "redirect_uris is required and must be a non-empty array", 400);
   }
+  // https only, or http on a loopback host (native clients); nothing else.
   for (const uri of redirect_uris) {
-    if (typeof uri !== "string" || !/^https?:\/\//.test(uri)) {
-      return oauthError("invalid_redirect_uri", `Invalid redirect_uri: ${uri}`, 400);
+    if (!isAllowedRedirectUri(uri)) {
+      return oauthError("invalid_redirect_uri", "redirect_uris must be https URLs (http is allowed only for localhost)", 400);
     }
   }
 
@@ -313,9 +329,18 @@ async function handleToken(
       return oauthError("invalid_grant", "PKCE verification failed", 400);
     }
 
-    await db.from("oauth_authorization_codes")
+    // Single use, atomically: only the request that flips used_at from NULL gets the code.
+    // Two simultaneous exchanges of the same code can no longer both succeed.
+    const { data: consumed, error: consumeErr } = await db
+      .from("oauth_authorization_codes")
       .update({ used_at: new Date().toISOString() })
-      .eq("code", code);
+      .eq("code", code)
+      .is("used_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .select("code")
+      .maybeSingle();
+    if (consumeErr) { console.error("oauth code consume failed:", consumeErr.message); return oauthError("server_error", "Token request failed", 500); }
+    if (!consumed) return oauthError("invalid_grant", "Code already used", 400);
 
     return issueTokens(db, issuer, jwtSecret, codeRow.client_id, codeRow.user_id, codeRow.scope, null);
   }
@@ -354,10 +379,25 @@ async function handleToken(
     if (new Date(rtRow.expires_at) < new Date()) return oauthError("invalid_grant", "Refresh token expired", 400);
     if (rtRow.client_id !== client_id) return oauthError("invalid_grant", "Client mismatch", 400);
 
-    // Rotate
-    await db.from("oauth_refresh_tokens")
+    // Rotate atomically: only the request that flips revoked_at from NULL may continue. A second
+    // concurrent use of the same refresh token is a replay, so it gets the reuse treatment.
+    const { data: rotated, error: rotateErr } = await db
+      .from("oauth_refresh_tokens")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("token_hash", tokenHash);
+      .eq("token_hash", tokenHash)
+      .is("revoked_at", null)
+      .select("token_hash")
+      .maybeSingle();
+    if (rotateErr) { console.error("oauth refresh rotate failed:", rotateErr.message); return oauthError("server_error", "Token request failed", 500); }
+    if (!rotated) {
+      await db.from("oauth_refresh_tokens")
+        .update({ revoked_at: new Date().toISOString() })
+        .eq("client_id", rtRow.client_id)
+        .eq("user_id", rtRow.user_id)
+        .is("revoked_at", null);
+      await logSecurityEvent(db, "oauth_refresh_token_reuse", { client_id: rtRow.client_id, concurrent: true }, rtRow.user_id, ip);
+      return oauthError("invalid_grant", "Refresh token reuse detected — all tokens revoked", 400);
+    }
 
     return issueTokens(db, issuer, jwtSecret, rtRow.client_id, rtRow.user_id, rtRow.scope, tokenHash);
   }
@@ -390,7 +430,8 @@ serve(async (req) => {
     const ip = clientIp(req);
     // S11-2: per-IP rate limits on the public OAuth endpoints.
     if (path === "/register") {
-      if (!(await rateLimitOk(db, `oauth_register:${ip}`, 10, 3600))) {
+      // Per-IP, plus a global ceiling in case the forwarded IP can't be trusted (direct calls).
+      if (!(await rateLimitOk(db, "oauth_register:all", 300, 3600)) || !(await rateLimitOk(db, `oauth_register:${ip}`, 10, 3600))) {
         await logSecurityEvent(db, "oauth_register_rate_limited", { path }, null, ip);
         return oauthError("temporarily_unavailable", "Too many registrations, try again later", 429);
       }
@@ -398,10 +439,11 @@ serve(async (req) => {
     }
     if (path === "/issue-code") return handleIssueCode(req, db, supabaseUrl, anonKey);
     if (path === "/token") {
-      if (!(await rateLimitOk(db, `oauth_token:${ip}`, 60, 60))) {
+      if (!(await rateLimitOk(db, "oauth_token:all", 1200, 60)) || !(await rateLimitOk(db, `oauth_token:${ip}`, 60, 60))) {
         await logSecurityEvent(db, "oauth_token_rate_limited", { path }, null, ip);
         return oauthError("temporarily_unavailable", "Too many token requests, slow down", 429);
       }
+      await maybeCleanup(db);
       return handleToken(req, db, issuer, jwtSecret, ip);
     }
   }

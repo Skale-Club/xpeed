@@ -6,8 +6,11 @@
 //      HS256-signed with XPEED_OAUTH_JWT_SECRET. iss claim matches XPEED_APP_URL.
 //   2. Supabase JWT   — Authorization: Bearer <supabase-jwt>
 //      Any JWT issued by this Supabase project (email, Google OAuth, etc.)
-//   3. API key token  — X-API-Key: <token> | Authorization: Bearer <token> | ?key=<token>
-//      Opaque per-user tokens (SHA-256 hashed) from public.mcp_tokens.
+//   3. API key token  — X-API-Key: <token> | Authorization: Bearer <token>
+//      Opaque per-user tokens (SHA-256 hashed) from public.mcp_tokens. They expire
+//      (expires_at) and can be revoked. NOT accepted in the URL (?key=): URLs get logged.
+//
+// This is the one MCP server. mcp-server, car-insights-mcp and manage-mcp-tokens are retired (410).
 //
 // On 401, returns WWW-Authenticate header pointing to OAuth metadata so Claude.ai
 // Custom Connector can discover the authorization server.
@@ -15,6 +18,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isMcpTokenUsable, tokenFromHeaders } from "./token.ts";
 
 const APP_URL = Deno.env.get("XPEED_APP_URL") || "https://xpeed-skaleclub.vercel.app";
 
@@ -110,13 +114,17 @@ async function verifyXpeedJWT(token: string, secret: string): Promise<JWTPayload
   return payload;
 }
 
+class QueryError extends Error {}
+
+/** Throws on a database error (surfaced as a JSON-RPC error) instead of pretending nothing was found. */
 async function ownsVehicle(db: SupabaseClient, userId: string, vehicleId: string): Promise<boolean> {
-  const { data } = await db
+  const { data, error } = await db
     .from("car_profiles")
     .select("id")
     .eq("id", vehicleId)
     .eq("user_id", userId)
     .maybeSingle();
+  if (error) throw new QueryError(error.message);
   return !!data;
 }
 
@@ -149,7 +157,7 @@ const TOOLS = [
   },
   {
     name: "get_vehicle_health",
-    description: "Parameter baselines (rolling 20-session averages) plus recent critical/attention flags for a vehicle.",
+    description: "Parameter baselines (per parameter and window: mean, stddev, sample_count) plus recent critical/attention flags for a vehicle.",
     inputSchema: {
       type: "object",
       properties: { vehicle_id: { type: "string", description: "Car profile UUID" } },
@@ -158,7 +166,7 @@ const TOOLS = [
   },
   {
     name: "list_maintenance",
-    description: "List maintenance events for a vehicle (type, date, odometer, notes).",
+    description: "List maintenance events for a vehicle (event_type, performed_at, odometer_km, cost, shop, notes).",
     inputSchema: {
       type: "object",
       properties: {
@@ -194,14 +202,7 @@ serve(async (req) => {
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const jwtSecret = Deno.env.get("XPEED_OAUTH_JWT_SECRET");
 
-  const url = new URL(req.url);
-  const bearerHeader = req.headers.get("Authorization") || "";
-  const bearerToken = bearerHeader.startsWith("Bearer ") ? bearerHeader.slice(7) : null;
-  const rawToken =
-    req.headers.get("X-API-Key") ||
-    req.headers.get("x-api-key") ||
-    bearerToken ||
-    url.searchParams.get("key");
+  const rawToken = tokenFromHeaders(req.headers);
 
   if (!rawToken) {
     return jsonRpcError(null, -32001, "Unauthorized: missing token", 401, true);
@@ -237,21 +238,25 @@ serve(async (req) => {
   } else {
     // Path C: API key token (opaque)
     const tokenHash = await sha256Hex(rawToken);
-    const { data: tokenRow } = await db
+    const { data: tokenRow, error: tokenErr } = await db
       .from("mcp_tokens")
-      .select("id, user_id, revoked_at")
+      .select("id, user_id, revoked_at, expires_at")
       .eq("token_hash", tokenHash)
       .maybeSingle();
-
-    if (!tokenRow || tokenRow.revoked_at) {
-      return jsonRpcError(null, -32001, "Unauthorized: invalid or revoked API key", 401, true);
+    if (tokenErr) {
+      console.error("xpeed-mcp token lookup failed:", tokenErr.message);
+      return jsonRpcError(null, -32603, "Internal error", 500);
     }
 
-    userId = tokenRow.user_id as string;
+    if (!isMcpTokenUsable(tokenRow)) {
+      return jsonRpcError(null, -32001, "Unauthorized: invalid, expired or revoked API key", 401, true);
+    }
+
+    userId = tokenRow!.user_id as string;
 
     db.from("mcp_tokens")
       .update({ last_used_at: new Date().toISOString() })
-      .eq("id", tokenRow.id)
+      .eq("id", tokenRow!.id)
       .then(() => {}, () => {});
   }
 
@@ -269,6 +274,26 @@ serve(async (req) => {
 
   const { id = null, method, params = {} } = body;
   if (!method) return jsonRpcError(id, -32600, "Invalid Request: missing method");
+
+  try {
+    return await handleRpc(db, userId, id, method, params);
+  } catch (err) {
+    if (err instanceof QueryError) {
+      console.error("xpeed-mcp query failed:", err.message);
+      return jsonRpcError(id, -32603, "Database error");
+    }
+    console.error("xpeed-mcp error:", err);
+    return jsonRpcError(id, -32603, "Internal error");
+  }
+});
+
+async function handleRpc(
+  db: SupabaseClient,
+  userId: string,
+  id: unknown,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<Response> {
 
   switch (method) {
     case "initialize":
@@ -332,6 +357,7 @@ serve(async (req) => {
             .select("severity, canonical_key, parameter_key, message, evidence, created_at")
             .eq("session_id", sid)
             .order("severity");
+          if (flagsRes.error) return jsonRpcError(id, -32603, flagsRes.error.message);
 
           return jsonRpc(id, {
             content: [{ type: "text", text: JSON.stringify({ session: sessionRes.data, flags: flagsRes.data ?? [] }, null, 2) }],
@@ -347,9 +373,9 @@ serve(async (req) => {
           const [baselinesRes, recentSessionsRes] = await Promise.all([
             db
               .from("parameter_baselines")
-              .select("parameter_key, avg_value, count, updated_at")
+              .select("canonical_key, window_days, mean, stddev, sample_count, computed_at")
               .eq("car_profile_id", vid)
-              .order("updated_at", { ascending: false }),
+              .order("computed_at", { ascending: false }),
             db
               .from("sessions")
               .select("id, uploaded_at")
@@ -359,16 +385,20 @@ serve(async (req) => {
               .limit(5),
           ]);
 
+          if (baselinesRes.error) return jsonRpcError(id, -32603, baselinesRes.error.message);
+          if (recentSessionsRes.error) return jsonRpcError(id, -32603, recentSessionsRes.error.message);
+
           let recentFlags: any[] = [];
           if (recentSessionsRes.data?.length) {
             const sessionIds = recentSessionsRes.data.map((s: any) => s.id);
-            const { data: flags } = await db
+            const { data: flags, error: flagsErr } = await db
               .from("session_flags")
               .select("severity, canonical_key, message, session_id, created_at")
               .in("session_id", sessionIds)
               .in("severity", ["critical", "attention"])
               .order("created_at", { ascending: false })
               .limit(30);
+            if (flagsErr) return jsonRpcError(id, -32603, flagsErr.message);
             recentFlags = flags ?? [];
           }
 
@@ -385,10 +415,10 @@ serve(async (req) => {
           const limit = Math.min(Number(args.limit) || 20, 100);
           const { data, error } = await db
             .from("maintenance_events")
-            .select("id, type, date, odometer, notes, created_at")
+            .select("id, event_type, performed_at, odometer_km, cost, currency, shop, notes, created_at")
             .eq("car_profile_id", vid)
             .eq("user_id", userId)
-            .order("date", { ascending: false })
+            .order("performed_at", { ascending: false })
             .limit(limit);
           if (error) return jsonRpcError(id, -32603, error.message);
           return jsonRpc(id, { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
@@ -401,11 +431,12 @@ serve(async (req) => {
           }
           const limit = Math.min(Number(args.limit) || 30, 100);
 
-          const { data: sessions } = await db
+          const { data: sessions, error: sessionsErr } = await db
             .from("sessions")
             .select("id")
             .eq("car_profile_id", vid)
             .eq("user_id", userId);
+          if (sessionsErr) return jsonRpcError(id, -32603, sessionsErr.message);
 
           if (!sessions?.length) {
             return jsonRpc(id, { content: [{ type: "text", text: "[]" }] });
@@ -435,4 +466,4 @@ serve(async (req) => {
     default:
       return jsonRpcError(id, -32601, `Method not found: ${method}`);
   }
-});
+}

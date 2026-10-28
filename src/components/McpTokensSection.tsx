@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,6 +39,7 @@ function CopyButton({ value, className }: { value: string; className?: string })
 }
 
 export default function McpTokensSection() {
+  const { t: tr } = useTranslation();
   const { toast } = useToast();
   const [tokens, setTokens] = useState<McpToken[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,7 +140,7 @@ export default function McpTokensSection() {
           <TabsContent value="apikey" className="mt-3 space-y-3">
             <p className="text-xs text-muted-foreground leading-relaxed">
               Persistent tokens — ideal for AI agents (Claude.ai, Cursor, etc). Revocable at any time.
-              Each token grants read-only access to <strong>your</strong> data only.
+              Each token grants read-only access to <strong>your</strong> data only. {tr('mcpTokens.expiryNote', 'Tokens stop working after one year; make a new one then.')}
             </p>
 
             {loading ? (
@@ -152,7 +154,8 @@ export default function McpTokensSection() {
             ) : (
               <div className="space-y-2">
                 {tokens.map((t) => {
-                  const isRevoked = !!t.revoked_at;
+                  const isExpired = !!t.expires_at && new Date(t.expires_at).getTime() <= Date.now();
+                  const isRevoked = !!t.revoked_at || isExpired;
                   return (
                     <div
                       key={t.id}
@@ -164,10 +167,14 @@ export default function McpTokensSection() {
                           {t.token_prefix && (
                             <span className="ml-2 text-[10px] text-muted-foreground">{t.token_prefix}…</span>
                           )}
-                          {isRevoked && <span className="ml-2 text-[9px] uppercase text-destructive">revoked</span>}
+                          {t.revoked_at && <span className="ml-2 text-[9px] uppercase text-destructive">revoked</span>}
+                          {!t.revoked_at && isExpired && (
+                            <span className="ml-2 text-[9px] uppercase text-destructive">{tr('mcpTokens.expired', 'expired')}</span>
+                          )}
                         </div>
                         <div className="text-[10px] text-muted-foreground font-mono">
                           Created {formatDate(t.created_at)} · Last used {formatDate(t.last_used_at)}
+                          {t.expires_at && ` · ${tr('mcpTokens.expires', 'Expires {{date}}', { date: formatDate(t.expires_at) })}`}
                         </div>
                       </div>
                       {!isRevoked && (
