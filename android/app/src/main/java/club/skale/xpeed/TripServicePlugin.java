@@ -3,6 +3,7 @@ package club.skale.xpeed;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 
 import androidx.core.content.ContextCompat;
@@ -42,14 +43,25 @@ public class TripServicePlugin extends Plugin {
         Context context = getContext();
         String title = call.getString("title", "Xpeed");
         String text = call.getString("text", "");
+        boolean awake = Boolean.TRUE.equals(call.getBoolean("awake", true));
         if (TripService.running) {
             TripService.updateNotification(context, title, text);
+            TripService.setAwake(awake);
             call.resolve();
+            return;
+        }
+        // Android 14+ only lets a "connected device" service start once Bluetooth
+        // permission is granted; asking for it first is the connection's job. Without
+        // it startForeground() would throw inside the service.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            call.reject("Bluetooth permission is not granted yet.");
             return;
         }
         Intent intent = new Intent(context, TripService.class)
                 .putExtra(TripService.EXTRA_TITLE, title)
-                .putExtra(TripService.EXTRA_TEXT, text);
+                .putExtra(TripService.EXTRA_TEXT, text)
+                .putExtra(TripService.EXTRA_AWAKE, awake);
         try {
             ContextCompat.startForegroundService(context, intent);
             call.resolve();
@@ -60,10 +72,9 @@ public class TripServicePlugin extends Plugin {
 
     @PluginMethod
     public void update(PluginCall call) {
-        if (TripService.running) {
-            TripService.updateNotification(getContext(), call.getString("title", "Xpeed"), call.getString("text", ""));
-        }
-        call.resolve();
+        // If the service isn't running (it refused to start, or Android stopped it),
+        // this starts it again instead of silently doing nothing.
+        startService(call);
     }
 
     @PluginMethod
