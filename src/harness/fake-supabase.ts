@@ -153,7 +153,15 @@ export const supabase = {
       emitAuth('SIGNED_IN');
       return { data: { user: HARNESS_USER, session: session() }, error: null };
     },
-    signUp: async () => ({ data: { user: HARNESS_USER, session: null }, error: null }),
+    // Phone sign-in: any number gets a code; "123456" is the right one.
+    signInWithOtp: async () => ({ data: {}, error: null }),
+    verifyOtp: async ({ token }: { token: string }) => {
+      if (token !== '123456') return { data: { user: null, session: null }, error: { message: 'Token has expired or is invalid', code: 'otp_expired' } };
+      loggedIn = true;
+      localStorage.removeItem('harness.loggedOut');
+      emitAuth('SIGNED_IN');
+      return { data: { user: HARNESS_USER, session: session() }, error: null };
+    },
     signOut: async () => {
       loggedIn = false;
       localStorage.setItem('harness.loggedOut', '1');

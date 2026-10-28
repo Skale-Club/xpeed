@@ -667,7 +667,25 @@
     "confirmPassword": "Confirme a senha",
     "creatingAccount": "Criando sua conta…",
     "haveAccount": "Já tem uma conta?",
-    "signUpTerms": "Ao criar uma conta, você concorda com nossos Termos de Uso e nossa Política de Privacidade."
+    "signUpTerms": "Ao criar uma conta, você concorda com nossos Termos de Uso e nossa Política de Privacidade.",
+    "phone": {
+      "country": "País",
+      "phoneLabel": "Número de celular",
+      "sendCode": "Enviar código",
+      "codeTitle": "Digite o código",
+      "codeSent": "Mandamos um código de 6 dígitos para {{phone}}.",
+      "codeLabel": "Código de 6 dígitos",
+      "verify": "Continuar",
+      "resend": "Mandar outro código",
+      "resendIn": "Novo código em {{seconds}}s",
+      "changeNumber": "Usar outro número",
+      "errInvalidPhone": "Digite um número de celular válido.",
+      "errWait": "Espere {{seconds}}s para pedir outro código.",
+      "errSmsFailed": "Não conseguimos mandar o SMS. Confira o número e tente de novo.",
+      "errUnavailable": "O acesso pelo celular ainda não está disponível. Por enquanto, entre com o Google.",
+      "errWrongCode": "Código errado ou vencido. Confira o SMS ou peça um novo.",
+      "errGeneric": "Algo deu errado. Tente de novo."
+    }
   },
   "assistant": {
     "errorTitle": "Algo deu errado",
@@ -743,5 +761,31 @@
     "yearHint": "O ano do modelo, que aparece no documento do carro.",
     "fuelQ": "Qual combustível ele usa?",
     "fuelUnknown": "Não sei"
+  },
+  "landing": {
+    "tagline": "Saiba se o seu carro está bem, em palavras simples.",
+    "signInShort": "Entrar",
+    "signInTitle": "Entre ou crie sua conta",
+    "signInHint": "Com o seu celular: mandamos um código por SMS. Sem senha.",
+    "or": "ou",
+    "google": "Continuar com o Google",
+    "useEmail": "Tenho conta com e-mail e senha",
+    "usePhone": "Entrar com o celular",
+    "title": "Saiba se o seu carro está bem, sem precisar entender de mecânica.",
+    "subtitle": "Um adaptador de bolso lê o carro, o Xpeed grava cada viagem sozinho e explica em palavras simples o que precisa de atenção.",
+    "point1": "Funciona com a maioria dos carros de 2008 em diante",
+    "point2": "Celular Android ou Chrome no computador",
+    "point3": "Grátis para começar",
+    "cta": "Começar agora",
+    "f1Title": "Viagens gravadas sozinhas",
+    "f1Text": "Deixe o app aberto no carro. Cada viagem é gravada e conferida, sem precisar tocar em nada.",
+    "f2Title": "Problemas em palavras simples",
+    "f2Text": "Se algo estiver fora do normal, você vê o que significa e o que fazer: esperar, agendar uma revisão ou parar agora.",
+    "f3Title": "Relatório para o mecânico",
+    "f3Text": "Mande um link com os códigos de falha e as leituras, para o mecânico começar pelos fatos.",
+    "howTitle": "Como funciona",
+    "s1": "Compre um adaptador OBD2 com \"Bluetooth LE\" no nome (por exemplo Veepeak OBDCheck BLE).",
+    "s2": "Encaixe embaixo do volante e ligue o carro.",
+    "s3": "Entre com o seu celular e toque em \"Iniciar viagem\". A partir daí o Xpeed cuida do resto."
   }
 }

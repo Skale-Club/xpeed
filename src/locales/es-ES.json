@@ -667,7 +667,25 @@
     "confirmPassword": "Confirma la contraseña",
     "creatingAccount": "Creando tu cuenta…",
     "haveAccount": "¿Ya tienes cuenta?",
-    "signUpTerms": "Al crear una cuenta, aceptas nuestros Términos del servicio y nuestra Política de privacidad."
+    "signUpTerms": "Al crear una cuenta, aceptas nuestros Términos del servicio y nuestra Política de privacidad.",
+    "phone": {
+      "country": "País",
+      "phoneLabel": "Número de móvil",
+      "sendCode": "Enviar código",
+      "codeTitle": "Escribe el código",
+      "codeSent": "Enviamos un código de 6 dígitos a {{phone}}.",
+      "codeLabel": "Código de 6 dígitos",
+      "verify": "Continuar",
+      "resend": "Enviar otro código",
+      "resendIn": "Nuevo código en {{seconds}}s",
+      "changeNumber": "Usar otro número",
+      "errInvalidPhone": "Escribe un número de móvil válido.",
+      "errWait": "Espera {{seconds}}s para pedir otro código.",
+      "errSmsFailed": "No pudimos enviar el SMS. Revisa el número e inténtalo de nuevo.",
+      "errUnavailable": "El acceso con el móvil aún no está disponible. Por ahora, entra con Google.",
+      "errWrongCode": "Código incorrecto o vencido. Revisa el SMS o pide uno nuevo.",
+      "errGeneric": "Algo salió mal. Inténtalo de nuevo."
+    }
   },
   "assistant": {
     "errorTitle": "Algo ha salido mal",
@@ -743,5 +761,31 @@
     "yearHint": "El año del modelo, como en la documentación del coche.",
     "fuelQ": "¿Qué combustible usa?",
     "fuelUnknown": "No lo sé"
+  },
+  "landing": {
+    "tagline": "Sabe si tu coche está bien, con palabras sencillas.",
+    "signInShort": "Entrar",
+    "signInTitle": "Entra o crea tu cuenta",
+    "signInHint": "Con tu móvil: te enviamos un código por SMS. Sin contraseña.",
+    "or": "o",
+    "google": "Continuar con Google",
+    "useEmail": "Tengo cuenta con correo y contraseña",
+    "usePhone": "Entrar con el móvil",
+    "title": "Sabe si tu coche está bien, sin saber de mecánica.",
+    "subtitle": "Un adaptador de bolsillo lee tu coche, Xpeed graba cada viaje solo y te explica con palabras sencillas lo que necesita atención.",
+    "point1": "Funciona con la mayoría de los coches de 2008 en adelante",
+    "point2": "Móvil Android o Chrome en el ordenador",
+    "point3": "Gratis para empezar",
+    "cta": "Empezar ahora",
+    "f1Title": "Viajes grabados solos",
+    "f1Text": "Deja la app abierta en el coche. Cada viaje se graba y se revisa, sin tocar nada.",
+    "f2Title": "Problemas con palabras sencillas",
+    "f2Text": "Si algo va mal, ves qué significa y qué hacer: esperar, pedir una revisión o parar ya.",
+    "f3Title": "Un informe para el mecánico",
+    "f3Text": "Envía un enlace con los códigos de avería y las lecturas, para que el mecánico empiece por los hechos.",
+    "howTitle": "Cómo funciona",
+    "s1": "Consigue un adaptador OBD2 con \"Bluetooth LE\" en el nombre (por ejemplo Veepeak OBDCheck BLE).",
+    "s2": "Conéctalo debajo del volante y enciende el coche.",
+    "s3": "Entra con tu móvil y toca \"Iniciar viaje\". A partir de ahí Xpeed se encarga del resto."
   }
 }

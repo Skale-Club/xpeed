@@ -1,14 +1,19 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import type { User, Session, AuthError } from '@supabase/supabase-js';
+import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  /** Email + password, kept for accounts created before phone sign-in. */
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{ data: { user: User | null; session: Session | null }; error: AuthError | null }>;
+  /** Text a 6-digit code to this E.164 number; a new number gets an account. */
+  sendPhoneCode: (phone: string) => Promise<void>;
+  /** Check the texted code; signs in on success. */
+  verifyPhoneCode: (phone: string, code: string) => Promise<void>;
+  /** Google sign-in; comes back to `nextPath` (default: home). */
+  signInWithGoogle: (nextPath?: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
@@ -41,38 +46,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   };
 
-  const signInWithGoogle = async () => {
-    const appUrl = import.meta.env.VITE_APP_URL?.replace(/\/$/, '');
+  const sendPhoneCode = async (phone: string) => {
+    const { error } = await supabase.auth.signInWithOtp({ phone });
+    if (error) throw error;
+  };
 
-    if (!appUrl && import.meta.env.PROD) {
-      throw new Error(
-        'VITE_APP_URL is not configured. Set it in your environment to enable Google OAuth.'
-      );
-    }
+  const verifyPhoneCode = async (phone: string, code: string) => {
+    const { error } = await supabase.auth.verifyOtp({ phone, token: code, type: 'sms' });
+    if (error) throw error;
+  };
 
-    if (!appUrl) {
-      console.warn(
-        '[AuthContext] VITE_APP_URL not set — falling back to window.location.origin. ' +
-        'This will only work if the current origin is registered as an OAuth redirect URI.'
-      );
-    }
-
-    const redirectTo = appUrl || window.location.origin;
-
+  const signInWithGoogle = async (nextPath = '/') => {
+    // Back to this same site (the production domain or a preview), which must
+    // be in the Supabase Auth redirect URL list.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo },
+      options: { redirectTo: `${window.location.origin}${nextPath}` },
     });
     if (error) {
       console.error('Google OAuth error:', error.message);
       throw error;
     }
-  };
-
-  const signUp = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw error;
-    return { data, error };
   };
 
   const signOut = async () => {
@@ -88,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signInWithGoogle, signUp, signOut, resetPassword }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, sendPhoneCode, verifyPhoneCode, signInWithGoogle, signOut, resetPassword }}>
       {children}
     </AuthContext.Provider>
   );

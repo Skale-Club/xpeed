@@ -12,6 +12,7 @@ import { useBrand } from '@/hooks/use-brand';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
+import { formatPhone } from '@/lib/phone';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
 import {
   Sidebar,
@@ -64,8 +65,9 @@ const LANGS = [
 export function AppSidebar() {
   const location = useLocation();
   const { user } = useAuth();
-  // The name given at onboarding, else the start of the e-mail.
-  const displayName = (user?.user_metadata?.full_name as string | undefined)?.trim() || user?.email?.split('@')[0] || 'User';
+  // The name given at onboarding, else the start of the e-mail or the phone number.
+  const contact = user?.email || (user?.phone ? formatPhone(`+${user.phone.replace(/^\+/, '')}`) : '');
+  const displayName = (user?.user_metadata?.full_name as string | undefined)?.trim() || user?.email?.split('@')[0] || contact || 'User';
   const { cars, selectedCar, selectedCarId, selectCar, refresh } = useCarsContext();
   const { isAdmin } = useAdminStatus();
   const { t, i18n } = useTranslation();
@@ -240,7 +242,7 @@ export function AppSidebar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-52">
                 <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">
-                  {user?.email}
+                  {contact}
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} disabled={isLoggingOut}>

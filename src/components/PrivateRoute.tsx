@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
 
@@ -8,6 +8,7 @@ interface PrivateRouteProps {
 
 export default function PrivateRoute({ children }: PrivateRouteProps) {
   const { user, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -21,7 +22,9 @@ export default function PrivateRoute({ children }: PrivateRouteProps) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // The home page leads to the public page; any other page comes back after sign-in.
+    const here = location.pathname + location.search;
+    return <Navigate to={here === '/' ? '/login' : `/login?next=${encodeURIComponent(here)}`} replace />;
   }
 
   return <>{children}</>;

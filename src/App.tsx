@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
@@ -28,7 +28,6 @@ const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
-const SignupPage = lazy(() => import("./pages/SignupPage"));
 const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -67,7 +66,8 @@ const App = () => (
             <Routes>
               {/* Public Routes */}
               <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
-              <Route path="/signup" element={<PublicLayout><SignupPage /></PublicLayout>} />
+              {/* A new phone number gets an account at sign-in, so sign-up is the same page. */}
+              <Route path="/signup" element={<Navigate to="/login?entrar" replace />} />
 
               {/* Protected Routes */}
               <Route element={<AuthenticatedLayout />}>
