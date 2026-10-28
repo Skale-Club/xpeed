@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Elm327, BleConnectError, connectBleLink, isWebBluetoothAvailable, type BleDevice, type ElmInfo, type ObdLink,
+  Elm327, BleConnectError, connectBleLink, isBluetoothAvailable, type AdapterRef, type ElmInfo, type ObdLink,
 } from '@/lib/obd/elm327';
 import {
   LIVE_PIDS, ADAPTER_VOLTAGE, pidHeader, pidHex, parseMode01, parseMultiMode01, parseSupportedPids,
@@ -145,7 +145,7 @@ function recordingColumns(samples: ScannerSample[]): string[] {
 }
 
 export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: ObdScannerOptions = {}) {
-  const [status, setStatus] = useState<ScannerStatus>(() => (isWebBluetoothAvailable() ? 'idle' : 'unsupported'));
+  const [status, setStatus] = useState<ScannerStatus>(() => (isBluetoothAvailable() ? 'idle' : 'unsupported'));
   const [error, setError] = useState<string | null>(null);
   /** The Bluetooth link itself failed (adapter busy, asleep or out of range). */
   const [linkFailed, setLinkFailed] = useState(false);
@@ -157,7 +157,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
 
   const elmRef = useRef<Elm327 | null>(null);
   const linkRef = useRef<ObdLink | null>(null);
-  const deviceRef = useRef<BleDevice | null>(null);
+  const deviceRef = useRef<AdapterRef | null>(null);
   /** Bumped to cancel the running connection loop (disconnect, new connect, unmount). */
   const sessionRef = useRef(0);
   const liveRef = useRef(false);
@@ -360,7 +360,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
     linkRef.current?.close();
     linkRef.current = null;
     resetConnectionState();
-    setStatus(isWebBluetoothAvailable() ? 'idle' : 'unsupported');
+    setStatus(isBluetoothAvailable() ? 'idle' : 'unsupported');
   }, []);
 
   // Declared below; referenced from the link-lost handler.
@@ -421,7 +421,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
    * Link the adapter. Without `device` this opens the Bluetooth chooser and
    * must run inside a click. `device` reopens a remembered adapter silently.
    */
-  const connect = useCallback(async (opts: { device?: BleDevice; showAll?: boolean } = {}) => {
+  const connect = useCallback(async (opts: { device?: AdapterRef; showAll?: boolean } = {}) => {
     setError(null);
     setLinkFailed(false);
     const session = ++sessionRef.current;

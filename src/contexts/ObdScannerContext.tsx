@@ -7,8 +7,9 @@ import { useToast } from '@/hooks/use-toast';
 import { ingestSessionCsv } from '@/hooks/use-csv-upload';
 import { loadCustomPids, saveCustomPids, type CustomPid } from '@/lib/obd/custom-pids';
 import { buildScannerCsv, scannerFilename } from '@/lib/obd/session-csv';
-import { findRememberedAdapter, isWebBluetoothAvailable } from '@/lib/obd/elm327';
+import { findRememberedAdapter, isBluetoothAvailable } from '@/lib/obd/elm327';
 import { clearInProgressTrip, loadInProgressTrip, saveInProgressTrip } from '@/lib/obd/trip-store';
+import { hideBackgroundService, showBackgroundService } from '@/lib/obd/trip-service';
 
 // The Bluetooth OBD connection belongs to the whole signed-in app, not to one
 // page. In "always on" mode it also runs the car on its own: it reconnects
@@ -148,14 +149,28 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // On app start in always-on mode: reconnect to the adapter used last time, no chooser.
   const resumedRef = useRef(false);
   useEffect(() => {
-    if (resumedRef.current || !alwaysOn || !isWebBluetoothAvailable()) return;
+    if (resumedRef.current || !alwaysOn || !isBluetoothAvailable()) return;
     resumedRef.current = true;
     void findRememberedAdapter().then((device) => {
       if (device) void connect({ device });
     });
   }, [alwaysOn, connect]);
 
-  useScreenWakeLock(status === 'live' || status === 'waiting' || status === 'reconnecting' || !!recording?.active);
+  const linked = status === 'live' || status === 'waiting' || status === 'reconnecting' || !!recording?.active;
+  useScreenWakeLock(linked);
+
+  // Android app: a persistent notification keeps everything running with the screen off.
+  const serviceText = recording?.active
+    ? t('notify.recording', 'Recording your trip')
+    : status === 'live'
+      ? t('notify.live', 'Car connected')
+      : status === 'waiting'
+        ? t('notify.waiting', 'Waiting for the car to start')
+        : t('notify.reconnecting', 'Looking for the adapter');
+  useEffect(() => {
+    if (linked) void showBackgroundService('Xpeed', serviceText);
+    else void hideBackgroundService();
+  }, [linked, serviceText]);
 
   return (
     <ObdScannerContext.Provider value={{ ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip }}>

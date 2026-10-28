@@ -261,5 +261,11 @@
     "waiting": "Esperando al coche",
     "connecting": "Conectando…",
     "idle": "Coche desconectado"
+  },
+  "notify": {
+    "recording": "Grabando tu viaje",
+    "live": "Coche conectado",
+    "waiting": "Esperando a que arranque el coche",
+    "reconnecting": "Buscando el adaptador"
   }
 }

@@ -1,0 +1,76 @@
+name: Android APK
+
+# Builds the signed Android app (Capacitor) and publishes it at a fixed link:
+# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk
+on:
+  push:
+    branches: [main, feat/android-app]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build web app
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+
+      - name: Copy web app into the Android project
+        run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Restore signing key
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/xpeed-release.p12"
+
+      - name: Build signed APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/xpeed-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+
+      - name: Collect APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk xpeed.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xpeed-apk-${{ github.run_number }}
+          path: xpeed.apk
+
+      - name: Publish to the android-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Build ${{ github.run_number }} from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Install on Android: open this link on the phone and allow installing from the browser."
+          if ! gh release view android-latest >/dev/null 2>&1; then
+            gh release create android-latest --prerelease --title "Xpeed Android (latest)" --notes "$notes" --target "$GITHUB_SHA"
+          else
+            gh release edit android-latest --notes "$notes"
+          fi
+          gh release upload android-latest xpeed.apk --clobber

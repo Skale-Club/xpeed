@@ -8,6 +8,8 @@
 // Only BLE adapters work in the browser — Web Bluetooth cannot open classic
 // Bluetooth SPP links, and there is no raw TCP for Wi-Fi adapters.
 
+import { connectNativeLink, isNativeApp } from './native-ble';
+
 // Minimal Web Bluetooth typings (lib.dom doesn't ship them).
 interface BleCharacteristic extends EventTarget {
   uuid: string;
@@ -68,15 +70,18 @@ export interface ObdLink {
   close(): void;
   readonly name: string;
   /** The Bluetooth device, kept so a dropped link can be reopened without the chooser. */
-  readonly device?: BleDevice;
+  readonly device?: AdapterRef;
 }
+
+/** A Web Bluetooth device, or an adapter known to the Android app by its id. */
+export type AdapterRef = BleDevice | { nativeId: string; name?: string };
 
 const ADAPTER_KEY = 'xpeed.obd.adapter';
 
 /** Remember the adapter the user picked, so next time connects in one tap. */
-function rememberAdapter(device: BleDevice) {
+function rememberAdapter(id: string, name: string) {
   try {
-    localStorage.setItem(ADAPTER_KEY, JSON.stringify({ id: device.id, name: device.name ?? '' }));
+    localStorage.setItem(ADAPTER_KEY, JSON.stringify({ id, name }));
   } catch {
     // Storage blocked: the chooser will just show again next time.
   }
@@ -100,13 +105,15 @@ export function forgetAdapter() {
 }
 
 /** The previously used adapter, if the browser still grants access to it. */
-export async function findRememberedAdapter(): Promise<BleDevice | null> {
-  const api = bluetoothApi();
-  if (!api?.getDevices) return null;
+export async function findRememberedAdapter(): Promise<AdapterRef | null> {
   try {
     const raw = localStorage.getItem(ADAPTER_KEY);
     if (!raw) return null;
-    const { id } = JSON.parse(raw) as { id: string };
+    const { id, name } = JSON.parse(raw) as { id: string; name?: string };
+    // The app can reopen any adapter it paired with by id.
+    if (isNativeApp()) return { nativeId: id, name };
+    const api = bluetoothApi();
+    if (!api?.getDevices) return null;
     const devices = await api.getDevices();
     return devices.find((d) => d.id === id) ?? null;
   } catch {
@@ -114,8 +121,9 @@ export async function findRememberedAdapter(): Promise<BleDevice | null> {
   }
 }
 
-export function isWebBluetoothAvailable(): boolean {
-  return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
+/** Bluetooth OBD is possible here: the Android app, or a browser with Web Bluetooth. */
+export function isBluetoothAvailable(): boolean {
+  return isNativeApp() || (typeof navigator !== 'undefined' && 'bluetooth' in navigator);
 }
 
 /** GATT connection to the adapter itself failed (busy, asleep or out of range). */
@@ -145,7 +153,7 @@ async function connectGatt(gatt: BleServer): Promise<BleServer> {
 
 export interface ConnectOptions {
   /** Reopen this device (remembered or just dropped) instead of showing the chooser. */
-  device?: BleDevice;
+  device?: AdapterRef;
   /** List every nearby Bluetooth device, for adapters with unusual names. */
   showAll?: boolean;
 }
@@ -155,10 +163,30 @@ export interface ConnectOptions {
  * Bluetooth chooser, which must happen inside a user gesture (click).
  */
 export async function connectBleLink(onDisconnect: () => void, options: ConnectOptions = {}): Promise<ObdLink> {
+  if (isNativeApp()) {
+    const ref = options.device && 'nativeId' in options.device ? options.device : undefined;
+    try {
+      const link = await connectNativeLink(onDisconnect, OBD_BLE_SERVICES, { deviceId: ref?.nativeId, name: ref?.name });
+      rememberAdapter(link.nativeId, link.name);
+      return { ...link, device: { nativeId: link.nativeId, name: link.name } };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Closing the picker is a cancel, like Web Bluetooth's NotFoundError.
+      if (/cancel/i.test(msg)) {
+        const cancel = new Error(msg);
+        cancel.name = 'NotFoundError';
+        throw cancel;
+      }
+      if (/serial characteristics/.test(msg)) throw err;
+      throw new BleConnectError(msg);
+    }
+  }
+
   const bluetooth = bluetoothApi();
   if (!bluetooth) throw new Error('Web Bluetooth is not available in this browser.');
 
-  const device = options.device ?? await bluetooth.requestDevice(
+  const webDevice = options.device && !('nativeId' in options.device) ? options.device : undefined;
+  const device = webDevice ?? await bluetooth.requestDevice(
     options.showAll
       ? { acceptAllDevices: true, optionalServices: OBD_BLE_SERVICES }
       : {
@@ -201,7 +229,7 @@ export async function connectBleLink(onDisconnect: () => void, options: ConnectO
     listeners.forEach((cb) => cb(chunk));
   });
   await notifyChar.startNotifications();
-  rememberAdapter(device);
+  rememberAdapter(device.id, device.name ?? '');
 
   const encoder = new TextEncoder();
   const w = writeChar;
