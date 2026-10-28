@@ -318,7 +318,10 @@
         "moderate": "Agende uma revisão e mostre este código ao mecânico.",
         "minor": "Pode esperar a próxima revisão; comente este código."
       },
-      "titleCode": "Código de falha {{code}} ({{area}})"
+      "titleCode": "Código de falha {{code}} ({{area}})",
+      "pendingTitle": "Possível falha {{code}} ({{area}})",
+      "pendingMeaning": "O computador do carro notou uma possível falha em {{area}} uma vez e está conferindo se acontece de novo.",
+      "pendingAction": "Não precisa correr. Se o carro confirmar, ela aparece aqui como código de falha, com o que fazer; se não, some sozinha."
     },
     "catalog": {
       "coolant_temp": {
@@ -386,7 +389,11 @@
         "meaning": "O catalisador do escapamento ficou mais quente que o normal.",
         "action": "Pode ser falha de ignição ou mistura rica. Agende uma avaliação."
       }
-    }
+    },
+    "codeGone": "Resolvido: o carro não registra mais este código",
+    "synced": "Problemas atualizados",
+    "syncedHint_one": "{{count}} código que o carro não registra mais foi marcado como resolvido.",
+    "syncedHint_other": "{{count}} códigos que o carro não registra mais foram marcados como resolvidos."
   },
   "home": {
     "title": "Início",

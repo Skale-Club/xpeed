@@ -14,6 +14,9 @@ vi.mock('@/contexts/CarsContext', () => ({
   useCarsContext: () => ({ selectedCar: { name: 'Prius' }, selectedCarId: 'car-1' }),
 }));
 vi.mock('@/hooks/use-csv-upload', () => ({ ingestSessionCsv: ingestMock }));
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+// Reading codes in the Scanner updates the car's problems; not under test here.
+vi.mock('@/lib/issue-reconciler', () => ({ syncFaultCodes: vi.fn(async () => ({ resolved: 0 })) }));
 // No earlier upload of the same trip to replace.
 vi.mock('@/lib/db', () => ({ findSessionStartedAt: vi.fn(async () => null), deleteSession: vi.fn(async () => undefined) }));
 
@@ -66,7 +69,8 @@ describe('ScannerPage', () => {
 
     // Trouble codes
     fireEvent.click(screen.getByRole('button', { name: /read trouble codes/i }));
-    expect(await screen.findByText('P0133')).toBeInTheDocument();
+    // Each OBD module is asked on its own address, so this takes a few round trips.
+    expect(await screen.findByText('P0133', {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText('P0420')).toBeInTheDocument();
 
     // VIN

@@ -9,7 +9,7 @@ import { refreshParameterBaselines } from '@/lib/db-extras';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import { downsampleSessionRows } from '@/lib/downsample';
 import { generateReport, REPORT_VERSION, PROCESSING_VERSION } from '@/lib/report-generator';
-import { reconcileIssues } from '@/lib/issue-reconciler';
+import { reconcileIssues, syncFaultCodes, type FaultCodeSync } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
 
 export class EmptyCsvError extends Error {
@@ -42,6 +42,12 @@ export async function ingestSessionCsv(
   updateProgress: (value: number, label: string) => void = () => undefined,
   /** Called once the trip, its rows and flags are in the database (before report, AI and baselines). */
   onStored?: (sessionId: string) => void | Promise<void>,
+  /**
+   * The car's fault codes as read live (confirmed vs pending, and whether the
+   * read worked). Without it, codes in the CSV count as confirmed and nothing
+   * is closed for being missing.
+   */
+  faultCodes?: FaultCodeSync,
 ): Promise<IngestResult> {
   let sourceFilePath: string | null = null;
   let createdSessionId: string | null = null;
@@ -217,7 +223,14 @@ export async function ingestSessionCsv(
         (m) => m.supabase.auth.getUser()
       );
       if (user) {
-        await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart, parsed.activeDtcs);
+        await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart);
+        await syncFaultCodes(
+          carProfileId,
+          user.id,
+          faultCodes ?? { stored: parsed.activeDtcs, pending: [], checked: false },
+          session.id,
+          sessionStart ?? undefined,
+        );
       }
     } catch (issueErr) {
       console.warn('Issue reconciliation skipped:', issueErr);

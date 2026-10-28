@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
 import { getIssuesForCar, ignoreIssue, reopenIssue, resolveIssue, type VehicleIssue } from '@/lib/db-issues';
-import { URGENCY, URGENCY_ORDER, describeProblem, isOpenProblem, type Urgency } from '@/lib/problems';
+import { CODE_GONE_NOTE, URGENCY, URGENCY_ORDER, describeProblem, isOpenProblem, type Urgency } from '@/lib/problems';
 
 const URGENCY_STYLE: Record<Urgency, string> = {
   urgent: 'bg-destructive/15 text-destructive border-destructive/30',
@@ -176,7 +176,13 @@ function ProblemCard({ issue, acting, formatDate, onAct }: {
           {issue.status === 'recurred' && (
             <span className="text-xs text-warn">{t('problems.cameBack', { count: issue.recurrence_count, defaultValue: 'Came back after being fixed ({{count}}×)' })}</span>
           )}
-          {issue.status === 'resolved' && <span className="text-xs text-success">{t('problems.resolved', 'Resolved')}</span>}
+          {issue.status === 'resolved' && (
+            <span className="text-xs text-success">
+              {issue.resolved_note === CODE_GONE_NOTE
+                ? t('problems.codeGone', 'Resolved: the car no longer reports this code')
+                : t('problems.resolved', 'Resolved')}
+            </span>
+          )}
           {issue.status === 'ignored' && <span className="text-xs text-muted-foreground">{t('problems.ignored', 'Ignored')}</span>}
         </div>
 

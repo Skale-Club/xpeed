@@ -4,13 +4,14 @@ import {
 } from '@/lib/obd/elm327';
 import {
   LIVE_PIDS, ADAPTER_VOLTAGE, pidHeader, pidHex, parseMode01, parseMultiMode01, parseSupportedPids,
-  parseCustomReply, parseDtcReply, parseVin, parseAdapterVoltage, type PidDef,
+  parseCustomReply, parseVin, parseAdapterVoltage, type PidDef,
 } from '@/lib/obd/pids';
 import { compileFormula } from '@/lib/obd/formula';
 import { validateTerminalCommand, type CustomPid } from '@/lib/obd/custom-pids';
 import type { ScannerSample } from '@/lib/obd/session-csv';
 import { ECU_CANDIDATES, classifyReply, type EcuProbe, type ReplyKind } from '@/lib/obd/scan';
 import { TripDetector, type TripEndReason, type TripEvent, type TripReading } from '@/lib/obd/trip-detector';
+import { NO_READOUT, mergeReadouts, readFaultCodes, type FaultCodeReadout } from '@/lib/obd/fault-codes';
 
 /**
  * - idle: no adapter linked
@@ -38,11 +39,7 @@ export interface ScannerConnection extends ElmInfo {
   multiPid: boolean;
 }
 
-export interface DtcReadout {
-  stored: string[];
-  pending: string[];
-  permanent: string[];
-}
+export type DtcReadout = FaultCodeReadout;
 
 export interface RecordingState {
   active: boolean;
@@ -58,8 +55,10 @@ export interface TripResult {
   reason: TripEndReason;
   columns: string[];
   samples: ScannerSample[];
-  /** Stored + pending fault codes read when the car came on. */
+  /** Confirmed fault codes seen during this drive (they go in the trip's CSV). */
   dtcs: string[];
+  /** Everything read from the car during this drive: confirmed, pending, and whether the read worked. */
+  faultCodes: FaultCodeReadout;
 }
 
 export interface ObdScannerOptions {
@@ -90,6 +89,8 @@ export function reconnectDelay(awayMs: number): number {
 }
 /** Consecutive silent cycles before the car counts as off. */
 const OFF_AFTER_CYCLES = 2;
+/** How often fault codes are read again while the car is on. */
+const FAULT_REREAD_MS = 5 * 60_000;
 /** How much rolling history live charts can draw from. */
 export const HISTORY_MS = 120_000;
 
@@ -146,18 +147,6 @@ function customChannels(pids: CustomPid[]): LiveChannel[] {
   }));
 }
 
-/** Stored and pending fault codes; failures just mean "none read". */
-async function readFaultCodes(elm: Elm327, isCan: boolean): Promise<string[]> {
-  const codes = new Set<string>();
-  for (const [mode, responseByte] of [['03', 0x43], ['07', 0x47]] as const) {
-    try {
-      parseDtcReply(await elm.request(mode, null, 5000), responseByte, isCan).forEach((c) => codes.add(c));
-    } catch {
-      // no answer
-    }
-  }
-  return Array.from(codes);
-}
 
 function recordingColumns(samples: ScannerSample[]): string[] {
   const columns: string[] = [];
@@ -204,7 +193,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   const historyRef = useRef<HistoryPoint[]>([]);
   const detectorRef = useRef(new TripDetector());
   const tripStartRef = useRef<Date | null>(null);
-  const dtcsRef = useRef<string[]>([]);
+  /** Fault codes read since the car came on (at start, then every few minutes). */
+  const faultRef = useRef<FaultCodeReadout>(NO_READOUT);
   const manualPendingRef = useRef(false);
   const alwaysOnRef = useRef(alwaysOn);
   const onTripEndRef = useRef(onTripEnd);
@@ -249,7 +239,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         continue;
       }
       onTripEndRef.current?.({
-        startedAt, endedAt: new Date(e.at), reason: e.reason, columns: recordingColumns(samples), samples, dtcs: dtcsRef.current,
+        startedAt, endedAt: new Date(e.at), reason: e.reason, columns: recordingColumns(samples), samples,
+        dtcs: faultRef.current.stored, faultCodes: faultRef.current,
       });
     }
   }, []);
@@ -322,6 +313,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
     let info: ElmInfo | null = null;
     let silent = 0;
     let waitingSince: number | null = null;
+    let lastFaultRead = 0;
 
     while (alive()) {
       if (pausedRef.current) {
@@ -354,7 +346,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         setConnection({ ...info, deviceName: link.name, multiPid: multiRef.current });
         setStatus('live');
         // Check the car's fault codes each time it comes on, so trips carry them.
-        dtcsRef.current = await readFaultCodes(elm, info.isCan);
+        faultRef.current = await readFaultCodes(elm, info.isCan);
+        lastFaultRead = Date.now();
         if (!alive()) return;
         if (manualPendingRef.current) handleTripEvents(detectorRef.current.startManual(Date.now()));
       }
@@ -391,6 +384,14 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
       if (start) {
         samplesRef.current.push({ t: (now - start.getTime()) / 1000, values: next });
         setRecording((r) => r && { ...r, samples: samplesRef.current.length });
+      }
+
+      // A warning light can come on mid-drive: look again every few minutes.
+      if (info && now - lastFaultRead >= FAULT_REREAD_MS) {
+        lastFaultRead = now;
+        const again = await readFaultCodes(elm, info.isCan);
+        if (!alive()) return;
+        faultRef.current = mergeReadouts(faultRef.current, again);
       }
     }
   }, [applyChannels, feedTrip, handleTripEvents, readCycle]);
@@ -566,20 +567,10 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   };
 
   const readDtcs = useCallback(async (): Promise<DtcReadout> => {
-    const elm = requireElm();
-    const isCan = connection?.isCan ?? true;
-    const read = async (mode: string, responseByte: number) => {
-      try {
-        return parseDtcReply(await elm.request(mode, null, 5000), responseByte, isCan);
-      } catch {
-        return [];
-      }
-    };
-    return {
-      stored: await read('03', 0x43),
-      pending: await read('07', 0x47),
-      permanent: await read('0A', 0x4a),
-    };
+    const readout = await readFaultCodes(requireElm(), connection?.isCan ?? true, { permanent: true });
+    // A fresh read replaces what the trip carries (e.g. right after clearing codes).
+    if (readout.checked) faultRef.current = { ...readout, permanent: [] };
+    return readout;
   }, [connection]);
 
   const clearDtcs = useCallback(async () => {
@@ -657,7 +648,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   /** Snapshot of the trip being recorded (for crash recovery). */
   const getRecording = useCallback(() => ({
     startedAt: tripStartRef.current,
-    dtcs: dtcsRef.current,
+    dtcs: faultRef.current.stored,
+    faultCodes: faultRef.current,
     columns: recordingColumns(samplesRef.current),
     samples: samplesRef.current,
   }), []);

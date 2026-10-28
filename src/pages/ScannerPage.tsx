@@ -15,6 +15,8 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useCarsContext } from '@/contexts/CarsContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { syncFaultCodes } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
 import type { DtcReadout, LiveChannel } from '@/hooks/use-obd-scanner';
 import { useObd } from '@/contexts/ObdScannerContext';
@@ -43,6 +45,7 @@ export default function ScannerPage() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { selectedCar } = useCarsContext();
+  const { user } = useAuth();
   const scanner = useObd();
   const { customPids, updateCustomPids } = scanner;
   const { status, connection, channels, values, cycleMs } = scanner;
@@ -73,12 +76,23 @@ export default function ScannerPage() {
     }
   };
 
-  const handleReadDtcs = () => run('dtc', async () => setDtcs(await scanner.readDtcs()));
+  // Every read here also updates the car's Problems, the same way a trip does.
+  const readAndSync = async () => {
+    const readout = await scanner.readDtcs();
+    setDtcs(readout);
+    if (selectedCar && user) {
+      const { resolved } = await syncFaultCodes(selectedCar.id, user.id, readout, null);
+      if (resolved > 0) {
+        toast({ title: t('problems.synced', 'Problems updated'), description: t('problems.syncedHint', { count: resolved }) });
+      }
+    }
+  };
+  const handleReadDtcs = () => run('dtc', readAndSync);
   const handleReadVin = () => run('vin', async () => setVin(await scanner.readVin()));
   const handleClearDtcs = () => run('clear', async () => {
     await scanner.clearDtcs();
     toast({ title: t('scanner.cleared', 'Trouble codes cleared') });
-    setDtcs(await scanner.readDtcs());
+    await readAndSync();
   });
 
   return (

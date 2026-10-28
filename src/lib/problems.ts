@@ -8,6 +8,10 @@ import type { IssueSeverity, VehicleIssue } from '@/lib/db-issues';
 
 /** Problems coming from the car's own fault codes use keys like "dtc:P0420". */
 export const DTC_PREFIX = 'dtc:';
+/** Title of a fault-code problem the car has only seen once (pending, not confirmed). */
+export const PENDING_SUFFIX = ' (pending)';
+/** resolved_note of a fault-code problem closed because the car stopped reporting the code. */
+export const CODE_GONE_NOTE = 'auto:code-gone';
 
 export type Urgency = 'urgent' | 'soon' | 'watch' | 'later';
 
@@ -146,6 +150,17 @@ export function describeProblem(issue: Pick<VehicleIssue, 'canonical_key' | 'tit
     const info = lookupDtc(code);
     const category = info?.category ?? 'powertrain';
     const severity = info?.severity ?? 'moderate';
+    const area = t(`problems.dtc.area.${category}`, DTC_AREA_DEFAULT[category]);
+    if (issue.title?.endsWith(PENDING_SUFFIX)) {
+      // Seen once, not confirmed: say so, and don't alarm.
+      return {
+        title: t('problems.dtc.pendingTitle', 'Possible fault {{code}} ({{area}})', { code, area }),
+        meaning: t('problems.dtc.pendingMeaning', "The car's computer noticed a possible fault in the {{area}} once and is checking whether it happens again.", { area }),
+        action: t('problems.dtc.pendingAction', "No need to rush. If the car confirms it, it shows here as a fault code with what to do; if not, it goes away by itself."),
+        code,
+        technical: info && !info.name.startsWith('Unknown') ? `${info.name} (pending)` : null,
+      };
+    }
     return {
       title: t('problems.dtc.titleCode', 'Fault code {{code}} ({{area}})', {
         code,

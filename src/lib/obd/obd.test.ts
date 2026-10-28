@@ -8,6 +8,7 @@ import { validateCustomPid, validateTerminalCommand } from './custom-pids';
 import { buildScannerCsv, scannerFilename } from './session-csv';
 import { Elm327, ElmTimeoutError, receiveAddressFor, type ObdLink } from './elm327';
 import { classifyReply, diffSweeps, formatSweep } from './scan';
+import { mergeReadouts, readFaultCodes } from './fault-codes';
 import { PID_PRESETS, mergePreset } from './presets';
 import { matchCanonicalKey } from '@/lib/canonical-params';
 import { parseCSV } from '@/lib/csv-parser';
@@ -412,5 +413,49 @@ describe('Prius Gen3 preset (real 2010 Prius replies)', () => {
   it('supports MAX/MIN in formulas', () => {
     expect(compileFormula('MAX(A,B,C)-MIN(A,B,C)')([5, 9, 2])).toBe(7);
     expect(() => compileFormula('MAX(A,)')).toThrow(FormulaError);
+  });
+});
+
+describe('fault codes', () => {
+  /** A CAN car whose modules answer on their own addresses (headers follow ATSH). */
+  function car(replies: Record<string, Record<string, string>>) {
+    let header = '7DF';
+    const link = fakeLink((cmd) => {
+      if (cmd.startsWith('ATSH')) { header = cmd.slice(4); return 'OK'; }
+      if (cmd === '0100') return '4100BE1FA813';
+      if (cmd === 'ATDPN') return 'A6';
+      if (cmd.startsWith('AT')) return 'OK';
+      return replies[header]?.[cmd] ?? 'NO DATA';
+    });
+    return link;
+  }
+
+  it('asks each module on its own, keeps confirmed and pending apart, and knows the read worked', async () => {
+    const link = car({
+      '7E0': { '03': '430201330420', '07': '47010171' }, // engine: 2 confirmed, 1 pending
+      '7E2': { '03': '43010A80', '07': '47010A80' }, // hybrid: P0A80 confirmed (and pending too)
+    });
+    const elm = new Elm327(link);
+    await elm.initialize();
+    const r = await readFaultCodes(elm, true);
+    expect(r).toEqual({ stored: ['P0133', 'P0420', 'P0A80'], pending: ['P0171'], permanent: [], checked: true });
+    // Absent modules are skipped after the first question
+    expect(link.sent.filter((c) => c === '07')).toHaveLength(2);
+  });
+
+  it('reports a car with no codes as checked, and a silent car as not checked', async () => {
+    const clean = new Elm327(car({ '7E0': { '03': '4300', '07': '4700' } }));
+    await clean.initialize();
+    expect(await readFaultCodes(clean, true)).toMatchObject({ stored: [], pending: [], checked: true });
+
+    const silent = new Elm327(car({}));
+    await silent.initialize();
+    expect(await readFaultCodes(silent, true)).toMatchObject({ stored: [], checked: false });
+  });
+
+  it('merges readings from the same drive', () => {
+    const a = { stored: ['P0420'], pending: ['P0171'], permanent: [], checked: true };
+    const b = { stored: ['P0171'], pending: [], permanent: [], checked: false };
+    expect(mergeReadouts(a, b)).toEqual({ stored: ['P0171', 'P0420'], pending: [], permanent: [], checked: true });
   });
 });

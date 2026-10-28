@@ -33,6 +33,8 @@ export function createFakeCar(options: FakeCarOptions = {}) {
   let connectCalls = 0;
   let failUntil = 0;
   let carOn = true;
+  // Engine fault codes (mode 03 reply on CAN: count, then 2 bytes per code); "04" clears them.
+  let storedCodes = '430201330420';
 
   const reply = (cmd: string, header: string): string => {
     if (cmd === 'ATZ' || cmd === 'ATI') return 'ELM327 v1.5';
@@ -44,13 +46,16 @@ export function createFakeCar(options: FakeCarOptions = {}) {
     const ecu = mode21[header];
     if (ecu) return ecu[cmd]?.() ?? (cmd.startsWith('21') ? '7F2112' : 'NO DATA');
     if (header !== '7DF' && header !== '7E0') return 'NO DATA';
+    if (cmd === '04') {
+      storedCodes = '4300';
+      return '44';
+    }
     const table: Record<string, string> = {
       '0100': 'SEARCHING...\r4100BE1FA813',
       '0120': '412000000000',
-      '03': '430201330420',
+      '03': storedCodes,
       '07': '4700',
       '0A': '4A00',
-      '04': '44',
       '0902': ['014', `0:${VIN_HEX.slice(0, 12)}`, `1:${VIN_HEX.slice(12, 26)}`, `2:${VIN_HEX.slice(26)}`].join('\r'),
     };
     if (table[cmd]) return table[cmd];
@@ -110,6 +115,8 @@ export function createFakeCar(options: FakeCarOptions = {}) {
     setCarOn: (on: boolean) => { carOn = on; },
     /** Change a live value, e.g. setPid('0D', '3C') for 60 km/h. */
     setPid: (pid: string, hex: string) => { pidData[pid] = hex; },
+    /** Replace the engine's confirmed fault codes, e.g. setStoredCodes('43010420') or '4300' for none. */
+    setStoredCodes: (hex: string) => { storedCodes = hex; },
     /** The next `n` Bluetooth connects fail (adapter out of range). */
     failNextConnects: (n: number) => { failUntil = connectCalls + n; },
     /** The adapter drops the Bluetooth link (e.g. it went to sleep). */

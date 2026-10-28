@@ -16,7 +16,10 @@ export interface StoredTrip {
   endedAt?: number;
   columns: string[];
   samples: ScannerSample[];
+  /** Confirmed fault codes (go in the CSV). */
   dtcs?: string[];
+  /** The full fault-code reading of the drive (confirmed, pending, read worked). */
+  faultCodes?: { stored: string[]; pending: string[]; checked: boolean };
 }
 
 const DB_NAME = 'xpeed-obd';

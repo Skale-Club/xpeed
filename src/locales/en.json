@@ -318,7 +318,10 @@
         "moderate": "Book a check-up and show the mechanic this code.",
         "minor": "It can wait for your next service; mention this code."
       },
-      "titleCode": "Fault code {{code}} ({{area}})"
+      "titleCode": "Fault code {{code}} ({{area}})",
+      "pendingTitle": "Possible fault {{code}} ({{area}})",
+      "pendingMeaning": "The car's computer noticed a possible fault in the {{area}} once and is checking whether it happens again.",
+      "pendingAction": "No need to rush. If the car confirms it, it shows here as a fault code with what to do; if not, it goes away by itself."
     },
     "catalog": {
       "coolant_temp": {
@@ -386,7 +389,11 @@
         "meaning": "The exhaust catalytic converter got hotter than normal.",
         "action": "This can come from misfires or a rich mixture. Book a check-up."
       }
-    }
+    },
+    "codeGone": "Resolved: the car no longer reports this code",
+    "synced": "Problems updated",
+    "syncedHint_one": "{{count}} fault code the car no longer reports was marked as resolved.",
+    "syncedHint_other": "{{count}} fault codes the car no longer reports were marked as resolved."
   },
   "home": {
     "title": "Home",

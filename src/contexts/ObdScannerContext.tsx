@@ -123,7 +123,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
       const csv = buildScannerCsv(copy.columns, copy.samples, copy.dtcs ?? []);
       const file = new File([csv], scannerFilename(startedAt), { type: 'text/csv' });
-      const result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, () => deleteTripCopy(copy.id));
+      const result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, () => deleteTripCopy(copy.id), copy.faultCodes);
       setLastTrip({ sessionId: result.sessionId, endedAt });
       toast({
         title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
@@ -165,6 +165,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     // Keep a copy until the save succeeds; it is retried when the connection is back.
     const copy: StoredTrip = {
       id, carId, startedAt: trip.startedAt.getTime(), endedAt: trip.endedAt.getTime(), columns: trip.columns, samples: trip.samples, dtcs: trip.dtcs,
+      faultCodes: { stored: trip.faultCodes.stored, pending: trip.faultCodes.pending, checked: trip.faultCodes.checked },
     };
     await saveTripCopy(copy);
     await uploadCopy(copy, true);
@@ -194,6 +195,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       if (snap.startedAt && snap.samples.length && current?.id === tripKey(snap.startedAt.getTime())) {
         void saveTripCopy({
           id: current.id, carId: current.carId, startedAt: snap.startedAt.getTime(), columns: snap.columns, samples: snap.samples, dtcs: snap.dtcs,
+          faultCodes: { stored: snap.faultCodes.stored, pending: snap.faultCodes.pending, checked: snap.faultCodes.checked },
         });
       }
     }, BACKUP_MS);

@@ -318,7 +318,10 @@
         "moderate": "Pide una revisión y enseña este código al mecánico.",
         "minor": "Puede esperar a la próxima revisión; menciona este código."
       },
-      "titleCode": "Código de avería {{code}} ({{area}})"
+      "titleCode": "Código de avería {{code}} ({{area}})",
+      "pendingTitle": "Posible avería {{code}} ({{area}})",
+      "pendingMeaning": "El ordenador del coche notó una posible avería en {{area}} una vez y está comprobando si vuelve a pasar.",
+      "pendingAction": "No hay prisa. Si el coche la confirma, aparece aquí como código de avería con qué hacer; si no, desaparece sola."
     },
     "catalog": {
       "coolant_temp": {
@@ -386,7 +389,11 @@
         "meaning": "El catalizador del escape se calentó más de lo normal.",
         "action": "Puede deberse a fallos de encendido o mezcla rica. Pide una revisión."
       }
-    }
+    },
+    "codeGone": "Resuelto: el coche ya no registra este código",
+    "synced": "Problemas actualizados",
+    "syncedHint_one": "{{count}} código que el coche ya no registra se marcó como resuelto.",
+    "syncedHint_other": "{{count}} códigos que el coche ya no registra se marcaron como resueltos."
   },
   "home": {
     "title": "Inicio",

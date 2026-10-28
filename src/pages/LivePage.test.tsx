@@ -14,6 +14,9 @@ vi.mock('@/contexts/CarsContext', () => ({
   useCarsContext: () => ({ selectedCar: { name: 'Prius' }, selectedCarId: 'car-1' }),
 }));
 vi.mock('@/hooks/use-csv-upload', () => ({ ingestSessionCsv: vi.fn(async () => ({ sessionId: 's1', rows: 1, flags: 0, dtcs: 0 })) }));
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+// Reading codes in the Scanner updates the car's problems; not under test here.
+vi.mock('@/lib/issue-reconciler', () => ({ syncFaultCodes: vi.fn(async () => ({ resolved: 0 })) }));
 // No earlier upload of the same trip to replace.
 vi.mock('@/lib/db', () => ({ findSessionStartedAt: vi.fn(async () => null), deleteSession: vi.fn(async () => undefined) }));
 
