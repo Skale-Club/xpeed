@@ -19,6 +19,18 @@
         "vite.harness.config.ts"
       ],
       "port": 5010
+    },
+    {
+      "name": "xpeed-build-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "preview",
+        "--port",
+        "4173",
+        "--strictPort"
+      ],
+      "port": 4173
     }
   ]
 }
