@@ -3,6 +3,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { ChatBubble } from '@/components/ChatBubble';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { ConnectionPill } from '@/components/trip/ConnectionPill';
+import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,6 +14,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarTrigger />
           <ConnectionPill />
         </header>
+        <AppUpdateBanner />
 
         <main className="flex-1 p-6">
           {children}

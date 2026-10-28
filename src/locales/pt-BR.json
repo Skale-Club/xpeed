@@ -268,5 +268,10 @@
     "live": "Carro conectado",
     "waiting": "Aguardando o carro ligar",
     "reconnecting": "Procurando o adaptador"
+  },
+  "appUpdate": {
+    "available": "Há uma nova versão do app disponível.",
+    "install": "Atualizar",
+    "later": "Depois"
   }
 }
