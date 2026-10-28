@@ -11,8 +11,10 @@ on:
 permissions:
   contents: write
 
+# One build at a time across branches: pushing the same commit to main and the
+# feature branch would otherwise upload to the same release at once and collide.
 concurrency:
-  group: android-apk-${{ github.ref }}
+  group: android-apk
   cancel-in-progress: true
 
 jobs:

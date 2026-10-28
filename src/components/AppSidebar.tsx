@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Car, Plus, ChevronDown, Gauge, History, Settings, Wrench, Shield,
-  LogOut, Loader2, User, Languages, AlertTriangle, Bluetooth, Activity,
+  LogOut, Loader2, User, AlertTriangle, Bluetooth, Activity,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,6 +14,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
 import { formatPhone } from '@/lib/phone';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
+import { CountryFlag } from '@/components/CountryFlag';
+import { LANGUAGES, currentLanguage } from '@/lib/languages';
 import {
   Sidebar,
   SidebarContent,
@@ -45,6 +47,8 @@ import {
 import { Button } from '@/components/ui/button';
 
 // Everyday places first; the technical Scanner only shows with "Advanced tools" on.
+// On phones Home, Trips and Problems live in the bottom tab bar, so the menu
+// ("More") only lists the rest.
 const NAV_ITEMS = [
   { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
   { to: '/live', i18nKey: 'nav.live', icon: Activity },
@@ -55,12 +59,14 @@ const NAV_ITEMS = [
 ];
 const ADVANCED_ITEMS = [{ to: '/scanner', i18nKey: 'nav.scanner', icon: Bluetooth }];
 const SETTINGS_ITEM = { to: '/settings', i18nKey: 'nav.settings', icon: Settings };
+const IN_TAB_BAR = new Set(['/', '/history', '/issues']);
 
-const LANGS = [
-  { code: 'en', label: 'English', flag: '🇺🇸' },
-  { code: 'pt-BR', label: 'Português', flag: '🇧🇷' },
-  { code: 'es-ES', label: 'Español', flag: '🇪🇸' },
-];
+// Active page: yellow text and a short yellow bar at the left edge, no fill
+// (same language as the phone tab bar).
+const ACTIVE_ITEM =
+  'relative h-9 rounded-lg data-[active=true]:bg-transparent data-[active=true]:font-semibold data-[active=true]:text-primary ' +
+  'data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1.5 data-[active=true]:before:bottom-1.5 ' +
+  'data-[active=true]:before:w-[3px] data-[active=true]:before:rounded-full data-[active=true]:before:bg-primary';
 
 export function AppSidebar() {
   const location = useLocation();
@@ -76,7 +82,7 @@ export function AppSidebar() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const currentLang = LANGS.find((l) => i18n.resolvedLanguage?.startsWith(l.code.split('-')[0])) || LANGS[0];
+  const currentLang = currentLanguage(i18n.resolvedLanguage);
 
   const handleNavClick = () => {
     if (isMobile) setOpenMobile(false);
@@ -88,7 +94,8 @@ export function AppSidebar() {
   };
 
   const { advancedTools } = useSettings();
-  const navItems = [...NAV_ITEMS, ...(advancedTools ? ADVANCED_ITEMS : []), SETTINGS_ITEM];
+  const navItems = [...NAV_ITEMS, ...(advancedTools ? ADVANCED_ITEMS : []), SETTINGS_ITEM]
+    .filter((item) => !(isMobile && IN_TAB_BAR.has(item.to)));
   const adminActive = location.pathname.startsWith('/admin');
 
   return (
@@ -173,7 +180,7 @@ export function AppSidebar() {
                 const label = t(item.i18nKey, item.i18nKey.split('.').pop() ?? '');
                 return (
                   <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton asChild isActive={active} tooltip={label} className="h-9 rounded-lg data-[active=true]:bg-primary/10 data-[active=true]:font-semibold data-[active=true]:text-primary">
+                    <SidebarMenuButton asChild isActive={active} tooltip={label} className={ACTIVE_ITEM}>
                       <Link to={item.to} onClick={handleNavClick}>
                         <item.icon />
                         <span>{label}</span>
@@ -193,7 +200,7 @@ export function AppSidebar() {
           {/* Admin Panel — only visible to admins */}
           {isAdmin && (
             <SidebarMenuItem>
-              <SidebarMenuButton asChild isActive={adminActive} tooltip={t('nav.admin', 'Admin')}>
+              <SidebarMenuButton asChild isActive={adminActive} tooltip={t('nav.admin', 'Admin')} className={ACTIVE_ITEM}>
                 <Link to="/admin" onClick={handleNavClick}>
                   <Shield />
                   <span>{t('nav.admin', 'Admin')}</span>
@@ -207,20 +214,18 @@ export function AppSidebar() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton tooltip={currentLang.label}>
-                  <Languages />
-                  <span className="group-data-[collapsible=icon]:hidden">
-                    {currentLang.flag} {currentLang.label}
-                  </span>
+                  <CountryFlag iso={currentLang.iso} className="!h-4 !w-5" />
+                  <span className="group-data-[collapsible=icon]:hidden">{currentLang.label}</span>
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-44">
-                {LANGS.map((l) => (
+                {LANGUAGES.map((l) => (
                   <DropdownMenuItem
                     key={l.code}
                     onClick={() => i18n.changeLanguage(l.code)}
-                    className={i18n.language === l.code ? 'bg-accent' : ''}
+                    className={`gap-2 ${currentLang.code === l.code ? 'bg-accent' : ''}`}
                   >
-                    <span className="mr-2">{l.flag}</span>
+                    <CountryFlag iso={l.iso} />
                     {l.label}
                   </DropdownMenuItem>
                 ))}
@@ -232,9 +237,14 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton tooltip={displayName}>
+                <SidebarMenuButton tooltip={displayName} className="h-auto py-1.5">
                   <User />
-                  <span>{displayName}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate">{displayName}</span>
+                    {contact && contact !== displayName && (
+                      <span className="block truncate text-xs text-sidebar-foreground/60">{contact}</span>
+                    )}
+                  </span>
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-52">

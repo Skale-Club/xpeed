@@ -40,23 +40,71 @@ export function normalizePhone(input: string | null | undefined, countryCode: st
   return e164;
 }
 
-/** "+15085550100" → "+1 (508) 555-0100"; "+5511987654321" → "+55 11 98765-4321". */
-export function formatPhone(e164: string | null | undefined): string {
-  if (!e164) return '';
-  const us = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
-  if (us) return `+1 (${us[1]}) ${us[2]}-${us[3]}`;
-  const br = /^\+55(\d{2})(\d{4,5})(\d{4})$/.exec(e164);
-  if (br) return `+55 ${br[1]} ${br[2]}-${br[3]}`;
-  return e164;
+// How each offered country writes its numbers; X is a digit. Brazil has
+// 10-digit landlines and 11-digit mobiles; Mexico City, Guadalajara and
+// Monterrey use 2-digit area codes, the rest of Mexico 3.
+const MX_SHORT_AREAS = /^(33|55|56|81)/;
+
+function nationalPattern(countryCode: string, digits: string): string | null {
+  switch (countryCode) {
+    case '1': return '(XXX) XXX-XXXX';
+    case '55': return digits.length > 10 ? '(XX) XXXXX-XXXX' : '(XX) XXXX-XXXX';
+    case '52': return MX_SHORT_AREAS.test(digits) ? 'XX XXXX XXXX' : 'XXX XXX XXXX';
+    case '57': return 'XXX XXX XXXX';
+    case '351': return 'XXX XXX XXX';
+    case '34': return 'XXX XX XX XX';
+    default: return null;
+  }
 }
 
-/** Format digits as they are typed: (508) 555-0100 for +1, (11) 98765-4321 for +55. */
+/** Longest digit count a country's numbers have (15 for countries without a pattern). */
+function maxDigits(countryCode: string): number {
+  return countryCode === '55' ? 11 : (nationalPattern(countryCode, '')?.split('X').length ?? 16) - 1;
+}
+
+/** Lay the digits typed so far onto the pattern; separators only appear once a digit follows. */
+function fill(pattern: string, digits: string): string {
+  let out = '';
+  let i = 0;
+  for (const ch of pattern) {
+    if (i >= digits.length) break;
+    out += ch === 'X' ? digits[i++] : ch;
+  }
+  return out;
+}
+
+const DIAL_CODES = [...new Set(Object.values(COUNTRY_DIAL_CODES))].sort((a, b) => b.length - a.length);
+
+/**
+ * For display, in each country's usual way: "+1 (508) 555-0100",
+ * "+55 (11) 98765-4321", "+351 912 345 678", "+34 612 34 56 78".
+ * Numbers from other countries, or that don't fit, stay as they are.
+ */
+export function formatPhone(e164: string | null | undefined): string {
+  if (!e164) return '';
+  const digits = e164.replace(/\D/g, '');
+  const cc = DIAL_CODES.find((code) => digits.startsWith(code));
+  if (!cc) return e164;
+  const national = digits.slice(cc.length);
+  const pattern = nationalPattern(cc, national);
+  if (!pattern || pattern.split('X').length - 1 !== national.length) return e164;
+  return `+${cc} ${fill(pattern, national)}`;
+}
+
+const EXAMPLES: Record<string, string> = {
+  '1': '5085550100', '55': '11987654321', '52': '5512345678', '57': '3001234567', '351': '912345678', '34': '612345678',
+};
+
+/** A sample number in the country's format, for the input's placeholder. */
+export function phoneExample(countryCode: string): string {
+  return EXAMPLES[countryCode] ? maskPhoneInput(EXAMPLES[countryCode], countryCode) : '';
+}
+
+/** Format digits as they are typed: (508) 555-0100 for +1, (11) 98765-4321 for +55, 912 345 678 for +351… */
 export function maskPhoneInput(value: string, countryCode: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, countryCode === '55' ? 11 : countryCode === '1' ? 10 : 15);
-  const group = (_m: string, a: string, b: string, c: string) => (b ? `(${a}) ${b}${c ? `-${c}` : ''}` : a);
-  if (countryCode === '1') return digits.replace(/^(\d{0,3})(\d{0,3})(\d{0,4}).*/, group);
-  if (countryCode === '55') return digits.replace(/^(\d{0,2})(\d{0,5})(\d{0,4}).*/, group);
-  return digits;
+  const digits = value.replace(/\D/g, '').slice(0, maxDigits(countryCode));
+  const pattern = nationalPattern(countryCode, digits);
+  return pattern ? fill(pattern, digits) : digits;
 }
 
 function dialCodeFromIso(countryIso: string | null | undefined): string | null {

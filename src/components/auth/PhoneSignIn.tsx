@@ -6,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CountryFlag } from '@/components/auth/CountryFlag';
+import { CountryFlag } from '@/components/CountryFlag';
 import { useAuth } from '@/contexts/AuthContext';
-import { PHONE_COUNTRIES, formatPhone, maskPhoneInput, normalizePhone, phoneCountryCodeFromLocales } from '@/lib/phone';
+import { PHONE_COUNTRIES, formatPhone, maskPhoneInput, normalizePhone, phoneCountryCodeFromLocales, phoneExample } from '@/lib/phone';
 
 // Sign in (or sign up: a new number just gets an account) with a code texted
 // to the phone, the same flow as Xpot: number → 6-digit code, which is checked
@@ -214,7 +214,7 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
               type="tel"
               inputMode="tel"
               autoComplete="tel-national"
-              placeholder={countryCode === '55' ? '(11) 98765-4321' : countryCode === '1' ? '(508) 555-0100' : ''}
+              placeholder={phoneExample(countryCode)}
               autoFocus
               required
               className="h-12 pl-10 text-base"
