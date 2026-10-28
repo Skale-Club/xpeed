@@ -321,6 +321,30 @@ export type VehicleIssuePatch = Partial<Pick<
   'status' | 'severity' | 'title' | 'description' | 'resolution_note' | 'resolved_at'
 >>;
 
+// Issues created by the upload reconciler (lib/issue-reconciler.ts) use the
+// vocabulary of the vehicle_issues migration; map it onto this page's so a
+// single unknown value can't crash the list.
+const STATUS_ALIASES: Record<string, IssueStatus> = {
+  active: 'open', recurred: 'open', ignored: 'dismissed',
+  open: 'open', monitoring: 'monitoring', resolved: 'resolved', dismissed: 'dismissed',
+};
+const SEVERITY_ALIASES: Record<string, IssueSeverity> = {
+  critical: 'critical', serious: 'critical', warning: 'attention', easy_fix: 'info',
+  attention: 'attention', info: 'info',
+};
+
+export function normalizeVehicleIssue(raw: Record<string, unknown>): VehicleIssue {
+  const issue = raw as unknown as VehicleIssue & { resolved_note?: string | null };
+  return {
+    ...issue,
+    status: STATUS_ALIASES[String(issue.status)] ?? 'open',
+    severity: SEVERITY_ALIASES[String(issue.severity)] ?? 'attention',
+    dtc_code: issue.dtc_code ?? null,
+    description: issue.description ?? null,
+    resolution_note: issue.resolution_note ?? issue.resolved_note ?? null,
+  };
+}
+
 export async function listVehicleIssues(carProfileId: string): Promise<VehicleIssue[]> {
   const { data, error } = await supabase
     .from('vehicle_issues' as never)
@@ -328,7 +352,7 @@ export async function listVehicleIssues(carProfileId: string): Promise<VehicleIs
     .eq('car_profile_id', carProfileId)
     .order('last_seen_at', { ascending: false });
   if (error) throw error;
-  return (data || []) as unknown as VehicleIssue[];
+  return ((data || []) as Record<string, unknown>[]).map(normalizeVehicleIssue);
 }
 
 export async function createVehicleIssue(input: VehicleIssueInput): Promise<VehicleIssue> {
@@ -338,7 +362,7 @@ export async function createVehicleIssue(input: VehicleIssueInput): Promise<Vehi
     .select()
     .single();
   if (error) throw error;
-  return data as unknown as VehicleIssue;
+  return normalizeVehicleIssue(data as Record<string, unknown>);
 }
 
 export async function updateVehicleIssue(id: string, patch: VehicleIssuePatch): Promise<VehicleIssue> {
@@ -355,7 +379,7 @@ export async function updateVehicleIssue(id: string, patch: VehicleIssuePatch): 
     .select()
     .single();
   if (error) throw error;
-  return data as unknown as VehicleIssue;
+  return normalizeVehicleIssue(data as Record<string, unknown>);
 }
 
 export async function deleteVehicleIssue(id: string): Promise<void> {

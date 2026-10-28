@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
+import { TripCard } from '@/components/trip/TripCard';
 import UploadCard from '@/components/UploadCard';
 import DashboardCharts from '@/components/DashboardCharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -492,6 +493,9 @@ const Index = () => {
             )}
           </div>
         </div>
+
+        {/* Start / follow a trip with the Bluetooth adapter — the main way in */}
+        <TripCard />
 
         {/* True empty state — no sessions ever uploaded */}
         {allSessions.length === 0 ? (

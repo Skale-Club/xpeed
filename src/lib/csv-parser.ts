@@ -42,7 +42,7 @@ function detectDelimiter(firstLine: string): string {
   return semicolons > commas ? ';' : ',';
 }
 
-function parseCSVLine(line: string, delimiter: string): string[] {
+export function parseCSVLine(line: string, delimiter: string): string[] {
   const result: string[] = [];
   let current = '';
   let inQuotes = false;

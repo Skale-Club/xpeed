@@ -435,7 +435,7 @@ interface IssueCardProps {
 }
 
 function IssueCard({ issue, onStatusChange, onDelete }: IssueCardProps) {
-  const nextStatuses = NEXT_STATUSES[issue.status];
+  const nextStatuses = NEXT_STATUSES[issue.status] ?? [];
 
   return (
     <Card className={`bg-card border-border border-l-4 ${SEVERITY_BORDER[issue.severity]}`}>

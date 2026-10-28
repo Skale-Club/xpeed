@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Car, Plus, ChevronDown, Gauge, History, Settings, Wrench, Shield,
-  LogOut, Loader2, User, Languages, AlertTriangle,
+  LogOut, Loader2, User, Languages, AlertTriangle, Bluetooth, Activity,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
@@ -44,6 +44,8 @@ import { Button } from '@/components/ui/button';
 
 const NAV_ITEMS = [
   { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
+  { to: '/scanner', i18nKey: 'nav.scanner', icon: Bluetooth },
+  { to: '/live', i18nKey: 'nav.live', icon: Activity },
   { to: '/issues', i18nKey: 'nav.issues', icon: AlertTriangle },
   { to: '/history', i18nKey: 'nav.history', icon: History },
   { to: '/cars', i18nKey: 'nav.cars', icon: Car },

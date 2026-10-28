@@ -27,6 +27,11 @@ export default defineConfig(({ mode }) => {
     hmr: {
       overlay: false,
     },
+    // Test files never run in the browser; without this, editing one
+    // full-reloads the page (and drops a live Bluetooth OBD connection).
+    watch: {
+      ignored: ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "**/src/test/**"],
+    },
     // Proxy /api/mcp to the Supabase edge function during local development.
     // In production this route is handled by api/mcp.ts (Vercel Edge Function).
     proxy: {

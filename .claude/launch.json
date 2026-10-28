@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "xpeed-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--max-http-header-size=262144", "node_modules/vite/bin/vite.js"],
       "port": 5000
     }
   ]

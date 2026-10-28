@@ -3,10 +3,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
+import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
 import BrandHead from "@/components/BrandHead";
@@ -21,6 +22,8 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const CarsPage = lazy(() => import("./pages/CarsPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
+const ScannerPage = lazy(() => import("./pages/ScannerPage"));
+const LivePage = lazy(() => import("./pages/LivePage"));
 const VehicleIssuesPage = lazy(() => import("./pages/VehicleIssuesPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
@@ -32,12 +35,16 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
-const AuthenticatedLayout = ({ children }: { children: React.ReactNode }) => (
+// One layout route for every signed-in page, so its providers (cars, the
+// Bluetooth OBD connection) stay mounted while the user navigates.
+const AuthenticatedLayout = () => (
   <PrivateRoute>
     <CarsProvider>
-      <Suspense fallback={<PageLoader />}>
-        {children}
-      </Suspense>
+      <ObdScannerProvider>
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
+      </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>
 );
@@ -64,16 +71,20 @@ const App = () => (
               <Route path="/signup" element={<PublicLayout><SignupPage /></PublicLayout>} />
 
               {/* Protected Routes */}
-              <Route path="/" element={<AuthenticatedLayout><Index /></AuthenticatedLayout>} />
-              <Route path="/session/:id" element={<AuthenticatedLayout><SessionDetail /></AuthenticatedLayout>} />
-              <Route path="/history" element={<AuthenticatedLayout><HistoryPage /></AuthenticatedLayout>} />
-              <Route path="/cars" element={<AuthenticatedLayout><CarsPage /></AuthenticatedLayout>} />
-              <Route path="/onboarding" element={<AuthenticatedLayout><OnboardingPage /></AuthenticatedLayout>} />
-              <Route path="/maintenance" element={<AuthenticatedLayout><MaintenancePage /></AuthenticatedLayout>} />
-              <Route path="/issues" element={<AuthenticatedLayout><VehicleIssuesPage /></AuthenticatedLayout>} />
-              <Route path="/admin" element={<AuthenticatedLayout><AdminPage /></AuthenticatedLayout>} />
-              <Route path="/settings" element={<AuthenticatedLayout><SettingsPage /></AuthenticatedLayout>} />
-              <Route path="/import" element={<AuthenticatedLayout><ShareImportPage /></AuthenticatedLayout>} />
+              <Route element={<AuthenticatedLayout />}>
+                <Route path="/" element={<Index />} />
+                <Route path="/session/:id" element={<SessionDetail />} />
+                <Route path="/history" element={<HistoryPage />} />
+                <Route path="/cars" element={<CarsPage />} />
+                <Route path="/onboarding" element={<OnboardingPage />} />
+                <Route path="/scanner" element={<ScannerPage />} />
+                <Route path="/live" element={<LivePage />} />
+                <Route path="/maintenance" element={<MaintenancePage />} />
+                <Route path="/issues" element={<VehicleIssuesPage />} />
+                <Route path="/admin" element={<AdminPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/import" element={<ShareImportPage />} />
+              </Route>
 
               {/* OAuth 2.1 authorization endpoint */}
               <Route path="/oauth/authorize" element={<PublicLayout><OAuthAuthorize /></PublicLayout>} />

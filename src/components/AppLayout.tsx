@@ -2,6 +2,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { AppSidebar } from '@/components/AppSidebar';
 import { ChatBubble } from '@/components/ChatBubble';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
+import { ConnectionPill } from '@/components/trip/ConnectionPill';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,6 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <header className="flex h-12 items-center gap-3 border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-40 px-4">
           <SidebarTrigger />
+          <ConnectionPill />
         </header>
 
         <main className="flex-1 p-6">
