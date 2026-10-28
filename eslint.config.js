@@ -5,7 +5,17 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  {
+    ignores: [
+      "dist",
+      "dev-dist",
+      "coverage",
+      "android",
+      ".claude",
+      ".kilo", // old copy of the repo
+      "supabase/functions", // Deno edge functions, not browser/React code
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
