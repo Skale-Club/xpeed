@@ -3,6 +3,9 @@ name: Android APK
 # Builds the signed Android app (Capacitor) and publishes it at fixed links:
 # https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk       (bundled web app)
 # https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed-live.apk  (loads xpeed.skale.club)
+#
+# Only main publishes to that release. Other branches (feat/android-app) build and
+# keep the APKs as a workflow artifact, so a feature push never replaces the app people download.
 on:
   push:
     branches: [main, feat/android-app]
@@ -11,11 +14,11 @@ on:
 permissions:
   contents: write
 
-# One build at a time across branches: pushing the same commit to main and the
-# feature branch would otherwise upload to the same release at once and collide.
+# One build per branch. A newer push to a feature branch cancels its older build,
+# but a main build is never cancelled: it may be in the middle of publishing.
 concurrency:
-  group: android-apk
-  cancel-in-progress: true
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
@@ -92,6 +95,7 @@ jobs:
             xpeed-offline.apk
 
       - name: Publish to the android-latest release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -110,11 +114,11 @@ jobs:
           fi
           if [ "$changed" = yes ]; then native_run=$run; native_sha=${GITHUB_SHA::7}; fi
           notes="Build $run from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Native build $native_run @ $native_sha. Install on Android: open this link on the phone and allow installing from the browser."
+          # Files first, notes last: the notes name a build, so they must only change once its files are there.
           if ! gh release view android-latest >/dev/null 2>&1; then
-            gh release create android-latest --prerelease --title "Xpeed Android (latest)" --notes "$notes" --target "$GITHUB_SHA"
-          else
-            gh release edit android-latest --notes "$notes"
+            gh release create android-latest --prerelease --title "Xpeed Android (latest)" --notes "Uploading build $run..." --target "$GITHUB_SHA"
           fi
           gh release upload android-latest xpeed.apk xpeed-offline.apk --clobber
           # Old name of the live-site APK, now xpeed.apk.
           gh release delete-asset android-latest xpeed-live.apk -y 2>/dev/null || true
+          gh release edit android-latest --notes "$notes"
