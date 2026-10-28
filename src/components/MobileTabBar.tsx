@@ -46,7 +46,7 @@ export function MobileTabBar() {
           const active = isActive(to);
           const badge = to === '/issues' && problems.length > 0 ? problems.length : null;
           return (
-            <Link key={to} to={to} className={cn(item, active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')} aria-current={active ? 'page' : undefined}>
+            <Link key={to} to={to} className={cn(item, active ? 'text-primary' : 'text-muted-foreground hover:text-foreground')} aria-current={active ? 'page' : undefined}>
               <span className="relative flex h-7 w-14 items-center justify-center">
                 <Icon className="h-5 w-5" />
                 {badge !== null && (
