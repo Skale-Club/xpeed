@@ -61,7 +61,7 @@ describe('HistoryPage', () => {
     expect(within(rows[0]).getByText('2 problems')).toBeInTheDocument();
     expect(within(rows[0]).getByRole('link')).toHaveAttribute('href', '/session/new');
 
-    expect(within(rows[1]).getByText(/^Trip /)).toBeInTheDocument();
+    expect(within(rows[1]).getByText(/ trip$/)).toBeInTheDocument();
     expect(within(rows[1]).getByText('All good')).toBeInTheDocument();
     // No file names or row counts
     expect(screen.queryByText(/\.csv/)).not.toBeInTheDocument();

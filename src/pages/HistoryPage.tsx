@@ -135,7 +135,7 @@ export default function HistoryPage() {
                         aria-hidden
                       />
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{tripTitle(trip, t, i18n.resolvedLanguage)}</p>
+                        <p className="font-medium truncate">{tripTitle(trip, t)}</p>
                         <p className="text-xs text-muted-foreground">
                           {[formatTripDate(tripDate(trip), i18n.resolvedLanguage), ...facts].join(' · ')}
                         </p>
@@ -151,7 +151,7 @@ export default function HistoryPage() {
                       <Button
                         size="icon" variant="ghost" className="h-9 w-9 rounded-none"
                         aria-label={t('history.rename', 'Rename')}
-                        onClick={() => { setRenaming(trip); setNewName(tripTitle(trip, t, i18n.resolvedLanguage)); }}
+                        onClick={() => { setRenaming(trip); setNewName(tripTitle(trip, t)); }}
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>

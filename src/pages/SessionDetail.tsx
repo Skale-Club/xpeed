@@ -113,7 +113,7 @@ export default function SessionDetail() {
     try {
       const report = await createSharedReport(session.id, 30);
       const url = `${publicAppUrl()}/share/${report.id}`;
-      const title = tripTitle(session, t, i18n.resolvedLanguage);
+      const title = tripTitle(session, t);
       if (navigator.share) {
         await navigator.share({ title, text: t('tripDetail.shareText', 'Report of my car: {{title}}', { title }), url });
       } else {
@@ -172,7 +172,7 @@ export default function SessionDetail() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div className="min-w-0">
-            <h2 className="text-xl font-bold truncate">{tripTitle(session, t, i18n.resolvedLanguage)}</h2>
+            <h2 className="text-xl font-bold truncate">{tripTitle(session, t)}</h2>
             <p className="text-sm text-muted-foreground">{formatTripDate(tripDate(session), i18n.resolvedLanguage)}</p>
           </div>
         </div>

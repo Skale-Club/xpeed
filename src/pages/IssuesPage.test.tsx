@@ -4,7 +4,6 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import IssuesPage from './IssuesPage';
-import { ProblemsBanner } from '@/components/ProblemsBanner';
 import type { VehicleIssue } from '@/lib/db-issues';
 
 const issue = (over: Partial<VehicleIssue>): VehicleIssue => ({
@@ -62,7 +61,7 @@ describe('IssuesPage', () => {
     // Urgent overheating first, then the fault code
     expect(within(cards[0]).getByText('Engine running hot')).toBeInTheDocument();
     expect(within(cards[0]).getByText('Urgent')).toBeInTheDocument();
-    expect(within(cards[1]).getByText('The car stored a fault code')).toBeInTheDocument();
+    expect(within(cards[1]).getByText('Fault code P0420 (engine or gearbox)')).toBeInTheDocument();
     expect(within(cards[1]).getByText('Book a check-up')).toBeInTheDocument();
     expect(within(cards[1]).getByText('Came back after being fixed (2×)')).toBeInTheDocument();
     // The code is tucked away for the mechanic
@@ -84,15 +83,5 @@ describe('IssuesPage', () => {
     expect(screen.getAllByTestId('problem-card')).toHaveLength(2);
     fireEvent.click(within(screen.getAllByTestId('problem-card')[0]).getByRole('button', { name: 'Reopen' }));
     await waitFor(() => expect(api.reopenIssue).toHaveBeenCalled());
-  });
-});
-
-describe('ProblemsBanner', () => {
-  it('links to the Problems page and stays hidden when there is nothing', () => {
-    const { rerender } = render(<MemoryRouter><ProblemsBanner problems={[]} /></MemoryRouter>);
-    expect(screen.queryByTestId('problems-banner')).not.toBeInTheDocument();
-    rerender(<MemoryRouter><ProblemsBanner problems={[ISSUES[0]]} /></MemoryRouter>);
-    expect(screen.getByTestId('problems-banner')).toHaveAttribute('href', '/issues');
-    expect(screen.getByText('1 problem needs attention')).toBeInTheDocument();
   });
 });

@@ -45,11 +45,19 @@ export class TripDetector {
   private manual = false;
   private lastAlive: number | null = null;
   private lastActive: number | null = null;
+  // Set when the user ends a trip by hand while driving: no new automatic
+  // trip until the car is switched off or parked, or one would start at once.
+  private autoHeld = false;
 
   constructor(private opts: TripDetectorOptions = DEFAULT_TRIP_OPTIONS) {}
 
   get recording(): boolean {
     return this.start !== null;
+  }
+
+  /** Automatic recording is paused after a manual stop, until the car is switched off or parked. */
+  get autoStartHeld(): boolean {
+    return this.autoHeld;
   }
 
   /** The car is answering right now (on / READY). */
@@ -74,12 +82,16 @@ export class TripDetector {
   /** Feed one cycle. With `autoStart` off, trips only begin via startManual(). */
   update(r: TripReading, autoStart = true): TripEvent[] {
     const events: TripEvent[] = [];
+    // Was the car off, or parked, up to this cycle? (Checked before this reading counts.)
+    const wasOff = this.lastAlive === null || r.at - this.lastAlive >= this.opts.offAfterMs;
+    const wasParked = this.lastActive === null || r.at - this.lastActive >= this.opts.parkedAfterMs;
     if (r.ecuAlive) this.lastAlive = r.at;
     const active = this.active(r);
     if (active) this.lastActive = r.at;
 
     if (this.start === null) {
-      if (active && autoStart) {
+      if (wasOff || wasParked) this.autoHeld = false;
+      if (active && autoStart && !this.autoHeld) {
         this.start = r.at;
         events.push({ type: 'start', at: r.at });
       }
@@ -102,11 +114,13 @@ export class TripDetector {
     }
     this.start = at;
     this.manual = true;
+    this.autoHeld = false;
     this.lastActive = at;
     return [{ type: 'start', at }];
   }
 
   stop(at: number, reason: 'manual' | 'disconnected'): TripEvent[] {
+    if (reason === 'manual') this.autoHeld = true;
     return this.start === null ? [] : [this.end(at, reason)];
   }
 }

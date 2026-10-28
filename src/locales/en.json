@@ -47,19 +47,6 @@
     "status_attention": "Attention",
     "status_critical": "Critical"
   },
-  "onboarding": {
-    "welcome_title": "Welcome to Car Insights",
-    "welcome_body": "Let's get you set up. We'll register your first vehicle and optionally upload your first OBD2 session — takes about a minute.",
-    "get_started": "Get Started",
-    "add_car_title": "Add Your Car",
-    "add_car_body": "Tell us about the vehicle you'll be tracking.",
-    "upload_title": "Upload Your First Session",
-    "upload_body": "Drop a CSV export from Torque Pro, OBD Fusion, or any OBD2 logger.",
-    "done_title": "You're all set!",
-    "done_body": "Your vehicle is registered. Head to the dashboard to start exploring your data.",
-    "go_to_dashboard": "Go to Dashboard",
-    "decode_vin": "Auto-fill from VIN"
-  },
   "cars": {
     "title": "My Vehicles",
     "add_vehicle": "Add Vehicle",
@@ -116,7 +103,7 @@
     "emptyRecording": "Nothing recorded yet",
     "liveScan": "Live scan",
     "unsupportedTitle": "Bluetooth is not available in this browser",
-    "unsupportedBody": "The live scanner needs Web Bluetooth: use Chrome or Edge on Android, Windows, macOS or ChromeOS. Safari and iPhone/iPad are not supported. You can still upload CSV exports from Car Scanner or Torque on the dashboard.",
+    "unsupportedBody": "The live scanner needs Web Bluetooth: use Chrome or Edge on Android, Windows, macOS or ChromeOS. Safari and iPhone/iPad are not supported.",
     "adapter": "Adapter",
     "protocol": "Protocol",
     "refresh": "Refresh",
@@ -151,8 +138,7 @@
     "linkHintPaired": "If you paired it in the system Bluetooth settings before, remove it there and try again.",
     "custom": {
       "title": "Custom PIDs",
-      "imported": "Imported {{count}} PIDs",
-      "hint": "Manufacturer-specific data (e.g. Toyota hybrid ECU on header 7E2/7E3, mode 21). Formulas use Torque syntax: A, B, C… are reply bytes, e.g. (A*256+B)/10. Import a Torque custom-PID CSV or add one by hand, then compare the values with the dashboard before trusting them.",
+      "hint": "Manufacturer-specific data (e.g. Toyota hybrid ECU on header 7E2/7E3, mode 21). In formulas, A, B, C… are the reply bytes, e.g. (A*256+B)/10. Compare the values with the dashboard before trusting them.",
       "needsCan": "This vehicle is not CAN, so PIDs with an ECU header cannot be read.",
       "remove": "Remove {{name}}",
       "name": "Name",
@@ -161,7 +147,6 @@
       "command": "Request",
       "formula": "Formula",
       "add": "Add PID",
-      "import": "Import Torque CSV",
       "addPreset": "Add preset: {{label}}",
       "removeAll": "Remove all"
     },
@@ -255,7 +240,14 @@
     "lastSaved": "Last trip saved.",
     "view": "View",
     "alwaysOn": "Always on",
-    "alwaysOnHint": "Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off."
+    "alwaysOnHint": "Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off.",
+    "partOfDay": {
+      "morning": "Morning trip",
+      "afternoon": "Afternoon trip",
+      "evening": "Evening trip",
+      "night": "Night trip"
+    },
+    "autoPausedHint": "Recording is paused until you switch the car off."
   },
   "pill": {
     "recording": "Recording trip",
@@ -313,7 +305,6 @@
       "action": "Keep an eye on it; if it keeps happening, mention it at your next service."
     },
     "dtc": {
-      "title": "The car stored a fault code",
       "meaning": "The car's computer recorded a fault in the {{area}}.",
       "area": {
         "powertrain": "engine or gearbox",
@@ -325,7 +316,8 @@
         "severe": "See a mechanic as soon as possible and show them this code.",
         "moderate": "Book a check-up and show the mechanic this code.",
         "minor": "It can wait for your next service; mention this code."
-      }
+      },
+      "titleCode": "Fault code {{code}} ({{area}})"
     },
     "catalog": {
       "coolant_temp": {
@@ -400,9 +392,6 @@
     "lastTrip": "Last trip",
     "allTrips": "See all trips",
     "technical": "Technical details",
-    "import": "Have a recording from another app (Car Scanner, Torque)?",
-    "importAction": "Import a file",
-    "importTitle": "Import a recording",
     "health": {
       "ok": "All good",
       "okHint": "No problems found.",
@@ -549,8 +538,6 @@
     "connectTitle": "How will you read your car?",
     "adapter": "I have a Bluetooth adapter",
     "adapterHint": "The small device that plugs in under the steering wheel.",
-    "import": "I have a recording from another app",
-    "importHint": "A file exported from Car Scanner, Torque or similar.",
     "none": "I don't have an adapter yet",
     "noneHint": "We'll tell you which one to get.",
     "adapterNext": "On the next screen, tap \"Start trip\" with the car on. The app finds the adapter and records every trip from then on.",
@@ -604,28 +591,6 @@
       "other": "Other"
     }
   },
-  "importPage": {
-    "title": "Import a trip from Car Scanner",
-    "readingFile": "Opening the file you shared…",
-    "errorNoCache": "This browser can't receive shared files. Please open the app and import the file from there.",
-    "errorNoFile": "We didn't receive a file. Please share it from the Car Scanner app again.",
-    "errorReadFailed": "We couldn't open the shared file. Please try again.",
-    "carLabel": "Which car was it?",
-    "loadingCars": "Loading your cars…",
-    "noCars": "You haven't added a car yet.",
-    "addCar": "Add a car",
-    "chooseCar": "Choose a car",
-    "importing": "Importing… {{percent}}%",
-    "importButton": "Import trip",
-    "goHome": "Go to Home"
-  },
-  "upload": {
-    "compactTitle": "Import a trip recording",
-    "compactHint": "Drop the CSV file here or tap to choose it",
-    "namePlaceholder": "Trip name (optional)",
-    "chooseFile": "Tap to choose the CSV file",
-    "sourceHint": "Exported from the Car Scanner or OBD Fusion app"
-  },
   "sharedReport": {
     "unavailableTitle": "Report unavailable",
     "unavailableBody": "This link may have expired or been turned off. Ask the car owner for a new link.",
@@ -639,10 +604,10 @@
     "trim": "Version",
     "trip": "Trip",
     "duration": "Duration",
-    "minutes": "{{minutes}} min",
     "faultCodes": "Fault codes found",
     "unusualReadings": "Unusual readings",
-    "footer": "Made with Xpeed · View-only diagnostic report"
+    "footer": "Made with Xpeed · View-only diagnostic report",
+    "noReadings": "Nothing unusual in this trip."
   },
   "notFound": {
     "message": "Sorry, we couldn't find that page.",
@@ -765,5 +730,16 @@
     "likelyCauses": "Likely causes",
     "repairDifficulty": "How hard is the fix",
     "askAssistant": "Ask the assistant about {{code}}"
+  },
+  "carQ": {
+    "progress": "Question {{n}} of {{total}}",
+    "makeQ": "What brand is your car?",
+    "otherMake": "Other brand",
+    "modelQ": "Which {{make}} model?",
+    "modelPlaceholder": "e.g. Corolla, Civic, Golf",
+    "yearQ": "What year is it?",
+    "yearHint": "The model year, as on the car's papers.",
+    "fuelQ": "What fuel does it use?",
+    "fuelUnknown": "I don't know"
   }
 }

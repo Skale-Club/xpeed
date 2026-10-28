@@ -1,13 +1,12 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, Upload, SlidersHorizontal, PackagePlus } from 'lucide-react';
+import { Plus, Trash2, SlidersHorizontal, PackagePlus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
 import {
-  newPidId, normalizeCommand, normalizeHeader, parseTorqueCsv, validateCustomPid, type CustomPid,
+  newPidId, normalizeCommand, normalizeHeader, validateCustomPid, type CustomPid,
 } from '@/lib/obd/custom-pids';
 import { PID_PRESETS, mergePreset } from '@/lib/obd/presets';
 
@@ -22,10 +21,8 @@ const EMPTY = { name: '', unit: '', header: '', command: '', formula: '', min: '
 
 export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const [form, setForm] = useState(EMPTY);
   const [formError, setFormError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const set = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -51,22 +48,6 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
     onChange([...pids, pid]);
   };
 
-  const importFile = async (file: File) => {
-    const text = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
-    });
-    const { pids: imported, errors } = parseTorqueCsv(text);
-    if (imported.length) onChange([...pids, ...imported]);
-    toast({
-      title: t('scanner.custom.imported', 'Imported {{count}} PIDs', { count: imported.length }),
-      description: errors.length ? errors.slice(0, 3).join('\n') + (errors.length > 3 ? `\n+${errors.length - 3}…` : '') : undefined,
-      variant: imported.length ? 'default' : 'destructive',
-    });
-  };
-
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -77,7 +58,7 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          {t('scanner.custom.hint', 'Manufacturer-specific data (e.g. Toyota hybrid ECU on header 7E2/7E3, mode 21). Formulas use Torque syntax: A, B, C… are reply bytes, e.g. (A*256+B)/10. Import a Torque custom-PID CSV or add one by hand, then compare the values with the dashboard before trusting them.')}
+          {t('scanner.custom.hint', 'Manufacturer-specific data (e.g. Toyota hybrid ECU on header 7E2/7E3, mode 21). In formulas, A, B, C… are the reply bytes, e.g. (A*256+B)/10. Compare the values with the dashboard before trusting them.')}
         </p>
         {headersUnsupported && pids.some((p) => p.header) && (
           <p className="text-xs text-destructive">{t('scanner.custom.needsCan', 'This vehicle is not CAN, so PIDs with an ECU header cannot be read.')}</p>
@@ -141,9 +122,10 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
           {PID_PRESETS.map((preset) => (
             <Button
               key={preset.id} size="sm" variant="outline"
+              className="h-auto min-h-9 py-1.5 whitespace-normal text-left"
               onClick={() => onChange(mergePreset(pids, preset.pids()))}
             >
-              <PackagePlus className="w-3.5 h-3.5 mr-2" />
+              <PackagePlus className="w-3.5 h-3.5 mr-2 shrink-0" />
               {t('scanner.custom.addPreset', 'Add preset: {{label}}', { label: preset.label })}
             </Button>
           ))}
@@ -160,18 +142,6 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
             <Plus className="w-3.5 h-3.5 mr-2" />
             {t('scanner.custom.add', 'Add PID')}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
-            <Upload className="w-3.5 h-3.5 mr-2" />
-            {t('scanner.custom.import', 'Import Torque CSV')}
-          </Button>
-          <input
-            ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" data-testid="custom-pid-file"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) void importFile(file);
-            }}
-          />
         </div>
       </CardContent>
     </Card>

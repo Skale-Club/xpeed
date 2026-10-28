@@ -97,7 +97,7 @@ export default function ScannerPage() {
             <Info className="h-4 w-4" />
             <AlertTitle>{t('scanner.unsupportedTitle', 'Bluetooth is not available in this browser')}</AlertTitle>
             <AlertDescription>
-              {t('scanner.unsupportedBody', 'The live scanner needs Web Bluetooth: use Chrome or Edge on Android, Windows, macOS or ChromeOS. Safari and iPhone/iPad are not supported. You can still upload CSV exports from Car Scanner or Torque on the dashboard.')}
+              {t('scanner.unsupportedBody', 'The live scanner needs Web Bluetooth: use Chrome or Edge on Android, Windows, macOS or ChromeOS. Safari and iPhone/iPad are not supported.')}
             </AlertDescription>
           </Alert>
         )}

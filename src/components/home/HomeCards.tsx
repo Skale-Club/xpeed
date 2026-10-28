@@ -55,7 +55,7 @@ export function LastTripSummary({ session }: { session: Session }) {
           <Route className="w-5 h-5 text-primary shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs text-muted-foreground">{t('home.lastTrip', 'Last trip')}</p>
-            <p className="font-medium truncate">{tripTitle(session, t, i18n.resolvedLanguage)}</p>
+            <p className="font-medium truncate">{tripTitle(session, t)}</p>
             <p className="text-xs text-muted-foreground">{facts.join(' · ')}</p>
           </div>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -82,8 +82,8 @@ export function TripTotals({ sessions }: { sessions: Session[] }) {
     <div className="grid grid-cols-3 gap-2" data-testid="trip-totals">
       {items.map(([label, value]) => (
         <Card key={label}>
-          <CardContent className="p-3 text-center">
-            <p className="font-semibold tabular-nums">{value}</p>
+          <CardContent className="p-3 px-1.5 text-center">
+            <p className="text-sm sm:text-base font-semibold tabular-nums whitespace-nowrap">{value}</p>
             <p className="text-[11px] text-muted-foreground">{label}</p>
           </CardContent>
         </Card>

@@ -60,14 +60,6 @@ export default defineConfig(({ mode }) => {
         start_url: "/",
         scope: "/",
         icons: pwaIcons,
-        share_target: {
-          action: "/import",
-          method: "POST",
-          enctype: "multipart/form-data",
-          params: {
-            files: [{ name: "csv", accept: ["text/csv", ".csv"] }],
-          },
-        },
       },
       workbox: {
         // Don't try to precache the giant Recharts chunk on first paint.
@@ -80,8 +72,6 @@ export default defineConfig(({ mode }) => {
         clientsClaim: true,
         // Avoid SW returning a stale index.html on hard refresh.
         cleanupOutdatedCaches: true,
-        // Share target POST handler runs before Workbox routes.
-        importScripts: ["/sw-share-target.js"],
         runtimeCaching: [
           {
             // Cache Supabase REST reads for offline session viewing.

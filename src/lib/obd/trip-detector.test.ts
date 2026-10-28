@@ -58,6 +58,26 @@ describe('TripDetector', () => {
     expect(d.recording).toBe(true);
   });
 
+  it('does not restart right after the user ends a trip while driving', () => {
+    const d = new TripDetector();
+    for (let t = 0; t < 120; t += 5) d.update(on(t * S, 40));
+    expect(d.stop(120 * S, 'manual')).toEqual([{ type: 'end', at: 120 * S, reason: 'manual', keep: true }]);
+    for (let t = 121; t < 200; t += 5) expect(d.update(on(t * S, 40))).toEqual([]);
+    // Switched off and on again: the next drive is recorded as usual
+    d.update(off(230 * S));
+    expect(d.update(on(300 * S, 30))).toEqual([{ type: 'start', at: 300 * S }]);
+  });
+
+  it('records again after the car was parked following a manual stop', () => {
+    const d = new TripDetector();
+    for (let t = 0; t < 60; t += 5) d.update(on(t * S, 40));
+    d.stop(60 * S, 'manual');
+    // Sitting still with the car on, answering every 5 s
+    const parkedUntil = 60 * S + DEFAULT_TRIP_OPTIONS.parkedAfterMs;
+    for (let t = 60 * S; t <= parkedUntil; t += 5 * S) expect(d.update(on(t, 0))).toEqual([]);
+    expect(d.update(on(parkedUntil + 5 * S, 20))).toHaveLength(1);
+  });
+
   it('only starts automatically when allowed', () => {
     const d = new TripDetector();
     expect(d.update(on(0, 50, 2000), false)).toEqual([]);

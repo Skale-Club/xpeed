@@ -64,6 +64,8 @@ const LANGS = [
 export function AppSidebar() {
   const location = useLocation();
   const { user } = useAuth();
+  // The name given at onboarding, else the start of the e-mail.
+  const displayName = (user?.user_metadata?.full_name as string | undefined)?.trim() || user?.email?.split('@')[0] || 'User';
   const { cars, selectedCar, selectedCarId, selectCar, refresh } = useCarsContext();
   const { isAdmin } = useAdminStatus();
   const { t, i18n } = useTranslation();
@@ -143,7 +145,7 @@ export function AppSidebar() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{t('sidebar.addCar', 'Add a car')}</DialogTitle>
-                  <DialogDescription>
+                  <DialogDescription className="sr-only">
                     {t('sidebar.addCarHint', 'Each car keeps its own trips and problems.')}
                   </DialogDescription>
                 </DialogHeader>
@@ -231,9 +233,9 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton tooltip={user?.email?.split('@')[0] || 'User'}>
+                <SidebarMenuButton tooltip={displayName}>
                   <User />
-                  <span>{user?.email?.split('@')[0] || 'User'}</span>
+                  <span>{displayName}</span>
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-52">

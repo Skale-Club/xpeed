@@ -148,7 +148,7 @@ export default function CarsPage() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>{t('sidebar.addCar', 'Add a car')}</DialogTitle>
-                <DialogDescription>
+                <DialogDescription className="sr-only">
                   {t('sidebar.addCarHint', 'Each car keeps its own trips and problems.')}
                 </DialogDescription>
               </DialogHeader>

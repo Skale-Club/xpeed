@@ -433,6 +433,7 @@ export async function createCarProfile(
       trim: input.trim ?? null,
       vin: input.vin ?? null,
       country: input.country ?? null,
+      engine_type: input.engine_type ?? null,
     })
     .select()
     .single();

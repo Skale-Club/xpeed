@@ -52,7 +52,7 @@ describe('SessionDetail', () => {
     db.getSessionFlags.mockResolvedValueOnce([{ canonical_key: 'coolant_temp', severity: 'critical', message: 'Coolant critical' }] as never);
     renderTrip();
 
-    expect(await screen.findByRole('heading', { name: /^Trip / })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: / trip$/ })).toBeInTheDocument();
     expect(screen.getByText('30 min')).toBeInTheDocument();
     expect(screen.getByText('20 km')).toBeInTheDocument();
     expect(screen.getByText(/fuel trims were a bit lean/)).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe('SessionDetail', () => {
     const problems = screen.getAllByTestId('trip-problem');
     expect(problems).toHaveLength(2);
     expect(screen.getByText('Engine running hot')).toBeInTheDocument();
-    expect(screen.getByText('The car stored a fault code')).toBeInTheDocument();
+    expect(screen.getByText(/^Fault code P/)).toBeInTheDocument();
     // Technical bits stay hidden until asked for
     expect(screen.queryByText('Download CSV')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /technical details/i }));

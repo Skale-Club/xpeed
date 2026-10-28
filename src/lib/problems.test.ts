@@ -35,7 +35,7 @@ describe('describeProblem', () => {
 
   it('turns fault codes into an area and an action, keeping the code for the mechanic', () => {
     const text = describeProblem({ canonical_key: 'dtc:P0420', title: 'P0420' }, i18n.t);
-    expect(text.title).toBe('O carro registrou um código de falha');
+    expect(text.title).toBe('Código de falha P0420 (motor ou câmbio)');
     expect(text.meaning).toContain('motor ou câmbio');
     expect(text.code).toBe('P0420');
     expect(text.technical).toBeTruthy();

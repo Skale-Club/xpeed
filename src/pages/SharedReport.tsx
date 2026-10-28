@@ -6,7 +6,9 @@ import { getSharedReport } from '@/lib/db-extras';
 import { Car, AlertCircle, Printer, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import DTCPanel from '@/components/DTCPanel';
-import FlagsPanel from '@/components/FlagsPanel';
+import { describeProblem } from '@/lib/problems';
+import { formatDuration, tripProblems, tripTitle } from '@/lib/trips';
+import type { Session, SessionFlag } from '@/types/session';
 import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 
 interface ReportPayload {
@@ -77,7 +79,15 @@ export default function SharedReport() {
   ) : t('sharedReport.carFallback', 'Car');
 
   const sessionDate = session?.session_start || session?.uploaded_at;
-  const sessionFilename = (session?.source_filename as string) || t('sharedReport.tripFallback', 'Trip recording');
+  const tripName = session ? tripTitle(session as unknown as Session, t) : t('sharedReport.tripFallback', 'Trip recording');
+  // Same plain-language wording as the app, with the numbers for the mechanic.
+  const readings = tripProblems(flags as unknown as SessionFlag[], []).map((p) => {
+    const evidence = flags.find((f) => f.canonical_key === p.canonical_key)?.evidence ?? {};
+    const numbers = (['max', 'avg', 'min'] as const)
+      .filter((k) => typeof evidence[k] === 'number')
+      .map((k) => `${k} ${(evidence[k] as number).toFixed(1)}`);
+    return { ...p, text: describeProblem(p, t), numbers };
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -129,13 +139,11 @@ export default function SharedReport() {
             </div>
             <div>
               <div className="text-muted-foreground font-mono uppercase">{t('sharedReport.trip', 'Trip')}</div>
-              <div className="text-foreground font-mono mt-0.5 truncate" title={sessionFilename}>{sessionFilename}</div>
+              <div className="text-foreground font-mono mt-0.5 truncate" title={tripName}>{tripName}</div>
             </div>
             <div>
               <div className="text-muted-foreground font-mono uppercase">{t('sharedReport.duration', 'Duration')}</div>
-              <div className="text-foreground font-mono mt-0.5">{session?.duration_seconds
-                  ? t('sharedReport.minutes', '{{minutes}} min', { minutes: Math.round((session.duration_seconds as number) / 60) })
-                  : '—'}</div>
+              <div className="text-foreground font-mono mt-0.5">{formatDuration(session?.duration_seconds as number | undefined) ?? '—'}</div>
             </div>
           </CardContent>
         </Card>
@@ -149,7 +157,26 @@ export default function SharedReport() {
         {/* Flags section */}
         <section className="mb-4 print:break-inside-avoid">
           <h2 className="text-sm font-mono font-semibold text-foreground mb-2">{t('sharedReport.unusualReadings', 'Unusual readings')}</h2>
-          <FlagsPanel flags={flags} />
+          {readings.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('sharedReport.noReadings', 'Nothing unusual in this trip.')}</p>
+          ) : (
+            <div className="space-y-2">
+              {readings.map((r) => (
+                <Card key={r.canonical_key} className="border-border print:border-black">
+                  <CardContent className="p-3">
+                    <p className="text-sm font-medium flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${r.severity === 'critical' ? 'bg-destructive' : 'bg-warn'}`} />
+                      {r.text.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">{r.text.meaning}</p>
+                    <p className="text-[11px] text-muted-foreground font-mono mt-1">
+                      {[r.text.code, ...r.numbers].join(' · ')}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </section>
 
         <footer className="mt-8 pt-4 border-t border-border flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-mono">

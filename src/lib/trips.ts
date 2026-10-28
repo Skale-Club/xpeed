@@ -47,13 +47,18 @@ export function formatTripDate(date: Date, lang: string | undefined): string {
 
 /**
  * Display name: trips the user renamed keep their name; file names and
- * auto-generated names become "Trip 28 Oct, 15:30" in the current language.
+ * auto-generated names become "Morning trip", "Evening trip"… in the current
+ * language. The date is shown next to the title, so it isn't repeated here.
  */
-export function tripTitle(session: Pick<Session, 'source_filename' | 'session_start' | 'uploaded_at'>, t: TFunction, lang?: string): string {
+export function tripTitle(session: Pick<Session, 'source_filename' | 'session_start' | 'uploaded_at'>, t: TFunction): string {
   const name = session.source_filename?.trim() ?? '';
   const automatic = !name || /\.csv$/i.test(name) || /^(trip|viagem|viaje|live scan) /i.test(name);
   if (!automatic) return name;
-  return t('trip.name', 'Trip {{when}}', { when: formatTripDate(tripDate(session), lang) });
+  const hour = tripDate(session).getHours();
+  if (hour >= 5 && hour < 12) return t('trip.partOfDay.morning', 'Morning trip');
+  if (hour >= 12 && hour < 18) return t('trip.partOfDay.afternoon', 'Afternoon trip');
+  if (hour >= 18 && hour < 23) return t('trip.partOfDay.evening', 'Evening trip');
+  return t('trip.partOfDay.night', 'Night trip');
 }
 
 export interface TripProblem {

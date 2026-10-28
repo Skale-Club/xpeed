@@ -29,7 +29,6 @@ const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const SignupPage = lazy(() => import("./pages/SignupPage"));
-const ShareImportPage = lazy(() => import("./pages/ShareImportPage"));
 const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -83,7 +82,6 @@ const App = () => (
                 <Route path="/issues" element={<IssuesPage />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/import" element={<ShareImportPage />} />
               </Route>
 
               {/* OAuth 2.1 authorization endpoint */}

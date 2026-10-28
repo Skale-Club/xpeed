@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Info, ChevronRight, ChevronLeft, Fuel, Gauge, Clock, MapPin, BarChart3 } from 'lucide-react';
+import { Info, ChevronRight, ChevronLeft, Fuel, Gauge, Clock, MapPin, BarChart3 } from 'lucide-react';
 import { getSessionRows } from '@/lib/db';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +12,6 @@ import type { Session, SessionSummaryItem } from '@/types/session';
 
 interface LatestTripCardProps {
   sessions: Session[];
-  onUploadClick: () => void;
   onSessionUpdate?: () => void;
 }
 
@@ -26,7 +25,7 @@ interface TrendPoint {
   [key: string]: unknown;
 }
 
-export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: LatestTripCardProps) {
+export function LatestTripCard({ sessions, onSessionUpdate }: LatestTripCardProps) {
   const navigate = useNavigate();
   const { distanceUnit } = useSettings();
   const [selectedId, setSelectedId] = useState<string>('latest');
@@ -300,11 +299,8 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
             <div className="bg-primary/10 p-4 rounded-full mb-4">
                 <BarChart3 className="w-8 h-8 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">No Sessions Yet</h3>
-            <p className="text-sm text-muted-foreground mb-4">Upload your first OBD2 CSV file to see session analysis.</p>
-            <Button onClick={onUploadClick} className="gap-2">
-                <Plus className="w-4 h-4" /> New Session
-            </Button>
+            <h3 className="text-lg font-semibold mb-2">No trips yet</h3>
+            <p className="text-sm text-muted-foreground">Start a trip with the car on to see it here.</p>
         </Card>
       );
   }
@@ -476,9 +472,6 @@ export function LatestTripCard({ sessions, onUploadClick, onSessionUpdate }: Lat
         </div>
 
         <div className="flex gap-3 mt-6">
-            <Button variant="outline" className="flex-1 gap-2 border-dashed" onClick={onUploadClick}>
-                <Plus className="w-4 h-4" /> New Session
-            </Button>
             <Button 
                 className="flex-1 gap-2" 
                 onClick={() => {

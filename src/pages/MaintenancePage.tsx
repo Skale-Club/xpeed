@@ -152,13 +152,13 @@ export default function MaintenancePage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Wrench className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-mono font-bold text-foreground">
-              {t('maint.title', 'Service history')}{' '}
-              {selectedCar && <span className="text-muted-foreground font-normal">— {selectedCar.name}</span>}
-            </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-2 min-w-0">
+            <Wrench className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <h2 className="text-lg font-mono font-bold text-foreground">{t('maint.title', 'Service history')}</h2>
+              {selectedCar && <p className="text-sm text-muted-foreground truncate">{selectedCar.name}</p>}
+            </div>
           </div>
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>

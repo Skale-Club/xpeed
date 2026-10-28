@@ -47,19 +47,6 @@
     "status_attention": "Atenção",
     "status_critical": "Crítico"
   },
-  "onboarding": {
-    "welcome_title": "Bem-vindo ao Car Insights",
-    "welcome_body": "Vamos configurar tudo. Registre seu primeiro veículo e, opcionalmente, faça upload da primeira sessão OBD2 — leva cerca de um minuto.",
-    "get_started": "Começar",
-    "add_car_title": "Adicione Seu Carro",
-    "add_car_body": "Conte sobre o veículo que será monitorado.",
-    "upload_title": "Faça Upload da Primeira Sessão",
-    "upload_body": "Arraste um CSV exportado do Torque Pro, OBD Fusion ou qualquer logger OBD2.",
-    "done_title": "Tudo pronto!",
-    "done_body": "Seu veículo está registrado. Vá para o painel para explorar seus dados.",
-    "go_to_dashboard": "Ir para o Painel",
-    "decode_vin": "Preencher pelo VIN"
-  },
   "cars": {
     "title": "Meus Veículos",
     "add_vehicle": "Adicionar Veículo",
@@ -116,7 +103,7 @@
     "emptyRecording": "Nada gravado ainda",
     "liveScan": "Leitura ao vivo",
     "unsupportedTitle": "Bluetooth não está disponível neste navegador",
-    "unsupportedBody": "O scanner ao vivo precisa de Web Bluetooth: use Chrome ou Edge no Android, Windows, macOS ou ChromeOS. Safari e iPhone/iPad não são suportados. Você ainda pode enviar CSVs exportados do Car Scanner ou Torque no painel.",
+    "unsupportedBody": "O scanner ao vivo precisa de Web Bluetooth: use Chrome ou Edge no Android, Windows, macOS ou ChromeOS. Safari e iPhone/iPad não são suportados.",
     "adapter": "Adaptador",
     "protocol": "Protocolo",
     "refresh": "Atualização",
@@ -151,8 +138,7 @@
     "linkHintPaired": "Se você pareou ele antes nas configurações de Bluetooth do sistema, remova lá e tente de novo.",
     "custom": {
       "title": "PIDs personalizados",
-      "imported": "{{count}} PIDs importados",
-      "hint": "Dados específicos do fabricante (ex.: ECU híbrida da Toyota nos headers 7E2/7E3, modo 21). As fórmulas usam a sintaxe do Torque: A, B, C… são os bytes da resposta, ex.: (A*256+B)/10. Importe um CSV de PIDs do Torque ou adicione à mão, e compare com o painel do carro antes de confiar nos valores.",
+      "hint": "Dados específicos do fabricante (ex.: ECU híbrida da Toyota nos headers 7E2/7E3, modo 21). Nas fórmulas, A, B, C… são os bytes da resposta, ex.: (A*256+B)/10. Compare com o painel do carro antes de confiar nos valores.",
       "needsCan": "Este veículo não é CAN, então PIDs com header de ECU não podem ser lidos.",
       "remove": "Remover {{name}}",
       "name": "Nome",
@@ -161,7 +147,6 @@
       "command": "Requisição",
       "formula": "Fórmula",
       "add": "Adicionar PID",
-      "import": "Importar CSV do Torque",
       "addPreset": "Adicionar preset: {{label}}",
       "removeAll": "Remover todos"
     },
@@ -255,7 +240,14 @@
     "lastSaved": "Última viagem salva.",
     "view": "Ver",
     "alwaysOn": "Sempre ativo",
-    "alwaysOnHint": "Deixe o app aberto no carro: ele reconecta sozinho, grava cada viagem e descansa enquanto o carro está desligado."
+    "alwaysOnHint": "Deixe o app aberto no carro: ele reconecta sozinho, grava cada viagem e descansa enquanto o carro está desligado.",
+    "partOfDay": {
+      "morning": "Viagem da manhã",
+      "afternoon": "Viagem da tarde",
+      "evening": "Viagem da noite",
+      "night": "Viagem de madrugada"
+    },
+    "autoPausedHint": "Gravação pausada até você desligar o carro."
   },
   "pill": {
     "recording": "Gravando viagem",
@@ -313,7 +305,6 @@
       "action": "Fique de olho; se continuar acontecendo, comente na próxima revisão."
     },
     "dtc": {
-      "title": "O carro registrou um código de falha",
       "meaning": "O computador do carro registrou uma falha em {{area}}.",
       "area": {
         "powertrain": "motor ou câmbio",
@@ -325,7 +316,8 @@
         "severe": "Procure uma oficina o quanto antes e mostre este código.",
         "moderate": "Agende uma revisão e mostre este código ao mecânico.",
         "minor": "Pode esperar a próxima revisão; comente este código."
-      }
+      },
+      "titleCode": "Código de falha {{code}} ({{area}})"
     },
     "catalog": {
       "coolant_temp": {
@@ -400,9 +392,6 @@
     "lastTrip": "Última viagem",
     "allTrips": "Ver todas as viagens",
     "technical": "Detalhes técnicos",
-    "import": "Tem uma gravação de outro app (Car Scanner, Torque)?",
-    "importAction": "Importar arquivo",
-    "importTitle": "Importar gravação",
     "health": {
       "ok": "Tudo certo",
       "okHint": "Nenhum problema encontrado.",
@@ -549,8 +538,6 @@
     "connectTitle": "Como você vai ler seu carro?",
     "adapter": "Tenho um adaptador Bluetooth",
     "adapterHint": "O aparelhinho que encaixa embaixo do volante.",
-    "import": "Tenho uma gravação de outro app",
-    "importHint": "Um arquivo exportado do Car Scanner, Torque ou parecido.",
     "none": "Ainda não tenho adaptador",
     "noneHint": "Dizemos qual comprar.",
     "adapterNext": "Na próxima tela, toque em \"Iniciar viagem\" com o carro ligado. O app encontra o adaptador e grava todas as viagens a partir daí.",
@@ -604,28 +591,6 @@
       "other": "Outro"
     }
   },
-  "importPage": {
-    "title": "Importar uma viagem do Car Scanner",
-    "readingFile": "Abrindo o arquivo que você compartilhou…",
-    "errorNoCache": "Este navegador não consegue receber arquivos compartilhados. Abra o app e importe o arquivo por lá.",
-    "errorNoFile": "Não recebemos nenhum arquivo. Compartilhe de novo pelo app Car Scanner.",
-    "errorReadFailed": "Não conseguimos abrir o arquivo compartilhado. Tente de novo.",
-    "carLabel": "De qual carro é?",
-    "loadingCars": "Carregando seus carros…",
-    "noCars": "Você ainda não adicionou nenhum carro.",
-    "addCar": "Adicionar um carro",
-    "chooseCar": "Escolha um carro",
-    "importing": "Importando… {{percent}}%",
-    "importButton": "Importar viagem",
-    "goHome": "Ir para o início"
-  },
-  "upload": {
-    "compactTitle": "Importar gravação de viagem",
-    "compactHint": "Arraste o arquivo CSV para cá ou toque para escolher",
-    "namePlaceholder": "Nome da viagem (opcional)",
-    "chooseFile": "Toque para escolher o arquivo CSV",
-    "sourceHint": "Exportado pelo app Car Scanner ou OBD Fusion"
-  },
   "sharedReport": {
     "unavailableTitle": "Relatório indisponível",
     "unavailableBody": "Este link pode ter expirado ou sido desativado. Peça um novo link ao dono do carro.",
@@ -639,10 +604,10 @@
     "trim": "Versão",
     "trip": "Viagem",
     "duration": "Duração",
-    "minutes": "{{minutes}} min",
     "faultCodes": "Códigos de falha encontrados",
     "unusualReadings": "Leituras fora do normal",
-    "footer": "Gerado pelo Xpeed · Relatório de diagnóstico somente para consulta"
+    "footer": "Gerado pelo Xpeed · Relatório de diagnóstico somente para consulta",
+    "noReadings": "Nada fora do normal nesta viagem."
   },
   "notFound": {
     "message": "Desculpe, não encontramos essa página.",
@@ -765,5 +730,16 @@
     "likelyCauses": "Causas prováveis",
     "repairDifficulty": "Dificuldade do conserto",
     "askAssistant": "Perguntar ao assistente sobre {{code}}"
+  },
+  "carQ": {
+    "progress": "Pergunta {{n}} de {{total}}",
+    "makeQ": "Qual a marca do seu carro?",
+    "otherMake": "Outra marca",
+    "modelQ": "Qual o modelo do seu {{make}}?",
+    "modelPlaceholder": "ex.: Onix, Corolla, HB20",
+    "yearQ": "De que ano ele é?",
+    "yearHint": "O ano do modelo, que aparece no documento do carro.",
+    "fuelQ": "Qual combustível ele usa?",
+    "fuelUnknown": "Não sei"
   }
 }

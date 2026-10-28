@@ -1,57 +1,46 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Car, ArrowRight, ArrowLeft, LogOut, Loader2, Bluetooth, FileUp, ShoppingCart, CheckCircle } from 'lucide-react';
+import { Car, ArrowRight, ArrowLeft, LogOut, Bluetooth, ShoppingCart, CheckCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import UploadCard from '@/components/UploadCard';
-import { FuelTypePicker } from '@/components/FuelTypePicker';
+import { CarQuestions, type CarAnswers } from '@/components/CarQuestions';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
 import { useBrand, isDefaultBrand } from '@/hooks/use-brand';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useCarsContext } from '@/contexts/CarsContext';
-import type { EngineType } from '@/lib/db';
 
 type StepKey = 'welcome' | 'car' | 'connect';
-type ConnectChoice = 'adapter' | 'import' | 'none' | null;
+type ConnectChoice = 'adapter' | 'none' | null;
 
 interface OnboardingWizardProps {
   onComplete: () => void;
 }
 
 /**
- * First run in three steps: hello (and name, if we don't have it), the car on
- * one screen, then how the car will be read. Nothing asks for country, phone
- * or technical data.
+ * First run in three steps: hello (and name, if we don't have it), the car
+ * one question per screen, then whether there is an adapter. Nothing asks for
+ * country, phone or technical data.
  */
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const brand = useBrand();
   const { user } = useAuth();
-  const { createCar } = useCarsContext();
+  const { createCar, updateCar } = useCarsContext();
 
   const needsName = !user?.user_metadata?.full_name;
   const [name, setName] = useState(user?.user_metadata?.full_name ?? '');
-  const [year, setYear] = useState('');
-  const [make, setMake] = useState('');
-  const [model, setModel] = useState('');
-  const [fuel, setFuel] = useState<EngineType | null>(null);
+  const [answers, setAnswers] = useState<CarAnswers | null>(null);
   const [carId, setCarId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState('');
   const [choice, setChoice] = useState<ConnectChoice>(null);
   const [step, setStep] = useState<StepKey>('welcome');
 
   const STEPS: StepKey[] = ['welcome', 'car', 'connect'];
   const stepIndex = STEPS.indexOf(step);
-
-  const yearNum = parseInt(year, 10);
-  const currentYear = new Date().getFullYear();
-  const carValid = yearNum >= 1950 && yearNum <= currentYear + 1 && make.trim() !== '' && model.trim() !== '';
 
   const handleWelcome = async () => {
     if (needsName && name.trim()) {
@@ -64,29 +53,20 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
     setStep('car');
   };
 
-  const handleCreateCar = async () => {
-    if (!carValid) return;
+  // Going back from the last step and answering again updates the same car.
+  const handleCar = async (next: CarAnswers) => {
     if (carId) {
-      setStep('connect');
-      return;
-    }
-    setCreating(true);
-    setError('');
-    try {
-      const car = await createCar({ year: yearNum, make: make.trim(), model: model.trim(), engine_type: fuel });
+      await updateCar(carId, { ...next, name: `${next.year} ${next.make} ${next.model}` });
+    } else {
+      const car = await createCar(next);
       setCarId(car.id);
-      setStep('connect');
-    } catch (err) {
-      console.error(err);
-      setError(t('onboard.carFailed', "Couldn't save your car. Check your connection and try again."));
-    } finally {
-      setCreating(false);
     }
+    setAnswers(next);
+    setStep('connect');
   };
 
   const choices: { key: Exclude<ConnectChoice, null>; icon: typeof Bluetooth; title: string; hint: string }[] = [
     { key: 'adapter', icon: Bluetooth, title: t('onboard.adapter', 'I have a Bluetooth adapter'), hint: t('onboard.adapterHint', 'The small device that plugs in under the steering wheel.') },
-    { key: 'import', icon: FileUp, title: t('onboard.import', 'I have a recording from another app'), hint: t('onboard.importHint', 'A file exported from Car Scanner, Torque or similar.') },
     { key: 'none', icon: ShoppingCart, title: t('onboard.none', "I don't have an adapter yet"), hint: t('onboard.noneHint', "We'll tell you which one to get.") },
   ];
 
@@ -99,7 +79,8 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
       <Card className="w-full max-w-lg border-border">
         <CardContent className="pt-8 pb-8 px-6 sm:px-8">
-          <div className="flex gap-1.5 justify-center mb-6" aria-label={t('onboard.progress', 'Step {{n}} of {{total}}', { n: stepIndex + 1, total: STEPS.length })}>
+          {/* The car questions show their own progress; one bar at a time. */}
+          <div className={`flex gap-1.5 justify-center mb-6 ${step === 'car' ? 'hidden' : ''}`} aria-label={t('onboard.progress', 'Step {{n}} of {{total}}', { n: stepIndex + 1, total: STEPS.length })}>
             {STEPS.map((s, i) => (
               <div key={s} className={`h-1.5 w-8 rounded-full ${i <= stepIndex ? 'bg-primary' : 'bg-primary/20'}`} />
             ))}
@@ -132,40 +113,12 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             )}
 
             {step === 'car' && (
-              <>
-                <div className="text-center">
-                  <h2 className="text-xl font-bold">{t('onboard.carTitle', 'Your car')}</h2>
-                  <p className="text-sm text-muted-foreground">{t('onboard.carHint', 'You can change this later.')}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ob-year">{t('vehicle.year', 'Year')}</Label>
-                    <Input id="ob-year" type="number" inputMode="numeric" placeholder="2020" value={year} onChange={(e) => setYear(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ob-make">{t('vehicle.make', 'Brand')}</Label>
-                    <Input id="ob-make" placeholder="Toyota" value={make} onChange={(e) => setMake(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5 col-span-2">
-                    <Label htmlFor="ob-model">{t('vehicle.model', 'Model')}</Label>
-                    <Input id="ob-model" placeholder="Corolla" value={model} onChange={(e) => setModel(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5 col-span-2">
-                    <Label>{t('vehicle.fuel', 'Fuel')}</Label>
-                    <FuelTypePicker value={fuel} onChange={setFuel} />
-                  </div>
-                </div>
-                {error && <p className="text-sm text-destructive">{error}</p>}
-                <div className="flex justify-between gap-2">
-                  <Button variant="ghost" onClick={() => setStep('welcome')}>
-                    <ArrowLeft className="w-4 h-4 mr-1" /> {t('onboard.back', 'Back')}
-                  </Button>
-                  <Button onClick={() => void handleCreateCar()} disabled={!carValid || creating}>
-                    {creating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    {t('onboard.next', 'Continue')} <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </>
+              <CarQuestions
+                initial={answers ?? undefined}
+                onSubmit={handleCar}
+                onExit={() => setStep('welcome')}
+                exitLabel={t('onboard.back', 'Back')}
+              />
             )}
 
             {step === 'connect' && (
@@ -200,11 +153,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                     {t('onboard.noneNext', 'Get an OBD2 adapter with "Bluetooth LE" or "BLE" in the name (for example Veepeak OBDCheck BLE or Vgate iCar Pro BLE). Cheap "Bluetooth 2.0" or Wi-Fi models do not work with Xpeed.')}
                   </p>
                 )}
-                {choice === 'import' && carId && (
-                  <UploadCard onComplete={onComplete} carProfileId={carId} />
-                )}
-
-                {choice && choice !== 'import' && (
+                {choice && (
                   <Button size="lg" className="w-full" onClick={onComplete}>
                     <CheckCircle className="w-4 h-4 mr-2" /> {t('onboard.finish', 'Go to my car')}
                   </Button>

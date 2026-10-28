@@ -115,7 +115,13 @@ export function TripCard() {
           <p className="font-semibold">{t('trip.carOn', 'Car connected')}</p>
         </div>
         {readings}
-        {alwaysOn && <p className="text-sm text-muted-foreground">{t('trip.autoHint', 'Recording starts by itself when you drive off.')}</p>}
+        {alwaysOn && (
+          <p className="text-sm text-muted-foreground">
+            {obd.autoPaused
+              ? t('trip.autoPausedHint', 'Recording is paused until you switch the car off.')
+              : t('trip.autoHint', 'Recording starts by itself when you drive off.')}
+          </p>
+        )}
         <Button size="lg" className="w-full" onClick={() => void obd.startTrip()}>
           <Play className="w-4 h-4 mr-2" />
           {t('trip.startNow', 'Record now')}

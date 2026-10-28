@@ -35,10 +35,14 @@ describe('trip facts', () => {
     expect(formatDuration(0)).toBeNull();
   });
 
-  it('names trips by date unless the user renamed them', () => {
-    expect(tripTitle(session() as never, i18n.t, 'pt-BR')).toMatch(/^Viagem \d+ de out/);
-    expect(tripTitle(session({ source_filename: 'Trip 28 Oct, 15:30' }) as never, i18n.t, 'pt-BR')).toMatch(/^Viagem /);
-    expect(tripTitle(session({ source_filename: 'Ida pra praia' }) as never, i18n.t, 'pt-BR')).toBe('Ida pra praia');
+  it('names trips by time of day unless the user renamed them', () => {
+    const at = (hour: number) => session({ session_start: new Date(2026, 9, 28, hour, 30).toISOString() });
+    expect(tripTitle(at(8) as never, i18n.t)).toBe('Viagem da manhã');
+    expect(tripTitle(at(15) as never, i18n.t)).toBe('Viagem da tarde');
+    expect(tripTitle(at(20) as never, i18n.t)).toBe('Viagem da noite');
+    expect(tripTitle(at(2) as never, i18n.t)).toBe('Viagem de madrugada');
+    expect(tripTitle(session({ source_filename: 'Trip 28 Oct, 15:30' }) as never, i18n.t)).toMatch(/^Viagem d[ae] /);
+    expect(tripTitle(session({ source_filename: 'Ida pra praia' }) as never, i18n.t)).toBe('Ida pra praia');
   });
 });
 

@@ -169,6 +169,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
   const [values, setValues] = useState<Record<string, number | null>>({});
   const [cycleMs, setCycleMs] = useState<number | null>(null);
   const [recording, setRecording] = useState<RecordingState | null>(null);
+  const [autoPaused, setAutoPaused] = useState(false);
 
   const elmRef = useRef<Elm327 | null>(null);
   const linkRef = useRef<ObdLink | null>(null);
@@ -232,6 +233,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
 
   const feedTrip = useCallback((reading: TripReading) => {
     handleTripEvents(detectorRef.current.update(reading, alwaysOnRef.current));
+    setAutoPaused(detectorRef.current.autoStartHeld);
   }, [handleTripEvents]);
 
   // ---------- Live data ----------
@@ -498,6 +500,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
   const stopTrip = useCallback(() => {
     manualPendingRef.current = false;
     handleTripEvents(detectorRef.current.stop(Date.now(), 'manual'));
+    setAutoPaused(detectorRef.current.autoStartHeld);
   }, [handleTripEvents]);
 
   // ---------- Diagnostics & tools (car must be on) ----------
@@ -608,7 +611,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd }: 
   const getHistory = useCallback(() => historyRef.current, []);
 
   return {
-    status, error, linkFailed, connection, channels, values, cycleMs, recording, getHistory,
+    status, error, linkFailed, connection, channels, values, cycleMs, recording, autoPaused, getHistory,
     connect, disconnect, startTrip, stopTrip, readDtcs, clearDtcs, readVin, sendRaw, findEcus, sweepMode21,
     getRecording,
   };

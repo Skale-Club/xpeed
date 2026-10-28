@@ -1,8 +1,7 @@
 // User-defined (manufacturer-specific) PIDs, e.g. Toyota mode 21 data from
-// the hybrid ECU. Definitions follow Torque's custom-PID CSV format so lists
-// shared on forums can be imported as-is. Stored per vehicle in this browser.
+// the hybrid ECU. Formulas name the reply bytes A, B, C… Stored per vehicle
+// in this browser.
 
-import { parseCSVLine } from '@/lib/csv-parser';
 import { compileFormula, FormulaError } from './formula';
 
 export interface CustomPid {
@@ -64,46 +63,6 @@ let seq = 0;
 export function newPidId(): string {
   seq += 1;
   return `pid_${Date.now().toString(36)}_${seq}`;
-}
-
-/**
- * Import Torque custom-PID CSV ("Name,ShortName,ModeAndPID,Equation,
- * Min Value,Max Value,Units,Header"). Invalid rows are reported, not thrown.
- */
-export function parseTorqueCsv(text: string): { pids: CustomPid[]; errors: string[] } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith('#'));
-  const pids: CustomPid[] = [];
-  const errors: string[] = [];
-  if (lines.length === 0) return { pids, errors: ['The file is empty.'] };
-
-  const first = parseCSVLine(lines[0], ',').map((h) => h.toLowerCase());
-  const hasHeader = first.some((h) => h.includes('modeandpid') || h.includes('equation'));
-  const col = (name: string, fallback: number) => {
-    const idx = hasHeader ? first.findIndex((h) => h.replace(/[^a-z]/g, '').startsWith(name)) : -1;
-    return idx >= 0 ? idx : fallback;
-  };
-  const c = {
-    name: col('name', 0), mode: col('modeandpid', 2), eq: col('equation', 3),
-    min: col('minvalue', 4), max: col('maxvalue', 5), unit: col('units', 6), header: col('header', 7),
-  };
-
-  lines.slice(hasHeader ? 1 : 0).forEach((line, i) => {
-    const f = parseCSVLine(line, ',');
-    const pid: CustomPid = {
-      id: newPidId(),
-      name: (f[c.name] ?? '').trim(),
-      unit: (f[c.unit] ?? '').trim(),
-      header: normalizeHeader(f[c.header]),
-      command: normalizeCommand(f[c.mode] ?? ''),
-      formula: (f[c.eq] ?? '').trim(),
-      min: Number(f[c.min] ?? 0),
-      max: Number(f[c.max] ?? 100),
-    };
-    const err = validateCustomPid(pid);
-    if (err) errors.push(`Line ${i + (hasHeader ? 2 : 1)} (${pid.name || 'unnamed'}): ${err}`);
-    else pids.push(pid);
-  });
-  return { pids, errors };
 }
 
 const storageKey = (carId: string | null) => `xpeed.obd.customPids.${carId ?? 'default'}`;

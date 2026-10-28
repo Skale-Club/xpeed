@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { TripCard } from '@/components/trip/TripCard';
-import UploadCard from '@/components/UploadCard';
 import DashboardCharts from '@/components/DashboardCharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,7 +14,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { subDays } from 'date-fns';
 import { toast } from 'sonner';
 import type { Session, SessionFlag, SessionSummaryItem } from '@/types/session';
-import { ProblemsBanner } from '@/components/ProblemsBanner';
 import { useOpenProblems } from '@/hooks/use-open-problems';
 import { useObd } from '@/contexts/ObdScannerContext';
 import HealthGauge from '@/components/HealthGauge';
@@ -45,7 +43,6 @@ import { PageLoader } from '@/components/PageLoader';
 import { LatestTripCard } from '@/components/LatestTripCard';
 import { GeneralInfoCard } from '@/components/GeneralInfoCard';
 import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
 
 const Index = () => {
@@ -59,7 +56,6 @@ const Index = () => {
   const [statsLoading, setStatsLoading] = useState(true);
   const [dateRange, setDateRange] = useState('30d');
   const [allSessions, setAllSessions] = useState<Session[]>([]);
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [generalStats, setGeneralStats] = useState({
     totalDistance: 0,
     avgFuel: 0,
@@ -137,6 +133,14 @@ const Index = () => {
     lastUpload: null
   });
   const [trendData, setTrendData] = useState<TrendData[]>([]);
+
+  // A trip just got saved: refresh the list quietly, without the page loader.
+  useEffect(() => {
+    if (!lastTrip || !selectedCarId) return;
+    getSessions(selectedCarId)
+      .then((sessions) => setAllSessions(sessions as unknown as Session[]))
+      .catch((err) => console.warn('Could not refresh trips:', err));
+  }, [lastTrip, selectedCarId]);
 
   const loadDashboard = useCallback(async () => {
     if (!selectedCarId) {
@@ -361,12 +365,6 @@ const Index = () => {
     calculateGeneralStats();
   }, [allSessions, distanceUnit]);
 
-  const handleUploadComplete = useCallback((sessionId: string) => {
-    loadDashboard(); 
-    setIsUploadOpen(false);
-    navigate(`/session/${sessionId}`);
-  }, [navigate, loadDashboard]);
-
   const formatDuration = (seconds: number) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -414,8 +412,6 @@ const Index = () => {
   return (
     <AppLayout>
       <div className="space-y-5 max-w-4xl">
-        <ProblemsBanner problems={openProblems} />
-
         <h2 className="text-2xl font-bold text-foreground">{selectedCar?.name || t('home.title', 'Home')}</h2>
 
         {/* 1. Is my car OK? */}
@@ -431,22 +427,6 @@ const Index = () => {
             <TripTotals sessions={allSessions} />
           </>
         )}
-
-        <p className="text-sm text-muted-foreground">
-          {t('home.import', 'Have a recording from another app (Car Scanner, Torque)?')}{' '}
-          <button type="button" className="text-primary hover:underline" onClick={() => setIsUploadOpen(true)}>
-            {t('home.importAction', 'Import a file')}
-          </button>
-        </p>
-
-        <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-          <DialogContent className="sm:max-w-md max-sm:top-4 max-sm:translate-y-0 max-sm:left-3 max-sm:right-3 max-sm:w-auto max-sm:max-w-none max-h-[calc(100dvh-6rem)] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{t('home.importTitle', 'Import a recording')}</DialogTitle>
-            </DialogHeader>
-            <UploadCard onComplete={handleUploadComplete} carProfileId={selectedCarId || undefined} />
-          </DialogContent>
-        </Dialog>
 
         {/* Everything technical stays one tap away, closed by default */}
         {allSessions.length > 0 && (
@@ -505,7 +485,6 @@ const Index = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <LatestTripCard
                         sessions={allSessions}
-                        onUploadClick={() => setIsUploadOpen(true)}
                         onSessionUpdate={loadDashboard}
                       />
                       <GeneralInfoCard

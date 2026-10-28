@@ -4,7 +4,7 @@ import {
   parseDtcReply, parseVin, decodeDtc, parseAdapterVoltage, parseMultiMode01, parseCustomReply,
 } from './pids';
 import { compileFormula, FormulaError } from './formula';
-import { parseTorqueCsv, validateCustomPid, validateTerminalCommand } from './custom-pids';
+import { validateCustomPid, validateTerminalCommand } from './custom-pids';
 import { buildScannerCsv, scannerFilename } from './session-csv';
 import { Elm327, ElmTimeoutError, receiveAddressFor, type ObdLink } from './elm327';
 import { classifyReply, diffSweeps, formatSweep } from './scan';
@@ -257,25 +257,6 @@ describe('custom PIDs', () => {
     expect(validateCustomPid({ ...base, header: 'XYZ' })).toMatch(/header/);
     expect(validateCustomPid({ ...base, formula: 'A+' })).toMatch(/Formula/);
     expect(validateCustomPid({ ...base, max: 0 })).toMatch(/Max/);
-  });
-
-  it('imports Torque CSV files and reports bad rows', () => {
-    const csv = [
-      '# exported by Torque',
-      'Name,ShortName,ModeAndPID,Equation,Min Value,Max Value,Units,Header',
-      'State of Charge,SOC,0x21CE,A/2,0,100,%,7E3',
-      '"Battery Block, V01",V01,21 81,(A*256+B)*79.99/65535,0,20,V,7E3',
-      'Reset ECU,RST,1101,A,0,1,,7E0',
-    ].join('\n');
-    const { pids, errors } = parseTorqueCsv(csv);
-    expect(pids.map((p) => [p.name, p.command, p.header, p.unit])).toEqual([
-      ['State of Charge', '21CE', '7E3', '%'],
-      ['Battery Block, V01', '2181', '7E3', 'V'],
-    ]);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/Reset ECU/);
-    // Imported names still land on the app's canonical parameters
-    expect(matchCanonicalKey(pidHeader(pids[0]))?.canonical_key).toBe('hybrid_battery_soc');
   });
 
   it('limits the terminal to reads', () => {

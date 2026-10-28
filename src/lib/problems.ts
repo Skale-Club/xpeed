@@ -147,7 +147,10 @@ export function describeProblem(issue: Pick<VehicleIssue, 'canonical_key' | 'tit
     const category = info?.category ?? 'powertrain';
     const severity = info?.severity ?? 'moderate';
     return {
-      title: t('problems.dtc.title', 'The car stored a fault code'),
+      title: t('problems.dtc.titleCode', 'Fault code {{code}} ({{area}})', {
+        code,
+        area: t(`problems.dtc.area.${category}`, DTC_AREA_DEFAULT[category]),
+      }),
       meaning: t('problems.dtc.meaning', "The car's computer recorded a fault in the {{area}}.", {
         area: t(`problems.dtc.area.${category}`, DTC_AREA_DEFAULT[category]),
       }),
