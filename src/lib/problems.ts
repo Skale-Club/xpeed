@@ -156,10 +156,11 @@ export function describeProblem(issue: Pick<VehicleIssue, 'canonical_key' | 'tit
 
   if (key.startsWith(AI_PREFIX)) {
     // Written by the AI in the owner's language when it raised the warning.
+    const details = issue.details?.source === 'ai' ? issue.details : null;
     return {
       title: issue.title,
-      meaning: issue.details?.meaning || t('problems.ai.meaning', 'Something in the readings of a trip caught our attention.'),
-      action: issue.details?.action || t('problems.generic.action', 'Keep an eye on it; if it keeps happening, mention it at your next service.'),
+      meaning: details?.meaning || t('problems.ai.meaning', 'Something in the readings of a trip caught our attention.'),
+      action: details?.action || t('problems.generic.action', 'Keep an eye on it; if it keeps happening, mention it at your next service.'),
       code: key.slice(AI_PREFIX.length),
       technical: null,
     };

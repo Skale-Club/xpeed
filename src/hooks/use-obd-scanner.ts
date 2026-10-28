@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Elm327, BleConnectError, connectBleLink, isBluetoothAvailable, type AdapterRef, type ElmInfo, type ObdLink,
 } from '@/lib/obd/elm327';
@@ -12,6 +12,7 @@ import type { ScannerSample } from '@/lib/obd/session-csv';
 import { ECU_CANDIDATES, classifyReply, type EcuProbe, type ReplyKind } from '@/lib/obd/scan';
 import { TripDetector, type TripEndReason, type TripEvent, type TripReading } from '@/lib/obd/trip-detector';
 import { NO_READOUT, mergeReadouts, readFaultCodes, type FaultCodeReadout } from '@/lib/obd/fault-codes';
+import { createLiveStore, NO_VALUES } from '@/lib/obd/live-store';
 
 /**
  * - idle: no adapter linked
@@ -44,7 +45,6 @@ export type DtcReadout = FaultCodeReadout;
 export interface RecordingState {
   active: boolean;
   startedAt: Date;
-  samples: number;
   /** Started with the "Start trip" button rather than automatically. */
   manual: boolean;
 }
@@ -76,10 +76,26 @@ const MULTI_PID_BATCH = 6;
 const SCAN_TIMEOUT_MS = 1500;
 const MINUTE = 60_000;
 
-/** How often a parked car is checked for being switched on: often at first, then less to spare the battery. */
+/**
+ * How often a parked car is probed on the bus (a full OBD request), backing off
+ * the longer it stays off: probing wakes the car's modules and every request
+ * draws a little from the 12 V battery. A rise in the adapter's voltage (see
+ * RUNNING_VOLTS) probes at once, so a car being started is still noticed quickly.
+ */
 export function standbyProbeDelay(waitingMs: number): number {
+  if (waitingMs < 2 * MINUTE) return 4000;
+  if (waitingMs < 10 * MINUTE) return 10_000;
+  if (waitingMs < 60 * MINUTE) return 30_000;
+  return 60_000;
+}
+
+/** How often the adapter's own voltage is read while waiting: it never touches the car's bus. */
+export function standbyVoltageDelay(waitingMs: number): number {
   return waitingMs < 10 * MINUTE ? 4000 : 10_000;
 }
+
+/** A running engine (or a hybrid in READY) charges the 12 V battery: ~13.5–14.5 V, against ~12.6 V at rest. */
+export const RUNNING_VOLTS = 13.0;
 
 /** How long to wait before retrying a dropped adapter, backing off the longer it stays away. */
 export function reconnectDelay(awayMs: number): number {
@@ -89,6 +105,8 @@ export function reconnectDelay(awayMs: number): number {
 }
 /** Consecutive silent cycles before the car counts as off. */
 const OFF_AFTER_CYCLES = 2;
+/** Consecutive cycles in which the adapter didn't answer at all before the link is considered broken. */
+const STALL_RECONNECT_CYCLES = 3;
 /** How often fault codes are read again while the car is on. */
 const FAULT_REREAD_MS = 5 * 60_000;
 /** How much rolling history live charts can draw from. */
@@ -149,16 +167,25 @@ function customChannels(pids: CustomPid[]): LiveChannel[] {
 
 
 /** The VIN, asking the engine module directly on CAN (several modules may answer a broadcast). */
-async function readCarVin(elm: Elm327, isCan: boolean): Promise<string | null> {
+async function readCarVin(elm: Elm327, isCan: boolean, timeoutMs = 5000): Promise<string | null> {
   for (const header of isCan ? ['7E0', null] : [null]) {
     try {
-      const vin = parseVin(await elm.request('0902', header, 5000));
+      const vin = parseVin(await elm.request('0902', header, timeoutMs));
       if (vin) return vin;
     } catch {
       // not reported this way
     }
   }
   return null;
+}
+
+/** The adapter's own supply voltage (never touches the car's bus); null if it doesn't say. */
+async function readAdapterVoltage(elm: Elm327): Promise<number | null> {
+  try {
+    return parseAdapterVoltage(await elm.send('ATRV', 2000));
+  } catch {
+    return null;
+  }
 }
 
 function recordingColumns(samples: ScannerSample[]): string[] {
@@ -172,19 +199,36 @@ function recordingColumns(samples: ScannerSample[]): string[] {
   return columns;
 }
 
-export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, onTripDropped }: ObdScannerOptions = {}) {
+/** What one pass over the car's channels found. */
+interface CycleResult {
+  values: Record<string, number | null>;
+  /**
+   * The adapter never answered a standard request this cycle (timeouts / write
+   * failures): the link is in trouble, which says nothing about the car. A car
+   * that is off still answers, with NO DATA.
+   */
+  stalled: boolean;
+}
+
+/** The same empty list every render, so an omitted option never looks like a change. */
+const NO_CUSTOM_PIDS: CustomPid[] = [];
+
+export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, onTripEnd, onTripDropped }: ObdScannerOptions = {}) {
   const [status, setStatus] = useState<ScannerStatus>(() => (isBluetoothAvailable() ? 'idle' : 'unsupported'));
   const [error, setError] = useState<string | null>(null);
   /** The Bluetooth link itself failed (adapter busy, asleep or out of range). */
   const [linkFailed, setLinkFailed] = useState(false);
   const [connection, setConnection] = useState<ScannerConnection | null>(null);
   const [channels, setChannels] = useState<LiveChannel[]>([]);
-  const [values, setValues] = useState<Record<string, number | null>>({});
-  const [cycleMs, setCycleMs] = useState<number | null>(null);
+  /** Readings that change every cycle live in their own store (see live-store.ts), not in state. */
+  const [live] = useState(createLiveStore);
   const [recording, setRecording] = useState<RecordingState | null>(null);
   const [autoPaused, setAutoPaused] = useState(false);
-  /** The car's VIN (chassis number), read once per connection; null if the car doesn't report it. */
+  /** The car's VIN (chassis number), read on every new Bluetooth link; null if the car doesn't report it. */
   const [vin, setVin] = useState<string | null>(null);
+  /** A Bluetooth link has been open in this session (so Bluetooth permission is granted); stays true while reconnecting. */
+  const [linkOpen, setLinkOpen] = useState(false);
+  const vinRef = useRef<string | null>(null);
   const vinTriedRef = useRef(false);
 
   const elmRef = useRef<Elm327 | null>(null);
@@ -199,6 +243,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   const linkGenRef = useRef(0);
   /** A background reconnect loop is running. */
   const reconnectingRef = useRef(false);
+  /** When the adapter was first lost; carried across attempts so the backoff isn't reset by an adapter that connects but won't initialize. */
+  const awaySinceRef = useRef<number | null>(null);
   const liveRef = useRef(false);
   /** Live polling yields the bus while a scan runs. */
   const pausedRef = useRef(false);
@@ -206,6 +252,9 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   const standardRef = useRef<LiveChannel[]>([]);
   const channelsRef = useRef<LiveChannel[]>([]);
   const samplesRef = useRef<ScannerSample[]>([]);
+  /** Columns of the trip in progress, kept as samples come in (never rescanned). */
+  const columnsRef = useRef<string[]>([]);
+  const columnSetRef = useRef(new Set<string>());
   const historyRef = useRef<HistoryPoint[]>([]);
   const detectorRef = useRef(new TripDetector());
   const tripStartRef = useRef<Date | null>(null);
@@ -238,18 +287,24 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
     for (const e of events) {
       if (e.type === 'start') {
         samplesRef.current = [];
+        columnsRef.current = [];
+        columnSetRef.current = new Set();
         tripStartRef.current = new Date(e.at);
-        setRecording({ active: true, startedAt: new Date(e.at), samples: 0, manual: manualPendingRef.current });
+        live.set({ samples: 0 });
+        setRecording({ active: true, startedAt: new Date(e.at), manual: manualPendingRef.current });
         manualPendingRef.current = false;
         continue;
       }
       const startedAt = tripStartRef.current;
       tripStartRef.current = null;
       setRecording(null);
+      live.set({ samples: 0 });
       if (!startedAt) continue;
       const cutoff = (e.at - startedAt.getTime()) / 1000;
       const samples = e.keep ? samplesRef.current.filter((s) => s.t <= cutoff + 0.001) : [];
       samplesRef.current = [];
+      columnsRef.current = [];
+      columnSetRef.current = new Set();
       if (samples.length === 0) {
         onTripDroppedRef.current?.(startedAt);
         continue;
@@ -259,18 +314,30 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         dtcs: faultRef.current.stored, faultCodes: faultRef.current,
       });
     }
-  }, []);
+  }, [live]);
 
   const feedTrip = useCallback((reading: TripReading) => {
     handleTripEvents(detectorRef.current.update(reading, alwaysOnRef.current));
     setAutoPaused(detectorRef.current.autoStartHeld);
   }, [handleTripEvents]);
 
+  /** The adapter can't be reached (stall, reconnecting): says nothing about the car. */
+  const feedLinkDown = useCallback(() => {
+    feedTrip({ at: Date.now(), ecuAlive: false, speedKmh: null, rpm: null, linkDown: true });
+  }, [feedTrip]);
+
+  /** Close the trip in progress, if any, and keep what was recorded. */
+  const endOpenTrip = useCallback(() => {
+    handleTripEvents(detectorRef.current.stop(Date.now(), 'disconnected'));
+  }, [handleTripEvents]);
+
   // ---------- Live data ----------
 
-  const readCycle = useCallback(async (elm: Elm327, alive: () => boolean) => {
+  const readCycle = useCallback(async (elm: Elm327, alive: () => boolean): Promise<CycleResult | null> => {
     const next: Record<string, number | null> = {};
     const chans = channelsRef.current;
+    let answered = 0;
+    let stalled = false;
 
     const standard = chans.filter((c) => c.def);
     const batchSize = multiRef.current ? MULTI_PID_BATCH : 1;
@@ -280,6 +347,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
       const defs = batch.map((c) => c.def as PidDef);
       try {
         const reply = await elm.request(`01${defs.map((d) => pidHex(d.pid)).join('')}`);
+        answered += 1;
         const got = batch.length > 1 ? parseMultiMode01(reply, defs) : null;
         for (const c of batch) {
           const d = c.def as PidDef;
@@ -288,6 +356,12 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         }
       } catch {
         batch.forEach((c) => { next[c.header] = null; });
+        // Nothing has answered yet and this didn't either: the link is in trouble, don't wait on every channel.
+        if (answered === 0) {
+          stalled = true;
+          for (const c of chans) next[c.header] ??= null;
+          return alive() ? { values: next, stalled } : null;
+        }
       }
     }
 
@@ -313,7 +387,18 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         next[c.header] = null;
       }
     }
-    return alive() ? next : null;
+    return alive() ? { values: next, stalled } : null;
+  }, []);
+
+  /** Keep one more reading of the trip in progress, tracking its columns as they appear. */
+  const recordSample = useCallback((start: Date, now: number, values: Record<string, number | null>) => {
+    samplesRef.current.push({ t: (now - start.getTime()) / 1000, values });
+    for (const k of Object.keys(values)) {
+      if (!columnSetRef.current.has(k)) {
+        columnSetRef.current.add(k);
+        columnsRef.current.push(k);
+      }
+    }
   }, []);
 
   /**
@@ -325,11 +410,18 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
     const elm = new Elm327(link);
     const version = await elm.initAdapter();
     if (!alive()) return;
+    // The adapter answers: if it drops again, the backoff starts afresh.
+    awaySinceRef.current = null;
     elmRef.current = elm;
     let info: ElmInfo | null = null;
     let silent = 0;
+    let stalls = 0;
     let waitingSince: number | null = null;
+    let lastBusProbe = 0;
     let lastFaultRead = 0;
+    // Which car is on this link? Asked once per Bluetooth link: the adapter may
+    // have been moved to another car since the last one.
+    let linkSetupDone = false;
 
     while (alive()) {
       if (pausedRef.current) {
@@ -338,6 +430,20 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
       }
 
       if (!info) {
+        if (waitingSince !== null && lastBusProbe > 0) {
+          // Parked: don't poke the bus on every pass. The adapter's voltage costs the car nothing;
+          // it rises when the engine (or a hybrid's READY mode) is running, and then we look at once.
+          const waited = Date.now() - waitingSince;
+          const volts = await readAdapterVoltage(elm);
+          if (!alive()) return;
+          const running = volts != null && volts >= RUNNING_VOLTS;
+          if (!running && Date.now() - lastBusProbe < standbyProbeDelay(waited)) {
+            feedTrip({ at: Date.now(), ecuAlive: false, speedKmh: null, rpm: null });
+            await sleep(standbyVoltageDelay(waited));
+            continue;
+          }
+        }
+        lastBusProbe = Date.now();
         info = await elm.connectVehicle(version, 8000);
         if (!alive()) return;
         if (!info) {
@@ -345,18 +451,37 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
           setStatus('waiting');
           feedTrip({ at: Date.now(), ecuAlive: false, speedKmh: null, rpm: null });
           waitingSince ??= Date.now();
-          await sleep(standbyProbeDelay(Date.now() - waitingSince));
+          await sleep(standbyVoltageDelay(Date.now() - waitingSince));
           continue;
         }
         waitingSince = null;
-        // Same adapter session: the car's PID list is already known after a restart.
-        if (standardRef.current.length === 0) {
-          const standard = await discoverChannels(elm);
-          multiRef.current = info.isCan && (await probeMultiPid(elm, standard));
-          standardRef.current = standard;
-          applyChannels(standard, customPidsRef.current);
+        stalls = 0;
+
+        if (!linkSetupDone) {
+          const read = await readCarVin(elm, info.isCan, vinTriedRef.current && !vinRef.current ? SCAN_TIMEOUT_MS : 5000);
+          if (!alive()) return;
+          vinTriedRef.current = true;
+          const known = vinRef.current;
+          // Only the same VIN proves it's the same car; anything else (another VIN,
+          // or one that can't be read) means the PID list and multi-PID support are looked up again.
+          if (standardRef.current.length === 0 || !(read && read === known)) {
+            const standard = await discoverChannels(elm);
+            multiRef.current = info.isCan && (await probeMultiPid(elm, standard));
+            standardRef.current = standard;
+            applyChannels(standard, customPidsRef.current);
+          }
+          if (!alive()) return;
+          if (read && known && read !== known) {
+            // Another car: the trip in progress was the first one's.
+            endOpenTrip();
+            historyRef.current = [];
+          }
+          if (read) {
+            vinRef.current = read;
+            setVin(read);
+          }
+          linkSetupDone = true;
         }
-        if (!alive()) return;
         silent = 0;
         liveRef.current = true;
         setConnection({ ...info, deviceName: link.name, multiPid: multiRef.current });
@@ -365,20 +490,26 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         faultRef.current = await readFaultCodes(elm, info.isCan);
         lastFaultRead = Date.now();
         if (!alive()) return;
-        // Which car is this? Asked once per connection (some cars don't say).
-        if (!vinTriedRef.current) {
-          vinTriedRef.current = true;
-          const read = await readCarVin(elm, info.isCan);
-          if (!alive()) return;
-          if (read) setVin(read);
-        }
         if (manualPendingRef.current) handleTripEvents(detectorRef.current.startManual(Date.now()));
       }
 
       const t0 = performance.now();
-      const next = await readCycle(elm, alive);
-      if (!next) return;
+      const cycle = await readCycle(elm, alive);
+      if (!cycle) return;
+      const { values: next, stalled } = cycle;
       const now = Date.now();
+
+      if (stalled) {
+        // The adapter isn't answering: not the same as a car that is off. The trip stays open
+        // (with a long grace), and if it keeps up the link is replaced.
+        stalls += 1;
+        feedLinkDown();
+        live.set({ values: next, cycleMs: null });
+        if (stalls >= STALL_RECONNECT_CYCLES) throw new Error('The adapter stopped answering.');
+        continue;
+      }
+      stalls = 0;
+
       const ecuAlive = channelsRef.current.some((c) => c.def && next[c.header] != null);
 
       if (!ecuAlive) {
@@ -389,8 +520,8 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
           info = null;
           liveRef.current = false;
           waitingSince = Date.now();
-          setValues({});
-          setCycleMs(null);
+          lastBusProbe = Date.now();
+          live.set({ values: NO_VALUES, cycleMs: null });
           setStatus('waiting');
         }
         continue;
@@ -399,15 +530,11 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
       silent = 0;
       historyRef.current.push({ at: now, values: next });
       while (historyRef.current.length && historyRef.current[0].at < now - HISTORY_MS) historyRef.current.shift();
-      setValues(next);
-      setCycleMs(performance.now() - t0);
 
       feedTrip({ at: now, ecuAlive: true, speedKmh: next[SPEED] ?? null, rpm: next[RPM] ?? null });
       const start = tripStartRef.current;
-      if (start) {
-        samplesRef.current.push({ t: (now - start.getTime()) / 1000, values: next });
-        setRecording((r) => r && { ...r, samples: samplesRef.current.length });
-      }
+      if (start) recordSample(start, now, next);
+      live.set({ values: next, cycleMs: performance.now() - t0, samples: samplesRef.current.length });
 
       // A warning light can come on mid-drive: look again every few minutes.
       if (info && now - lastFaultRead >= FAULT_REREAD_MS) {
@@ -417,54 +544,59 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
         faultRef.current = mergeReadouts(faultRef.current, again);
       }
     }
-  }, [applyChannels, feedTrip, handleTripEvents, readCycle]);
+  }, [applyChannels, endOpenTrip, feedLinkDown, feedTrip, handleTripEvents, live, readCycle, recordSample]);
 
-  const resetConnectionState = () => {
+  const resetConnectionState = useCallback(() => {
     elmRef.current = null;
     liveRef.current = false;
     setConnection(null);
-    setCycleMs(null);
-    setValues({});
-  };
+    live.set({ values: NO_VALUES, cycleMs: null });
+  }, [live]);
 
-  /** End the current connection loop and close the link. */
+  /** End the current connection loop and close the link; a trip still open is closed and kept. */
   const teardown = useCallback(() => {
+    endOpenTrip();
     sessionRef.current += 1;
     linkGenRef.current += 1;
     reconnectingRef.current = false;
+    awaySinceRef.current = null;
     linkRef.current?.close();
     linkRef.current = null;
     resetConnectionState();
+    setLinkOpen(false);
     setStatus(isBluetoothAvailable() ? 'idle' : 'unsupported');
-  }, []);
+  }, [endOpenTrip, resetConnectionState]);
 
   // Declared below; referenced from the link-lost handler.
   const reconnectRef = useRef<(session: number, gen: number) => void>(() => undefined);
 
+  /** Keep trying the remembered adapter when it dropped or is out of reach: always on, or a trip still open. */
+  const shouldReconnect = useCallback(() => (alwaysOnRef.current || detectorRef.current.recording) && !!deviceRef.current, []);
+
   const startLink = useCallback((link: ObdLink, session: number, gen: number) => {
     linkRef.current = link;
     deviceRef.current = link.device ?? deviceRef.current;
+    setLinkOpen(true);
     runSession(link, session, gen).catch((err) => {
       if (sessionRef.current !== session || linkGenRef.current !== gen) return;
       // Adapter stopped answering mid-session (e.g. it went to sleep).
-      if (alwaysOnRef.current && deviceRef.current) reconnectRef.current(session, gen);
+      if (shouldReconnect()) reconnectRef.current(session, gen);
       else {
         setError(err instanceof Error ? err.message : String(err));
-        teardown();
+        teardown(); // also closes the trip, if one was open
       }
     });
-  }, [runSession, teardown]);
+  }, [runSession, shouldReconnect, teardown]);
 
   const onLinkLost = useCallback((session: number, gen: number) => {
     if (sessionRef.current !== session || linkGenRef.current !== gen) return;
-    if ((alwaysOnRef.current || tripStartRef.current) && deviceRef.current) {
+    if (shouldReconnect()) {
       reconnectRef.current(session, gen);
     } else {
-      handleTripEvents(detectorRef.current.stop(Date.now(), 'disconnected'));
       setError('Adapter disconnected.');
       teardown();
     }
-  }, [handleTripEvents, teardown]);
+  }, [shouldReconnect, teardown]);
 
   /** Open a Bluetooth link for this session, tagged with a fresh link generation. */
   const openLink = useCallback(async (session: number, opts: { device?: AdapterRef; showAll?: boolean }) => {
@@ -483,13 +615,28 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
     linkRef.current = null;
     resetConnectionState();
     setStatus('reconnecting');
-    const since = Date.now();
+    // Back off from when the adapter was first lost, not from this attempt: one that
+    // connects but won't initialize comes back through here again and again.
+    const retrying = awaySinceRef.current !== null;
+    awaySinceRef.current ??= Date.now();
     // Ends when a link is back, or when disconnect/connect/unmount changes the session
     // (those reset reconnectingRef themselves).
     void (async () => {
+      let wait = retrying;
       while (sessionRef.current === session) {
-        // Lets an open trip end once the car has been silent long enough.
-        feedTrip({ at: Date.now(), ecuAlive: false, speedKmh: null, rpm: null });
+        if (wait) {
+          await sleep(reconnectDelay(Date.now() - (awaySinceRef.current ?? Date.now())));
+          if (sessionRef.current !== session) return;
+        }
+        wait = true;
+        // A computer only keeps looking for the adapter while a trip is open.
+        if (!alwaysOnRef.current && !detectorRef.current.recording) {
+          setError('Adapter disconnected.');
+          teardown();
+          return;
+        }
+        // Lets an open trip end once the adapter has been gone long enough.
+        feedLinkDown();
         try {
           const { link, gen: next } = await openLink(session, { device: deviceRef.current ?? undefined });
           if (sessionRef.current !== session) {
@@ -501,7 +648,7 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
           startLink(link, session, next);
           return;
         } catch {
-          await sleep(reconnectDelay(Date.now() - since));
+          // try again after the backoff
         }
       }
     })();
@@ -514,10 +661,15 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
   const connect = useCallback(async (opts: { device?: AdapterRef; showAll?: boolean } = {}) => {
     setError(null);
     setLinkFailed(false);
+    // A trip left open by an earlier link ends here, so this connection starts a clean one.
+    endOpenTrip();
     const session = ++sessionRef.current;
     reconnectingRef.current = false;
+    awaySinceRef.current = null;
     vinTriedRef.current = false;
+    vinRef.current = null;
     setVin(null);
+    setLinkOpen(false);
     linkRef.current?.close();
     resetConnectionState();
     standardRef.current = [];
@@ -545,21 +697,26 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
       setLinkFailed(err instanceof BleConnectError);
       teardown();
     }
-  }, [openLink, startLink, teardown]);
+  }, [endOpenTrip, openLink, resetConnectionState, startLink, teardown]);
 
   /** User asked to disconnect: close any trip (saving it) and stay off. */
   const disconnect = useCallback(() => {
     manualPendingRef.current = false;
-    handleTripEvents(detectorRef.current.stop(Date.now(), 'disconnected'));
+    teardown(); // closes and keeps the trip in progress
     setError(null);
     setLinkFailed(false);
-    teardown();
-  }, [handleTripEvents, teardown]);
+  }, [teardown]);
 
+  // The screen is gone (sign-out, navigation away from the app): close the link
+  // and the trip in progress, so what was recorded is handed over to be kept.
   useEffect(() => () => {
     sessionRef.current += 1;
+    linkGenRef.current += 1;
+    reconnectingRef.current = false;
+    endOpenTrip();
     linkRef.current?.close();
-  }, []);
+    linkRef.current = null;
+  }, [endOpenTrip]);
 
   /** "Start trip" button: record from now on (connect first if needed, inside the click). */
   const startTrip = useCallback(async (opts: { showAll?: boolean } = {}) => {
@@ -670,20 +827,31 @@ export function useObdScanner({ customPids = [], alwaysOn = false, onTripEnd, on
     });
   }, []);
 
-  /** Snapshot of the trip being recorded (for crash recovery). */
-  const getRecording = useCallback(() => ({
+  /**
+   * Snapshot of the trip being recorded (for crash recovery). `from` skips the
+   * samples already backed up: only the new ones are copied, however long the trip.
+   */
+  const getRecording = useCallback((from = 0) => ({
     startedAt: tripStartRef.current,
     dtcs: faultRef.current.stored,
     faultCodes: faultRef.current,
-    columns: recordingColumns(samplesRef.current),
-    samples: samplesRef.current,
+    columns: [...columnsRef.current],
+    /** Samples from index `from` on. */
+    samples: from > 0 ? samplesRef.current.slice(from) : samplesRef.current.slice(),
+    /** How many samples the trip holds in all. */
+    total: samplesRef.current.length,
   }), []);
 
   const getHistory = useCallback(() => historyRef.current, []);
 
-  return {
-    status, error, linkFailed, connection, channels, values, cycleMs, recording, autoPaused, vin, getHistory,
+  // One stable object: its parts only change when something a screen shows changes.
+  return useMemo(() => ({
+    status, error, linkFailed, connection, channels, recording, autoPaused, vin, linkOpen, live, getHistory,
     connect, disconnect, startTrip, stopTrip, readDtcs, clearDtcs, readVin, sendRaw, findEcus, sweepMode21,
     getRecording,
-  };
+  }), [
+    status, error, linkFailed, connection, channels, recording, autoPaused, vin, linkOpen, live, getHistory,
+    connect, disconnect, startTrip, stopTrip, readDtcs, clearDtcs, readVin, sendRaw, findEcus, sweepMode21,
+    getRecording,
+  ]);
 }

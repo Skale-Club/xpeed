@@ -18,39 +18,80 @@ import androidx.core.app.NotificationCompat;
  * Foreground service that keeps Xpeed running with the screen off while it is
  * linked to the OBD adapter: the persistent notification tells Android the
  * app is doing user-visible work, and a partial wake lock keeps the CPU awake
- * so the web layer can keep polling the car and recording the trip.
+ * so the web layer can keep polling the car and recording the trip. The wake
+ * lock is only held while a trip is recorded or the car is on (the web layer
+ * says so); waiting for a parked car, the notification alone keeps the
+ * connection alive and the phone can sleep.
  */
 public class TripService extends Service {
     static final String CHANNEL_ID = "xpeed_trip";
     static final int NOTIFICATION_ID = 7001;
     static final String EXTRA_TITLE = "title";
     static final String EXTRA_TEXT = "text";
+    static final String EXTRA_AWAKE = "awake";
 
     static volatile boolean running = false;
+    private static TripService instance;
 
     private PowerManager.WakeLock wakeLock;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        synchronized (TripService.class) {
+            instance = this;
+        }
+    }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
         String text = intent != null ? intent.getStringExtra(EXTRA_TEXT) : null;
-        Notification notification = buildNotification(this, title, text);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        boolean awake = intent == null || intent.getBooleanExtra(EXTRA_AWAKE, true);
+        try {
+            Notification notification = buildNotification(this, title, text);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (RuntimeException e) {
+            // Android 14+ refuses a "connected device" service while Bluetooth permission
+            // isn't granted (SecurityException), and Android 12+ refuses to start one from the
+            // background. Nothing here may crash the app: just don't run the service.
+            running = false;
+            stopSelf();
+            return START_NOT_STICKY;
         }
         running = true;
-
-        if (wakeLock == null) {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xpeed:trip");
-            wakeLock.setReferenceCounted(false);
-            wakeLock.acquire();
-        }
+        applyAwake(awake);
         // If Android kills the app, the web layer that talks to the car is gone
         // too, so there is nothing useful to restart.
         return START_NOT_STICKY;
+    }
+
+    /** Hold or release the CPU wake lock. */
+    private synchronized void applyAwake(boolean awake) {
+        if (awake) {
+            if (wakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xpeed:trip");
+                wakeLock.setReferenceCounted(false);
+            }
+            if (!wakeLock.isHeld()) wakeLock.acquire();
+        } else if (wakeLock != null) {
+            if (wakeLock.isHeld()) wakeLock.release();
+            wakeLock = null;
+        }
+    }
+
+    /** Called from the web layer: hold the wake lock only while a trip is recorded or the car is on. */
+    static void setAwake(boolean awake) {
+        TripService service;
+        synchronized (TripService.class) {
+            service = instance;
+        }
+        if (service != null) service.applyAwake(awake);
     }
 
     /**
@@ -66,8 +107,10 @@ public class TripService extends Service {
     @Override
     public void onDestroy() {
         running = false;
-        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        wakeLock = null;
+        synchronized (TripService.class) {
+            if (instance == this) instance = null;
+        }
+        applyAwake(false);
         super.onDestroy();
     }
 

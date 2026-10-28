@@ -283,6 +283,7 @@
     "savedHint": "Ela está no Histórico.",
     "saveFailed": "Não foi possível salvar a viagem",
     "saveFailedHint": "Ela ficou guardada no celular e será salva sozinha quando houver internet.",
+    "saveFailedNoCopy": "Também não deu para guardá-la no celular, então deixe o app aberto: ele continua tentando enquanto estiver aberto.",
     "rpm": "rotação",
     "engineTemp": "motor °C",
     "unsupported": "Este navegador não consegue se conectar ao carro. Abra o Xpeed no Chrome do Android ou do computador.",

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TripDetector, DEFAULT_TRIP_OPTIONS, type TripReading } from './trip-detector';
-import { reconnectDelay, standbyProbeDelay } from '@/hooks/use-obd-scanner';
+import { reconnectDelay, standbyProbeDelay, standbyVoltageDelay } from '@/hooks/use-obd-scanner';
 
 const S = 1000;
 const on = (at: number, speedKmh = 0, rpm = 0): TripReading => ({ at, ecuAlive: true, speedKmh, rpm });
@@ -89,12 +89,90 @@ describe('TripDetector', () => {
 describe('waiting for the car without draining the battery', () => {
   it('checks a parked car less often after a while', () => {
     expect(standbyProbeDelay(0)).toBe(4000);
-    expect(standbyProbeDelay(15 * 60 * S)).toBe(10_000);
+    expect(standbyProbeDelay(5 * 60 * S)).toBe(10_000);
+    expect(standbyProbeDelay(15 * 60 * S)).toBe(30_000);
+    expect(standbyProbeDelay(3 * 60 * 60 * S)).toBe(60_000);
+  });
+
+  it('reads the adapter voltage often, since that never touches the car', () => {
+    expect(standbyVoltageDelay(0)).toBe(4000);
+    expect(standbyVoltageDelay(30 * 60 * S)).toBe(10_000);
   });
 
   it('backs off retrying an adapter that stays out of reach', () => {
     expect(reconnectDelay(0)).toBe(5000);
     expect(reconnectDelay(20 * 60 * S)).toBe(30_000);
     expect(reconnectDelay(3 * 60 * 60 * S)).toBe(120_000);
+  });
+});
+
+describe('a Bluetooth stall is not the car turning off', () => {
+  const stalled = (at: number): TripReading => ({ at, ecuAlive: false, speedKmh: null, rpm: null, linkDown: true });
+
+  it('keeps the trip open through a stall much longer than the car-off time, and carries on after it', () => {
+    const d = new TripDetector();
+    d.update(on(0, 50, 2000));
+    for (let t = 5; t <= 100; t += 5) d.update(on(t * S, 50, 2000));
+    // 90 s of the adapter not answering: far past the 20 s of silence that mean "car off"
+    for (let t = 105; t <= 190; t += 5) expect(d.update(stalled(t * S))).toEqual([]);
+    // The link comes back and the car is still answering: still the same trip
+    expect(d.update(on(195 * S, 50, 2000))).toEqual([]);
+    expect(d.recording).toBe(true);
+    // ...and a real silence afterwards still ends it, 20 s after the last answer
+    expect(d.update(off(205 * S))).toEqual([]);
+    expect(d.update(off(216 * S))).toEqual([{ type: 'end', at: 195 * S, reason: 'car-off', keep: true }]);
+  });
+
+  it('does not count a stall as silence when the car then really answers NO DATA', () => {
+    const d = new TripDetector();
+    d.update(on(0, 50, 2000));
+    for (let t = 5; t <= 60; t += 5) d.update(on(t * S, 50, 2000));
+    for (let t = 65; t <= 100; t += 5) d.update(stalled(t * S));
+    // The adapter is back but the car says nothing: only the silence since then counts, not the stall
+    expect(d.update(off(105 * S))).toEqual([]);
+    expect(d.update(off(110 * S))).toEqual([]);
+  });
+
+  it('ends the trip after a long grace when the adapter never comes back, at the last time the car answered', () => {
+    const d = new TripDetector();
+    d.update(on(0, 50, 2000));
+    d.update(on(60 * S, 50, 2000));
+    let events: ReturnType<TripDetector['update']> = [];
+    let t = 65;
+    for (; t < 600 && events.length === 0; t += 5) events = d.update(stalled(t * S));
+    expect(events).toEqual([{ type: 'end', at: 60 * S, reason: 'disconnected', keep: true }]);
+    expect((t - 5) * S - 60 * S).toBeGreaterThanOrEqual(DEFAULT_TRIP_OPTIONS.linkGraceMs);
+  });
+});
+
+describe('warm-up in a parking spot is not a trip', () => {
+  it('drops an automatic trip that never moved', () => {
+    const d = new TripDetector();
+    // A cold hybrid in READY idling at speed 0 for two minutes, engine cycling
+    expect(d.update(on(0, 0, 1200))).toEqual([{ type: 'start', at: 0 }]);
+    for (let t = 5; t <= 120; t += 5) d.update(on(t * S, 0, 1200));
+    expect(d.update(off(130 * S))).toEqual([]);
+    expect(d.update(off(141 * S))).toEqual([{ type: 'end', at: 120 * S, reason: 'car-off', keep: false }]);
+  });
+
+  it('keeps a trip that moved at some point, and one the user started by hand', () => {
+    const d = new TripDetector();
+    d.update(on(0, 0, 1200));
+    for (let t = 5; t <= 100; t += 5) d.update(on(t * S, t === 50 ? 12 : 0, 1200));
+    d.update(off(110 * S));
+    expect(d.update(off(125 * S))[0]).toMatchObject({ keep: true });
+
+    d.startManual(1000 * S);
+    d.update(on(1010 * S, 0, 0));
+    expect(d.stop(1100 * S, 'manual')[0]).toMatchObject({ keep: true });
+  });
+
+  it('cannot judge a car that reports no speed, so keeps its trips', () => {
+    const d = new TripDetector();
+    const noSpeed = (at: number): TripReading => ({ at, ecuAlive: true, speedKmh: null, rpm: 1500 });
+    d.update(noSpeed(0));
+    d.update(noSpeed(100 * S));
+    d.update(off(110 * S));
+    expect(d.update(off(125 * S))[0]).toMatchObject({ keep: true });
   });
 });

@@ -438,7 +438,15 @@ describe('fault codes', () => {
     const elm = new Elm327(link);
     await elm.initialize();
     const r = await readFaultCodes(elm, true);
-    expect(r).toEqual({ stored: ['P0133', 'P0420', 'P0A80'], pending: ['P0171'], permanent: [], checked: true });
+    expect(r).toEqual({
+      stored: ['P0133', 'P0420', 'P0A80'],
+      pending: ['P0171'],
+      permanent: [],
+      checked: true,
+      // Both modules fully answered, and each code says which module it came from
+      modules: ['7E0', '7E2'],
+      codeModules: { P0133: ['7E0'], P0420: ['7E0'], P0171: ['7E0'], P0A80: ['7E2'] },
+    });
     // Absent modules are skipped after the first question
     expect(link.sent.filter((c) => c === '07')).toHaveLength(2);
   });
@@ -453,9 +461,22 @@ describe('fault codes', () => {
     expect(await readFaultCodes(silent, true)).toMatchObject({ stored: [], checked: false });
   });
 
+  it('does not count a module as having answered when it left out its pending codes', async () => {
+    const elm = new Elm327(car({
+      '7E0': { '03': '4300', '07': '4700' },
+      '7E2': { '03': '43010A80' }, // the hybrid module gave its confirmed codes but nothing for mode 07
+    }));
+    await elm.initialize();
+    const r = await readFaultCodes(elm, true);
+    expect(r.stored).toEqual(['P0A80']);
+    // Its code is known, but nothing may be concluded about what is missing from it
+    expect(r.modules).toEqual(['7E0']);
+    expect(r.codeModules).toEqual({ P0A80: ['7E2'] });
+  });
+
   it('merges readings from the same drive', () => {
     const a = { stored: ['P0420'], pending: ['P0171'], permanent: [], checked: true };
     const b = { stored: ['P0171'], pending: [], permanent: [], checked: false };
-    expect(mergeReadouts(a, b)).toEqual({ stored: ['P0171', 'P0420'], pending: [], permanent: [], checked: true });
+    expect(mergeReadouts(a, b)).toEqual({ stored: ['P0171', 'P0420'], pending: [], permanent: [], checked: true, modules: [], codeModules: {} });
   });
 });

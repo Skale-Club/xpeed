@@ -22,10 +22,18 @@ export interface VehicleIssue {
   created_at: string;
 }
 
-export interface IssueDetails {
+/** Extra facts kept on a problem: an AI warning's own wording, or which car modules report a fault code. */
+export type IssueDetails = AiIssueDetails | CodeIssueDetails;
+
+export interface AiIssueDetails {
   source: 'ai';
   meaning: string;
   action: string;
+}
+
+export interface CodeIssueDetails {
+  source: 'dtc';
+  modules: string[];
 }
 
 export interface IssueOccurrence {

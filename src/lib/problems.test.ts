@@ -95,6 +95,46 @@ describe('syncFaultCodes', () => {
   });
 });
 
+describe('syncFaultCodes with several modules', () => {
+  const at = (h: number) => `2026-10-29T${String(h).padStart(2, '0')}:00:00.000Z`;
+
+  it('only closes a code when the module that reported it answered and no longer lists it', async () => {
+    const { syncFaultCodes } = await import('./issue-reconciler');
+    const car = 'car-modules';
+
+    // A hybrid with an engine code (7E0) and a hybrid-system code (7E2); both modules answered.
+    await syncFaultCodes(car, 'u1', {
+      stored: ['P0420', 'P0A80'], pending: [], checked: true,
+      modules: ['7E0', '7E2'], codeModules: { P0420: ['7E0'], P0A80: ['7E2'] },
+    }, 's1', at(8));
+    expect(issueFor(car, 'dtc:P0A80')).toMatchObject({ status: 'active', details: { source: 'dtc', modules: ['7E2'] } });
+
+    // Next read: the engine module answers (no codes) but the hybrid module timed out.
+    // Its code must not look fixed just because it wasn't heard from.
+    const r2 = await syncFaultCodes(car, 'u1', { stored: [], pending: [], checked: true, modules: ['7E0'], codeModules: {} }, 's2', at(10));
+    expect(r2.resolved).toBe(1);
+    expect(issueFor(car, 'dtc:P0420')).toMatchObject({ status: 'resolved', resolved_note: CODE_GONE_NOTE });
+    expect(issueFor(car, 'dtc:P0A80')).toMatchObject({ status: 'active' });
+
+    // Both answer and the hybrid code is really gone
+    const r3 = await syncFaultCodes(car, 'u1', { stored: [], pending: [], checked: true, modules: ['7E0', '7E2'], codeModules: {} }, 's3', at(12));
+    expect(r3.resolved).toBe(1);
+    expect(issueFor(car, 'dtc:P0A80')).toMatchObject({ status: 'resolved' });
+  });
+
+  it('remembers every module that reported a code, and needs them all to close it', async () => {
+    const { syncFaultCodes } = await import('./issue-reconciler');
+    const car = 'car-two-modules';
+    await syncFaultCodes(car, 'u1', { stored: ['U0100'], pending: [], checked: true, modules: ['7E0'], codeModules: { U0100: ['7E0'] } }, 's1', at(8));
+    await syncFaultCodes(car, 'u1', { stored: ['U0100'], pending: [], checked: true, modules: ['7E1'], codeModules: { U0100: ['7E1'] } }, 's2', at(9));
+    expect(issueFor(car, 'dtc:U0100')).toMatchObject({ details: { modules: ['7E0', '7E1'] } });
+    await syncFaultCodes(car, 'u1', { stored: [], pending: [], checked: true, modules: ['7E0'], codeModules: {} }, 's3', at(10));
+    expect(issueFor(car, 'dtc:U0100')).toMatchObject({ status: 'active' });
+    await syncFaultCodes(car, 'u1', { stored: [], pending: [], checked: true, modules: ['7E0', '7E1'], codeModules: {} }, 's4', at(11));
+    expect(issueFor(car, 'dtc:U0100')).toMatchObject({ status: 'resolved' });
+  });
+});
+
 describe('syncAiWarnings', () => {
   beforeEach(async () => { await i18n.changeLanguage('pt-BR'); });
 

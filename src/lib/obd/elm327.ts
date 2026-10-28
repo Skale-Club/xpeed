@@ -202,33 +202,52 @@ export async function connectBleLink(onDisconnect: () => void, options: ConnectO
   const server = await connectGatt(device.gatt);
   device.addEventListener('gattserverdisconnected', onDisconnect);
 
+  // Anything failing after the GATT connection opened must close it again: some
+  // adapters take a single client and would refuse every later attempt until
+  // they are unplugged.
+  let closed = false;
+  const abandon = () => {
+    closed = true;
+    listeners.length = 0;
+    device.removeEventListener('gattserverdisconnected', onDisconnect);
+    try {
+      if (server.connected) server.disconnect();
+    } catch {
+      // already gone
+    }
+  };
+
   let notifyChar: BleCharacteristic | null = null;
   let writeChar: BleCharacteristic | null = null;
-  const services = await server.getPrimaryServices();
-  for (const service of services) {
-    const chars = await service.getCharacteristics();
-    const n = chars.find((c) => c.properties.notify || c.properties.indicate);
-    const w = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse);
-    if (n && w) {
-      notifyChar = n;
-      writeChar = w;
-      break;
-    }
-  }
-  if (!notifyChar || !writeChar) {
-    server.disconnect();
-    throw new Error('This device does not look like a BLE OBD2 adapter (no serial characteristics found).');
-  }
-
   const listeners: ((chunk: string) => void)[] = [];
-  const decoder = new TextDecoder();
-  notifyChar.addEventListener('characteristicvaluechanged', (event) => {
-    const value = (event.target as BleCharacteristic).value;
-    if (!value) return;
-    const chunk = decoder.decode(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
-    listeners.forEach((cb) => cb(chunk));
-  });
-  await notifyChar.startNotifications();
+  try {
+    const services = await server.getPrimaryServices();
+    for (const service of services) {
+      const chars = await service.getCharacteristics();
+      const n = chars.find((c) => c.properties.notify || c.properties.indicate);
+      const w = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse);
+      if (n && w) {
+        notifyChar = n;
+        writeChar = w;
+        break;
+      }
+    }
+    if (!notifyChar || !writeChar) {
+      throw new Error('This device does not look like a BLE OBD2 adapter (no serial characteristics found).');
+    }
+
+    const decoder = new TextDecoder();
+    notifyChar.addEventListener('characteristicvaluechanged', (event) => {
+      const value = (event.target as BleCharacteristic).value;
+      if (!value) return;
+      const chunk = decoder.decode(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      listeners.forEach((cb) => cb(chunk));
+    });
+    await notifyChar.startNotifications();
+  } catch (err) {
+    abandon();
+    throw err;
+  }
   rememberAdapter(device.id, device.name ?? '');
 
   const encoder = new TextEncoder();
@@ -237,6 +256,9 @@ export async function connectBleLink(onDisconnect: () => void, options: ConnectO
     name: device.name || 'OBD2 adapter',
     device,
     async write(data: string) {
+      // A closed link never writes again, even from a loop that hasn't noticed yet:
+      // after a reconnect those writes would reach the new connection.
+      if (closed) throw new Error('The Bluetooth link is closed.');
       const bytes = encoder.encode(data);
       for (let i = 0; i < bytes.length; i += BLE_CHUNK) {
         const part = bytes.slice(i, i + BLE_CHUNK);
@@ -250,10 +272,7 @@ export async function connectBleLink(onDisconnect: () => void, options: ConnectO
     onData(cb) {
       listeners.push(cb);
     },
-    close() {
-      device.removeEventListener('gattserverdisconnected', onDisconnect);
-      if (server.connected) server.disconnect();
-    },
+    close: abandon,
   };
 }
 
@@ -297,17 +316,34 @@ function functionalHeader(protocol: string): string | null {
 // Status lines the ELM327 prints that carry no data.
 const NOISE_LINES = /^(SEARCHING\.\.\.|BUS INIT:?\s*(\.\.\.)?\s*(OK)?)$/i;
 
+/** After a timeout, how long to wait for the late reply's prompt before nudging the adapter. */
+const RESYNC_WAIT_MS = 1200;
+
+const isOk = (lines: string[]) => lines.some((l) => /\bOK\b/i.test(l));
+
+export interface Elm327Options {
+  /** How long to wait for a late reply after a timeout (ms); tests shorten it. */
+  resyncMs?: number;
+}
+
 export class Elm327 {
   private buffer = '';
   private pending: { resolve: (lines: string[]) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  /** Header the adapter is currently addressing, and the broadcast one to return to. */
+  /** Header the adapter is currently addressing (null = unknown), and the broadcast one to return to. */
   private header: string | null = null;
   private defaultHeader: string | null = null;
-  /** Explicit CAN receive filter (ATCRA), or null when the adapter's automatic one is active. */
+  /** Explicit CAN receive filter (ATCRA), null when the adapter's automatic one is active, '?' when unknown. */
   private receive: string | null = null;
+  /** A command timed out: its reply may still arrive and would be read as the next command's. */
+  private desynced = false;
+  private lastCmd = '';
+  /** Called when a prompt arrives while no command is waiting (a late reply, or the answer to a nudge). */
+  private promptWaiter: (() => void) | null = null;
+  private resyncMs: number;
 
-  constructor(private link: ObdLink) {
+  constructor(private link: ObdLink, options: Elm327Options = {}) {
+    this.resyncMs = options.resyncMs ?? RESYNC_WAIT_MS;
     link.onData((chunk) => this.handleData(chunk));
   }
 
@@ -318,7 +354,12 @@ export class Elm327 {
     const raw = this.buffer.slice(0, idx);
     this.buffer = this.buffer.slice(idx + 1);
     const p = this.pending;
-    if (!p) return; // late reply to a command that already timed out
+    if (!p) {
+      // Late reply to a command that already timed out: it ends here, and
+      // whoever is resyncing can move on.
+      this.promptWaiter?.();
+      return;
+    }
     this.pending = null;
     clearTimeout(p.timer);
     p.resolve(
@@ -329,17 +370,57 @@ export class Elm327 {
     );
   }
 
-  private exec(cmd: string, timeoutMs: number): Promise<string[]> {
+  /** Resolves true when a prompt arrives within `ms`, false otherwise. */
+  private waitForPrompt(ms: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.promptWaiter = null;
+        resolve(false);
+      }, ms);
+      this.promptWaiter = () => {
+        clearTimeout(timer);
+        this.promptWaiter = null;
+        resolve(true);
+      };
+    });
+  }
+
+  /**
+   * After a timeout the adapter may still be working on the old command and
+   * answer it later. Wait for that prompt (nudging a silent adapter once)
+   * before sending anything, or the late reply would be read as the answer to
+   * the next command and every reply after it would be off by one.
+   */
+  private async resync(): Promise<void> {
+    const settled = await this.waitForPrompt(this.resyncMs);
+    // A bare CR makes the adapter repeat its last command: never after a clear (mode 04).
+    if (!settled && this.lastCmd !== '04') {
+      try {
+        await this.link.write('\r');
+        await this.waitForPrompt(this.resyncMs);
+      } catch {
+        // the link is gone; the next command will fail on its own
+      }
+    }
+    this.buffer = '';
+    this.desynced = false;
+  }
+
+  private async exec(cmd: string, timeoutMs: number): Promise<string[]> {
+    if (this.desynced) await this.resync();
     return new Promise<string[]>((resolve, reject) => {
       this.buffer = '';
+      this.lastCmd = cmd;
       const timer = setTimeout(() => {
         this.pending = null;
+        this.desynced = true;
         reject(new ElmTimeoutError(cmd));
       }, timeoutMs);
       this.pending = { resolve, timer };
       this.link.write(`${cmd}\r`).catch((err) => {
         clearTimeout(timer);
         this.pending = null;
+        this.desynced = true;
         reject(err);
       });
     });
@@ -368,16 +449,34 @@ export class Elm327 {
       }
       const target = header ?? this.defaultHeader;
       if (target && target !== this.header) {
-        await this.exec(`ATSH${target}`, timeoutMs);
-        this.header = target;
+        await this.configure(`ATSH${target}`, timeoutMs, () => { this.header = target; }, () => { this.header = null; });
       }
       const receive = header ? receiveAddressFor(header) : null;
       if (receive !== this.receive) {
-        await this.exec(receive ? `ATCRA${receive}` : 'ATAR', timeoutMs);
-        this.receive = receive;
+        await this.configure(receive ? `ATCRA${receive}` : 'ATAR', timeoutMs, () => { this.receive = receive; }, () => { this.receive = '?'; });
       }
       return this.exec(cmd, timeoutMs);
     });
+  }
+
+  /**
+   * Change the adapter's addressing. The cached state only follows what the
+   * adapter confirmed with OK; on a missing or refused reply it is marked
+   * unknown, so the request is not sent to the wrong ECU and the change is tried again.
+   */
+  private async configure(cmd: string, timeoutMs: number, apply: () => void, forget: () => void): Promise<void> {
+    let ok: boolean;
+    try {
+      ok = isOk(await this.exec(cmd, timeoutMs));
+    } catch (err) {
+      forget(); // it may or may not have taken the change
+      throw err;
+    }
+    if (!ok) {
+      forget();
+      throw new Error(`The adapter did not accept ${cmd}.`);
+    }
+    apply();
   }
 
   /** Reset the adapter and configure it for parsing. Works with the car off. Returns the ELM version. */
@@ -424,12 +523,11 @@ export class Elm327 {
   private resetAddressing(): Promise<void> {
     return this.enqueue(async () => {
       if (this.defaultHeader && this.header !== this.defaultHeader) {
-        await this.exec(`ATSH${this.defaultHeader}`, 3000);
-        this.header = this.defaultHeader;
+        const target = this.defaultHeader;
+        await this.configure(`ATSH${target}`, 3000, () => { this.header = target; }, () => { this.header = null; });
       }
       if (this.receive) {
-        await this.exec('ATAR', 3000);
-        this.receive = null;
+        await this.configure('ATAR', 3000, () => { this.receive = null; }, () => { this.receive = '?'; });
       }
     });
   }

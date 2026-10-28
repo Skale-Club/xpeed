@@ -18,7 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { syncFaultCodes } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
 import type { DtcReadout, LiveChannel } from '@/hooks/use-obd-scanner';
-import { useObd } from '@/contexts/ObdScannerContext';
+import { useObd, useObdLive } from '@/contexts/ObdScannerContext';
 import { formatValue } from '@/lib/obd/format';
 import { channelLabel } from '@/lib/obd/pid-names';
 import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
@@ -61,7 +61,8 @@ export default function ScannerPage() {
   const { user } = useAuth();
   const scanner = useObd();
   const { customPids, updateCustomPids } = scanner;
-  const { status, connection, channels, values, cycleMs } = scanner;
+  const { status, connection, channels } = scanner;
+  const { values, cycleMs } = useObdLive();
 
   const [dtcs, setDtcs] = useState<DtcReadout | null>(null);
   const [vin, setVin] = useState<string | null | undefined>(undefined);

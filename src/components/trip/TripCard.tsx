@@ -5,7 +5,7 @@ import { Play, Square, Loader2, Bluetooth, BluetoothOff, Moon, CheckCircle2, Che
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { useObd } from '@/contexts/ObdScannerContext';
+import { useObd, useObdLive } from '@/contexts/ObdScannerContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
 import { AndroidAppDownload, IphoneNoBluetooth } from '@/components/InstallApp';
@@ -30,7 +30,8 @@ function elapsed(from: Date, now: number) {
 export function TripCard() {
   const { t } = useTranslation();
   const obd = useObd();
-  const { status, recording, values, alwaysOn, setAlwaysOn, canStayOn, savingTrip, lastTrip, linkFailed, error } = obd;
+  const { status, recording, alwaysOn, setAlwaysOn, canStayOn, savingTrip, lastTrip, linkFailed, error } = obd;
+  const { values } = useObdLive();
   const { distanceUnit } = useSettings();
   const [help, setHelp] = useState(false);
   const [now, setNow] = useState(Date.now());
