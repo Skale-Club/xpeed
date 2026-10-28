@@ -11,14 +11,21 @@ const TONE_TEXT: Record<GaugeTone, string> = {
   cold: 'text-[hsl(var(--chart-blue))]',
 };
 
-// Half-circle arc (radius 40) drawn from left to right.
-const ARC = 'M 10 50 A 40 40 0 0 1 90 50';
-const ARC_LENGTH = Math.PI * 40;
+const TONE_BG: Record<GaugeTone, string> = {
+  primary: 'bg-primary',
+  success: 'bg-success',
+  warn: 'bg-warn',
+  danger: 'bg-destructive',
+  cold: 'bg-[hsl(var(--chart-blue))]',
+};
+
+const PILLS = 5;
 
 /**
- * One big reading on the trip card: the number over a half-circle dial that
- * fills with the value, colored by how things are (e.g. engine warming up,
- * normal, hot), with a short word for it when there is one.
+ * One big reading on the trip card: the number over a row of pills that light
+ * up with the value (any value above the minimum lights at least one), colored
+ * by how things are (e.g. engine warming up, normal, hot), with a short word
+ * for it when there is one.
  */
 export function QuickGauge({
   value, unit, label, min = 0, max, tone = 'primary', status,
@@ -32,23 +39,20 @@ export function QuickGauge({
   status?: string | null;
 }) {
   const fraction = value == null ? 0 : Math.min(1, Math.max(0, (value - min) / (max - min)));
+  const lit = fraction > 0 ? Math.max(1, Math.round(fraction * PILLS)) : 0;
   return (
-    <div className="relative flex flex-col items-center rounded-xl bg-background/60 px-2 pb-2.5 pt-2" data-testid="quick-gauge">
-      <svg viewBox="0 0 100 56" className={cn('w-full max-w-[120px]', TONE_TEXT[tone])} aria-hidden>
-        <path d={ARC} fill="none" stroke="hsl(var(--border))" strokeWidth="7" strokeLinecap="round" />
-        <path
-          d={ARC}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="7"
-          strokeLinecap="round"
-          strokeDasharray={`${fraction * ARC_LENGTH} ${ARC_LENGTH}`}
-          className="transition-[stroke-dasharray] duration-700 ease-out"
-        />
-      </svg>
-      <p className="-mt-8 text-2xl font-bold leading-none tracking-tight tabular-nums sm:text-3xl">{formatValue(value, unit)}</p>
-      <p className="mt-1.5 text-[11px] text-muted-foreground">{label}</p>
-      <p className={cn('mt-0.5 h-4 text-[11px] font-semibold', TONE_TEXT[tone])}>{status ?? ''}</p>
+    <div className="flex flex-col items-center rounded-xl bg-background/60 px-2.5 pb-2.5 pt-3" data-testid="quick-gauge">
+      <p className="text-2xl font-bold leading-none tracking-tight tabular-nums sm:text-3xl">{formatValue(value, unit)}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
+      <div className="mt-2.5 flex w-full gap-[3px] px-0.5" aria-hidden>
+        {Array.from({ length: PILLS }, (_, i) => (
+          <span
+            key={i}
+            className={cn('h-1.5 min-w-0 flex-1 rounded-full transition-colors duration-500', i < lit ? TONE_BG[tone] : 'bg-border')}
+          />
+        ))}
+      </div>
+      <p className={cn('mt-1.5 h-4 text-[11px] font-semibold', TONE_TEXT[tone])}>{status ?? ''}</p>
     </div>
   );
 }

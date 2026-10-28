@@ -21,6 +21,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the native-change check below compares with older commits.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -56,8 +59,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
 
-      - name: Collect APK
-        run: cp android/app/build/outputs/apk/release/app-release.apk xpeed.apk
+      - name: Collect offline APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk xpeed-offline.apk
 
       # Second variant: the app loads the production site instead of the bundled
       # copy, so web changes reach phones without reinstalling (capacitor.config.ts).
@@ -74,24 +77,42 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
 
-      - name: Collect live-site APK
-        run: cp android/app/build/outputs/apk/release/app-release.apk xpeed-live.apk
+      # The default download: loads the deployed site, so every web deploy reaches
+      # phones without reinstalling. Only native changes need a new APK.
+      - name: Collect live-site APK (default)
+        run: cp android/app/build/outputs/apk/release/app-release.apk xpeed.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: xpeed-apk-${{ github.run_number }}
           path: |
             xpeed.apk
-            xpeed-live.apk
+            xpeed-offline.apk
 
       - name: Publish to the android-latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="Build ${{ github.run_number }} from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Install on Android: open this link on the phone and allow installing from the browser."
+          # "Native build" = the last build whose native side changed (Android project,
+          # Capacitor config or plugins). The live-site app only asks to update when it
+          # is older than that; web changes reach it without a new APK.
+          run=${{ github.run_number }}
+          prev=$(gh release view android-latest --json body -q .body 2>/dev/null || true)
+          native_run=$(echo "$prev" | grep -oE 'Native build [0-9]+' | grep -oE '[0-9]+' || true)
+          native_sha=$(echo "$prev" | grep -oE 'Native build [0-9]+ @ [0-9a-f]+' | grep -oE '[0-9a-f]+$' || true)
+          changed=yes
+          if [ -n "$native_sha" ] && git cat-file -e "$native_sha^{commit}" 2>/dev/null; then
+            changed=no
+            git diff --quiet "$native_sha" HEAD -- android capacitor.config.ts || changed=yes
+            if git diff "$native_sha" HEAD -- package.json | grep -q '@capacitor'; then changed=yes; fi
+          fi
+          if [ "$changed" = yes ]; then native_run=$run; native_sha=${GITHUB_SHA::7}; fi
+          notes="Build $run from ${{ github.ref_name }} @ ${GITHUB_SHA::7}. Native build $native_run @ $native_sha. Install on Android: open this link on the phone and allow installing from the browser."
           if ! gh release view android-latest >/dev/null 2>&1; then
             gh release create android-latest --prerelease --title "Xpeed Android (latest)" --notes "$notes" --target "$GITHUB_SHA"
           else
             gh release edit android-latest --notes "$notes"
           fi
-          gh release upload android-latest xpeed.apk xpeed-live.apk --clobber
+          gh release upload android-latest xpeed.apk xpeed-offline.apk --clobber
+          # Old name of the live-site APK, now xpeed.apk.
+          gh release delete-asset android-latest xpeed-live.apk -y 2>/dev/null || true
