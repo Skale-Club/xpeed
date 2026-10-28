@@ -50,6 +50,21 @@ function getValues(rows: Record<string, number | string | null>[], key: string):
     .filter((v): v is number => typeof v === 'number' && !isNaN(v));
 }
 
+// Single-pass min/max. Avoids Math.min(...arr)/Math.max(...arr), which throw
+// "RangeError: Maximum call stack size exceeded" when spreading the very large
+// arrays produced by long OBD logs (summaries run on the full, pre-downsampled
+// CSV). Callers guard against empty input; returns ±Infinity if empty, matching
+// the previous Math.min/Math.max behaviour.
+function minMax(arr: number[]): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of arr) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+
 function median(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
@@ -70,13 +85,14 @@ export function computeParameterSummaries(
     const label = mapping?.label || header;
     const unit = mapping?.unit || '';
 
+    const { min, max } = minMax(values);
     summaries.push({
       canonical_key: canonicalKey,
       parameter_key: header,
       label,
       unit,
-      min: Math.min(...values),
-      max: Math.max(...values),
+      min,
+      max,
       avg: values.reduce((a, b) => a + b, 0) / values.length,
       median: median(values),
       count: values.length,
@@ -102,8 +118,7 @@ export function evaluateRules(
     const values = getValues(parsed.rows, matchingHeader);
     if (values.length === 0) continue;
 
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    const { min, max } = minMax(values);
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
 
     // Check critical
