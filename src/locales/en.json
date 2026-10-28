@@ -180,8 +180,6 @@
       "codes": "Codes",
       "tools": "Tools"
     },
-    "search": "Search a reading",
-    "noMatch": "No reading matches.",
     "connected": "Connected",
     "notConnectedTitle": "Connect the adapter",
     "codesHint": "Reads every module of the car. Whatever it finds also goes to Problems.",

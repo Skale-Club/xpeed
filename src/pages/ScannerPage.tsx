@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Bluetooth, BluetoothConnected, Loader2, ScanSearch, Eraser, Fingerprint, Info, Search,
+  Bluetooth, BluetoothConnected, Loader2, ScanSearch, Eraser, Fingerprint, Info,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import DTCPanel from '@/components/DTCPanel';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -22,26 +21,33 @@ import type { DtcReadout, LiveChannel } from '@/hooks/use-obd-scanner';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { formatValue } from '@/lib/obd/format';
 import { channelLabel } from '@/lib/obd/pid-names';
+import { QuickGauge, coolantTone } from '@/components/trip/QuickGauge';
 import { CustomPidsCard } from '@/components/scanner/CustomPidsCard';
 import { TerminalCard } from '@/components/scanner/TerminalCard';
 import { EcuScanCard } from '@/components/scanner/EcuScanCard';
 
 type Tab = 'readings' | 'codes' | 'tools';
 
-/** One reading as a row: name on the left, value on the right, a thin bar for where it sits in its range. */
-function ReadingRow({ label, channel, value }: { label: string; channel: LiveChannel; value: number | null | undefined }) {
+// The three readings everyone understands get a big dial at the top.
+const HEADLINE_PIDS = [0x0c, 0x0d, 0x05];
+
+/** A reading as a dashboard tile: name, big value, and a thin bar for where it sits in its range. */
+function ReadingTile({ label, channel, value }: { label: string; channel: LiveChannel; value: number | null | undefined }) {
   const pct = value == null ? 0 : ((value - channel.min) / (channel.max - channel.min)) * 100;
   return (
-    <div className="px-4 py-3" data-testid="reading-row">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="min-w-0 truncate text-sm text-muted-foreground" title={label}>{label}</p>
-        <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">
+    <div
+      className={`flex flex-col justify-between gap-2 rounded-xl border border-border bg-card p-3 ${value == null ? 'opacity-50' : ''}`}
+      data-testid="reading-tile"
+    >
+      <p className="line-clamp-2 text-xs leading-snug text-muted-foreground" title={label}>{label}</p>
+      <div>
+        <p className="text-2xl font-bold leading-none tabular-nums text-foreground">
           <span>{formatValue(value, channel.unit)}</span>
           <span className="ml-1 text-xs font-normal text-muted-foreground">{channel.unit}</span>
         </p>
-      </div>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+        </div>
       </div>
     </div>
   );
@@ -60,7 +66,6 @@ export default function ScannerPage() {
   const [vin, setVin] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState<'dtc' | 'clear' | 'vin' | null>(null);
   const [tab, setTab] = useState<Tab>('readings');
-  const [query, setQuery] = useState('');
 
   // Reset diagnostics when the connection goes away.
   useEffect(() => {
@@ -103,9 +108,15 @@ export default function ScannerPage() {
     await readAndSync();
   });
 
-  const shown = channels
-    .map((ch) => ({ ch, label: channelLabel(ch, t) }))
-    .filter(({ label }) => label.toLowerCase().includes(query.trim().toLowerCase()));
+  // Dashboard: the big three as dials, then every other reading as a tile,
+  // the ones the car is answering first.
+  const headline = HEADLINE_PIDS
+    .map((pid) => channels.find((ch) => ch.def?.pid === pid))
+    .filter((ch): ch is LiveChannel => !!ch);
+  const others = channels
+    .filter((ch) => !headline.includes(ch))
+    .map((ch) => ({ ch, label: channelLabel(ch, t), value: values[ch.header] }))
+    .sort((a, b) => Number(a.value == null) - Number(b.value == null));
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'readings', label: t('scanner.tabs.readings', 'Readings') },
@@ -218,25 +229,33 @@ export default function ScannerPage() {
               channels.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">{t('scanner.noPids', 'The ECU did not report any supported parameters.')}</p>
               ) : (
-                <div className="space-y-3">
-                  {channels.length > 6 && (
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder={t('scanner.search', 'Search a reading')}
-                        aria-label={t('scanner.search', 'Search a reading')}
-                        className="pl-9"
-                      />
+                <div className="space-y-3" data-testid="readings-dashboard">
+                  {headline.length > 0 && (
+                    <Card>
+                      <CardContent className="grid grid-cols-3 gap-2 p-3">
+                        {headline.map((ch) => {
+                          const value = values[ch.header] ?? null;
+                          const coolant = ch.def?.pid === 0x05;
+                          return (
+                            <QuickGauge
+                              key={ch.header}
+                              value={value}
+                              unit={ch.unit}
+                              label={channelLabel(ch, t)}
+                              min={coolant ? 40 : ch.min}
+                              max={coolant ? 120 : ch.def?.pid === 0x0c ? 6000 : ch.max}
+                              tone={coolant ? coolantTone(value) : 'primary'}
+                            />
+                          );
+                        })}
+                      </CardContent>
+                    </Card>
+                  )}
+                  {others.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {others.map(({ ch, label, value }) => <ReadingTile key={ch.header} label={label} channel={ch} value={value} />)}
                     </div>
                   )}
-                  <Card className="overflow-hidden">
-                    <div className="divide-y divide-border">
-                      {shown.map(({ ch, label }) => <ReadingRow key={ch.header} label={label} channel={ch} value={values[ch.header]} />)}
-                    </div>
-                    {shown.length === 0 && <p className="p-4 text-center text-sm text-muted-foreground">{t('scanner.noMatch', 'No reading matches.')}</p>}
-                  </Card>
                 </div>
               )
             )}

@@ -180,8 +180,6 @@
       "codes": "Códigos",
       "tools": "Herramientas"
     },
-    "search": "Buscar una lectura",
-    "noMatch": "Ninguna lectura con ese nombre.",
     "connected": "Conectado",
     "notConnectedTitle": "Conecta el adaptador",
     "codesHint": "Lee todos los módulos del coche. Lo que encuentre también va a Problemas.",
