@@ -82,7 +82,7 @@ export function tripProblems(flags: SessionFlag[], dtcs: string[] | null | undef
   return Array.from(byKey.values());
 }
 
-const PRODUCTION_URL = 'https://xpeed-skaleclub.vercel.app';
+const PRODUCTION_URL = 'https://xpeed.skale.club';
 
 /** Base URL for links people open elsewhere (the Android app runs on https://localhost). */
 export function publicAppUrl(): string {
