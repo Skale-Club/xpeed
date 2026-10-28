@@ -393,5 +393,62 @@
         "action": "This can come from misfires or a rich mixture. Book a check-up."
       }
     }
+  },
+  "home": {
+    "title": "Home",
+    "lastTrip": "Last trip",
+    "allTrips": "See all trips",
+    "technical": "Technical details",
+    "import": "Have a recording from another app (Car Scanner, Torque)?",
+    "importAction": "Import a file",
+    "importTitle": "Import a recording",
+    "health": {
+      "ok": "All good",
+      "okHint": "No problems found.",
+      "watch": "Keep an eye on it",
+      "urgent": "See a mechanic",
+      "urgentHint": "Something needs attention soon.",
+      "lastCheck": "Last checked on a trip on {{when}}.",
+      "noTrips": "No trips yet — start one below to check your car.",
+      "see": "See"
+    },
+    "totals": {
+      "trips": "Trips",
+      "distance": "Distance",
+      "time": "Time driving"
+    }
+  },
+  "history": {
+    "title": "Trips",
+    "loadFailed": "Couldn't load your trips",
+    "renameFailed": "Couldn't rename the trip",
+    "deleteFailed": "Couldn't delete the trip",
+    "empty": "No trips yet",
+    "emptyHint": "Connect the adapter and drive — trips are saved here by themselves.",
+    "noProblems": "All good",
+    "problems_one": "{{count}} problem",
+    "problems_other": "{{count}} problems",
+    "rename": "Rename",
+    "delete": "Delete",
+    "renameTitle": "Rename trip",
+    "newName": "Trip name",
+    "deleteTitle": "Delete this trip?",
+    "deleteBody": "Its data and charts will be removed. The car's problem list keeps its history."
+  },
+  "tripDetail": {
+    "shareText": "Report of my car: {{title}}",
+    "linkCopied": "Link copied",
+    "linkCopiedHint": "Paste it in a message to your mechanic. It works for 30 days.",
+    "shareFailed": "Couldn't create the link",
+    "notFound": "Trip not found.",
+    "home": "Go to Home",
+    "back": "Back",
+    "duration": "Duration",
+    "distance": "Distance",
+    "avgSpeed": "Average speed",
+    "problemsTitle": "Problems in this trip",
+    "noProblems": "Nothing wrong was found on this trip.",
+    "allProblems": "See all of the car's problems",
+    "share": "Send to the mechanic"
   }
 }

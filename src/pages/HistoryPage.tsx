@@ -1,476 +1,206 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { ChevronRight, Pencil, Trash2, Route, Play } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
+import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import SessionKPIs from '@/components/SessionKPIs';
-import FlagsPanel from '@/components/FlagsPanel';
-import SessionCharts from '@/components/SessionCharts';
-import { getSessions, getSessionFlags, getSessionRows, deleteSession, updateSession, downloadSessionCSV } from '@/lib/db';
-import { DEFAULT_PRIUS_RULES } from '@/lib/default-rules';
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { PageLoader } from '@/components/PageLoader';
-import { AlertTriangle, AlertCircle, CheckCircle, ChevronRight, ChevronLeft, History as HistoryIcon, Car, ArrowRight, Trash2, Pencil, Check, X, Download, Loader2, ChevronsRight, ChevronsLeft } from 'lucide-react';
-import { toast } from 'sonner';
-import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
+import { useToast } from '@/hooks/use-toast';
+import { deleteSession, getFlagsForSessions, getSessions, updateSession } from '@/lib/db';
+import { formatDistance, formatDuration, formatTripDate, tripDate, tripDistanceKm, tripProblems, tripTitle } from '@/lib/trips';
+import type { Session, SessionFlag } from '@/types/session';
 
-// Lightweight rule shape consumed by the SessionCharts component. The full
-// schema lives in lib/default-rules.ts; we only need a structural alias here
-// to avoid leaking `any` into component props.
-type ChartRule = Record<string, unknown>;
+type Trip = Session & { active_dtcs?: string[] | null };
 
 export default function HistoryPage() {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const { selectedCarId, selectedCar } = useCarsContext();
-  const { timezone } = useSettings();
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [flagCounts, setFlagCounts] = useState<Record<string, { attention: number; critical: number }>>({});
+  const { distanceUnit } = useSettings();
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [flags, setFlags] = useState<Record<string, SessionFlag[]>>({});
   const [loading, setLoading] = useState(true);
-  const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
-
-  // Session navigation state
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [displayedSession, setDisplayedSession] = useState<Session | null>(null);
-  const [flags, setFlags] = useState<SessionFlag[]>([]);
-  const [rows, setRows] = useState<SessionRow[]>([]);
-  const [rules, setRules] = useState<ChartRule[]>([]);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-
-  // Editing state
-  const [isEditingName, setIsEditingName] = useState(false);
+  const [renaming, setRenaming] = useState<Trip | null>(null);
   const [newName, setNewName] = useState('');
-  const [downloadingCsv, setDownloadingCsv] = useState(false);
+  const [deleting, setDeleting] = useState<Trip | null>(null);
 
-  // Right column collapse state — persisted across reloads
-  const [insightsCollapsed, setInsightsCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('xpeed_insights_collapsed') === '1'; } catch { return false; }
-  });
   useEffect(() => {
-    try { localStorage.setItem('xpeed_insights_collapsed', insightsCollapsed ? '1' : '0'); } catch { /* ignore */ }
-  }, [insightsCollapsed]);
-
-  // Reset editing when session changes
-  useEffect(() => {
-    setIsEditingName(false);
-    setNewName('');
-  }, [selectedIndex, displayedSession?.id]);
-
-  const handleSaveName = async () => {
-    if (!displayedSession || !newName.trim()) return;
-    try {
-      await updateSession(displayedSession.id, { source_filename: newName.trim() });
-      
-      // Update local state
-      const updatedSession = { ...displayedSession, source_filename: newName.trim() };
-      setDisplayedSession(updatedSession);
-      setSessions(prev => prev.map(s => s.id === displayedSession.id ? updatedSession : s));
-      
-      toast.success('Session renamed successfully');
-      setIsEditingName(false);
-    } catch (error) {
-      console.error('Failed to rename session:', error);
-      toast.error('Failed to rename session');
-    }
-  };
-
-  const handleDownloadSessionCsv = async (session: Session & { source_csv?: string | null }) => {
-    setDownloadingCsv(true);
-    try {
-      await downloadSessionCSV(session.source_file_path, session.source_filename, session.source_csv, session.id);
-    } catch (error) {
-      console.error('Failed to download CSV:', error);
-      toast.error('Failed to download CSV');
-    } finally {
-      setDownloadingCsv(false);
-    }
-  };
-
-  // Load session list
-  useEffect(() => {
+    let cancelled = false;
     (async () => {
       setLoading(true);
       if (!selectedCarId) {
+        setTrips([]);
         setLoading(false);
         return;
       }
-
-      const s = (await getSessions(selectedCarId)) as unknown as Session[];
-      setSessions(s);
-      setSelectedIndex(0);
-
-      // Load flag counts for history list
-      const counts: Record<string, { attention: number; critical: number }> = {};
-      await Promise.all(
-        s.slice(0, 50).map(async (session) => {
-          const flagsForSession = await getSessionFlags(session.id);
-          counts[session.id] = {
-            attention: flagsForSession.filter((f) => f.severity === 'attention').length,
-            critical: flagsForSession.filter((f) => f.severity === 'critical').length,
-          };
-        })
-      );
-      setFlagCounts(counts);
-      setLoading(false);
-    })();
-  }, [selectedCarId]);
-
-  // Load details for selected session
-  useEffect(() => {
-    (async () => {
-      if (sessions.length === 0 || selectedIndex < 0 || selectedIndex >= sessions.length) {
-        setDisplayedSession(null);
-        return;
-      }
-
-      setDetailsLoading(true);
-      const session = sessions[selectedIndex];
-      setDisplayedSession(session);
-      
       try {
-        const [f, r] = await Promise.all([
-          getSessionFlags(session.id),
-          getSessionRows(session.id),
-        ]);
-        setFlags(f as unknown as SessionFlag[]);
-        setRows(r as unknown as SessionRow[]);
-        setRules(DEFAULT_PRIUS_RULES as unknown as ChartRule[]);
-      } catch (error) {
-        console.error("Error loading session details:", error);
+        const list = ((await getSessions(selectedCarId)) as unknown as Trip[])
+          .sort((a, b) => tripDate(b).getTime() - tripDate(a).getTime());
+        if (cancelled) return;
+        setTrips(list);
+        const all = (await getFlagsForSessions(list.slice(0, 100).map((s) => s.id))) as unknown as SessionFlag[];
+        if (cancelled) return;
+        const grouped: Record<string, SessionFlag[]> = {};
+        for (const f of all) (grouped[f.session_id] ??= []).push(f);
+        setFlags(grouped);
+      } catch (err) {
+        console.error(err);
+        toast({ title: t('history.loadFailed', "Couldn't load your trips"), variant: 'destructive' });
       } finally {
-        setDetailsLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [selectedIndex, sessions, selectedCarId]);
+    return () => { cancelled = true; };
+  }, [selectedCarId, t, toast]);
 
-  const formatDuration = (s: number | null) => {
-    if (!s) return '-';
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
-  };
-
-  const summary = displayedSession?.summary as (SessionSummary & { headerMapping?: Record<string, string> }) | null | undefined;
-  const headerMapping = summary?.headerMapping || {};
-  const summaries = summary?.summaries || [];
-
-  const handleDeleteSession = async () => {
-    if (!deleteSessionId) return;
-    
+  const saveName = async () => {
+    if (!renaming || !newName.trim()) return;
     try {
-      await deleteSession(deleteSessionId);
-      setSessions(prev => prev.filter(s => s.id !== deleteSessionId));
-      if (displayedSession?.id === deleteSessionId) {
-        setDisplayedSession(null);
-        setSelectedIndex(0);
-      }
-      toast.success('Session deleted successfully');
-    } catch (error) {
-      console.error('Failed to delete session:', error);
-      toast.error('Failed to delete session');
-    } finally {
-      setDeleteSessionId(null);
+      await updateSession(renaming.id, { source_filename: newName.trim() });
+      setTrips((prev) => prev.map((s) => (s.id === renaming.id ? { ...s, source_filename: newName.trim() } : s)));
+      setRenaming(null);
+    } catch (err) {
+      console.error(err);
+      toast({ title: t('history.renameFailed', "Couldn't rename the trip"), variant: 'destructive' });
     }
   };
 
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    try {
+      await deleteSession(deleting.id);
+      setTrips((prev) => prev.filter((s) => s.id !== deleting.id));
+    } catch (err) {
+      console.error(err);
+      toast({ title: t('history.deleteFailed', "Couldn't delete the trip"), variant: 'destructive' });
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <PageLoader fullScreen={false} />
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout>
-      <div className="space-y-8">
-        {/* Session Details Panel — 2-column layout:
-            left (2/3): header + filename + KPIs + Key Parameters
-            right (1/3, collapsible): stacked action buttons + Insights panel */}
-        {displayedSession && (
-          <div className={`grid grid-cols-1 gap-6 ${insightsCollapsed ? 'lg:grid-cols-1' : 'lg:grid-cols-3'}`}>
-            {/* Left column */}
-            <div className={`space-y-4 ${insightsCollapsed ? '' : 'lg:col-span-2'}`}>
-              <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <HistoryIcon className="w-5 h-5 text-primary" />
-                  <h2 className="text-lg font-mono font-bold text-foreground">Session Details</h2>
-                </div>
+      <div className="max-w-3xl space-y-4">
+        <div>
+          <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
+          {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
+        </div>
 
-                {/* When right column is collapsed, surface the actions inline so they stay reachable */}
-                {insightsCollapsed && (
-                  <div className="flex items-center gap-1 ml-auto">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs h-7"
-                      onClick={() => handleDownloadSessionCsv(displayedSession)}
-                      disabled={downloadingCsv}
-                    >
-                      {downloadingCsv ? (
-                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                      ) : (
-                        <Download className="w-3 h-3 mr-1" />
-                      )}
-                      CSV
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-xs text-primary hover:text-primary h-7"
-                      onClick={() => navigate(`/session/${displayedSession.id}`)}
-                    >
-                      Full Analysis <ArrowRight className="w-3 h-3 ml-1" />
-                    </Button>
-                  </div>
-                )}
-
-                {/* Collapse / expand the right column. Persists across reloads. */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-7 w-7 ${insightsCollapsed ? '' : 'ml-auto'}`}
-                  onClick={() => setInsightsCollapsed((c) => !c)}
-                  title={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
-                  aria-label={insightsCollapsed ? 'Expand Insights panel' : 'Collapse Insights panel'}
-                >
-                  {insightsCollapsed ? <ChevronsLeft className="w-4 h-4" /> : <ChevronsRight className="w-4 h-4" />}
-                </Button>
-
-                {sessions.length > 1 && (
-                  <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5 border border-border/50">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      disabled={selectedIndex >= sessions.length - 1}
-                      onClick={() => setSelectedIndex(i => i + 1)}
-                      title="Older Session"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </Button>
-                    <span className="text-xs font-mono text-muted-foreground px-2 min-w-[3rem] text-center select-none">
-                      {selectedIndex + 1} / {sessions.length}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      disabled={selectedIndex <= 0}
-                      onClick={() => setSelectedIndex(i => i - 1)}
-                      title="Newer Session"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                {isEditingName ? (
-                  <div className="flex items-center gap-1 mb-1">
-                    <Input
-                      className="h-7 w-[250px] text-xs font-mono"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      placeholder="Session Name"
-                    />
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSaveName}>
-                      <Check className="h-3.5 w-3.5 text-success" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setIsEditingName(false)}>
-                      <X className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 group/name mb-1">
-                    <h3 className="text-sm font-bold font-mono text-foreground">{displayedSession.source_filename}</h3>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-6 w-6 opacity-0 group-hover/name:opacity-100 transition-opacity"
-                      onClick={() => {
-                        setNewName(displayedSession.source_filename);
-                        setIsEditingName(true);
-                      }}
-                    >
-                      <Pencil className="h-3 w-3 text-muted-foreground" />
-                    </Button>
-                  </div>
-                )}
-                <div className="text-xs text-muted-foreground font-mono">
-                  {new Date(displayedSession.session_start || displayedSession.uploaded_at).toLocaleString(undefined, { timeZone: timezone })}
-                </div>
-              </div>
-
-              {detailsLoading ? (
-                <div className="h-[400px] flex items-center justify-center border border-dashed border-border rounded-lg">
-                  <PageLoader fullScreen={false} />
-                </div>
-              ) : (
-                <>
-                  <SessionKPIs
-                    duration={displayedSession.duration_seconds}
-                    rowCount={displayedSession.row_count}
-                    parameterCount={summaries.length}
-                    attentionCount={flags.filter((f) => f.severity === 'attention').length}
-                    criticalCount={flags.filter((f) => f.severity === 'critical').length}
-                  />
-
-                  <div>
-                    <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Key Parameters</h3>
-                    <SessionCharts rows={rows} headerMapping={headerMapping} rules={rules} />
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Right column — stacked action buttons + Insights. Collapsible. */}
-            {!insightsCollapsed && (
-              <div className="space-y-4">
-                <div className="flex flex-col gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs justify-start"
-                    onClick={() => handleDownloadSessionCsv(displayedSession)}
-                    disabled={downloadingCsv}
-                  >
-                    {downloadingCsv ? (
-                      <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                    ) : (
-                      <Download className="w-3 h-3 mr-2" />
-                    )}
-                    Download CSV
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate(`/session/${displayedSession.id}`)}
-                    className="text-xs text-primary hover:text-primary justify-start"
-                  >
-                    Full Analysis <ArrowRight className="w-3 h-3 ml-2" />
-                  </Button>
-                </div>
-
-                {!detailsLoading && (
-                  <div>
-                    <h3 className="text-sm font-mono font-semibold text-foreground mb-3">Insights</h3>
-                    <FlagsPanel flags={flags} limit={5} />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* History List */}
-        <div className="space-y-4 pt-4 border-t border-border/50">
-          <div className="flex items-center gap-2">
-            <HistoryIcon className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-mono font-bold text-foreground">Session History</h2>
-          </div>
-          
-          {loading && <PageLoader fullScreen={false} className="h-64" />}
-
-          {!loading && !selectedCarId && (
-          <Card className="bg-card border-border">
-            <CardContent className="py-12 text-center">
-              <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-mono font-semibold text-foreground mb-2">No Vehicle Selected</h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                Please select a vehicle to view its session history.
-              </p>
-              <Button size="sm" onClick={() => navigate('/cars')}>
-                Manage Vehicles
+        {trips.length === 0 ? (
+          <Card>
+            <CardContent className="py-10 text-center space-y-3">
+              <Route className="w-10 h-10 text-muted-foreground/40 mx-auto" />
+              <p className="font-medium">{t('history.empty', 'No trips yet')}</p>
+              <p className="text-sm text-muted-foreground">{t('history.emptyHint', 'Connect the adapter and drive — trips are saved here by themselves.')}</p>
+              <Button onClick={() => navigate('/')}>
+                <Play className="w-4 h-4 mr-2" /> {t('trip.start', 'Start trip')}
               </Button>
             </CardContent>
           </Card>
-        )}
-
-        {selectedCarId && !loading && sessions.length === 0 && (
-          <Card className="bg-card border-border">
-            <CardContent className="py-12 text-center">
-              <p className="text-muted-foreground text-sm">No sessions for {selectedCar?.name} yet.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="space-y-2">
-          {sessions.map(session => {
-            const counts = flagCounts[session.id] || { attention: 0, critical: 0 };
-            const hasIssues = counts.attention > 0 || counts.critical > 0;
-
-            return (
-              <Card
-                key={session.id}
-                className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer group"
-                onClick={() => navigate(`/session/${session.id}`)}
-              >
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-2 h-2 rounded-full ${
-                      counts.critical > 0 ? 'bg-destructive' :
-                      counts.attention > 0 ? 'bg-warn' : 'bg-success'
-                    }`} />
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{session.source_filename}</p>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {new Date(session.session_start || session.uploaded_at).toLocaleDateString(undefined, { timeZone: timezone })} · {session.row_count} rows · {formatDuration(session.duration_seconds)}
-                      </p>
+        ) : (
+          <div className="space-y-2">
+            {trips.map((trip) => {
+              const problems = tripProblems(flags[trip.id] ?? [], trip.active_dtcs);
+              const urgent = problems.some((p) => p.severity === 'critical');
+              const facts = [
+                formatDuration(trip.duration_seconds),
+                formatDistance(tripDistanceKm(trip), distanceUnit),
+              ].filter(Boolean);
+              return (
+                <Card key={trip.id} data-testid="trip-row">
+                  <CardContent className="p-0 flex items-center">
+                    <Link to={`/session/${trip.id}`} className="flex-1 min-w-0 flex items-center gap-3 p-3 hover:bg-accent/40 rounded-l-lg">
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${problems.length === 0 ? 'bg-success' : urgent ? 'bg-destructive' : 'bg-warn'}`}
+                        aria-hidden
+                      />
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{tripTitle(trip, t, i18n.resolvedLanguage)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {[formatTripDate(tripDate(trip), i18n.resolvedLanguage), ...facts].join(' · ')}
+                        </p>
+                        <p className={`text-xs ${problems.length === 0 ? 'text-success' : urgent ? 'text-destructive' : 'text-warn'}`}>
+                          {problems.length === 0
+                            ? t('history.noProblems', 'All good')
+                            : t('history.problems', { count: problems.length, defaultValue: '{{count}} problems' })}
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto shrink-0" />
+                    </Link>
+                    <div className="flex flex-col border-l border-border">
+                      <Button
+                        size="icon" variant="ghost" className="h-9 w-9 rounded-none"
+                        aria-label={t('history.rename', 'Rename')}
+                        onClick={() => { setRenaming(trip); setNewName(tripTitle(trip, t, i18n.resolvedLanguage)); }}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        size="icon" variant="ghost" className="h-9 w-9 rounded-none text-muted-foreground hover:text-destructive"
+                        aria-label={t('history.delete', 'Delete')}
+                        onClick={() => setDeleting(trip)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {counts.critical > 0 && (
-                      <span className="flex items-center gap-1 text-xs text-destructive">
-                        <AlertCircle className="w-3 h-3" /> {counts.critical}
-                      </span>
-                    )}
-                    {counts.attention > 0 && (
-                      <span className="flex items-center gap-1 text-xs text-warn">
-                        <AlertTriangle className="w-3 h-3" /> {counts.attention}
-                      </span>
-                    )}
-                    {!hasIssues && <CheckCircle className="w-4 h-4 text-success" />}
-                    
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteSessionId(session.id);
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
-      
-      <AlertDialog open={!!deleteSessionId} onOpenChange={(open) => !open && setDeleteSessionId(null)}>
+
+      <Dialog open={!!renaming} onOpenChange={(open) => !open && setRenaming(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('history.renameTitle', 'Rename trip')}</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            aria-label={t('history.newName', 'Trip name')}
+            onKeyDown={(e) => { if (e.key === 'Enter') void saveName(); }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenaming(null)}>{t('common.cancel', 'Cancel')}</Button>
+            <Button onClick={() => void saveName()} disabled={!newName.trim()}>{t('common.save', 'Save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>{t('history.deleteTitle', 'Delete this trip?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the session and all associated data.
+              {t('history.deleteBody', "Its data and charts will be removed. The car's problem list keeps its history.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteSession} className="bg-destructive hover:bg-destructive/90">
-              Delete
-            </AlertDialogAction>
+            <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmDelete()}>{t('history.delete', 'Delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

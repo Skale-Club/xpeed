@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getSessions, getSessionFlags, getFlagsForSessions } from '@/lib/db';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, Upload } from 'lucide-react';
+import { ArrowRight, Gauge, Car, Activity, Clock, AlertTriangle, AlertCircle, CheckCircle, Calendar, ExternalLink, CheckSquare, Square, ChevronDown, ChevronUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { subDays } from 'date-fns';
 import { toast } from 'sonner';
@@ -21,7 +21,8 @@ import { useObd } from '@/contexts/ObdScannerContext';
 import HealthGauge from '@/components/HealthGauge';
 import StatCard from '@/components/StatCard';
 import { supabase } from '@/integrations/supabase/client';
-import { useViewMode } from '@/hooks/use-view-mode';
+import { useTranslation } from 'react-i18next';
+import { CarHealthCard, LastTripSummary, TripTotals } from '@/components/home/HomeCards';
 
 interface DashboardStats {
   totalSessions: number;
@@ -66,7 +67,14 @@ const Index = () => {
     healthScore: 100,
     problems: [] as SessionFlag[]
   });
-  const { mode: viewMode, toggle: toggleViewMode, isAdvanced } = useViewMode();
+  const { t } = useTranslation();
+  // Technical sections are closed by default; remember the choice on this device.
+  const [showTechnical, setShowTechnical] = useState<boolean>(() => {
+    try { return localStorage.getItem('xpeed.home.technical') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('xpeed.home.technical', showTechnical ? '1' : '0'); } catch { /* ignore */ }
+  }, [showTechnical]);
 
   // First-run redirect: brand-new users with 0 cars should land in the
   // onboarding wizard, not on a blank dashboard. We honor a localStorage flag
@@ -405,188 +413,123 @@ const Index = () => {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
-        {/* Mobile-first: active flags banner above everything else */}
+      <div className="space-y-5 max-w-4xl">
         <ProblemsBanner problems={openProblems} />
 
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-mono font-bold text-foreground">
-              {selectedCar?.name || 'Dashboard'}
-            </h2>
-            <p className="text-xs text-muted-foreground font-mono mt-1">
-              Vehicle Health Overview
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-[150px] bg-card border-border h-9 text-xs">
-                <Calendar className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
-                <SelectValue placeholder="Date Range" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7d">Last 7 Days</SelectItem>
-                <SelectItem value="30d">Last 30 Days</SelectItem>
-                <SelectItem value="90d">Last 3 Months</SelectItem>
-                <SelectItem value="all">All Time</SelectItem>
-              </SelectContent>
-            </Select>
-            {allSessions.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-9 text-xs gap-1.5"
-                onClick={() => setIsUploadOpen(true)}
-              >
-                <Upload className="w-3.5 h-3.5" />
-                Upload
-              </Button>
-            )}
-            {allSessions.length > 0 && (
-              <Button
-                size="sm"
-                variant={isAdvanced ? 'default' : 'outline'}
-                className="h-9 text-xs gap-1.5"
-                onClick={toggleViewMode}
-                title={isAdvanced ? 'Switch to Simple view' : 'Switch to Advanced view'}
-              >
-                <Activity className="w-3.5 h-3.5" />
-                {isAdvanced ? 'Simple' : 'Advanced'}
-              </Button>
-            )}
-            {stats.lastUpload && (
-              <div className="text-right hidden sm:block">
-                <p className="text-xs text-muted-foreground font-mono">Last Sync</p>
-                <p className="text-sm font-medium text-foreground">
-                  {stats.lastUpload.toLocaleDateString(undefined, { timeZone: timezone })}
-                </p>
+        <h2 className="text-2xl font-bold text-foreground">{selectedCar?.name || t('home.title', 'Home')}</h2>
+
+        {/* 1. Is my car OK? */}
+        <CarHealthCard problems={openProblems} lastTrip={allSessions[0] ?? null} />
+
+        {/* 2. The one action: start / follow a trip */}
+        <TripCard />
+
+        {/* 3. Last trip and totals */}
+        {allSessions.length > 0 && (
+          <>
+            <LastTripSummary session={allSessions[0]} />
+            <TripTotals sessions={allSessions} />
+          </>
+        )}
+
+        <p className="text-sm text-muted-foreground">
+          {t('home.import', 'Have a recording from another app (Car Scanner, Torque)?')}{' '}
+          <button type="button" className="text-primary hover:underline" onClick={() => setIsUploadOpen(true)}>
+            {t('home.importAction', 'Import a file')}
+          </button>
+        </p>
+
+        <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+          <DialogContent className="sm:max-w-md max-sm:top-4 max-sm:translate-y-0 max-sm:left-3 max-sm:right-3 max-sm:w-auto max-sm:max-w-none max-h-[calc(100dvh-6rem)] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{t('home.importTitle', 'Import a recording')}</DialogTitle>
+            </DialogHeader>
+            <UploadCard onComplete={handleUploadComplete} carProfileId={selectedCarId || undefined} />
+          </DialogContent>
+        </Dialog>
+
+        {/* Everything technical stays one tap away, closed by default */}
+        {allSessions.length > 0 && (
+          <div className="border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => setShowTechnical((v) => !v)}
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              aria-expanded={showTechnical}
+            >
+              {showTechnical ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              {t('home.technical', 'Technical details')}
+            </button>
+
+            {showTechnical && (
+              <div className="space-y-6 mt-4">
+                <Select value={dateRange} onValueChange={setDateRange}>
+                  <SelectTrigger className="w-[150px] bg-card border-border h-9 text-xs">
+                    <Calendar className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <SelectValue placeholder="Date Range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7d">Last 7 Days</SelectItem>
+                    <SelectItem value="30d">Last 30 Days</SelectItem>
+                    <SelectItem value="90d">Last 3 Months</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {stats.totalSessions === 0 ? (
+                  <p className="text-sm text-muted-foreground">No sessions in the selected period.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-4 sm:gap-6 items-center">
+                      <div className="flex justify-center">
+                        <HealthGauge score={generalStats.healthScore} status={stats.status} size={140} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                        <StatCard icon={Activity} label="Sessions" value={stats.totalSessions} />
+                        <StatCard
+                          icon={Gauge}
+                          label={distanceUnit === 'mi' ? 'Miles' : 'Kilometers'}
+                          value={Math.round(generalStats.totalDistance).toLocaleString()}
+                        />
+                        <StatCard icon={Clock} label="Drive Time" value={`${Math.round(stats.totalDurationSeconds / 60)}`} unit="min" />
+                        <StatCard
+                          icon={AlertTriangle}
+                          label="Active Issues"
+                          value={openProblems.length}
+                          tone={openProblems.length > 0 ? (openProblems.some(p => p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
+                          onClick={() => navigate('/issues')}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <LatestTripCard
+                        sessions={allSessions}
+                        onUploadClick={() => setIsUploadOpen(true)}
+                        onSessionUpdate={loadDashboard}
+                      />
+                      <GeneralInfoCard
+                        stats={{ ...generalStats, problemCount: openProblems.length }}
+                        onProblemsClick={() => navigate('/issues')}
+                      />
+                    </div>
+
+                    <AdaptiveMetricsSection
+                      engineType={selectedCar?.engine_type}
+                      latestSession={allSessions[0] ?? null}
+                      carId={selectedCarId || ''}
+                    />
+
+                    <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />
+                  </>
+                )}
               </div>
             )}
           </div>
-        </div>
-
-        {/* Start / follow a trip with the Bluetooth adapter — the main way in */}
-        <TripCard />
-
-        {/* True empty state — no sessions ever uploaded */}
-        {allSessions.length === 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2">
-              <UploadCard onComplete={handleUploadComplete} carProfileId={selectedCarId || undefined} />
-            </div>
-            <Card className="bg-card border-border">
-              <CardContent className="p-4 flex flex-col justify-center h-full">
-                <div className="flex items-center gap-2 mb-2">
-                  <Gauge className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-mono font-semibold text-foreground">Quick Start</h3>
-                </div>
-                <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
-                  <li>Export CSV from Car Scanner</li>
-                  <li>Drop it on the upload area</li>
-                  <li>View instant health analysis</li>
-                </ol>
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          <>
-          {/* No sessions in selected period — but data exists */}
-          {stats.totalSessions === 0 && (
-            <Card className="bg-card border-border">
-              <CardContent className="py-10 text-center space-y-3">
-                <Calendar className="w-10 h-10 text-muted-foreground/40 mx-auto" />
-                <p className="text-sm font-mono text-muted-foreground">
-                  No sessions in the selected period.
-                </p>
-                <Button size="sm" variant="outline" onClick={() => setDateRange('all')}>
-                  Show All Time
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* At-a-glance: health gauge + key KPIs (mobile-first: stacks vertically) */}
-          {stats.totalSessions > 0 && <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-4 sm:gap-6 mb-6 items-center">
-            <div className="flex justify-center">
-              <HealthGauge score={generalStats.healthScore} status={stats.status} size={140} />
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:gap-3">
-              <StatCard
-                icon={Activity}
-                label="Sessions"
-                value={stats.totalSessions}
-              />
-              <StatCard
-                icon={Gauge}
-                label={distanceUnit === 'mi' ? 'Miles' : 'Kilometers'}
-                value={Math.round(generalStats.totalDistance).toLocaleString()}
-              />
-              <StatCard
-                icon={Clock}
-                label="Drive Time"
-                value={`${Math.round(stats.totalDurationSeconds / 60)}`}
-                unit="min"
-              />
-              <StatCard
-                icon={AlertTriangle}
-                label="Active Issues"
-                value={openProblems.length}
-                tone={openProblems.length > 0 ? (openProblems.some(p => p.severity === 'critical') ? 'critical' : 'warn') : 'success'}
-                onClick={() => navigate('/issues')}
-              />
-            </div>
-          </div>}
-
-          {/* KPI Cards */}
-          {stats.totalSessions > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <LatestTripCard
-              sessions={allSessions}
-              onUploadClick={() => setIsUploadOpen(true)}
-              onSessionUpdate={loadDashboard}
-            />
-            <GeneralInfoCard
-              stats={{ ...generalStats, problemCount: openProblems.length }}
-              onProblemsClick={() => navigate('/issues')}
-            />
-          </div>
-          )}
-
-          <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-              <DialogContent className="sm:max-w-md max-sm:top-4 max-sm:translate-y-0 max-sm:left-3 max-sm:right-3 max-sm:w-auto max-sm:max-w-none max-h-[calc(100dvh-6rem)] overflow-y-auto">
-                  <DialogHeader>
-                      <DialogTitle>Upload New Session</DialogTitle>
-                  </DialogHeader>
-                  <UploadCard onComplete={handleUploadComplete} carProfileId={selectedCarId || undefined} />
-              </DialogContent>
-          </Dialog>
-
-
-          {/* Adaptive engine-type metrics */}
-          {stats.totalSessions > 0 && (
-            <AdaptiveMetricsSection
-              engineType={selectedCar?.engine_type}
-              latestSession={allSessions[0] ?? null}
-              carId={selectedCarId || ''}
-            />
-          )}
-
-          {/* Sensor Trends — advanced mode only */}
-          {stats.totalSessions > 0 && isAdvanced && (
-          <div className="space-y-4 mt-6">
-            <h3 className="text-sm font-mono font-semibold text-foreground flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" />
-              Detailed Analytics & Trends
-            </h3>
-            <DashboardCharts sessions={filteredSessions} engineType={selectedCar?.engine_type} />
-          </div>
-          )}
-        </>
-      )}
-    </div>
-  </AppLayout>
-);
+        )}
+      </div>
+    </AppLayout>
+  );
 };
 
 export default Index;

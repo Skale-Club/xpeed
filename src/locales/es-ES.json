@@ -392,5 +392,62 @@
         "action": "Puede deberse a fallos de encendido o mezcla rica. Pide una revisión."
       }
     }
+  },
+  "home": {
+    "title": "Inicio",
+    "lastTrip": "Último viaje",
+    "allTrips": "Ver todos los viajes",
+    "technical": "Detalles técnicos",
+    "import": "¿Tienes una grabación de otra app (Car Scanner, Torque)?",
+    "importAction": "Importar archivo",
+    "importTitle": "Importar grabación",
+    "health": {
+      "ok": "Todo bien",
+      "okHint": "No se encontraron problemas.",
+      "watch": "Vigílalo",
+      "urgent": "Acude a un taller",
+      "urgentHint": "Algo necesita atención pronto.",
+      "lastCheck": "Última revisión en un viaje el {{when}}.",
+      "noTrips": "Aún no hay viajes: empieza uno abajo para revisar tu coche.",
+      "see": "Ver"
+    },
+    "totals": {
+      "trips": "Viajes",
+      "distance": "Distancia",
+      "time": "Tiempo conduciendo"
+    }
+  },
+  "history": {
+    "title": "Viajes",
+    "loadFailed": "No se pudieron cargar tus viajes",
+    "renameFailed": "No se pudo renombrar el viaje",
+    "deleteFailed": "No se pudo borrar el viaje",
+    "empty": "Aún no hay viajes",
+    "emptyHint": "Conecta el adaptador y conduce: los viajes aparecen aquí solos.",
+    "noProblems": "Todo bien",
+    "problems_one": "{{count}} problema",
+    "problems_other": "{{count}} problemas",
+    "rename": "Renombrar",
+    "delete": "Borrar",
+    "renameTitle": "Renombrar viaje",
+    "newName": "Nombre del viaje",
+    "deleteTitle": "¿Borrar este viaje?",
+    "deleteBody": "Se eliminarán sus datos y gráficos. La lista de problemas del coche conserva el historial."
+  },
+  "tripDetail": {
+    "shareText": "Informe de mi coche: {{title}}",
+    "linkCopied": "Enlace copiado",
+    "linkCopiedHint": "Pégalo en un mensaje para tu mecánico. Vale durante 30 días.",
+    "shareFailed": "No se pudo crear el enlace",
+    "notFound": "Viaje no encontrado.",
+    "home": "Ir al Inicio",
+    "back": "Volver",
+    "duration": "Duración",
+    "distance": "Distancia",
+    "avgSpeed": "Velocidad media",
+    "problemsTitle": "Problemas en este viaje",
+    "noProblems": "No se encontró nada mal en este viaje.",
+    "allProblems": "Ver todos los problemas del coche",
+    "share": "Enviar al mecánico"
   }
 }
