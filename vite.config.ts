@@ -1,10 +1,25 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
+  // A production build without the Supabase settings compiles fine and then
+  // breaks at runtime (and the Android workflow would publish a broken APK).
+  // Fail the real build instead. Dev, tests (vitest.config.ts is separate) and
+  // the screen-test harness (fake Supabase) are not affected.
+  if (command === "build" && mode === "production" && !process.argv.some((a) => a.includes("harness"))) {
+    const env = { ...loadEnv(mode, process.cwd(), "VITE_"), ...process.env };
+    const missing = ["VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY"].filter((k) => !env[k]);
+    if (missing.length) {
+      throw new Error(
+        `Production build needs ${missing.join(" and ")} (set in the environment or in .env.production). ` +
+          "Refusing to build an app that cannot reach Supabase.",
+      );
+    }
+  }
+
   // Generated from branding/mark.svg with the other logos (`npm run brand`).
   const pwaIcons = [
     { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
@@ -37,10 +52,12 @@ export default defineConfig(({ mode }) => {
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
-      // Emit an external registerSW.js instead of an inline <script>, so the
-      // strict CSP (script-src 'self') doesn't block service-worker registration.
-      injectRegister: "script",
+      // "prompt": a new service worker waits until the app decides it is safe to
+      // swap (see src/lib/pwa-update.ts: never mid-trip). The app registers the
+      // worker itself via virtual:pwa-register in main.tsx, so no registerSW.js
+      // is injected (it only registered once and never looked for updates).
+      registerType: "prompt",
+      injectRegister: false,
       includeAssets: ["favicon.ico", "robots.txt"],
       manifest: {
         name: "Xpeed",
@@ -54,26 +71,21 @@ export default defineConfig(({ mode }) => {
         icons: pwaIcons,
       },
       workbox: {
-        // Don't try to precache the giant Recharts chunk on first paint.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        // Force the new SW to take control of all open tabs immediately so
-        // updates land without requiring a second reload after the SW fetches
-        // them. Without these flags, "autoUpdate" still leaves stale assets
-        // running until every tab is closed.
-        skipWaiting: true,
+        // The new worker must NOT take over by itself: swapping assets under a
+        // running trip recording (or half-loaded lazy chunks) is how stale-bundle
+        // errors happen. src/lib/pwa-update.ts sends SKIP_WAITING when it is safe.
+        skipWaiting: false,
+        // First install only: lets the worker control the page that registered it.
         clientsClaim: true,
-        // Avoid SW returning a stale index.html on hard refresh.
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            // Cache Supabase REST reads for offline session viewing.
+            // Logged-in Supabase REST responses are never cached: a cache keyed
+            // by URL showed stale data on slow networks (NetworkFirst fell back
+            // to it after 4 s) and kept one user's data around after logout.
             urlPattern: ({ url }) => url.hostname.endsWith(".supabase.co") && url.pathname.startsWith("/rest/"),
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "supabase-reads",
-              networkTimeoutSeconds: 4,
-              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 },
-            },
+            handler: "NetworkOnly",
           },
           {
             // NHTSA VIN decoder.
@@ -101,20 +113,18 @@ export default defineConfig(({ mode }) => {
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Recharts is the single biggest chunk (~390KB). Keep it isolated so
-          // it loads on demand for chart-heavy routes only.
-          recharts: ["recharts"],
-          // shadcn/Radix primitives.
-          "radix-ui": [
-            "@radix-ui/react-accordion", "@radix-ui/react-alert-dialog",
-            "@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-select", "@radix-ui/react-tabs",
-            "@radix-ui/react-tooltip", "@radix-ui/react-popover",
-            "@radix-ui/react-toast",
-          ],
-          supabase: ["@supabase/supabase-js"],
-          i18n: ["i18next", "react-i18next", "i18next-browser-languagedetector"],
+        // Function form so only the real chart libraries land in the chart
+        // chunk. With a fixed { recharts: ["recharts"] } list Rollup also put
+        // shared helpers (clsx) in it, so the entry bundle imported the 440 KB
+        // chart chunk and index.html preloaded it on every screen.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/node_modules[\\/](recharts|recharts-scale|d3-[^\\/]+|victory-vendor|internmap)[\\/]/.test(id)) return "recharts";
+          if (/node_modules[\\/](clsx|tailwind-merge|class-variance-authority)[\\/]/.test(id)) return "vendor-utils";
+          if (/node_modules[\\/]@radix-ui[\\/]/.test(id)) return "radix-ui";
+          if (/node_modules[\\/]@supabase[\\/]/.test(id)) return "supabase";
+          if (/node_modules[\\/](i18next|react-i18next|i18next-browser-languagedetector)[\\/]/.test(id)) return "i18n";
+          return undefined;
         },
       },
     },
