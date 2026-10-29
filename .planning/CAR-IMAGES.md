@@ -1,6 +1,6 @@
 # Car pictures in the app — to research and decide later
 
-Status: **idea, not started** (raised 2026-10-28).
+Status: **option 1 + 4 shipped 2026-10-29** (silhouette by body type in the car's colour, plus the owner's own photo). Paid render services stay an option for later.
 
 ## The idea
 Show a picture of the owner's car (make/model, ideally year) wherever the car appears
