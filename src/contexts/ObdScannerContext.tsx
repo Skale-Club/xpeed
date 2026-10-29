@@ -64,6 +64,8 @@ type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   setAlwaysOn: (on: boolean) => void;
   savingTrip: boolean;
   lastTrip: SavedTrip | null;
+  /** Car bound to the active recording, even if the owner browses another car. */
+  recordingCarId: string | null;
   /** The adapter is in a car that isn't in "My cars" yet (from its VIN). */
   newCarFound: CarIdentity | null;
   /** Add the car found by VIN (with the brand/model the owner typed when the VIN didn't tell) and switch to it. */
@@ -301,6 +303,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
   const obd = useObdScanner({ customPids, alwaysOn, onTripEnd: (trip) => void saveTrip(trip), onTripDropped: dropTrip });
   const { status, recording, getRecording, connect, linkOpen } = obd;
+  const [recordingCarId, setRecordingCarId] = useState<string | null>(null);
 
   // ---------- Which car is this? (by VIN) ----------
   // Switch to the car the adapter is plugged into, learn the VIN of the car in
@@ -314,7 +317,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       selectCar(id);
       toast({ title: t('vin.recognized', 'Recognized your {{name}}', { name }), variant: 'success' });
     }
-    if (currentTripRef.current) currentTripRef.current = { ...currentTripRef.current, carId: id };
+    if (currentTripRef.current) {
+      currentTripRef.current = { ...currentTripRef.current, carId: id };
+      setRecordingCarId(id);
+    }
   }, [selectCar, toast, t]);
 
   useEffect(() => {
@@ -370,7 +376,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // A trip started: remember which car it belongs to, and who recorded it.
   const recordingStart = recording?.startedAt.getTime() ?? null;
   useEffect(() => {
-    if (recordingStart != null) currentTripRef.current = { id: tripKey(recordingStart), carId: carIdRef.current, userId: userIdRef.current };
+    if (recordingStart != null) {
+      currentTripRef.current = { id: tripKey(recordingStart), carId: carIdRef.current, userId: userIdRef.current };
+      setRecordingCarId(carIdRef.current);
+    }
   }, [recordingStart]);
 
   // Back up the trip in progress: only what was recorded since the last backup is
@@ -465,8 +474,8 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => { void hideBackgroundService(); }, []);
 
   const value = useMemo(() => ({
-    ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, newCarFound, addFoundCar, dismissFoundCar, canStayOn,
-  }), [obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, newCarFound, addFoundCar, dismissFoundCar, canStayOn]);
+    ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn,
+  }), [obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn]);
 
   return (
     <ObdScannerContext.Provider value={value}>

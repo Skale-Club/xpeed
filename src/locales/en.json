@@ -605,7 +605,15 @@
     "pagination": "Trip pages",
     "previous": "Previous",
     "page": "Page",
-    "next": "Next"
+    "next": "Next",
+    "liveTrip": "Trip in progress",
+    "calendar": "Trip calendar",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "savedCount": "{{count}} completed trips",
+    "savedTrips": "Completed trips",
+    "noCompleted": "Completed trips will appear here after saving.",
+    "liveDay": "Go to recording day"
   },
   "tripDetail": {
     "shareText": "Report of my car: {{title}}",

@@ -605,7 +605,15 @@
     "pagination": "Páginas de viagens",
     "previous": "Anterior",
     "page": "Página",
-    "next": "Próxima"
+    "next": "Próxima",
+    "liveTrip": "Viagem em andamento",
+    "calendar": "Calendário de viagens",
+    "previousMonth": "Mês anterior",
+    "nextMonth": "Próximo mês",
+    "savedCount": "{{count}} viagens concluídas",
+    "savedTrips": "Viagens concluídas",
+    "noCompleted": "As viagens concluídas aparecerão aqui depois de salvas.",
+    "liveDay": "Ir para o dia da gravação"
   },
   "tripDetail": {
     "shareText": "Relatório do meu carro: {{title}}",

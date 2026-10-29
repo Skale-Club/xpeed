@@ -605,7 +605,15 @@
     "pagination": "Páginas de viajes",
     "previous": "Anterior",
     "page": "Página",
-    "next": "Siguiente"
+    "next": "Siguiente",
+    "liveTrip": "Viaje en curso",
+    "calendar": "Calendario de viajes",
+    "previousMonth": "Mes anterior",
+    "nextMonth": "Mes siguiente",
+    "savedCount": "{{count}} viajes completados",
+    "savedTrips": "Viajes completadas",
+    "noCompleted": "Los viajes completados aparecerán aquí después de guardarse.",
+    "liveDay": "Ir al día de grabación"
   },
   "tripDetail": {
     "shareText": "Informe de mi coche: {{title}}",

@@ -5,6 +5,8 @@ import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import HistoryPage from './HistoryPage';
 
+const obd = vi.hoisted(() => ({ recording: null as null | { active: boolean; startedAt: Date; manual: boolean }, recordingCarId: 'car-1', status: 'live', lastTrip: null as null | { sessionId: string }, savingTrip: false }));
+vi.mock('@/contexts/ObdScannerContext', () => ({ useObd: () => obd }));
 const db = vi.hoisted(() => ({
   getSessions: vi.fn(),
   getFlagsForSessions: vi.fn(),
@@ -36,9 +38,47 @@ beforeAll(async () => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  obd.recording = null; obd.recordingCarId = 'car-1'; obd.lastTrip = null; obd.savingTrip = false;
 });
 
 describe('HistoryPage', () => {
+  it('pins the active trip and marks its calendar day red even without completed trips', async () => {
+    obd.recording = { active: true, startedAt: new Date(), manual: false };
+    db.getSessions.mockResolvedValueOnce([]);
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>);
+    const active = screen.getByTestId('active-trip');
+    expect(within(active).getByText('Recording trip')).toBeInTheDocument();
+    expect(within(active).getByRole('link')).toHaveAttribute('href', '/live');
+    const day = screen.getByRole('button', { name: /Recording trip/ });
+    expect(day).toHaveClass('text-destructive');
+    fireEvent.click(day);
+    expect(day).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByText('Completed trips will appear here after saving.')).toBeInTheDocument();
+    expect(screen.queryByText('No trips yet')).not.toBeInTheDocument();
+  });
+
+  it('does not put another car’s recording into the selected car’s history', async () => {
+    obd.recording = { active: true, startedAt: new Date(), manual: false };
+    obd.recordingCarId = 'other-car';
+    db.getSessions.mockResolvedValueOnce([]);
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>);
+    expect(await screen.findByText('No trips yet')).toBeInTheDocument();
+    expect(screen.queryByTestId('active-trip')).not.toBeInTheDocument();
+  });
+
+  it('replaces the live entry with the completed trip when saving finishes', async () => {
+    obd.recording = { active: true, startedAt: new Date(), manual: false };
+    db.getSessions.mockResolvedValueOnce([]).mockResolvedValueOnce([TRIPS[1]]);
+    db.getFlagsForSessions.mockResolvedValue([]);
+    const view = render(<MemoryRouter><HistoryPage /></MemoryRouter>);
+    await screen.findByText('Completed trips will appear here after saving.');
+    obd.recording = null;
+    obd.lastTrip = { sessionId: 'new' };
+    view.rerender(<MemoryRouter><HistoryPage /></MemoryRouter>);
+    expect(await screen.findByText('Ida pra praia')).toBeInTheDocument();
+    expect(screen.queryByTestId('active-trip')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
+  });
   it('shows an empty state that leads to starting a trip', async () => {
     db.getSessions.mockResolvedValueOnce([]);
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);

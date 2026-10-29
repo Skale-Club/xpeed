@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Pencil, Trash2, Route, Play } from 'lucide-react';
@@ -21,6 +21,9 @@ import { deleteSession, getFlagsForSessions, getSessions, updateSession } from '
 import { formatDistance, formatDuration, tripDate, tripDistanceKm, tripProblems, tripTitle } from '@/lib/trips';
 import { formatAppDate } from '@/lib/app-date';
 import { tripDayKey } from '@/lib/trip-history';
+import { useObd } from '@/contexts/ObdScannerContext';
+import { ActiveTripRow } from '@/components/trip/ActiveTripRow';
+import { TripCalendar } from '@/components/trip/TripCalendar';
 import type { Session, SessionFlag } from '@/types/session';
 
 type Trip = Session & { active_dtcs?: string[] | null };
@@ -35,11 +38,18 @@ export default function HistoryPage() {
   const { toast } = useToast();
   const { selectedCarId, selectedCar } = useCarsContext();
   const { distanceUnit, timezone } = useSettings();
+  const { recording, recordingCarId, status, lastTrip, savingTrip } = useObd();
+  const active = recording?.active && recordingCarId === selectedCarId ? recording : null;
   const [params, setParams] = useSearchParams();
   const month = params.get('month') ?? '';
   const day = params.get('day') ?? '';
   const search = params.get('q') ?? '';
   const [trips, setTrips] = useState<Trip[]>([]);
+  const calendarDays = useMemo(() => {
+    const days = new Map<string, number>();
+    for (const trip of trips) { const key = tripDayKey(tripDate(trip), timezone); days.set(key, (days.get(key) ?? 0) + 1); }
+    return days;
+  }, [trips, timezone]);
   const filtered = trips.filter((trip) => {
     const date = tripDayKey(tripDate(trip), timezone);
     return (!month || date.startsWith(month)) && (!day || date === day) && (!search || tripTitle(trip, t).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
@@ -115,7 +125,7 @@ export default function HistoryPage() {
     })();
     return () => { cancelled = true; };
     // The list is for the car, not for the language: switching language must not refetch it.
-  }, [selectedCarId, toast, fetchFlags, retry]);
+  }, [selectedCarId, toast, fetchFlags, retry, lastTrip?.sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,14 +166,6 @@ export default function HistoryPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <AppLayout>
-        <PageLoader fullScreen={false} />
-      </AppLayout>
-    );
-  }
-
   return (
     <AppLayout>
       <div className="max-w-3xl space-y-4">
@@ -171,8 +173,10 @@ export default function HistoryPage() {
           <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
           {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
         </div>
+        {active && <ActiveTripRow startedAt={active.startedAt} waiting={status !== 'live'} />}
+        {!active && savingTrip && <p role="status" className="text-sm text-muted-foreground">{t('trip.saving', 'Saving your last trip…')}</p>}
 
-        {trips.length > 0 && <div className="space-y-3 rounded-xl border border-border p-3">
+        {(trips.length > 0 || active) && <div className="space-y-3 rounded-xl border border-border p-3">
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1 text-xs">{t('history.month', 'Month')}<Input type="month" value={month} onChange={(event) => changeFilter('month', event.target.value)} /></label>
             <label className="space-y-1 text-xs">{t('history.day', 'Calendar date')}<Input type="date" value={day} onChange={(event) => changeFilter('day', event.target.value)} /></label>
@@ -183,20 +187,21 @@ export default function HistoryPage() {
             {(month || day || search) && <Button variant="ghost" size="sm" onClick={() => setParams({})}>{t('history.clearFilters', 'Clear filters')}</Button>}
           </div>
         </div>}
+        {(trips.length > 0 || active) && <TripCalendar month={month} selectedDay={day} days={calendarDays} activeStart={active?.startedAt} timezone={timezone} onMonth={(value) => changeFilter('month', value)} onDay={(value) => changeFilter('day', value)} />}
             {filtered.length > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
               <label className="flex items-center gap-2 text-sm">{t('history.page', 'Page')}<select className="rounded border border-border bg-background p-2" value={page} onChange={(event) => goPage(Number(event.target.value))}>{Array.from({ length: pages }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pages}</option>)}</select></label>
               <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
             </nav>}
         {flagsFailed && <p role="alert" className="text-sm text-warn">{t('history.flagsFailed', 'Some problem checks could not be loaded. Pull down to retry.')}</p>}
-        {loadFailed ? (
+        {loading ? <PageLoader fullScreen={false} /> : loadFailed ? (
           <Card role="alert">
             <CardContent className="py-8 text-center space-y-3">
               <p>{t('history.loadFailed', "Couldn't load your trips")}</p>
               <Button onClick={() => setRetry((n) => n + 1)}>{t('problems.retry', 'Try again')}</Button>
             </CardContent>
           </Card>
-        ) : trips.length === 0 ? (
+        ) : trips.length === 0 && (active || savingTrip) ? <p className="text-sm text-muted-foreground">{t('history.noCompleted', 'Completed trips will appear here after saving.')}</p> : trips.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center space-y-3">
               <Route className="w-10 h-10 text-muted-foreground/40 mx-auto" />
