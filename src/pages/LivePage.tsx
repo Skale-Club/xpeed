@@ -5,12 +5,13 @@ import { readObdDiagnostics } from '@/lib/obd/diagnostic-log';
 import { formatValue } from '@/lib/obd/format';
 import { useTranslation } from 'react-i18next';
 import {
-  Activity, Bluetooth, Loader2, Maximize, Minimize, Circle, Square, Settings2, ArrowUp, ArrowDown, Trash2, Plus, RotateCcw,
+  Activity, Bluetooth, BluetoothOff, Loader2, Maximize, Minimize, Circle, Square, Settings2, ArrowUp, ArrowDown, Trash2, Plus, RotateCcw,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { rememberedAdapterName } from '@/lib/obd/elm327';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { channelLabel } from '@/lib/obd/pid-names';
@@ -50,6 +51,7 @@ export default function LivePage() {
   const [expanded, setExpanded] = useState<string | null>(() => searchParams.get('sensor'));
   const [timelineMs, setTimelineMs] = useState(5 * 60_000);
   const [diagnostics, setDiagnostics] = useState('');
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const sensorUnit = (header: string) => distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? 'mph' : byHeader.get(header)?.unit ?? header.match(/\(([^)]*)\)$/)?.[1] ?? '';
   const sensorValue = (header: string, value: number | null | undefined) => value == null ? null
     : distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? value * 0.621371 : value;
@@ -132,7 +134,7 @@ export default function LivePage() {
       const points = history.map((h) => ({ at: h.at, v: w.channel ? sensorValue(w.channel, h.values[w.channel]) : null }));
       return <ChartWidget label={label} unit={unit} points={points} now={chartNow} windowMs={CHART_WINDOW_MS} min={w.channel ? sensorValue(w.channel, ch?.min ?? 0) ?? 0 : 0} max={w.channel ? sensorValue(w.channel, ch?.def?.pid === 0x0c ? 6000 : ch?.max) ?? undefined : undefined} />;
     }
-    return <ValueWidget label={label} unit={unit} value={value} />;
+    return <ValueWidget label={label} unit={unit} value={value} min={w.channel ? sensorValue(w.channel, ch?.min) ?? undefined : undefined} max={w.channel ? sensorValue(w.channel, ch?.max) ?? undefined : undefined} />;
   };
 
   return (
@@ -144,10 +146,6 @@ export default function LivePage() {
             {t('live.title', 'Live panel')}
             {selectedCar && <span className="text-muted-foreground font-normal"> — {selectedCar.name}</span>}
           </h2>
-
-          {live && connection && (
-            <Badge variant="outline" className="max-w-[40vw] truncate">{connection.deviceName}</Badge>
-          )}
 
           {/* Says what it does: it starts, or ends, the recording of a trip. */}
           {live && (recording?.active ? (
@@ -223,6 +221,18 @@ export default function LivePage() {
           </div>
         )}
       </div>
+      {(obd.linkOpen || connection) && <Card className="mt-4" data-testid="adapter-connection">
+        <CardContent className="p-3">
+          <button type="button" className="flex w-full items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setConfirmDisconnect(true)}>
+            <Bluetooth className="h-5 w-5 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1"><span className="block text-xs text-muted-foreground">{t('live.adapter', 'OBD2 adapter')}</span><span className="block truncate font-semibold">{connection?.deviceName || rememberedAdapterName() || 'OBD2'}</span><span className="block text-xs text-muted-foreground">{connection?.transport === 'classic' ? 'Bluetooth Classic (SPP)' : connection?.transport === 'ble' ? 'Bluetooth LE (BLE)' : 'Bluetooth'}</span></span>
+            <span className="flex items-center gap-1 text-xs text-muted-foreground"><BluetoothOff className="h-4 w-4" />{t('scanner.disconnect', 'Disconnect')}</span>
+          </button>
+        </CardContent>
+      </Card>}
+      <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('live.disconnectTitle', 'Disconnect the adapter?')}</AlertDialogTitle><AlertDialogDescription>{t('live.disconnectHint', 'This closes the Bluetooth connection. An active trip recording will also end.')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel><AlertDialogAction onClick={obd.disconnect}>{t('scanner.disconnect', 'Disconnect')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
       {live && <details>
         <summary className="cursor-pointer py-3 text-sm font-semibold">{t('live.allSensors', 'All available sensors')} ({channels.length})</summary>
         <dl className="divide-y divide-border">{channels.map((channel) => <div key={channel.header} className="flex justify-between gap-3 py-2 text-sm">

@@ -37,6 +37,7 @@ export interface LiveChannel {
 
 export interface ScannerConnection extends ElmInfo {
   deviceName: string;
+  transport?: 'ble' | 'classic';
   /** Several PIDs per request (CAN only, verified at connect). */
   multiPid: boolean;
 }
@@ -509,7 +510,8 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
         }
         silent = 0;
         liveRef.current = true;
-        setConnection({ ...info, deviceName: link.name, multiPid: multiRef.current });
+        const transport = link.device && 'nativeId' in link.device && link.device.nativeId.startsWith('classic:') ? 'classic' : 'ble';
+        setConnection({ ...info, deviceName: link.name, multiPid: multiRef.current, transport });
         setStatus('live');
         // Check the car's fault codes each time it comes on, so trips carry them.
         faultRef.current = await readFaultCodes(elm, info.isCan);

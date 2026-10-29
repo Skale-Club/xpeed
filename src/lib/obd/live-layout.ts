@@ -36,13 +36,17 @@ const DEFAULT_VALUES = [
   'Throttle position (%)',
   'Intake air temperature (°C)',
   'Long term fuel trim B1 (%)',
+  'Short term fuel trim B1 (%)',
+  'Mass air flow (g/s)',
+  'Manifold absolute pressure (kPa)',
+  'Fuel level (%)',
 ];
 
 export function defaultLayout(available: string[]): LiveWidget[] {
   const has = (h: string) => available.includes(h);
   const widgets: LiveWidget[] = [
     ...DEFAULT_GAUGES.filter(has).map((channel) => ({ id: newWidgetId(), kind: 'gauge' as const, channel })),
-    ...DEFAULT_VALUES.filter(has).map((channel) => ({ id: newWidgetId(), kind: 'value' as const, channel })),
+    ...DEFAULT_VALUES.filter(has).slice(0, 6).map((channel) => ({ id: newWidgetId(), kind: 'value' as const, channel })),
   ];
   if (available.some((h) => HV_BLOCK_RE.test(h))) widgets.push({ id: newWidgetId(), kind: 'blocks' });
   widgets.push(...DEFAULT_CHARTS.filter(has).map((channel) => ({ id: newWidgetId(), kind: 'chart' as const, channel })));

@@ -44,7 +44,11 @@ function renderApp(path = '/live') {
 }
 
 // hidden: true — an open Customize sheet marks the page behind it aria-hidden.
-const gauge = (label: string) => screen.getByRole('meter', { name: label, hidden: true });
+const gauge = (label: string) => {
+  const matches = screen.getAllByTestId('widget-gauge').flatMap((card) => within(card).queryAllByRole('meter', { name: label, hidden: true }));
+  if (matches.length !== 1) throw new Error(`Expected one dial for ${label}, found ${matches.length}`);
+  return matches[0];
+};
 const noGauge = (label: string) => expect(screen.queryByRole('meter', { name: label, hidden: true })).not.toBeInTheDocument();
 
 beforeAll(async () => {
@@ -58,6 +62,22 @@ afterEach(() => {
 });
 
 describe('LivePage', () => {
+  it('shows adapter identity and transport below the dashboard and confirms disconnection', async () => {
+    installFakeBluetooth();
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    const card = await screen.findByTestId('adapter-connection', {}, { timeout: 8000 });
+    expect(card).toHaveTextContent('VEEPEAK');
+    await waitFor(() => expect(card).toHaveTextContent('Bluetooth LE (BLE)'), { timeout: 8000 });
+    expect(screen.getByRole('heading', { name: /Live panel/ }).parentElement).not.toHaveTextContent('VEEPEAK');
+    fireEvent.click(within(card).getByRole('button'));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('An active trip recording will also end');
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
+    expect(card).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole('button'));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => expect(screen.queryByTestId('adapter-connection')).not.toBeInTheDocument());
+  });
   it('updates readings in place and opens an expanded timeline without reconnecting', async () => {
     const fake = installFakeBluetooth();
     renderApp();

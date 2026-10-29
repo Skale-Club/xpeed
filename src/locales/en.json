@@ -273,6 +273,9 @@
     "clearedHint": "The check-engine light should go off. If the fault is still there, the car turns it on again after testing."
   },
   "live": {
+    "adapter": "OBD2 adapter",
+    "disconnectTitle": "Disconnect the adapter?",
+    "disconnectHint": "This closes the Bluetooth connection. An active trip recording will also end.",
     "allSensors": "All available sensors",
     "diagnostics": "Connection diagnostics",
     "diagnosticsHint": "Local connection and recording events from this device. No previous events can be recovered before logging was installed.",

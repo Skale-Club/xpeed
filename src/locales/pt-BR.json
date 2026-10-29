@@ -273,6 +273,9 @@
     "clearedHint": "A luz de injeção deve apagar. Se o defeito continuar, o carro acende de novo depois de testar."
   },
   "live": {
+    "adapter": "Adaptador OBD2",
+    "disconnectTitle": "Desconectar o adaptador?",
+    "disconnectHint": "Isso encerra a conexão Bluetooth. Se houver uma viagem sendo gravada, a gravação também será encerrada.",
     "allSensors": "Todos os sensores disponíveis",
     "diagnostics": "Diagnóstico da conexão",
     "diagnosticsHint": "Eventos locais de conexão e gravação deste aparelho. Eventos anteriores à instalação do registro não podem ser recuperados.",

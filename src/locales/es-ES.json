@@ -273,6 +273,9 @@
     "clearedHint": "La luz de avería debería apagarse. Si la falla sigue, el coche la vuelve a encender después de probar."
   },
   "live": {
+    "adapter": "Adaptador OBD2",
+    "disconnectTitle": "¿Desconectar el adaptador?",
+    "disconnectHint": "Esto cierra la conexión Bluetooth. Si hay un viaje grabándose, la grabación también finalizará.",
     "allSensors": "Todos los sensores disponibles",
     "diagnostics": "Diagnóstico de conexión",
     "diagnosticsHint": "Eventos locales de conexión y grabación de este dispositivo. No se pueden recuperar eventos anteriores a la instalación del registro.",

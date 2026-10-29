@@ -71,6 +71,7 @@ describe('TripCard', () => {
     fireEvent.click(await screen.findByRole('button', { name: /start trip/i }, { timeout: 5000 }));
     expect(await screen.findByText('Recording your trip', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('Recording trip');
+    expect(pill()).toHaveAttribute('href', '/live');
     expect(pill().querySelector('.animate-pulse')).toBeNull();
     expect(document.querySelector('.animate-ping')).toBeNull();
     expect(screen.getByRole('link', { name: 'View all live sensors' })).toHaveAttribute('href', '/live');

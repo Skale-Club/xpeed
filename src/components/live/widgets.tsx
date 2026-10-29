@@ -28,14 +28,34 @@ export function GaugeWidget({ label, unit, value, min, max, tone }: Readout & { 
   );
 }
 
-export function ValueWidget({ label, unit, value }: Readout) {
+export function ValueWidget({ label, unit, value, min, max }: Readout & { min?: number; max?: number }) {
+  const ranged = min != null && max != null && max > min;
+  const present = value != null && Number.isFinite(value);
+  const position = ranged && present ? Math.max(0, Math.min(100, (value - min) / (max - min) * 100)) : null;
+  const centered = ranged && min < 0 && max > 0;
+  const zero = ranged ? (0 - min) / (max - min) * 100 : 0;
+  const thermometer = unit === '°C';
+  const voltage = unit === 'V';
   return (
-    <div className="flex flex-col justify-center h-full">
+    <div className="flex flex-col justify-center h-full gap-2" role={ranged ? 'meter' : undefined} aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={present ? value : undefined}>
       <p className="text-xs text-muted-foreground truncate" title={label}>{label}</p>
       <p className="text-3xl font-bold text-foreground tabular-nums leading-tight">
         {formatValue(value, unit)}
         <span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span>
       </p>
+      {ranged && <div className="space-y-1.5" data-testid={thermometer ? 'temperature-scale' : centered ? 'centered-scale' : voltage ? 'voltage-scale' : 'level-scale'}>
+        {thermometer ? <div className="flex items-center gap-2">
+          <div className="relative h-12 w-2 overflow-hidden rounded-full bg-muted"><span className="absolute inset-x-0 bottom-0 rounded-full bg-primary" style={{ height: `${position ?? 0}%` }} /></div>
+          <div className="flex h-12 flex-col justify-between text-[10px] text-muted-foreground"><span>{formatValue(max!, unit)} {unit}</span><span>{formatValue(min!, unit)} {unit}</span></div>
+        </div> : <>
+          <div className="relative h-2 rounded-full bg-muted">
+            {!voltage && position != null && <span className="absolute inset-y-0 rounded-full bg-primary" style={{ left: `${centered ? Math.min(zero, position) : 0}%`, width: `${centered ? Math.abs(position - zero) : position}%` }} />}
+            {centered && <span className="absolute -top-1 h-4 w-px bg-muted-foreground" style={{ left: `${zero}%` }} />}
+            {position != null && <span className="absolute -top-0.5 h-3 w-1 -translate-x-1/2 rounded bg-foreground" style={{ left: `${position}%` }} />}
+          </div>
+          <div className="flex justify-between text-[10px] tabular-nums text-muted-foreground"><span>{formatValue(min!, unit)} {unit}</span>{centered && <span>0</span>}<span>{formatValue(max!, unit)} {unit}</span></div>
+        </>}
+      </div>}
     </div>
   );
 }
