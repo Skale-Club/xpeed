@@ -13,6 +13,12 @@
     "navigation": "Menu",
     "more": "More"
   },
+  "refresh": {
+    "pull": "Pull down to refresh",
+    "release": "Release to refresh",
+    "loading": "Refreshing…",
+    "failed": "Could not refresh. Try again."
+  },
   "common": {
     "loading": "Loading…",
     "save": "Save",
@@ -620,6 +626,9 @@
     "signOut": "Sign out"
   },
   "settings": {
+    "saved": "Settings saved",
+    "saving": "Saving…",
+    "saveFailed": "Could not save settings. Try again.",
     "title": "Settings",
     "prefs": {
       "title": "Preferences",

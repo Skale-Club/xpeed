@@ -122,7 +122,7 @@ describe('ScannerPage', () => {
     const fake = installFakeBluetooth(99);
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: /connect adapter/i }));
-    expect(await screen.findByText(/accepts only one connection/, {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText(/accepts one connection at a time/, {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText(/Connection attempt failed/)).toBeInTheDocument();
     expect(fake.connectCalls()).toBe(3);
     expect(screen.getByRole('button', { name: /connect adapter/i })).toBeEnabled();

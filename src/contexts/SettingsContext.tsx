@@ -1,4 +1,4 @@
-import { createContext, type Context, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, type Context, useContext, useState, ReactNode } from 'react';
 
 type DistanceUnit = 'km' | 'mi';
 
@@ -19,33 +19,30 @@ const SettingsContext: Context<SettingsContextType | undefined> =
 if (import.meta.hot) import.meta.hot.data.SettingsContext = SettingsContext;
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>('km');
-  const [timezone, setTimezoneState] = useState<string>(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>(() => {
+    try { return localStorage.getItem('settings_distanceUnit') === 'mi' ? 'mi' : 'km'; } catch { return 'km'; }
+  });
+  const [timezone, setTimezoneState] = useState<string>(() => {
+    try { return localStorage.getItem('settings_timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone; }
+    catch { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+  });
   const [advancedTools, setAdvancedToolsState] = useState<boolean>(() => {
     try { return localStorage.getItem('settings_advancedTools') === 'true'; } catch { return false; }
   });
 
-  useEffect(() => {
-    const savedDistanceUnit = localStorage.getItem('settings_distanceUnit') as DistanceUnit;
-    const savedTimezone = localStorage.getItem('settings_timezone');
-
-    if (savedDistanceUnit) setDistanceUnitState(savedDistanceUnit);
-    if (savedTimezone) setTimezoneState(savedTimezone);
-  }, []);
-
   const setDistanceUnit = (unit: DistanceUnit) => {
-    setDistanceUnitState(unit);
     localStorage.setItem('settings_distanceUnit', unit);
+    setDistanceUnitState(unit);
   };
 
   const setTimezone = (tz: string) => {
-    setTimezoneState(tz);
     localStorage.setItem('settings_timezone', tz);
+    setTimezoneState(tz);
   };
 
   const setAdvancedTools = (on: boolean) => {
+    localStorage.setItem('settings_advancedTools', String(on));
     setAdvancedToolsState(on);
-    try { localStorage.setItem('settings_advancedTools', String(on)); } catch { /* not persisted */ }
   };
 
   return (

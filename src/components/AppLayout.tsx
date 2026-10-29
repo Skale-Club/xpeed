@@ -9,9 +9,12 @@ import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { NewCarDialog } from '@/components/trip/NewCarDialog';
 import { BrandLogo } from '@/components/BrandLogo';
+import { PullToRefresh } from '@/components/PullToRefresh';
+import { usePageRefresh } from '@/contexts/PageRefreshContext';
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default function AppLayout({ children, refreshDisabled = false }: { children: React.ReactNode; refreshDisabled?: boolean }) {
   const { t } = useTranslation();
+  const { refresh } = usePageRefresh();
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -28,9 +31,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
         <AppUpdateBanner />
 
+        <PullToRefresh onRefresh={refresh} disabled={refreshDisabled}>
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">
           {children}
         </main>
+        </PullToRefresh>
 
         {/* Phones need room for the bottom tab bar; the desktop footer stays compact. */}
         <footer className="border-t border-border/60 px-20 pb-32 pt-4 text-center md:px-24 md:pb-4">

@@ -11,6 +11,7 @@ import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Analytics } from "@vercel/analytics/react";
+import { PageRefreshProvider, usePageRefresh } from '@/contexts/PageRefreshContext';
 
 // Lazy imports
 const Index = lazy(() => import("./pages/Index"));
@@ -34,10 +35,11 @@ const queryClient = new QueryClient();
 // One layout route for every signed-in page, so its providers (cars, the
 // Bluetooth OBD connection) stay mounted while the user navigates.
 const ProtectedScreen = () => {
+  const { revision } = usePageRefresh();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   return <ErrorBoundary key={pathname} onGoHome={() => navigate('/')}>
-    <Suspense fallback={<PageLoader />}><Outlet /></Suspense>
+    <Suspense fallback={<PageLoader />}><Outlet key={revision} /></Suspense>
   </ErrorBoundary>;
 };
 
@@ -45,7 +47,7 @@ const AuthenticatedLayout = () => (
   <PrivateRoute>
     <CarsProvider>
       <ObdScannerProvider>
-        <ProtectedScreen />
+        <PageRefreshProvider><ProtectedScreen /></PageRefreshProvider>
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>

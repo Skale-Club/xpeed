@@ -13,6 +13,12 @@
     "navigation": "Menu",
     "more": "Mais"
   },
+  "refresh": {
+    "pull": "Puxe para atualizar",
+    "release": "Solte para atualizar",
+    "loading": "Atualizando…",
+    "failed": "Não foi possível atualizar. Tente novamente."
+  },
   "common": {
     "loading": "Carregando…",
     "save": "Salvar",
@@ -620,6 +626,9 @@
     "signOut": "Sair"
   },
   "settings": {
+    "saved": "Configurações salvas",
+    "saving": "Salvando…",
+    "saveFailed": "Não foi possível salvar. Tente novamente.",
     "title": "Ajustes",
     "prefs": {
       "title": "Preferências",

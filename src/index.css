@@ -5,6 +5,9 @@
 @tailwind utilities;
 
 @layer base {
+  html, body {
+    overscroll-behavior-y: none;
+  }
   /*
    * Design tokens — single source of truth for theming.
    *   Brand accent: #F5E663 (soft yellow) — HSL 54 88% 67%, for actions only

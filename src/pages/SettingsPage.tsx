@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
-import { Settings, Globe, Info, Smartphone, Wrench } from 'lucide-react';
+import { Settings, Globe, Info, Smartphone, Wrench, Save, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
+import { holdAppUpdates } from '@/lib/pwa-update';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
@@ -74,20 +77,44 @@ export default function SettingsPage() {
   const version = useAppVersion();
   const { distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
   const currentLang = currentLanguage(i18n.resolvedLanguage).code;
+  const [draft, setDraft] = useState({ language: currentLang as string, distanceUnit, timezone, advancedTools });
+  const [saving, setSaving] = useState(false);
+  const dirty = draft.language !== currentLang || draft.distanceUnit !== distanceUnit
+    || draft.timezone !== timezone || draft.advancedTools !== advancedTools;
+  useEffect(() => {
+    if (!dirty) return;
+    const release = holdAppUpdates();
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => { release(); window.removeEventListener('beforeunload', warn); };
+  }, [dirty]);
+  const save = async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    try {
+      await i18n.changeLanguage(draft.language);
+      setDistanceUnit(draft.distanceUnit);
+      setTimezone(draft.timezone);
+      setAdvancedTools(draft.advancedTools);
+      toast({ title: i18n.t('settings.saved', 'Settings saved'), variant: 'success' });
+    } catch {
+      toast({ title: t('settings.saveFailed', 'Could not save settings. Try again.'), variant: 'destructive' });
+    } finally { setSaving(false); }
+  };
 
   const timezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
     : [Intl.DateTimeFormat().resolvedOptions().timeZone];
 
   return (
-    <AppLayout>
+    <AppLayout refreshDisabled={dirty || saving}>
       <div className="space-y-4 max-w-2xl">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary" />
           <h2 className="text-xl font-bold">{t('settings.title', 'Settings')}</h2>
         </div>
 
-        {/* Preferences apply immediately — no separate save step */}
+        {/* Draft preferences are applied only after Save. */}
         <Card className="bg-card border-border">
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center gap-3">
@@ -97,7 +124,7 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="set-lang">{t('settings.prefs.language', 'Language')}</Label>
-                <Select value={currentLang} onValueChange={(v) => void i18n.changeLanguage(v)}>
+                <Select value={draft.language} onValueChange={(language) => setDraft((d) => ({ ...d, language }))} disabled={saving}>
                   <SelectTrigger id="set-lang"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {LANGUAGES.map((l) => <SelectItem key={l.code} value={l.code}>{l.label}</SelectItem>)}
@@ -106,7 +133,7 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="set-unit">{t('settings.prefs.distance', 'Distance')}</Label>
-                <Select value={distanceUnit} onValueChange={(v: 'km' | 'mi') => setDistanceUnit(v)}>
+                <Select value={draft.distanceUnit} onValueChange={(distanceUnit: 'km' | 'mi') => setDraft((d) => ({ ...d, distanceUnit }))} disabled={saving}>
                   <SelectTrigger id="set-unit"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="km">{t('settings.prefs.km', 'Kilometers (km)')}</SelectItem>
@@ -116,7 +143,7 @@ export default function SettingsPage() {
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="set-tz">{t('settings.prefs.timezone', 'Time zone')}</Label>
-                <Select value={timezone} onValueChange={setTimezone}>
+                <Select value={draft.timezone} onValueChange={(timezone) => setDraft((d) => ({ ...d, timezone }))} disabled={saving}>
                   <SelectTrigger id="set-tz"><SelectValue /></SelectTrigger>
                   <SelectContent className="max-h-[250px]">
                     {timezones.map((tz) => <SelectItem key={tz} value={tz}>{tz.replace(/_/g, ' ')}</SelectItem>)}
@@ -133,7 +160,7 @@ export default function SettingsPage() {
         <Card className="bg-card border-border">
           <CardContent className="p-4 space-y-3">
             <label className="flex items-start gap-3 cursor-pointer">
-              <Switch checked={advancedTools} onCheckedChange={setAdvancedTools} aria-label={t('settings.advanced.title', 'Advanced tools')} />
+              <Switch checked={draft.advancedTools} onCheckedChange={(advancedTools) => setDraft((d) => ({ ...d, advancedTools }))} disabled={saving} aria-label={t('settings.advanced.title', 'Advanced tools')} />
               <span>
                 <span className="text-sm font-semibold flex items-center gap-2"><Wrench className="w-4 h-4" /> {t('settings.advanced.title', 'Advanced tools')}</span>
                 <span className="text-sm text-muted-foreground block">
@@ -173,6 +200,14 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+      {dirty && (
+        <div className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-4 md:bottom-6 pointer-events-none">
+          <Button className="pointer-events-auto min-w-40 shadow-lg" size="lg" onClick={() => void save()} disabled={saving}>
+            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {saving ? t('settings.saving', 'Saving…') : t('common.save', 'Save')}
+          </Button>
+        </div>
+      )}
     </AppLayout>
   );
 }

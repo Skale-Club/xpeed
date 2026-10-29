@@ -13,6 +13,12 @@
     "issues": "Problemas",
     "more": "Más"
   },
+  "refresh": {
+    "pull": "Desliza hacia abajo para actualizar",
+    "release": "Suelta para actualizar",
+    "loading": "Actualizando…",
+    "failed": "No se pudo actualizar. Inténtalo de nuevo."
+  },
   "common": {
     "loading": "Cargando…",
     "save": "Guardar",
@@ -620,6 +626,9 @@
     "signOut": "Cerrar sesión"
   },
   "settings": {
+    "saved": "Ajustes guardados",
+    "saving": "Guardando…",
+    "saveFailed": "No se pudieron guardar los ajustes. Inténtalo de nuevo.",
     "title": "Ajustes",
     "prefs": {
       "title": "Preferencias",
