@@ -33,6 +33,34 @@ afterEach(() => {
 });
 
 describe('useObdScanner', () => {
+  it('collects no recording samples while parked and starts only after movement', async () => {
+    const fake = installFakeBluetooth();
+    fake.setPid('0D', '00');
+    fake.setPid('0C', '0E10'); // 900 rpm, parked engine warm-up.
+    const { result, unmount } = renderHook(() => useObdScanner({ alwaysOn: true }));
+    await act(async () => { await result.current.connect(); });
+    await waitFor(() => expect(result.current.live.get().values[SPEED]).toBe(0), { timeout: 8000 });
+    expect(result.current.recording).toBeNull();
+    expect(result.current.getRecording().total).toBe(0);
+    fake.setPid('0D', ''); // A missing speed reply must not turn RPM into a false start.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2500)); });
+    expect(result.current.recording).toBeNull();
+    expect(result.current.getRecording().total).toBe(0);
+    fake.setPid('0D', '19');
+    await waitFor(() => expect(result.current.recording?.active).toBe(true), { timeout: 8000 });
+    expect(result.current.getRecording().total).toBeGreaterThan(0);
+    unmount();
+  }, 20000);
+  it('falls back to individual readings when larger PID batches omit sensors', async () => {
+    const fake = installFakeBluetooth(0, 2);
+    const { result, unmount } = renderHook(() => useObdScanner());
+    await act(async () => { await result.current.connect(); });
+    await waitFor(() => expect(result.current.live.get().values[SPEED]).toBe(50), { timeout: 8000 });
+    expect(result.current.connection?.multiPid).toBe(false);
+    expect(result.current.live.get().values['Engine RPM (rpm)']).toBe(1726);
+    expect(fake.sent).toContain('010D');
+    unmount();
+  }, 15000);
   it('looks the car up again when the adapter is plugged into another one', async () => {
     const { fake, result, unmount } = setup();
     await act(async () => { await result.current.connect(); });

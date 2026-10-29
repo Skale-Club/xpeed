@@ -52,6 +52,7 @@ import { Button } from '@/components/ui/button';
 const NAV_ITEMS = [
   { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
   { to: '/live', i18nKey: 'nav.live', icon: Activity },
+  { to: '/trends', i18nKey: 'trends.title', icon: History },
   { to: '/issues', i18nKey: 'nav.issues', icon: AlertTriangle },
   { to: '/history', i18nKey: 'nav.history', icon: History },
   { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench },

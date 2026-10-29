@@ -71,6 +71,9 @@ describe('TripCard', () => {
     fireEvent.click(await screen.findByRole('button', { name: /start trip/i }, { timeout: 5000 }));
     expect(await screen.findByText('Recording your trip', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('Recording trip');
+    expect(pill().querySelector('.animate-pulse')).toBeNull();
+    expect(document.querySelector('.animate-ping')).toBeNull();
+    expect(screen.getByRole('link', { name: 'View all live sensors' })).toHaveAttribute('href', '/live');
     expect(requestDevice).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByText('1726')).toBeInTheDocument());
 
@@ -166,7 +169,7 @@ describe('TripCard', () => {
   it('can turn always-on off', async () => {
     installFakeBluetooth();
     renderCard();
-    const toggle = screen.getByRole('switch', { name: /always on/i });
+    const toggle = screen.getByRole('switch', { name: /record trips automatically/i });
     expect(toggle).toBeChecked();
     fireEvent.click(toggle);
     expect(toggle).not.toBeChecked();
@@ -179,7 +182,7 @@ describe('TripCard', () => {
     try {
       installFakeBluetooth();
       renderCard();
-      expect(screen.queryByRole('switch', { name: /always on/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('switch', { name: /record trips automatically/i })).not.toBeInTheDocument();
     } finally {
       Object.defineProperty(navigator, 'userAgent', { configurable: true, value: phone });
     }

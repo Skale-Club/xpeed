@@ -26,7 +26,7 @@ export type TripEvent =
 export interface TripDetectorOptions {
   /** Moving faster than this starts a trip. */
   startSpeedKmh: number;
-  /** Engine above this starts a trip (a parked hybrid in READY sits at 0). */
+  /** RPM fallback only when the vehicle does not report speed. */
   startRpm: number;
   /** ECU silent this long = car turned off. */
   offAfterMs: number;
@@ -92,7 +92,11 @@ export class TripDetector {
   }
 
   private active(r: TripReading): boolean {
-    return r.ecuAlive && ((r.speedKmh ?? 0) >= this.opts.startSpeedKmh || (r.rpm ?? 0) >= this.opts.startRpm);
+    // A reported zero speed proves stationary even when the engine is warming up.
+    // RPM is only a fallback for vehicles that do not provide speed at all.
+    return r.ecuAlive && (r.speedKmh != null
+      ? r.speedKmh >= this.opts.startSpeedKmh
+      : (r.rpm ?? 0) >= this.opts.startRpm);
   }
 
   private end(at: number, reason: TripEndReason): TripEvent {

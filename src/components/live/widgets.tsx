@@ -1,6 +1,7 @@
 import { PillDial, type GaugeTone } from '@/components/trip/QuickGauge';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { formatValue } from '@/lib/obd/format';
+import { formatAppDate } from '@/lib/app-date';
 
 // Live-panel widgets. Hand-drawn SVG instead of a chart library: they redraw
 // several times a second and only need a few primitives.
@@ -47,13 +48,14 @@ export interface ChartPoint {
 const CHART_W = 300;
 const CHART_H = 100;
 
-export function ChartWidget({ label, unit, points, now, windowMs }: Omit<Readout, 'value'> & { points: ChartPoint[]; now: number; windowMs: number }) {
+export function ChartWidget({ label, unit, points, now, windowMs, min, max, large = false }: Omit<Readout, 'value'> & { points: ChartPoint[]; now: number; windowMs: number; min?: number; max?: number; large?: boolean }) {
   const from = now - windowMs;
   const visible = points.filter((p) => p.at >= from);
   const nums = visible.flatMap((p) => (p.v == null ? [] : [p.v]));
   const current = visible.length ? visible[visible.length - 1].v : null;
   let lo = nums.length ? Math.min(...nums) : 0;
   let hi = nums.length ? Math.max(...nums) : 1;
+  if (min != null && max != null && max > min) { lo = min; hi = max; }
   if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
   const pad = (hi - lo) * 0.1;
   lo -= pad;
@@ -83,7 +85,7 @@ export function ChartWidget({ label, unit, points, now, windowMs }: Omit<Readout
         </p>
       </div>
       <div className="relative">
-        <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="w-full h-28 rounded bg-muted/30" role="img" aria-label={`${label} chart`}>
+        <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className={`w-full ${large ? 'h-64' : 'h-28'} rounded bg-muted/30`} role="img" aria-label={`${label} chart`}>
           {segments.map((pts, i) => (
             <polyline key={i} points={pts} fill="none" stroke={ACCENT} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
           ))}
@@ -95,7 +97,10 @@ export function ChartWidget({ label, unit, points, now, windowMs }: Omit<Readout
           </>
         )}
       </div>
-      <p className="text-[10px] text-muted-foreground text-right">{Math.round(windowMs / 1000)} s</p>
+      {large ? <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
+        <time dateTime={new Date(from).toISOString()}>{formatAppDate(new Date(from), undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+        <time dateTime={new Date(now).toISOString()}>{formatAppDate(new Date(now), undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
+      </div> : <p className="text-[10px] text-muted-foreground text-right">{Math.round(windowMs / 1000)} s</p>}
     </div>
   );
 }

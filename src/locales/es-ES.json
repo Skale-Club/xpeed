@@ -1,4 +1,11 @@
 {
+  "trends": {
+    "title": "Tendencias a largo plazo",
+    "hint": "Resúmenes de viajes guardados, por mes o año. Promedios ponderados por duración; los datos ausentes quedan en blanco. Estas tendencias no diagnostican fallos.",
+    "empty": "Aún no hay resúmenes de sensores guardados. Los viajes completados aparecerán aquí.",
+    "sensor": "Sensor", "group": "Agrupar por", "month": "Mes", "year": "Año", "period": "Período",
+    "months": "{{count}} meses", "min": "Mínimo", "avg": "Promedio", "max": "Máximo", "trips": "Viajes", "coverage": "Con datos"
+  },
   "nav": {
     "dashboard": "Inicio",
     "history": "Viajes",
@@ -266,6 +273,12 @@
     "clearedHint": "La luz de avería debería apagarse. Si la falla sigue, el coche la vuelve a encender después de probar."
   },
   "live": {
+    "allSensors": "Todos los sensores disponibles",
+    "diagnostics": "Diagnóstico de conexión",
+    "diagnosticsHint": "Eventos locales de conexión y grabación de este dispositivo. No se pueden recuperar eventos anteriores a la instalación del registro.",
+    "expand": "Abrir línea de tiempo: {{sensor}}",
+    "timelineHint": "Historial de esta conexión, hasta 30 minutos. Las lecturas ausentes aparecen como huecos.",
+    "timelinePeriod": "Período de la línea de tiempo",
     "title": "Panel en vivo",
     "blocks": "Batería híbrida",
     "record": "Grabar",
@@ -295,6 +308,7 @@
     }
   },
   "trip": {
+    "openLive": "Ver todos los sensores en vivo",
     "name": "Viaje {{when}}",
     "noCar": "Elige tu coche para guardar este viaje",
     "recovered": "Guardamos un viaje que se había interrumpido",
@@ -331,7 +345,7 @@
     "saving": "Guardando tu último viaje…",
     "lastSaved": "Último viaje guardado.",
     "view": "Ver",
-    "alwaysOn": "Siempre activo",
+    "alwaysOn": "Grabar viajes automáticamente",
     "alwaysOnHint": "Deja la app abierta en el coche: se reconecta sola, graba cada viaje y descansa mientras el coche está apagado.",
     "partOfDay": {
       "morning": "Viaje de la mañana",

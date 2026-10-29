@@ -46,7 +46,7 @@ export function defaultLayout(available: string[]): LiveWidget[] {
   ];
   if (available.some((h) => HV_BLOCK_RE.test(h))) widgets.push({ id: newWidgetId(), kind: 'blocks' });
   widgets.push(...DEFAULT_CHARTS.filter(has).map((channel) => ({ id: newWidgetId(), kind: 'chart' as const, channel })));
-  return widgets;
+  return widgets.map((widget) => ({ ...widget, id: `default:${widget.kind}:${widget.channel ?? 'blocks'}` }));
 }
 
 const KINDS: WidgetKind[] = ['gauge', 'chart', 'value', 'blocks'];

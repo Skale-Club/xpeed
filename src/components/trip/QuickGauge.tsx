@@ -58,7 +58,6 @@ export function PillDial({ value, unit, label, min = 0, max, tone = 'primary', c
           stroke={i < lit ? 'currentColor' : 'hsl(var(--border))'}
           strokeWidth={STROKE}
           strokeLinecap="round"
-          className="transition-[stroke] duration-500"
         />
       ))}
       {/* The number is part of the drawing, so it scales with the dial on any screen. */}

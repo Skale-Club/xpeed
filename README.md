@@ -79,6 +79,12 @@ New recordings use a stable owner/car/millisecond identity, an exact CSV checksu
 
 ## Publication
 
+Automatic trips wait for movement when the vehicle reports speed; engine RPM is only a fallback when speed is unsupported. No recording samples or trip uploads are produced while waiting for movement. While stationary before a trip, sensor cycles are spaced by two seconds; after ECU shutdown the existing standby/backoff and wake-lock release apply. Android background recording uses the foreground notification service; force-stopping the app or OS process termination is not equivalent to standby and is not guaranteed to recover automatically.
+
+Home links directly to Live, and tapping a speed/RPM dial opens a larger timeline. Live keeps a bounded, one-point-per-second history for up to 30 minutes without reducing raw trip sample resolution. Missing readings remain gaps. Adapters that truncate multi-PID replies fall back to individual PID requests. Live diagnostics retain the last 200 state/recording/fallback events locally; older events from before this logging existed cannot be reconstructed.
+
+The Long-term trends menu reads saved trip summaries and groups measurements by month or year with duration-weighted averages, extrema and coverage counts. It creates no extra continuous telemetry table or server writes.
+
 ### OBD adapter transports
 
 The Android APK supports ELM327-compatible serial adapters over BLE GATT and Bluetooth Classic SPP. The browser supports BLE only. Wi-Fi, USB and vendor-proprietary protocols are not implemented.

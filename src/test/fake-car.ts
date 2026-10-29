@@ -13,6 +13,8 @@ export interface FakeCarOptions {
   pidData?: Record<string, string>;
   /** Mode 21 replies per ECU header and request. */
   mode21?: Record<string, Record<string, () => string>>;
+  /** Simulate an adapter that passes two-PID probing but truncates larger requests. */
+  maxBatchPids?: number;
 }
 
 let hybridCounter = 0;
@@ -35,7 +37,7 @@ export function createFakeCar(options: FakeCarOptions = {}) {
   let carOn = true;
   let vin = VIN;
   /** Supported-PID bitmap answered to 0100 (8 hex digits). */
-  let supported = 'BE1FA813';
+  let supported = '08180000'; // Only coolant, RPM and speed have simulated values.
   let stalled = false;
   /** What ATRV reports. A running car (or a hybrid in READY) charges the 12 V battery (~14 V); a parked one sits near 12.4 V. */
   let voltage = '12.4V';
@@ -67,7 +69,7 @@ export function createFakeCar(options: FakeCarOptions = {}) {
     if (table[cmd]) return table[cmd];
     if (cmd.startsWith('01')) {
       const pids = cmd.slice(2).match(/../g) ?? [];
-      const parts = pids.filter((p) => pidData[p]).map((p) => p + pidData[p]);
+      const parts = pids.slice(0, options.maxBatchPids ?? pids.length).filter((p) => pidData[p]).map((p) => p + pidData[p]);
       return parts.length ? `41${parts.join('')}` : 'NO DATA';
     }
     return 'NO DATA';

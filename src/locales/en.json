@@ -1,4 +1,11 @@
 {
+  "trends": {
+    "title": "Long-term trends",
+    "hint": "Saved trip summaries, grouped by month or year. Averages are weighted by trip duration; missing data stays blank. These trends do not diagnose a fault.",
+    "empty": "No saved sensor summaries yet. Completed trips will appear here.",
+    "sensor": "Sensor", "group": "Group by", "month": "Month", "year": "Year", "period": "Period",
+    "months": "{{count}} months", "min": "Minimum", "avg": "Average", "max": "Maximum", "trips": "Trips", "coverage": "With data"
+  },
   "nav": {
     "dashboard": "Home",
     "issues": "Problems",
@@ -266,6 +273,12 @@
     "clearedHint": "The check-engine light should go off. If the fault is still there, the car turns it on again after testing."
   },
   "live": {
+    "allSensors": "All available sensors",
+    "diagnostics": "Connection diagnostics",
+    "diagnosticsHint": "Local connection and recording events from this device. No previous events can be recovered before logging was installed.",
+    "expand": "Open timeline: {{sensor}}",
+    "timelineHint": "Live history from this connection, up to 30 minutes. Missing readings remain gaps.",
+    "timelinePeriod": "Timeline period",
     "title": "Live panel",
     "blocks": "Hybrid battery",
     "record": "Record",
@@ -295,6 +308,7 @@
     }
   },
   "trip": {
+    "openLive": "View all live sensors",
     "name": "Trip {{when}}",
     "noCar": "Choose your car to save this trip",
     "recovered": "Saved a trip that was interrupted",
@@ -331,7 +345,7 @@
     "saving": "Saving your last trip…",
     "lastSaved": "Last trip saved.",
     "view": "View",
-    "alwaysOn": "Always on",
+    "alwaysOn": "Record trips automatically",
     "alwaysOnHint": "Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off.",
     "partOfDay": {
       "morning": "Morning trip",

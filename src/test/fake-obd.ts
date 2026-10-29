@@ -6,8 +6,8 @@ import { createFakeCar } from './fake-car';
 
 export { VIN } from './fake-car';
 
-export function installFakeBluetooth(failConnects = 0) {
-  const car = createFakeCar({ failConnects });
+export function installFakeBluetooth(failConnects = 0, maxBatchPids?: number) {
+  const car = createFakeCar({ failConnects, maxBatchPids });
   const requestDevice = vi.fn(async () => car.device);
   const getDevices = vi.fn(async () => [car.device]);
   Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice, getDevices } });

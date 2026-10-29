@@ -9,7 +9,7 @@ export function ConnectionPill() {
   if (status === 'unsupported') return null;
 
   const [dot, label] = recording?.active
-    ? ['bg-destructive animate-pulse', t('pill.recording', 'Recording trip')]
+    ? ['bg-destructive', t('pill.recording', 'Recording trip')]
     : status === 'live'
       ? ['bg-success', t('pill.live', 'Car connected')]
       : status === 'waiting'

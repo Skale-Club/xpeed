@@ -23,6 +23,7 @@ const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
 const ScannerPage = lazy(() => import("./pages/ScannerPage"));
 const LivePage = lazy(() => import("./pages/LivePage"));
+const TrendsPage = lazy(() => import("./pages/TrendsPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
@@ -89,6 +90,7 @@ const App = () => (
                 <Route path="/onboarding" element={<OnboardingPage />} />
                 <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
                 <Route path="/live" element={<LivePage />} />
+                <Route path="/trends" element={<TrendsPage />} />
                 <Route path="/maintenance" element={<MaintenancePage />} />
                 <Route path="/issues" element={<IssuesPage />} />
                 <Route path="/admin" element={<AdminPage />} />

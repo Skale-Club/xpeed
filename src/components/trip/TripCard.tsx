@@ -62,7 +62,10 @@ export function TripCard() {
 
   const readings = status === 'live' && (
     <div className="grid grid-cols-3 gap-2">
-      <QuickGauge value={speedShown} unit={speedUnit} label={speedUnit} max={miles ? 100 : 160} />
+      <Link to={`/live?sensor=${encodeURIComponent(SPEED)}`} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+        <QuickGauge value={speedShown} unit={speedUnit} label={speedUnit} max={miles ? 100 : 160} />
+      </Link>
+      <Link to={`/live?sensor=${encodeURIComponent(RPM)}`} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       <QuickGauge
         value={rpm}
         unit="rpm"
@@ -71,6 +74,7 @@ export function TripCard() {
         tone={electric ? 'success' : rpm != null && rpm > 4500 ? 'warn' : 'primary'}
         status={electric ? t('trip.gauge.electric', 'electric') : null}
       />
+      </Link>
       <QuickGauge value={coolant} unit="°C" label={t('trip.engineTemp', 'engine °C')} min={40} max={120} tone={tempTone} status={tempWord} />
     </div>
   );
@@ -98,16 +102,16 @@ export function TripCard() {
     body = (
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive/60" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-destructive" />
-          </span>
+          <span className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
           <p className="font-semibold">{t('trip.recording', 'Recording your trip')}</p>
           <span className="ml-auto rounded-full bg-destructive/10 px-2.5 py-0.5 font-mono text-sm tabular-nums text-destructive">{elapsed(recording.startedAt, now)}</span>
         </div>
         {readings || (
           <p className="text-sm text-muted-foreground">{t('trip.paused', 'Waiting for the car… the trip continues when it answers again.')}</p>
         )}
+        <Button size="lg" variant="secondary" className="w-full" asChild>
+          <Link to="/live">{t('trip.openLive', 'View all live sensors')}</Link>
+        </Button>
         <Button size="lg" variant="outline" className="w-full" onClick={obd.stopTrip}>
           <Square className="w-4 h-4 mr-2" />
           {t('trip.stop', 'End trip')}
@@ -247,9 +251,9 @@ export function TripCard() {
 
         {status !== 'unsupported' && canStayOn && (
           <label className="flex cursor-pointer items-start gap-3 border-t border-border/60 pt-4">
-            <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Always on')} />
+            <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Record trips automatically')} />
             <span className="text-xs">
-              <span className="font-medium block">{t('trip.alwaysOn', 'Always on')}</span>
+              <span className="font-medium block">{t('trip.alwaysOn', 'Record trips automatically')}</span>
               <span className="text-muted-foreground">
                 {t('trip.alwaysOnHint', 'Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off.')}
               </span>

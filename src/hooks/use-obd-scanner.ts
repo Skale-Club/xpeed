@@ -13,6 +13,7 @@ import { ECU_CANDIDATES, classifyReply, type EcuProbe, type ReplyKind } from '@/
 import { TripDetector, type TripEndReason, type TripEvent, type TripReading } from '@/lib/obd/trip-detector';
 import { NO_READOUT, mergeReadouts, readFaultCodes, type FaultCodeReadout } from '@/lib/obd/fault-codes';
 import { createLiveStore, NO_VALUES } from '@/lib/obd/live-store';
+import { logObdDiagnostic } from '@/lib/obd/diagnostic-log';
 
 /**
  * - idle: no adapter linked
@@ -110,7 +111,7 @@ const STALL_RECONNECT_CYCLES = 3;
 /** How often fault codes are read again while the car is on. */
 const FAULT_REREAD_MS = 5 * 60_000;
 /** How much rolling history live charts can draw from. */
-export const HISTORY_MS = 120_000;
+export const HISTORY_MS = 30 * 60_000;
 
 const SPEED = pidHeader(LIVE_PIDS.find((d) => d.pid === 0x0d)!);
 const RPM = pidHeader(LIVE_PIDS.find((d) => d.pid === 0x0c)!);
@@ -223,6 +224,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
   /** Readings that change every cycle live in their own store (see live-store.ts), not in state. */
   const [live] = useState(createLiveStore);
   const [recording, setRecording] = useState<RecordingState | null>(null);
+  useEffect(() => { logObdDiagnostic('state', { status, recording: !!recording?.active }); }, [status, recording?.active]);
   const [autoPaused, setAutoPaused] = useState(false);
   /** The car's VIN (chassis number), read on every new Bluetooth link; null if the car doesn't report it. */
   const [vin, setVin] = useState<string | null>(null);
@@ -256,6 +258,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
   const columnsRef = useRef<string[]>([]);
   const columnSetRef = useRef(new Set<string>());
   const historyRef = useRef<HistoryPoint[]>([]);
+  const lastGapLogAt = useRef(0);
   const detectorRef = useRef(new TripDetector());
   const tripStartRef = useRef<Date | null>(null);
   /** Fault codes read since the car came on (at start, then every few minutes). */
@@ -285,6 +288,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
 
   const handleTripEvents = useCallback((events: TripEvent[]) => {
     for (const e of events) {
+      logObdDiagnostic(`trip-${e.type}`, e.type === 'start' ? { startedAt: e.at } : { endedAt: e.at, reason: e.reason, kept: e.keep });
       if (e.type === 'start') {
         samplesRef.current = [];
         columnsRef.current = [];
@@ -340,21 +344,42 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
     let stalled = false;
 
     const standard = chans.filter((c) => c.def);
-    const batchSize = multiRef.current ? MULTI_PID_BATCH : 1;
-    for (let i = 0; i < standard.length; i += batchSize) {
+    for (let i = 0; i < standard.length;) {
       if (!alive()) return null;
+      const batchSize = multiRef.current ? MULTI_PID_BATCH : 1;
       const batch = standard.slice(i, i + batchSize);
+      i += batch.length;
       const defs = batch.map((c) => c.def as PidDef);
       try {
         const reply = await elm.request(`01${defs.map((d) => pidHex(d.pid)).join('')}`);
         answered += 1;
         const got = batch.length > 1 ? parseMultiMode01(reply, defs) : null;
+        if (got && defs.some((d) => !got.has(d.pid))) {
+          logObdDiagnostic('batch-fallback', { requested: defs.length, returned: got.size });
+          // Some ELM clones pass the two-PID probe but drop readings in larger
+          // batches. Retry missing PIDs individually rather than flashing blanks.
+          multiRef.current = false;
+          setConnection((previous) => previous && { ...previous, multiPid: false });
+          for (const d of defs) {
+            if (got.has(d.pid)) continue;
+            try {
+              const bytes = parseMode01(await elm.request(`01${pidHex(d.pid)}`), d.pid, d.bytes);
+              if (bytes) got.set(d.pid, bytes);
+            } catch { /* Keep the missing reading null; never invent a value. */ }
+            if (!alive()) return null;
+          }
+        }
         for (const c of batch) {
           const d = c.def as PidDef;
           const bytes = got ? got.get(d.pid) ?? null : parseMode01(reply, d.pid, d.bytes);
           next[c.header] = bytes ? d.decode(bytes) : null;
         }
       } catch {
+        if (batch.length > 1) {
+          multiRef.current = false;
+          setConnection((previous) => previous && { ...previous, multiPid: false });
+          logObdDiagnostic('batch-fallback', { requested: defs.length, returned: 0 });
+        }
         batch.forEach((c) => { next[c.header] = null; });
         // Nothing has answered yet and this didn't either: the link is in trouble, don't wait on every channel.
         if (answered === 0) {
@@ -500,6 +525,10 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
       const now = Date.now();
 
       if (stalled) {
+        if (now - lastGapLogAt.current >= 10_000) {
+          logObdDiagnostic('read-stall', { recording: detectorRef.current.recording });
+          lastGapLogAt.current = now;
+        }
         // The adapter isn't answering: not the same as a car that is off. The trip stays open
         // (with a long grace), and if it keeps up the link is replaced.
         stalls += 1;
@@ -528,13 +557,29 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
       }
 
       silent = 0;
-      historyRef.current.push({ at: now, values: next });
+      // One live chart point per second bounds memory without reducing raw trip recording.
+      const latest = historyRef.current[historyRef.current.length - 1];
+      if (latest && Math.floor(latest.at / 1000) === Math.floor(now / 1000)) {
+        historyRef.current[historyRef.current.length - 1] = { at: now, values: next };
+      } else historyRef.current.push({ at: now, values: next });
       while (historyRef.current.length && historyRef.current[0].at < now - HISTORY_MS) historyRef.current.shift();
 
-      feedTrip({ at: now, ecuAlive: true, speedKmh: next[SPEED] ?? null, rpm: next[RPM] ?? null });
+      const speed = next[SPEED] ?? null;
+      // Missing one speed reply is not the same as a car with no speed PID.
+      // Do not start a parked trip from RPM while that supported PID is unavailable.
+      const speedMissing = speed == null && channelsRef.current.some((channel) => channel.def?.pid === 0x0d);
+      const rpmMissing = next[RPM] == null && channelsRef.current.some((channel) => channel.def?.pid === 0x0c);
+      if ((speedMissing || rpmMissing) && now - lastGapLogAt.current >= 10_000) {
+        logObdDiagnostic('read-gap', { speedMissing, rpmMissing, recording: detectorRef.current.recording });
+        lastGapLogAt.current = now;
+      }
+      feedTrip({ at: now, ecuAlive: true, speedKmh: speed, rpm: speedMissing ? null : next[RPM] ?? null });
       const start = tripStartRef.current;
       if (start) recordSample(start, now, next);
       live.set({ values: next, cycleMs: performance.now() - t0, samples: samplesRef.current.length });
+      // Stationary before an automatic trip: no samples/backups/uploads, and
+      // fewer sensor requests while waiting for actual movement.
+      if (alwaysOnRef.current && !start && next[SPEED] != null && next[SPEED]! < 3) await sleep(2000);
 
       // A warning light can come on mid-drive: look again every few minutes.
       if (info && now - lastFaultRead >= FAULT_REREAD_MS) {

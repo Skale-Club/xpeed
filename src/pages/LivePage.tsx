@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { readObdDiagnostics } from '@/lib/obd/diagnostic-log';
+import { formatValue } from '@/lib/obd/format';
 import { useTranslation } from 'react-i18next';
 import {
   Activity, Bluetooth, Loader2, Maximize, Minimize, Circle, Square, Settings2, ArrowUp, ArrowDown, Trash2, Plus, RotateCcw,
@@ -42,7 +45,14 @@ export default function LivePage() {
   const { status, connection, channels, recording } = obd;
   const { values } = useObdLive();
   const { selectedCar, selectedCarId } = useCarsContext();
-  const { advancedTools } = useSettings();
+  const { advancedTools, distanceUnit } = useSettings();
+  const [searchParams] = useSearchParams();
+  const [expanded, setExpanded] = useState<string | null>(() => searchParams.get('sensor'));
+  const [timelineMs, setTimelineMs] = useState(5 * 60_000);
+  const [diagnostics, setDiagnostics] = useState('');
+  const sensorUnit = (header: string) => distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? 'mph' : byHeader.get(header)?.unit ?? header.match(/\(([^)]*)\)$/)?.[1] ?? '';
+  const sensorValue = (header: string, value: number | null | undefined) => value == null ? null
+    : distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? value * 0.621371 : value;
   const live = status === 'live';
 
   const [saved, setSaved] = useState<LiveWidget[] | null>(() => loadLayout(selectedCarId));
@@ -102,8 +112,8 @@ export default function LivePage() {
     }
     const ch: LiveChannel | undefined = w.channel ? byHeader.get(w.channel) : undefined;
     const label = ch ? channelLabel(ch, t) : w.channel?.replace(/ \([^)]*\)$/, '') ?? '';
-    const unit = ch?.unit ?? w.channel?.match(/\(([^)]*)\)$/)?.[1] ?? '';
-    const value = w.channel ? values[w.channel] : null;
+    const unit = w.channel ? sensorUnit(w.channel) : '';
+    const value = w.channel ? sensorValue(w.channel, values[w.channel]) : null;
     if (w.kind === 'gauge') {
       // Engine temperature is coloured by how warm it is, like on the trip card.
       const coolant = ch?.def?.pid === 0x05;
@@ -113,14 +123,14 @@ export default function LivePage() {
           unit={unit}
           value={value}
           min={coolant ? 40 : ch?.min ?? 0}
-          max={coolant ? 120 : ch?.def?.pid === 0x0c ? 6000 : ch?.max ?? 100}
+          max={coolant ? 120 : ch?.def?.pid === 0x0c ? 6000 : w.channel ? sensorValue(w.channel, ch?.max ?? 100) ?? 100 : 100}
           tone={coolant ? coolantTone(value ?? null) : 'primary'}
         />
       );
     }
     if (w.kind === 'chart') {
-      const points = history.map((h) => ({ at: h.at, v: w.channel ? h.values[w.channel] ?? null : null }));
-      return <ChartWidget label={label} unit={unit} points={points} now={chartNow} windowMs={CHART_WINDOW_MS} />;
+      const points = history.map((h) => ({ at: h.at, v: w.channel ? sensorValue(w.channel, h.values[w.channel]) : null }));
+      return <ChartWidget label={label} unit={unit} points={points} now={chartNow} windowMs={CHART_WINDOW_MS} min={w.channel ? sensorValue(w.channel, ch?.min ?? 0) ?? 0 : 0} max={w.channel ? sensorValue(w.channel, ch?.def?.pid === 0x0c ? 6000 : ch?.max) ?? undefined : undefined} />;
     }
     return <ValueWidget label={label} unit={unit} value={value} />;
   };
@@ -205,12 +215,40 @@ export default function LivePage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {widgets.map((w) => (
               <Card key={w.id} className={`bg-card border-border ${SPAN[w.kind]}`} data-testid={`widget-${w.kind}`}>
-                <CardContent className="p-3 h-full">{renderWidget(w)}</CardContent>
+                <CardContent className="p-3 h-full">
+                  {w.channel ? <button type="button" className="block w-full h-full text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setExpanded(w.channel!)} aria-label={t('live.expand', 'Open timeline: {{sensor}}', { sensor: byHeader.has(w.channel) ? channelLabel(byHeader.get(w.channel)!, t) : w.channel })}>{renderWidget(w)}</button> : renderWidget(w)}
+                </CardContent>
               </Card>
             ))}
           </div>
         )}
       </div>
+      {live && <details>
+        <summary className="cursor-pointer py-3 text-sm font-semibold">{t('live.allSensors', 'All available sensors')} ({channels.length})</summary>
+        <dl className="divide-y divide-border">{channels.map((channel) => <div key={channel.header} className="flex justify-between gap-3 py-2 text-sm">
+          <dt><button className="text-left text-primary hover:underline" onClick={() => setExpanded(channel.header)}>{channelLabel(channel, t)}</button></dt>
+          <dd className="font-mono tabular-nums">{formatValue(sensorValue(channel.header, values[channel.header]), sensorUnit(channel.header))} {sensorUnit(channel.header)}</dd>
+        </div>)}</dl>
+      </details>}
+      <details onToggle={(event) => { if (event.currentTarget.open) setDiagnostics(JSON.stringify(readObdDiagnostics(), null, 2)); }}>
+        <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('live.diagnostics', 'Connection diagnostics')}</summary>
+        <p className="mb-2 text-xs text-muted-foreground">{t('live.diagnosticsHint', 'Local connection and recording events from this device. No previous events can be recovered before logging was installed.')}</p>
+        <textarea readOnly aria-label={t('live.diagnostics', 'Connection diagnostics')} value={diagnostics} className="h-48 w-full rounded-md border border-border bg-background p-2 font-mono text-xs" />
+      </details>
+      <Dialog open={expanded !== null} onOpenChange={(open) => { if (!open) setExpanded(null); }}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{expanded && (byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded)}</DialogTitle>
+            <DialogDescription>{t('live.timelineHint', 'Live history from this connection, up to 30 minutes. Missing readings remain gaps.')}</DialogDescription>
+          </DialogHeader>
+          <select className="rounded-md border border-border bg-background p-2 text-sm" aria-label={t('live.timelinePeriod', 'Timeline period')} value={timelineMs} onChange={(event) => setTimelineMs(Number(event.target.value))}>
+            {[1, 5, 15, 30].map((minutes) => <option key={minutes} value={minutes * 60_000}>{minutes} min</option>)}
+          </select>
+          {expanded && <ChartWidget large label={byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded} unit={sensorUnit(expanded)} now={chartNow} windowMs={timelineMs}
+            points={history.map((point) => ({ at: point.at, v: sensorValue(expanded, point.values[expanded]) }))}
+            min={sensorValue(expanded, byHeader.get(expanded)?.min ?? 0) ?? 0} max={sensorValue(expanded, byHeader.get(expanded)?.def?.pid === 0x0c ? 6000 : byHeader.get(expanded)?.max) ?? undefined} />}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

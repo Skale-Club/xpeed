@@ -58,6 +58,22 @@ afterEach(() => {
 });
 
 describe('LivePage', () => {
+  it('updates readings in place and opens an expanded timeline without reconnecting', async () => {
+    const fake = installFakeBluetooth();
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    await waitFor(() => expect(gauge('Engine RPM')).toHaveAttribute('aria-valuenow', '1726'), { timeout: 8000 });
+    const original = gauge('Engine RPM');
+    fake.setPid('0C', '1F40');
+    await waitFor(() => expect(gauge('Engine RPM')).toHaveAttribute('aria-valuenow', '2000'));
+    expect(gauge('Engine RPM')).toBe(original);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open timeline: Engine RPM' })[0]);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('img', { name: 'Engine RPM chart' })).toHaveClass('h-64');
+    fireEvent.change(within(dialog).getByLabelText('Timeline period'), { target: { value: '1800000' } });
+    expect(within(dialog).getByLabelText('Timeline period')).toHaveValue('1800000');
+    expect(fake.requestDevice).toHaveBeenCalledTimes(1);
+  });
   it('asks to connect when no adapter is linked', () => {
     installFakeBluetooth();
     renderApp();

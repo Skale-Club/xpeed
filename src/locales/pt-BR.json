@@ -1,4 +1,11 @@
 {
+  "trends": {
+    "title": "Tendências de longo prazo",
+    "hint": "Resumos das viagens salvas, por mês ou ano. Médias ponderadas pela duração da viagem; dados ausentes ficam em branco. Tendências não são diagnóstico de falha.",
+    "empty": "Ainda não há resumos de sensores salvos. As viagens concluídas aparecerão aqui.",
+    "sensor": "Sensor", "group": "Agrupar por", "month": "Mês", "year": "Ano", "period": "Período",
+    "months": "{{count}} meses", "min": "Mínimo", "avg": "Média", "max": "Máximo", "trips": "Viagens", "coverage": "Com dados"
+  },
   "nav": {
     "dashboard": "Início",
     "issues": "Problemas",
@@ -266,6 +273,12 @@
     "clearedHint": "A luz de injeção deve apagar. Se o defeito continuar, o carro acende de novo depois de testar."
   },
   "live": {
+    "allSensors": "Todos os sensores disponíveis",
+    "diagnostics": "Diagnóstico da conexão",
+    "diagnosticsHint": "Eventos locais de conexão e gravação deste aparelho. Eventos anteriores à instalação do registro não podem ser recuperados.",
+    "expand": "Abrir linha do tempo: {{sensor}}",
+    "timelineHint": "Histórico desta conexão, de até 30 minutos. Leituras ausentes aparecem como lacunas.",
+    "timelinePeriod": "Período da linha do tempo",
     "title": "Painel ao vivo",
     "blocks": "Bateria híbrida",
     "record": "Gravar",
@@ -295,6 +308,7 @@
     }
   },
   "trip": {
+    "openLive": "Ver todos os sensores ao vivo",
     "name": "Viagem {{when}}",
     "noCar": "Escolha seu carro para salvar esta viagem",
     "recovered": "Salvamos uma viagem que tinha sido interrompida",
@@ -331,7 +345,7 @@
     "saving": "Salvando sua última viagem…",
     "lastSaved": "Última viagem salva.",
     "view": "Ver",
-    "alwaysOn": "Sempre ativo",
+    "alwaysOn": "Gravar viagens automaticamente",
     "alwaysOnHint": "Deixe o app aberto no carro: ele reconecta sozinho, grava cada viagem e descansa enquanto o carro está desligado.",
     "partOfDay": {
       "morning": "Viagem da manhã",

@@ -7,6 +7,19 @@ const on = (at: number, speedKmh = 0, rpm = 0): TripReading => ({ at, ecuAlive: 
 const off = (at: number): TripReading => ({ at, ecuAlive: false, speedKmh: null, rpm: null });
 
 describe('TripDetector', () => {
+  it('keeps one recording from idling into a 16 mph drive with rising RPM', () => {
+    const detector = new TripDetector();
+    expect(detector.update(on(0, 0, 900))).toEqual([]);
+    for (let seconds = 1; seconds <= 60; seconds++) {
+      expect(detector.update(on(seconds * S, 0, 900))).toEqual([]);
+      expect(detector.recording).toBe(false);
+    }
+    for (let seconds = 61; seconds <= 180; seconds++) {
+      expect(detector.update(on(seconds * S, 16 * 1.609344, 1400 + seconds)))
+        .toEqual(seconds === 61 ? [{ type: 'start', at: 61 * S }] : []);
+      expect(detector.recording).toBe(true);
+    }
+  });
   it('does not record a hybrid sitting in READY or a car that is off', () => {
     const d = new TripDetector();
     expect(d.update(on(0))).toEqual([]);
@@ -146,19 +159,19 @@ describe('a Bluetooth stall is not the car turning off', () => {
 });
 
 describe('warm-up in a parking spot is not a trip', () => {
-  it('drops an automatic trip that never moved', () => {
+  it('does not start an automatic trip that never moved', () => {
     const d = new TripDetector();
     // A cold hybrid in READY idling at speed 0 for two minutes, engine cycling
-    expect(d.update(on(0, 0, 1200))).toEqual([{ type: 'start', at: 0 }]);
+    expect(d.update(on(0, 0, 1200))).toEqual([]);
     for (let t = 5; t <= 120; t += 5) d.update(on(t * S, 0, 1200));
     expect(d.update(off(130 * S))).toEqual([]);
-    expect(d.update(off(141 * S))).toEqual([{ type: 'end', at: 120 * S, reason: 'car-off', keep: false }]);
+    expect(d.update(off(141 * S))).toEqual([]);
   });
 
   it('keeps a trip that moved at some point, and one the user started by hand', () => {
     const d = new TripDetector();
     d.update(on(0, 0, 1200));
-    for (let t = 5; t <= 100; t += 5) d.update(on(t * S, t === 50 ? 12 : 0, 1200));
+    for (let t = 5; t <= 100; t += 5) d.update(on(t * S, t === 5 ? 12 : 0, 1200));
     d.update(off(110 * S));
     expect(d.update(off(125 * S))[0]).toMatchObject({ keep: true });
 
