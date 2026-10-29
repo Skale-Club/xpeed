@@ -46,10 +46,6 @@ export default async function handler(req: Request): Promise<Response> {
     brand = await fetchBrandConfig(supabaseUrl, anonKey);
   }
 
-  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
-  const host = req.headers.get('host') ?? 'xpeed-skaleclub.vercel.app';
-  const origin = `${proto}://${host}`;
-
   const themeColor = brand?.theme_color ?? DEFAULT_THEME;
   const backgroundColor = brand?.background_color ?? DEFAULT_THEME;
 
@@ -60,8 +56,9 @@ export default async function handler(req: Request): Promise<Response> {
         { src: brand.icon_512_url, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ]
     : [
-        // Bundled fallback — the favicon.ico shipped with the build
-        { src: `${origin}/favicon.ico`, sizes: '64x64 32x32 24x24 16x16', type: 'image/x-icon' },
+        { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ];
 
   const manifest = {
@@ -75,12 +72,8 @@ export default async function handler(req: Request): Promise<Response> {
     background_color: backgroundColor,
     lang: 'en',
     icons,
-    share_target: {
-      action: '/import',
-      method: 'POST',
-      enctype: 'multipart/form-data',
-      params: { files: [{ name: 'csv', accept: ['text/csv', '.csv'] }] },
-    },
+    // A multipart POST share target needs a service-worker receiver. Do not
+    // advertise /import while the app has no receiver or matching route.
   };
 
   return new Response(JSON.stringify(manifest), {

@@ -347,7 +347,8 @@
       "min": "min",
       "h": "h",
       "s": "s"
-    }
+    },
+    "saveConflict": "Uma viagem salva coincide com esta gravação. As duas cópias foram mantidas para conferência; a viagem salva não foi substituída."
   },
   "pill": {
     "recording": "Gravando viagem",
@@ -585,7 +586,8 @@
     "reevaluatedCount_one": "{{count}} leitura fora do normal",
     "reevaluatedCount_other": "{{count}} leituras fora do normal",
     "reevaluateFailed": "Não foi possível verificar de novo",
-    "reevaluateFailedHint": "A viagem ficou como estava. Tente de novo."
+    "reevaluateFailedHint": "A viagem ficou como estava. Tente de novo.",
+    "analysisOutdated": "As leituras foram reavaliadas. O resumo anterior da IA ainda não foi gerado novamente."
   },
   "sharing": {
     "confirmTitle": "Criar um link público?",
@@ -783,7 +785,7 @@
     "typeLabel": "O que a foto mostra",
     "captionPlaceholder": "Descrição curta (opcional)",
     "add": "Adicionar foto",
-    "empty": "Adicione uma foto de uma luz de alerta, da tela do scanner ou de qualquer outra coisa que você esteja vendo. O assistente também vai olhar.",
+    "empty": "Guarde fotos de luzes de aviso, leituras do scanner e outros detalhes junto desta viagem.",
     "delete": "Excluir foto",
     "invalidTitle": "Isso não é uma foto",
     "invalidBody": "Escolha uma imagem (JPG, PNG ou WebP).",
@@ -800,7 +802,8 @@
       "other": "Outro"
     },
     "deleteTitle": "Excluir esta foto?",
-    "deleteBody": "Ela será removida desta viagem e não dá para recuperar."
+    "deleteBody": "Ela será removida desta viagem e não dá para recuperar.",
+    "loadFailed": "Não foi possível carregar estas fotos. Confira sua conexão e tente novamente."
   },
   "auth": {
     "signInFailed": "Não conseguimos fazer seu login. Tente de novo.",
@@ -985,22 +988,22 @@
     "computer": "Para gravar viagens, abra xpeed.skale.club num celular Android e baixe o app por lá."
   },
   "pids": {
+    "10": "Fluxo de ar (MAF)",
+    "11": "Posição do acelerador",
+    "14": "Sonda lambda B1S1",
+    "15": "Sonda lambda B1S2",
+    "42": "Tensão do módulo",
+    "46": "Temperatura externa",
     "0C": "Rotação do motor",
     "0D": "Velocidade",
     "05": "Temperatura do motor",
     "04": "Carga do motor",
-    "11": "Posição do acelerador",
     "06": "Correção de combustível curta (B1)",
     "07": "Correção de combustível longa (B1)",
     "0F": "Temperatura do ar de admissão",
-    "10": "Fluxo de ar (MAF)",
     "0B": "Pressão do coletor (MAP)",
     "0E": "Avanço de ignição",
-    "14": "Sonda lambda B1S1",
-    "15": "Sonda lambda B1S2",
     "3C": "Temperatura do catalisador",
-    "42": "Tensão do módulo",
-    "46": "Temperatura externa",
     "2F": "Nível de combustível",
     "5B": "Vida restante da bateria híbrida",
     "5E": "Consumo de combustível",

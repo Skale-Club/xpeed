@@ -18,9 +18,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
-  getSession, getSessionFlags, getSessionRows, replaceSessionFlags, downloadSessionCSV, getCarById,
+  getSession, getSessionFlags, getSessionRows, downloadSessionCSV, getCarById,
 } from '@/lib/db';
-import { evaluateRules } from '@/lib/insight-engine';
+import { reprocessStoredSession } from '@/lib/reprocess-session';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import type { DefaultRule } from '@/lib/default-rules';
 import { URGENCY, describeProblem } from '@/lib/problems';
@@ -52,6 +52,7 @@ export default function SessionDetail() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -78,34 +79,23 @@ export default function SessionDetail() {
   useEffect(() => { void load(); }, [load]);
 
   const handleRecompute = useCallback(async () => {
-    if (!id || !session || rows.length === 0) return;
-    const summary = session.summary as (SessionSummary & { headerMapping?: Record<string, string>; timeColumn?: string }) | null;
-    const allKeys = new Set<string>();
-    rows.forEach((r) => {
-      const data = r.data as Record<string, unknown>;
-      if (data) Object.keys(data).forEach((k) => allKeys.add(k));
-    });
-    const pseudoParsed = {
-      headers: Array.from(allKeys),
-      rows: rows.map((r) => r.data as Record<string, number | string | null>),
-      headerMapping: summary?.headerMapping || {},
-      timeColumn: summary?.timeColumn || null,
-    };
-    const newFlags = evaluateRules(pseudoParsed as never, rules);
+    if (!id || !session || recomputing) return;
+    setRecomputing(true);
     try {
-      // The new flags are computed above; they replace the old ones only once they are saved.
-      await replaceSessionFlags(id, newFlags.map((f) => ({ ...f, evidence: f.evidence as unknown as Record<string, unknown> })));
-      setFlags((await getSessionFlags(id)) as unknown as SessionFlag[]);
+      const count = await reprocessStoredSession(session);
+      await load();
       toast({
         title: t('tripDetail.reevaluated', 'Checked again'),
         variant: 'success',
-        description: t('tripDetail.reevaluatedCount', { count: newFlags.length, defaultValue: '{{count}} readings out of range' }),
+        description: t('tripDetail.reevaluatedCount', { count, defaultValue: '{{count}} readings out of range' }),
       });
     } catch (error) {
       console.error('Failed to re-evaluate the trip:', error);
       toast({ title: t('tripDetail.reevaluateFailed', "Couldn't check the trip again"), description: t('tripDetail.reevaluateFailedHint', 'The trip was left as it was. Try again.'), variant: 'destructive' });
+    } finally {
+      setRecomputing(false);
     }
-  }, [id, session, rows, rules, toast]);
+  }, [id, session, recomputing, toast, t, load]);
 
   const handleDownloadCsv = useCallback(async () => {
     if (!session?.source_file_path && !session?.source_csv) return;
@@ -160,7 +150,8 @@ export default function SessionDetail() {
   const headerMapping = summary?.headerMapping || {};
   const summaries = summary?.summaries || [];
   const problems = tripProblems(flags, session.active_dtcs);
-  const aiSummary = typeof session.gemini_analysis?.summary === 'string' ? session.gemini_analysis.summary : null;
+  const analysisOutdated = session.summary?.analysis_outdated === true;
+  const aiSummary = !analysisOutdated && typeof session.gemini_analysis?.summary === 'string' ? session.gemini_analysis.summary : null;
   const avgSpeed = tripAverageSpeed(session);
   const facts = [
     { icon: Clock, label: t('tripDetail.duration', 'Duration'), value: formatDuration(session.duration_seconds) },
@@ -200,6 +191,7 @@ export default function SessionDetail() {
               </div>
             )}
             {aiSummary && <p className="text-sm leading-relaxed">{aiSummary}</p>}
+            {analysisOutdated && <p className="text-sm text-muted-foreground">{t('tripDetail.analysisOutdated', 'Readings were checked again. The previous AI summary has not been regenerated.')}</p>}
           </CardContent>
         </Card>
 
@@ -262,7 +254,7 @@ export default function SessionDetail() {
                   {downloadingCsv ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Download className="w-3 h-3 mr-1" />}
                   {t('tripDetail.downloadCsv', 'Download CSV')}
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => void handleRecompute()}>
+                <Button variant="outline" size="sm" className="text-xs" disabled={recomputing} onClick={() => void handleRecompute()}>
                   <RefreshCw className="w-3 h-3 mr-1" /> {t('tripDetail.reevaluate', 'Re-evaluate')}
                 </Button>
               </div>
@@ -273,7 +265,7 @@ export default function SessionDetail() {
                 attentionCount={flags.filter((f) => f.severity === 'attention').length}
                 criticalCount={flags.filter((f) => f.severity === 'critical').length}
               />
-              {session.gemini_analysis && <AIAnalysisCard analysis={session.gemini_analysis as never} />}
+              {session.gemini_analysis && !analysisOutdated && <AIAnalysisCard analysis={session.gemini_analysis} />}
               {(session.active_dtcs?.length ?? 0) > 0 && <DTCPanel codes={session.active_dtcs || []} />}
               <FlagsPanel flags={flags} />
               <SessionCharts rows={rows} headerMapping={headerMapping as never} rules={rules as never} />

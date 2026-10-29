@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,7 +50,7 @@ export default function McpTokensSection() {
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [sessionJwt, setSessionJwt] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       const [tokenList, session] = await Promise.all([
@@ -64,9 +64,9 @@ export default function McpTokensSection() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   const handleCreate = async () => {
     if (!newTokenName.trim()) return;

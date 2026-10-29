@@ -83,6 +83,14 @@ beforeEach(() => {
 const warning = { key: 'engine_slow_warmup', title: 'Slow warm-up', meaning: 'It took long.', action: 'Ask for a check.', urgency: 'watch' as const };
 const at = '2026-10-28T12:00:00.000Z';
 
+it('does not reopen a resolved problem when the same trip is reprocessed', async () => {
+  const { reconcileIssues } = await import('./issue-reconciler');
+  db.rows.push({ __table: 'vehicle_issues', id: 'fixed', car_profile_id: 'car', canonical_key: 'coolant_temp', status: 'resolved', severity: 'serious', title: 'Hot', last_seen_at: at, recurrence_count: 2 });
+  await reconcileIssues('trip', 'car', 'u1', [{ canonical_key: 'coolant_temp', parameter_key: 'Coolant', severity: 'critical', message: 'Hot', evidence: { min: 120, max: 120, avg: 120, pct_out_of_range: 100, longest_streak_s: 40, first_time: 0, last_time: 40 } }], at, true);
+  expect(issue('coolant_temp')).toMatchObject({ id: 'fixed', status: 'resolved', recurrence_count: 2 });
+  expect(db.rows.filter(r => r.__table === 'vehicle_issue_occurrences')).toHaveLength(1);
+});
+
 describe('syncAiWarnings', () => {
   it('adds nothing when it cannot tell which warnings the owner already dismissed', async () => {
     const { syncAiWarnings } = await import('./issue-reconciler');

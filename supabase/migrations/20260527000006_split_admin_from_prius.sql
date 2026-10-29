@@ -10,6 +10,10 @@ DECLARE
   v_user UUID := '3938f132-37b3-484f-afd6-e068eb48ed6d';
   v_prius UUID := 'b271dffd-ac89-440f-8940-62ed9f6d7939';
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_user) THEN
+    RAISE NOTICE 'Target user absent in this environment; skipping one-time profile repair';
+    RETURN;
+  END IF;
   -- 1. Criar admin placeholder se ainda não existir.
   -- set_car_profiles_user_id trigger sobrescreve user_id com auth.uid() (NULL aqui),
   -- então desabilita temporariamente.

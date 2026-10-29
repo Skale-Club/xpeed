@@ -161,6 +161,8 @@ CREATE POLICY "Users can delete session flags from their sessions"
   );
 
 -- Create RLS policies for app_settings (user-specific settings)
+-- Fresh installs need the ownership column before policies can reference it.
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 CREATE POLICY "Users can view their own app settings" 
   ON public.app_settings FOR SELECT 
   USING (auth.uid() = user_id);

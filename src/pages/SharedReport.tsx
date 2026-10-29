@@ -10,6 +10,7 @@ import { describeProblem } from '@/lib/problems';
 import { formatDuration, tripProblems, tripTitle } from '@/lib/trips';
 import type { Session, SessionFlag } from '@/types/session';
 import { BrandLogo } from '@/components/BrandLogo';
+import { formatAppDate } from '@/lib/app-date';
 
 interface ReportPayload {
   session?: Record<string, unknown> | null;
@@ -100,7 +101,7 @@ export default function SharedReport() {
                 <p className="text-xs text-muted-foreground font-mono">
                   {t('sharedReport.subtitle', 'Diagnostic report — {{date}}', {
                     date: sessionDate
-                      ? new Date(sessionDate as string).toLocaleString(i18n.resolvedLanguage || undefined)
+                      ? formatAppDate(new Date(sessionDate as string), i18n.resolvedLanguage, { dateStyle: 'medium', timeStyle: 'short' })
                       : t('sharedReport.unknownDate', 'date unknown'),
                   })}
                 </p>

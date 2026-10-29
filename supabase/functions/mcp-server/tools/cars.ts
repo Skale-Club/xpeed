@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type { ToolDefinition } from "../index.ts";
+import type { ToolDefinition } from "../types.ts";
 import { listCars, getCar } from "../services/cars.ts";
 
 export const listCarsTool: ToolDefinition = {

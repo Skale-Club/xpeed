@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "../index.ts";
+import type { ToolDefinition } from "../types.ts";
 import { lookupDtc, searchDtcs } from "../services/dtc.ts";
 
 export const getDtcInfoTool: ToolDefinition = {

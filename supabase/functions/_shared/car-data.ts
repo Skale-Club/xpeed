@@ -85,7 +85,7 @@ export async function loadCarPromptData(db: any, userId: string, hint: CarHint):
   const lastTrips: PromptTrip[] = (latestRes.data ?? []).map((s: any) => {
     const avg = speedAvg(s.summary);
     const km = avg != null && s.duration_seconds ? Math.round((avg * s.duration_seconds) / 3600) : null;
-    const summary = s.gemini_analysis && typeof s.gemini_analysis.summary === "string" ? s.gemini_analysis.summary : null;
+    const summary = !s.summary?.analysis_outdated && s.gemini_analysis && typeof s.gemini_analysis.summary === "string" ? s.gemini_analysis.summary : null;
     return {
       date: new Date(s.session_start ?? s.uploaded_at).toISOString(),
       minutes: minutes(s.duration_seconds),

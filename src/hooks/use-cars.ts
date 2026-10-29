@@ -10,11 +10,6 @@ export function useCars() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load cars on mount
-  useEffect(() => {
-    loadCars();
-  }, []);
-
   // Load saved selection from localStorage
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -53,6 +48,8 @@ export function useCars() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => { void loadCars(); }, [loadCars]);
 
   const createCar = useCallback(async (
     nameOrInput: string | CarProfileInput,

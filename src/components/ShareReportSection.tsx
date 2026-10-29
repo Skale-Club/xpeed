@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { createSharedReport, listSharedReports, revokeSharedReport, type SharedReport } from '@/lib/db-extras';
 import { publicAppUrl, tripTitle } from '@/lib/trips';
 import type { Session } from '@/types/session';
+import { formatAppDate } from '@/lib/app-date';
 
 const LINK_DAYS = 30;
 
@@ -73,7 +74,7 @@ export default function ShareReportSection({ session }: { session: Pick<Session,
   };
 
   const formatDate = (iso: string) =>
-    new Intl.DateTimeFormat(i18n.resolvedLanguage || undefined, { day: 'numeric', month: 'short' }).format(new Date(iso));
+    formatAppDate(new Date(iso), i18n.resolvedLanguage, { day: 'numeric', month: 'short' });
 
   return (
     <div className="space-y-2">

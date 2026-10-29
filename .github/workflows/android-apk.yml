@@ -37,6 +37,28 @@ jobs:
 
       - run: npm ci
 
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.6"
+      - name: Edge Function checks
+        run: npm run check:edge
+      - name: Install isolated SQL test runtime
+        run: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.13
+      - name: PostgreSQL contract checks
+        run: npm run test:sql
+
       - name: Build web app
         run: npm run build
         env:

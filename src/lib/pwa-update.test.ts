@@ -58,9 +58,39 @@ describe('startPwaUpdates', () => {
     options().onNeedRefresh?.();
     expect(updateSW).toHaveBeenCalledTimes(1);
   });
+
+  it('defers the worker reload if a trip starts while the worker is activating', async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } });
+    const { mod, options } = await setup();
+    options().onNeedRefresh?.();
+    mod.setTripRecording(true);
+    options().onNeedReload?.();
+    expect(reload).not.toHaveBeenCalled();
+    mod.setTripRecording(false);
+    expect(reload).toHaveBeenCalledTimes(1);
+    options().onNeedReload?.();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('installPreloadErrorReload', () => {
+  it('waits for recording and durable persistence before a chunk-error reload', async () => {
+    vi.resetModules();
+    const mod = await import('@/lib/pwa-update');
+    sessionStorage.clear();
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } });
+    mod.installPreloadErrorReload();
+    mod.setTripRecording(true);
+    const release = mod.holdAppUpdates();
+    window.dispatchEvent(new Event('vite:preloadError', { cancelable: true }));
+    expect(reload).not.toHaveBeenCalled();
+    mod.setTripRecording(false);
+    expect(reload).not.toHaveBeenCalled();
+    release();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
   it('lets a repeated chunk failure surface instead of reloading forever', async () => {
     vi.resetModules();
     const mod = await import('@/lib/pwa-update');

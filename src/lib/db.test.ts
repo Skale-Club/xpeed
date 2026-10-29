@@ -37,6 +37,7 @@ vi.mock('@/integrations/supabase/client', () => ({
 import {
   createSession, insertSessionRows, insertSessionFlags, getSessionRows, getSession, createCarProfile,
   replaceSessionFlags, updateCarProfile,
+  getSessions, getSessionFlags, getFlagsForSessions,
 } from './db';
 import { upsertAdminSetting } from './db-extras';
 
@@ -48,6 +49,37 @@ beforeEach(() => {
   h.state.queue.length = 0;
   h.state.calls.length = 0;
   h.from.mockClear();
+});
+
+describe('trip reads preserve the database contract', () => {
+  it('pages flags and bounds the list of trip IDs in each request', async () => {
+    queue('session_flags', { data: Array.from({ length: 1000 }, (_, i) => ({ id: `f-${i}`, severity: 'critical' })), error: null });
+    queue('session_flags', { data: [{ id: 'f-last', severity: 'attention' }], error: null });
+    queue('session_flags', { data: [{ id: 'f-other', severity: 'critical' }], error: null });
+    const flags = await getFlagsForSessions(Array.from({ length: 101 }, (_, i) => `trip-${i}`));
+    expect(flags).toHaveLength(1002);
+    expect(callsOf('session_flags', 'in').map(c => (c.args[1] as string[]).length)).toEqual([100, 100, 1]);
+    expect(callsOf('session_flags', 'range').map(c => c.args)).toEqual([[0, 999], [1000, 1999], [0, 999]]);
+  });
+
+  it('rejects a failed trip or flag read rather than reporting an empty healthy trip', async () => {
+    for (const read of [() => getSessions('car'), () => getSession('trip'), () => getSessionFlags('trip')]) {
+      queue('sessions', { data: null, error: { message: 'offline' } });
+      queue('session_flags', { data: null, error: { message: 'offline' } });
+      await expect(read()).rejects.toThrow(/offline/);
+      h.state.queue.length = 0;
+    }
+  });
+
+  it('includes DTCs and reads all pages without using a shifting offset', async () => {
+    const page = Array.from({ length: 1000 }, (_, i) => ({ id: `id-${i}`, uploaded_at: '2026-10-29T00:00:00Z', session_start: null, active_dtcs: ['P0300'] }));
+    queue('sessions', { data: page, error: null });
+    queue('sessions', { data: [{ id: 'last', uploaded_at: '2026-10-28T00:00:00Z', session_start: null }], error: null });
+    const trips = await getSessions('car');
+    expect(trips).toHaveLength(1001);
+    expect(String(callsOf('sessions', 'select')[0].args[0])).toContain('active_dtcs');
+    expect(callsOf('sessions', 'or')[0].args[0]).toContain('id.lt.id-999');
+  });
 });
 
 describe('saving a trip fails loudly', () => {

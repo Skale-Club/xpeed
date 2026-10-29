@@ -8,6 +8,7 @@ import type { IssueSeverity } from '@/lib/db-issues';
 import { DTC_PREFIX, dtcSeverity } from '@/lib/problems';
 import i18n from '@/lib/i18n';
 import { isNativeApp } from '@/lib/obd/native-ble';
+import { appHour, formatAppDate } from '@/lib/app-date';
 
 /** When the trip happened (recording start), falling back to the upload time. */
 export function tripDate(session: Pick<Session, 'session_start' | 'uploaded_at'>): Date {
@@ -48,7 +49,7 @@ export function formatDuration(seconds: number | null | undefined): string | nul
 }
 
 export function formatTripDate(date: Date, lang: string | undefined): string {
-  return new Intl.DateTimeFormat(lang || i18n.resolvedLanguage || undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+  return formatAppDate(date, lang || i18n.resolvedLanguage || undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 /**
@@ -71,7 +72,7 @@ export function isAutoTripName(name: string): boolean {
 export function tripTitle(session: Pick<Session, 'source_filename' | 'session_start' | 'uploaded_at'>, t: TFunction): string {
   const name = session.source_filename?.trim() ?? '';
   if (!isAutoTripName(name)) return name;
-  const hour = tripDate(session).getHours();
+  const hour = appHour(tripDate(session));
   if (hour >= 5 && hour < 12) return t('trip.partOfDay.morning', 'Morning trip');
   if (hour >= 12 && hour < 18) return t('trip.partOfDay.afternoon', 'Afternoon trip');
   if (hour >= 18 && hour < 23) return t('trip.partOfDay.evening', 'Evening trip');

@@ -37,8 +37,20 @@ declare global {
   }
 }
 
+const persistenceHolds = new Set<symbol>();
+
 export function isTripRecording(): boolean {
-  return typeof window !== 'undefined' && window.__xpeedRecording === true;
+  return persistenceHolds.size > 0 || (typeof window !== 'undefined' && window.__xpeedRecording === true);
+}
+
+/** Hold updates until the closing trip has a durable local or remote copy. */
+export function holdAppUpdates(): () => void {
+  const id = Symbol('trip persistence');
+  persistenceHolds.add(id);
+  return () => {
+    if (!persistenceHolds.delete(id)) return;
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(RECORDING_EVENT));
+  };
 }
 
 export function setTripRecording(recording: boolean): void {
@@ -58,6 +70,7 @@ export function hasPendingUpdate(): boolean {
 export type RegisterSW = (options: {
   immediate?: boolean;
   onNeedRefresh?: () => void;
+  onNeedReload?: () => void;
   onRegisteredSW?: (swUrl: string, registration: ServiceWorkerRegistration | undefined) => void;
   onRegisterError?: (error: unknown) => void;
 }) => (reloadPage?: boolean) => Promise<void>;
@@ -82,6 +95,14 @@ function markApplied(): void {
  */
 export function startPwaUpdates(register: RegisterSW): () => void {
   let registration: ServiceWorkerRegistration | undefined;
+  let reloadWaiting = false;
+  let reloaded = false;
+  const tryReload = () => {
+    if (!reloadWaiting || reloaded || isTripRecording()) return;
+    reloaded = true;
+    window.location.reload();
+  };
+  const requestReload = () => { reloadWaiting = true; tryReload(); };
 
   const tryApply = () => {
     if (!updateWaiting || isTripRecording() || recentlyApplied()) return;
@@ -90,7 +111,7 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     // The register helper only reloads when a worker already controlled the page at
     // load; on a first visit it doesn't, and the page would keep running old code
     // against the new cache. Reload ourselves once the new worker takes over.
-    navigator.serviceWorker?.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+    navigator.serviceWorker?.addEventListener('controllerchange', requestReload, { once: true });
     // Sends SKIP_WAITING; the new worker then takes control.
     void updateServiceWorker(true);
   };
@@ -104,6 +125,7 @@ export function startPwaUpdates(register: RegisterSW): () => void {
 
   const updateServiceWorker = register({
     immediate: true,
+    onNeedReload: requestReload,
     onNeedRefresh() {
       updateWaiting = true;
       tryApply();
@@ -121,7 +143,7 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     if (document.visibilityState === 'visible') checkForUpdate();
   });
   window.addEventListener('online', checkForUpdate);
-  window.addEventListener(RECORDING_EVENT, tryApply);
+  window.addEventListener(RECORDING_EVENT, () => { tryApply(); tryReload(); });
 
   return tryApply;
 }
@@ -136,12 +158,23 @@ const PRELOAD_RELOAD_GAP_MS = 5 * 60 * 1000;
  * forever, so it is allowed at most once per 5 minutes.
  */
 export function installPreloadErrorReload(): void {
+  let pending = false;
+  const tryReload = () => {
+    if (!pending || isTripRecording()) return;
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(PRELOAD_RELOAD_KEY) ?? 0); } catch { /* ignore */ }
+    if (last > 0 && Date.now() - last < PRELOAD_RELOAD_GAP_MS) return;
+    pending = false;
+    try { sessionStorage.setItem(PRELOAD_RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
+    window.location.reload();
+  };
   window.addEventListener('vite:preloadError', (event) => {
     let last = 0;
     try { last = Number(sessionStorage.getItem(PRELOAD_RELOAD_KEY) ?? 0); } catch { /* ignore */ }
     if (last > 0 && Date.now() - last < PRELOAD_RELOAD_GAP_MS) return; // let the error surface
-    try { sessionStorage.setItem(PRELOAD_RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
     event.preventDefault();
-    window.location.reload();
+    pending = true;
+    tryReload();
   });
+  window.addEventListener(RECORDING_EVENT, tryReload);
 }

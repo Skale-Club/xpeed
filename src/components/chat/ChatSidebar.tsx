@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Plus, Trash2, MessageSquare, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ChatConversation } from '@/lib/chat/types';
+import { formatAppDate } from '@/lib/app-date';
 
 interface ChatSidebarProps {
     isOpen: boolean;
@@ -82,7 +83,7 @@ export function ChatSidebar({
                                         <span className="min-w-0 flex-1">
                                             <span className="block truncate text-sm">{conv.title}</span>
                                             <span className="block text-xs text-muted-foreground">
-                                                {new Date(conv.updated_at).toLocaleDateString(i18n.resolvedLanguage || undefined)}
+                                                {formatAppDate(new Date(conv.updated_at), i18n.resolvedLanguage, { dateStyle: 'short' })}
                                             </span>
                                         </span>
                                     </button>

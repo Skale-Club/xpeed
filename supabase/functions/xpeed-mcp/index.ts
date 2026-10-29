@@ -104,7 +104,7 @@ async function verifyXpeedJWT(token: string, secret: string): Promise<JWTPayload
     "raw", new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" }, false, ["verify"],
   );
-  const sig = b64urlDecode(sigB64);
+  const sig = new Uint8Array(b64urlDecode(sigB64)).buffer;
   const valid = await crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(data));
   if (!valid) return null;
 

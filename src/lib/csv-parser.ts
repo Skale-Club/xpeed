@@ -1,5 +1,6 @@
 import { matchCanonicalKey } from './canonical-params';
 import { extractDtcs } from './dtc-codes';
+import { normalizeCsvUnits } from './csv-units';
 
 export interface ParsedCSV {
   headers: string[];
@@ -172,7 +173,9 @@ export function parseCSV(text: string): ParsedCSV {
       });
 
       // Pivot the PID/VALUE
-      const pid = row[pidHeader];
+      const unit = row[headers.find((h) => h.trim().toUpperCase() === 'UNITS') ?? ''];
+      const rawPid = row[pidHeader];
+      const pid = rawPid && unit && !/[([]/.test(rawPid) ? `${rawPid} (${unit})` : rawPid;
       const val = row[valueHeader];
       if (pid) {
         // Clean PID to be a valid key if needed, but keeping it raw is usually fine
@@ -190,13 +193,13 @@ export function parseCSV(text: string): ParsedCSV {
       newHeaderMapping[h] = matchCanonicalKey(h);
     });
 
-    return {
+    return normalizeCsvUnits({
       headers: newHeaders,
       rows: newRows,
       headerMapping: newHeaderMapping,
       timeColumn: timeColumn,
       activeDtcs: extractSessionDtcs(newHeaders, newRows),
-    };
+    });
   }
 
   const headerMapping: Record<string, ReturnType<typeof matchCanonicalKey>> = {};
@@ -220,5 +223,5 @@ export function parseCSV(text: string): ParsedCSV {
     return row;
   });
 
-  return { headers, rows, headerMapping, timeColumn, activeDtcs: extractSessionDtcs(headers, rows) };
+  return normalizeCsvUnits({ headers, rows, headerMapping, timeColumn, activeDtcs: extractSessionDtcs(headers, rows) });
 }

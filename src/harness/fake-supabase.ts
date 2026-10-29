@@ -37,7 +37,9 @@ const newId = () => `h-${Date.now().toString(36)}-${++seq}`;
 
 class Query implements PromiseLike<Result> {
   private filters: ((r: Row) => boolean)[] = [];
-  private sort: { col: string; asc: boolean } | null = null;
+  private sort: { col: string; asc: boolean }[] = [];
+  private columns = '*';
+  private offset = 0;
   private max: number | null = null;
   private mode: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select';
   private payload: Row | Row[] | null = null;
@@ -50,6 +52,7 @@ class Query implements PromiseLike<Result> {
   }
 
   select(_cols?: string, opts?: { count?: string; head?: boolean }) {
+    this.columns = _cols ?? '*';
     this.wantCount = !!opts?.count;
     this.countOnly = !!opts?.head;
     return this;
@@ -67,10 +70,17 @@ class Query implements PromiseLike<Result> {
   in(col: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[col])); return this; }
   gte(col: string, v: string | number) { this.filters.push((r) => (r[col] as string | number) >= v); return this; }
   lte(col: string, v: string | number) { this.filters.push((r) => (r[col] as string | number) <= v); return this; }
+  or(expression: string) {
+    // Only the cursor expression used by getSessions is simulated here.
+    const cursor = expression.match(/^uploaded_at\.lt\.(.+),and\(uploaded_at\.eq\.(.+),id\.lt\.(.+)\)$/);
+    if (!cursor) throw new Error(`Unsupported harness filter: ${expression}`);
+    this.filters.push((r) => String(r.uploaded_at) < cursor[1] || (r.uploaded_at === cursor[2] && String(r.id) < cursor[3]));
+    return this;
+  }
   filter(col: string, op: string, v: unknown) { return op === 'neq' ? this.neq(col, v) : this.eq(col, v); }
-  order(col: string, opts?: { ascending?: boolean }) { this.sort = { col, asc: opts?.ascending ?? true }; return this; }
+  order(col: string, opts?: { ascending?: boolean }) { this.sort.push({ col, asc: opts?.ascending ?? true }); return this; }
   limit(n: number) { this.max = n; return this; }
-  range(from: number, to: number) { this.max = to + 1; void from; return this; }
+  range(from: number, to: number) { this.offset = from; this.max = to - from + 1; return this; }
   single() { this.one = 'single'; return this; }
   maybeSingle() { this.one = 'maybe'; return this; }
   insert(rows: Row | Row[]) { this.mode = 'insert'; this.payload = rows; return this; }
@@ -110,17 +120,26 @@ class Query implements PromiseLike<Result> {
     } else {
       out = table.filter(match);
     }
-    if (this.sort) {
-      const { col, asc } = this.sort;
-      out = [...out].sort((a, b) => ((a[col] as string) > (b[col] as string) ? 1 : -1) * (asc ? 1 : -1));
+    if (this.sort.length) {
+      out = [...out].sort((a, b) => {
+        for (const { col, asc } of this.sort) {
+          if (a[col] === b[col]) continue;
+          if (a[col] == null) return asc ? 1 : -1;
+          if (b[col] == null) return asc ? -1 : 1;
+          return ((a[col] as string) > (b[col] as string) ? 1 : -1) * (asc ? 1 : -1);
+        }
+        return 0;
+      });
     }
-    if (this.max !== null) out = out.slice(0, this.max);
-    const copy = out.map((r) => ({ ...r }));
+    const total = out.length;
+    out = out.slice(this.offset, this.max === null ? undefined : this.offset + this.max);
+    const fields = this.columns.split(',').map((column) => column.trim()).filter((column) => !column.includes('(') && !column.includes(')'));
+    const copy = out.map((r) => fields.includes('*') ? { ...r } : Object.fromEntries(fields.map((key) => [key, r[key]])));
     if (this.one === 'single') {
       return copy[0] ? { data: copy[0], error: null } : { data: null, error: { message: 'No rows', code: 'PGRST116' } };
     }
     if (this.one === 'maybe') return { data: copy[0] ?? null, error: null };
-    return { data: this.countOnly ? null : copy, error: null, count: this.wantCount ? copy.length : null };
+    return { data: this.countOnly ? null : copy, error: null, count: this.wantCount ? total : null };
   }
 
   then<A = Result, B = never>(ok?: ((v: Result) => A | PromiseLike<A>) | null, fail?: ((e: unknown) => B | PromiseLike<B>) | null): PromiseLike<A | B> {
@@ -183,7 +202,9 @@ export const supabase = {
     },
   },
   from: (table: string) => new Query(table),
-  rpc: async (name: string, args: Row = {}) => ({ data: rpcs[name]?.(args) ?? null, error: null }),
+  rpc: async (name: string, args: Row = {}) => name in rpcs
+    ? { data: rpcs[name](args), error: null }
+    : { data: null, error: { message: `RPC ${name} is not simulated; use an isolated database for this check.` } },
   functions: {
     invoke: async (name: string, opts?: { body?: Row }) => {
       // Handy from the console: what the app sent to the AI last.

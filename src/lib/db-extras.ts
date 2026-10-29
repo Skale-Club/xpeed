@@ -131,8 +131,10 @@ export async function getPhotoUrl(storagePath: string, expiresInSeconds = 3600):
 }
 
 export async function deleteSessionPhoto(photo: SessionPhoto): Promise<void> {
-  await supabase.storage.from(PHOTO_BUCKET).remove([photo.storage_path]);
-  await supabase.from('session_photos' as never).delete().eq('id', photo.id);
+  const { error: storageError } = await supabase.storage.from(PHOTO_BUCKET).remove([photo.storage_path]);
+  if (storageError) throw storageError;
+  const { error } = await supabase.from('session_photos' as never).delete().eq('id', photo.id);
+  if (error) throw error;
 }
 
 // ---------- Shared Reports ----------

@@ -1,225 +1,99 @@
-# 🚗 Xpeed
+# Xpeed
 
-> AI-powered automotive analysis system for vehicle profile management and personalized insights.
+Vehicle profiles, OBD trip recording, deterministic diagnostics and an AI assistant. React 18, TypeScript, Vite, Supabase and Capacitor Android.
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactjs.org/)
-[![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+## Product
 
-## 📋 About
+- Car profiles, CSV imports, trip history, charts and original log downloads.
+- Bluetooth OBD recording, local backups and upload retries.
+- Vehicle-specific rules, persistent problems and maintenance history.
+- Trip summaries and chat via server-side OpenRouter. An administrator configures the key and model; no personal browser AI key is needed.
+- Private photos and revocable shared reports. Photos are stored attachments; image understanding is not implemented.
+- Read-only MCP tools with OAuth or user-issued tokens; installable PWA and Android live/offline variants.
 
-Xpeed is a modern web platform that uses artificial intelligence to provide detailed vehicle analysis. The system allows users to create personalized car profiles, perform intelligent queries, and obtain valuable insights about maintenance, performance, and technical specifications.
+## Local development
 
-### ✨ Key Features
+Use Node.js 22 (the CI runtime), npm and a configured Supabase environment:
 
-- 🤖 **Integrated AI Chat** - Converse with AI about your vehicle using Google Gemini
-- 📊 **Profile Management** - Create and manage multiple vehicle profiles
-- 🔐 **Secure Authentication** - Login with email/password or Google OAuth
-- 📱 **Responsive Interface** - Modern design adaptable to all devices
-- 💾 **Session History** - Save and continue previous conversations
-- 🎨 **Modern UI/UX** - Interface built with shadcn/ui and Tailwind CSS
-
-## 🚀 Tech Stack
-
-### Frontend
-- **React 18** - JavaScript library for user interfaces
-- **TypeScript** - Typed superset of JavaScript
-- **Vite** - Ultra-fast build tool
-- **TanStack Query** - Asynchronous state management
-- **React Router** - Client-side routing
-- **Tailwind CSS** - Utility-first CSS framework
-- **shadcn/ui** - Reusable UI components
-
-### Backend & Services
-- **Supabase** - Backend-as-a-Service (BaaS)
-  - PostgreSQL Database
-  - Authentication
-  - Row Level Security (RLS)
-- **Google Gemini AI** - AI model for chat functionality
-
-### Development Tools
-- **ESLint** - JavaScript/TypeScript linter
-- **PostCSS** - CSS processor
-- **dotenv** - Environment variable management
-
-## 📦 Installation
-
-### Prerequisites
-
-- Node.js 18+
-- npm or yarn
-- Supabase account
-- Google Gemini API key (optional)
-
-### Setup
-
-1. **Clone the repository**
-```bash
-git clone https://github.com/Skale-Club/xpeed.git
-cd xpeed
-```
-
-2. **Install dependencies**
-```bash
-npm install
-```
-
-3. **Configure environment variables**
-```bash
-cp .env.example .env
-```
-
-4. **Edit the `.env` file with your credentials**
-```env
-VITE_SUPABASE_PROJECT_ID=your_project_id_here
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-```
-
-5. **Start the development server**
-```bash
+```powershell
+npm ci
+Copy-Item .env.example .env
 npm run dev
 ```
 
-The application will be available at `http://localhost:8080`
+The development port is **5000**. Configure at least:
 
-## 🗄️ Database Structure
-
-### Main Tables
-
-- **`car_profiles`** - User vehicle profiles
-- **`chat_sessions`** - AI chat sessions
-- **`chat_messages`** - Individual conversation messages
-- **`app_settings`** - Application settings (API keys, etc)
-
-## 🔧 Available Scripts
-
-```bash
-# Development
-npm run dev              # Start development server
-
-# Build
-npm run build            # Compile for production
-npm run preview          # Preview production build
-
-# Linting
-npm run lint             # Run ESLint
-
-# Ops
-npm run supabase:keepalive  # Update keepalive timestamp in Supabase
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 ```
 
-## Supabase Keepalive (operational note)
+Deployed integrations may also need `VITE_APP_URL` and project settings. The publishable key is public; RLS and server authorization enforce access. Service-role keys, administrative script credentials and AI secrets belong only in trusted server/script environments. Never prefix secrets with `VITE_` or commit `.env`. Configure AI through admin settings and matching Edge Functions.
 
-Supabase free-tier projects are auto-paused after 7 days of inactivity. This
-repo has **two** GitHub Actions workflows that keep the project active and
-detect failure:
+The 55 migrations pass replay in embedded PostgreSQL with synthetic Supabase auth/Storage compatibility tables. Hosted Supabase services still need staging validation. Read the [runbook](docs/revisao-2026-10-29/RUNBOOK.md) before preparing/upgrading an environment. Do not reset a remote database to resolve migration errors.
 
-- **`.github/workflows/supabase-keepalive.yml`** — every 6h, writes a heartbeat
-  row to `app_settings.system.supabase_keepalive`, queries the `sessions`
-  table, then commits a small heartbeat file to `.github/keepalive-heartbeat`
-  and pushes. The push is what keeps the **repo** active — GitHub disables
-  scheduled workflows after 60 days of no commits to the default branch, which
-  is how we got paused the first time.
-- **`.github/workflows/supabase-keepalive-healthcheck.yml`** — daily at 14:00
-  UTC, reads back the heartbeat row and fails loudly if it is more than 12h
-  stale. GitHub's built-in failed-workflow email is the alert channel.
+## Checks
 
-Required GitHub repository secrets:
-
-- `VITE_SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-Required repo setting: **Settings → Actions → General → Workflow permissions**
-must be set to **"Read and write permissions"** so the heartbeat push works.
-
-### Manual ops
-
-```bash
-# Run the keepalive against Supabase (locally, with .env loaded)
-npm run supabase:keepalive
-
-# Verify the heartbeat row is fresh
-npm run supabase:keepalive:verify
+```powershell
+npm run typecheck  # frontend and api/; does not check Deno functions
+npm run lint
+$env:VITE_SUPABASE_URL='https://example.supabase.co'
+$env:VITE_SUPABASE_PUBLISHABLE_KEY='test-placeholder'
+npm test
+npm run build
 ```
 
-### Recovery: project got paused / keepalive stopped working
+Placeholders support compilation and synthetic tests only. Production needs the real public project settings. Additional backend checks (Deno 2.9.6 on PATH, or `XPEED_DENO_BIN` pointing to its executable):
 
-If the Supabase pause email arrives again, work through these steps:
-
-```bash
-# 1. List workflows and check state — look for "disabled_inactivity"
-gh api repos/Skale-Club/xpeed/actions/workflows
-
-# 2. Re-enable if disabled (use the workflow id from step 1)
-gh api repos/Skale-Club/xpeed/actions/workflows/<id>/enable -X PUT
-
-# 3. Verify both required secrets still exist
-gh secret list --repo Skale-Club/xpeed
-
-# 4. Dispatch both workflows manually to confirm they work
-gh workflow run "Supabase Keepalive"             --repo Skale-Club/xpeed --ref main
-gh workflow run "Supabase Keepalive Health Check" --repo Skale-Club/xpeed --ref main
-
-# 5. Tail the most recent run
-gh run list --workflow="Supabase Keepalive" --repo Skale-Club/xpeed --limit 3
-
-# 6. Unpause the Supabase project itself (manual, via dashboard):
-#    https://supabase.com/dashboard/project/drqmrddxlrlbqnydumjm
+```powershell
+npm run check:edge
+npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.13
+npm run test:sql
 ```
 
-If the heartbeat **commit-push** specifically is failing (script ran fine but
-no commit appeared), check the workflow permissions setting above.
+SQL tests run PostgreSQL entirely in memory, including migrated RLS policies and transactional rollback. They do not validate hosted Auth/Storage, external OAuth, paid AI or physical Bluetooth. See the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/) and [PGlite documentation](https://pglite.dev/docs/).
 
-## 🔐 Security
+For UI inspection without the production database:
 
-### Implemented Best Practices
+```powershell
+npx vite --config vite.harness.config.ts --host 127.0.0.1
+```
 
-- ✅ Protected environment variables (`.env` in `.gitignore`)
-- ✅ No hardcoded credentials in code
-- ✅ Row Level Security (RLS) on Supabase
-- ✅ Authentication via Supabase Auth
-- ✅ Service Role Key only in Node.js scripts
-- ✅ Validation of required environment variables
+The harness uses port **5010**, fake Supabase data and simulated Bluetooth. Unsupported RPCs return errors. It is not a migration or RLS simulator.
 
-### ⚠️ IMPORTANT
+## Data and reprocessing
 
-- **NEVER** commit the `.env` file
-- **ALWAYS** use `.env.example` as a template
-- **NEVER** expose `SUPABASE_SERVICE_ROLE_KEY` on the client-side
-- **ALWAYS** regenerate keys if accidentally exposed
+Main tables include `car_profiles`, `sessions`, `session_rows`, `session_flags`, `vehicle_issues`, `vehicle_issue_occurrences`, `chat_conversations`, `chat_messages`, maintenance/photo/share tables and `app_settings`. Definitions are in `supabase/migrations`; generated types still lag some tables.
 
-## 🤝 Contributing
+Original CSVs stay in private Storage, with inline `source_csv` as fallback. Diagnostics use the full file; stored chart rows are reduced to at most 2,000. Known explicit external units are normalized before calculation; original downloads remain unchanged. Missing units, ambiguous exports and unknown sampling intervals need further policy.
 
-Contributions are welcome! Feel free to:
+Trip re-evaluation and the new recording-save path require **20261029110000_stabilize_processing.sql**. It was validated with rollback and applied to the configured production project on 2026-10-29; other environments must apply it before publishing this client. It also upgrades legacy integer processing versions to text without losing values or the previous default. Owner-checked transactions replace derived data atomically and preserve session identity. Unavailable functions fail without partial fallback writes. Paid AI summaries are retained but marked outdated after reprocessing; automatic regeneration is deferred. Problem reconciliation is best effort and preserves resolved/ignored decisions.
 
-1. Fork the project
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## Recording and recovery
 
-## 📝 License
+The scanner backs up trips to IndexedDB and retries unfinished uploads. If durable storage fails, a finished trip stays in memory and automatic updates remain held until a durable copy exists. Leave the app open in that situation.
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+Automatic updates and failed-chunk recovery wait for recording/persistence to reach a safe point. Protected-page error boundaries keep scanner providers mounted and can navigate home without a full reload. This does not guarantee recovery after OS/browser process termination.
 
-## 🔗 Useful Links
+New recordings use a stable owner/car/millisecond identity, an exact CSV checksum and an atomic database completion receipt. A retry recognizes the same committed trip without replacing its ID or spending AI quota again. Ambiguous legacy trips are preserved alongside their local backups for review; no existing trip is preemptively deleted by its start time. Do not remove these backups or replace historical sessions in bulk. VIN switching and Android screen-off behavior still require physical-device validation.
 
-- [Supabase Documentation](https://supabase.com/docs)
-- [React Documentation](https://react.dev/)
-- [Vite Documentation](https://vitejs.dev/)
-- [Google Gemini AI](https://ai.google.dev/)
-- [shadcn/ui](https://ui.shadcn.com/)
+## Publication
 
-## 👨‍💻 Author
+`.github/workflows/android-apk.yml` checks types, lint and tests before signed builds. Main publishes `android-latest`; the configured feature branch creates artifacts. The live APK loads the configured production site; the offline variant bundles the web build. `CAP_SERVER_URL` selects the live-site variant during Capacitor sync.
 
-Built with ❤️ by Skale Club team
+Web CI and the APK workflow check Deno and PostgreSQL contracts for their checkout. External deployment gates and branch protection are separate settings and were not modified by the review.
 
----
+## Supabase keepalive
 
-<p align="center">
-  <strong>Xpeed</strong> - Artificial intelligence at the service of your vehicle
-</p>
+- `supabase-keepalive.yml` runs every six hours and updates/checks a heartbeat with the URL and server-only service-role repository secrets.
+- `supabase-keepalive-healthcheck.yml` checks heartbeat freshness daily.
+- The current workflow **does not commit or push** `.github/keepalive-heartbeat`, contrary to the previous README. The need for repository-activity automation remains an operational decision; the existing local heartbeat file was preserved.
+
+`npm run supabase:keepalive` and `npm run supabase:keepalive:verify` contact the configured database. Run only against the intended environment. The review did not run these scripts or change repository settings.
+
+## Review
+
+- [Baseline and findings](docs/revisao-2026-10-29/AVALIACAO.md)
+- [Execution plan](docs/revisao-2026-10-29/PLANO-DE-EXECUCAO.md)
+- [Changes, checks and pending decisions](docs/revisao-2026-10-29/EXECUCAO.md)
+- [Staging and rollout runbook](docs/revisao-2026-10-29/RUNBOOK.md)

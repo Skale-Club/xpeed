@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Outlet, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
@@ -33,13 +33,19 @@ const queryClient = new QueryClient();
 
 // One layout route for every signed-in page, so its providers (cars, the
 // Bluetooth OBD connection) stay mounted while the user navigates.
+const ProtectedScreen = () => {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  return <ErrorBoundary key={pathname} onGoHome={() => navigate('/')}>
+    <Suspense fallback={<PageLoader />}><Outlet /></Suspense>
+  </ErrorBoundary>;
+};
+
 const AuthenticatedLayout = () => (
   <PrivateRoute>
     <CarsProvider>
       <ObdScannerProvider>
-        <Suspense fallback={<PageLoader />}>
-          <Outlet />
-        </Suspense>
+        <ProtectedScreen />
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>

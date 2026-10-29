@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { webcrypto } from 'node:crypto';
+const recordings = vi.hoisted(() => ({ hasRecordedReceipt: vi.fn(), storeRecordedSession: vi.fn() }));
+vi.mock('@/lib/recorded-session', async (original) => ({ ...await original<typeof import('@/lib/recorded-session')>(), ...recordings }));
 
 const db = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -33,9 +36,13 @@ const CSV = 'Time,Engine RPM,Coolant Temp\n0,800,70\n1,900,72\n2,950,75\n';
 const file = () => Object.assign(new File([CSV], 'xpeed-scan_2026-10-28 15-30-00.csv', { type: 'text/csv' }), {
   text: async () => CSV,
 });
+afterEach(() => vi.unstubAllGlobals());
 
 beforeEach(() => {
+  vi.stubGlobal('crypto', webcrypto);
   vi.clearAllMocks();
+  recordings.hasRecordedReceipt.mockResolvedValue(false);
+  recordings.storeRecordedSession.mockResolvedValue(true);
   db.getCarById.mockResolvedValue({ id: 'car-1', make: 'Toyota', model: 'Prius', year: 2010, engine_type: 'hybrid' });
   db.createSession.mockResolvedValue({ id: 's-1' });
   db.insertSessionRows.mockResolvedValue(undefined);
@@ -45,6 +52,42 @@ beforeEach(() => {
   db.updateSessionVersioning.mockResolvedValue(undefined);
   db.deleteSession.mockResolvedValue(undefined);
   db.removeSessionCSV.mockResolvedValue(undefined);
+});
+
+describe('recorded CSV commits are idempotent', () => {
+  const identity = { sessionId: 'stable-recording', userId: 'u1' };
+  it('recognizes a committed trip before uploading or spending AI again', async () => {
+    recordings.hasRecordedReceipt.mockResolvedValue(true);
+    const stored = vi.fn();
+    const result = await ingestSessionCsv(file(), 'car-1', undefined, undefined, stored, undefined, identity);
+    expect(result.sessionId).toBe(identity.sessionId);
+    expect(stored).toHaveBeenCalledWith(identity.sessionId);
+    expect(db.uploadSessionCSV).not.toHaveBeenCalled();
+    expect(db.createSession).not.toHaveBeenCalled();
+    expect(recordings.storeRecordedSession).not.toHaveBeenCalled();
+  });
+  it('publishes original and all derivatives through one transaction', async () => {
+    const stored = vi.fn();
+    const exact = { ...identity, startedAt: '2026-10-28T22:30:00.123Z' };
+    await ingestSessionCsv(file(), 'car-1', undefined, undefined, stored, undefined, exact);
+    expect(recordings.storeRecordedSession).toHaveBeenCalledTimes(1);
+    const args = recordings.storeRecordedSession.mock.calls[0];
+    expect(args[0]).toEqual(exact);
+    expect(args[4]).toBe(exact.startedAt);
+    expect(args[2]).toMatch(/^[a-f0-9]{64}$/);
+    expect(args[7]).toMatchObject({ rows: expect.any(Array), flags: expect.any(Array), summary: expect.any(Object), report: expect.any(Object) });
+    expect(db.insertSessionRows).not.toHaveBeenCalled();
+    expect(db.insertSessionFlags).not.toHaveBeenCalled();
+    expect(stored).toHaveBeenCalledWith(identity.sessionId);
+  });
+  it('keeps the backup and never deletes the identity after a lost transaction response', async () => {
+    recordings.storeRecordedSession.mockRejectedValue(new Error('network response lost'));
+    const stored = vi.fn();
+    await expect(ingestSessionCsv(file(), 'car-1', undefined, undefined, stored, undefined, identity)).rejects.toThrow(/lost/);
+    expect(stored).not.toHaveBeenCalled();
+    expect(db.deleteSession).not.toHaveBeenCalled();
+    expect(db.removeSessionCSV).not.toHaveBeenCalled();
+  });
 });
 
 describe('ingestSessionCsv keeps the phone copy until the trip is really saved', () => {

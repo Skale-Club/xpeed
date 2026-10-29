@@ -32,8 +32,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
 
-        {/* Bottom padding keeps the text clear of the chat button (and the tab bar on phones). */}
-        <footer className="border-t border-border/60 px-20 pb-32 pt-4 text-center md:px-24 md:pb-20">
+        {/* Phones need room for the bottom tab bar; the desktop footer stays compact. */}
+        <footer className="border-t border-border/60 px-20 pb-32 pt-4 text-center md:px-24 md:pb-4">
           <p className="text-[11px] text-muted-foreground">
             {t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}
           </p>

@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-10-29T04:11:20.251Z",
+  "node": "v24.13.0",
+  "scope": "Dados sinteticos, funcoes atuais e analise estatica de uma migracao. Sem banco ou rede reais.",
+  "meaning": "reproduced=true confirma o defeito atual. Nao e uma suite de aceite das correcoes.",
+  "results": [
+    {
+      "id": "A01",
+      "reproduced": true,
+      "observed": {
+        "flagsBefore": 1,
+        "flagsAfter": 0
+      },
+      "expectedAfterFix": "Reavaliar os mesmos dados brutos deve preservar o alerta critico."
+    },
+    {
+      "id": "A02",
+      "reproduced": true,
+      "observed": {
+        "summaries": [
+          {
+            "canonical_key": "coolant_temp",
+            "parameter_key": "Coolant (F)",
+            "label": "Coolant Temp",
+            "unit": "°C",
+            "min": 194,
+            "max": 194,
+            "avg": 194,
+            "median": 194,
+            "count": 40
+          },
+          {
+            "canonical_key": "vehicle_speed",
+            "parameter_key": "Vehicle speed (mph)",
+            "label": "Vehicle Speed",
+            "unit": "km/h",
+            "min": 60,
+            "max": 60,
+            "avg": 60,
+            "median": 60,
+            "count": 40
+          }
+        ],
+        "flags": [
+          "critical"
+        ]
+      },
+      "expectedAfterFix": "194 F deve virar 90 C sem alerta de superaquecimento; 60 mph deve virar ~96.56 km/h."
+    },
+    {
+      "id": "A05",
+      "reproduced": true,
+      "observed": {
+        "timeColumn": {
+          "type": "timestamp",
+          "key": "Timestamp"
+        },
+        "flags": 0
+      },
+      "expectedAfterFix": "A janela critica de 20 segundos deve ser avaliada pelo tempo real."
+    },
+    {
+      "id": "A03",
+      "reproduced": true,
+      "observed": {
+        "flags": [],
+        "sessions": [],
+        "session": null
+      },
+      "expectedAfterFix": "Falhas devem ser lancadas e tratadas como erro recuperavel pela interface."
+    },
+    {
+      "id": "A06",
+      "reproduced": true,
+      "observed": {
+        "listIncludesActiveDtcs": false
+      },
+      "expectedAfterFix": "O contrato de listagem deve trazer os codigos usados para mostrar os problemas."
+    },
+    {
+      "id": "A09",
+      "reproduced": true,
+      "observed": {
+        "status": 401,
+        "authChallenge": null
+      },
+      "expectedAfterFix": "Preservar WWW-Authenticate e expor o cabecalho via CORS."
+    },
+    {
+      "id": "A11",
+      "reproduced": true,
+      "observed": {
+        "recording": true,
+        "reloads": 1
+      },
+      "expectedAfterFix": "Durante gravacao, uma falha de chunk nao pode recarregar antes de persistir e encerrar com seguranca."
+    },
+    {
+      "id": "A04-static",
+      "reproduced": true,
+      "observed": {
+        "previousHasFirstSessionId": true,
+        "previousHasDetails": false,
+        "previousHasUpdatedAt": false,
+        "upgradeAddsDetailsWithAlter": false
+      },
+      "expectedAfterFix": "Uma migracao incremental deve completar o esquema anterior sem apagar linhas."
+    }
+  ]
+}

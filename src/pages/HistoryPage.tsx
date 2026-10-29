@@ -37,6 +37,8 @@ export default function HistoryPage() {
   // Only trips whose flags have been fetched have an entry here (an empty list = nothing wrong).
   const [flags, setFlags] = useState<Record<string, SessionFlag[]>>({});
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   const tRef = useRef(t);
   tRef.current = t;
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -61,6 +63,8 @@ export default function HistoryPage() {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadFailed(false);
+      setTrips([]);
       setShown(PAGE_SIZE);
       setFlags({});
       if (!selectedCarId) {
@@ -78,14 +82,17 @@ export default function HistoryPage() {
         setFlags(grouped);
       } catch (err) {
         console.error(err);
-        if (!cancelled) toast({ title: tRef.current('history.loadFailed', "Couldn't load your trips"), variant: 'destructive' });
+        if (!cancelled) {
+          setLoadFailed(true);
+          toast({ title: tRef.current('history.loadFailed', "Couldn't load your trips"), variant: 'destructive' });
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
     // The list is for the car, not for the language: switching language must not refetch it.
-  }, [selectedCarId, toast, fetchFlags]);
+  }, [selectedCarId, toast, fetchFlags, retry]);
 
   const showMore = async () => {
     const next = shown + PAGE_SIZE;
@@ -143,7 +150,14 @@ export default function HistoryPage() {
           {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
         </div>
 
-        {trips.length === 0 ? (
+        {loadFailed ? (
+          <Card role="alert">
+            <CardContent className="py-8 text-center space-y-3">
+              <p>{t('history.loadFailed', "Couldn't load your trips")}</p>
+              <Button onClick={() => setRetry((n) => n + 1)}>{t('problems.retry', 'Try again')}</Button>
+            </CardContent>
+          </Card>
+        ) : trips.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center space-y-3">
               <Route className="w-10 h-10 text-muted-foreground/40 mx-auto" />

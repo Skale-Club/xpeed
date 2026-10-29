@@ -22,7 +22,8 @@ SELECT
   '98737376eb8cd11afe3982b7e3a744d029d007be465967b9b8171ccd3ca24fc3',
   'nWQNl_nN',
   'Claude.ai'
-WHERE NOT EXISTS (
+WHERE EXISTS (SELECT 1 FROM auth.users WHERE id = '3938f132-37b3-484f-afd6-e068eb48ed6d'::uuid)
+AND NOT EXISTS (
   SELECT 1 FROM public.mcp_tokens
   WHERE token_hash = '98737376eb8cd11afe3982b7e3a744d029d007be465967b9b8171ccd3ca24fc3'
 );

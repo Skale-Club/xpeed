@@ -692,7 +692,7 @@ export type Database = {
           duration_seconds: number | null
           gemini_analysis: Json | null
           id: string
-          processing_version: number
+          processing_version: string
           report: Json | null
           report_version: number
           row_count: number
@@ -715,7 +715,7 @@ export type Database = {
           duration_seconds?: number | null
           gemini_analysis?: Json | null
           id?: string
-          processing_version?: number
+          processing_version?: string
           report?: Json | null
           report_version?: number
           row_count?: number
@@ -738,7 +738,7 @@ export type Database = {
           duration_seconds?: number | null
           gemini_analysis?: Json | null
           id?: string
-          processing_version?: number
+          processing_version?: string
           report?: Json | null
           report_version?: number
           row_count?: number

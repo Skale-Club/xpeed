@@ -42,13 +42,13 @@ export default async function handler(req: Request): Promise<Response> {
   forwarded.set('content-type', ct ?? 'application/json');
   forwardClientIp(req, forwarded);
 
-  const upstream = await fetch(`${supabaseUrl}/functions/v1/xpeed-oauth/issue-code`, {
+  const init = {
     method: req.method,
     headers: forwarded,
     body: req.body,
-    // @ts-ignore
     duplex: 'half',
-  });
+  };
+  const upstream = await fetch(`${supabaseUrl}/functions/v1/xpeed-oauth/issue-code`, init);
 
   return new Response(upstream.body, {
     status: upstream.status,

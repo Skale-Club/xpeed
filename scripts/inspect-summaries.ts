@@ -2,9 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Load environment variables
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env') });
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -28,14 +29,16 @@ async function inspectSummaries() {
   }
 
   const allKeys = new Set<string>();
-  const samples: Record<string, any> = {};
+  type Item = { canonical_key?: string; parameter_key?: string; label?: string; max?: number; avg?: number };
+  const samples: Record<string, Item> = {};
 
   sessions.forEach((session, idx) => {
-    const summary = session.summary as any;
-    if (summary && summary.summaries) {
+    const summary = session.summary as { summaries?: Item[] } | null;
+    if (Array.isArray(summary?.summaries)) {
       console.log(`\n--- Session ${idx + 1} ---`);
-      summary.summaries.forEach((s: any) => {
+      summary.summaries.forEach((s) => {
         const key = s.canonical_key || s.parameter_key || s.label;
+        if (!key) return;
         allKeys.add(key);
         if (!samples[key]) {
             samples[key] = s;

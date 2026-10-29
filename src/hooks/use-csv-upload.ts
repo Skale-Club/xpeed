@@ -11,6 +11,8 @@ import { downsampleSessionRows } from '@/lib/downsample';
 import { generateReport, REPORT_VERSION, PROCESSING_VERSION } from '@/lib/report-generator';
 import { reconcileIssues, syncAiWarnings, syncFaultCodes, type FaultCodeSync } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
+import { sessionDuration, sessionTimes } from '@/lib/session-time';
+import { csvChecksum, hasRecordedReceipt, storeRecordedSession, type RecordingIdentity } from '@/lib/recorded-session';
 
 export class EmptyCsvError extends Error {
   constructor() {
@@ -48,6 +50,7 @@ export async function ingestSessionCsv(
    * is closed for being missing.
    */
   faultCodes?: FaultCodeSync,
+  recording?: RecordingIdentity,
 ): Promise<IngestResult> {
   let sourceFilePath: string | null = null;
   let createdSessionId: string | null = null;
@@ -68,17 +71,16 @@ export async function ingestSessionCsv(
     const car = await getCarById(carProfileId);
     const ruleset = resolveRulesetForCar(car);
     const flags = evaluateRules(parsed, ruleset.rules);
+    const checksum = recording ? await csvChecksum(text) : '';
+    const resultFor = (sessionId: string) => ({ sessionId, rows: parsed.rows.length, flags: flags.length, dtcs: parsed.activeDtcs.length });
+    if (recording && await hasRecordedReceipt(recording, carProfileId, checksum)) {
+      stored = true;
+      await onStored?.(recording.sessionId);
+      return resultFor(recording.sessionId);
+    }
 
     // Estimate duration
-    let durationSeconds: number | undefined;
-    if (parsed.timeColumn?.type === 'seconds' && parsed.rows.length > 1) {
-      const times = parsed.rows
-        .map(r => r[parsed.timeColumn!.key])
-        .filter((v): v is number => typeof v === 'number');
-      if (times.length > 1) {
-        durationSeconds = Math.round(times[times.length - 1] - times[0]);
-      }
-    }
+    const durationSeconds = sessionDuration(parsed);
 
     // Estimate start time
     let sessionStart: string | null = null;
@@ -114,6 +116,9 @@ export async function ingestSessionCsv(
       }
     }
 
+    // Recordings already know the exact instant; a local filename loses timezone/DST and milliseconds.
+    if (recording?.startedAt) sessionStart = new Date(recording.startedAt).toISOString();
+
     updateProgress(42, 'Saving original CSV...');
     try {
       sourceFilePath = await uploadSessionCSV(file, carProfileId);
@@ -123,7 +128,8 @@ export async function ingestSessionCsv(
     }
 
     updateProgress(55, 'Saving session...');
-    const session = await createSession(
+    const summary = { summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
+    const session = recording ? { id: recording.sessionId } : await createSession(
       carProfileId,
       customName || file.name,
       parsed.rows.length,
@@ -145,6 +151,8 @@ export async function ingestSessionCsv(
     createdSessionId = session.id;
 
     updateProgress(58, 'Saving data rows (0%)...');
+    const timeline = sessionTimes(parsed);
+    const origin = timeline.find((value) => value !== null) ?? 0;
     const rawDbRows = parsed.rows.map((row, idx) => {
       let t_seconds: number | null = null;
       let t_timestamp: string | null = null;
@@ -154,6 +162,7 @@ export async function ingestSessionCsv(
           t_seconds = val;
         } else if (parsed.timeColumn.type === 'timestamp' && typeof val === 'string') {
           t_timestamp = val;
+          t_seconds = timeline[idx] == null ? null : timeline[idx]! - origin;
         }
       } else {
         t_seconds = idx;
@@ -174,50 +183,54 @@ export async function ingestSessionCsv(
     // can always re-derive the original data; the DB just gets a chart-friendly summary.
     const dbRows = downsampleSessionRows(rawDbRows, 2000);
 
-    await insertSessionRows(session.id, dbRows, (percent) => {
-      const weightedProgress = 58 + (percent * 0.3);
-      updateProgress(weightedProgress, `Saving data rows (${percent}%)...`);
-    });
-
-    updateProgress(90, 'Saving flags...');
-    await insertSessionFlags(session.id, flags.map(f => ({
-      ...f,
-      evidence: f.evidence as unknown as Record<string, unknown>,
-    })));
-    // From here on the trip is kept even if a later step fails (no rollback). Reaching this
-    // line means the session, every data row and the flags were saved: createSession,
-    // insertSessionRows and insertSessionFlags throw on any database error, which lands in the
-    // rollback below, so onStored (which lets the caller drop its backup copy) never runs early.
-    stored = true;
-    await onStored?.(session.id);
-
-    // Generate structured report (deterministic, no AI).
-    // Store it on the session so the edge function can read it instead of
-    // receiving a raw CSV dump as a string.
-    try {
-      const report = generateReport({
-        sessionId: session.id,
-        filename: file.name,
-        parsed,
-        summaries,
-        flags,
-        durationSeconds,
-        sessionStart,
-        car,
-        rulesetId: ruleset.id,
-        rulesetMatchedVia: ruleset.matched_via,
+    const report = generateReport({ sessionId: session.id, filename: file.name, parsed, summaries, flags, durationSeconds, sessionStart, car, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via });
+    if (recording) {
+      const published = await storeRecordedSession(recording, carProfileId, checksum, customName || file.name, sessionStart, sourceFilePath, text, {
+        rows: dbRows, flags, report, summary, columns: parsed.headers, row_count: parsed.rows.length,
+        duration_seconds: durationSeconds ?? null, active_dtcs: parsed.activeDtcs,
+        ruleset_id: ruleset.id, ruleset_matched_via: ruleset.matched_via, report_version: REPORT_VERSION, processing_version: PROCESSING_VERSION,
       });
-      await Promise.all([
-        storeSessionReport(session.id, report as unknown as Record<string, unknown>),
-        updateSessionVersioning(session.id, {
-          ruleset_id: ruleset.id,
-          ruleset_matched_via: ruleset.matched_via,
-          report_version: REPORT_VERSION,
-          processing_version: PROCESSING_VERSION,
-        }),
-      ]);
-    } catch (reportErr) {
-      console.warn('Report generation skipped:', reportErr);
+      stored = true;
+      await onStored?.(session.id);
+      if (!published) {
+        // Another tab committed this recording first. Our unique Storage path is unused.
+        if (sourceFilePath) await removeSessionCSV(sourceFilePath).catch(error => console.warn('Unused recording CSV cleanup failed:', error));
+        return resultFor(session.id); // never spend AI quota twice
+      }
+    } else {
+      await insertSessionRows(session.id, dbRows, (percent) => {
+        const weightedProgress = 58 + (percent * 0.3);
+        updateProgress(weightedProgress, `Saving data rows (${percent}%)...`);
+      });
+
+      updateProgress(90, 'Saving flags...');
+      await insertSessionFlags(session.id, flags.map(f => ({
+        ...f,
+        evidence: f.evidence as unknown as Record<string, unknown>,
+      })));
+      // From here on the trip is kept even if a later step fails (no rollback). Reaching this
+      // line means the session, every data row and the flags were saved: createSession,
+      // insertSessionRows and insertSessionFlags throw on any database error, which lands in the
+      // rollback below, so onStored (which lets the caller drop its backup copy) never runs early.
+      stored = true;
+      await onStored?.(session.id);
+
+      // Generate structured report (deterministic, no AI).
+      // Store it on the session so the edge function can read it instead of
+      // receiving a raw CSV dump as a string.
+      try {
+        await Promise.all([
+          storeSessionReport(session.id, report as unknown as Record<string, unknown>),
+          updateSessionVersioning(session.id, {
+            ruleset_id: ruleset.id,
+            ruleset_matched_via: ruleset.matched_via,
+            report_version: REPORT_VERSION,
+            processing_version: PROCESSING_VERSION,
+          }),
+        ]);
+      } catch (reportErr) {
+        console.warn('Report generation skipped:', reportErr);
+      }
     }
 
     // Reconcile flags into the persistent vehicle_issues table.
@@ -277,6 +290,8 @@ export async function ingestSessionCsv(
     updateProgress(100, 'Upload complete!');
     return { sessionId: session.id, rows: parsed.rows.length, flags: flags.length, dtcs: parsed.activeDtcs.length };
   } catch (err) {
+    // A lost RPC response may already have committed. Never delete by identity on uncertainty.
+    if (recording) throw err;
     if (stored) throw err;
     if (createdSessionId) {
       try {

@@ -18,8 +18,6 @@
 -- ============================================================
 -- exec_sql is a SECURITY DEFINER function that executes arbitrary SQL.
 -- It must NEVER be callable by anon or authenticated via PostgREST.
-REVOKE EXECUTE ON FUNCTION public.exec_sql(text) FROM anon, authenticated;
-
 CREATE OR REPLACE FUNCTION public.exec_sql(query text)
 RETURNS void
 LANGUAGE plpgsql
@@ -30,6 +28,9 @@ BEGIN
   EXECUTE query;
 END;
 $$;
+
+-- Fresh replay creates the function before restricting it; no public default grant survives.
+REVOKE EXECUTE ON FUNCTION public.exec_sql(text) FROM PUBLIC, anon, authenticated;
 
 
 -- ============================================================

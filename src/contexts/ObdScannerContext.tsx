@@ -8,13 +8,15 @@ import { useObdScanner, type TripResult } from '@/hooks/use-obd-scanner';
 import { useScreenWakeLock } from '@/hooks/use-wake-lock';
 import { useToast } from '@/hooks/use-toast';
 import { ingestSessionCsv } from '@/hooks/use-csv-upload';
-import { deleteSession, findSessionStartedAt } from '@/lib/db';
+import { findSessionStartedAt } from '@/lib/db';
+import { recordedSessionId, RecordingConflictError } from '@/lib/recorded-session';
+import { formatAppDate } from '@/lib/app-date';
 import { loadCustomPids, saveCustomPids, type CustomPid } from '@/lib/obd/custom-pids';
 import { buildScannerCsv, scannerFilename } from '@/lib/obd/session-csv';
 import { findRememberedAdapter, isBluetoothAvailable } from '@/lib/obd/elm327';
 import { isBluetoothReady, isNativeApp } from '@/lib/obd/native-ble';
 import { isMobileDevice } from '@/lib/device';
-import { setTripRecording } from '@/lib/pwa-update';
+import { holdAppUpdates, setTripRecording } from '@/lib/pwa-update';
 import { beforeLogout } from '@/lib/logout';
 import {
   appendTripSamples, deleteTripCopy, getTripCopy, listTripCopies, saveTripCopy, tripKey, type StoredTrip,
@@ -120,9 +122,9 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const [lastTrip, setLastTrip] = useState<SavedTrip | null>(null);
 
   const tripName = useCallback((startedAt: Date) => {
-    const when = new Intl.DateTimeFormat(i18n.resolvedLanguage || undefined, {
+    const when = formatAppDate(startedAt, i18n.resolvedLanguage, {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-    }).format(startedAt);
+    });
     return t('trip.name', 'Trip {{when}}', { when });
   }, [t, i18n.resolvedLanguage]);
 
@@ -133,6 +135,8 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const finishingRef = useRef(new Set<string>());
   /** Copies the device couldn't store (no IndexedDB, disk full): kept here so they still get uploaded. */
   const memoryCopiesRef = useRef(new Map<string, StoredTrip>());
+  const memoryUpdateHolds = useRef(new Map<string, () => void>());
+  const reportedConflicts = useRef(new Set<string>());
 
   /** Does this copy belong to whoever is signed in now? */
   const isMine = useCallback((copy: StoredTrip): boolean => {
@@ -151,8 +155,8 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
   /**
    * Put one trip copy in the database, then remove it from the device. If a
-   * previous attempt got as far as creating the trip but was cut off, that
-   * partial trip is replaced instead of duplicated.
+   * previous attempt committed but its response/backup cleanup was lost, the
+   * stable identity is recognized without replacing the saved trip.
    *
    * The copy is read again here, at its turn: a list made earlier can be stale
    * (the trip may have been uploaded meanwhile), and uploading it again would
@@ -170,7 +174,9 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     }
     const forget = async () => {
       memoryCopiesRef.current.delete(id);
-      await deleteTripCopy(id);
+      memoryUpdateHolds.current.get(id)?.();
+      memoryUpdateHolds.current.delete(id);
+      if (!(await deleteTripCopy(id))) console.warn('The saved trip copy could not be removed; it will be checked on retry.');
     };
     // A copy without an end time is a recording the app never got to finish.
     const recovered = copy.endedAt == null;
@@ -183,17 +189,18 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     try {
       const startedAt = new Date(copy.startedAt);
       const endedAt = new Date(copy.endedAt ?? copy.startedAt + copy.samples[copy.samples.length - 1].t * 1000);
+      const owner = userIdRef.current;
+      if (!owner || !isMine(copy)) return;
+      const sessionId = await recordedSessionId(owner, carId, tripKey(copy.startedAt));
       const earlier = await findSessionStartedAt(carId, startedAt);
-      if (earlier) {
-        // Only replace the earlier upload while this copy is still waiting to be saved.
-        const stillThere = (await getTripCopy(id)) ?? memoryCopiesRef.current.get(id);
-        if (!stillThere) return;
-        await deleteSession(earlier);
+      if (earlier && earlier !== sessionId) {
+        // Legacy uploads have no reliable completion receipt. Keep both for review.
+        throw new RecordingConflictError('A legacy trip already exists at this start time. The saved trip and device copy have been preserved.');
       }
 
       const csv = buildScannerCsv(copy.columns, copy.samples, copy.dtcs ?? []);
       const file = new File([csv], scannerFilename(startedAt), { type: 'text/csv' });
-      const result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, forget, copy.faultCodes);
+      const result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, forget, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() });
       setLastTrip({ sessionId: result.sessionId, endedAt });
       toast({
         title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
@@ -202,11 +209,13 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       });
     } catch (err) {
       console.error('Trip save failed:', err);
-      if (announceFailure()) {
+      const conflict = err instanceof RecordingConflictError;
+      if (announceFailure() || (conflict && !reportedConflicts.current.has(id))) {
+        if (conflict) reportedConflicts.current.add(id);
         const kept = !memoryCopiesRef.current.has(id);
         toast({
           title: t('trip.saveFailed', "Couldn't save the trip"),
-          description: kept
+          description: conflict ? t('trip.saveConflict', 'A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced.') : kept
             ? t('trip.saveFailedHint', "It's kept on this device and will be saved by itself when there's internet.")
             : t('trip.saveFailedNoCopy', "It couldn't be kept on this device either, so leave the app open: it keeps trying while it's open."),
           variant: kept ? 'warning' : 'destructive',
@@ -253,6 +262,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   }, [uploadCopy]);
 
   const saveTrip = useCallback(async (trip: TripResult) => {
+    const releaseUpdate = holdAppUpdates();
     const id = tripKey(trip.startedAt.getTime());
     const current = currentTripRef.current?.id === id ? currentTripRef.current : null;
     const carId = current ? current.carId : carIdRef.current;
@@ -268,12 +278,16 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         },
       };
       const kept = await saveTripCopy(copy);
-      if (!kept) memoryCopiesRef.current.set(id, copy);
+      if (!kept) {
+        memoryCopiesRef.current.set(id, copy);
+        memoryUpdateHolds.current.set(id, releaseUpdate);
+      } else releaseUpdate();
       if (currentTripRef.current?.id === id) currentTripRef.current = null;
       // Leaving (signed out): the copy stays on the device for its owner.
       if (leavingRef.current) return;
       await uploadCopy(id, true);
     } finally {
+      if (!memoryCopiesRef.current.has(id)) releaseUpdate();
       finishingRef.current.delete(id);
     }
   }, [uploadCopy]);

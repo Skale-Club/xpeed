@@ -12,6 +12,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "npm:zod@3.23.8";
 import { getOpenRouterApiKey, getDefaultModel } from "../_shared/admin-config.ts";
 import { consumeQuota, getUserIdFromAuth, refundQuota } from "../_shared/quota.ts";
+import { parseAnalysisResponse } from "../_shared/analysis-response.ts";
 
 // The app sends its UI language so answers come back in it (older clients send nothing → English).
 const LANGUAGE_NAMES = { "en": "English", "pt-BR": "Brazilian Portuguese", "es-ES": "Spanish" } as const;
@@ -256,14 +257,14 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
 
     const data: OpenRouterResponse = await aiRes.json();
     const rawText = data.choices?.[0]?.message?.content ?? "{}";
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      parsed = { summary: rawText, key_findings: [], recommended_action: "" };
+    const validated = parseAnalysisResponse(rawText);
+    if (!validated) {
+      await refundQuota(userId, "analysis");
+      quotaSpent = false;
+      return jsonResponse({ error: "Invalid upstream AI response" }, 502);
     }
-    if (!Array.isArray(parsed.key_findings)) parsed.key_findings = [];
-    parsed.warnings = cleanWarnings(parsed.warnings);
+    const { rawWarnings, ...fields } = validated;
+    const parsed = { ...fields, warnings: cleanWarnings(rawWarnings) };
 
     return jsonResponse({ analysis: parsed });
   } catch (err: any) {

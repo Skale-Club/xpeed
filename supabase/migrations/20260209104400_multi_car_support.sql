@@ -7,6 +7,9 @@ ALTER TABLE public.car_profiles ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES
 -- Add index for faster queries
 CREATE INDEX IF NOT EXISTS idx_car_profiles_user_id ON public.car_profiles(user_id);
 
+-- The backfill below reads sessions.user_id, including on a fresh database.
+ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+
 -- Update existing car_profiles to set user_id from sessions (if any)
 -- This is a best-effort migration, may need manual adjustment
 UPDATE public.car_profiles 

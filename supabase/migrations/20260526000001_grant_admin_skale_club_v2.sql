@@ -10,7 +10,8 @@ BEGIN
   LIMIT 1;
 
   IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'User skale.club@gmail.com not found in auth.users';
+    RAISE NOTICE 'Target user absent in this environment; skipping one-time admin grant';
+    RETURN;
   END IF;
 
   UPDATE public.car_profiles

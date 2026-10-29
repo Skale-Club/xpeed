@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import type { ToolDefinition } from "../index.ts";
+import type { ToolDefinition } from "../types.ts";
 import { listSessions, getSession, getSessionFlags, getSessionRows } from "../services/sessions.ts";
 
 export const listSessionsTool: ToolDefinition = {

@@ -75,5 +75,5 @@ ALTER TABLE public.session_flags ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all access to session_flags" ON public.session_flags FOR ALL USING (true) WITH CHECK (true);
 CREATE INDEX idx_session_flags_session_id ON public.session_flags(session_id);
 
--- Insert default car profile
-INSERT INTO public.car_profiles (name, notes) VALUES ('2010 Prius', 'Toyota Prius Gen 3 - Default profile');
+-- Cars are created for an authenticated owner after signup. An ownerless demo
+-- seed here prevents the later user_id NOT NULL migration on a fresh database.

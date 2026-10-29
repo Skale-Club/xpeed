@@ -347,7 +347,8 @@
       "min": "min",
       "h": "h",
       "s": "s"
-    }
+    },
+    "saveConflict": "A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced."
   },
   "pill": {
     "recording": "Recording trip",
@@ -585,7 +586,8 @@
     "reevaluatedCount_one": "{{count}} reading out of range",
     "reevaluatedCount_other": "{{count}} readings out of range",
     "reevaluateFailed": "Couldn't check the trip again",
-    "reevaluateFailedHint": "The trip was left as it was. Try again."
+    "reevaluateFailedHint": "The trip was left as it was. Try again.",
+    "analysisOutdated": "Readings were checked again. The previous AI summary has not been regenerated."
   },
   "sharing": {
     "confirmTitle": "Make a public link?",
@@ -783,7 +785,7 @@
     "typeLabel": "What the photo shows",
     "captionPlaceholder": "Short description (optional)",
     "add": "Add photo",
-    "empty": "Add a photo of a warning light, the scanner screen or anything else you can see. The assistant will look at it too.",
+    "empty": "Keep photos of warning lights, scanner readings or other details with this trip.",
     "delete": "Delete photo",
     "invalidTitle": "That's not a photo",
     "invalidBody": "Please choose an image (JPG, PNG or WebP).",
@@ -800,7 +802,8 @@
       "other": "Other"
     },
     "deleteTitle": "Delete this photo?",
-    "deleteBody": "It will be removed from this trip and can't be brought back."
+    "deleteBody": "It will be removed from this trip and can't be brought back.",
+    "loadFailed": "Couldn't load these photos. Check your connection and try again."
   },
   "auth": {
     "signInFailed": "We couldn't sign you in. Please try again.",
@@ -985,22 +988,22 @@
     "computer": "To record trips, open xpeed.skale.club on an Android phone and get the app there."
   },
   "pids": {
+    "10": "Mass air flow",
+    "11": "Throttle position",
+    "14": "O2 sensor B1S1",
+    "15": "Sensor B1S2 voltage",
+    "42": "Control module voltage",
+    "46": "Ambient air temperature",
     "0C": "Engine RPM",
     "0D": "Vehicle speed",
     "05": "Engine coolant temperature",
     "04": "Calculated engine load",
-    "11": "Throttle position",
     "06": "Short term fuel trim B1",
     "07": "Long term fuel trim B1",
     "0F": "Intake air temperature",
-    "10": "Mass air flow",
     "0B": "Manifold absolute pressure",
     "0E": "Timing advance",
-    "14": "O2 sensor B1S1",
-    "15": "Sensor B1S2 voltage",
     "3C": "Catalyst temperature",
-    "42": "Control module voltage",
-    "46": "Ambient air temperature",
     "2F": "Fuel level",
     "5B": "Hybrid battery remaining life",
     "5E": "Engine fuel rate",

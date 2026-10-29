@@ -2,10 +2,10 @@ import { supabase } from '@/integrations/supabase/client';
 
 const SESSION_CSV_BUCKET = 'session-csv';
 const SESSION_LIST_SELECT =
-  'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, gemini_analysis';
+  'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, gemini_analysis, active_dtcs';
 // The trip page also needs the fault codes and versions. Never `*`: sessions.source_csv holds
 // the whole CSV (megabytes) and the stored report is large; both are fetched only when needed.
-const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, active_dtcs, ruleset_id, ruleset_matched_via, report_version, processing_version`;
+const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, ruleset_id, ruleset_matched_via, report_version, processing_version`;
 /** session_rows are read in pages: the API caps a response (1000 rows) and a trip stores 2000+. */
 const ROW_PAGE_SIZE = 1000;
 const ROW_PAGE_LIMIT = 100;
@@ -47,69 +47,98 @@ export async function getDefaultCarProfile() {
 }
 
 export async function getSessions(carProfileId?: string) {
-  let query = supabase
-    .from('sessions')
-    .select(SESSION_LIST_SELECT)
-    .order('uploaded_at', { ascending: false });
-  
-  if (carProfileId) {
-    query = query.eq('car_profile_id', carProfileId);
+  // Cursor paging keeps inserts at the top from shifting an offset and silently
+  // dropping/duplicating older trips. Preserve the callers' complete-list contract.
+  const sessions: NonNullable<Awaited<ReturnType<typeof sessionPage>>['data']> = [];
+  let cursor: { uploaded_at: string; id: string } | undefined;
+  for (;;) {
+    const { data, error } = await sessionPage(carProfileId, cursor);
+    if (error) throw new Error(`Failed to load trips: ${error.message}`);
+    const page = data ?? [];
+    sessions.push(...page);
+    if (page.length < ROW_PAGE_SIZE) break;
+    const last = page[page.length - 1];
+    if (cursor?.id === last.id) throw new Error('Trip pagination did not advance');
+    cursor = { uploaded_at: last.uploaded_at, id: last.id };
   }
-  
-  const { data } = await query;
-  return data || [];
+  return sessions.sort((a, b) =>
+    new Date(b.session_start ?? b.uploaded_at).getTime() - new Date(a.session_start ?? a.uploaded_at).getTime()
+    || b.id.localeCompare(a.id));
+}
+
+function sessionPage(carProfileId?: string, cursor?: { uploaded_at: string; id: string }) {
+  let query = supabase.from('sessions').select(SESSION_LIST_SELECT)
+    .order('uploaded_at', { ascending: false }).order('id', { ascending: false }).limit(ROW_PAGE_SIZE);
+  if (carProfileId) query = query.eq('car_profile_id', carProfileId);
+  if (cursor) {
+    query = query.or(`uploaded_at.lt.${cursor.uploaded_at},and(uploaded_at.eq.${cursor.uploaded_at},id.lt.${cursor.id})`);
+  }
+  return query;
 }
 
 /** The trip of this car that started at this exact second, if it was already uploaded. */
 export async function findSessionStartedAt(carProfileId: string, startedAt: Date): Promise<string | null> {
   const second = new Date(Math.floor(startedAt.getTime() / 1000) * 1000).toISOString();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('sessions')
     .select('id')
     .eq('car_profile_id', carProfileId)
     .eq('session_start', second)
     .limit(1)
     .maybeSingle();
+  if (error) throw new Error(`Failed to look up trip: ${error.message}`);
   return (data as { id: string } | null)?.id ?? null;
 }
 
 export async function getSession(id: string) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('sessions')
     .select(SESSION_DETAIL_SELECT)
     .eq('id', id)
     .maybeSingle();
+  if (error) throw new Error(`Failed to load trip: ${error.message}`);
   if (!data) return data;
 
   // Trips saved before the CSV went to storage keep it in the row. Only those need it fetched
   // (the page enables "Download CSV" from it); newer trips have source_file_path instead.
   const trip = data as unknown as Record<string, unknown>;
   if (!trip.source_file_path) {
-    const { data: csv } = await supabase.from('sessions').select('source_csv').eq('id', id).maybeSingle();
+    const { data: csv, error: csvError } = await supabase.from('sessions').select('source_csv').eq('id', id).maybeSingle();
+    if (csvError) throw new Error(`Failed to load stored CSV: ${csvError.message}`);
     return { ...trip, source_csv: csv?.source_csv ?? null } as unknown as typeof data;
   }
   return data;
 }
 
 export async function getSessionFlags(sessionId: string) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('session_flags')
     .select('*')
     .eq('session_id', sessionId)
     .order('severity');
+  if (error) throw new Error(`Failed to load trip flags: ${error.message}`);
   return data || [];
 }
 
 export async function getFlagsForSessions(sessionIds: string[]) {
-  if (sessionIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from('session_flags')
-    .select('*, sessions(source_filename, uploaded_at)')
-    .in('session_id', sessionIds)
-    .order('severity');
-  // A failed read must not look like "no flags" (that reads as "all good" in Trips).
-  if (error) throw new Error(`Failed to fetch flags: ${error.message}`);
-  return data || [];
+  const flags: NonNullable<Awaited<ReturnType<typeof flagsPage>>['data']> = [];
+  // Bound URL size independently from the database's response-row cap.
+  const uniqueIds = [...new Set(sessionIds)];
+  for (let start = 0; start < uniqueIds.length; start += 100) {
+    const ids = uniqueIds.slice(start, start + 100);
+    for (let offset = 0; ; offset += ROW_PAGE_SIZE) {
+      const { data, error } = await flagsPage(ids, offset);
+      if (error) throw new Error(`Failed to fetch flags: ${error.message}`);
+      flags.push(...(data ?? []));
+      if ((data?.length ?? 0) < ROW_PAGE_SIZE) break;
+    }
+  }
+  return flags.sort((a, b) => a.severity.localeCompare(b.severity));
+}
+
+function flagsPage(ids: string[], offset: number) {
+  return supabase.from('session_flags').select('*, sessions(source_filename, uploaded_at)')
+    .in('session_id', ids).order('id').range(offset, offset + ROW_PAGE_SIZE - 1);
 }
 
 export async function getSessionRows(sessionId: string) {
@@ -127,6 +156,7 @@ async function fetchRowsPage(sessionId: string, from: number) {
     .from('session_rows')
     .select('*')
     .eq('session_id', sessionId)
+    .order('t_timestamp', { ascending: true })
     .order('t_seconds', { ascending: true })
     .order('id', { ascending: true }) // stable order across pages when times repeat
     .range(from, from + ROW_PAGE_SIZE - 1);
@@ -484,9 +514,12 @@ export interface CarProfileInput {
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('User not authenticated');
   const { data, error } = await supabase
     .from('car_profiles')
     .select('*')
+    .eq('user_id', user.id)
     .neq('is_admin', true) // Filter out admin profiles
     .order('created_at', { ascending: false });
 

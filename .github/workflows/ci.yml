@@ -1,6 +1,5 @@
 # Checks that run before anything is deployed. Vercel deploys from main on its
-# own, so keep this green (or make the tsc / eslint steps blocking once their
-# known errors are fixed).
+# own; repository branch protection/deployment gates must be configured separately.
 name: CI
 
 on:
@@ -24,16 +23,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Non-blocking for now: tsconfig.app.json is not strict and a handful of
-      # pre-existing type errors remain (recharts value types, csv-parser).
-      # Remove continue-on-error once `npx tsc --noEmit -p tsconfig.app.json` is clean.
       - name: Type check
-        run: npx tsc --noEmit -p tsconfig.app.json
-        continue-on-error: true
+        run: npm run typecheck
 
-      # src/ currently has 0 lint errors (12 warnings), so this one blocks.
       - name: Lint
-        run: npx eslint src
+        run: npm run lint
 
       - name: Unit tests
         run: npx vitest run
@@ -49,3 +43,14 @@ jobs:
           # the production build without them). Nothing here is a real key.
           VITE_SUPABASE_URL: https://example.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.6"
+      - name: Edge Function type checks and contract tests
+        run: npm run check:edge
+
+      - name: Install isolated SQL test runtime
+        run: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.13
+      - name: PostgreSQL migrations, atomic saves and access policies
+        run: npm run test:sql

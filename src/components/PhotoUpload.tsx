@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Image as ImageIcon, Loader2, Trash2, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -30,35 +30,63 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
   const [photos, setPhotos] = useState<SessionPhoto[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [photoType, setPhotoType] = useState<PhotoType>('dashboard');
   const [caption, setCaption] = useState('');
   const [deleting, setDeleting] = useState<SessionPhoto | null>(null);
   const { toast } = useToast();
+  const currentSession = useRef(sessionId);
+  currentSession.current = sessionId;
 
-  const loadPhotos = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    setLoadFailed(false);
+    setUploading(false);
+    setDeleting(null);
+    setPhotos([]);
+    setPhotoUrls({});
+    void (async () => {
     try {
       const data = await listSessionPhotos(sessionId);
-      setPhotos(data);
-      // Resolve short-lived signed URLs for the private bucket (S08-1).
-      const entries = await Promise.all(
-        data.map(async (p) => [p.id, await getPhotoUrl(p.storage_path)] as const),
-      );
-      setPhotoUrls(Object.fromEntries(entries.filter(([, url]) => url) as [string, string][]));
+      if (!cancelled) {
+        setPhotos(data);
+      }
     } catch (err) {
       console.error('Failed to load photos:', err);
+      if (!cancelled) setLoadFailed(true);
     } finally {
-      setLoaded(true);
+      if (!cancelled) setLoaded(true);
     }
-  }, [sessionId]);
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId, retry]);
 
-  // Lazy load on first render
-  if (!loaded && !uploading) {
-    void loadPhotos();
-  }
+  // Signed URLs expire after an hour. Renew before expiry, and on returning to
+  // a tab whose background timers may have been suspended by the browser.
+  useEffect(() => {
+    if (!photos.length) return;
+    let cancelled = false;
+    let lastRefresh = 0;
+    const refresh = async () => {
+      const entries = await Promise.all(photos.map(async photo => [photo.id, await getPhotoUrl(photo.storage_path)] as const));
+      if (!cancelled) {
+        setPhotoUrls(Object.fromEntries(entries.filter(([, url]) => url) as [string, string][]));
+        lastRefresh = Date.now();
+      }
+    };
+    const tryRefresh = () => { void refresh().catch(error => console.warn('Photo URL refresh failed:', error)); };
+    const onVisible = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh >= 50 * 60_000) tryRefresh(); };
+    tryRefresh();
+    const timer = setInterval(tryRefresh, 50 * 60_000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { cancelled = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [photos, sessionId]);
 
   const handleFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       toast({
         title: t('photos.invalidTitle', "That's not a photo"),
         description: t('photos.invalidBody', 'Please choose an image (JPG, PNG or WebP).'),
@@ -77,18 +105,20 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
     setUploading(true);
     try {
       const photo = await uploadSessionPhoto(file, sessionId, photoType, caption.trim() || undefined);
+      if (currentSession.current !== sessionId) return;
       setPhotos(prev => [...prev, photo]);
       setCaption('');
       toast({ title: t('photos.uploaded', 'Photo added'), variant: 'success' });
     } catch (err) {
       console.error('Photo upload failed:', err);
+      if (currentSession.current !== sessionId) return;
       toast({
         title: t('photos.uploadFailed', "Couldn't add the photo"),
         description: t('photos.tryAgain', 'Please check your connection and try again.'),
         variant: 'destructive',
       });
     } finally {
-      setUploading(false);
+      if (currentSession.current === sessionId) setUploading(false);
     }
   }, [sessionId, photoType, caption, t, toast]);
 
@@ -129,7 +159,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
             onChange={e => setCaption(e.target.value)}
             className="h-8 text-xs"
           />
-          <Button size="sm" disabled={uploading} onClick={() => inputRef.current?.click()}>
+          <Button size="sm" disabled={uploading || !loaded || loadFailed} onClick={() => inputRef.current?.click()}>
             {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : t('photos.add', 'Add photo')}
           </Button>
         </div>
@@ -137,7 +167,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -146,9 +176,14 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
           }}
         />
 
-        {photos.length === 0 ? (
+        {loadFailed ? (
+          <div role="alert" className="text-sm space-y-2">
+            <p>{t('photos.loadFailed', "Couldn't load these photos. Check your connection and try again.")}</p>
+            <Button variant="outline" size="sm" onClick={() => setRetry(value => value + 1)}>{t('problems.retry', 'Try again')}</Button>
+          </div>
+        ) : photos.length === 0 ? (
           <p className="text-xs text-muted-foreground text-center py-4">
-            {t('photos.empty', 'Add a photo of a warning light, the scanner screen or anything else you can see. The assistant will look at it too.')}
+            {t('photos.empty', 'Keep photos of warning lights, scanner readings or other details with this trip.')}
           </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">

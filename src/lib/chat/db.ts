@@ -262,7 +262,7 @@ export async function buildChatContext(carProfileId?: string | null): Promise<Ch
                 km: round(tripDistanceKm(s)),
                 avgSpeedKmh: round(tripAverageSpeed(s)),
                 faultCodes: (s as Session & { active_dtcs?: string[] }).active_dtcs ?? [],
-                summary: typeof ai?.summary === 'string' ? ai.summary : null,
+                summary: s.summary?.analysis_outdated !== true && typeof ai?.summary === 'string' ? ai.summary : null,
             };
         });
 

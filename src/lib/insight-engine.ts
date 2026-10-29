@@ -1,4 +1,5 @@
 import { ParsedCSV } from './csv-parser';
+import { sessionTimes } from './session-time';
 
 export interface FlagEvidence {
   min: number | null;
@@ -47,7 +48,7 @@ interface Rule {
 function getValues(rows: Record<string, number | string | null>[], key: string): number[] {
   return rows
     .map(r => r[key])
-    .filter((v): v is number => typeof v === 'number' && !isNaN(v));
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
 }
 
 // Single-pass min/max. Avoids Math.min(...arr)/Math.max(...arr), which throw
@@ -106,7 +107,7 @@ export function evaluateRules(
   rules: Rule[],
 ): SessionFlag[] {
   const flags: SessionFlag[] = [];
-  const sampleInterval = estimateSampleInterval(parsed);
+  const times = sessionTimes(parsed);
 
   for (const rule of rules) {
     // Find matching column
@@ -123,21 +124,17 @@ export function evaluateRules(
 
     // Check critical
     let criticalCount = 0;
-    let maxCriticalStreak = 0;
-    let currentStreak = 0;
     for (const v of values) {
       const outCritical = (rule.critical_max !== null && v > rule.critical_max) ||
         (rule.critical_min !== null && v < rule.critical_min);
       if (outCritical) {
         criticalCount++;
-        currentStreak++;
-        maxCriticalStreak = Math.max(maxCriticalStreak, currentStreak);
-      } else {
-        currentStreak = 0;
       }
     }
 
-    const criticalStreakSeconds = maxCriticalStreak * sampleInterval;
+    const criticalStreakSeconds = longestStreak(parsed, times, matchingHeader, (v) =>
+      (rule.critical_max !== null && v > rule.critical_max) ||
+      (rule.critical_min !== null && v < rule.critical_min));
     if (criticalCount > 0 && criticalStreakSeconds >= (rule.min_duration_seconds / 2)) {
       flags.push({
         severity: 'critical',
@@ -156,21 +153,17 @@ export function evaluateRules(
 
     // Check warn
     let warnCount = 0;
-    let maxWarnStreak = 0;
-    currentStreak = 0;
     for (const v of values) {
       const outWarn = (rule.warn_max !== null && v > rule.warn_max) ||
         (rule.warn_min !== null && v < rule.warn_min);
       if (outWarn) {
         warnCount++;
-        currentStreak++;
-        maxWarnStreak = Math.max(maxWarnStreak, currentStreak);
-      } else {
-        currentStreak = 0;
       }
     }
 
-    const warnStreakSeconds = maxWarnStreak * sampleInterval;
+    const warnStreakSeconds = longestStreak(parsed, times, matchingHeader, (v) =>
+      (rule.warn_max !== null && v > rule.warn_max) ||
+      (rule.warn_min !== null && v < rule.warn_min));
     if (warnCount > 0 && warnStreakSeconds >= rule.min_duration_seconds) {
       flags.push({
         severity: 'attention',
@@ -190,14 +183,21 @@ export function evaluateRules(
   return flags;
 }
 
-function estimateSampleInterval(parsed: ParsedCSV): number {
-  if (!parsed.timeColumn || parsed.rows.length < 2) return 1;
-  if (parsed.timeColumn.type === 'seconds') {
-    const t0 = parsed.rows[0][parsed.timeColumn.key] as number;
-    const t1 = parsed.rows[1][parsed.timeColumn.key] as number;
-    if (typeof t0 === 'number' && typeof t1 === 'number') return Math.abs(t1 - t0) || 1;
+function longestStreak(parsed: ParsedCSV, times: (number | null)[], header: string, outside: (value: number) => boolean): number {
+  let start: number | null = null;
+  let longest = 0;
+  for (let i = 0; i < parsed.rows.length; i++) {
+    const value = parsed.rows[i][header];
+    const time = times[i];
+    if (time === null || typeof value !== 'number' || !Number.isFinite(value) || !outside(value)) {
+      start = null;
+      continue;
+    }
+    start ??= time;
+    // Only the elapsed span supported by readings counts; no invented tail sample.
+    longest = Math.max(longest, time - start);
   }
-  return 1;
+  return longest;
 }
 
 function extractMessage(notes: string, level: string): string | null {

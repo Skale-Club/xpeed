@@ -8,7 +8,8 @@ export const config = { runtime: 'edge' };
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-api-key, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-api-key, content-type, mcp-protocol-version',
+  'Access-Control-Expose-Headers': 'WWW-Authenticate, MCP-Protocol-Version',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -30,24 +31,27 @@ export default async function handler(req: Request): Promise<Response> {
 
   // Forward relevant auth + content headers
   const forwarded = new Headers();
-  for (const key of ['authorization', 'x-api-key', 'content-type']) {
+  for (const key of ['authorization', 'x-api-key', 'content-type', 'mcp-protocol-version']) {
     const val = req.headers.get(key);
     if (val) forwarded.set(key, val);
   }
 
-  const upstream = await fetch(target, {
+  const init = {
     method: req.method,
     headers: forwarded,
     body: req.body,
-    // @ts-ignore — duplex is required for streaming request bodies in the Edge runtime
     duplex: 'half',
-  });
+  };
+  const upstream = await fetch(target, init);
 
+  const responseHeaders = new Headers(CORS_HEADERS);
+  responseHeaders.set('Content-Type', upstream.headers.get('Content-Type') ?? 'application/json');
+  for (const key of ['WWW-Authenticate', 'MCP-Protocol-Version', 'Cache-Control']) {
+    const value = upstream.headers.get(key);
+    if (value) responseHeaders.set(key, value);
+  }
   return new Response(upstream.body, {
     status: upstream.status,
-    headers: {
-      'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json',
-      ...CORS_HEADERS,
-    },
+    headers: responseHeaders,
   });
 }

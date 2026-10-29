@@ -5,6 +5,7 @@ import i18n from '@/lib/i18n';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  onGoHome?: () => void;
 }
 
 interface State {
@@ -43,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={this.handleReset}>{i18n.t('problems.retry', 'Try again')}</Button>
-            <Button onClick={() => window.location.assign('/')}>{i18n.t('errors.goHome', 'Go to the start')}</Button>
+            <Button onClick={() => this.props.onGoHome ? this.props.onGoHome() : window.location.assign('/')}>{i18n.t('errors.goHome', 'Go to the start')}</Button>
           </div>
         </div>
       );

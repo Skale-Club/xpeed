@@ -48,6 +48,10 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const { selectedCar } = useCarsContext();
     const { toast } = useToast();
     const scrollRef = useRef<HTMLDivElement>(null);
+    const viewVersion = useRef(0);
+    const sending = useRef(false);
+    const skipLoad = useRef<string | null>(null);
+    const chatCarId = currentConversation ? currentConversation.car_profile_id : selectedCar?.id;
 
     // Model is admin-configured server-side (app_settings.admin_openrouter_model);
     // the client does not choose or send a model.
@@ -69,17 +73,25 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
 
     // Build context when car changes
     useEffect(() => {
+        let cancelled = false;
         async function loadContext() {
-            const context = await buildChatContext(selectedCar?.id);
-            setContextData(context);
+            const context = await buildChatContext(chatCarId ?? undefined);
+            if (!cancelled) setContextData(context);
         }
         if (isOpen) {
             loadContext();
         }
-    }, [isOpen, selectedCar]);
+        return () => { cancelled = true; };
+    }, [isOpen, chatCarId]);
 
     // Load messages when conversation changes
     useEffect(() => {
+        let cancelled = false;
+        const version = viewVersion.current;
+        if (currentConversation && skipLoad.current === currentConversation.id) {
+            skipLoad.current = null;
+            return;
+        }
         async function loadConversationMessages() {
             if (!currentConversation) {
                 setMessages([]);
@@ -87,6 +99,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             }
             try {
                 const msgs = await getMessages(currentConversation.id);
+                if (cancelled || version !== viewVersion.current) return;
                 setMessages(msgs.map(m => ({
                     id: m.id,
                     role: m.role,
@@ -94,19 +107,22 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 })));
             } catch (error) {
                 console.error('Failed to load messages:', error);
-                setMessages([]);
+                if (!cancelled && version === viewVersion.current) setMessages([]);
             }
         }
         loadConversationMessages();
+        return () => { cancelled = true; };
     }, [currentConversation]);
 
-    // Send handler: prefer the server-side Edge Function (admin Gemini key);
-    // fall back to direct client-side Gemini call if the user has their own
-    // key configured. Either way the user gets an answer.
+    // Replies stay with their originating conversation even when the user
+    // opens another conversation while the server is answering.
     const handleSendMessage = useCallback(async (text: string) => {
         // We accept the message even without a per-user apiKey because the
         // Edge Function might be configured with an admin key.
-        if (!text.trim()) return;
+        if (!text.trim() || sending.current) return;
+        sending.current = true;
+        const version = ++viewVersion.current;
+        let userSaved = false;
 
         setLoading(true);
         const userMessageId = crypto.randomUUID();
@@ -128,12 +144,16 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     selectedCar?.id
                 );
                 conversationId = newConv.id;
-                setCurrentConversation(newConv);
+                if (version === viewVersion.current) {
+                    skipLoad.current = newConv.id;
+                    setCurrentConversation(newConv);
+                }
                 setConversations(prev => [newConv, ...prev]);
             }
 
             // Save user message
             await saveMessage(conversationId, 'user', [{ type: 'text', text }]);
+            userSaved = true;
 
             // Build history (last 10 turns) for both Edge + fallback paths
             const historyMessages = messages.slice(-10).map(m => ({
@@ -147,14 +167,14 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 historyMessages,
                 text,
                 (contextData ?? {}) as unknown as Record<string, unknown>,
-                selectedCar?.id,
+                chatCarId,
             );
 
             // Save assistant message
             const assistantMessageId = crypto.randomUUID();
             await saveMessage(conversationId, 'assistant', [{ type: 'text', text: responseText }]);
 
-            setMessages(prev => [...prev, {
+            if (version === viewVersion.current) setMessages(prev => [...prev, {
                 id: assistantMessageId,
                 role: 'assistant',
                 content: responseText,
@@ -179,20 +199,24 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                         : t('assistant.replyFailed', "The assistant couldn't answer right now. Please try again in a moment."),
                 variant: 'destructive',
             });
-            // Remove the user message on error
-            setMessages(prev => prev.filter(m => m.id !== userMessageId));
+            // Keep questions already persisted when only the reply failed.
+            if (!userSaved && version === viewVersion.current) setMessages(prev => prev.filter(m => m.id !== userMessageId));
         } finally {
+            sending.current = false;
             setLoading(false);
         }
-    }, [currentConversation, selectedCar, contextData, messages, toast, t]);
+    }, [currentConversation, selectedCar, chatCarId, contextData, messages, toast, t]);
 
     const handleNewConversation = async () => {
+        viewVersion.current++;
         setCurrentConversation(null);
         setMessages([]);
         setSidebarOpen(false);
     };
 
     const handleSelectConversation = (conv: ChatConversation) => {
+        viewVersion.current++;
+        setMessages([]);
         setCurrentConversation(conv);
         setSidebarOpen(false);
     };
@@ -202,6 +226,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             await deleteConversation(id);
             setConversations(prev => prev.filter(c => c.id !== id));
             if (currentConversation?.id === id) {
+                viewVersion.current++;
                 setCurrentConversation(null);
                 setMessages([]);
             }
@@ -253,7 +278,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                     <CardTitle className="text-lg">Xpeed</CardTitle>
                                 </DialogPrimitive.Title>
                                 <p className="truncate text-xs text-muted-foreground">
-                                    {selectedCar ? selectedCar.name : t('assistant.noCarSelected', 'No car selected')}
+                                    {contextData?.vehicle?.name || t('assistant.noCarSelected', 'No car selected')}
                                 </p>
                             </div>
                         </div>

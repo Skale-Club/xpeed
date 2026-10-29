@@ -2,19 +2,17 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sparkles, Lightbulb, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { analysisDisplay } from '@/lib/analysis-display';
+import { formatAppDate } from '@/lib/app-date';
 
 interface AIAnalysisCardProps {
-  analysis: {
-    summary: string;
-    insights: string[];
-    recommendations: string[];
-    timestamp?: string;
-  };
+  analysis: unknown;
 }
 
-export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
+export default function AIAnalysisCard({ analysis: raw }: AIAnalysisCardProps) {
   const { t, i18n } = useTranslation();
-  if (!analysis) return null;
+  if (!raw) return null;
+  const analysis = analysisDisplay(raw);
 
   return (
     <Card className="bg-card border-border border-primary/30 shadow-sm overflow-hidden">
@@ -28,7 +26,7 @@ export default function AIAnalysisCard({ analysis }: AIAnalysisCardProps) {
             {/* Trip summaries from the server carry no time of their own; show it only when there is one. */}
             {analysis.timestamp && !Number.isNaN(new Date(analysis.timestamp).getTime()) && (
               <p className="text-xs text-muted-foreground">
-                {t('aiReport.generated', 'Generated {{when}}', { when: new Date(analysis.timestamp).toLocaleString(i18n.resolvedLanguage || undefined) })}
+                {t('aiReport.generated', 'Generated {{when}}', { when: formatAppDate(new Date(analysis.timestamp), i18n.resolvedLanguage, { dateStyle: 'medium', timeStyle: 'short' }) })}
               </p>
             )}
           </div>

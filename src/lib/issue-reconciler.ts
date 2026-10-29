@@ -37,6 +37,8 @@ type CodeDetails = CodeIssueDetails;
 const UNIQUE_VIOLATION = '23505';
 
 interface Seen {
+  /** Rechecking an old trip must not undo the owner's resolution decision. */
+  reprocessing?: boolean;
   carProfileId: string;
   userId: string;
   /** The trip it was seen in; null for a reading taken outside a trip (Scanner). */
@@ -108,7 +110,7 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
         const modules = Array.from(new Set([...(prev.details?.modules ?? []), ...item.modules])).sort();
         updates.details = { ...(prev.details ?? {}), source: 'dtc', modules };
       }
-      if (prev.status === 'resolved') {
+      if (prev.status === 'resolved' && !seen.reprocessing) {
         updates.status = 'recurred';
         updates.recurrence_count = (prev.recurrence_count ?? 0) + 1;
       }
@@ -152,8 +154,9 @@ export async function reconcileIssues(
   userId: string,
   flags: SessionFlag[],
   sessionStart: string | null,
+  reprocessing = false,
 ): Promise<void> {
-  const seen: Seen = { carProfileId, userId, sessionId, occurredAt: sessionStart ?? new Date().toISOString() };
+  const seen: Seen = { carProfileId, userId, sessionId, occurredAt: sessionStart ?? new Date().toISOString(), reprocessing };
   for (const f of flags) {
     if (f.severity === 'normal') continue;
     await upsertProblem({ canonical_key: f.canonical_key, title: f.message, severity: toIssueSeverity(f.severity), evidence: f.evidence }, seen);

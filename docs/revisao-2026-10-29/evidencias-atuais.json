@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-10-29T05:26:22.844Z",
+  "node": "v24.13.0",
+  "scope": "Dados sinteticos, funcoes atuais e analise estatica de uma migracao. Sem banco ou rede reais.",
+  "meaning": "reproduced=true confirma o defeito nesta verificacao. false nao homologa banco, RLS, hardware ou fluxo completo. Ver testes permanentes e EXECUCAO.md.",
+  "results": [
+    {
+      "id": "A01",
+      "reproduced": false,
+      "observed": {
+        "flagsBefore": 1,
+        "flagsAfterDiscardingTimes": 0,
+        "currentPathReadsOriginal": true
+      },
+      "expectedAfterFix": "O caminho atual deve reavaliar o CSV original; a transacao SQL ainda exige homologacao."
+    },
+    {
+      "id": "A02",
+      "reproduced": false,
+      "observed": {
+        "summaries": [
+          {
+            "canonical_key": "coolant_temp",
+            "parameter_key": "Coolant (F)",
+            "label": "Coolant Temp",
+            "unit": "°C",
+            "min": 90,
+            "max": 90,
+            "avg": 90,
+            "median": 90,
+            "count": 40
+          },
+          {
+            "canonical_key": "vehicle_speed",
+            "parameter_key": "Vehicle speed (mph)",
+            "label": "Vehicle Speed",
+            "unit": "km/h",
+            "min": 96.56064,
+            "max": 96.56064,
+            "avg": 96.56064000000006,
+            "median": 96.56064,
+            "count": 40
+          }
+        ],
+        "flags": []
+      },
+      "expectedAfterFix": "194 F deve virar 90 C sem alerta de superaquecimento; 60 mph deve virar ~96.56 km/h."
+    },
+    {
+      "id": "A05",
+      "reproduced": false,
+      "observed": {
+        "timeColumn": {
+          "type": "timestamp",
+          "key": "Timestamp"
+        },
+        "flags": 1
+      },
+      "expectedAfterFix": "A janela critica de 20 segundos deve ser avaliada pelo tempo real."
+    },
+    {
+      "id": "A03",
+      "reproduced": false,
+      "observed": {
+        "flags": {
+          "threw": true,
+          "message": "Failed to load trip flags: synthetic network failure"
+        },
+        "sessions": {
+          "threw": true,
+          "message": "Failed to load trips: synthetic network failure"
+        },
+        "session": {
+          "threw": true,
+          "message": "Failed to load trip: synthetic network failure"
+        }
+      },
+      "expectedAfterFix": "Falhas devem ser lancadas e tratadas como erro recuperavel pela interface."
+    },
+    {
+      "id": "A06",
+      "reproduced": false,
+      "observed": {
+        "listIncludesActiveDtcs": true
+      },
+      "expectedAfterFix": "O contrato de listagem deve trazer os codigos usados para mostrar os problemas."
+    },
+    {
+      "id": "A09",
+      "reproduced": false,
+      "observed": {
+        "status": 401,
+        "authChallenge": "Bearer resource_metadata=\"https://example.test/.well-known/oauth-protected-resource\""
+      },
+      "expectedAfterFix": "Preservar WWW-Authenticate e expor o cabecalho via CORS."
+    },
+    {
+      "id": "A11",
+      "reproduced": false,
+      "observed": {
+        "recording": true,
+        "reloads": 0
+      },
+      "expectedAfterFix": "Durante gravacao, uma falha de chunk nao pode recarregar antes de persistir e encerrar com seguranca."
+    },
+    {
+      "id": "A04-static",
+      "reproduced": false,
+      "observed": {
+        "additiveUpgradePrepared": true,
+        "previousHasFirstSessionId": true,
+        "previousHasDetails": false,
+        "previousHasUpdatedAt": false,
+        "upgradeAddsDetailsWithAlter": false
+      },
+      "expectedAfterFix": "Uma migracao incremental deve completar o esquema anterior sem apagar linhas."
+    }
+  ]
+}

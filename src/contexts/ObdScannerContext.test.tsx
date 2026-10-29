@@ -3,6 +3,8 @@ import { render, waitFor, cleanup, act } from '@testing-library/react';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { listTripCopies, saveTripCopy, tripKey, type StoredTrip } from '@/lib/obd/trip-store';
 import { ObdScannerProvider } from './ObdScannerContext';
+import * as tripStore from '@/lib/obd/trip-store';
+import { webcrypto } from 'node:crypto';
 
 // Trip copies kept on the device are uploaded for the right user, one at a time and once each.
 
@@ -27,6 +29,7 @@ vi.mock('@/lib/db', () => ({ findSessionStartedAt, deleteSession }));
 let idb: FakeIdb;
 
 beforeEach(() => {
+  vi.stubGlobal('crypto', webcrypto);
   idb = installFakeIndexedDb();
   h.user = { id: 'u1' };
   h.selectedCarId = 'car-1';
@@ -48,6 +51,7 @@ afterEach(() => {
   cleanup();
   idb.uninstall();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 
@@ -102,13 +106,28 @@ describe('trip copies on the device', () => {
     expect(await listTripCopies()).toEqual([]);
   });
 
-  it('replaces an earlier partial upload of the same trip only while its copy is still waiting', async () => {
+  it('preserves an ambiguous legacy upload and its backup for review', async () => {
     findSessionStartedAt.mockResolvedValue('partial-session');
     await saveTripCopy(copy(1_000_000));
     mount();
+    await waitFor(() => expect(findSessionStartedAt).toHaveBeenCalled());
+    expect(ingest).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
+    expect(await listTripCopies()).toHaveLength(1);
+  });
+
+  it('reuses the same owner-scoped identity if deleting the uploaded backup fails', async () => {
+    await saveTripCopy(copy(1_000_000));
+    vi.spyOn(tripStore, 'deleteTripCopy').mockResolvedValueOnce(false);
+    mount();
     await waitFor(() => expect(ingest).toHaveBeenCalledTimes(1));
-    expect(deleteSession).toHaveBeenCalledTimes(1);
-    expect(deleteSession).toHaveBeenCalledWith('partial-session');
+    expect(await listTripCopies()).toHaveLength(1);
+    act(() => { window.dispatchEvent(new Event('online')); });
+    await waitFor(() => expect(ingest).toHaveBeenCalledTimes(2));
+    expect(ingest.mock.calls[0][6]).toEqual(ingest.mock.calls[1][6]);
+    expect(ingest.mock.calls[0][6]).toMatchObject({ userId: 'u1' });
+    expect(deleteSession).not.toHaveBeenCalled();
+    await waitFor(async () => expect(await listTripCopies()).toEqual([]));
   });
 
   it('retries a recording cut off by a crash on every retry, not only the first one after start', async () => {
