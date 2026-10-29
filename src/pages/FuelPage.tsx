@@ -14,7 +14,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
 import { getSessions } from '@/lib/db';
 import { listFuelEntries, saveFuelEntry, deleteFuelEntry, calculateSavedFuel } from '@/lib/fuel-api';
-import { aggregateFuel, compareFuel, tankIntervals, readFuelMetrics, US_GALLON, validateFuelEntry, type FuelEntry } from '@/lib/fuel-ledger';
+import { aggregateFuel, compareFuel, tankIntervals, readFuelMetrics, fuelPriceAt, US_GALLON, validateFuelEntry, type FuelEntry } from '@/lib/fuel-ledger';
 import { holdAppUpdates } from '@/lib/pwa-update';
 import { publicAppUrl } from '@/lib/trips';
 import { formatAppDate } from '@/lib/app-date';
@@ -48,6 +48,7 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
   const periods = useMemo(() => aggregateFuel(trips, entries, group, timezone), [trips, entries, group, timezone]);
   const comparison = useMemo(() => compareFuel(trips), [trips]);
   const intervals = useMemo(() => tankIntervals(entries), [entries]);
+  const price = fuelPriceAt(entries, new Date().toISOString());
   const format = (value: number) => new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 2 }).format(value);
   const money = (value: number, currency: string) => new Intl.NumberFormat(i18n.resolvedLanguage, { style: 'currency', currency }).format(value);
   const monies = (values: Record<string, number>) => Object.entries(values).map(([currency, amount]) => money(amount, currency)).join(' · ') || '—';
@@ -102,11 +103,37 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
     try { await deleteFuelEntry(carId, deleting.id); changed(); setDeleting(null); }
     catch { toast({ title: t('fuel.deleteFailed', 'Could not delete this fuel record.'), variant: 'destructive' }); }
   };
+  const fuelForm = (<Card><CardContent className="space-y-3 p-4"><h3 className="font-semibold">{t('fuel.add', 'Record a fill-up or reference price')}</h3>
+      {!price && <div className="space-y-2 rounded-lg bg-muted/40 p-3">
+        <p className="text-sm">{t('fuel.setupHint', 'To estimate trip costs, enter a fuel price per gallon or litre, or record a fill-up. Consumption can still be shown without a price.')}</p>
+        {draft.kind !== 'reference' && <Button type="button" variant="outline" onClick={() => {
+          setDraft((d) => ({ ...d, kind: 'reference' }));
+          requestAnimationFrame(() => document.getElementById('fuel-unit-price')?.focus());
+        }}>{t('fuel.setPrice', 'Set fuel price')}</Button>}
+      </div>}
+
+      <form id="fuel-record-form" onSubmit={(event) => void save(event)} className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-1 text-sm">{t('fuel.kind', 'Record type')}<select className={field} value={draft.kind} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, kind: event.target.value as 'fill' | 'reference' }))}><option value="fill">{t('fuel.fill', 'Fill-up paid')}</option><option value="reference">{t('fuel.reference', 'Reference price only')}</option></select></label>
+        <label className="space-y-1 text-sm">{t('fuel.date', 'Date and time (device time zone)')}<Input required type="datetime-local" value={draft.at} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, at: event.target.value }))} /></label>
+        <label className="space-y-1 text-sm">{t('fuel.currency', 'Currency')}<select className={field} value={draft.currency} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, currency: event.target.value as FuelEntry['currency'] }))}>{['USD','BRL','EUR'].map((value) => <option key={value}>{value}</option>)}</select></label>
+        {draft.kind === 'fill' ? <>
+          <label className="space-y-1 text-sm">{t('fuel.quantity', 'Quantity')} ({unit})<Input required type="number" min="0.001" step="any" inputMode="decimal" value={draft.amount} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, amount: event.target.value }))} /></label>
+          <label className="space-y-1 text-sm">{t('fuel.totalPaid', 'Total actually paid')}<Input required type="number" min="0.01" step="any" inputMode="decimal" value={draft.paid} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, paid: event.target.value }))} /></label>
+          <label className="space-y-1 text-sm">{t('fuel.odometer', 'Odometer (optional)')} ({distanceUnit})<Input type="number" min="0" step="any" value={draft.odometer} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, odometer: event.target.value }))} /></label>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={draft.fullTank} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, fullTank: event.target.checked }))} />{t('fuel.fullTank', 'Tank filled completely')}</label>
+        </> : <label className="space-y-1 text-sm">{t('fuel.unitPrice', 'Price per unit')} ({draft.currency}/{unit})<Input id="fuel-unit-price" required type="number" min="0.0001" step="any" inputMode="decimal" value={draft.price} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, price: event.target.value, source: 'manual', sourceUrl: '', region: '' }))} /></label>}
+        <label className="space-y-1 text-sm sm:col-span-2">{t('fuel.note', 'Station or note (optional)')}<Input value={draft.note} maxLength={1000} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, note: event.target.value }))} /></label>
+        {draft.source === 'regional' && draft.kind === 'reference' && <p className="text-xs text-muted-foreground sm:col-span-2">{draft.region} · {draft.at.slice(0,10)} · <a className="underline" href={draft.sourceUrl} target="_blank" rel="noopener noreferrer">EIA</a> · {t('fuel.estimatedLabel', 'estimated')}</p>}
+        <Button type="submit" disabled={saving || ledger.isPending || ledger.isError} className="sm:col-span-2">{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('common.save', 'Save')}</Button>
+      </form>
+      <div className="space-y-2 border-t border-border pt-3"><p className="text-xs text-muted-foreground">{t('fuel.regionalHint', 'Optional EIA weekly average for regular gasoline in the U.S.; not a local station quote. Review and save it as an estimated reference price.')}</p><div className="flex flex-wrap gap-2"><select aria-label={t('fuel.region', 'Price region')} className="min-w-0 rounded border border-border bg-background p-2 text-sm" value={region} onChange={(event) => setRegion(event.target.value)}>{Object.entries(REGIONS).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select><Button variant="outline" size="sm" disabled={lookingUp || saving} onClick={() => void lookup()}>{t('fuel.lookup', 'Look up regional average')}</Button></div></div>
+    </CardContent></Card>);
   return <AppLayout refreshDisabled={dirty || saving || calculating}><div className="max-w-4xl space-y-4">
     <h2 className="flex items-center gap-2 text-xl font-bold"><Fuel className="h-5 w-5" />{t('fuel.title', 'Fuel & costs')}</h2><p className="text-sm text-muted-foreground">{name}</p>
     <p className="text-sm text-muted-foreground">{t('fuel.explain', 'Paid at the pump is what you entered from fill-ups. Trip cost is an estimate using fuel consumption and the latest price known at the time. Currencies are kept separate.')}</p>
     {(ledger.isPending || history.isPending) && <p role="status">{t('fuel.loading', 'Loading fuel records…')}</p>}
     {(ledger.isError || history.isError) && <div role="alert" className="space-y-2"><p>{t('fuel.loadFailed', 'Could not load fuel data. No complete totals can be shown.')}</p><Button onClick={() => { void ledger.refetch(); void history.refetch(); }}>{t('common.retry', 'Try again')}</Button></div>}
+    {!price && fuelForm}
     {ledger.isSuccess && history.isSuccess && <>
       <div className="flex flex-wrap items-center gap-3"><label className="text-sm">{t('fuel.group', 'Group by')} <select className="rounded border border-border bg-background p-2" value={group} onChange={(event) => setGroup(event.target.value as 'week' | 'month')}><option value="month">{t('trends.month', 'Month')}</option><option value="week">{t('fuel.week', 'Week')}</option></select></label>
       {trips.some((item) => !readFuelMetrics(item)) && <Button size="sm" variant="outline" disabled={calculating} onClick={() => void calculateOlder()}>{calculating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('fuel.calculateOlder', 'Calculate saved trips')}</Button>}</div>
@@ -124,23 +151,7 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
         <p className="text-sm">{t('fuel.tankAverage', 'Latest full-tank average')}: {economy(intervals.at(-1)?.kmPerLitre ?? null)}</p>
       </CardContent></Card>
     </>}
-    <Card><CardContent className="space-y-3 p-4"><h3 className="font-semibold">{t('fuel.add', 'Record a fill-up or reference price')}</h3>
-      <form onSubmit={(event) => void save(event)} className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-sm">{t('fuel.kind', 'Record type')}<select className={field} value={draft.kind} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, kind: event.target.value as 'fill' | 'reference' }))}><option value="fill">{t('fuel.fill', 'Fill-up paid')}</option><option value="reference">{t('fuel.reference', 'Reference price only')}</option></select></label>
-        <label className="space-y-1 text-sm">{t('fuel.date', 'Date and time (device time zone)')}<Input required type="datetime-local" value={draft.at} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, at: event.target.value }))} /></label>
-        <label className="space-y-1 text-sm">{t('fuel.currency', 'Currency')}<select className={field} value={draft.currency} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, currency: event.target.value as FuelEntry['currency'] }))}>{['USD','BRL','EUR'].map((value) => <option key={value}>{value}</option>)}</select></label>
-        {draft.kind === 'fill' ? <>
-          <label className="space-y-1 text-sm">{t('fuel.quantity', 'Quantity')} ({unit})<Input required type="number" min="0.001" step="any" inputMode="decimal" value={draft.amount} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, amount: event.target.value }))} /></label>
-          <label className="space-y-1 text-sm">{t('fuel.totalPaid', 'Total actually paid')}<Input required type="number" min="0.01" step="any" inputMode="decimal" value={draft.paid} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, paid: event.target.value }))} /></label>
-          <label className="space-y-1 text-sm">{t('fuel.odometer', 'Odometer (optional)')} ({distanceUnit})<Input type="number" min="0" step="any" value={draft.odometer} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, odometer: event.target.value }))} /></label>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={draft.fullTank} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, fullTank: event.target.checked }))} />{t('fuel.fullTank', 'Tank filled completely')}</label>
-        </> : <label className="space-y-1 text-sm">{t('fuel.unitPrice', 'Price per unit')} ({draft.currency}/{unit})<Input required type="number" min="0.0001" step="any" inputMode="decimal" value={draft.price} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, price: event.target.value, source: 'manual', sourceUrl: '', region: '' }))} /></label>}
-        <label className="space-y-1 text-sm sm:col-span-2">{t('fuel.note', 'Station or note (optional)')}<Input value={draft.note} maxLength={1000} disabled={saving} onChange={(event) => setDraft((d) => ({ ...d, note: event.target.value }))} /></label>
-        {draft.source === 'regional' && draft.kind === 'reference' && <p className="text-xs text-muted-foreground sm:col-span-2">{draft.region} · {draft.at.slice(0,10)} · <a className="underline" href={draft.sourceUrl} target="_blank" rel="noopener noreferrer">EIA</a> · {t('fuel.estimatedLabel', 'estimated')}</p>}
-        <Button type="submit" disabled={saving || ledger.isPending || ledger.isError} className="sm:col-span-2">{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('common.save', 'Save')}</Button>
-      </form>
-      <div className="space-y-2 border-t border-border pt-3"><p className="text-xs text-muted-foreground">{t('fuel.regionalHint', 'Optional EIA weekly average for regular gasoline in the U.S.; not a local station quote. Review and save it as an estimated reference price.')}</p><div className="flex flex-wrap gap-2"><select aria-label={t('fuel.region', 'Price region')} className="min-w-0 rounded border border-border bg-background p-2 text-sm" value={region} onChange={(event) => setRegion(event.target.value)}>{Object.entries(REGIONS).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select><Button variant="outline" size="sm" disabled={lookingUp || saving} onClick={() => void lookup()}>{t('fuel.lookup', 'Look up regional average')}</Button></div></div>
-    </CardContent></Card>
+    {price && fuelForm}
     {ledger.isSuccess && entries.length > 0 && <Card><CardContent className="space-y-3 p-4"><h3 className="font-semibold">{t('fuel.records', 'Fuel records')}</h3>{entries.slice((entryPage-1)*10, entryPage*10).map((entry) => <div key={entry.id} className="flex items-start justify-between gap-3 border-t border-border pt-3"><div className="min-w-0 text-sm"><p className="font-semibold">{entry.kind === 'fill' ? `${format(entry.litres/factor)} ${unit} · ${money(entry.totalPaid!, entry.currency)}` : `${money(entry.pricePerLitre*factor,entry.currency)}/${unit} · ${t('fuel.reference', 'Reference price only')}`}</p><p className="text-xs text-muted-foreground">{formatAppDate(new Date(entry.at),i18n.resolvedLanguage,{dateStyle:'medium',timeStyle:'short'})} · {entry.region || entry.source}{entry.odometerKm != null && ` · ${format(entry.odometerKm * (distanceUnit === 'mi' ? .621371 : 1))} ${distanceUnit}`}</p>{entry.note && <p className="break-words">{entry.note}</p>}{entry.sourceUrl && <a href={entry.sourceUrl} className="text-xs underline" target="_blank" rel="noopener noreferrer">{t('fuel.source', 'Source')}</a>}</div><Button variant="ghost" size="icon" aria-label={t('history.delete','Delete')} onClick={() => setDeleting(entry)}><Trash2 className="h-4 w-4" /></Button></div>)}{entries.length>10&&<div className="flex justify-between"><Button variant="outline" size="sm" disabled={entryPage<=1} onClick={()=>setEntryPage((p)=>p-1)}>{t('history.previous','Previous')}</Button><span>{entryPage}/{Math.ceil(entries.length/10)}</span><Button variant="outline" size="sm" disabled={entryPage>=Math.ceil(entries.length/10)} onClick={()=>setEntryPage((p)=>p+1)}>{t('history.next','Next')}</Button></div>}</CardContent></Card>}
     <Link to="/history" className="text-sm text-primary hover:underline">{t('history.title','Trips')}</Link>
     <ConfirmDialog open={!!deleting} onOpenChange={(open)=>{if(!open)setDeleting(null);}} title={t('fuel.deleteTitle','Delete this fuel record?')} description={t('fuel.deleteHint','Costs and full-tank estimates will be recalculated without this entry.')} confirmLabel={t('history.delete','Delete')} onConfirm={()=>void remove()} />

@@ -21,11 +21,11 @@ export function ConnectionPill() {
   return (
     <Link
       to={status === 'idle' ? '/' : '/live'}
-      className="ml-auto inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-xs hover:bg-accent"
+      className="ml-auto inline-flex min-w-0 items-center gap-2 rounded-full border border-border px-3 py-1 text-xs hover:bg-accent"
       data-testid="connection-pill"
     >
-      <span className={`w-2 h-2 rounded-full ${dot}`} />
-      {label}
+      <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+      <span className="truncate">{label}</span>
     </Link>
   );
 }

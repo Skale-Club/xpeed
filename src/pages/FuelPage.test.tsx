@@ -16,6 +16,16 @@ vi.mock('react-i18next', async (original) => ({ ...await original<typeof import(
 beforeEach(() => { api.save.mockReset().mockResolvedValue({}); api.toast.mockClear(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const open = () => render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><FuelPage /></QueryClientProvider></MemoryRouter>);
+it('offers price setup before totals and stores a reference without inventing fuel purchased', async () => {
+  open();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Set fuel price' }));
+  expect(screen.queryByLabelText(/Quantity/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/Price per unit/), { target: { value: '3.50' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1]).toMatchObject({ kind: 'reference', litres: 0, totalPaid: null, pricePerLitre: 3.5/3.785411784, currency: 'USD', source: 'manual' });
+});
 it('stores actual payment separately and converts US gallons without assuming a full tank', async () => {
   open(); await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
   fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '10' } });

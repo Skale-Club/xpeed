@@ -1190,7 +1190,8 @@
     "savedSource": "Problema salvo",
     "scanSource": "Leitura de códigos",
     "read": "Marcar como lida",
-    "readHint": "Ler um aviso não resolve um problema. Os avisos e o estado de leitura são salvos para este carro e esta conta neste dispositivo."
+    "readHint": "Ler um aviso não resolve um problema. Os avisos e o estado de leitura são salvos para este carro e esta conta neste dispositivo.",
+    "viewProblems": "Ver problemas do carro"
   },
   "fuel": {
     "invalid": "Confira a data, a quantidade e o preço.",
@@ -1251,7 +1252,9 @@
     "costEstimated": "Estimativa pela média anterior de tanque cheio × preço conhecido no início da viagem.",
     "deleteTitle": "Delete this fuel record?",
     "deleteHint": "Costs and full-tank estimates will be recalculated without this entry.",
-    "totalMixed": "Combustível calculado + estimado; {{covered}}/{{total}} viagens com dados."
+    "totalMixed": "Combustível calculado + estimado; {{covered}}/{{total}} viagens com dados.",
+    "setupHint": "Para estimar o custo das viagens, cadastre o preço por galão ou litro, ou registre um abastecimento. O consumo pode aparecer mesmo sem um preço cadastrado.",
+    "setPrice": "Cadastrar preço do combustível"
   },
   "hybrid": {
     "title": "Sistema híbrido",
@@ -1289,5 +1292,12 @@
     "checkApk": "Verificar APK",
     "blocked": "Finalize a gravação e salve as alterações pendentes antes de atualizar.",
     "apkNeeded": "Atualização do APK Android necessária"
+  },
+  "bluetooth": {
+    "title": "Conexão Bluetooth",
+    "disconnect": "Desconectar Bluetooth",
+    "disconnected": "Nenhum adaptador conectado. Conecte pelo cartão de viagem na Home.",
+    "endTrip": "Isso desconecta o adaptador e encerra a gravação atual. A viagem será mantida para salvar.",
+    "stayOff": "Isso encerra a conexão com o adaptador."
   }
 }

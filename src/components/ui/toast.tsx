@@ -14,7 +14,7 @@ const ToastViewport = React.forwardRef<
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed inset-x-0 top-[calc(env(safe-area-inset-top,0px)+3.75rem)] z-[100] flex max-h-[calc(100dvh-8rem)] w-full flex-col gap-2 px-3 sm:left-auto sm:right-4 sm:w-[400px] sm:px-0",
+      "fixed inset-x-0 top-[calc(env(safe-area-inset-top,0px)+3.75rem)] z-[100] flex max-h-[35dvh] w-full flex-col gap-2 overflow-y-auto overscroll-contain px-3 sm:left-auto sm:right-4 sm:w-[400px] sm:px-0",
       className,
     )}
     {...props}
@@ -23,7 +23,7 @@ const ToastViewport = React.forwardRef<
 ToastViewport.displayName = ToastPrimitives.Viewport.displayName;
 
 const toastVariants = cva(
-  "group pointer-events-auto relative flex w-full items-start gap-3 overflow-hidden rounded-2xl border border-l-4 bg-card p-4 pr-10 text-card-foreground shadow-2xl transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full",
+  "group pointer-events-auto relative flex w-full shrink-0 items-start gap-2 overflow-hidden rounded-xl border border-l-4 bg-card p-3 pr-10 text-card-foreground shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full",
   {
     // How important the message is: a coloured edge and icon, and how long it stays (see Toaster).
     variants: {

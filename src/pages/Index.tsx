@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
-import { FuelOverview } from '@/components/FuelSummary';
 import { TripCard } from '@/components/trip/TripCard';
 import DashboardCharts from '@/components/DashboardCharts';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,7 +17,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from 'react-i18next';
 import { LastTripSummary, TripTotals } from '@/components/home/HomeCards';
-import { ReadCodesButton } from '@/components/ReadCodesButton';
 import { PageLoader } from '@/components/PageLoader';
 import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
@@ -182,8 +180,6 @@ const Index = () => {
           </Card>
         )}
 
-        <ReadCodesButton />
-        {selectedCarId && !loading && !sessionsFailed && <FuelOverview key={selectedCarId} carId={selectedCarId} sessions={allSessions} />}
         <div className="grid gap-5 lg:grid-cols-5 lg:items-start">
           {/* 2. The one action: start / follow a trip */}
           <div className="lg:col-span-3 lg:col-start-1 lg:row-span-3 lg:row-start-1">
