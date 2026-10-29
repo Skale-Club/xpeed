@@ -384,7 +384,8 @@
       "h": "h",
       "s": "s"
     },
-    "saveConflict": "A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced."
+    "saveConflict": "A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced.",
+    "keptPending": "Trip kept on this device; upload pending"
   },
   "pill": {
     "recording": "Recording trip",
@@ -1260,8 +1261,9 @@
     "pending": "{{count}} pending trips found on this device",
     "checking": "Checking this device…",
     "failed": "Could not check trip synchronization.",
-    "hint": "An active trip is saved after it ends. Pending copies stay on this device until upload succeeds. This checks the current account; it cannot inspect another phone.",
+    "hint": "During recording, copies are saved on this device and sent to the cloud in chunks. Pending copies stay until the completed trip is confirmed. This checks the current account; it cannot inspect another phone.",
     "sending": "Sending…",
-    "retry": "Retry pending trips"
+    "retry": "Retry pending trips",
+    "cloudConfirmed": "Cloud backup confirmed: {{count}} readings"
   }
 }

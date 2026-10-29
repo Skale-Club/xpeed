@@ -384,7 +384,8 @@
       "h": "h",
       "s": "s"
     },
-    "saveConflict": "Un viaje guardado coincide con esta grabación. Se conservaron ambas copias para revisarlas; el viaje guardado no se reemplazó."
+    "saveConflict": "Un viaje guardado coincide con esta grabación. Se conservaron ambas copias para revisarlas; el viaje guardado no se reemplazó.",
+    "keptPending": "Viaje conservado en este dispositivo; envío pendiente"
   },
   "pill": {
     "recording": "Grabando viaje",
@@ -1260,8 +1261,9 @@
     "pending": "{{count}} viajes pendientes encontrados en este dispositivo",
     "checking": "Comprobando este dispositivo...",
     "failed": "No se pudo comprobar la sincronización.",
-    "hint": "El viaje activo se guarda al terminar. Las copias pendientes permanecen en este dispositivo hasta que se envían. Se comprueba la cuenta actual; no se puede inspeccionar otro teléfono.",
+    "hint": "Durante la grabación, se guardan copias en este dispositivo y se envían por partes a la nube. Las copias pendientes permanecen hasta confirmar el viaje completo. Se comprueba la cuenta actual; no se inspecciona otro teléfono.",
     "sending": "Enviando...",
-    "retry": "Reintentar viajes pendientes"
+    "retry": "Reintentar viajes pendientes",
+    "cloudConfirmed": "Copia en la nube confirmada: {{count}} lecturas"
   }
 }

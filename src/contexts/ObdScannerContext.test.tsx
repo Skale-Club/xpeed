@@ -4,6 +4,7 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { listTripCopies, saveTripCopy, tripKey, type StoredTrip } from '@/lib/obd/trip-store';
 import { ObdScannerProvider } from './ObdScannerContext';
 import * as tripStore from '@/lib/obd/trip-store';
+import { recordedSessionId } from '@/lib/recording-identity';
 import { webcrypto } from 'node:crypto';
 
 // Trip copies kept on the device are uploaded for the right user, one at a time and once each.
@@ -15,6 +16,8 @@ const h = vi.hoisted(() => ({
   ingestDelayMs: 0,
 }));
 
+const cloud = vi.hoisted(() => ({ checkpoint: vi.fn(async (_meta, samples) => samples.length), finalize: vi.fn(async (_trip: unknown): Promise<string> => { throw Error('Cloud finalization pending'); }), recover: vi.fn(async () => []), remove: vi.fn(async () => {}) }));
+vi.mock('@/lib/obd/trip-cloud', () => ({ checkpointTrip: cloud.checkpoint, finalizeCloudTrip: cloud.finalize, recoverCloudTrips: cloud.recover, removeCloudTrip: cloud.remove }));
 const ingest = vi.hoisted(() => vi.fn());
 const deleteSession = vi.hoisted(() => vi.fn(async () => undefined));
 const findSessionStartedAt = vi.hoisted(() => vi.fn(async () => null as string | null));
@@ -35,6 +38,7 @@ beforeEach(() => {
   h.selectedCarId = 'car-1';
   h.cars = [{ id: 'car-1' }];
   h.ingestDelayMs = 0;
+  cloud.checkpoint.mockClear(); cloud.finalize.mockClear(); cloud.recover.mockClear(); cloud.remove.mockClear();
   ingest.mockReset();
   deleteSession.mockClear();
   findSessionStartedAt.mockReset();
@@ -156,4 +160,18 @@ describe('trip copies on the device', () => {
     expect(ingest).not.toHaveBeenCalled();
     expect(await listTripCopies()).toHaveLength(1);
   });
+});
+
+it('recovers a failed final upload from cloud chunks before dropping the device copy', async () => {
+  const trip = copy(Date.now() - 120000);
+  await saveTripCopy(trip);
+  ingest.mockRejectedValueOnce(new Error('direct database upload failed'));
+  cloud.finalize.mockImplementationOnce(async value => {
+    const stored = value as StoredTrip;
+    return recordedSessionId(stored.userId!, stored.carId!, stored.id);
+  });
+  mount();
+  await waitFor(() => expect(cloud.finalize).toHaveBeenCalledOnce());
+  await waitFor(async () => expect(await listTripCopies()).toHaveLength(0));
+  expect(cloud.checkpoint.mock.calls.some(call => (call[0] as { totalSamples?: number }).totalSamples === trip.samples.length)).toBe(true);
 });

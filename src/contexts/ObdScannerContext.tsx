@@ -21,6 +21,7 @@ import { beforeLogout } from '@/lib/logout';
 import {
   appendTripSamples, deleteTripCopy, getTripCopy, listTripCopies, saveTripCopy, tripKey, type StoredTrip,
 } from '@/lib/obd/trip-store';
+import { checkpointTrip, finalizeCloudTrip, recoverCloudTrips, removeCloudTrip } from '@/lib/obd/trip-cloud';
 import { hideBackgroundService, showBackgroundService } from '@/lib/obd/trip-service';
 import { PID_PRESETS, mergePreset } from '@/lib/obd/presets';
 import { DEFAULT_TRIP_OPTIONS } from '@/lib/obd/trip-detector';
@@ -36,7 +37,8 @@ import { identifyVin, isValidVin, vinFitsCar, type CarIdentity } from '@/lib/vin
 
 const ALWAYS_ON_KEY = 'xpeed.obd.alwaysOn';
 /** How often the trip in progress is backed up for crash recovery. */
-const BACKUP_MS = 30_000;
+const BACKUP_MS = 5_000;
+const CLOUD_BACKUP_MS = 15_000;
 /** How often trips still on the device are retried while the app is open. */
 const RETRY_MS = 5 * 60_000;
 /** Interrupted recordings shorter than an automatic trip's minimum are not kept. */
@@ -64,7 +66,7 @@ type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   canStayOn: boolean;
   setAlwaysOn: (on: boolean) => void;
   savingTrip: boolean;
-  getTripSyncStatus: () => Promise<{ pending: number; latestError: string | null }>;
+  getTripSyncStatus: () => Promise<{ pending: number; latestError: string | null; cloud?: { samples: number; at: number } | null }>;
   retryPendingTrips: () => Promise<void>;
   lastTrip: SavedTrip | null;
   /** Car bound to the active recording, even if the owner browses another car. */
@@ -165,6 +167,26 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const syncErrorRef = useRef<{ userId: string | null; message: string } | null>(null);
+  const cloudProgress = useRef(new Map<string, { saved: number; pending: Promise<void> | null; at: number }>());
+  const syncCloud = useCallback(async (copy: StoredTrip, startOffset = 0) => {
+    let progress = cloudProgress.current.get(copy.id);
+    if (!progress) { progress = { saved: 0, pending: null, at: 0 }; cloudProgress.current.set(copy.id, progress); }
+    const state = progress;
+    const work = (state.pending ?? Promise.resolve()).catch(() => {}).then(async () => {
+      if (!copy.carId || !copy.userId || copy.userId !== userIdRef.current) return;
+      const { samples, endedAt, ...meta } = copy;
+      while (state.saved < startOffset + samples.length) {
+        const chunk = samples.slice(state.saved - startOffset, state.saved - startOffset + 50);
+        const accepted = await checkpointTrip(meta, chunk, state.saved);
+        if (!Number.isSafeInteger(accepted) || accepted <= 0) throw Error('Cloud checkpoint did not confirm saved samples');
+        state.saved += accepted;
+        state.at = Date.now();
+      }
+      if (endedAt) await checkpointTrip({ ...meta, endedAt, totalSamples: startOffset + samples.length }, [], state.saved);
+    });
+    state.pending = work;
+    try { await work; } finally { if (state.pending === work) state.pending = null; }
+  }, []);
   const savingRef = useRef(0);
   const bumpSaving = useCallback((by: number) => {
     savingRef.current += by;
@@ -194,6 +216,8 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       memoryCopiesRef.current.delete(id);
       memoryUpdateHolds.current.get(id)?.();
       memoryUpdateHolds.current.delete(id);
+      void removeCloudTrip(copy).catch(error => console.warn('Cloud checkpoint cleanup deferred:', error));
+      cloudProgress.current.delete(id);
       if (!(await deleteTripCopy(id))) console.warn('The saved trip copy could not be removed; it will be checked on retry.');
     };
     // A copy without an end time is a recording the app never got to finish.
@@ -218,7 +242,21 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
       const csv = buildScannerCsv(copy.columns, copy.samples, copy.dtcs ?? []);
       const file = new File([csv], scannerFilename(startedAt), { type: 'text/csv' });
-      const result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, forget, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() });
+      let result: { sessionId: string };
+      try {
+        result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, forget, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() });
+      } catch (error) {
+        if (error instanceof RecordingConflictError) throw error;
+        try {
+          await syncCloud({ ...copy, carId, userId: owner, endedAt: endedAt.getTime() });
+          const restoredId = await finalizeCloudTrip({ ...copy, carId, userId: owner });
+          if (restoredId !== sessionId) throw Error('Cloud receipt does not match this trip');
+          result = { sessionId: restoredId };
+          await forget();
+        } catch (cloudError) {
+          throw Error(`${error instanceof Error ? error.message : 'Trip save failed'}. Cloud recovery: ${cloudError instanceof Error ? cloudError.message : 'pending'}`);
+        }
+      }
       syncErrorRef.current = null;
       setLastTrip({ sessionId: result.sessionId, endedAt });
       toast({
@@ -234,7 +272,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         if (conflict) reportedConflicts.current.add(id);
         const kept = !memoryCopiesRef.current.has(id);
         toast({
-          title: t('trip.saveFailed', "Couldn't save the trip"),
+          title: kept && !conflict ? t('trip.keptPending', 'Trip kept on this device; upload pending') : t('trip.saveFailed', "Couldn't save the trip"),
           description: conflict ? t('trip.saveConflict', 'A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced.') : kept
             ? t('trip.saveFailedHint', "It's kept on this device and will be saved by itself when there's internet.")
             : t('trip.saveFailedNoCopy', "It couldn't be kept on this device either, so leave the app open: it keeps trying while it's open."),
@@ -244,7 +282,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     } finally {
       bumpSaving(-1);
     }
-  }, [bumpSaving, isMine, t, toast, tripName]);
+  }, [bumpSaving, isMine, t, toast, tripName, syncCloud]);
 
   // One upload at a time, each id at most once in the queue: a retry that reaches a
   // trip the save just uploaded finds it gone instead of uploading it again.
@@ -279,12 +317,23 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       if (id === currentTripRef.current?.id || finishingRef.current.has(id)) continue;
       await uploadCopy(id, false);
     }
-  }, [uploadCopy]);
+    for (const car of carsRef.current) {
+      try {
+        for (const copy of await recoverCloudTrips(car.id)) {
+          if (!isMine(copy) || copy.id === currentTripRef.current?.id || ids.has(copy.id) || finishingRef.current.has(copy.id)) continue;
+          if (!(await getTripCopy(copy.id)) && !memoryCopiesRef.current.has(copy.id)) {
+            if (await saveTripCopy(copy)) await uploadCopy(copy.id, false);
+          }
+        }
+      } catch (error) { console.warn('Cloud recovery deferred:', error); }
+    }
+  }, [uploadCopy, isMine]);
 
   const getTripSyncStatus = useCallback(async () => {
     const copies = new Map((await listTripCopies()).map(copy => [copy.id, copy]));
     for (const [id, copy] of memoryCopiesRef.current) copies.set(id, copy);
-    return { pending: [...copies.values()].filter(copy => isMine(copy) && copy.id !== currentTripRef.current?.id && !finishingRef.current.has(copy.id)).length,
+    const progress = currentTripRef.current ? cloudProgress.current.get(currentTripRef.current.id) : null;
+    return { cloud: progress?.at ? { samples: progress.saved, at: progress.at } : null, pending: [...copies.values()].filter(copy => isMine(copy) && copy.id !== currentTripRef.current?.id && !finishingRef.current.has(copy.id)).length,
       latestError: syncErrorRef.current?.userId === userIdRef.current ? syncErrorRef.current?.message ?? null : null };
   }, [isMine]);
   const retryPendingTrips = useCallback(async () => { await flushCopies(); }, [flushCopies]);
@@ -313,17 +362,21 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       if (currentTripRef.current?.id === id) currentTripRef.current = null;
       // Leaving (signed out): the copy stays on the device for its owner.
       if (leavingRef.current) return;
+      try { await syncCloud(copy); } catch (error) { console.warn('Cloud checkpoint pending; local copy retained:', error); }
       await uploadCopy(id, true);
     } finally {
       if (!memoryCopiesRef.current.has(id)) releaseUpdate();
       finishingRef.current.delete(id);
     }
-  }, [uploadCopy]);
+  }, [uploadCopy, syncCloud]);
 
   const dropTrip = useCallback((startedAt: Date) => {
     const id = tripKey(startedAt.getTime());
-    if (currentTripRef.current?.id === id) currentTripRef.current = null;
+    const bound = currentTripRef.current?.id === id ? currentTripRef.current : null;
+    if (bound) currentTripRef.current = null;
     finishingRef.current.add(id);
+    const owner = bound?.userId ?? userIdRef.current, car = bound?.carId ?? carIdRef.current;
+    if (owner && car) void removeCloudTrip({ id, userId: owner, carId: car }).catch(() => {});
     void deleteTripCopy(id).finally(() => finishingRef.current.delete(id));
   }, []);
 
@@ -436,9 +489,29 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   }, [getRecording]);
   useEffect(() => {
     if (!recording?.active) return;
+    void backUpTrip();
     const id = setInterval(() => void backUpTrip(), BACKUP_MS);
     return () => clearInterval(id);
   }, [recording?.active, backUpTrip]);
+
+  useEffect(() => {
+    if (!recording?.active) return;
+    const upload = async () => {
+      const current = currentTripRef.current;
+      if (!current || !current.carId || !current.userId || navigator.onLine === false || cloudProgress.current.get(current.id)?.pending) return;
+      const offset = cloudProgress.current.get(current.id)?.saved ?? 0;
+      const snap = getRecording(offset);
+      if (!snap.startedAt || tripKey(snap.startedAt.getTime()) !== current.id || !snap.samples.length) return;
+      try {
+        await syncCloud({ ...current, startedAt: snap.startedAt.getTime(), columns: snap.columns, samples: snap.samples, dtcs: snap.dtcs, faultCodes: snap.faultCodes }, offset);
+      } catch (error) {
+        syncErrorRef.current = { userId: current.userId, message: error instanceof Error ? error.message.slice(0,500) : 'Cloud checkpoint pending' };
+      }
+    };
+    void upload();
+    const id = setInterval(() => void upload(), CLOUD_BACKUP_MS);
+    return () => clearInterval(id);
+  }, [recording?.active, getRecording, syncCloud]);
 
   // Trips a previous visit didn't finish saving go up at start, whenever the
   // connection comes back, and every few minutes while the app is open.
