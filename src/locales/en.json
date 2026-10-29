@@ -3,8 +3,17 @@
     "title": "Long-term trends",
     "hint": "Saved trip summaries, grouped by month or year. Averages are weighted by trip duration; missing data stays blank. These trends do not diagnose a fault.",
     "empty": "No saved sensor summaries yet. Completed trips will appear here.",
-    "sensor": "Sensor", "group": "Group by", "month": "Month", "year": "Year", "period": "Period",
-    "months": "{{count}} months", "min": "Minimum", "avg": "Average", "max": "Maximum", "trips": "Trips", "coverage": "With data"
+    "sensor": "Sensor",
+    "group": "Group by",
+    "month": "Month",
+    "year": "Year",
+    "period": "Period",
+    "months": "{{count}} months",
+    "min": "Minimum",
+    "avg": "Average",
+    "max": "Maximum",
+    "trips": "Trips",
+    "coverage": "With data"
   },
   "nav": {
     "dashboard": "Home",
@@ -1110,5 +1119,36 @@
       "yellow": "Yellow",
       "orange": "Orange"
     }
+  },
+  "codes": {
+    "incompleteTitle": "Incomplete code reading",
+    "title": "Read car fault codes",
+    "hint": "Connect the adapter and switch on the ignition. This reads codes without clearing anything in the car.",
+    "carMismatch": "The connected VIN differs from the selected car. Results will not be saved to that car.",
+    "reading": "Reading car modules…",
+    "readAgain": "Read codes again",
+    "waiting": "The car must be on and connected before codes can be read.",
+    "checkedAt": "Read at {{time}}",
+    "incomplete": "The car did not answer all required requests. An empty result does not confirm that there are no fault codes.",
+    "modules": "Modules that answered: {{modules}}",
+    "syncFailed": "Codes were read, but Problems could not be updated. Try reading again when online.",
+    "stored": "Confirmed",
+    "pending": "Pending",
+    "permanent": "Permanent"
+  },
+  "notifications": {
+    "open": "Notifications: {{count}} unread",
+    "title": "Notifications",
+    "chooseCar": "Choose a car to see its notifications.",
+    "loading": "Checking saved problems…",
+    "failed": "Could not refresh saved problems. Existing notices may be out of date.",
+    "readAll": "Mark all as read",
+    "empty": "No notices yet. This is not a fresh check of the car.",
+    "codesFound": "{{count}} fault codes reported",
+    "noCodes": "No codes in the responses received",
+    "savedSource": "Saved problem",
+    "scanSource": "Code reading",
+    "read": "Mark as read",
+    "readHint": "Reading a notice does not resolve a problem. Notices and read status are saved for this car and account on this device."
   }
 }

@@ -53,13 +53,14 @@ export function useOpenProblems(carId: string | null | undefined, refreshKey?: u
     setBump((n) => n + 1);
   }, []);
 
-  if (!carId) return { problems: NONE, loading: false, error: false, reload };
+  if (!carId) return { problems: NONE, loading: false, error: false, refreshError: false, reload };
   const current = state.carId === carId ? state : null;
   const problems = current?.problems ?? null;
   return {
     problems: problems ?? NONE,
     loading: problems === null && !current?.failed,
     error: problems === null && !!current?.failed,
+    refreshError: !!current?.failed,
     reload,
   };
 }

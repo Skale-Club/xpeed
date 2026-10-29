@@ -3,8 +3,17 @@
     "title": "Tendências de longo prazo",
     "hint": "Resumos das viagens salvas, por mês ou ano. Médias ponderadas pela duração da viagem; dados ausentes ficam em branco. Tendências não são diagnóstico de falha.",
     "empty": "Ainda não há resumos de sensores salvos. As viagens concluídas aparecerão aqui.",
-    "sensor": "Sensor", "group": "Agrupar por", "month": "Mês", "year": "Ano", "period": "Período",
-    "months": "{{count}} meses", "min": "Mínimo", "avg": "Média", "max": "Máximo", "trips": "Viagens", "coverage": "Com dados"
+    "sensor": "Sensor",
+    "group": "Agrupar por",
+    "month": "Mês",
+    "year": "Ano",
+    "period": "Período",
+    "months": "{{count}} meses",
+    "min": "Mínimo",
+    "avg": "Média",
+    "max": "Máximo",
+    "trips": "Viagens",
+    "coverage": "Com dados"
   },
   "nav": {
     "dashboard": "Início",
@@ -1110,5 +1119,36 @@
       "yellow": "Amarelo",
       "orange": "Laranja"
     }
+  },
+  "codes": {
+    "title": "Ler códigos de falha",
+    "hint": "Conecte o adaptador e ligue a ignição. A leitura não apaga nenhum código do carro.",
+    "carMismatch": "O VIN conectado é diferente do carro selecionado. Os resultados não serão salvos nesse carro.",
+    "reading": "Lendo os módulos do carro…",
+    "readAgain": "Ler códigos novamente",
+    "waiting": "O carro precisa estar ligado e conectado para ler os códigos.",
+    "checkedAt": "Leitura em {{time}}",
+    "incomplete": "O carro não respondeu a todas as solicitações necessárias. Um resultado vazio não confirma a ausência de códigos de falha.",
+    "incompleteTitle": "Leitura de códigos incompleta",
+    "stored": "Confirmado",
+    "pending": "Pendente",
+    "permanent": "Permanente",
+    "modules": "Módulos que responderam: {{modules}}",
+    "syncFailed": "Os códigos foram lidos, mas não foi possível atualizar Problemas. Leia novamente quando estiver online."
+  },
+  "notifications": {
+    "open": "Notificações: {{count}} não lidas",
+    "title": "Notificações",
+    "chooseCar": "Selecione um carro para ver suas notificações.",
+    "loading": "Consultando problemas salvos…",
+    "failed": "Não foi possível atualizar os problemas salvos. Os avisos existentes podem estar desatualizados.",
+    "readAll": "Marcar todas como lidas",
+    "empty": "Nenhum aviso por enquanto. Isso não representa uma nova verificação do carro.",
+    "codesFound": "{{count}} códigos de falha informados",
+    "noCodes": "Nenhum código nas respostas recebidas",
+    "savedSource": "Problema salvo",
+    "scanSource": "Leitura de códigos",
+    "read": "Marcar como lida",
+    "readHint": "Ler um aviso não resolve um problema. Os avisos e o estado de leitura são salvos para este carro e esta conta neste dispositivo."
   }
 }

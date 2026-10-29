@@ -12,6 +12,7 @@ import { PageLoader } from "@/components/PageLoader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Analytics } from "@vercel/analytics/react";
 import { PageRefreshProvider, usePageRefresh } from '@/contexts/PageRefreshContext';
+import { VehicleNotificationsProvider } from '@/contexts/VehicleNotificationsContext';
 
 // Lazy imports
 const Index = lazy(() => import("./pages/Index"));
@@ -24,6 +25,7 @@ const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
 const ScannerPage = lazy(() => import("./pages/ScannerPage"));
 const LivePage = lazy(() => import("./pages/LivePage"));
 const TrendsPage = lazy(() => import("./pages/TrendsPage"));
+const FaultCodesPage = lazy(() => import("./pages/FaultCodesPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
@@ -48,7 +50,7 @@ const AuthenticatedLayout = () => (
   <PrivateRoute>
     <CarsProvider>
       <ObdScannerProvider>
-        <PageRefreshProvider><ProtectedScreen /></PageRefreshProvider>
+        <VehicleNotificationsProvider><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>
@@ -91,6 +93,7 @@ const App = () => (
                 <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
                 <Route path="/live" element={<LivePage />} />
                 <Route path="/trends" element={<TrendsPage />} />
+                <Route path="/codes" element={<FaultCodesPage />} />
                 <Route path="/maintenance" element={<MaintenancePage />} />
                 <Route path="/issues" element={<IssuesPage />} />
                 <Route path="/admin" element={<AdminPage />} />

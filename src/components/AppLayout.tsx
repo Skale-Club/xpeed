@@ -11,6 +11,7 @@ import { NewCarDialog } from '@/components/trip/NewCarDialog';
 import { BrandLogo } from '@/components/BrandLogo';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { usePageRefresh } from '@/contexts/PageRefreshContext';
+import { VehicleNotificationBell } from '@/components/VehicleNotificationBell';
 
 export default function AppLayout({ children, refreshDisabled = false }: { children: React.ReactNode; refreshDisabled?: boolean }) {
   const { t } = useTranslation();
@@ -28,6 +29,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
           </Link>
           <SidebarTrigger className="hidden md:inline-flex" />
           <ConnectionPill />
+          <VehicleNotificationBell />
         </header>
         <AppUpdateBanner />
 

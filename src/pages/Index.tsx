@@ -12,12 +12,12 @@ import { Car, Calendar, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { subDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import type { Session } from '@/types/session';
-import { useOpenProblems } from '@/hooks/use-open-problems';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from 'react-i18next';
-import { CarHealthCard, LastTripSummary, TripTotals } from '@/components/home/HomeCards';
+import { LastTripSummary, TripTotals } from '@/components/home/HomeCards';
+import { ReadCodesButton } from '@/components/ReadCodesButton';
 import { PageLoader } from '@/components/PageLoader';
 import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
@@ -33,9 +33,6 @@ const Index = () => {
   const { user } = useAuth();
   const firstName = (user?.user_metadata?.full_name as string | undefined)?.trim().split(/\s+/)[0];
   const { cars, selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
-  // Same list as the Problems page; refreshed when a trip gets saved. This is
-  // the one source for "is my car OK?" on this page.
-  const problems = useOpenProblems(selectedCarId, lastTrip);
   const [loading, setLoading] = useState(true);
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [dateRange, setDateRange] = useState('30d');
@@ -184,19 +181,8 @@ const Index = () => {
           </Card>
         )}
 
-        {/* Phones: one column in this order. Wide screens: the trip on the left, the car's state on the right. */}
+        <ReadCodesButton />
         <div className="grid gap-5 lg:grid-cols-5 lg:items-start">
-          {/* 1. Is my car OK? */}
-          <div className="lg:col-span-2 lg:col-start-4 lg:row-start-1">
-            <CarHealthCard
-              problems={problems.problems}
-              loading={problems.loading}
-              error={problems.error}
-              onRetry={problems.reload}
-              lastTrip={allSessions[0] ?? null}
-            />
-          </div>
-
           {/* 2. The one action: start / follow a trip */}
           <div className="lg:col-span-3 lg:col-start-1 lg:row-span-3 lg:row-start-1">
             <TripCard />

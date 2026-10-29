@@ -16,6 +16,8 @@ export interface FaultCodeReadout {
   permanent: string[];
   /** At least one module answered the request, so an empty list really means "no codes". */
   checked: boolean;
+  /** Every responding module returned confirmed and pending codes. */
+  complete?: boolean;
   /**
    * The modules that answered both the confirmed and the pending request (CAN
    * addresses like "7E0"; "ECU" on older protocols). A code is only known to be
@@ -50,6 +52,7 @@ export async function readFaultCodes(
   const codeModules = new Map<string, Set<string>>();
   const modules = new Set<string>();
   let checked = false;
+  let completeRead = true;
   const modes = MODES.filter((m) => permanent || m.key !== 'permanent');
 
   const ask = async (mode: (typeof MODES)[number], header: string | null): Promise<boolean> => {
@@ -83,6 +86,7 @@ export async function readFaultCodes(
         if (!ok && mode.key === 'pending') complete = false;
       }
       if (complete) modules.add(header);
+      else completeRead = false;
     }
   } else {
     let complete = true;
@@ -91,6 +95,7 @@ export async function readFaultCodes(
       else if (mode.key !== 'permanent') complete = false;
     }
     if (complete) modules.add(SINGLE_MODULE);
+    else completeRead = false;
   }
 
   const stored = Array.from(found.stored).sort();
@@ -99,6 +104,7 @@ export async function readFaultCodes(
     pending: Array.from(found.pending).filter((c) => !found.stored.has(c)).sort(),
     permanent: Array.from(found.permanent).sort(),
     checked,
+    complete: checked && completeRead,
     modules: Array.from(modules).sort(),
     codeModules: Object.fromEntries(Array.from(codeModules, ([code, set]) => [code, Array.from(set).sort()])),
   };

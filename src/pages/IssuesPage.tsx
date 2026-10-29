@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getIssuesForCar, ignoreIssue, reopenIssue, resolveIssue, type VehicleIssue } from '@/lib/db-issues';
 import { AI_PREFIX, CODE_GONE_NOTE, URGENCY, URGENCY_ORDER, describeProblem, isOpenProblem, type Urgency } from '@/lib/problems';
 import { timeAgo } from '@/lib/time-ago';
+import { ReadCodesButton } from '@/components/ReadCodesButton';
 
 const URGENCY_STYLE: Record<Urgency, string> = {
   urgent: 'bg-destructive/15 text-destructive border-destructive/30',
@@ -126,6 +127,7 @@ export default function IssuesPage() {
           <h2 className="text-xl font-bold">{t('problems.title', 'Problems')}</h2>
           <p className="text-sm text-muted-foreground">{selectedCar.name}</p>
         </div>
+        <ReadCodesButton />
 
         {loadFailed && (
           <Card className="border-destructive/40" role="alert">

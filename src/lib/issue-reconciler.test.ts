@@ -83,6 +83,21 @@ beforeEach(() => {
 const warning = { key: 'engine_slow_warmup', title: 'Slow warm-up', meaning: 'It took long.', action: 'Ask for a check.', urgency: 'watch' as const };
 const at = '2026-10-28T12:00:00.000Z';
 
+describe('explicit code reading persistence', () => {
+  it.each(['select', 'insert', 'update'])('reports %s failures to the caller in strict mode', async (operation) => {
+    const { syncFaultCodes } = await import('./issue-reconciler');
+    if (operation === 'update') db.rows.push({ __table: 'vehicle_issues', id: 'existing', car_profile_id: 'car', canonical_key: 'dtc:P0300', status: 'active', severity: 'warning', last_seen_at: at });
+    db.failWhen = (op) => op === operation ? { message: 'offline' } : null;
+    await expect(syncFaultCodes('car', 'user', { stored: ['P0300'], pending: [], checked: true, modules: ['7E0'] }, null, at, true)).rejects.toThrow('offline');
+  });
+  it('reports failure to persist a resolved code', async () => {
+    const { syncFaultCodes } = await import('./issue-reconciler');
+    db.rows.push({ __table: 'vehicle_issues', id: 'old', car_profile_id: 'car', canonical_key: 'dtc:P0300', status: 'active', last_seen_at: at, details: { source: 'dtc', modules: ['7E0'] } });
+    db.failWhen = (op) => op === 'update' ? { message: 'offline' } : null;
+    await expect(syncFaultCodes('car', 'user', { stored: [], pending: [], checked: true, modules: ['7E0'] }, null, at, true)).rejects.toThrow('offline');
+  });
+});
+
 it('does not reopen a resolved problem when the same trip is reprocessed', async () => {
   const { reconcileIssues } = await import('./issue-reconciler');
   db.rows.push({ __table: 'vehicle_issues', id: 'fixed', car_profile_id: 'car', canonical_key: 'coolant_temp', status: 'resolved', severity: 'serious', title: 'Hot', last_seen_at: at, recurrence_count: 2 });

@@ -16,6 +16,7 @@ import {
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { syncFaultCodes } from '@/lib/issue-reconciler';
+import { notifyProblemsChanged } from '@/hooks/use-open-problems';
 import { useToast } from '@/hooks/use-toast';
 import type { DtcReadout, LiveChannel } from '@/hooks/use-obd-scanner';
 import { useObd, useObdLive } from '@/contexts/ObdScannerContext';
@@ -99,6 +100,7 @@ export default function ScannerPage() {
     setDtcs(readout);
     if (selectedCar && user) {
       const { resolved } = await syncFaultCodes(selectedCar.id, user.id, readout, null);
+      notifyProblemsChanged();
       if (resolved > 0) {
         toast({ title: t('problems.synced', 'Problems updated'), description: t('problems.syncedHint', { count: resolved }), variant: 'success' });
       }

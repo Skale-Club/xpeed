@@ -43,6 +43,7 @@ export interface ScannerConnection extends ElmInfo {
 }
 
 export type DtcReadout = FaultCodeReadout;
+export interface FaultInspection { readout: DtcReadout; at: string; vin: string | null }
 
 export interface RecordingState {
   active: boolean;
@@ -225,6 +226,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
   /** Readings that change every cycle live in their own store (see live-store.ts), not in state. */
   const [live] = useState(createLiveStore);
   const [recording, setRecording] = useState<RecordingState | null>(null);
+  const [faultInspection, setFaultInspection] = useState<FaultInspection | null>(null);
   useEffect(() => { logObdDiagnostic('state', { status, recording: !!recording?.active }); }, [status, recording?.active]);
   const [autoPaused, setAutoPaused] = useState(false);
   /** The car's VIN (chassis number), read on every new Bluetooth link; null if the car doesn't report it. */
@@ -517,6 +519,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
         faultRef.current = await readFaultCodes(elm, info.isCan);
         lastFaultRead = Date.now();
         if (!alive()) return;
+        setFaultInspection({ readout: faultRef.current, at: new Date().toISOString(), vin: vinRef.current });
         if (manualPendingRef.current) handleTripEvents(detectorRef.current.startManual(Date.now()));
       }
 
@@ -589,6 +592,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
         const again = await readFaultCodes(elm, info.isCan);
         if (!alive()) return;
         faultRef.current = mergeReadouts(faultRef.current, again);
+        setFaultInspection({ readout: again, at: new Date().toISOString(), vin: vinRef.current });
       }
     }
   }, [applyChannels, endOpenTrip, feedLinkDown, feedTrip, handleTripEvents, live, readCycle, recordSample]);
@@ -597,6 +601,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
     elmRef.current = null;
     liveRef.current = false;
     setConnection(null);
+    setFaultInspection(null);
     live.set({ values: NO_VALUES, cycleMs: null });
   }, [live]);
 
@@ -796,9 +801,14 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
   };
 
   const readDtcs = useCallback(async (): Promise<DtcReadout> => {
-    const readout = await readFaultCodes(requireElm(), connection?.isCan ?? true, { permanent: true });
+    const elm = requireElm();
+    const gen = linkGenRef.current;
+    const vin = vinRef.current;
+    const readout = await readFaultCodes(elm, connection?.isCan ?? true, { permanent: true });
+    if (gen !== linkGenRef.current || elmRef.current !== elm) throw new Error('The connection changed during the code reading. Try again.');
     // A fresh read replaces what the trip carries (e.g. right after clearing codes).
     if (readout.checked) faultRef.current = { ...readout, permanent: [] };
+    setFaultInspection({ readout, at: new Date().toISOString(), vin });
     return readout;
   }, [connection]);
 
@@ -893,11 +903,11 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
 
   // One stable object: its parts only change when something a screen shows changes.
   return useMemo(() => ({
-    status, error, linkFailed, connection, channels, recording, autoPaused, vin, linkOpen, live, getHistory,
+    status, error, linkFailed, connection, channels, recording, autoPaused, vin, linkOpen, live, getHistory, faultInspection,
     connect, disconnect, startTrip, stopTrip, readDtcs, clearDtcs, readVin, sendRaw, findEcus, sweepMode21,
     getRecording,
   }), [
-    status, error, linkFailed, connection, channels, recording, autoPaused, vin, linkOpen, live, getHistory,
+    status, error, linkFailed, connection, channels, recording, autoPaused, vin, linkOpen, live, getHistory, faultInspection,
     connect, disconnect, startTrip, stopTrip, readDtcs, clearDtcs, readVin, sendRaw, findEcus, sweepMode21,
     getRecording,
   ]);

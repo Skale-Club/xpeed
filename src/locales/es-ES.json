@@ -3,8 +3,17 @@
     "title": "Tendencias a largo plazo",
     "hint": "Resúmenes de viajes guardados, por mes o año. Promedios ponderados por duración; los datos ausentes quedan en blanco. Estas tendencias no diagnostican fallos.",
     "empty": "Aún no hay resúmenes de sensores guardados. Los viajes completados aparecerán aquí.",
-    "sensor": "Sensor", "group": "Agrupar por", "month": "Mes", "year": "Año", "period": "Período",
-    "months": "{{count}} meses", "min": "Mínimo", "avg": "Promedio", "max": "Máximo", "trips": "Viajes", "coverage": "Con datos"
+    "sensor": "Sensor",
+    "group": "Agrupar por",
+    "month": "Mes",
+    "year": "Año",
+    "period": "Período",
+    "months": "{{count}} meses",
+    "min": "Mínimo",
+    "avg": "Promedio",
+    "max": "Máximo",
+    "trips": "Viajes",
+    "coverage": "Con datos"
   },
   "nav": {
     "dashboard": "Inicio",
@@ -1110,5 +1119,36 @@
       "yellow": "Amarillo",
       "orange": "Naranja"
     }
+  },
+  "codes": {
+    "title": "Leer códigos de falla",
+    "hint": "Conecta el adaptador y enciende el contacto. Esta lectura no borra códigos del coche.",
+    "carMismatch": "El VIN conectado difiere del coche seleccionado. Los resultados no se guardarán en ese coche.",
+    "reading": "Leyendo los módulos del coche…",
+    "readAgain": "Leer códigos otra vez",
+    "waiting": "El coche debe estar encendido y conectado para leer códigos.",
+    "checkedAt": "Lectura a las {{time}}",
+    "incomplete": "El coche no respondió a todas las solicitudes necesarias. Un resultado vacío no confirma la ausencia de códigos.",
+    "incompleteTitle": "Lectura de códigos incompleta",
+    "stored": "Confirmado",
+    "pending": "Pendiente",
+    "permanent": "Permanente",
+    "modules": "Módulos que respondieron: {{modules}}",
+    "syncFailed": "Se leyeron los códigos, pero no se pudo actualizar Problemas. Vuelve a leer cuando tengas conexión."
+  },
+  "notifications": {
+    "open": "Notificaciones: {{count}} sin leer",
+    "title": "Notificaciones",
+    "chooseCar": "Selecciona un coche para ver sus notificaciones.",
+    "loading": "Consultando problemas guardados…",
+    "failed": "No se pudieron actualizar los problemas guardados. Los avisos existentes pueden estar desactualizados.",
+    "readAll": "Marcar todas como leídas",
+    "empty": "Todavía no hay avisos. Esto no es una nueva revisión del coche.",
+    "codesFound": "{{count}} códigos de falla informados",
+    "noCodes": "Sin códigos en las respuestas recibidas",
+    "savedSource": "Problema guardado",
+    "scanSource": "Lectura de códigos",
+    "read": "Marcar como leída",
+    "readHint": "Leer un aviso no resuelve un problema. Los avisos y el estado de lectura se guardan para este coche y esta cuenta en este dispositivo."
   }
 }

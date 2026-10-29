@@ -54,6 +54,7 @@ const NAV_ITEMS = [
   { to: '/live', i18nKey: 'nav.live', icon: Activity },
   { to: '/trends', i18nKey: 'trends.title', icon: History },
   { to: '/issues', i18nKey: 'nav.issues', icon: AlertTriangle },
+  { to: '/codes', i18nKey: 'codes.title', icon: Bluetooth },
   { to: '/history', i18nKey: 'nav.history', icon: History },
   { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench },
   { to: '/cars', i18nKey: 'nav.cars', icon: Car },

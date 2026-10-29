@@ -37,6 +37,7 @@ type CodeDetails = CodeIssueDetails;
 const UNIQUE_VIOLATION = '23505';
 
 interface Seen {
+  strict?: boolean;
   /** Rechecking an old trip must not undo the owner's resolution decision. */
   reprocessing?: boolean;
   carProfileId: string;
@@ -54,12 +55,13 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
     // insert loses that race (unique key), look again and update the winner's row.
     let issueId: string | null = null;
     for (let attempt = 0; attempt < 2 && !issueId; attempt++) {
-      const { data: existing } = await supabase
+      const { data: existing, error: lookupError } = await supabase
         .from('vehicle_issues')
         .select('id, status, recurrence_count, severity, title, last_seen_at, resolved_at, details')
         .eq('car_profile_id', carProfileId)
         .eq('canonical_key', item.canonical_key)
         .maybeSingle();
+      if (seen.strict && lookupError) throw new Error(lookupError.message);
 
       if (!existing) {
         const { data: created, error } = await supabase
@@ -82,6 +84,7 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
           .single();
         if (error?.code === UNIQUE_VIOLATION) continue;
         if (error || !created) {
+          if (seen.strict) throw new Error(error?.message || 'Could not create issue');
           console.warn('Failed to create issue:', item.canonical_key, error?.message);
           return;
         }
@@ -115,9 +118,13 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
         updates.recurrence_count = (prev.recurrence_count ?? 0) + 1;
       }
       // 'active' and 'recurred' stay as they are; 'ignored' stays ignored.
-      if (!stale) await supabase.from('vehicle_issues').update(updates as unknown as never).eq('id', issueId);
+      if (!stale) {
+        const updated = await supabase.from('vehicle_issues').update(updates as unknown as never).eq('id', issueId);
+        if (seen.strict && updated?.error) throw new Error(updated.error.message);
+      }
     }
     if (!issueId) {
+      if (seen.strict) throw new Error('Could not create or find the issue');
       console.warn('Could not create or find the issue:', item.canonical_key);
       return;
     }
@@ -138,6 +145,7 @@ async function upsertProblem(item: ProblemItem, seen: Seen): Promise<void> {
         );
     }
   } catch (err) {
+    if (seen.strict) throw err;
     console.warn('Issue reconciliation error for', item.canonical_key, err);
   }
 }
@@ -234,8 +242,9 @@ export async function syncFaultCodes(
   codes: FaultCodeSync,
   sessionId: string | null,
   occurredAt: string = new Date().toISOString(),
+  strict = false,
 ): Promise<{ resolved: number }> {
-  const seen: Seen = { carProfileId, userId, sessionId, occurredAt };
+  const seen: Seen = { carProfileId, userId, sessionId, occurredAt, strict };
   for (const code of codes.stored) {
     await upsertProblem({ canonical_key: `${DTC_PREFIX}${code}`, title: code, severity: dtcSeverity(code), evidence: { code, modules: codes.codeModules?.[code] }, modules: codes.codeModules?.[code] }, seen);
   }
@@ -247,11 +256,12 @@ export async function syncFaultCodes(
   const present = new Set([...codes.stored, ...codes.pending].map((c) => `${DTC_PREFIX}${c}`));
   const answeredModules = new Set(codes.modules ?? []);
   try {
-    const { data: open } = await supabase
+    const { data: open, error: lookupError } = await supabase
       .from('vehicle_issues')
       .select('id, canonical_key, last_seen_at, details')
       .eq('car_profile_id', carProfileId)
       .in('status', ['active', 'recurred']);
+    if (strict && lookupError) throw new Error(lookupError.message);
     const at = new Date(occurredAt).getTime();
     const gone = ((open ?? []) as { id: string; canonical_key: string; last_seen_at: string; details?: Partial<CodeDetails> | null }[])
       .filter((i) => i.canonical_key.startsWith(DTC_PREFIX) && !present.has(i.canonical_key))
@@ -264,13 +274,15 @@ export async function syncFaultCodes(
         return !reportedBy?.length || reportedBy.every((m) => answeredModules.has(m));
       });
     for (const issue of gone) {
-      await supabase
+      const updated = await supabase
         .from('vehicle_issues')
         .update({ status: 'resolved', resolved_at: occurredAt, resolved_note: CODE_GONE_NOTE } as unknown as never)
         .eq('id', issue.id);
+      if (strict && updated?.error) throw new Error(updated.error.message);
     }
     return { resolved: gone.length };
   } catch (err) {
+    if (strict) throw err;
     console.warn('Could not close fault codes the car no longer reports:', err);
     return { resolved: 0 };
   }

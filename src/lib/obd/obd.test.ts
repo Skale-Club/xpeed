@@ -443,6 +443,7 @@ describe('fault codes', () => {
       pending: ['P0171'],
       permanent: [],
       checked: true,
+      complete: true,
       // Both modules fully answered, and each code says which module it came from
       modules: ['7E0', '7E2'],
       codeModules: { P0133: ['7E0'], P0420: ['7E0'], P0171: ['7E0'], P0A80: ['7E2'] },
@@ -458,7 +459,7 @@ describe('fault codes', () => {
 
     const silent = new Elm327(car({}));
     await silent.initialize();
-    expect(await readFaultCodes(silent, true)).toMatchObject({ stored: [], checked: false });
+    expect(await readFaultCodes(silent, true)).toMatchObject({ stored: [], checked: false, complete: false });
   });
 
   it('does not count a module as having answered when it left out its pending codes', async () => {
@@ -471,6 +472,7 @@ describe('fault codes', () => {
     expect(r.stored).toEqual(['P0A80']);
     // Its code is known, but nothing may be concluded about what is missing from it
     expect(r.modules).toEqual(['7E0']);
+    expect(r.complete).toBe(false);
     expect(r.codeModules).toEqual({ P0A80: ['7E2'] });
   });
 
