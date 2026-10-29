@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCarsContext } from './CarsContext';
+import { notifyProblemsChanged } from '@/hooks/use-open-problems';
 
 const PageRefreshContext = createContext({ revision: 0, refresh: async () => {} });
 
@@ -15,6 +16,7 @@ export function PageRefreshProvider({ children }: { children: ReactNode }) {
     pending.current = true;
     try {
       await Promise.all([refreshCars(), queries.invalidateQueries()]);
+      notifyProblemsChanged();
       setRevision((value) => value + 1);
     } finally { pending.current = false; }
   }, [refreshCars, queries]);

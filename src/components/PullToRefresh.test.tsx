@@ -20,9 +20,29 @@ it('does not refresh while disabled or when dragging a form control', () => {
   const refresh = vi.fn(async () => undefined);
   const { rerender } = render(<PullToRefresh onRefresh={refresh} disabled><p>Page</p></PullToRefresh>);
   pull(screen.getByText('Page'));
-  rerender(<PullToRefresh onRefresh={refresh}><button>Edit</button></PullToRefresh>);
-  pull(screen.getByText('Edit'));
+  rerender(<PullToRefresh onRefresh={refresh}><input aria-label="Edit" /></PullToRefresh>);
+  pull(screen.getByRole('textbox', { name: 'Edit' }));
   expect(refresh).not.toHaveBeenCalled();
+});
+it('refreshes over navigation links and action buttons without activating them', async () => {
+  const refresh = vi.fn(async () => undefined);
+  const activate = vi.fn();
+  render(<PullToRefresh onRefresh={refresh}><button onClick={activate}>Action</button><a href="/live" onClick={activate}>Live</a></PullToRefresh>);
+  const action = screen.getByRole('button');
+  pull(action);
+  fireEvent.click(action, { detail: 1 });
+  expect(activate).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  const link = screen.getByRole('link');
+  pull(link);
+  fireEvent.click(link, { detail: 1 });
+  expect(activate).not.toHaveBeenCalled();
+  expect(refresh).toHaveBeenCalledTimes(2);
+  // A subsequent normal tap remains usable.
+  fireEvent.touchStart(action, { touches: [{ clientX: 30, clientY: 20 }] });
+  fireEvent.touchEnd(action, { touches: [] });
+  fireEvent.click(action, { detail: 1 });
+  expect(activate).toHaveBeenCalledOnce();
 });
 it('ignores nested scrolling and cancelled gestures', () => {
   const refresh = vi.fn(async () => undefined);

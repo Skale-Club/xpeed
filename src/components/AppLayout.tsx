@@ -21,6 +21,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
       <AppSidebar />
       {/* min-w-0: long words (file names, codes) must wrap instead of widening the page on phones. */}
       <SidebarInset className="min-w-0">
+        <PullToRefresh onRefresh={refresh} disabled={refreshDisabled}>
         <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl">
           {/* Phones navigate with the tab bar at the bottom; the logo goes home. */}
           <Link to="/" className="flex items-center gap-2 md:hidden" aria-label="Xpeed">
@@ -33,11 +34,9 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
         </header>
         <AppUpdateBanner />
 
-        <PullToRefresh onRefresh={refresh} disabled={refreshDisabled}>
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">
           {children}
         </main>
-        </PullToRefresh>
 
         {/* Phones need room for the bottom tab bar; the desktop footer stays compact. */}
         <footer className="border-t border-border/60 px-20 pb-32 pt-4 text-center md:px-24 md:pb-4">
@@ -45,6 +44,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
             {t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}
           </p>
         </footer>
+        </PullToRefresh>
       </SidebarInset>
 
       <MobileTabBar />
