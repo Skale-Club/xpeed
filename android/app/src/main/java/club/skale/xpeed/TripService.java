@@ -11,6 +11,9 @@ import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.SystemClock;
+import android.widget.RemoteViews;
+import org.json.JSONObject;
 
 import androidx.core.app.NotificationCompat;
 
@@ -28,6 +31,7 @@ public class TripService extends Service {
     static final int NOTIFICATION_ID = 7001;
     static final String EXTRA_TITLE = "title";
     static final String EXTRA_TEXT = "text";
+    static final String EXTRA_TRIP = "trip";
     static final String EXTRA_AWAKE = "awake";
 
     static volatile boolean running = false;
@@ -49,7 +53,7 @@ public class TripService extends Service {
         String text = intent != null ? intent.getStringExtra(EXTRA_TEXT) : null;
         boolean awake = intent == null || intent.getBooleanExtra(EXTRA_AWAKE, true);
         try {
-            Notification notification = buildNotification(this, title, text);
+            Notification notification = buildNotification(this, title, text, intent != null ? intent.getStringExtra(EXTRA_TRIP) : null);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
             } else {
@@ -120,12 +124,12 @@ public class TripService extends Service {
     }
 
     /** Change the notification text without restarting the service. */
-    static void updateNotification(Context context, String title, String text) {
+    static void updateNotification(Context context, String title, String text, String trip) {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        nm.notify(NOTIFICATION_ID, buildNotification(context, title, text));
+        nm.notify(NOTIFICATION_ID, buildNotification(context, title, text, trip));
     }
 
-    private static Notification buildNotification(Context context, String title, String text) {
+    private static Notification buildNotification(Context context, String title, String text, String trip) {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Xpeed", NotificationManager.IMPORTANCE_LOW);
@@ -138,7 +142,7 @@ public class TripService extends Service {
         open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent tap = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-        return new NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
                 .setContentTitle(title != null ? title : "Xpeed")
                 .setContentText(text != null ? text : "")
@@ -147,6 +151,32 @@ public class TripService extends Service {
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .build();
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setShowWhen(false);
+        if (trip != null) {
+            try {
+                JSONObject data = new JSONObject(trip);
+                if (data.optBoolean("active")) {
+                    RemoteViews card = new RemoteViews(context.getPackageName(), R.layout.notification_trip);
+                    card.setTextViewText(R.id.trip_vehicle, data.optString("vehicle", "Xpeed"));
+                    card.setTextViewText(R.id.trip_status, data.optString("status", ""));
+                    card.setTextViewText(R.id.trip_speed, data.optString("speed", "—"));
+                    card.setTextViewText(R.id.trip_speed_unit, data.optString("speedUnit", "km/h"));
+                    card.setTextViewText(R.id.trip_distance, data.optString("distance", "—"));
+                    card.setTextViewText(R.id.trip_distance_unit, data.optString("distanceUnit", "km"));
+                    long started = data.optLong("startedAt", 0);
+                    long elapsed = Math.max(0, System.currentTimeMillis() - started);
+                    card.setChronometer(R.id.trip_time, SystemClock.elapsedRealtime() - elapsed, null, started > 0);
+                    builder.setStyle(new NotificationCompat.DecoratedCustomViewStyle())
+                            .setCustomBigContentView(card)
+                            .setContentTitle(data.optString("vehicle", "Xpeed"))
+                            .setContentText(data.optString("speed", "—") + " " + data.optString("speedUnit", "km/h")
+                                + " · " + data.optString("distance", "—") + " " + data.optString("distanceUnit", "km"))
+                            .setSubText(data.optString("status", ""));
+                    if (started > 0) builder.setWhen(started).setShowWhen(true).setUsesChronometer(true);
+                }
+            } catch (org.json.JSONException ignored) { /* Old clients keep the text notification. */ }
+        }
+        return builder.build();
     }
 }

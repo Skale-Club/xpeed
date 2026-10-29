@@ -467,9 +467,42 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const serviceWanted = (linked && (linkOpen || isBluetoothReady())) || !!recording?.active;
   // The CPU wake lock is only for polling the car; a parked car or a missing adapter lets the phone sleep.
   useEffect(() => {
-    if (serviceWanted) void showBackgroundService('Xpeed', serviceText, driving);
-    else void hideBackgroundService();
-  }, [serviceWanted, serviceText, driving]);
+    if (!serviceWanted) { void hideBackgroundService(); return; }
+    // Sample independently of React renders. Integrate only real consecutive
+    // speed samples; a disconnected gap never becomes distance travelled.
+    let offset = 0;
+    let previous: { t: number; speed: number | null } | null = null;
+    let distanceKm = 0;
+    const update = () => {
+      const snapshot = getRecording(offset);
+      for (const sample of snapshot.samples) {
+        const raw = sample.values['Vehicle speed (km/h)'];
+        const speed = raw != null && Number.isFinite(raw) && raw >= 0 ? raw : null;
+        if (previous && speed != null && previous.speed != null) {
+          const seconds = sample.t - previous.t;
+          if (seconds > 0 && seconds <= 30) distanceKm += (speed + previous.speed) / 2 * seconds / 3600;
+        }
+        previous = { t: sample.t, speed };
+      }
+      offset = snapshot.total;
+      let miles = false;
+      try { miles = localStorage.getItem('settings_distanceUnit') === 'mi'; } catch { /* defaults */ }
+      const rawSpeed = status === 'live' ? obd.live.get().values['Vehicle speed (km/h)'] : null;
+      const speed = rawSpeed != null && Number.isFinite(rawSpeed) ? Math.max(0, rawSpeed) : null;
+      const car = carsRef.current.find((c) => c.id === (recordingCarId || carIdRef.current));
+      void showBackgroundService('Xpeed', serviceText, driving, {
+        vehicle: car?.name || 'Xpeed', status: serviceText,
+        active: !!recording?.active, startedAt: recording?.startedAt?.getTime() || 0,
+        speed: speed == null ? '—' : Math.round(speed * (miles ? 0.621371 : 1)).toString(),
+        speedUnit: miles ? 'mph' : 'km/h',
+        distance: snapshot.samples.length || offset ? (distanceKm * (miles ? 0.621371 : 1)).toFixed(1) : '—',
+        distanceUnit: miles ? 'mi' : 'km',
+      });
+    };
+    update();
+    const timer = setInterval(update, 5000);
+    return () => clearInterval(timer);
+  }, [serviceWanted, serviceText, driving, recording?.active, recording?.startedAt, recordingCarId, getRecording, obd.live, status]);
   // Leaving (sign-out): no notification or wake lock left behind.
   useEffect(() => () => { void hideBackgroundService(); }, []);
 

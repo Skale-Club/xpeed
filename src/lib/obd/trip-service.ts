@@ -4,7 +4,19 @@
 import { registerPlugin } from '@capacitor/core';
 import { isNativeApp } from './native-ble';
 
+export interface TripNotification {
+  vehicle: string;
+  status: string;
+  speed: string;
+  speedUnit: string;
+  distance: string;
+  distanceUnit: string;
+  startedAt: number;
+  active: boolean;
+}
+
 interface ServiceOptions {
+  trip?: TripNotification;
   title: string;
   text: string;
   /**
@@ -26,12 +38,12 @@ const TripService = registerPlugin<TripServicePlugin>('TripService');
 let started = false;
 
 /** Show (or update) the persistent "Xpeed" notification; no-op on the web. */
-export async function showBackgroundService(title: string, text: string, awake = true): Promise<void> {
+export async function showBackgroundService(title: string, text: string, awake = true, trip?: TripNotification): Promise<void> {
   if (!isNativeApp()) return;
   try {
-    if (started) await TripService.update({ title, text, awake });
+    if (started) await TripService.update({ title, text, awake, trip });
     else {
-      await TripService.start({ title, text, awake });
+      await TripService.start({ title, text, awake, trip });
       started = true;
     }
   } catch (err) {

@@ -45,7 +45,7 @@ public class TripServicePlugin extends Plugin {
         String text = call.getString("text", "");
         boolean awake = Boolean.TRUE.equals(call.getBoolean("awake", true));
         if (TripService.running) {
-            TripService.updateNotification(context, title, text);
+            TripService.updateNotification(context, title, text, call.getObject("trip") != null ? call.getObject("trip").toString() : null);
             TripService.setAwake(awake);
             call.resolve();
             return;
@@ -61,7 +61,8 @@ public class TripServicePlugin extends Plugin {
         Intent intent = new Intent(context, TripService.class)
                 .putExtra(TripService.EXTRA_TITLE, title)
                 .putExtra(TripService.EXTRA_TEXT, text)
-                .putExtra(TripService.EXTRA_AWAKE, awake);
+                .putExtra(TripService.EXTRA_AWAKE, awake)
+                .putExtra(TripService.EXTRA_TRIP, call.getObject("trip") != null ? call.getObject("trip").toString() : null);
         try {
             ContextCompat.startForegroundService(context, intent);
             call.resolve();

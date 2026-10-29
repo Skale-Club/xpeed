@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:padding="12dp" android:background="#10191B">
+    <TextView android:id="@+id/trip_vehicle" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#FFFFFF" android:textSize="14sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+    <TextView android:id="@+id/trip_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#6AE69A" android:textSize="12sp" android:maxLines="2" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingTop="12dp">
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/trip_speed" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="28sp" android:textStyle="bold" android:textColor="#46D9D0" android:maxLines="1" />
+            <TextView android:id="@+id/trip_speed_unit" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#C0CDCD" />
+        </LinearLayout>
+        <Chronometer android:id="@+id/trip_time" android:layout_width="0dp" android:layout_weight="1.6" android:layout_height="wrap_content" android:textSize="25sp" android:textStyle="bold" android:textColor="#FFFFFF" android:gravity="center" />
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="end">
+            <TextView android:id="@+id/trip_distance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="28sp" android:textStyle="bold" android:textColor="#FFFFFF" android:maxLines="1" />
+            <TextView android:id="@+id/trip_distance_unit" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#C0CDCD" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
