@@ -6,15 +6,15 @@
 // a future iteration will pull them from the parameter_rules / vehicle_rulesets
 // tables seeded in 20260517130000_rule_library.sql.
 
-import { DEFAULT_PRIUS_RULES, type DefaultRule } from '@/lib/default-rules';
-import { GENERIC_PETROL_RULES } from '@/lib/default-rules/generic-petrol';
-import { GENERIC_HYBRID_RULES } from '@/lib/default-rules/generic-hybrid';
-import { GENERIC_DIESEL_RULES } from '@/lib/default-rules/generic-diesel';
-import { HONDA_CIVIC_G10_RULES } from '@/lib/default-rules/honda-civic-g10';
-import { FORD_F150_RULES } from '@/lib/default-rules/ford-f150';
-import { SUBARU_WRX_RULES } from '@/lib/default-rules/subaru-wrx';
-import { TESLA_MODEL3_RULES } from '@/lib/default-rules/tesla-model3';
-import type { CarProfile } from '@/lib/db';
+import { DEFAULT_PRIUS_RULES, type DefaultRule } from './default-rules';
+import { GENERIC_PETROL_RULES } from './default-rules/generic-petrol';
+import { GENERIC_HYBRID_RULES } from './default-rules/generic-hybrid';
+import { GENERIC_DIESEL_RULES } from './default-rules/generic-diesel';
+import { HONDA_CIVIC_G10_RULES } from './default-rules/honda-civic-g10';
+import { FORD_F150_RULES } from './default-rules/ford-f150';
+import { SUBARU_WRX_RULES } from './default-rules/subaru-wrx';
+import { TESLA_MODEL3_RULES } from './default-rules/tesla-model3';
+import type { CarProfile } from './db';
 
 interface RulesetMatcher {
   id: string;
