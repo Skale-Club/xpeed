@@ -61,6 +61,14 @@ const MODEL_BODY: [RegExp, BodyType][] = [
   [/\b(parati|spacewagon|weekend|sw|wagon|outback|v60|v90|allroad|avant|touring|estate|variant)\b/, 'wagon'],
   [/\b(mustang|camaro|challenger|corvette|86|gr86|brz|miata|mx-5|z4|tt|911|cayman|boxster|supra|370z|400z|scirocco|tiguan allspace coupe)\b/, 'coupe'],
   [/\b(compass|renegade|commander|creta|tucson|santa fe|t-cross|nivus|taos|tiguan|tracker|equinox|trailblazer|blazer|kicks|hr-?v|cr-?v|wr-?v|rav4|corolla cross|sw4|duster|captur|kardian|pulse|fastback|ecosport|bronco|territory|tiggo|haval|h6|song|yuan|seal u|t40|kona|sportage|sorento|seltos|soul|outlander|eclipse cross|asx|pajero|land cruiser|4runner|highlander|explorer|escape|edge|expedition|tahoe|suburban|wrangler|cherokee|grand cherokee|forester|crosstrek|xv|cx-?3|cx-?30|cx-?5|cx-?9|x1|x3|x5|q3|q5|q7|glc|gle|xc40|xc60|xc90|model y|model x|2008|3008|5008|c4 cactus|aircross|tera|bz4x)\b/, 'suv'],
+
+  // Mexico, Argentina, Colombia, Chile, Spain, Portugal and the rest of Europe.
+  [/\b(np300|lobo|alaskan|d-?max|navara|bt-?50|hilux champ)\b/, 'pickup'],
+  [/\b(groove|captiva|raize|zs|mg zs|sei[234]|vitara|jimny|t-?roc|id\.?4|id\.?5|arona|ateca|tarraco|formentor|yaris cross|c-?hr|kamiq|karoq|kodiaq|enyaq|bayon|stonic|niro|ev6|puma|kuga|qashqai|juke|x-?trail|ariya|gla|glb|q2|q4|ex30|atto 3|mokka|crossland|grandland|frontera|arkana|austral|rafale|scenic|basalt|500x|c5 x|xpander cross|countryman)\b/, 'suv'],
+  [/\b(avanza|ertiga|xpander|kangoo|fiorino|partner|berlingo|rifter|dokker|lodgy|jogger|caddy|touran|sharan|vito|v-class|classe v|clase v|trafic|tourneo|multivan|id\.? buzz|staria|carens)\b/, 'minivan'],
+  [/\b(combi|break|sportswagon|sports tourer|shooting brake|estate|kombi)\b/, 'wagon'],
+  [/\b(aveo|accent|k3|dzire|vento|mg5|superb|octavia|cerato|sentra|mazda 6|mazda6|seal|i4|a-class sedan|cla)\b/, 'sedan'],
+  [/\b(beat|mg3|mg4|grand i10|i10|i20|picanto|ceed|stepway|spring|clio|zoe|megane|r5|astra|corsa|208|308|c3|c4|fabia|ibiza|leon|born|id\.?3|aygo|aygo x|micra|500|panda|tipo|dolphin|mazda 2|mazda2|mazda 3|a-class|classe a|clase a|1 series|serie 1|a1|swift|baleno|celerio|kwid|ignis)\b/, 'hatch'],
 ];
 
 /** A best guess from the model name, for cars added without a chassis number. */

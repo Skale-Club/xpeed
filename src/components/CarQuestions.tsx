@@ -22,8 +22,17 @@ type Question = 'make' | 'model' | 'year' | 'color' | 'body' | 'fuel';
 // Colour before shape, so the shapes are already drawn in the car's colour.
 const QUESTIONS: Question[] = ['make', 'model', 'year', 'color', 'body', 'fuel'];
 
-// Best sellers in Brazil, so most people answer with one tap.
-const POPULAR_MAKES = ['Chevrolet', 'Volkswagen', 'Fiat', 'Toyota', 'Hyundai', 'Honda', 'Jeep', 'Renault', 'Nissan', 'Ford'];
+// Best-selling brands where each language is spoken most, so most people answer with one tap.
+const POPULAR_MAKES: Record<'pt' | 'es' | 'en', string[]> = {
+  pt: ['Chevrolet', 'Volkswagen', 'Fiat', 'Toyota', 'Hyundai', 'Honda', 'Jeep', 'Renault', 'Nissan', 'Ford'],
+  es: ['Nissan', 'Chevrolet', 'Volkswagen', 'Toyota', 'Kia', 'Renault', 'Peugeot', 'Mazda', 'Hyundai', 'Seat'],
+  en: ['Toyota', 'Ford', 'Chevrolet', 'Honda', 'Nissan', 'Hyundai', 'Kia', 'Jeep', 'Subaru', 'Tesla'],
+};
+
+function popularMakes(language: string | undefined): string[] {
+  const lang = (language ?? 'en').slice(0, 2);
+  return POPULAR_MAKES[lang === 'pt' || lang === 'es' ? lang : 'en'];
+}
 
 const FUELS: { value: EngineType; label: string }[] = [
   { value: 'flex', label: 'Flex (gasoline/ethanol)' },
@@ -44,11 +53,12 @@ interface CarQuestionsProps {
 
 /** Adds a car one question per screen: brand, model, year, colour, kind of car, fuel. */
 export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuestionsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const makes = popularMakes(i18n.resolvedLanguage);
   // Coming back to answers already given resumes on the last question.
   const [step, setStep] = useState<Question>(initial?.year ? 'fuel' : 'make');
   const [make, setMake] = useState(initial?.make ?? '');
-  const [otherMake, setOtherMake] = useState(!!initial?.make && !POPULAR_MAKES.includes(initial.make));
+  const [otherMake, setOtherMake] = useState(!!initial?.make && !makes.includes(initial.make));
   const [model, setModel] = useState(initial?.model ?? '');
   const [year, setYear] = useState(initial?.year ? String(initial.year) : '');
   const [color, setColor] = useState<CarColor | null>(initial?.color ?? null);
@@ -124,7 +134,7 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
           <>
             <h3 className="text-lg font-semibold">{t('carQ.makeQ', 'What brand is your car?')}</h3>
             <div className="grid grid-cols-2 gap-2">
-              {POPULAR_MAKES.map((m) => (
+              {makes.map((m) => (
                 <Button
                   key={m}
                   type="button"
@@ -141,7 +151,7 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
                 className="h-11 col-span-2"
                 onClick={() => {
                   setOtherMake(true);
-                  if (POPULAR_MAKES.includes(make)) setMake('');
+                  if (makes.includes(make)) setMake('');
                 }}
               >
                 {t('carQ.otherMake', 'Other brand')}
