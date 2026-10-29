@@ -12,6 +12,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
     };
   },
   storage: { from: () => ({
+    list: async () => ({ data: state.ids ? [{ name: `${state.report!.id}.json` }] : [], error: null }),
     download: async () => state.ids ? { data: { text: async () => JSON.stringify({ ids: state.ids }) }, error: null } : { data: null, error: { statusCode: 404 } },
     upload: async (_path: string, content: string) => { state.ids = JSON.parse(content).ids; return { error: null }; },
     createSignedUrl: async (path: string) => { state.signs(path); return { data: { signedUrl: 'https://example.supabase.co/signed' }, error: null }; },

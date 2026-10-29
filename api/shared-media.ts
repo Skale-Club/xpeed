@@ -42,11 +42,13 @@ export default async function handler(req: Request): Promise<Response> {
       if (saved.error) throw saved.error;
       return reply({ ok: true });
     }
+    // Storage can wrap a missing-object HTTP 400 as an opaque error in Edge runtimes.
+    // List the exact filename first so an ordinary non-opted-in link stays empty.
+    const existing = await db.storage.from(MANIFESTS).list(report.user_id, { search: `${id}.json`, limit: 1 });
+    if (existing.error) throw existing.error;
+    if (!existing.data?.some((file) => file.name === `${id}.json`)) return reply({ items: [] });
     const manifest = await db.storage.from(MANIFESTS).download(path);
-    if (manifest.error) {
-      if (Number(manifest.error.status) === 404 || Number(manifest.error.statusCode) === 404 || manifest.error.message === 'Object not found') return reply({ items: [] });
-      throw manifest.error;
-    }
+    if (manifest.error) throw manifest.error;
     const { ids } = JSON.parse(await manifest.data.text());
     if (!Array.isArray(ids) || !ids.length) return reply({ items: [] });
     const photos = await db.from('session_photos').select('id,storage_path,caption,photo_type').eq('session_id', report.session_id).eq('user_id', report.user_id).in('id', ids.slice(0, 100));
