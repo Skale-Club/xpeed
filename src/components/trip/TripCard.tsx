@@ -220,7 +220,6 @@ export function TripCard() {
     );
   }
 
-  const connected = status === 'live' || status === 'waiting' || status === 'reconnecting';
 
   return (
     <Card className={recording?.active ? 'border-destructive/30' : undefined}>
@@ -236,11 +235,7 @@ export function TripCard() {
               <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Record trips automatically')} />
             </label>
           )}
-          {connected && !recording?.active && (
-            <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={obd.disconnect}>
-              {t('trip.disconnect', 'Disconnect')}
-            </Button>
-          )}
+
         </div>
 
         {body}
