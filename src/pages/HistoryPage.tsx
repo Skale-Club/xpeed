@@ -183,7 +183,7 @@ export default function HistoryPage() {
           </div>
           <label className="block space-y-1 text-xs">{t('history.search', 'Search trip names')}<Input type="search" value={search} onChange={(event) => changeFilter('q', event.target.value)} /></label>
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>{t('history.matchCount', '{{count}} matching trips', { count: filtered.length })}</span>
+            <span>{t('history.matchCount', '{{count}} completed trips found', { count: filtered.length })}</span>
             {(month || day || search) && <Button variant="ghost" size="sm" onClick={() => setParams({})}>{t('history.clearFilters', 'Clear filters')}</Button>}
           </div>
         </div>}

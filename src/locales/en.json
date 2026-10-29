@@ -598,7 +598,7 @@
     "month": "Month",
     "day": "Calendar date",
     "search": "Search trip names",
-    "matchCount": "{{count}} matching trips",
+    "matchCount": "{{count}} completed trips found",
     "clearFilters": "Clear filters",
     "flagsFailed": "Some problem checks could not be loaded. Pull down to retry.",
     "noMatches": "No trips match these filters.",

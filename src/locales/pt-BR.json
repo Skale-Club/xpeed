@@ -598,7 +598,7 @@
     "month": "Mês",
     "day": "Data no calendário",
     "search": "Buscar pelo nome da viagem",
-    "matchCount": "{{count}} viagens encontradas",
+    "matchCount": "{{count}} viagens concluídas encontradas",
     "clearFilters": "Limpar filtros",
     "flagsFailed": "Não foi possível consultar todos os problemas. Puxe para baixo para tentar novamente.",
     "noMatches": "Nenhuma viagem corresponde aos filtros.",
