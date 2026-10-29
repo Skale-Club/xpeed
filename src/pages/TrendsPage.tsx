@@ -1,3 +1,4 @@
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -17,7 +18,7 @@ const EMPTY_SESSIONS: Session[] = [];
 export default function TrendsPage() {
   const { t, i18n } = useTranslation();
   const { selectedCarId, selectedCar } = useCarsContext();
-  const { timezone, distanceUnit } = useSettings();
+  const { timezone, distanceUnit, temperatureUnit } = useSettings();
   const [group, setGroup] = useState<'month' | 'year'>('month');
   const [period, setPeriod] = useState('12');
   const [chosen, setChosen] = useState('vehicle_speed');
@@ -32,7 +33,7 @@ export default function TrendsPage() {
     return aggregateTrends(selected, metric?.key ?? '', group, timezone);
   }, [sessions, period, metric?.key, group, timezone]);
   const mph = distanceUnit === 'mi' && /km\/?h/i.test(metric?.unit ?? '');
-  const display = data.map((bucket) => ({ ...bucket, avg: bucket.avg == null ? null : bucket.avg * (mph ? 0.621371 : 1), min: bucket.min == null ? null : bucket.min * (mph ? 0.621371 : 1), max: bucket.max == null ? null : bucket.max * (mph ? 0.621371 : 1) }));
+  const display = data.map((bucket) => ({ ...bucket, avg: bucket.avg == null ? null : temperatureValue(bucket.avg * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit), min: bucket.min == null ? null : temperatureValue(bucket.min * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit), max: bucket.max == null ? null : temperatureValue(bucket.max * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit) }));
   const format = (value: number | null) => value == null ? '—' : new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 1 }).format(value);
   const selectClass = 'rounded-md border border-border bg-background p-2 text-sm min-w-0';
   return <AppLayout><div className="space-y-4">
@@ -44,7 +45,7 @@ export default function TrendsPage() {
         <label className="flex flex-col gap-1 text-sm">{t('trends.group', 'Group by')}<select className={selectClass} value={group} onChange={(e) => setGroup(e.target.value as 'month' | 'year')}><option value="month">{t('trends.month', 'Month')}</option><option value="year">{t('trends.year', 'Year')}</option></select></label>
         <label className="flex flex-col gap-1 text-sm">{t('trends.period', 'Period')}<select className={selectClass} value={period} onChange={(e) => setPeriod(e.target.value)}>{[12, 36].map((n) => <option key={n} value={n}>{t('trends.months', '{{count}} months', { count: n })}</option>)}<option value="all">{t('home.range.all', 'All time')}</option></select></label>
       </div>
-      <Card><CardContent className="pt-5"><p className="mb-3 font-semibold">{metric?.label} · {mph ? 'mph' : metric?.unit}</p>
+      <Card><CardContent className="pt-5"><p className="mb-3 font-semibold">{metric?.label} · {mph ? 'mph' : temperatureLabel(metric?.unit ?? '', temperatureUnit)}</p>
         <div className="h-72 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={display}><CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" /><XAxis dataKey="period" /><YAxis /><Tooltip /><Legend />
           <Line dataKey="min" name={t('trends.min', 'Minimum')} stroke={CHART_PALETTE.blue} connectNulls={false} isAnimationActive={false} />
           <Line dataKey="avg" name={t('trends.avg', 'Average')} stroke={CHART_PALETTE.yellow} connectNulls={false} isAnimationActive={false} />

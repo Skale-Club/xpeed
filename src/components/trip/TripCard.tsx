@@ -1,3 +1,4 @@
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -32,7 +33,7 @@ export function TripCard() {
   const obd = useObd();
   const { status, recording, alwaysOn, setAlwaysOn, canStayOn, savingTrip, lastTrip, linkFailed, error } = obd;
   const { values } = useObdLive();
-  const { distanceUnit } = useSettings();
+  const { distanceUnit, temperatureUnit } = useSettings();
   const [help, setHelp] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -75,7 +76,7 @@ export function TripCard() {
         status={electric ? t('trip.gauge.electric', 'electric') : null}
       />
       </Link>
-      <QuickGauge value={coolant} unit="°C" label={t('trip.engineTemp', 'engine °C')} min={40} max={120} tone={tempTone} status={tempWord} />
+      <QuickGauge value={coolant == null ? null : temperatureValue(coolant, '°C', temperatureUnit)} unit={temperatureLabel('°C', temperatureUnit)} label={t('trip.engineTemp', 'engine °C').replace('°C', temperatureLabel('°C', temperatureUnit))} min={temperatureValue(40, '°C', temperatureUnit)} max={temperatureValue(120, '°C', temperatureUnit)} tone={tempTone} status={tempWord} />
     </div>
   );
 

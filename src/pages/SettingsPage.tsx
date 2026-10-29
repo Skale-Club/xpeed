@@ -75,12 +75,12 @@ function InstallSection() {
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const version = useAppVersion();
-  const { distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
+  const { temperatureUnit, setTemperatureUnit, distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
   const currentLang = currentLanguage(i18n.resolvedLanguage).code;
-  const [draft, setDraft] = useState({ language: currentLang as string, distanceUnit, timezone, advancedTools });
+  const [draft, setDraft] = useState({ language: currentLang as string, temperatureUnit, distanceUnit, timezone, advancedTools });
   const [saving, setSaving] = useState(false);
   const dirty = draft.language !== currentLang || draft.distanceUnit !== distanceUnit
-    || draft.timezone !== timezone || draft.advancedTools !== advancedTools;
+    || draft.timezone !== timezone || draft.advancedTools !== advancedTools || draft.temperatureUnit !== temperatureUnit;
   useEffect(() => {
     if (!dirty) return;
     const release = holdAppUpdates();
@@ -94,6 +94,7 @@ export default function SettingsPage() {
     try {
       await i18n.changeLanguage(draft.language);
       setDistanceUnit(draft.distanceUnit);
+      setTemperatureUnit(draft.temperatureUnit);
       setTimezone(draft.timezone);
       setAdvancedTools(draft.advancedTools);
       toast({ title: i18n.t('settings.saved', 'Settings saved'), variant: 'success' });
@@ -139,6 +140,13 @@ export default function SettingsPage() {
                     <SelectItem value="km">{t('settings.prefs.km', 'Kilometers (km)')}</SelectItem>
                     <SelectItem value="mi">{t('settings.prefs.mi', 'Miles (mi)')}</SelectItem>
                   </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-temp">{t('settings.prefs.temperature', 'Temperature')}</Label>
+                <Select value={draft.temperatureUnit} onValueChange={(temperatureUnit: 'C' | 'F') => setDraft((d) => ({ ...d, temperatureUnit }))} disabled={saving}>
+                  <SelectTrigger id="set-temp"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="C">Celsius (°C)</SelectItem><SelectItem value="F">Fahrenheit (°F)</SelectItem></SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5 sm:col-span-2">

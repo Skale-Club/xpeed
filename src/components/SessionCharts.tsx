@@ -1,3 +1,5 @@
+import { useSettings } from '@/contexts/SettingsContext';
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +31,13 @@ export function ParameterChart({
   rows, parameterKey, canonicalKey, label, unit,
   warnMax, criticalMax, warnMin, criticalMin,
 }: ParameterChartProps) {
+  const { temperatureUnit } = useSettings();
+  const sourceUnit = unit;
+  unit = temperatureLabel(sourceUnit, temperatureUnit);
+  warnMax = warnMax == null ? warnMax : temperatureValue(warnMax, sourceUnit, temperatureUnit);
+  warnMin = warnMin == null ? warnMin : temperatureValue(warnMin, sourceUnit, temperatureUnit);
+  criticalMax = criticalMax == null ? criticalMax : temperatureValue(criticalMax, sourceUnit, temperatureUnit);
+  criticalMin = criticalMin == null ? criticalMin : temperatureValue(criticalMin, sourceUnit, temperatureUnit);
   const chartData = useMemo(() => {
     return rows
       .map((row, idx) => {
@@ -36,11 +45,11 @@ export function ParameterChart({
         if (val === undefined || val === null) return null;
         return {
           x: row.t_seconds ?? idx,
-          value: Number(val),
+          value: temperatureValue(Number(val), sourceUnit, temperatureUnit),
         };
       })
       .filter(Boolean) as { x: number; value: number }[];
-  }, [rows, parameterKey]);
+  }, [rows, parameterKey, sourceUnit, temperatureUnit]);
 
   if (chartData.length === 0) return null;
 

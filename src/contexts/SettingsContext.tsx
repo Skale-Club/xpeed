@@ -1,8 +1,11 @@
 import { createContext, type Context, useContext, useState, ReactNode } from 'react';
 
 type DistanceUnit = 'km' | 'mi';
+import type { TemperatureUnit } from '@/lib/temperature';
 
 interface SettingsContextType {
+  temperatureUnit: TemperatureUnit;
+  setTemperatureUnit: (unit: TemperatureUnit) => void;
   distanceUnit: DistanceUnit;
   timezone: string;
   setDistanceUnit: (unit: DistanceUnit) => void;
@@ -19,6 +22,13 @@ const SettingsContext: Context<SettingsContextType | undefined> =
 if (import.meta.hot) import.meta.hot.data.SettingsContext = SettingsContext;
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
+  const [temperatureUnit, setTemperatureUnitState] = useState<TemperatureUnit>(() => {
+    try { return localStorage.getItem('settings_temperatureUnit') === 'F' ? 'F' : 'C'; } catch { return 'C'; }
+  });
+  const setTemperatureUnit = (unit: TemperatureUnit) => {
+    localStorage.setItem('settings_temperatureUnit', unit);
+    setTemperatureUnitState(unit);
+  };
   const [distanceUnit, setDistanceUnitState] = useState<DistanceUnit>(() => {
     try { return localStorage.getItem('settings_distanceUnit') === 'mi' ? 'mi' : 'km'; } catch { return 'km'; }
   });
@@ -46,7 +56,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <SettingsContext.Provider value={{ distanceUnit, timezone, setDistanceUnit, setTimezone, advancedTools, setAdvancedTools }}>
+    <SettingsContext.Provider value={{ temperatureUnit, setTemperatureUnit, distanceUnit, timezone, setDistanceUnit, setTimezone, advancedTools, setAdvancedTools }}>
       {children}
     </SettingsContext.Provider>
   );

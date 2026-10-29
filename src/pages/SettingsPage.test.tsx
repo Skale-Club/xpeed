@@ -13,7 +13,7 @@ vi.mock('@/components/McpTokensSection', () => ({ default: () => null }));
 vi.mock('@/components/InstallApp', () => ({ AndroidAppDownload: () => null, IosAddToHome: () => null, IphoneNoBluetooth: () => null }));
 vi.mock('@/components/ui/select', () => ({
   Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: ReactNode }) => <div>
-    <button onClick={() => onValueChange(value === 'km' ? 'mi' : value === 'mi' ? 'km' : value === 'en' ? 'pt-BR' : value === 'pt-BR' ? 'en' : 'America/New_York')}>Change {value}</button>{children}
+    <button onClick={() => onValueChange(value === 'C' ? 'F' : value === 'F' ? 'C' : value === 'km' ? 'mi' : value === 'mi' ? 'km' : value === 'en' ? 'pt-BR' : value === 'pt-BR' ? 'en' : 'America/New_York')}>Change {value}</button>{children}
   </div>,
   SelectTrigger: () => null, SelectValue: () => null, SelectContent: () => null, SelectItem: () => null,
 }));
@@ -57,4 +57,15 @@ it('reports storage failures without falsely claiming the changes were saved', a
   await waitFor(() => expect(notify).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' })));
   expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
   expect(localStorage.getItem('settings_distanceUnit')).toBeNull();
+});
+
+it('saves the temperature choice only after Save and restores it next time', async () => {
+  open();
+  fireEvent.click(screen.getByRole('button', { name: 'Change C' }));
+  expect(localStorage.getItem('settings_temperatureUnit')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(localStorage.getItem('settings_temperatureUnit')).toBe('F'));
+  cleanup(); open();
+  expect(screen.getByRole('button', { name: 'Change F' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
 });

@@ -658,6 +658,7 @@
     "saveFailed": "Could not save settings. Try again.",
     "title": "Settings",
     "prefs": {
+      "temperature": "Temperature",
       "title": "Preferences",
       "language": "Language",
       "distance": "Distance",

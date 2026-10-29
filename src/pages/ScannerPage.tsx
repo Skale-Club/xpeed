@@ -1,3 +1,5 @@
+import { useSettings } from '@/contexts/SettingsContext';
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -35,6 +37,10 @@ const HEADLINE_PIDS = [0x0c, 0x0d, 0x05];
 
 /** A reading as a dashboard tile: name, big value, and a thin bar for where it sits in its range. */
 function ReadingTile({ label, channel, value }: { label: string; channel: LiveChannel; value: number | null | undefined }) {
+  const { temperatureUnit } = useSettings();
+  const source = channel.unit;
+  channel = { ...channel, unit: temperatureLabel(source, temperatureUnit), min: temperatureValue(channel.min, source, temperatureUnit), max: temperatureValue(channel.max, source, temperatureUnit) };
+  value = value == null ? value : temperatureValue(value, source, temperatureUnit);
   const pct = value == null ? 0 : ((value - channel.min) / (channel.max - channel.min)) * 100;
   return (
     <div
@@ -57,6 +63,7 @@ function ReadingTile({ label, channel, value }: { label: string; channel: LiveCh
 
 export default function ScannerPage() {
   const { t } = useTranslation();
+  const { temperatureUnit } = useSettings();
   const { toast } = useToast();
   const { selectedCar } = useCarsContext();
   const { user } = useAuth();
@@ -257,11 +264,11 @@ export default function ScannerPage() {
                           return (
                             <QuickGauge
                               key={ch.header}
-                              value={value}
-                              unit={ch.unit}
+                              value={value == null ? null : temperatureValue(value, ch.unit, temperatureUnit)}
+                              unit={temperatureLabel(ch.unit, temperatureUnit)}
                               label={channelLabel(ch, t)}
-                              min={coolant ? 40 : ch.min}
-                              max={coolant ? 120 : ch.def?.pid === 0x0c ? 6000 : ch.max}
+                              min={temperatureValue(coolant ? 40 : ch.min, ch.unit, temperatureUnit)}
+                              max={temperatureValue(coolant ? 120 : ch.def?.pid === 0x0c ? 6000 : ch.max, ch.unit, temperatureUnit)}
                               tone={coolant ? coolantTone(value) : 'primary'}
                             />
                           );

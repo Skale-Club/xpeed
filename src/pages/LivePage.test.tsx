@@ -62,6 +62,19 @@ afterEach(() => {
 });
 
 describe('LivePage', () => {
+  it('shows Fahrenheit readings and converted dial bounds with the same normal temperature status', async () => {
+    localStorage.setItem('settings_temperatureUnit', 'F');
+    installFakeBluetooth();
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    await waitFor(() => {
+      const meter = gauge('Engine coolant temperature');
+      expect(meter).toHaveAttribute('aria-valuemin', '104');
+      expect(meter).toHaveAttribute('aria-valuemax', '248');
+      expect(meter).toHaveAttribute('aria-valuenow', '181.4');
+      expect(meter).toHaveTextContent('°F');
+    }, { timeout: 8000 });
+  });
   it('shows adapter identity and transport below the dashboard and confirms disconnection', async () => {
     installFakeBluetooth();
     renderApp();

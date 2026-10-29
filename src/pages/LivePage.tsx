@@ -1,3 +1,4 @@
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -46,15 +47,15 @@ export default function LivePage() {
   const { status, connection, channels, recording } = obd;
   const { values } = useObdLive();
   const { selectedCar, selectedCarId } = useCarsContext();
-  const { advancedTools, distanceUnit } = useSettings();
+  const { advancedTools, distanceUnit, temperatureUnit } = useSettings();
   const [searchParams] = useSearchParams();
   const [expanded, setExpanded] = useState<string | null>(() => searchParams.get('sensor'));
   const [timelineMs, setTimelineMs] = useState(5 * 60_000);
   const [diagnostics, setDiagnostics] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const sensorUnit = (header: string) => distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? 'mph' : byHeader.get(header)?.unit ?? header.match(/\(([^)]*)\)$/)?.[1] ?? '';
+  const sensorUnit = (header: string) => distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? 'mph' : temperatureLabel(byHeader.get(header)?.unit ?? header.match(/\(([^)]*)\)$/)?.[1] ?? '', temperatureUnit);
   const sensorValue = (header: string, value: number | null | undefined) => value == null ? null
-    : distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? value * 0.621371 : value;
+    : distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? value * 0.621371 : temperatureValue(value, byHeader.get(header)?.unit ?? '', temperatureUnit);
   const live = status === 'live';
 
   const [saved, setSaved] = useState<LiveWidget[] | null>(() => loadLayout(selectedCarId));
@@ -124,9 +125,9 @@ export default function LivePage() {
           label={label}
           unit={unit}
           value={value}
-          min={coolant ? 40 : ch?.min ?? 0}
-          max={coolant ? 120 : ch?.def?.pid === 0x0c ? 6000 : w.channel ? sensorValue(w.channel, ch?.max ?? 100) ?? 100 : 100}
-          tone={coolant ? coolantTone(value ?? null) : 'primary'}
+          min={w.channel ? sensorValue(w.channel, coolant ? 40 : ch?.min ?? 0) ?? 0 : 0}
+          max={w.channel ? sensorValue(w.channel, coolant ? 120 : ch?.def?.pid === 0x0c ? 6000 : ch?.max ?? 100) ?? 100 : 100}
+          tone={coolant ? coolantTone(w.channel ? values[w.channel] ?? null : null) : 'primary'}
         />
       );
     }

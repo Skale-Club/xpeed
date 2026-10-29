@@ -1,3 +1,4 @@
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Bar, ComposedChart } from 'recharts';
@@ -139,7 +140,7 @@ const KEY_MAPPING: Record<string, string[]> = {
 };
 
 export default function DashboardCharts({ sessions, engineType }: DashboardChartsProps) {
-  const { distanceUnit } = useSettings();
+  const { distanceUnit, temperatureUnit } = useSettings();
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage;
 
@@ -199,6 +200,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
             
             let val = findValue(summaries, searchKey, type);
 
+            if (val != null && chart.yAxisUnit === '°C') val = temperatureValue(val, '°C', temperatureUnit);
             // Unit conversions
             if (val != null) {
                 // Speed conversion
@@ -231,12 +233,12 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
       : available;
 
     return { processedData: data, activeCharts: active };
-  }, [sessions, distanceUnit, engineType, language]);
+  }, [sessions, distanceUnit, temperatureUnit, engineType, language]);
 
   if (sessions.length === 0) return null;
 
   // The speed chart is converted to the chosen distance unit above; label it to match.
-  const unitOf = (chart: ChartConfig) => (chart.id === 'speed' && distanceUnit === 'mi' ? 'mph' : chart.yAxisUnit);
+  const unitOf = (chart: ChartConfig) => (chart.id === 'speed' && distanceUnit === 'mi' ? 'mph' : temperatureLabel(chart.yAxisUnit ?? '', temperatureUnit));
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

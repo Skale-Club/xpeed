@@ -1,3 +1,4 @@
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,7 +33,7 @@ function getTone(value: number, metric: { warnAbove?: number; criticalAbove?: nu
 /** The key readings of the latest trip, for the car's kind of engine. */
 export function AdaptiveMetricsSection({ engineType, latestSession }: AdaptiveMetricsSectionProps) {
   const { t, i18n } = useTranslation();
-  const { distanceUnit } = useSettings();
+  const { distanceUnit, temperatureUnit } = useSettings();
   const navigate = useNavigate();
   const language = i18n.resolvedLanguage || undefined;
 
@@ -82,8 +83,8 @@ export function AdaptiveMetricsSection({ engineType, latestSession }: AdaptiveMe
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {cards.map(({ metric, value, tone }) => {
           const isSpeed = metric.canonical_key === 'vehicle_speed';
-          const shown = isSpeed && distanceUnit === 'mi' ? value * 0.621371 : value;
-          const unit = isSpeed ? (distanceUnit === 'mi' ? 'mph' : 'km/h') : metric.unit;
+          const shown = isSpeed && distanceUnit === 'mi' ? value * 0.621371 : temperatureValue(value, metric.unit, temperatureUnit);
+          const unit = isSpeed ? (distanceUnit === 'mi' ? 'mph' : 'km/h') : temperatureLabel(metric.unit, temperatureUnit);
           const text = new Intl.NumberFormat(language, metric.format === 'decimal1'
             ? { minimumFractionDigits: 1, maximumFractionDigits: 1 }
             : { maximumFractionDigits: 0 }).format(shown);

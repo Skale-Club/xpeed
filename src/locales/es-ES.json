@@ -658,6 +658,7 @@
     "saveFailed": "No se pudieron guardar los ajustes. Inténtalo de nuevo.",
     "title": "Ajustes",
     "prefs": {
+      "temperature": "Temperatura",
       "title": "Preferencias",
       "language": "Idioma",
       "distance": "Distancia",

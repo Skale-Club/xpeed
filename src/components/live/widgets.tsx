@@ -34,7 +34,7 @@ export function ValueWidget({ label, unit, value, min, max }: Readout & { min?: 
   const position = ranged && present ? Math.max(0, Math.min(100, (value - min) / (max - min) * 100)) : null;
   const centered = ranged && min < 0 && max > 0;
   const zero = ranged ? (0 - min) / (max - min) * 100 : 0;
-  const thermometer = unit === '°C';
+  const thermometer = (unit === '°C' || unit === '°F');
   const voltage = unit === 'V';
   return (
     <div className="flex flex-col justify-center h-full gap-2" role={ranged ? 'meter' : undefined} aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={present ? value : undefined}>

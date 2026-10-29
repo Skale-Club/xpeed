@@ -1,3 +1,4 @@
+import { SettingsProvider } from '@/contexts/SettingsContext';
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -30,7 +31,7 @@ function readFile(file: File) {
 }
 
 function renderPage() {
-  return render(<MemoryRouter><ObdScannerProvider><ScannerPage /></ObdScannerProvider></MemoryRouter>);
+  return render(<MemoryRouter><SettingsProvider><ObdScannerProvider><ScannerPage /></ObdScannerProvider></SettingsProvider></MemoryRouter>);
 }
 
 beforeAll(async () => {
