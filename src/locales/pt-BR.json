@@ -317,7 +317,8 @@
       "chart": "Gráfico",
       "value": "Número",
       "blocks": "Bateria híbrida"
-    }
+    },
+    "viewDetails": "Ver detalhes"
   },
   "trip": {
     "openLive": "Ver painel",

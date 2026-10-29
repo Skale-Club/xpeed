@@ -317,7 +317,8 @@
       "chart": "Chart",
       "value": "Number",
       "blocks": "Hybrid battery"
-    }
+    },
+    "viewDetails": "View details"
   },
   "trip": {
     "openLive": "View Dashboard",

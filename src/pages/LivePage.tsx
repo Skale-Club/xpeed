@@ -1,3 +1,4 @@
+import { SensorDetailsHint } from '@/components/SensorDetailsHint';
 import { HybridPanel } from '@/components/HybridPanel';
 import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -216,7 +217,7 @@ export default function LivePage() {
             {widgets.map((w) => (
               <Card key={w.id} className={`bg-card border-border ${SPAN[w.kind]}`} data-testid={`widget-${w.kind}`}>
                 <CardContent className="p-3 h-full">
-                  {w.channel ? <button type="button" className="block w-full h-full text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setExpanded(w.channel!)} aria-label={t('live.expand', 'Open timeline: {{sensor}}', { sensor: byHeader.has(w.channel) ? channelLabel(byHeader.get(w.channel)!, t) : w.channel })}>{renderWidget(w)}</button> : renderWidget(w)}
+                  {w.channel ? <button type="button" className="block w-full h-full text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setExpanded(w.channel!)} aria-label={t('live.expand', 'Open timeline: {{sensor}}', { sensor: byHeader.has(w.channel) ? channelLabel(byHeader.get(w.channel)!, t) : w.channel })}>{renderWidget(w)}<SensorDetailsHint /></button> : renderWidget(w)}
                 </CardContent>
               </Card>
             ))}

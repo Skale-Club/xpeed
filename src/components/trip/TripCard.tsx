@@ -1,3 +1,4 @@
+import { SensorDetailsHint } from '@/components/SensorDetailsHint';
 import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -65,6 +66,7 @@ export function TripCard() {
     <div className="grid grid-cols-3 gap-2">
       <Link to={`/live?sensor=${encodeURIComponent(SPEED)}`} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
         <QuickGauge value={speedShown} unit={speedUnit} label={speedUnit} max={miles ? 100 : 160} />
+        <SensorDetailsHint />
       </Link>
       <Link to={`/live?sensor=${encodeURIComponent(RPM)}`} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       <QuickGauge
@@ -75,6 +77,7 @@ export function TripCard() {
         tone={electric ? 'success' : rpm != null && rpm > 4500 ? 'warn' : 'primary'}
         status={electric ? t('trip.gauge.electric', 'electric') : null}
       />
+        <SensorDetailsHint />
       </Link>
       <QuickGauge value={coolant == null ? null : temperatureValue(coolant, '°C', temperatureUnit)} unit={temperatureLabel('°C', temperatureUnit)} label={t('trip.engineTemp', 'engine °C').replace('°C', temperatureLabel('°C', temperatureUnit))} min={temperatureValue(40, '°C', temperatureUnit)} max={temperatureValue(120, '°C', temperatureUnit)} tone={tempTone} status={tempWord} />
     </div>
