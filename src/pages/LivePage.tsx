@@ -179,7 +179,6 @@ export default function LivePage() {
           </Button>
         </div>
 
-        <HybridPanel />
         {!live ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">
@@ -242,6 +241,10 @@ export default function LivePage() {
           <dt><button className="text-left text-primary hover:underline" onClick={() => setExpanded(channel.header)}>{channelLabel(channel, t)}</button></dt>
           <dd className="font-mono tabular-nums">{formatValue(sensorValue(channel.header, values[channel.header]), sensorUnit(channel.header))} {sensorUnit(channel.header)}</dd>
         </div>)}</dl>
+      </details>}
+      {live && (selectedCar?.engine_type === 'hybrid' || /prius/i.test(selectedCar?.model || '')) && <details>
+        <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('hybrid.title', 'Hybrid system')}</summary>
+        <HybridPanel />
       </details>}
       <details onToggle={(event) => { if (event.currentTarget.open) setDiagnostics(JSON.stringify(readObdDiagnostics(), null, 2)); }}>
         <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('live.diagnostics', 'Connection diagnostics')}</summary>
