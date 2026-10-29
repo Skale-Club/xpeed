@@ -324,6 +324,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
             vin,
             ...(!match.engine_type && identity.engineType ? { engine_type: identity.engineType } : {}),
             ...(!match.trim && identity.trim ? { trim: identity.trim } : {}),
+            ...(!match.body_type && identity.bodyType ? { body_type: identity.bodyType } : {}),
           });
         } catch (err) {
           console.warn('Could not save the VIN:', err);
@@ -344,6 +345,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       trim: found.trim,
       vin: found.vin,
       engine_type: found.engineType,
+      body_type: found.bodyType,
     });
     setNewCarFound(null);
     switchToCar(car.id, car.name);

@@ -6,6 +6,7 @@
 // they may be missing and the owner fills them in.
 
 import { decodeVin } from '@/lib/vin-decoder';
+import { bodyTypeFromNhtsa, type BodyType } from '@/lib/car-look';
 import type { EngineType } from '@/lib/db';
 
 export function isValidVin(vin: string | null | undefined): vin is string {
@@ -60,12 +61,14 @@ export interface CarIdentity {
   year: number | null;
   trim: string | null;
   engineType: EngineType | null;
+  /** The kind of car, from NHTSA's body class (null when unknown). */
+  bodyType: BodyType | null;
 }
 
 /** Everything we can tell about a VIN: NHTSA when it knows the car, the offline table otherwise. */
 export async function identifyVin(vin: string): Promise<CarIdentity> {
   const v = vin.trim().toUpperCase();
-  const offline: CarIdentity = { vin: v, make: vinMake(v), model: null, year: vinYear(v), trim: null, engineType: null };
+  const offline: CarIdentity = { vin: v, make: vinMake(v), model: null, year: vinYear(v), trim: null, engineType: null, bodyType: null };
   const online = await decodeVin(v);
   if (!online) return offline;
   return {
@@ -75,6 +78,7 @@ export async function identifyVin(vin: string): Promise<CarIdentity> {
     year: online.year ?? offline.year,
     trim: online.trim,
     engineType: online.engineType,
+    bodyType: bodyTypeFromNhtsa(online.bodyClass),
   };
 }
 

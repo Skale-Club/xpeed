@@ -1039,5 +1039,44 @@
     "inverter_temp": "Inverter Temp",
     "mpg_or_fuel_rate": "Fuel Rate",
     "fuel_level": "Fuel Level"
+  },
+  "carLook": {
+    "title": "How it looks",
+    "colorQ": "What color is it?",
+    "bodyQ": "What kind of car is it?",
+    "bodyHint": "Just to draw it in the app; you can change it later.",
+    "skip": "Skip this",
+    "usePhoto": "Use a photo of my car",
+    "changePhoto": "Change the photo",
+    "useDrawing": "Use the drawing",
+    "photoSaved": "Photo of your car saved",
+    "photoRemoved": "Back to the drawing",
+    "photoFailed": "Couldn't save the photo",
+    "photoTooLarge": "Photo too large (up to 5 MB)",
+    "photoNotImage": "Choose a JPG, PNG or WebP photo",
+    "body": {
+      "hatch": "Hatchback",
+      "sedan": "Sedan",
+      "suv": "SUV",
+      "pickup": "Pickup",
+      "wagon": "Station wagon",
+      "minivan": "Minivan / van",
+      "coupe": "Coupe / sports"
+    },
+    "color": {
+      "white": "White",
+      "silver": "Silver",
+      "gray": "Gray",
+      "black": "Black",
+      "red": "Red",
+      "wine": "Wine",
+      "blue": "Blue",
+      "navy": "Navy blue",
+      "green": "Green",
+      "beige": "Beige / gold",
+      "brown": "Brown",
+      "yellow": "Yellow",
+      "orange": "Orange"
+    }
   }
 }

@@ -1039,5 +1039,44 @@
     "inverter_temp": "Temperatura do inversor",
     "mpg_or_fuel_rate": "Consumo de combustível",
     "fuel_level": "Nível de combustível"
+  },
+  "carLook": {
+    "title": "Aparência",
+    "colorQ": "Qual é a cor do carro?",
+    "bodyQ": "Que tipo de carro é?",
+    "bodyHint": "Só para desenhar ele no app; dá para mudar depois.",
+    "skip": "Pular esta",
+    "usePhoto": "Usar uma foto do meu carro",
+    "changePhoto": "Trocar a foto",
+    "useDrawing": "Usar o desenho",
+    "photoSaved": "Foto do seu carro salva",
+    "photoRemoved": "Voltou para o desenho",
+    "photoFailed": "Não foi possível salvar a foto",
+    "photoTooLarge": "Foto grande demais (até 5 MB)",
+    "photoNotImage": "Escolha uma foto JPG, PNG ou WebP",
+    "body": {
+      "hatch": "Hatch",
+      "sedan": "Sedã",
+      "suv": "SUV",
+      "pickup": "Picape",
+      "wagon": "Perua",
+      "minivan": "Minivan / van",
+      "coupe": "Cupê / esportivo"
+    },
+    "color": {
+      "white": "Branco",
+      "silver": "Prata",
+      "gray": "Cinza",
+      "black": "Preto",
+      "red": "Vermelho",
+      "wine": "Vinho",
+      "blue": "Azul",
+      "navy": "Azul-marinho",
+      "green": "Verde",
+      "beige": "Bege / dourado",
+      "brown": "Marrom",
+      "yellow": "Amarelo",
+      "orange": "Laranja"
+    }
   }
 }

@@ -456,6 +456,10 @@ export interface CarProfile {
   engine_type: EngineType | null;
   ruleset_id: string | null;
   country: string | null;
+  /** How the car is drawn: body shape and paint (see lib/car-look), or the owner's photo. */
+  body_type?: string | null;
+  color?: string | null;
+  photo_path?: string | null;
   created_at: string;
   user_id?: string;
   is_admin?: boolean;
@@ -474,6 +478,9 @@ export interface CarProfileInput {
   engine_type?: EngineType | null;
   ruleset_id?: string | null;
   country?: string | null;
+  body_type?: string | null;
+  color?: string | null;
+  photo_path?: string | null;
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {
@@ -524,7 +531,9 @@ export async function createCarProfile(
       // car_profiles.country is NOT NULL DEFAULT 'US': leave it out when unset so the default applies.
       ...(input.country ? { country: input.country } : {}),
       engine_type: input.engine_type ?? null,
-    })
+      body_type: input.body_type ?? null,
+      color: input.color ?? null,
+    } as never)
     .select()
     .single();
 

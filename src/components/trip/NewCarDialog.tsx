@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Car, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CarSilhouette } from '@/components/car/CarSilhouette';
+import { guessBodyType } from '@/lib/car-look';
 import { useObd } from '@/contexts/ObdScannerContext';
 
 /**
@@ -47,9 +49,8 @@ export function NewCarDialog() {
     <Dialog open onOpenChange={(open) => !open && dismissFoundCar()}>
       <DialogContent className="max-w-md" data-testid="new-car-dialog">
         <DialogHeader className="space-y-3 text-center sm:text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Car className="h-6 w-6 text-primary" />
-          </span>
+          {/* The kind of car the chassis number says it is (colour unknown yet: neutral grey). */}
+          <CarSilhouette bodyType={found.bodyType ?? guessBodyType(found.model) ?? 'sedan'} className="mx-auto max-w-[200px]" />
           <DialogTitle>{t('vin.newTitle', 'New car connected')}</DialogTitle>
           <DialogDescription>
             {known

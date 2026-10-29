@@ -25,7 +25,7 @@ describe('VIN', () => {
   });
 
   it('matches a VIN to a saved car only when maker and year agree', () => {
-    const id = { vin: 'JTDKN3DU5A0123456', make: 'Toyota', model: null, year: 2010, trim: null, engineType: null };
+    const id = { vin: 'JTDKN3DU5A0123456', make: 'Toyota', model: null, year: 2010, trim: null, engineType: null, bodyType: null };
     expect(vinFitsCar(id, { make: 'Toyota', year: 2010 })).toBe(true);
     expect(vinFitsCar(id, { make: 'toyota', year: 2011 })).toBe(true);
     expect(vinFitsCar(id, { make: 'Honda', year: 2010 })).toBe(false);

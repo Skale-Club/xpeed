@@ -5,16 +5,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { EngineType } from '@/lib/db';
 import { isValidCarYear } from '@/lib/car-year';
+import { guessBodyType, type BodyType, type CarColor } from '@/lib/car-look';
+import { BodyTypePicker, ColorPicker } from '@/components/car/CarLookPickers';
 
 export interface CarAnswers {
   make: string;
   model: string;
   year: number;
+  /** How the car is drawn in the app; null when skipped. */
+  color: CarColor | null;
+  body_type: BodyType | null;
   engine_type: EngineType | null;
 }
 
-type Question = 'make' | 'model' | 'year' | 'fuel';
-const QUESTIONS: Question[] = ['make', 'model', 'year', 'fuel'];
+type Question = 'make' | 'model' | 'year' | 'color' | 'body' | 'fuel';
+// Colour before shape, so the shapes are already drawn in the car's colour.
+const QUESTIONS: Question[] = ['make', 'model', 'year', 'color', 'body', 'fuel'];
 
 // Best sellers in Brazil, so most people answer with one tap.
 const POPULAR_MAKES = ['Chevrolet', 'Volkswagen', 'Fiat', 'Toyota', 'Hyundai', 'Honda', 'Jeep', 'Renault', 'Nissan', 'Ford'];
@@ -36,7 +42,7 @@ interface CarQuestionsProps {
   exitLabel?: string;
 }
 
-/** Adds a car one question per screen: brand, model, year, fuel. */
+/** Adds a car one question per screen: brand, model, year, colour, kind of car, fuel. */
 export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuestionsProps) {
   const { t } = useTranslation();
   // Coming back to answers already given resumes on the last question.
@@ -45,6 +51,8 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
   const [otherMake, setOtherMake] = useState(!!initial?.make && !POPULAR_MAKES.includes(initial.make));
   const [model, setModel] = useState(initial?.model ?? '');
   const [year, setYear] = useState(initial?.year ? String(initial.year) : '');
+  const [color, setColor] = useState<CarColor | null>(initial?.color ?? null);
+  const [body, setBody] = useState<BodyType | null>(initial?.body_type ?? null);
   const [fuel, setFuel] = useState<EngineType | null | undefined>(initial?.engine_type);
   const [yearError, setYearError] = useState(false);
   const [saving, setSaving] = useState<EngineType | 'unknown' | null>(null);
@@ -67,9 +75,18 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
     if (step === 'make' && make.trim()) setStep('model');
     else if (step === 'model' && model.trim()) setStep('year');
     else if (step === 'year') {
-      if (yearValid) setStep('fuel');
+      if (yearValid) setStep('color');
       else setYearError(true);
     }
+    else if (step === 'color') setStep('body');
+    else if (step === 'body') setStep('fuel');
+  };
+
+  // The kind of car starts as a guess from the model (Corolla → sedan, Hilux → pickup).
+  const goToBody = (picked: CarColor | null) => {
+    setColor(picked);
+    if (!body) setBody(guessBodyType(model));
+    setStep('body');
   };
 
   const finish = async (value: EngineType | null) => {
@@ -77,7 +94,7 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
     setSaving(value ?? 'unknown');
     setError('');
     try {
-      await onSubmit({ make: make.trim(), model: model.trim(), year: yearNum, engine_type: value });
+      await onSubmit({ make: make.trim(), model: model.trim(), year: yearNum, color, body_type: body, engine_type: value });
     } catch (err) {
       console.error(err);
       setError(t('vehicle.addFailed', "Couldn't add the car. Try again."));
@@ -86,7 +103,8 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
     }
   };
 
-  const canContinue = (step === 'make' && !!make.trim()) || (step === 'model' && !!model.trim()) || (step === 'year' && !!year);
+  const canContinue = (step === 'make' && !!make.trim()) || (step === 'model' && !!model.trim()) || (step === 'year' && !!year)
+    || (step === 'color' && !!color) || (step === 'body' && !!body);
 
   return (
     <form onSubmit={next} className="space-y-5 py-2">
@@ -176,6 +194,33 @@ export function CarQuestions({ initial, onSubmit, onExit, exitLabel }: CarQuesti
               className="h-11"
             />
             {yearError && <p className="text-sm text-destructive">{t('vehicle.badYear', 'Check the year.')}</p>}
+          </>
+        )}
+
+        {step === 'color' && (
+          <>
+            <h3 className="text-lg font-semibold">{t('carLook.colorQ', 'What color is it?')}</h3>
+            <ColorPicker value={color} onChange={goToBody} />
+            <button type="button" onClick={() => goToBody(null)} className="min-h-10 text-sm text-muted-foreground underline-offset-4 hover:underline">
+              {t('carLook.skip', 'Skip this')}
+            </button>
+          </>
+        )}
+
+        {step === 'body' && (
+          <>
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold">{t('carLook.bodyQ', 'What kind of car is it?')}</h3>
+              <p className="text-sm text-muted-foreground">{t('carLook.bodyHint', 'Just to draw it in the app; you can change it later.')}</p>
+            </div>
+            <BodyTypePicker
+              value={body}
+              color={color}
+              onChange={(picked) => {
+                setBody(picked);
+                setStep('fuel');
+              }}
+            />
           </>
         )}
 

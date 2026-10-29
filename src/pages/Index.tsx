@@ -21,6 +21,7 @@ import { CarHealthCard, LastTripSummary, TripTotals } from '@/components/home/Ho
 import { PageLoader } from '@/components/PageLoader';
 import { AdaptiveMetricsSection } from '@/components/AdaptiveMetricsSection';
 import { ONBOARDING_KEY } from '@/pages/OnboardingPage';
+import { CarPicture } from '@/components/car/CarPicture';
 
 /** A trip saved on this device announces itself; a realtime insert within this long of it isn't news. */
 const OWN_SAVE_WINDOW_MS = 30_000;
@@ -163,9 +164,13 @@ const Index = () => {
   return (
     <AppLayout>
       <div className="space-y-5">
-        <div>
-          {firstName && <p className="text-sm text-muted-foreground">{t('home.hello', 'Hi, {{name}}', { name: firstName })}</p>}
-          <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{selectedCar?.name || t('home.title', 'Home')}</h2>
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            {firstName && <p className="text-sm text-muted-foreground">{t('home.hello', 'Hi, {{name}}', { name: firstName })}</p>}
+            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{selectedCar?.name || t('home.title', 'Home')}</h2>
+          </div>
+          {/* The car itself, so it's clear at a glance whose car this is. */}
+          {selectedCar && <CarPicture car={selectedCar} className="w-32 shrink-0 sm:w-44" />}
         </div>
 
         {sessionsFailed && (

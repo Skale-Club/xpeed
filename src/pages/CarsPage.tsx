@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import type { CarProfile, EngineType } from '@/lib/db';
 import { FuelTypePicker } from '@/components/FuelTypePicker';
 import { PageLoader } from '@/components/PageLoader';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { Car, Plus, Trash2, Edit2, Check, Loader2 } from 'lucide-react';
+import { Camera, Car, Plus, Trash2, Edit2, Check, Loader2 } from 'lucide-react';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
 import { useToast } from '@/hooks/use-toast';
 import { isValidCarYear } from '@/lib/car-year';
@@ -23,6 +23,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { CarPicture } from '@/components/car/CarPicture';
+import { BodyTypePicker, ColorPicker } from '@/components/car/CarLookPickers';
+import { guessBodyType, isBodyType, isCarColor, type BodyType, type CarColor } from '@/lib/car-look';
+import { carPhotoProblem, removeCarPhoto, uploadCarPhoto } from '@/lib/car-photo';
 
 type CarWithEngine = CarProfile & { engine_type?: EngineType | null };
 
@@ -37,7 +41,7 @@ function buildHeadline(car: CarProfile): string {
 }
 
 export default function CarsPage() {
-  const { cars, selectedCarId, selectCar, updateCar, deleteCar, loading } = useCarsContext();
+  const { cars, selectedCarId, selectCar, updateCar, deleteCar, loading, refresh } = useCarsContext();
   const { toast } = useToast();
 
   // Dialog + per-card state
@@ -54,6 +58,11 @@ export default function CarsPage() {
   const [editVin, setEditVin] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editEngine, setEditEngine] = useState<EngineType | null>(null);
+  const [editColor, setEditColor] = useState<CarColor | null>(null);
+  const [editBody, setEditBody] = useState<BodyType | null>(null);
+  const [editPhoto, setEditPhoto] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
   const { t } = useTranslation();
 
   const handleUpdateCar = async (e?: FormEvent) => {
@@ -90,6 +99,8 @@ export default function CarsPage() {
         vin: trimmedVin || null,
         notes: editNotes.trim() || null,
         engine_type: editEngine,
+        color: editColor,
+        body_type: editBody,
       });
       toast({ title: t('vehicle.saved', 'Car updated'), variant: 'success' });
       setEditingCar(null);
@@ -120,6 +131,51 @@ export default function CarsPage() {
     setEditVin(car.vin ?? '');
     setEditNotes(car.notes ?? '');
     setEditEngine((car as CarWithEngine).engine_type ?? null);
+    setEditColor(isCarColor(car.color) ? car.color : null);
+    setEditBody(isBodyType(car.body_type) ? car.body_type : guessBodyType(car.model));
+    setEditPhoto(car.photo_path ?? null);
+  };
+
+  // The owner's own photo is saved (or removed) right away, apart from the form.
+  const choosePhoto = async (file: File | undefined) => {
+    if (!file || !editingCar) return;
+    const problem = carPhotoProblem(file);
+    if (problem) {
+      toast({
+        title: problem === 'too-large' ? t('carLook.photoTooLarge', 'Photo too large (up to 5 MB)') : t('carLook.photoNotImage', 'Choose a JPG, PNG or WebP photo'),
+        variant: 'warning',
+      });
+      return;
+    }
+    setPhotoBusy(true);
+    try {
+      const path = await uploadCarPhoto(editingCar.id, file, editPhoto);
+      setEditPhoto(path);
+      await refresh();
+      toast({ title: t('carLook.photoSaved', 'Photo of your car saved'), variant: 'success' });
+    } catch (err) {
+      console.error(err);
+      toast({ title: t('carLook.photoFailed', "Couldn't save the photo"), variant: 'destructive' });
+    } finally {
+      setPhotoBusy(false);
+      if (photoInput.current) photoInput.current.value = '';
+    }
+  };
+
+  const dropPhoto = async () => {
+    if (!editingCar || !editPhoto) return;
+    setPhotoBusy(true);
+    try {
+      await removeCarPhoto(editingCar.id, editPhoto);
+      setEditPhoto(null);
+      await refresh();
+      toast({ title: t('carLook.photoRemoved', 'Back to the drawing'), variant: 'success' });
+    } catch (err) {
+      console.error(err);
+      toast({ title: t('carLook.photoFailed', "Couldn't save the photo"), variant: 'destructive' });
+    } finally {
+      setPhotoBusy(false);
+    }
   };
 
   return (
@@ -185,8 +241,8 @@ export default function CarsPage() {
                         aria-pressed={selected}
                         className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        <span className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <Car className="w-5 h-5 text-primary" />
+                        <span className="w-[4.5rem] shrink-0 pt-1">
+                          <CarPicture car={car} />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-semibold">{headline}</span>
@@ -237,6 +293,40 @@ export default function CarsPage() {
               <DialogTitle>{t('vehicle.editTitle', 'Edit your car')}</DialogTitle>
               <DialogDescription className="sr-only">{t('sidebar.addCarHint', 'Each car keeps its own trips and problems.')}</DialogDescription>
             </DialogHeader>
+            {/* How the car looks in the app: a drawing in its colour, or the owner's photo. */}
+            <section className="space-y-3 rounded-xl border border-border bg-background/40 p-3" aria-label={t('carLook.title', 'How it looks')}>
+              <CarPicture car={{ name: editingCar?.name, model: editModel, body_type: editBody, color: editColor, photo_path: editPhoto }} className="mx-auto max-w-[260px]" />
+              <div className="flex flex-wrap justify-center gap-2">
+                <input
+                  ref={photoInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => void choosePhoto(e.target.files?.[0])}
+                />
+                <Button type="button" size="sm" variant="outline" disabled={photoBusy} onClick={() => photoInput.current?.click()}>
+                  {photoBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                  {editPhoto ? t('carLook.changePhoto', 'Change the photo') : t('carLook.usePhoto', 'Use a photo of my car')}
+                </Button>
+                {editPhoto && (
+                  <Button type="button" size="sm" variant="ghost" disabled={photoBusy} onClick={() => void dropPhoto()}>
+                    {t('carLook.useDrawing', 'Use the drawing')}
+                  </Button>
+                )}
+              </div>
+              {!editPhoto && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>{t('carLook.colorQ', 'What color is it?')}</Label>
+                    <ColorPicker value={editColor} onChange={setEditColor} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>{t('carLook.bodyQ', 'What kind of car is it?')}</Label>
+                    <BodyTypePicker value={editBody} color={editColor} onChange={setEditBody} />
+                  </div>
+                </>
+              )}
+            </section>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="car-year">{t('vehicle.year', 'Year')}</Label>
