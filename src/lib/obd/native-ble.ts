@@ -61,7 +61,27 @@ export async function connectNativeLink(
 
   // Our own close() also triggers the plugin's disconnect callback; only report real drops.
   let closed = false;
-  await BleClient.connect(id, () => { if (!closed) onDisconnect(); }, { timeout: 15000 });
+  let ready = false;
+  let activeAttempt = 0;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    activeAttempt = attempt;
+    try {
+      await BleClient.connect(id, () => {
+        // Android also reports disconnects for failed connection attempts.
+        // Those belong to this opening operation, not the scanner's reconnect loop.
+        if (!closed && ready && activeAttempt === attempt) onDisconnect();
+      }, { timeout: 20000 });
+      break;
+    } catch (err) {
+      await BleClient.disconnect(id).catch(() => undefined);
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt === 3 || /permission|denied|unauthori[sz]ed|not enabled|off/i.test(message)) {
+        closed = true;
+        throw new Error(`Bluetooth connection: ${message}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
+  }
 
   // Whatever fails once the GATT connection is open must close it again: an
   // adapter that takes a single client would refuse every later attempt until
@@ -101,6 +121,7 @@ export async function connectNativeLink(
 
   const encoder = new TextEncoder();
   const t = target;
+  ready = true;
   return {
     name: name || 'OBD2 adapter',
     nativeId: id,

@@ -25,6 +25,9 @@ import { connectBleLink } from './elm327';
 beforeEach(() => {
   native.on = false;
   Object.values(ble).forEach((fn) => fn.mockClear());
+  ble.connect.mockReset().mockResolvedValue(undefined);
+  ble.startNotifications.mockReset().mockResolvedValue(undefined);
+  ble.getServices.mockReset().mockResolvedValue([]);
   Object.defineProperty(navigator, 'bluetooth', { configurable: true, value: { requestDevice: vi.fn() } });
 });
 
@@ -76,6 +79,47 @@ describe('Android link', () => {
   const service = (over: { notify?: boolean } = {}) => ({
     uuid: '0000ffe0-0000-1000-8000-00805f9b34fb',
     characteristics: [{ uuid: 'ffe1', properties: { notify: over.notify ?? true, write: true } }],
+  });
+
+  it('cleans up a failed Android connection and retries without reporting a dropped link', async () => {
+    vi.useFakeTimers();
+    try {
+      native.on = true;
+      ble.getServices.mockResolvedValue([service()]);
+      const onDrop = vi.fn();
+      const callbacks: (() => void)[] = [];
+      ble.connect.mockImplementation(async (...args: unknown[]) => {
+        const callback = args[1] as () => void;
+        callbacks.push(callback);
+        if (callbacks.length === 1) {
+          callback();
+          throw new Error('Connection failed with status 133');
+        }
+      });
+      const opening = connectBleLink(onDrop, { device: { nativeId: 'aa:bb' } });
+      await vi.runAllTimersAsync();
+      const link = await opening;
+      expect(ble.connect).toHaveBeenCalledTimes(2);
+      expect(ble.disconnect).toHaveBeenCalledWith('aa:bb');
+      callbacks[0]();
+      expect(onDrop).not.toHaveBeenCalled();
+      callbacks[1]();
+      expect(onDrop).toHaveBeenCalledTimes(1);
+      link.close();
+      callbacks[1]();
+      expect(onDrop).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not retry denied permission and preserves the reason', async () => {
+    native.on = true;
+    ble.connect.mockRejectedValue(new Error('Permission denied'));
+    await expect(connectBleLink(() => undefined, { device: { nativeId: 'aa:bb' } }))
+      .rejects.toThrow('Bluetooth connection: Permission denied');
+    expect(ble.connect).toHaveBeenCalledTimes(1);
+    expect(ble.disconnect).toHaveBeenCalledWith('aa:bb');
   });
 
   it('disconnects when starting notifications fails', async () => {

@@ -181,11 +181,14 @@ export function TripCard() {
           {t('trip.connect', 'Connect to the car')}
         </Button>
         {error && (
-          <p className="text-sm text-destructive">
-            {linkFailed
-              ? t('trip.linkFailed', "The adapter didn't answer. Close other apps that use it (like Car Scanner) or turn off your phone's Bluetooth, then try again.")
-              : t('trip.connectFailed', 'Could not connect. Check that the adapter is plugged in and try again.')}
-          </p>
+          <div className="space-y-1 text-sm text-destructive" role="alert">
+            <p>
+              {linkFailed
+                ? t('trip.linkFailed', "The adapter didn't answer. Close other apps that use it (like Car Scanner) or turn off your phone's Bluetooth, then try again.")
+                : t('trip.connectFailed', 'Could not connect. Check that the adapter is plugged in and try again.')}
+            </p>
+            <p className="text-xs break-words">{error}</p>
+          </div>
         )}
         <button type="button" className="text-xs text-muted-foreground inline-flex items-center gap-1 hover:text-foreground" onClick={() => setHelp((h) => !h)}>
           {help ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
