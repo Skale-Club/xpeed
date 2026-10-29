@@ -25,7 +25,7 @@ export const CANONICAL_PARAMS: CanonicalMapping[] = [
   { canonical_key: 'catalyst_temp', label: 'Catalyst Temp', unit: '°C', keywords: ['catalyst', 'cat temp', '0x3c'], priority: 14 },
   { canonical_key: 'ambient_air_temp', label: 'Ambient Temp', unit: '°C', keywords: ['ambient', '0x46'], priority: 15 },
   { canonical_key: 'fuel_system_status', label: 'Fuel System', unit: '', keywords: ['fuel system', '0x03'], priority: 16 },
-  { canonical_key: 'hybrid_battery_soc', label: 'HV Battery SOC', unit: '%', keywords: ['soc', 'state of charge', 'hybrid battery', '0x5b'], priority: 17 },
+  { canonical_key: 'hybrid_battery_soc', label: 'HV Battery SOC', unit: '%', keywords: ['soc', 'state of charge', 'hybrid battery', 'hybrid/ev battery pack remaining charge', '0x5b'], priority: 17 },
   { canonical_key: 'inverter_temp', label: 'Inverter Temp', unit: '°C', keywords: ['inverter', 'converter temp'], priority: 18 },
   { canonical_key: 'mpg_or_fuel_rate', label: 'Fuel Rate', unit: '', keywords: ['fuel rate', 'l/100km', 'mpg', '0x5e'], priority: 19 },
   { canonical_key: 'fuel_level', label: 'Fuel Level', unit: '%', keywords: ['fuel level', 'fuel input', '0x2f'], priority: 20 },
@@ -33,13 +33,21 @@ export const CANONICAL_PARAMS: CanonicalMapping[] = [
 
 export function matchCanonicalKey(header: string): { canonical_key: string; label: string; unit: string } | null {
   const lower = header.toLowerCase().trim();
+  // These quantities are not oxygen-sensor voltage or MAF mass flow.
+  if (/oxygen.*(?:equivalence|current)/.test(lower) || /power.*maf/.test(lower)) return null;
+  // Prefer the most specific sensor name: "intake manifold absolute" must
+  // win over "intake", and "catalyst" over a generic "bank 1" keyword.
+  let best: CanonicalMapping | null = null;
+  let length = 0;
   for (const param of CANONICAL_PARAMS) {
     for (const kw of param.keywords) {
-      if (lower.includes(kw.toLowerCase())) {
-        return { canonical_key: param.canonical_key, label: param.label, unit: param.unit };
+      if (lower.includes(kw.toLowerCase()) && kw.length > length) {
+        best = param;
+        length = kw.length;
       }
     }
   }
+  if (best) return { canonical_key: best.canonical_key, label: best.label, unit: best.unit };
   return null;
 }
 

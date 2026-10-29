@@ -48,3 +48,15 @@ describe('diagnostics use physical units and elapsed time', () => {
     expect(() => csv('Time,Coolant (bananas)', ['0,120'])).toThrow(/Unsupported unit/);
   });
 });
+
+describe('Prius US export units', () => {
+  it('normalizes Unicode Fahrenheit and US gallons per hour from recorded export format', () => {
+    const parsed = parseCSV('SECONDS;PID;VALUE;UNITS\n0;Engine coolant temperature;194;\u2109\n1;Calculated instant fuel rate;1;gal./h\n2;Hybrid/EV battery pack remaining charge;61.5686;%\n3;Intake manifold absolute pressure;14.5;psi\n4;MAF air flow rate;36;kg/hour');
+    const summary = computeParameterSummaries(parsed);
+    expect(summary.find(p => p.canonical_key === 'coolant_temp')?.avg).toBeCloseTo(90);
+    expect(summary.find(p => p.canonical_key === 'mpg_or_fuel_rate')).toMatchObject({ unit: 'L/h', avg: 3.785411784 });
+    expect(summary.find(p => p.canonical_key === 'hybrid_battery_soc')?.avg).toBeCloseTo(61.5686);
+    expect(summary.find(p => p.canonical_key === 'map')?.avg).toBeCloseTo(99.97398);
+    expect(summary.find(p => p.canonical_key === 'maf')?.avg).toBeCloseTo(10);
+  });
+});

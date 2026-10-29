@@ -7,8 +7,14 @@ export function normalizeCsvUnits(parsed: ParsedCSV): ParsedCSV {
     if (!mapping || header === parsed.timeColumn?.key) continue;
     const explicit = header.match(/(?:\(([^()]*)\)|\[([^\]]*)\])\s*$/);
     if (!explicit) continue; // older exports omit units; retain the established canonical default
-    const unit = (explicit[1] ?? explicit[2]).toLowerCase().replace(/[°\s]/g, '');
+    const unit = (explicit[1] ?? explicit[2]).normalize('NFKC').toLowerCase().replace(/[°\s]/g, '');
     const canonical = mapping.unit.toLowerCase().replace(/[°\s]/g, '');
+    if (mapping.canonical_key === 'mpg_or_fuel_rate' && ['l/h', 'gal./h', 'gal/h'].includes(unit)) {
+      // US export: MPG is left separate; only an explicit flow unit becomes L/h.
+      parsed.headerMapping[header] = { ...mapping, unit: 'L/h' };
+      if (unit !== 'l/h') conversions.set(header, (v) => v * 3.785411784);
+      continue;
+    }
     if (unit === canonical || !mapping.unit) continue;
     let convert: ((v: number) => number) | undefined;
     if (canonical === 'c') {
@@ -20,6 +26,7 @@ export function normalizeCsvUnits(parsed: ParsedCSV): ParsedCSV {
       if (unit === 'm/s') convert = (v) => v * 3.6;
       if (['kph', 'kmh'].includes(unit)) convert = (v) => v;
     } else if (canonical === 'kpa' && unit === 'psi') convert = (v) => v * 6.894757293;
+    else if (canonical === 'g/s' && unit === 'kg/hour') convert = (v) => v / 3.6;
     else if (canonical === 'v' && unit === 'mv') convert = (v) => v / 1000;
     if (convert) conversions.set(header, convert);
     else if (['c', 'km/h', 'kpa', 'v'].includes(canonical)) {
