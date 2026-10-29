@@ -1,0 +1,42 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { OilChangeCard } from './OilChangeCard';
+import { EMPTY_VEHICLE_CARE, KM_PER_MILE, type VehicleCareRecord } from '@/lib/vehicle-care';
+import i18n from '@/lib/i18n';
+const mocks = vi.hoisted(() => ({ request: vi.fn(), toast: vi.fn() }));
+vi.mock('@/lib/vehicle-care-api', () => ({ vehicleCareRequest: mocks.request }));
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'mi', timezone: 'America/New_York' }) }));
+vi.mock('@/hooks/use-toast', () => ({ toast: mocks.toast }));
+let record: VehicleCareRecord;
+beforeEach(async () => {
+  await i18n.changeLanguage('en');
+  record = { state: { ...EMPTY_VEHICLE_CARE }, revision: null, lastOil: null };
+  mocks.request.mockReset().mockImplementation(async (_car, body) => body ?? record);
+  mocks.toast.mockClear();
+});
+afterEach(cleanup);
+const open = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><OilChangeCard carId="car1" /></QueryClientProvider>);
+it('stores miles as kilometres and reports a successful save only after server confirmation', async () => {
+  open();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.change(screen.getByLabelText('Current odometer (mi)'), { target: { value: '149500' } });
+  fireEvent.change(screen.getByLabelText('Next oil change: odometer (mi)'), { target: { value: '150000' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' })));
+  expect(mocks.request).toHaveBeenLastCalledWith('car1', expect.objectContaining({ state: expect.objectContaining({ odometerKm: 149500 * KM_PER_MILE, oilDueKm: 150000 * KM_PER_MILE }) }));
+  expect(screen.getByText('Recorded mileage: 149,500 mi')).toBeInTheDocument();
+});
+it('preserves the draft and reports errors when saving fails', async () => {
+  open();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  fireEvent.change(screen.getByLabelText('Current odometer (mi)'), { target: { value: '150000' } });
+  mocks.request.mockRejectedValueOnce(new Error('offline'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' })));
+  expect(screen.getByLabelText('Current odometer (mi)')).toHaveValue(150000);
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+});

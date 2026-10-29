@@ -17,6 +17,11 @@ import {
   type MaintenanceEvent, type MaintenanceType,
 } from '@/lib/db-extras';
 import { Wrench, Plus, Trash2, Loader2 } from 'lucide-react';
+import { OilChangeCard } from '@/components/OilChangeCard';
+import { useSettings } from '@/contexts/SettingsContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { KM_PER_MILE } from '@/lib/vehicle-care';
+import { holdAppUpdates } from '@/lib/pwa-update';
 
 // English defaults; translations live under maint.types.<type>.
 const TYPE_LABELS: Record<MaintenanceType, string> = {
@@ -65,9 +70,16 @@ function todayLocal(): string {
 }
 
 export default function MaintenancePage() {
+  const { selectedCarId } = useCarsContext();
+  return <MaintenanceScreen key={selectedCarId} />;
+}
+function MaintenanceScreen() {
   const { t, i18n } = useTranslation();
   const { selectedCar, selectedCarId } = useCarsContext();
   const { toast } = useToast();
+  const { distanceUnit } = useSettings();
+  const factor = distanceUnit === 'mi' ? KM_PER_MILE : 1;
+  const queries = useQueryClient();
   const [events, setEvents] = useState<MaintenanceEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -102,7 +114,8 @@ export default function MaintenancePage() {
     const date = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
     return date.toLocaleDateString(language);
   };
-  const formatKm = (km: number) => new Intl.NumberFormat(language).format(km);
+  const formatKm = (km: number) => new Intl.NumberFormat(language, { maximumFractionDigits: 0 }).format(km / factor);
+  useEffect(() => isAddOpen || saving ? holdAppUpdates() : undefined, [isAddOpen, saving]);
 
   const load = useCallback(async () => {
     if (!selectedCarId) {
@@ -124,20 +137,26 @@ export default function MaintenancePage() {
   useEffect(() => { void load(); }, [load]);
 
   const handleAdd = async () => {
-    if (!selectedCarId) return;
+    if (!selectedCarId || saving) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date > todayLocal()
+      || (odometer !== '' && (!Number.isFinite(Number(odometer)) || Number(odometer) < 0 || Number(odometer) * factor > 10_000_000))
+      || (cost !== '' && (!Number.isFinite(Number(cost)) || Number(cost) < 0))) {
+      toast({ title: t('oil.invalidService', 'Check the service date, mileage and cost.'), variant: 'destructive' }); return;
+    }
     setSaving(true);
     try {
       const ev = await createMaintenanceEvent({
         car_profile_id: selectedCarId,
         event_type: type,
         performed_at: date,
-        odometer_km: odometer ? parseInt(odometer, 10) : null,
+        odometer_km: odometer ? Math.round(Number(odometer) * factor) : null,
         cost: cost ? parseFloat(cost) : null,
         currency: cost ? currency : null,
         shop: shop.trim() || null,
         notes: notes.trim() || null,
       });
       setEvents(prev => [ev, ...prev]);
+      void queries.invalidateQueries({ queryKey: ['vehicle-care'] });
       toast({ title: t('maint.added', 'Service saved'), variant: 'success' });
       setIsAddOpen(false);
       setType('oil_change');
@@ -159,6 +178,7 @@ export default function MaintenancePage() {
     try {
       await deleteMaintenanceEvent(id);
       setEvents(prev => prev.filter(e => e.id !== id));
+      void queries.invalidateQueries({ queryKey: ['vehicle-care'] });
     } catch (err) {
       console.error(err);
       toast({
@@ -170,7 +190,7 @@ export default function MaintenancePage() {
   };
 
   return (
-    <AppLayout>
+    <AppLayout refreshDisabled={isAddOpen || saving}>
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-start gap-2 min-w-0">
@@ -213,8 +233,8 @@ export default function MaintenancePage() {
                   <Input id="m-date" type="date" value={date} onChange={e => setDate(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="m-odo">{t('maint.mileageLabel', 'Mileage (km)')}</Label>
-                  <Input id="m-odo" type="number" placeholder="120000" value={odometer} onChange={e => setOdometer(e.target.value)} />
+                  <Label htmlFor="m-odo">{t('oil.serviceMileage', 'Odometer at service')} ({distanceUnit})</Label>
+                  <Input id="m-odo" type="number" min="0" step="any" inputMode="decimal" placeholder="120000" value={odometer} onChange={e => setOdometer(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="m-cost">{t('maint.costLabel', 'Cost')}</Label>
@@ -250,6 +270,7 @@ export default function MaintenancePage() {
           </Dialog>
         </div>
 
+        {selectedCarId && <OilChangeCard carId={selectedCarId} />}
         {!selectedCarId ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 text-center text-sm text-muted-foreground">
@@ -286,7 +307,7 @@ export default function MaintenancePage() {
                       <span className="text-sm font-semibold text-foreground">{typeLabel(ev.event_type)}</span>
                       <span className="text-xs text-muted-foreground tabular-nums">{formatDate(ev.performed_at)}</span>
                       {ev.odometer_km != null && (
-                        <span className="text-xs text-muted-foreground tabular-nums">{t('maint.kmValue', '{{km}} km', { km: formatKm(ev.odometer_km) })}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{formatKm(ev.odometer_km)} {distanceUnit}</span>
                       )}
                       {ev.cost != null && (
                         <span className="text-xs text-muted-foreground tabular-nums">{formatMoney(ev.cost, ev.currency)}</span>

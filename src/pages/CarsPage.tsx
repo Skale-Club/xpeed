@@ -24,6 +24,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { CarPicture } from '@/components/car/CarPicture';
+import { CarMileage } from '@/components/OilChangeCard';
 import { BodyTypePicker, ColorPicker } from '@/components/car/CarLookPickers';
 import { guessBodyType, isBodyType, isCarColor, type BodyType, type CarColor } from '@/lib/car-look';
 import { carPhotoProblem, removeCarPhoto, uploadCarPhoto } from '@/lib/car-photo';
@@ -253,6 +254,7 @@ export default function CarsPage() {
                             </span>
                           )}
                           {engine && <span className="mt-0.5 block text-xs text-muted-foreground">{t(`vehicle.fuelType.${engine}`)}</span>}
+                          <CarMileage carId={car.id} />
                           {car.notes && <span className="mt-1 line-clamp-1 block text-xs text-muted-foreground">{car.notes}</span>}
                           {selected && (
                             <span className="mt-2 flex items-center gap-1.5 text-xs font-medium text-primary">

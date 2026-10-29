@@ -4,8 +4,12 @@ import { useAuth } from './AuthContext';
 import { useCarsContext } from './CarsContext';
 import { useObd } from './ObdScannerContext';
 import { useOpenProblems } from '@/hooks/use-open-problems';
-import { loadVehicleNotifications, saveVehicleNotifications, mergeVehicleNotification, notificationScope, problemNotification, scanNotification, type VehicleNotification } from '@/lib/vehicle-notifications';
+import { loadVehicleNotifications, saveVehicleNotifications, mergeVehicleNotification, notificationScope, problemNotification, scanNotification, oilNotification, type VehicleNotification } from '@/lib/vehicle-notifications';
 import { supabase } from '@/integrations/supabase/client';
+import { useVehicleCare } from '@/hooks/use-vehicle-care';
+import { useSettings } from './SettingsContext';
+import { oilReminder } from '@/lib/vehicle-care';
+import { tripDayKey } from '@/lib/trip-history';
 
 interface NotificationState {
   items: VehicleNotification[]; unread: number; loading: boolean; error: boolean;
@@ -18,6 +22,10 @@ export const useVehicleNotifications = () => useContext(Context);
 function ScopedNotifications({ userId, carId, vin, children }: { userId: string; carId: string; vin?: string | null; children: ReactNode }) {
   const { faultInspection, lastTrip } = useObd();
   const problems = useOpenProblems(carId, lastTrip);
+  const care = useVehicleCare(carId);
+  const { timezone } = useSettings();
+  const [now, setNow] = useState(Date.now());
+  const today = tripDayKey(new Date(now), timezone);
   const scope = notificationScope(userId, carId);
   const [items, setItems] = useState(() => loadVehicleNotifications(scope));
   // A car change never reattributes the previous connection's inspection.
@@ -33,9 +41,16 @@ function ScopedNotifications({ userId, carId, vin, children }: { userId: string;
     if (vin && faultInspection.vin && vin !== faultInspection.vin) return;
     setItems((previous) => mergeVehicleNotification(previous, scanNotification(faultInspection.readout, faultInspection.at)));
   }, [faultInspection, vin]);
-  const reload = problems.reload;
   useEffect(() => {
-    const visible = () => { if (document.visibilityState === 'visible') reload(); };
+    if (!care.isSuccess || !care.data) return;
+    const oil = oilReminder(care.data, today, timezone);
+    setItems(previous => oil ? mergeVehicleNotification(previous, oilNotification(oil, care.data.state.oilPlanAt)) : previous.some(item => item.kind === 'maintenance') ? previous.filter(item => item.kind !== 'maintenance') : previous);
+  }, [care.data, care.isSuccess, today, timezone]);
+  const { reload: reloadProblems } = problems;
+  const { refetch: refetchCare } = care;
+  const reload = useCallback(() => { reloadProblems(); void refetchCare(); }, [reloadProblems, refetchCare]);
+  useEffect(() => {
+    const visible = () => { if (document.visibilityState === 'visible') { setNow(Date.now()); reload(); } };
     const timer = window.setInterval(visible, 60_000);
     window.addEventListener('online', reload);
     document.addEventListener('visibilitychange', visible);
@@ -49,9 +64,9 @@ function ScopedNotifications({ userId, carId, vin, children }: { userId: string;
   }), []);
   const markRead = useCallback((source?: string) => setItems((previous) => previous.map((item) => !source || item.source === source ? { ...item, read: true } : item)), []);
   const active = useMemo(() => new Set(problems.problems.map((problem) => `problem:${problem.id}`)), [problems.problems]);
-  const shown = items.filter((item) => item.kind === 'scan' || item.kind === 'fuel' || problems.loading || problems.error || active.has(item.source))
+  const shown = items.filter((item) => item.kind === 'scan' || item.kind === 'fuel' || item.kind === 'maintenance' || problems.loading || problems.error || active.has(item.source))
     .sort((a, b) => Number(b.severity === 'critical') - Number(a.severity === 'critical') || Number(a.read) - Number(b.read) || b.at.localeCompare(a.at));
-  return <Context.Provider value={{ items: shown, unread: shown.filter((item) => !item.read).length, loading: problems.loading, error: problems.refreshError, markRead, reload, observeFuel }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ items: shown, unread: shown.filter((item) => !item.read).length, loading: problems.loading || care.isPending, error: problems.refreshError || care.isError, markRead, reload, observeFuel }}>{children}</Context.Provider>;
 }
 
 export function VehicleNotificationsProvider({ children }: { children: ReactNode }) {

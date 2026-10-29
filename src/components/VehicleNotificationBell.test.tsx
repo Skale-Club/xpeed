@@ -7,6 +7,7 @@ import { VehicleNotificationBell } from './VehicleNotificationBell';
 const state = vi.hoisted(() => ({ items: [{ source: 'scan:1', kind: 'scan', severity: 'warning', at: '2026-10-29T12:00:00Z', read: false, scan: { checked: true, complete: true, modules: ['7E8'], stored: ['P0300'], pending: [], permanent: [] } }], unread: 1, loading: false, error: false, markRead: vi.fn(), reload: vi.fn() }));
 vi.mock('@/contexts/VehicleNotificationsContext', () => ({ useVehicleNotifications: () => state }));
 vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCar: { name: 'Prius' } }) }));
+vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'mi' }) }));
 beforeEach(async () => { await i18n.changeLanguage('en'); state.markRead.mockClear(); });
 afterEach(cleanup);
 
