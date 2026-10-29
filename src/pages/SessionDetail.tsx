@@ -28,6 +28,7 @@ import {
   formatDistance, formatDuration, formatTripDate, tripAverageSpeed, tripDate, tripDistanceKm, tripProblems, tripTitle,
 } from '@/lib/trips';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
+import { tripFuel } from '@/lib/trip-fuel';
 
 type SessionWithStoredCsv = Session & { source_csv?: string | null; active_dtcs?: string[] | null };
 
@@ -153,6 +154,14 @@ export default function SessionDetail() {
   const analysisOutdated = session.summary?.analysis_outdated === true;
   const aiSummary = !analysisOutdated && typeof session.gemini_analysis?.summary === 'string' ? session.gemini_analysis.summary : null;
   const avgSpeed = tripAverageSpeed(session);
+  const fuel = tripFuel(rows, summaries, session.duration_seconds);
+  const distance = tripDistanceKm(session);
+  const enoughFuel = fuel?.coverage != null && fuel.coverage >= 0.9;
+  const fuelUnit = distanceUnit === 'mi' ? 'US gal' : 'L';
+  const fuelAmount = fuel ? fuel.litres / (distanceUnit === 'mi' ? 3.785411784 : 1) : null;
+  const fuelEfficiency = enoughFuel && fuel && fuel.litres > 0 && distance != null && distance > 0
+    ? distanceUnit === 'mi' ? `${(distance * 0.621371 / (fuel.litres / 3.785411784)).toFixed(1)} MPG` : `${(distance / fuel.litres).toFixed(1)} km/L`
+    : null;
   const facts = [
     { icon: Clock, label: t('tripDetail.duration', 'Duration'), value: formatDuration(session.duration_seconds) },
     { icon: Route, label: t('tripDetail.distance', 'Distance'), value: formatDistance(tripDistanceKm(session), distanceUnit) },
@@ -196,6 +205,16 @@ export default function SessionDetail() {
         </Card>
 
         {/* 2. Problems in this trip */}
+        <Card><CardContent className="space-y-2 p-4">
+          <h3 className="font-semibold">{t('tripDetail.fuelTitle', 'Fuel consumption')}</h3>
+          {fuel ? <>
+            <p className="text-xl font-semibold tabular-nums">{fuelAmount!.toLocaleString(i18n.resolvedLanguage, { maximumFractionDigits: 2 })} {fuelUnit}</p>
+            <p className="text-xs text-muted-foreground">{t('tripDetail.fuelMeasured', 'Calculated from recorded fuel-flow readings. Coverage: {{coverage}}.', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
+            {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Partial recording: this is only the fuel covered by the readings, not the whole trip.')}</p>}
+            {fuelEfficiency && <p className="font-medium">{t('tripDetail.fuelEconomy', 'Trip fuel economy')}: {fuelEfficiency}</p>}
+          </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', 'No usable fuel-flow readings were recorded for this trip.')}</p>}
+          <p className="text-xs text-muted-foreground">{t('tripDetail.fuelCostHint', 'A monetary cost also needs the fuel price paid. No cost has been assumed.')}</p>
+        </CardContent></Card>
         <div className="space-y-2">
           <h3 className="font-semibold">{t('tripDetail.problemsTitle', 'Problems in this trip')}</h3>
           {problems.length === 0 ? (

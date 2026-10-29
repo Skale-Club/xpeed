@@ -594,7 +594,18 @@
     "newName": "Nombre del viaje",
     "deleteTitle": "¿Borrar este viaje?",
     "deleteBody": "Se eliminarán sus datos y gráficos. La lista de problemas del coche conserva el historial.",
-    "showMore": "Mostrar viajes más antiguos"
+    "showMore": "Mostrar viajes más antiguos",
+    "month": "Mes",
+    "day": "Fecha en el calendario",
+    "search": "Buscar por nombre del viaje",
+    "matchCount": "{{count}} viajes encontrados",
+    "clearFilters": "Borrar filtros",
+    "flagsFailed": "No se pudieron consultar todos los problemas. Desliza hacia abajo para reintentar.",
+    "noMatches": "Ningún viaje coincide con los filtros.",
+    "pagination": "Páginas de viajes",
+    "previous": "Anterior",
+    "page": "Página",
+    "next": "Siguiente"
   },
   "tripDetail": {
     "shareText": "Informe de mi coche: {{title}}",
@@ -623,7 +634,13 @@
     "reevaluatedCount_other": "{{count}} lecturas fuera de lo normal",
     "reevaluateFailed": "No se pudo revisar de nuevo",
     "reevaluateFailedHint": "El viaje quedó como estaba. Inténtalo de nuevo.",
-    "analysisOutdated": "Las lecturas se han reevaluado. El resumen anterior de la IA todavía no se ha generado de nuevo."
+    "analysisOutdated": "Las lecturas se han reevaluado. El resumen anterior de la IA todavía no se ha generado de nuevo.",
+    "fuelTitle": "Consumo de combustible",
+    "fuelMeasured": "Calculado con las lecturas de caudal registradas. Cobertura: {{coverage}}.",
+    "fuelPartial": "Registro parcial: solo incluye el combustible cubierto por las lecturas, no todo el viaje.",
+    "fuelEconomy": "Consumo medio del viaje",
+    "fuelUnavailable": "Este viaje no tiene suficientes lecturas de caudal para calcular el consumo.",
+    "fuelCostHint": "El coste monetario también requiere el precio pagado por el combustible. No se ha supuesto ningún importe."
   },
   "sharing": {
     "confirmTitle": "¿Crear un enlace público?",

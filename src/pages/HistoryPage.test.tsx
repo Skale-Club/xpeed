@@ -87,29 +87,46 @@ describe('HistoryPage', () => {
   });
 });
 
-describe('HistoryPage paging', () => {
-  it('shows 50 trips at a time and fetches problems only for the trips on screen', async () => {
-    const many = Array.from({ length: 120 }, (_, i) => ({
-      id: `t${i}`, source_filename: 'Trip', session_start: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
+describe('HistoryPage calendar and paging', () => {
+  it('keeps only 20 trips on screen and allows jumping directly to the oldest page', async () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({
+      id: `t${i}`, source_filename: `Journey ${i}`, session_start: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
       uploaded_at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), duration_seconds: 600, summary: null, active_dtcs: [],
     }));
     db.getSessions.mockResolvedValueOnce(many);
     db.getFlagsForSessions.mockResolvedValue([]);
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);
-
-    expect(await screen.findAllByTestId('trip-row')).toHaveLength(50);
-    expect(db.getFlagsForSessions).toHaveBeenCalledTimes(1);
-    expect(db.getFlagsForSessions.mock.calls[0][0]).toHaveLength(50);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show older trips' }));
-    await waitFor(() => expect(screen.getAllByTestId('trip-row')).toHaveLength(100));
-    expect(db.getFlagsForSessions).toHaveBeenCalledTimes(2);
-    // Every request stays small, however many trips there are
-    for (const [ids] of db.getFlagsForSessions.mock.calls) expect(ids.length).toBeLessThanOrEqual(50);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show older trips' }));
-    await waitFor(() => expect(screen.getAllByTestId('trip-row')).toHaveLength(120));
-    expect(screen.queryByRole('button', { name: 'Show older trips' })).not.toBeInTheDocument();
-    db.getFlagsForSessions.mockReset();
-  }, 30000);
+    expect(await screen.findAllByTestId('trip-row')).toHaveLength(20);
+    expect(screen.getByText('Journey 299')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Page' }), { target: { value: '15' } });
+    await waitFor(() => expect(screen.getByText('Journey 0')).toBeInTheDocument());
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
+    await waitFor(() => expect(db.getFlagsForSessions).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(screen.queryByText('Journey 0')).not.toBeInTheDocument();
+    for (const [ids] of db.getFlagsForSessions.mock.calls) expect(ids.length).toBeLessThanOrEqual(20);
+  });
+  it('groups by month and day, filters with the calendar and clears filters', async () => {
+    db.getSessions.mockResolvedValueOnce(TRIPS);
+    db.getFlagsForSessions.mockResolvedValue([]);
+    render(<MemoryRouter><HistoryPage /></MemoryRouter>);
+    await screen.findAllByTestId('trip-row');
+    expect(screen.getByRole('heading', { name: 'October 2026' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Calendar date'), { target: { value: '2026-10-20' } });
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
+    expect(screen.queryByText('Ida pra praia')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Month'), { target: { value: '2026-09' } });
+    expect(screen.getByText('No trips match these filters.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(2);
+  });
+  it('restores a calendar filter from the URL', async () => {
+    db.getSessions.mockResolvedValueOnce(TRIPS);
+    db.getFlagsForSessions.mockResolvedValue([]);
+    render(<MemoryRouter initialEntries={['/history?month=2026-10&day=2026-10-27']}><HistoryPage /></MemoryRouter>);
+    expect(await screen.findAllByTestId('trip-row')).toHaveLength(1);
+    expect(screen.getByText('Ida pra praia')).toBeInTheDocument();
+    expect(screen.getByLabelText('Calendar date')).toHaveValue('2026-10-27');
+  });
 });

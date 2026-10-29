@@ -594,7 +594,18 @@
     "newName": "Nome da viagem",
     "deleteTitle": "Apagar esta viagem?",
     "deleteBody": "Os dados e gráficos dela serão removidos. A lista de problemas do carro mantém o histórico.",
-    "showMore": "Mostrar viagens mais antigas"
+    "showMore": "Mostrar viagens mais antigas",
+    "month": "Mês",
+    "day": "Data no calendário",
+    "search": "Buscar pelo nome da viagem",
+    "matchCount": "{{count}} viagens encontradas",
+    "clearFilters": "Limpar filtros",
+    "flagsFailed": "Não foi possível consultar todos os problemas. Puxe para baixo para tentar novamente.",
+    "noMatches": "Nenhuma viagem corresponde aos filtros.",
+    "pagination": "Páginas de viagens",
+    "previous": "Anterior",
+    "page": "Página",
+    "next": "Próxima"
   },
   "tripDetail": {
     "shareText": "Relatório do meu carro: {{title}}",
@@ -623,7 +634,13 @@
     "reevaluatedCount_other": "{{count}} leituras fora do normal",
     "reevaluateFailed": "Não foi possível verificar de novo",
     "reevaluateFailedHint": "A viagem ficou como estava. Tente de novo.",
-    "analysisOutdated": "As leituras foram reavaliadas. O resumo anterior da IA ainda não foi gerado novamente."
+    "analysisOutdated": "As leituras foram reavaliadas. O resumo anterior da IA ainda não foi gerado novamente.",
+    "fuelTitle": "Consumo de combustível",
+    "fuelMeasured": "Calculado com as leituras de vazão gravadas. Cobertura: {{coverage}}.",
+    "fuelPartial": "Gravação parcial: este é apenas o combustível coberto pelas leituras, não o total da viagem.",
+    "fuelEconomy": "Média de consumo da viagem",
+    "fuelUnavailable": "Esta viagem não tem leituras de vazão de combustível suficientes para calcular o consumo.",
+    "fuelCostHint": "O custo em dinheiro também depende do preço pago pelo combustível. Nenhum valor foi presumido."
   },
   "sharing": {
     "confirmTitle": "Criar um link público?",

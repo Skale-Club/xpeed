@@ -594,7 +594,18 @@
     "newName": "Trip name",
     "deleteTitle": "Delete this trip?",
     "deleteBody": "Its data and charts will be removed. The car's problem list keeps its history.",
-    "showMore": "Show older trips"
+    "showMore": "Show older trips",
+    "month": "Month",
+    "day": "Calendar date",
+    "search": "Search trip names",
+    "matchCount": "{{count}} matching trips",
+    "clearFilters": "Clear filters",
+    "flagsFailed": "Some problem checks could not be loaded. Pull down to retry.",
+    "noMatches": "No trips match these filters.",
+    "pagination": "Trip pages",
+    "previous": "Previous",
+    "page": "Page",
+    "next": "Next"
   },
   "tripDetail": {
     "shareText": "Report of my car: {{title}}",
@@ -623,7 +634,13 @@
     "reevaluatedCount_other": "{{count}} readings out of range",
     "reevaluateFailed": "Couldn't check the trip again",
     "reevaluateFailedHint": "The trip was left as it was. Try again.",
-    "analysisOutdated": "Readings were checked again. The previous AI summary has not been regenerated."
+    "analysisOutdated": "Readings were checked again. The previous AI summary has not been regenerated.",
+    "fuelTitle": "Fuel consumption",
+    "fuelMeasured": "Calculated from recorded fuel-flow readings. Coverage: {{coverage}}.",
+    "fuelPartial": "Partial recording: this is only the fuel covered by the readings, not the whole trip.",
+    "fuelEconomy": "Trip fuel economy",
+    "fuelUnavailable": "No usable fuel-flow readings were recorded for this trip.",
+    "fuelCostHint": "A monetary cost also needs the fuel price paid. No cost has been assumed."
   },
   "sharing": {
     "confirmTitle": "Make a public link?",
