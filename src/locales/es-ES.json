@@ -1,10 +1,10 @@
 {
   "trends": {
-    "title": "Tendencias a largo plazo",
-    "hint": "Resúmenes de viajes guardados, por mes o año. Promedios ponderados por duración; los datos ausentes quedan en blanco. Estas tendencias no diagnostican fallos.",
-    "empty": "Aún no hay resúmenes de sensores guardados. Los viajes completados aparecerán aquí.",
-    "sensor": "Sensor",
-    "group": "Agrupar por",
+    "title": "Estado del coche",
+    "hint": "Compara consumo, temperaturas y otras lecturas de tus viajes para detectar cambios con el tiempo.",
+    "empty": "Completa un viaje para empezar a ver cómo cambia tu coche.",
+    "sensor": "Qué comparar",
+    "group": "Ver por",
     "month": "Mes",
     "year": "Año",
     "period": "Período",
@@ -13,7 +13,11 @@
     "avg": "Promedio",
     "max": "Máximo",
     "trips": "Viajes",
-    "coverage": "Con datos"
+    "coverage": "Viajes con lecturas",
+    "heading": "Cómo está cambiando tu coche",
+    "range": "Historial",
+    "chartHint": "Los viajes más largos tienen más peso en la media. Los períodos en blanco no tienen lecturas registradas.",
+    "noCar": "Elige un coche para ver su historial."
   },
   "nav": {
     "dashboard": "Inicio",

@@ -1,10 +1,10 @@
 {
   "trends": {
-    "title": "Long-term trends",
-    "hint": "Saved trip summaries, grouped by month or year. Averages are weighted by trip duration; missing data stays blank. These trends do not diagnose a fault.",
-    "empty": "No saved sensor summaries yet. Completed trips will appear here.",
-    "sensor": "Sensor",
-    "group": "Group by",
+    "title": "Car health",
+    "hint": "Compare fuel use, temperatures and other readings across your trips to spot changes over time.",
+    "empty": "Complete a trip to start seeing how your car changes over time.",
+    "sensor": "What to compare",
+    "group": "View by",
     "month": "Month",
     "year": "Year",
     "period": "Period",
@@ -13,7 +13,11 @@
     "avg": "Average",
     "max": "Maximum",
     "trips": "Trips",
-    "coverage": "With data"
+    "coverage": "Trips with readings",
+    "heading": "How your car is changing",
+    "range": "History",
+    "chartHint": "Longer trips carry more weight in the average. Blank periods have no recorded readings.",
+    "noCar": "Choose a car to see its history."
   },
   "nav": {
     "dashboard": "Home",
