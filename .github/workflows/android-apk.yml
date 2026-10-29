@@ -1,8 +1,8 @@
 name: Android APK
 
 # Builds the signed Android app (Capacitor) and publishes it at fixed links:
-# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk       (bundled web app)
-# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed-live.apk  (loads xpeed.skale.club)
+# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk          (loads xpeed.skale.club)
+# https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed-offline.apk  (bundled web app)
 #
 # Only main publishes to that release. Other branches (feat/android-app) build and
 # keep the APKs as a workflow artifact, so a feature push never replaces the app people download.

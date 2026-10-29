@@ -156,6 +156,9 @@
     "send": "Enviar"
   },
   "scanner": {
+    "adapterPicker": "Elige el adaptador OBD2",
+    "findBle": "Buscar adaptador Bluetooth LE",
+    "pairClassic": "Emparejar adaptador clásico",
     "title": "Escáner OBD2",
     "error": "No se pudo hablar con el coche",
     "cleared": "Códigos borrados en el coche",

@@ -79,6 +79,22 @@ New recordings use a stable owner/car/millisecond identity, an exact CSV checksu
 
 ## Publication
 
+### OBD adapter transports
+
+The Android APK supports ELM327-compatible serial adapters over BLE GATT and Bluetooth Classic SPP. The browser supports BLE only. Wi-Fi, USB and vendor-proprietary protocols are not implemented.
+
+On Android, tap Connect, then choose a paired Classic adapter or Find Bluetooth LE adapter. Pair a Classic adapter opens Android Bluetooth settings; return to Xpeed and tap Connect again after pairing. The chosen transport is remembered for reconnection. Older APKs keep the BLE-only picker until the native update is installed.
+
+Compatibility targets (transport implementation does not mean physical certification):
+
+| Adapter family | Transport to use | Validation |
+| --- | --- | --- |
+| Veepeak OBDCheck BLE / BLE+ | BLE; Classic on dual-mode variants | User reported working on PC; Android retest pending |
+| Vgate iCar Pro BLE, OBDLink CX, BLE variants of vLinker | BLE | Automated transport tests; physical tests pending |
+| OBDLink MX+ / LX, Vgate BT3.0, Classic ELM327-compatible adapters | Android Classic SPP | Automated bridge tests; physical tests pending |
+
+Select the exact model/transport; a Bluetooth name alone is not proof of ELM327 compatibility. BLE discovery requires notify/indicate and write characteristics. Classic uses the standard authenticated serial-port UUID with a bounded connection timeout. Connection failures show their underlying reason on Home and Scanner. Test first connection, ELM initialization, live data, trip save, screen off and reconnection on each real adapter before marking it validated.
+
 `.github/workflows/android-apk.yml` checks types, lint and tests before signed builds. Main publishes `android-latest`; the configured feature branch creates artifacts. The live APK loads the configured production site; the offline variant bundles the web build. `CAP_SERVER_URL` selects the live-site variant during Capacitor sync.
 
 Web CI and the APK workflow check Deno and PostgreSQL contracts for their checkout. External deployment gates and branch protection are separate settings and were not modified by the review.

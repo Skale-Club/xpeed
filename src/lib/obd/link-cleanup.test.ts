@@ -15,7 +15,7 @@ const ble = vi.hoisted(() => ({
 }));
 
 vi.mock('@capacitor/core', () => ({
-  Capacitor: { isNativePlatform: () => native.on, getPlatform: () => 'android' },
+  Capacitor: { isNativePlatform: () => native.on, getPlatform: () => 'android', isPluginAvailable: () => false },
   registerPlugin: () => ({}),
 }));
 vi.mock('@capacitor-community/bluetooth-le', () => ({ BleClient: ble }));

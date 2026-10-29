@@ -4,6 +4,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import type { ObdLink } from './elm327';
+import { CLASSIC_PREFIX, chooseNativeAdapter, connectSerialLink, hasClassicBluetooth } from './native-serial';
 
 export function isNativeApp(): boolean {
   return Capacitor.isNativePlatform();
@@ -52,6 +53,14 @@ export async function connectNativeLink(
 
   let deviceId = opts.deviceId;
   let name = opts.name ?? '';
+  if (deviceId?.startsWith(CLASSIC_PREFIX)) {
+    if (!hasClassicBluetooth()) throw new Error('Install the latest Xpeed APK to use Classic Bluetooth.');
+    return connectSerialLink(deviceId.slice(CLASSIC_PREFIX.length), name, onDisconnect);
+  }
+  if (!deviceId && hasClassicBluetooth()) {
+    const selected = await chooseNativeAdapter();
+    if (selected.deviceId) return connectSerialLink(selected.deviceId, selected.name ?? '', onDisconnect);
+  }
   if (!deviceId) {
     const device = await BleClient.requestDevice({ optionalServices: serviceUuids.map(toUuid) });
     deviceId = device.deviceId;
