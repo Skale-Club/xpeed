@@ -176,6 +176,9 @@ export function TripCard() {
             </p>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          {t('scanner.linkHintPaired', 'Bluetooth LE: keep Bluetooth on and select the adapter directly in Xpeed; no pairing in Android settings is needed. In the Android APK, Classic Bluetooth requires pairing in Android settings first, then selection in Xpeed.')}
+        </p>
         <Button size="lg" className="h-14 w-full text-base" onClick={() => void obd.connect()}>
           <Bluetooth className="mr-2 h-5 w-5" />
           {t('trip.connect', 'Connect to the car')}
@@ -184,7 +187,7 @@ export function TripCard() {
           <div className="space-y-1 text-sm text-destructive" role="alert">
             <p>
               {linkFailed
-                ? t('trip.linkFailed', "The adapter didn't answer. Close other apps that use it (like Car Scanner) or turn off your phone's Bluetooth, then try again.")
+                ? t('trip.linkFailed', 'The adapter did not answer. Disconnect it from other apps or devices, keep Bluetooth on, and try again in Xpeed.')
                 : t('trip.connectFailed', 'Could not connect. Check that the adapter is plugged in and try again.')}
             </p>
             <p className="text-xs break-words">{error}</p>

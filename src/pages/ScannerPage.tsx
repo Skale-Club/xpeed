@@ -196,6 +196,9 @@ export default function ScannerPage() {
                 <p className="text-xs text-muted-foreground">
                   {t('scanner.howTo', 'Plug a Bluetooth LE ELM327 adapter (e.g. Vgate iCar Pro BLE, OBDLink CX, Veepeak BLE+) into the OBD2 port, turn the ignition on, then connect. Classic-Bluetooth and Wi-Fi adapters cannot be used from a browser.')}
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('scanner.linkHintPaired', 'Bluetooth LE: keep Bluetooth on and select the adapter directly in Xpeed; no pairing in Android settings is needed. In the Android APK, Classic Bluetooth requires pairing in Android settings first, then selection in Xpeed.')}
+                </p>
                 <Button className="w-full sm:w-auto" onClick={() => void scanner.connect()} disabled={status !== 'idle'}>
                   {status === 'connecting'
                     ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -207,9 +210,9 @@ export default function ScannerPage() {
             {scanner.error && <p className="text-xs text-destructive">{scanner.error}</p>}
             {scanner.linkFailed && (
               <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                <li>{t('scanner.linkHintBusy', "The adapter accepts only one connection: close Car Scanner/Torque on your phone or turn the phone's Bluetooth off.")}</li>
+                <li>{t('scanner.linkHintBusy', 'The adapter accepts one connection at a time. Disconnect it from other apps or devices before connecting in Xpeed.')}</li>
                 <li>{t('scanner.linkHintPower', 'Make sure the ignition is on and the adapter light is on, then unplug and replug it to wake it up.')}</li>
-                <li>{t('scanner.linkHintPaired', 'If you paired it in the system Bluetooth settings before, remove it there and try again.')}</li>
+                <li>{t('scanner.linkHintPaired', 'Bluetooth LE: keep Bluetooth on and select the adapter directly in Xpeed; no pairing in Android settings is needed. In the Android APK, Classic Bluetooth requires pairing in Android settings first, then selection in Xpeed.')}</li>
               </ul>
             )}
           </CardContent>
