@@ -35,9 +35,11 @@ it('has no Save for persisted settings and only saves changed values after confi
   fireEvent.click(screen.getByRole('button', { name: 'Change mi' }));
   expect(localStorage.getItem('settings_distanceUnit')).toBe('mi');
   expect(screen.getByTestId('layout')).toHaveAttribute('data-blocked', 'true');
+  expect(screen.getByRole('button', { name: 'Reload screens' })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument());
   expect(localStorage.getItem('settings_distanceUnit')).toBe('km');
+  expect(screen.getByRole('button', { name: 'Reload screens' })).toBeEnabled();
   expect(notify).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
 });
 

@@ -1270,5 +1270,24 @@
     "sending": "Sending…",
     "retry": "Retry pending trips",
     "cloudConfirmed": "Cloud backup confirmed: {{count}} readings"
+  },
+  "updates": {
+    "title": "Updates",
+    "screens": "App screens",
+    "reloadHint": "Load the latest screens over the internet. No APK installation needed.",
+    "reload": "Reload screens",
+    "reloading": "Reloading screens…",
+    "reloadFailed": "Could not reload. Check your internet connection and try again.",
+    "bundled": "This offline edition includes the screens in the APK. Install a new APK to update them.",
+    "apk": "Android APK",
+    "apkHint": "Updates Bluetooth and Android background recording. Install over the existing app; do not uninstall it.",
+    "checking": "Checking APK…",
+    "checkFailed": "Could not verify whether an APK update is needed. Try again.",
+    "builds": "Installed: build {{installed}} · Required: build {{required}} or newer",
+    "apkCurrent": "Installed: build {{installed}}. No APK update needed.",
+    "downloadApk": "Download APK",
+    "checkApk": "Check APK",
+    "blocked": "Finish recording and save any changes before updating.",
+    "apkNeeded": "Android APK update required"
   }
 }

@@ -47,6 +47,7 @@ export function isTripRecording(): boolean {
 export function holdAppUpdates(): () => void {
   const id = Symbol('trip persistence');
   persistenceHolds.add(id);
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(RECORDING_EVENT));
   return () => {
     if (!persistenceHolds.delete(id)) return;
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(RECORDING_EVENT));
@@ -60,6 +61,17 @@ export function setTripRecording(recording: boolean): void {
 }
 
 let updateWaiting = false;
+let manualReload: (() => Promise<'blocked' | 'reloading'>) | null = null;
+/** Explicit screen reload never clears account data, recordings, or preferences. */
+export async function reloadAppScreens(): Promise<'blocked' | 'reloading'> {
+  if (isTripRecording()) return 'blocked';
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw Error('No internet connection');
+  if (manualReload) return manualReload();
+  if (isTripRecording()) return 'blocked';
+  window.location.reload();
+  return 'reloading';
+}
+
 
 /** True when a newer version has been downloaded and is waiting for a safe moment. */
 export function hasPendingUpdate(): boolean {
@@ -104,8 +116,8 @@ export function startPwaUpdates(register: RegisterSW): () => void {
   };
   const requestReload = () => { reloadWaiting = true; tryReload(); };
 
-  const tryApply = () => {
-    if (!updateWaiting || isTripRecording() || recentlyApplied()) return;
+  const tryApply = (manual = false) => {
+    if (!updateWaiting || isTripRecording() || (!manual && recentlyApplied())) return;
     updateWaiting = false;
     markApplied();
     // The register helper only reloads when a worker already controlled the page at
@@ -113,7 +125,11 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     // against the new cache. Reload ourselves once the new worker takes over.
     navigator.serviceWorker?.addEventListener('controllerchange', requestReload, { once: true });
     // Sends SKIP_WAITING; the new worker then takes control.
-    void updateServiceWorker(true);
+    return updateServiceWorker(true).catch((error: unknown) => {
+      updateWaiting = true;
+      if (manual) throw error;
+      console.warn('[pwa] could not apply screen update', error);
+    });
   };
 
   const checkForUpdate = () => {
@@ -138,6 +154,30 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     },
   });
 
+  manualReload = async () => {
+    if (isTripRecording()) return 'blocked';
+    if (!registration && navigator.serviceWorker?.getRegistration) registration = await navigator.serviceWorker.getRegistration();
+    if (registration) await registration.update();
+    const worker = registration?.installing;
+    if (worker && !['installed', 'activated', 'redundant'].includes(worker.state)) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(() => { worker.removeEventListener('statechange', changed); reject(Error('Screen update timed out; try again')); }, 15000);
+        const changed = () => {
+          if (!['installed', 'activated', 'redundant'].includes(worker.state)) return;
+          clearTimeout(timer); worker.removeEventListener('statechange', changed);
+          if (worker.state === 'redundant') reject(Error('Screen update could not be installed'));
+          else resolve();
+        };
+        worker.addEventListener('statechange', changed);
+      });
+    }
+    if (isTripRecording()) return 'blocked';
+    if (reloaded) return 'reloading';
+    if (registration?.waiting || updateWaiting) { updateWaiting = true; await tryApply(true); }
+    else requestReload();
+    return 'reloading';
+  };
+
   window.setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') checkForUpdate();
@@ -145,7 +185,7 @@ export function startPwaUpdates(register: RegisterSW): () => void {
   window.addEventListener('online', checkForUpdate);
   window.addEventListener(RECORDING_EVENT, () => { tryApply(); tryReload(); });
 
-  return tryApply;
+  return () => tryApply();
 }
 
 const PRELOAD_RELOAD_KEY = 'xpeed:preload-reload-at';

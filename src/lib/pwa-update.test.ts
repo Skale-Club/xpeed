@@ -72,6 +72,69 @@ describe('startPwaUpdates', () => {
     options().onNeedReload?.();
     expect(reload).toHaveBeenCalledTimes(1);
   });
+
+  it('manually checks for new screens and reloads once when no new worker is needed', async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } });
+    const { mod, registration, options } = await setup();
+    expect(await mod.reloadAppScreens()).toBe('reloading');
+    expect(registration.update).toHaveBeenCalledTimes(1);
+    expect(reload).toHaveBeenCalledTimes(1);
+    options().onNeedReload?.();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('manual reload applies a waiting worker despite the automatic reload cooldown', async () => {
+    const { mod, updateSW, registration, options } = await setup();
+    sessionStorage.setItem('xpeed:sw-applied-at', String(Date.now()));
+    options().onNeedRefresh?.();
+    expect(updateSW).not.toHaveBeenCalled();
+    await mod.reloadAppScreens();
+    expect(registration.update).toHaveBeenCalledTimes(1);
+    expect(updateSW).toHaveBeenCalledWith(true);
+  });
+
+  it('does not reload a recording or an unsaved draft, including one started during the network check', async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } });
+    const { mod, registration } = await setup();
+    mod.setTripRecording(true);
+    expect(await mod.reloadAppScreens()).toBe('blocked');
+    mod.setTripRecording(false);
+    const release = mod.holdAppUpdates();
+    expect(await mod.reloadAppScreens()).toBe('blocked');
+    release();
+    registration.update.mockImplementationOnce(async () => { mod.setTripRecording(true); });
+    expect(await mod.reloadAppScreens()).toBe('blocked');
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed screen check without reloading cached screens', async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } });
+    const { mod, registration } = await setup();
+    registration.update.mockRejectedValueOnce(new Error('offline'));
+    await expect(mod.reloadAppScreens()).rejects.toThrow('offline');
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('waits for the downloaded screens to finish installing before activating them', async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } });
+    const { mod, registration, updateSW } = await setup();
+    const worker = Object.assign(new EventTarget(), { state: 'installing' });
+    Object.assign(registration, { installing: worker });
+    const pending = mod.reloadAppScreens();
+    await Promise.resolve();
+    expect(updateSW).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    worker.state = 'installed';
+    Object.assign(registration, { installing: null, waiting: worker });
+    worker.dispatchEvent(new Event('statechange'));
+    expect(await pending).toBe('reloading');
+    expect(updateSW).toHaveBeenCalledWith(true);
+    expect(reload).not.toHaveBeenCalled(); // controllerchange will reload after activation
+  });
 });
 
 describe('installPreloadErrorReload', () => {

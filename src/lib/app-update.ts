@@ -9,6 +9,7 @@
 
 import { isNativeApp } from '@/lib/obd/native-ble';
 
+export const OFFLINE_APK_URL = 'https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed-offline.apk';
 const RELEASE_API = 'https://api.github.com/repos/Skale-Club/xpeed/releases/tags/android-latest';
 export const APK_URL = 'https://github.com/Skale-Club/xpeed/releases/download/android-latest/xpeed.apk';
 
@@ -25,28 +26,44 @@ export function parseNativeBuild(notes: string | null | undefined): number | nul
 }
 
 /** The live-site APK shows the deployed site instead of a copy bundled in the app. */
-function isLiveSiteApp(): boolean {
-  return typeof window !== 'undefined' && !/^https?:\/\/localhost/.test(window.location.origin);
+export function isLiveSiteApp(): boolean {
+  return typeof window !== 'undefined' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 }
 
 /** The build the installed app needs, given the release notes and which APK it is. */
 export function requiredBuild(notes: string | null | undefined, liveSite: boolean): number | null {
-  return liveSite ? parseNativeBuild(notes) ?? parseReleaseBuild(notes) : parseReleaseBuild(notes);
+  return liveSite ? parseNativeBuild(notes) : parseReleaseBuild(notes);
 }
 
-/** The newer build number, or null when up to date / not the Android app / offline. */
-export async function findAppUpdate(): Promise<number | null> {
+export interface ApkUpdate {
+  installed: number; installedVersion: string; required: number | null;
+  latest: number | null; available: boolean; bundled: boolean; downloadUrl: string;
+}
+let cached: { at: number; result: Promise<ApkUpdate | null> } | null = null;
+/** Only verified native changes require the live-site APK to be reinstalled. */
+export async function checkApkUpdate(force = false): Promise<ApkUpdate | null> {
   if (!isNativeApp()) return null;
-  try {
-    const { App } = await import('@capacitor/app');
-    const installed = Number((await App.getInfo()).build);
-    const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!res.ok) return null;
-    const notes = (await res.json()).body as string | null;
-    const needed = requiredBuild(notes, isLiveSiteApp());
-    const latest = parseReleaseBuild(notes);
-    return needed !== null && Number.isFinite(installed) && needed > installed ? latest ?? needed : null;
-  } catch {
-    return null;
-  }
+  if (!force && cached && Date.now() - cached.at < 60000) return cached.result;
+  const result = (async () => {
+    try {
+      const { App } = await import('@capacitor/app');
+      const info = await App.getInfo();
+      const installed = Number(info.build);
+      if (!Number.isSafeInteger(installed) || installed < 1) return null;
+      const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+      if (!res.ok) return null;
+      const notes = (await res.json()).body as string | null;
+      const bundled = !isLiveSiteApp(), needed = requiredBuild(notes, !bundled), latest = parseReleaseBuild(notes);
+      return { installed, installedVersion: info.version, required: needed, latest, bundled,
+        available: needed !== null && needed > installed,
+        downloadUrl: bundled ? OFFLINE_APK_URL : APK_URL };
+    } catch { return null; }
+  })();
+  cached = { at: Date.now(), result };
+  return result;
+}
+/** Compatibility for callers that only need the available APK build. */
+export async function findAppUpdate(): Promise<number | null> {
+  const status = await checkApkUpdate();
+  return status?.available ? status.latest ?? status.required : null;
 }

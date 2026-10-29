@@ -1270,5 +1270,24 @@
     "sending": "Enviando...",
     "retry": "Tentar enviar viagens pendentes",
     "cloudConfirmed": "Backup na nuvem confirmado: {{count}} leituras"
+  },
+  "updates": {
+    "title": "Atualizações",
+    "screens": "Telas do aplicativo",
+    "reloadHint": "Carregue as telas mais recentes pela internet. Não precisa instalar um APK.",
+    "reload": "Recarregar telas",
+    "reloading": "Recarregando telas…",
+    "reloadFailed": "Não foi possível recarregar. Confira a conexão com a internet e tente novamente.",
+    "bundled": "Esta edição offline inclui as telas dentro do APK. Para atualizá-las, instale um novo APK.",
+    "apk": "APK Android",
+    "apkHint": "Atualiza o Bluetooth e a gravação em segundo plano do Android. Instale por cima do aplicativo atual; não o desinstale.",
+    "checking": "Verificando APK…",
+    "checkFailed": "Não foi possível verificar se é necessário atualizar o APK. Tente novamente.",
+    "builds": "Instalado: build {{installed}} · Necessário: build {{required}} ou superior",
+    "apkCurrent": "Instalado: build {{installed}}. Não precisa atualizar o APK.",
+    "downloadApk": "Baixar APK",
+    "checkApk": "Verificar APK",
+    "blocked": "Finalize a gravação e salve as alterações pendentes antes de atualizar.",
+    "apkNeeded": "Atualização do APK Android necessária"
   }
 }

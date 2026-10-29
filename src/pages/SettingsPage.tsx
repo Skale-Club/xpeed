@@ -1,4 +1,5 @@
 import TripSyncStatus from '@/components/TripSyncStatus';
+import AppUpdates from '@/components/AppUpdates';
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -165,6 +166,7 @@ export default function SettingsPage() {
         </Card>
 
         <InstallSection />
+        <AppUpdates disabled={dirty || saving} />
         <TripSyncStatus />
 
         <Card className="bg-card border-border">
