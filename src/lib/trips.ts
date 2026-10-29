@@ -9,6 +9,7 @@ import { DTC_PREFIX, dtcSeverity } from '@/lib/problems';
 import i18n from '@/lib/i18n';
 import { isNativeApp } from '@/lib/obd/native-ble';
 import { appHour, formatAppDate } from '@/lib/app-date';
+import { readFuelMetrics } from './fuel-ledger';
 
 /** When the trip happened (recording start), falling back to the upload time. */
 export function tripDate(session: Pick<Session, 'session_start' | 'uploaded_at'>): Date {
@@ -21,6 +22,8 @@ function speedSummary(session: Pick<Session, 'summary'>): SessionSummaryItem | u
 
 /** Distance in km from average speed × duration; null when the trip has no speed data. */
 export function tripDistanceKm(session: Pick<Session, 'summary' | 'duration_seconds'>): number | null {
+  const metrics = readFuelMetrics(session);
+  if (metrics?.distanceKm != null && metrics.distanceCoverage >= .9) return metrics.distanceKm;
   const avg = speedSummary(session)?.avg;
   if (avg == null || !session.duration_seconds) return null;
   return (avg * session.duration_seconds) / 3600;

@@ -9,6 +9,7 @@ import SettingsPage from './SettingsPage';
 const notify = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/use-toast', () => ({ toast: notify }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children, refreshDisabled }: { children: ReactNode; refreshDisabled?: boolean }) => <div data-testid="layout" data-blocked={refreshDisabled}>{children}</div> }));
+vi.mock('@/components/TripSyncStatus', () => ({ default: () => null }));
 vi.mock('@/components/McpTokensSection', () => ({ default: () => null }));
 vi.mock('@/components/InstallApp', () => ({ AndroidAppDownload: () => null, IosAddToHome: () => null, IphoneNoBluetooth: () => null }));
 vi.mock('@/components/ui/select', () => ({

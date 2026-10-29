@@ -1,3 +1,4 @@
+import { calculateFuelMetrics } from '@/lib/fuel-metrics';
 import { useState, useCallback } from 'react';
 import { parseCSV } from '@/lib/csv-parser';
 import { computeParameterSummaries, evaluateRules } from '@/lib/insight-engine';
@@ -128,13 +129,14 @@ export async function ingestSessionCsv(
     }
 
     updateProgress(55, 'Saving session...');
-    const summary = { summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
+    const summary = { fuel: calculateFuelMetrics(parsed), summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
     const session = recording ? { id: recording.sessionId } : await createSession(
       carProfileId,
       customName || file.name,
       parsed.rows.length,
       parsed.headers,
       {
+        fuel: calculateFuelMetrics(parsed),
         summaries,
         headerMapping: parsed.headerMapping,
         timeColumn: parsed.timeColumn,

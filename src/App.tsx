@@ -1,3 +1,4 @@
+import { FuelTrendObserver } from '@/components/FuelTrendObserver';
 import React, { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,6 +25,7 @@ const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
 const ScannerPage = lazy(() => import("./pages/ScannerPage"));
 const LivePage = lazy(() => import("./pages/LivePage"));
+const FuelPage = lazy(() => import("./pages/FuelPage"));
 const TrendsPage = lazy(() => import("./pages/TrendsPage"));
 const FaultCodesPage = lazy(() => import("./pages/FaultCodesPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
@@ -50,7 +52,7 @@ const AuthenticatedLayout = () => (
   <PrivateRoute>
     <CarsProvider>
       <ObdScannerProvider>
-        <VehicleNotificationsProvider><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
+        <VehicleNotificationsProvider><FuelTrendObserver /><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>
@@ -92,6 +94,7 @@ const App = () => (
                 <Route path="/onboarding" element={<OnboardingPage />} />
                 <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
                 <Route path="/live" element={<LivePage />} />
+                <Route path="/fuel" element={<FuelPage />} />
                 <Route path="/trends" element={<TrendsPage />} />
                 <Route path="/codes" element={<FaultCodesPage />} />
                 <Route path="/maintenance" element={<MaintenancePage />} />

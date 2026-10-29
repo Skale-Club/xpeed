@@ -1,0 +1,34 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import FuelPage from './FuelPage';
+const api = vi.hoisted(() => ({ save: vi.fn(), list: vi.fn(async () => []), toast: vi.fn() }));
+vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCarId: 'car', selectedCar: { name: 'Prius' } }) }));
+vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'mi', timezone: 'America/New_York' }) }));
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: api.toast }) }));
+vi.mock('@/lib/db', () => ({ getSessions: async () => [] }));
+vi.mock('@/lib/fuel-api', () => ({ listFuelEntries: api.list, saveFuelEntry: api.save, deleteFuelEntry: vi.fn(), calculateSavedFuel: vi.fn() }));
+vi.mock('recharts', () => ({ LineChart: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null, CartesianGrid: () => null, ResponsiveContainer: () => null }));
+vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { resolvedLanguage: 'en' }, t: (_key: string, fallback: string) => fallback }) }));
+beforeEach(() => { api.save.mockReset().mockResolvedValue({}); api.toast.mockClear(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+const open = () => render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><FuelPage /></QueryClientProvider></MemoryRouter>);
+it('stores actual payment separately and converts US gallons without assuming a full tank', async () => {
+  open(); await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+  fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '10' } });
+  fireEvent.change(screen.getByLabelText(/Total actually paid/), { target: { value: '30' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(api.save).toHaveBeenCalled());
+  expect(api.save.mock.calls[0][1]).toMatchObject({ litres: 37.85411784, totalPaid: 30, fullTank: false, currency: 'USD', source: 'receipt' });
+  expect(api.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
+});
+it('preserves a fill-up draft when the regional provider fails', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+  open(); fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '7' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Look up regional average' }));
+  await waitFor(() => expect(api.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' })));
+  expect(screen.getByLabelText(/Quantity/)).toHaveValue(7); expect(api.save).not.toHaveBeenCalled();
+});

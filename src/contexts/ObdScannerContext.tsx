@@ -22,6 +22,7 @@ import {
   appendTripSamples, deleteTripCopy, getTripCopy, listTripCopies, saveTripCopy, tripKey, type StoredTrip,
 } from '@/lib/obd/trip-store';
 import { hideBackgroundService, showBackgroundService } from '@/lib/obd/trip-service';
+import { PID_PRESETS, mergePreset } from '@/lib/obd/presets';
 import { DEFAULT_TRIP_OPTIONS } from '@/lib/obd/trip-detector';
 import type { LiveSnapshot } from '@/lib/obd/live-store';
 import { identifyVin, isValidVin, vinFitsCar, type CarIdentity } from '@/lib/vin';
@@ -63,6 +64,8 @@ type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   canStayOn: boolean;
   setAlwaysOn: (on: boolean) => void;
   savingTrip: boolean;
+  getTripSyncStatus: () => Promise<{ pending: number; latestError: string | null }>;
+  retryPendingTrips: () => Promise<void>;
   lastTrip: SavedTrip | null;
   /** Car bound to the active recording, even if the owner browses another car. */
   recordingCarId: string | null;
@@ -108,6 +111,18 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     saveCustomPids(selectedCarId, pids);
   }, [selectedCarId]);
 
+  useEffect(() => {
+    const car = cars.find(item => item.id === selectedCarId);
+    if (car?.make?.toLowerCase() !== 'toyota' || !/^prius$/i.test(car.model || '') || !car.year || car.year < 2010 || car.year > 2015) return;
+    const preset = PID_PRESETS.find(item => item.id === 'prius-gen3');
+    if (!preset) return;
+    setCustomPids(previous => {
+      const next = mergePreset(previous, preset.pids());
+      if (next.length === previous.length) return previous;
+      saveCustomPids(selectedCarId, next); return next;
+    });
+  }, [cars, selectedCarId]);
+
   const [canStayOn] = useState(isMobileDevice);
   const [alwaysOnChosen, setAlwaysOnState] = useState(readAlwaysOn);
   const alwaysOn = alwaysOnChosen && canStayOn;
@@ -149,6 +164,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     return copy.carId != null && carsRef.current.some((c) => c.id === copy.carId);
   }, []);
 
+  const syncErrorRef = useRef<{ userId: string | null; message: string } | null>(null);
   const savingRef = useRef(0);
   const bumpSaving = useCallback((by: number) => {
     savingRef.current += by;
@@ -203,6 +219,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       const csv = buildScannerCsv(copy.columns, copy.samples, copy.dtcs ?? []);
       const file = new File([csv], scannerFilename(startedAt), { type: 'text/csv' });
       const result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, forget, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() });
+      syncErrorRef.current = null;
       setLastTrip({ sessionId: result.sessionId, endedAt });
       toast({
         title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
@@ -211,6 +228,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       });
     } catch (err) {
       console.error('Trip save failed:', err);
+      syncErrorRef.current = { userId: copy.userId ?? userIdRef.current, message: err instanceof Error ? err.message.slice(0, 500) : 'Trip save failed' };
       const conflict = err instanceof RecordingConflictError;
       if (announceFailure() || (conflict && !reportedConflicts.current.has(id))) {
         if (conflict) reportedConflicts.current.add(id);
@@ -262,6 +280,14 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       await uploadCopy(id, false);
     }
   }, [uploadCopy]);
+
+  const getTripSyncStatus = useCallback(async () => {
+    const copies = new Map((await listTripCopies()).map(copy => [copy.id, copy]));
+    for (const [id, copy] of memoryCopiesRef.current) copies.set(id, copy);
+    return { pending: [...copies.values()].filter(copy => isMine(copy) && copy.id !== currentTripRef.current?.id && !finishingRef.current.has(copy.id)).length,
+      latestError: syncErrorRef.current?.userId === userIdRef.current ? syncErrorRef.current?.message ?? null : null };
+  }, [isMine]);
+  const retryPendingTrips = useCallback(async () => { await flushCopies(); }, [flushCopies]);
 
   const saveTrip = useCallback(async (trip: TripResult) => {
     const releaseUpdate = holdAppUpdates();
@@ -421,9 +447,12 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     void flushCopies();
     const onOnline = () => void flushCopies();
     window.addEventListener('online', onOnline);
+    const visible = () => { if (document.visibilityState === 'visible') void flushCopies(); };
+    document.addEventListener('visibilitychange', visible);
     const id = setInterval(() => void flushCopies(), RETRY_MS);
     return () => {
       window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', visible);
       clearInterval(id);
     };
   }, [selectedCarId, userId, flushCopies]);
@@ -507,8 +536,8 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => { void hideBackgroundService(); }, []);
 
   const value = useMemo(() => ({
-    ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn,
-  }), [obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn]);
+    ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, getTripSyncStatus, retryPendingTrips, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn,
+  }), [obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, getTripSyncStatus, retryPendingTrips, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn]);
 
   return (
     <ObdScannerContext.Provider value={value}>

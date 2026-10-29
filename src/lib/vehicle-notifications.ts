@@ -1,10 +1,12 @@
+import type { FuelComparison } from './fuel-ledger';
 import type { VehicleIssue } from './db-issues';
 import type { FaultCodeReadout } from './obd/fault-codes';
 
 export interface VehicleNotification {
   source: string;
   fingerprint: string;
-  kind: 'problem' | 'scan';
+  kind: 'problem' | 'scan' | 'fuel';
+  fuel?: FuelComparison;
   severity: 'critical' | 'warning' | 'info' | 'success';
   at: string;
   read: boolean;
@@ -19,6 +21,7 @@ export function loadVehicleNotifications(scope: string): VehicleNotification[] {
     return Array.isArray(parsed) ? parsed.filter((item) => {
       if (!item || typeof item.source !== 'string' || typeof item.fingerprint !== 'string' || !['critical', 'warning', 'info', 'success'].includes(item.severity) || typeof item.at !== 'string' || typeof item.read !== 'boolean') return false;
       if (item.kind === 'scan') return item.scan && typeof item.scan.checked === 'boolean' && ['stored', 'pending', 'permanent'].every((key) => Array.isArray(item.scan[key]) && item.scan[key].every((code: unknown) => typeof code === 'string')) && (!item.scan.modules || (Array.isArray(item.scan.modules) && item.scan.modules.every((module: unknown) => typeof module === 'string')));
+      if (item.kind === 'fuel') return item.fuel && Number.isFinite(item.fuel.deltaPct) && item.fuel.deltaPct >= 10 && typeof item.fuel.period === 'string' && typeof item.fuel.bucket === 'string';
       if (item.kind === 'problem') return item.problem && typeof item.problem.id === 'string' && typeof item.problem.canonical_key === 'string' && typeof item.problem.title === 'string' && ['critical', 'serious', 'warning', 'easy_fix'].includes(item.problem.severity);
       return false;
     }).slice(0, MAX_NOTIFICATIONS) : [];

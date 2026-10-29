@@ -1,3 +1,4 @@
+import TripSyncStatus from '@/components/TripSyncStatus';
 import { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -164,6 +165,7 @@ export default function SettingsPage() {
         </Card>
 
         <InstallSection />
+        <TripSyncStatus />
 
         <Card className="bg-card border-border">
           <CardContent className="p-4 space-y-3">

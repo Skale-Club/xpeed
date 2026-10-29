@@ -1,3 +1,4 @@
+import { HybridPanel } from '@/components/HybridPanel';
 import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -178,6 +179,7 @@ export default function LivePage() {
           </Button>
         </div>
 
+        <HybridPanel />
         {!live ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">

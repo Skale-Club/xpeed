@@ -2,10 +2,10 @@ import { supabase } from '@/integrations/supabase/client';
 
 const SESSION_CSV_BUCKET = 'session-csv';
 const SESSION_LIST_SELECT =
-  'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, gemini_analysis, active_dtcs';
+  'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, gemini_analysis, active_dtcs, processing_version';
 // The trip page also needs the fault codes and versions. Never `*`: sessions.source_csv holds
 // the whole CSV (megabytes) and the stored report is large; both are fetched only when needed.
-const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, ruleset_id, ruleset_matched_via, report_version, processing_version`;
+const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, ruleset_id, ruleset_matched_via, report_version`;
 /** session_rows are read in pages: the API caps a response (1000 rows) and a trip stores 2000+. */
 const ROW_PAGE_SIZE = 1000;
 const ROW_PAGE_LIMIT = 100;

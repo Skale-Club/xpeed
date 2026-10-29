@@ -28,6 +28,8 @@ import {
   formatDistance, formatDuration, formatTripDate, tripAverageSpeed, tripDate, tripDistanceKm, tripProblems, tripTitle,
 } from '@/lib/trips';
 import type { Session, SessionFlag, SessionRow, SessionSummary } from '@/types/session';
+import { TripFuelCost } from '@/components/FuelSummary';
+import { readFuelMetrics } from '@/lib/fuel-ledger';
 import { tripFuel } from '@/lib/trip-fuel';
 
 type SessionWithStoredCsv = Session & { source_csv?: string | null; active_dtcs?: string[] | null };
@@ -155,7 +157,8 @@ export default function SessionDetail() {
   const analysisOutdated = session.summary?.analysis_outdated === true;
   const aiSummary = !analysisOutdated && typeof session.gemini_analysis?.summary === 'string' ? session.gemini_analysis.summary : null;
   const avgSpeed = tripAverageSpeed(session);
-  const fuel = tripFuel(rows, summaries, session.duration_seconds);
+  const metrics = readFuelMetrics(session);
+  const fuel = metrics?.litres != null ? { litres: metrics.litres, coverage: metrics.coverage } : tripFuel(rows, summaries, session.duration_seconds);
   const distance = tripDistanceKm(session);
   const enoughFuel = fuel?.coverage != null && fuel.coverage >= 0.9;
   const fuelUnit = distanceUnit === 'mi' ? 'US gal' : 'L';
@@ -214,7 +217,7 @@ export default function SessionDetail() {
             {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Partial recording: this is only the fuel covered by the readings, not the whole trip.')}</p>}
             {fuelEfficiency && <p className="font-medium">{t('tripDetail.fuelEconomy', 'Trip fuel economy')}: {fuelEfficiency}</p>}
           </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', 'No usable fuel-flow readings were recorded for this trip.')}</p>}
-          <p className="text-xs text-muted-foreground">{t('tripDetail.fuelCostHint', 'A monetary cost also needs the fuel price paid. No cost has been assumed.')}</p>
+          <TripFuelCost key={session.id} session={session} />
         </CardContent></Card>
         <div className="space-y-2">
           <h3 className="font-semibold">{t('tripDetail.problemsTitle', 'Problems in this trip')}</h3>

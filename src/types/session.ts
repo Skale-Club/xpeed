@@ -49,6 +49,7 @@ export interface SessionSummary {
 }
 
 export interface Session {
+  processing_version?: string | null;
   id: string;
   car_profile_id: string | null;
   uploaded_at: string;
