@@ -651,7 +651,8 @@
     "worksUntil": "vale até {{date}}",
     "turnOff": "Desativar",
     "turnedOff": "Link desativado",
-    "turnOffFailed": "Não foi possível desativar o link"
+    "turnOffFailed": "Não foi possível desativar o link",
+    "includeMedia": "Incluir as fotos, vídeos e descrições atuais. Novos anexos não serão adicionados automaticamente a este link."
   },
   "adminPage": {
     "notAvailable": "Indisponível",
@@ -838,29 +839,36 @@
     "backHome": "Voltar para o início"
   },
   "photos": {
-    "title": "Fotos",
-    "typeLabel": "O que a foto mostra",
-    "captionPlaceholder": "Descrição curta (opcional)",
-    "add": "Adicionar foto",
-    "empty": "Guarde fotos de luzes de aviso, leituras do scanner e outros detalhes junto desta viagem.",
-    "delete": "Excluir foto",
-    "invalidTitle": "Isso não é uma foto",
-    "invalidBody": "Escolha uma imagem (JPG, PNG ou WebP).",
-    "tooLargeTitle": "Foto muito grande",
-    "tooLargeBody": "As fotos podem ter até 10 MB.",
-    "uploaded": "Foto adicionada",
-    "uploadFailed": "Não foi possível adicionar a foto",
+    "title": "Registros da viagem",
+    "typeLabel": "O que o anexo mostra",
+    "captionPlaceholder": "Exemplo: o alerta de temperatura acendeu depois de 20 minutos.",
+    "add": "Anexar foto ou vídeo",
+    "empty": "Esta viagem ainda não tem registros anexados.",
+    "delete": "Excluir anexo",
+    "invalidTitle": "Formato não aceito",
+    "invalidBody": "Selecione uma imagem JPG, PNG ou WebP, ou um vídeo MP4 ou WebM.",
+    "tooLargeTitle": "Arquivo vazio ou muito grande",
+    "tooLargeBody": "Imagens podem ter até 10 MB; vídeos até 25 MB.",
+    "uploaded": "Registro adicionado",
+    "uploadFailed": "Não foi possível adicionar o anexo",
     "tryAgain": "Verifique sua conexão e tente de novo.",
-    "deleteFailed": "Não foi possível excluir a foto",
+    "deleteFailed": "Não foi possível excluir o anexo",
     "types": {
       "dashboard": "Painel / luzes de alerta",
       "scanner": "Tela do scanner",
       "engine_bay": "Motor (capô aberto)",
       "other": "Outro"
     },
-    "deleteTitle": "Excluir esta foto?",
-    "deleteBody": "Ela será removida desta viagem e não dá para recuperar.",
-    "loadFailed": "Não foi possível carregar estas fotos. Confira sua conexão e tente novamente."
+    "deleteTitle": "Excluir este anexo?",
+    "deleteBody": "Ele será removido da viagem e dos relatórios compartilhados. Cópias já baixadas não podem ser removidas.",
+    "loadFailed": "Não foi possível carregar os registros da viagem. Confira sua conexão e tente novamente.",
+    "intro": "Anexe uma foto ou um vídeo curto para explicar uma luz de alerta, superaquecimento ou outro ocorrido.",
+    "description": "O que aconteceu? (opcional)",
+    "privateHint": "Privados por padrão. Os anexos só entram no link para o mecânico se você escolher compartilhá-los.",
+    "limits": "Imagens: JPG, PNG e WebP até 10 MB. Vídeos: MP4 e WebM até 25 MB.",
+    "open": "Abrir anexo",
+    "video": "Vídeo da viagem",
+    "sharedFailed": "Não foi possível carregar os anexos compartilhados. O relatório de diagnóstico continua disponível."
   },
   "auth": {
     "signInFailed": "Não conseguimos fazer seu login. Tente de novo.",

@@ -54,6 +54,7 @@ export default function SessionDetail() {
   const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
+  const [attachmentDraft, setAttachmentDraft] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -173,7 +174,7 @@ export default function SessionDetail() {
   ].filter((f) => f.value);
 
   return (
-    <AppLayout>
+    <AppLayout refreshDisabled={attachmentDraft}>
       <div className="max-w-3xl space-y-5">
         <div className="flex items-start gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label={t('tripDetail.back', 'Back')}>
@@ -247,10 +248,8 @@ export default function SessionDetail() {
           )}
         </div>
 
-        {/* 3. Send to the mechanic */}
+        <PhotoUpload key={session.id} sessionId={session.id} onDraftChange={setAttachmentDraft} />
         <ShareReportSection session={session} />
-
-        <PhotoUpload sessionId={session.id} />
 
         {/* Technical details, closed by default */}
         <div className="border-t border-border pt-4">

@@ -651,7 +651,8 @@
     "worksUntil": "works until {{date}}",
     "turnOff": "Turn off",
     "turnedOff": "Link turned off",
-    "turnOffFailed": "Couldn't turn the link off"
+    "turnOffFailed": "Couldn't turn the link off",
+    "includeMedia": "Include the current photos, videos and their descriptions. Future uploads will not be added to this link."
   },
   "adminPage": {
     "notAvailable": "Not available",
@@ -838,29 +839,36 @@
     "backHome": "Back to Home"
   },
   "photos": {
-    "title": "Photos",
-    "typeLabel": "What the photo shows",
-    "captionPlaceholder": "Short description (optional)",
-    "add": "Add photo",
-    "empty": "Keep photos of warning lights, scanner readings or other details with this trip.",
-    "delete": "Delete photo",
-    "invalidTitle": "That's not a photo",
-    "invalidBody": "Please choose an image (JPG, PNG or WebP).",
-    "tooLargeTitle": "Photo too large",
-    "tooLargeBody": "Photos can be up to 10 MB.",
-    "uploaded": "Photo added",
-    "uploadFailed": "Couldn't add the photo",
+    "title": "Trip records",
+    "typeLabel": "What the attachment shows",
+    "captionPlaceholder": "For example: the temperature warning came on after 20 minutes.",
+    "add": "Attach photo or video",
+    "empty": "No records attached to this trip yet.",
+    "delete": "Delete attachment",
+    "invalidTitle": "Unsupported file",
+    "invalidBody": "Choose a JPG, PNG, WebP image or an MP4 or WebM video.",
+    "tooLargeTitle": "File is empty or too large",
+    "tooLargeBody": "Images can be up to 10 MB; videos up to 25 MB.",
+    "uploaded": "Record added",
+    "uploadFailed": "Could not add the attachment",
     "tryAgain": "Please check your connection and try again.",
-    "deleteFailed": "Couldn't delete the photo",
+    "deleteFailed": "Could not delete the attachment",
     "types": {
       "dashboard": "Dashboard / warning lights",
       "scanner": "Scanner screen",
       "engine_bay": "Under the hood",
       "other": "Other"
     },
-    "deleteTitle": "Delete this photo?",
-    "deleteBody": "It will be removed from this trip and can't be brought back.",
-    "loadFailed": "Couldn't load these photos. Check your connection and try again."
+    "deleteTitle": "Delete this attachment?",
+    "deleteBody": "It will be removed from this trip and from shared reports. Copies already downloaded cannot be removed.",
+    "loadFailed": "Could not load the trip records. Check your connection and try again.",
+    "intro": "Attach a photo or short video to explain a warning light, overheating or another incident.",
+    "description": "What happened? (optional)",
+    "privateHint": "Private by default. Attachments are included in a mechanic link only if you choose to share them.",
+    "limits": "Images: JPG, PNG, WebP up to 10 MB. Videos: MP4, WebM up to 25 MB.",
+    "open": "Open attachment",
+    "video": "Trip video",
+    "sharedFailed": "Could not load shared attachments. The diagnostic report is still available."
   },
   "auth": {
     "signInFailed": "We couldn't sign you in. Please try again.",

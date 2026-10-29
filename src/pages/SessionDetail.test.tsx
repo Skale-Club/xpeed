@@ -18,6 +18,8 @@ const extras = vi.hoisted(() => ({
   createSharedReport: vi.fn(async () => ({ id: 'rep-1' })),
   listSharedReports: vi.fn(async () => [] as unknown[]),
   revokeSharedReport: vi.fn(async () => undefined),
+  listSessionPhotos: vi.fn(async () => [{ id: 'photo-1' }]),
+  includeSharedMedia: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/db', () => db);
 vi.mock('@/lib/db-extras', () => extras);
@@ -106,6 +108,32 @@ describe('SessionDetail', () => {
     await waitFor(() => expect(extras.revokeSharedReport).toHaveBeenCalledWith('rep-9'));
     expect(await screen.findByText('Link turned off')).toBeInTheDocument();
     expect(screen.queryByTestId('shared-links')).not.toBeInTheDocument();
+  });
+
+  it('includes only the current attachments when the owner opts in', async () => {
+    db.getSession.mockResolvedValueOnce(TRIP);
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    renderTrip();
+    fireEvent.click(await screen.findByRole('button', { name: /send to the mechanic/i }));
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /create link/i }));
+    await waitFor(() => expect(extras.includeSharedMedia).toHaveBeenCalledWith('rep-1', ['photo-1']));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+  });
+
+  it('does not hand out a link if including the selected attachments fails', async () => {
+    db.getSession.mockResolvedValueOnce(TRIP);
+    extras.includeSharedMedia.mockRejectedValueOnce(new Error('unavailable'));
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    renderTrip();
+    fireEvent.click(await screen.findByRole('button', { name: /send to the mechanic/i }));
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /create link/i }));
+    await waitFor(() => expect(extras.revokeSharedReport).toHaveBeenCalledWith('rep-1'));
+    expect(writeText).not.toHaveBeenCalled();
   });
 
   it('keeps the trip as it was and says so when re-evaluating fails', async () => {

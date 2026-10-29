@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image as ImageIcon, Loader2, Trash2, X } from 'lucide-react';
+import { Paperclip as ImageIcon, Loader2, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { MEDIA_TYPES, isTripVideo } from '@/lib/trip-media';
 import {
   uploadSessionPhoto, listSessionPhotos, getPhotoUrl, deleteSessionPhoto,
   type SessionPhoto, type PhotoType,
@@ -14,6 +15,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface PhotoUploadProps {
   sessionId: string;
+  onDraftChange?: (blocked: boolean) => void;
 }
 
 // English defaults; translations live under photos.types.<type>.
@@ -24,7 +26,7 @@ const TYPE_LABELS: Record<PhotoType, string> = {
   other: 'Other',
 };
 
-export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
+export default function PhotoUpload({ sessionId, onDraftChange }: PhotoUploadProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<SessionPhoto[]>([]);
@@ -36,6 +38,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
   const [photoType, setPhotoType] = useState<PhotoType>('dashboard');
   const [caption, setCaption] = useState('');
   const [deleting, setDeleting] = useState<SessionPhoto | null>(null);
+  useEffect(() => { onDraftChange?.(uploading || !!caption.trim()); }, [uploading, caption, onDraftChange]);
   const { toast } = useToast();
   const currentSession = useRef(sessionId);
   currentSession.current = sessionId;
@@ -86,7 +89,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
   }, [photos, sessionId]);
 
   const handleFile = useCallback(async (file: File) => {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    if (!MEDIA_TYPES[file.type]) {
       toast({
         title: t('photos.invalidTitle', "That's not a photo"),
         description: t('photos.invalidBody', 'Please choose an image (JPG, PNG or WebP).'),
@@ -94,7 +97,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       });
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > MEDIA_TYPES[file.type].maxBytes || file.size === 0) {
       toast({
         title: t('photos.tooLargeTitle', 'Photo too large'),
         description: t('photos.tooLargeBody', 'Photos can be up to 10 MB.'),
@@ -137,13 +140,15 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
       <CardContent className="p-4 space-y-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">{t('photos.title', 'Photos')}</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t('photos.title', 'Trip records')}</h3>
         </div>
 
-        <div className="grid grid-cols-[1fr_2fr_auto] gap-2 items-end">
-          <div>
+        <p className="text-sm text-muted-foreground">{t('photos.intro', 'Attach a photo or short video to explain a warning light, overheating or another incident.')}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block min-w-0 space-y-1.5 text-sm">
+            <span>{t('photos.typeLabel', 'What the attachment shows')}</span>
             <Select value={photoType} onValueChange={(v) => setPhotoType(v as PhotoType)}>
-              <SelectTrigger className="h-8 text-xs" aria-label={t('photos.typeLabel', 'What the photo shows')}>
+              <SelectTrigger className="h-auto min-h-11 text-sm [&>span]:line-clamp-none [&>span]:whitespace-normal [&>span]:text-left" aria-label={t('photos.typeLabel', 'What the photo shows')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -152,22 +157,28 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <Input
+          </label>
+          <label className="block min-w-0 space-y-1.5 text-sm">
+          <span>{t('photos.description', 'What happened? (optional)')}</span>
+          <Textarea
             placeholder={t('photos.captionPlaceholder', 'Short description (optional)')}
             value={caption}
             onChange={e => setCaption(e.target.value)}
-            className="h-8 text-xs"
+            className="min-h-20 text-sm"
+            maxLength={1000}
           />
-          <Button size="sm" disabled={uploading || !loaded || loadFailed} onClick={() => inputRef.current?.click()}>
-            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : t('photos.add', 'Add photo')}
+          </label>
+          <Button className="min-h-11 w-full sm:col-span-2" disabled={uploading || !loaded || loadFailed} onClick={() => inputRef.current?.click()}>
+            {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : t('photos.add', 'Attach photo or video')}
           </Button>
         </div>
 
+        <p className="text-xs text-muted-foreground">{t('photos.privateHint', 'Private by default. Sharing attachments requires choosing them when you create a mechanic link.')}</p>
+        <p className="text-xs text-muted-foreground">{t('photos.limits', 'Images: JPG, PNG, WebP up to 10 MB. Videos: MP4, WebM up to 25 MB.')}</p>
         <input
           ref={inputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -186,11 +197,11 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
             {t('photos.empty', 'Keep photos of warning lights, scanner readings or other details with this trip.')}
           </p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {photos.map(p => (
-              <div key={p.id} className="relative group rounded border border-border overflow-hidden">
+              <div key={p.id} className="relative group min-w-0 rounded border border-border overflow-hidden">
                 {photoUrls[p.id] && (
-                  <img src={photoUrls[p.id]} alt={p.caption || ''} className="w-full h-28 object-cover" />
+                  isTripVideo(p.storage_path) ? <video src={photoUrls[p.id]} controls preload="metadata" className="w-full max-h-64 bg-black" aria-label={p.caption || t('photos.video', 'Trip video')} /> : <a href={photoUrls[p.id]} target="_blank" rel="noopener noreferrer" className="block" aria-label={t('photos.open', 'Open attachment')}><img src={photoUrls[p.id]} alt={p.caption || ''} className="w-full h-40 object-contain bg-muted/30" /></a>
                 )}
                 {/* Always visible on touch screens; on a mouse it appears on hover or focus. */}
                 <button
@@ -203,7 +214,7 @@ export default function PhotoUpload({ sessionId }: PhotoUploadProps) {
                   <Trash2 className="w-4 h-4 text-destructive" />
                 </button>
                 {p.caption && (
-                  <div className="absolute bottom-0 inset-x-0 bg-background/70 backdrop-blur-sm px-1.5 py-0.5 text-[10px] text-foreground truncate">
+                  <div className="break-words whitespace-pre-wrap px-3 py-2 text-sm text-foreground">
                     {p.caption}
                   </div>
                 )}

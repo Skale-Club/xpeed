@@ -6,6 +6,8 @@
 // - Baselines refresh RPC
 
 import { supabase } from '@/integrations/supabase/client';
+import { MEDIA_TYPES, type SharedTripMedia } from './trip-media';
+import { publicAppUrl } from './trips';
 
 // ---------- Maintenance ----------
 
@@ -83,7 +85,9 @@ export async function uploadSessionPhoto(
   const { data: { user }, error: userError } = await supabase.auth.getUser();
   if (userError || !user) throw new Error('User not authenticated');
 
-  const ext = file.name.split('.').pop() || 'jpg';
+  const media = MEDIA_TYPES[file.type];
+  if (!media || file.size > media.maxBytes || file.size === 0) throw new Error('Unsupported attachment type or size');
+  const ext = media.extension;
   const path = `${user.id}/${sessionId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
@@ -101,7 +105,10 @@ export async function uploadSessionPhoto(
     } as never)
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+    throw error;
+  }
   return data as unknown as SessionPhoto;
 }
 
@@ -193,6 +200,20 @@ export async function getSharedReport(reportId: string): Promise<Record<string, 
     return null;
   }
   return data as Record<string, unknown> | null;
+}
+
+export async function includeSharedMedia(reportId: string, ids: string[]): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) throw new Error('Sign in to share attachments');
+  const response = await fetch(`${publicAppUrl()}/api/shared-media?id=${encodeURIComponent(reportId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ids }),
+  });
+  if (!response.ok) throw new Error('Could not include attachments. No link was shared.');
+}
+export async function getSharedMedia(reportId: string): Promise<SharedTripMedia[]> {
+  const response = await fetch(`${publicAppUrl()}/api/shared-media?id=${encodeURIComponent(reportId)}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Could not load shared attachments');
+  return (await response.json()).items ?? [];
 }
 
 // ---------- Dashboard Stats RPC ----------

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { getSharedReport } from '@/lib/db-extras';
@@ -11,6 +11,7 @@ import { formatDuration, tripProblems, tripTitle } from '@/lib/trips';
 import type { Session, SessionFlag } from '@/types/session';
 import { BrandLogo } from '@/components/BrandLogo';
 import { formatAppDate } from '@/lib/app-date';
+import { SharedTripAttachments } from '@/components/SharedTripAttachments';
 
 interface ReportPayload {
   session?: Record<string, unknown> | null;
@@ -26,6 +27,7 @@ interface ReportPayload {
 export default function SharedReport() {
   const { t, i18n } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  const [params] = useSearchParams();
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -172,6 +174,7 @@ export default function SharedReport() {
           )}
         </section>
 
+        {id && params.get('attachments') === '1' && <SharedTripAttachments reportId={id} />}
         <footer className="mt-8 pt-4 border-t border-border flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-mono">
           <BrandLogo className="h-3.5 w-3.5 opacity-70" alt="" />
           <span>{t('sharedReport.footer', 'Made with Xpeed · View-only diagnostic report')}</span>

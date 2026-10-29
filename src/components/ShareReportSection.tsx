@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { createSharedReport, listSharedReports, revokeSharedReport, type SharedReport } from '@/lib/db-extras';
+import { createSharedReport, listSharedReports, revokeSharedReport, includeSharedMedia, listSessionPhotos, type SharedReport } from '@/lib/db-extras';
 import { publicAppUrl, tripTitle } from '@/lib/trips';
 import type { Session } from '@/types/session';
 import { formatAppDate } from '@/lib/app-date';
@@ -25,6 +25,7 @@ export default function ShareReportSection({ session }: { session: Pick<Session,
   const [confirming, setConfirming] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [links, setLinks] = useState<SharedReport[]>([]);
+  const [includeMedia, setIncludeMedia] = useState(false);
 
   const loadLinks = useCallback(async () => {
     try {
@@ -40,7 +41,16 @@ export default function ShareReportSection({ session }: { session: Pick<Session,
     setSharing(true);
     try {
       const report = await createSharedReport(session.id, LINK_DAYS);
-      const url = `${publicAppUrl()}/share/${report.id}`;
+      if (includeMedia) {
+        try {
+          const media = await listSessionPhotos(session.id);
+          await includeSharedMedia(report.id, media.map((item) => item.id));
+        } catch (error) {
+          await revokeSharedReport(report.id);
+          throw error;
+        }
+      }
+      const url = `${publicAppUrl()}/share/${report.id}${includeMedia ? '?attachments=1' : ''}`;
       const title = tripTitle(session, t);
       if (navigator.share) {
         await navigator.share({ title, text: t('tripDetail.shareText', 'Report of my car: {{title}}', { title }), url });
@@ -95,6 +105,10 @@ export default function ShareReportSection({ session }: { session: Pick<Session,
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <label className="flex items-start gap-3 text-sm">
+            <input type="checkbox" checked={includeMedia} onChange={(event) => setIncludeMedia(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span>{t('sharing.includeMedia', 'Include the current photos, videos and their descriptions. Future uploads will not be added to this link.')}</span>
+          </label>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => void createLink()}>{t('sharing.confirmAction', 'Create link')}</AlertDialogAction>
