@@ -35,7 +35,6 @@ function useAppVersion(): { version: string; build: string } | null {
 function InstallSection() {
   const { t } = useTranslation();
   const kind = installKind();
-  const version = useAppVersion();
 
   return (
     <Card className="bg-card border-border" data-testid="install-section">
@@ -49,7 +48,6 @@ function InstallSection() {
         {kind === 'native' ? (
           <p className="text-sm text-muted-foreground">
             {t('install.installed', "You're using the Xpeed app.")}
-            {version && <> {t('install.version', 'Version {{version}} (build {{build}})', version)}</>}
           </p>
         ) : kind === 'android' ? (
           <>
@@ -73,6 +71,7 @@ function InstallSection() {
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
+  const version = useAppVersion();
   const { distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
   const currentLang = currentLanguage(i18n.resolvedLanguage).code;
 
@@ -160,6 +159,11 @@ export default function SettingsPage() {
               <Info className="w-5 h-5 text-primary" />
               <h3 className="text-sm font-semibold">{t('settings.about.title', 'About Xpeed')}</h3>
             </div>
+            {version && (
+              <p className="rounded-md border border-border px-3 py-2 text-sm font-semibold" data-testid="app-version">
+                {t('install.version', 'Version {{version}} (build {{build}})', version)}
+              </p>
+            )}
             <p className="text-sm text-muted-foreground">
               {t('settings.about.body', 'Xpeed reads your car through a small Bluetooth adapter, records your trips and explains in plain words what needs attention.')}
             </p>
