@@ -74,7 +74,7 @@ describe('TripCard', () => {
     expect(pill()).toHaveAttribute('href', '/live');
     expect(pill().querySelector('.animate-pulse')).toBeNull();
     expect(document.querySelector('.animate-ping')).toBeNull();
-    expect(screen.getByRole('link', { name: 'View all live sensors' })).toHaveAttribute('href', '/live');
+    expect(screen.getByRole('link', { name: 'View Dashboard' })).toHaveAttribute('href', '/live');
     expect(requestDevice).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.getByText('1726')).toBeInTheDocument());
 

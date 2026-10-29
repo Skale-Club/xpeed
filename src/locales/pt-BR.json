@@ -320,7 +320,7 @@
     }
   },
   "trip": {
-    "openLive": "Ver todos os sensores ao vivo",
+    "openLive": "Ver painel",
     "name": "Viagem {{when}}",
     "noCar": "Escolha seu carro para salvar esta viagem",
     "recovered": "Salvamos uma viagem que tinha sido interrompida",
@@ -357,6 +357,7 @@
     "saving": "Salvando sua última viagem…",
     "lastSaved": "Última viagem salva.",
     "view": "Ver",
+    "autoShort": "Auto",
     "alwaysOn": "Gravar viagens automaticamente",
     "alwaysOnHint": "Deixe o app aberto no carro: ele reconecta sozinho, grava cada viagem e descansa enquanto o carro está desligado.",
     "partOfDay": {

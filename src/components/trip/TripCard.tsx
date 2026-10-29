@@ -109,13 +109,15 @@ export function TripCard() {
         {readings || (
           <p className="text-sm text-muted-foreground">{t('trip.paused', 'Waiting for the car… the trip continues when it answers again.')}</p>
         )}
-        <Button size="lg" variant="secondary" className="w-full" asChild>
-          <Link to="/live">{t('trip.openLive', 'View all live sensors')}</Link>
-        </Button>
-        <Button size="lg" variant="outline" className="w-full" onClick={obd.stopTrip}>
-          <Square className="w-4 h-4 mr-2" />
-          {t('trip.stop', 'End trip')}
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="secondary" className="h-11 min-w-0 px-2 text-xs sm:text-sm" asChild>
+            <Link to="/live">{t('trip.openLive', 'View Dashboard')}</Link>
+          </Button>
+          <Button variant="destructive" className="h-11 min-w-0 px-2 text-xs sm:text-sm" onClick={obd.stopTrip}>
+            <Square className="mr-1.5 h-4 w-4 shrink-0" />
+            {t('trip.stop', 'End trip')}
+          </Button>
+        </div>
       </div>
     );
   } else if (status === 'connecting' || status === 'reconnecting') {
@@ -227,6 +229,12 @@ export function TripCard() {
             <Bluetooth className="h-3.5 w-3.5 text-primary" />
           </span>
           <h3 className="text-sm font-semibold">{t('trip.title', 'Your car')}</h3>
+          {status !== 'unsupported' && canStayOn && (
+            <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground" title={t('trip.alwaysOnHint')}>
+              <span>{t('trip.autoShort', 'Auto')}</span>
+              <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Record trips automatically')} />
+            </label>
+          )}
           {connected && !recording?.active && (
             <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={obd.disconnect}>
               {t('trip.disconnect', 'Disconnect')}
@@ -249,17 +257,6 @@ export function TripCard() {
           </p>
         )}
 
-        {status !== 'unsupported' && canStayOn && (
-          <label className="flex cursor-pointer items-start gap-3 border-t border-border/60 pt-4">
-            <Switch checked={alwaysOn} onCheckedChange={setAlwaysOn} aria-label={t('trip.alwaysOn', 'Record trips automatically')} />
-            <span className="text-xs">
-              <span className="font-medium block">{t('trip.alwaysOn', 'Record trips automatically')}</span>
-              <span className="text-muted-foreground">
-                {t('trip.alwaysOnHint', 'Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off.')}
-              </span>
-            </span>
-          </label>
-        )}
       </CardContent>
     </Card>
   );

@@ -320,7 +320,7 @@
     }
   },
   "trip": {
-    "openLive": "View all live sensors",
+    "openLive": "View Dashboard",
     "name": "Trip {{when}}",
     "noCar": "Choose your car to save this trip",
     "recovered": "Saved a trip that was interrupted",
@@ -357,6 +357,7 @@
     "saving": "Saving your last trip…",
     "lastSaved": "Last trip saved.",
     "view": "View",
+    "autoShort": "Auto",
     "alwaysOn": "Record trips automatically",
     "alwaysOnHint": "Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off.",
     "partOfDay": {
