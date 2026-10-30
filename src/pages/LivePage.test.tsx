@@ -83,11 +83,11 @@ describe('LivePage', () => {
     expect(card).toHaveTextContent('VEEPEAK');
     await waitFor(() => expect(card).toHaveTextContent('Bluetooth LE (BLE)'), { timeout: 8000 });
     expect(screen.getByRole('heading', { name: /Live panel/ }).parentElement).not.toHaveTextContent('VEEPEAK');
-    fireEvent.click(within(card).getByRole('button'));
+    fireEvent.click(within(card).getByRole('button', { name: 'Disconnect' }));
     expect(screen.getByRole('alertdialog')).toHaveTextContent('An active trip recording will also end');
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
     expect(card).toBeInTheDocument();
-    fireEvent.click(within(card).getByRole('button'));
+    fireEvent.click(within(card).getByRole('button', { name: 'Disconnect' }));
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Disconnect' }));
     await waitFor(() => expect(screen.queryByTestId('adapter-connection')).not.toBeInTheDocument());
   });

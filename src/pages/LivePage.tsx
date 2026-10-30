@@ -225,12 +225,14 @@ export default function LivePage() {
         )}
       </div>
       {(obd.linkOpen || connection) && <Card className="mt-4" data-testid="adapter-connection">
-        <CardContent className="p-3">
-          <button type="button" className="flex w-full items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setConfirmDisconnect(true)}>
+        <CardContent className="flex flex-wrap items-center gap-3 p-3">
+          <div className="flex min-w-[10rem] flex-1 items-center gap-3">
             <Bluetooth className="h-5 w-5 shrink-0 text-primary" />
             <span className="min-w-0 flex-1"><span className="block text-xs text-muted-foreground">{t('live.adapter', 'OBD2 adapter')}</span><span className="block truncate font-semibold">{connection?.deviceName || rememberedAdapterName() || 'OBD2'}</span><span className="block text-xs text-muted-foreground">{connection?.transport === 'classic' ? 'Bluetooth Classic (SPP)' : connection?.transport === 'ble' ? 'Bluetooth LE (BLE)' : 'Bluetooth'}</span></span>
-            <span className="flex items-center gap-1 text-xs text-muted-foreground"><BluetoothOff className="h-4 w-4" />{t('scanner.disconnect', 'Disconnect')}</span>
-          </button>
+          </div>
+          <Button type="button" variant="outline" className="ml-auto h-11 shrink-0 border-destructive/50 bg-destructive/15 px-4 text-destructive hover:border-destructive/70 hover:bg-destructive/25 hover:text-destructive" onClick={() => setConfirmDisconnect(true)}>
+            <BluetoothOff className="h-4 w-4" />{t('scanner.disconnect', 'Disconnect')}
+          </Button>
         </CardContent>
       </Card>}
       <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
