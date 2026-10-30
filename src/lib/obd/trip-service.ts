@@ -13,6 +13,12 @@ export interface TripNotification {
   distanceUnit: string;
   startedAt: number;
   active: boolean;
+  /** Optional so existing APK/web versions remain compatible during an update. */
+  state?: 'recording' | 'reconnecting' | 'waiting' | 'live';
+  timeLabel?: string;
+  openLabel?: string;
+  acceleration?: number | null;
+  accelerationLabel?: string;
 }
 
 interface ServiceOptions {

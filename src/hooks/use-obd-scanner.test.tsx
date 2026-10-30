@@ -33,6 +33,22 @@ afterEach(() => {
 });
 
 describe('useObdScanner', () => {
+  it('ignores a late startup connection after an explicit connection or disconnect', async () => {
+    const { fake, result, ended, unmount } = setup();
+    await act(async () => { await result.current.connect(); });
+    await waitFor(() => expect(result.current.recording?.active).toBe(true), { timeout: 8000 });
+    const start = result.current.recording!.startedAt;
+    const device = await fake.requestDevice.mock.results[0].value;
+    await act(async () => { await result.current.connect({ device, onlyIfIdle: true }); });
+    expect(fake.connectCalls()).toBe(1);
+    expect(result.current.recording!.startedAt).toEqual(start);
+    expect(ended).toHaveLength(0);
+    act(() => result.current.disconnect());
+    await act(async () => { await result.current.connect({ device, onlyIfIdle: true }); });
+    expect(result.current.status).toBe('idle');
+    expect(fake.connectCalls()).toBe(1);
+    unmount();
+  }, 15000);
   it('collects no recording samples while parked and starts only after movement', async () => {
     const fake = installFakeBluetooth();
     fake.setPid('0D', '00');

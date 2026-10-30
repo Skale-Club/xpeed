@@ -362,7 +362,7 @@
     "saving": "Guardando tu último viaje…",
     "lastSaved": "Último viaje guardado.",
     "view": "Ver",
-    "autoShort": "Auto",
+    "autoShort": "Grabación automática",
     "alwaysOn": "Grabar viajes automáticamente",
     "alwaysOnHint": "Deja la app abierta en el coche: se reconecta sola, graba cada viaje y descansa mientras el coche está apagado.",
     "partOfDay": {
@@ -371,7 +371,7 @@
       "evening": "Viaje de la noche",
       "night": "Viaje de madrugada"
     },
-    "autoPausedHint": "La grabación está en pausa hasta que apagues el coche.",
+    "autoPausedHint": "Terminaste este viaje. La grabación automática vuelve al apagar el coche o tras 10 minutos parado.",
     "gauge": {
       "warming": "calentando",
       "normal": "normal",
@@ -390,7 +390,20 @@
       "s": "s"
     },
     "saveConflict": "Un viaje guardado coincide con esta grabación. Se conservaron ambas copias para revisarlas; el viaje guardado no se reemplazó.",
-    "keptPending": "Viaje conservado en este dispositivo; envío pendiente"
+    "keptPending": "Viaje conservado en este dispositivo; envío pendiente",
+    "cardTitle": "Grabación de viajes",
+    "ready": "Listo para grabar",
+    "standby": "Grabación en espera",
+    "standbyAuto": "Empieza cuando conduces. Termina al apagar el coche o tras 10 minutos parado.",
+    "connectionRequired": "Conecta el adaptador para grabar",
+    "connectionRequiredHint": "La grabación necesita Bluetooth y un adaptador OBD2. Gestiona la conexión en el panel en vivo.",
+    "connectionSettings": "Configurar conexión",
+    "keeping": "Guardando el viaje en este dispositivo…",
+    "uploadPending": "Viaje guardado en este dispositivo. Envío pendiente.",
+    "syncDetails": "Sincronización",
+    "recordingAutoHint": "Termina al apagar el coche o tras 10 minutos parado.",
+    "autoOffDuringTrip": "La grabación automática está desactivada para los próximos viajes. Usa Finalizar viaje para terminar esta grabación.",
+    "recordingManualHint": "Pulsa Finalizar viaje para terminar. Apagar el coche también finaliza la grabación."
   },
   "pill": {
     "recording": "Grabando viaje",
@@ -403,7 +416,15 @@
     "recording": "Grabando tu viaje",
     "live": "Coche conectado",
     "waiting": "Esperando a que arranque el coche",
-    "reconnecting": "Buscando el adaptador"
+    "reconnecting": "Buscando el adaptador",
+    "recordingShort": "Grabando",
+    "reconnectingShort": "Reconectando",
+    "time": "Tiempo",
+    "open": "Abrir Xpeed",
+    "noMotion": "Esperando lecturas",
+    "accelerating": "Acelerando",
+    "steady": "Velocidad constante",
+    "slowing": "Desacelerando"
   },
   "appUpdate": {
     "available": "Hay una nueva versión de la app disponible.",
@@ -1173,15 +1194,17 @@
     "carMismatch": "El VIN conectado difiere del coche seleccionado. Los resultados no se guardarán en ese coche.",
     "reading": "Leyendo los módulos del coche…",
     "readAgain": "Leer códigos otra vez",
+    "read": "Leer códigos",
+    "cacheFailed": "Este dispositivo no pudo guardar una copia de la lectura. Recargar puede perder este resultado.",
     "waiting": "El coche debe estar encendido y conectado para leer códigos.",
-    "checkedAt": "Lectura a las {{time}}",
+    "checkedAt": "Última lectura: {{time}}",
     "incomplete": "El coche no respondió a todas las solicitudes necesarias. Un resultado vacío no confirma la ausencia de códigos.",
     "incompleteTitle": "Lectura de códigos incompleta",
     "stored": "Confirmado",
     "pending": "Pendiente",
     "permanent": "Permanente",
     "modules": "Módulos que respondieron: {{modules}}",
-    "syncFailed": "Se leyeron los códigos, pero no se pudo actualizar Problemas. Vuelve a leer cuando tengas conexión."
+    "syncFailed": "Se leyeron los códigos, pero no se pudo actualizar Problemas. La lectura guardada sigue disponible."
   },
   "notifications": {
     "open": "Notificaciones: {{count}} sin leer",
@@ -1345,7 +1368,7 @@
   "bluetooth": {
     "title": "Conexión Bluetooth",
     "disconnect": "Desconectar Bluetooth",
-    "disconnected": "No hay ningún adaptador conectado. Conecta desde la tarjeta de viaje en Inicio.",
+    "disconnected": "Ningún adaptador conectado. Configura la conexión en el panel en vivo.",
     "endTrip": "Esto desconecta el adaptador y termina la grabación actual. El viaje se conservará para guardarlo.",
     "stayOff": "Esto cierra la conexión con el adaptador."
   },

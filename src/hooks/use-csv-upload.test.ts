@@ -72,6 +72,7 @@ describe('recorded CSV commits are idempotent', () => {
     await ingestSessionCsv(file(), 'car-1', undefined, undefined, stored, undefined, exact);
     expect(recordings.storeRecordedSession).toHaveBeenCalledTimes(1);
     const args = recordings.storeRecordedSession.mock.calls[0];
+    expect(args[7].ruleset_id).toBe('toyota-prius-g3');
     expect(args[0]).toEqual(exact);
     expect(args[4]).toBe(exact.startedAt);
     expect(args[2]).toMatch(/^[a-f0-9]{64}$/);

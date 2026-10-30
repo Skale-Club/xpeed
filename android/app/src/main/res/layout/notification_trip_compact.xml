@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The system supplies the notification background, app header and expand control. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="48dp" android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="20dp" android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/trip_vehicle" style="@style/Notification.Trip.Title" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:gravity="center_vertical" android:layout_marginEnd="8dp" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="10sp" android:autoSizeMaxTextSize="13sp" />
+        <ImageView android:id="@+id/trip_status_dot" android:layout_width="6dp" android:layout_height="6dp" android:src="@drawable/notification_status_dot" android:importantForAccessibility="no" />
+        <TextView android:id="@+id/trip_status" style="@style/Notification.Trip.Caption" android:layout_width="wrap_content" android:layout_height="match_parent" android:gravity="center_vertical" android:layout_marginStart="5dp" android:maxWidth="108dp" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="28dp" android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/trip_speed" style="@style/Notification.Trip.CompactValue" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:gravity="center_vertical|start" />
+        <Chronometer android:id="@+id/trip_time" style="@style/Notification.Trip.CompactValue" android:layout_width="0dp" android:layout_weight="1.2" android:layout_height="match_parent" android:gravity="center" />
+        <TextView android:id="@+id/trip_distance" style="@style/Notification.Trip.CompactValue" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:gravity="center_vertical|end" />
+    </LinearLayout>
+</LinearLayout>

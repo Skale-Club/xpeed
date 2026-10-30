@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, cleanup, act } from '@testing-library/react';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { listTripCopies, saveTripCopy, tripKey, type StoredTrip } from '@/lib/obd/trip-store';
-import { ObdScannerProvider } from './ObdScannerContext';
+import { ObdScannerProvider, useObd } from './ObdScannerContext';
+import { installFakeBluetooth } from '@/test/fake-obd';
 import * as tripStore from '@/lib/obd/trip-store';
 import { recordedSessionId } from '@/lib/recording-identity';
 import { webcrypto } from 'node:crypto';
@@ -12,7 +13,7 @@ import { webcrypto } from 'node:crypto';
 const h = vi.hoisted(() => ({
   user: { id: 'u1' } as { id: string } | null,
   selectedCarId: 'car-1' as string | null,
-  cars: [{ id: 'car-1' }] as { id: string }[],
+  cars: [{ id: 'car-1', vin: 'JTDKN3DU5A0123456' }] as { id: string; vin?: string }[],
   ingestDelayMs: 0,
 }));
 
@@ -36,7 +37,7 @@ beforeEach(() => {
   idb = installFakeIndexedDb();
   h.user = { id: 'u1' };
   h.selectedCarId = 'car-1';
-  h.cars = [{ id: 'car-1' }];
+  h.cars = [{ id: 'car-1', vin: 'JTDKN3DU5A0123456' }];
   h.ingestDelayMs = 0;
   cloud.checkpoint.mockClear(); cloud.finalize.mockClear(); cloud.recover.mockClear(); cloud.remove.mockClear();
   ingest.mockReset();
@@ -57,7 +58,89 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  delete (navigator as unknown as Record<string, unknown>).bluetooth;
 });
+
+it('ends the saving indicator at the receipt while later analysis is still running', async () => {
+  await saveTripCopy(copy(1_000_000));
+  let state: ReturnType<typeof useObd>;
+  const Probe = () => { state = useObd(); return null; };
+  let finish!: () => void;
+  const analysis = new Promise<void>(resolve => { finish = resolve; });
+  ingest.mockImplementationOnce(async (_file, _car, _name, _p, onStored) => {
+    await onStored('committed');
+    await analysis;
+    return { sessionId: 'committed' };
+  });
+  render(<ObdScannerProvider><Probe /></ObdScannerProvider>);
+  await waitFor(() => expect(state!.lastTrip?.sessionId).toBe('committed'));
+  expect(state!.savingTrip).toBe(false);
+  expect(state!.tripSave).toBeNull(); // background recovery is not the current card's save
+  expect(await listTripCopies()).toEqual([]);
+  await saveTripCopy(copy(2_000_000));
+  await act(async () => { await state!.retryPendingTrips(); });
+  expect(ingest).toHaveBeenCalledTimes(2); // the next trip does not wait for the first one's AI
+  expect(await listTripCopies()).toEqual([]);
+  await act(async () => { finish(); await analysis; });
+  await waitFor(() => expect(cloud.recover).toHaveBeenCalled());
+  expect(ingest).toHaveBeenCalledTimes(2);
+});
+
+it('keeps a trip offline and exposes a pending state, then confirms it when retried online', async () => {
+  installFakeBluetooth();
+  localStorage.setItem('xpeed.obd.alwaysOn', 'false');
+  let state: ReturnType<typeof useObd>;
+  const Probe = () => { state = useObd(); return null; };
+  render(<ObdScannerProvider><Probe /></ObdScannerProvider>);
+  await act(async () => { await state!.connect(); });
+  await waitFor(() => expect(state!.status).toBe('live'));
+  await act(async () => { await state!.startTrip(); });
+  await waitFor(() => expect(state!.getRecording().total).toBeGreaterThan(0));
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  const time = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(time + 10_000);
+  act(() => state!.stopTrip());
+  clock.mockRestore();
+  await waitFor(() => expect(state!.tripSave?.status).toBe('pending'));
+  expect(ingest).not.toHaveBeenCalled();
+  expect(await listTripCopies()).toHaveLength(1);
+  expect(state!.savingTrip).toBe(false);
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+  await act(async () => { await state!.retryPendingTrips(); });
+  expect(state!.tripSave).toMatchObject({ status: 'saved', sessionId: 'session' });
+  expect(await listTripCopies()).toEqual([]);
+}, 15000);
+
+it('finishes an in-flight backup before committing and deleting the completed trip', async () => {
+  installFakeBluetooth();
+  localStorage.setItem('xpeed.obd.alwaysOn', 'false');
+  const append = tripStore.appendTripSamples;
+  let release!: () => void;
+  const delay = new Promise<void>(resolve => { release = resolve; });
+  const pendingAppend = vi.spyOn(tripStore, 'appendTripSamples').mockImplementationOnce(async (...args) => {
+    await delay;
+    return append(...args);
+  });
+  const save = vi.spyOn(tripStore, 'saveTripCopy');
+  let state: ReturnType<typeof useObd>;
+  const Probe = () => { state = useObd(); return null; };
+  render(<ObdScannerProvider><Probe /></ObdScannerProvider>);
+  await act(async () => { await state!.connect(); });
+  await waitFor(() => expect(state!.status).toBe('live'));
+  await act(async () => { await state!.startTrip(); });
+  await waitFor(() => expect(pendingAppend).toHaveBeenCalledOnce(), { timeout: 8000 });
+  const time = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(time + 10_000);
+  act(() => state!.stopTrip());
+  clock.mockRestore();
+  expect(state!.tripSave?.status).toBe('keeping');
+  expect(save).not.toHaveBeenCalled();
+  expect(ingest).not.toHaveBeenCalled();
+  await act(async () => { release(); await delay; });
+  await waitFor(() => expect(state!.tripSave?.status).toBe('saved'));
+  expect(save).toHaveBeenCalledOnce();
+  await waitFor(async () => expect(await listTripCopies()).toEqual([]));
+}, 15000);
 
 const samples = (seconds: number) => Array.from({ length: seconds + 1 }, (_, t) => ({ t, values: { speed: 40 } }));
 const copy = (startedAt: number, over: Partial<StoredTrip> = {}): StoredTrip => ({

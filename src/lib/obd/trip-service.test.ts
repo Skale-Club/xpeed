@@ -6,7 +6,7 @@ import { showBackgroundService, hideBackgroundService } from './trip-service';
 describe('trip notification bridge', () => {
   beforeEach(async () => { mocks.native = true; await hideBackgroundService(); vi.clearAllMocks(); });
   it('sends live metrics and updates the same ongoing service', async () => {
-    const trip = { vehicle: 'Prius', status: 'Recording', speed: '16', speedUnit: 'mph', distance: '2.4', distanceUnit: 'mi', startedAt: 123, active: true };
+    const trip = { vehicle: 'Prius', status: 'Recording', speed: '16', speedUnit: 'mph', distance: '2.4', distanceUnit: 'mi', startedAt: 123, active: true, acceleration: 0.8, accelerationLabel: 'Accelerating', timeLabel: 'Time', openLabel: 'Open Xpeed' };
     await showBackgroundService('Xpeed', 'Recording', true, trip);
     expect(mocks.start).toHaveBeenCalledWith({ title: 'Xpeed', text: 'Recording', awake: true, trip });
     await showBackgroundService('Xpeed', 'Waiting', false);

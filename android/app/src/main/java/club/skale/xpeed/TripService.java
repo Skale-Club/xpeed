@@ -13,9 +13,17 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.widget.RemoteViews;
+import android.view.View;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
 import org.json.JSONObject;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 /**
  * Foreground service that keeps Xpeed running with the screen off while it is
@@ -131,11 +139,16 @@ public class TripService extends Service {
 
     private static Notification buildNotification(Context context, String title, String text, String trip) {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Xpeed", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Connection to your car");
-            channel.setShowBadge(false);
-            nm.createNotificationChannel(channel);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            String name = context.getString(R.string.notification_channel);
+            NotificationChannel channel = nm.getNotificationChannel(CHANNEL_ID);
+            if (channel == null || !name.contentEquals(channel.getName())) {
+                if (channel == null) channel = new NotificationChannel(CHANNEL_ID, name, NotificationManager.IMPORTANCE_LOW);
+                channel.setName(name);
+                channel.setDescription(context.getString(R.string.notification_channel_description));
+                channel.setShowBadge(false);
+                nm.createNotificationChannel(channel);
+            }
         }
 
         Intent open = new Intent(context, MainActivity.class);
@@ -143,12 +156,15 @@ public class TripService extends Service {
         PendingIntent tap = PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setSmallIcon(R.drawable.ic_stat_xpeed)
+                .setColor(ContextCompat.getColor(context, R.color.notification_accent))
+                .setColorized(false)
                 .setContentTitle(title != null ? title : "Xpeed")
                 .setContentText(text != null ? text : "")
                 .setContentIntent(tap)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -156,27 +172,90 @@ public class TripService extends Service {
         if (trip != null) {
             try {
                 JSONObject data = new JSONObject(trip);
+                String vehicle = field(data, "vehicle", "Xpeed");
+                String status = field(data, "status", text != null ? text : "");
+                builder.setContentTitle(vehicle).setContentText(status);
                 if (data.optBoolean("active")) {
-                    RemoteViews card = new RemoteViews(context.getPackageName(), R.layout.notification_trip);
-                    card.setTextViewText(R.id.trip_vehicle, data.optString("vehicle", "Xpeed"));
-                    card.setTextViewText(R.id.trip_status, data.optString("status", ""));
-                    card.setTextViewText(R.id.trip_speed, data.optString("speed", "—"));
-                    card.setTextViewText(R.id.trip_speed_unit, data.optString("speedUnit", "km/h"));
-                    card.setTextViewText(R.id.trip_distance, data.optString("distance", "—"));
-                    card.setTextViewText(R.id.trip_distance_unit, data.optString("distanceUnit", "km"));
-                    long started = data.optLong("startedAt", 0);
-                    long elapsed = Math.max(0, System.currentTimeMillis() - started);
-                    card.setChronometer(R.id.trip_time, SystemClock.elapsedRealtime() - elapsed, null, started > 0);
+                    // Android owns the surrounding surface, app header and expand control.
+                    // The compact content fits 48 dp; expanded content adds readable metrics.
+                    RemoteViews compact = tripCard(context, data, true);
+                    RemoteViews expanded = tripCard(context, data, false);
                     builder.setStyle(new NotificationCompat.DecoratedCustomViewStyle())
-                            .setCustomBigContentView(card)
-                            .setContentTitle(data.optString("vehicle", "Xpeed"))
-                            .setContentText(data.optString("speed", "—") + " " + data.optString("speedUnit", "km/h")
-                                + " · " + data.optString("distance", "—") + " " + data.optString("distanceUnit", "km"))
-                            .setSubText(data.optString("status", ""));
-                    if (started > 0) builder.setWhen(started).setShowWhen(true).setUsesChronometer(true);
+                            .setCustomContentView(compact)
+                            .setCustomBigContentView(expanded)
+                            .setContentText(field(data, "speed", "â€”") + " " + field(data, "speedUnit", "km/h")
+                                    + " Â· " + field(data, "distance", "â€”") + " " + field(data, "distanceUnit", "km"))
+                            .addAction(R.drawable.ic_stat_xpeed, field(data, "openLabel", context.getString(R.string.notification_open)), tap);
                 }
-            } catch (org.json.JSONException ignored) { /* Old clients keep the text notification. */ }
+            } catch (org.json.JSONException ignored) { /* Old clients keep a standard text notification. */ }
         }
         return builder.build();
+    }
+
+    private static String field(JSONObject data, String name, String fallback) {
+        String value = data.optString(name, fallback);
+        return value.trim().isEmpty() ? fallback : value;
+    }
+
+    private static CharSequence compactMetric(String value, String unit) {
+        SpannableString metric = new SpannableString(value + " " + unit);
+        metric.setSpan(new RelativeSizeSpan(0.6f), value.length() + 1, metric.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return metric;
+    }
+
+    private static RemoteViews tripCard(Context context, JSONObject data, boolean compact) {
+        RemoteViews card = new RemoteViews(context.getPackageName(), compact ? R.layout.notification_trip_compact : R.layout.notification_trip);
+        String speed = field(data, "speed", "â€”"), speedUnit = field(data, "speedUnit", "km/h");
+        String distance = field(data, "distance", "â€”"), distanceUnit = field(data, "distanceUnit", "km");
+        String state = field(data, "state", "recording");
+        String status = field(data, "status", context.getString(R.string.notification_recording));
+        int color = ContextCompat.getColor(context, "recording".equals(state) ? R.color.notification_recording : R.color.notification_waiting);
+        card.setTextViewText(R.id.trip_vehicle, field(data, "vehicle", "Xpeed"));
+        card.setTextViewText(R.id.trip_status, status);
+        card.setTextColor(R.id.trip_status, color);
+        card.setImageViewResource(R.id.trip_status_dot, "recording".equals(state)
+                ? R.drawable.notification_status_dot : R.drawable.notification_waiting_dot);
+        card.setContentDescription(R.id.trip_status, status);
+        card.setTextViewText(R.id.trip_speed, compact ? compactMetric(speed, speedUnit) : speed);
+        card.setTextViewText(R.id.trip_distance, compact ? compactMetric(distance, distanceUnit) : distance);
+        if (!compact) {
+            card.setTextViewText(R.id.trip_speed_unit, speedUnit);
+            card.setTextViewText(R.id.trip_distance_unit, distanceUnit);
+            card.setTextViewText(R.id.trip_time_label, field(data, "timeLabel", context.getString(R.string.notification_time)));
+            boolean hasMotion = data.has("accelerationLabel");
+            card.setViewVisibility(R.id.trip_motion, hasMotion ? View.VISIBLE : View.GONE);
+            if (hasMotion) {
+                double acceleration = data.optDouble("acceleration", Double.NaN);
+                int motionColor = ContextCompat.getColor(context,
+                        !Double.isFinite(acceleration) || Math.abs(acceleration) <= 0.15 ? R.color.notification_motion_neutral
+                        : acceleration > 0 ? R.color.notification_acceleration : R.color.notification_waiting);
+                card.setTextViewText(R.id.trip_acceleration_label, field(data, "accelerationLabel", ""));
+                card.setTextColor(R.id.trip_acceleration_label, motionColor);
+                card.setImageViewBitmap(R.id.trip_acceleration_bar, motionBar(context, acceleration, motionColor));
+            }
+        }
+        long started = data.optLong("startedAt", 0);
+        long elapsed = started > 0 ? Math.max(0, System.currentTimeMillis() - started) : 0;
+        card.setChronometer(R.id.trip_time, SystemClock.elapsedRealtime() - elapsed, null, started > 0);
+        return card;
+    }
+
+    /** A meter of measured speed change, not an animated or invented waveform. */
+    private static Bitmap motionBar(Context context, double acceleration, int color) {
+        final int width = 720, height = 48, bars = 32;
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        int active = Double.isFinite(acceleration) && Math.abs(acceleration) > 0.15
+                ? Math.max(1, (int) Math.ceil(Math.min(1, Math.abs(acceleration) / 3.0) * bars)) : 0;
+        int track = ContextCompat.getColor(context, R.color.notification_motion_track);
+        float gap = 5f, barWidth = (width - gap * (bars - 1)) / bars;
+        for (int i = 0; i < bars; i++) {
+            float barHeight = 12f + 34f * i / (bars - 1);
+            float left = i * (barWidth + gap);
+            paint.setColor(i < active ? color : track);
+            canvas.drawRoundRect(left, height - barHeight, left + barWidth, height, 2.5f, 2.5f, paint);
+        }
+        return bitmap;
     }
 }

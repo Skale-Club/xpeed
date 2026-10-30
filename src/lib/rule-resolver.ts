@@ -25,9 +25,21 @@ interface RulesetMatcher {
 // Order matters: most specific first.
 const RULESETS: RulesetMatcher[] = [
   {
-    id: 'toyota-prius',
-    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true,
+    id: 'toyota-prius-g3',
+    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true
+      && c.year != null && c.year >= 2009 && c.year <= 2015,
     rules: DEFAULT_PRIUS_RULES,
+  },
+  {
+    id: 'toyota-prius-g4',
+    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true
+      && c.year != null && c.year >= 2016 && c.year <= 2022,
+    rules: DEFAULT_PRIUS_RULES,
+  },
+  {
+    id: 'generic-hybrid',
+    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true,
+    rules: GENERIC_HYBRID_RULES,
   },
   {
     id: 'honda-civic-g10',
@@ -37,13 +49,13 @@ const RULESETS: RulesetMatcher[] = [
     rules: HONDA_CIVIC_G10_RULES,
   },
   {
-    id: 'ford-f150',
+    id: 'ford-f150-13gen',
     matches: (c) => c.make?.toLowerCase() === 'ford'
       && (c.model?.toLowerCase().includes('f-150') === true || c.model?.toLowerCase().includes('f150') === true),
     rules: FORD_F150_RULES,
   },
   {
-    id: 'subaru-wrx',
+    id: 'subaru-wrx-vab',
     matches: (c) => c.make?.toLowerCase() === 'subaru' && c.model?.toLowerCase().includes('wrx') === true,
     rules: SUBARU_WRX_RULES,
   },
@@ -54,17 +66,18 @@ const RULESETS: RulesetMatcher[] = [
   },
 ];
 
-const ENGINE_FALLBACKS: Record<string, DefaultRule[]> = {
-  hybrid: GENERIC_HYBRID_RULES,
-  electric: TESLA_MODEL3_RULES, // closest analogue we have
-  diesel: GENERIC_DIESEL_RULES,
-  petrol: GENERIC_PETROL_RULES,
-  flex: GENERIC_PETROL_RULES,
+// IDs must match vehicle_rulesets: sessions.ruleset_id is a foreign key.
+const ENGINE_FALLBACKS: Record<string, { id: string; rules: DefaultRule[] }> = {
+  hybrid: { id: 'generic-hybrid', rules: GENERIC_HYBRID_RULES },
+  electric: { id: 'tesla-model3', rules: TESLA_MODEL3_RULES }, // closest bundled rule set
+  diesel: { id: 'generic-diesel', rules: GENERIC_DIESEL_RULES },
+  petrol: { id: 'generic-petrol', rules: GENERIC_PETROL_RULES },
+  flex: { id: 'generic-petrol', rules: GENERIC_PETROL_RULES },
 };
 
 // Bump when thresholds, rule logic, or the set of bundled rulesets change.
 // Sessions store this at upload time so future reprocessing can target stale ones.
-export const RULES_VERSION = '1.0';
+export const RULES_VERSION = '1.1';
 
 export interface ResolvedRuleset {
   id: string;
@@ -92,7 +105,7 @@ export function resolveRulesetForCar(car: Partial<CarProfile> | null | undefined
     // Engine type fallback
     const engine = (car as CarProfile & { engine_type?: string }).engine_type;
     if (engine && ENGINE_FALLBACKS[engine]) {
-      return { id: `generic-${engine}`, rules: ENGINE_FALLBACKS[engine], matched_via: 'engine_type' };
+      return { ...ENGINE_FALLBACKS[engine], matched_via: 'engine_type' };
     }
   }
 

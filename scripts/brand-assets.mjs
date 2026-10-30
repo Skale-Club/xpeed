@@ -72,6 +72,12 @@ await png(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" vie
 // Android launcher: legacy square and round icons, and the adaptive
 // foreground (mark within the central 66 of 108 dp) on the yellow background.
 const res = 'android/app/src/main/res';
+// Status-bar icons are monochrome masks; keep the notification on the same brand source.
+const notificationPoints = /points="([^"]+)"/.exec(source)[1].match(/[\d.]+/g);
+const notificationPath = Array.from({ length: notificationPoints.length / 2 }, (_, i) =>
+  `${i ? 'L' : 'M'}${notificationPoints[i * 2]},${notificationPoints[i * 2 + 1]}`).join(' ') + ' Z';
+fs.writeFileSync(out(`${res}/drawable/ic_stat_xpeed.xml`),
+  `<?xml version="1.0" encoding="utf-8"?>\n<!-- Generated from branding/mark.svg by npm run brand. Android tints this monochrome mark. -->\n<vector xmlns:android="http://schemas.android.com/apk/res/android"\n    android:width="24dp" android:height="24dp" android:viewportWidth="${BOX}" android:viewportHeight="${BOX}">\n    <path android:fillColor="#FFFFFFFF" android:pathData="${notificationPath}" />\n</vector>\n`);
 for (const [dir, px] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]]) {
   await png(tileSvg(px, { radius: 0.2 }), `${res}/mipmap-${dir}/ic_launcher.png`);
   await png(tileSvg(px, { shape: 'circle', markScale: 0.56 }), `${res}/mipmap-${dir}/ic_launcher_round.png`);

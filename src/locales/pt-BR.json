@@ -362,7 +362,7 @@
     "saving": "Salvando sua última viagem…",
     "lastSaved": "Última viagem salva.",
     "view": "Ver",
-    "autoShort": "Auto",
+    "autoShort": "Gravação automática",
     "alwaysOn": "Gravar viagens automaticamente",
     "alwaysOnHint": "Deixe o app aberto no carro: ele reconecta sozinho, grava cada viagem e descansa enquanto o carro está desligado.",
     "partOfDay": {
@@ -371,7 +371,7 @@
       "evening": "Viagem da noite",
       "night": "Viagem de madrugada"
     },
-    "autoPausedHint": "Gravação pausada até você desligar o carro.",
+    "autoPausedHint": "Você encerrou esta viagem. A gravação automática volta após desligar o carro ou ficar parado por 10 minutos.",
     "gauge": {
       "warming": "aquecendo",
       "normal": "normal",
@@ -390,7 +390,20 @@
       "s": "s"
     },
     "saveConflict": "Uma viagem salva coincide com esta gravação. As duas cópias foram mantidas para conferência; a viagem salva não foi substituída.",
-    "keptPending": "Viagem mantida neste dispositivo; envio pendente"
+    "keptPending": "Viagem mantida neste dispositivo; envio pendente",
+    "cardTitle": "Gravação de viagens",
+    "ready": "Pronto para gravar",
+    "standby": "Gravação em espera",
+    "standbyAuto": "Começa quando você dirige. Termina com o carro desligado ou parado por 10 minutos.",
+    "connectionRequired": "Conecte o adaptador para gravar",
+    "connectionRequiredHint": "A gravação precisa de Bluetooth e de um adaptador OBD2. Gerencie a conexão no painel ao vivo.",
+    "connectionSettings": "Configurar conexão",
+    "keeping": "Guardando a viagem neste aparelho…",
+    "uploadPending": "Viagem guardada neste aparelho. Envio pendente.",
+    "syncDetails": "Sincronização",
+    "recordingAutoHint": "Termina automaticamente com o carro desligado ou parado por 10 minutos.",
+    "autoOffDuringTrip": "A gravação automática está desligada para as próximas viagens. Use Encerrar viagem para finalizar esta gravação.",
+    "recordingManualHint": "Toque em Encerrar viagem para finalizar. Desligar o carro também encerra a gravação."
   },
   "pill": {
     "recording": "Gravando viagem",
@@ -403,7 +416,15 @@
     "recording": "Gravando sua viagem",
     "live": "Carro conectado",
     "waiting": "Aguardando o carro ligar",
-    "reconnecting": "Procurando o adaptador"
+    "reconnecting": "Procurando o adaptador",
+    "recordingShort": "Gravando",
+    "reconnectingShort": "Reconectando",
+    "time": "Tempo",
+    "open": "Abrir Xpeed",
+    "noMotion": "Aguardando leituras",
+    "accelerating": "Acelerando",
+    "steady": "Velocidade constante",
+    "slowing": "Desacelerando"
   },
   "appUpdate": {
     "available": "Há uma nova versão do app disponível.",
@@ -1173,15 +1194,17 @@
     "carMismatch": "O VIN conectado é diferente do carro selecionado. Os resultados não serão salvos nesse carro.",
     "reading": "Lendo os módulos do carro…",
     "readAgain": "Ler códigos novamente",
+    "read": "Ler códigos",
+    "cacheFailed": "Este aparelho não conseguiu guardar uma cópia da leitura. Atualizar a página pode perder este resultado.",
     "waiting": "O carro precisa estar ligado e conectado para ler os códigos.",
-    "checkedAt": "Leitura em {{time}}",
+    "checkedAt": "Última leitura: {{time}}",
     "incomplete": "O carro não respondeu a todas as solicitações necessárias. Um resultado vazio não confirma a ausência de códigos de falha.",
     "incompleteTitle": "Leitura de códigos incompleta",
     "stored": "Confirmado",
     "pending": "Pendente",
     "permanent": "Permanente",
     "modules": "Módulos que responderam: {{modules}}",
-    "syncFailed": "Os códigos foram lidos, mas não foi possível atualizar Problemas. Leia novamente quando estiver online."
+    "syncFailed": "Os códigos foram lidos, mas não foi possível atualizar Problemas. A leitura salva continua disponível."
   },
   "notifications": {
     "open": "Notificações: {{count}} não lidas",
@@ -1345,7 +1368,7 @@
   "bluetooth": {
     "title": "Conexão Bluetooth",
     "disconnect": "Desconectar Bluetooth",
-    "disconnected": "Nenhum adaptador conectado. Conecte pelo cartão de viagem na Home.",
+    "disconnected": "Nenhum adaptador conectado. Configure a conexão no painel ao vivo.",
     "endTrip": "Isso desconecta o adaptador e encerra a gravação atual. A viagem será mantida para salvar.",
     "stayOff": "Isso encerra a conexão com o adaptador."
   },

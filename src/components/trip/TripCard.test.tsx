@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import i18n from '@/lib/i18n';
 import { TripCard } from './TripCard';
 import { ConnectionPill } from './ConnectionPill';
-import { ObdScannerProvider } from '@/contexts/ObdScannerContext';
+import { useObd, ObdScannerProvider } from '@/contexts/ObdScannerContext';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { installFakeBluetooth } from '@/test/fake-obd';
 
@@ -18,12 +18,18 @@ vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } 
 // No earlier upload of the same trip to replace.
 vi.mock('@/lib/db', () => ({ findSessionStartedAt: vi.fn(async () => null), deleteSession: vi.fn(async () => undefined) }));
 
+function ConnectionSetup() {
+  const obd = useObd();
+  return <button onClick={() => void obd.connect()}>Connect in live panel</button>;
+}
+
 function renderCard() {
   return render(
     <MemoryRouter>
       <SettingsProvider>
         <ObdScannerProvider>
           <ConnectionPill />
+          <ConnectionSetup />
           <TripCard />
         </ObdScannerProvider>
       </SettingsProvider>
@@ -65,9 +71,11 @@ describe('TripCard', () => {
     expect(pill()).toHaveTextContent('Car not connected');
     // Not connected: a note to connect, and no "Start trip" yet
     expect(screen.getByTestId('not-connected')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Set up connection' })).toHaveAttribute('href', '/live');
+    expect(requestDevice).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /start trip/i })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect in live panel/i }));
     fireEvent.click(await screen.findByRole('button', { name: /start trip/i }, { timeout: 5000 }));
     expect(await screen.findByText('Recording your trip', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('Recording trip');
@@ -76,6 +84,8 @@ describe('TripCard', () => {
     expect(document.querySelector('.animate-ping')).toBeNull();
     expect(screen.getByRole('link', { name: 'View Dashboard' })).toHaveAttribute('href', '/live');
     expect(requestDevice).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('View details')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'View Dashboard' })).toHaveLength(1);
     await waitFor(() => expect(screen.getByText('1726')).toBeInTheDocument());
 
     const clock = advanceClock(10_000);
@@ -105,8 +115,8 @@ describe('TripCard', () => {
     fake.setCarOn(false);
     renderCard();
 
-    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
-    expect(await screen.findByText(/waiting for the car/i, { selector: 'p' }, { timeout: 15000 })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /connect in live panel/i }));
+    expect(await screen.findByText(/recording on standby/i, { selector: 'p' }, { timeout: 15000 })).toBeInTheDocument();
     expect(pill()).toHaveTextContent('Waiting for the car');
     expect(ingestMock).not.toHaveBeenCalled();
 
@@ -124,14 +134,14 @@ describe('TripCard', () => {
     clock = advanceClock(100_000);
     await waitFor(() => expect(ingestMock).toHaveBeenCalledTimes(1), { timeout: 10000 });
     clock.mockRestore();
-    expect(await screen.findByText(/waiting for the car/i, { selector: 'p' })).toBeInTheDocument();
+    expect(await screen.findByText(/recording on standby/i, { selector: 'p' })).toBeInTheDocument();
   }, 40000);
 
   it('reconnects by itself when the adapter drops, and remembers it for next time', async () => {
     const fake = installFakeBluetooth();
     const { unmount } = renderCard();
     // Always on: once connected, the moving car starts recording by itself
-    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect in live panel/i }));
     await screen.findByText('Recording your trip', {}, { timeout: 5000 });
 
     fake.dropLink();
@@ -155,7 +165,7 @@ describe('TripCard', () => {
     // First visit links the adapter so it is remembered.
     const { unmount } = renderCard();
     // Always on: once connected, the moving car starts recording by itself
-    fireEvent.click(screen.getByRole('button', { name: /connect to the car/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect in live panel/i }));
     await screen.findByText('Recording your trip', {}, { timeout: 5000 });
     unmount();
 

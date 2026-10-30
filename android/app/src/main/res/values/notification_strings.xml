@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notification_channel">Trip recording</string>
+    <string name="notification_channel_description">Car connection and active trip recording</string>
+    <string name="notification_time">Time</string>
+    <string name="notification_open">Open Xpeed</string>
+    <string name="notification_recording">Recording</string>
+</resources>

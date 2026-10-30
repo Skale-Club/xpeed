@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="notification_accent">#756400</color>
+    <color name="notification_recording">#B6293C</color>
+    <color name="notification_waiting">#8C6500</color>
+    <color name="notification_acceleration">#147C66</color>
+    <color name="notification_motion_neutral">#686C74</color>
+    <color name="notification_motion_track">#D7DAD7</color>
+</resources>

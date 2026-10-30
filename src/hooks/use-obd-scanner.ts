@@ -710,7 +710,10 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
    * Link the adapter. Without `device` this opens the Bluetooth chooser and
    * must run inside a click. `device` reopens a remembered adapter silently.
    */
-  const connect = useCallback(async (opts: { device?: AdapterRef; showAll?: boolean } = {}) => {
+  const connect = useCallback(async (opts: { device?: AdapterRef; showAll?: boolean; onlyIfIdle?: boolean } = {}) => {
+    // Startup discovery can resolve after a manual connection/disconnection.
+    // Any explicit action owns the session; never end its trip to auto-resume.
+    if (opts.onlyIfIdle && sessionRef.current !== 0) return;
     setError(null);
     setLinkFailed(false);
     // A trip left open by an earlier link ends here, so this connection starts a clean one.

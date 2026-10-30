@@ -27,6 +27,9 @@ export async function recoverCloudTrips(carId: string): Promise<StoredTrip[]> {
   const copies: StoredTrip[] = [];
   // Only explicitly ended trips are retried automatically. Another phone may
   // still be recording; a missing heartbeat alone never finalizes its trip.
-  for (const item of result.items.filter((item: { endedAt?: number }) => item.endedAt)) copies.push((await request(carId, 'GET', undefined, item.id)).trip);
+  for (const item of result.items.filter((item: { endedAt?: number }) => item.endedAt)) {
+    try { copies.push((await request(carId, 'GET', undefined, item.id)).trip); }
+    catch (error) { console.warn('Trip checkpoint recovery deferred:', error); }
+  }
   return copies;
 }

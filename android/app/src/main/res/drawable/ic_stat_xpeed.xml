@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from branding/mark.svg by npm run brand. Android tints this monochrome mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="657.39" android:viewportHeight="657.39">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M606.66,182.39 L475,50.74 L328.7,197.04 L182.39,50.74 L50.74,182.39 L197.04,328.7 L50.74,475 L182.39,606.66 L328.7,460.35 L475,606.66 L606.66,475 L460.35,328.7 L606.66,182.39 Z" />
+</vector>

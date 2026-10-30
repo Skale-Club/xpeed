@@ -27,6 +27,8 @@ import { PID_PRESETS, mergePreset } from '@/lib/obd/presets';
 import { DEFAULT_TRIP_OPTIONS } from '@/lib/obd/trip-detector';
 import type { LiveSnapshot } from '@/lib/obd/live-store';
 import { identifyVin, isValidVin, vinFitsCar, type CarIdentity } from '@/lib/vin';
+import { logObdDiagnostic } from '@/lib/obd/diagnostic-log';
+import { TripMotion } from '@/lib/obd/trip-motion';
 
 // The Bluetooth OBD connection belongs to the whole signed-in app, not to one
 // page. In "always on" mode it also runs the car on its own: it reconnects
@@ -57,6 +59,14 @@ export interface SavedTrip {
   endedAt: Date;
 }
 
+interface TripSave {
+  id: string;
+  userId: string | null;
+  carId: string | null;
+  status: 'keeping' | 'pending' | 'memory' | 'saved';
+  sessionId?: string;
+}
+
 type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   customPids: CustomPid[];
   updateCustomPids: (pids: CustomPid[]) => void;
@@ -66,6 +76,8 @@ type ObdScannerContextType = ReturnType<typeof useObdScanner> & {
   canStayOn: boolean;
   setAlwaysOn: (on: boolean) => void;
   savingTrip: boolean;
+  /** Latest trip ended here; background retries do not replace the recording card's state. */
+  tripSave: TripSave | null;
   getTripSyncStatus: () => Promise<{ pending: number; latestError: string | null; cloud?: { samples: number; at: number } | null }>;
   retryPendingTrips: () => Promise<void>;
   lastTrip: SavedTrip | null;
@@ -138,7 +150,8 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [savingTrip, setSavingTrip] = useState(false);
-  const [lastTrip, setLastTrip] = useState<SavedTrip | null>(null);
+  const [lastTrip, setLastTrip] = useState<(SavedTrip & { userId: string; carId: string }) | null>(null);
+  const [tripSave, setTripSave] = useState<TripSave | null>(null);
 
   const tripName = useCallback((startedAt: Date) => {
     const when = formatAppDate(startedAt, i18n.resolvedLanguage, {
@@ -150,6 +163,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // The trip being recorded: its copy's key, the car it belongs to (the car
   // selected when it started, even if another one is picked meanwhile) and who recorded it.
   const currentTripRef = useRef<{ id: string; carId: string | null; userId: string | null } | null>(null);
+  const backupRef = useRef<{ id: string; saved: number; pending: Promise<boolean> | null } | null>(null);
   /** Trips that just ended or were dropped: their copy is being written or removed, so a retry must leave it alone. */
   const finishingRef = useRef(new Set<string>());
   /** Copies the device couldn't store (no IndexedDB, disk full): kept here so they still get uploaded. */
@@ -216,6 +230,9 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       memoryCopiesRef.current.delete(id);
       memoryUpdateHolds.current.get(id)?.();
       memoryUpdateHolds.current.delete(id);
+      // A checkpoint already in flight must finish before removing its files,
+      // or its late response could recreate an already committed recording.
+      await cloudProgress.current.get(id)?.pending?.catch(() => {});
       void removeCloudTrip(copy).catch(error => console.warn('Cloud checkpoint cleanup deferred:', error));
       cloudProgress.current.delete(id);
       if (!(await deleteTripCopy(id))) console.warn('The saved trip copy could not be removed; it will be checked on retry.');
@@ -228,12 +245,15 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       return;
     }
     bumpSaving(1);
+    let saving = true;
+    const finishSaving = () => { if (saving) { saving = false; bumpSaving(-1); } };
     try {
       const startedAt = new Date(copy.startedAt);
       const endedAt = new Date(copy.endedAt ?? copy.startedAt + copy.samples[copy.samples.length - 1].t * 1000);
       const owner = userIdRef.current;
       if (!owner || !isMine(copy)) return;
       const sessionId = await recordedSessionId(owner, carId, tripKey(copy.startedAt));
+      logObdDiagnostic('trip-upload-start', { recovered, samples: copy.samples.length });
       const earlier = await findSessionStartedAt(carId, startedAt);
       if (earlier && earlier !== sessionId) {
         // Legacy uploads have no reliable completion receipt. Keep both for review.
@@ -243,29 +263,55 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       const csv = buildScannerCsv(copy.columns, copy.samples, copy.dtcs ?? []);
       const file = new File([csv], scannerFilename(startedAt), { type: 'text/csv' });
       let result: { sessionId: string };
+      let committed: string | null = null;
+      let confirmStored!: (result: { sessionId: string }) => void;
+      const storedReceipt = new Promise<{ sessionId: string }>(resolve => { confirmStored = resolve; });
+      const onStored = async (savedId: string) => {
+        if (committed) return;
+        committed = savedId;
+        // The receipt, not AI analysis/cleanup, is the end of saving.
+        finishSaving();
+        if (userIdRef.current === owner) {
+          syncErrorRef.current = null;
+          setLastTrip({ sessionId: savedId, endedAt, userId: owner, carId });
+          setTripSave(previous => previous?.id === id && previous.userId === owner
+            ? { ...previous, status: 'saved', sessionId: savedId } : previous);
+        }
+        logObdDiagnostic('trip-upload-committed', { samples: copy.samples.length });
+        await forget();
+        confirmStored({ sessionId: savedId });
+      };
       try {
-        result = await ingestSessionCsv(file, carId, tripName(startedAt), undefined, forget, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() });
+        // Once committed and cleaned up, release the upload queue as well.
+        // Optional analysis keeps running without delaying the next trip's save.
+        result = await Promise.race([
+          ingestSessionCsv(file, carId, tripName(startedAt), undefined, onStored, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() }),
+          storedReceipt,
+        ]);
       } catch (error) {
-        if (error instanceof RecordingConflictError) throw error;
-        try {
-          await syncCloud({ ...copy, carId, userId: owner, endedAt: endedAt.getTime() });
-          const restoredId = await finalizeCloudTrip({ ...copy, carId, userId: owner });
-          if (restoredId !== sessionId) throw Error('Cloud receipt does not match this trip');
-          result = { sessionId: restoredId };
-          await forget();
-        } catch (cloudError) {
-          throw Error(`${error instanceof Error ? error.message : 'Trip save failed'}. Cloud recovery: ${cloudError instanceof Error ? cloudError.message : 'pending'}`);
+        if (committed) result = { sessionId: committed };
+        else {
+          if (error instanceof RecordingConflictError) throw error;
+          try {
+            await syncCloud({ ...copy, carId, userId: owner, endedAt: endedAt.getTime() });
+            const restoredId = await finalizeCloudTrip({ ...copy, carId, userId: owner });
+            if (restoredId !== sessionId) throw Error('Cloud receipt does not match this trip');
+            result = { sessionId: restoredId };
+            await onStored(restoredId);
+          } catch (cloudError) {
+            throw Error(`${error instanceof Error ? error.message : 'Trip save failed'}. Cloud recovery: ${cloudError instanceof Error ? cloudError.message : 'pending'}`);
+          }
         }
       }
-      syncErrorRef.current = null;
-      setLastTrip({ sessionId: result.sessionId, endedAt });
-      toast({
+      await onStored(result.sessionId);
+      if (userIdRef.current === owner) toast({
         title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
         description: t('trip.savedHint', 'You can see it in History.'),
         variant: 'success',
       });
     } catch (err) {
       console.error('Trip save failed:', err);
+      logObdDiagnostic('trip-upload-pending', { conflict: err instanceof RecordingConflictError, keptOnDevice: !memoryCopiesRef.current.has(id) });
       syncErrorRef.current = { userId: copy.userId ?? userIdRef.current, message: err instanceof Error ? err.message.slice(0, 500) : 'Trip save failed' };
       const conflict = err instanceof RecordingConflictError;
       if (announceFailure() || (conflict && !reportedConflicts.current.has(id))) {
@@ -280,7 +326,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         });
       }
     } finally {
-      bumpSaving(-1);
+      finishSaving();
     }
   }, [bumpSaving, isMine, t, toast, tripName, syncCloud]);
 
@@ -344,6 +390,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     const current = currentTripRef.current?.id === id ? currentTripRef.current : null;
     const carId = current ? current.carId : carIdRef.current;
     const owner = current ? current.userId : userIdRef.current;
+    setTripSave({ id, userId: owner, carId, status: 'keeping' });
     finishingRef.current.add(id);
     try {
       // Keep a copy until the save succeeds; it is retried when the connection is back.
@@ -354,7 +401,12 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
           modules: trip.faultCodes.modules, codeModules: trip.faultCodes.codeModules,
         },
       };
+      // Do not let a delayed append recreate a partial copy after the finished
+      // copy was committed and deleted. No new append starts while finishing.
+      if (backupRef.current?.id === id) await backupRef.current.pending;
       const kept = await saveTripCopy(copy);
+      setTripSave(previous => previous?.id === id ? { ...previous, status: kept ? 'pending' : 'memory' } : previous);
+      logObdDiagnostic('trip-copy-kept', { onDevice: kept, samples: copy.samples.length });
       if (!kept) {
         memoryCopiesRef.current.set(id, copy);
         memoryUpdateHolds.current.set(id, releaseUpdate);
@@ -362,13 +414,14 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       if (currentTripRef.current?.id === id) currentTripRef.current = null;
       // Leaving (signed out): the copy stays on the device for its owner.
       if (leavingRef.current) return;
-      try { await syncCloud(copy); } catch (error) { console.warn('Cloud checkpoint pending; local copy retained:', error); }
-      await uploadCopy(id, true);
+      // The direct atomic save need not wait for a second full cloud upload.
+      // Cloud finalization is the fallback if that save fails.
+      if (navigator.onLine !== false) await uploadCopy(id, true);
     } finally {
       if (!memoryCopiesRef.current.has(id)) releaseUpdate();
       finishingRef.current.delete(id);
     }
-  }, [uploadCopy, syncCloud]);
+  }, [uploadCopy]);
 
   const dropTrip = useCallback((startedAt: Date) => {
     const id = tripKey(startedAt.getTime());
@@ -376,8 +429,13 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     if (bound) currentTripRef.current = null;
     finishingRef.current.add(id);
     const owner = bound?.userId ?? userIdRef.current, car = bound?.carId ?? carIdRef.current;
-    if (owner && car) void removeCloudTrip({ id, userId: owner, carId: car }).catch(() => {});
-    void deleteTripCopy(id).finally(() => finishingRef.current.delete(id));
+    const pending = backupRef.current?.id === id ? backupRef.current.pending : null;
+    const cloudPending = cloudProgress.current.get(id)?.pending;
+    void Promise.all([pending, cloudPending?.catch(() => {})]).then(async () => {
+      if (owner && car) void removeCloudTrip({ id, userId: owner, carId: car }).catch(() => {});
+      cloudProgress.current.delete(id);
+      await deleteTripCopy(id);
+    }).finally(() => finishingRef.current.delete(id));
   }, []);
 
   const obd = useObdScanner({ customPids, alwaysOn, onTripEnd: (trip) => void saveTrip(trip), onTripDropped: dropTrip });
@@ -463,28 +521,27 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
   // Back up the trip in progress: only what was recorded since the last backup is
   // written (a long drive is not copied whole every time).
-  const backupRef = useRef<{ id: string; saved: number; busy: boolean } | null>(null);
   const backUpTrip = useCallback(async () => {
     const current = currentTripRef.current;
-    if (!current) return;
-    if (backupRef.current?.id !== current.id) backupRef.current = { id: current.id, saved: 0, busy: false };
+    if (!current || finishingRef.current.has(current.id)) return;
+    if (backupRef.current?.id !== current.id) backupRef.current = { id: current.id, saved: 0, pending: null };
     const progress = backupRef.current;
-    if (progress.busy) return;
+    if (progress.pending) return;
     const snap = getRecording(progress.saved);
     if (!snap.startedAt || tripKey(snap.startedAt.getTime()) !== current.id || snap.samples.length === 0) return;
-    progress.busy = true;
     try {
-      const ok = await appendTripSamples({
+      progress.pending = appendTripSamples({
         id: current.id, carId: current.carId, userId: current.userId, startedAt: snap.startedAt.getTime(), columns: snap.columns, dtcs: snap.dtcs,
         faultCodes: {
           stored: snap.faultCodes.stored, pending: snap.faultCodes.pending, checked: snap.faultCodes.checked,
           modules: snap.faultCodes.modules, codeModules: snap.faultCodes.codeModules,
         },
       }, snap.samples, progress.saved);
+      const ok = await progress.pending;
       // If it failed, the same samples go in the next time.
       if (ok) progress.saved += snap.samples.length;
     } finally {
-      progress.busy = false;
+      progress.pending = null;
     }
   }, [getRecording]);
   useEffect(() => {
@@ -536,13 +593,19 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
   // On app start in always-on mode: reconnect to the adapter used last time, no chooser.
   const resumedRef = useRef(false);
+  const resumeState = useRef({ status, alwaysOn });
+  resumeState.current = { status, alwaysOn };
   useEffect(() => {
-    if (resumedRef.current || !alwaysOn || !isBluetoothAvailable()) return;
+    if (resumedRef.current || !alwaysOn || status !== 'idle' || !isBluetoothAvailable()) return;
     resumedRef.current = true;
+    let cancelled = false;
     void findRememberedAdapter().then((device) => {
-      if (device) void connect({ device });
-    });
-  }, [alwaysOn, connect]);
+      if (!cancelled && device && resumeState.current.alwaysOn && resumeState.current.status === 'idle') {
+        void connect({ device, onlyIfIdle: true });
+      }
+    }).catch(error => console.warn('Remembered adapter unavailable:', error));
+    return () => { cancelled = true; };
+  }, [alwaysOn, connect, status]);
 
   // Linked = anything but idle: "connecting" included, since a reconnect passes
   // through it and Android won't let the service start again from the background.
@@ -559,13 +622,15 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // Android app: a persistent notification keeps everything running with the screen off.
   // It starts only once Bluetooth permission is granted (a link has been open, or the
   // Bluetooth stack was initialized): Android 14+ crashes the service otherwise.
-  const serviceText = recording?.active
-    ? t('notify.recording', 'Recording your trip')
+  const serviceText = recording?.active && status === 'live'
+    ? t('notify.recordingShort', 'Recording')
     : status === 'live'
       ? t('notify.live', 'Car connected')
       : status === 'waiting'
         ? t('notify.waiting', 'Waiting for the car to start')
-        : t('notify.reconnecting', 'Looking for the adapter');
+        : t('notify.reconnectingShort', 'Reconnecting');
+  const notificationTimeLabel = t('notify.time', 'Time');
+  const notificationOpenLabel = t('notify.open', 'Open Xpeed');
   const serviceWanted = (linked && (linkOpen || isBluetoothReady())) || !!recording?.active;
   // The CPU wake lock is only for polling the car; a parked car or a missing adapter lets the phone sleep.
   useEffect(() => {
@@ -575,11 +640,13 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     let offset = 0;
     let previous: { t: number; speed: number | null } | null = null;
     let distanceKm = 0;
+    const motion = new TripMotion();
     const update = () => {
       const snapshot = getRecording(offset);
       for (const sample of snapshot.samples) {
         const raw = sample.values['Vehicle speed (km/h)'];
         const speed = raw != null && Number.isFinite(raw) && raw >= 0 ? raw : null;
+        motion.update(sample.t, speed);
         if (previous && speed != null && previous.speed != null) {
           const seconds = sample.t - previous.t;
           if (seconds > 0 && seconds <= 30) distanceKm += (speed + previous.speed) / 2 * seconds / 3600;
@@ -591,26 +658,38 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       try { miles = localStorage.getItem('settings_distanceUnit') === 'mi'; } catch { /* defaults */ }
       const rawSpeed = status === 'live' ? obd.live.get().values['Vehicle speed (km/h)'] : null;
       const speed = rawSpeed != null && Number.isFinite(rawSpeed) ? Math.max(0, rawSpeed) : null;
-      const car = carsRef.current.find((c) => c.id === (recordingCarId || carIdRef.current));
+      const recent = snapshot.startedAt && previous && Date.now() - snapshot.startedAt.getTime() - previous.t * 1000 <= 15_000;
+      const acceleration = speed != null && recent ? motion.acceleration : null;
+      const accelerationLabel = acceleration == null ? t('notify.noMotion', 'Waiting for readings')
+        : acceleration > 0.15 ? t('notify.accelerating', 'Accelerating')
+        : acceleration < -0.15 ? t('notify.slowing', 'Slowing down')
+        : t('notify.steady', 'Steady speed');
+      const car = carsRef.current.find((c) => c.id === (recording?.active ? recordingCarId || carIdRef.current : carIdRef.current));
       void showBackgroundService('Xpeed', serviceText, driving, {
         vehicle: car?.name || 'Xpeed', status: serviceText,
+        state: status === 'live' ? (recording?.active ? 'recording' : 'live') : status === 'waiting' ? 'waiting' : 'reconnecting',
+        timeLabel: notificationTimeLabel, openLabel: notificationOpenLabel,
+        acceleration, accelerationLabel,
         active: !!recording?.active, startedAt: recording?.startedAt?.getTime() || 0,
-        speed: speed == null ? '—' : Math.round(speed * (miles ? 0.621371 : 1)).toString(),
+        speed: speed == null ? 'â€”' : Math.round(speed * (miles ? 0.621371 : 1)).toString(),
         speedUnit: miles ? 'mph' : 'km/h',
-        distance: snapshot.samples.length || offset ? (distanceKm * (miles ? 0.621371 : 1)).toFixed(1) : '—',
+        distance: snapshot.samples.length || offset ? (distanceKm * (miles ? 0.621371 : 1)).toFixed(1) : 'â€”',
         distanceUnit: miles ? 'mi' : 'km',
       });
     };
     update();
     const timer = setInterval(update, 5000);
     return () => clearInterval(timer);
-  }, [serviceWanted, serviceText, driving, recording?.active, recording?.startedAt, recordingCarId, getRecording, obd.live, status]);
+  }, [serviceWanted, serviceText, notificationTimeLabel, notificationOpenLabel, t, driving, recording?.active, recording?.startedAt, recordingCarId, getRecording, obd.live, status]);
   // Leaving (sign-out): no notification or wake lock left behind.
   useEffect(() => () => { void hideBackgroundService(); }, []);
 
   const value = useMemo(() => ({
-    ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, getTripSyncStatus, retryPendingTrips, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn,
-  }), [obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, getTripSyncStatus, retryPendingTrips, lastTrip, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn]);
+    ...obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, getTripSyncStatus, retryPendingTrips,
+    tripSave: tripSave?.userId === userId && tripSave.carId === selectedCarId ? tripSave : null,
+    lastTrip: lastTrip?.userId === userId && lastTrip.carId === selectedCarId ? lastTrip : null,
+    recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn,
+  }), [obd, customPids, updateCustomPids, alwaysOn, setAlwaysOn, savingTrip, getTripSyncStatus, retryPendingTrips, lastTrip, tripSave, userId, selectedCarId, recordingCarId, newCarFound, addFoundCar, dismissFoundCar, canStayOn]);
 
   return (
     <ObdScannerContext.Provider value={value}>

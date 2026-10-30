@@ -29,9 +29,9 @@ export function BluetoothConnectionMenu() {
         {connected && <p className="text-sm text-muted-foreground">{transport}</p>}
         {canDisconnect ? <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setConfirm(true); }}>
           <BluetoothOff className="mr-2 h-4 w-4" />{t('bluetooth.disconnect', 'Disconnect Bluetooth')}
-        </Button> : <p className="text-sm text-muted-foreground">{t('bluetooth.disconnected', 'No adapter connected. Connect from the trip card on Home.')}</p>}
-        <Link to={canDisconnect ? '/live' : '/'} onClick={() => setOpen(false)} className="flex min-h-10 items-center justify-between text-sm text-primary">
-          {canDisconnect ? t('trip.openLive', 'View Dashboard') : t('nav.dashboard', 'Home')}<ChevronRight className="h-4 w-4" />
+        </Button> : <p className="text-sm text-muted-foreground">{t('bluetooth.disconnected', 'No adapter connected. Set up the connection in the live panel.')}</p>}
+        <Link to="/live" onClick={() => setOpen(false)} className="flex min-h-10 items-center justify-between text-sm text-primary">
+          {canDisconnect ? t('trip.openLive', 'View Dashboard') : t('trip.connectionSettings', 'Set up connection')}<ChevronRight className="h-4 w-4" />
         </Link>
       </div>
     </HeaderPanel>

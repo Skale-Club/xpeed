@@ -194,6 +194,9 @@ export default function LivePage() {
                       : t('live.connectHint', 'Connect to your car to see its readings live. The connection stays on while you move around the app.')}
                   </p>
                   {obd.error && <p className="text-xs text-destructive">{obd.error}</p>}
+                  {status === 'idle' && <p className="max-w-md text-xs text-muted-foreground">
+                    {t('scanner.linkHintPaired', 'Bluetooth LE: keep Bluetooth on and select the adapter directly in Xpeed; no pairing in Android settings is needed. In the Android APK, Classic Bluetooth requires pairing in Android settings first, then selection in Xpeed.')}
+                  </p>}
                   <div className="flex flex-wrap justify-center gap-2">
                     <Button onClick={() => void obd.connect()} disabled={status !== 'idle'}>
                       {status === 'connecting' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bluetooth className="w-4 h-4 mr-2" />}
@@ -206,6 +209,9 @@ export default function LivePage() {
                       </Button>
                     )}
                   </div>
+                  {status === 'idle' && <Button variant="ghost" size="sm" className="h-auto whitespace-normal" onClick={() => void obd.connect({ showAll: true })}>
+                    {t('trip.showAll', 'Adapter not in the list? Show all Bluetooth devices')}
+                  </Button>}
                 </>
               )}
             </CardContent>

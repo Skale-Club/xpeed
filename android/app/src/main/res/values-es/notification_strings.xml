@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notification_channel">Grabación de viajes</string>
+    <string name="notification_channel_description">Conexión con el coche y grabación del viaje en curso</string>
+    <string name="notification_time">Tiempo</string>
+    <string name="notification_open">Abrir Xpeed</string>
+    <string name="notification_recording">Grabando</string>
+</resources>

@@ -362,7 +362,7 @@
     "saving": "Saving your last trip…",
     "lastSaved": "Last trip saved.",
     "view": "View",
-    "autoShort": "Auto",
+    "autoShort": "Auto Recording",
     "alwaysOn": "Record trips automatically",
     "alwaysOnHint": "Keep the app open in the car: it reconnects by itself, records every trip and rests while the car is off.",
     "partOfDay": {
@@ -371,7 +371,7 @@
       "evening": "Evening trip",
       "night": "Night trip"
     },
-    "autoPausedHint": "Recording is paused until you switch the car off.",
+    "autoPausedHint": "You ended this trip. Auto recording resumes after the car is off or parked for 10 minutes.",
     "gauge": {
       "warming": "warming up",
       "normal": "normal",
@@ -390,7 +390,20 @@
       "s": "s"
     },
     "saveConflict": "A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced.",
-    "keptPending": "Trip kept on this device; upload pending"
+    "keptPending": "Trip kept on this device; upload pending",
+    "cardTitle": "Trip recording",
+    "ready": "Ready to record",
+    "standby": "Recording on standby",
+    "standbyAuto": "Starts when you drive. Ends when the car is off or parked for 10 minutes.",
+    "connectionRequired": "Connect your adapter to record",
+    "connectionRequiredHint": "Recording needs Bluetooth and an OBD2 adapter. Manage the connection in the live panel.",
+    "connectionSettings": "Set up connection",
+    "keeping": "Keeping your trip on this device…",
+    "uploadPending": "Trip kept on this device. Upload pending.",
+    "syncDetails": "Sync details",
+    "recordingAutoHint": "Ends automatically when the car is off or parked for 10 minutes.",
+    "autoOffDuringTrip": "Auto recording is off for future trips. Use End trip to finish this recording.",
+    "recordingManualHint": "Tap End trip to finish. Switching the car off also ends the recording."
   },
   "pill": {
     "recording": "Recording trip",
@@ -403,7 +416,15 @@
     "recording": "Recording your trip",
     "live": "Car connected",
     "waiting": "Waiting for the car to start",
-    "reconnecting": "Looking for the adapter"
+    "reconnecting": "Looking for the adapter",
+    "recordingShort": "Recording",
+    "reconnectingShort": "Reconnecting",
+    "time": "Time",
+    "open": "Open Xpeed",
+    "noMotion": "Waiting for readings",
+    "accelerating": "Accelerating",
+    "steady": "Steady speed",
+    "slowing": "Slowing down"
   },
   "appUpdate": {
     "available": "A new version of the app is available.",
@@ -1174,11 +1195,13 @@
     "carMismatch": "The connected VIN differs from the selected car. Results will not be saved to that car.",
     "reading": "Reading car modules…",
     "readAgain": "Read codes again",
+    "read": "Read codes",
+    "cacheFailed": "This device could not keep a copy of the reading. Reloading may lose this result.",
     "waiting": "The car must be on and connected before codes can be read.",
-    "checkedAt": "Read at {{time}}",
+    "checkedAt": "Last reading: {{time}}",
     "incomplete": "The car did not answer all required requests. An empty result does not confirm that there are no fault codes.",
     "modules": "Modules that answered: {{modules}}",
-    "syncFailed": "Codes were read, but Problems could not be updated. Try reading again when online.",
+    "syncFailed": "Codes were read, but Problems could not be updated. The saved reading is still available.",
     "stored": "Confirmed",
     "pending": "Pending",
     "permanent": "Permanent"
@@ -1345,7 +1368,7 @@
   "bluetooth": {
     "title": "Bluetooth connection",
     "disconnect": "Disconnect Bluetooth",
-    "disconnected": "No adapter connected. Connect from the trip card on Home.",
+    "disconnected": "No adapter connected. Set up the connection in the live panel.",
     "endTrip": "This disconnects the adapter and ends the current recording. The trip will be kept for saving.",
     "stayOff": "This closes the connection to the adapter."
   },

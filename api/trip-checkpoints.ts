@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { readCheckpointSamples } from '../src/lib/obd/checkpoint-samples';
 import { recordedSessionId, csvChecksum } from '../src/lib/recording-identity';
 import { sessionProcessingPayload } from '../src/lib/session-processing';
 import { buildScannerCsv, scannerFilename } from '../src/lib/obd/session-csv';
@@ -48,16 +49,9 @@ export default async function handler(req: Request): Promise<Response> {
     };
     const reconstruct = async (id: string): Promise<StoredTrip> => {
       const meta = await read(`${root}/${id}/meta.json`);
-      const files = (await list(`${root}/${id}`)).filter(file => /^\d{9}\.json$/.test(file.name));
-      const samples: StoredTrip['samples'] = [];
-      for (const file of files) {
-        const chunk = await read(`${root}/${id}/${file.name}`);
-        if (chunk.offset !== samples.length) throw Error('Checkpoint gap; waiting for remaining samples');
-        samples.push(...chunk.samples);
-      }
+      const files = await list(`${root}/${id}`);
       const cutoff = meta.endedAt == null ? Infinity : (meta.endedAt - meta.startedAt) / 1000;
-      const kept = samples.filter(sample => sample.t <= cutoff + .001);
-      if (meta.endedAt && kept.length !== meta.totalSamples) throw Error('Checkpoint gap; waiting for remaining samples');
+      const kept = await readCheckpointSamples(files.map(file => file.name), name => read(`${root}/${id}/${name}`), cutoff, meta.endedAt ? meta.totalSamples : undefined);
       return { ...meta, id: `trip-${meta.startedAt}`, userId, carId, samples: kept };
     };
     if (req.method === 'GET') {

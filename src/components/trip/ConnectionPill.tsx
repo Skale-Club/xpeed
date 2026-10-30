@@ -20,7 +20,7 @@ export function ConnectionPill() {
 
   return (
     <Link
-      to={status === 'idle' ? '/' : '/live'}
+      to="/live"
       className="ml-auto inline-flex min-w-0 items-center gap-2 rounded-full border border-border px-3 py-1 text-xs hover:bg-accent"
       data-testid="connection-pill"
     >
