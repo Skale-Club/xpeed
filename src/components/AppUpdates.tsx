@@ -76,12 +76,14 @@ export default function AppUpdates({ disabled = false }: { disabled?: boolean })
           ? t('updates.checkFailed', 'Could not verify whether an APK update is needed. Try again.')
           : apk.available ? t('updates.builds', 'Installed: build {{installed}} · Required: build {{required}} or newer', { installed: apk.installed, required: apk.required })
           : t('updates.apkCurrent', 'Installed: build {{installed}}. No APK update needed.', { installed: apk.installed })}</p>
-        {apk?.available && (blocked ? <Button disabled>{t('updates.downloadApk', 'Download APK')}</Button> : <Button asChild>
-          <a href={apk.downloadUrl} target="_blank" rel="noopener noreferrer"><Download className="mr-2 h-4 w-4" />{t('updates.downloadApk', 'Download APK')}</a>
-        </Button>)}
+        {apk?.available && <Button asChild>
+          {/* Same-window external navigation is handed to Android's browser by Capacitor. */}
+          <a href={apk.downloadUrl}><Download className="mr-2 h-4 w-4" />{t('updates.downloadApk', 'Download APK')}</a>
+        </Button>}
+        {apk?.available && blocked && <p className="text-xs text-muted-foreground">{t('updates.installWhenReady', 'You can download now. Finish recording and save any changes before installing the APK.')}</p>}
         <Button variant="ghost" onClick={() => void check()} disabled={checking || reloading}>{t('updates.checkApk', 'Check APK')}</Button>
       </div>}
-      {blocked && <p role="status" className="text-xs text-muted-foreground">{t('updates.blocked', 'Finish recording and save any changes before updating.')}</p>}
+      {blocked && !bundled && <p role="status" className="text-xs text-muted-foreground">{t('updates.reloadBlocked', 'Screen reload is paused until recording ends and your changes are saved.')}</p>}
     </CardContent>
   </Card>;
 }

@@ -33,15 +33,35 @@ it('labels an actual native update as an APK download and shows installed and re
   await screen.findByText('Android APK update required');
   expect(screen.getByText('Installed: build 57 · Required: build 58 or newer')).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Download APK' })).toHaveAttribute('href', '/xpeed.apk');
+  expect(screen.getByRole('link', { name: 'Download APK' })).not.toHaveAttribute('target');
 });
 
-it('blocks reload and APK installation during recording or unsaved changes', async () => {
+it('keeps APK download available during recording while blocking screen reload', async () => {
   mocks.blocked = true;
   mocks.check.mockResolvedValue({ installed: 57, required: 58, available: true, downloadUrl: '/xpeed.apk' });
   render(<AppUpdates />);
   expect(screen.getByRole('button', { name: 'Reload screens' })).toBeDisabled();
-  expect(await screen.findByRole('button', { name: 'Download APK' })).toBeDisabled();
-  expect(screen.queryByRole('link', { name: 'Download APK' })).not.toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Download APK' })).toHaveAttribute('href', '/xpeed.apk');
+  expect(screen.getByRole('link', { name: 'Download APK' })).not.toHaveAttribute('target');
+  expect(screen.getByText(/You can download now/)).toBeInTheDocument();
+  expect(mocks.reload).not.toHaveBeenCalled();
+});
+
+it('keeps the banner download available while a trip is recording', async () => {
+  mocks.blocked = true;
+  mocks.check.mockResolvedValue({ installed: 76, required: 77, latest: 79, available: true, downloadUrl: '/xpeed.apk' });
+  render(<AppUpdateBanner />);
+  const download = await screen.findByRole('link', { name: 'Download APK' });
+  expect(download).toHaveAttribute('href', '/xpeed.apk');
+  expect(download).not.toHaveAttribute('target');
+  expect(screen.getByText(/You can download now/)).toBeInTheDocument();
+});
+
+it('allows downloading the APK when Settings has unsaved changes', async () => {
+  mocks.check.mockResolvedValue({ installed: 76, required: 77, latest: 79, available: true, downloadUrl: '/xpeed.apk' });
+  render(<AppUpdates disabled />);
+  expect(await screen.findByRole('link', { name: 'Download APK' })).toHaveAttribute('href', '/xpeed.apk');
+  expect(screen.getByRole('button', { name: 'Reload screens' })).toBeDisabled();
 });
 
 it('shows a retryable screen refresh failure rather than claiming to be up to date', async () => {

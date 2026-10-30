@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
 const cloud = vi.hoisted(() => ({ checkpoint: vi.fn(async (_meta, samples) => samples.length), finalize: vi.fn(async (_trip: unknown): Promise<string> => { throw Error('Cloud finalization pending'); }), recover: vi.fn(async () => []), remove: vi.fn(async () => {}) }));
 vi.mock('@/lib/obd/trip-cloud', () => ({ checkpointTrip: cloud.checkpoint, finalizeCloudTrip: cloud.finalize, recoverCloudTrips: cloud.recover, removeCloudTrip: cloud.remove }));
 const ingest = vi.hoisted(() => vi.fn());
+const toast = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast }) }));
 const deleteSession = vi.hoisted(() => vi.fn(async () => undefined));
 const findSessionStartedAt = vi.hoisted(() => vi.fn(async () => null as string | null));
 
@@ -41,6 +43,7 @@ beforeEach(() => {
   h.ingestDelayMs = 0;
   cloud.checkpoint.mockClear(); cloud.finalize.mockClear(); cloud.recover.mockClear(); cloud.remove.mockClear();
   ingest.mockReset();
+  toast.mockReset();
   deleteSession.mockClear();
   findSessionStartedAt.mockReset();
   findSessionStartedAt.mockResolvedValue(null);
@@ -111,7 +114,7 @@ it('keeps a trip offline and exposes a pending state, then confirms it when retr
   expect(await listTripCopies()).toEqual([]);
 }, 15000);
 
-it('finishes an in-flight backup before committing and deleting the completed trip', async () => {
+it.each([true, false])('finishes the backup before cleanup and only announces a newly published trip (%s)', async (published) => {
   installFakeBluetooth();
   localStorage.setItem('xpeed.obd.alwaysOn', 'false');
   const append = tripStore.appendTripSamples;
@@ -122,6 +125,11 @@ it('finishes an in-flight backup before committing and deleting the completed tr
     return append(...args);
   });
   const save = vi.spyOn(tripStore, 'saveTripCopy');
+  ingest.mockImplementationOnce(async (_file, _car, _name, _p, onStored) => {
+    await onStored('session', published);
+    await onStored('session', published); // duplicate receipt delivery is harmless
+    return { sessionId: 'session' };
+  });
   let state: ReturnType<typeof useObd>;
   const Probe = () => { state = useObd(); return null; };
   render(<ObdScannerProvider><Probe /></ObdScannerProvider>);
@@ -140,6 +148,9 @@ it('finishes an in-flight backup before committing and deleting the completed tr
   await waitFor(() => expect(state!.tripSave?.status).toBe('saved'));
   expect(save).toHaveBeenCalledOnce();
   await waitFor(async () => expect(await listTripCopies()).toEqual([]));
+  expect(toast).toHaveBeenCalledTimes(published ? 1 : 0);
+  if (published) expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
+  else expect(state!.lastTrip).toBeNull();
 }, 15000);
 
 const samples = (seconds: number) => Array.from({ length: seconds + 1 }, (_, t) => ({ t, values: { speed: 40 } }));
@@ -215,6 +226,7 @@ describe('trip copies on the device', () => {
     expect(ingest.mock.calls[0][6]).toMatchObject({ userId: 'u1' });
     expect(deleteSession).not.toHaveBeenCalled();
     await waitFor(async () => expect(await listTripCopies()).toEqual([]));
+    expect(toast).not.toHaveBeenCalled(); // automatic recovery and cleanup retries stay silent
   });
 
   it('retries a recording cut off by a crash on every retry, not only the first one after start', async () => {

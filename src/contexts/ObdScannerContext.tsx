@@ -173,6 +173,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const memoryCopiesRef = useRef(new Map<string, StoredTrip>());
   const memoryUpdateHolds = useRef(new Map<string, () => void>());
   const reportedConflicts = useRef(new Set<string>());
+  const confirmedSaves = useRef(new Set<string>());
 
   /** Does this copy belong to whoever is signed in now? */
   const isMine = useCallback((copy: StoredTrip): boolean => {
@@ -219,14 +220,14 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
    * (the trip may have been uploaded meanwhile), and uploading it again would
    * delete the saved trip and run the AI analysis a second time.
    */
-  const uploadOne = useCallback(async (id: string, announceFailure: () => boolean) => {
+  const uploadOne = useCallback(async (id: string, announceResult: () => boolean) => {
     const copy = (await getTripCopy(id)) ?? memoryCopiesRef.current.get(id) ?? null;
     if (!copy || copy.samples.length === 0) return;
     if (!isMine(copy)) return; // someone else's trip (shared phone): it waits for its owner
     if (copy.endedAt == null && currentTripRef.current?.id === id) return; // still being recorded
     const carId = copy.carId ?? carIdRef.current;
     if (!carId) {
-      if (announceFailure()) toast({ title: t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
+      if (announceResult()) toast({ title: t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
       return;
     }
     const forget = async () => {
@@ -269,16 +270,26 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       let committed: string | null = null;
       let confirmStored!: (result: { sessionId: string }) => void;
       const storedReceipt = new Promise<{ sessionId: string }>(resolve => { confirmStored = resolve; });
-      const onStored = async (savedId: string) => {
+      const onStored = async (savedId: string, published = true) => {
         if (committed) return;
         committed = savedId;
         // The receipt, not AI analysis/cleanup, is the end of saving.
         finishSaving();
         if (userIdRef.current === owner) {
+          const confirmation = `${owner}:${carId}:${savedId}`;
+          const firstConfirmation = !confirmedSaves.current.has(confirmation);
+          confirmedSaves.current.add(confirmation);
           syncErrorRef.current = null;
-          setLastTrip({ sessionId: savedId, endedAt, userId: owner, carId });
+          if (published && firstConfirmation) setLastTrip({ sessionId: savedId, endedAt, userId: owner, carId });
           setTripSave(previous => previous?.id === id && previous.userId === owner
             ? { ...previous, status: 'saved', sessionId: savedId } : previous);
+          // Automatic recovery is silent. Receipt/cleanup retries must not replay
+          // a success toast whenever Settings checks synchronization or resumes.
+          if (published && firstConfirmation && announceResult()) toast({
+            title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
+            description: t('trip.savedHint', 'You can see it in History.'),
+            variant: 'success',
+          });
         }
         logObdDiagnostic('trip-upload-committed', { samples: copy.samples.length });
         await forget();
@@ -308,18 +319,13 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         }
       }
       await onStored(result.sessionId);
-      if (userIdRef.current === owner) toast({
-        title: recovered ? t('trip.recovered', 'Saved a trip that was interrupted') : t('trip.saved', 'Trip saved'),
-        description: t('trip.savedHint', 'You can see it in History.'),
-        variant: 'success',
-      });
     } catch (err) {
       if (err instanceof RecordingDeletedError) { await forget(); setTripSave(previous => previous?.id === id ? null : previous); return; }
       console.error('Trip save failed:', err);
       logObdDiagnostic('trip-upload-pending', { conflict: err instanceof RecordingConflictError, keptOnDevice: !memoryCopiesRef.current.has(id) });
       syncErrorRef.current = { userId: copy.userId ?? userIdRef.current, message: err instanceof Error ? err.message.slice(0, 500) : 'Trip save failed' };
       const conflict = err instanceof RecordingConflictError;
-      if (announceFailure() || (conflict && !reportedConflicts.current.has(id))) {
+      if (announceResult() || (conflict && !reportedConflicts.current.has(id))) {
         if (conflict) reportedConflicts.current.add(id);
         const kept = !memoryCopiesRef.current.has(id);
         toast({
@@ -339,13 +345,13 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // trip the save just uploaded finds it gone instead of uploading it again.
   const uploadQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const queuedRef = useRef(new Map<string, { announce: boolean; done: Promise<void> }>());
-  const uploadCopy = useCallback((id: string, announceFailure: boolean): Promise<void> => {
+  const uploadCopy = useCallback((id: string, announceResult: boolean): Promise<void> => {
     const queued = queuedRef.current.get(id);
     if (queued) {
-      queued.announce ||= announceFailure;
+      queued.announce ||= announceResult;
       return queued.done;
     }
-    const entry = { announce: announceFailure, done: Promise.resolve() };
+    const entry = { announce: announceResult, done: Promise.resolve() };
     entry.done = uploadQueueRef.current
       .then(() => uploadOne(id, () => entry.announce))
       .catch((err) => console.error('Trip upload failed:', err))

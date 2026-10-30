@@ -23,15 +23,15 @@ export function AppUpdateBanner() {
       <div className="flex-1 min-w-48">
         <p className="font-medium">{t('updates.apkNeeded', 'Android APK update required')}</p>
         <p className="text-xs text-muted-foreground">{t('updates.builds', 'Installed: build {{installed}} · Required: build {{required}} or newer', { installed: update.installed, required: update.required })}</p>
-        {blocked && <p className="text-xs">{t('updates.blocked', 'Finish recording and save any changes before updating.')}</p>}
+        {blocked && <p className="text-xs">{t('updates.installWhenReady', 'You can download now. Finish recording and save any changes before installing the APK.')}</p>}
       </div>
-      {blocked ? <Button size="sm" disabled>{t('updates.downloadApk', 'Download APK')}</Button> : <Button size="sm" asChild>
+      <Button size="sm" asChild>
         {/* Opens in the phone's browser, which downloads the APK and asks to install it over this one. */}
-        <a href={update.downloadUrl} target="_blank" rel="noopener noreferrer">
+        <a href={update.downloadUrl}>
           <Download className="w-3.5 h-3.5 mr-2" />
           {t('updates.downloadApk', 'Download APK')}
         </a>
-      </Button>}
+      </Button>
       <button type="button" aria-label={t('appUpdate.later', 'Later')} onClick={() => setDismissed(true)} className="text-muted-foreground hover:text-foreground">
         <X className="w-4 h-4" />
       </button>

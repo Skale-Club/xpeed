@@ -63,7 +63,7 @@ describe('recorded CSV commits are idempotent', () => {
     const stored = vi.fn();
     const result = await ingestSessionCsv(file(), 'car-1', undefined, undefined, stored, undefined, identity);
     expect(result.sessionId).toBe(identity.sessionId);
-    expect(stored).toHaveBeenCalledWith(identity.sessionId);
+    expect(stored).toHaveBeenCalledWith(identity.sessionId, false);
     expect(db.uploadSessionCSV).not.toHaveBeenCalled();
     expect(db.createSession).not.toHaveBeenCalled();
     expect(recordings.storeRecordedSession).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('recorded CSV commits are idempotent', () => {
     expect(args[7]).toMatchObject({ rows: expect.any(Array), flags: expect.any(Array), summary: expect.any(Object), report: expect.any(Object) });
     expect(db.insertSessionRows).not.toHaveBeenCalled();
     expect(db.insertSessionFlags).not.toHaveBeenCalled();
-    expect(stored).toHaveBeenCalledWith(identity.sessionId);
+    expect(stored).toHaveBeenCalledWith(identity.sessionId, true);
   });
   it('keeps the backup and never deletes the identity after a lost transaction response', async () => {
     recordings.storeRecordedSession.mockRejectedValue(new Error('network response lost'));
@@ -90,6 +90,13 @@ describe('recorded CSV commits are idempotent', () => {
     expect(stored).not.toHaveBeenCalled();
     expect(db.deleteSession).not.toHaveBeenCalled();
     expect(db.removeSessionCSV).not.toHaveBeenCalled();
+  });
+  it('marks a receipt committed by another attempt as already saved', async () => {
+    recordings.storeRecordedSession.mockResolvedValueOnce(false);
+    const stored = vi.fn();
+    await ingestSessionCsv(file(), 'car-1', undefined, undefined, stored, undefined, identity);
+    expect(stored).toHaveBeenCalledOnce();
+    expect(stored).toHaveBeenCalledWith(identity.sessionId, false);
   });
 });
 

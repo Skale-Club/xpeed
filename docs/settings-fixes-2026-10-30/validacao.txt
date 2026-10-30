@@ -1,0 +1,15 @@
+Validação local — 30/10/2026
+Download APK em Settings e confirmação repetida de salvamento.
+Sem publicação, banco remoto ou teste físico. Sem suíte completa ou build adicional.
+
+Atualização APK/importador: 27 testes aprovados em 3 arquivos.
+Gravação/recuperação: 13 testes aprovados em 1 arquivo, com --pool=threads --maxWorkers=1.
+A primeira tentativa teve timeout de inicialização do worker de gravação; a repetição isolada passou.
+
+Contrato público: release android-latest = Build 79, Native build 77.
+HEAD xpeed.apk: HTTP 200, application/vnd.android.package-archive, 3868956 bytes.
+HEAD xpeed-offline.apk: HTTP 200, application/vnd.android.package-archive, 3868940 bytes.
+Encaminhamento externo conferido no Bridge.launchIntent do Capacitor Android instalado.
+
+Typecheck: exit 0.
+Lint: exit 0; 0 erros e 13 avisos preexistentes de react-refresh.

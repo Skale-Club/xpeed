@@ -1426,7 +1426,9 @@
     "downloadApk": "Download APK",
     "checkApk": "Check APK",
     "blocked": "Finish recording and save any changes before updating.",
-    "apkNeeded": "Android APK update required"
+    "apkNeeded": "Android APK update required",
+    "installWhenReady": "You can download now. Finish recording and save any changes before installing the APK.",
+    "reloadBlocked": "Screen reload is paused until recording ends and your changes are saved."
   },
   "bluetooth": {
     "title": "Bluetooth connection",

@@ -1426,7 +1426,9 @@
     "downloadApk": "Baixar APK",
     "checkApk": "Verificar APK",
     "blocked": "Finalize a gravação e salve as alterações pendentes antes de atualizar.",
-    "apkNeeded": "Atualização do APK Android necessária"
+    "apkNeeded": "Atualização do APK Android necessária",
+    "installWhenReady": "Você pode baixar agora. Encerre a gravação e salve as alterações antes de instalar o APK.",
+    "reloadBlocked": "A recarga das telas aguarda o fim da gravação e o salvamento das alterações."
   },
   "bluetooth": {
     "title": "Conexão Bluetooth",

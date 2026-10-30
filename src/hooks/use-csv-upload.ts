@@ -44,8 +44,8 @@ export async function ingestSessionCsv(
   carProfileId: string,
   customName?: string,
   updateProgress: (value: number, label: string) => void = () => undefined,
-  /** Called once the trip, its rows and flags are in the database (before report, AI and baselines). */
-  onStored?: (sessionId: string) => void | Promise<void>,
+  /** A durable receipt; published=false means a previous attempt already saved this recording. */
+  onStored?: (sessionId: string, published?: boolean) => void | Promise<void>,
   /**
    * The car's fault codes as read live (confirmed vs pending, and whether the
    * read worked). Without it, codes in the CSV count as confirmed and nothing
@@ -77,7 +77,7 @@ export async function ingestSessionCsv(
     const resultFor = (sessionId: string) => ({ sessionId, rows: parsed.rows.length, flags: flags.length, dtcs: parsed.activeDtcs.length });
     if (recording && await hasRecordedReceipt(recording, carProfileId, checksum)) {
       stored = true;
-      await onStored?.(recording.sessionId);
+      await onStored?.(recording.sessionId, false);
       try { await syncSavedProblems(recording.sessionId); } catch { /* Durable retry remains queued. */ }
       return resultFor(recording.sessionId);
     }
@@ -196,7 +196,7 @@ export async function ingestSessionCsv(
         ruleset_id: ruleset.id, ruleset_matched_via: ruleset.matched_via, report_version: REPORT_VERSION, processing_version: PROCESSING_VERSION,
       });
       stored = true;
-      await onStored?.(session.id);
+      await onStored?.(session.id, published);
       if (!published) {
         // Another tab committed this recording first. Our unique Storage path is unused.
         if (sourceFilePath) await removeSessionCSV(sourceFilePath).catch(error => console.warn('Unused recording CSV cleanup failed:', error));
