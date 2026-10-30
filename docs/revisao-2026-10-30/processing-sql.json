@@ -1,0 +1,13 @@
+{
+  "runtime": "PostgreSQL in PGlite",
+  "checks": [
+    "additive upgrade and repeat preserve existing issue IDs",
+    "owner atomically replaces derivatives, preserves identity and resolved flag",
+    "failed insert rolls back preceding update/deletes",
+    "recording publishes once; retry keeps the same receipt and derivatives",
+    "failed recording publishes no partial session or data",
+    "other owner and support admin cannot mutate A through either RPC",
+    "anon cannot execute either RPC"
+  ],
+  "caveat": "Focused schema/RLS fixtures; not whole-project Supabase/RLS, gateway or real simultaneous connections."
+}

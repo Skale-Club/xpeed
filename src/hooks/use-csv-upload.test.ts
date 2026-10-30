@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { webcrypto } from 'node:crypto';
+const sync = vi.hoisted(() => vi.fn(async (_id?: string) => undefined));
+vi.mock('@/lib/problem-sync',()=>({syncSavedProblems:sync}));
 const recordings = vi.hoisted(() => ({ hasRecordedReceipt: vi.fn(), storeRecordedSession: vi.fn() }));
 vi.mock('@/lib/recorded-session', async (original) => ({ ...await original<typeof import('@/lib/recorded-session')>(), ...recordings }));
 
@@ -143,4 +145,25 @@ describe('ingestSessionCsv and the stored CSV', () => {
     expect(args[8]).toBe(CSV);
     warn.mockRestore();
   });
+});
+
+it('retries durable problem work when a prior trip receipt is recognized',async()=>{
+ sync.mockRejectedValueOnce(new Error('offline'));
+ const identity={sessionId:'retry-alerts',userId:'u1'};
+ await ingestSessionCsv(file(),'car-1',undefined,undefined,undefined,undefined,identity);
+ recordings.hasRecordedReceipt.mockResolvedValue(true);
+ await ingestSessionCsv(file(),'car-1',undefined,undefined,undefined,undefined,identity);
+ expect(sync.mock.calls.filter(([id])=>id===identity.sessionId)).toHaveLength(2);
+});
+it('commits the complete fault inspection with the original recording',async()=>{
+ const faultCodes={stored:[],pending:['P0300'],permanent:['P0420'],checked:true,complete:false,modules:['7E0']};
+ await ingestSessionCsv(file(),'car-1',undefined,undefined,undefined,faultCodes,{sessionId:'pending',userId:'u1'});
+ expect(recordings.storeRecordedSession.mock.calls[0][7].summary.faultCodes).toEqual(faultCodes);
+});
+it('does not acknowledge an imported trip until its durable issue job can be queued',async()=>{
+ db.updateSessionVersioning.mockRejectedValueOnce(new Error('version commit failed'));
+ const onStored=vi.fn();
+ await expect(ingestSessionCsv(file(),'car-1',undefined,undefined,onStored)).rejects.toThrow(/version commit failed/);
+ expect(onStored).not.toHaveBeenCalled();
+ expect(db.deleteSession).toHaveBeenCalledWith('s-1');
 });

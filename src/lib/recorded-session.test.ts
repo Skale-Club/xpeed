@@ -1,8 +1,8 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { webcrypto } from 'node:crypto';
 const h = vi.hoisted(() => ({ read: vi.fn() }));
-vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: h.read }) }) }) } }));
-import { csvChecksum, recordedSessionId, hasRecordedReceipt } from './recorded-session';
+vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: () => {const q={select:()=>q,eq:()=>q,maybeSingle:h.read};return q;} } }));
+import { csvChecksum, recordedSessionId, hasRecordedReceipt, RecordingDeletedError } from './recorded-session';
 beforeEach(() => { vi.stubGlobal('crypto', webcrypto); vi.clearAllMocks(); });
 afterEach(() => vi.unstubAllGlobals());
 it('keeps retries stable and separates owners, cars and millisecond starts', async () => {
@@ -23,4 +23,9 @@ it('recognizes only a completed receipt with the exact original checksum', async
 it('does not treat a failed receipt read as permission to start another upload', async () => {
   h.read.mockResolvedValue({ data: null, error: { message: 'offline' } });
   await expect(hasRecordedReceipt({ userId: 'u1', sessionId: 'trip' }, 'car', 'hash')).rejects.toThrow(/offline/);
+});
+
+it('rejects a deleted recording rather than recovering its leftover checkpoint',async()=>{
+ h.read.mockResolvedValueOnce({data:null,error:null}).mockResolvedValueOnce({data:{recording_id:'trip'},error:null});
+ await expect(hasRecordedReceipt({userId:'u1',sessionId:'trip'},'car','hash')).rejects.toBeInstanceOf(RecordingDeletedError);
 });

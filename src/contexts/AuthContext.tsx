@@ -1,3 +1,4 @@
+import { queryClient } from '@/lib/query-client';
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
@@ -30,16 +31,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let owner: string | null | undefined;
+    const accept = (next: Session | null) => {
+      if (owner !== next?.user.id) queryClient.clear();
+      owner = next?.user.id;
+      setSession(next); setUser(next?.user ?? null); setLoading(false);
+    };
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setUser(nextSession?.user ?? null);
-      setLoading(false);
+      accept(nextSession);
     });
 
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      setSession(initialSession);
-      setUser(initialSession?.user ?? null);
-      setLoading(false);
+      accept(initialSession);
     });
 
     return () => subscription.unsubscribe();

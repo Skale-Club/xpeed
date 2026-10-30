@@ -140,3 +140,9 @@ describe('creating a problem twice at once', () => {
     expect(db.rows.find((r) => r.__table === 'vehicle_issue_occurrences')).toMatchObject({ issue_id: 'other', session_id: 's1' });
   });
 });
+
+it('retains a durable job when recording the occurrence fails in strict mode',async()=>{
+ const {reconcileIssues}=await import('./issue-reconciler');
+ db.failWhen=(_op,table)=>table==='vehicle_issue_occurrences'?{message:'occurrence offline'}:null;
+ await expect(reconcileIssues('trip','car','u1',[{canonical_key:'coolant_temp',parameter_key:'Coolant',severity:'critical',message:'Hot',evidence:{}}] as never,at,false,true)).rejects.toThrow('occurrence offline');
+});

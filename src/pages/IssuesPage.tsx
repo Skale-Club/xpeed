@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { queryClient } from '@/lib/query-client';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CalendarClock, CheckCircle2, History, Loader2, RotateCcw, Sparkles } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
@@ -7,11 +8,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ToastAction } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { notifyProblemsChanged } from '@/hooks/use-open-problems';
+import { notifyProblemsChanged, useVehicleIssues } from '@/hooks/use-open-problems';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
-import { getIssuesForCar, ignoreIssue, reopenIssue, resolveIssue, type VehicleIssue } from '@/lib/db-issues';
+import { ignoreIssue, reopenIssue, resolveIssue, type VehicleIssue } from '@/lib/db-issues';
 import { AI_PREFIX, CODE_GONE_NOTE, URGENCY, URGENCY_ORDER, describeProblem, isOpenProblem, type Urgency } from '@/lib/problems';
+import { formatAppDate } from '@/lib/app-date';
 import { timeAgo } from '@/lib/time-ago';
 import { ReadCodesButton } from '@/components/ReadCodesButton';
 
@@ -35,39 +37,36 @@ export default function IssuesPage() {
   const { t, i18n } = useTranslation();
   const { selectedCar } = useCarsContext();
   const { toast } = useToast();
-  const [issues, setIssues] = useState<VehicleIssue[]>([]);
-  // Starts true: no verdict ("all good" or not) until the list has loaded.
-  const [loading, setLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const query = useVehicleIssues(selectedCar?.id);
+  const issues = query.data ?? [];
+  const loading = query.isPending;
+  const loadFailed = query.isError;
+  const load = query.refetch;
   const [tab, setTab] = useState<'open' | 'closed'>('open');
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [confirmIgnore, setConfirmIgnore] = useState<VehicleIssue | null>(null);
+  const { hash } = useLocation();
+  const requested = issues.find(issue => hash === `#issue-${encodeURIComponent(issue.id)}`);
+  const requestedId = requested?.id, requestedStatus = requested?.status;
+  useEffect(() => {
+    if (requestedStatus) setTab(requestedStatus === 'active' || requestedStatus === 'recurred' ? 'open' : 'closed');
+  }, [requestedId, requestedStatus]);
+  useEffect(() => {
+    if (!requestedId || !requestedStatus || (tab === 'open') !== (requestedStatus === 'active' || requestedStatus === 'recurred')) return;
+    const card = document.getElementById(`issue-${requestedId}`);
+    card?.scrollIntoView?.({ block: 'center' });
+    card?.focus({ preventScroll: true });
+  }, [requestedId, requestedStatus, tab]);
 
   // "28 Oct, 13:39"; the year only when it isn't this year.
   const formatDate = (iso: string) => {
     const date = new Date(iso);
-    return new Intl.DateTimeFormat(i18n.resolvedLanguage || undefined, {
+    return formatAppDate(date, i18n.resolvedLanguage || undefined, {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
       ...(date.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' as const } : {}),
-    }).format(date);
+    });
   };
 
-  const carId = selectedCar?.id;
-  const load = useCallback(async () => {
-    if (!carId) return;
-    setLoading(true);
-    setLoadFailed(false);
-    try {
-      setIssues(await getIssuesForCar(carId));
-    } catch (err) {
-      console.error(err);
-      setLoadFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [carId]);
-
-  useEffect(() => { void load(); }, [load]);
 
   const act = async (issue: VehicleIssue, action: Action) => {
     setActingOn(issue.id);
@@ -75,10 +74,7 @@ export default function IssuesPage() {
       if (action === 'resolve') await resolveIssue(issue.id);
       else if (action === 'ignore') await ignoreIssue(issue.id);
       else await reopenIssue(issue.id);
-      const status = action === 'resolve' ? 'resolved' : action === 'ignore' ? 'ignored' : 'active';
-      setIssues((prev) => prev.map((i) => (i.id === issue.id
-        ? { ...i, status, resolved_at: action === 'resolve' ? new Date().toISOString() : action === 'reopen' ? null : i.resolved_at }
-        : i)));
+      queryClient.setQueryData<VehicleIssue[]>(['vehicle-issues',selectedCar?.id], previous => previous?.map(item => item.id === issue.id ? {...item, status:action === 'resolve' ? 'resolved' : action === 'ignore' ? 'ignored' : 'active',resolved_at:action === 'resolve' ? new Date().toISOString() : action === 'reopen' ? null : item.resolved_at} : item));
       // The home card and the tab-bar badge show the same list.
       notifyProblemsChanged();
       if (action !== 'reopen') {
@@ -154,12 +150,12 @@ export default function IssuesPage() {
               <div>
                 <p className="font-semibold">
                   {open.length === 0
-                    ? t('problems.allGood', 'All good')
+                    ? t('problems.allGood', 'No saved problems')
                     : t('problems.needAttention', { count: open.length, defaultValue: '{{count}} problems need attention' })}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {open.length === 0
-                    ? t('problems.allGoodHint', 'Nothing needs your attention right now. We keep checking on every trip.')
+                    ? t('problems.allGoodHint', 'No problems have been saved for this car. This is not a fresh check of the car.')
                     : mostUrgent === 'urgent'
                       ? t('problems.urgentHint', 'At least one is urgent — see what to do below.')
                       : t('problems.notUrgentHint', 'Nothing urgent. See what to do below.')}
@@ -237,7 +233,7 @@ function ProblemCard({ issue, acting, formatDate, onAct }: {
   const isOpen = isOpenProblem(issue);
 
   return (
-    <Card className={isOpen ? '' : 'opacity-70'} data-testid="problem-card">
+    <Card id={`issue-${issue.id}`} tabIndex={-1} className={`${isOpen ? '' : 'opacity-70'} target:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none scroll-mt-20`} data-testid="problem-card">
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${URGENCY_STYLE[urgency]}`}>

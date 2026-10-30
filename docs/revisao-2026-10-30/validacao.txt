@@ -1,0 +1,29 @@
+Validação local — 2026-10-30
+Base: 5778502d728170a2823c54a3970ff9e64d687068
+Nenhum push, deploy ou acesso de escrita à produção.
+
+npm test -- --maxWorkers=2 --testTimeout=20000 — exit 0
+ Test Files  80 passed (80)
+      Tests  490 passed (490)
+   Start at  15:57:09
+   Duration  277.91s (tests 35%, environment 35%, setup 22%, import 6%, transform 2%, worker 1%)
+npm run typecheck — exit 0
+npm run lint — exit 0; 0 erros, 13 avisos react-refresh preexistentes
+npm run build — exit 0
+npm run test:sql — exit 0; 7 contratos de processamento e 8 verificações com as 56 migrações completas
+UTF-8: 412 arquivos rastreados de código/JSON/SQL verificados; nenhum inválido.
+git diff --check — exit 0
+
+Verificação visual em navegador a 390×844, com conta e adaptador simulados:
+- Configurações: alterar temperatura, bloquear saída, cancelar saída, salvar e confirmar mensagem.
+- Trips: alternar List/Calendar, ver dias com registros e viagens do dia selecionado.
+- Live: conectar adaptador simulado, ver carro identificado e leituras em Fahrenheit.
+- Captura: calendario-mobile.png
+
+Teste físico no Android e aplicação da migração em produção não realizados.
+
+> xpeed@0.0.0 test:sql
+> node scripts/verify-processing-sql.mjs && node scripts/verify-processing-sql.mjs --bootstrap
+
+7 PostgreSQL checks passed: additive upgrade and repeat preserve existing issue IDs; owner atomically replaces derivatives, preserves identity and resolved flag; failed insert rolls back preceding update/deletes; recording publishes once; retry keeps the same receipt and derivatives; failed recording publishes no partial session or data; other owner and support admin cannot mutate A through either RPC; anon cannot execute either RPC
+{"applied":56,"failure":null,"checks":["real migrated policies allow A to publish once and recognize retry","B cannot list A trips, readings, flags, issues, chat, maintenance, photos or storage","cross-owner parent relationships and RPCs are rejected","support admin keeps SELECT but cannot reprocess or change A ownership","anon cannot list private data; an explicit share works until revoked","durable issue jobs survive retries and only the current version can be acknowledged","an intentional deletion blocks recovery even after checkpoint cleanup failure","database pagination and timezone calendar handle 300 trips without transferring the entire history"]}

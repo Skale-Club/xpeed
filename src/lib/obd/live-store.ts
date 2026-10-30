@@ -10,6 +10,8 @@ export interface LiveSnapshot {
   cycleMs: number | null;
   /** Samples recorded so far in the trip in progress. */
   samples: number;
+  /** When the latest displayed cycle was received, not when React rendered. */
+  receivedAt: number | null;
 }
 
 export interface LiveStore {
@@ -21,7 +23,7 @@ export interface LiveStore {
 /** One shared "no readings" object, so clearing twice isn't a change. */
 export const NO_VALUES: Record<string, number | null> = {};
 
-const EMPTY: LiveSnapshot = { values: NO_VALUES, cycleMs: null, samples: 0 };
+const EMPTY: LiveSnapshot = { values: NO_VALUES, cycleMs: null, samples: 0, receivedAt: null };
 
 export function createLiveStore(): LiveStore {
   let snapshot = EMPTY;
@@ -30,7 +32,7 @@ export function createLiveStore(): LiveStore {
     get: () => snapshot,
     set(patch) {
       const next = { ...snapshot, ...patch };
-      if (next.values === snapshot.values && next.cycleMs === snapshot.cycleMs && next.samples === snapshot.samples) return;
+      if (next.values === snapshot.values && next.cycleMs === snapshot.cycleMs && next.samples === snapshot.samples && next.receivedAt === snapshot.receivedAt) return;
       snapshot = next;
       listeners.forEach((l) => l());
     },

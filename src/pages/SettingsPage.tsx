@@ -1,3 +1,4 @@
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import TripSyncStatus from '@/components/TripSyncStatus';
 import AppUpdates from '@/components/AppUpdates';
 import { useState, useEffect } from 'react';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import McpTokensSection from '@/components/McpTokensSection';
 import { LANGUAGES, currentLanguage } from '@/lib/languages';
+import type { ConsumptionUnit, Currency, VolumeUnit } from '@/lib/fuel-units';
 
 /** "Version 1.0 (build 19)" inside the Android app. */
 function useAppVersion(): { version: string; build: string } | null {
@@ -77,12 +79,13 @@ function InstallSection() {
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const version = useAppVersion();
-  const { temperatureUnit, setTemperatureUnit, distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
+  const { volumeUnit, consumptionUnit, currency, temperatureUnit, distanceUnit, timezone, advancedTools, savePreferences } = useSettings();
   const currentLang = currentLanguage(i18n.resolvedLanguage).code;
-  const [draft, setDraft] = useState({ language: currentLang as string, temperatureUnit, distanceUnit, timezone, advancedTools });
+  const [draft, setDraft] = useState({ language: currentLang as string, volumeUnit, consumptionUnit, currency, temperatureUnit, distanceUnit, timezone, advancedTools });
   const [saving, setSaving] = useState(false);
   const dirty = draft.language !== currentLang || draft.distanceUnit !== distanceUnit
-    || draft.timezone !== timezone || draft.advancedTools !== advancedTools || draft.temperatureUnit !== temperatureUnit;
+    || draft.timezone !== timezone || draft.advancedTools !== advancedTools || draft.temperatureUnit !== temperatureUnit
+    || draft.volumeUnit !== volumeUnit || draft.consumptionUnit !== consumptionUnit || draft.currency !== currency;
   useEffect(() => {
     if (!dirty) return;
     const release = holdAppUpdates();
@@ -94,23 +97,23 @@ export default function SettingsPage() {
     if (!dirty || saving) return;
     setSaving(true);
     try {
-      await i18n.changeLanguage(draft.language);
-      setDistanceUnit(draft.distanceUnit);
-      setTemperatureUnit(draft.temperatureUnit);
-      setTimezone(draft.timezone);
-      setAdvancedTools(draft.advancedTools);
+      if (draft.language !== currentLang) await i18n.changeLanguage(draft.language);
+      savePreferences({volumeUnit:draft.volumeUnit, consumptionUnit:draft.consumptionUnit, currency:draft.currency, temperatureUnit:draft.temperatureUnit, distanceUnit:draft.distanceUnit, timezone:draft.timezone, advancedTools:draft.advancedTools});
       toast({ title: i18n.t('settings.saved', 'Settings saved'), variant: 'success' });
     } catch {
+      if (i18n.resolvedLanguage !== currentLang) await i18n.changeLanguage(currentLang).catch(() => undefined);
       toast({ title: t('settings.saveFailed', 'Could not save settings. Try again.'), variant: 'destructive' });
     } finally { setSaving(false); }
   };
 
-  const timezones = typeof Intl.supportedValuesOf === 'function'
+  const supportedTimezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
     : [Intl.DateTimeFormat().resolvedOptions().timeZone];
+  const timezones = [...new Set([draft.timezone, ...supportedTimezones])].sort();
 
   return (
     <AppLayout refreshDisabled={dirty || saving}>
+      <UnsavedChangesGuard dirty={dirty} />
       <div className="space-y-4 max-w-2xl">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary" />
@@ -150,6 +153,28 @@ export default function SettingsPage() {
                   <SelectTrigger id="set-temp"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="C">Celsius (°C)</SelectItem><SelectItem value="F">Fahrenheit (°F)</SelectItem></SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-volume">{t('settings.prefs.volume', 'Fuel volume')}</Label>
+                <Select value={draft.volumeUnit} onValueChange={(volumeUnit: VolumeUnit) => setDraft(d => ({ ...d, volumeUnit }))} disabled={saving}>
+                  <SelectTrigger id="set-volume"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="L">{t('settings.prefs.litres', 'Litres (L)')}</SelectItem><SelectItem value="US gal">{t('settings.prefs.gallons', 'U.S. gallons (US gal)')}</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-economy">{t('settings.prefs.consumption', 'Fuel economy')}</Label>
+                <Select value={draft.consumptionUnit} onValueChange={(consumptionUnit: ConsumptionUnit) => setDraft(d => ({ ...d, consumptionUnit }))} disabled={saving}>
+                  <SelectTrigger id="set-economy"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="km/L">km/L</SelectItem><SelectItem value="L/100km">L/100km</SelectItem><SelectItem value="MPG">MPG (US)</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-currency">{t('settings.prefs.currency', 'Currency for new records')}</Label>
+                <Select value={draft.currency} onValueChange={(currency: Currency) => setDraft(d => ({ ...d, currency }))} disabled={saving}>
+                  <SelectTrigger id="set-currency"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="USD">USD ($)</SelectItem><SelectItem value="BRL">BRL (R$)</SelectItem><SelectItem value="EUR">EUR (€)</SelectItem></SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t('settings.prefs.currencyHint', 'Existing records keep their original currency. No exchange conversion is applied.')}</p>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="set-tz">{t('settings.prefs.timezone', 'Time zone')}</Label>
@@ -205,9 +230,6 @@ export default function SettingsPage() {
             )}
             <p className="text-sm text-muted-foreground">
               {t('settings.about.body', 'Xpeed reads your car through a small Bluetooth adapter, records your trips and explains in plain words what needs attention.')}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}
             </p>
           </CardContent>
         </Card>

@@ -92,7 +92,7 @@ export default function FaultCodesPage() {
         <p className="text-xs text-muted-foreground">{t('codes.checkedAt', 'Read at {{time}}', { time: formatAppDate(new Date(result.at), i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'medium' }) })}</p>
         {!complete && <p role="alert" className="text-sm text-warn">{t('codes.incomplete', 'The car did not answer all required requests. An empty result does not confirm that there are no fault codes.')}</p>}
         <div className="flex flex-wrap gap-2">{(['stored', 'pending', 'permanent'] as const).flatMap((kind) => result.readout[kind].map((code) => <Badge key={`${kind}:${code}`} variant="outline">{code} · {t(`codes.${kind}`, kind)}</Badge>))}</div>
-        {(codes.length > 0 || complete) && <DTCPanel codes={codes} />}
+        {(codes.length > 0 || complete) && <DTCPanel codes={codes} checked={complete} />}
         <p className="text-xs text-muted-foreground">{t('codes.modules', 'Modules that answered: {{modules}}', { modules: result.readout.modules?.join(', ') || '—' })}</p>
         <p className="text-xs text-muted-foreground">{t('scanner.codesLegend', 'Pending: the car saw it once and is still confirming. Permanent: only the car itself erases it, after confirming the fault is gone.')}</p>
         {!busy && record?.syncFailed && <p role="alert" className="text-sm text-warn">{t('codes.syncFailed', 'Codes were read, but Problems could not be updated. The saved reading is still available.')}</p>}

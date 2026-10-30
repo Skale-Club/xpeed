@@ -33,6 +33,11 @@ export const CANONICAL_PARAMS: CanonicalMapping[] = [
 
 export function matchCanonicalKey(header: string): { canonical_key: string; label: string; unit: string } | null {
   const lower = header.toLowerCase().trim();
+  // Fuel efficiency, consumption per distance and flow are different dimensions.
+  if (/mpg/i.test(lower) && /imperial|imp\b|uk\b/.test(lower)) return { canonical_key: 'fuel_economy_mpg_imperial', label: 'Fuel economy', unit: 'MPG (UK)' };
+  if (/mpg/i.test(lower)) return { canonical_key: 'fuel_economy_mpg', label: 'Fuel economy', unit: 'MPG' };
+  if (/l\/100\s*km/i.test(lower)) return { canonical_key: 'fuel_consumption_per_distance', label: 'Fuel consumption', unit: 'L/100km' };
+  if (/km\/l/i.test(lower)) return { canonical_key: 'fuel_economy_kml', label: 'Fuel economy', unit: 'km/L' };
   // These quantities are not oxygen-sensor voltage or MAF mass flow.
   if (/oxygen.*(?:equivalence|current)/.test(lower) || /power.*maf/.test(lower)) return null;
   // Prefer the most specific sensor name: "intake manifold absolute" must

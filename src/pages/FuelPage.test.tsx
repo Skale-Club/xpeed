@@ -5,16 +5,18 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { FuelEntry } from '@/lib/fuel-ledger';
 import FuelPage from './FuelPage';
+const settings=vi.hoisted(()=>({distanceUnit:'mi',volumeUnit:'US gal',consumptionUnit:'MPG',currency:'USD',timezone:'America/New_York'}));
 const api = vi.hoisted(() => ({ save: vi.fn(), list: vi.fn(), toast: vi.fn(), entries: [] as FuelEntry[] }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCarId: 'car', selectedCar: { name: 'Prius', country: 'US' } }) }));
-vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'mi', timezone: 'America/New_York' }) }));
+vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => settings }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: api.toast }) }));
 vi.mock('@/lib/db', () => ({ getSessions: async () => [] }));
 vi.mock('@/lib/fuel-api', () => ({ listFuelEntries: api.list, saveFuelEntry: api.save, deleteFuelEntry: vi.fn() }));
 vi.mock('recharts', () => ({ LineChart: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null, CartesianGrid: () => null, ResponsiveContainer: () => null }));
 vi.mock('react-i18next', async original => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { resolvedLanguage: 'en' }, t: (_key: string, fallback: string) => fallback }) }));
 beforeEach(() => {
+  Object.assign(settings,{distanceUnit:'mi',volumeUnit:'US gal',consumptionUnit:'MPG',currency:'USD'});
   api.entries = [];
   api.list.mockReset().mockImplementation(async () => api.entries);
   api.save.mockReset().mockImplementation(async (_car, input) => { const entry = { ...input, id: 'new-entry' }; api.entries = [entry, ...api.entries]; return entry; });
@@ -111,4 +113,23 @@ it('accepts comma decimals from the phone keyboard and keeps Save disabled until
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
   expect(api.save.mock.calls[0][1]).toMatchObject({ totalPaid: 35.9, litres: 10.5 * 3.785411784 });
+});
+
+it.each([['km','US gal',37.85411784],['mi','L',10]])('records fuel independently of distance: %s with %s', async (distance, volume, litres) => {
+  settings.distanceUnit=String(distance); settings.volumeUnit=String(volume);
+  open(); await addFill();
+  fireEvent.change(screen.getByLabelText('Total paid'),{target:{value:'30'}});
+  fireEvent.change(screen.getByLabelText('Quantity'),{target:{value:'10'}});
+  fireEvent.click(screen.getByRole('button',{name:'Save'}));
+  await waitFor(()=>expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1].litres).toBeCloseTo(Number(litres),8);
+});
+
+it('does not relabel a historical EUR price as USD when opening a new price record', async () => {
+  api.entries=[{id:'eur',kind:'reference',at:'2026-10-29T10:00:00Z',litres:0,totalPaid:null,pricePerLitre:2,currency:'EUR',odometerKm:null,fullTank:false,source:'manual',region:'',sourceUrl:'',note:''}];
+  open(); await screen.findByRole('button',{name:'Change'});
+  expect(screen.getByText('€7.57 / US gal')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Change'}));
+  expect(screen.getByRole('textbox',{name:'Fuel price'})).toHaveValue('');
+  expect(api.entries[0].currency).toBe('EUR');
 });

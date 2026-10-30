@@ -69,20 +69,20 @@ describe('syncFaultCodes', () => {
     const at = (h: number) => `2026-10-28T${String(h).padStart(2, '0')}:00:00.000Z`;
 
     // Trip 1: one confirmed code, one seen only once.
-    await syncFaultCodes(car, 'u1', { stored: ['P0420'], pending: ['P0171'], checked: true }, 's1', at(8));
+    await syncFaultCodes(car, 'u1', { stored: ['P0420'], pending: ['P0171'], checked: true, complete: true }, 's1', at(8));
     expect(issueFor(car, 'dtc:P0420')).toMatchObject({ status: 'active', severity: dtcSeverity('P0420'), title: 'P0420' });
     const pending = issueFor(car, 'dtc:P0171')!;
     expect(pending).toMatchObject({ status: 'active', severity: 'warning' });
     expect(describeProblem(pending as never, i18n.t).title).toMatch(/^Possível falha P0171/);
 
     // Trip 2: the car confirms P0171, P0420 is gone (fixed / cleared at the shop).
-    const r2 = await syncFaultCodes(car, 'u1', { stored: ['P0171'], pending: [], checked: true }, 's2', at(10));
+    const r2 = await syncFaultCodes(car, 'u1', { stored: ['P0171'], pending: [], checked: true, complete: true }, 's2', at(10));
     expect(r2.resolved).toBe(1);
     expect(issueFor(car, 'dtc:P0420')).toMatchObject({ status: 'resolved', resolved_note: CODE_GONE_NOTE });
     expect(issueFor(car, 'dtc:P0171')).toMatchObject({ title: 'P0171', severity: dtcSeverity('P0171') });
 
     // A trip recorded earlier but saved late doesn't reopen what was already fixed.
-    await syncFaultCodes(car, 'u1', { stored: ['P0420'], pending: [], checked: true }, 's1b', at(9));
+    await syncFaultCodes(car, 'u1', { stored: ['P0420'], pending: [], checked: true, complete: true }, 's1b', at(9));
     expect(issueFor(car, 'dtc:P0420')).toMatchObject({ status: 'resolved' });
 
     // When the read failed nothing is closed for being missing.
@@ -90,7 +90,7 @@ describe('syncFaultCodes', () => {
     expect(issueFor(car, 'dtc:P0171')).toMatchObject({ status: 'active' });
 
     // P0420 coming back later counts as "came back after being fixed".
-    await syncFaultCodes(car, 'u1', { stored: ['P0420', 'P0171'], pending: [], checked: true }, 's4', at(12));
+    await syncFaultCodes(car, 'u1', { stored: ['P0420', 'P0171'], pending: [], checked: true, complete: true }, 's4', at(12));
     expect(issueFor(car, 'dtc:P0420')).toMatchObject({ status: 'recurred', recurrence_count: 1 });
   });
 });

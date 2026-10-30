@@ -538,7 +538,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
         // (with a long grace), and if it keeps up the link is replaced.
         stalls += 1;
         feedLinkDown();
-        live.set({ values: next, cycleMs: null });
+        live.set({ values: next, cycleMs: null, receivedAt: null });
         if (stalls >= STALL_RECONNECT_CYCLES) throw new Error('The adapter stopped answering.');
         continue;
       }
@@ -547,6 +547,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
       const ecuAlive = channelsRef.current.some((c) => c.def && next[c.header] != null);
 
       if (!ecuAlive) {
+        live.set({ values: next, cycleMs: null, receivedAt: now });
         silent += 1;
         feedTrip({ at: now, ecuAlive: false, speedKmh: null, rpm: null });
         if (silent >= OFF_AFTER_CYCLES) {
@@ -555,7 +556,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
           liveRef.current = false;
           waitingSince = Date.now();
           lastBusProbe = Date.now();
-          live.set({ values: NO_VALUES, cycleMs: null });
+          live.set({ values: NO_VALUES, cycleMs: null, receivedAt: null });
           setStatus('waiting');
         }
         continue;
@@ -581,7 +582,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
       feedTrip({ at: now, ecuAlive: true, speedKmh: speed, rpm: speedMissing ? null : next[RPM] ?? null });
       const start = tripStartRef.current;
       if (start) recordSample(start, now, next);
-      live.set({ values: next, cycleMs: performance.now() - t0, samples: samplesRef.current.length });
+      live.set({ values: next, cycleMs: performance.now() - t0, samples: samplesRef.current.length, receivedAt: now });
       // Stationary before an automatic trip: no samples/backups/uploads, and
       // fewer sensor requests while waiting for actual movement.
       if (alwaysOnRef.current && !start && next[SPEED] != null && next[SPEED]! < 3) await sleep(2000);
@@ -602,7 +603,7 @@ export function useObdScanner({ customPids = NO_CUSTOM_PIDS, alwaysOn = false, o
     liveRef.current = false;
     setConnection(null);
     setFaultInspection(null);
-    live.set({ values: NO_VALUES, cycleMs: null });
+    live.set({ values: NO_VALUES, cycleMs: null, receivedAt: null });
   }, [live]);
 
   /** End the current connection loop and close the link; a trip still open is closed and kept. */

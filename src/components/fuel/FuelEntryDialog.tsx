@@ -1,3 +1,5 @@
+import { useSettings } from '@/contexts/SettingsContext';
+import { zonedDateTimeInput, parseZonedDateTime } from '@/lib/app-date';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CalendarDays, ChevronDown, Loader2 } from 'lucide-react';
@@ -11,18 +13,21 @@ import { US_GALLON, validateFuelEntry, type FuelEntry } from '@/lib/fuel-ledger'
 import { KM_PER_MILE } from '@/lib/vehicle-care';
 import { holdAppUpdates } from '@/lib/pwa-update';
 import { publicAppUrl } from '@/lib/trips';
+import { litresPerUnit } from '@/lib/fuel-units';
 import { parseFuelNumber } from '@/lib/fuel-entry';
 
-const localTime = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 const REGIONS = { NUS: 'U.S.', R10: 'East Coast', R20: 'Midwest', R30: 'Gulf Coast', R40: 'Rocky Mountain', R50: 'West Coast' };
 export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, onClose, onSaved }: {
   carId: string; kind: 'fill' | 'reference'; currency: FuelEntry['currency']; price: FuelEntry | null;
   distanceUnit: 'km' | 'mi'; onClose: () => void; onSaved: (entry: FuelEntry) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const fill = kind === 'fill', factor = distanceUnit === 'mi' ? US_GALLON : 1, unit = distanceUnit === 'mi' ? 'US gal' : 'L';
+  const { timezone, volumeUnit } = useSettings();
+  const localTime = (date: Date) => zonedDateTimeInput(date, timezone);
+  const fill = kind === 'fill', factor = litresPerUnit(volumeUnit), unit = volumeUnit;
   const [recordedAt] = useState(() => new Date());
-  const [draft, setDraft] = useState({ at: localTime(recordedAt), amount: '', paid: '', price: !fill && price ? String(Number((price.pricePerLitre * factor).toFixed(4))) : '', odometer: '', fullTank: false, currency, note: '', source: 'manual' as 'manual' | 'regional', region: '', sourceUrl: '' });
+  const [intentId] = useState(() => crypto.randomUUID());
+  const [draft, setDraft] = useState({ at: localTime(recordedAt), amount: '', paid: '', price: !fill && price && price.currency === currency ? String(Number((price.pricePerLitre * factor).toFixed(4))) : '', odometer: '', fullTank: false, currency, note: '', source: 'manual' as 'manual' | 'regional', region: '', sourceUrl: '' });
   const [initial] = useState(() => JSON.stringify(draft));
   const [saving, setSaving] = useState(false), [lookingUp, setLookingUp] = useState(false);
   const [region, setRegion] = useState('NUS'), [error, setError] = useState('');
@@ -42,17 +47,18 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); if (busy) return;
     setError('');
-    if (!Number.isFinite(Date.parse(draft.at))) { setError(t('fuel.invalid', 'Check the date, quantity and price.')); return; }
+    const enteredAt = parseZonedDateTime(draft.at, timezone);
+    if (!enteredAt) { setError(t('fuel.invalid', 'Check the date, quantity and price.')); return; }
     const litres = fill ? amount * factor : 0;
-    const at = draft.at === localTime(recordedAt) && draft.source !== 'regional' ? recordedAt.toISOString() : new Date(draft.at).toISOString();
+    const at = draft.at === localTime(recordedAt) && draft.source !== 'regional' ? recordedAt.toISOString() : enteredAt.toISOString();
     const entry = { kind, at, litres, totalPaid: fill ? paid : null,
       pricePerLitre: fill ? paid / litres : unitPrice / factor, currency: draft.currency,
       odometerKm: fill && draft.odometer ? Number(draft.odometer) * (distanceUnit === 'mi' ? KM_PER_MILE : 1) : null,
       fullTank: fill && draft.fullTank, source: fill ? 'receipt' as const : draft.source, region: fill ? '' : draft.region, sourceUrl: fill ? '' : draft.sourceUrl, note: draft.note.trim() };
     if (!validateFuelEntry(entry)) { setError(t('fuel.invalid', 'Check the date, quantity and price.')); return; }
     setSaving(true);
-    try { onSaved(await saveFuelEntry(carId, entry)); onClose(); }
-    catch { setError(t('fuel.saveFailed', 'Could not save. Your entries are still in the form.')); }
+    try { onSaved(await saveFuelEntry(carId, entry, intentId)); onClose(); }
+    catch (error) { setError(error instanceof Error && error.message==='fuel_intent_conflict' ? t('fuel.retryConflict','This fill-up was already saved with different details. Check your history before adding it again.') : t('fuel.saveFailed', 'Could not save. Your entries are still in the form.')); }
     finally { setSaving(false); }
   };
   const lookup = async () => {

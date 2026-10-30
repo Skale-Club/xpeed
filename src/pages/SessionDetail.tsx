@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, RefreshCw, Download, Loader2, CheckCircle2, ChevronDown, ChevronUp, Clock, Route, Gauge,
 } from 'lucide-react';
+import { completeTripInspection } from '@/lib/trip-inspection';
 import AppLayout from '@/components/AppLayout';
 import SessionKPIs from '@/components/SessionKPIs';
 import FlagsPanel from '@/components/FlagsPanel';
@@ -16,6 +17,7 @@ import { PageLoader } from '@/components/PageLoader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
+import { litresPerUnit, fuelEconomy, economyLabel } from '@/lib/fuel-units';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
   getSession, getSessionFlags, getSessionRows, downloadSessionCSV, getCarById,
@@ -46,7 +48,7 @@ export default function SessionDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { t, i18n } = useTranslation();
-  const { distanceUnit } = useSettings();
+  const { volumeUnit, consumptionUnit, distanceUnit } = useSettings();
   const [session, setSession] = useState<SessionWithStoredCsv | null>(null);
   const [flags, setFlags] = useState<SessionFlag[]>([]);
   const [rows, setRows] = useState<SessionRow[]>([]);
@@ -153,7 +155,7 @@ export default function SessionDetail() {
   const summary = session.summary as (SessionSummary & { headerMapping?: Record<string, string> }) | null;
   const headerMapping = summary?.headerMapping || {};
   const summaries = summary?.summaries || [];
-  const problems = tripProblems(flags, session.active_dtcs);
+  const problems = tripProblems(flags, session.active_dtcs, session.summary);
   const analysisOutdated = session.summary?.analysis_outdated === true;
   const aiSummary = !analysisOutdated && typeof session.gemini_analysis?.summary === 'string' ? session.gemini_analysis.summary : null;
   const avgSpeed = tripAverageSpeed(session);
@@ -161,10 +163,10 @@ export default function SessionDetail() {
   const fuel = metrics?.litres != null ? { litres: metrics.litres, coverage: metrics.coverage } : tripFuel(rows, summaries, session.duration_seconds);
   const distance = tripDistanceKm(session);
   const enoughFuel = fuel?.coverage != null && fuel.coverage >= 0.9;
-  const fuelUnit = distanceUnit === 'mi' ? 'US gal' : 'L';
-  const fuelAmount = fuel ? fuel.litres / (distanceUnit === 'mi' ? 3.785411784 : 1) : null;
-  const fuelEfficiency = enoughFuel && fuel && fuel.litres > 0 && distance != null && distance > 0
-    ? distanceUnit === 'mi' ? `${(distance * 0.621371 / (fuel.litres / 3.785411784)).toFixed(1)} MPG` : `${(distance / fuel.litres).toFixed(1)} km/L`
+  const fuelUnit = volumeUnit;
+  const fuelAmount = fuel ? fuel.litres / litresPerUnit(volumeUnit) : null;
+  const fuelEfficiency = enoughFuel && (!metrics || metrics.distanceCoverage >= .9) && fuel && fuel.litres > 0 && distance != null && distance > 0
+    ? `${fuelEconomy(distance / fuel.litres, consumptionUnit)!.toFixed(1)} ${economyLabel(consumptionUnit)}`
     : null;
   const facts = [
     { icon: Clock, label: t('tripDetail.duration', 'Duration'), value: formatDuration(session.duration_seconds) },
@@ -222,10 +224,10 @@ export default function SessionDetail() {
         <div className="space-y-2">
           <h3 className="font-semibold">{t('tripDetail.problemsTitle', 'Problems in this trip')}</h3>
           {problems.length === 0 ? (
-            <Card className="border-success/40">
+            <Card className={completeTripInspection(session) ? 'border-success/40' : 'border-border'}>
               <CardContent className="p-4 flex items-center gap-3">
-                <CheckCircle2 className="w-5 h-5 text-success" />
-                <p className="text-sm">{t('tripDetail.noProblems', 'Nothing wrong was found on this trip.')}</p>
+                <CheckCircle2 className={`w-5 h-5 ${completeTripInspection(session) ? 'text-success' : 'text-muted-foreground'}`} />
+                <p className="text-sm">{completeTripInspection(session) ? t('tripDetail.noProblems', 'No warnings found in the recorded readings.') : t('history.incompleteCheck', 'Code reading incomplete')}</p>
               </CardContent>
             </Card>
           ) : (

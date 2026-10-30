@@ -2,6 +2,7 @@ import { PillDial, type GaugeTone } from '@/components/trip/QuickGauge';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { formatValue } from '@/lib/obd/format';
 import { formatAppDate } from '@/lib/app-date';
+import { useTranslation } from 'react-i18next';
 
 // Live-panel widgets. Hand-drawn SVG instead of a chart library: they redraw
 // several times a second and only need a few primitives.
@@ -14,16 +15,22 @@ interface Readout {
   value: number | null | undefined;
 }
 
+function MissingReading({ value }: { value: number | null | undefined }) {
+  const { t } = useTranslation();
+  return value == null || !Number.isFinite(value) ? <p className="text-[10px] text-muted-foreground">{t('live.noReading', 'No reading')}</p> : null;
+}
+
 export function GaugeWidget({ label, unit, value, min, max, tone }: Readout & { min: number; max: number; tone?: GaugeTone }) {
   return (
-    <div className="flex flex-col items-center" role="meter" aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value ?? undefined}>
+    <div className="flex flex-col items-center" role="meter" aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value != null && Number.isFinite(value) ? value : undefined}>
       <PillDial value={value ?? null} unit={unit} label={label} min={min} max={max} tone={tone} className="max-w-[200px]" />
       <div className="mt-1 flex w-full max-w-[200px] justify-between px-1 text-[10px] tabular-nums text-muted-foreground">
-        <span>{min}</span>
+        <span>{formatValue(min, unit)}</span>
         <span>{unit}</span>
-        <span>{max}</span>
+        <span>{formatValue(max, unit)}</span>
       </div>
       <p className="mt-0.5 max-w-full truncate text-center text-xs text-muted-foreground" title={label}>{label}</p>
+      <MissingReading value={value} />
     </div>
   );
 }
@@ -37,12 +44,13 @@ export function ValueWidget({ label, unit, value, min, max }: Readout & { min?: 
   const thermometer = (unit === '°C' || unit === '°F');
   const voltage = unit === 'V';
   return (
-    <div className="flex flex-col justify-center h-full gap-2" role={ranged ? 'meter' : undefined} aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={present ? value : undefined}>
+    <div className="flex flex-col justify-center gap-2" role={ranged ? 'meter' : undefined} aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={present ? value : undefined}>
       <p className="text-xs text-muted-foreground truncate" title={label}>{label}</p>
       <p className="text-3xl font-bold text-foreground tabular-nums leading-tight">
         {formatValue(value, unit)}
         <span className="text-sm font-normal text-muted-foreground ml-1">{unit}</span>
       </p>
+      <MissingReading value={value} />
       {ranged && <div className="space-y-1.5" data-testid={thermometer ? 'temperature-scale' : centered ? 'centered-scale' : voltage ? 'voltage-scale' : 'level-scale'}>
         {thermometer ? <div className="flex items-center gap-2">
           <div className="relative h-12 w-2 overflow-hidden rounded-full bg-muted"><span className="absolute inset-x-0 bottom-0 rounded-full bg-primary" style={{ height: `${position ?? 0}%` }} /></div>
@@ -71,7 +79,7 @@ const CHART_H = 100;
 export function ChartWidget({ label, unit, points, now, windowMs, min, max, large = false }: Omit<Readout, 'value'> & { points: ChartPoint[]; now: number; windowMs: number; min?: number; max?: number; large?: boolean }) {
   const from = now - windowMs;
   const visible = points.filter((p) => p.at >= from);
-  const nums = visible.flatMap((p) => (p.v == null ? [] : [p.v]));
+  const nums = visible.flatMap((p) => (p.v == null || !Number.isFinite(p.v) ? [] : [p.v]));
   const current = visible.length ? visible[visible.length - 1].v : null;
   let lo = nums.length ? Math.min(...nums) : 0;
   let hi = nums.length ? Math.max(...nums) : 1;
@@ -85,7 +93,7 @@ export function ChartWidget({ label, unit, points, now, windowMs, min, max, larg
   const segments: string[] = [];
   let segment: string[] = [];
   for (const p of visible) {
-    if (p.v == null) {
+    if (p.v == null || !Number.isFinite(p.v)) {
       if (segment.length) segments.push(segment.join(' '));
       segment = [];
       continue;

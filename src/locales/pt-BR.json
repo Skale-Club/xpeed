@@ -57,7 +57,8 @@
     "error": "Erro",
     "success": "Sucesso",
     "step": "Passo",
-    "of": "de"
+    "of": "de",
+    "retry": "Tentar novamente"
   },
   "dashboard": {
     "title": "Painel",
@@ -322,7 +323,14 @@
       "value": "Número",
       "blocks": "Bateria híbrida"
     },
-    "viewDetails": "Ver detalhes"
+    "viewDetails": "Ver detalhes",
+    "otherCar": "Estas leituras são de {{name}}. Selecione esse carro para ver seu painel.",
+    "useConnectedCar": "Ver carro conectado",
+    "unidentified": "O carro conectado ainda não foi identificado. Estas leituras não estão vinculadas ao carro selecionado.",
+    "noReading": "Sem leitura",
+    "lastReading": "Última leitura: {{time}}",
+    "staleReading": "Leituras pausadas. Última recebida: {{time}}",
+    "awaitingReadings": "Aguardando leituras dos sensores"
   },
   "trip": {
     "openLive": "Ver painel",
@@ -403,7 +411,8 @@
     "syncDetails": "Sincronização",
     "recordingAutoHint": "Termina automaticamente com o carro desligado ou parado por 10 minutos.",
     "autoOffDuringTrip": "A gravação automática está desligada para as próximas viagens. Use Encerrar viagem para finalizar esta gravação.",
-    "recordingManualHint": "Toque em Encerrar viagem para finalizar. Desligar o carro também encerra a gravação."
+    "recordingManualHint": "Toque em Encerrar viagem para finalizar. Desligar o carro também encerra a gravação.",
+    "waitingMovement": "Aguardando movimento"
   },
   "pill": {
     "recording": "Gravando viagem",
@@ -436,8 +445,8 @@
     "noCar": "Escolha um carro no menu para ver os problemas dele.",
     "loadFailed": "Não foi possível carregar os problemas",
     "actionFailed": "Não foi possível salvar a alteração",
-    "allGood": "Tudo certo",
-    "allGoodHint": "Nada precisa da sua atenção agora. Continuamos verificando a cada viagem.",
+    "allGood": "Nenhum problema salvo",
+    "allGoodHint": "Esta é a lista de problemas salvos, não uma nova verificação do carro. Leia os códigos de falha para verificar novamente.",
     "needAttention_one": "{{count}} problema precisa de atenção",
     "needAttention_other": "{{count}} problemas precisam de atenção",
     "urgentHint": "Pelo menos um é urgente — veja o que fazer.",
@@ -616,7 +625,7 @@
     "deleteFailed": "Não foi possível apagar a viagem",
     "empty": "Nenhuma viagem ainda",
     "emptyHint": "Conecte o adaptador e dirija — as viagens aparecem aqui sozinhas.",
-    "noProblems": "Tudo certo",
+    "noProblems": "Nenhum alerta registrado",
     "problems_one": "{{count}} problema",
     "problems_other": "{{count}} problemas",
     "rename": "Renomear",
@@ -644,7 +653,8 @@
     "savedCount": "{{count}} viagens concluídas",
     "savedTrips": "Viagens concluídas",
     "noCompleted": "As viagens concluídas aparecerão aqui depois de salvas.",
-    "liveDay": "Ir para o dia da gravação"
+    "liveDay": "Ir para o dia da gravação",
+    "incompleteCheck": "Verificação de problemas incompleta"
   },
   "tripDetail": {
     "shareText": "Relatório do meu carro: {{title}}",
@@ -722,7 +732,13 @@
       "km": "Quilômetros (km)",
       "mi": "Milhas (mi)",
       "timezone": "Fuso horário",
-      "timezoneHint": "Definido automaticamente pelo aparelho; mude só se as datas aparecerem erradas."
+      "timezoneHint": "Definido automaticamente pelo aparelho; mude só se as datas aparecerem erradas.",
+      "volume": "Volume de combustível",
+      "litres": "Litros (L)",
+      "gallons": "Galões dos EUA (US gal)",
+      "consumption": "Consumo de combustível",
+      "currency": "Moeda dos novos registros",
+      "currencyHint": "Os registros existentes mantêm a moeda original. Não fazemos conversão de câmbio."
     },
     "install": {
       "title": "Instalar o app"
@@ -737,7 +753,10 @@
       "title": "Sobre o Xpeed",
       "body": "O Xpeed lê seu carro por um pequeno adaptador Bluetooth, grava suas viagens e explica em palavras simples o que precisa de atenção.",
       "disclaimer": "Ele dá dicas a partir dos dados, não um diagnóstico — com luz de alerta ou sintomas sérios, procure um mecânico."
-    }
+    },
+    "leaveTitle": "Sair sem salvar?",
+    "leaveBody": "Suas alterações ainda não foram salvas. Fique para salvá-las ou descarte e saia.",
+    "discard": "Descartar alterações"
   },
   "vehicle": {
     "fuel": "Combustível",
@@ -1204,7 +1223,8 @@
     "pending": "Pendente",
     "permanent": "Permanente",
     "modules": "Módulos que responderam: {{modules}}",
-    "syncFailed": "Os códigos foram lidos, mas não foi possível atualizar Problemas. A leitura salva continua disponível."
+    "syncFailed": "Os códigos foram lidos, mas não foi possível atualizar Problemas. A leitura salva continua disponível.",
+    "incompleteTrip": "Nenhuma leitura completa dos códigos de falha foi salva nesta viagem."
   },
   "notifications": {
     "open": "Notificações: {{count}} não lidas",
@@ -1220,7 +1240,23 @@
     "scanSource": "Leitura de códigos",
     "read": "Marcar como lida",
     "readHint": "Ler um aviso não resolve um problema. Os avisos e o estado de leitura são salvos para este carro e esta conta neste dispositivo.",
-    "viewProblems": "Ver problemas do carro"
+    "viewProblems": "Ver problemas do carro",
+    "liveAlert": "{{sensor}} ficou fora da faixa esperada",
+    "liveSource": "Durante sua viagem",
+    "sensors": {
+      "coolant_temp": "Temperatura do motor",
+      "engine_rpm": "Rotação do motor",
+      "stft_b1": "Correção de combustível imediata",
+      "ltft_b1": "Correção de combustível acumulada",
+      "battery_voltage_12v": "Tensão da bateria de 12 V",
+      "intake_air_temp": "Temperatura do ar de admissão",
+      "engine_load": "Carga do motor",
+      "hybrid_battery_soc": "Carga da bateria híbrida",
+      "inverter_temp": "Temperatura do inversor",
+      "catalyst_temp": "Temperatura do catalisador"
+    },
+    "repeated": "Detectado {{count}} vezes",
+    "openDetails": "Ver detalhes"
   },
   "fuel": {
     "invalid": "Confira a data, a quantidade e o preço.",
@@ -1326,7 +1362,8 @@
       "quantityLabel": "Quantidade",
       "editDetails": "Data e outras opções",
       "saving": "Salvando…"
-    }
+    },
+    "retryConflict": "Este abastecimento já foi salvo com outros detalhes. Confira o histórico antes de adicioná-lo de novo."
   },
   "hybrid": {
     "title": "Sistema híbrido",
@@ -1344,7 +1381,8 @@
     "hint": "Durante a gravação, cópias são salvas neste dispositivo e enviadas em partes para a nuvem. As cópias pendentes ficam até a viagem concluída ser confirmada. A verificação usa a conta atual e não acessa outro celular.",
     "sending": "Enviando...",
     "retry": "Tentar enviar viagens pendentes",
-    "cloudConfirmed": "Backup na nuvem confirmado: {{count}} leituras"
+    "cloudConfirmed": "Backup na nuvem confirmado: {{count}} leituras",
+    "localConfirmed": "Salvas neste aparelho: {{count}} leituras"
   },
   "updates": {
     "title": "Atualizações",
@@ -1401,6 +1439,9 @@
     "invalidService": "Confira a data, o odômetro e o custo do serviço.",
     "serviceMileage": "Odômetro no serviço",
     "asOf": "Informado em {{date}}"
+  },
+  "sessionDetail": {
+    "incompleteCheck": "Não há uma leitura completa dos códigos de falha desta viagem."
   },
   "header": {
     "controls": "Estado do carro e notificações"

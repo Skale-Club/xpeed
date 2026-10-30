@@ -22,7 +22,7 @@ export default function TrendsPage() {
   const [group, setGroup] = useState<'month' | 'year'>('month');
   const [period, setPeriod] = useState('12');
   const [chosen, setChosen] = useState('vehicle_speed');
-  const query = useQuery({ queryKey: ['trends', selectedCarId], queryFn: async () => await getSessions(selectedCarId!) as Session[], enabled: !!selectedCarId, staleTime: 60_000 });
+  const query = useQuery({ queryKey: ['sessions', selectedCarId], queryFn: async () => await getSessions(selectedCarId!) as Session[], enabled: !!selectedCarId, staleTime: 60_000 });
   const sessions = query.data ?? EMPTY_SESSIONS;
   const metrics = useMemo(() => trendMetrics(sessions), [sessions]);
   const metric = metrics.find((item) => item.key === chosen) ?? metrics[0];
@@ -41,7 +41,7 @@ export default function TrendsPage() {
     <p className="text-sm text-muted-foreground">{t('trends.hint', 'Compare fuel use, temperatures and other readings across your trips to spot changes over time.')}</p>
     {!selectedCarId ? <p>{t('trends.noCar', 'Choose a car to see its history.')}</p> : query.isPending ? <PageLoader /> : query.isError ? <Button onClick={() => void query.refetch()}>{t('common.retry', 'Try again')}</Button> : !metrics.length ? <p>{t('trends.empty', 'Complete a trip to start seeing how your car changes over time.')}</p> : <>
       <div className="flex flex-wrap gap-3">
-        <label className="flex flex-col gap-1 text-sm">{t('trends.sensor', 'What to compare')}<select className={selectClass} value={metric?.key} onChange={(e) => setChosen(e.target.value)}>{metrics.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+        <label className="flex flex-col gap-1 text-sm">{t('trends.sensor', 'What to compare')}<select className={selectClass} value={metric?.key} onChange={(e) => setChosen(e.target.value)}>{metrics.map((item) => <option key={item.key} value={item.key}>{item.label}{item.unit ? ` (${item.unit})` : ''}</option>)}</select></label>
         <label className="flex flex-col gap-1 text-sm">{t('trends.group', 'View by')}<select className={selectClass} value={group} onChange={(e) => setGroup(e.target.value as 'month' | 'year')}><option value="month">{t('trends.month', 'Month')}</option><option value="year">{t('trends.year', 'Year')}</option></select></label>
         <label className="flex flex-col gap-1 text-sm">{t('trends.range', 'History')}<select className={selectClass} value={period} onChange={(e) => setPeriod(e.target.value)}>{[12, 36].map((n) => <option key={n} value={n}>{t('trends.months', '{{count}} months', { count: n })}</option>)}<option value="all">{t('home.range.all', 'All time')}</option></select></label>
       </div>

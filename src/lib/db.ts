@@ -1,11 +1,15 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Session } from '@/types/session';
+import { queryClient } from './query-client';
+import { removeCloudRecording } from './obd/trip-cloud';
 import { supabase } from '@/integrations/supabase/client';
 
 const SESSION_CSV_BUCKET = 'session-csv';
 const SESSION_LIST_SELECT =
-  'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, gemini_analysis, active_dtcs, processing_version';
+  'id, car_profile_id, uploaded_at, source_filename, source_file_path, session_start, session_end, duration_seconds, row_count, columns, summary, created_at, user_id, active_dtcs, processing_version';
 // The trip page also needs the fault codes and versions. Never `*`: sessions.source_csv holds
 // the whole CSV (megabytes) and the stored report is large; both are fetched only when needed.
-const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, ruleset_id, ruleset_matched_via, report_version`;
+const SESSION_DETAIL_SELECT = `${SESSION_LIST_SELECT}, gemini_analysis, ruleset_id, ruleset_matched_via, report_version`;
 /** session_rows are read in pages: the API caps a response (1000 rows) and a trip stores 2000+. */
 const ROW_PAGE_SIZE = 1000;
 const ROW_PAGE_LIMIT = 100;
@@ -167,7 +171,7 @@ async function fetchRowsPage(sessionId: string, from: number) {
 export async function deleteSession(sessionId: string) {
   const { data: session, error: sessionReadError } = await supabase
     .from('sessions')
-    .select('source_file_path')
+    .select('source_file_path, car_profile_id')
     .eq('id', sessionId)
     .maybeSingle();
 
@@ -180,6 +184,7 @@ export async function deleteSession(sessionId: string) {
   
   if (error) throw error;
 
+  if(session?.car_profile_id) void removeCloudRecording(session.car_profile_id,sessionId).catch(()=>{});
   if (session?.source_file_path) {
     const { error: storageError } = await supabase.storage
       .from(SESSION_CSV_BUCKET)
@@ -619,3 +624,15 @@ export async function getCarById(id: string): Promise<CarProfile | null> {
   return data as unknown as CarProfile | null;
 }
 
+
+export async function getTripPage(carId: string, page: number, day: string | null, timezone: string): Promise<{items: Session[]; total: number}> {
+  const {data,error} = await (supabase as SupabaseClient).rpc('trip_page',{p_car:carId,p_page:page,p_size:20,p_day:day,p_zone:timezone});
+  if (error) throw new Error(error.message);
+  return data;
+}
+export async function getTripCalendar(carId: string, month: string, timezone: string): Promise<Record<string,number>> {
+  const {data,error} = await (supabase as SupabaseClient).rpc('trip_calendar',{p_car:carId,p_month:month,p_zone:timezone});
+  if (error) throw new Error(error.message);
+  return data;
+}
+export function invalidateSessionLists() { void queryClient.invalidateQueries({queryKey:['sessions']}); }

@@ -9,7 +9,8 @@ import { DTC_PREFIX, dtcSeverity } from '@/lib/problems';
 import i18n from '@/lib/i18n';
 import { isNativeApp } from '@/lib/obd/native-ble';
 import { appHour, formatAppDate } from '@/lib/app-date';
-import { readFuelMetrics } from './fuel-ledger';
+import { savedFaultReadout } from './trip-inspection';
+import { coveredTripDistance } from './fuel-ledger';
 
 /** When the trip happened (recording start), falling back to the upload time. */
 export function tripDate(session: Pick<Session, 'session_start' | 'uploaded_at'>): Date {
@@ -22,11 +23,7 @@ function speedSummary(session: Pick<Session, 'summary'>): SessionSummaryItem | u
 
 /** Distance in km from average speed × duration; null when the trip has no speed data. */
 export function tripDistanceKm(session: Pick<Session, 'summary' | 'duration_seconds'>): number | null {
-  const metrics = readFuelMetrics(session);
-  if (metrics?.distanceKm != null && metrics.distanceCoverage >= .9) return metrics.distanceKm;
-  const avg = speedSummary(session)?.avg;
-  if (avg == null || !session.duration_seconds) return null;
-  return (avg * session.duration_seconds) / 3600;
+  return coveredTripDistance(session);
 }
 
 export function tripAverageSpeed(session: Pick<Session, 'summary'>): number | null {
@@ -92,7 +89,7 @@ export interface TripProblem {
  * Problems seen in one trip: rule flags (one per kind, worst severity) plus
  * the fault codes the car reported, in the same shape as vehicle problems.
  */
-export function tripProblems(flags: SessionFlag[], dtcs: string[] | null | undefined): TripProblem[] {
+export function tripProblems(flags: SessionFlag[], dtcs: string[] | null | undefined, summary?: Session['summary']): TripProblem[] {
   const byKey = new Map<string, TripProblem>();
   for (const f of flags) {
     if (f.severity === 'normal') continue;
@@ -105,6 +102,9 @@ export function tripProblems(flags: SessionFlag[], dtcs: string[] | null | undef
   for (const code of dtcs ?? []) {
     byKey.set(`${DTC_PREFIX}${code}`, { canonical_key: `${DTC_PREFIX}${code}`, title: code, severity: dtcSeverity(code) });
   }
+  const read = savedFaultReadout(summary);
+  for (const code of read?.stored ?? []) byKey.set(`${DTC_PREFIX}${code}`, {canonical_key:`${DTC_PREFIX}${code}`,title:code,severity:dtcSeverity(code)});
+  for (const code of read?.pending ?? []) if (!byKey.has(`${DTC_PREFIX}${code}`)) byKey.set(`${DTC_PREFIX}${code}`, {canonical_key:`${DTC_PREFIX}${code}`,title:code+' (pending)',severity:'warning'});
   return Array.from(byKey.values());
 }
 

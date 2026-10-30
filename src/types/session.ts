@@ -63,7 +63,7 @@ export interface Session {
   summary: SessionSummary | null;
   created_at: string;
   user_id: string | null;
-  gemini_analysis: Record<string, unknown> | null;
+  gemini_analysis?: Record<string, unknown> | null;
 }
 
 export interface DashboardProblem {

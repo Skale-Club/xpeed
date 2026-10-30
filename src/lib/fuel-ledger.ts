@@ -2,7 +2,7 @@ import type { FuelMetrics } from './fuel-metrics';
 import type { Session } from '@/types/session';
 import { tripDayKey } from './trip-history';
 
-export const US_GALLON = 3.785411784;
+export { US_GALLON } from './fuel-units';
 export interface FuelEntry {
   id: string;
   kind: 'fill' | 'reference';
@@ -100,11 +100,18 @@ export function readFuelMetrics(session: Pick<Session, 'summary'>): FuelMetrics 
     && (metrics.duration === null || nonnegative(metrics.duration))
     && (metrics.litres === null || nonnegative(metrics.litres)) && (metrics.distanceKm === null || nonnegative(metrics.distanceKm)) ? metrics : null;
 }
+export function coveredTripDistance(session: Pick<Session,'summary'|'duration_seconds'>): number | null {
+  const metrics = readFuelMetrics(session);
+  if (metrics) return metrics.distanceKm != null && metrics.distanceCoverage >= .9 ? metrics.distanceKm : null;
+  const speed = session.summary?.summaries?.find(item=>item.canonical_key === 'vehicle_speed');
+  if (typeof speed?.avg !== 'number' || !Number.isFinite(speed.avg) || speed.avg < 0 || !session.duration_seconds || session.duration_seconds <= 0
+    || typeof speed.duration_seconds !== 'number' || speed.duration_seconds < session.duration_seconds * .9) return null;
+  return speed.avg * session.duration_seconds / 3600;
+}
 export function tripFuelEstimate(session: Session, entries: FuelEntry[]) {
   const at = session.session_start ?? session.uploaded_at;
   const metrics = readFuelMetrics(session);
-  const speed = session.summary?.summaries?.find((item) => item.canonical_key === 'vehicle_speed')?.avg;
-  const distance = metrics?.distanceKm != null && metrics.distanceCoverage >= 0.9 ? metrics.distanceKm : typeof speed === 'number' && session.duration_seconds ? speed * session.duration_seconds / 3600 : null;
+  const distance = coveredTripDistance(session);
   const baseline = tankIntervals(entries).filter((item) => item.at <= at).at(-1);
   const calculated = metrics?.litres != null && metrics.coverage >= 0.9;
   const litres = calculated ? metrics.litres : baseline && distance != null && distance >= 0 ? distance / baseline.kmPerLitre : null;

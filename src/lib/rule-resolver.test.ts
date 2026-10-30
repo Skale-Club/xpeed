@@ -34,3 +34,11 @@ it('recovery of a Prius 2010 produces the same valid foreign key as direct inges
   expect(registered.has(payload.ruleset_id)).toBe(true);
   expect(payload.row_count).toBe(2);
 });
+
+it.each([
+ [{make:'Ford',model:'F-150',year:2025,engine_type:'petrol'},'generic-petrol'],
+ [{make:'Subaru',model:'WRX',year:2008,engine_type:'petrol'},'generic-petrol'],
+ [{make:'Toyota',model:'Prius C',year:2010,engine_type:'hybrid'},'generic-hybrid'],
+ [{make:'Toyota',model:'Prius V',year:2010,engine_type:'hybrid'},'generic-hybrid'],
+ [{make:'Honda',model:'Civic',year:null,engine_type:'petrol'},'generic-petrol'],
+] as const)('does not assign generation-specific rules to %j',(car,id)=>{expect(resolveRulesetForCar(car as Partial<CarProfile>).id).toBe(id);});

@@ -149,6 +149,22 @@ class Query implements PromiseLike<Result> {
 }
 
 const rpcs: Record<string, (args: Row) => unknown> = {
+  trip_page: args => {
+    const zone=String(args.p_zone || 'UTC');
+    const key=(row:Row)=>new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(String(row.session_start || row.uploaded_at)));
+    const rows=db.sessions.filter(row=>row.car_profile_id===args.p_car && row.user_id===HARNESS_USER.id && (!args.p_day || key(row)===args.p_day))
+      .sort((a,b)=>Date.parse(String(b.session_start || b.uploaded_at))-Date.parse(String(a.session_start || a.uploaded_at)));
+    const size=Number(args.p_size || 20),page=Number(args.p_page || 1);
+    return {total:rows.length,items:rows.slice((page-1)*size,page*size)};
+  },
+  trip_calendar: args => {
+    const days:Record<string,number>={};
+    for(const row of db.sessions.filter(row=>row.car_profile_id===args.p_car && row.user_id===HARNESS_USER.id)){
+      const key=new Intl.DateTimeFormat('en-CA',{timeZone:String(args.p_zone || 'UTC'),year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(String(row.session_start || row.uploaded_at)));
+      if(key.startsWith(String(args.p_month)))days[key]=(days[key]||0)+1;
+    }
+    return days;
+  },
   is_admin_user: () => false,
   get_dashboard_stats: () => null,
   refresh_parameter_baselines: () => null,

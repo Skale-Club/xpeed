@@ -1,0 +1,109 @@
+Validação local — 30/10/2026
+Base publicada: f243ac42d5cf022f59abcfb628b665f59532b0de
+Branch: codex/reliability-regional-preferences
+Nenhum push, deploy ou escrita em produção.
+
+
+Suíte completa
+
+ RUN  v5.0.5 C:/Users/Vanildo/Dev/xpeed
+
+
+ Test Files  82 passed (82)
+      Tests  523 passed (523)
+   Start at  17:15:24
+   Duration  237.32s (environment 40%, tests 26%, setup 25%, import 7%, transform 2%, worker 1%)
+
+Environment  jsdom was created 82 times · 344.54s total, 40% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+
+
+Combustível após ajuste final
+
+ RUN  v5.0.5 C:/Users/Vanildo/Dev/xpeed
+
+
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+   Start at  17:20:08
+   Duration  26.88s (environment 33%, tests 33%, setup 21%, import 8%, transform 5%, worker 1%)
+
+
+
+Typecheck
+
+> xpeed@0.0.0 typecheck
+> tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.api.json
+
+
+
+Lint
+
+> xpeed@0.0.0 lint
+> eslint .
+
+
+C:\Users\Vanildo\Dev\xpeed\src\components\car\CarLookPickers.tsx
+   7:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  11:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\trip\QuickGauge.tsx
+  106:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\ui\badge.tsx
+  29:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\ui\button.tsx
+  49:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\ui\sidebar.tsx
+  639:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\AuthContext.tsx
+  98:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\CarsContext.tsx
+  34:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\ObdScannerContext.tsx
+  711:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  724:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\PageRefreshContext.tsx
+  24:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\SettingsContext.tsx
+  43:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\VehicleNotificationsContext.tsx
+  23:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+✖ 13 problems (0 errors, 13 warnings)
+
+
+
+Build
+dist/assets/i18n-BUYnIdEm.js                      64.79 kB │ gzip:  21.57 kB
+dist/assets/ChatContainer-C0VVOiC_.js            132.34 kB │ gzip:  41.41 kB
+dist/assets/supabase-D-pooTq8.js                 173.46 kB │ gzip:  45.78 kB
+dist/assets/radix-ui-D4Wwuq-S.js                 274.51 kB │ gzip:  87.52 kB
+dist/assets/index-DDZ0Du5y.js                    335.99 kB │ gzip: 110.93 kB
+dist/assets/recharts-DO9GuN5X.js                 414.33 kB │ gzip: 111.58 kB
+✓ built in 59.09s
+
+PWA v1.3.0
+mode      generateSW
+precache  81 entries (2062.17 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-250e2fb9.js
+
+Contratos PostgreSQL
+
+> xpeed@0.0.0 test:sql
+> node scripts/verify-processing-sql.mjs && node scripts/verify-processing-sql.mjs --bootstrap
+
+7 PostgreSQL checks passed: additive upgrade and repeat preserve existing issue IDs; owner atomically replaces derivatives, preserves identity and resolved flag; failed insert rolls back preceding update/deletes; recording publishes once; retry keeps the same receipt and derivatives; failed recording publishes no partial session or data; other owner and support admin cannot mutate A through either RPC; anon cannot execute either RPC
+{"applied":56,"failure":null,"checks":["real migrated policies allow A to publish once and recognize retry","B cannot list A trips, readings, flags, issues, chat, maintenance, photos or storage","cross-owner parent relationships and RPCs are rejected","support admin keeps SELECT but cannot reprocess or change A ownership","anon cannot list private data; an explicit share works until revoked","durable issue jobs survive retries and only the current version can be acknowledged","an intentional deletion blocks recovery even after checkpoint cleanup failure","database pagination and timezone calendar handle 300 trips without transferring the entire history"]}

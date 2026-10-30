@@ -1,9 +1,10 @@
+import { ProblemSyncObserver } from '@/components/ProblemSyncObserver';
 import { FuelTrendObserver } from '@/components/FuelTrendObserver';
 import React, { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createBrowserRouter, createRoutesFromElements, RouterProvider, Route, Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
@@ -35,7 +36,7 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+import { queryClient } from '@/lib/query-client';
 
 // One layout route for every signed-in page, so its providers (cars, the
 // Bluetooth OBD connection) stay mounted while the user navigates.
@@ -52,7 +53,7 @@ const AuthenticatedLayout = () => (
   <PrivateRoute>
     <CarsProvider>
       <ObdScannerProvider>
-        <VehicleNotificationsProvider><FuelTrendObserver /><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
+        <VehicleNotificationsProvider><ProblemSyncObserver /><FuelTrendObserver /><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>
@@ -71,54 +72,55 @@ const PublicLayout =({ children }: { children: React.ReactNode }) => (
   </Suspense>
 );
 
-const App = () => (
+const AppProviders = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
         <SettingsProvider>
           <Toaster />
-          <BrowserRouter>
-            <ErrorBoundary>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
-              {/* A new phone number gets an account at sign-in, so sign-up is the same page. */}
-              <Route path="/signup" element={<Navigate to="/login?entrar" replace />} />
-
-              {/* Protected Routes */}
-              <Route element={<AuthenticatedLayout />}>
-                <Route path="/" element={<Index />} />
-                <Route path="/session/:id" element={<SessionDetail />} />
-                <Route path="/history" element={<HistoryPage />} />
-                <Route path="/cars" element={<CarsPage />} />
-                <Route path="/onboarding" element={<OnboardingPage />} />
-                <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
-                <Route path="/live" element={<LivePage />} />
-                <Route path="/fuel" element={<FuelPage />} />
-                <Route path="/trends" element={<TrendsPage />} />
-                <Route path="/codes" element={<FaultCodesPage />} />
-                <Route path="/maintenance" element={<MaintenancePage />} />
-                <Route path="/issues" element={<IssuesPage />} />
-                <Route path="/admin" element={<AdminPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-              </Route>
-
-              {/* OAuth 2.1 authorization endpoint */}
-              <Route path="/oauth/authorize" element={<PublicLayout><OAuthAuthorize /></PublicLayout>} />
-
-              {/* Public shared diagnostic report */}
-              <Route path="/share/:id" element={<PublicLayout><SharedReport /></PublicLayout>} />
-
-              {/* 404 */}
-              <Route path="*" element={<PublicLayout><NotFound /></PublicLayout>} />
-            </Routes>
-            </ErrorBoundary>
-          </BrowserRouter>
+          <ErrorBoundary><Outlet /></ErrorBoundary>
           <Analytics />
         </SettingsProvider>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
+
+const router = createBrowserRouter(createRoutesFromElements(
+  <Route element={<AppProviders />}>
+    {/* Public Routes */}
+    <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
+    {/* A new phone number gets an account at sign-in, so sign-up is the same page. */}
+    <Route path="/signup" element={<Navigate to="/login?entrar" replace />} />
+
+    {/* Protected Routes */}
+    <Route element={<AuthenticatedLayout />}>
+      <Route path="/" element={<Index />} />
+      <Route path="/session/:id" element={<SessionDetail />} />
+      <Route path="/history" element={<HistoryPage />} />
+      <Route path="/cars" element={<CarsPage />} />
+      <Route path="/onboarding" element={<OnboardingPage />} />
+      <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
+      <Route path="/live" element={<LivePage />} />
+      <Route path="/fuel" element={<FuelPage />} />
+      <Route path="/trends" element={<TrendsPage />} />
+      <Route path="/codes" element={<FaultCodesPage />} />
+      <Route path="/maintenance" element={<MaintenancePage />} />
+      <Route path="/issues" element={<IssuesPage />} />
+      <Route path="/admin" element={<AdminPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
+    </Route>
+
+    {/* OAuth 2.1 authorization endpoint */}
+    <Route path="/oauth/authorize" element={<PublicLayout><OAuthAuthorize /></PublicLayout>} />
+
+    {/* Public shared diagnostic report */}
+    <Route path="/share/:id" element={<PublicLayout><SharedReport /></PublicLayout>} />
+
+    {/* 404 */}
+    <Route path="*" element={<PublicLayout><NotFound /></PublicLayout>} />
+  </Route>
+));
+const App = () => <RouterProvider router={router} />;
 
 export default App;

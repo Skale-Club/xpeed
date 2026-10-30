@@ -8,7 +8,7 @@ import { calculateFuelMetrics } from '../src/lib/fuel-metrics';
 export const config = { runtime: 'edge' };
 const BUCKET = 'vehicle-fuel-records';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS' };
+const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, idempotency-key', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS' };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
 export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers });
@@ -79,9 +79,22 @@ export default async function handler(req: Request): Promise<Response> {
         return reply({ error: 'trip_changed_try_again' }, 409);
       }
       if (!validateFuelEntry(input)) return reply({ error: 'invalid_record' }, 400);
-      const entry = { ...input, pricePerLitre: input.kind === 'fill' ? input.totalPaid! / input.litres : input.pricePerLitre, at: new Date(input.at).toISOString(), id: crypto.randomUUID() };
+      const intent = req.headers.get('idempotency-key');
+      if (intent && !UUID.test(intent)) return reply({error:'invalid_intent'},400);
+      const entry = { ...input, pricePerLitre: input.kind === 'fill' ? input.totalPaid! / input.litres : input.pricePerLitre, at: new Date(input.at).toISOString(), id: intent || crypto.randomUUID() };
       const saved = await db.storage.from(BUCKET).upload(`${prefix}/${entry.id}.json`, JSON.stringify(entry), { contentType: 'application/json', upsert: false });
-      if (saved.error) throw saved.error;
+      if (saved.error) {
+        if (intent) {
+          const previous=await db.storage.from(BUCKET).download(`${prefix}/${intent}.json`,{}, {cache:'no-store'});
+          if(!previous.error) {
+            const existing=JSON.parse(await previous.data.text());
+            const keys=['kind','at','litres','pricePerLitre','totalPaid','currency','odometerKm','fullTank','source','region','sourceUrl','note'] as const;
+            if(keys.every(key=>existing[key] === entry[key])) return reply(existing);
+            return reply({error:'intent_conflict'},409);
+          }
+        }
+        throw saved.error;
+      }
       return reply(entry, 201);
     }
     const names: string[] = [];

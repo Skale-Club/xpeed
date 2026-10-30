@@ -6,7 +6,7 @@ export const REPORT_VERSION = 1;
 
 // Composite version string: bump either constant when the pipeline changes
 // significantly, then old sessions can be identified and reprocessed.
-export const PROCESSING_VERSION = `rules-1.0/report-${REPORT_VERSION}/processing-3`;
+export const PROCESSING_VERSION = `rules-1.2/report-${REPORT_VERSION}/processing-4`;
 
 export interface SessionReport {
   version: typeof REPORT_VERSION;
