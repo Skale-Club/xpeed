@@ -1401,5 +1401,8 @@
     "invalidService": "Check the service date, mileage and cost.",
     "serviceMileage": "Odometer at service",
     "asOf": "Entered on {{date}}"
+  },
+  "header": {
+    "controls": "Car status and notifications"
   }
 }

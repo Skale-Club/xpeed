@@ -1401,5 +1401,8 @@
     "invalidService": "Comprueba la fecha, el odómetro y el coste del servicio.",
     "serviceMileage": "Odómetro del servicio",
     "asOf": "Registrado el {{date}}"
+  },
+  "header": {
+    "controls": "Estado del coche y notificaciones"
   }
 }

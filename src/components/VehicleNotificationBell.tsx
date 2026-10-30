@@ -10,6 +10,7 @@ import { describeProblem } from '@/lib/problems';
 import { formatAppDate } from '@/lib/app-date';
 import { useSettings } from '@/contexts/SettingsContext';
 import { KM_PER_MILE } from '@/lib/vehicle-care';
+import { HeaderControl } from './header/HeaderControl';
 
 export function VehicleNotificationBell() {
   const { t, i18n } = useTranslation();
@@ -19,10 +20,10 @@ export function VehicleNotificationBell() {
   const [open, setOpen] = useState(false);
   return <HeaderPanel open={open} onOpenChange={setOpen} title={t('notifications.title', 'Notifications')}
     description={selectedCar?.name || t('notifications.chooseCar', 'Choose a car to see its notifications.')}
-    trigger={<Button variant="ghost" size="icon" className="relative shrink-0" aria-label={t('notifications.open', 'Notifications: {{count}} unread', { count: unread })}>
-      <Bell className="h-5 w-5" />
-      {(unread > 0 || error) && <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] text-destructive-foreground" aria-hidden="true">{unread > 99 ? '99+' : unread || '!'}</span>}
-    </Button>}>
+    trigger={<HeaderControl aria-label={t('notifications.open', 'Notifications: {{count}} unread', { count: unread })} title={t('notifications.title', 'Notifications')}>
+      <Bell />
+      {(unread > 0 || error) && <span className="absolute right-1 top-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-destructive px-0.5 text-[8px] font-semibold leading-none text-destructive-foreground" aria-hidden="true">{unread > 99 ? '99+' : unread || '!'}</span>}
+    </HeaderControl>}>
       <div className="space-y-3">
         {loading && <p className="flex items-center gap-2 text-sm" role="status"><Loader2 className="h-4 w-4 animate-spin" />{t('notifications.loading', 'Checking saved problems…')}</p>}
         {error && <div role="alert" className="space-y-2 rounded-lg border border-warn/40 p-3 text-sm"><p>{t('notifications.failed', 'Could not refresh saved problems. Existing notices may be out of date.')}</p><Button size="sm" variant="outline" onClick={reload}>{t('common.retry', 'Try again')}</Button></div>}

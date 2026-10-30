@@ -1401,5 +1401,8 @@
     "invalidService": "Confira a data, o odômetro e o custo do serviço.",
     "serviceMileage": "Odômetro no serviço",
     "asOf": "Informado em {{date}}"
+  },
+  "header": {
+    "controls": "Estado do carro e notificações"
   }
 }

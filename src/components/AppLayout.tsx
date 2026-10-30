@@ -4,15 +4,13 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { AppSidebar } from '@/components/AppSidebar';
 import { ChatBubble } from '@/components/ChatBubble';
 import { InstallPrompt } from '@/components/InstallPrompt';
-import { ConnectionPill } from '@/components/trip/ConnectionPill';
 import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { NewCarDialog } from '@/components/trip/NewCarDialog';
 import { BrandLogo } from '@/components/BrandLogo';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { usePageRefresh } from '@/contexts/PageRefreshContext';
-import { VehicleNotificationBell } from '@/components/VehicleNotificationBell';
-import { BluetoothConnectionMenu } from '@/components/BluetoothConnectionMenu';
+import { HeaderControls } from '@/components/header/HeaderControls';
 
 export default function AppLayout({ children, refreshDisabled = false }: { children: React.ReactNode; refreshDisabled?: boolean }) {
   const { t } = useTranslation();
@@ -25,14 +23,12 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
         <PullToRefresh onRefresh={refresh} disabled={refreshDisabled}>
         <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
           {/* Phones navigate with the tab bar at the bottom; the logo goes home. */}
-          <Link to="/" className="flex items-center gap-2 md:hidden" aria-label="Xpeed">
+          <Link to="/" className="flex shrink-0 items-center gap-2 md:hidden" aria-label="Xpeed">
             <BrandLogo className="h-7 w-7" alt="" />
             <span className="hidden text-base font-bold tracking-tight min-[380px]:inline">Xpeed</span>
           </Link>
           <SidebarTrigger className="hidden md:inline-flex" />
-          <ConnectionPill />
-          <BluetoothConnectionMenu />
-          <VehicleNotificationBell />
+          <HeaderControls />
         </header>
         <AppUpdateBanner />
 
