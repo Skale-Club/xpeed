@@ -1,44 +1,102 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import type { FuelEntry } from '@/lib/fuel-ledger';
 import FuelPage from './FuelPage';
-const api = vi.hoisted(() => ({ save: vi.fn(), list: vi.fn(async () => []), toast: vi.fn() }));
+const api = vi.hoisted(() => ({ save: vi.fn(), list: vi.fn(), toast: vi.fn(), entries: [] as FuelEntry[] }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCarId: 'car', selectedCar: { name: 'Prius' } }) }));
+vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCarId: 'car', selectedCar: { name: 'Prius', country: 'US' } }) }));
 vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'mi', timezone: 'America/New_York' }) }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: api.toast }) }));
 vi.mock('@/lib/db', () => ({ getSessions: async () => [] }));
-vi.mock('@/lib/fuel-api', () => ({ listFuelEntries: api.list, saveFuelEntry: api.save, deleteFuelEntry: vi.fn(), calculateSavedFuel: vi.fn() }));
+vi.mock('@/lib/fuel-api', () => ({ listFuelEntries: api.list, saveFuelEntry: api.save, deleteFuelEntry: vi.fn() }));
 vi.mock('recharts', () => ({ LineChart: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null, CartesianGrid: () => null, ResponsiveContainer: () => null }));
-vi.mock('react-i18next', async (original) => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { resolvedLanguage: 'en' }, t: (_key: string, fallback: string) => fallback }) }));
-beforeEach(() => { api.save.mockReset().mockResolvedValue({}); api.toast.mockClear(); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+vi.mock('react-i18next', async original => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { resolvedLanguage: 'en' }, t: (_key: string, fallback: string) => fallback }) }));
+beforeEach(() => {
+  api.entries = [];
+  api.list.mockReset().mockImplementation(async () => api.entries);
+  api.save.mockReset().mockImplementation(async (_car, input) => { const entry = { ...input, id: 'new-entry' }; api.entries = [entry, ...api.entries]; return entry; });
+  api.toast.mockClear();
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const open = () => render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><FuelPage /></QueryClientProvider></MemoryRouter>);
-it('offers price setup before totals and stores a reference without inventing fuel purchased', async () => {
+const addFill = async () => { await waitFor(() => expect(screen.getByRole('button', { name: 'Add a fill-up' })).toBeEnabled()); fireEvent.click(screen.getByRole('button', { name: 'Add a fill-up' })); };
+
+it('starts with a summary and two clear actions, without a form, technical table or chart', async () => {
   open();
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add a fill-up' })).toBeEnabled());
+  expect(screen.getByRole('button', { name: 'Set fuel price' })).toBeEnabled();
+  expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'History & comparisons' })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText('Is consumption changing?')).not.toBeInTheDocument();
+});
+it('records a fill-up using only payment and quantity, leaving extra fields optional', async () => {
+  open(); await addFill();
+  expect(screen.getByLabelText('How much did you pay? (USD)')).toBeVisible();
+  expect(screen.getByLabelText('How much fuel did you add? (US gal)')).toBeVisible();
+  expect(screen.getByLabelText('Odometer (optional) (mi)')).not.toBeVisible();
+  fireEvent.change(screen.getByLabelText(/How much did you pay/), { target: { value: '30' } });
+  fireEvent.change(screen.getByLabelText(/How much fuel did you add/), { target: { value: '10' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save fill-up' }));
+  await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1]).toMatchObject({ kind: 'fill', litres: 37.85411784, totalPaid: 30, fullTank: false, odometerKm: null, currency: 'USD', source: 'receipt' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(api.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
+  const summary = screen.getByRole('heading', { name: 'This month' }).parentElement!;
+  expect(within(summary).getByText('$30.00')).toBeInTheDocument();
+});
+it('saves a price independently without requiring a purchase quantity or creating actual spending', async () => {
+  open();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Set fuel price' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Set fuel price' }));
-  expect(screen.queryByLabelText(/Quantity/)).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText(/Price per unit/), { target: { value: '3.50' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(screen.queryByLabelText(/How much fuel did you add/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Fuel price (USD/US gal)'), { target: { value: '3.50' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save price' }));
   await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
   expect(api.save.mock.calls[0][1]).toMatchObject({ kind: 'reference', litres: 0, totalPaid: null, pricePerLitre: 3.5/3.785411784, currency: 'USD', source: 'manual' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(screen.getByText('No fill-ups recorded this month')).toBeInTheDocument();
 });
-it('stores actual payment separately and converts US gallons without assuming a full tank', async () => {
-  open(); await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
-  fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '10' } });
-  fireEvent.change(screen.getByLabelText(/Total actually paid/), { target: { value: '30' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(api.save).toHaveBeenCalled());
-  expect(api.save.mock.calls[0][1]).toMatchObject({ litres: 37.85411784, totalPaid: 30, fullTank: false, currency: 'USD', source: 'receipt' });
-  expect(api.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
+it('keeps a failed save in the form with its values and a visible retry message', async () => {
+  open(); await addFill();
+  fireEvent.change(screen.getByLabelText(/How much did you pay/), { target: { value: '30' } });
+  fireEvent.change(screen.getByLabelText(/How much fuel did you add/), { target: { value: '10' } });
+  api.save.mockRejectedValueOnce(new Error('offline'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save fill-up' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not save. Your entries are still in the form.');
+  expect(screen.getByLabelText(/How much did you pay/)).toHaveValue(30);
+  expect(screen.getByLabelText(/How much fuel did you add/)).toHaveValue(10);
+  expect(api.toast).not.toHaveBeenCalled();
 });
-it('preserves a fill-up draft when the regional provider fails', async () => {
+it('keeps a typed price if the optional average lookup fails', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
-  open(); fireEvent.change(screen.getByLabelText(/Quantity/), { target: { value: '7' } });
+  open(); await waitFor(() => expect(screen.getByRole('button', { name: 'Set fuel price' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Set fuel price' }));
+  fireEvent.change(screen.getByLabelText('Fuel price (USD/US gal)'), { target: { value: '3.50' } });
+  fireEvent.click(screen.getByText('Use a U.S. average instead'));
   fireEvent.click(screen.getByRole('button', { name: 'Look up regional average' }));
-  await waitFor(() => expect(api.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive' })));
-  expect(screen.getByLabelText(/Quantity/)).toHaveValue(7); expect(api.save).not.toHaveBeenCalled();
+  expect(await screen.findByRole('alert')).toHaveTextContent('The regional price is unavailable');
+  expect(screen.getByLabelText('Fuel price (USD/US gal)')).toHaveValue(3.5);
+  expect(api.save).not.toHaveBeenCalled();
+});
+it('opens comparisons only on request', async () => {
+  open(); await screen.findByRole('button', { name: 'History & comparisons' });
+  fireEvent.click(screen.getByRole('button', { name: 'History & comparisons' }));
+  expect(await screen.findByText('Is consumption changing?')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'History & comparisons' })).toHaveAttribute('aria-expanded', 'true');
+});
+it('preserves the actual timestamp so a new price in the same minute remains the latest', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-29T20:10:35.123Z'));
+  api.entries = [{ id: 'old-price', kind: 'reference', at: '2026-10-29T20:10:05.123Z', litres: 0, totalPaid: null, pricePerLitre: 3.59/3.785411784, currency: 'USD', odometerKm: null, fullTank: false, source: 'manual', region: '', sourceUrl: '', note: '' }];
+  open(); await screen.findByRole('button', { name: 'Change' });
+  fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+  fireEvent.change(screen.getByLabelText('Fuel price (USD/US gal)'), { target: { value: '3.50' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save price' }));
+  await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1].at).toBe('2026-10-29T20:10:35.123Z');
+  expect(await screen.findByText('$3.50 / US gal')).toBeInTheDocument();
 });
