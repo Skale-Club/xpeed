@@ -39,7 +39,16 @@ export default async function handler(req: Request): Promise<Response> {
       throw Error('Checkpoint list limit reached');
     };
     const read = async (path: string) => {
-      const result = await db.storage.from(BUCKET).download(path);
+      if (path.endsWith('/meta.json')) {
+        // This object changes throughout a recording. Bypass both the Edge
+        // fetch cache and Storage CDN so finalization sees the latest end marker.
+        const target = new URL(`/storage/v1/object/${BUCKET}/${path}`, url);
+        target.searchParams.set('cacheNonce', crypto.randomUUID());
+        const response = await fetch(target, { headers: { Authorization: `Bearer ${key}`, apikey: key }, cache: 'no-store' });
+        if (!response.ok) throw Error(`Checkpoint metadata unavailable (${response.status})`);
+        return response.json();
+      }
+      const result = await db.storage.from(BUCKET).download(path, {}, { cache: 'no-store' });
       if (result.error) throw result.error;
       return JSON.parse(await result.data.text());
     };
@@ -127,7 +136,7 @@ export default async function handler(req: Request): Promise<Response> {
       codeModules: input.faultCodes.codeModules && typeof input.faultCodes.codeModules === 'object' ? Object.fromEntries(Object.entries(input.faultCodes.codeModules).slice(0,100).map(([code, modules]) => [code.slice(0,100), strings(modules)])) : {},
     } : undefined;
     const meta = { startedAt, faultCodes: faults, totalSamples: input.totalSamples ?? null, endedAt: endedAt ?? null, columns, dtcs: Array.isArray(input.dtcs) ? input.dtcs.filter((code: unknown) => typeof code === 'string').slice(0,100) : [], lastSeen: Date.now() };
-    const saved = await db.storage.from(BUCKET).upload(`${root}/${id}/meta.json`, JSON.stringify(meta), { contentType: 'application/json', upsert: true });
+    const saved = await db.storage.from(BUCKET).upload(`${root}/${id}/meta.json`, JSON.stringify(meta), { contentType: 'application/json', cacheControl: '0', upsert: true });
     if (saved.error) throw saved.error;
     return reply({ accepted });
   } catch (error) {
