@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { restoreUpdatePosition } from '@/lib/update-position';
 import { useTranslation } from 'react-i18next';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
@@ -15,6 +17,7 @@ import { HeaderControls } from '@/components/header/HeaderControls';
 export default function AppLayout({ children, refreshDisabled = false }: { children: React.ReactNode; refreshDisabled?: boolean }) {
   const { t } = useTranslation();
   const { refresh } = usePageRefresh();
+  useEffect(restoreUpdatePosition, []);
   return (
     <SidebarProvider>
       <AppSidebar />

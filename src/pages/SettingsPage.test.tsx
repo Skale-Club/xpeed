@@ -7,10 +7,12 @@ import i18n from '@/lib/i18n';
 import SettingsPage from './SettingsPage';
 
 const notify = vi.hoisted(() => vi.fn());
+const device = vi.hoisted(() => ({ native: false }));
+vi.mock('@/lib/obd/native-ble', () => ({ isNativeApp: () => device.native }));
+vi.mock('@/hooks/use-app-update', () => ({ useAppUpdate: () => ({ checked: true, ignoredBuild: null, update: { installed: 76, installedVersion: '1.0.76', required: 77, latest: 79, available: true, downloadUrl: '/xpeed.apk' } }) }));
 vi.mock('@/hooks/use-toast', () => ({ toast: notify }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children, refreshDisabled }: { children: ReactNode; refreshDisabled?: boolean }) => <div data-testid="layout" data-blocked={refreshDisabled}>{children}</div> }));
-vi.mock('@/components/TripSyncStatus', () => ({ default: () => null }));
-vi.mock('@/components/McpTokensSection', () => ({ default: () => null }));
+vi.mock('@/components/McpTokensSection', () => ({ default: () => <div>Developer token controls</div> }));
 vi.mock('@/components/InstallApp', () => ({ AndroidAppDownload: () => null, IosAddToHome: () => null, IphoneNoBluetooth: () => null }));
 vi.mock('@/components/ui/select', () => ({
   Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: ReactNode }) => <div>
@@ -22,6 +24,7 @@ vi.mock('@/components/ui/select', () => ({
 beforeEach(async () => {
   localStorage.clear();
   notify.mockClear();
+  device.native = false;
   await i18n.changeLanguage('en');
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -35,12 +38,32 @@ it('has no Save for persisted settings and only saves changed values after confi
   fireEvent.click(screen.getByRole('button', { name: 'Change mi' }));
   expect(localStorage.getItem('settings_distanceUnit')).toBe('mi');
   expect(screen.getByTestId('layout')).toHaveAttribute('data-blocked', 'true');
-  expect(screen.getByRole('button', { name: 'Reload screens' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Reload screens' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument());
   expect(localStorage.getItem('settings_distanceUnit')).toBe('km');
-  expect(screen.getByRole('button', { name: 'Reload screens' })).toBeEnabled();
   expect(notify).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
+});
+
+it('has one native version section and no installation, screen-reload or synchronization panel', () => {
+  device.native = true; open();
+  expect(screen.getAllByTestId('app-version')).toHaveLength(1);
+  expect(screen.queryByTestId('install-section')).not.toBeInTheDocument();
+  expect(screen.queryByText('App screens')).not.toBeInTheDocument();
+  expect(screen.queryByText('Trip synchronization')).not.toBeInTheDocument();
+  expect(screen.queryByText('Check APK')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Update app' })).toHaveAttribute('href', '/xpeed.apk');
+});
+it('keeps Scanner behind the saved advanced preference and integrations collapsed separately', async () => {
+  open();
+  expect(screen.queryByRole('link', { name: 'Open the Scanner' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('switch', { name: 'Advanced tools' }));
+  expect(screen.queryByRole('link', { name: 'Open the Scanner' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(await screen.findByRole('link', { name: 'Open the Scanner' })).toHaveAttribute('href', '/scanner');
+  expect(screen.queryByText('Developer token controls')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('Developer integrations'));
+  expect(await screen.findByText('Developer token controls')).toBeVisible();
 });
 
 it('hides Save when the user reverts the draft and delays language changes', () => {

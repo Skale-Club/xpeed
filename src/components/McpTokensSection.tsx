@@ -15,9 +15,10 @@ import {
   listMcpTokens, createMcpToken, revokeMcpToken, type McpToken,
 } from '@/lib/mcp-tokens';
 import { supabase } from '@/integrations/supabase/client';
+import { publicAppUrl } from '@/lib/trips';
 
-// Always relative to the app's own origin — works on any domain automatically.
-const MCP_ENDPOINT = `${window.location.origin}/api/mcp`;
+// Offline Android editions also connect agents to the hosted API, not localhost.
+const MCP_ENDPOINT = `${publicAppUrl()}/api/mcp`;
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—';

@@ -10,7 +10,7 @@
  *  1. Asks the browser to re-check the service worker script every 30 minutes
  *     and whenever the app comes back to the foreground.
  *  2. When a new worker is waiting, swaps to it (which reloads the page) -
- *     but only when it is safe, i.e. no trip is being recorded.
+ *     after 30 seconds without interaction, with no recording, draft or editor in use.
  *
  * RECORDING CONTRACT (the OBD code owns this, this module only reads it):
  *   - While a trip is being recorded, the app calls `setTripRecording(true)`;
@@ -20,10 +20,11 @@
  *   - Code that cannot import this module can do the same by hand:
  *       window.__xpeedRecording = true;
  *       window.dispatchEvent(new CustomEvent('xpeed:recording', { detail: { recording: true } }));
- *   - A pending update is applied as soon as the flag turns false.
- *   - If nobody ever sets the flag, updates are applied as soon as they are
- *     ready (the previous behaviour for apps without the OBD wiring).
+ *   - A pending update waits for the flag to turn false and for the idle window.
  */
+
+import { createIdleUpdateGate } from './idle-update';
+import { reloadPreservingScreen } from './update-position';
 
 export const RECORDING_EVENT = 'xpeed:recording';
 export const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -68,7 +69,7 @@ export async function reloadAppScreens(): Promise<'blocked' | 'reloading'> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw Error('No internet connection');
   if (manualReload) return manualReload();
   if (isTripRecording()) return 'blocked';
-  window.location.reload();
+  reloadPreservingScreen();
   return 'reloading';
 }
 
@@ -102,22 +103,25 @@ function markApplied(): void {
 
 /**
  * Registers the service worker and wires the periodic checks. Call once from main.tsx.
- * Returns a function that tries to apply a waiting update right now (no-op while
- * recording); mostly useful for tests.
+ * Returns cleanup for the shared listeners and timers.
  */
 export function startPwaUpdates(register: RegisterSW): () => void {
   let registration: ServiceWorkerRegistration | undefined;
   let reloadWaiting = false;
   let reloaded = false;
+  const idle = createIdleUpdateGate(() => { void tryApply(); tryReload(); }, isTripRecording);
   const tryReload = () => {
     if (!reloadWaiting || reloaded || isTripRecording()) return;
+    if (!idle.ready()) { idle.request(); return; }
     reloaded = true;
-    window.location.reload();
+    reloadPreservingScreen();
   };
   const requestReload = () => { reloadWaiting = true; tryReload(); };
 
   const tryApply = (manual = false) => {
-    if (!updateWaiting || isTripRecording() || (!manual && recentlyApplied())) return;
+    if (!updateWaiting || isTripRecording()) return;
+    if (!manual && recentlyApplied()) { idle.request(Date.now() + MIN_APPLY_GAP_MS); return; }
+    if (!manual && !idle.ready()) { idle.request(); return; }
     updateWaiting = false;
     markApplied();
     // The register helper only reloads when a worker already controlled the page at
@@ -137,6 +141,7 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     // update() rejects when offline; that is fine, we try again later.
     registration.update().catch(() => { /* offline */ });
     tryApply();
+    tryReload();
   };
 
   const updateServiceWorker = register({
@@ -174,18 +179,27 @@ export function startPwaUpdates(register: RegisterSW): () => void {
     if (isTripRecording()) return 'blocked';
     if (reloaded) return 'reloading';
     if (registration?.waiting || updateWaiting) { updateWaiting = true; await tryApply(true); }
-    else requestReload();
+    else { reloaded = true; reloadPreservingScreen(); }
     return 'reloading';
   };
 
-  window.setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
-  document.addEventListener('visibilitychange', () => {
+  const interval = window.setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+  const visible = () => {
     if (document.visibilityState === 'visible') checkForUpdate();
-  });
+  };
+  document.addEventListener('visibilitychange', visible);
   window.addEventListener('online', checkForUpdate);
-  window.addEventListener(RECORDING_EVENT, () => { tryApply(); tryReload(); });
+  const released = () => { void tryApply(); tryReload(); };
+  window.addEventListener(RECORDING_EVENT, released);
 
-  return () => tryApply();
+  return () => {
+    clearInterval(interval); idle.dispose();
+    document.removeEventListener('visibilitychange', visible);
+    window.removeEventListener('online', checkForUpdate);
+    window.removeEventListener(RECORDING_EVENT, released);
+    navigator.serviceWorker?.removeEventListener('controllerchange', requestReload);
+    manualReload = null;
+  };
 }
 
 const PRELOAD_RELOAD_KEY = 'xpeed:preload-reload-at';
@@ -206,7 +220,7 @@ export function installPreloadErrorReload(): void {
     if (last > 0 && Date.now() - last < PRELOAD_RELOAD_GAP_MS) return;
     pending = false;
     try { sessionStorage.setItem(PRELOAD_RELOAD_KEY, String(Date.now())); } catch { /* ignore */ }
-    window.location.reload();
+    reloadPreservingScreen();
   };
   window.addEventListener('vite:preloadError', (event) => {
     let last = 0;

@@ -745,9 +745,9 @@
     },
     "advanced": {
       "title": "Ferramentas avançadas",
-      "hint": "Para mecânicos e entusiastas: mostra o Scanner (terminal, PIDs personalizados, descoberta de módulos, apagar códigos de falha) e as integrações para desenvolvedores.",
+      "hint": "Para mecânicos e entusiastas: comandos OBD, sensores personalizados, descoberta de módulos e limpeza de códigos de falha.",
       "openScanner": "Abrir o Scanner",
-      "ai": "Os recursos de IA (análise das viagens e assistente) usam uma chave compartilhada configurada pelo administrador. Há limites diários de uso justo."
+      "integrations": "Integrações para desenvolvedores"
     },
     "about": {
       "title": "Sobre o Xpeed",
@@ -1410,25 +1410,7 @@
     "localConfirmed": "Salvas neste aparelho: {{count}} leituras"
   },
   "updates": {
-    "title": "Atualizações",
-    "screens": "Telas do aplicativo",
-    "reloadHint": "Carregue as telas mais recentes pela internet. Não precisa instalar um APK.",
-    "reload": "Recarregar telas",
-    "reloading": "Recarregando telas…",
-    "reloadFailed": "Não foi possível recarregar. Confira a conexão com a internet e tente novamente.",
-    "bundled": "Esta edição offline inclui as telas dentro do APK. Para atualizá-las, instale um novo APK.",
-    "apk": "APK Android",
-    "apkHint": "Atualiza o Bluetooth e a gravação em segundo plano do Android. Instale por cima do aplicativo atual; não o desinstale.",
-    "checking": "Verificando APK…",
-    "checkFailed": "Não foi possível verificar se é necessário atualizar o APK. Tente novamente.",
-    "builds": "Instalado: build {{installed}} · Necessário: build {{required}} ou superior",
-    "apkCurrent": "Instalado: build {{installed}}. Não precisa atualizar o APK.",
-    "downloadApk": "Baixar APK",
-    "checkApk": "Verificar APK",
-    "blocked": "Finalize a gravação e salve as alterações pendentes antes de atualizar.",
-    "apkNeeded": "Atualização do APK Android necessária",
-    "installWhenReady": "Você pode baixar agora. Encerre a gravação e salve as alterações antes de instalar o APK.",
-    "reloadBlocked": "A recarga das telas aguarda o fim da gravação e o salvamento das alterações."
+    "installWhenReady": "Você pode baixar agora. Encerre a gravação e salve as alterações antes de instalar o APK."
   },
   "bluetooth": {
     "title": "Conexão Bluetooth",
@@ -1472,5 +1454,14 @@
   },
   "header": {
     "controls": "Estado do carro e notificações"
+  },
+  "appVersion": {
+    "loading": "Carregando versão…",
+    "unknown": "As atualizações são verificadas automaticamente quando há internet.",
+    "outdated": "Há uma atualização disponível para o seu aplicativo.",
+    "current": "Seu aplicativo está atualizado.",
+    "update": "Atualizar aplicativo",
+    "available": "Uma nova versão do Xpeed está disponível",
+    "hint": "Atualize para receber as melhorias do aplicativo."
   }
 }

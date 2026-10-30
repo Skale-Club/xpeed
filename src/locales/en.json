@@ -745,9 +745,9 @@
     },
     "advanced": {
       "title": "Advanced tools",
-      "hint": "For mechanics and enthusiasts: shows the Scanner (terminal, custom PIDs, module discovery, clearing fault codes) and developer integrations.",
+      "hint": "For mechanics and enthusiasts: OBD commands, custom sensors, module discovery and clearing fault codes.",
       "openScanner": "Open the Scanner",
-      "ai": "AI features (trip analysis and the assistant) use a shared key set up by the administrator. Daily fair-use limits apply."
+      "integrations": "Developer integrations"
     },
     "about": {
       "title": "About Xpeed",
@@ -1410,25 +1410,7 @@
     "localConfirmed": "Saved on this device: {{count}} readings"
   },
   "updates": {
-    "title": "Updates",
-    "screens": "App screens",
-    "reloadHint": "Load the latest screens over the internet. No APK installation needed.",
-    "reload": "Reload screens",
-    "reloading": "Reloading screens…",
-    "reloadFailed": "Could not reload. Check your internet connection and try again.",
-    "bundled": "This offline edition includes the screens in the APK. Install a new APK to update them.",
-    "apk": "Android APK",
-    "apkHint": "Updates Bluetooth and Android background recording. Install over the existing app; do not uninstall it.",
-    "checking": "Checking APK…",
-    "checkFailed": "Could not verify whether an APK update is needed. Try again.",
-    "builds": "Installed: build {{installed}} · Required: build {{required}} or newer",
-    "apkCurrent": "Installed: build {{installed}}. No APK update needed.",
-    "downloadApk": "Download APK",
-    "checkApk": "Check APK",
-    "blocked": "Finish recording and save any changes before updating.",
-    "apkNeeded": "Android APK update required",
-    "installWhenReady": "You can download now. Finish recording and save any changes before installing the APK.",
-    "reloadBlocked": "Screen reload is paused until recording ends and your changes are saved."
+    "installWhenReady": "You can download now. Finish recording and save any changes before installing the APK."
   },
   "bluetooth": {
     "title": "Bluetooth connection",
@@ -1472,5 +1454,14 @@
   },
   "header": {
     "controls": "Car status and notifications"
+  },
+  "appVersion": {
+    "loading": "Loading version…",
+    "unknown": "Updates are checked automatically when you are online.",
+    "outdated": "An update is available for your app.",
+    "current": "Your app is up to date.",
+    "update": "Update app",
+    "available": "A new version of Xpeed is available",
+    "hint": "Update to get the latest app improvements."
   }
 }

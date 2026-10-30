@@ -50,13 +50,17 @@ export async function checkApkUpdate(force = false): Promise<ApkUpdate | null> {
       const info = await App.getInfo();
       const installed = Number(info.build);
       if (!Number.isSafeInteger(installed) || installed < 1) return null;
-      const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
-      if (!res.ok) return null;
-      const notes = (await res.json()).body as string | null;
-      const bundled = !isLiveSiteApp(), needed = requiredBuild(notes, !bundled), latest = parseReleaseBuild(notes);
-      return { installed, installedVersion: info.version, required: needed, latest, bundled,
-        available: needed !== null && needed > installed,
-        downloadUrl: bundled ? OFFLINE_APK_URL : APK_URL };
+      const bundled = !isLiveSiteApp();
+      const status: ApkUpdate = { installed, installedVersion: info.version, required: null, latest: null, bundled,
+        available: false, downloadUrl: bundled ? OFFLINE_APK_URL : APK_URL };
+      if (navigator.onLine === false) return status;
+      try {
+        const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        if (!res.ok) return status;
+        const notes = (await res.json()).body as string | null;
+        const needed = requiredBuild(notes, !bundled), latest = parseReleaseBuild(notes);
+        return { ...status, required: needed, latest, available: needed !== null && needed > installed };
+      } catch { return status; } // Installed version remains visible when offline.
     } catch { return null; }
   })();
   cached = { at: Date.now(), result };
