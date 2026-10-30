@@ -35,12 +35,12 @@ it('starts with a summary and two clear actions, without a form, technical table
 });
 it('records a fill-up using only payment and quantity, leaving extra fields optional', async () => {
   open(); await addFill();
-  expect(screen.getByLabelText('How much did you pay? (USD)')).toBeVisible();
-  expect(screen.getByLabelText('How much fuel did you add? (US gal)')).toBeVisible();
+  expect(screen.getByLabelText('Total paid')).toBeVisible();
+  expect(screen.getByLabelText('Quantity')).toBeVisible();
   expect(screen.getByLabelText('Odometer (optional) (mi)')).not.toBeVisible();
-  fireEvent.change(screen.getByLabelText(/How much did you pay/), { target: { value: '30' } });
-  fireEvent.change(screen.getByLabelText(/How much fuel did you add/), { target: { value: '10' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save fill-up' }));
+  fireEvent.change(screen.getByLabelText('Total paid'), { target: { value: '30' } });
+  fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '10' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
   expect(api.save.mock.calls[0][1]).toMatchObject({ kind: 'fill', litres: 37.85411784, totalPaid: 30, fullTank: false, odometerKm: null, currency: 'USD', source: 'receipt' });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -52,9 +52,9 @@ it('saves a price independently without requiring a purchase quantity or creatin
   open();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Set fuel price' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Set fuel price' }));
-  expect(screen.queryByLabelText(/How much fuel did you add/)).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Fuel price (USD/US gal)'), { target: { value: '3.50' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save price' }));
+  expect(screen.queryByLabelText('Quantity')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('textbox', { name: 'Fuel price' }), { target: { value: '3.50' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
   expect(api.save.mock.calls[0][1]).toMatchObject({ kind: 'reference', litres: 0, totalPaid: null, pricePerLitre: 3.5/3.785411784, currency: 'USD', source: 'manual' });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -62,24 +62,24 @@ it('saves a price independently without requiring a purchase quantity or creatin
 });
 it('keeps a failed save in the form with its values and a visible retry message', async () => {
   open(); await addFill();
-  fireEvent.change(screen.getByLabelText(/How much did you pay/), { target: { value: '30' } });
-  fireEvent.change(screen.getByLabelText(/How much fuel did you add/), { target: { value: '10' } });
+  fireEvent.change(screen.getByLabelText('Total paid'), { target: { value: '30' } });
+  fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '10' } });
   api.save.mockRejectedValueOnce(new Error('offline'));
-  fireEvent.click(screen.getByRole('button', { name: 'Save fill-up' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not save. Your entries are still in the form.');
-  expect(screen.getByLabelText(/How much did you pay/)).toHaveValue(30);
-  expect(screen.getByLabelText(/How much fuel did you add/)).toHaveValue(10);
+  expect(screen.getByLabelText('Total paid')).toHaveValue('30');
+  expect(screen.getByLabelText('Quantity')).toHaveValue('10');
   expect(api.toast).not.toHaveBeenCalled();
 });
 it('keeps a typed price if the optional average lookup fails', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
   open(); await waitFor(() => expect(screen.getByRole('button', { name: 'Set fuel price' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Set fuel price' }));
-  fireEvent.change(screen.getByLabelText('Fuel price (USD/US gal)'), { target: { value: '3.50' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Fuel price' }), { target: { value: '3.50' } });
   fireEvent.click(screen.getByText('Use a U.S. average instead'));
   fireEvent.click(screen.getByRole('button', { name: 'Look up regional average' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('The regional price is unavailable');
-  expect(screen.getByLabelText('Fuel price (USD/US gal)')).toHaveValue(3.5);
+  expect(screen.getByRole('textbox', { name: 'Fuel price' })).toHaveValue('3.50');
   expect(api.save).not.toHaveBeenCalled();
 });
 it('opens comparisons only on request', async () => {
@@ -94,9 +94,21 @@ it('preserves the actual timestamp so a new price in the same minute remains the
   api.entries = [{ id: 'old-price', kind: 'reference', at: '2026-10-29T20:10:05.123Z', litres: 0, totalPaid: null, pricePerLitre: 3.59/3.785411784, currency: 'USD', odometerKm: null, fullTank: false, source: 'manual', region: '', sourceUrl: '', note: '' }];
   open(); await screen.findByRole('button', { name: 'Change' });
   fireEvent.click(screen.getByRole('button', { name: 'Change' }));
-  fireEvent.change(screen.getByLabelText('Fuel price (USD/US gal)'), { target: { value: '3.50' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save price' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Fuel price' }), { target: { value: '3.50' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
   expect(api.save.mock.calls[0][1].at).toBe('2026-10-29T20:10:35.123Z');
   expect(await screen.findByText('$3.50 / US gal')).toBeInTheDocument();
+});
+it('accepts comma decimals from the phone keyboard and keeps Save disabled until both fields are filled', async () => {
+  open(); await addFill();
+  expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  expect(screen.getByLabelText('Total paid')).toHaveAttribute('type', 'text');
+  expect(screen.getByLabelText('Total paid')).toHaveAttribute('inputmode', 'decimal');
+  fireEvent.change(screen.getByLabelText('Total paid'), { target: { value: '35,90' } });
+  expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '10,5' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1]).toMatchObject({ totalPaid: 35.9, litres: 10.5 * 3.785411784 });
 });

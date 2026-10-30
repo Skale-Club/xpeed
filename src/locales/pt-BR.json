@@ -1291,7 +1291,12 @@
       "changePrice": "Alterar",
       "recent": "Últimos abastecimentos",
       "empty": "Seu primeiro abastecimento aparecerá aqui.",
-      "history": "Histórico e comparações"
+      "history": "Histórico e comparações",
+      "fillTitle": "Abastecimento",
+      "paidLabel": "Valor pago",
+      "quantityLabel": "Quantidade",
+      "editDetails": "Data e outras opções",
+      "saving": "Salvando…"
     }
   },
   "hybrid": {

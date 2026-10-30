@@ -1291,7 +1291,12 @@
       "changePrice": "Cambiar",
       "recent": "Últimos repostajes",
       "empty": "Tu primer repostaje aparecerá aquí.",
-      "history": "Historial y comparaciones"
+      "history": "Historial y comparaciones",
+      "fillTitle": "Repostaje",
+      "paidLabel": "Importe pagado",
+      "quantityLabel": "Cantidad",
+      "editDetails": "Fecha y otras opciones",
+      "saving": "Guardando…"
     }
   },
   "hybrid": {

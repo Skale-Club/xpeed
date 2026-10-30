@@ -1291,7 +1291,12 @@
       "changePrice": "Change",
       "recent": "Recent fill-ups",
       "empty": "Your first fill-up will appear here.",
-      "history": "History & comparisons"
+      "history": "History & comparisons",
+      "fillTitle": "Fill-up",
+      "paidLabel": "Total paid",
+      "quantityLabel": "Quantity",
+      "editDetails": "Date & other options",
+      "saving": "Saving…"
     }
   },
   "hybrid": {

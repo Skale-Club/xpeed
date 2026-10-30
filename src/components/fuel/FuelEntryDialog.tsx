@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ArrowLeft, CalendarDays, ChevronDown, Loader2 } from 'lucide-react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { Dialog, DialogPortal, DialogOverlay, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +11,7 @@ import { US_GALLON, validateFuelEntry, type FuelEntry } from '@/lib/fuel-ledger'
 import { KM_PER_MILE } from '@/lib/vehicle-care';
 import { holdAppUpdates } from '@/lib/pwa-update';
 import { publicAppUrl } from '@/lib/trips';
+import { parseFuelNumber } from '@/lib/fuel-entry';
 
 const localTime = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 const REGIONS = { NUS: 'U.S.', R10: 'East Coast', R20: 'Midwest', R30: 'Gulf Coast', R40: 'Rocky Mountain', R50: 'West Coast' };
@@ -25,6 +27,9 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
   const [saving, setSaving] = useState(false), [lookingUp, setLookingUp] = useState(false);
   const [region, setRegion] = useState('NUS'), [error, setError] = useState('');
   const dirty = JSON.stringify(draft) !== initial, busy = saving || lookingUp;
+  const paid = parseFuelNumber(draft.paid), amount = parseFuelNumber(draft.amount), unitPrice = parseFuelNumber(draft.price);
+  const canSave = fill ? paid > 0 && amount > 0 : unitPrice > 0;
+  const symbol = { USD: '$', BRL: 'R$', EUR: '€' }[draft.currency];
   useEffect(() => dirty || busy ? holdAppUpdates() : undefined, [dirty, busy]);
   useEffect(() => {
     if (!dirty) return;
@@ -38,10 +43,10 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
     event.preventDefault(); if (busy) return;
     setError('');
     if (!Number.isFinite(Date.parse(draft.at))) { setError(t('fuel.invalid', 'Check the date, quantity and price.')); return; }
-    const litres = fill ? Number(draft.amount) * factor : 0;
+    const litres = fill ? amount * factor : 0;
     const at = draft.at === localTime(recordedAt) && draft.source !== 'regional' ? recordedAt.toISOString() : new Date(draft.at).toISOString();
-    const entry = { kind, at, litres, totalPaid: fill ? Number(draft.paid) : null,
-      pricePerLitre: fill ? Number(draft.paid) / litres : Number(draft.price) / factor, currency: draft.currency,
+    const entry = { kind, at, litres, totalPaid: fill ? paid : null,
+      pricePerLitre: fill ? paid / litres : unitPrice / factor, currency: draft.currency,
       odometerKm: fill && draft.odometer ? Number(draft.odometer) * (distanceUnit === 'mi' ? KM_PER_MILE : 1) : null,
       fullTank: fill && draft.fullTank, source: fill ? 'receipt' as const : draft.source, region: fill ? '' : draft.region, sourceUrl: fill ? '' : draft.sourceUrl, note: draft.note.trim() };
     if (!validateFuelEntry(entry)) { setError(t('fuel.invalid', 'Check the date, quantity and price.')); return; }
@@ -62,30 +67,55 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
     } catch { setError(t('fuel.priceFailed', 'The regional price is unavailable. You can still enter a price manually.')); }
     finally { setLookingUp(false); }
   };
-  return <Dialog open onOpenChange={value => { if (!value && !busy) onClose(); }}><DialogContent className="max-w-md" onInteractOutside={event => { if (dirty || busy) event.preventDefault(); }}>
-    <DialogHeader><DialogTitle>{fill ? t('fuel.simple.addFill', 'Add a fill-up') : t('fuel.simple.setPrice', 'Set fuel price')}</DialogTitle>
-      <DialogDescription>{fill ? t('fuel.simple.receiptHint', 'Copy these two numbers from your receipt or the pump.') : t('fuel.simple.priceHint', 'The price you pay per gallon or litre helps estimate trip costs.')}</DialogDescription></DialogHeader>
-    <form onSubmit={event => void save(event)} className="space-y-4">
-      {fill ? <>
-        <div className="space-y-2"><Label htmlFor="fuel-paid">{t('fuel.simple.paid', 'How much did you pay?')} ({draft.currency})</Label><Input id="fuel-paid" className="h-12 text-lg" type="number" inputMode="decimal" min="0.01" step="any" required disabled={busy} value={draft.paid} onChange={event => setDraft(d => ({ ...d, paid: event.target.value }))} /></div>
-        <div className="space-y-2"><Label htmlFor="fuel-quantity">{t('fuel.simple.quantity', 'How much fuel did you add?')} ({unit})</Label><Input id="fuel-quantity" className="h-12 text-lg" type="number" inputMode="decimal" min="0.001" step="any" required disabled={busy} value={draft.amount} onChange={event => setDraft(d => ({ ...d, amount: event.target.value }))} /></div>
-        {Number(draft.amount) > 0 && Number(draft.paid) > 0 && <p className="text-sm text-muted-foreground">{money(Number(draft.paid) / Number(draft.amount))} / {unit}</p>}
-      </> : <div className="space-y-2"><Label htmlFor="fuel-price">{t('fuel.simple.price', 'Fuel price')} ({draft.currency}/{unit})</Label><Input id="fuel-price" className="h-12 text-lg" type="number" inputMode="decimal" min="0.0001" step="any" required disabled={busy} value={draft.price} onChange={event => setDraft(d => ({ ...d, ...manual(), price: event.target.value }))} /></div>}
-      <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-medium">{t('fuel.simple.more', 'More details (optional)')}</summary><div className="mt-4 space-y-4">
-        <div className="space-y-2"><Label htmlFor="fuel-date">{t('fuel.simple.date', 'Date and time')}</Label><Input id="fuel-date" type="datetime-local" disabled={busy} value={draft.at} onChange={event => setDraft(d => ({ ...d, ...manual(), at: event.target.value }))} /></div>
-        <div className="space-y-2"><Label htmlFor="fuel-currency">{t('fuel.currency', 'Currency')}</Label><select id="fuel-currency" className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" value={draft.currency} disabled={busy} onChange={event => setDraft(d => ({ ...d, ...manual(), currency: event.target.value as FuelEntry['currency'] }))}>{['USD', 'BRL', 'EUR'].map(value => <option key={value}>{value}</option>)}</select></div>
-        {fill && <><div className="space-y-2"><Label htmlFor="fuel-odometer">{t('fuel.odometer', 'Odometer (optional)')} ({distanceUnit})</Label><Input id="fuel-odometer" type="number" inputMode="decimal" min="0" step="any" disabled={busy} value={draft.odometer} onChange={event => setDraft(d => ({ ...d, odometer: event.target.value }))} /></div>
-          <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy} checked={draft.fullTank} onChange={event => setDraft(d => ({ ...d, fullTank: event.target.checked }))} />{t('fuel.simple.fullTank', 'I filled the tank completely')}</label></>}
-        <div className="space-y-2"><Label htmlFor="fuel-note">{t('fuel.note', 'Station or note (optional)')}</Label><Input id="fuel-note" maxLength={1000} disabled={busy} value={draft.note} onChange={event => setDraft(d => ({ ...d, note: event.target.value }))} /></div>
-      </div></details>
-      {!fill && <details className="rounded-xl border border-border p-3"><summary className="cursor-pointer text-sm font-medium">{t('fuel.simple.average', 'Use a U.S. average instead')}</summary><div className="mt-3 space-y-3">
-        <p className="text-xs text-muted-foreground">{t('fuel.simple.averageHint', 'Optional weekly average for regular gasoline. Review the price and date before saving.')}</p>
-        <select aria-label={t('fuel.region', 'Price region')} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" disabled={busy} value={region} onChange={event => setRegion(event.target.value)}>{Object.entries(REGIONS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-        <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void lookup()}>{lookingUp && <Loader2 className="h-4 w-4 animate-spin" />}{t('fuel.lookup', 'Look up regional average')}</Button>
-      </div></details>}
-      {draft.source === 'regional' && <p className="text-xs text-muted-foreground">{draft.region} · {draft.at.slice(0, 10)} · <a href={draft.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">EIA</a> · {t('fuel.estimatedLabel', 'estimated')}</p>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <div className="grid grid-cols-2 gap-2 border-t border-border pt-4"><Button type="button" variant="outline" className="h-auto min-h-11 whitespace-normal px-3 py-2" disabled={busy} onClick={onClose}>{t('common.cancel', 'Cancel')}</Button><Button type="submit" className="h-auto min-h-11 whitespace-normal px-3 py-2" disabled={busy}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{fill ? t('fuel.simple.saveFill', 'Save fill-up') : t('fuel.simple.savePrice', 'Save price')}</Button></div>
-    </form>
-  </DialogContent></Dialog>;
+  const amountField = fill ? 'fuel-paid' : 'fuel-price';
+  const placeholder = new Intl.NumberFormat(i18n.resolvedLanguage, { minimumFractionDigits: 2 }).format(0);
+  return <Dialog open onOpenChange={value => { if (!value && !busy) onClose(); }}><DialogPortal><DialogOverlay />
+    <DialogPrimitive.Content
+      className="fixed inset-0 z-50 flex h-[100dvh] flex-col bg-background text-foreground outline-none sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[420px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-border sm:shadow-xl"
+      onInteractOutside={event => { if (dirty || busy) event.preventDefault(); }}
+      onOpenAutoFocus={event => { event.preventDefault(); document.getElementById(amountField)?.focus(); }}>
+      <div className="shrink-0 border-b border-border/60 px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]">
+        <div className="flex items-center gap-3"><Button type="button" variant="ghost" size="icon" className="shrink-0 rounded-full" disabled={busy} onClick={onClose} aria-label={t('common.cancel', 'Cancel')}><ArrowLeft className="h-5 w-5" /></Button>
+          <DialogTitle className="text-lg font-semibold">{fill ? t('fuel.simple.fillTitle', 'Fill-up') : t('fuel.simple.price', 'Fuel price')}</DialogTitle>
+        </div>
+        <DialogDescription className="sr-only">{fill ? t('fuel.simple.receiptHint', 'Copy these two numbers from your receipt or the pump.') : t('fuel.simple.priceHint', 'The price you pay per gallon or litre helps estimate trip costs.')}</DialogDescription>
+      </div>
+      <form onSubmit={event => void save(event)} className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-6 pb-6 pt-8">
+          <div className="space-y-2">
+            <Label htmlFor={amountField} className="text-sm text-muted-foreground">{fill ? t('fuel.simple.paidLabel', 'Total paid') : t('fuel.simple.price', 'Fuel price')}</Label>
+            <div className="flex items-center gap-2 border-b-2 border-border pb-2 focus-within:border-primary">
+              <span className="text-4xl font-semibold" aria-hidden="true">{symbol}</span>
+              <input id={amountField} className="h-20 min-w-0 flex-1 border-0 bg-transparent p-0 text-5xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/35 disabled:opacity-50" type="text" inputMode="decimal" autoComplete="off" placeholder={placeholder} required disabled={busy} value={fill ? draft.paid : draft.price}
+                onChange={event => setDraft(d => fill ? { ...d, paid: event.target.value } : { ...d, ...manual(), price: event.target.value })} />
+              {!fill && <span className="shrink-0 self-end pb-4 text-sm text-muted-foreground">/ {unit}</span>}
+            </div>
+          </div>
+          {fill && <div className="space-y-2"><Label htmlFor="fuel-quantity" className="text-sm text-muted-foreground">{t('fuel.simple.quantityLabel', 'Quantity')}</Label>
+            <div className="flex items-center gap-3 border-b border-border focus-within:border-primary"><input id="fuel-quantity" className="h-14 min-w-0 flex-1 border-0 bg-transparent p-0 text-2xl font-medium outline-none placeholder:text-muted-foreground/40 disabled:opacity-50" type="text" inputMode="decimal" autoComplete="off" placeholder="0" required disabled={busy} value={draft.amount} onChange={event => setDraft(d => ({ ...d, amount: event.target.value }))} /><span className="shrink-0 text-sm text-muted-foreground">{unit}</span></div>
+            {amount > 0 && paid > 0 && <p className="pt-1 text-sm text-muted-foreground">{money(paid / amount)} / {unit}</p>}
+          </div>}
+          <details className="border-b border-border/60 pb-3"><summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="h-4 w-4" />{t('fuel.simple.editDetails', 'Date & other options')}<ChevronDown className="ml-auto h-4 w-4" /></summary>
+            <div className="space-y-4 pb-2 pt-4">
+              <div className="space-y-2"><Label htmlFor="fuel-date">{t('fuel.simple.date', 'Date and time')}</Label><Input id="fuel-date" type="datetime-local" disabled={busy} value={draft.at} onChange={event => setDraft(d => ({ ...d, ...manual(), at: event.target.value }))} /></div>
+              <div className="space-y-2"><Label htmlFor="fuel-currency">{t('fuel.currency', 'Currency')}</Label><select id="fuel-currency" className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" value={draft.currency} disabled={busy} onChange={event => setDraft(d => ({ ...d, ...manual(), currency: event.target.value as FuelEntry['currency'] }))}>{['USD', 'BRL', 'EUR'].map(value => <option key={value}>{value}</option>)}</select></div>
+              {fill && <><div className="space-y-2"><Label htmlFor="fuel-odometer">{t('fuel.odometer', 'Odometer (optional)')} ({distanceUnit})</Label><Input id="fuel-odometer" type="number" inputMode="decimal" min="0" step="any" disabled={busy} value={draft.odometer} onChange={event => setDraft(d => ({ ...d, odometer: event.target.value }))} /></div>
+                <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy} checked={draft.fullTank} onChange={event => setDraft(d => ({ ...d, fullTank: event.target.checked }))} />{t('fuel.simple.fullTank', 'I filled the tank completely')}</label></>}
+              <div className="space-y-2"><Label htmlFor="fuel-note">{t('fuel.note', 'Station or note (optional)')}</Label><Input id="fuel-note" maxLength={1000} disabled={busy} value={draft.note} onChange={event => setDraft(d => ({ ...d, note: event.target.value }))} /></div>
+            </div>
+          </details>
+          {!fill && <details><summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-sm text-muted-foreground">{t('fuel.simple.average', 'Use a U.S. average instead')}<ChevronDown className="h-4 w-4" /></summary><div className="mt-3 space-y-3">
+            <p className="text-xs text-muted-foreground">{t('fuel.simple.averageHint', 'Optional weekly average for regular gasoline. Review the price and date before saving.')}</p>
+            <select aria-label={t('fuel.region', 'Price region')} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" disabled={busy} value={region} onChange={event => setRegion(event.target.value)}>{Object.entries(REGIONS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+            <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void lookup()}>{lookingUp && <Loader2 className="h-4 w-4 animate-spin" />}{t('fuel.lookup', 'Look up regional average')}</Button>
+          </div></details>}
+          {draft.source === 'regional' && <p className="text-xs text-muted-foreground">{draft.region} · {draft.at.slice(0, 10)} · <a href={draft.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">EIA</a> · {t('fuel.estimatedLabel', 'estimated')}</p>}
+        </div>
+        <div className="shrink-0 space-y-3 border-t border-border/60 bg-background px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-4">
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" className="h-12 w-full text-base" disabled={busy || !canSave}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? t('fuel.simple.saving', 'Saving…') : t('common.save', 'Save')}</Button>
+        </div>
+      </form>
+    </DialogPrimitive.Content>
+  </DialogPortal></Dialog>;
 }
