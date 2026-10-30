@@ -945,6 +945,8 @@
     "replyFailed": "The assistant couldn't answer right now. Please try again in a moment.",
     "deleteFailed": "Couldn't delete this conversation. Please try again.",
     "showHistory": "Show past conversations",
+    "backToChat": "Back to chat",
+    "message": "Message",
     "noCarSelected": "No car selected",
     "newChat": "New chat",
     "close": "Close",

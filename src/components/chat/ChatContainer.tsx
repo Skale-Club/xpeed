@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { Menu, X, Sparkles, Plus } from 'lucide-react';
+import { History, X } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useToast } from '@/hooks/use-toast';
 import { AiError, chatViaEdge } from '@/lib/ai-client';
@@ -20,8 +21,8 @@ import {
     saveMessage,
     buildChatContext,
 } from '@/lib/chat/db';
-import type { ChatConversation, ChatMessage, ChatContext as ChatContextType } from '@/lib/chat/types';
-import { createTextMessage, getMessageText } from '@/lib/chat/types';
+import type { ChatConversation, ChatContext as ChatContextType } from '@/lib/chat/types';
+import { getMessageText } from '@/lib/chat/types';
 
 interface ChatContainerProps {
     isOpen: boolean;
@@ -207,16 +208,18 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         }
     }, [currentConversation, selectedCar, chatCarId, contextData, messages, toast, t]);
 
-    const handleNewConversation = async () => {
+    const handleNewConversation = () => {
         viewVersion.current++;
         setCurrentConversation(null);
         setMessages([]);
+        setInput('');
         setSidebarOpen(false);
     };
 
     const handleSelectConversation = (conv: ChatConversation) => {
         viewVersion.current++;
         setMessages([]);
+        setInput('');
         setCurrentConversation(conv);
         setSidebarOpen(false);
     };
@@ -244,7 +247,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages]);
+    }, [messages, sidebarOpen]);
 
     return (
         // A real dialog: Escape closes it, focus stays inside and goes back to the
@@ -257,22 +260,10 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     aria-describedby={undefined}
                     className="fixed inset-3 z-50 flex flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl animate-in slide-in-from-right duration-300 focus:outline-none sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[calc(100%-2rem)] sm:max-w-4xl"
                 >
-                <CardHeader className="flex flex-row items-center justify-between p-4 border-b">
+                <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 gap-3 border-b p-4">
                     <div className="flex min-w-0 items-center gap-2">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setSidebarOpen(!sidebarOpen)}
-                            className="md:hidden"
-                            aria-label={t('assistant.showHistory', 'Show past conversations')}
-                            aria-expanded={sidebarOpen}
-                        >
-                            <Menu className="h-5 w-5" />
-                        </Button>
                         <div className="flex min-w-0 items-center gap-2">
-                            <div className="w-8 h-8 shrink-0 rounded-full bg-primary/10 flex items-center justify-center">
-                                <Sparkles className="w-4 h-4 text-primary" />
-                            </div>
+                            <BrandLogo alt="" />
                             <div className="min-w-0">
                                 <DialogPrimitive.Title asChild>
                                     <CardTitle className="text-lg">Xpeed</CardTitle>
@@ -286,13 +277,15 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     <div className="flex shrink-0 items-center gap-2">
                         <Button
                             variant="ghost"
-                            size="sm"
-                            onClick={handleNewConversation}
-                            aria-label={t('assistant.newChat', 'New chat')}
-                            className="h-10 w-10 px-0 sm:w-auto sm:px-4"
+                            size="icon"
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            aria-label={sidebarOpen ? t('assistant.backToChat', 'Back to chat') : t('assistant.showHistory', 'Show past conversations')}
+                            title={sidebarOpen ? t('assistant.backToChat', 'Back to chat') : t('assistant.showHistory', 'Show past conversations')}
+                            aria-expanded={sidebarOpen}
+                            aria-controls="chat-history"
+                            className={sidebarOpen ? 'bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary' : undefined}
                         >
-                            <Plus className="h-4 w-4 sm:mr-1" />
-                            <span className="hidden sm:inline">{t('assistant.newChat', 'New chat')}</span>
+                            <History className="h-5 w-5" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('assistant.close', 'Close')}>
                             <X className="h-5 w-5" />
@@ -300,31 +293,27 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     </div>
                 </CardHeader>
 
-                <CardContent className="flex-1 flex overflow-hidden p-0">
-                    {/* Sidebar */}
-                    <ChatSidebar
-                        isOpen={sidebarOpen}
+                <CardContent className="flex min-h-0 flex-1 overflow-hidden p-0">
+                    {sidebarOpen ? <ChatSidebar
                         conversations={conversations}
                         currentConversationId={currentConversation?.id}
                         onSelectConversation={handleSelectConversation}
                         onDeleteConversation={(id) => setPendingDelete(conversations.find((c) => c.id === id) ?? null)}
                         onNewConversation={handleNewConversation}
-                        onClose={() => setSidebarOpen(false)}
-                    />
+                    /> : (
 
-                    {/* Main Chat Area */}
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                         {/* Messages */}
-                        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+                        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-4">
                             {messages.length === 0 && !loading ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
-                                    <Sparkles className="w-12 h-12 text-primary mb-4" />
+                                    <BrandLogo alt="" className="mb-4 h-12 w-12" />
                                     <h3 className="text-lg font-semibold mb-2">
                                         {contextData?.vehicle
                                             ? t('assistant.askAboutCar', 'Ask about your {{name}}', { name: contextData.vehicle.name })
                                             : t('assistant.chooseCar', 'Choose a car to get started')}
                                     </h3>
-                                    <p className="text-muted-foreground max-w-md">
+                                    <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
                                         {t('assistant.intro', "I can explain what your car's readings mean, tell you what a fault code means in plain words, and suggest when it needs a check-up.")}
                                     </p>
                                 </div>
@@ -344,7 +333,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             isLoading={loading}
                             disabled={false}
                         />
-                    </div>
+                    </div>)}
                 </CardContent>
 
                 <ConfirmDialog

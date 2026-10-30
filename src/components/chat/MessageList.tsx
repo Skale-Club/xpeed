@@ -1,4 +1,5 @@
-import { Bot, User } from 'lucide-react';
+import { User } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
@@ -27,9 +28,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                     )}
                 >
                     {message.role === 'assistant' && (
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex-shrink-0 flex items-center justify-center">
-                            <Bot className="w-4 h-4 text-primary" />
-                        </div>
+                        <BrandLogo />
                     )}
 
                     <div
@@ -59,9 +58,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
             {isLoading && (
                 <div className="flex justify-start gap-3" role="status" aria-label={t('assistant.thinking', 'The assistant is thinking…')}>
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex-shrink-0 flex items-center justify-center">
-                        <Bot className="w-4 h-4 text-primary animate-pulse" />
-                    </div>
+                    <BrandLogo />
                     <div className="bg-muted rounded-2xl px-4 py-3">
                         <div className="flex items-center gap-1">
                             <span className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:-0.3s]"></span>

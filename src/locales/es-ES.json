@@ -945,6 +945,8 @@
     "replyFailed": "El asistente no ha podido responder ahora. Inténtalo de nuevo en un momento.",
     "deleteFailed": "No se ha podido borrar esta conversación. Inténtalo de nuevo.",
     "showHistory": "Mostrar conversaciones anteriores",
+    "backToChat": "Volver al chat",
+    "message": "Mensaje",
     "noCarSelected": "Ningún coche seleccionado",
     "newChat": "Nueva conversación",
     "close": "Cerrar",

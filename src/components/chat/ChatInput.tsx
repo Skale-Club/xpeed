@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,10 +17,10 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Auto-resize textarea
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (textareaRef.current) {
-            textareaRef.current.style.height = '44px';
-            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+            textareaRef.current.style.height = '0px';
+            textareaRef.current.style.height = `${Math.max(48, Math.min(textareaRef.current.scrollHeight, 160))}px`;
         }
     }, [input]);
 
@@ -32,30 +32,31 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             handleSubmit();
         }
     };
 
     return (
-        <form onSubmit={handleSubmit} className="border-t p-4">
-            <div className="flex items-end gap-2">
+        <form onSubmit={handleSubmit} className="shrink-0 border-t bg-card p-3 sm:p-4">
+            <div className="flex items-end gap-2 rounded-2xl border border-input bg-background p-2 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Textarea
                     ref={textareaRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={disabled ? t('assistant.unavailable', 'The assistant is not available right now') : t('assistant.placeholder', 'Ask anything about your car…')}
+                    aria-label={t('assistant.message', 'Message')}
                     disabled={isLoading || disabled}
-                    className="min-h-[44px] max-h-[200px] resize-none flex-1"
+                    className="min-h-12 max-h-40 min-w-0 flex-1 resize-none rounded-xl border-0 bg-transparent px-2 py-3 text-base leading-6 shadow-none placeholder:text-center focus-visible:ring-0 focus-visible:ring-offset-0"
                     rows={1}
                 />
                 <Button
                     type="submit"
                     size="icon"
                     disabled={!input.trim() || isLoading || disabled}
-                    className="h-11 w-11 flex-shrink-0"
+                    className="mb-0.5 h-11 w-11 shrink-0 rounded-xl"
                     aria-label={t('assistant.send', 'Send')}
                 >
                     {isLoading ? (
@@ -65,7 +66,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                     )}
                 </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
+            <p className="mt-2 hidden text-center text-xs text-muted-foreground sm:block">
                 {t('assistant.enterHint', 'Press Enter to send, Shift+Enter for a new line')}
             </p>
         </form>
