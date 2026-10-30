@@ -586,6 +586,10 @@
   },
   "history": {
     "title": "Viajes",
+    "viewLabel": "Vista de viajes",
+    "listView": "Lista",
+    "calendarView": "Calendario",
+    "noDayTrips": "No hay viajes en este día.",
     "loadFailed": "No se pudieron cargar tus viajes",
     "renameFailed": "No se pudo renombrar el viaje",
     "deleteFailed": "No se pudo borrar el viaje",

@@ -586,6 +586,10 @@
   },
   "history": {
     "title": "Trips",
+    "viewLabel": "Trip view",
+    "listView": "List",
+    "calendarView": "Calendar",
+    "noDayTrips": "No trips on this day.",
     "loadFailed": "Couldn't load your trips",
     "renameFailed": "Couldn't rename the trip",
     "deleteFailed": "Couldn't delete the trip",

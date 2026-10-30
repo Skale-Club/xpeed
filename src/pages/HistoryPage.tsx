@@ -7,6 +7,7 @@ import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -19,7 +20,6 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
 import { deleteSession, getFlagsForSessions, getSessions, updateSession } from '@/lib/db';
 import { formatDistance, formatDuration, tripDate, tripDistanceKm, tripProblems, tripTitle } from '@/lib/trips';
-import { formatAppDate } from '@/lib/app-date';
 import { tripDayKey } from '@/lib/trip-history';
 import { useObd } from '@/contexts/ObdScannerContext';
 import { ActiveTripRow } from '@/components/trip/ActiveTripRow';
@@ -38,22 +38,28 @@ export default function HistoryPage() {
   const { toast } = useToast();
   const { selectedCarId, selectedCar } = useCarsContext();
   const { distanceUnit, timezone } = useSettings();
+  const formatDate = (date: Date, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(i18n.resolvedLanguage, { ...options, timeZone: timezone }).format(date);
   const { recording, recordingCarId, status, lastTrip, savingTrip } = useObd();
   const active = recording?.active && recordingCarId === selectedCarId ? recording : null;
   const [params, setParams] = useSearchParams();
-  const month = params.get('month') ?? '';
-  const day = params.get('day') ?? '';
-  const search = params.get('q') ?? '';
+  const view = (params.get('view') ?? (params.has('month') || params.has('day') ? 'calendar' : 'list')) === 'calendar' ? 'calendar' : 'list';
+  const calendar = view === 'calendar';
+  const today = tripDayKey(new Date(), timezone);
+  const requestedMonth = params.get('month') ?? '';
+  const validMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth) ? requestedMonth : '';
+  const requestedDay = params.get('day') ?? '';
+  const validDay = /^\d{4}-\d{2}-\d{2}$/.test(requestedDay) && tripDayKey(new Date(`${requestedDay}T12:00:00Z`), 'UTC') === requestedDay && (!validMonth || requestedDay.startsWith(validMonth));
+  const day = validDay ? requestedDay : validMonth && validMonth !== today.slice(0, 7) ? `${validMonth}-01` : today;
+  const month = validMonth || day.slice(0, 7);
+  const showActive = !!active && (!calendar || (day >= tripDayKey(active.startedAt, timezone) && day <= today));
   const [trips, setTrips] = useState<Trip[]>([]);
+  const tripDays = useMemo(() => new Map(trips.map((trip) => [trip.id, tripDayKey(tripDate(trip), timezone)])), [trips, timezone]);
   const calendarDays = useMemo(() => {
     const days = new Map<string, number>();
-    for (const trip of trips) { const key = tripDayKey(tripDate(trip), timezone); days.set(key, (days.get(key) ?? 0) + 1); }
+    for (const key of tripDays.values()) days.set(key, (days.get(key) ?? 0) + 1);
     return days;
-  }, [trips, timezone]);
-  const filtered = trips.filter((trip) => {
-    const date = tripDayKey(tripDate(trip), timezone);
-    return (!month || date.startsWith(month)) && (!day || date === day) && (!search || tripTitle(trip, t).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  });
+  }, [tripDays]);
+  const filtered = useMemo(() => calendar ? trips.filter((trip) => tripDays.get(trip.id) === day) : trips, [calendar, trips, tripDays, day]);
   // Only trips whose flags have been fetched have an entry here (an empty list = nothing wrong).
   const [flags, setFlags] = useState<Record<string, SessionFlag[]>>({});
   const [loading, setLoading] = useState(true);
@@ -66,11 +72,14 @@ export default function HistoryPage() {
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const visibleKey = visible.map((trip) => trip.id).join('|');
   const [flagsFailed, setFlagsFailed] = useState(false);
-  const changeFilter = (key: string, value: string) => setParams((previous) => {
+  const changeView = (value: string) => setParams((previous) => {
     const next = new URLSearchParams(previous); next.delete('page');
-    if (value) next.set(key, value); else next.delete(key);
-    if (key === 'month') next.delete('day');
-    if (key === 'day' && value) next.set('month', value.slice(0, 7));
+    next.delete('q'); next.set('view', value);
+    return next;
+  });
+  const chooseDay = (value: string) => setParams((previous) => {
+    const next = new URLSearchParams(previous); next.delete('page'); next.delete('q');
+    next.set('view', 'calendar'); next.set('day', value); next.set('month', value.slice(0, 7));
     return next;
   });
   const goPage = (value: number) => setParams((previous) => {
@@ -106,7 +115,7 @@ export default function HistoryPage() {
         return;
       }
       try {
-        const list = ((await getSessions(selectedCarId)) as unknown as Trip[])
+        const list = [...((await getSessions(selectedCarId)) as unknown as Trip[])]
           .sort((a, b) => tripDate(b).getTime() - tripDate(a).getTime());
         if (cancelled) return;
         setTrips(list);
@@ -168,31 +177,24 @@ export default function HistoryPage() {
 
   return (
     <AppLayout>
-      <div className="max-w-3xl space-y-4">
-        <div>
-          <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
-          {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
+      <Tabs value={view} onValueChange={changeView} className="max-w-3xl">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
+            {selectedCar && <p className="truncate text-sm text-muted-foreground" title={selectedCar.name}>{selectedCar.name}</p>}
+          </div>
+          <TabsList aria-label={t('history.viewLabel', 'Trip view')} className="h-11 shrink-0 gap-1 rounded-xl border border-border bg-card p-1">
+            <TabsTrigger value="list" className="h-9 rounded-lg px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground sm:text-sm">{t('history.listView', 'List')}</TabsTrigger>
+            <TabsTrigger value="calendar" className="h-9 rounded-lg px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground sm:text-sm">{t('history.calendarView', 'Calendar')}</TabsTrigger>
+          </TabsList>
         </div>
-        {active && <ActiveTripRow startedAt={active.startedAt} waiting={status !== 'live'} />}
-        {!active && savingTrip && <p role="status" className="text-sm text-muted-foreground">{t('trip.saving', 'Saving your last trip…')}</p>}
-
-        {(trips.length > 0 || active) && <div className="space-y-3 rounded-xl border border-border p-3">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1 text-xs">{t('history.month', 'Month')}<Input type="month" value={month} onChange={(event) => changeFilter('month', event.target.value)} /></label>
-            <label className="space-y-1 text-xs">{t('history.day', 'Calendar date')}<Input type="date" value={day} onChange={(event) => changeFilter('day', event.target.value)} /></label>
-          </div>
-          <label className="block space-y-1 text-xs">{t('history.search', 'Search trip names')}<Input type="search" value={search} onChange={(event) => changeFilter('q', event.target.value)} /></label>
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>{t('history.matchCount', '{{count}} completed trips found', { count: filtered.length })}</span>
-            {(month || day || search) && <Button variant="ghost" size="sm" onClick={() => setParams({})}>{t('history.clearFilters', 'Clear filters')}</Button>}
-          </div>
-        </div>}
-        {(trips.length > 0 || active) && <TripCalendar month={month} selectedDay={day} days={calendarDays} activeStart={active?.startedAt} timezone={timezone} onMonth={(value) => changeFilter('month', value)} onDay={(value) => changeFilter('day', value)} />}
-            {filtered.length > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
-              <label className="flex items-center gap-2 text-sm">{t('history.page', 'Page')}<select className="rounded border border-border bg-background p-2" value={page} onChange={(event) => goPage(Number(event.target.value))}>{Array.from({ length: pages }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pages}</option>)}</select></label>
-              <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
-            </nav>}
+        <TabsContent value={view} className="mt-4 space-y-4">
+        {calendar && <>
+          <TripCalendar month={month} selectedDay={day} days={calendarDays} activeStart={active?.startedAt} timezone={timezone} onMonth={(value) => chooseDay(value === today.slice(0, 7) ? today : `${value}-01`)} onDay={chooseDay} />
+          <h3 className="pt-2 text-base font-semibold">{new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: 'full', timeZone: 'UTC' }).format(new Date(`${day}T12:00:00Z`))}</h3>
+        </>}
+        {showActive && active && <ActiveTripRow startedAt={active.startedAt} waiting={status !== 'live'} />}
+        {!active && savingTrip && (!calendar || day === today) && <p role="status" className="text-sm text-muted-foreground">{t('trip.saving', 'Saving your last trip…')}</p>}
         {flagsFailed && <p role="alert" className="text-sm text-warn">{t('history.flagsFailed', 'Some problem checks could not be loaded. Pull down to retry.')}</p>}
         {loading ? <PageLoader fullScreen={false} /> : loadFailed ? (
           <Card role="alert">
@@ -201,7 +203,7 @@ export default function HistoryPage() {
               <Button onClick={() => setRetry((n) => n + 1)}>{t('problems.retry', 'Try again')}</Button>
             </CardContent>
           </Card>
-        ) : trips.length === 0 && (active || savingTrip) ? <p className="text-sm text-muted-foreground">{t('history.noCompleted', 'Completed trips will appear here after saving.')}</p> : trips.length === 0 ? (
+        ) : calendar && filtered.length === 0 ? <p className="py-5 text-sm text-muted-foreground">{showActive ? t('history.noCompleted', 'Completed trips will appear here after saving.') : t('history.noDayTrips', 'No trips on this day.')}</p> : trips.length === 0 && (active || savingTrip) ? <p className="text-sm text-muted-foreground">{t('history.noCompleted', 'Completed trips will appear here after saving.')}</p> : trips.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center space-y-3">
               <Route className="w-10 h-10 text-muted-foreground/40 mx-auto" />
@@ -214,8 +216,9 @@ export default function HistoryPage() {
           </Card>
         ) : (
           <div className="space-y-2">
-            {filtered.length === 0 && <p className="py-8 text-center text-muted-foreground">{t('history.noMatches', 'No trips match these filters.')}</p>}
             {visible.map((trip, index) => {
+              const tripDay = tripDays.get(trip.id) ?? '';
+              const previousDay = index ? tripDays.get(visible[index - 1].id) : undefined;
               const checked = flags[trip.id] !== undefined;
               const problems = tripProblems(flags[trip.id] ?? [], trip.active_dtcs);
               const urgent = problems.some((p) => p.severity === 'critical');
@@ -225,8 +228,8 @@ export default function HistoryPage() {
               ].filter(Boolean);
               return (
                 <Fragment key={trip.id}>
-                  {(index === 0 || tripDayKey(tripDate(visible[index - 1]), timezone).slice(0, 7) !== tripDayKey(tripDate(trip), timezone).slice(0, 7)) && <h3 className="pt-4 text-lg font-semibold">{formatAppDate(tripDate(trip), i18n.resolvedLanguage, { month: 'long', year: 'numeric' })}</h3>}
-                  {(index === 0 || tripDayKey(tripDate(visible[index - 1]), timezone) !== tripDayKey(tripDate(trip), timezone)) && <h4 className="pt-2 text-sm font-medium text-muted-foreground">{formatAppDate(tripDate(trip), i18n.resolvedLanguage, { weekday: 'long', day: 'numeric', month: 'short' })}</h4>}
+                  {!calendar && previousDay?.slice(0, 7) !== tripDay.slice(0, 7) && <h3 className="pt-4 text-lg font-semibold">{formatDate(tripDate(trip), { month: 'long', year: 'numeric' })}</h3>}
+                  {!calendar && previousDay !== tripDay && <h4 className="pt-2 text-sm font-medium text-muted-foreground">{formatDate(tripDate(trip), { weekday: 'long', day: 'numeric', month: 'short' })}</h4>}
                 <Card data-testid="trip-row">
                   <CardContent className="p-0 flex items-center">
                     <Link to={`/session/${trip.id}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-l-2xl p-3.5 hover:bg-accent/40">
@@ -239,7 +242,7 @@ export default function HistoryPage() {
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{tripTitle(trip, t)}</p>
                         <p className="text-xs text-muted-foreground">
-                          {[formatAppDate(tripDate(trip), i18n.resolvedLanguage, { hour: '2-digit', minute: '2-digit' }), ...facts].join(' · ')}
+                          {[formatDate(tripDate(trip), { hour: '2-digit', minute: '2-digit' }), ...facts].join(' · ')}
                         </p>
                         {/* No verdict for a trip whose flags aren't loaded: "All good" would be a guess. */}
                         {(checked || problems.length > 0) && (
@@ -275,7 +278,13 @@ export default function HistoryPage() {
 
           </div>
         )}
-      </div>
+        {filtered.length > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
+          <label className="flex items-center gap-2 text-sm">{t('history.page', 'Page')}<select className="rounded border border-border bg-background p-2" value={page} onChange={(event) => goPage(Number(event.target.value))}>{Array.from({ length: pages }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pages}</option>)}</select></label>
+          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
+        </nav>}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!renaming} onOpenChange={(open) => !open && setRenaming(null)}>
         <DialogContent>

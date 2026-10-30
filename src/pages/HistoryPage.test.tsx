@@ -18,7 +18,9 @@ vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: R
 vi.mock('@/contexts/CarsContext', () => ({
   useCarsContext: () => ({ selectedCar: { id: 'car-1', name: 'Prius' }, selectedCarId: 'car-1' }),
 }));
-vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'km', timezone: 'UTC' }) }));
+const settings = vi.hoisted(() => ({ distanceUnit: 'km', timezone: 'UTC' }));
+vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => settings }));
+const selectView = (name: 'List' | 'Calendar') => fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0, ctrlKey: false });
 
 const TRIPS = [
   {
@@ -39,6 +41,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   obd.recording = null; obd.recordingCarId = 'car-1'; obd.lastTrip = null; obd.savingTrip = false;
+  settings.timezone = 'UTC';
 });
 
 describe('HistoryPage', () => {
@@ -49,6 +52,7 @@ describe('HistoryPage', () => {
     const active = screen.getByTestId('active-trip');
     expect(within(active).getByText('Recording trip')).toBeInTheDocument();
     expect(within(active).getByRole('link')).toHaveAttribute('href', '/live');
+    selectView('Calendar');
     const day = screen.getByRole('button', { name: /Recording trip/ });
     expect(day).toHaveClass('text-destructive');
     fireEvent.click(day);
@@ -146,20 +150,37 @@ describe('HistoryPage calendar and paging', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
     expect(screen.queryByText('Journey 0')).not.toBeInTheDocument();
     for (const [ids] of db.getFlagsForSessions.mock.calls) expect(ids.length).toBeLessThanOrEqual(20);
+    selectView('Calendar');
+    selectView('List');
+    expect(screen.getByText('Journey 299')).toBeInTheDocument();
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
   });
-  it('groups by month and day, filters with the calendar and clears filters', async () => {
+  it('starts in List without filters or a calendar, and switches to trips for the selected day', async () => {
     db.getSessions.mockResolvedValueOnce(TRIPS);
     db.getFlagsForSessions.mockResolvedValue([]);
-    render(<MemoryRouter><HistoryPage /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={['/history?view=list&month=2026-10&day=2026-10-27&q=missing']}><HistoryPage /></MemoryRouter>);
     await screen.findAllByTestId('trip-row');
+    expect(screen.getByRole('tab', { name: 'List' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('region', { name: 'Trip calendar' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Month')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Calendar date')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Search trip names')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'October 2026' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Calendar date'), { target: { value: '2026-10-20' } });
+    selectView('Calendar');
+    fireEvent.click(screen.getByRole('button', { name: /Tuesday, October 20, 2026/ }));
     expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
     expect(screen.queryByText('Ida pra praia')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Month'), { target: { value: '2026-09' } });
-    expect(screen.getByText('No trips match these filters.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(screen.getByRole('heading', { name: 'Tuesday, October 20, 2026' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Tuesday, October 20, 2026/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /Tuesday, October 27, 2026/ }));
+    expect(screen.getByText('Ida pra praia')).toBeInTheDocument();
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(screen.getByText('No trips on this day.')).toBeInTheDocument();
+    expect(screen.queryByTestId('trip-row')).not.toBeInTheDocument();
+    selectView('List');
     expect(screen.getAllByTestId('trip-row')).toHaveLength(2);
+    expect(screen.queryByRole('region', { name: 'Trip calendar' })).not.toBeInTheDocument();
   });
   it('restores a calendar filter from the URL', async () => {
     db.getSessions.mockResolvedValueOnce(TRIPS);
@@ -167,6 +188,29 @@ describe('HistoryPage calendar and paging', () => {
     render(<MemoryRouter initialEntries={['/history?month=2026-10&day=2026-10-27']}><HistoryPage /></MemoryRouter>);
     expect(await screen.findAllByTestId('trip-row')).toHaveLength(1);
     expect(screen.getByText('Ida pra praia')).toBeInTheDocument();
-    expect(screen.getByLabelText('Calendar date')).toHaveValue('2026-10-27');
+    expect(screen.getByRole('tab', { name: 'Calendar' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /Tuesday, October 27, 2026/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+  it('shows the selected day in the chosen timezone, including trips near midnight', async () => {
+    settings.timezone = 'America/New_York';
+    db.getSessions.mockResolvedValueOnce([{ ...TRIPS.find((trip) => trip.id === 'new'), session_start: '2026-11-01T01:00:00Z' }]);
+    db.getFlagsForSessions.mockResolvedValue([]);
+    render(<MemoryRouter initialEntries={['/history?view=calendar&day=2026-10-31']}><HistoryPage /></MemoryRouter>);
+    expect(await screen.findByText('Ida pra praia')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    expect(screen.getByText('No trips on this day.')).toBeInTheDocument();
+    selectView('List');
+    expect(screen.getByRole('heading', { name: 'Saturday, Oct 31' })).toBeInTheDocument();
+  });
+  it('keeps the recording on its own day when browsing older calendar dates', async () => {
+    obd.recording = { active: true, startedAt: new Date('2026-10-29T10:00:00Z'), manual: false };
+    db.getSessions.mockResolvedValueOnce(TRIPS);
+    db.getFlagsForSessions.mockResolvedValue([]);
+    render(<MemoryRouter initialEntries={['/history?view=calendar&day=2026-10-20']}><HistoryPage /></MemoryRouter>);
+    await screen.findByTestId('trip-row');
+    expect(screen.queryByTestId('active-trip')).not.toBeInTheDocument();
+    selectView('List');
+    expect(screen.getByTestId('active-trip')).toBeInTheDocument();
+    expect(screen.getAllByTestId('trip-row')).toHaveLength(2);
   });
 });
