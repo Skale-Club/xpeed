@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Loader2 } from 'lucide-react';
+import { isNativeApp } from '@/lib/obd/native-ble';
 
 interface ChatInputProps {
     input: string;
@@ -66,9 +67,9 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                     )}
                 </Button>
             </div>
-            <p className="mt-2 hidden text-center text-xs text-muted-foreground sm:block">
+            {!isNativeApp() && <p className="mt-2 hidden text-center text-xs text-muted-foreground [@media(min-width:640px)_and_(hover:hover)_and_(pointer:fine)]:block">
                 {t('assistant.enterHint', 'Press Enter to send, Shift+Enter for a new line')}
-            </p>
+            </p>}
         </form>
     );
 }
