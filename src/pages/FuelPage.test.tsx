@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { FuelEntry } from '@/lib/fuel-ledger';
 import FuelPage from './FuelPage';
 const settings=vi.hoisted(()=>({distanceUnit:'mi',volumeUnit:'US gal',consumptionUnit:'MPG',currency:'USD',timezone:'America/New_York'}));
+const photo=vi.hoisted(()=>({prepare:vi.fn(),read:vi.fn()}));
+vi.mock('@/lib/fuel-receipt',()=>({prepareReceiptImage:photo.prepare,readFuelReceipt:photo.read,ReceiptError:class extends Error{}}));
 const api = vi.hoisted(() => ({ save: vi.fn(), list: vi.fn(), toast: vi.fn(), entries: [] as FuelEntry[] }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCarId: 'car', selectedCar: { name: 'Prius', country: 'US' } }) }));
@@ -16,6 +18,8 @@ vi.mock('@/lib/fuel-api', () => ({ listFuelEntries: api.list, saveFuelEntry: api
 vi.mock('recharts', () => ({ LineChart: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, Tooltip: () => null, CartesianGrid: () => null, ResponsiveContainer: () => null }));
 vi.mock('react-i18next', async original => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { resolvedLanguage: 'en' }, t: (_key: string, fallback: string) => fallback }) }));
 beforeEach(() => {
+  photo.prepare.mockReset().mockResolvedValue('data:image/jpeg;base64,ZmFrZQ==');
+  photo.read.mockReset().mockResolvedValue({totalPaid:35.9,quantity:10,currency:'USD',volumeUnit:'US gal'});
   Object.assign(settings,{distanceUnit:'mi',volumeUnit:'US gal',consumptionUnit:'MPG',currency:'USD'});
   api.entries = [];
   api.list.mockReset().mockImplementation(async () => api.entries);
@@ -132,4 +136,79 @@ it('does not relabel a historical EUR price as USD when opening a new price reco
   fireEvent.click(screen.getByRole('button',{name:'Change'}));
   expect(screen.getByRole('textbox',{name:'Fuel price'})).toHaveValue('');
   expect(api.entries[0].currency).toBe('EUR');
+});
+
+async function choosePhoto(){
+  fireEvent.click(screen.getByRole('button',{name:'Fill from a photo'}));
+  fireEvent.change(screen.getByLabelText('Choose photo'),{target:{files:[new File(['fixture'],'receipt.jpg',{type:'image/jpeg'})]}});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Read this photo'})).toBeEnabled());
+}
+async function readPhoto(){await choosePhoto();fireEvent.click(screen.getByRole('button',{name:'Read this photo'}));await screen.findByText('Check what was read');}
+
+it('requires review and an explicit Save, converting U.S. gallons into the chosen litre display',async()=>{
+  settings.volumeUnit='L';open();await addFill();await readPhoto();
+  expect(api.save).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Save'})).toBeDisabled();
+  expect(screen.getByLabelText('Total on the photo')).toHaveValue('35.9');
+  fireEvent.click(screen.getByRole('button',{name:'Use these values'}));
+  expect(screen.getByLabelText('Quantity')).toHaveValue('37.854118');
+  expect(api.save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Save'}));
+  await waitFor(()=>expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1]).toMatchObject({totalPaid:35.9,currency:'USD'});
+  expect(api.save.mock.calls[0][1].litres).toBeCloseTo(37.85411784,5);
+});
+it('does not assume a currency or gallon standard missing from the photo',async()=>{
+  photo.read.mockResolvedValue({totalPaid:35,quantity:10,currency:null,volumeUnit:null});
+  open();await addFill();await readPhoto();
+  expect(screen.getByRole('button',{name:'Use these values'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Currency',{selector:'#receipt-currency'}),{target:{value:'USD'}});
+  expect(screen.getByRole('button',{name:'Use these values'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Unit on the photo'),{target:{value:'imperial gal'}});
+  fireEvent.click(screen.getByRole('button',{name:'Use these values'}));
+  fireEvent.click(screen.getByRole('button',{name:'Save'}));
+  await waitFor(()=>expect(api.save).toHaveBeenCalledOnce());
+  expect(api.save.mock.calls[0][1].litres).toBeCloseTo(45.4609,5);
+});
+it('keeps manually typed values when photo reading fails or is cancelled',async()=>{
+  photo.read.mockRejectedValueOnce(new Error('network unavailable'));
+  open();await addFill();
+  fireEvent.change(screen.getByLabelText('Total paid'),{target:{value:'40'}});
+  fireEvent.change(screen.getByLabelText('Quantity'),{target:{value:'11'}});
+  await choosePhoto();fireEvent.click(screen.getByRole('button',{name:'Read this photo'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not read the photo');
+  fireEvent.click(screen.getByRole('button',{name:'Close'}));
+  expect(screen.getByLabelText('Total paid')).toHaveValue('40');expect(screen.getByLabelText('Quantity')).toHaveValue('11');
+  expect(screen.getByRole('button',{name:'Save'})).toBeEnabled();expect(api.save).not.toHaveBeenCalled();
+});
+it('only fills fields actually found in a partial receipt',async()=>{
+  photo.read.mockResolvedValue({totalPaid:35,quantity:null,currency:'USD',volumeUnit:null});
+  open();await addFill();fireEvent.change(screen.getByLabelText('Quantity'),{target:{value:'11'}});
+  await readPhoto();fireEvent.click(screen.getByRole('button',{name:'Use these values'}));
+  expect(screen.getByLabelText('Total paid')).toHaveValue('35');expect(screen.getByLabelText('Quantity')).toHaveValue('11');
+  expect(api.save).not.toHaveBeenCalled();
+});
+it('discards a late reading after cancellation and preserves the manual draft',async()=>{
+  let finish!:(receipt:unknown)=>void;
+  photo.read.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  open();await addFill();
+  fireEvent.change(screen.getByLabelText('Total paid'),{target:{value:'40'}});
+  fireEvent.change(screen.getByLabelText('Quantity'),{target:{value:'11'}});
+  await choosePhoto();fireEvent.click(screen.getByRole('button',{name:'Read this photo'}));
+  expect(screen.getByRole('button',{name:'Save'})).toBeDisabled();
+  const signal=photo.read.mock.calls[0][2] as AbortSignal;
+  fireEvent.click(screen.getByRole('button',{name:'Close'}));
+  expect(signal.aborted).toBe(true);
+  await act(async()=>finish({totalPaid:500,quantity:100,currency:'USD',volumeUnit:'US gal'}));
+  expect(screen.queryByText('Check what was read')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Total paid')).toHaveValue('40');expect(screen.getByLabelText('Quantity')).toHaveValue('11');
+  expect(screen.getByRole('button',{name:'Save'})).toBeEnabled();expect(api.save).not.toHaveBeenCalled();
+});
+it('requires valid corrected values in the photo review',async()=>{
+  open();await addFill();await readPhoto();
+  fireEvent.change(screen.getByLabelText('Total on the photo'),{target:{value:'Infinity'}});
+  expect(screen.getByRole('button',{name:'Use these values'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Total on the photo'),{target:{value:'35.90'}});
+  fireEvent.change(screen.getByLabelText('Quantity on the photo'),{target:{value:'-1'}});
+  expect(screen.getByRole('button',{name:'Use these values'})).toBeDisabled();
+  expect(api.save).not.toHaveBeenCalled();
 });

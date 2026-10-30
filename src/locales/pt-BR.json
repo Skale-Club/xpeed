@@ -1363,7 +1363,32 @@
       "editDetails": "Data e outras opções",
       "saving": "Salvando…"
     },
-    "retryConflict": "Este abastecimento já foi salvo com outros detalhes. Confira o histórico antes de adicioná-lo de novo."
+    "retryConflict": "Este abastecimento já foi salvo com outros detalhes. Confira o histórico antes de adicioná-lo de novo.",
+    "photo": {
+      "open": "Preencher com foto",
+      "title": "Foto do recibo ou da bomba",
+      "camera": "Tirar foto",
+      "choose": "Escolher foto",
+      "preview": "Recibo ou bomba selecionado",
+      "privacy": "Esta foto é enviada ao nosso provedor de IA (OpenRouter). Confira o resultado antes de usar. A foto não fica anexada ao abastecimento.",
+      "reading": "Lendo foto…",
+      "read": "Ler esta foto",
+      "review": "Confira o que foi lido",
+      "partial": "Alguns valores não estavam visíveis. Você pode preenchê-los manualmente.",
+      "confirmCurrency": "Confirme a moeda",
+      "unit": "Unidade na foto",
+      "confirmUnit": "Confirme a unidade",
+      "use": "Usar estes valores",
+      "applied": "Valores preenchidos. Confira o formulário e toque em Salvar.",
+      "total": "Total na foto",
+      "quantity": "Quantidade na foto",
+      "limit": "Limite diário de fotos atingido. Você ainda pode preencher os valores manualmente.",
+      "notConfigured": "A leitura de fotos não está disponível com a configuração atual de IA. Preencha os valores manualmente.",
+      "unreadable": "Não foi possível ler os valores com clareza. Tente uma foto mais próxima ou preencha manualmente.",
+      "invalid": "Escolha uma foto JPG, PNG ou WebP de até 12 MB.",
+      "tooLarge": "Esta foto ficou grande demais. Recorte ou tire outra com resolução menor.",
+      "failed": "Não foi possível ler a foto. Tente novamente ou preencha os valores manualmente."
+    }
   },
   "hybrid": {
     "title": "Sistema híbrido",

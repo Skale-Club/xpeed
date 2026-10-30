@@ -142,6 +142,17 @@ try {
         await db.query('DELETE FROM public.car_profiles WHERE id=$1',[pagedCar]); // Cascades must remain valid.
       });
     }
+    if(!failure) await check('photo quota is separate, bounded, refundable and service-role only',async()=>{
+      await db.exec('RESET ROLE; SET ROLE service_role');
+      const consume=()=>db.query("SELECT public.consume_quota($1,'fuel_receipts',2) AS remaining",[A]);
+      assert.equal((await consume()).rows[0].remaining,1);
+      assert.equal((await consume()).rows[0].remaining,0);
+      await assert.rejects(consume,/quota_exceeded/);
+      await db.query("SELECT public.refund_quota($1,'fuel_receipts')",[A]);
+      assert.equal((await consume()).rows[0].remaining,0);
+      assert.equal((await db.query("SELECT count(*)::int AS count FROM public.user_quotas WHERE user_id=$1 AND kind='analysis'",[A])).rows[0].count,0);
+      await asUser(A);await assert.rejects(consume,/permission denied/);
+    });
     const result = { runtime: 'PGlite/PostgreSQL with synthetic auth/storage compatibility schema', applied, failure, checks, caveat: 'Real migrated SQL policies; not Supabase services, gateway, Storage server, or production migration certification.' };
     writeFileSync(resolve(root, 'docs/revisao-2026-10-29/bootstrap-sql.json'), JSON.stringify(result, null, 2) + '\n');
     console.log(JSON.stringify({ applied: applied.length, failure, checks }));

@@ -6,6 +6,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const DEFAULT_LIMITS = {
+  fuel_receipts: 10,        // photo extractions/user/day; failed reads are refunded
   chat_messages: 30,        // chat msgs/user/day
   analysis: 20,             // trip summaries/user/day (always-on records every trip; short uneventful ones are skipped)
 };

@@ -1,6 +1,6 @@
 import { useSettings } from '@/contexts/SettingsContext';
 import { zonedDateTimeInput, parseZonedDateTime } from '@/lib/app-date';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CalendarDays, ChevronDown, Loader2 } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
@@ -15,6 +15,7 @@ import { holdAppUpdates } from '@/lib/pwa-update';
 import { publicAppUrl } from '@/lib/trips';
 import { litresPerUnit } from '@/lib/fuel-units';
 import { parseFuelNumber } from '@/lib/fuel-entry';
+import { FuelPhotoImport } from './FuelPhotoImport';
 
 const REGIONS = { NUS: 'U.S.', R10: 'East Coast', R20: 'Midwest', R30: 'Gulf Coast', R40: 'Rocky Mountain', R50: 'West Coast' };
 export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, onClose, onSaved }: {
@@ -23,6 +24,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
 }) {
   const { t, i18n } = useTranslation();
   const { timezone, volumeUnit } = useSettings();
+  const titleRef=useRef<HTMLHeadingElement>(null);
   const localTime = (date: Date) => zonedDateTimeInput(date, timezone);
   const fill = kind === 'fill', factor = litresPerUnit(volumeUnit), unit = volumeUnit;
   const [recordedAt] = useState(() => new Date());
@@ -30,8 +32,10 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
   const [draft, setDraft] = useState({ at: localTime(recordedAt), amount: '', paid: '', price: !fill && price && price.currency === currency ? String(Number((price.pricePerLitre * factor).toFixed(4))) : '', odometer: '', fullTank: false, currency, note: '', source: 'manual' as 'manual' | 'regional', region: '', sourceUrl: '' });
   const [initial] = useState(() => JSON.stringify(draft));
   const [saving, setSaving] = useState(false), [lookingUp, setLookingUp] = useState(false);
+  const [readingPhoto,setReadingPhoto]=useState(false);
+  const [photoPending,setPhotoPending]=useState(false);
   const [region, setRegion] = useState('NUS'), [error, setError] = useState('');
-  const dirty = JSON.stringify(draft) !== initial, busy = saving || lookingUp;
+  const dirty = JSON.stringify(draft) !== initial || photoPending, busy = saving || lookingUp || readingPhoto;
   const paid = parseFuelNumber(draft.paid), amount = parseFuelNumber(draft.amount), unitPrice = parseFuelNumber(draft.price);
   const canSave = fill ? paid > 0 && amount > 0 : unitPrice > 0;
   const symbol = { USD: '$', BRL: 'R$', EUR: '€' }[draft.currency];
@@ -45,7 +49,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
   const money = (value: number) => new Intl.NumberFormat(i18n.resolvedLanguage, { style: 'currency', currency: draft.currency, maximumFractionDigits: 3 }).format(value);
   const manual = () => ({ source: 'manual' as const, sourceUrl: '', region: '' });
   const save = async (event: React.FormEvent) => {
-    event.preventDefault(); if (busy) return;
+    event.preventDefault(); if (busy || photoPending) return;
     setError('');
     const enteredAt = parseZonedDateTime(draft.at, timezone);
     if (!enteredAt) { setError(t('fuel.invalid', 'Check the date, quantity and price.')); return; }
@@ -79,15 +83,16 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
     <DialogPrimitive.Content
       className="fixed inset-0 z-50 flex h-[100dvh] flex-col bg-background text-foreground outline-none sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[420px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:overflow-hidden sm:rounded-2xl sm:border sm:border-border sm:shadow-xl"
       onInteractOutside={event => { if (dirty || busy) event.preventDefault(); }}
-      onOpenAutoFocus={event => { event.preventDefault(); document.getElementById(amountField)?.focus(); }}>
+      onOpenAutoFocus={event => { event.preventDefault(); titleRef.current?.focus(); }}>
       <div className="shrink-0 border-b border-border/60 px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]">
         <div className="flex items-center gap-3"><Button type="button" variant="ghost" size="icon" className="shrink-0 rounded-full" disabled={busy} onClick={onClose} aria-label={t('common.cancel', 'Cancel')}><ArrowLeft className="h-5 w-5" /></Button>
-          <DialogTitle className="text-lg font-semibold">{fill ? t('fuel.simple.fillTitle', 'Fill-up') : t('fuel.simple.price', 'Fuel price')}</DialogTitle>
+          <DialogTitle ref={titleRef} tabIndex={-1} className="text-lg font-semibold outline-none">{fill ? t('fuel.simple.fillTitle', 'Fill-up') : t('fuel.simple.price', 'Fuel price')}</DialogTitle>
         </div>
         <DialogDescription className="sr-only">{fill ? t('fuel.simple.receiptHint', 'Copy these two numbers from your receipt or the pump.') : t('fuel.simple.priceHint', 'The price you pay per gallon or litre helps estimate trip costs.')}</DialogDescription>
       </div>
       <form onSubmit={event => void save(event)} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-6 pb-6 pt-8">
+          {fill&&<FuelPhotoImport carId={carId} volumeUnit={volumeUnit} disabled={saving||lookingUp} onBusyChange={setReadingPhoto} onPendingChange={setPhotoPending} onApply={patch=>setDraft(d=>({...d,...patch}))}/>}
           <div className="space-y-2">
             <Label htmlFor={amountField} className="text-sm text-muted-foreground">{fill ? t('fuel.simple.paidLabel', 'Total paid') : t('fuel.simple.price', 'Fuel price')}</Label>
             <div className="flex items-center gap-2 border-b-2 border-border pb-2 focus-within:border-primary">
@@ -119,7 +124,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
         </div>
         <div className="shrink-0 space-y-3 border-t border-border/60 bg-background px-6 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)] pt-4">
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="h-12 w-full text-base" disabled={busy || !canSave}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? t('fuel.simple.saving', 'Saving…') : t('common.save', 'Save')}</Button>
+          <Button type="submit" className="h-12 w-full text-base" disabled={busy || photoPending || !canSave}>{saving && <Loader2 className="h-4 w-4 animate-spin" />}{saving ? t('fuel.simple.saving', 'Saving…') : t('common.save', 'Save')}</Button>
         </div>
       </form>
     </DialogPrimitive.Content>

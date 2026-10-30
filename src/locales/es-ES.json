@@ -1363,7 +1363,32 @@
       "editDetails": "Fecha y otras opciones",
       "saving": "Guardando…"
     },
-    "retryConflict": "Este repostaje ya se guardó con otros detalles. Revisa el historial antes de añadirlo otra vez."
+    "retryConflict": "Este repostaje ya se guardó con otros detalles. Revisa el historial antes de añadirlo otra vez.",
+    "photo": {
+      "open": "Rellenar con una foto",
+      "title": "Foto del recibo o del surtidor",
+      "camera": "Tomar foto",
+      "choose": "Elegir foto",
+      "preview": "Recibo o surtidor seleccionado",
+      "privacy": "Esta foto se envía a nuestro proveedor de IA (OpenRouter). Revisa el resultado antes de usarlo. La foto no se adjunta al repostaje.",
+      "reading": "Leyendo foto…",
+      "read": "Leer esta foto",
+      "review": "Revisa lo que se ha leído",
+      "partial": "Algunos valores no estaban visibles. Puedes introducirlos manualmente.",
+      "confirmCurrency": "Confirma la moneda",
+      "unit": "Unidad en la foto",
+      "confirmUnit": "Confirma la unidad",
+      "use": "Usar estos valores",
+      "applied": "Valores rellenados. Revisa el formulario y pulsa Guardar.",
+      "total": "Total en la foto",
+      "quantity": "Cantidad en la foto",
+      "limit": "Has alcanzado el límite diario de fotos. Puedes introducir los valores manualmente.",
+      "notConfigured": "La lectura de fotos no está disponible con la configuración actual de IA. Introduce los valores manualmente.",
+      "unreadable": "No se pudieron leer los valores con claridad. Prueba una foto más cercana o introdúcelos manualmente.",
+      "invalid": "Elige una foto JPG, PNG o WebP de hasta 12 MB.",
+      "tooLarge": "La foto es demasiado grande. Recórtala o toma otra con menor resolución.",
+      "failed": "No se pudo leer la foto. Inténtalo de nuevo o introduce los valores manualmente."
+    }
   },
   "hybrid": {
     "title": "Sistema híbrido",

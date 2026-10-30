@@ -1363,7 +1363,32 @@
       "editDetails": "Date & other options",
       "saving": "Saving…"
     },
-    "retryConflict": "This fill-up was already saved with different details. Check your history before adding it again."
+    "retryConflict": "This fill-up was already saved with different details. Check your history before adding it again.",
+    "photo": {
+      "open": "Fill from a photo",
+      "title": "Receipt or pump photo",
+      "camera": "Take photo",
+      "choose": "Choose photo",
+      "preview": "Selected receipt or pump",
+      "privacy": "Sends this photo to our AI provider (OpenRouter). Check the result before using it. The photo is not attached to your fill-up.",
+      "reading": "Reading photo…",
+      "read": "Read this photo",
+      "review": "Check what was read",
+      "partial": "Some values were not visible. You can fill them in manually.",
+      "confirmCurrency": "Confirm currency",
+      "unit": "Unit on the photo",
+      "confirmUnit": "Confirm unit",
+      "use": "Use these values",
+      "applied": "Values filled in. Review the form and tap Save.",
+      "total": "Total on the photo",
+      "quantity": "Quantity on the photo",
+      "limit": "Daily photo limit reached. You can still enter the values manually.",
+      "notConfigured": "Photo reading is not available with the current AI configuration. Enter the values manually.",
+      "unreadable": "Could not read fuel values clearly. Try a closer photo or enter them manually.",
+      "invalid": "Choose a JPG, PNG or WebP photo up to 12 MB.",
+      "tooLarge": "This photo is too large. Crop it or take another at a lower resolution.",
+      "failed": "Could not read the photo. Try again or enter the values manually."
+    }
   },
   "hybrid": {
     "title": "Hybrid system",
