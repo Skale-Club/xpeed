@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RegisterSW } from '@/lib/pwa-update';
+import { UPDATE_IDLE_MS } from '@/lib/idle-update';
+const cleanups: (() => void)[] = [];
+afterEach(() => { cleanups.splice(0).forEach(stop => stop()); document.body.replaceChildren(); });
 
 // The module keeps listeners and "update waiting" state at module level (it is
 // started once per page load), so each test gets a fresh copy.
@@ -13,8 +16,9 @@ async function setup() {
     options = o;
     return updateSW;
   };
-  mod.startPwaUpdates(register);
+  cleanups.push(mod.startPwaUpdates(register));
   options.onRegisteredSW?.('/sw.js', registration as unknown as ServiceWorkerRegistration);
+  vi.advanceTimersByTime(UPDATE_IDLE_MS);
   return { mod, updateSW, registration, options: () => options };
 }
 
@@ -39,6 +43,54 @@ describe('startPwaUpdates', () => {
     options().onNeedRefresh?.();
     expect(updateSW).toHaveBeenCalledWith(true);
     expect(mod.hasPendingUpdate()).toBe(false);
+  });
+
+  it('waits for a fresh idle window after touch, typing and scrolling', async () => {
+    const { updateSW, options } = await setup();
+    window.dispatchEvent(new Event('pointerdown'));
+    options().onNeedRefresh?.();
+    vi.advanceTimersByTime(20_000);
+    window.dispatchEvent(new Event('keydown'));
+    vi.advanceTimersByTime(20_000);
+    window.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(UPDATE_IDLE_MS - 1);
+    expect(updateSW).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(updateSW).toHaveBeenCalledOnce();
+  });
+  it('does not update an editor or open dialog after idle time expires', async () => {
+    const { updateSW, options } = await setup();
+    const input = document.createElement('input'); document.body.append(input); input.focus();
+    options().onNeedRefresh?.(); vi.advanceTimersByTime(UPDATE_IDLE_MS * 2);
+    expect(updateSW).not.toHaveBeenCalled();
+    input.blur(); input.remove();
+    const dialog = document.createElement('div'); dialog.setAttribute('role', 'dialog'); document.body.append(dialog);
+    vi.advanceTimersByTime(UPDATE_IDLE_MS);
+    expect(updateSW).not.toHaveBeenCalled();
+    dialog.remove(); window.dispatchEvent(new Event('pointerdown'));
+    vi.advanceTimersByTime(UPDATE_IDLE_MS);
+    expect(updateSW).toHaveBeenCalledOnce();
+  });
+  it('holds an update during continuous mouse or touch movement', async () => {
+    const { updateSW, options } = await setup();
+    window.dispatchEvent(new Event('pointerdown')); options().onNeedRefresh?.();
+    for (const event of ['pointermove', 'touchmove', 'pointermove']) {
+      vi.advanceTimersByTime(10_000); window.dispatchEvent(new Event(event));
+    }
+    expect(updateSW).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(UPDATE_IDLE_MS);
+    expect(updateSW).toHaveBeenCalledOnce();
+  });
+  it('waits again if the user interacts while the new version activates, keeping the URL', async () => {
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { pathname: '/history', search: '?month=2026-10', hash: '#today', reload } });
+    const { updateSW, options } = await setup();
+    options().onNeedRefresh?.(); expect(updateSW).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event('pointerdown')); options().onNeedReload?.();
+    expect(reload).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(UPDATE_IDLE_MS);
+    expect(reload).toHaveBeenCalledOnce();
+    expect(JSON.parse(sessionStorage.getItem('xpeed:update-position')!).page).toBe('/history?month=2026-10#today');
   });
 
   it('holds the update while recording and applies it when the trip ends', async () => {

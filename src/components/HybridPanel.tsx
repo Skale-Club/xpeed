@@ -3,7 +3,7 @@ import { useCarsContext } from '@/contexts/CarsContext';
 import { useObd, useObdLive } from '@/contexts/ObdScannerContext';
 import { Card, CardContent } from './ui/card';
 export function HybridPanel() {
-  const { selectedCar } = useCarsContext(); const { status } = useObd(); const { values } = useObdLive(); const { t } = useTranslation();
+  const { cars = [] } = useCarsContext(); const { status, connectedCarId } = useObd(); const selectedCar = cars.find(car => car.id === connectedCarId); const { values } = useObdLive(); const { t } = useTranslation();
   if (selectedCar?.engine_type !== 'hybrid' && !/prius/i.test(selectedCar?.model || '')) return null;
   const read = (pattern: RegExp) => { if (status !== 'live') return null; const key = Object.keys(values).find(key => pattern.test(key)); const value = key ? values[key] : null; return value != null && Number.isFinite(value) ? value : null; };
   const tank = read(/^Fuel level /i), battery = read(/^(?:Hybrid battery remaining life|Hybrid\/EV battery pack remaining charge) /i), voltage = read(/^HV pack voltage /i);

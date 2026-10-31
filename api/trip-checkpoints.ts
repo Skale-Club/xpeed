@@ -28,6 +28,9 @@ export default async function handler(req: Request): Promise<Response> {
     if (car.error) throw car.error;
     if (!car.data) return reply({ error: 'car_unavailable' }, 404);
     const root = `${userId}/${carId}`;
+    const deleted = await db.from('session_deletions').select('recording_id').eq('user_id',userId).eq('car_profile_id',carId);
+    if(deleted.error)throw deleted.error;
+    const tombstones=new Set((deleted.data ?? []).map(item=>item.recording_id));
     const list = async (prefix: string) => {
       const files = [];
       for (let offset = 0; offset < 10000; offset += 1000) {
@@ -65,7 +68,7 @@ export default async function handler(req: Request): Promise<Response> {
     };
     if (req.method === 'GET') {
       const id = query.get('id');
-      if (id) { if (!UUID.test(id)) return reply({ error: 'invalid_recording' }, 400); return reply({ trip: await reconstruct(id) }); }
+      if (id) { if (!UUID.test(id)) return reply({ error: 'invalid_recording' }, 400); if (tombstones.has(id)) return reply({error:'recording_deleted'},410); return reply({ trip: await reconstruct(id) }); }
       const folders = (await list(root)).filter(file => UUID.test(file.name));
       const complete = new Set<string>();
       for (let offset = 0; offset < folders.length; offset += 100) {
@@ -75,7 +78,7 @@ export default async function handler(req: Request): Promise<Response> {
       }
       const items = [];
       for (const folder of folders) {
-        if (complete.has(folder.name)) { await remove(folder.name).catch(() => {}); continue; }
+        if (tombstones.has(folder.name) || complete.has(folder.name)) { await remove(folder.name).catch(() => {}); continue; }
         const files = await list(`${root}/${folder.name}`);
         if (!files.some(file => file.name === 'meta.json')) continue;
         const meta = await read(`${root}/${folder.name}/meta.json`);
@@ -86,6 +89,7 @@ export default async function handler(req: Request): Promise<Response> {
     const id = query.get('id') || '';
     if (!UUID.test(id)) return reply({ error: 'invalid_recording' }, 400);
     if (req.method === 'DELETE') { await remove(id); return reply({ ok: true }); }
+    if(tombstones.has(id)) { await remove(id).catch(()=>{}); return reply({error:'recording_deleted'},410); }
     const text = await req.text();
     if (text.length > 256 * 1024) return reply({ error: 'checkpoint_too_large' }, 413);
     let input; try { input = JSON.parse(text); } catch { return reply({ error: 'invalid_checkpoint' }, 400); }
@@ -132,7 +136,7 @@ export default async function handler(req: Request): Promise<Response> {
     const strings = (value: unknown) => Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.length <= 100).slice(0,100) : [];
     const faults = input.faultCodes && typeof input.faultCodes === 'object' ? {
       stored: strings(input.faultCodes.stored), pending: strings(input.faultCodes.pending), checked: input.faultCodes.checked === true,
-      modules: strings(input.faultCodes.modules),
+      complete: input.faultCodes.complete === true, permanent: strings(input.faultCodes.permanent), modules: strings(input.faultCodes.modules),
       codeModules: input.faultCodes.codeModules && typeof input.faultCodes.codeModules === 'object' ? Object.fromEntries(Object.entries(input.faultCodes.codeModules).slice(0,100).map(([code, modules]) => [code.slice(0,100), strings(modules)])) : {},
     } : undefined;
     const meta = { startedAt, faultCodes: faults, totalSamples: input.totalSamples ?? null, endedAt: endedAt ?? null, columns, dtcs: Array.isArray(input.dtcs) ? input.dtcs.filter((code: unknown) => typeof code === 'string').slice(0,100) : [], lastSeen: Date.now() };

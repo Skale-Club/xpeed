@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Pencil, Trash2, Route, Play } from 'lucide-react';
+import { completeTripInspection } from '@/lib/trip-inspection';
 import AppLayout from '@/components/AppLayout';
 import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,7 +19,7 @@ import {
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
-import { deleteSession, getFlagsForSessions, getSessions, updateSession } from '@/lib/db';
+import { deleteSession, getFlagsForSessions, getTripPage, getTripCalendar, invalidateSessionLists, updateSession } from '@/lib/db';
 import { formatDistance, formatDuration, tripDate, tripDistanceKm, tripProblems, tripTitle } from '@/lib/trips';
 import { tripDayKey } from '@/lib/trip-history';
 import { useObd } from '@/contexts/ObdScannerContext';
@@ -52,13 +53,10 @@ export default function HistoryPage() {
   const day = validDay ? requestedDay : validMonth && validMonth !== today.slice(0, 7) ? `${validMonth}-01` : today;
   const month = validMonth || day.slice(0, 7);
   const showActive = !!active && (!calendar || (day >= tripDayKey(active.startedAt, timezone) && day <= today));
+  const [total, setTotal] = useState(0);
+  const [calendarDays, setCalendarDays] = useState(new Map<string,number>());
   const [trips, setTrips] = useState<Trip[]>([]);
   const tripDays = useMemo(() => new Map(trips.map((trip) => [trip.id, tripDayKey(tripDate(trip), timezone)])), [trips, timezone]);
-  const calendarDays = useMemo(() => {
-    const days = new Map<string, number>();
-    for (const key of tripDays.values()) days.set(key, (days.get(key) ?? 0) + 1);
-    return days;
-  }, [tripDays]);
   const filtered = useMemo(() => calendar ? trips.filter((trip) => tripDays.get(trip.id) === day) : trips, [calendar, trips, tripDays, day]);
   // Only trips whose flags have been fetched have an entry here (an empty list = nothing wrong).
   const [flags, setFlags] = useState<Record<string, SessionFlag[]>>({});
@@ -67,9 +65,9 @@ export default function HistoryPage() {
   const [retry, setRetry] = useState(0);
   const tRef = useRef(t);
   tRef.current = t;
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const page = Math.min(pages, Math.max(1, Math.floor(Number(params.get('page'))) || 1));
-  const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const page = Math.min(1_000_000, Math.max(1, Math.floor(Number(params.get('page'))) || 1));
+  const visible = filtered;
   const visibleKey = visible.map((trip) => trip.id).join('|');
   const [flagsFailed, setFlagsFailed] = useState(false);
   const changeView = (value: string) => setParams((previous) => {
@@ -115,10 +113,14 @@ export default function HistoryPage() {
         return;
       }
       try {
-        const list = [...((await getSessions(selectedCarId)) as unknown as Trip[])]
-          .sort((a, b) => tripDate(b).getTime() - tripDate(a).getTime());
+        const result = await getTripPage(selectedCarId, page, calendar ? day : null, timezone);
+        if (cancelled) return;
+        const lastPage = Math.max(1,Math.ceil(result.total / PAGE_SIZE));
+        if(page > lastPage) { setParams(previous=>{const next=new URLSearchParams(previous);next.set('page',String(lastPage));return next;},{replace:true}); return; }
+        const list = result.items as Trip[];
         if (cancelled) return;
         setTrips(list);
+        setTotal(result.total);
         const grouped = await fetchFlags(list.slice(0, PAGE_SIZE).map((s) => s.id));
         if (cancelled) return;
         setFlags(grouped);
@@ -134,7 +136,7 @@ export default function HistoryPage() {
     })();
     return () => { cancelled = true; };
     // The list is for the car, not for the language: switching language must not refetch it.
-  }, [selectedCarId, toast, fetchFlags, retry, lastTrip?.sessionId]);
+  }, [selectedCarId, toast, fetchFlags, retry, lastTrip?.sessionId, page, calendar, day, timezone, setParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,10 +152,18 @@ export default function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleKey, selectedCarId, loading, loadFailed, fetchFlags]);
 
+  useEffect(() => {
+    if (!calendar || !selectedCarId) return;
+    let cancelled=false;
+    void getTripCalendar(selectedCarId,month,timezone).then(days=>{ if(!cancelled)setCalendarDays(new Map(Object.entries(days))); }).catch(()=>{if(!cancelled)setFlagsFailed(true);});
+    return ()=>{cancelled=true;};
+  },[calendar,selectedCarId,month,timezone,lastTrip?.sessionId,retry]);
+
   const saveName = async () => {
     if (!renaming || !newName.trim()) return;
     try {
       await updateSession(renaming.id, { source_filename: newName.trim() });
+      invalidateSessionLists();
       setTrips((prev) => prev.map((s) => (s.id === renaming.id ? { ...s, source_filename: newName.trim() } : s)));
       setRenaming(null);
     } catch (err) {
@@ -166,6 +176,8 @@ export default function HistoryPage() {
     if (!deleting) return;
     try {
       await deleteSession(deleting.id);
+      invalidateSessionLists();
+      setRetry(n=>n+1);
       setTrips((prev) => prev.filter((s) => s.id !== deleting.id));
     } catch (err) {
       console.error(err);
@@ -220,7 +232,8 @@ export default function HistoryPage() {
               const tripDay = tripDays.get(trip.id) ?? '';
               const previousDay = index ? tripDays.get(visible[index - 1].id) : undefined;
               const checked = flags[trip.id] !== undefined;
-              const problems = tripProblems(flags[trip.id] ?? [], trip.active_dtcs);
+              const inspected = completeTripInspection(trip);
+              const problems = tripProblems(flags[trip.id] ?? [], trip.active_dtcs, trip.summary);
               const urgent = problems.some((p) => p.severity === 'critical');
               const facts = [
                 formatDuration(trip.duration_seconds),
@@ -234,7 +247,7 @@ export default function HistoryPage() {
                   <CardContent className="p-0 flex items-center">
                     <Link to={`/session/${trip.id}`} className="flex min-w-0 flex-1 items-center gap-3 rounded-l-2xl p-3.5 hover:bg-accent/40">
                       <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${!checked && problems.length === 0 ? 'bg-muted text-muted-foreground' : problems.length === 0 ? 'bg-success/15 text-success' : urgent ? 'bg-destructive/15 text-destructive' : 'bg-warn/15 text-warn'}`}
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${(!checked || !inspected) && problems.length === 0 ? 'bg-muted text-muted-foreground' : problems.length === 0 ? 'bg-success/15 text-success' : urgent ? 'bg-destructive/15 text-destructive' : 'bg-warn/15 text-warn'}`}
                         aria-hidden
                       >
                         <Route className="h-[18px] w-[18px]" />
@@ -246,9 +259,9 @@ export default function HistoryPage() {
                         </p>
                         {/* No verdict for a trip whose flags aren't loaded: "All good" would be a guess. */}
                         {(checked || problems.length > 0) && (
-                          <p className={`text-xs font-medium ${problems.length === 0 ? 'text-success' : urgent ? 'text-destructive' : 'text-warn'}`}>
+                          <p className={`text-xs font-medium ${problems.length === 0 ? inspected ? 'text-success' : 'text-muted-foreground' : urgent ? 'text-destructive' : 'text-warn'}`}>
                             {problems.length === 0
-                              ? t('history.noProblems', 'All good')
+                              ? completeTripInspection(trip) ? t('history.noProblems', 'No recorded warnings') : t('history.incompleteCheck', 'Code reading incomplete')
                               : t('history.problems', { count: problems.length, defaultValue: '{{count}} problems' })}
                           </p>
                         )}
@@ -278,7 +291,7 @@ export default function HistoryPage() {
 
           </div>
         )}
-        {filtered.length > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
+        {total > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
           <label className="flex items-center gap-2 text-sm">{t('history.page', 'Page')}<select className="rounded border border-border bg-background p-2" value={page} onChange={(event) => goPage(Number(event.target.value))}>{Array.from({ length: pages }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pages}</option>)}</select></label>
           <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>

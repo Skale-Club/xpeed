@@ -19,9 +19,8 @@ import {
     updateConversationTitle,
     getMessages,
     saveMessage,
-    buildChatContext,
 } from '@/lib/chat/db';
-import type { ChatConversation, ChatContext as ChatContextType } from '@/lib/chat/types';
+import type { ChatConversation } from '@/lib/chat/types';
 import { getMessageText } from '@/lib/chat/types';
 
 interface ChatContainerProps {
@@ -42,17 +41,18 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const [currentConversation, setCurrentConversation] = useState<ChatConversation | null>(null);
     const [messages, setMessages] = useState<UIMessage[]>([]);
     const [input, setInput] = useState('');
-    const [contextData, setContextData] = useState<ChatContextType | null>(null);
     const [loading, setLoading] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<ChatConversation | null>(null);
 
-    const { selectedCar } = useCarsContext();
+    const { selectedCar, cars = [] } = useCarsContext();
     const { toast } = useToast();
     const scrollRef = useRef<HTMLDivElement>(null);
     const viewVersion = useRef(0);
     const sending = useRef(false);
     const skipLoad = useRef<string | null>(null);
     const chatCarId = currentConversation ? currentConversation.car_profile_id : selectedCar?.id;
+
+    const chatCar = cars.find(car => car.id === chatCarId) ?? (selectedCar?.id === chatCarId ? selectedCar : null);
 
     // Model is admin-configured server-side (app_settings.admin_openrouter_model);
     // the client does not choose or send a model.
@@ -72,18 +72,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         }
     }, [isOpen]);
 
-    // Build context when car changes
-    useEffect(() => {
-        let cancelled = false;
-        async function loadContext() {
-            const context = await buildChatContext(chatCarId ?? undefined);
-            if (!cancelled) setContextData(context);
-        }
-        if (isOpen) {
-            loadContext();
-        }
-        return () => { cancelled = true; };
-    }, [isOpen, chatCarId]);
+    // The server builds context from the authorized car.
 
     // Load messages when conversation changes
     useEffect(() => {
@@ -167,7 +156,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             const responseText = await chatViaEdge(
                 historyMessages,
                 text,
-                (contextData ?? {}) as unknown as Record<string, unknown>,
+                {},
                 chatCarId,
             );
 
@@ -206,7 +195,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             sending.current = false;
             setLoading(false);
         }
-    }, [currentConversation, selectedCar, chatCarId, contextData, messages, toast, t]);
+    }, [currentConversation, selectedCar, chatCarId, messages, toast, t]);
 
     const handleNewConversation = () => {
         viewVersion.current++;
@@ -269,7 +258,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                     <CardTitle className="text-lg">Xpeed</CardTitle>
                                 </DialogPrimitive.Title>
                                 <p className="truncate text-xs text-muted-foreground">
-                                    {contextData?.vehicle?.name || t('assistant.noCarSelected', 'No car selected')}
+                                    {chatCar?.name || t('assistant.noCarSelected', 'No car selected')}
                                 </p>
                             </div>
                         </div>
@@ -309,8 +298,8 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                 <div className="flex flex-col items-center justify-center h-full text-center">
                                     <BrandLogo alt="" className="mb-4 h-12 w-12" />
                                     <h3 className="text-lg font-semibold mb-2">
-                                        {contextData?.vehicle
-                                            ? t('assistant.askAboutCar', 'Ask about your {{name}}', { name: contextData.vehicle.name })
+                                        {chatCar
+                                            ? t('assistant.askAboutCar', 'Ask about your {{name}}', { name: chatCar.name })
                                             : t('assistant.chooseCar', 'Choose a car to get started')}
                                     </h3>
                                     <p className="max-w-md text-sm leading-relaxed text-muted-foreground">

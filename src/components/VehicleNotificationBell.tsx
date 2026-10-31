@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bell, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
+import { Bell, AlertTriangle, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { HeaderPanel } from './HeaderPanel';
 import { useVehicleNotifications } from '@/contexts/VehicleNotificationsContext';
@@ -14,7 +15,7 @@ import { HeaderControl } from './header/HeaderControl';
 
 export function VehicleNotificationBell() {
   const { t, i18n } = useTranslation();
-  const { distanceUnit } = useSettings();
+  const { distanceUnit, temperatureUnit } = useSettings();
   const { selectedCar } = useCarsContext();
   const { items, unread, loading, error, markRead, reload } = useVehicleNotifications();
   const [open, setOpen] = useState(false);
@@ -33,16 +34,19 @@ export function VehicleNotificationBell() {
           const codes = item.scan ? [...new Set([...item.scan.stored, ...item.scan.pending, ...item.scan.permanent])] : [];
           const complete = item.scan && (item.scan.complete ?? (item.scan.checked && !!item.scan.modules?.length));
           const problem = item.problem ? describeProblem(item.problem, t) : null;
-          const title = item.kind === 'maintenance' ? (item.oil?.status === 'due' ? t('oil.due', 'Oil change due') : t('oil.soon', 'Oil change coming up')) : item.kind === 'fuel' ? t('fuel.alert', 'Fuel consumption increased {{delta}}% on comparable trips', { delta: item.fuel?.deltaPct.toFixed(1) }) : problem?.title || (!complete ? t('codes.incompleteTitle', 'Incomplete code reading') : codes.length ? t('notifications.codesFound', '{{count}} fault codes reported', { count: codes.length }) : t('notifications.noCodes', 'No codes in the responses received'));
-          const date = new Date(item.at);
+          const title = item.kind === 'live' ? t('notifications.liveAlert','{{sensor}} stayed outside its expected range',{sensor:t('notifications.sensors.'+item.live?.key,item.live?.label || '')}) : item.kind === 'maintenance' ? (item.oil?.status === 'due' ? t('oil.due', 'Oil change due') : t('oil.soon', 'Oil change coming up')) : item.kind === 'fuel' ? t('fuel.alert', 'Fuel consumption increased {{delta}}% on comparable trips', { delta: item.fuel?.deltaPct.toFixed(1) }) : problem?.title || (!complete ? t('codes.incompleteTitle', 'Incomplete code reading') : codes.length ? t('notifications.codesFound', '{{count}} fault codes reported', { count: codes.length }) : t('notifications.noCodes', 'No codes in the responses received'));
+          const date = new Date(item.problem?.last_seen_at ?? item.at);
           return <article key={item.source} className={`rounded-xl border p-3 ${item.read ? 'border-border' : item.severity === 'critical' ? 'border-destructive/60 bg-destructive/5' : 'border-primary/40 bg-primary/5'}`}>
-            <Link to={item.kind === 'maintenance' ? '/maintenance' : item.kind === 'fuel' ? '/fuel' : item.kind === 'problem' ? '/issues' : '/codes'} onClick={() => { markRead(item.source); setOpen(false); }} className="block space-y-1">
+            <Link to={item.kind === 'live' ? '/live' : item.kind === 'maintenance' ? '/maintenance' : item.kind === 'fuel' ? '/fuel' : item.kind === 'problem' && item.problem ? `/issues#issue-${encodeURIComponent(item.problem.id)}` : '/codes'} onClick={() => { markRead(item.source); setOpen(false); }} className="block space-y-1">
               <p className="flex items-start gap-2 text-sm font-semibold">{item.severity === 'success' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${item.severity === 'critical' ? 'text-destructive' : 'text-warn'}`} />}{title}</p>
+              {item.live && <p className="text-xs text-muted-foreground">{temperatureValue(item.live.value,item.live.unit,temperatureUnit).toFixed(1)} {temperatureLabel(item.live.unit,temperatureUnit)}</p>}
               {problem && <p className="line-clamp-2 text-xs text-muted-foreground">{problem.meaning}</p>}
+              {item.problem && item.problem.recurrence_count > 1 && <p className="text-xs text-muted-foreground">{t('notifications.repeated', 'Seen {{count}} times', {count:item.problem.recurrence_count})}</p>}
               {item.oil?.dueKm != null && <p className="text-xs text-muted-foreground">{t('oil.nextAt', 'Next oil change at {{value}} {{unit}}', { value: new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 0 }).format(item.oil.dueKm / (distanceUnit === 'mi' ? KM_PER_MILE : 1)), unit: distanceUnit })}</p>}
               {item.oil?.dueDate && <p className="text-xs text-muted-foreground">{item.oil.dueDate}</p>}
               {codes.length > 0 && <p className="font-mono text-xs">{codes.join(', ')}</p>}
-              <p className="text-[11px] text-muted-foreground">{item.kind === 'maintenance' ? t('nav.maintenance', 'Service history') : item.kind === 'fuel' ? t('fuel.trendTitle', 'Is consumption changing?') : item.kind === 'problem' ? t('notifications.savedSource', 'Saved problem') : t('notifications.scanSource', 'Code reading')} · {Number.isFinite(date.getTime()) ? formatAppDate(date, i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
+              <p className="text-[11px] text-muted-foreground">{item.kind === 'live' ? t('notifications.liveSource','During your trip') : item.kind === 'maintenance' ? t('nav.maintenance', 'Service history') : item.kind === 'fuel' ? t('fuel.trendTitle', 'Is consumption changing?') : item.kind === 'problem' ? t('notifications.savedSource', 'Saved problem') : t('notifications.scanSource', 'Code reading')} · {Number.isFinite(date.getTime()) ? formatAppDate(date, i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
+              <span className="flex items-center gap-1 pt-1 text-xs font-medium text-primary">{t('notifications.openDetails', 'View details')}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span>
             </Link>
             {!item.read && <button className="mt-2 text-xs text-primary hover:underline" onClick={() => markRead(item.source)}>{t('notifications.read', 'Mark as read')}</button>}
           </article>;

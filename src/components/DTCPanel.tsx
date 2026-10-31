@@ -7,6 +7,7 @@ import { lookupDtcs, type DtcInfo } from '@/lib/dtc-codes';
 
 interface DTCPanelProps {
   codes: string[];
+  checked?: boolean;
   onAskAi?: (dtc: DtcInfo) => void;
 }
 
@@ -38,10 +39,11 @@ const DIFFICULTY_LABEL: Record<number, string> = {
   5: 'Specialist — take it to a dealer or specialist garage',
 };
 
-export default function DTCPanel({ codes, onAskAi }: DTCPanelProps) {
+export default function DTCPanel({ codes, onAskAi, checked = false }: DTCPanelProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  if (codes.length === 0 && !checked) return <p className="text-sm text-muted-foreground">{t('history.incompleteCheck', 'Code reading incomplete')}</p>;
   if (codes.length === 0) {
     return (
       <Card className="bg-card border-success/30">

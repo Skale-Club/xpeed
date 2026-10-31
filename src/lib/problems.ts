@@ -3,8 +3,8 @@
 // The technical key/code stays available for the mechanic, but out of the way.
 
 import type { TFunction } from 'i18next';
-import { lookupDtc, type DtcInfo } from '@/lib/dtc-codes';
-import type { IssueSeverity, VehicleIssue } from '@/lib/db-issues';
+import { lookupDtc, type DtcInfo } from './dtc-codes';
+import type { IssueSeverity, VehicleIssue } from './db-issues';
 
 /** Problems coming from the car's own fault codes use keys like "dtc:P0420". */
 export const DTC_PREFIX = 'dtc:';

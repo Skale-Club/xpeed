@@ -143,7 +143,7 @@ export function TripCard() {
       <div className="space-y-2">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-success" />
-          <p className="font-semibold">{t('trip.ready', 'Ready to record')}</p>
+          <p className="font-semibold">{alwaysOn && !obd.autoPaused ? t('trip.waitingMovement', 'Waiting for movement') : t('trip.ready', 'Ready to record')}</p>
         </div>
         {readings}
         {alwaysOn && (
@@ -187,7 +187,7 @@ export function TripCard() {
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10">
             <Circle className="h-3.5 w-3.5 text-primary" />
           </span>
-          <h3 className="text-sm font-semibold">{t('trip.cardTitle', 'Trip recording')}</h3>
+          <h3 className="text-sm font-semibold">{t('trip.cardTitle', 'Trip recording')}{obd.connectedCarName && <span className="ml-2 font-normal text-muted-foreground">· {obd.connectedCarName}</span>}</h3>
           {status !== 'unsupported' && canStayOn && (
             <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground" title={t('trip.alwaysOnHint')}>
               <span>{t('trip.autoShort', 'Auto Recording')}</span>

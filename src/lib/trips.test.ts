@@ -10,7 +10,7 @@ const session = (over: Record<string, unknown> = {}) => ({
   session_start: '2026-10-28T18:30:00Z',
   uploaded_at: '2026-10-28T19:00:00Z',
   duration_seconds: 1800,
-  summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 40 }] },
+  summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 40, duration_seconds:1800 }] },
   ...over,
 });
 

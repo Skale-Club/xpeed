@@ -26,37 +26,37 @@ interface RulesetMatcher {
 const RULESETS: RulesetMatcher[] = [
   {
     id: 'toyota-prius-g3',
-    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true
-      && c.year != null && c.year >= 2009 && c.year <= 2015,
+    matches: (c) => c.make?.toLowerCase() === 'toyota' && /^prius(?:\s+prime)?$/i.test(c.model || '')
+      && c.year != null && c.year >= 2010 && c.year <= 2015,
     rules: DEFAULT_PRIUS_RULES,
   },
   {
     id: 'toyota-prius-g4',
-    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true
+    matches: (c) => c.make?.toLowerCase() === 'toyota' && /^prius(?:\s+prime)?$/i.test(c.model || '')
       && c.year != null && c.year >= 2016 && c.year <= 2022,
     rules: DEFAULT_PRIUS_RULES,
   },
   {
     id: 'generic-hybrid',
-    matches: (c) => c.make?.toLowerCase() === 'toyota' && c.model?.toLowerCase().startsWith('prius') === true,
+    matches: (c) => c.make?.toLowerCase() === 'toyota' && /^prius(?:\s+prime)?$/i.test(c.model || ''),
     rules: GENERIC_HYBRID_RULES,
   },
   {
     id: 'honda-civic-g10',
     matches: (c) => c.make?.toLowerCase() === 'honda'
       && c.model?.toLowerCase().startsWith('civic') === true
-      && (c.year == null || (c.year >= 2016 && c.year <= 2021)),
+      && c.year != null && c.year >= 2016 && c.year <= 2021,
     rules: HONDA_CIVIC_G10_RULES,
   },
   {
     id: 'ford-f150-13gen',
     matches: (c) => c.make?.toLowerCase() === 'ford'
-      && (c.model?.toLowerCase().includes('f-150') === true || c.model?.toLowerCase().includes('f150') === true),
+      && /^f-?150$/i.test(c.model || '') && c.year != null && c.year >= 2015 && c.year <= 2020,
     rules: FORD_F150_RULES,
   },
   {
     id: 'subaru-wrx-vab',
-    matches: (c) => c.make?.toLowerCase() === 'subaru' && c.model?.toLowerCase().includes('wrx') === true,
+    matches: (c) => c.make?.toLowerCase() === 'subaru' && /^wrx(?:\s+sti)?$/i.test(c.model || '') && c.year != null && c.year >= 2015 && c.year <= 2021,
     rules: SUBARU_WRX_RULES,
   },
   {
@@ -77,7 +77,7 @@ const ENGINE_FALLBACKS: Record<string, { id: string; rules: DefaultRule[] }> = {
 
 // Bump when thresholds, rule logic, or the set of bundled rulesets change.
 // Sessions store this at upload time so future reprocessing can target stale ones.
-export const RULES_VERSION = '1.1';
+export const RULES_VERSION = '1.2';
 
 export interface ResolvedRuleset {
   id: string;

@@ -12,7 +12,8 @@ export function HeaderPanel({ open, onOpenChange, trigger, title, description, c
   return <Dialog.Root modal={false} open={open} onOpenChange={onOpenChange}>
     <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
     <Dialog.Portal>
-      <Dialog.Content className="fixed right-3 top-[calc(env(safe-area-inset-top,0px)+3.75rem)] z-50 flex max-h-[55dvh] w-[calc(100%-1.5rem)] max-w-sm flex-col rounded-2xl border border-border bg-card text-card-foreground shadow-xl focus:outline-none">
+      <Dialog.Content
+        className="fixed right-3 top-[calc(env(safe-area-inset-top,0px)+3.75rem)] z-50 flex max-h-[55dvh] w-[calc(100%-1.5rem)] max-w-sm flex-col rounded-2xl border border-border bg-card text-card-foreground shadow-xl focus:outline-none">
         <div className="relative shrink-0 border-b border-border p-4 pr-12">
           <Dialog.Title className="text-sm font-semibold">{title}</Dialog.Title>
           <Dialog.Description className="mt-1 truncate text-xs text-muted-foreground">{description}</Dialog.Description>

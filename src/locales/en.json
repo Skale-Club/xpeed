@@ -57,7 +57,8 @@
     "error": "Error",
     "success": "Success",
     "step": "Step",
-    "of": "of"
+    "of": "of",
+    "retry": "Try again"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -322,7 +323,14 @@
       "value": "Number",
       "blocks": "Hybrid battery"
     },
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "otherCar": "These readings are from {{name}}. Select that car to view its dashboard.",
+    "useConnectedCar": "View connected car",
+    "unidentified": "The connected car has not been identified. These readings are not attributed to the selected car.",
+    "noReading": "No reading",
+    "lastReading": "Last reading: {{time}}",
+    "staleReading": "Readings paused. Last received: {{time}}",
+    "awaitingReadings": "Waiting for sensor readings"
   },
   "trip": {
     "openLive": "View Dashboard",
@@ -403,7 +411,8 @@
     "syncDetails": "Sync details",
     "recordingAutoHint": "Ends automatically when the car is off or parked for 10 minutes.",
     "autoOffDuringTrip": "Auto recording is off for future trips. Use End trip to finish this recording.",
-    "recordingManualHint": "Tap End trip to finish. Switching the car off also ends the recording."
+    "recordingManualHint": "Tap End trip to finish. Switching the car off also ends the recording.",
+    "waitingMovement": "Waiting for movement"
   },
   "pill": {
     "recording": "Recording trip",
@@ -436,8 +445,8 @@
     "noCar": "Choose a car in the menu to see its problems.",
     "loadFailed": "Couldn't load the problems",
     "actionFailed": "Couldn't save that change",
-    "allGood": "All good",
-    "allGoodHint": "Nothing needs your attention right now. We keep checking on every trip.",
+    "allGood": "No saved problems",
+    "allGoodHint": "This is your saved problem list, not a fresh check of the car. Read fault codes for a new check.",
     "needAttention_one": "{{count}} problem needs attention",
     "needAttention_other": "{{count}} problems need attention",
     "urgentHint": "At least one is urgent — see what to do.",
@@ -616,7 +625,7 @@
     "deleteFailed": "Couldn't delete the trip",
     "empty": "No trips yet",
     "emptyHint": "Connect the adapter and drive — trips are saved here by themselves.",
-    "noProblems": "All good",
+    "noProblems": "No recorded warnings",
     "problems_one": "{{count}} problem",
     "problems_other": "{{count}} problems",
     "rename": "Rename",
@@ -644,7 +653,8 @@
     "savedCount": "{{count}} completed trips",
     "savedTrips": "Completed trips",
     "noCompleted": "Completed trips will appear here after saving.",
-    "liveDay": "Go to recording day"
+    "liveDay": "Go to recording day",
+    "incompleteCheck": "Incomplete problem check"
   },
   "tripDetail": {
     "shareText": "Report of my car: {{title}}",
@@ -722,22 +732,31 @@
       "km": "Kilometers (km)",
       "mi": "Miles (mi)",
       "timezone": "Time zone",
-      "timezoneHint": "Set automatically from this device; change it only if dates look wrong."
+      "timezoneHint": "Set automatically from this device; change it only if dates look wrong.",
+      "volume": "Fuel volume",
+      "litres": "Litres (L)",
+      "gallons": "U.S. gallons (US gal)",
+      "consumption": "Fuel economy",
+      "currency": "Currency for new records",
+      "currencyHint": "Existing records keep their original currency. No exchange conversion is applied."
     },
     "install": {
       "title": "Install the app"
     },
     "advanced": {
       "title": "Advanced tools",
-      "hint": "For mechanics and enthusiasts: shows the Scanner (terminal, custom PIDs, module discovery, clearing fault codes) and developer integrations.",
+      "hint": "For mechanics and enthusiasts: OBD commands, custom sensors, module discovery and clearing fault codes.",
       "openScanner": "Open the Scanner",
-      "ai": "AI features (trip analysis and the assistant) use a shared key set up by the administrator. Daily fair-use limits apply."
+      "integrations": "Developer integrations"
     },
     "about": {
       "title": "About Xpeed",
       "body": "Xpeed reads your car through a small Bluetooth adapter, records your trips and explains in plain words what needs attention.",
       "disclaimer": "It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic."
-    }
+    },
+    "leaveTitle": "Leave without saving?",
+    "leaveBody": "Your changes have not been saved. Stay here to save them, or discard them and leave.",
+    "discard": "Discard changes"
   },
   "vehicle": {
     "fuel": "Fuel",
@@ -1204,7 +1223,8 @@
     "syncFailed": "Codes were read, but Problems could not be updated. The saved reading is still available.",
     "stored": "Confirmed",
     "pending": "Pending",
-    "permanent": "Permanent"
+    "permanent": "Permanent",
+    "incompleteTrip": "No complete fault-code reading was saved for this trip."
   },
   "notifications": {
     "open": "Notifications: {{count}} unread",
@@ -1220,7 +1240,23 @@
     "scanSource": "Code reading",
     "read": "Mark as read",
     "readHint": "Reading a notice does not resolve a problem. Notices and read status are saved for this car and account on this device.",
-    "viewProblems": "View car problems"
+    "viewProblems": "View car problems",
+    "liveAlert": "{{sensor}} stayed outside its expected range",
+    "liveSource": "During your trip",
+    "sensors": {
+      "coolant_temp": "Engine coolant temperature",
+      "engine_rpm": "Engine RPM",
+      "stft_b1": "Short term fuel trim",
+      "ltft_b1": "Long term fuel trim",
+      "battery_voltage_12v": "12V battery voltage",
+      "intake_air_temp": "Intake air temperature",
+      "engine_load": "Engine load",
+      "hybrid_battery_soc": "Hybrid battery charge",
+      "inverter_temp": "Inverter temperature",
+      "catalyst_temp": "Catalyst temperature"
+    },
+    "repeated": "Seen {{count}} times",
+    "openDetails": "View details"
   },
   "fuel": {
     "invalid": "Check the date, quantity and price.",
@@ -1326,6 +1362,32 @@
       "quantityLabel": "Quantity",
       "editDetails": "Date & other options",
       "saving": "Saving…"
+    },
+    "retryConflict": "This fill-up was already saved with different details. Check your history before adding it again.",
+    "photo": {
+      "open": "Fill from a photo",
+      "title": "Receipt or pump photo",
+      "camera": "Take photo",
+      "choose": "Choose photo",
+      "preview": "Selected receipt or pump",
+      "privacy": "Sends this photo to our AI provider (OpenRouter). Check the result before using it. The photo is not attached to your fill-up.",
+      "reading": "Reading photo…",
+      "read": "Read this photo",
+      "review": "Check what was read",
+      "partial": "Some values were not visible. You can fill them in manually.",
+      "confirmCurrency": "Confirm currency",
+      "unit": "Unit on the photo",
+      "confirmUnit": "Confirm unit",
+      "use": "Use these values",
+      "applied": "Values filled in. Review the form and tap Save.",
+      "total": "Total on the photo",
+      "quantity": "Quantity on the photo",
+      "limit": "Daily photo limit reached. You can still enter the values manually.",
+      "notConfigured": "Photo reading is not available with the current AI configuration. Enter the values manually.",
+      "unreadable": "Could not read fuel values clearly. Try a closer photo or enter them manually.",
+      "invalid": "Choose a JPG, PNG or WebP photo up to 12 MB.",
+      "tooLarge": "This photo is too large. Crop it or take another at a lower resolution.",
+      "failed": "Could not read the photo. Try again or enter the values manually."
     }
   },
   "hybrid": {
@@ -1344,26 +1406,11 @@
     "hint": "During recording, copies are saved on this device and sent to the cloud in chunks. Pending copies stay until the completed trip is confirmed. This checks the current account; it cannot inspect another phone.",
     "sending": "Sending…",
     "retry": "Retry pending trips",
-    "cloudConfirmed": "Cloud backup confirmed: {{count}} readings"
+    "cloudConfirmed": "Cloud backup confirmed: {{count}} readings",
+    "localConfirmed": "Saved on this device: {{count}} readings"
   },
   "updates": {
-    "title": "Updates",
-    "screens": "App screens",
-    "reloadHint": "Load the latest screens over the internet. No APK installation needed.",
-    "reload": "Reload screens",
-    "reloading": "Reloading screens…",
-    "reloadFailed": "Could not reload. Check your internet connection and try again.",
-    "bundled": "This offline edition includes the screens in the APK. Install a new APK to update them.",
-    "apk": "Android APK",
-    "apkHint": "Updates Bluetooth and Android background recording. Install over the existing app; do not uninstall it.",
-    "checking": "Checking APK…",
-    "checkFailed": "Could not verify whether an APK update is needed. Try again.",
-    "builds": "Installed: build {{installed}} · Required: build {{required}} or newer",
-    "apkCurrent": "Installed: build {{installed}}. No APK update needed.",
-    "downloadApk": "Download APK",
-    "checkApk": "Check APK",
-    "blocked": "Finish recording and save any changes before updating.",
-    "apkNeeded": "Android APK update required"
+    "installWhenReady": "You can download now. Finish recording and save any changes before installing the APK."
   },
   "bluetooth": {
     "title": "Bluetooth connection",
@@ -1402,7 +1449,19 @@
     "serviceMileage": "Odometer at service",
     "asOf": "Entered on {{date}}"
   },
+  "sessionDetail": {
+    "incompleteCheck": "There is no complete fault-code reading for this trip."
+  },
   "header": {
     "controls": "Car status and notifications"
+  },
+  "appVersion": {
+    "loading": "Loading version…",
+    "unknown": "Updates are checked automatically when you are online.",
+    "outdated": "An update is available for your app.",
+    "current": "Your app is up to date.",
+    "update": "Update app",
+    "available": "A new version of Xpeed is available",
+    "hint": "Update to get the latest app improvements."
   }
 }

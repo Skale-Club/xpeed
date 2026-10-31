@@ -1,6 +1,6 @@
-import TripSyncStatus from '@/components/TripSyncStatus';
-import AppUpdates from '@/components/AppUpdates';
-import { useState, useEffect } from 'react';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { AppVersion } from '@/components/AppVersion';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Settings, Globe, Info, Smartphone, Wrench, Save, Loader2 } from 'lucide-react';
@@ -10,7 +10,6 @@ import { holdAppUpdates } from '@/lib/pwa-update';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Switch } from '@/components/ui/switch';
-import { isNativeApp } from '@/lib/obd/native-ble';
 import { installKind } from '@/lib/device';
 import { AndroidAppDownload, IosAddToHome, IphoneNoBluetooth } from '@/components/InstallApp';
 import { Label } from '@/components/ui/label';
@@ -18,28 +17,16 @@ import { useSettings } from '@/contexts/SettingsContext';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import McpTokensSection from '@/components/McpTokensSection';
 import { LANGUAGES, currentLanguage } from '@/lib/languages';
+import type { ConsumptionUnit, Currency, VolumeUnit } from '@/lib/fuel-units';
 
-/** "Version 1.0 (build 19)" inside the Android app. */
-function useAppVersion(): { version: string; build: string } | null {
-  const [info, setInfo] = useState<{ version: string; build: string } | null>(null);
-  useEffect(() => {
-    if (!isNativeApp()) return;
-    let cancelled = false;
-    void import('@capacitor/app')
-      .then(({ App }) => App.getInfo())
-      .then((i) => { if (!cancelled) setInfo({ version: i.version, build: i.build }); })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
-  }, []);
-  return info;
-}
+const McpTokensSection = lazy(() => import('@/components/McpTokensSection'));
 
 /** What to install on this device: the Android app, Safari's home-screen icon, or nothing. */
 function InstallSection() {
   const { t } = useTranslation();
   const kind = installKind();
+  if (kind === 'native') return null;
 
   return (
     <Card className="bg-card border-border" data-testid="install-section">
@@ -47,14 +34,10 @@ function InstallSection() {
         <div className="flex items-center gap-3">
           <Smartphone className="w-5 h-5 text-primary" />
           <h3 className="text-sm font-semibold">
-            {kind === 'native' ? t('install.appTitle', 'The app') : t('settings.install.title', 'Install the app')}
+            {t('settings.install.title', 'Install the app')}
           </h3>
         </div>
-        {kind === 'native' ? (
-          <p className="text-sm text-muted-foreground">
-            {t('install.installed', "You're using the Xpeed app.")}
-          </p>
-        ) : kind === 'android' ? (
+        {kind === 'android' ? (
           <>
             <p className="text-sm text-muted-foreground">{t('install.android.subtitle', 'Records your trips by itself, even with the screen off.')}</p>
             <AndroidAppDownload />
@@ -76,13 +59,14 @@ function InstallSection() {
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
-  const version = useAppVersion();
-  const { temperatureUnit, setTemperatureUnit, distanceUnit, setDistanceUnit, timezone, setTimezone, advancedTools, setAdvancedTools } = useSettings();
+  const [integrationsOpen, setIntegrationsOpen] = useState(false);
+  const { volumeUnit, consumptionUnit, currency, temperatureUnit, distanceUnit, timezone, advancedTools, savePreferences } = useSettings();
   const currentLang = currentLanguage(i18n.resolvedLanguage).code;
-  const [draft, setDraft] = useState({ language: currentLang as string, temperatureUnit, distanceUnit, timezone, advancedTools });
+  const [draft, setDraft] = useState({ language: currentLang as string, volumeUnit, consumptionUnit, currency, temperatureUnit, distanceUnit, timezone, advancedTools });
   const [saving, setSaving] = useState(false);
   const dirty = draft.language !== currentLang || draft.distanceUnit !== distanceUnit
-    || draft.timezone !== timezone || draft.advancedTools !== advancedTools || draft.temperatureUnit !== temperatureUnit;
+    || draft.timezone !== timezone || draft.advancedTools !== advancedTools || draft.temperatureUnit !== temperatureUnit
+    || draft.volumeUnit !== volumeUnit || draft.consumptionUnit !== consumptionUnit || draft.currency !== currency;
   useEffect(() => {
     if (!dirty) return;
     const release = holdAppUpdates();
@@ -94,23 +78,23 @@ export default function SettingsPage() {
     if (!dirty || saving) return;
     setSaving(true);
     try {
-      await i18n.changeLanguage(draft.language);
-      setDistanceUnit(draft.distanceUnit);
-      setTemperatureUnit(draft.temperatureUnit);
-      setTimezone(draft.timezone);
-      setAdvancedTools(draft.advancedTools);
+      if (draft.language !== currentLang) await i18n.changeLanguage(draft.language);
+      savePreferences({volumeUnit:draft.volumeUnit, consumptionUnit:draft.consumptionUnit, currency:draft.currency, temperatureUnit:draft.temperatureUnit, distanceUnit:draft.distanceUnit, timezone:draft.timezone, advancedTools:draft.advancedTools});
       toast({ title: i18n.t('settings.saved', 'Settings saved'), variant: 'success' });
     } catch {
+      if (i18n.resolvedLanguage !== currentLang) await i18n.changeLanguage(currentLang).catch(() => undefined);
       toast({ title: t('settings.saveFailed', 'Could not save settings. Try again.'), variant: 'destructive' });
     } finally { setSaving(false); }
   };
 
-  const timezones = typeof Intl.supportedValuesOf === 'function'
+  const supportedTimezones = typeof Intl.supportedValuesOf === 'function'
     ? Intl.supportedValuesOf('timeZone')
     : [Intl.DateTimeFormat().resolvedOptions().timeZone];
+  const timezones = [...new Set([draft.timezone, ...supportedTimezones])].sort();
 
   return (
     <AppLayout refreshDisabled={dirty || saving}>
+      <UnsavedChangesGuard dirty={dirty} />
       <div className="space-y-4 max-w-2xl">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary" />
@@ -151,6 +135,28 @@ export default function SettingsPage() {
                   <SelectContent><SelectItem value="C">Celsius (°C)</SelectItem><SelectItem value="F">Fahrenheit (°F)</SelectItem></SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-volume">{t('settings.prefs.volume', 'Fuel volume')}</Label>
+                <Select value={draft.volumeUnit} onValueChange={(volumeUnit: VolumeUnit) => setDraft(d => ({ ...d, volumeUnit }))} disabled={saving}>
+                  <SelectTrigger id="set-volume"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="L">{t('settings.prefs.litres', 'Litres (L)')}</SelectItem><SelectItem value="US gal">{t('settings.prefs.gallons', 'U.S. gallons (US gal)')}</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-economy">{t('settings.prefs.consumption', 'Fuel economy')}</Label>
+                <Select value={draft.consumptionUnit} onValueChange={(consumptionUnit: ConsumptionUnit) => setDraft(d => ({ ...d, consumptionUnit }))} disabled={saving}>
+                  <SelectTrigger id="set-economy"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="km/L">km/L</SelectItem><SelectItem value="L/100km">L/100km</SelectItem><SelectItem value="MPG">MPG (US)</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="set-currency">{t('settings.prefs.currency', 'Currency for new records')}</Label>
+                <Select value={draft.currency} onValueChange={(currency: Currency) => setDraft(d => ({ ...d, currency }))} disabled={saving}>
+                  <SelectTrigger id="set-currency"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="USD">USD ($)</SelectItem><SelectItem value="BRL">BRL (R$)</SelectItem><SelectItem value="EUR">EUR (€)</SelectItem></SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t('settings.prefs.currencyHint', 'Existing records keep their original currency. No exchange conversion is applied.')}</p>
+              </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="set-tz">{t('settings.prefs.timezone', 'Time zone')}</Label>
                 <Select value={draft.timezone} onValueChange={(timezone) => setDraft((d) => ({ ...d, timezone }))} disabled={saving}>
@@ -166,8 +172,6 @@ export default function SettingsPage() {
         </Card>
 
         <InstallSection />
-        <AppUpdates disabled={dirty || saving} />
-        <TripSyncStatus />
 
         <Card className="bg-card border-border">
           <CardContent className="p-4 space-y-3">
@@ -182,11 +186,11 @@ export default function SettingsPage() {
             </label>
             {advancedTools && (
               <div className="space-y-4 border-t border-border pt-3">
-                <Link to="/scanner" className="text-sm text-primary hover:underline">{t('settings.advanced.openScanner', 'Open the Scanner')}</Link>
-                <McpTokensSection />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.advanced.ai', 'AI features (trip analysis and the assistant) use a shared key set up by the administrator. Daily fair-use limits apply.')}
-                </p>
+                <Button asChild variant="outline" className="w-full"><Link to="/scanner">{t('settings.advanced.openScanner', 'Open the Scanner')}</Link></Button>
+                <details onToggle={event => setIntegrationsOpen(event.currentTarget.open)}>
+                  <summary className="cursor-pointer py-2 text-sm text-muted-foreground">{t('settings.advanced.integrations', 'Developer integrations')}</summary>
+                  {integrationsOpen && <Suspense fallback={<Loader2 className="h-4 w-4 animate-spin" aria-label={t('common.loading', 'Loading…')} />}><McpTokensSection /></Suspense>}
+                </details>
               </div>
             )}
           </CardContent>
@@ -198,16 +202,9 @@ export default function SettingsPage() {
               <Info className="w-5 h-5 text-primary" />
               <h3 className="text-sm font-semibold">{t('settings.about.title', 'About Xpeed')}</h3>
             </div>
-            {version && (
-              <p className="rounded-md border border-border px-3 py-2 text-sm font-semibold" data-testid="app-version">
-                {t('install.version', 'Version {{version}} (build {{build}})', version)}
-              </p>
-            )}
+            <AppVersion />
             <p className="text-sm text-muted-foreground">
               {t('settings.about.body', 'Xpeed reads your car through a small Bluetooth adapter, records your trips and explains in plain words what needs attention.')}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}
             </p>
           </CardContent>
         </Card>

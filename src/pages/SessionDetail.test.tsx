@@ -25,12 +25,12 @@ vi.mock('@/lib/db', () => db);
 vi.mock('@/lib/db-extras', () => extras);
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/PhotoUpload', () => ({ default: () => null }));
-vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'km', timezone: 'UTC' }) }));
+vi.mock('@/contexts/SettingsContext', () => ({ useSettings: () => ({ distanceUnit: 'km', volumeUnit:'L',consumptionUnit:'km/L',currency:'USD',timezone:'UTC' }) }));
 
 const TRIP = {
   id: 't1', car_profile_id: 'car-1', source_filename: 'xpeed-scan_2026-10-28 15-30-00.csv', session_start: '2026-10-28T15:30:00Z',
   uploaded_at: '2026-10-28T16:00:00Z', duration_seconds: 1800, row_count: 900,
-  summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 40 }] },
+  summary: { faultCodes:{stored:[],pending:[],checked:true,complete:true},summaries: [{ canonical_key: 'vehicle_speed', avg: 40, duration_seconds:1800 }] },
   gemini_analysis: { summary: 'Engine warmed up normally; fuel trims were a bit lean.' },
   active_dtcs: ['P0420'],
 };

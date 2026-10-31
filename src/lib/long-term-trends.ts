@@ -1,15 +1,24 @@
 import type { Session, SessionSummaryItem } from '@/types/session';
 import { tripDate } from './trips';
 
+function metricUnit(item: SessionSummaryItem): string { return item.unit || item.parameter_key?.match(/\(([^)]+)\)/)?.[1] || ''; }
 export function metricKey(item: SessionSummaryItem): string | null {
-  return item.canonical_key || item.parameter_key || item.label || null;
+  const key = item.canonical_key || item.parameter_key || item.label || null;
+  if (key === 'mpg_or_fuel_rate') {
+    const unit = metricUnit(item).toLowerCase().replace(/\s/g,'');
+    if (unit === 'mpg') return 'fuel_economy_mpg';
+    if (unit === 'l/100km') return 'fuel_consumption_per_distance';
+    if (unit === 'km/l') return 'fuel_economy_kml';
+    return unit === 'l/h' ? key : key + ':' + (unit || 'unknown');
+  }
+  return key;
 }
 export function trendMetrics(sessions: Session[]) {
   const metrics = new Map<string, { key: string; label: string; unit: string }>();
   for (const session of sessions) for (const item of session.summary?.summaries ?? []) {
     const key = metricKey(item);
     if (key && [item.avg, item.min, item.max].some((v) => typeof v === 'number' && Number.isFinite(v))) {
-      metrics.set(key, { key, label: item.label || item.parameter_key || key, unit: item.unit || '' });
+      metrics.set(key, { key, label: item.label || item.parameter_key || key, unit: metricUnit(item) });
     }
   }
   return [...metrics.values()].sort((a, b) => a.label.localeCompare(b.label));

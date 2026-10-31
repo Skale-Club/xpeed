@@ -26,7 +26,7 @@ export interface StoredTrip {
   /** Confirmed fault codes (go in the CSV). */
   dtcs?: string[];
   /** The full fault-code reading of the drive (confirmed, pending, read worked, which modules answered). */
-  faultCodes?: { stored: string[]; pending: string[]; checked: boolean; modules?: string[]; codeModules?: Record<string, string[]> };
+  faultCodes?: { stored: string[]; pending: string[]; checked: boolean; complete?: boolean; permanent?: string[]; modules?: string[]; codeModules?: Record<string, string[]> };
 }
 
 /** Everything about a trip except its samples (those go in chunks while recording). */

@@ -12,9 +12,10 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/hooks/use-toast';
 import { getSessions } from '@/lib/db';
 import { listFuelEntries, deleteFuelEntry } from '@/lib/fuel-api';
-import { aggregateFuel, fuelPriceAt, US_GALLON, type FuelEntry } from '@/lib/fuel-ledger';
+import { aggregateFuel, fuelPriceAt, type FuelEntry } from '@/lib/fuel-ledger';
 import { tripDayKey } from '@/lib/trip-history';
 import { formatAppDate } from '@/lib/app-date';
+import { litresPerUnit, fuelEconomy, economyLabel } from '@/lib/fuel-units';
 import type { Session } from '@/types/session';
 
 const FuelHistory = lazy(() => import('@/components/fuel/FuelHistory').then(module => ({ default: module.FuelHistory })));
@@ -22,29 +23,29 @@ const EMPTY_ENTRIES: FuelEntry[] = [], EMPTY_TRIPS: Session[] = [];
 export default function FuelPage() {
   const { selectedCarId, selectedCar } = useCarsContext();
   const { t } = useTranslation();
-  return selectedCarId ? <FuelScreen key={selectedCarId} carId={selectedCarId} name={selectedCar?.name ?? ''} country={selectedCar?.country ?? 'US'} /> : <AppLayout><p>{t('trip.noCar', 'Choose your car to save this trip')}</p></AppLayout>;
+  return selectedCarId ? <FuelScreen key={selectedCarId} carId={selectedCarId} name={selectedCar?.name ?? ''} /> : <AppLayout><p>{t('trip.noCar', 'Choose your car to save this trip')}</p></AppLayout>;
 }
-function FuelScreen({ carId, name, country }: { carId: string; name: string; country: string }) {
+function FuelScreen({ carId, name }: { carId: string; name: string }) {
   const { t, i18n } = useTranslation();
-  const { distanceUnit, timezone } = useSettings();
+  const { distanceUnit, timezone, volumeUnit, consumptionUnit, currency } = useSettings();
   const { toast } = useToast();
   const client = useQueryClient();
   const ledger = useQuery({ queryKey: ['fuel-entries', carId], queryFn: () => listFuelEntries(carId), staleTime: 60000 });
-  const history = useQuery({ queryKey: ['fuel-sessions', carId], queryFn: async () => await getSessions(carId) as Session[], staleTime: 60000 });
+  const history = useQuery({ queryKey: ['sessions', carId], queryFn: async () => await getSessions(carId) as Session[], staleTime: 60000 });
   const entries = ledger.data ?? EMPTY_ENTRIES, trips = history.data ?? EMPTY_TRIPS;
   const [editor, setEditor] = useState<'fill' | 'reference' | null>(null), [deleting, setDeleting] = useState<FuelEntry | null>(null);
   const [removing, setRemoving] = useState(false), [page, setPage] = useState(1), [details, setDetails] = useState(false);
-  const miles = distanceUnit === 'mi', factor = miles ? US_GALLON : 1, unit = miles ? 'US gal' : 'L';
+  const factor = litresPerUnit(volumeUnit), unit = volumeUnit;
   const currentMonth = tripDayKey(new Date(), timezone).slice(0, 7);
   const months = useMemo(() => aggregateFuel(trips, entries, 'month', timezone), [trips, entries, timezone]);
   const month = months.find(row => row.period === currentMonth);
   const fills = entries.filter(entry => entry.kind === 'fill').sort((a, b) => b.at.localeCompare(a.at));
   const price = fuelPriceAt(entries, new Date().toISOString());
-  const currency: FuelEntry['currency'] = price?.currency ?? (country === 'BR' ? 'BRL' : ['PT', 'ES', 'FR', 'DE', 'IT'].includes(country) ? 'EUR' : 'USD');
   const number = (value: number) => new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 2 }).format(value);
   const money = (value: number, code: string) => new Intl.NumberFormat(i18n.resolvedLanguage, { style: 'currency', currency: code }).format(value);
   const payments = ledger.isSuccess && month ? Object.entries(month.paid).map(([code, value]) => money(value, code)).join(' · ') : '';
-  const efficiency = history.isSuccess && month?.efficiencyKmPerLitre != null ? `${number(month.efficiencyKmPerLitre * (miles ? .621371 * US_GALLON : 1))} ${miles ? 'MPG' : 'km/L'}` : null;
+  const convertedEconomy = fuelEconomy(month?.efficiencyKmPerLitre, consumptionUnit);
+  const efficiency = history.isSuccess && convertedEconomy != null ? `${number(convertedEconomy)} ${economyLabel(consumptionUnit)}` : null;
   const saved = (entry: FuelEntry) => {
     client.setQueryData<FuelEntry[]>(['fuel-entries', carId], previous => [entry, ...(previous ?? []).filter(item => item.id !== entry.id)]);
     void client.invalidateQueries({ queryKey: ['fuel-entries', carId] });
@@ -86,7 +87,7 @@ function FuelScreen({ carId, name, country }: { carId: string; name: string; cou
       {lastPage > 1 && <div className="flex items-center justify-between gap-2"><Button size="sm" variant="outline" disabled={shownPage <= 1} onClick={() => setPage(shownPage - 1)}>{t('history.previous', 'Previous')}</Button><span className="text-xs text-muted-foreground">{shownPage} / {lastPage}</span><Button size="sm" variant="outline" disabled={shownPage >= lastPage} onClick={() => setPage(shownPage + 1)}>{t('history.next', 'Next')}</Button></div>}
     </section>}
     {ledger.isSuccess && history.isSuccess && <section className="border-t border-border pt-2"><button className="flex min-h-12 w-full items-center justify-between gap-3 text-left text-sm font-medium" aria-expanded={details} aria-controls="fuel-history" onClick={() => setDetails(value => !value)}>{t('fuel.simple.history', 'History & comparisons')}<ChevronDown className={`h-4 w-4 transition-transform ${details ? 'rotate-180' : ''}`} /></button>
-      {details && <div id="fuel-history"><Suspense fallback={<Loader2 className="h-5 w-5 animate-spin" />}><FuelHistory entries={entries} trips={trips} timezone={timezone} miles={miles} onDelete={setDeleting} /></Suspense></div>}
+      {details && <div id="fuel-history"><Suspense fallback={<Loader2 className="h-5 w-5 animate-spin" />}><FuelHistory entries={entries} trips={trips} timezone={timezone} volumeUnit={volumeUnit} consumptionUnit={consumptionUnit} onDelete={setDeleting} /></Suspense></div>}
     </section>}
     {editor && <FuelEntryDialog carId={carId} kind={editor} currency={currency} price={price} distanceUnit={distanceUnit} onClose={() => setEditor(null)} onSaved={saved} />}
     <ConfirmDialog open={!!deleting} onOpenChange={value => { if (!value && !removing) setDeleting(null); }} title={t('fuel.deleteTitle', 'Delete this fuel record?')} description={t('fuel.deleteHint', 'Costs and full-tank estimates will be recalculated without this entry.')} confirmLabel={t('history.delete', 'Delete')} onConfirm={() => void remove()} />

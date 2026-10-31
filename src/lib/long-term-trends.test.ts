@@ -26,3 +26,12 @@ describe('long-term summaries', () => {
     expect(trendMetrics(rows)).toEqual([{ key: 'vehicle_speed', label: 'Vehicle speed', unit: 'km/h' }]);
   });
 });
+
+it('separates legacy MPG, L/100km and L/h even when they used to share a canonical key',()=>{
+ const a=session('2026-01-01T00:00:00Z',50), b=session('2026-01-02T00:00:00Z',2);
+ a.summary!.summaries![0]={canonical_key:'mpg_or_fuel_rate',unit:'MPG',avg:50};
+ b.summary!.summaries![0]={canonical_key:'mpg_or_fuel_rate',unit:'L/h',avg:2};
+ expect(trendMetrics([a,b])).toHaveLength(2);
+ expect(aggregateTrends([a,b],'mpg_or_fuel_rate','month','UTC')[0]).toMatchObject({avg:2,covered:1});
+ expect(aggregateTrends([a,b],'fuel_economy_mpg','month','UTC')[0]).toMatchObject({avg:50,covered:1});
+});

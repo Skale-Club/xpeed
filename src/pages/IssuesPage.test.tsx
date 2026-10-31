@@ -44,11 +44,17 @@ afterEach(() => {
 const renderPage = () => render(<MemoryRouter><IssuesPage /></MemoryRouter>);
 
 describe('IssuesPage', () => {
+  it('opens and focuses a resolved problem linked from a notification', async () => {
+    api.getIssuesForCar.mockResolvedValueOnce(ISSUES);
+    render(<MemoryRouter initialEntries={['/issues#issue-c']}><IssuesPage /></MemoryRouter>);
+    await waitFor(()=>expect(document.getElementById('issue-c')).toHaveFocus());
+    expect(screen.getByRole('tab',{name:/Resolved or ignored/})).toHaveAttribute('aria-selected','true');
+  });
   it('says all is good when nothing needs attention', async () => {
     api.getIssuesForCar.mockResolvedValueOnce([ISSUES[2]]);
     renderPage();
-    expect(await screen.findByText('All good')).toBeInTheDocument();
-    expect(screen.getByText('No problems here.')).toBeInTheDocument();
+    expect(await screen.findByText('No saved problems')).toBeInTheDocument();
+    expect(screen.getByText(/This is your saved problem list/)).toBeInTheDocument();
   });
 
   it('lists open problems in plain language, most urgent first', async () => {
@@ -73,7 +79,7 @@ describe('IssuesPage', () => {
   });
 
   it('marks a problem as fixed and moves it to the resolved tab', async () => {
-    api.getIssuesForCar.mockResolvedValueOnce(ISSUES);
+    api.getIssuesForCar.mockResolvedValueOnce(ISSUES).mockResolvedValueOnce(ISSUES.map(item=>item.id==='b'?{...item,status:'resolved'}:item));
     renderPage();
     const first = (await screen.findAllByTestId('problem-card'))[0];
     fireEvent.click(within(first).getByRole('button', { name: "It's fixed" }));
@@ -96,7 +102,7 @@ describe('IssuesPage safety nets', () => {
 
     api.getIssuesForCar.mockResolvedValueOnce([]);
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('All good')).toBeInTheDocument();
+    expect(await screen.findByText('No saved problems')).toBeInTheDocument();
   });
 
   it('gives no verdict while loading', () => {

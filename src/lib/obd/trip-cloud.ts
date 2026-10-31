@@ -1,3 +1,4 @@
+import { RecordingDeletedError } from '../recorded-session';
 import { supabase } from '@/integrations/supabase/client';
 import { publicAppUrl } from '../trips';
 import { recordedSessionId } from '../recording-identity';
@@ -7,6 +8,7 @@ async function request(carId: string, method = 'GET', body?: unknown, id?: strin
   if (!data.session) throw Error('Sign in to synchronize your trip');
   const response = await fetch(`${publicAppUrl()}/api/trip-checkpoints?carId=${encodeURIComponent(carId)}${id ? `&id=${id}` : ''}`, { method, headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000), ...(body ? { body: JSON.stringify(body) } : {}) });
   const result = await response.json();
+  if (response.status === 410 && result.error === 'recording_deleted') throw new RecordingDeletedError();
   if (!response.ok) throw Error(result.error || 'Trip cloud synchronization failed');
   return result;
 }
@@ -15,6 +17,7 @@ export async function checkpointTrip(meta: StoredTripMeta & { endedAt?: number; 
   const id = await recordedSessionId(meta.userId, meta.carId, meta.id);
   return (await request(meta.carId, 'POST', { ...meta, offset, samples }, id)).accepted as number;
 }
+export async function removeCloudRecording(carId: string, recordingId: string) { await request(carId, 'DELETE', undefined, recordingId); }
 export async function removeCloudTrip(copy: Pick<StoredTrip, 'id' | 'userId' | 'carId'>) {
   if (copy.carId && copy.userId) await request(copy.carId, 'DELETE', undefined, await recordedSessionId(copy.userId, copy.carId, copy.id));
 }

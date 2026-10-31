@@ -21,6 +21,7 @@ import { OilChangeCard } from '@/components/OilChangeCard';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { KM_PER_MILE } from '@/lib/vehicle-care';
+import { zonedDateTimeInput } from '@/lib/app-date';
 import { holdAppUpdates } from '@/lib/pwa-update';
 
 // English defaults; translations live under maint.types.<type>.
@@ -53,21 +54,8 @@ const TYPE_ORDER: MaintenanceType[] = [
   'inspection', 'other',
 ];
 
-// A new service starts in the currency of the app language; the owner can pick another,
-// and each service keeps (and shows) the currency it was saved with.
-const CURRENCY_BY_LANGUAGE: Record<string, string> = {
-  en: 'USD',
-  'pt-BR': 'BRL',
-  'es-ES': 'EUR',
-};
+// New entries use the explicitly selected currency; historical entries keep theirs.
 const CURRENCIES = ['BRL', 'USD', 'EUR'];
-
-/** Today as the owner's calendar sees it ("YYYY-MM-DD"), not the UTC date. */
-function todayLocal(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
 
 export default function MaintenancePage() {
   const { selectedCarId } = useCarsContext();
@@ -77,7 +65,7 @@ function MaintenanceScreen() {
   const { t, i18n } = useTranslation();
   const { selectedCar, selectedCarId } = useCarsContext();
   const { toast } = useToast();
-  const { distanceUnit } = useSettings();
+  const { distanceUnit, currency: preferredCurrency, timezone } = useSettings();
   const factor = distanceUnit === 'mi' ? KM_PER_MILE : 1;
   const queries = useQueryClient();
   const [events, setEvents] = useState<MaintenanceEvent[]>([]);
@@ -86,10 +74,10 @@ function MaintenanceScreen() {
 
   // Add form state
   const [type, setType] = useState<MaintenanceType>('oil_change');
-  const [date, setDate] = useState(todayLocal);
+  const [date, setDate] = useState(() => zonedDateTimeInput(new Date(), timezone).slice(0, 10));
   const [odometer, setOdometer] = useState('');
   const [cost, setCost] = useState('');
-  // null: not chosen by the owner, so it follows the app language.
+  // null: not chosen by the owner, so it follows the currency preference.
   const [pickedCurrency, setPickedCurrency] = useState<string | null>(null);
   const [shop, setShop] = useState('');
   const [notes, setNotes] = useState('');
@@ -97,12 +85,12 @@ function MaintenanceScreen() {
   const [deleting, setDeleting] = useState<MaintenanceEvent | null>(null);
 
   const language = i18n.resolvedLanguage || 'en';
-  const languageCurrency = CURRENCY_BY_LANGUAGE[language] ?? 'USD';
-  const currency = pickedCurrency ?? languageCurrency;
+  const defaultCurrency = preferredCurrency;
+  const currency = pickedCurrency ?? defaultCurrency;
   const typeLabel = (value: MaintenanceType) => t(`maint.types.${value}`, TYPE_LABELS[value]);
   const formatMoney = (value: number, code: string | null) => {
     try {
-      return new Intl.NumberFormat(language, { style: 'currency', currency: code || languageCurrency }).format(value);
+      return new Intl.NumberFormat(language, { style: 'currency', currency: code || defaultCurrency }).format(value);
     } catch {
       return `${value} ${code ?? ''}`.trim();
     }
@@ -138,7 +126,7 @@ function MaintenanceScreen() {
 
   const handleAdd = async () => {
     if (!selectedCarId || saving) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date > todayLocal()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date > zonedDateTimeInput(new Date(), timezone).slice(0, 10)
       || (odometer !== '' && (!Number.isFinite(Number(odometer)) || Number(odometer) < 0 || Number(odometer) * factor > 10_000_000))
       || (cost !== '' && (!Number.isFinite(Number(cost)) || Number(cost) < 0))) {
       toast({ title: t('oil.invalidService', 'Check the service date, mileage and cost.'), variant: 'destructive' }); return;
@@ -160,7 +148,7 @@ function MaintenanceScreen() {
       toast({ title: t('maint.added', 'Service saved'), variant: 'success' });
       setIsAddOpen(false);
       setType('oil_change');
-      setDate(todayLocal());
+      setDate(zonedDateTimeInput(new Date(), timezone).slice(0, 10));
       setOdometer(''); setCost(''); setShop(''); setNotes('');
     } catch (err) {
       console.error(err);

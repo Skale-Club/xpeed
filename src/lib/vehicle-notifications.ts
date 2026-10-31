@@ -1,3 +1,4 @@
+import type { LiveAlert } from './live-alerts';
 import type { FuelComparison } from './fuel-ledger';
 import type { VehicleIssue } from './db-issues';
 import type { FaultCodeReadout } from './obd/fault-codes';
@@ -6,7 +7,8 @@ import type { OilReminder } from './vehicle-care';
 export interface VehicleNotification {
   source: string;
   fingerprint: string;
-  kind: 'problem' | 'scan' | 'fuel' | 'maintenance';
+  live?: LiveAlert;
+  kind: 'live' | 'problem' | 'scan' | 'fuel' | 'maintenance';
   oil?: OilReminder;
   fuel?: FuelComparison;
   severity: 'critical' | 'warning' | 'info' | 'success';
@@ -22,6 +24,7 @@ export function loadVehicleNotifications(scope: string): VehicleNotification[] {
     const parsed = JSON.parse(localStorage.getItem(scope) || '[]');
     return Array.isArray(parsed) ? parsed.filter((item) => {
       if (!item || typeof item.source !== 'string' || typeof item.fingerprint !== 'string' || !['critical', 'warning', 'info', 'success'].includes(item.severity) || typeof item.at !== 'string' || typeof item.read !== 'boolean') return false;
+      if (item.kind === 'live') return item.live && typeof item.live.key === 'string' && typeof item.live.label === 'string' && typeof item.live.unit === 'string' && Number.isFinite(item.live.value);
       if (item.kind === 'scan') return item.scan && typeof item.scan.checked === 'boolean' && ['stored', 'pending', 'permanent'].every((key) => Array.isArray(item.scan[key]) && item.scan[key].every((code: unknown) => typeof code === 'string')) && (!item.scan.modules || (Array.isArray(item.scan.modules) && item.scan.modules.every((module: unknown) => typeof module === 'string')));
       if (item.kind === 'fuel') return item.fuel && Number.isFinite(item.fuel.deltaPct) && item.fuel.deltaPct >= 10 && typeof item.fuel.period === 'string' && typeof item.fuel.bucket === 'string';
       if (item.kind === 'maintenance') return item.oil && ['due', 'soon'].includes(item.oil.status)
@@ -39,7 +42,9 @@ export function saveVehicleNotifications(scope: string, items: VehicleNotificati
 /** Repeat observations update evidence without turning a read item unread again. */
 export function mergeVehicleNotification(items: VehicleNotification[], incoming: VehicleNotification): VehicleNotification[] {
   const previous = items.find((item) => item.source === incoming.source);
-  const next = previous?.fingerprint === incoming.fingerprint
+  const unchangedProblem = previous?.kind === 'problem' && incoming.kind === 'problem'
+    && previous.problem?.status === incoming.problem?.status && previous.problem?.severity === incoming.problem?.severity;
+  const next = previous && (previous.fingerprint === incoming.fingerprint || unchangedProblem)
     ? { ...incoming, at: previous.at, read: previous.read }
     : incoming;
   return [next, ...items.filter((item) => item.source !== incoming.source)]
@@ -48,7 +53,7 @@ export function mergeVehicleNotification(items: VehicleNotification[], incoming:
 export function problemNotification(problem: VehicleIssue): VehicleNotification {
   return {
     source: `problem:${problem.id}`,
-    fingerprint: `${problem.status}:${problem.severity}:${problem.recurrence_count}`,
+    fingerprint: `${problem.status}:${problem.severity}`,
     kind: 'problem', severity: problem.severity === 'critical' ? 'critical' : 'warning',
     at: problem.last_seen_at, read: false, problem,
   };

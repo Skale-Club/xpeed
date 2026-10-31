@@ -31,6 +31,7 @@ export function sessionProcessingPayload(session: Session, car: CarProfile | nul
     rows, flags, report, columns: parsed.headers, row_count: parsed.rows.length,
     duration_seconds: durationSeconds ?? null, active_dtcs: parsed.activeDtcs,
     summary: {
+      faultCodes: session.summary?.faultCodes ?? null,
       fuel: calculateFuelMetrics(parsed),
       summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn,
       rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via,

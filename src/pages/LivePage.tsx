@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { readObdDiagnostics } from '@/lib/obd/diagnostic-log';
 import { formatValue } from '@/lib/obd/format';
+import { formatAppDate } from '@/lib/app-date';
 import { useTranslation } from 'react-i18next';
 import {
   Activity, Bluetooth, BluetoothOff, Loader2, Maximize, Minimize, Circle, Square, Settings2, ArrowUp, ArrowDown, Trash2, Plus, RotateCcw,
@@ -47,8 +48,10 @@ export default function LivePage() {
   const { t } = useTranslation();
   const obd = useObd();
   const { status, connection, channels, recording } = obd;
-  const { values } = useObdLive();
-  const { selectedCar, selectedCarId } = useCarsContext();
+  const { values, receivedAt, cycleMs } = useObdLive();
+  const { selectedCar, selectedCarId, cars = [], selectCar } = useCarsContext();
+  const liveCar = cars.find(car => car.id === obd.connectedCarId);
+  const layoutCarId = obd.connectedCarId ?? selectedCarId;
   const { advancedTools, distanceUnit, temperatureUnit } = useSettings();
   const [searchParams] = useSearchParams();
   const [expanded, setExpanded] = useState<string | null>(() => searchParams.get('sensor'));
@@ -60,8 +63,8 @@ export default function LivePage() {
     : distanceUnit === 'mi' && byHeader.get(header)?.unit === 'km/h' ? value * 0.621371 : temperatureValue(value, byHeader.get(header)?.unit ?? '', temperatureUnit);
   const live = status === 'live';
 
-  const [saved, setSaved] = useState<LiveWidget[] | null>(() => loadLayout(selectedCarId));
-  useEffect(() => setSaved(loadLayout(selectedCarId)), [selectedCarId]);
+  const [saved, setSaved] = useState<LiveWidget[] | null>(() => loadLayout(layoutCarId));
+  useEffect(() => setSaved(loadLayout(layoutCarId)), [layoutCarId]);
   const available = channels.map((c) => c.header);
   const availableKey = available.join('|');
   // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute only when the channel set changes
@@ -69,7 +72,7 @@ export default function LivePage() {
   const widgets = saved ?? fallback;
   const setWidgets = (next: LiveWidget[] | null) => {
     setSaved(next);
-    saveLayout(selectedCarId, next);
+    saveLayout(layoutCarId, next);
   };
 
   const byHeader = useMemo(() => new Map(channels.map((c) => [c.header, c])), [channels]);
@@ -98,27 +101,28 @@ export default function LivePage() {
 
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!recording?.active) return;
+    if (!recording?.active && status !== 'live') return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [recording?.active]);
+  }, [recording?.active, status]);
 
   const history = obd.getHistory();
-  const chartNow = history.length ? history[history.length - 1].at : Date.now();
+  const chartNow = Math.max(now, receivedAt ?? 0);
+  const fresh = receivedAt != null && chartNow - receivedAt <= Math.max(15_000, (cycleMs ?? 0) * 3);
 
   const renderWidget = (w: LiveWidget) => {
     if (w.kind === 'blocks') {
       return (
         <BlocksWidget
           label={t('live.blocks', 'HV battery blocks')}
-          blocks={blockChannels.map((b) => ({ index: b.index, value: values[b.header] ?? null }))}
+          blocks={blockChannels.map((b) => ({ index: b.index, value: fresh ? values[b.header] ?? null : null }))}
         />
       );
     }
     const ch: LiveChannel | undefined = w.channel ? byHeader.get(w.channel) : undefined;
     const label = ch ? channelLabel(ch, t) : w.channel?.replace(/ \([^)]*\)$/, '') ?? '';
     const unit = w.channel ? sensorUnit(w.channel) : '';
-    const value = w.channel ? sensorValue(w.channel, values[w.channel]) : null;
+    const value = fresh && w.channel ? sensorValue(w.channel, values[w.channel]) : null;
     if (w.kind === 'gauge') {
       // Engine temperature is coloured by how warm it is, like on the trip card.
       const coolant = ch?.def?.pid === 0x05;
@@ -135,6 +139,7 @@ export default function LivePage() {
     }
     if (w.kind === 'chart') {
       const points = history.map((h) => ({ at: h.at, v: w.channel ? sensorValue(w.channel, h.values[w.channel]) : null }));
+      if (!fresh) points.push({ at: chartNow, v: null });
       return <ChartWidget label={label} unit={unit} points={points} now={chartNow} windowMs={CHART_WINDOW_MS} min={w.channel ? sensorValue(w.channel, ch?.min ?? 0) ?? 0 : 0} max={w.channel ? sensorValue(w.channel, ch?.def?.pid === 0x0c ? 6000 : ch?.max) ?? undefined : undefined} />;
     }
     return <ValueWidget label={label} unit={unit} value={value} min={w.channel ? sensorValue(w.channel, ch?.min) ?? undefined : undefined} max={w.channel ? sensorValue(w.channel, ch?.max) ?? undefined : undefined} />;
@@ -147,7 +152,7 @@ export default function LivePage() {
           <Activity className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-bold text-foreground mr-auto">
             {t('live.title', 'Live panel')}
-            {selectedCar && <span className="text-muted-foreground font-normal"> — {selectedCar.name}</span>}
+            {(live ? obd.connectedCarName : selectedCar?.name) && <span className="text-muted-foreground font-normal"> — {live ? obd.connectedCarName : selectedCar?.name}</span>}
           </h2>
 
           {/* Says what it does: it starts, or ends, the recording of a trip. */}
@@ -180,6 +185,8 @@ export default function LivePage() {
           </Button>
         </div>
 
+        {live && obd.connectedCarId && obd.connectedCarId !== selectedCarId && <div className="rounded-xl border border-warn/40 p-3 text-sm"><p>{t('live.otherCar', 'These readings belong to {{car}}, not the selected vehicle.', { name: obd.connectedCarName })}</p><Button variant="outline" size="sm" className="mt-2" onClick={() => selectCar(obd.connectedCarId)}>{t('live.useConnectedCar', 'View connected car')}</Button></div>}
+        {live && !obd.connectedCarId && <p className="text-xs text-warn">{t('live.unidentified', 'Live readings — vehicle identity has not been confirmed.')}</p>}
         {!live ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">
@@ -223,7 +230,7 @@ export default function LivePage() {
             {widgets.map((w) => (
               <Card key={w.id} className={`bg-card border-border ${SPAN[w.kind]}`} data-testid={`widget-${w.kind}`}>
                 <CardContent className="p-3 h-full">
-                  {w.channel ? <button type="button" className="block w-full h-full text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setExpanded(w.channel!)} aria-label={t('live.expand', 'Open timeline: {{sensor}}', { sensor: byHeader.has(w.channel) ? channelLabel(byHeader.get(w.channel)!, t) : w.channel })}>{renderWidget(w)}<SensorDetailsHint /></button> : renderWidget(w)}
+                  {w.channel ? <button type="button" className="flex w-full h-full flex-col text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setExpanded(w.channel!)} aria-label={t('live.expand', 'Open timeline: {{sensor}}', { sensor: byHeader.has(w.channel) ? channelLabel(byHeader.get(w.channel)!, t) : w.channel })}><div className="w-full min-w-0 flex-1">{renderWidget(w)}</div><div className="w-full"><SensorDetailsHint /></div></button> : renderWidget(w)}
                 </CardContent>
               </Card>
             ))}
@@ -244,14 +251,17 @@ export default function LivePage() {
       <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t('live.disconnectTitle', 'Disconnect the adapter?')}</AlertDialogTitle><AlertDialogDescription>{t('live.disconnectHint', 'This closes the Bluetooth connection. An active trip recording will also end.')}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel><AlertDialogAction onClick={obd.disconnect}>{t('scanner.disconnect', 'Disconnect')}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
       </AlertDialog>
+      {live && <p className="text-xs text-muted-foreground" data-testid="reading-freshness">
+        {receivedAt != null ? t(fresh ? 'live.lastReading' : 'live.staleReading', fresh ? 'Last reading: {{time}}' : 'Readings paused. Last received: {{time}}', { time: formatAppDate(new Date(receivedAt), undefined, {hour:'2-digit',minute:'2-digit',second:'2-digit'}) }) : t('live.awaitingReadings', 'Waiting for sensor readings')}
+      </p>}
       {live && <details>
         <summary className="cursor-pointer py-3 text-sm font-semibold">{t('live.allSensors', 'All available sensors')} ({channels.length})</summary>
         <dl className="divide-y divide-border">{channels.map((channel) => <div key={channel.header} className="flex justify-between gap-3 py-2 text-sm">
           <dt><button className="text-left text-primary hover:underline" onClick={() => setExpanded(channel.header)}>{channelLabel(channel, t)}</button></dt>
-          <dd className="font-mono tabular-nums">{formatValue(sensorValue(channel.header, values[channel.header]), sensorUnit(channel.header))} {sensorUnit(channel.header)}</dd>
+          <dd className="font-mono tabular-nums">{formatValue(fresh ? sensorValue(channel.header, values[channel.header]) : null, sensorUnit(channel.header))} {sensorUnit(channel.header)}</dd>
         </div>)}</dl>
       </details>}
-      {live && (selectedCar?.engine_type === 'hybrid' || /prius/i.test(selectedCar?.model || '')) && <details>
+      {live && (liveCar?.engine_type === 'hybrid' || /prius/i.test(liveCar?.model || '')) && <details>
         <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('hybrid.title', 'Hybrid system')}</summary>
         <HybridPanel />
       </details>}
@@ -270,7 +280,7 @@ export default function LivePage() {
             {[1, 5, 15, 30].map((minutes) => <option key={minutes} value={minutes * 60_000}>{minutes} min</option>)}
           </select>
           {expanded && <ChartWidget large label={byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded} unit={sensorUnit(expanded)} now={chartNow} windowMs={timelineMs}
-            points={history.map((point) => ({ at: point.at, v: sensorValue(expanded, point.values[expanded]) }))}
+            points={[...history.map((point) => ({ at: point.at, v: sensorValue(expanded, point.values[expanded]) })), ...(!fresh ? [{at: chartNow, v: null}] : [])]}
             min={sensorValue(expanded, byHeader.get(expanded)?.min ?? 0) ?? 0} max={sensorValue(expanded, byHeader.get(expanded)?.def?.pid === 0x0c ? 6000 : byHeader.get(expanded)?.max) ?? undefined} />}
         </DialogContent>
       </Dialog>

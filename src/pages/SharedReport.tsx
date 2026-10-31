@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { getSharedReport } from '@/lib/db-extras';
 import { Car, AlertCircle, Printer, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { completeTripInspection, tripCodes } from '@/lib/trip-inspection';
 import DTCPanel from '@/components/DTCPanel';
 import { describeProblem } from '@/lib/problems';
 import { formatDuration, tripProblems, tripTitle } from '@/lib/trips';
@@ -73,7 +74,7 @@ export default function SharedReport() {
   const session = report.session as Record<string, unknown> | null;
   const car = report.car as Record<string, unknown> | null;
   const flags = (report.flags || []) as unknown as Array<{ severity: string; canonical_key: string; parameter_key: string; message: string; evidence?: Record<string, unknown> }>;
-  const dtcs = report.active_dtcs || [];
+  const dtcs = tripCodes({summary: (report.session as Session | null)?.summary ?? null,active_dtcs: report.active_dtcs});
 
   const carHeadline = car ? (
     (car.year && car.make && car.model) ? `${car.year} ${car.make} ${car.model}` : (car.name as string | undefined) || t('sharedReport.carFallback', 'Car')
@@ -146,7 +147,7 @@ export default function SharedReport() {
         {/* DTCs section */}
         <section className="mb-4 print:break-inside-avoid">
           <h2 className="text-sm font-semibold text-foreground mb-2">{t('sharedReport.faultCodes', 'Fault codes found')}</h2>
-          <DTCPanel codes={dtcs} />
+          <DTCPanel codes={dtcs} checked={completeTripInspection(session as unknown as Session)} />
         </section>
 
         {/* Flags section */}

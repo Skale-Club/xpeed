@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { queryClient } from '@/lib/query-client';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { TripCard } from '@/components/trip/TripCard';
@@ -32,10 +34,11 @@ const Index = () => {
   const { user } = useAuth();
   const firstName = (user?.user_metadata?.full_name as string | undefined)?.trim().split(/\s+/)[0];
   const { cars, selectedCar, selectedCarId, loading: carsLoading } = useCarsContext();
-  const [loading, setLoading] = useState(true);
-  const [sessionsFailed, setSessionsFailed] = useState(false);
+  const history = useQuery({queryKey:['sessions',selectedCarId],queryFn:()=>getSessions(selectedCarId!),enabled:!!selectedCarId});
+  const loading = !!selectedCarId && history.isPending;
+  const sessionsFailed = history.isError;
   const [dateRange, setDateRange] = useState('30d');
-  const [allSessions, setAllSessions] = useState<Session[]>([]);
+  const allSessions = useMemo(() => (history.data ?? []) as unknown as Session[], [history.data]);
   const { t } = useTranslation();
   // Technical sections are closed by default; remember the choice on this device.
   const [showTechnical, setShowTechnical] = useState<boolean>(() => {
@@ -74,10 +77,9 @@ const Index = () => {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'sessions', filter: `car_profile_id=eq.${selectedCarId}` },
-        (payload) => {
-          const newSession = payload.new as unknown as Session;
-          setAllSessions((prev) => (prev.some((s) => s.id === newSession.id) ? prev : [newSession, ...prev]));
+        () => {
           if (Date.now() - ownSaveAt.current > OWN_SAVE_WINDOW_MS) {
+            void queryClient.invalidateQueries({queryKey:['sessions',selectedCarId]}, {cancelRefetch:false});
             toast({ title: t('home.newTrip', 'A new trip was added'), variant: 'default' });
           }
         },
@@ -85,42 +87,6 @@ const Index = () => {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [selectedCarId, toast, t]);
-
-  // Only the latest answer for the selected car may land: an older, slower
-  // request must not overwrite a newer one.
-  const requestId = useRef(0);
-  const fetchSessions = useCallback(async (carId: string) => {
-    const mine = ++requestId.current;
-    try {
-      const sessions = (await getSessions(carId)) as unknown as Session[];
-      if (mine !== requestId.current) return;
-      setAllSessions(sessions);
-      setSessionsFailed(false);
-    } catch (err) {
-      console.warn('Could not load trips:', err);
-      if (mine === requestId.current) setSessionsFailed(true);
-    }
-  }, []);
-
-  // The page waits for the first load of the car's trips, and for nothing after that.
-  useEffect(() => {
-    if (!selectedCarId) {
-      requestId.current++;
-      setLoading(false);
-      return;
-    }
-    let active = true;
-    setLoading(true);
-    setAllSessions([]);
-    void fetchSessions(selectedCarId).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [selectedCarId, fetchSessions]);
-
-  // A trip just got saved: refresh the list quietly, without the page loader.
-  useEffect(() => {
-    if (!lastTrip || !selectedCarId) return;
-    void fetchSessions(selectedCarId);
-  }, [lastTrip, selectedCarId, fetchSessions]);
 
   const filteredSessions = useMemo(() => {
     if (allSessions.length === 0) return [];
@@ -173,7 +139,7 @@ const Index = () => {
           <Card className="border-warn/40" role="alert">
             <CardContent className="flex flex-wrap items-center gap-3 p-4">
               <p className="flex-1 min-w-0 text-sm">{t('home.tripsFailed', "Couldn't load your trips.")}</p>
-              <Button variant="outline" size="sm" onClick={() => selectedCarId && void fetchSessions(selectedCarId)}>
+              <Button variant="outline" size="sm" onClick={() => void history.refetch()}>
                 <RotateCcw className="w-3.5 h-3.5 mr-2" /> {t('problems.retry', 'Try again')}
               </Button>
             </CardContent>

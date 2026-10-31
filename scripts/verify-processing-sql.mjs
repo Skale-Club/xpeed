@@ -34,7 +34,7 @@ const asUser = async (id, role = 'authenticated') => {
   await db.exec(`RESET ROLE; SET ROLE ${role}`);
   await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [id ?? '']);
 };
-const payload = { rows: [{ t_seconds: 0, t_timestamp: null, data: { Coolant: 120 } }, { t_seconds: 20, data: { Coolant: 120 } }], flags: [{ severity: 'critical', canonical_key: 'coolant_temp', parameter_key: 'Coolant', message: 'Hot', evidence: { max: 120 } }], summary: { summaries: [], marker: 'new' }, report: { version: 1, marker: 'new' }, columns: ['Time','Coolant'], row_count: 2, duration_seconds: 20, active_dtcs: ['P0300'], ruleset_id: 'generic-petrol', ruleset_matched_via: 'engine', report_version: 1, processing_version: 'processing-2' };
+const payload = { rows: [{ t_seconds: 0, t_timestamp: null, data: { Coolant: 120 } }, { t_seconds: 20, data: { Coolant: 120 } }], flags: [{ severity: 'critical', canonical_key: 'coolant_temp', parameter_key: 'Coolant', message: 'Hot', evidence: { max: 120 } }], summary: { summaries: [], marker: 'new', faultCodes:{stored:[],pending:['P0300'],permanent:[],checked:true,complete:false,modules:['7E0']} }, report: { version: 1, marker: 'new' }, columns: ['Time','Coolant'], row_count: 2, duration_seconds: 20, active_dtcs: ['P0300'], ruleset_id: 'generic-petrol', ruleset_matched_via: 'engine', report_version: 1, processing_version: 'processing-2' };
 const snapshot = async () => (await db.query(`SELECT jsonb_build_object('trip',(SELECT to_jsonb(s) FROM public.sessions s WHERE id='${trip}'), 'rows',(SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM public.session_rows r WHERE session_id='${trip}'), 'flags',(SELECT jsonb_agg(to_jsonb(f) ORDER BY id) FROM public.session_flags f WHERE session_id='${trip}')) AS state`)).rows[0].state;
 
 try {
@@ -94,12 +94,65 @@ try {
       await check('anon cannot list private data; an explicit share works until revoked',async () => {
         assert.equal((await db.query('SELECT count(*)::int AS n FROM public.sessions')).rows[0].n,0);
         assert.equal((await db.query('SELECT count(*)::int AS n FROM public.shared_reports')).rows[0].n,0);
-        assert.ok((await db.query('SELECT public.get_shared_report($1) AS report',[share])).rows[0].report);
+        const shared=(await db.query('SELECT public.get_shared_report($1) AS report',[share])).rows[0].report;
+        assert.deepEqual(shared.session.summary.faultCodes,payload.summary.faultCodes);
         await asUser(A); await db.query('DELETE FROM public.shared_reports WHERE id=$1',[share]);
         await asUser(null,'anon');
         assert.equal((await db.query('SELECT public.get_shared_report($1) AS report',[share])).rows[0].report,null);
       });
+      await asUser(A);
+      await check('durable issue jobs survive retries and only the current version can be acknowledged',async()=>{
+        const job=(await db.query('SELECT * FROM public.session_issue_jobs WHERE session_id=$1',[trip])).rows[0];
+        assert.ok(job);
+        await db.query("UPDATE public.sessions SET active_dtcs='[\"P0171\"]'::jsonb WHERE id=$1",[trip]);
+        assert.equal((await db.query('DELETE FROM public.session_issue_jobs WHERE session_id=$1 AND version=$2 RETURNING session_id',[trip,job.version])).rows.length,0);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM public.session_issue_jobs WHERE session_id=$1',[trip])).rows[0].n,1);
+        await db.query("UPDATE public.session_issue_jobs SET retry_at=now()+interval '1 minute' WHERE session_id=$1",[trip]);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM public.session_issue_jobs WHERE retry_at<=now()')).rows[0].n,0);
+        await assert.rejects(db.query('UPDATE public.session_issue_jobs SET car_profile_id=$1 WHERE session_id=$2',[otherCar,trip]));
+        await db.query("UPDATE public.sessions SET summary=summary || '{\"analysis_outdated\":true}'::jsonb WHERE id=$1",[trip]);
+        await db.query("UPDATE public.sessions SET gemini_analysis='{\"summary\":\"Fresh analysis\",\"warnings\":[]}'::jsonb WHERE id=$1",[trip]);
+        assert.equal((await db.query("SELECT summary ? 'analysis_outdated' AS outdated FROM public.sessions WHERE id=$1",[trip])).rows[0].outdated,false);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM public.session_issue_jobs WHERE retry_at<=now()')).rows[0].n,1);
+        await asUser(B);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM public.session_issue_jobs')).rows[0].n,0);
+        await asUser(A);
+      });
+      await check('an intentional deletion blocks recovery even after checkpoint cleanup failure',async()=>{
+        await db.query('DELETE FROM public.sessions WHERE id=$1',[trip]);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM public.session_deletions WHERE recording_id=$1',[trip])).rows[0].n,1);
+        await assert.rejects(db.query('INSERT INTO public.sessions(id,user_id,car_profile_id,source_filename) VALUES($1,$2,$3,$4)',[trip,A,car,'resurrect.csv']),/Recording intentionally deleted/);
+        await asUser(B);
+        assert.equal((await db.query('SELECT count(*)::int AS n FROM public.session_deletions')).rows[0].n,0);
+        await asUser(A);
+      });
+      await check('database pagination and timezone calendar handle 300 trips without transferring the entire history',async()=>{
+        const pagedCar='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+        await db.query('INSERT INTO public.car_profiles(id,user_id,name) VALUES($1,$2,$3)',[pagedCar,A,'Paging']);
+        await db.query("INSERT INTO public.sessions(user_id,car_profile_id,source_filename,session_start) SELECT $1,$2,'Journey '||i,'2026-11-01T01:00:00Z'::timestamptz + i*interval '1 minute' FROM generate_series(0,299) i",[A,pagedCar]);
+        const page=(await db.query("SELECT public.trip_page($1,15,20,NULL,'America/New_York') AS page",[pagedCar])).rows[0].page;
+        assert.equal(page.total,300);assert.equal(page.items.length,20);assert.equal(page.items.at(-1).source_filename,'Journey 0');
+        const days=(await db.query("SELECT public.trip_calendar($1,'2026-10','America/New_York') AS days",[pagedCar])).rows[0].days;
+        assert.equal(days['2026-10-31'],180);
+        const day=(await db.query("SELECT public.trip_page($1,1,20,'2026-10-31','America/New_York') AS page",[pagedCar])).rows[0].page;
+        assert.equal(day.total,180);assert.equal(day.items.length,20);
+        await asUser(B);
+        assert.equal((await db.query('SELECT public.trip_page($1) AS page',[pagedCar])).rows[0].page.total,0);
+        await asUser(A);
+        await db.query('DELETE FROM public.car_profiles WHERE id=$1',[pagedCar]); // Cascades must remain valid.
+      });
     }
+    if(!failure) await check('photo quota is separate, bounded, refundable and service-role only',async()=>{
+      await db.exec('RESET ROLE; SET ROLE service_role');
+      const consume=()=>db.query("SELECT public.consume_quota($1,'fuel_receipts',2) AS remaining",[A]);
+      assert.equal((await consume()).rows[0].remaining,1);
+      assert.equal((await consume()).rows[0].remaining,0);
+      await assert.rejects(consume,/quota_exceeded/);
+      await db.query("SELECT public.refund_quota($1,'fuel_receipts')",[A]);
+      assert.equal((await consume()).rows[0].remaining,0);
+      assert.equal((await db.query("SELECT count(*)::int AS count FROM public.user_quotas WHERE user_id=$1 AND kind='analysis'",[A])).rows[0].count,0);
+      await asUser(A);await assert.rejects(consume,/permission denied/);
+    });
     const result = { runtime: 'PGlite/PostgreSQL with synthetic auth/storage compatibility schema', applied, failure, checks, caveat: 'Real migrated SQL policies; not Supabase services, gateway, Storage server, or production migration certification.' };
     writeFileSync(resolve(root, 'docs/revisao-2026-10-29/bootstrap-sql.json'), JSON.stringify(result, null, 2) + '\n');
     console.log(JSON.stringify({ applied: applied.length, failure, checks }));

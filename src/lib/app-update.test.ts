@@ -45,6 +45,13 @@ describe('app update check', () => {
     expect(await checkApkUpdate(true)).toMatchObject({ installed: 57, required: 58, latest: 70, available: true });
   });
 
+  it('keeps the installed version visible offline without making a release request', async () => {
+    mocks.native = true;
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    expect(await checkApkUpdate(true)).toMatchObject({ installed: 58, installedVersion: '0.1.58', required: null, available: false });
+    expect(fetch).not.toHaveBeenCalled(); online.mockRestore();
+  });
+
   it('offers the matching offline package for an offline installation', async () => {
     mocks.native = true;
     Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, hostname: 'localhost' } });
@@ -56,6 +63,6 @@ describe('app update check', () => {
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ body: 'Build 70 from main @ abc1234.' }) } as Response);
     expect(await checkApkUpdate(true)).toMatchObject({ required: null, available: false });
     vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'));
-    expect(await checkApkUpdate(true)).toBeNull();
+    expect(await checkApkUpdate(true)).toMatchObject({ installed: 58, installedVersion: '0.1.58', required: null, available: false });
   });
 });

@@ -23,9 +23,9 @@ beforeEach(async () => {
 afterEach(cleanup);
 const mount = () => render(<MemoryRouter><TripCard /></MemoryRouter>);
 
-it('shows recording readiness and a clear automatic recording label', () => {
+it('shows that automatic recording is waiting for movement and keeps the control clear', () => {
   mount();
-  expect(screen.getByText('Ready to record')).toBeInTheDocument();
+  expect(screen.getByText('Waiting for movement')).toBeInTheDocument();
   expect(screen.getByText('Auto Recording')).toBeInTheDocument();
   expect(screen.queryByText('Car connected')).not.toBeInTheDocument();
   expect(screen.queryByText(/view details/i)).not.toBeInTheDocument();

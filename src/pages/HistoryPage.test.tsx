@@ -9,9 +9,18 @@ const obd = vi.hoisted(() => ({ recording: null as null | { active: boolean; sta
 vi.mock('@/contexts/ObdScannerContext', () => ({ useObd: () => obd }));
 const db = vi.hoisted(() => ({
   getSessions: vi.fn(),
+  list: [] as Record<string,unknown>[],
+  getTripPage: vi.fn(async (_car:string,page:number,day:string|null,zone:string) => {
+    const fresh=await db.getSessions(); if(fresh)db.list=fresh;
+    const key=(at:unknown)=>new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(at as string));
+    const list=[...db.list].sort((a,b)=>Date.parse(b.session_start as string)-Date.parse(a.session_start as string)).filter(trip=>!day || key(trip.session_start)===day);
+    return {items:list.slice((page-1)*20,page*20),total:list.length};
+  }),
+  getTripCalendar: vi.fn(async ()=>({})),
+  invalidateSessionLists: vi.fn(),
   getFlagsForSessions: vi.fn(),
   updateSession: vi.fn(async () => undefined),
-  deleteSession: vi.fn(async () => undefined),
+  deleteSession: vi.fn(async (id:string) => {db.list=db.list.filter(item=>item.id!==id);}),
 }));
 vi.mock('@/lib/db', () => db);
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
@@ -25,11 +34,11 @@ const selectView = (name: 'List' | 'Calendar') => fireEvent.mouseDown(screen.get
 const TRIPS = [
   {
     id: 'old', source_filename: 'xpeed-scan_2026-10-20 08-00-00.csv', session_start: '2026-10-20T08:00:00Z', uploaded_at: '2026-10-20T09:00:00Z',
-    duration_seconds: 600, summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 30 }] }, active_dtcs: [],
+    duration_seconds: 600, summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 30, duration_seconds:600 }] }, active_dtcs: [],
   },
   {
     id: 'new', source_filename: 'Ida pra praia', session_start: '2026-10-27T10:00:00Z', uploaded_at: '2026-10-27T12:00:00Z',
-    duration_seconds: 3900, summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 60 }] }, active_dtcs: ['P0420'],
+    duration_seconds: 3900, summary: { summaries: [{ canonical_key: 'vehicle_speed', avg: 60, duration_seconds:3900 }] }, active_dtcs: ['P0420'],
   },
 ];
 
@@ -39,6 +48,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   cleanup();
+  db.list=[];
   vi.clearAllMocks();
   obd.recording = null; obd.recordingCarId = 'car-1'; obd.lastTrip = null; obd.savingTrip = false;
   settings.timezone = 'UTC';
@@ -81,7 +91,7 @@ describe('HistoryPage', () => {
     view.rerender(<MemoryRouter><HistoryPage /></MemoryRouter>);
     expect(await screen.findByText('Ida pra praia')).toBeInTheDocument();
     expect(screen.queryByTestId('active-trip')).not.toBeInTheDocument();
-    expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
+    await waitFor(()=>expect(screen.getAllByTestId('trip-row')).toHaveLength(1));
   });
   it('shows an empty state that leads to starting a trip', async () => {
     db.getSessions.mockResolvedValueOnce([]);
@@ -106,7 +116,7 @@ describe('HistoryPage', () => {
     expect(within(rows[0]).getByRole('link')).toHaveAttribute('href', '/session/new');
 
     expect(within(rows[1]).getByText(/ trip$/)).toBeInTheDocument();
-    expect(within(rows[1]).getByText('All good')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Incomplete problem check')).toBeInTheDocument();
     // No file names or row counts
     expect(screen.queryByText(/\.csv/)).not.toBeInTheDocument();
     expect(screen.queryByText(/rows/)).not.toBeInTheDocument();
@@ -141,7 +151,7 @@ describe('HistoryPage calendar and paging', () => {
     db.getFlagsForSessions.mockResolvedValue([]);
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);
     expect(await screen.findAllByTestId('trip-row')).toHaveLength(20);
-    expect(screen.getByText('Journey 299')).toBeInTheDocument();
+    expect(await screen.findByText('Journey 299')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Page' }), { target: { value: '15' } });
     await waitFor(() => expect(screen.getByText('Journey 0')).toBeInTheDocument());
     expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
@@ -152,7 +162,7 @@ describe('HistoryPage calendar and paging', () => {
     for (const [ids] of db.getFlagsForSessions.mock.calls) expect(ids.length).toBeLessThanOrEqual(20);
     selectView('Calendar');
     selectView('List');
-    expect(screen.getByText('Journey 299')).toBeInTheDocument();
+    expect(await screen.findByText('Journey 299')).toBeInTheDocument();
     expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
   });
   it('starts in List without filters or a calendar, and switches to trips for the selected day', async () => {
@@ -168,18 +178,18 @@ describe('HistoryPage calendar and paging', () => {
     expect(screen.getByRole('heading', { name: 'October 2026' })).toBeInTheDocument();
     selectView('Calendar');
     fireEvent.click(screen.getByRole('button', { name: /Tuesday, October 20, 2026/ }));
-    expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
+    await waitFor(()=>expect(screen.getAllByTestId('trip-row')).toHaveLength(1));
     expect(screen.queryByText('Ida pra praia')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Tuesday, October 20, 2026' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Tuesday, October 20, 2026/ })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: /Tuesday, October 27, 2026/ }));
-    expect(screen.getByText('Ida pra praia')).toBeInTheDocument();
-    expect(screen.getAllByTestId('trip-row')).toHaveLength(1);
+    expect(await screen.findByText('Ida pra praia')).toBeInTheDocument();
+    await waitFor(()=>expect(screen.getAllByTestId('trip-row')).toHaveLength(1));
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
-    expect(screen.getByText('No trips on this day.')).toBeInTheDocument();
+    expect(await screen.findByText('No trips on this day.')).toBeInTheDocument();
     expect(screen.queryByTestId('trip-row')).not.toBeInTheDocument();
     selectView('List');
-    expect(screen.getAllByTestId('trip-row')).toHaveLength(2);
+    await waitFor(()=>expect(screen.getAllByTestId('trip-row')).toHaveLength(2));
     expect(screen.queryByRole('region', { name: 'Trip calendar' })).not.toBeInTheDocument();
   });
   it('restores a calendar filter from the URL', async () => {
@@ -198,9 +208,9 @@ describe('HistoryPage calendar and paging', () => {
     render(<MemoryRouter initialEntries={['/history?view=calendar&day=2026-10-31']}><HistoryPage /></MemoryRouter>);
     expect(await screen.findByText('Ida pra praia')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
-    expect(screen.getByText('No trips on this day.')).toBeInTheDocument();
+    expect(await screen.findByText('No trips on this day.')).toBeInTheDocument();
     selectView('List');
-    expect(screen.getByRole('heading', { name: 'Saturday, Oct 31' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Saturday, Oct 31' })).toBeInTheDocument();
   });
   it('keeps the recording on its own day when browsing older calendar dates', async () => {
     obd.recording = { active: true, startedAt: new Date('2026-10-29T10:00:00Z'), manual: false };
@@ -211,6 +221,6 @@ describe('HistoryPage calendar and paging', () => {
     expect(screen.queryByTestId('active-trip')).not.toBeInTheDocument();
     selectView('List');
     expect(screen.getByTestId('active-trip')).toBeInTheDocument();
-    expect(screen.getAllByTestId('trip-row')).toHaveLength(2);
+    await waitFor(()=>expect(screen.getAllByTestId('trip-row')).toHaveLength(2));
   });
 });

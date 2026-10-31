@@ -1,0 +1,70 @@
+Validação local — 30/10/2026
+Atualizações automáticas e simplificação de Settings.
+Sem push/deploy, banco remoto, navegador ou Android físico.
+Um único worker por execução; sem suíte completa ou build adicional.
+
+44 testes distintos aprovados em 6 arquivos (41 na execução inicial e 3 casos adicionais nos retestes finais).
+Typecheck: exit 0.
+Lint dos 17 arquivos TS/TSX alterados: exit 0, sem saída de erros.
+O lint completo apontou apenas um prefer-const novo, corrigido; os outros 13 avisos de react-refresh eram preexistentes.
+
+Execução inicial
+
+automatic-updates-tests.log
+
+> xpeed@0.0.0 test
+> vitest run --pool=threads --maxWorkers=1 src/lib/pwa-update.test.ts src/lib/update-position.test.ts src/lib/app-update.test.ts src/lib/app-update-monitor.test.ts src/components/AppVersion.test.tsx src/pages/SettingsPage.test.tsx
+
+
+ RUN  v5.0.5 C:/Users/Vanildo/Dev/xpeed
+
+
+ Test Files  6 passed (6)
+      Tests  41 passed (41)
+   Start at  18:35:17
+   Duration  53.10s (environment 44%, setup 23%, import 15%, tests 12%, transform 5%, worker 1%)
+
+    Isolate  6 workers spawned · ~4.22s startup each (spawn + environment, per file)
+             at least ~21.08s faster with isolate: false — reuses workers across files instead of one per file
+
+
+automatic-updates-final-tests.log
+
+> xpeed@0.0.0 test
+> vitest run --pool=threads --maxWorkers=1 src/lib/pwa-update.test.ts src/lib/update-position.test.ts src/lib/app-update.test.ts src/lib/app-update-monitor.test.ts
+
+
+ RUN  v5.0.5 C:/Users/Vanildo/Dev/xpeed
+
+
+ Test Files  4 passed (4)
+      Tests  30 passed (30)
+   Start at  18:41:19
+   Duration  19.88s (environment 59%, setup 33%, transform 4%, tests 2%, worker 1%, import 1%)
+
+    Isolate  4 workers spawned · ~3.11s startup each (spawn + environment, per file)
+             at least ~9.33s faster with isolate: false — reuses workers across files instead of one per file
+
+
+automatic-updates-dismissal-tests.log
+
+> xpeed@0.0.0 test
+> vitest run --pool=threads --maxWorkers=1 src/lib/app-update-monitor.test.ts
+
+
+ RUN  v5.0.5 C:/Users/Vanildo/Dev/xpeed
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  18:42:49
+   Duration  5.13s (environment 59%, setup 31%, transform 5%, tests 3%, worker 1%, import 1%)
+
+
+automatic-updates-types.log
+
+> xpeed@0.0.0 typecheck
+> tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.api.json
+
+
+automatic-updates-final-lint.log

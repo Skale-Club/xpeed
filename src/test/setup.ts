@@ -1,3 +1,6 @@
+import { afterEach } from 'vitest';
+import { queryClient } from '@/lib/query-client';
+afterEach(() => queryClient.clear());
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
 

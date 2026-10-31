@@ -1,3 +1,4 @@
+import { syncSavedProblems } from '@/lib/problem-sync';
 import { calculateFuelMetrics } from '@/lib/fuel-metrics';
 import { useState, useCallback } from 'react';
 import { parseCSV } from '@/lib/csv-parser';
@@ -10,7 +11,7 @@ import { refreshParameterBaselines } from '@/lib/db-extras';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import { downsampleSessionRows } from '@/lib/downsample';
 import { generateReport, REPORT_VERSION, PROCESSING_VERSION } from '@/lib/report-generator';
-import { reconcileIssues, syncAiWarnings, syncFaultCodes, type FaultCodeSync } from '@/lib/issue-reconciler';
+import type { FaultCodeSync } from '@/lib/issue-reconciler';
 import { useToast } from '@/hooks/use-toast';
 import { sessionDuration, sessionTimes } from '@/lib/session-time';
 import { csvChecksum, hasRecordedReceipt, storeRecordedSession, type RecordingIdentity } from '@/lib/recorded-session';
@@ -43,8 +44,8 @@ export async function ingestSessionCsv(
   carProfileId: string,
   customName?: string,
   updateProgress: (value: number, label: string) => void = () => undefined,
-  /** Called once the trip, its rows and flags are in the database (before report, AI and baselines). */
-  onStored?: (sessionId: string) => void | Promise<void>,
+  /** A durable receipt; published=false means a previous attempt already saved this recording. */
+  onStored?: (sessionId: string, published?: boolean) => void | Promise<void>,
   /**
    * The car's fault codes as read live (confirmed vs pending, and whether the
    * read worked). Without it, codes in the CSV count as confirmed and nothing
@@ -76,7 +77,8 @@ export async function ingestSessionCsv(
     const resultFor = (sessionId: string) => ({ sessionId, rows: parsed.rows.length, flags: flags.length, dtcs: parsed.activeDtcs.length });
     if (recording && await hasRecordedReceipt(recording, carProfileId, checksum)) {
       stored = true;
-      await onStored?.(recording.sessionId);
+      await onStored?.(recording.sessionId, false);
+      try { await syncSavedProblems(recording.sessionId); } catch { /* Durable retry remains queued. */ }
       return resultFor(recording.sessionId);
     }
 
@@ -129,13 +131,14 @@ export async function ingestSessionCsv(
     }
 
     updateProgress(55, 'Saving session...');
-    const summary = { fuel: calculateFuelMetrics(parsed), summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
+    const summary = { faultCodes: faultCodes ?? null, fuel: calculateFuelMetrics(parsed), summaries, headerMapping: parsed.headerMapping, timeColumn: parsed.timeColumn, rulesetId: ruleset.id, rulesetMatchedVia: ruleset.matched_via };
     const session = recording ? { id: recording.sessionId } : await createSession(
       carProfileId,
       customName || file.name,
       parsed.rows.length,
       parsed.headers,
       {
+        faultCodes: faultCodes ?? null,
         fuel: calculateFuelMetrics(parsed),
         summaries,
         headerMapping: parsed.headerMapping,
@@ -193,7 +196,7 @@ export async function ingestSessionCsv(
         ruleset_id: ruleset.id, ruleset_matched_via: ruleset.matched_via, report_version: REPORT_VERSION, processing_version: PROCESSING_VERSION,
       });
       stored = true;
-      await onStored?.(session.id);
+      await onStored?.(session.id, published);
       if (!published) {
         // Another tab committed this recording first. Our unique Storage path is unused.
         if (sourceFilePath) await removeSessionCSV(sourceFilePath).catch(error => console.warn('Unused recording CSV cleanup failed:', error));
@@ -214,6 +217,8 @@ export async function ingestSessionCsv(
       // line means the session, every data row and the flags were saved: createSession,
       // insertSessionRows and insertSessionFlags throw on any database error, which lands in the
       // rollback below, so onStored (which lets the caller drop its backup copy) never runs early.
+      // Versioning commits the durable alert job before a caller can drop its copy.
+      await updateSessionVersioning(session.id, { ruleset_id: ruleset.id, ruleset_matched_via: ruleset.matched_via, report_version: REPORT_VERSION, processing_version: PROCESSING_VERSION });
       stored = true;
       await onStored?.(session.id);
 
@@ -221,15 +226,7 @@ export async function ingestSessionCsv(
       // Store it on the session so the edge function can read it instead of
       // receiving a raw CSV dump as a string.
       try {
-        await Promise.all([
-          storeSessionReport(session.id, report as unknown as Record<string, unknown>),
-          updateSessionVersioning(session.id, {
-            ruleset_id: ruleset.id,
-            ruleset_matched_via: ruleset.matched_via,
-            report_version: REPORT_VERSION,
-            processing_version: PROCESSING_VERSION,
-          }),
-        ]);
+        await storeSessionReport(session.id, report as unknown as Record<string, unknown>);
       } catch (reportErr) {
         console.warn('Report generation skipped:', reportErr);
       }
@@ -243,16 +240,8 @@ export async function ingestSessionCsv(
         (m) => m.supabase.auth.getUser()
       );
       userId = user?.id ?? null;
-      if (user) {
-        await reconcileIssues(session.id, carProfileId, user.id, flags, sessionStart);
-        await syncFaultCodes(
-          carProfileId,
-          user.id,
-          faultCodes ?? { stored: parsed.activeDtcs, pending: [], checked: false },
-          session.id,
-          sessionStart ?? undefined,
-        );
-      }
+      if (user) { await syncSavedProblems(session.id); }
+
     } catch (issueErr) {
       console.warn('Issue reconciliation skipped:', issueErr);
     }
@@ -273,7 +262,7 @@ export async function ingestSessionCsv(
           await updateSessionWithGeminiAnalysis(session.id, analysis as unknown as Record<string, unknown>);
           // Concerns the AI saw that no fault code or rule covers go to the problem list too.
           if (userId && analysis.warnings?.length) {
-            await syncAiWarnings(carProfileId, userId, analysis.warnings, session.id, sessionStart ?? undefined);
+            await syncSavedProblems(session.id);
           }
         }
       } catch (aiError) {

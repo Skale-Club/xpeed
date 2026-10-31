@@ -1,0 +1,202 @@
+Validação local — abastecimento por foto — 30/10/2026
+Branch: codex/reliability-regional-preferences
+Sem publicação ou alterações remotas. Android físico dispensado pelo usuário.
+
+Testes focados finais
+
+receipt-final-tests.log
+
+> xpeed@0.0.0 test
+> vitest run --maxWorkers=1 src/pages/FuelPage.test.tsx src/test/fuel-receipt-api.test.ts src/components/VehicleNotificationBell.test.tsx
+
+
+ RUN  v5.0.5 C:/Users/Vanildo/Dev/xpeed
+
+
+ Test Files  3 passed (3)
+      Tests  29 passed (29)
+   Start at  18:07:00
+   Duration  22.30s (tests 45%, environment 27%, setup 14%, transform 9%, import 5%)
+
+Environment  jsdom was created 3 times · 5.30s total, 27% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+
+receipt-edge.log
+
+> xpeed@0.0.0 check:edge
+> node scripts/check-edge-functions.mjs
+
+Download https://esm.sh/@supabase/supabase-js@2
+Download https://deno.land/std@0.224.0/http/server.ts
+Download https://registry.npmjs.org/zod
+Download https://esm.sh/@supabase/supabase-js@2.118.0
+Download https://deno.land/std@0.224.0/async/delay.ts
+Download https://esm.sh/@supabase/supabase-js@2.118.0/dist/index.d.mts
+Download https://esm.sh/@supabase/functions-js@2.118.0/dist/module/index.d.ts
+Download https://esm.sh/@supabase/postgrest-js@2.118.0/dist/index.d.mts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/index.d.ts
+Download https://esm.sh/@supabase/storage-js@2.118.0/dist/index.d.mts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/index.d.ts
+Download https://esm.sh/@supabase/functions-js@2.118.0/dist/module/FunctionsClient.d.ts
+Download https://esm.sh/@supabase/functions-js@2.118.0/dist/module/types.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/RealtimeClient.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/RealtimeChannel.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/RealtimePresence.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/lib/websocket-factory.d.ts
+Download https://esm.sh/iceberg-js@0.8.1/dist/index.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/GoTrueAdminApi.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/GoTrueClient.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/AuthAdminApi.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/AuthClient.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/types.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/errors.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/locks.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/lib/serializer.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/phoenix/types.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/lib/constants.d.ts
+Download https://esm.sh/@supabase/realtime-js@2.118.0/dist/module/RealtimePostgresFilterBuilder.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/index.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/fetch.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/helpers.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/web3/ethereum.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/web3/solana.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/webauthn.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/webauthn.dom.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/error-codes.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/types.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/channel.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/longpoll.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/presence.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/push.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/serializer.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/socket.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/timer.d.ts
+Download https://esm.sh/@supabase/auth-js@2.118.0/dist/module/lib/webauthn.errors.d.ts
+Download https://esm.sh/@supabase/phoenix@0.4.5/priv/static/types/constants.d.ts
+Download https://registry.npmjs.org/zod/-/zod-3.23.8.tgz
+Check supabase/functions/_shared/admin-config.ts
+Check supabase/functions/_shared/analysis-response.test.ts
+Check supabase/functions/_shared/analysis-response.ts
+Check supabase/functions/_shared/car-data.ts
+Check supabase/functions/_shared/chat-prompt.ts
+Check supabase/functions/_shared/fuel-receipt-handler.ts
+Check supabase/functions/_shared/fuel-receipt.test.ts
+Check supabase/functions/_shared/fuel-receipt.ts
+Check supabase/functions/_shared/quota.ts
+Check supabase/functions/ai-health/index.ts
+Check supabase/functions/analyze-session/index.ts
+Check supabase/functions/car-insights-mcp/index.ts
+Check supabase/functions/chat/index.ts
+Check supabase/functions/manage-mcp-tokens/index.ts
+Check supabase/functions/mcp-server/auth.ts
+Check supabase/functions/mcp-server/index.ts
+Check supabase/functions/mcp-server/services/cars.ts
+Check supabase/functions/mcp-server/services/dtc.ts
+Check supabase/functions/mcp-server/services/maintenance.ts
+Check supabase/functions/mcp-server/services/sessions.ts
+Check supabase/functions/mcp-server/services/supabase.ts
+Check supabase/functions/mcp-server/tools/cars.ts
+Check supabase/functions/mcp-server/tools/dtc.ts
+Check supabase/functions/mcp-server/tools/maintenance.ts
+Check supabase/functions/mcp-server/tools/sessions.ts
+Check supabase/functions/mcp-server/types.ts
+Check supabase/functions/read-fuel-receipt/index.ts
+Check supabase/functions/xpeed-mcp/index.ts
+Check supabase/functions/xpeed-mcp/token.ts
+Check supabase/functions/xpeed-oauth/index.ts
+Check supabase/functions/xpeed-oauth/validation.ts
+Check supabase/functions/_shared/analysis-response.test.ts
+Check supabase/functions/_shared/fuel-receipt.test.ts
+running 3 tests from ./supabase/functions/_shared/analysis-response.test.ts
+accepts the current trip analysis contract ... ok (4ms)
+rejects malformed, empty and partial answers ... ok (2ms)
+bounds provider output before it is accepted ... ok (445µs)
+running 3 tests from ./supabase/functions/_shared/fuel-receipt.test.ts
+accepts partial readings but never invents currency or gallon standard ... ok (962µs)
+rejects malformed, infinite, negative, oversized and unsupported receipt fields ... ok (697µs)
+accepts only bounded inline images with matching binary signatures ... ok (1ms)
+
+ok | 6 passed | 0 failed (107ms)
+
+
+receipt-sql.log
+
+> xpeed@0.0.0 test:sql
+> node scripts/verify-processing-sql.mjs && node scripts/verify-processing-sql.mjs --bootstrap
+
+7 PostgreSQL checks passed: additive upgrade and repeat preserve existing issue IDs; owner atomically replaces derivatives, preserves identity and resolved flag; failed insert rolls back preceding update/deletes; recording publishes once; retry keeps the same receipt and derivatives; failed recording publishes no partial session or data; other owner and support admin cannot mutate A through either RPC; anon cannot execute either RPC
+{"applied":57,"failure":null,"checks":["real migrated policies allow A to publish once and recognize retry","B cannot list A trips, readings, flags, issues, chat, maintenance, photos or storage","cross-owner parent relationships and RPCs are rejected","support admin keeps SELECT but cannot reprocess or change A ownership","anon cannot list private data; an explicit share works until revoked","durable issue jobs survive retries and only the current version can be acknowledged","an intentional deletion blocks recovery even after checkpoint cleanup failure","database pagination and timezone calendar handle 300 trips without transferring the entire history","photo quota is separate, bounded, refundable and service-role only"]}
+
+receipt-types.log
+
+> xpeed@0.0.0 typecheck
+> tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.api.json
+
+
+receipt-lint.log
+
+> xpeed@0.0.0 lint
+> eslint .
+
+
+C:\Users\Vanildo\Dev\xpeed\src\components\car\CarLookPickers.tsx
+   7:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  11:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\trip\QuickGauge.tsx
+  106:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\ui\badge.tsx
+  29:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\ui\button.tsx
+  49:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\components\ui\sidebar.tsx
+  639:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\AuthContext.tsx
+  98:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\CarsContext.tsx
+  34:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\ObdScannerContext.tsx
+  711:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  724:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\PageRefreshContext.tsx
+  24:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\SettingsContext.tsx
+  43:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\Vanildo\Dev\xpeed\src\contexts\VehicleNotificationsContext.tsx
+  23:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+✖ 13 problems (0 errors, 13 warnings)
+
+
+Typecheck e lint: exit 0. Lint contém somente 13 avisos preexistentes.
+A suíte completa foi interrompida durante pressão de memória (316 MiB livres em 8013 MiB). Houve um timeout no teste do sino; os dois testes desse componente passaram no reteste isolado junto com os 27 de combustível/handler. Não se afirma aprovação da suíte completa nesta rodada. A suíte da base anterior tinha 523 testes aprovados.
+Navegador local: upload de JPEG sintético, compressão real do cliente, leitura simulada, revisão, preenchimento e salvamento no ledger simulado; toast de sucesso e gasto mensal USD 35,90. Telas de 390x844 e 320x740, largura do documento = largura do viewport em 320 px.
+
+Build final (exit 0)
+dist/assets/pt-BR-BilY5Bbz.js                     61.28 kB │ gzip:  21.54 kB
+dist/assets/es-ES-BS1mNuWR.js                     61.63 kB │ gzip:  21.70 kB
+dist/assets/i18n-BUYnIdEm.js                      64.79 kB │ gzip:  21.57 kB
+dist/assets/ChatContainer-CmXQ3dpE.js            132.34 kB │ gzip:  41.42 kB
+dist/assets/supabase-D-pooTq8.js                 173.46 kB │ gzip:  45.78 kB
+dist/assets/radix-ui-D4Wwuq-S.js                 274.51 kB │ gzip:  87.52 kB
+dist/assets/index-WhYRxHmX.js                    336.02 kB │ gzip: 110.96 kB
+dist/assets/recharts-DO9GuN5X.js                 414.33 kB │ gzip: 111.58 kB
+✓ built in 1m 42s
+
+PWA v1.3.0
+mode      generateSW
+precache  82 entries (2075.11 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-250e2fb9.js
