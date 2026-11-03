@@ -34,6 +34,11 @@ const URGENCY_DEFAULT: Record<Urgency, string> = {
 type Action = 'resolve' | 'ignore' | 'reopen';
 
 export default function IssuesPage() {
+  const { selectedCar } = useCarsContext();
+  return <CarIssues key={selectedCar?.id ?? 'none'} />;
+}
+
+function CarIssues() {
   const { t, i18n } = useTranslation();
   const { selectedCar } = useCarsContext();
   const { toast } = useToast();

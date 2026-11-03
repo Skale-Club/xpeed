@@ -23,3 +23,7 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Audit production dependencies (fail on high+)
         run: npm audit --omit=dev --audit-level=high
+      - name: Install Google Cloud auth function dependencies
+        run: npm ci --prefix cloud/google-auth --ignore-scripts
+      - name: Audit Google Cloud auth function (fail on high+)
+        run: npm audit --prefix cloud/google-auth --omit=dev --audit-level=high

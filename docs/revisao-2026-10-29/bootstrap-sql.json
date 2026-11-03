@@ -55,7 +55,10 @@
     "20261028000000_vehicle_issues_rebuild.sql",
     "20261029000000_review_fixes.sql",
     "20261029100000_car_look.sql",
-    "20261029110000_stabilize_processing.sql"
+    "20261029110000_stabilize_processing.sql",
+    "20261030160000_durable_issue_jobs_and_deletions.sql",
+    "20261030220000_fuel_receipt_quota.sql",
+    "20261103140000_google_cloud_auth.sql"
   ],
   "failure": null,
   "checks": [
@@ -63,7 +66,11 @@
     "B cannot list A trips, readings, flags, issues, chat, maintenance, photos or storage",
     "cross-owner parent relationships and RPCs are rejected",
     "support admin keeps SELECT but cannot reprocess or change A ownership",
-    "anon cannot list private data; an explicit share works until revoked"
+    "anon cannot list private data; an explicit share works until revoked",
+    "durable issue jobs survive retries and only the current version can be acknowledged",
+    "an intentional deletion blocks recovery even after checkpoint cleanup failure",
+    "database pagination and timezone calendar handle 300 trips without transferring the entire history",
+    "photo quota is separate, bounded, refundable and service-role only"
   ],
   "caveat": "Real migrated SQL policies; not Supabase services, gateway, Storage server, or production migration certification."
 }

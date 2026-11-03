@@ -1,3 +1,4 @@
+import { verifyAppUser } from '../src/lib/verify-app-user';
 import { createClient } from '@supabase/supabase-js';
 
 export const config = { runtime: 'edge' };
@@ -16,13 +17,12 @@ export default async function handler(req: Request): Promise<Response> {
   if (!url || !key) return reply({ error: 'media_sharing_unavailable' }, 503);
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   try {
-    let userId: string | undefined;
+    let userId: string | null | undefined;
     if (req.method === 'POST') {
       const bearer = req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
       if (!bearer) return reply({ error: 'unauthorized' }, 401);
-      const auth = await db.auth.getUser(bearer);
-      if (auth.error || !auth.data.user) return reply({ error: 'unauthorized' }, 401);
-      userId = auth.data.user.id;
+      userId = await verifyAppUser(url,key,bearer);
+    if (!userId) return reply({ error: 'unauthorized' },401);
     }
     const { data: report, error } = await db.from('shared_reports').select('id,session_id,user_id,expires_at').eq('id', id).maybeSingle();
     if (error) throw error;

@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { BrandLockup } from '@/components/BrandLockup';
 
 const NotFound = () => {
   const { t } = useTranslation();
@@ -13,6 +14,7 @@ const NotFound = () => {
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted">
       <div className="text-center">
+        <BrandLockup className="mb-6" />
         <h1 className="mb-4 text-4xl font-bold">404</h1>
         <p className="mb-4 text-xl text-muted-foreground">{t("notFound.message", "Sorry, we couldn't find that page.")}</p>
         <a href="/" className="text-primary underline hover:text-primary/90">

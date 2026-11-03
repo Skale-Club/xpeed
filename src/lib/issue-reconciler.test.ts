@@ -45,8 +45,9 @@ vi.mock('@/integrations/supabase/client', () => {
         return { data: { id: row.id }, error: null };
       }
       if (this.mode === 'update') {
-        rows.filter((r) => this.filters.every((f) => f(r))).forEach((r) => Object.assign(r, this.payload));
-        return { data: null, error: null };
+        const changed=rows.filter((r) => this.filters.every((f) => f(r)));
+        changed.forEach((r) => Object.assign(r, this.payload));
+        return { data: changed.map(row=>({id:row.id})), error: null };
       }
       if (this.mode === 'upsert') {
         db.rows.push({ ...this.payload, __table: this.table });
@@ -145,4 +146,21 @@ it('retains a durable job when recording the occurrence fails in strict mode',as
  const {reconcileIssues}=await import('./issue-reconciler');
  db.failWhen=(_op,table)=>table==='vehicle_issue_occurrences'?{message:'occurrence offline'}:null;
  await expect(reconcileIssues('trip','car','u1',[{canonical_key:'coolant_temp',parameter_key:'Coolant',severity:'critical',message:'Hot',evidence:{}}] as never,at,false,true)).rejects.toThrow('occurrence offline');
+});
+
+it('counts only fault-code resolutions that the database confirmed',async()=>{
+ const {syncFaultCodes}=await import('./issue-reconciler');
+ db.rows.push({__table:'vehicle_issues',id:'open',car_profile_id:'car',canonical_key:'dtc:P0420',status:'active',last_seen_at:at});
+ db.failWhen=op=>op==='update'?{message:'write failed'}:null;
+ expect(await syncFaultCodes('car','u1',{stored:[],pending:[],checked:true,complete:true},null,at)).toEqual({resolved:0});
+ expect(issue('dtc:P0420')?.status).toBe('active');
+ db.failWhen=null;
+ expect(await syncFaultCodes('car','u1',{stored:[],pending:[],checked:true,complete:true},null,at)).toEqual({resolved:1});
+});
+
+it('does not create a duplicate fault-code problem after a failed lookup',async()=>{
+ const {syncFaultCodes}=await import('./issue-reconciler');
+ db.failWhen=()=>({message:'lookup failed'});
+ await syncFaultCodes('car','u1',{stored:['P0420'],pending:[],checked:false},'trip',at);
+ expect(db.inserts).toBe(0);
 });

@@ -4,7 +4,7 @@ import handler from '../../api/sync-problems';
 const h=vi.hoisted(()=>({pending:true,fail:true,issue:false,occurrences:0,scope:''}));
 vi.mock('@supabase/supabase-js',()=>({createClient:(_url:unknown,_key:unknown,options:{global:{headers:{Authorization:string}}})=>{
   h.scope=options.global.headers.Authorization;
-  return {auth:{getUser:async()=>({data:{user:{id:'user'}},error:null})},from:(table:string)=>{
+  return {rpc:async()=>({data:'user',error:null}),from:(table:string)=>{
     let mode='select';
     const q={select:()=>q,eq:()=>q,in:()=>q,lte:()=>q,order:()=>q,limit:()=>q,maybeSingle:()=>q,single:()=>q,
       insert:()=>{mode='insert';return q;},update:()=>q,upsert:()=>{mode='upsert';return q;},delete:()=>{mode='delete';return q;},

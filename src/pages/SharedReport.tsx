@@ -11,6 +11,7 @@ import { describeProblem } from '@/lib/problems';
 import { formatDuration, tripProblems, tripTitle } from '@/lib/trips';
 import type { Session, SessionFlag } from '@/types/session';
 import { BrandLogo } from '@/components/BrandLogo';
+import { BrandLockup } from '@/components/BrandLockup';
 import { formatAppDate } from '@/lib/app-date';
 import { SharedTripAttachments } from '@/components/SharedTripAttachments';
 
@@ -26,12 +27,17 @@ interface ReportPayload {
  * Route: /share/:id   (anon-accessible via RPC bypassing RLS)
  */
 export default function SharedReport() {
-  const { t, i18n } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  return <ReportView key={id} id={id} />;
+}
+
+function ReportView({ id }: { id?: string }) {
+  const { t, i18n } = useTranslation();
   const [params] = useSearchParams();
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!id) {
@@ -39,13 +45,15 @@ export default function SharedReport() {
       setLoading(false);
       return;
     }
-    (async () => {
-      const data = await getSharedReport(id);
-      if (!data) setError(true);
-      else setReport(data as ReportPayload);
-      setLoading(false);
-    })();
-  }, [id]);
+    let active = true;
+    setLoading(true); setError(false); setReport(null);
+    void getSharedReport(id).then(data => {
+      if (!active) return;
+      if (!data) setError(true); else setReport(data as ReportPayload);
+    }).catch(() => { if (active) setError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [id,attempt]);
 
   if (loading) {
     return (
@@ -65,6 +73,7 @@ export default function SharedReport() {
             <p className="text-sm text-muted-foreground mt-2">
               {t('sharedReport.unavailableBody', 'This link may have expired or been turned off. Ask the car owner for a new link.')}
             </p>
+            <Button variant="outline" className="mt-4" onClick={() => setAttempt(value=>value+1)}>{t('problems.retry','Try again')}</Button>
           </CardContent>
         </Card>
       </div>
@@ -98,7 +107,7 @@ export default function SharedReport() {
         <header className="mb-6 print:mb-4">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <BrandLogo className="h-10 w-10" alt={t('sharedReport.logoAlt', 'Logo')} />
+              <BrandLockup logoClassName="h-10 w-10" nameClassName="text-xl" />
               <div>
                 <h1 className="text-xl font-bold text-foreground">{carHeadline as string}</h1>
                 <p className="text-xs text-muted-foreground font-mono">

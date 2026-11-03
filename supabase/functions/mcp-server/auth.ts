@@ -31,9 +31,9 @@ export async function authenticate(bearerToken: string): Promise<{ auth: AuthInf
   // Try JWT auth first
   try {
     const client = createUserClient(bearerToken);
-    const { data: { user }, error } = await client.auth.getUser();
-    if (!error && user) {
-      return { auth: { userId: user.id }, client, authMethod: "jwt" };
+    const { data: userId, error } = await client.rpc("current_app_user_id");
+    if (!error && typeof userId === "string") {
+      return { auth: { userId }, client, authMethod: "jwt" };
     }
   } catch {
     // Fall through to MCP token
@@ -58,6 +58,6 @@ export async function authenticate(bearerToken: string): Promise<{ auth: AuthInf
     return { auth: { userId: data.user_id }, client: admin, authMethod: "mcp_token" };
   } catch (err) {
     if (err instanceof Error && (err.message.includes("revoked") || err.message.includes("expired"))) throw err;
-    throw new Error("Invalid authentication token. Use a valid Supabase JWT or MCP token.");
+    throw new Error("Invalid authentication token. Use a valid Google identity token or MCP token.");
   }
 }

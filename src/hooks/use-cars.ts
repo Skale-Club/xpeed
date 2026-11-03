@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { readPreference, writePreference } from '@/lib/browser-storage';
 import { getUserCars, createCarProfile, updateCarProfile, deleteCarProfile, type CarProfile, type CarProfileInput } from '@/lib/db';
 
 const STORAGE_KEY = 'selected_car_id';
@@ -12,7 +12,7 @@ export function useCars() {
 
   // Load saved selection from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = readPreference(STORAGE_KEY);
     if (saved) {
       setSelectedCarId(saved);
     }
@@ -20,21 +20,23 @@ export function useCars() {
 
   // Save selection to localStorage when it changes
   useEffect(() => {
-    if (selectedCarId) {
-      localStorage.setItem(STORAGE_KEY, selectedCarId);
-    }
+    writePreference(STORAGE_KEY, selectedCarId);
   }, [selectedCarId]);
 
   // Auto-select first car if none selected or if selected car is not in the list (e.g. filtered out)
   useEffect(() => {
-    if (loading || cars.length === 0) return;
+    if (loading || error) return;
+    if (cars.length === 0) {
+      setSelectedCarId(null);
+      return;
+    }
 
     const selectedCarExists = selectedCarId && cars.some(c => c.id === selectedCarId);
     
     if (!selectedCarId || !selectedCarExists) {
       setSelectedCarId(cars[0].id);
     }
-  }, [cars, selectedCarId, loading]);
+  }, [cars, selectedCarId, loading, error]);
 
   const loadCars = useCallback(async () => {
     try {

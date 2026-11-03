@@ -53,6 +53,8 @@ export default defineConfig(async (env: ConfigEnv) => {
     resolve: {
       ...base.resolve,
       alias: [
+        { find: /^@\/components\/auth\/GoogleIdentityButton$/, replacement: path.resolve(__dirname, "./src/harness/FakeGoogleButton.tsx") },
+        { find: /^@\/lib\/auth\/google$/, replacement: path.resolve(__dirname, "./src/harness/fake-google.ts") },
         { find: /^@\/integrations\/supabase\/client$/, replacement: path.resolve(__dirname, "./src/harness/fake-supabase.ts") },
         { find: "@", replacement: path.resolve(__dirname, "./src") },
       ],

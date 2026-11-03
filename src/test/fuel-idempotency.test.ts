@@ -3,7 +3,7 @@ import handler from '../../api/fuel';
 
 const h = vi.hoisted(() => ({ files: new Map<string,string>(), attempts: [] as string[] }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
-  auth:{getUser:async()=>({data:{user:{id:'00000000-0000-4000-8000-000000000001'}},error:null})},
+  rpc:async()=>({data:'00000000-0000-4000-8000-000000000001',error:null}),
   from:()=>{const query={select:()=>query,eq:()=>query,maybeSingle:async()=>({data:{id:'00000000-0000-4000-8000-000000000002'},error:null})};return query;},
   storage:{from:()=>({
     upload:async(path:string,body:string)=>{h.attempts.push(path);if(h.files.has(path))return {error:{message:'Already exists'}};h.files.set(path,body);return {error:null};},

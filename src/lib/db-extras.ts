@@ -1,3 +1,4 @@
+import { getCurrentUser } from '@/lib/auth/session';
 // Extra database helpers for new features (Phase 03+):
 // - Maintenance log
 // - Session photos
@@ -8,6 +9,8 @@
 import { supabase } from '@/integrations/supabase/client';
 import { MEDIA_TYPES, type SharedTripMedia } from './trip-media';
 import { publicAppUrl } from './trips';
+import { readAllPages } from './db-pages';
+import { getAccessToken } from './auth/google';
 
 // ---------- Maintenance ----------
 
@@ -34,13 +37,12 @@ export interface MaintenanceEvent {
 export type MaintenanceInput = Omit<MaintenanceEvent, 'id' | 'user_id' | 'created_at'>;
 
 export async function listMaintenanceEvents(carProfileId: string): Promise<MaintenanceEvent[]> {
-  const { data, error } = await supabase
+  return readAllPages<MaintenanceEvent>((from, to) => supabase
     .from('maintenance_events' as never)
     .select('*')
     .eq('car_profile_id', carProfileId)
-    .order('performed_at', { ascending: false });
-  if (error) throw error;
-  return (data || []) as unknown as MaintenanceEvent[];
+    .order('performed_at', { ascending: false }).order('id', { ascending: false })
+    .range(from, to), 'Failed to fetch service history');
 }
 
 export async function createMaintenanceEvent(input: MaintenanceInput): Promise<MaintenanceEvent> {
@@ -82,7 +84,7 @@ export async function uploadSessionPhoto(
   photoType: PhotoType = 'other',
   caption?: string,
 ): Promise<SessionPhoto> {
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await getCurrentUser();
   if (userError || !user) throw new Error('User not authenticated');
 
   const media = MEDIA_TYPES[file.type];
@@ -113,13 +115,12 @@ export async function uploadSessionPhoto(
 }
 
 export async function listSessionPhotos(sessionId: string): Promise<SessionPhoto[]> {
-  const { data, error } = await supabase
+  return readAllPages<SessionPhoto>((from, to) => supabase
     .from('session_photos' as never)
     .select('*')
     .eq('session_id', sessionId)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data || []) as unknown as SessionPhoto[];
+    .order('created_at', { ascending: true }).order('id', { ascending: true })
+    .range(from, to), 'Failed to fetch photos');
 }
 
 // SECURITY (S08-1): session-photos is a PRIVATE bucket. getPublicUrl() produced
@@ -171,14 +172,14 @@ export async function createSharedReport(sessionId: string, expiresInDays: numbe
 
 /** The links the signed-in user has made for one trip (still working, newest first). */
 export async function listSharedReports(sessionId: string): Promise<SharedReport[]> {
-  const { data, error } = await supabase
+  const data = await readAllPages<SharedReport>((from, to) => supabase
     .from('shared_reports' as never)
     .select('id, session_id, user_id, expires_at, view_count, created_at')
     .eq('session_id', sessionId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
+    .order('created_at', { ascending: false }).order('id', { ascending: false })
+    .range(from, to), 'Failed to fetch shared links');
   const now = Date.now();
-  return ((data || []) as unknown as SharedReport[])
+  return data
     .filter((r) => !r.expires_at || new Date(r.expires_at).getTime() > now);
 }
 
@@ -203,10 +204,10 @@ export async function getSharedReport(reportId: string): Promise<Record<string, 
 }
 
 export async function includeSharedMedia(reportId: string, ids: string[]): Promise<void> {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) throw new Error('Sign in to share attachments');
+  const token = await getAccessToken();
+  if (!token) throw new Error('Sign in to share attachments');
   const response = await fetch(`${publicAppUrl()}/api/shared-media?id=${encodeURIComponent(reportId)}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify({ ids }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ ids }),
   });
   if (!response.ok) throw new Error('Could not include attachments. No link was shared.');
 }

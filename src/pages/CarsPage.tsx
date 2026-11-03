@@ -28,6 +28,7 @@ import { CarMileage } from '@/components/OilChangeCard';
 import { BodyTypePicker, ColorPicker } from '@/components/car/CarLookPickers';
 import { guessBodyType, isBodyType, isCarColor, type BodyType, type CarColor } from '@/lib/car-look';
 import { carPhotoProblem, removeCarPhoto, uploadCarPhoto } from '@/lib/car-photo';
+import { isValidVin } from '@/lib/vin';
 
 type CarWithEngine = CarProfile & { engine_type?: EngineType | null };
 
@@ -42,7 +43,7 @@ function buildHeadline(car: CarProfile): string {
 }
 
 export default function CarsPage() {
-  const { cars, selectedCarId, selectCar, updateCar, deleteCar, loading, refresh } = useCarsContext();
+  const { cars, selectedCarId, selectCar, updateCar, deleteCar, loading, error: carsError, refresh } = useCarsContext();
   const { toast } = useToast();
 
   // Dialog + per-card state
@@ -81,7 +82,7 @@ export default function CarsPage() {
       return;
     }
     const trimmedVin = editVin.trim();
-    if (trimmedVin && trimmedVin.length !== 17) {
+    if (trimmedVin && !isValidVin(trimmedVin)) {
       toast({ title: t('vehicle.vinInvalid', 'The chassis number (VIN) has 17 characters.'), variant: 'warning' });
       return;
     }
@@ -97,7 +98,7 @@ export default function CarsPage() {
         make: trimmedMake,
         model: trimmedModel,
         trim: editTrim.trim() || null,
-        vin: trimmedVin || null,
+        vin: trimmedVin.toUpperCase() || null,
         notes: editNotes.trim() || null,
         engine_type: editEngine,
         color: editColor,
@@ -211,6 +212,13 @@ export default function CarsPage() {
 
         {loading ? (
           <PageLoader fullScreen={false} className="py-12" />
+        ) : carsError ? (
+          <Card role="alert">
+            <CardContent className="p-6 text-center space-y-3">
+              <p>{t('vehicle.loadFailed', "Couldn't load your cars")}</p>
+              <Button onClick={() => void refresh()}>{t('problems.retry', 'Try again')}</Button>
+            </CardContent>
+          </Card>
         ) : cars.length === 0 ? (
           <Card className="bg-card border-border">
             <CardContent className="py-12 text-center">

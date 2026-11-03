@@ -1,3 +1,4 @@
+import { verifyAppUser } from '../src/lib/verify-app-user';
 import { createClient } from '@supabase/supabase-js';
 import { EMPTY_VEHICLE_CARE, validCare, type VehicleCare } from '../src/lib/vehicle-care';
 export const config = { runtime: 'edge' };
@@ -15,9 +16,8 @@ export default async function handler(req: Request): Promise<Response> {
   if (!token) return reply({ error: 'unauthorized' }, 401);
   const db = createClient(url, key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } });
   try {
-    const auth = await db.auth.getUser(token);
-    if (auth.error || !auth.data.user) return reply({ error: 'unauthorized' }, 401);
-    const userId = auth.data.user.id;
+    const userId = await verifyAppUser(url,key,token);
+    if (!userId) return reply({ error: 'unauthorized' },401);
     const car = await db.from('car_profiles').select('id').eq('id', carId).eq('user_id', userId).maybeSingle();
     if (car.error) throw car.error;
     if (!car.data) return reply({ error: 'car_unavailable' }, 404);

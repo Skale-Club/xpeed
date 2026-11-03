@@ -33,7 +33,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     current.current = next;
     setPreferences(next);
   };
-  const patch = (next: Partial<Preferences>) => savePreferences({...current.current, ...next});
+  const patch = (next: Partial<Preferences>) => {
+    if (next.timezone) {
+      try { new Intl.DateTimeFormat('en',{timeZone:next.timezone}); } catch { return; }
+    }
+    const updated = {...current.current,...next};
+    try { persistPreferences(updated); } catch { /* Immediate controls remain usable in memory; explicit Save still reports storage failures. */ }
+    current.current=updated; setPreferences(updated);
+  };
   return <SettingsContext.Provider value={{...preferences, savePreferences,
     setVolumeUnit: volumeUnit => patch({volumeUnit}), setConsumptionUnit: consumptionUnit => patch({consumptionUnit}),
     setCurrency: currency => patch({currency}), setTemperatureUnit: temperatureUnit => patch({temperatureUnit}),

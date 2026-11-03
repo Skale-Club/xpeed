@@ -1,0 +1,9 @@
+{
+  "name": "xpeed-google-auth",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "engines": { "node": "22" },
+  "scripts": { "test": "node --test policy.test.mjs" },
+  "dependencies": { "firebase-functions": "^7.4.0" }
+}

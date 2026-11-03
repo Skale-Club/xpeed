@@ -224,16 +224,16 @@ serve(async (req) => {
         return jsonRpcError(null, -32001, "Unauthorized: invalid Xpeed OAuth JWT", 401, true);
       }
     } else {
-      // Path B: Supabase JWT
+      // Path B: Google Cloud ID token (or a legacy session during rollout)
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: `Bearer ${rawToken}` } },
         auth: { persistSession: false },
       });
-      const { data: { user }, error } = await userClient.auth.getUser();
-      if (error || !user) {
+      const { data: appUserId, error } = await userClient.rpc("current_app_user_id");
+      if (error || typeof appUserId !== "string") {
         return jsonRpcError(null, -32001, "Unauthorized: invalid or expired JWT", 401, true);
       }
-      userId = user.id;
+      userId = appUserId;
     }
   } else {
     // Path C: API key token (opaque)

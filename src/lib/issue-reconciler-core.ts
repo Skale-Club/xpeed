@@ -73,7 +73,7 @@ export function createIssueReconciler(supabase: SupabaseClient) {
           .eq('car_profile_id', carProfileId)
           .eq('canonical_key', item.canonical_key)
           .maybeSingle();
-        if (seen.strict && lookupError) throw new Error(lookupError.message);
+        if (lookupError) throw new Error(lookupError.message);
 
         if (!existing) {
           const { data: created, error } = await supabase
@@ -132,7 +132,7 @@ export function createIssueReconciler(supabase: SupabaseClient) {
         // 'active' and 'recurred' stay as they are; 'ignored' stays ignored.
         if (!stale) {
           const updated = await supabase.from('vehicle_issues').update(updates as unknown as never).eq('id', issueId);
-          if (seen.strict && updated?.error) throw new Error(updated.error.message);
+          if (updated?.error) throw new Error(updated.error.message);
         }
       }
       if (!issueId) {
@@ -270,7 +270,7 @@ export function createIssueReconciler(supabase: SupabaseClient) {
         .select('id, canonical_key, last_seen_at, details')
         .eq('car_profile_id', carProfileId)
         .in('status', ['active', 'recurred']);
-      if (strict && lookupError) throw new Error(lookupError.message);
+      if (lookupError) throw new Error(lookupError.message);
       const at = new Date(occurredAt).getTime();
       const gone = ((open ?? []) as { id: string; canonical_key: string; last_seen_at: string; details?: Partial<CodeDetails> | null }[])
         .filter((i) => i.canonical_key.startsWith(DTC_PREFIX) && !present.has(i.canonical_key))
@@ -282,14 +282,21 @@ export function createIssueReconciler(supabase: SupabaseClient) {
           const reportedBy = i.details?.modules;
           return reportedBy?.length ? reportedBy.every((m) => answeredModules.has(m)) : codes.complete === true;
         });
+      let resolved = 0;
       for (const issue of gone) {
         const updated = await supabase
           .from('vehicle_issues')
           .update({ status: 'resolved', resolved_at: occurredAt, resolved_note: CODE_GONE_NOTE } as unknown as never)
-          .eq('id', issue.id);
-        if (strict && updated?.error) throw new Error(updated.error.message);
+          .eq('id', issue.id)
+          .in('status',['active','recurred'])
+          .eq('last_seen_at',issue.last_seen_at)
+          .select('id');
+        if (updated?.error) {
+          if (strict) throw new Error(updated.error.message);
+          console.warn('Could not close fault code:',updated.error.message);
+        } else resolved += updated.data?.length ?? 0;
       }
-      return { resolved: gone.length };
+      return { resolved };
     } catch (err) {
       if (strict) throw err;
       console.warn('Could not close fault codes the car no longer reports:', err);

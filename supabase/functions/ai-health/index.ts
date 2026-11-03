@@ -9,6 +9,7 @@
 // Admin-only. Never returns the key value back to the client.
 //
 // deno-lint-ignore-file no-explicit-any
+import { getUserIdFromAuth } from "../_shared/quota.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -44,9 +45,8 @@ serve(async (req) => {
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (!token) return json({ ok: false, reason: "unauthorized" }, 401);
 
-  const { data: userData, error: userErr } = await admin.auth.getUser(token);
-  const userId = userData?.user?.id;
-  if (userErr || !userId) return json({ ok: false, reason: "unauthorized" }, 401);
+  const userId = await getUserIdFromAuth(authHeader);
+  if (!userId) return json({ ok: false, reason: "unauthorized" }, 401);
 
   const { data: prof } = await admin
     .from("car_profiles")

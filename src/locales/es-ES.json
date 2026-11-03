@@ -412,7 +412,8 @@
     "recordingAutoHint": "Termina al apagar el coche o tras 10 minutos parado.",
     "autoOffDuringTrip": "La grabación automática está desactivada para los próximos viajes. Usa Finalizar viaje para terminar esta grabación.",
     "recordingManualHint": "Pulsa Finalizar viaje para terminar. Apagar el coche también finaliza la grabación.",
-    "waitingMovement": "Esperando movimiento"
+    "waitingMovement": "Esperando movimiento",
+    "unregisteredCar": "Añade el coche conectado para guardar este viaje. La grabación se conserva en este dispositivo."
   },
   "pill": {
     "recording": "Grabando viaje",
@@ -759,6 +760,7 @@
     "discard": "Descartar cambios"
   },
   "vehicle": {
+    "loadFailed": "No se pudieron cargar tus coches",
     "fuel": "Combustible",
     "fuelType": {
       "flex": "Flex (gasolina/etanol)",
@@ -825,6 +827,8 @@
     "later": "Decidir después"
   },
   "maint": {
+    "mileageUnit": "Kilometraje ({{unit}})",
+    "invalidFields": "Introduce una fecha válida y un kilometraje y coste iguales o mayores que cero.",
     "title": "Historial de mantenimiento",
     "addButton": "Añadir servicio",
     "dialogTitle": "Registrar un servicio",
@@ -929,6 +933,15 @@
     "sharedFailed": "No se pudieron cargar los archivos compartidos. El informe de diagnóstico sigue disponible."
   },
   "auth": {
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "sendResetLink": "Enviar enlace de recuperación",
+    "backToSignIn": "Volver a iniciar sesión",
+    "resetSent": "Si existe una cuenta con este correo, recibirás un enlace de recuperación. Revisa tu bandeja de entrada.",
+    "resetFailed": "No se pudo enviar el enlace de recuperación. Inténtalo de nuevo.",
+    "newPasswordTitle": "Establece una nueva contraseña",
+    "savePassword": "Guardar nueva contraseña",
+    "recoveryExpired": "Abre un enlace de recuperación válido de tu correo. Si ha caducado, solicita otro en la página de acceso.",
+    "passwordUpdateFailed": "No se pudo actualizar la contraseña. Solicita otro enlace de recuperación o inténtalo de nuevo.",
     "signInFailed": "No hemos podido iniciar tu sesión. Inténtalo de nuevo.",
     "wrongEmailOrPassword": "Correo o contraseña incorrectos. Revísalos e inténtalo de nuevo.",
     "emailNotConfirmed": "Tu correo aún no está confirmado. Abre el enlace que te enviamos a tu bandeja de entrada y vuelve a iniciar sesión.",
@@ -946,7 +959,7 @@
     "signUp": "Regístrate",
     "signInTerms": "La primera vez que entras, se crea tu cuenta de Xpeed.",
     "passwordsDontMatch": "Las dos contraseñas no coinciden.",
-    "passwordTooShort": "Tu contraseña necesita al menos 6 caracteres.",
+    "passwordTooShort": "Tu contraseña necesita al menos 8 caracteres.",
     "alreadyRegistered": "Ya existe una cuenta con este correo. Prueba a iniciar sesión.",
     "signUpFailed": "No hemos podido crear tu cuenta. Inténtalo de nuevo.",
     "googleSignUpFailed": "No hemos podido registrarte con Google. Inténtalo de nuevo.",
@@ -956,7 +969,7 @@
     "signUpSubtitle": "Crea tu cuenta",
     "createAccount": "Crear cuenta",
     "signUpDescription": "Empieza a vigilar la salud de tu coche.",
-    "passwordHint": "Al menos 6 caracteres",
+    "passwordHint": "Al menos 8 caracteres",
     "confirmPassword": "Confirma la contraseña",
     "creatingAccount": "Creando tu cuenta…",
     "haveAccount": "¿Ya tienes cuenta?",
@@ -978,9 +991,14 @@
       "errUnavailable": "El acceso con el móvil aún no está disponible. Por ahora, entra con Google.",
       "errWrongCode": "Código incorrecto o vencido. Revisa el SMS o pide uno nuevo.",
       "errGeneric": "Algo salió mal. Inténtalo de nuevo."
-    }
+    },
+    "unavailable": "El inicio de sesión no está disponible temporalmente. Inténtalo de nuevo en unos instantes.",
+    "nativeUpdateTitle": "Actualiza Xpeed para entrar",
+    "nativeUpdateHint": "Instala la última versión para entrar por teléfono o Google. Tus viajes siguen guardados."
   },
   "assistant": {
+    "conversationsFailed": "No se pudieron cargar tus conversaciones anteriores. Inténtalo de nuevo para verlas.",
+    "historyFailed": "No se pudo cargar esta conversación. Inténtalo de nuevo antes de enviar un mensaje.",
     "errorTitle": "Algo ha salido mal",
     "replyFailed": "El asistente no ha podido responder ahora. Inténtalo de nuevo en un momento.",
     "deleteFailed": "No se ha podido borrar esta conversación. Inténtalo de nuevo.",

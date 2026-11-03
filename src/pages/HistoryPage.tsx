@@ -14,7 +14,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -34,6 +34,11 @@ const PAGE_SIZE = 20;
 const FLAG_CHUNK = 50;
 
 export default function HistoryPage() {
+  const { selectedCarId } = useCarsContext();
+  return <CarHistory key={selectedCarId ?? 'none'} />;
+}
+
+function CarHistory() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -303,6 +308,7 @@ export default function HistoryPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('history.renameTitle', 'Rename trip')}</DialogTitle>
+            <DialogDescription className="sr-only">{t('history.newName', 'Trip name')}</DialogDescription>
           </DialogHeader>
           <Input
             value={newName}

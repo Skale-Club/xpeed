@@ -1,3 +1,4 @@
+vi.mock('@/lib/auth/session', () => ({ getCurrentUser: async () => ({ data: { user: { id: 'u1' } }, error: null }) }));
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { webcrypto } from 'node:crypto';
 const sync = vi.hoisted(() => vi.fn(async (_id?: string) => undefined));
@@ -98,6 +99,14 @@ describe('recorded CSV commits are idempotent', () => {
     expect(stored).toHaveBeenCalledOnce();
     expect(stored).toHaveBeenCalledWith(identity.sessionId, false);
   });
+});
+
+it('uses the first valid timestamp as the trip start when initial times are missing', async () => {
+  const csv = 'Time,Engine RPM\nN/A,800\n2026-11-02T10:00:00Z,900\n2026-11-02T10:00:20Z,950';
+  const input = Object.assign(new File([csv], 'log.csv', { type: 'text/csv' }), { text: async () => csv });
+  await ingestSessionCsv(input, 'car-1');
+  expect(db.createSession.mock.calls[0][6]).toBe('2026-11-02T10:00:00.000Z');
+  expect(db.insertSessionRows.mock.calls[0][1][0]).toMatchObject({ t_timestamp: null, t_seconds: null });
 });
 
 describe('ingestSessionCsv keeps the phone copy until the trip is really saved', () => {

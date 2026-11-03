@@ -1,12 +1,12 @@
 import { RecordingDeletedError } from '../recorded-session';
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '../trips';
 import { recordedSessionId } from '../recording-identity';
 import type { StoredTrip, StoredTripMeta } from './trip-store';
 async function request(carId: string, method = 'GET', body?: unknown, id?: string) {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) throw Error('Sign in to synchronize your trip');
-  const response = await fetch(`${publicAppUrl()}/api/trip-checkpoints?carId=${encodeURIComponent(carId)}${id ? `&id=${id}` : ''}`, { method, headers: { Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000), ...(body ? { body: JSON.stringify(body) } : {}) });
+  const token = await getAccessToken();
+  if (!token) throw Error('Sign in to synchronize your trip');
+  const response = await fetch(`${publicAppUrl()}/api/trip-checkpoints?carId=${encodeURIComponent(carId)}${id ? `&id=${id}` : ''}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000), ...(body ? { body: JSON.stringify(body) } : {}) });
   const result = await response.json();
   if (response.status === 410 && result.error === 'recording_deleted') throw new RecordingDeletedError();
   if (!response.ok) throw Error(result.error || 'Trip cloud synchronization failed');

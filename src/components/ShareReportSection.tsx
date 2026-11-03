@@ -19,7 +19,13 @@ const LINK_DAYS = 30;
  * that anyone with it can open the report, VIN included) and lists the links still working
  * so the owner can turn each one off.
  */
-export default function ShareReportSection({ session }: { session: Pick<Session, 'id' | 'source_filename' | 'session_start' | 'uploaded_at'> }) {
+type ShareProps = { session: Pick<Session, 'id' | 'source_filename' | 'session_start' | 'uploaded_at'> };
+
+export default function ShareReportSection({ session }: ShareProps) {
+  return <SessionSharing key={session.id} session={session} />;
+}
+
+function SessionSharing({ session }: ShareProps) {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const [confirming, setConfirming] = useState(false);

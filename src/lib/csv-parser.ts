@@ -38,9 +38,31 @@ export function extractSessionDtcs(headers: string[], rows: Record<string, numbe
 }
 
 function detectDelimiter(firstLine: string): string {
-  const semicolons = (firstLine.match(/;/g) || []).length;
-  const commas = (firstLine.match(/,/g) || []).length;
+  const semicolons = parseCSVLine(firstLine, ';').length;
+  const commas = parseCSVLine(firstLine, ',').length;
   return semicolons > commas ? ';' : ',';
+}
+
+/** Split records outside quotes: exported sensor names can themselves contain newlines. */
+function csvRecords(text: string): string[] {
+  const records: string[] = [];
+  let start = 0;
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '"') {
+      if (quoted && text[i + 1] === '"') i++;
+      else quoted = !quoted;
+    } else if (!quoted && (text[i] === '\n' || text[i] === '\r')) {
+      const record = text.slice(start, i);
+      if (record.trim()) records.push(record);
+      if (text[i] === '\r' && text[i + 1] === '\n') i++;
+      start = i + 1;
+    }
+  }
+  if (quoted) throw new Error('CSV has an unterminated quoted field.');
+  const last = text.slice(start);
+  if (last.trim()) records.push(last);
+  return records;
 }
 
 export function parseCSVLine(line: string, delimiter: string): string[] {
@@ -75,24 +97,24 @@ export function parseCSVLine(line: string, delimiter: string): string[] {
 
 function isNumeric(val: string): boolean {
   if (!val || val.trim() === '') return false;
-  return !isNaN(Number(val.replace(',', '.')));
+  return Number.isFinite(Number(val.replace(',', '.')));
 }
 
 function toNumber(val: string): number | null {
   if (!val || val.trim() === '') return null;
   const cleaned = val.replace(',', '.');
   const n = Number(cleaned);
-  return isNaN(n) ? null : n;
+  return Number.isFinite(n) ? n : null;
 }
 
 function detectTimeColumn(headers: string[], sampleRows: Record<string, string>[]): ParsedCSV['timeColumn'] {
   // Priority 1: timestamp/date/time column with ISO-like values
-  const tsKeywords = ['timestamp', 'date', 'datetime'];
+  const tsKeywords = ['timestamp', 'date', 'datetime', 'time'];
   for (const h of headers) {
     const lower = h.toLowerCase();
     if (tsKeywords.some(kw => lower.includes(kw))) {
-      const sample = sampleRows[0]?.[h];
-      if (sample && !isNumeric(sample)) {
+      const sample = sampleRows.find((row) => row[h] && !isNumeric(row[h]) && Number.isFinite(Date.parse(row[h])))?.[h];
+      if (sample) {
         return { type: 'timestamp', key: h };
       }
     }
@@ -107,7 +129,7 @@ function detectTimeColumn(headers: string[], sampleRows: Record<string, string>[
   for (const h of headers) {
     const lower = h.toLowerCase().trim();
     if (exactTimeKeys.includes(lower) || substringTimeKeys.some(kw => lower.includes(kw))) {
-      const sample = sampleRows[0]?.[h];
+      const sample = sampleRows.find((row) => isNumeric(row[h]))?.[h];
       if (sample && isNumeric(sample)) {
         return { type: 'seconds', key: h };
       }
@@ -118,18 +140,22 @@ function detectTimeColumn(headers: string[], sampleRows: Record<string, string>[
 }
 
 export function parseCSV(text: string): ParsedCSV {
-  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  const lines = csvRecords(text.replace(/^\uFEFF/, ''));
   if (lines.length < 2) {
     return { headers: [], rows: [], headerMapping: {}, timeColumn: null, activeDtcs: [] };
   }
 
   const delimiter = detectDelimiter(lines[0]);
   const headers = parseCSVLine(lines[0], delimiter);
+  if (headers.some((h) => !h) || new Set(headers).size !== headers.length) {
+    throw new Error('CSV column names must be non-empty and unique.');
+  }
 
   // Build raw string rows first for time detection
   const rawRows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
     const values = parseCSVLine(lines[i], delimiter);
+    if (values.length > headers.length) throw new Error(`CSV record ${i + 1} has more values than column names.`);
     if (values.length === 0 || (values.length === 1 && values[0] === '')) continue;
     const row: Record<string, string> = {};
     headers.forEach((h, idx) => {
@@ -161,7 +187,7 @@ export function parseCSV(text: string): ParsedCSV {
 
       if (!grouped.has(timeVal)) {
         grouped.set(timeVal, { 
-          [timeColumn.key]: timeColumn.type === 'seconds' ? toNumber(timeVal) : timeVal 
+          [timeColumn.key]: timeColumn.type === 'seconds' ? toNumber(timeVal) : (Number.isFinite(Date.parse(timeVal)) ? new Date(timeVal).toISOString() : null)
         });
       }
       const entry = grouped.get(timeVal)!;
@@ -213,7 +239,7 @@ export function parseCSV(text: string): ParsedCSV {
     headers.forEach(h => {
       const val = raw[h];
       if (timeColumn?.key === h && timeColumn.type === 'timestamp') {
-        row[h] = val || null;
+        row[h] = val && Number.isFinite(Date.parse(val)) ? new Date(val).toISOString() : null;
       } else if (isNumeric(val)) {
         row[h] = toNumber(val);
       } else {

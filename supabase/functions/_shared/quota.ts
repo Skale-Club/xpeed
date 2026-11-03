@@ -92,18 +92,24 @@ export async function refundQuota(userId: string, kind: QuotaKind): Promise<void
 }
 
 /**
- * Extract a user_id from a Supabase JWT in the Authorization header.
+ * Extract an application user UUID from a verified identity token in the Authorization header.
  * Returns null if anything fails — caller should treat as unauthenticated.
  */
 export async function getUserIdFromAuth(authHeader: string | null): Promise<string | null> {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-  const token = authHeader.slice("Bearer ".length);
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  if (!token) return null;
+  return resolveUserId(token);
+}
+
+/** PostgREST verifies the Google signature/issuer before executing this RPC. */
+export async function resolveUserId(token: string): Promise<string | null> {
   try {
-    const client = getAdminClient();
-    const { data, error } = await (client as any).auth.getUser(token);
-    if (error) return null;
-    return (data?.user?.id as string) ?? null;
-  } catch {
-    return null;
-  }
+    const client = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data, error } = await client.rpc("current_app_user_id");
+    return !error && typeof data === "string" ? data : null;
+  } catch { return null; }
 }

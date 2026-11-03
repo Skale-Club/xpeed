@@ -15,6 +15,8 @@ export interface StoredTrip {
   id: string;
   /** The car selected when the trip started (null: none yet; the car chosen later gets it). */
   carId: string | null;
+  /** When the adapter identified a car, never assign this recording to a different selected car. */
+  vin?: string | null;
   /** The signed-in user who recorded it: a copy is only ever uploaded for that user. */
   userId?: string | null;
   /** Epoch ms. */

@@ -1,21 +1,21 @@
+import { Capacitor } from '@capacitor/core';
+import { APK_URL } from '@/lib/app-update';
+import { GoogleIdentityButton } from '@/components/auth/GoogleIdentityButton';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Bluetooth, Car, FileText, Loader2, Route, ShieldCheck, Smartphone } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PhoneSignIn } from '@/components/auth/PhoneSignIn';
-import { BrandLogo } from '@/components/BrandLogo';
+import { BrandLockup } from '@/components/BrandLockup';
 import { isNativeApp } from '@/lib/obd/native-ble';
 
 // The public page: what Xpeed does, in plain words, and sign-in in a popup
 // (phone code or Google), like Xpot. A new phone number simply gets an
-// account, so there is no separate sign-up. In the Android app only the
-// sign-in shows, and no Google (Google blocks sign-in inside an app's web view).
+// account, so there is no separate sign-up. Android uses native Google sign-in.
 
 function GoogleIcon() {
   return (
@@ -28,68 +28,13 @@ function GoogleIcon() {
   );
 }
 
-/** Email + password, only for accounts made before phone sign-in. */
-function EmailSignIn({ onSignedIn }: { onSignedIn: () => void }) {
-  const { t } = useTranslation();
-  const { signIn } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await signIn(email, password);
-      onSignedIn();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '';
-      setError(
-        message.includes('Invalid login')
-          ? t('auth.wrongEmailOrPassword', 'Wrong email or password. Please check and try again.')
-          : message.includes('Email not confirmed')
-            ? t('auth.emailNotConfirmed', "Your email isn't confirmed yet. Open the link we sent to your inbox, then sign in again.")
-            : t('auth.signInFailed', "We couldn't sign you in. Please try again."),
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="space-y-3" data-testid="signin-email">
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-      <div className="space-y-1.5">
-        <Label htmlFor="email">{t('auth.email', 'Email')}</Label>
-        <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="password">{t('auth.password', 'Password')}</Label>
-        <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-      </div>
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        {t('auth.signIn', 'Sign in')}
-      </Button>
-    </form>
-  );
-}
-
-/** Phone code (default), Google, or the old email + password. */
+/** Passwordless login: text message or Google, on web and Android. */
 function SignInPanel({ nextPath }: { nextPath: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { signInWithGoogle } = useAuth();
-  const [withEmail, setWithEmail] = useState(false);
+  const { signInWithGoogle, error: authError } = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState('');
-  const native = isNativeApp();
   const done = () => navigate(nextPath, { replace: true });
 
   const google = async () => {
@@ -97,19 +42,18 @@ function SignInPanel({ nextPath }: { nextPath: string }) {
     setGoogleLoading(true);
     try {
       await signInWithGoogle(nextPath);
-      // The Google page takes over from here.
+      done();
     } catch {
       setGoogleError(t('auth.googleSignInFailed', "We couldn't sign you in with Google. Please try again."));
-      setGoogleLoading(false);
-    }
+    } finally { setGoogleLoading(false); }
   };
 
   return (
       <div className="space-y-5">
-        {withEmail ? <EmailSignIn onSignedIn={done} /> : <PhoneSignIn onSignedIn={done} />}
+        {authError && <Alert variant="destructive"><AlertDescription>{t('auth.unavailable')}</AlertDescription></Alert>}
+        <PhoneSignIn onSignedIn={done} />
 
-        {!native && (
-          <>
+        <>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="h-px flex-1 bg-border" />
               {t('landing.or', 'or')}
@@ -120,16 +64,12 @@ function SignInPanel({ nextPath }: { nextPath: string }) {
                 <AlertDescription>{googleError}</AlertDescription>
               </Alert>
             )}
-            <Button type="button" variant="outline" size="lg" className="w-full" onClick={() => void google()} disabled={googleLoading} data-testid="button-google">
+            {isNativeApp() ? <Button type="button" variant="outline" size="lg" className="w-full" onClick={() => void google()} disabled={googleLoading} data-testid="button-google">
               {googleLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <span className="mr-2"><GoogleIcon /></span>}
               {t('landing.google', 'Continue with Google')}
-            </Button>
-          </>
-        )}
+            </Button> : <GoogleIdentityButton onSignedIn={done} />}
+        </>
 
-        <button type="button" onClick={() => setWithEmail((v) => !v)} className="w-full text-xs text-muted-foreground hover:text-foreground hover:underline">
-          {withEmail ? t('landing.usePhone', 'Use my phone number instead') : t('landing.useEmail', 'I have an account with email and password')}
-        </button>
         <p className="text-center text-xs text-muted-foreground">
           {t('auth.signInTerms', 'The first time you sign in, your Xpeed account is created.')}
         </p>
@@ -171,13 +111,18 @@ export default function LoginPage() {
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex flex-col items-center gap-2 text-center">
-            <BrandLogo className="h-14 w-14" />
-            <h1 className="text-2xl font-bold">Xpeed</h1>
+            <h1><BrandLockup logoClassName="h-14 w-14" nameClassName="text-3xl" /></h1>
             <p className="text-sm text-muted-foreground">{t('landing.tagline', 'Know if your car is OK, in plain words.')}</p>
           </div>
           <div className="space-y-5 rounded-lg border border-border bg-card p-6">
-            <SignInHeader />
-            <SignInPanel nextPath={nextPath} />
+            {Capacitor.isPluginAvailable('FirebaseAuthentication') ? <>
+              <SignInHeader />
+              <SignInPanel nextPath={nextPath} />
+            </> : <>
+              <h2 className="text-xl font-bold">{t('auth.nativeUpdateTitle')}</h2>
+              <p className="text-sm text-muted-foreground">{t('auth.nativeUpdateHint')}</p>
+              <Button asChild className="w-full"><a href={APK_URL}>{t('appVersion.update', 'Update app')}</a></Button>
+            </>}
           </div>
         </div>
       </div>
@@ -199,10 +144,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <BrandLogo />
-            <span className="text-lg font-bold">Xpeed</span>
-          </div>
+          <BrandLockup />
           <Button size="sm" variant="outline" onClick={openLogin} data-testid="landing-sign-in">
             {t('landing.signInShort', 'Sign in')}
           </Button>
@@ -268,7 +210,7 @@ export default function LoginPage() {
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="max-h-[92vh] w-[92%] max-w-md gap-0 overflow-y-auto rounded-2xl p-5 sm:p-7" data-testid="login-dialog">
           <DialogHeader className="space-y-3 pb-5 text-center sm:text-center">
-            <BrandLogo className="mx-auto h-12 w-12" />
+            <div className="flex justify-center"><BrandLockup logoClassName="h-12 w-12" nameClassName="text-2xl" /></div>
             <DialogTitle className="text-xl">{t('landing.signInTitle', 'Sign in or create your account')}</DialogTitle>
             <DialogDescription>{t('landing.signInHint', 'With your phone number: we text you a code. No password.')}</DialogDescription>
           </DialogHeader>

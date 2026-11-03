@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-02",
+  "timezone": "America/New_York",
+  "base_commit": "819cfb44b6a3440da5cee37d24fa9c7f20bd5a4d",
+  "scope": "Local working tree; no remote deployment or migration",
+  "node": "v24.13.0",
+  "checks": {
+    "frontend_and_api_types": { "command": "npm run typecheck", "exit_code": 0 },
+    "eslint": { "command": "npm run lint", "exit_code": 0, "errors": 0, "warnings": 11, "warning_rule": "react-refresh/only-export-components" },
+    "vitest": { "command": "npm test -- --maxWorkers=4", "exit_code": 0, "files_passed": 53, "tests_passed": 366, "tests_failed": 0, "baseline_tests_with_test_environment_configured": 303 },
+    "production_build": { "command": "npm run build", "exit_code": 0, "supabase_configuration": "synthetic placeholders", "pwa_precache_entries": 73, "pwa_precache_kib": 1817.20 },
+    "edge_functions": { "command": "npm run check:edge", "exit_code": 0, "typecheck": "passed", "contract_tests_passed": 3, "runtime": "local Deno 2.9.6 with existing isolated cache" },
+    "postgresql": { "command": "npm run test:sql", "exit_code": 0, "processing_checks_passed": 7, "migration_replay_count": 55, "migrated_access_check_groups_passed": 5, "database": "isolated in-memory PGlite, synthetic Supabase compatibility tables" },
+    "npm_production_audit": { "command": "npm audit --omit=dev --json", "exit_code": 0, "vulnerabilities": 0 },
+    "npm_complete_audit": { "vulnerabilities": 24, "low": 2, "moderate": 22, "high": 0, "critical": 0, "remaining_scope": "development/build tooling; no dependency version changes" },
+    "whitespace": { "command": "git diff --check", "exit_code": 0 }
+  },
+  "ui": {
+    "environment": "Chrome on local harness, fake Supabase and simulated adapter",
+    "verified": ["Home loaded", "Service history loaded", "Service form labels and values", "Synthetic service saved and present on reopening the page"],
+    "screenshot": "manutencao.png",
+    "not_verified_in_browser": ["Password recovery route inspection timed out in browser tooling; component tests passed"]
+  },
+  "not_executed": ["Production deploy", "Remote database changes", "Real password/email operations", "Paid AI calls", "Physical Android/BLE tests"],
+  "preserved_preexisting_untracked_file": ".github/keepalive-heartbeat"
+}

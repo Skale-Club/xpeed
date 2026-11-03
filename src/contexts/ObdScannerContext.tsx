@@ -115,6 +115,11 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // Set while the provider is going away (sign-out): what is recorded is kept on
   // the device for its owner, not uploaded. Declared before the scanner so its
   // cleanup runs first, ahead of the scanner closing the trip in progress.
+  const connectedVinRef = useRef<string | null>(null);
+  const recordingCar = useCallback(() => {
+    const vin = connectedVinRef.current;
+    return vin ? carsRef.current.find(car => car.vin?.toUpperCase() === vin)?.id ?? null : carIdRef.current;
+  },[]);
   const leavingRef = useRef(false);
   useEffect(() => {
     leavingRef.current = false;
@@ -165,7 +170,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
   // The trip being recorded: its copy's key, the car it belongs to (the car
   // selected when it started, even if another one is picked meanwhile) and who recorded it.
-  const currentTripRef = useRef<{ id: string; carId: string | null; userId: string | null } | null>(null);
+  const currentTripRef = useRef<{ id: string; carId: string | null; userId: string | null; vin?: string | null } | null>(null);
   const backupRef = useRef<{ id: string; saved: number; at?: number; pending: Promise<boolean> | null } | null>(null);
   /** Trips that just ended or were dropped: their copy is being written or removed, so a retry must leave it alone. */
   const finishingRef = useRef(new Set<string>());
@@ -221,13 +226,13 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
    * delete the saved trip and run the AI analysis a second time.
    */
   const uploadOne = useCallback(async (id: string, announceResult: () => boolean) => {
-    const copy = (await getTripCopy(id)) ?? memoryCopiesRef.current.get(id) ?? null;
+    const copy = memoryCopiesRef.current.get(id) ?? (await getTripCopy(id));
     if (!copy || copy.samples.length === 0) return;
     if (!isMine(copy)) return; // someone else's trip (shared phone): it waits for its owner
     if (copy.endedAt == null && currentTripRef.current?.id === id) return; // still being recorded
-    const carId = copy.carId ?? carIdRef.current;
+    const carId = copy.carId ?? (copy.vin ? carsRef.current.find(car => car.vin?.toUpperCase() === copy.vin?.toUpperCase())?.id : carIdRef.current);
     if (!carId) {
-      if (announceResult()) toast({ title: t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
+      if (announceResult()) toast({ title: copy.vin ? t('trip.unregisteredCar') : t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
       return;
     }
     const forget = async () => {
@@ -400,14 +405,14 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     const releaseUpdate = holdAppUpdates();
     const id = tripKey(trip.startedAt.getTime());
     const current = currentTripRef.current?.id === id ? currentTripRef.current : null;
-    const carId = current ? current.carId : carIdRef.current;
+    const carId = current ? current.carId : recordingCar();
     const owner = current ? current.userId : userIdRef.current;
     setTripSave({ id, userId: owner, carId, status: 'keeping' });
     finishingRef.current.add(id);
     try {
       // Keep a copy until the save succeeds; it is retried when the connection is back.
       const copy: StoredTrip = {
-        id, carId, userId: owner, startedAt: trip.startedAt.getTime(), endedAt: trip.endedAt.getTime(), columns: trip.columns, samples: trip.samples, dtcs: trip.dtcs,
+        id, carId, vin: current ? current.vin : connectedVinRef.current, userId: owner, startedAt: trip.startedAt.getTime(), endedAt: trip.endedAt.getTime(), columns: trip.columns, samples: trip.samples, dtcs: trip.dtcs,
         faultCodes: {
           stored: trip.faultCodes.stored, pending: trip.faultCodes.pending, checked: trip.faultCodes.checked,
           complete: trip.faultCodes.complete, permanent: trip.faultCodes.permanent, modules: trip.faultCodes.modules, codeModules: trip.faultCodes.codeModules,
@@ -433,7 +438,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       if (!memoryCopiesRef.current.has(id)) releaseUpdate();
       finishingRef.current.delete(id);
     }
-  }, [uploadCopy]);
+  }, [uploadCopy, recordingCar]);
 
   const dropTrip = useCallback((startedAt: Date) => {
     const id = tripKey(startedAt.getTime());
@@ -451,6 +456,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const obd = useObdScanner({ customPids, alwaysOn, onTripEnd: (trip) => void saveTrip(trip), onTripDropped: dropTrip });
+  connectedVinRef.current = isValidVin(obd.vin) ? obd.vin.toUpperCase() : null;
   const { status, recording, getRecording, connect, linkOpen } = obd;
   const [recordingCarId, setRecordingCarId] = useState<string | null>(null);
 
@@ -459,34 +465,48 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   // use, or offer to add a car that isn't in "My cars" yet.
   const [newCarFound, setNewCarFound] = useState<CarIdentity | null>(null);
   const handledVinRef = useRef<string | null>(null);
+  const vinLookup = useRef({ vin: obd.vin?.toUpperCase() ?? null, generation: 0 });
+  const currentVin = obd.vin?.toUpperCase() ?? null;
+  if (vinLookup.current.vin !== currentVin) {
+    vinLookup.current = { vin: currentVin, generation: vinLookup.current.generation + 1 };
+  }
+  useEffect(() => () => { vinLookup.current.generation++; }, []);
 
   /** The trip being recorded (if it just started) belongs to this car. */
   const switchToCar = useCallback((id: string, name: string) => {
     if (id !== carIdRef.current) {
+      carIdRef.current = id;
       selectCar(id);
       toast({ title: t('vin.recognized', 'Recognized your {{name}}', { name }), variant: 'success' });
     }
-    if (currentTripRef.current) {
-      currentTripRef.current = { ...currentTripRef.current, carId: id };
-      setRecordingCarId(id);
-    }
+    if (currentTripRef.current) { currentTripRef.current = { ...currentTripRef.current, carId: id }; setRecordingCarId(id); }
   }, [selectCar, toast, t]);
 
   useEffect(() => {
     const vin = obd.vin?.toUpperCase();
-    if (!isValidVin(vin) || carsLoading || handledVinRef.current === vin) return;
+    if (!isValidVin(vin)) {
+      handledVinRef.current = null;
+      setNewCarFound(null);
+      return;
+    }
+    if (carsLoading || handledVinRef.current === vin) return;
     handledVinRef.current = vin;
+    const generation = vinLookup.current.generation;
+    const isCurrent = () => vinLookup.current.generation === generation && vinLookup.current.vin === vin;
+    setNewCarFound(null);
     void (async () => {
       const known = cars.find((c) => c.vin?.toUpperCase() === vin);
       if (known) return switchToCar(known.id, known.name);
 
       const identity = await identifyVin(vin);
-      const selected = cars.find((c) => c.id === carIdRef.current);
+      if (!isCurrent()) return;
+      const currentCars = carsRef.current;
+      const selected = currentCars.find((c) => c.id === carIdRef.current);
       // The car in use has no VIN yet and could be this one; otherwise another
       // car without VIN whose maker and year match.
       const match = selected && !selected.vin && vinFitsCar(identity, selected)
         ? selected
-        : cars.find((c) => !c.vin && !!identity.make && c.make?.toLowerCase() === identity.make.toLowerCase() && vinFitsCar(identity, c));
+        : currentCars.find((c) => !c.vin && !!identity.make && c.make?.toLowerCase() === identity.make.toLowerCase() && vinFitsCar(identity, c));
       if (match) {
         try {
           await updateCar(match.id, {
@@ -498,10 +518,14 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         } catch (err) {
           console.warn('Could not save the VIN:', err);
         }
-        return switchToCar(match.id, match.name);
+        if (isCurrent()) switchToCar(match.id, match.name);
+        return;
       }
       setNewCarFound(identity);
-    })();
+    })().catch((err) => {
+      console.warn('Could not identify the connected car:', err);
+      if (isCurrent()) handledVinRef.current = null;
+    });
   }, [obd.vin, cars, carsLoading, updateCar, switchToCar]);
 
   const addFoundCar = useCallback(async (details: { make?: string; model?: string } = {}) => {
@@ -526,10 +550,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const recordingStart = recording?.startedAt.getTime() ?? null;
   useEffect(() => {
     if (recordingStart != null) {
-      currentTripRef.current = { id: tripKey(recordingStart), carId: carIdRef.current, userId: userIdRef.current };
-      setRecordingCarId(carIdRef.current);
+      currentTripRef.current = { id: tripKey(recordingStart), carId: recordingCar(), userId: userIdRef.current, vin: connectedVinRef.current };
+      setRecordingCarId(recordingCar());
     }
-  }, [recordingStart]);
+  }, [recordingStart, recordingCar]);
 
   // Back up the trip in progress: only what was recorded since the last backup is
   // written (a long drive is not copied whole every time).
@@ -543,7 +567,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     if (!snap.startedAt || tripKey(snap.startedAt.getTime()) !== current.id || snap.samples.length === 0) return;
     try {
       progress.pending = appendTripSamples({
-        id: current.id, carId: current.carId, userId: current.userId, startedAt: snap.startedAt.getTime(), columns: snap.columns, dtcs: snap.dtcs,
+        id: current.id, carId: current.carId, vin: current.vin, userId: current.userId, startedAt: snap.startedAt.getTime(), columns: snap.columns, dtcs: snap.dtcs,
         faultCodes: {
           stored: snap.faultCodes.stored, pending: snap.faultCodes.pending, checked: snap.faultCodes.checked,
           complete: snap.faultCodes.complete, permanent: snap.faultCodes.permanent, modules: snap.faultCodes.modules, codeModules: snap.faultCodes.codeModules,

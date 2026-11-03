@@ -12,7 +12,7 @@ const ingestMock = vi.hoisted(() => vi.fn(async (_file: File, _carId: string, _n
 
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CarsContext', () => ({
-  useCarsContext: () => ({ selectedCar: { name: 'Prius' }, selectedCarId: 'car-1' }),
+  useCarsContext: () => ({ selectedCar: { id: 'car-1', name: 'Prius', vin: VIN }, selectedCarId: 'car-1', cars: [{ id: 'car-1', name: 'Prius', vin: VIN }] }),
 }));
 vi.mock('@/hooks/use-csv-upload', () => ({ ingestSessionCsv: ingestMock }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));

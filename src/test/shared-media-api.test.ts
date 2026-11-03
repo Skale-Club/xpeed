@@ -3,7 +3,7 @@ import handler from '../../api/shared-media';
 
 const state = vi.hoisted(() => ({ report: null as null | { id: string; user_id: string; session_id: string; expires_at: string | null }, caller: 'owner', ids: null as string[] | null, photos: [] as { id: string; session_id: string; user_id: string; storage_path: string; caption: string; photo_type: string }[], signs: vi.fn() }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
-  auth: { getUser: async () => ({ data: { user: { id: state.caller } }, error: null }) },
+  rpc:async()=>({data:state.caller,error:null}),
   from: (table: string) => {
     const filters: Record<string, string> = {};
     return { select() { return this; }, eq(key: string, value: string) { filters[key] = value; return this; },

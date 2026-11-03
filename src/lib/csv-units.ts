@@ -3,6 +3,17 @@ import type { ParsedCSV } from './csv-parser';
 /** Normalize known explicit units before summaries/rules. The original CSV stays untouched. */
 export function normalizeCsvUnits(parsed: ParsedCSV): ParsedCSV {
   const conversions = new Map<string, (value: number) => number>();
+  if (parsed.timeColumn?.type === 'seconds') {
+    const header = parsed.timeColumn.key;
+    const timeUnit = header.match(/(?:\(([^()]*)\)|\[([^\]]*)\])\s*$/);
+    const unit = (timeUnit?.[1] ?? timeUnit?.[2] ?? '').toLowerCase().trim();
+    if (['ms', 'millisecond', 'milliseconds'].includes(unit)) conversions.set(header, (v) => v / 1000);
+    else if (['min', 'minute', 'minutes'].includes(unit)) conversions.set(header, (v) => v * 60);
+    else if (['h', 'hr', 'hours'].includes(unit)) conversions.set(header, (v) => v * 3600);
+    else if (unit && !['s', 'sec', 'second', 'seconds'].includes(unit)) {
+      throw new Error(`Unsupported time unit in column "${header}".`);
+    }
+  }
   for (const [header, mapping] of Object.entries(parsed.headerMapping)) {
     if (!mapping || header === parsed.timeColumn?.key) continue;
     const explicit = header.match(/(?:\(([^()]*)\)|\[([^\]]*)\])\s*$/);
