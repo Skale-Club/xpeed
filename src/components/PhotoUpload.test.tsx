@@ -58,3 +58,40 @@ it('renews private photo URLs while the page stays open', async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(50 * 60_000); });
   expect(screen.getByRole('img', { name: 'Dashboard' })).toHaveAttribute('src', 'https://example.test/renewed');
 });
+
+it('shows a signing error and recovers using the retry button', async () => {
+  h.list.mockResolvedValue([{ id: 'photo', storage_path: 'trip/photo.png', caption: 'Dashboard' }]);
+  h.sign.mockResolvedValueOnce(null).mockResolvedValue('https://example.test/retried');
+  render(<PhotoUpload sessionId="trip" />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the trip records');
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(await screen.findByRole('img', { name: 'Dashboard' })).toHaveAttribute('src', 'https://example.test/retried');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps a usable photo during a failed renewal and retries when back online', async () => {
+  vi.useFakeTimers();
+  h.list.mockResolvedValue([{ id: 'photo', storage_path: 'trip/photo.png', caption: 'Dashboard' }]);
+  h.sign.mockResolvedValue('https://example.test/first');
+  await act(async () => { render(<PhotoUpload sessionId="trip" />); });
+  h.sign.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(50 * 60_000); });
+  expect(screen.getByRole('img', { name: 'Dashboard' })).toHaveAttribute('src', 'https://example.test/first');
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+  h.sign.mockResolvedValue('https://example.test/online');
+  await act(async () => { fireEvent(window, new Event('online')); });
+  expect(screen.getByRole('img', { name: 'Dashboard' })).toHaveAttribute('src', 'https://example.test/online');
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('recovers from a media loading failure without reloading the trip', async () => {
+  h.list.mockResolvedValue([{ id: 'photo', storage_path: 'trip/photo.png', caption: 'Dashboard' }]);
+  h.sign.mockResolvedValue('https://example.test/first');
+  render(<PhotoUpload sessionId="trip" />);
+  fireEvent.error(await screen.findByRole('img', { name: 'Dashboard' }));
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+  h.sign.mockResolvedValue('https://example.test/retried');
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  expect(await screen.findByRole('img', { name: 'Dashboard' })).toHaveAttribute('src', 'https://example.test/retried');
+  expect(h.list).toHaveBeenCalledTimes(1);
+});

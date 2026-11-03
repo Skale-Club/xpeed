@@ -31,6 +31,8 @@ export default function PhotoUpload({ sessionId, onDraftChange }: PhotoUploadPro
   const inputRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<SessionPhoto[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [photoErrors, setPhotoErrors] = useState<Record<string, boolean>>({});
+  const [urlRetry, setUrlRetry] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -51,6 +53,7 @@ export default function PhotoUpload({ sessionId, onDraftChange }: PhotoUploadPro
     setDeleting(null);
     setPhotos([]);
     setPhotoUrls({});
+    setPhotoErrors({});
     void (async () => {
     try {
       const data = await listSessionPhotos(sessionId);
@@ -72,21 +75,49 @@ export default function PhotoUpload({ sessionId, onDraftChange }: PhotoUploadPro
   useEffect(() => {
     if (!photos.length) return;
     let cancelled = false;
+    let pending = false;
     let lastRefresh = 0;
     const refresh = async () => {
-      const entries = await Promise.all(photos.map(async photo => [photo.id, await getPhotoUrl(photo.storage_path)] as const));
-      if (!cancelled) {
-        setPhotoUrls(Object.fromEntries(entries.filter(([, url]) => url) as [string, string][]));
-        lastRefresh = Date.now();
-      }
+      if (pending || cancelled) return;
+      pending = true;
+      try {
+        const entries = await Promise.all(photos.map(async photo => {
+          try { return [photo.id, await getPhotoUrl(photo.storage_path)] as const; }
+          catch { return [photo.id, null] as const; }
+        }));
+        if (!cancelled) {
+          // A failed renewal must not discard a URL that is still usable.
+          setPhotoUrls(previous => Object.fromEntries(entries.flatMap(([id, url]) => {
+            const usable = url ?? previous[id];
+            return usable ? [[id, usable]] : [];
+          })));
+          setPhotoErrors(Object.fromEntries(entries.map(([id, url]) => [id, !url])));
+          if (entries.every(([, url]) => url)) lastRefresh = Date.now();
+        }
+      } finally { pending = false; }
     };
     const tryRefresh = () => { void refresh().catch(error => console.warn('Photo URL refresh failed:', error)); };
     const onVisible = () => { if (document.visibilityState === 'visible' && Date.now() - lastRefresh >= 50 * 60_000) tryRefresh(); };
     tryRefresh();
     const timer = setInterval(tryRefresh, 50 * 60_000);
     document.addEventListener('visibilitychange', onVisible);
-    return () => { cancelled = true; clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [photos, sessionId]);
+    window.addEventListener('online', tryRefresh);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', tryRefresh);
+    };
+  }, [photos, sessionId, urlRetry]);
+
+  const mediaFailed = (id: string) => {
+    setPhotoErrors(previous => ({ ...previous, [id]: true }));
+    setPhotoUrls(previous => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+  };
 
   const handleFile = useCallback(async (file: File) => {
     if (!MEDIA_TYPES[file.type]) {
@@ -201,8 +232,12 @@ export default function PhotoUpload({ sessionId, onDraftChange }: PhotoUploadPro
             {photos.map(p => (
               <div key={p.id} className="relative group min-w-0 rounded border border-border overflow-hidden">
                 {photoUrls[p.id] && (
-                  isTripVideo(p.storage_path) ? <video src={photoUrls[p.id]} controls preload="metadata" className="w-full max-h-64 bg-black" aria-label={p.caption || t('photos.video', 'Trip video')} /> : <a href={photoUrls[p.id]} target="_blank" rel="noopener noreferrer" className="block" aria-label={t('photos.open', 'Open attachment')}><img src={photoUrls[p.id]} alt={p.caption || ''} className="w-full h-40 object-contain bg-muted/30" /></a>
+                  isTripVideo(p.storage_path) ? <video src={photoUrls[p.id]} onError={() => mediaFailed(p.id)} controls preload="metadata" className="w-full max-h-64 bg-black" aria-label={p.caption || t('photos.video', 'Trip video')} /> : <a href={photoUrls[p.id]} target="_blank" rel="noopener noreferrer" className="block" aria-label={t('photos.open', 'Open attachment')}><img src={photoUrls[p.id]} onError={() => mediaFailed(p.id)} alt={p.caption || ''} className="w-full h-40 object-contain bg-muted/30" /></a>
                 )}
+                {photoErrors[p.id] && <div role="alert" className="space-y-2 p-3 pr-12 text-sm">
+                  <p>{t('photos.loadFailed', "Couldn't load these photos. Check your connection and try again.")}</p>
+                  <Button variant="outline" size="sm" onClick={() => setUrlRetry(value => value + 1)}>{t('problems.retry', 'Try again')}</Button>
+                </div>}
                 {/* Always visible on touch screens; on a mouse it appears on hover or focus. */}
                 <button
                   type="button"

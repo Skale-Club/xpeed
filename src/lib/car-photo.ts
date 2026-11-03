@@ -60,9 +60,9 @@ function forgetLink(path: string | null | undefined) {
   if (path) links.delete(path);
 }
 
-export async function carPhotoUrl(path: string): Promise<string | null> {
+export async function carPhotoUrl(path: string, refresh = false): Promise<string | null> {
   const cached = links.get(path);
-  if (cached && cached.until > Date.now() + 60_000) return cached.url;
+  if (!refresh && cached && cached.until > Date.now() + 60_000) return cached.url;
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, LINK_SECONDS);
   if (error || !data?.signedUrl) return null;
   links.set(path, { url: data.signedUrl, until: Date.now() + LINK_SECONDS * 1000 });

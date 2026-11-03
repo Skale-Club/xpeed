@@ -62,7 +62,7 @@ export default defineConfig(({ mode, command }) => {
       // is injected (it only registered once and never looked for updates).
       registerType: "prompt",
       injectRegister: false,
-      includeAssets: ["favicon.ico", "robots.txt"],
+      includeAssets: ["favicon.ico", "robots.txt", "logo.svg", "placeholder.svg", "apple-touch-icon.png"],
       manifest: {
         name: "Xpeed",
         short_name: "Xpeed",
