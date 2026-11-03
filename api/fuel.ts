@@ -6,7 +6,6 @@ import { sessionProcessingPayload } from '../src/lib/session-processing';
 import type { Session } from '../src/types/session';
 import { calculateFuelMetrics } from '../src/lib/fuel-metrics';
 
-export const config = { runtime: 'edge' };
 const BUCKET = 'vehicle-fuel-records';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, idempotency-key', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS' };

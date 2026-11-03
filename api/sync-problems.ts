@@ -4,7 +4,6 @@ import { createIssueReconciler } from '../src/lib/issue-reconciler-core';
 import type { SessionFlag } from '../src/lib/insight-engine';
 import type { AiWarning } from '../src/lib/ai-client';
 import { savedFaultReadout } from '../src/lib/trip-inspection';
-export const config = { runtime: 'edge' };
 const headers = {
   'Content-Type': 'application/json', 'Cache-Control': 'private, no-store',
   'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type',

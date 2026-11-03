@@ -2,7 +2,6 @@
 // Advertises our OAuth 2.1 authorization server capabilities and endpoints
 // so Claude.ai can perform Dynamic Client Registration + PKCE flow.
 
-export const config = { runtime: 'edge' };
 
 export default function handler(req: Request): Response {
   const proto = req.headers.get('x-forwarded-proto') ?? 'https';

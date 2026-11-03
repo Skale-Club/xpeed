@@ -1,7 +1,6 @@
 import { verifyAppUser } from '../src/lib/verify-app-user';
 import { createClient } from '@supabase/supabase-js';
 
-export const config = { runtime: 'edge' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MANIFESTS = 'shared-trip-media';
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'authorization, content-type' };

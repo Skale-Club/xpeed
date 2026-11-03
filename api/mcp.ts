@@ -1,10 +1,9 @@
-// Vercel Edge Function — thin proxy to the xpeed-mcp Supabase edge function.
+// HTTP route — thin proxy to the xpeed-mcp Supabase edge function.
 // Exposes the MCP server at <app-origin>/api/mcp so clients always use the
 // app's own domain instead of raw Supabase infrastructure URLs.
 //
-// Env var: VITE_SUPABASE_URL — already present in Vercel from frontend config.
+// Runtime variable: VITE_SUPABASE_URL.
 
-export const config = { runtime: 'edge' };
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',

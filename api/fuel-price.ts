@@ -1,4 +1,3 @@
-export const config = { runtime: 'edge' };
 export default async function handler(req: Request): Promise<Response> {
   const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
   const region = new URL(req.url).searchParams.get('region') ?? 'NUS';

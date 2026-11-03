@@ -2,10 +2,8 @@
 // manifest pointing at the admin-uploaded icons. Falls back to bundled assets
 // when no brand_config row exists.
 //
-// Vercel rewrites /manifest.webmanifest → /api/brand/manifest so the URL the
-// browser/PWA fetches stays the same.
+// The Node server exposes this handler at /manifest.webmanifest and /api/brand/manifest.
 
-export const config = { runtime: 'edge' };
 
 interface BrandConfig {
   version: number;

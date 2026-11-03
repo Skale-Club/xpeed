@@ -6,7 +6,6 @@ import { sessionProcessingPayload } from '../src/lib/session-processing';
 import { buildScannerCsv, scannerFilename } from '../src/lib/obd/session-csv';
 import type { StoredTrip } from '../src/lib/obd/trip-store';
 import type { Session } from '../src/types/session';
-export const config = { runtime: 'edge' };
 const BUCKET = 'trip-checkpoints';
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS' };
