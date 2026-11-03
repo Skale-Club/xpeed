@@ -1,5 +1,4 @@
-# Checks that run before anything is deployed. Vercel deploys from main on its
-# own; repository branch protection/deployment gates must be configured separately.
+# Checks required by the Coolify deployment workflow before publishing main.
 name: CI
 
 on:

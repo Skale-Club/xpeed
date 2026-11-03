@@ -42,6 +42,11 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const [messages, setMessages] = useState<UIMessage[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [historyLoading,setHistoryLoading]=useState(false);
+    const [historyFailed,setHistoryFailed]=useState(false);
+    const [historyAttempt,setHistoryAttempt]=useState(0);
+    const [listFailed,setListFailed]=useState(false);
+    const [listAttempt,setListAttempt]=useState(0);
     const [pendingDelete, setPendingDelete] = useState<ChatConversation | null>(null);
 
     const { selectedCar, cars = [] } = useCarsContext();
@@ -59,18 +64,21 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
 
     // Load conversations on mount
     useEffect(() => {
+        let active=true;
         async function loadConversations() {
             try {
                 const convs = await getConversations();
-                setConversations(convs);
+                if(active){setConversations(convs);setListFailed(false);}
             } catch (error) {
                 console.error('Failed to load conversations:', error);
+                if(active)setListFailed(true);
             }
         }
         if (isOpen) {
             loadConversations();
         }
-    }, [isOpen]);
+        return()=>{active=false;};
+    }, [isOpen,listAttempt]);
 
     // The server builds context from the authorized car.
 
@@ -80,13 +88,16 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         const version = viewVersion.current;
         if (currentConversation && skipLoad.current === currentConversation.id) {
             skipLoad.current = null;
+            setHistoryLoading(false);setHistoryFailed(false);
             return;
         }
         async function loadConversationMessages() {
             if (!currentConversation) {
                 setMessages([]);
+                setHistoryLoading(false);setHistoryFailed(false);
                 return;
             }
+            setHistoryLoading(true);setHistoryFailed(false);
             try {
                 const msgs = await getMessages(currentConversation.id);
                 if (cancelled || version !== viewVersion.current) return;
@@ -97,19 +108,21 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 })));
             } catch (error) {
                 console.error('Failed to load messages:', error);
-                if (!cancelled && version === viewVersion.current) setMessages([]);
+                if (!cancelled && version === viewVersion.current) {setMessages([]);setHistoryFailed(true);}
+            } finally {
+                if(!cancelled&&version===viewVersion.current)setHistoryLoading(false);
             }
         }
         loadConversationMessages();
         return () => { cancelled = true; };
-    }, [currentConversation]);
+    }, [currentConversation,historyAttempt]);
 
     // Replies stay with their originating conversation even when the user
     // opens another conversation while the server is answering.
     const handleSendMessage = useCallback(async (text: string) => {
         // We accept the message even without a per-user apiKey because the
         // Edge Function might be configured with an admin key.
-        if (!text.trim() || sending.current) return;
+        if (!text.trim() || sending.current || historyLoading || historyFailed) return;
         sending.current = true;
         const version = ++viewVersion.current;
         let userSaved = false;
@@ -195,19 +208,22 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             sending.current = false;
             setLoading(false);
         }
-    }, [currentConversation, selectedCar, chatCarId, messages, toast, t]);
+    }, [currentConversation, selectedCar, chatCarId, messages, toast, t,historyLoading,historyFailed]);
 
     const handleNewConversation = () => {
         viewVersion.current++;
         setCurrentConversation(null);
         setMessages([]);
+        setHistoryLoading(false);setHistoryFailed(false);
         setInput('');
         setSidebarOpen(false);
     };
 
     const handleSelectConversation = (conv: ChatConversation) => {
+        if(currentConversation?.id===conv.id){setSidebarOpen(false);return;}
         viewVersion.current++;
         setMessages([]);
+        setHistoryLoading(true);setHistoryFailed(false);
         setInput('');
         setCurrentConversation(conv);
         setSidebarOpen(false);
@@ -282,6 +298,11 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     </div>
                 </CardHeader>
 
+                {listFailed&&<div role="alert" className="space-y-2 border-b p-4 text-sm">
+                    <p>{t('assistant.conversationsFailed')}</p>
+                    <Button variant="outline" onClick={()=>setListAttempt(value=>value+1)}>{t('problems.retry','Try again')}</Button>
+                </div>}
+
                 <CardContent className="flex min-h-0 flex-1 overflow-hidden p-0">
                     {sidebarOpen ? <ChatSidebar
                         conversations={conversations}
@@ -294,7 +315,10 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                         {/* Messages */}
                         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-4">
-                            {messages.length === 0 && !loading ? (
+                            {historyFailed ? <div role="alert" className="space-y-3 text-sm">
+                                <p>{t('assistant.historyFailed')}</p>
+                                <Button variant="outline" onClick={()=>setHistoryAttempt(value=>value+1)}>{t('problems.retry','Try again')}</Button>
+                            </div> : historyLoading ? <p role="status">{t('common.loading','Loading…')}</p> : messages.length === 0 && !loading ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
                                     <BrandLogo alt="" className="mb-4 h-12 w-12" />
                                     <h3 className="text-lg font-semibold mb-2">
@@ -320,7 +344,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             setInput={setInput}
                             onSend={handleSendMessage}
                             isLoading={loading}
-                            disabled={false}
+                            disabled={historyLoading||historyFailed}
                         />
                     </div>)}
                 </CardContent>

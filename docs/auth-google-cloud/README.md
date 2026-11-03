@@ -25,11 +25,11 @@ Um backup de esquema e um backup de dados foram feitos antes da migração e fic
 
 `google_auth_projects.allow_legacy=true` mantém a versão anterior funcionando durante o rollout web/Android. Contas antigas criadas durante essa janela também recebem seu UUID em `app_accounts`. Encerrar essa janela somente após validar e distribuir as versões novas; não apagar `auth.users`.
 
-As funções `chat`, `analyze-session`, `ai-health`, `xpeed-oauth`, `xpeed-mcp` e `mcp-server` já foram republicadas. A nova versão de `read-fuel-receipt` deve ser publicada com o mesmo verificador antes do corte. As rotas do servidor de hospedagem verificam tokens Google por um RPC autenticado do Data API, sem consultar Supabase Auth.
+As funções `chat`, `analyze-session`, `ai-health`, `xpeed-oauth`, `xpeed-mcp` e `mcp-server` já foram republicadas. `read-fuel-receipt` também foi republicada com o mesmo verificador. As rotas do servidor de hospedagem verificam tokens Google por um RPC autenticado do Data API, sem consultar Supabase Auth.
 
 ## Evidências e limites
 
-- 610 testes de componentes e lógica passaram na versão integrada à produção mais recente.
+- 615 testes de componentes e lógica passaram na versão integrada à produção mais recente.
 - As 58 migrações foram reproduzidas em PostgreSQL em memória, incluindo isolamento, continuidade dos UUIDs e rejeição de sessões antigas após o corte.
 - Um número fictício oficial atravessou o serviço real Google, o hook e a autorização do Supabase. O número configurado e a conta de teste foram removidos. Nenhum SMS real foi enviado por esse teste.
 - O servidor de contêiner foi validado com HTTP real: SPA, assets, cache, OAuth discovery, CORS, recusa de rotas inválidas, arquivos privados e corpos acima do limite.

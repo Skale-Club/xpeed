@@ -2,13 +2,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 
-const h = vi.hoisted(() => ({ messages: vi.fn(), reply: vi.fn(), save: vi.fn() }));
+const h = vi.hoisted(() => ({ messages: vi.fn(), reply: vi.fn(), save: vi.fn(), conversations:vi.fn() }));
 const conversation = (id: string) => ({ id, title: id, car_profile_id: `car-${id}`, updated_at: '2026-10-28T00:00:00Z' });
 vi.mock('@/contexts/CarsContext', () => ({ useCarsContext: () => ({ selectedCar: { id: 'car-current', name: 'Current car' } }) }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock('@/lib/ai-client', () => ({ chatViaEdge: h.reply, AiError: class extends Error {} }));
 vi.mock('@/lib/chat/db', () => ({
-  getConversations: async () => [conversation('A'), conversation('B')],
+  getConversations: h.conversations,
   getMessages: h.messages, saveMessage: h.save, updateConversationTitle: async () => {},
   createConversation: async () => conversation('New'), deleteConversation: async () => {},
   buildChatContext: async (id: string) => ({ vehicle: { name: id }, sessionCount: 0 }),
@@ -32,12 +32,43 @@ function sendQuestion() {
 }
 beforeEach(async () => {
   vi.clearAllMocks();
+  h.conversations.mockResolvedValue([conversation('A'),conversation('B')]);
   await i18n.changeLanguage('en');
   h.messages.mockImplementation(async (id: string) => [message(`History ${id}`)]);
   h.save.mockResolvedValue({});
   h.reply.mockResolvedValue('Answer');
 });
 afterEach(cleanup);
+
+it('waits for conversation history before accepting a new question',async()=>{
+ const pending=deferred<ReturnType<typeof message>[]>();h.messages.mockReturnValueOnce(pending.promise);
+ render(<ChatContainer isOpen onClose={()=>{}}/>);await openConversation('A');
+ expect(screen.getByRole('textbox',{name:'Message'})).toBeDisabled();
+ expect(h.reply).not.toHaveBeenCalled();
+ await act(async()=>pending.resolve([message('History A')]));
+ expect(await screen.findByText('History A')).toBeInTheDocument();
+ expect(screen.getByRole('textbox',{name:'Message'})).not.toBeDisabled();
+ await openConversation('A');expect(h.messages).toHaveBeenCalledTimes(1);
+ expect(screen.getByText('History A')).toBeInTheDocument();
+});
+
+it('retries failed conversation history without replacing it with an empty chat',async()=>{
+ h.messages.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([message('Recovered history')]);
+ render(<ChatContainer isOpen onClose={()=>{}}/>);await openConversation('A');
+ expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load this conversation");
+ expect(screen.getByRole('textbox',{name:'Message'})).toBeDisabled();
+ fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+ expect(await screen.findByText('Recovered history')).toBeInTheDocument();
+});
+
+it('reports and retries an unavailable list of past conversations',async()=>{
+ h.conversations.mockRejectedValueOnce(new Error('offline'));
+ render(<ChatContainer isOpen onClose={()=>{}}/>);
+ expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load your past conversations");
+ fireEvent.click(screen.getByRole('button',{name:'Try again'}));
+ await waitFor(()=>expect(h.conversations).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+});
 
 it('saves a delayed answer in its original conversation without showing it in another one', async () => {
   const reply = deferred<string>();
