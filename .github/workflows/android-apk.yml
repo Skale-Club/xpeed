@@ -10,6 +10,12 @@ on:
   push:
     branches: [main, feat/android-app]
   workflow_dispatch:
+    inputs:
+      signing_info_only:
+        description: Print public signing certificate fingerprints without building or publishing APKs
+        type: boolean
+        default: false
+
 
 permissions:
   contents: write
@@ -21,7 +27,29 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  signing-info:
+    if: github.event_name == 'workflow_dispatch' && inputs.signing_info_only
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Print public certificate fingerprints
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          umask 077
+          file="$RUNNER_TEMP/xpeed-signing.p12"
+          trap 'rm -f "$file"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$file"
+          keytool -list -v -keystore "$file" -storepass:env STORE_PASSWORD -alias "$KEY_ALIAS" | grep -E 'SHA1:|SHA256:'
   build:
+    if: github.event_name != 'workflow_dispatch' || !inputs.signing_info_only
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
