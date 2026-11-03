@@ -12,7 +12,6 @@ import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Analytics } from "@vercel/analytics/react";
 import { PageRefreshProvider, usePageRefresh } from '@/contexts/PageRefreshContext';
 import { VehicleNotificationsProvider } from '@/contexts/VehicleNotificationsContext';
 
@@ -82,7 +81,6 @@ const AppProviders = () => (
         <SettingsProvider>
           <Toaster />
           <ErrorBoundary><Outlet /></ErrorBoundary>
-          <Analytics />
         </SettingsProvider>
       </AuthProvider>
     </TooltipProvider>
