@@ -992,7 +992,9 @@
       "errWrongCode": "Código errado ou vencido. Confira o SMS ou peça um novo.",
       "errGeneric": "Algo deu errado. Tente de novo."
     },
-    "unavailable": "O login está temporariamente indisponível. Tente novamente em instantes."
+    "unavailable": "O login está temporariamente indisponível. Tente novamente em instantes.",
+    "nativeUpdateTitle": "Atualize o Xpeed para entrar",
+    "nativeUpdateHint": "Instale a versão mais recente para entrar por telefone ou Google. Suas viagens continuam salvas."
   },
   "assistant": {
     "conversationsFailed": "Não foi possível carregar suas conversas anteriores. Tente novamente para vê-las.",

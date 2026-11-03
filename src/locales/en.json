@@ -992,7 +992,9 @@
       "errWrongCode": "Wrong or expired code. Check the SMS or ask for a new one.",
       "errGeneric": "Something went wrong. Try again."
     },
-    "unavailable": "Sign-in is temporarily unavailable. Please try again shortly."
+    "unavailable": "Sign-in is temporarily unavailable. Please try again shortly.",
+    "nativeUpdateTitle": "Update Xpeed to sign in",
+    "nativeUpdateHint": "Install the latest app to use phone and Google sign-in. Your trips stay saved."
   },
   "assistant": {
     "conversationsFailed": "Couldn't load your past conversations. Try again to see them.",

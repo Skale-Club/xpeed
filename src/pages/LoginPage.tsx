@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+import { APK_URL } from '@/lib/app-update';
 import { GoogleIdentityButton } from '@/components/auth/GoogleIdentityButton';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -113,8 +115,14 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground">{t('landing.tagline', 'Know if your car is OK, in plain words.')}</p>
           </div>
           <div className="space-y-5 rounded-lg border border-border bg-card p-6">
-            <SignInHeader />
-            <SignInPanel nextPath={nextPath} />
+            {Capacitor.isPluginAvailable('FirebaseAuthentication') ? <>
+              <SignInHeader />
+              <SignInPanel nextPath={nextPath} />
+            </> : <>
+              <h2 className="text-xl font-bold">{t('auth.nativeUpdateTitle')}</h2>
+              <p className="text-sm text-muted-foreground">{t('auth.nativeUpdateHint')}</p>
+              <Button asChild className="w-full"><a href={APK_URL}>{t('appVersion.update', 'Update app')}</a></Button>
+            </>}
           </div>
         </div>
       </div>
