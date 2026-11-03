@@ -9,7 +9,7 @@ import { InstallPrompt } from '@/components/InstallPrompt';
 import { AppUpdateBanner } from '@/components/AppUpdateBanner';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { NewCarDialog } from '@/components/trip/NewCarDialog';
-import { BrandLogo } from '@/components/BrandLogo';
+import { BrandLockup } from '@/components/BrandLockup';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { usePageRefresh } from '@/contexts/PageRefreshContext';
 import { HeaderControls } from '@/components/header/HeaderControls';
@@ -27,8 +27,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
         <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-border/60 bg-background/80 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
           {/* Phones navigate with the tab bar at the bottom; the logo goes home. */}
           <Link to="/" className="flex shrink-0 items-center gap-2 md:hidden" aria-label="Xpeed">
-            <BrandLogo className="h-7 w-7" alt="" />
-            <span className="hidden text-base font-bold tracking-tight min-[380px]:inline">Xpeed</span>
+            <BrandLockup logoClassName="h-7 w-7" nameClassName="text-base" />
           </Link>
           <SidebarTrigger className="hidden md:inline-flex" />
           <HeaderControls />

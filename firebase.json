@@ -1,0 +1,8 @@
+{
+  "functions": [{
+    "source": "cloud/google-auth",
+    "codebase": "xpeed-auth",
+    "runtime": "nodejs22",
+    "ignore": ["node_modules", "*.test.mjs", ".env*"]
+  }]
+}

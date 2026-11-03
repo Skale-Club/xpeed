@@ -11,11 +11,15 @@ export default defineConfig(({ mode, command }) => {
   // the screen-test harness (fake Supabase) are not affected.
   if (command === "build" && mode === "production" && !process.argv.some((a) => a.includes("harness"))) {
     const env = { ...loadEnv(mode, process.cwd(), "VITE_"), ...process.env };
-    const missing = ["VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY"].filter((k) => !env[k]);
+    const missing = [
+      "VITE_SUPABASE_URL", "VITE_SUPABASE_PUBLISHABLE_KEY",
+      "VITE_FIREBASE_API_KEY", "VITE_FIREBASE_PROJECT_ID", "VITE_FIREBASE_AUTH_DOMAIN",
+      "VITE_GOOGLE_CLIENT_ID",
+    ].filter((k) => !env[k]);
     if (missing.length) {
       throw new Error(
         `Production build needs ${missing.join(" and ")} (set in the environment or in .env.production). ` +
-          "Refusing to build an app that cannot reach Supabase.",
+          "Refusing to build an app without its database and Google Cloud login configuration.",
       );
     }
   }

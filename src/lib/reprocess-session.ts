@@ -1,4 +1,5 @@
 import { sessionProcessingPayload } from './session-processing';
+import { getCurrentUser } from '@/lib/auth/session';
 import { supabase } from '@/integrations/supabase/client';
 import { getCarById } from './db';
 import { reconcileIssues } from './issue-reconciler';
@@ -27,7 +28,7 @@ export async function reprocessStoredSession(session: Session & { source_csv?: s
   // Existing problem decisions/history are preserved; only add genuinely seen flags.
   if (session.car_profile_id) {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await getCurrentUser();
       if (user) await reconcileIssues(session.id, session.car_profile_id, user.id, flags, session.session_start, true);
     } catch (error) { console.warn('Could not refresh problem occurrences after recheck:', error); }
   }

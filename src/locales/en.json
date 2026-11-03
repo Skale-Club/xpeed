@@ -412,7 +412,8 @@
     "recordingAutoHint": "Ends automatically when the car is off or parked for 10 minutes.",
     "autoOffDuringTrip": "Auto recording is off for future trips. Use End trip to finish this recording.",
     "recordingManualHint": "Tap End trip to finish. Switching the car off also ends the recording.",
-    "waitingMovement": "Waiting for movement"
+    "waitingMovement": "Waiting for movement",
+    "unregisteredCar": "Add the connected car to save this trip. Its recording stays on this device."
   },
   "pill": {
     "recording": "Recording trip",
@@ -759,6 +760,7 @@
     "discard": "Discard changes"
   },
   "vehicle": {
+    "loadFailed": "Couldn't load your cars",
     "fuel": "Fuel",
     "fuelType": {
       "flex": "Flex (gasoline/ethanol)",
@@ -825,6 +827,8 @@
     "later": "Decide later"
   },
   "maint": {
+    "mileageUnit": "Mileage ({{unit}})",
+    "invalidFields": "Enter a valid date and non-negative mileage and cost.",
     "title": "Service history",
     "addButton": "Add a service",
     "dialogTitle": "Record a service",
@@ -929,6 +933,15 @@
     "sharedFailed": "Could not load shared attachments. The diagnostic report is still available."
   },
   "auth": {
+    "forgotPassword": "Forgot your password?",
+    "sendResetLink": "Send recovery link",
+    "backToSignIn": "Back to sign in",
+    "resetSent": "If there is an account for this email, you will receive a recovery link. Check your inbox.",
+    "resetFailed": "Couldn't send the recovery link. Please try again.",
+    "newPasswordTitle": "Set a new password",
+    "savePassword": "Save new password",
+    "recoveryExpired": "Open a valid recovery link from your email. If it expired, request a new one from the sign-in page.",
+    "passwordUpdateFailed": "Couldn't update your password. Request a new recovery link or try again.",
     "signInFailed": "We couldn't sign you in. Please try again.",
     "wrongEmailOrPassword": "Wrong email or password. Please check and try again.",
     "emailNotConfirmed": "Your email isn't confirmed yet. Open the link we sent to your inbox, then sign in again.",
@@ -946,7 +959,7 @@
     "signUp": "Sign up",
     "signInTerms": "The first time you sign in, your Xpeed account is created.",
     "passwordsDontMatch": "The two passwords don't match.",
-    "passwordTooShort": "Your password needs at least 6 characters.",
+    "passwordTooShort": "Your password needs at least 8 characters.",
     "alreadyRegistered": "There is already an account with this email. Try signing in instead.",
     "signUpFailed": "We couldn't create your account. Please try again.",
     "googleSignUpFailed": "We couldn't sign you up with Google. Please try again.",
@@ -956,7 +969,7 @@
     "signUpSubtitle": "Create your account",
     "createAccount": "Create account",
     "signUpDescription": "Start keeping an eye on your car's health.",
-    "passwordHint": "At least 6 characters",
+    "passwordHint": "At least 8 characters",
     "confirmPassword": "Confirm password",
     "creatingAccount": "Creating your account…",
     "haveAccount": "Already have an account?",
@@ -978,9 +991,12 @@
       "errUnavailable": "Signing in by phone is not available yet. Use Google for now.",
       "errWrongCode": "Wrong or expired code. Check the SMS or ask for a new one.",
       "errGeneric": "Something went wrong. Try again."
-    }
+    },
+    "unavailable": "Sign-in is temporarily unavailable. Please try again shortly."
   },
   "assistant": {
+    "conversationsFailed": "Couldn't load your past conversations. Try again to see them.",
+    "historyFailed": "Couldn't load this conversation. Try again before sending a message.",
     "errorTitle": "Something went wrong",
     "replyFailed": "The assistant couldn't answer right now. Please try again in a moment.",
     "deleteFailed": "Couldn't delete this conversation. Please try again.",

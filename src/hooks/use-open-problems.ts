@@ -13,6 +13,6 @@ const NONE: VehicleIssue[] = [];
 export function useOpenProblems(carId: string | null | undefined, refreshKey?: unknown) {
   const query = useVehicleIssues(carId, refreshKey);
   const problems = useMemo(() => query.data?.filter(isOpenProblem) ?? NONE, [query.data]);
-  return { problems, loading: !!carId && query.isPending, error: !!carId && query.isError && !query.data,
+  return { problems, loading: !!carId && query.isPending, error: !!carId && query.isError,
     refreshError: !!carId && query.isError, reload: query.refetch };
 }

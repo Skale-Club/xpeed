@@ -412,7 +412,8 @@
     "recordingAutoHint": "Termina automaticamente com o carro desligado ou parado por 10 minutos.",
     "autoOffDuringTrip": "A gravação automática está desligada para as próximas viagens. Use Encerrar viagem para finalizar esta gravação.",
     "recordingManualHint": "Toque em Encerrar viagem para finalizar. Desligar o carro também encerra a gravação.",
-    "waitingMovement": "Aguardando movimento"
+    "waitingMovement": "Aguardando movimento",
+    "unregisteredCar": "Adicione o carro conectado para salvar esta viagem. A gravação fica neste aparelho."
   },
   "pill": {
     "recording": "Gravando viagem",
@@ -759,6 +760,7 @@
     "discard": "Descartar alterações"
   },
   "vehicle": {
+    "loadFailed": "Não foi possível carregar seus carros",
     "fuel": "Combustível",
     "fuelType": {
       "flex": "Flex (gasolina/etanol)",
@@ -825,6 +827,8 @@
     "later": "Decidir depois"
   },
   "maint": {
+    "mileageUnit": "Quilometragem ({{unit}})",
+    "invalidFields": "Informe uma data válida e valores de quilometragem e custo iguais ou maiores que zero.",
     "title": "Histórico de manutenção",
     "addButton": "Adicionar serviço",
     "dialogTitle": "Registrar um serviço",
@@ -929,6 +933,15 @@
     "sharedFailed": "Não foi possível carregar os anexos compartilhados. O relatório de diagnóstico continua disponível."
   },
   "auth": {
+    "forgotPassword": "Esqueceu sua senha?",
+    "sendResetLink": "Enviar link de recuperação",
+    "backToSignIn": "Voltar para entrar",
+    "resetSent": "Se houver uma conta para este e-mail, você receberá um link de recuperação. Confira sua caixa de entrada.",
+    "resetFailed": "Não foi possível enviar o link de recuperação. Tente novamente.",
+    "newPasswordTitle": "Defina uma nova senha",
+    "savePassword": "Salvar nova senha",
+    "recoveryExpired": "Abra um link de recuperação válido no seu e-mail. Se ele expirou, solicite outro na tela de entrada.",
+    "passwordUpdateFailed": "Não foi possível atualizar a senha. Solicite outro link de recuperação ou tente novamente.",
     "signInFailed": "Não conseguimos fazer seu login. Tente de novo.",
     "wrongEmailOrPassword": "E-mail ou senha incorretos. Confira e tente de novo.",
     "emailNotConfirmed": "Seu e-mail ainda não foi confirmado. Abra o link que enviamos para sua caixa de entrada e depois entre de novo.",
@@ -946,7 +959,7 @@
     "signUp": "Cadastre-se",
     "signInTerms": "Na primeira vez que você entrar, sua conta Xpeed é criada.",
     "passwordsDontMatch": "As duas senhas não são iguais.",
-    "passwordTooShort": "Sua senha precisa ter pelo menos 6 caracteres.",
+    "passwordTooShort": "Sua senha precisa ter pelo menos 8 caracteres.",
     "alreadyRegistered": "Já existe uma conta com este e-mail. Tente entrar.",
     "signUpFailed": "Não conseguimos criar sua conta. Tente de novo.",
     "googleSignUpFailed": "Não conseguimos fazer seu cadastro com o Google. Tente de novo.",
@@ -956,7 +969,7 @@
     "signUpSubtitle": "Crie sua conta",
     "createAccount": "Criar conta",
     "signUpDescription": "Comece a acompanhar a saúde do seu carro.",
-    "passwordHint": "Pelo menos 6 caracteres",
+    "passwordHint": "Pelo menos 8 caracteres",
     "confirmPassword": "Confirme a senha",
     "creatingAccount": "Criando sua conta…",
     "haveAccount": "Já tem uma conta?",
@@ -978,9 +991,12 @@
       "errUnavailable": "O acesso pelo celular ainda não está disponível. Por enquanto, entre com o Google.",
       "errWrongCode": "Código errado ou vencido. Confira o SMS ou peça um novo.",
       "errGeneric": "Algo deu errado. Tente de novo."
-    }
+    },
+    "unavailable": "O login está temporariamente indisponível. Tente novamente em instantes."
   },
   "assistant": {
+    "conversationsFailed": "Não foi possível carregar suas conversas anteriores. Tente novamente para vê-las.",
+    "historyFailed": "Não foi possível carregar esta conversa. Tente novamente antes de enviar uma mensagem.",
     "errorTitle": "Algo deu errado",
     "replyFailed": "O assistente não conseguiu responder agora. Tente de novo daqui a pouco.",
     "deleteFailed": "Não foi possível apagar esta conversa. Tente de novo.",

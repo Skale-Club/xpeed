@@ -8,9 +8,8 @@ import { Label } from '@/components/ui/label';
 import { CarQuestions, type CarAnswers } from '@/components/CarQuestions';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
-import { BrandLogo } from '@/components/BrandLogo';
+import { BrandLockup } from '@/components/BrandLockup';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { useCarsContext } from '@/contexts/CarsContext';
 
 type StepKey = 'welcome' | 'car' | 'connect';
@@ -28,7 +27,7 @@ interface OnboardingWizardProps {
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, updateName } = useAuth();
   const { createCar, updateCar } = useCarsContext();
 
   const needsName = !user?.user_metadata?.full_name;
@@ -44,7 +43,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const handleWelcome = async () => {
     if (needsName && name.trim()) {
       try {
-        await supabase.auth.updateUser({ data: { full_name: name.trim() } });
+        await updateName(name.trim());
       } catch (err) {
         console.warn('Could not save name:', err);
       }
@@ -89,7 +88,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
             {step === 'welcome' && (
               <>
                 <div className="text-center space-y-3">
-                  <BrandLogo className="mx-auto h-16 w-16" />
+                  <BrandLockup logoClassName="h-12 w-12" nameClassName="text-2xl" />
                   <h2 className="text-xl font-bold">{t('onboard.welcome', 'Welcome to Xpeed')}</h2>
                   <ul className="text-sm text-muted-foreground space-y-1">
                     <li>{t('onboard.point1', 'See if your car is OK, in plain words')}</li>

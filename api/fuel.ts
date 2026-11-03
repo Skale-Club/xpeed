@@ -1,3 +1,4 @@
+import { verifyAppUser } from '../src/lib/verify-app-user';
 import { createClient } from '@supabase/supabase-js';
 import { validateFuelEntry } from '../src/lib/fuel-ledger';
 import { parseCSV } from '../src/lib/csv-parser';
@@ -21,9 +22,8 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     const token = req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
     if (!token) return reply({ error: 'unauthorized' }, 401);
-    const auth = await db.auth.getUser(token);
-    if (auth.error || !auth.data.user) return reply({ error: 'unauthorized' }, 401);
-    const userId = auth.data.user.id;
+    const userId = await verifyAppUser(url,key,token);
+    if (!userId) return reply({ error: 'unauthorized' },401);
     const car = await db.from('car_profiles').select('*').eq('id', carId).eq('user_id', userId).maybeSingle();
     if (car.error) throw car.error;
     if (!car.data) return reply({ error: 'car_unavailable' }, 404);

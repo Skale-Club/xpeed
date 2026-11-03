@@ -14,6 +14,7 @@ const config: CapacitorConfig = {
     ? { url: remoteUrl, androidScheme: 'https' }
     : { androidScheme: 'https' },
   plugins: {
+    FirebaseAuthentication: { skipNativeAuth: false, providers: ['google.com', 'phone'] },
     BluetoothLe: {
       displayStrings: {
         scanning: 'Procurando o adaptador…',

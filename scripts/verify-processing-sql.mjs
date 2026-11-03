@@ -18,7 +18,7 @@ const check = async (name, test) => { await test(); checks.push(name); };
 const compat = `
 CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
 CREATE SCHEMA auth; CREATE SCHEMA storage; CREATE SCHEMA extensions;
-CREATE TABLE auth.users(id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}', raw_app_meta_data jsonb DEFAULT '{}', created_at timestamptz DEFAULT now(), last_sign_in_at timestamptz);
+CREATE TABLE auth.users(id uuid PRIMARY KEY, email text, phone text, email_confirmed_at timestamptz, phone_confirmed_at timestamptz, raw_user_meta_data jsonb DEFAULT '{}', raw_app_meta_data jsonb DEFAULT '{}', created_at timestamptz DEFAULT now(), last_sign_in_at timestamptz);
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT current_user::text $$;
 CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
@@ -48,6 +48,7 @@ try {
     }
     if (!failure) {
       await db.query('INSERT INTO auth.users(id,email) VALUES($1,$2),($3,$4),($5,$6)',[A,'a@example.test',B,'b@example.test',ADMIN,'admin@example.test']);
+      await db.exec("INSERT INTO public.app_accounts(id,legacy_auth_id,email) SELECT id,id,email FROM auth.users ON CONFLICT DO NOTHING");
       await asUser(A); await db.query('INSERT INTO public.car_profiles(id,user_id,name,is_admin) VALUES($1,$2,$3,true)',[car,A,'Car A']);
       assert.equal((await db.query('SELECT is_admin FROM public.car_profiles WHERE id=$1',[car])).rows[0].is_admin,false);
       await asUser(B); await db.query('INSERT INTO public.car_profiles(id,user_id,name) VALUES($1,$2,$3)',[otherCar,B,'Car B']);

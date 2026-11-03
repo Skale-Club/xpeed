@@ -115,7 +115,11 @@ Web CI and the APK workflow check Deno and PostgreSQL contracts for their checko
 
 ## Review
 
+- [Atualização local de 02/11/2026: correções, validação e pendências](docs/upgrade-2026-11-02/REVISAO.md)
 - [Baseline and findings](docs/revisao-2026-10-29/AVALIACAO.md)
 - [Execution plan](docs/revisao-2026-10-29/PLANO-DE-EXECUCAO.md)
 - [Changes, checks and pending decisions](docs/revisao-2026-10-29/EXECUCAO.md)
 - [Staging and rollout runbook](docs/revisao-2026-10-29/RUNBOOK.md)
+# Login e hospedagem
+
+SMS é a entrada principal e Google é a alternativa, pelo Identity Platform no projeto `skaleclub`. Dados e arquivos continuam no Supabase. O servidor em `server/` serve o frontend e as APIs no Coolify; `npm run build` gera os dois, e `npm start` inicia o serviço na porta 8888. Veja [configuração, migração e validação](docs/auth-google-cloud/README.md).

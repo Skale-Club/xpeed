@@ -18,6 +18,7 @@ dist-ssr
 .env.*.local
 .env.development
 .env.production
+android/app/google-services.json
 
 # Editor directories and files
 .vscode/*
@@ -38,3 +39,7 @@ gitleaks-report.json
 
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
+/.codex-local/
+/.audit-*.json
+
+/build/

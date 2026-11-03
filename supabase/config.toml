@@ -16,3 +16,27 @@ verify_jwt = false
 
 [functions.mcp-server]
 verify_jwt = false
+
+# Google ID tokens are verified by PostgREST in current_app_user_id().
+# Legacy Edge JWT verification only understands Supabase-issued tokens.
+[functions.chat]
+verify_jwt = false
+
+[functions.analyze-session]
+verify_jwt = false
+
+[functions.ai-health]
+verify_jwt = false
+
+# Configure the actual Xpot Google project in the hosted dashboard's
+# Authentication > Third-Party Auth > Firebase, before deploying the SPA.
+
+[functions.manage-mcp-tokens]
+verify_jwt = false
+
+[auth.third_party.firebase]
+enabled = true
+project_id = "skaleclub"
+
+[functions.read-fuel-receipt]
+verify_jwt = false

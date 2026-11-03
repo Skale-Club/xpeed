@@ -1,3 +1,4 @@
+import { resolveUserId } from "../_shared/quota.ts";
 // xpeed-oauth — OAuth 2.1 server for Claude.ai Custom Connectors + any MCP client.
 //
 // Routes (internal sub-paths):
@@ -190,12 +191,8 @@ async function handleIssueCode(
   const userJwt = bearer.startsWith("Bearer ") ? bearer.slice(7) : null;
   if (!userJwt) return oauthError("unauthorized", "Missing user JWT", 401);
 
-  const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: `Bearer ${userJwt}` } },
-    auth: { persistSession: false },
-  });
-  const { data: { user }, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !user) return oauthError("unauthorized", "Invalid user JWT", 401);
+  const userId = await resolveUserId(userJwt);
+  if (!userId) return oauthError("unauthorized", "Invalid user JWT", 401);
 
   let body: any;
   try { body = await req.json(); } catch { return oauthError("invalid_request", "Invalid JSON", 400); }
@@ -224,7 +221,7 @@ async function handleIssueCode(
   const { error: insErr } = await db.from("oauth_authorization_codes").insert({
     code,
     client_id,
-    user_id: user.id,
+    user_id: userId,
     redirect_uri,
     code_challenge,
     code_challenge_method,

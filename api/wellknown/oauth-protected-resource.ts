@@ -6,7 +6,7 @@ export const config = { runtime: 'edge' };
 
 export default function handler(req: Request): Response {
   const proto = req.headers.get('x-forwarded-proto') ?? 'https';
-  const host = req.headers.get('host') ?? 'xpeed-skaleclub.vercel.app';
+  const host = req.headers.get('host') ?? 'xpeed.skale.club';
   const origin = `${proto}://${host}`;
 
   return new Response(

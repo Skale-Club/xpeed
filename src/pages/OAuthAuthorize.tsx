@@ -1,5 +1,5 @@
 // OAuth 2.1 authorization endpoint (user-facing consent page).
-// Reads OAuth params from query string, requires Supabase auth, shows consent UI,
+// Reads OAuth params from query string, requires Google Cloud auth, shows consent UI,
 // then calls /api/oauth/issue-code and redirects back to the client's redirect_uri.
 
 import { useEffect, useMemo, useState } from 'react';
@@ -8,8 +8,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ShieldCheck, AlertTriangle, ExternalLink } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from '@/lib/auth/google';
 import { useAuth } from '@/contexts/AuthContext';
+import { BrandLockup } from '@/components/BrandLockup';
+import { isAllowedRedirectUri } from '../../supabase/functions/xpeed-oauth/validation';
 
 interface OAuthParams {
   client_id: string;
@@ -31,6 +33,12 @@ function parseParams(search: URLSearchParams): { params: OAuthParams | null; err
   }
   if (search.get('code_challenge_method') !== 'S256') {
     return { params: null, error: 'Only code_challenge_method=S256 is supported' };
+  }
+  if (!isAllowedRedirectUri(search.get('redirect_uri'))) {
+    return { params: null, error: 'Invalid redirect URI' };
+  }
+  if (!/^[A-Za-z0-9_-]{43}$/.test(search.get('code_challenge') ?? '')) {
+    return { params: null, error: 'Invalid PKCE challenge' };
   }
   return {
     params: {
@@ -68,8 +76,7 @@ export default function OAuthAuthorize() {
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const jwt = sessionData.session?.access_token;
+      const jwt = await getAccessToken();
       if (!jwt) {
         setErrorMsg('No active session. Please log in again.');
         setSubmitting(false);
@@ -109,12 +116,9 @@ export default function OAuthAuthorize() {
   };
 
   const handleDeny = () => {
-    if (!params) return;
-    const url = new URL(params.redirect_uri);
-    url.searchParams.set('error', 'access_denied');
-    url.searchParams.set('error_description', 'User denied the authorization request');
-    if (params.state) url.searchParams.set('state', params.state);
-    window.location.replace(url.toString());
+    // Unlike approval, denial has not passed the server's registered-client
+    // check. Stay on this site instead of trusting a redirect from the query.
+    navigate('/', { replace: true });
   };
 
   if (paramErr) {
@@ -149,6 +153,7 @@ export default function OAuthAuthorize() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <Card className="max-w-md w-full">
         <CardContent className="p-6 space-y-5">
+          <BrandLockup />
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
               <ShieldCheck className="w-5 h-5 text-primary" />

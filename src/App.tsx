@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, createRoutesFromElements, RouterProvider, Route, Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
 import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
@@ -49,15 +49,18 @@ const ProtectedScreen = () => {
   </ErrorBoundary>;
 };
 
-const AuthenticatedLayout = () => (
+const AuthenticatedLayout = () => {
+ const { user } = useAuth();
+ return (
   <PrivateRoute>
-    <CarsProvider>
+    <CarsProvider key={user?.id}>
       <ObdScannerProvider>
         <VehicleNotificationsProvider><ProblemSyncObserver /><FuelTrendObserver /><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>
 );
+};
 
 // The Scanner is for mechanics and enthusiasts: it is there only when "Advanced
 // tools" is on in Settings. Otherwise a link or bookmark lands on the Live panel.
@@ -90,6 +93,7 @@ const router = createBrowserRouter(createRoutesFromElements(
   <Route element={<AppProviders />}>
     {/* Public Routes */}
     <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
+    <Route path="/reset-password" element={<Navigate to="/login?entrar" replace />} />
     {/* A new phone number gets an account at sign-in, so sign-up is the same page. */}
     <Route path="/signup" element={<Navigate to="/login?entrar" replace />} />
 

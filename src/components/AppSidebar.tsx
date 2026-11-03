@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAdminStatus } from '@/hooks/use-admin-status';
-import { BrandLogo } from '@/components/BrandLogo';
+import { BrandLockup } from '@/components/BrandLockup';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
@@ -105,14 +105,8 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       {/* Logo */}
       <SidebarHeader className="border-b border-sidebar-border">
-        <Link to="/" className="flex items-center gap-3 px-2 py-2" onClick={handleNavClick}>
-          <BrandLogo />
-          <div className="group-data-[collapsible=icon]:hidden">
-            <p className="text-sm font-bold leading-none tracking-tight">Xpeed</p>
-            <p className="text-[10px] text-sidebar-foreground/50 uppercase tracking-widest font-medium mt-0.5">
-              {t('sidebar.tagline', 'Your car, simply')}
-            </p>
-          </div>
+        <Link to="/" className="flex items-center gap-3 px-2 py-2" onClick={handleNavClick} aria-label="Xpeed">
+          <BrandLockup nameClassName="text-sm" labelClassName="group-data-[collapsible=icon]:hidden" tagline={t('sidebar.tagline', 'Your car, simply')} />
         </Link>
 
         {/* Car Selector */}

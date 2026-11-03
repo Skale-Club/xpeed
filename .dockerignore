@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+.git
+.github
+.env*
+.codex-local
+.audit*
+.vercel
+android
+docs
+cloud
+*.log
+**/*.test.*
+src/test

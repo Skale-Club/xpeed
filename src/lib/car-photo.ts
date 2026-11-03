@@ -1,3 +1,4 @@
+import { getCurrentUser } from '@/lib/auth/session';
 import { supabase } from '@/integrations/supabase/client';
 import { updateCarProfile } from '@/lib/db';
 
@@ -20,14 +21,24 @@ export function carPhotoProblem(file: File): CarPhotoProblem | null {
 
 /** Saves the photo (replacing any earlier one) and points the car at it. */
 export async function uploadCarPhoto(carId: string, file: File, previousPath?: string | null): Promise<string> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const problem = carPhotoProblem(file);
+  if (problem) throw new Error(problem);
+  const { data: { user } } = await getCurrentUser();
   if (!user) throw new Error('Not signed in');
   const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
   // A new name each time, so no cached copy of the old photo shows up.
-  const path = `${user.id}/${carId}-${Date.now()}.${ext}`;
+  const path = `${user.id}/${carId}-${crypto.randomUUID()}.${ext}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: false });
   if (error) throw new Error(`Failed to upload the car photo: ${error.message}`);
-  await updateCarProfile(carId, { photo_path: path });
+  try {
+    await updateCarProfile(carId, { photo_path: path });
+  } catch (updateError) {
+    try {
+      const { error: cleanupError } = await supabase.storage.from(BUCKET).remove([path]);
+      if (cleanupError) console.warn('Could not remove unused car photo:', cleanupError.message);
+    } catch (cleanupError) { console.warn('Could not remove unused car photo:', cleanupError); }
+    throw updateError;
+  }
   if (previousPath && previousPath !== path) {
     await supabase.storage.from(BUCKET).remove([previousPath]);
   }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Loader2 } from 'lucide-react';
+import { MAX_USER_MESSAGE_CHARS } from '../../../supabase/functions/_shared/chat-prompt';
 import { isNativeApp } from '@/lib/obd/native-ble';
 
 interface ChatInputProps {
@@ -27,7 +28,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
 
     const handleSubmit = (e?: React.FormEvent) => {
         e?.preventDefault();
-        if (input.trim() && !isLoading && !disabled) {
+        if (input.trim() && input.length <= MAX_USER_MESSAGE_CHARS && !isLoading && !disabled) {
             onSend(input.trim());
         }
     };
@@ -45,6 +46,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                 <Textarea
                     ref={textareaRef}
                     value={input}
+                    maxLength={MAX_USER_MESSAGE_CHARS}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={disabled ? t('assistant.unavailable', 'The assistant is not available right now') : t('assistant.placeholder', 'Ask anything about your car…')}

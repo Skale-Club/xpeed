@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CountryFlag } from '@/components/CountryFlag';
+import { cancelPhoneChallenge } from '@/lib/auth/google';
 import { useAuth } from '@/contexts/AuthContext';
 import { PHONE_COUNTRIES, formatPhone, maskPhoneInput, normalizePhone, phoneCountryCodeFromLocales, phoneExample } from '@/lib/phone';
 
@@ -18,17 +19,15 @@ const RESEND_AFTER_MS = 30_000;
 
 type ErrorKind = 'invalid_phone' | 'wait' | 'sms_failed' | 'unavailable' | 'wrong_code' | 'generic';
 
-/** Map a Supabase auth error to something a person can act on. */
+/** Map a Google Identity Platform error to something a person can act on. */
 function errorKind(err: unknown): { kind: ErrorKind; seconds?: number } {
   const e = err as { code?: string; status?: number; message?: string };
-  const message = e?.message ?? '';
-  const wait = /after (\d+) seconds?/i.exec(message);
-  if (wait) return { kind: 'wait', seconds: Number(wait[1]) };
-  if (e?.code === 'over_sms_send_rate_limit' || e?.code === 'over_request_rate_limit' || e?.status === 429) return { kind: 'wait', seconds: 60 };
-  if (e?.code === 'phone_provider_disabled' || /phone (signups|provider).*(disabled|not enabled)|unsupported phone provider/i.test(message)) return { kind: 'unavailable' };
-  if (e?.code === 'otp_expired' || /token has expired or is invalid|invalid otp/i.test(message)) return { kind: 'wrong_code' };
-  if (e?.code === 'sms_send_failed' || /error sending (sms|confirmation)/i.test(message)) return { kind: 'sms_failed' };
-  if (/invalid phone/i.test(message)) return { kind: 'invalid_phone' };
+  const code = e?.code;
+  if (code === 'auth/invalid-phone-number') return { kind: 'invalid_phone' };
+  if (['auth/too-many-requests', 'auth/quota-exceeded'].includes(code ?? '') || e?.status === 429) return { kind: 'wait', seconds: 60 };
+  if (['auth/operation-not-allowed', 'auth/configuration-not-found', 'auth/unauthorized-domain', 'auth/app-not-authorized'].includes(code ?? '')) return { kind: 'unavailable' };
+  if (['auth/invalid-verification-code', 'auth/code-expired', 'auth/session-expired', 'auth/missing-verification-id'].includes(code ?? '')) return { kind: 'wrong_code' };
+  if (['auth/captcha-check-failed', 'auth/network-request-failed', 'auth/invalid-app-credential'].includes(code ?? '')) return { kind: 'sms_failed' };
   return { kind: 'generic' };
 }
 
@@ -48,6 +47,8 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
   const [error, setError] = useState('');
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(Date.now());
+  const pending = useRef(false);
+  useEffect(() => () => cancelPhoneChallenge(), []);
   const codeRef = useRef<HTMLInputElement>(null);
 
   // Resend countdown.
@@ -75,6 +76,8 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
   };
 
   const sendCode = async (target: string) => {
+    if (pending.current) return;
+    pending.current = true;
     setBusy(true);
     setError('');
     try {
@@ -87,6 +90,7 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
     } catch (err) {
       showError(err);
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   };
@@ -99,6 +103,8 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
   };
 
   const verify = async (value: string) => {
+    if (pending.current) return;
+    pending.current = true;
     setBusy(true);
     setError('');
     try {
@@ -108,6 +114,7 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
       setCode('');
       showError(err);
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   };
@@ -119,6 +126,8 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
   };
 
   const restart = () => {
+    if (pending.current) return;
+    cancelPhoneChallenge();
     setStep('phone');
     setCode('');
     setError('');
@@ -141,7 +150,7 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
         className="space-y-4"
         data-testid="signin-code"
       >
-        <button type="button" onClick={restart} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+        <button type="button" disabled={busy} onClick={restart} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
           {t('auth.phone.changeNumber', 'Use another number')}
         </button>

@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { readAllPages } from './db-pages';
 
 export type IssueSeverity = 'critical' | 'serious' | 'warning' | 'easy_fix';
 export type IssueStatus = 'active' | 'resolved' | 'recurred' | 'ignored';
@@ -46,25 +47,21 @@ export interface IssueOccurrence {
 }
 
 export async function getIssuesForCar(carProfileId: string): Promise<VehicleIssue[]> {
-  const { data, error } = await supabase
+  return readAllPages<VehicleIssue>((from, to) => supabase
     .from('vehicle_issues' as never)
     .select('*')
     .eq('car_profile_id', carProfileId)
-    .order('last_seen_at', { ascending: false });
-
-  if (error) throw new Error(`Failed to fetch issues: ${error.message}`);
-  return (data || []) as unknown as VehicleIssue[];
+    .order('last_seen_at', { ascending: false }).order('id', { ascending: false })
+    .range(from, to), 'Failed to fetch issues');
 }
 
 export async function getOccurrencesForIssue(issueId: string): Promise<IssueOccurrence[]> {
-  const { data, error } = await supabase
+  return readAllPages<IssueOccurrence>((from, to) => supabase
     .from('vehicle_issue_occurrences' as never)
     .select('*')
     .eq('issue_id', issueId)
-    .order('occurred_at', { ascending: false });
-
-  if (error) throw new Error(`Failed to fetch occurrences: ${error.message}`);
-  return (data || []) as unknown as IssueOccurrence[];
+    .order('occurred_at', { ascending: false }).order('id', { ascending: false })
+    .range(from, to), 'Failed to fetch occurrences');
 }
 
 export async function resolveIssue(issueId: string, note?: string): Promise<void> {

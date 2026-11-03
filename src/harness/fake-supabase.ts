@@ -149,6 +149,9 @@ class Query implements PromiseLike<Result> {
 }
 
 const rpcs: Record<string, (args: Row) => unknown> = {
+  register_google_user: () => HARNESS_USER,
+  current_app_user_id: () => loggedIn ? HARNESS_USER.id : null,
+  update_account_name: ({ p_name }: Row) => { HARNESS_USER.user_metadata.full_name = String(p_name); return null; },
   trip_page: args => {
     const zone=String(args.p_zone || 'UTC');
     const key=(row:Row)=>new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(String(row.session_start || row.uploaded_at)));

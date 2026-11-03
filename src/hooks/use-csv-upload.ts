@@ -90,7 +90,8 @@ export async function ingestSessionCsv(
 
     // 1. Try from timestamp column
     if (parsed.timeColumn?.type === 'timestamp' && parsed.rows.length > 0) {
-      const firstRowTime = parsed.rows[0][parsed.timeColumn.key];
+      const timeKey = parsed.timeColumn.key;
+      const firstRowTime = parsed.rows.find((row) => typeof row[timeKey] === 'string')?.[timeKey];
       if (typeof firstRowTime === 'string') {
         const d = new Date(firstRowTime);
         if (!isNaN(d.getTime())) {
@@ -233,11 +234,11 @@ export async function ingestSessionCsv(
     }
 
     // Reconcile flags into the persistent vehicle_issues table.
-    // Non-fatal — session is already saved even if this fails.
+    // Non-fatal â€” session is already saved even if this fails.
     let userId: string | null = null;
     try {
-      const { data: { user } } = await import('@/integrations/supabase/client').then(
-        (m) => m.supabase.auth.getUser()
+      const { data: { user } } = await import('@/lib/auth/session').then(
+        (m) => m.getCurrentUser()
       );
       userId = user?.id ?? null;
       if (user) { await syncSavedProblems(session.id); }

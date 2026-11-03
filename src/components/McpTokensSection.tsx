@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   listMcpTokens, createMcpToken, revokeMcpToken, type McpToken,
 } from '@/lib/mcp-tokens';
-import { supabase } from '@/integrations/supabase/client';
+import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '@/lib/trips';
 
 // Offline Android editions also connect agents to the hosted API, not localhost.
@@ -56,10 +56,10 @@ export default function McpTokensSection() {
       setLoading(true);
       const [tokenList, session] = await Promise.all([
         listMcpTokens(),
-        supabase.auth.getSession(),
+        getAccessToken(),
       ]);
       setTokens(tokenList);
-      setSessionJwt(session.data.session?.access_token ?? null);
+      setSessionJwt(session);
     } catch (err) {
       toast({ title: 'Failed to load tokens', description: String(err), variant: 'destructive' });
     } finally {

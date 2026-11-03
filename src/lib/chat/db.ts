@@ -1,3 +1,4 @@
+import { getCurrentUser } from '@/lib/auth/session';
 // Chat Database Operations
 // Handles all Supabase interactions for the chat system
 
@@ -12,6 +13,7 @@ import { listMaintenanceEvents } from '@/lib/db-extras';
 import { computeTrends } from '@/lib/trends';
 import type { Json } from '@/integrations/supabase/types';
 import type { Session } from '@/types/session';
+import { readAllPages } from '@/lib/db-pages';
 
 // Type helper to convert DB row to ChatConversation
 function toConversation(row: {
@@ -52,15 +54,11 @@ function toChatMessage(row: {
 
 // Get all conversations for the current user
 export async function getConversations(): Promise<ChatConversation[]> {
-    const { data, error } = await supabase
+    const data = await readAllPages<Parameters<typeof toConversation>[0]>((from, to) => supabase
         .from('chat_conversations')
         .select('*')
-        .order('updated_at', { ascending: false });
-
-    if (error) {
-        console.error('Failed to fetch conversations:', error);
-        throw error;
-    }
+        .order('updated_at', { ascending: false }).order('id', { ascending: false })
+        .range(from, to), 'Failed to fetch conversations');
 
     return (data || []).map(toConversation);
 }
@@ -91,7 +89,7 @@ export async function createConversation(
     // checks `auth.uid() = user_id`, and the table has no BEFORE INSERT trigger
     // to auto-populate it (unlike sessions / car_profiles). Without this the
     // INSERT silently fails with RLS rejection.
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await getCurrentUser();
     if (userError || !user) {
         throw new Error('User not authenticated');
     }
@@ -145,16 +143,12 @@ export async function deleteConversation(id: string): Promise<void> {
 
 // Get all messages for a conversation
 export async function getMessages(conversationId: string): Promise<ChatMessage[]> {
-    const { data, error } = await supabase
+    const data = await readAllPages<Parameters<typeof toChatMessage>[0]>((from, to) => supabase
         .from('chat_messages')
         .select('*')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
-
-    if (error) {
-        console.error('Failed to fetch messages:', error);
-        throw error;
-    }
+        .order('created_at', { ascending: true }).order('id', { ascending: true })
+        .range(from, to), 'Failed to fetch messages');
 
     return (data || []).map(toChatMessage);
 }

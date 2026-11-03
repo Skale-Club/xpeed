@@ -1,4 +1,5 @@
-import { supabase } from '@/integrations/supabase/client';
+import { signOutGoogle } from '@/lib/auth/google';
+import { setCurrentUser } from '@/lib/auth/session';
 import { adminStatusCache } from '@/hooks/use-admin-status';
 import type { QueryClient } from '@tanstack/react-query';
 
@@ -17,7 +18,7 @@ export const CLEANUP_TIMEOUT_MS = 10_000;
  * copies kept on the device (IndexedDB 'xpeed-obd') and only then delete them.
  *
  * Contract:
- *  - Cleanups run in parallel, before supabase.auth.signOut(), each limited to
+ *  - Cleanups run in parallel, before signOutGoogle(), each limited to
  *    CLEANUP_TIMEOUT_MS. A cleanup that throws or times out does NOT block the
  *    logout, so it must itself keep anything it could not safely handle
  *    (never delete data it failed to upload).
@@ -55,13 +56,16 @@ async function clearRuntimeCaches() {
 export async function logout(queryClient: QueryClient) {
   await runBeforeLogoutCleanups();
 
-  try { await supabase.auth.signOut(); } catch { /* ignore */ }
+  await signOutGoogle();
+  setCurrentUser(null);
 
-  Object.keys(localStorage)
-    .filter(k => k.startsWith('sb-'))
-    .forEach(k => localStorage.removeItem(k));
-  USER_DATA_KEYS.forEach(k => localStorage.removeItem(k));
-  sessionStorage.clear();
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('sb-'))
+      .forEach(k => localStorage.removeItem(k));
+    USER_DATA_KEYS.forEach(k => localStorage.removeItem(k));
+  } catch { /* Storage can be unavailable; still finish signing out. */ }
+  try { sessionStorage.clear(); } catch { /* unavailable */ }
 
   adminStatusCache.clear();
   queryClient.clear();

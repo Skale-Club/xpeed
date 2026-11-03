@@ -3,6 +3,7 @@ import type { Session } from '@/types/session';
 import { queryClient } from './query-client';
 import { removeCloudRecording } from './obd/trip-cloud';
 import { supabase } from '@/integrations/supabase/client';
+import { getCurrentUser } from '@/lib/auth/session';
 
 const SESSION_CSV_BUCKET = 'session-csv';
 const SESSION_LIST_SELECT =
@@ -26,7 +27,7 @@ function ensureCsvExtension(filename: string): string {
 }
 
 export async function getDefaultCarProfile() {
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await getCurrentUser();
   if (userError || !user) {
     throw new Error('User not authenticated');
   }
@@ -240,7 +241,7 @@ export async function createSession(
 }
 
 export async function uploadSessionCSV(file: File, carProfileId: string): Promise<string> {
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await getCurrentUser();
   if (userError || !user) {
     throw new Error('User not authenticated');
   }
@@ -519,7 +520,7 @@ export interface CarProfileInput {
 }
 
 export async function getUserCars(): Promise<CarProfile[]> {
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await getCurrentUser();
   if (authError || !user) throw new Error('User not authenticated');
   const { data, error } = await supabase
     .from('car_profiles')

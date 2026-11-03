@@ -1,3 +1,4 @@
+import { verifyAppUser } from '../src/lib/verify-app-user';
 import { createClient } from '@supabase/supabase-js';
 import { createIssueReconciler } from '../src/lib/issue-reconciler-core';
 import type { SessionFlag } from '../src/lib/insight-engine';
@@ -24,9 +25,8 @@ export default async function handler(req: Request): Promise<Response> {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   try {
-    const auth = await db.auth.getUser(token);
-    if (auth.error || !auth.data.user) return reply({ error: 'unauthorized' }, 401);
-    const userId = auth.data.user.id;
+    const userId = await verifyAppUser(url,key,token);
+    if (!userId) return reply({ error: 'unauthorized' },401);
     const input = await req.json().catch(() => null);
     if (!input || typeof input !== 'object' || Array.isArray(input)) return reply({ error: 'invalid_request' }, 400);
     let query = db.from('session_issue_jobs').select('*').eq('user_id', userId)
