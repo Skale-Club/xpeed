@@ -1,6 +1,6 @@
 # Autenticação sem senha e hospedagem
 
-Atualizado em 03/11/2026. O frontend deste branch usa SMS como entrada principal e Google como alternativa. Banco, arquivos e funções continuam no Supabase nesta etapa. A hospedagem está sendo migrada da Vercel para o Coolify, conforme solicitado.
+Atualizado em 03/11/2026. O frontend deste branch usa SMS como entrada principal e Google como alternativa. Banco, arquivos e funções continuam no Supabase nesta etapa. A versão validada está no Coolify. O DNS e o certificado são conferidos antes de encerrar a migração; `vercel.json` agora apenas impede novos deploys na hospedagem anterior.
 
 ## Google Cloud configurado
 
@@ -29,15 +29,15 @@ As funções `chat`, `analyze-session`, `ai-health`, `xpeed-oauth`, `xpeed-mcp` 
 
 ## Evidências e limites
 
-- 615 testes de componentes e lógica passaram na versão integrada à produção mais recente.
+- 617 testes de componentes e lógica passaram na versão integrada à produção mais recente.
 - As 58 migrações foram reproduzidas em PostgreSQL em memória, incluindo isolamento, continuidade dos UUIDs e rejeição de sessões antigas após o corte.
 - Um número fictício oficial atravessou o serviço real Google, o hook e a autorização do Supabase. O número configurado e a conta de teste foram removidos. Nenhum SMS real foi enviado por esse teste.
 - O servidor de contêiner foi validado com HTTP real: SPA, assets, cache, OAuth discovery, CORS, recusa de rotas inválidas, arquivos privados e corpos acima do limite.
-- A configuração nativa Android (`google-services.json`, certificado de assinatura e teste em dispositivo) ainda precisa ser concluída antes da distribuição de um APK novo. O workflow recusa um arquivo de outro projeto, pacote ou cliente web.
+- Android: pacote `club.skale.xpeed` e certificados da assinatura existente cadastrados no Google. Os APKs assinados do build 83 foram publicados; o conteúdo do APK foi conferido para o plugin Firebase e o cliente OAuth Xpeed. O workflow recusa configuração de outro projeto, pacote ou cliente web. SMS real e atestação em aparelho físico ainda precisam de validação manual. APKs antigos recebem uma ação para atualizar antes de entrar.
 
 ## Xpot
 
-As mudanças de login ficam na cópia isolada `C:/Users/Vanildo/Dev/xpot-google-auth`, branch `codex/google-passwordless-auth`, preservando as alterações locais de outras funcionalidades. O Xpot mantém seu PostgreSQL e suas sessões próprias, usa tokens Firebase verificados no backend e exige telefone na primeira associação do Google. Contas pendentes e bloqueadas não recebem sessão de acesso. O painel de clientes continua separado das sessões da equipe. Ativar `GOOGLE_AUTH_ENABLED=true` somente junto da versão validada e da migração `0079_google_identity_auth.sql`.
+As mudanças de login ficam na cópia isolada `C:/Users/Vanildo/Dev/xpot-google-auth`, branch `codex/google-passwordless-auth`, preservando as alterações locais de outras funcionalidades. O Xpot mantém seu PostgreSQL e suas sessões próprias, usa tokens Firebase verificados no backend e exige telefone na primeira associação do Google. Contas pendentes e bloqueadas não recebem sessão de acesso. O painel de clientes continua separado das sessões da equipe. A versão validada e a migração `0079_google_identity_auth.sql` já estão publicadas, com `GOOGLE_AUTH_ENABLED=true`. Um token real Google de telefone fictício passou pela validação de assinatura do Xpot; o telefone sem aprovação recebeu apenas a etapa de cadastro, e o acesso da equipe retornou 401. A sessão e a identidade de teste foram removidas.
 
 ## Referências
 

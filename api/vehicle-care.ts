@@ -1,7 +1,6 @@
 import { verifyAppUser } from '../src/lib/verify-app-user';
 import { createClient } from '@supabase/supabase-js';
 import { EMPTY_VEHICLE_CARE, validCare, type VehicleCare } from '../src/lib/vehicle-care';
-export const config = { runtime: 'edge' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS' };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });

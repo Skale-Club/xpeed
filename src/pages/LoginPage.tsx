@@ -49,7 +49,7 @@ function SignInPanel({ nextPath }: { nextPath: string }) {
   };
 
   return (
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5">
         {authError && <Alert variant="destructive"><AlertDescription>{t('auth.unavailable')}</AlertDescription></Alert>}
         <PhoneSignIn onSignedIn={done} />
 
@@ -208,7 +208,7 @@ export default function LoginPage() {
       </footer>
 
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent className="max-h-[92vh] w-[92%] max-w-md gap-0 overflow-y-auto rounded-2xl p-5 sm:p-7" data-testid="login-dialog">
+        <DialogContent className="max-h-[92vh] w-[92%] max-w-md grid-cols-[minmax(0,1fr)] gap-0 overflow-y-auto rounded-2xl p-5 sm:p-7" data-testid="login-dialog">
           <DialogHeader className="space-y-3 pb-5 text-center sm:text-center">
             <div className="flex justify-center"><BrandLockup logoClassName="h-12 w-12" nameClassName="text-2xl" /></div>
             <DialogTitle className="text-xl">{t('landing.signInTitle', 'Sign in or create your account')}</DialogTitle>

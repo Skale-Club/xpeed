@@ -200,7 +200,7 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
               setPhoneInput((current) => maskPhoneInput(current, next));
             }}
           >
-            <SelectTrigger className="h-12 w-auto gap-2" aria-label={t('auth.phone.country', 'Country')} data-testid="select-country-code">
+            <SelectTrigger className="h-12 w-auto shrink-0 gap-2" aria-label={t('auth.phone.country', 'Country')} data-testid="select-country-code">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -214,7 +214,7 @@ export function PhoneSignIn({ onSignedIn }: { onSignedIn: () => void }) {
               ))}
             </SelectContent>
           </Select>
-          <div className="relative flex-1">
+          <div className="relative min-w-0 flex-1">
             <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="signin-phone"

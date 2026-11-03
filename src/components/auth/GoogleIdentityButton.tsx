@@ -37,6 +37,7 @@ export function GoogleIdentityButton({ onSignedIn }: { onSignedIn: () => void })
   useEffect(() => {
     let active = true;
     let pending = false;
+    let observer: ResizeObserver | undefined;
     const element = target.current;
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     if (!clientId) { setError(true); return; }
@@ -49,15 +50,26 @@ export function GoogleIdentityButton({ onSignedIn }: { onSignedIn: () => void })
         void callbacks.current.signInWithGoogleIdToken(credential).then(() => { if (active) callbacks.current.onSignedIn(); })
           .catch(() => { if (active) setError(true); }).finally(() => { pending = false; if (active) setBusy(false); });
       } });
-      window.google.accounts.id.renderButton(element, {
-        theme: 'outline', size: 'large', width: Math.min(400, element.clientWidth),
-        locale: (i18n.resolvedLanguage ?? 'en').replace('-', '_'),
-      });
+      let lastWidth = 0;
+      const render = () => {
+        if (!active || !window.google) return;
+        const width = Math.min(400, Math.floor(element.clientWidth));
+        if (width <= 0 || width === lastWidth) return;
+        lastWidth = width;
+        element.replaceChildren();
+        window.google.accounts.id.renderButton(element, {
+          theme: 'outline', size: 'large', width,
+          locale: (i18n.resolvedLanguage ?? 'en').replace('-', '_'),
+        });
+      };
+      render();
+      observer = new ResizeObserver(render);
+      observer.observe(element);
     }).catch(() => { if (active) setError(true); });
-    return () => { active = false; element?.replaceChildren(); };
+    return () => { active = false; observer?.disconnect(); element?.replaceChildren(); };
   }, [i18n.resolvedLanguage]);
-  return <div className="space-y-2" aria-busy={busy}>
-    <div ref={target} className={busy ? 'pointer-events-none opacity-60' : ''} />
+  return <div className="min-w-0 space-y-2" aria-busy={busy}>
+    <div ref={target} className={`w-full min-w-0 ${busy ? 'pointer-events-none opacity-60' : ''}`} />
     {busy && <p role="status" className="text-center text-sm text-muted-foreground">{t('auth.signingIn', 'Signing in…')}</p>}
     {error && <p role="alert" className="text-sm text-destructive">{t('auth.googleSignInFailed')}</p>}
   </div>;

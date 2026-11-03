@@ -1,8 +1,7 @@
 // Proxy: <app>/api/oauth/issue-code → Supabase xpeed-oauth/issue-code
 // Called by our SPA after the user approves consent on /oauth/authorize.
-// Requires Authorization: Bearer <supabase-jwt>.
+// Requires Authorization: Bearer <verified Google identity token>.
 
-export const config = { runtime: 'edge' };
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -11,9 +10,8 @@ const CORS_HEADERS = {
 };
 
 /**
- * The caller's IP as Vercel saw it. Vercel sets x-real-ip / x-forwarded-for itself (anything the
- * client sent is overwritten), so the Supabase function can rate-limit per caller instead of
- * seeing every request come from Vercel.
+ * The HTTP server normalizes these headers from the trusted proxy before invoking a route.
+ * Forward the resulting caller address so the Edge Function can rate-limit each caller.
  */
 function forwardClientIp(req: Request, headers: Headers): void {
   const ip = req.headers.get('x-real-ip') ?? req.headers.get('x-forwarded-for')?.split(',')[0].trim();

@@ -2,7 +2,6 @@
 // Tells Claude.ai (and other MCP clients) which authorization server can issue
 // tokens for our MCP endpoint, so they can discover the OAuth flow.
 
-export const config = { runtime: 'edge' };
 
 export default function handler(req: Request): Response {
   const proto = req.headers.get('x-forwarded-proto') ?? 'https';
