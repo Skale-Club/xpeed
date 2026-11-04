@@ -103,6 +103,44 @@ class StorageBucket {
   getPublicUrl(path: string) { return { data: { publicUrl: objectUrl(this.bucket, path) } }; }
 }
 
+// ---------------------------------------------------------------- edge functions
+
+// An AI answer can take a while; the Supabase client waited about as long.
+const FUNCTION_TIMEOUT_MS = 120_000;
+
+/** Aborts when any of the signals does (AbortSignal.any is missing from older Android WebViews). */
+function anyOf(...signals: AbortSignal[]): AbortSignal {
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) { controller.abort(signal.reason); break; }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+/** Same shape the Supabase client returned: a non-2xx answer carries the Response in `context`. */
+const failedFunction = (name: 'FunctionsHttpError' | 'FunctionsFetchError', message: string, context: unknown) =>
+  Object.assign(new Error(message), { name, context });
+
+const functionsApi = {
+  async invoke(name: string, options?: { body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }) {
+    try {
+      const timeout = AbortSignal.timeout(FUNCTION_TIMEOUT_MS);
+      const response = await fetch(`${apiOrigin()}/api/fn/${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: await authHeaders({ 'Content-Type': 'application/json', ...options?.headers }),
+        body: options?.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: options?.signal ? anyOf(options.signal, timeout) : timeout,
+      });
+      if (!response.ok) return { data: null, error: failedFunction('FunctionsHttpError', 'Edge Function returned a non-2xx status code', response) };
+      const json = (response.headers.get('content-type') ?? '').includes('application/json');
+      return { data: (json ? await response.json() : await response.text()) as unknown, error: null };
+    } catch (cause) {
+      return { data: null, error: failedFunction('FunctionsFetchError', 'Failed to send a request to the Edge Function', cause) };
+    }
+  },
+};
+
 // ---------------------------------------------------------------- change notices
 
 const POLL_MS = 30_000;
@@ -146,13 +184,14 @@ export const apiData = {
   from: (table: string) => new QueryBuilder(table, send),
   rpc: (name: string, args?: Json) => new RpcBuilder(name, args, send),
   storage: { from: (bucket: string) => new StorageBucket(bucket) },
+  functions: functionsApi,
   channel: (_name: string) => new PollingChannel(),
   removeChannel: (channel: PollingChannel) => { channel.stop(); return Promise.resolve('ok'); },
 };
 
 /**
- * Keeps the rest of the Supabase client (edge functions) as it was and answers tables, database
- * functions, files and change notices through this app's server instead.
+ * Answers tables, database functions, files, edge functions and change notices through this app's
+ * server instead of Supabase. Anything else on the client (auth helpers) is left as it was.
  */
 export function withApiData<T extends object>(client: T): T {
   return new Proxy(client, {
@@ -160,6 +199,7 @@ export function withApiData<T extends object>(client: T): T {
       if (property === 'from') return apiData.from;
       if (property === 'rpc') return apiData.rpc;
       if (property === 'storage') return apiData.storage;
+      if (property === 'functions') return apiData.functions;
       if (property === 'channel') return apiData.channel;
       if (property === 'removeChannel') return apiData.removeChannel;
       const value = Reflect.get(target, property, target);

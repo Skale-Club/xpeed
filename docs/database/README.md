@@ -1,6 +1,6 @@
 # Banco de dados próprio e sincronização do desenvolvimento
 
-Atualizado em 04/11/2026. Fases 1 a 3 da saída do Supabase (restam as edge functions e o corte). O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
+Atualizado em 04/11/2026. Fases 1 a 4 da saída do Supabase (resta o corte). O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
 
 ## Como fica
 
@@ -62,6 +62,24 @@ Combustível, cuidados do veículo, checkpoints de gravação, mídia compartilh
 
 Isso será ligado junto com a flag do cliente no corte. O teste `npm run test:handlers` roda os cinco handlers neste backend, com banco e pasta reais: recusas (sem token, token ruim, carro de outra pessoa), versão e conflito do cuidado do veículo, repetição e conflito por `Idempotency-Key` no combustível, e a gravação completa de uma viagem (checkpoints, reconstrução, finalização pela RPC `store_recorded_session` sob RLS, limpeza).
 
+## Edge functions dentro do servidor (`/api/fn/<nome>`)
+
+As 9 funções de `supabase/functions` rodam no servidor Node **sem mudar o código-fonte delas**. Na hora de empacotar (`scripts/esbuild-edge.mjs`), só quatro coisas que as prendiam ao Deno ou ao Supabase são trocadas por equivalentes em `server/functions/shims`:
+
+- `serve()` do Deno: registra o manipulador em vez de abrir uma porta (`server/functions/registry.ts`);
+- `createClient` do supabase-js: devolve o cliente de serviço do app. Com a chave de serviço, é o próprio servidor (sem RLS); com o cabeçalho `Authorization`, é a pessoa do token, verificada (RLS vale); sem nenhum dos dois, só o papel público;
+- `npm:zod`: o pacote `zod` normal;
+- `Deno.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e `SUPABASE_ANON_KEY` viram valores fixos que o `createClient` acima reconhece; `XPEED_APP_URL` cai em `PUBLIC_APP_URL`; o resto vem do ambiente.
+
+Qualquer outro `https:`/`npm:` novo numa função **quebra o build** com uma mensagem dizendo onde pôr um adaptador, em vez de falhar só em produção. O mesmo código segue valendo no Supabase até o corte.
+
+- O app chama `POST /api/fn/<nome>` (`supabase.functions.invoke` no `api-data.ts`, mesmo formato de erro: a resposta vai em `error.context`).
+- `api/mcp` e `api/oauth/*` chamam a função dentro do processo quando `DATA_BACKEND=own`; `api/brand/manifest` lê o `brand_config` do banco próprio.
+- Chave do provedor de IA, modelo e cotas já vivem no banco (`app_settings`, `consume_quota`), então vêm junto com os dados.
+- **Segredos a levar no corte:** `XPEED_OAUTH_JWT_SECRET` (o mesmo valor do Supabase, para os tokens OAuth já emitidos continuarem válidos) e `XPEED_APP_URL` (ou `PUBLIC_APP_URL`).
+
+`npm run test:functions` roda as funções reais com banco real e o provedor de IA simulado: login e corpo da requisição, chave e modelo vindos do banco, só o carro da própria pessoa no prompt, reembolso da cota quando o provedor falha, limite diário de 30 mensagens, funções aposentadas respondendo 410, registro OAuth gravado no banco, e os proxies chamando a função sem sair do processo.
+
 ## Estado da infraestrutura (04/11/2026)
 
 - `xpeed-db` criado no Coolify (PostgreSQL 17, sem porta pública, 512 MB, backup diário às 04:00 mantendo 14, igual ao `xpot-db`).
@@ -74,9 +92,9 @@ Isso será ligado junto com a flag do cliente no corte. O teste `npm run test:ha
 - `npm run test:db`: migrador, verificação de token, rota `/api/account`, RLS e o sync com dois bancos PostgreSQL reais em memória.
 - `npm run test:dbapi`: as rotas `/api/db` e `/api/storage` contra o esquema migrado: isolamento entre pessoas pela RLS, filtros, paginação por cursor, relações, `upsert`, funções, tentativas de injeção de SQL, e nos arquivos: pastas por dono, travessia de caminho, tipos e tamanhos, links assinados adulterados ou expirados, `Range` e CORS.
 - `npm run test:handlers`: os cinco handlers `api/*` no backend próprio (ver acima).
+- `npm run test:functions`: as 9 edge functions hospedadas no servidor (ver acima).
 - `npm run test:boot`: sobe o servidor empacotado contra um banco em memória e confere que migra sozinho (precisa de `npm run build:server` antes).
 
 ## Próximas fases
 
-4. As 9 funções de borda (chat, análise, leitura de recibo, OAuth, MCP) e os proxies `api/mcp`, `api/oauth/*`, `api/brand/manifest`.
 5. Corte: backup, levar os dados reais (banco e arquivos) para o Coolify, ligar `VITE_DATA_API` e `DATA_BACKEND=own` e desligar o acesso direto ao Supabase.

@@ -11,6 +11,7 @@
     "test:db": "node scripts/verify-db-foundation.mjs",
     "test:dbapi": "node scripts/verify-db-api.mjs",
     "test:handlers": "node scripts/verify-handlers.mjs",
+    "test:functions": "node scripts/verify-functions.mjs",
     "test:boot": "node --test scripts/test-server-boot.mjs",
     "build": "npm run build:web && npm run build:server",
     "build:dev": "vite build --mode development",
@@ -66,7 +67,8 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.5",
     "recharts": "^2.15.4",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.3",

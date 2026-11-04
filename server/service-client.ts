@@ -11,7 +11,7 @@ export interface ServiceClientOptions {
   pool?: pg.Pool;
   store?: FileStore;
   /** Who the database sees: 'service' (owner, no RLS) or a verified person (RLS applies). */
-  caller?: Caller;
+  caller?: Caller | PromiseLike<Caller>;
   /** Signs links returned by createSignedUrl. */
   secret?: string;
   /** Public address of the app, for createSignedUrl. */
@@ -74,11 +74,12 @@ class ServerBucket {
 
 export function createServiceClient(options: ServiceClientOptions = {}) {
   const pool = options.pool ?? getPool();
-  const caller: Caller = options.caller === undefined ? 'service' : options.caller;
+  // A promise lets the edge-function shim hand over a token that still has to be verified.
+  const caller: Caller | PromiseLike<Caller> = options.caller === undefined ? 'service' : options.caller;
   const store = options.store ?? new DiskStore(process.env.STORAGE_DIR ?? '/data/files');
   const secret = options.secret ?? process.env.STORAGE_SECRET ?? '';
   const origin = (options.origin ?? process.env.PUBLIC_APP_URL ?? 'https://xpeed.skale.club').replace(/\/$/, '');
-  const run: Runner = (payload) => execute(pool, caller, payload as unknown as DbRequest);
+  const run: Runner = async (payload) => execute(pool, await caller, payload as unknown as DbRequest);
   return {
     from: (table: string) => new QueryBuilder(table, run),
     rpc: (name: string, args?: unknown) => new RpcBuilder(name, args, run),

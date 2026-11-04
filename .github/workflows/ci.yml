@@ -69,5 +69,7 @@ jobs:
         run: npm run test:dbapi
       - name: Server handlers on the own backend (fuel, care, checkpoints, sharing)
         run: npm run test:handlers
+      - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
+        run: npm run test:functions
       - name: Server starts, migrates and answers (needs the build from the HTTP test)
         run: npm run test:boot
