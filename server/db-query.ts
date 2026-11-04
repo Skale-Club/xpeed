@@ -280,8 +280,9 @@ async function compile(pool: Pool, query: DbQuery): Promise<Run> {
   if (query.action === 'select') {
     const clause = where(table, query, p);
     const list = selectList(schema, table, 't', query.select);
+    // head: only the count is wanted, so no row statement is run (it would not use the filter parameters).
     statement = query.head
-      ? 'SELECT NULL::jsonb AS r WHERE false'
+      ? ''
       : `SELECT to_jsonb(q) AS r FROM (SELECT ${list} FROM public.${T} t${clause}${orderBy(table, query)}${windowOf(query)}) q`;
     if (query.count) countStatement = `SELECT count(*)::int AS n FROM public.${T} t${clause}`;
   } else {
@@ -320,7 +321,7 @@ async function compile(pool: Pool, query: DbQuery): Promise<Run> {
   }
 
   return async (client) => {
-    const answer = await client.query(statement, p.values);
+    const answer = statement ? await client.query(statement, p.values) : { rows: [] as { r: unknown }[] };
     let count: number | null | undefined;
     if (countStatement) count = (await client.query(countStatement, p.values)).rows[0].n;
     if (!wantsRows) return { data: null, error: null };

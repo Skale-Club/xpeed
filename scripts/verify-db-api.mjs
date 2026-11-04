@@ -106,6 +106,10 @@ try {
     const counted = ok(await query(A, { table: 'car_profiles', action: 'select', select: 'id', count: true, head: true }));
     assert.equal(counted.count, 3);
     assert.deepEqual(counted.data, []);
+    // A count with filters, the way the change check of the app asks for it.
+    const filtered = ok(await query(A, { table: 'car_profiles', action: 'select', select: 'id', count: true, head: true, filters: [{ column: 'name', op: 'eq', value: 'Alpha' }, { column: 'notes', op: 'is', value: null }] }));
+    assert.equal(filtered.count, 1);
+    assert.equal(ok(await query(A, { table: 'car_profiles', action: 'select', select: 'id', count: true, filters: [{ column: 'name', op: 'ilike', value: '%A%' }] })).count, 3);
   });
   await check('the cursor expression the trip list uses (or with and) pages correctly', async () => {
     const [first] = ok(await query(A, { table: 'car_profiles', action: 'select', select: 'id, name, created_at', order: [{ column: 'name' }], limit: 1 })).data;

@@ -2,6 +2,7 @@
 // Called by our SPA after the user approves consent on /oauth/authorize.
 // Requires Authorization: Bearer <verified Google identity token>.
 
+import { callFunction, ownBackend } from '../_functions';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -26,7 +27,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  if (!supabaseUrl) {
+  if (!supabaseUrl && !ownBackend()) {
     return new Response(
       JSON.stringify({ error: 'server_error', error_description: 'VITE_SUPABASE_URL not set' }),
       { status: 500, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
@@ -46,7 +47,7 @@ export default async function handler(req: Request): Promise<Response> {
     body: req.body,
     duplex: 'half',
   };
-  const upstream = await fetch(`${supabaseUrl}/functions/v1/xpeed-oauth/issue-code`, init);
+  const upstream = await callFunction(supabaseUrl, 'xpeed-oauth', '/issue-code', init);
 
   return new Response(upstream.body, {
     status: upstream.status,

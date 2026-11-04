@@ -169,6 +169,39 @@ describe('files', () => {
   });
 });
 
+describe('edge functions', () => {
+  it('posts the body to /api/fn/<name> with the token and returns parsed JSON', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ reply: 'hello' }), { headers: { 'content-type': 'application/json' } }));
+    const result = await apiData.functions.invoke('chat', { body: { message: 'hi' } });
+    expect(result).toEqual({ data: { reply: 'hello' }, error: null });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/fn/chat');
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({ Authorization: 'Bearer id-token', 'Content-Type': 'application/json' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ message: 'hi' });
+  });
+
+  it('keeps a refusal readable through error.context, as the screens read it', async () => {
+    reply({ code: 'quota' }, 429);
+    const result = await apiData.functions.invoke('read-fuel-receipt', { body: { carId: 'c' } });
+    expect(result.data).toBeNull();
+    expect(result.error).toMatchObject({ name: 'FunctionsHttpError' });
+    expect(await (result.error as unknown as { context: Response }).context.json()).toEqual({ code: 'quota' });
+  });
+
+  it('reports a network failure and honours the abort signal of the caller', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    expect((await apiData.functions.invoke('chat')).error).toMatchObject({ name: 'FunctionsFetchError' });
+    const controller = new AbortController();
+    fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    const pending = apiData.functions.invoke('read-fuel-receipt', { signal: controller.signal, body: {} });
+    await Promise.resolve();
+    await Promise.resolve();
+    controller.abort();
+    expect((await pending).error).toMatchObject({ name: 'FunctionsFetchError' });
+  });
+});
+
 describe('change notices', () => {
   it('calls back when the number of matching rows moves, not on the first look', async () => {
     vi.useFakeTimers();
@@ -194,7 +227,7 @@ describe('change notices', () => {
 });
 
 describe('withApiData', () => {
-  it('replaces tables, functions, files and change notices but leaves edge functions and the rest alone', async () => {
+  it('replaces tables, functions, files, edge functions and change notices but leaves the rest alone', async () => {
     const storage = { from: vi.fn((_name: string) => 'bucket') };
     const original = { from: vi.fn(), rpc: vi.fn(), storage, channel: vi.fn(), functions: { invoke: vi.fn(() => 'ok') }, auth: { id() { return this === original.auth; } } };
     const client = withApiData(original);
@@ -203,7 +236,7 @@ describe('withApiData', () => {
     expect(original.from).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(client.storage).toBe(apiData.storage);
-    expect(client.functions.invoke()).toBe('ok');
+    expect(client.functions).toBe(apiData.functions);
     expect(client.channel).toBe(apiData.channel);
     expect(client.auth.id()).toBe(true);
   });
