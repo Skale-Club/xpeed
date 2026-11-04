@@ -80,6 +80,33 @@ Qualquer outro `https:`/`npm:` novo numa função **quebra o build** com uma men
 
 `npm run test:functions` roda as funções reais com banco real e o provedor de IA simulado: login e corpo da requisição, chave e modelo vindos do banco, só o carro da própria pessoa no prompt, reembolso da cota quando o provedor falha, limite diário de 30 mensagens, funções aposentadas respondendo 410, registro OAuth gravado no banco, e os proxies chamando a função sem sair do processo.
 
+## Corte (fase 5): roteiro
+
+`scripts/cutover-copy.mjs` copia tudo do Supabase para o banco e o volume do Coolify. Lê o Supabase só pela API (chave de serviço do `.env`), abre um túnel SSH até o Coolify (o banco não tem porta pública) e **substitui** o conteúdo do destino, então pode ser repetido.
+
+| Comando | O que faz |
+|---|---|
+| `node scripts/cutover-copy.mjs` | Copia as 29 tabelas e os 154 arquivos, e compara contagem e chaves de cada tabela e bytes dos arquivos. |
+| `... --backup .codex-local/backup-AAAAMMDD` | Também guarda uma cópia simples (um `.jsonl` por tabela e os arquivos) fora do Git. |
+| `... --app` | Não copia nada: roda o código de consulta do servidor sobre a cópia, como o dono, e compara com o Supabase (conta, carros, viagens, leituras, problemas, painel, calendário, admin, estranho e anônimo sem ver nada, CSVs no volume). |
+| `--data` / `--files` | Só o banco ou só os arquivos. |
+
+As URLs de ícones salvas em `app_settings.brand_config` apontavam para o storage do Supabase; a cópia as reescreve para `/api/storage/object/...` do app.
+
+**Ensaio feito em 04/11/2026:** 29 tabelas e 154 arquivos conferem; `--app` passa inteiro com a identidade Google real do dono.
+
+### Virada (precisa do dono presente)
+
+1. Parar de usar o app (as gravações precisam estar pausadas).
+2. `node scripts/cutover-copy.mjs --backup .codex-local/backup-AAAAMMDD` e depois `--app`. Os dois têm de terminar em "Everything matches".
+3. No app do Coolify: `DATA_BACKEND=own` (runtime), `XPEED_OAUTH_JWT_SECRET` novo (o valor do Supabase não pode ser lido de volta; os tokens de refresh ficam no banco e os clientes MCP renovam sozinhos) e `VITE_DATA_API=true` (**build**). Redeploy.
+4. No GitHub: variável de repositório `VITE_DATA_API=true` e rodar o workflow do APK. Os dois APKs passam a usar o servidor de produção.
+5. Conferir `/api/health` e testar no celular: entrar (Google e SMS), ver viagens, gravar e salvar uma viagem, foto do carro, conversa com a IA, leitura de recibo.
+
+**Volta atrás:** apagar `DATA_BACKEND` e `VITE_DATA_API` (Coolify e GitHub) e fazer o redeploy; o Supabase não é tocado. O que for gravado depois da virada só existe no banco novo.
+
+**Atenção:** o `xpeed-offline.apk` já instalado tem o código antigo embutido e continua gravando no Supabase; reinstale o APK novo. Depois de estável, os workflows `supabase-keepalive*` e as variáveis `VITE_SUPABASE_*` podem sair.
+
 ## Estado da infraestrutura (04/11/2026)
 
 - `xpeed-db` criado no Coolify (PostgreSQL 17, sem porta pública, 512 MB, backup diário às 04:00 mantendo 14, igual ao `xpot-db`).
@@ -95,6 +122,6 @@ Qualquer outro `https:`/`npm:` novo numa função **quebra o build** com uma men
 - `npm run test:functions`: as 9 edge functions hospedadas no servidor (ver acima).
 - `npm run test:boot`: sobe o servidor empacotado contra um banco em memória e confere que migra sozinho (precisa de `npm run build:server` antes).
 
-## Próximas fases
+## Próximo passo
 
-5. Corte: backup, levar os dados reais (banco e arquivos) para o Coolify, ligar `VITE_DATA_API` e `DATA_BACKEND=own` e desligar o acesso direto ao Supabase.
+A virada descrita em "Corte (fase 5)". Todo o código e o ensaio estão prontos; falta só a decisão e a presença do dono.
