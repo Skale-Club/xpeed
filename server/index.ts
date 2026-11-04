@@ -20,6 +20,10 @@ import protectedResource from '../api/wellknown/oauth-protected-resource';
 import register from '../api/oauth/register';
 import issueCode from '../api/oauth/issue-code';
 import token from '../api/oauth/token';
+import pg from 'pg';
+import { migrate, ensureIdentityProject } from '../db/migrate.mjs';
+import { asService, databaseConfigured } from './db';
+import { createAccountRoute } from './account-route';
 
 type Handler = (request: Request) => Response | Promise<Response>;
 const routes = new Map<string,Handler>([
@@ -29,6 +33,7 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-authorization-server',authorizationServer],['/api/wellknown/oauth-authorization-server',authorizationServer],
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
+  ['/api/account',createAccountRoute()],
 ]);
 const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.txt':'text/plain; charset=utf-8','.woff2':'font/woff2','.wasm':'application/wasm','.webmanifest':'application/manifest+json'};
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -64,7 +69,9 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
       if(url.pathname==='/api/health'){
         if(!['GET','HEAD'].includes(req.method??'')){res.setHeader('Allow','GET, HEAD');res.writeHead(405).end();return;}
         res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
-        res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local'}));return;
+        // The database is reported but never fails the check: a blip must not restart the container.
+        const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
+        res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database}));return;
       }
       const handler=routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
@@ -114,6 +121,15 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
   if(!process.env.VITE_SUPABASE_URL||!process.env.SUPABASE_SERVICE_ROLE_KEY)throw Error('Missing runtime database configuration');
+  if(databaseConfigured()&&process.env.RUN_MIGRATIONS!=='false'){
+    const client=new pg.Client({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='true'?{rejectUnauthorized:false}:undefined});
+    await client.connect();
+    try{
+      const result=await migrate(client,{log:message=>console.log(JSON.stringify({event:'migration',message}))});
+      await ensureIdentityProject(client,process.env.FIREBASE_PROJECT_ID??process.env.VITE_FIREBASE_PROJECT_ID);
+      console.log(JSON.stringify({event:'migrations_done',applied:result.applied.length,adopted:result.adopted.length}));
+    }finally{await client.end();}
+  }
   const server=createXpeedServer();
   server.listen(Number(process.env.PORT??8888),'0.0.0.0',()=>console.log(JSON.stringify({event:'server_ready',port:Number(process.env.PORT??8888)})));
   for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),15_000).unref();});

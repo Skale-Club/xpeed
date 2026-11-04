@@ -83,9 +83,11 @@ jobs:
       - name: Edge Function checks
         run: npm run check:edge
       - name: Install isolated SQL test runtime
-        run: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.13
+        run: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
       - name: PostgreSQL contract checks
         run: npm run test:sql
+      - name: Database foundation (migrator, token check, sync)
+        run: npm run test:db
 
       - name: Build web app
         run: npm run build
