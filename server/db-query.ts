@@ -3,7 +3,7 @@
 // against the real schema, values are always bound parameters, and the work runs as
 // the caller's database role so row level security decides what they can touch.
 import type pg from 'pg';
-import { asAnonymous, asIdentity, asService, type VerifiedClaims } from './db';
+import { asAnonymous, asIdentity, asService, asServiceTransaction, type VerifiedClaims } from './db';
 
 type Row = Record<string, unknown>;
 type Pool = pg.Pool;
@@ -299,7 +299,7 @@ async function compile(pool: Pool, query: DbQuery): Promise<Run> {
         const updates = keys.filter((k) => !target.includes(k));
         conflict = ` ON CONFLICT (${target.map(quote).join(', ')}) ${query.ignoreDuplicates || updates.length === 0 ? 'DO NOTHING' : `DO UPDATE SET ${updates.map((k) => `${quote(k)} = EXCLUDED.${quote(k)}`).join(', ')}`}`;
       }
-      write = `INSERT INTO public.${T} (${list}) SELECT ${list} FROM jsonb_populate_recordset(NULL::public.${T}, ${p.addJson(rows)})${conflict}`;
+      write = `INSERT INTO public.${T} AS t (${list}) SELECT ${list} FROM jsonb_populate_recordset(NULL::public.${T}, ${p.addJson(rows)})${conflict}`;
     } else if (query.action === 'update') {
       if (filters === 0) throw new BadRequest('update() needs a filter');
       const values = rowsOf(query.values, table);
@@ -315,7 +315,7 @@ async function compile(pool: Pool, query: DbQuery): Promise<Run> {
       throw new BadRequest('Unsupported action');
     }
     statement = wantsRows
-      ? `WITH w AS (${write} RETURNING *) SELECT to_jsonb(q) AS r FROM (SELECT ${selectList(schema, table, 't', query.select)} FROM w t) q`
+      ? `WITH w AS (${write} RETURNING t.*) SELECT to_jsonb(q) AS r FROM (SELECT ${selectList(schema, table, 't', query.select)} FROM w t) q`
       : write;
   }
 
@@ -377,8 +377,11 @@ function describe(error: unknown): DbError {
   return { message: e.message ?? 'Request failed', code: e.code, details: e.detail ?? null, hint: e.hint ?? null };
 }
 
-/** Which role runs the work: a verified person, or nobody (public pages such as shared reports). */
-export type Caller = VerifiedClaims | null;
+/**
+ * Who runs the work: a verified person, nobody (public pages such as shared reports), or the
+ * server itself ('service': the database owner, no row level security; for the server's own jobs).
+ */
+export type Caller = VerifiedClaims | null | 'service';
 
 export async function execute(pool: Pool, caller: Caller, request: DbRequest): Promise<DbResult> {
   try {
@@ -390,6 +393,7 @@ export async function execute(pool: Pool, caller: Caller, request: DbRequest): P
       if (result.error) throw Object.assign(new Error('rollback'), { result });
       return result;
     };
+    if (caller === 'service') return await asServiceTransaction(work, pool);
     return caller ? await asIdentity(caller, work, pool) : await asAnonymous(work, pool);
   } catch (error) {
     const carried = (error as { result?: DbResult }).result;

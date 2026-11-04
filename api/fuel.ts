@@ -1,5 +1,4 @@
-import { verifyAppUser } from '../src/lib/verify-app-user';
-import { createClient } from '@supabase/supabase-js';
+import { openBackend } from './_backend';
 import { validateFuelEntry } from '../src/lib/fuel-ledger';
 import { parseCSV } from '../src/lib/csv-parser';
 import { sessionProcessingPayload } from '../src/lib/session-processing';
@@ -15,13 +14,13 @@ export default async function handler(req: Request): Promise<Response> {
   if (!['GET', 'POST', 'DELETE'].includes(req.method)) return reply({ error: 'method_not_allowed' }, 405);
   const query = new URL(req.url).searchParams, carId = query.get('carId') ?? '';
   if (!UUID.test(carId)) return reply({ error: 'invalid_car' }, 400);
-  const url = process.env.VITE_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return reply({ error: 'unavailable' }, 503);
-  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const backend = openBackend();
+  if (!backend) return reply({ error: 'unavailable' }, 503);
+  const db = backend.service;
   try {
     const token = req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
     if (!token) return reply({ error: 'unauthorized' }, 401);
-    const userId = await verifyAppUser(url,key,token);
+    const userId = await backend.userId(token);
     if (!userId) return reply({ error: 'unauthorized' },401);
     const car = await db.from('car_profiles').select('*').eq('id', carId).eq('user_id', userId).maybeSingle();
     if (car.error) throw car.error;
@@ -57,7 +56,7 @@ export default async function handler(req: Request): Promise<Response> {
         if (!csv) return reply({ error: 'original_unavailable' }, 409);
         if (input.action === 'reprocess') {
           const payload = sessionProcessingPayload(session.data as Session, car.data, csv);
-          const userDb = createClient(url, key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } });
+          const userDb = await backend.asUser(token);
           const processed = await userDb.rpc('reprocess_session', { p_session_id: input.sessionId, p_payload: payload });
           if (processed.error) throw processed.error;
           return reply({ fuel: payload.summary.fuel });

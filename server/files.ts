@@ -3,8 +3,8 @@
 // swapped for S3/R2 without touching the routes.
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, mkdir, open, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { link, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** Who may use a bucket from a browser. `server` buckets are only reachable by the server itself. */
 export type BucketAccess = 'owner' | 'admin-write-public-read' | 'server';
@@ -52,12 +52,12 @@ export function checkBucket(bucket: unknown): string {
   return bucket;
 }
 
-export interface ListedFile { name: string; size: number; updatedAt: string }
+export interface ListedFile { name: string; size: number; updatedAt: string; folder: boolean }
 export interface FileStore {
   put(bucket: string, path: string, data: Uint8Array, options: { upsert: boolean }): Promise<void>;
   get(bucket: string, path: string): Promise<Uint8Array | null>;
   remove(bucket: string, paths: string[]): Promise<void>;
-  /** Direct children of `prefix` (files only, like Supabase's list()). */
+  /** Direct children of `prefix`, files and folders, like Supabase's list(). */
   list(bucket: string, prefix: string, options?: { limit?: number; offset?: number; search?: string }): Promise<ListedFile[]>;
 }
 
@@ -114,7 +114,15 @@ export class DiskStore implements FileStore {
   }
 
   async remove(bucket: string, paths: string[]) {
-    for (const path of paths) await rm(this.locate(bucket, path), { force: true });
+    const folder = resolve(this.root, checkBucket(bucket));
+    for (const path of paths) {
+      const file = this.locate(bucket, path);
+      await rm(file, { force: true });
+      // Folders only exist while they hold something, as in object storage.
+      for (let parent = dirname(file); parent !== folder && parent.startsWith(folder + sep); parent = dirname(parent)) {
+        try { await rmdir(parent); } catch { break; }
+      }
+    }
   }
 
   async list(bucket: string, prefix: string, { limit = 100, offset = 0, search }: { limit?: number; offset?: number; search?: string } = {}) {
@@ -124,11 +132,13 @@ export class DiskStore implements FileStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
     }
-    const names = entries.filter((e) => e.isFile() && !e.name.startsWith('.upload-') && (!search || e.name.includes(search))).map((e) => e.name).sort();
-    const page = names.slice(offset, offset + Math.min(Math.max(limit, 0), 1000));
-    return Promise.all(page.map(async (name) => {
-      const info = await stat(join(directory, name));
-      return { name, size: info.size, updatedAt: info.mtime.toISOString() };
+    const wanted = entries
+      .filter((e) => (e.isFile() || e.isDirectory()) && !e.name.startsWith('.') && (!search || e.name.includes(search)))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const page = wanted.slice(offset, offset + Math.min(Math.max(limit, 0), 1000));
+    return Promise.all(page.map(async (entry) => {
+      const info = await stat(join(directory, entry.name));
+      return { name: entry.name, size: entry.isFile() ? info.size : 0, updatedAt: info.mtime.toISOString(), folder: entry.isDirectory() };
     }));
   }
 }

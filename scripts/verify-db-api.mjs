@@ -137,6 +137,10 @@ try {
   await check('upsert updates on conflict, duplicates report the unique-violation code, update/delete need a filter', async () => {
     ok(await query(A, { table: 'car_profiles', action: 'upsert', values: { id: carA2.id, name: 'Bravo 2' }, onConflict: 'id' }));
     assert.equal(ok(await query(A, { table: 'car_profiles', action: 'select', select: 'name', filters: [{ column: 'id', op: 'eq', value: carA2.id }], shape: 'single' })).data.name, 'Bravo 2');
+    // An update that hands the row back (the handlers rely on this for optimistic saves).
+    const renamed = ok(await query(A, { table: 'car_profiles', action: 'update', values: { name: 'Bravo 3' }, filters: [{ column: 'id', op: 'eq', value: carA2.id }], returning: true, select: 'id, name, created_at', shape: 'single' }));
+    assert.equal(renamed.data.name, 'Bravo 3');
+    assert.ok(renamed.data.created_at);
     const duplicate = await query(A, { table: 'car_profiles', action: 'insert', values: { id: carA2.id, name: 'again' } });
     assert.equal(duplicate.error.code, '23505');
     assert.match((await query(A, { table: 'car_profiles', action: 'update', values: { name: 'x' } })).error.message, /needs a filter/);

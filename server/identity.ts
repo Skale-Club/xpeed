@@ -6,6 +6,9 @@ const GOOGLE_KEYS = new URL('https://www.googleapis.com/service_accounts/v1/jwk/
 
 let defaultKeys: JWTVerifyGetKey | undefined;
 
+/** Tests only: replaces Google's key set for every caller that does not pass its own. */
+export function useKeysForTesting(keys: JWTVerifyGetKey | undefined) { defaultKeys = keys; }
+
 export interface IdentityOptions {
   projectId?: string;
   /** Tests inject a local key set; production uses Google's. */
