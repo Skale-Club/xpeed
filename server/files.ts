@@ -102,6 +102,17 @@ export class DiskStore implements FileStore {
     }
   }
 
+  /** Writes and deletes a tiny file in the root: proves the volume is mounted and writable by this user. */
+  async probe(): Promise<boolean> {
+    try {
+      await mkdir(this.root, { recursive: true });
+      const file = join(this.root, `.probe-${randomUUID()}`);
+      await writeFile(file, 'ok', { mode: 0o600 });
+      await rm(file, { force: true });
+      return true;
+    } catch { return false; }
+  }
+
   async remove(bucket: string, paths: string[]) {
     for (const path of paths) await rm(this.locate(bucket, path), { force: true });
   }

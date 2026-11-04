@@ -25,7 +25,7 @@ import { migrate, ensureIdentityProject } from '../db/migrate.mjs';
 import { asService, databaseConfigured } from './db';
 import { createAccountRoute } from './account-route';
 import { createDbRoute } from './db-route';
-import { createStorageRoute } from './storage-route';
+import { createStorageRoute, storageStatus } from './storage-route';
 
 type Handler = (request: Request) => Response | Promise<Response>;
 const routes = new Map<string,Handler>([
@@ -78,7 +78,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
         // The database is reported but never fails the check: a blip must not restart the container.
         const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
-        res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database}));return;
+        res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database,storage:await storageStatus()}));return;
       }
       const handler=url.pathname.startsWith('/api/storage/')?storageRoute:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
