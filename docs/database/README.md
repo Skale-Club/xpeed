@@ -1,6 +1,6 @@
 # Banco de dados próprio e sincronização do desenvolvimento
 
-Atualizado em 04/11/2026. Fases 1 e 2 da saída do Supabase. O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
+Atualizado em 04/11/2026. Fases 1 a 3 da saída do Supabase. O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
 
 ## Como fica
 
@@ -35,27 +35,39 @@ O sync **recusa** gravar quando `DATABASE_URL` aponta para o mesmo servidor da p
 
 ## Dados pelo servidor (`/api/db`)
 
-O navegador e o app Android não falam mais com o PostgREST do Supabase quando `VITE_DATA_API=true`. O cliente (`src/lib/api-data.ts`) mantém as mesmas chamadas encadeadas (`from().select().eq()...`, `rpc()`), então nenhum dos ~16 arquivos de acesso a dados mudou. Storage, edge functions e realtime seguem no Supabase até as fases 3 e 4.
+O navegador e o app Android não falam mais com o PostgREST do Supabase quando `VITE_DATA_API=true`. O cliente (`src/lib/api-data.ts`) mantém as mesmas chamadas encadeadas (`from().select().eq()...`, `rpc()`), então nenhum dos ~16 arquivos de acesso a dados mudou. Com a mesma flag, arquivos e avisos de mudança também passam pelo servidor (seção abaixo). As edge functions seguem no Supabase até a fase 4.
 
 - **Servidor** (`server/db-route.ts`, `server/db-query.ts`): recebe a consulta como dado (nunca SQL), confere tabela e coluna contra o esquema real, passa todos os valores como parâmetros e executa como `authenticated` com as claims do token verificado. A RLS do banco decide o acesso. Sem token roda como `anon` (páginas públicas, como o relatório compartilhado). Token inválido é recusado, não rebaixado.
 - **Comportamento igual ao PostgREST:** teto de 1000 linhas por resposta, `single()` e `maybeSingle()` com o erro `PGRST116`, códigos do Postgres (`23505` etc.), `count`/`head`, `upsert`, relações embutidas por chave estrangeira e a expressão `or()` usada pela lista de viagens. `update` e `delete` sem filtro são recusados.
 - **Dev:** `npm run dev` já serve `/api/db` pelo próprio Vite quando há `DATABASE_URL`. Para testar o app contra o banco de desenvolvimento, ponha `VITE_DATA_API=true` no `.env`.
 - **Produção:** o app do Coolify já tem `DATABASE_URL` e `FIREBASE_PROJECT_ID`. A flag só liga no corte (fase 5), depois de levar os dados reais.
 
+## Arquivos (`/api/storage`)
+
+Os 5 buckets que o navegador usa passam pelo servidor quando `VITE_DATA_API=true`. `supabase.storage.from(bucket)` (`upload`, `remove`, `createSignedUrl`, `download`, `getPublicUrl`) é atendido por `src/lib/api-data.ts`.
+
+- **Regras iguais às políticas antigas** (`server/files.ts`, `server/storage-route.ts`): em `session-csv`, `session-photos` e `car-photos` só a própria pessoa grava e lê, e o primeiro trecho do caminho tem de ser o id da conta. `app-icons` e `brand-assets` têm leitura pública e escrita de admin. `trip-checkpoints`, `vehicle-fuel-records` e `shared-trip-media` são só do servidor: nenhum navegador acessa. Limites de tamanho e tipos por bucket como antes.
+- **Segurança:** caminhos com `..`, barras duplas, barra invertida ou caracteres de controle são recusados (e conferidos de novo contra a pasta do bucket); `upsert: false` nunca sobrescreve (a gravação é atômica); os arquivos são servidos com `nosniff` e `sandbox`, nunca como página.
+- **Links assinados:** `POST /api/storage/sign` devolve um endereço com validade e assinatura HMAC (`STORAGE_SECRET`). Vale só para aquele arquivo, aceita `Range` (vídeo) e deixa de funcionar ao expirar.
+- **Onde ficam os bytes:** em disco, atrás da interface `FileStore`, em `STORAGE_DIR` (`/data/files`, um volume persistente do Coolify). Trocar por S3/R2 depois é trocar uma classe. **O volume não entra no backup automático do banco**; a cópia dos arquivos é feita no corte (fase 5) e vale decidir antes um destino fora do servidor.
+- **Avisos de mudança:** o Supabase realtime avisava "nova viagem" e mudanças em problemas. Agora o app consulta a contagem a cada 30 s com a página visível (`PollingChannel`), o que basta para esses dois avisos.
+- **Dev:** `npm run dev` serve `/api/storage` em `.dev-files/` (ignorado pelo git).
+
 ## Estado da infraestrutura (04/11/2026)
 
 - `xpeed-db` criado no Coolify (PostgreSQL 17, sem porta pública, 512 MB, backup diário às 04:00 mantendo 14, igual ao `xpot-db`).
 - O servidor aplicou as 58 migrações ao subir. O banco está com o esquema completo e **vazio**; os dados reais ainda estão no Supabase.
+- Volume `xpeed-files` montado em `/data/files`, mais `STORAGE_DIR` e `STORAGE_SECRET` (aleatório) no app do Coolify.
 - Falta só você, no `.env` local: `DATABASE_URL` (string do Supabase de desenvolvimento) e, para a sincronização, um túnel até o banco de produção em `PROD_DATABASE_URL`.
 
 ## Testes
 
 - `npm run test:db`: migrador, verificação de token, rota `/api/account`, RLS e o sync com dois bancos PostgreSQL reais em memória.
-- `npm run test:dbapi`: a rota `/api/db` contra o esquema migrado: isolamento entre pessoas pela RLS, filtros, paginação por cursor, relações, `upsert`, funções, tentativas de injeção de SQL e CORS.
+- `npm run test:dbapi`: as rotas `/api/db` e `/api/storage` contra o esquema migrado: isolamento entre pessoas pela RLS, filtros, paginação por cursor, relações, `upsert`, funções, tentativas de injeção de SQL, e nos arquivos: pastas por dono, travessia de caminho, tipos e tamanhos, links assinados adulterados ou expirados, `Range` e CORS.
 - `npm run test:boot`: sobe o servidor empacotado contra um banco em memória e confere que migra sozinho (precisa de `npm run build:server` antes).
 
 ## Próximas fases
 
-3. Arquivos (fotos, anexos, CSV) e tempo real.
+3. Os handlers do servidor (`api/*`: combustível, checkpoints, mídia compartilhada, cuidados do veículo, problemas) ainda leem o Supabase com a service role; passam a usar o banco e os arquivos próprios.
 4. As 9 funções de borda (chat, análise, OAuth, MCP).
 5. Corte: backup, levar os dados reais para o banco do Coolify, ligar `VITE_DATA_API` e desligar o acesso direto ao Supabase.

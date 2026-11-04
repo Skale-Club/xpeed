@@ -15,6 +15,8 @@ ARG VITE_GOOGLE_CLIENT_ID
 RUN npm run build
 FROM base AS runner
 ENV NODE_ENV=production PORT=8888 TRUST_PROXY=true
+# Uploaded files live on a Coolify volume mounted here; the folder must belong to `node` before the volume is created.
+RUN mkdir -p /data/files && chown node:node /data/files
 USER node
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/build/server ./build/server

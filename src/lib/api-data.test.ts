@@ -116,17 +116,95 @@ describe('transport', () => {
   });
 });
 
+describe('files', () => {
+  it('uploads the bytes to the owner folder with the token and the file type', async () => {
+    reply({ data: { path: 'u1/car.jpg' }, error: null });
+    const file = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+    const result = await apiData.storage.from('car-photos').upload('u1/car.jpg', file, { contentType: 'image/jpeg', upsert: false });
+    expect(result).toEqual({ data: { path: 'u1/car.jpg' }, error: null });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/storage/object/car-photos/u1/car.jpg?upsert=false');
+    expect(init.method).toBe('PUT');
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer id-token', 'Content-Type': 'image/jpeg' });
+    expect(init.body).toBe(file);
+  });
+
+  it('encodes odd characters in names and keeps the folder slashes', async () => {
+    reply({ data: { path: 'x' }, error: null });
+    await apiData.storage.from('session-photos').upload('u1/trip 1/café #2.png', new Blob(['x'], { type: 'image/png' }), { upsert: true });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/storage/object/session-photos/u1/trip%201/caf%C3%A9%20%232.png?upsert=true');
+  });
+
+  it('turns a refusal into the error the screens already read', async () => {
+    reply({ data: null, error: { message: 'The resource already exists', code: 'already_exists', statusCode: '409' } }, 409);
+    const result = await apiData.storage.from('car-photos').upload('u1/a.jpg', new Blob(['x']));
+    expect(result.data).toBeNull();
+    expect(result.error).toMatchObject({ statusCode: '409', message: 'The resource already exists' });
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    expect((await apiData.storage.from('car-photos').remove(['u1/a.jpg'])).error?.message).toBe('Failed to fetch');
+  });
+
+  it('asks the server for a signed link and returns it as an absolute address', async () => {
+    reply({ data: { signedPath: '/api/storage/object/car-photos/u1/a.jpg?token=abc' }, error: null });
+    const result = await apiData.storage.from('car-photos').createSignedUrl('u1/a.jpg', 3600);
+    expect(result.data?.signedUrl).toBe('/api/storage/object/car-photos/u1/a.jpg?token=abc');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ bucket: 'car-photos', path: 'u1/a.jpg', expiresIn: 3600 });
+    h.native = true;
+    reply({ data: { signedPath: '/api/storage/object/car-photos/u1/a.jpg?token=abc' }, error: null });
+    expect((await apiData.storage.from('car-photos').createSignedUrl('u1/a.jpg', 60)).data?.signedUrl).toBe('https://xpeed.skale.club/api/storage/object/car-photos/u1/a.jpg?token=abc');
+    reply({ data: null, error: { message: 'Object not found', statusCode: '404' } }, 404);
+    expect((await apiData.storage.from('car-photos').createSignedUrl('u1/gone.jpg', 60)).error?.statusCode).toBe('404');
+  });
+
+  it('downloads a file as a Blob and reports a missing one', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('a,b;1,2', { status: 200 }));
+    const found = await apiData.storage.from('session-csv').download('u1/t.csv');
+    expect((found.data as Blob).size).toBe(7);
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 404 }));
+    expect((await apiData.storage.from('session-csv').download('u1/none.csv')).error).toMatchObject({ message: 'Object not found', statusCode: '404' });
+  });
+
+  it('builds the public address of a public asset', () => {
+    expect(apiData.storage.from('brand-assets').getPublicUrl('logo.png').data.publicUrl).toBe('/api/storage/object/brand-assets/logo.png');
+  });
+});
+
+describe('change notices', () => {
+  it('calls back when the number of matching rows moves, not on the first look', async () => {
+    vi.useFakeTimers();
+    try {
+      const seen = vi.fn();
+      reply({ data: [], error: null, count: 3 });
+      const channel = apiData.channel('sessions-car1').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sessions', filter: 'car_profile_id=eq.car1' }, seen).subscribe();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ table: 'sessions', count: true, head: true, filters: [{ column: 'car_profile_id', op: 'eq', value: 'car1' }] });
+      expect(seen).not.toHaveBeenCalled();
+      reply({ data: [], error: null, count: 3 });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(seen).not.toHaveBeenCalled();
+      reply({ data: [], error: null, count: 4 });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(seen).toHaveBeenCalledTimes(1);
+      await apiData.removeChannel(channel);
+      reply({ data: [], error: null, count: 9 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(seen).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+});
+
 describe('withApiData', () => {
-  it('replaces from() and rpc() but leaves storage, functions and the rest of the client alone', async () => {
+  it('replaces tables, functions, files and change notices but leaves edge functions and the rest alone', async () => {
     const storage = { from: vi.fn((_name: string) => 'bucket') };
-    const original = { from: vi.fn(), rpc: vi.fn(), storage, functions: { invoke: vi.fn(() => 'ok') }, removeChannel() { return this === original; } };
+    const original = { from: vi.fn(), rpc: vi.fn(), storage, channel: vi.fn(), functions: { invoke: vi.fn(() => 'ok') }, auth: { id() { return this === original.auth; } } };
     const client = withApiData(original);
     reply({ data: [], error: null });
     await client.from('car_profiles').select('id');
     expect(original.from).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(client.storage.from('x')).toBe('bucket');
+    expect(client.storage).toBe(apiData.storage);
     expect(client.functions.invoke()).toBe('ok');
-    expect(client.removeChannel()).toBe(true);
+    expect(client.channel).toBe(apiData.channel);
+    expect(client.auth.id()).toBe(true);
   });
 });

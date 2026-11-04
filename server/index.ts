@@ -25,6 +25,7 @@ import { migrate, ensureIdentityProject } from '../db/migrate.mjs';
 import { asService, databaseConfigured } from './db';
 import { createAccountRoute } from './account-route';
 import { createDbRoute } from './db-route';
+import { createStorageRoute } from './storage-route';
 
 type Handler = (request: Request) => Response | Promise<Response>;
 const routes = new Map<string,Handler>([
@@ -40,6 +41,9 @@ const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'t
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 // Saving a trip sends its readings in batches and the original CSV: more than the other routes need.
 const MAX_DB_BODY_BYTES = 12 * 1024 * 1024;
+// Uploads: the largest bucket accepts 50 MB (trip CSV).
+const MAX_STORAGE_BODY_BYTES = 52 * 1024 * 1024;
+const storageRoute=createStorageRoute();
 
 async function requestBody(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<Uint8Array | undefined> {
   if (req.method === 'GET' || req.method === 'HEAD') return;
@@ -76,7 +80,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
         res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database}));return;
       }
-      const handler=routes.get(url.pathname.replace(/\/$/,''));
+      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
         const controller=new AbortController();
         req.once('aborted',()=>controller.abort());
@@ -88,7 +92,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const ip=trustProxy&&forwarded&&isIP(forwarded)?forwarded:req.socket.remoteAddress??'';
         headers.set('x-real-ip',ip);headers.set('x-forwarded-for',ip);
         headers.set('host',origin.host);headers.set('x-forwarded-proto',origin.protocol.slice(0,-1));
-        const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:MAX_BODY_BYTES);
+        const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:MAX_BODY_BYTES);
         const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
         await sendResponse(req,res,await handler(request));return;
       }
