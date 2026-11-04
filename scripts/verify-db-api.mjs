@@ -2,7 +2,7 @@
 // PostgreSQL/WASM. No .env, network or remote credentials.
 // Needs: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { build } from 'esbuild';
@@ -18,14 +18,16 @@ const { PGLiteSocketServer } = await import(tools + 'pglite-socket/dist/index.js
 mkdirSync(resolve(root, 'node_modules/.cache'), { recursive: true });
 const temp = mkdtempSync(resolve(root, 'node_modules/.cache/xpeed-api-'));
 await build({
-  entryPoints: { query: 'server/db-query.ts', route: 'server/db-route.ts', account: 'server/account-route.ts' },
-  outdir: temp, bundle: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
+  entryPoints: { query: 'server/db-query.ts', route: 'server/db-route.ts', account: 'server/account-route.ts', storage: 'server/storage-route.ts', files: 'server/files.ts' },
+  outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
   external: ['pg', 'jose'], absWorkingDir: root, logLevel: 'error',
 });
 const load = (name) => import(pathToFileURL(resolve(temp, name)).href);
 const { createDbRoute } = await load('route.mjs');
 const { createAccountRoute } = await load('account.mjs');
 const { forgetSchema } = await load('query.mjs');
+const { createStorageRoute } = await load('storage.mjs');
+const { DiskStore, signLink } = await load('files.mjs');
 
 const checks = [];
 const check = async (name, test) => { await test(); checks.push(name); };
@@ -199,6 +201,115 @@ try {
     assert.equal((await preflight('https://localhost')).headers.get('access-control-allow-origin'), 'https://localhost');
     assert.equal((await preflight('http://localhost:8080')).headers.get('access-control-allow-origin'), 'http://localhost:8080');
     assert.equal((await preflight('https://evil.example')).headers.get('access-control-allow-origin'), null);
+  });
+
+  // ---------------------------------------------------------------- files
+  const filesRoot = mkdtempSync(resolve(temp, 'files-'));
+  const store = new DiskStore(filesRoot);
+  const SECRET = 'test-storage-secret';
+  const storage = createStorageRoute({ ...identity, store, secret: SECRET });
+  const meId = async (bearer) => (await send(bearer, { kind: 'rpc', name: 'current_app_user_id' })).data;
+  const idA = await meId(A), idB = await meId(B);
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const call = (method, path, { bearer, body, type, headers = {} } = {}) => storage(new Request(`http://x${path}`, {
+    method, headers: { ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...(type ? { 'content-type': type } : {}), ...headers }, body,
+  }));
+  const object = (bucket, path) => `/api/storage/object/${bucket}/${path}`;
+  const upload = (bearer, bucket, path, body = JPEG, type = 'image/jpeg', query = '') => call('PUT', object(bucket, path) + query, { bearer, body, type });
+  const code = async (response) => (await response.json()).error?.code;
+
+  await check('files: people write only into their own folder, and only the buckets meant for browsers', async () => {
+    assert.equal((await upload(A, 'car-photos', `${idA}/car.jpg`)).status, 200);
+    assert.equal(await code(await upload(B, 'car-photos', `${idA}/intruder.jpg`)), 'forbidden');
+    assert.equal(await code(await upload(A, 'car-photos', `${idB}/x.jpg`)), 'forbidden');
+    assert.equal(await code(await upload(A, 'car-photos', 'loose.jpg')), 'forbidden');
+    assert.equal(await code(await upload(A, 'trip-checkpoints', `${idA}/x.json`, new Uint8Array([123, 125]), 'application/json')), 'forbidden');
+    assert.equal((await upload(null, 'car-photos', `${idA}/anon.jpg`)).status, 401);
+    assert.equal((await upload('garbage', 'car-photos', `${idA}/bad.jpg`)).status, 401);
+    assert.equal(await code(await upload(A, 'no-such-bucket', `${idA}/x.jpg`)), 'bucket_not_found');
+    assert.deepEqual(readdirSync(resolve(filesRoot, 'car-photos', idA)).sort(), ['car.jpg']);
+  });
+  await check('files: type and size limits, empty files, and no silent overwrite', async () => {
+    assert.equal(await code(await upload(A, 'car-photos', `${idA}/a.html`, new Uint8Array([60, 104]), 'text/html')), 'invalid_mime_type');
+    assert.equal(await code(await upload(A, 'car-photos', `${idA}/big.jpg`, new Uint8Array(5 * 1024 * 1024 + 1))), 'too_large');
+    assert.equal(await code(await upload(A, 'car-photos', `${idA}/empty.jpg`, new Uint8Array(0))), 'empty_file');
+    assert.equal(await code(await upload(A, 'car-photos', `${idA}/car.jpg`)), 'already_exists');
+    const next = new Uint8Array([0xff, 0xd8, 9, 9]);
+    assert.equal((await upload(A, 'car-photos', `${idA}/car.jpg`, next, 'image/jpeg', '?upsert=true')).status, 200);
+    assert.deepEqual(new Uint8Array(await (await call('GET', object('car-photos', `${idA}/car.jpg`), { bearer: A })).arrayBuffer()), next);
+  });
+  await check('files: path tricks never leave the bucket folder', async () => {
+    const tricks = [`${idA}/../${idB}/x.jpg`, `${idA}/%2e%2e/${idB}/x.jpg`, `${idA}%2f..%2f..%2fx.jpg`, `${idA}/..%5c..%5cx.jpg`, `${idA}//x.jpg`, `/etc/passwd`, `${idA}/x%00.jpg`];
+    for (const path of tricks) {
+      const response = await upload(A, 'car-photos', path);
+      assert.ok([400, 403, 404].includes(response.status), `${path} -> ${response.status}`);
+    }
+    // Nothing was written anywhere but the one legitimate file.
+    const everything = [];
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) walk(resolve(dir, entry.name)); else everything.push(resolve(dir, entry.name).slice(filesRoot.length).split('\\').join('/'));
+      }
+    };
+    walk(filesRoot);
+    assert.deepEqual(everything, [`/car-photos/${idA}/car.jpg`]);
+  });
+  await check('files: downloads need the owner or a valid link, and are served as inert data', async () => {
+    const mine = await call('GET', object('car-photos', `${idA}/car.jpg`), { bearer: A });
+    assert.equal(mine.status, 200);
+    assert.equal(mine.headers.get('content-type'), 'image/jpeg');
+    assert.equal(mine.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(mine.headers.get('content-security-policy'), /sandbox/);
+    assert.equal((await call('GET', object('car-photos', `${idA}/car.jpg`), { bearer: B })).status, 403);
+    assert.equal((await call('GET', object('car-photos', `${idA}/car.jpg`))).status, 401);
+    assert.equal((await call('GET', object('car-photos', `${idA}/missing.jpg`), { bearer: A })).status, 404);
+    assert.equal((await call('GET', object('trip-checkpoints', `${idA}/x.json`), { bearer: A })).status, 403);
+  });
+  await check('files: signed links open for whoever holds them until they expire, and only for that file', async () => {
+    const sign = (bearer, bucket, path, expiresIn) => call('POST', '/api/storage/sign', { bearer, body: JSON.stringify({ bucket, path, expiresIn }), type: 'application/json' });
+    const signed = await (await sign(A, 'car-photos', `${idA}/car.jpg`, 600)).json();
+    const link = signed.data.signedPath;
+    assert.equal((await call('GET', link)).status, 200);
+    assert.equal((await call('HEAD', link)).status, 200);
+    assert.equal((await sign(B, 'car-photos', `${idA}/car.jpg`, 600)).status, 403);
+    assert.equal((await sign(A, 'car-photos', `${idA}/nope.jpg`, 600)).status, 404);
+    const token = new URL(`http://x${link}`).searchParams.get('token');
+    const tampered = token.slice(0, -3) + (token.endsWith('AAA') ? 'BBB' : 'AAA');
+    assert.equal((await call('GET', object('car-photos', `${idA}/car.jpg`) + `?token=${tampered}`)).status, 403);
+    assert.equal((await call('GET', object('car-photos', `${idB}/other.jpg`) + `?token=${token}`)).status, 403);
+    const expired = signLink(SECRET, { bucket: 'car-photos', path: `${idA}/car.jpg`, expires: Date.now() - 1000 });
+    assert.equal((await call('GET', object('car-photos', `${idA}/car.jpg`) + `?token=${expired}`)).status, 403);
+    const forged = signLink('some-other-secret', { bucket: 'car-photos', path: `${idA}/car.jpg`, expires: Date.now() + 60000 });
+    assert.equal((await call('GET', object('car-photos', `${idA}/car.jpg`) + `?token=${forged}`)).status, 403);
+    const unsigned = createStorageRoute({ ...identity, store, secret: '' });
+    const noSecret = await unsigned(new Request('http://x/api/storage/sign', {
+      method: 'POST', headers: { authorization: `Bearer ${A}`, 'content-type': 'application/json' }, body: JSON.stringify({ bucket: 'car-photos', path: `${idA}/car.jpg` }),
+    }));
+    assert.equal(noSecret.status, 503);
+  });
+  await check('files: ranges for video seeking, removal, and public assets', async () => {
+    await store.put('session-photos', `${idA}/trip/clip.mp4`, new Uint8Array(100).map((_, i) => i), { upsert: false });
+    const part = await call('GET', object('session-photos', `${idA}/trip/clip.mp4`), { bearer: A, headers: { range: 'bytes=10-19' } });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get('content-range'), 'bytes 10-19/100');
+    assert.deepEqual([...new Uint8Array(await part.arrayBuffer())], [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+    assert.equal((await call('GET', object('session-photos', `${idA}/trip/clip.mp4`), { bearer: A, headers: { range: 'bytes=500-' } })).status, 416);
+    const remove = (bearer, bucket, paths) => call('POST', '/api/storage/remove', { bearer, body: JSON.stringify({ bucket, paths }), type: 'application/json' });
+    assert.equal((await remove(B, 'car-photos', [`${idA}/car.jpg`])).status, 403);
+    assert.equal((await remove(A, 'car-photos', [`${idA}/car.jpg`, `${idA}/never-existed.jpg`])).status, 200);
+    assert.equal(await store.get('car-photos', `${idA}/car.jpg`), null);
+    await store.put('brand-assets', 'logo.png', JPEG, { upsert: true });
+    assert.equal((await call('GET', object('brand-assets', 'logo.png'))).status, 200);
+    assert.equal(await code(await upload(A, 'brand-assets', 'logo.png', JPEG, 'image/jpeg', '?upsert=true')), 'forbidden');
+    assert.equal((await upload(null, 'brand-assets', 'logo2.png')).status, 401);
+  });
+  await check('files: CORS allows the installed app and its uploads preflight', async () => {
+    const preflight = await storage(new Request('http://x/api/storage/object/car-photos/a/b.jpg', { method: 'OPTIONS', headers: { origin: 'https://localhost' } }));
+    assert.equal(preflight.status, 204);
+    assert.match(preflight.headers.get('access-control-allow-methods'), /PUT/);
+    assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://localhost');
+    const stranger = await storage(new Request('http://x/api/storage/object/car-photos/a/b.jpg', { method: 'OPTIONS', headers: { origin: 'https://evil.example' } }));
+    assert.equal(stranger.headers.get('access-control-allow-origin'), null);
   });
 
   await pool.end();
