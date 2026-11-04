@@ -2,6 +2,8 @@
 // Run after `npm run build:server`; needs the isolated PGlite tools (see verify-db-foundation.mjs).
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { test } from 'node:test';
@@ -16,11 +18,12 @@ test('the server migrates its database on start and reports it in /api/health', 
   const sql = new PGLiteSocketServer({ db, port: 54420, host: '127.0.0.1' });
   await sql.start();
   const port = 18899;
+  const files = mkdtempSync(resolve(tmpdir(), 'xpeed-boot-files-'));
   const child = spawn(process.execPath, ['build/server/index.mjs'], {
     cwd: root,
     env: {
       ...process.env, PORT: String(port), DATABASE_URL: 'postgres://postgres:postgres@127.0.0.1:54420/postgres',
-      VITE_SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'test', FIREBASE_PROJECT_ID: 'skaleclub',
+      VITE_SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'test', FIREBASE_PROJECT_ID: 'skaleclub', STORAGE_DIR: files,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -37,6 +40,7 @@ test('the server migrates its database on start and reports it in /api/health', 
     }
     assert.ok(health, `server never answered:\n${output}`);
     assert.equal(health.database, 'ok');
+    assert.equal(health.storage, 'ok', 'the configured folder is writable');
     assert.match(output, /migrations_done/);
     // The identity project was registered, so a token for it can be accepted by the database.
     const projects = await db.query('SELECT project_id FROM public.google_auth_projects');
@@ -46,6 +50,7 @@ test('the server migrates its database on start and reports it in /api/health', 
     assert.equal((await fetch(base + '/api/account')).status, 405);
   } finally {
     child.kill();
+    rmSync(files, { recursive: true, force: true });
     await sql.stop();
     await db.close();
   }

@@ -40,6 +40,15 @@ function objectTarget(pathname: string) {
  * policies: a person's own folder (first path segment = account id), admin-written public
  * assets, and server-only buckets that no browser may touch.
  */
+/** 'off' when no folder is configured, otherwise whether it can be written (checked at most once a minute). */
+let probed: { at: number; result: 'ok' | 'down' } | undefined;
+export async function storageStatus(env: NodeJS.ProcessEnv = process.env): Promise<'ok' | 'down' | 'off'> {
+  if (!env.STORAGE_DIR) return 'off';
+  if (probed && Date.now() - probed.at < 60_000) return probed.result;
+  probed = { at: Date.now(), result: (await new DiskStore(env.STORAGE_DIR).probe()) ? 'ok' : 'down' };
+  return probed.result;
+}
+
 export function createStorageRoute(options: StorageRouteOptions = {}) {
   let store = options.store;
   const files = () => (store ??= new DiskStore(process.env.STORAGE_DIR ?? '/data/files'));
