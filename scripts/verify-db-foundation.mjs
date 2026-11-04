@@ -58,6 +58,18 @@ try {
     const again = await migrate(client);
     assert.deepEqual([again.applied.length, again.adopted.length, again.compat], [0, 0, false]);
   });
+  await check('one account can hold several sign-in methods (Google and SMS), each resolving to it', async () => {
+    const account = '50000000-0000-4000-8000-000000000001';
+    await client.query("INSERT INTO public.app_accounts(id, email) VALUES($1, 'two-methods@example.test')", [account]);
+    for (const subject of ['google-uid', 'phone-uid']) {
+      await client.query("INSERT INTO public.google_auth_identities(issuer, tenant_id, subject, account_id) VALUES('https://securetoken.google.com/skaleclub', '', $1, $2)", [subject, account]);
+    }
+    const found = await client.query("SELECT subject FROM public.google_auth_identities WHERE account_id = $1 ORDER BY subject", [account]);
+    assert.deepEqual(found.rows.map((r) => r.subject), ['google-uid', 'phone-uid']);
+    // The same sign-in identity still cannot belong to two accounts.
+    await assert.rejects(client.query("INSERT INTO public.google_auth_identities(issuer, tenant_id, subject, account_id) VALUES('https://securetoken.google.com/skaleclub', '', 'phone-uid', (SELECT id FROM public.app_accounts WHERE id <> $1 LIMIT 1))", [account]));
+    await client.query('DELETE FROM public.app_accounts WHERE id = $1', [account]);
+  });
   await check('a failing migration rolls back and names the file', async () => {
     const dir = mkdtempSync(resolve(tmpdir(), 'xpeed-bad-'));
     writeFileSync(resolve(dir, '20990101000000_bad.sql'), 'CREATE TABLE public.half_done(id int); SELECT 1/0;');
