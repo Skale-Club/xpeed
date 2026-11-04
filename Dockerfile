@@ -12,6 +12,8 @@ ARG VITE_FIREBASE_API_KEY
 ARG VITE_FIREBASE_PROJECT_ID
 ARG VITE_FIREBASE_AUTH_DOMAIN
 ARG VITE_GOOGLE_CLIENT_ID
+# true = the app uses its own server for data, files and functions instead of Supabase (see docs/database).
+ARG VITE_DATA_API
 RUN npm run build
 FROM base AS runner
 ENV NODE_ENV=production PORT=8888 TRUST_PROXY=true
