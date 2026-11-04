@@ -41,6 +41,13 @@ export async function migrate(client, { dir = MIGRATIONS_DIR, log = () => {} } =
     }
     await client.query(`CREATE TABLE IF NOT EXISTS public.xpeed_schema_migrations (
       version text PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);
+    // Bookkeeping, not app data: no API role may read or change it (default privileges would allow it).
+    await client.query(`DO $$ DECLARE r text; BEGIN
+      REVOKE ALL ON public.xpeed_schema_migrations FROM PUBLIC;
+      FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN EXECUTE format('REVOKE ALL ON public.xpeed_schema_migrations FROM %I', r); END IF;
+      END LOOP;
+    END $$`);
 
     const files = listMigrations(dir);
     const done = new Set((await client.query('SELECT name FROM public.xpeed_schema_migrations')).rows.map((r) => r.name));

@@ -24,6 +24,7 @@ import pg from 'pg';
 import { migrate, ensureIdentityProject } from '../db/migrate.mjs';
 import { asService, databaseConfigured } from './db';
 import { createAccountRoute } from './account-route';
+import { createDbRoute } from './db-route';
 
 type Handler = (request: Request) => Response | Promise<Response>;
 const routes = new Map<string,Handler>([
@@ -33,17 +34,19 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-authorization-server',authorizationServer],['/api/wellknown/oauth-authorization-server',authorizationServer],
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
-  ['/api/account',createAccountRoute()],
+  ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
 ]);
 const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.txt':'text/plain; charset=utf-8','.woff2':'font/woff2','.wasm':'application/wasm','.webmanifest':'application/manifest+json'};
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+// Saving a trip sends its readings in batches and the original CSV: more than the other routes need.
+const MAX_DB_BODY_BYTES = 12 * 1024 * 1024;
 
-async function requestBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
+async function requestBody(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<Uint8Array | undefined> {
   if (req.method === 'GET' || req.method === 'HEAD') return;
   const chunks: Buffer[]=[]; let total=0;
   for await (const chunk of req.iterator({destroyOnReturn:false})) {
     const part=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk); total+=part.length;
-    if (total>MAX_BODY_BYTES) { req.resume(); throw Object.assign(new Error('Request too large'),{status:413}); }
+    if (total>limit) { req.resume(); throw Object.assign(new Error('Request too large'),{status:413}); }
     chunks.push(part);
   }
   return new Uint8Array(Buffer.concat(chunks));
@@ -85,7 +88,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const ip=trustProxy&&forwarded&&isIP(forwarded)?forwarded:req.socket.remoteAddress??'';
         headers.set('x-real-ip',ip);headers.set('x-forwarded-for',ip);
         headers.set('host',origin.host);headers.set('x-forwarded-proto',origin.protocol.slice(0,-1));
-        const body=await requestBody(req);
+        const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:MAX_BODY_BYTES);
         const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
         await sendResponse(req,res,await handler(request));return;
       }

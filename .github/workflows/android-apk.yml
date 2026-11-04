@@ -88,6 +88,8 @@ jobs:
         run: npm run test:sql
       - name: Database foundation (migrator, token check, sync)
         run: npm run test:db
+      - name: Data API (queries, row level security, injection attempts)
+        run: npm run test:dbapi
 
       - name: Build web app
         run: npm run build
