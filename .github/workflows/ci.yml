@@ -67,5 +67,7 @@ jobs:
         run: npm run test:db
       - name: Data API (queries, row level security, injection attempts)
         run: npm run test:dbapi
+      - name: Server handlers on the own backend (fuel, care, checkpoints, sharing)
+        run: npm run test:handlers
       - name: Server starts, migrates and answers (needs the build from the HTTP test)
         run: npm run test:boot

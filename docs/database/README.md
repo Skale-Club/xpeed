@@ -1,6 +1,6 @@
 # Banco de dados próprio e sincronização do desenvolvimento
 
-Atualizado em 04/11/2026. Fases 1 a 3 da saída do Supabase. O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
+Atualizado em 04/11/2026. Fases 1 a 3 da saída do Supabase (restam as edge functions e o corte). O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
 
 ## Como fica
 
@@ -53,6 +53,15 @@ Os 5 buckets que o navegador usa passam pelo servidor quando `VITE_DATA_API=true
 - **Avisos de mudança:** o Supabase realtime avisava "nova viagem" e mudanças em problemas. Agora o app consulta a contagem a cada 30 s com a página visível (`PollingChannel`), o que basta para esses dois avisos.
 - **Dev:** `npm run dev` serve `/api/storage` em `.dev-files/` (ignorado pelo git).
 
+## Handlers do servidor (`api/*`, `DATA_BACKEND`)
+
+Combustível, cuidados do veículo, checkpoints de gravação, mídia compartilhada e sincronização de problemas rodam no servidor com a service role. Eles continuam escritos com as chamadas do supabase-js, e `api/_backend.ts` escolhe o que há por trás:
+
+- `DATA_BACKEND` ausente: o Supabase, como sempre foi.
+- `DATA_BACKEND=own` (com `DATABASE_URL`): o banco e os arquivos próprios. `server/service-client.ts` reaproveita o mesmo compilador de consultas de `/api/db` (papel `service` sem RLS, ou a pessoa verificada quando o handler age em nome dela) e o `FileStore`. `list()` devolve arquivos e pastas, e pastas vazias somem, como no Supabase.
+
+Isso será ligado junto com a flag do cliente no corte. O teste `npm run test:handlers` roda os cinco handlers neste backend, com banco e pasta reais: recusas (sem token, token ruim, carro de outra pessoa), versão e conflito do cuidado do veículo, repetição e conflito por `Idempotency-Key` no combustível, e a gravação completa de uma viagem (checkpoints, reconstrução, finalização pela RPC `store_recorded_session` sob RLS, limpeza).
+
 ## Estado da infraestrutura (04/11/2026)
 
 - `xpeed-db` criado no Coolify (PostgreSQL 17, sem porta pública, 512 MB, backup diário às 04:00 mantendo 14, igual ao `xpot-db`).
@@ -64,10 +73,10 @@ Os 5 buckets que o navegador usa passam pelo servidor quando `VITE_DATA_API=true
 
 - `npm run test:db`: migrador, verificação de token, rota `/api/account`, RLS e o sync com dois bancos PostgreSQL reais em memória.
 - `npm run test:dbapi`: as rotas `/api/db` e `/api/storage` contra o esquema migrado: isolamento entre pessoas pela RLS, filtros, paginação por cursor, relações, `upsert`, funções, tentativas de injeção de SQL, e nos arquivos: pastas por dono, travessia de caminho, tipos e tamanhos, links assinados adulterados ou expirados, `Range` e CORS.
+- `npm run test:handlers`: os cinco handlers `api/*` no backend próprio (ver acima).
 - `npm run test:boot`: sobe o servidor empacotado contra um banco em memória e confere que migra sozinho (precisa de `npm run build:server` antes).
 
 ## Próximas fases
 
-3. Os handlers do servidor (`api/*`: combustível, checkpoints, mídia compartilhada, cuidados do veículo, problemas) ainda leem o Supabase com a service role; passam a usar o banco e os arquivos próprios.
-4. As 9 funções de borda (chat, análise, OAuth, MCP).
-5. Corte: backup, levar os dados reais para o banco do Coolify, ligar `VITE_DATA_API` e desligar o acesso direto ao Supabase.
+4. As 9 funções de borda (chat, análise, leitura de recibo, OAuth, MCP) e os proxies `api/mcp`, `api/oauth/*`, `api/brand/manifest`.
+5. Corte: backup, levar os dados reais (banco e arquivos) para o Coolify, ligar `VITE_DATA_API` e `DATA_BACKEND=own` e desligar o acesso direto ao Supabase.

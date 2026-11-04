@@ -72,6 +72,22 @@ export async function asAnonymous<T>(work: (client: pg.PoolClient) => Promise<T>
   }
 }
 
+/** Trusted server work inside one transaction, as the database owner (no row level security). */
+export async function asServiceTransaction<T>(work: (client: pg.PoolClient) => Promise<T>, source: pg.Pool = getPool()): Promise<T> {
+  const client = await source.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 /** For trusted server work that is not on behalf of a user (health checks, jobs). */
 export async function asService<T>(work: (client: pg.PoolClient) => Promise<T>, source: pg.Pool = getPool()): Promise<T> {
   const client = await source.connect();

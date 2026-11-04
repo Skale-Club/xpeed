@@ -10,6 +10,7 @@
     "db:migrate": "node scripts/db-migrate.mjs",
     "test:db": "node scripts/verify-db-foundation.mjs",
     "test:dbapi": "node scripts/verify-db-api.mjs",
+    "test:handlers": "node scripts/verify-handlers.mjs",
     "test:boot": "node --test scripts/test-server-boot.mjs",
     "build": "npm run build:web && npm run build:server",
     "build:dev": "vite build --mode development",
