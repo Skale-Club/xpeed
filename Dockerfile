@@ -18,6 +18,9 @@ ENV NODE_ENV=production PORT=8888 TRUST_PROXY=true
 USER node
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/build/server ./build/server
+# Applied by the server at start (RUN_MIGRATIONS=false turns it off).
+COPY --from=builder --chown=node:node /app/db/compat.sql ./db/compat.sql
+COPY --from=builder --chown=node:node /app/supabase/migrations ./supabase/migrations
 EXPOSE 8888
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD node -e "fetch('http://127.0.0.1:8888/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node","build/server/index.mjs"]
