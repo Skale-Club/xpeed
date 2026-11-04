@@ -54,6 +54,24 @@ export async function asIdentity<T>(claims: VerifiedClaims, work: (client: pg.Po
   }
 }
 
+
+/** Public pages (shared reports) call the database with no signed-in person: the `anon` role, no claims. */
+export async function asAnonymous<T>(work: (client: pg.PoolClient) => Promise<T>, source: pg.Pool = getPool()): Promise<T> {
+  const client = await source.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE anon');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 /** For trusted server work that is not on behalf of a user (health checks, jobs). */
 export async function asService<T>(work: (client: pg.PoolClient) => Promise<T>, source: pg.Pool = getPool()): Promise<T> {
   const client = await source.connect();

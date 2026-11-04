@@ -65,5 +65,7 @@ jobs:
         run: npm run test:sql
       - name: Database foundation (migrator, token check, sync)
         run: npm run test:db
+      - name: Data API (queries, row level security, injection attempts)
+        run: npm run test:dbapi
       - name: Server starts, migrates and answers (needs the build from the HTTP test)
         run: npm run test:boot

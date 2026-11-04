@@ -1,6 +1,6 @@
 # Banco de dados próprio e sincronização do desenvolvimento
 
-Atualizado em 03/11/2026. Fase 1 da saída do Supabase: a base existe e está testada, mas o app ainda lê e grava no Supabase. As fases seguintes movem o acesso aos dados para o servidor.
+Atualizado em 04/11/2026. Fases 1 e 2 da saída do Supabase. O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
 
 ## Como fica
 
@@ -33,22 +33,29 @@ Se algo falhar, o script diz o motivo e o Vite sobe mesmo assim. `npm run dev:fa
 
 O sync **recusa** gravar quando `DATABASE_URL` aponta para o mesmo servidor da produção ou para um servidor que não seja do Supabase nem local. Para um banco de desenvolvimento em outro lugar, defina `DEV_SYNC_ALLOW_TARGET=host:porta`.
 
-## O que falta fazer à mão (precisa de você)
+## Dados pelo servidor (`/api/db`)
 
-1. **Criar o PostgreSQL no Coolify** (Resources, New, Database, PostgreSQL), na mesma rede do app. Ligar o backup agendado.
-2. No app do Coolify, definir `DATABASE_URL` (endereço interno do banco) e `FIREBASE_PROJECT_ID=skaleclub`. Sem `DATABASE_URL` o servidor segue como antes.
-3. Em `.env`, preencher `DATABASE_URL` com a string de conexão do Supabase de desenvolvimento (Settings, Database). Para o `PROD_DATABASE_URL`, abrir um túnel até o banco de produção (SSH ou Tailscale) e usar um usuário somente leitura.
+O navegador e o app Android não falam mais com o PostgREST do Supabase quando `VITE_DATA_API=true`. O cliente (`src/lib/api-data.ts`) mantém as mesmas chamadas encadeadas (`from().select().eq()...`, `rpc()`), então nenhum dos ~16 arquivos de acesso a dados mudou. Storage, edge functions e realtime seguem no Supabase até as fases 3 e 4.
 
-Nada disso é necessário para o app continuar funcionando hoje.
+- **Servidor** (`server/db-route.ts`, `server/db-query.ts`): recebe a consulta como dado (nunca SQL), confere tabela e coluna contra o esquema real, passa todos os valores como parâmetros e executa como `authenticated` com as claims do token verificado. A RLS do banco decide o acesso. Sem token roda como `anon` (páginas públicas, como o relatório compartilhado). Token inválido é recusado, não rebaixado.
+- **Comportamento igual ao PostgREST:** teto de 1000 linhas por resposta, `single()` e `maybeSingle()` com o erro `PGRST116`, códigos do Postgres (`23505` etc.), `count`/`head`, `upsert`, relações embutidas por chave estrangeira e a expressão `or()` usada pela lista de viagens. `update` e `delete` sem filtro são recusados.
+- **Dev:** `npm run dev` já serve `/api/db` pelo próprio Vite quando há `DATABASE_URL`. Para testar o app contra o banco de desenvolvimento, ponha `VITE_DATA_API=true` no `.env`.
+- **Produção:** o app do Coolify já tem `DATABASE_URL` e `FIREBASE_PROJECT_ID`. A flag só liga no corte (fase 5), depois de levar os dados reais.
+
+## Estado da infraestrutura (04/11/2026)
+
+- `xpeed-db` criado no Coolify (PostgreSQL 17, sem porta pública, 512 MB, backup diário às 04:00 mantendo 14, igual ao `xpot-db`).
+- O servidor aplicou as 58 migrações ao subir. O banco está com o esquema completo e **vazio**; os dados reais ainda estão no Supabase.
+- Falta só você, no `.env` local: `DATABASE_URL` (string do Supabase de desenvolvimento) e, para a sincronização, um túnel até o banco de produção em `PROD_DATABASE_URL`.
 
 ## Testes
 
 - `npm run test:db`: migrador, verificação de token, rota `/api/account`, RLS e o sync com dois bancos PostgreSQL reais em memória.
+- `npm run test:dbapi`: a rota `/api/db` contra o esquema migrado: isolamento entre pessoas pela RLS, filtros, paginação por cursor, relações, `upsert`, funções, tentativas de injeção de SQL e CORS.
 - `npm run test:boot`: sobe o servidor empacotado contra um banco em memória e confere que migra sozinho (precisa de `npm run build:server` antes).
 
 ## Próximas fases
 
-2. Portar as 17 tabelas e 11 funções que o navegador chama hoje para rotas `/api`.
-3. Arquivos (fotos, anexos) e tempo real.
+3. Arquivos (fotos, anexos, CSV) e tempo real.
 4. As 9 funções de borda (chat, análise, OAuth, MCP).
-5. Corte: levar os dados reais para o banco do Coolify e desligar o acesso direto ao Supabase.
+5. Corte: backup, levar os dados reais para o banco do Coolify, ligar `VITE_DATA_API` e desligar o acesso direto ao Supabase.
