@@ -2,8 +2,9 @@
 // match production, so what you see locally is what is really there.
 //
 //   1. applies every pending migration to DATABASE_URL (the development database);
-//   2. when PROD_DATABASE_URL is set, replaces the development data with an
-//      anonymized copy of production. Production is only read, never written.
+//   2. when PROD_DATABASE_URL is set, or DEV_SYNC_PROD=coolify (SSH tunnel opened for you, see
+//      db/prod-tunnel.mjs), replaces the development data with an anonymized copy of
+//      production. Production is only read, never written.
 //
 // Skip the data copy with `DEV_SYNC=off` or `npm run dev:fast`. Never blocks `npm run dev`
 // when the database is not configured or unreachable: it says why and carries on.
@@ -11,6 +12,7 @@ import 'dotenv/config';
 import pg from 'pg';
 import { migrate } from '../db/migrate.mjs';
 import { assertSafeTarget, pullAnonymized } from '../db/sync.mjs';
+import { openProductionTunnel } from '../db/prod-tunnel.mjs';
 
 const env = process.env;
 const say = (message) => console.log(`[dev-sync] ${message}`);
@@ -34,14 +36,22 @@ async function main() {
     const result = await migrate(dev, { log: say });
     say(result.applied.length ? `schema up to date (${result.applied.length} migrations applied)` : 'schema already up to date');
 
-    if (!env.PROD_DATABASE_URL) { say('PROD_DATABASE_URL is not set: keeping the current development data'); return; }
-    const prod = await connect(env.PROD_DATABASE_URL, 'production (PROD_DATABASE_URL)');
+    let prodUrl = env.PROD_DATABASE_URL, tunnel;
+    if (!prodUrl && env.DEV_SYNC_PROD === 'coolify') {
+      say('opening a read-only SSH tunnel to the production database (Coolify)…');
+      tunnel = await openProductionTunnel(env);
+      prodUrl = tunnel.url;
+      assertSafeTarget(env.DATABASE_URL, prodUrl, env);
+    }
+    if (!prodUrl) { say('PROD_DATABASE_URL is not set (nor DEV_SYNC_PROD=coolify): keeping the current development data'); return; }
+    let prod;
+    try { prod = await connect(prodUrl, 'production'); } catch (error) { tunnel?.close(); throw error; }
     try {
       say('copying anonymized production data into the development database…');
       const summary = await pullAnonymized(prod, dev, { keepEmails: list(env.DEV_KEEP_EMAILS), keepPhones: list(env.DEV_KEEP_PHONES), log: say });
       const rows = Object.values(summary.tables).reduce((a, b) => a + b, 0);
       say(`done: ${rows} rows in ${Object.keys(summary.tables).length} tables; ${summary.keptAccounts} account(s) kept recognizable; not copied: ${summary.skipped.join(', ') || 'nothing'}`);
-    } finally { await prod.end().catch(() => {}); }
+    } finally { await prod.end().catch(() => {}); tunnel?.close(); }
   } finally { await dev.end().catch(() => {}); }
 }
 
