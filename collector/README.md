@@ -8,7 +8,7 @@ Não há envio para o Xpeed, pareamento, ícone de bandeja nem outros jogos aind
 
 ## Compilar
 
-Precisa do Rust (`rustc` 1.75 ou mais novo; testado com a 1.99) e do MSVC Build Tools.
+Precisa de um Rust recente (testado com a 1.99; o clippy do CI usa o estável mais novo) e do MSVC Build Tools.
 
 ```powershell
 cd collector

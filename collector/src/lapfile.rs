@@ -259,7 +259,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
         return err("unknown flags");
     }
     let header_bytes = u32_at(bytes, 8) as usize;
-    if header_bytes == 0 || header_bytes % 4 != 0 || header_bytes > MAX_HEADER || PREAMBLE + header_bytes > bytes.len() {
+    if header_bytes == 0 || !header_bytes.is_multiple_of(4) || header_bytes > MAX_HEADER || PREAMBLE + header_bytes > bytes.len() {
         return err("the header length is not valid");
     }
     let header: serde_json::Value = serde_json::from_slice(&bytes[PREAMBLE..PREAMBLE + header_bytes])
@@ -283,8 +283,8 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
         let id = text(&entry["id"]).ok_or_else(|| LapError("a channel has no id".into()))?;
         let unit = text(&entry["unit"]).ok_or_else(|| LapError(format!("channel {id} has no unit")))?;
         let mut values = Vec::with_capacity(samples);
-        for chunk in bytes[offset..offset + samples * 4].chunks_exact(4) {
-            values.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        for chunk in bytes[offset..offset + samples * 4].as_chunks::<4>().0 {
+            values.push(f32::from_le_bytes(*chunk));
         }
         offset += samples * 4;
         channels.push(Channel { id, unit, values });

@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(VEHICLE_SCORING_SIZE, 584);
         // The last car's telemetry ends 4 bytes short of the end: the whole object is padded to a multiple of 8.
         let telemetry_end = TELEMETRY_INFO + MAX_VEHICLES * TELEM_INFO_SIZE;
-        assert!(telemetry_end <= LAYOUT_SIZE && LAYOUT_SIZE - telemetry_end < 8 && LAYOUT_SIZE % 8 == 0);
+        assert!(telemetry_end <= LAYOUT_SIZE && LAYOUT_SIZE - telemetry_end < 8 && LAYOUT_SIZE.is_multiple_of(8));
         // The scoring block is the car list followed by a 65536-byte results stream; telemetry starts right after it.
         assert_eq!(
             SCORING_VEHICLES + MAX_VEHICLES * VEHICLE_SCORING_SIZE + 65_536,
