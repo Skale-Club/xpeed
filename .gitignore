@@ -43,3 +43,5 @@ gitleaks-report.json
 /.audit-*.json
 
 /build/
+# Local files for `npm run dev` with VITE_DATA_API=true
+.dev-files/

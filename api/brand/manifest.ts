@@ -4,6 +4,7 @@
 //
 // The Node server exposes this handler at /manifest.webmanifest and /api/brand/manifest.
 
+import { openBackend } from '../_backend';
 
 interface BrandConfig {
   version: number;
@@ -19,8 +20,16 @@ interface BrandConfig {
 
 const DEFAULT_THEME = '#141414';
 
-async function fetchBrandConfig(supabaseUrl: string, anonKey: string): Promise<BrandConfig | null> {
+async function fetchBrandConfig(supabaseUrl: string | undefined, anonKey: string | undefined): Promise<BrandConfig | null> {
   try {
+    if (process.env.DATA_BACKEND === 'own') {
+      // The app's own database: the public brand row, read with the server's own access.
+      const own = openBackend();
+      const row = await own?.service.from('app_settings').select('setting_value').eq('setting_key', 'brand_config').is('user_id', null).maybeSingle();
+      const raw = (row?.data as { setting_value: string | null } | null)?.setting_value;
+      return raw ? (JSON.parse(raw) as BrandConfig) : null;
+    }
+    if (!supabaseUrl || !anonKey) return null;
     const url = `${supabaseUrl}/rest/v1/app_settings?setting_key=eq.brand_config&user_id=is.null&select=setting_value`;
     const res = await fetch(url, {
       headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
@@ -40,9 +49,7 @@ export default async function handler(req: Request): Promise<Response> {
   const anonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 
   let brand: BrandConfig | null = null;
-  if (supabaseUrl && anonKey) {
-    brand = await fetchBrandConfig(supabaseUrl, anonKey);
-  }
+  brand = await fetchBrandConfig(supabaseUrl, anonKey);
 
   const themeColor = brand?.theme_color ?? DEFAULT_THEME;
   const backgroundColor = brand?.background_color ?? DEFAULT_THEME;

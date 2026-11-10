@@ -9,13 +9,16 @@ import { Capacitor } from '@capacitor/core';
 
 export interface IdentityUser { uid: string }
 let nativeReady: Promise<void> | undefined;
+// Wrapped on purpose: a Capacitor plugin is a Proxy that answers to `then`, so a
+// promise resolved with the bare plugin never settles and the app stays on its
+// loading screen (see google.native.test.ts).
 async function nativeAuth() {
   const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
   nativeReady ??= (async () => {
     await FirebaseAuthentication.useAppLanguage();
   })();
   await nativeReady;
-  return FirebaseAuthentication;
+  return { native: FirebaseAuthentication };
 }
 
 let auth: Auth | undefined;
@@ -46,7 +49,7 @@ export async function getAccessToken(): Promise<string | null> {
   // Public reports and the landing page must work before Google is configured.
   if (!import.meta.env.VITE_FIREBASE_API_KEY) return null;
   if (Capacitor.isNativePlatform()) {
-    const native = await nativeAuth();
+    const { native } = await nativeAuth();
     if (!(await native.getCurrentUser()).user) return null;
     return (await native.getIdToken()).token;
   }
@@ -61,7 +64,7 @@ export function observeGoogleUser(callback: (user: IdentityUser | null) => void,
   let changed = false;
   let handle: { remove: () => Promise<void> } | undefined;
   void (async () => {
-    const native = await nativeAuth();
+    const { native } = await nativeAuth();
     handle = await native.addListener('authStateChange', ({ user }) => {
       changed = true; if (active) callback(user);
     });
@@ -87,7 +90,7 @@ export async function sendPhoneCode(phone: string) {
   cancelPhoneChallenge();
   const generation = phoneGeneration;
   if (Capacitor.isNativePlatform()) {
-    const FirebaseAuthentication = await nativeAuth();
+    const { native: FirebaseAuthentication } = await nativeAuth();
     // Native attestation replaces reCAPTCHA in Android's WebView.
     await new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -133,7 +136,7 @@ export async function sendPhoneCode(phone: string) {
 
 export async function verifyPhoneCode(phone: string, code: string) {
   if (Capacitor.isNativePlatform() && nativeVerification?.phone === phone) {
-    const native = await nativeAuth();
+    const { native } = await nativeAuth();
     const result = await native.confirmVerificationCode({ verificationId: nativeVerification.id, verificationCode: code });
     if (!result.user) throw new Error('Phone sign-in failed');
     return result.user;
@@ -144,7 +147,7 @@ export async function verifyPhoneCode(phone: string, code: string) {
 
 export async function signInWithGoogle(): Promise<IdentityUser> {
   if (Capacitor.isNativePlatform()) {
-    const native = await nativeAuth();
+    const { native } = await nativeAuth();
     const result = await native.signInWithGoogle();
     if (!result.user) throw new Error('Google returned no identity');
     return result.user;
@@ -160,12 +163,12 @@ export async function signOutGoogle() {
   cancelPhoneChallenge();
   if (auth) await signOut(auth);
   if (Capacitor.isNativePlatform()) {
-    await (await nativeAuth()).signOut();
+    await (await nativeAuth()).native.signOut();
   }
 }
 
 export async function updateDisplayName(name: string) {
-  if (Capacitor.isNativePlatform()) { await (await nativeAuth()).updateProfile({ displayName: name }); return; }
+  if (Capacitor.isNativePlatform()) { await (await nativeAuth()).native.updateProfile({ displayName: name }); return; }
   const user = getGoogleAuth().currentUser;
   if (!user) throw new Error('Not signed in');
   await updateProfile(user, { displayName: name });

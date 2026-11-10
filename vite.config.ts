@@ -1,7 +1,50 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
+
+// `npm run dev` serves the same /api/db and /api/storage the production server does, against
+// DATABASE_URL (the development database) and a local folder, so the app can run with
+// VITE_DATA_API=true without a second process.
+function dataApiForDev(mode: string): Plugin {
+  return {
+    name: "xpeed-data-api",
+    apply: "serve",
+    configureServer(server) {
+      const env = loadEnv(mode, process.cwd(), "");
+      for (const key of ["DATABASE_URL", "DATABASE_SSL", "FIREBASE_PROJECT_ID", "VITE_FIREBASE_PROJECT_ID", "STORAGE_DIR", "STORAGE_SECRET"]) {
+        if (env[key] && !process.env[key]) process.env[key] = env[key];
+      }
+      if (!process.env.DATABASE_URL) return;
+      // Development only: files stay in the project folder and links are signed with a fixed key.
+      process.env.STORAGE_DIR ??= path.resolve(process.cwd(), ".dev-files");
+      process.env.STORAGE_SECRET ??= "development-only-secret";
+      const mount = (prefix: string, load: () => Promise<(request: Request) => Promise<Response>>) =>
+        server.middlewares.use(prefix, async (req, res) => {
+          try {
+            const chunks: Buffer[] = [];
+            for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            const headers = new Headers();
+            for (const [name, value] of Object.entries(req.headers)) if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(",") : value);
+            const hasBody = req.method !== "GET" && req.method !== "HEAD";
+            // Connect strips the mount path from req.url; the route needs the full path.
+            const response = await (await load())(new Request(`http://${req.headers.host}${prefix}${req.url ?? ""}`, {
+              method: req.method, headers, ...(hasBody ? { body: Buffer.concat(chunks) } : {}),
+            }));
+            res.statusCode = response.status;
+            response.headers.forEach((value, name) => res.setHeader(name, value));
+            res.end(Buffer.from(await response.arrayBuffer()));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: "unavailable", detail: error instanceof Error ? error.message : "unknown" }));
+          }
+        });
+      mount("/api/db", async () => ((await server.ssrLoadModule("/server/db-route.ts")) as typeof import("./server/db-route")).createDbRoute());
+      mount("/api/storage", async () => ((await server.ssrLoadModule("/server/storage-route.ts")) as typeof import("./server/storage-route")).createStorageRoute());
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
@@ -55,6 +98,7 @@ export default defineConfig(({ mode, command }) => {
   },
   plugins: [
     react(),
+    dataApiForDev(mode),
     VitePWA({
       // "prompt": a new service worker waits until the app decides it is safe to
       // swap (see src/lib/pwa-update.ts: never mid-trip). The app registers the

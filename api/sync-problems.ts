@@ -1,5 +1,4 @@
-import { verifyAppUser } from '../src/lib/verify-app-user';
-import { createClient } from '@supabase/supabase-js';
+import { openBackend } from './_backend';
 import { createIssueReconciler } from '../src/lib/issue-reconciler-core';
 import type { SessionFlag } from '../src/lib/insight-engine';
 import type { AiWarning } from '../src/lib/ai-client';
@@ -17,14 +16,11 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405);
   const token = req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if (!token) return reply({ error: 'unauthorized' }, 401);
-  const url = process.env.VITE_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return reply({ error: 'unavailable' }, 503);
-  const db = createClient(url, key, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const backend = openBackend();
+  if (!backend) return reply({ error: 'unavailable' }, 503);
+  const db = await backend.asUser(token);
   try {
-    const userId = await verifyAppUser(url,key,token);
+    const userId = await backend.userId(token);
     if (!userId) return reply({ error: 'unauthorized' },401);
     const input = await req.json().catch(() => null);
     if (!input || typeof input !== 'object' || Array.isArray(input)) return reply({ error: 'invalid_request' }, 400);

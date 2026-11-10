@@ -1,5 +1,4 @@
-import { verifyAppUser } from '../src/lib/verify-app-user';
-import { createClient } from '@supabase/supabase-js';
+import { openBackend } from './_backend';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MANIFESTS = 'shared-trip-media';
@@ -12,15 +11,15 @@ export default async function handler(req: Request): Promise<Response> {
   if (!['GET', 'POST'].includes(req.method)) return reply({ error: 'method_not_allowed' }, 405);
   const id = new URL(req.url).searchParams.get('id') ?? '';
   if (!UUID.test(id)) return reply({ error: 'invalid_link' }, 400);
-  const url = process.env.VITE_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return reply({ error: 'media_sharing_unavailable' }, 503);
-  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const backend = openBackend();
+  if (!backend) return reply({ error: 'media_sharing_unavailable' }, 503);
+  const db = backend.service;
   try {
     let userId: string | null | undefined;
     if (req.method === 'POST') {
       const bearer = req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
       if (!bearer) return reply({ error: 'unauthorized' }, 401);
-      userId = await verifyAppUser(url,key,bearer);
+      userId = await backend.userId(bearer);
     if (!userId) return reply({ error: 'unauthorized' },401);
     }
     const { data: report, error } = await db.from('shared_reports').select('id,session_id,user_id,expires_at').eq('id', id).maybeSingle();

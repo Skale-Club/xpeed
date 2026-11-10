@@ -83,9 +83,17 @@ jobs:
       - name: Edge Function checks
         run: npm run check:edge
       - name: Install isolated SQL test runtime
-        run: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.13
+        run: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --no-audit --no-fund --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
       - name: PostgreSQL contract checks
         run: npm run test:sql
+      - name: Database foundation (migrator, token check, sync)
+        run: npm run test:db
+      - name: Data API (queries, row level security, injection attempts)
+        run: npm run test:dbapi
+      - name: Server handlers on the own backend (fuel, care, checkpoints, sharing)
+        run: npm run test:handlers
+      - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
+        run: npm run test:functions
 
       - name: Build web app
         run: npm run build
@@ -97,6 +105,8 @@ jobs:
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          # Set the repository variable VITE_DATA_API=true at the cutover; unset keeps Supabase.
+          VITE_DATA_API: ${{ vars.VITE_DATA_API }}
 
       - name: Validate Google native login configuration
         run: node scripts/prepare-android-google.mjs

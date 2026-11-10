@@ -1,5 +1,4 @@
-import { verifyAppUser } from '../src/lib/verify-app-user';
-import { createClient } from '@supabase/supabase-js';
+import { openBackend } from './_backend';
 import { readCheckpointSamples } from '../src/lib/obd/checkpoint-samples';
 import { recordedSessionId, csvChecksum } from '../src/lib/recording-identity';
 import { sessionProcessingPayload } from '../src/lib/session-processing';
@@ -17,11 +16,11 @@ export default async function handler(req: Request): Promise<Response> {
   if (!UUID.test(carId)) return reply({ error: 'invalid_car' }, 400);
   const token = req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if (!token) return reply({ error: 'unauthorized' }, 401);
-  const url = process.env.VITE_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return reply({ error: 'checkpoint_unavailable' }, 503);
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const backend = openBackend();
+  if (!backend) return reply({ error: 'checkpoint_unavailable' }, 503);
+  const db = backend.service;
   try {
-    const userId = await verifyAppUser(url,key,token);
+    const userId = await backend.userId(token);
     if (!userId) return reply({ error: 'unauthorized' },401);
     const car = await db.from('car_profiles').select('*').eq('id', carId).eq('user_id', userId).maybeSingle();
     if (car.error) throw car.error;
@@ -41,12 +40,12 @@ export default async function handler(req: Request): Promise<Response> {
       throw Error('Checkpoint list limit reached');
     };
     const read = async (path: string) => {
-      if (path.endsWith('/meta.json')) {
+      if (path.endsWith('/meta.json') && backend.supabase) {
         // This object changes throughout a recording. Bypass both the Edge
         // fetch cache and Storage CDN so finalization sees the latest end marker.
-        const target = new URL(`/storage/v1/object/${BUCKET}/${path}`, url);
+        const target = new URL(`/storage/v1/object/${BUCKET}/${path}`, backend.supabase.url);
         target.searchParams.set('cacheNonce', crypto.randomUUID());
-        const response = await fetch(target, { headers: { Authorization: `Bearer ${key}`, apikey: key }, cache: 'no-store' });
+        const response = await fetch(target, { headers: { Authorization: `Bearer ${backend.supabase.key}`, apikey: backend.supabase.key }, cache: 'no-store' });
         if (!response.ok) throw Error(`Checkpoint metadata unavailable (${response.status})`);
         return response.json();
       }
@@ -99,7 +98,7 @@ export default async function handler(req: Request): Promise<Response> {
       const csv = buildScannerCsv(trip.columns, trip.samples, trip.dtcs || []);
       const start = new Date(trip.startedAt).toISOString(), filename = scannerFilename(new Date(trip.startedAt));
       const payload = sessionProcessingPayload({ id, source_filename: filename, session_start: start, gemini_analysis: null } as Session, car.data, csv);
-      const userDb = createClient(url, key, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } });
+      const userDb = await backend.asUser(token);
       const preserved = { ...payload, summary: { ...payload.summary, faultCodes: trip.faultCodes ?? null } };
       const stored = await userDb.rpc('store_recorded_session', { p_session_id: id, p_user_id: userId, p_car_id: carId, p_checksum: await csvChecksum(csv), p_filename: filename, p_start: start, p_source_path: null, p_source_csv: csv, p_payload: preserved });
       if (stored.error) throw stored.error;
