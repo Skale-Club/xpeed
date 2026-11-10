@@ -32,6 +32,31 @@ Conferi as conexões reais, sem ler nenhum segredo:
 
 Enquanto o item 1 não acontecer, **nenhuma migração `sim_*` é aplicada**, porque cairia na produção.
 
+### Atualização (10/11/2026, depois que a `main` andou)
+
+A `main` ganhou as fases 1 a 5 da saída do Supabase (PR #8 a #15). O estado, conforme `docs/database/README.md` (04/11):
+
+- O **PostgreSQL de produção no Coolify (`xpeed-db`) já existe, está migrado e conectado ao app**. O servidor aplica as migrações ao iniciar.
+- O app só usa esse banco quando `VITE_DATA_API=true`. **A flag só liga no corte (fase 5)**, depois de levar os dados reais. O site ao vivo ainda aponta para o Supabase `drqmrddxlrlbqnydumjm` (conferido no bundle público), então o bloqueio de "dev e produção no mesmo banco" **continua até o corte**.
+- Depois do corte, o Supabase `drqmrddxlrlbqnydumjm` vira só desenvolvimento, e `npm run dev` o sincroniza com uma cópia anonimizada da produção. Esse é o cenário que o `AGENTS.md` pede.
+
+**Consequências para este plano:**
+
+1. As fases 1b e 2 (migrações) esperam o **corte (fase 5)**. Uma migração escrita antes cairia no Postgres do Coolify ao iniciar o servidor, mas não no Supabase que a produção ainda lê, e o app quebraria ao buscar a tabela nova.
+2. **Arquivos das voltas:** em vez de um bucket R2 direto, usar a camada que a `main` já criou, `FileStore` (`server/files.ts`, `/api/storage`), com bucket próprio `sim-laps`. Hoje os bytes ficam em disco (`STORAGE_DIR`, volume do Coolify), com links assinados HMAC; trocar por R2 depois é trocar uma classe. **O volume não entra no backup automático do banco**, então os arquivos de volta precisam entrar no backup antes de produção.
+3. As migrações novas valem para os dois ambientes, como as 58 atuais (`supabase/migrations`), e entram pelo mesmo caminho do servidor.
+
+## Terceiro modo: carrinhos de RC com câmera (anotado em 10/11/2026)
+
+O dono informou que o sistema **também terá o módulo de carrinhos de RC com câmera**. Isso vira um terceiro modo ao lado de Real e Virtual. **Escopo ainda não definido**; o que já dá para dizer:
+
+- A fase 1 foi escrita para uma lista de modos (`MODES`, `MODE_HOME`, `NAV`, `ModesContext`), então acrescentar `rc` é uma mudança localizada: um modo a mais na lista, um menu, um ícone, os textos nos três idiomas e as rotas `/rc/*`.
+- O seletor segmentado passa a ter três lados e continua aparecendo **só para quem tem pelo menos dois modos**.
+- No onboarding, "Real / Virtual / Os dois" deixa de servir: com três modos vira uma **lista com caixas de marcar**, Real em primeiro e já marcado, a pessoa liga o que quiser.
+- A trava de rotas (`ModeGate`) e a trava no servidor (`mode_off`) valem igual para o RC.
+
+**A definir com o dono antes de desenhar:** o que o módulo faz (ver a câmera ao vivo, gravar, telemetria do carrinho, controlar à distância?); onde está o código ou o equipamento hoje; como o vídeo chega (rede local ou internet) e onde fica guardado; se também é uma escolha livre de cada pessoa. Vídeo ao vivo e gravações pesam mais que telemetria e mudam armazenamento e custo.
+
 ## Estado da implementação (10/11/2026)
 
 **Fase 1 (interface) feita, sem commit.** Seletor Real | Virtual (só para quem tem os dois), passo "o que você quer usar" no onboarding, cartão **Modos** nos Settings, menu e barra do celular por modo, trava de rotas e telas provisórias em `/sim/*`. Tudo atrás de `VITE_ENABLE_VIRTUAL` (desligado em produção; ligado no harness). Verificado: 662 testes passando (36 novos), typecheck e lint sem erros, e navegação conferida no harness em desktop e celular. **Fase 1b (modos na conta + trava no servidor) e as seguintes continuam pendentes**, a 1b depende da produção sair do Supabase.
@@ -191,7 +216,7 @@ Cada fase termina com algo usável e verificável. O porte é comparativo, não 
 | **6. IA e MCP** | Chat e ferramentas MCP do modo Virtual | Chat responde sobre voltas reais sem misturar com o carro real; ferramentas MCP com paginação | Médio |
 | **7. Jogos a confirmar** | Pesquisa e, quando houver telemetria, leitor | Cada jogo marcado como suportado ou sem telemetria, com fonte | Variável |
 
-A fase 1 é só interface e pode andar já. A 1b e a 2 mexem no banco e esperam a produção sair do Supabase (ver "Resultado da fase 0"). A 3 depende da 2. As fases 4, 5 e 6 dependem da 3.
+A fase 1 é só interface e pode andar já. A 1b e a 2 mexem no banco e esperam o corte da produção para o PostgreSQL próprio (ver "Atualização" em "Resultado da fase 0"). O modo RC (ver "Terceiro modo") entra como fase própria depois de definido. A 3 depende da 2. As fases 4, 5 e 6 dependem da 3.
 
 ## Limites
 
