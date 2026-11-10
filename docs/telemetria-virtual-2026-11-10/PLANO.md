@@ -55,7 +55,15 @@ O dono informou que o sistema **também terá o módulo de carrinhos de RC com c
 - No onboarding, "Real / Virtual / Os dois" deixa de servir: com três modos vira uma **lista com caixas de marcar**, Real em primeiro e já marcado, a pessoa liga o que quiser.
 - A trava de rotas (`ModeGate`) e a trava no servidor (`mode_off`) valem igual para o RC.
 
-**A definir com o dono antes de desenhar:** o que o módulo faz (ver a câmera ao vivo, gravar, telemetria do carrinho, controlar à distância?); onde está o código ou o equipamento hoje; como o vídeo chega (rede local ou internet) e onde fica guardado; se também é uma escolha livre de cada pessoa. Vídeo ao vivo e gravações pesam mais que telemetria e mudam armazenamento e custo.
+**O que já se sabe do Driver RC (registrado em 10/11/2026, fonte: hub "Driver RC — 00 START HERE" no Notion, páginas 01, 08, 09 e 10):**
+
+- **O que é:** corrida local de carrinhos de hobby (a 100–200 m, nunca remota). Cada carro tem uma placa ESP32-S3 com câmera; o celular de cada piloto mostra o vídeo, lê o controle Xbox/PS e desenha a pista em AR. Um laptop na pista é o hub (lobby, largada, voltas, classificação, parar todos). Hoje é projeto pessoal do dono, para brincar com 2–6 carros.
+- **Onde está o código:** pasta `rc-car/` deste repositório, ainda **não commitada**. Hoje tem só a página do piloto e a lógica de segurança; o firmware da placa ainda não existe. Nada comprado.
+- **Vídeo:** vai pela rede Wi-Fi local entre o carro e o celular do piloto (MJPEG). **Não passa pela internet nem pelo Xpeed, e nada é gravado na nuvem.** Isso responde a pergunta de armazenamento e custo: o modo RC não pesa no servidor do Xpeed.
+- **O que o Xpeed poderia receber (futuro, sem data):** resultados de corrida e voltas, GPS do carro, gravação de sessões como as viagens, login. Nenhum desses itens está definido.
+- **Venda como produto** é só exploração (página 09 do Notion): exigiria app nativo, FCC, decisão sobre a licença GPL-3 e regras de envio de bateria.
+
+**Ainda a definir com o dono:** se o modo RC vira uma escolha livre de cada pessoa, como Real e Virtual, ou continua restrito ao dono; e se o Xpeed guarda resultados de corrida RC (o que aproximaria o RC das voltas do modo Virtual) ou o RC fica independente. Enquanto isso, não há tela, rota `/rc/*` nem tabela para o RC.
 
 ## Estado da implementação (10/11/2026)
 
