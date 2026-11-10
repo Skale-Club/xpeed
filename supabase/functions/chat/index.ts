@@ -25,7 +25,7 @@ const ChatBodySchema = z.object({
   message: z.string().min(1).max(MAX_USER_MESSAGE_CHARS),
   // Which of the caller's cars is selected. Verified server-side; anything else in "context" is ignored.
   carProfileId: z.string().uuid().optional(),
-  context: z.record(z.unknown()).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
   history: z
     // Old turns can be long (an answer is up to ~3000 chars): accept them, then clampHistory() keeps
     // only the newest turns that fit the budget and clips each one.
