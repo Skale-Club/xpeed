@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Car, ArrowRight, ArrowLeft, LogOut, Bluetooth, ShoppingCart, CheckCircle } from 'lucide-react';
+import { Car, ArrowRight, ArrowLeft, LogOut, Bluetooth, ShoppingCart, CheckCircle, Gamepad, Layers } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +11,12 @@ import { logout } from '@/lib/logout';
 import { BrandLockup } from '@/components/BrandLockup';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
+import { useModes } from '@/contexts/ModesContext';
 
-type StepKey = 'welcome' | 'car' | 'connect';
+type StepKey = 'welcome' | 'mode' | 'car' | 'connect' | 'collector';
 type ConnectChoice = 'adapter' | 'none' | null;
+/** What the person wants Xpeed for: their car (the default), racing games, or both. */
+type ModeChoice = 'real' | 'virtual' | 'both';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -23,6 +26,10 @@ interface OnboardingWizardProps {
  * First run in three steps: hello (and name, if we don't have it), the car
  * one question per screen, then whether there is an adapter. Nothing asks for
  * country, phone or technical data.
+ *
+ * While Virtual (racing games) exists, a step after hello asks what Xpeed is
+ * for: the car (first, and already chosen), racing games, or both. Only the car
+ * and the adapter are skipped by someone who wants games alone.
  */
 export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const { t } = useTranslation();
@@ -36,8 +43,12 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [carId, setCarId] = useState<string | null>(null);
   const [choice, setChoice] = useState<ConnectChoice>(null);
   const [step, setStep] = useState<StepKey>('welcome');
+  const { virtualAvailable, setModes } = useModes();
+  const [modeChoice, setModeChoice] = useState<ModeChoice>('real');
 
-  const STEPS: StepKey[] = ['welcome', 'car', 'connect'];
+  const STEPS: StepKey[] = !virtualAvailable
+    ? ['welcome', 'car', 'connect']
+    : modeChoice === 'virtual' ? ['welcome', 'mode', 'collector'] : ['welcome', 'mode', 'car', 'connect'];
   const stepIndex = STEPS.indexOf(step);
 
   const handleWelcome = async () => {
@@ -48,8 +59,19 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
         console.warn('Could not save name:', err);
       }
     }
-    setStep('car');
+    setStep(virtualAvailable ? 'mode' : 'car');
   };
+
+  const handleMode = () => {
+    setModes(modeChoice === 'real' ? ['real'] : modeChoice === 'virtual' ? ['virtual'] : ['real', 'virtual']);
+    setStep(modeChoice === 'virtual' ? 'collector' : 'car');
+  };
+
+  const modeOptions: { key: ModeChoice; icon: typeof Car; title: string; hint: string }[] = [
+    { key: 'real', icon: Car, title: t('modes.onboard.realTitle', 'My real car'), hint: t('modes.onboard.realHint', 'Read the car with a Bluetooth adapter.') },
+    { key: 'virtual', icon: Gamepad, title: t('modes.onboard.virtualTitle', 'Racing games'), hint: t('modes.onboard.virtualHint', 'Telemetry from your simulator, on the PC.') },
+    { key: 'both', icon: Layers, title: t('modes.onboard.bothTitle', 'Both'), hint: t('modes.onboard.bothHint', 'Your car and your simulator.') },
+  ];
 
   // Going back from the last step and answering again updates the same car.
   const handleCar = async (next: CarAnswers) => {
@@ -108,11 +130,65 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
               </>
             )}
 
+            {step === 'mode' && (
+              <>
+                <div className="text-center space-y-1">
+                  <h2 className="text-xl font-bold">{t('modes.onboard.title', 'What do you want to use Xpeed for?')}</h2>
+                  <p className="text-sm text-muted-foreground">{t('modes.onboard.hint', 'You can change this later in Settings.')}</p>
+                </div>
+                <div className="space-y-2" role="radiogroup" aria-label={t('modes.onboard.title', 'What do you want to use Xpeed for?')}>
+                  {modeOptions.map(({ key, icon: Icon, title, hint }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="radio"
+                      aria-checked={modeChoice === key}
+                      data-testid={`onboard-mode-${key}`}
+                      onClick={() => setModeChoice(key)}
+                      className={`w-full text-left flex items-start gap-3 rounded-lg border p-3 transition-colors ${modeChoice === key ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+                    >
+                      <Icon className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                      <span>
+                        <span className="block font-medium text-sm">{title}</span>
+                        <span className="block text-xs text-muted-foreground">{hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <Button size="lg" className="w-full" onClick={handleMode}>
+                  {t('onboard.next', 'Continue')} <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+                <div className="flex justify-start">
+                  <Button variant="ghost" onClick={() => setStep('welcome')}>
+                    <ArrowLeft className="w-4 h-4 mr-1" /> {t('onboard.back', 'Back')}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {step === 'collector' && (
+              <>
+                <div className="text-center space-y-2">
+                  <Gamepad className="w-10 h-10 text-primary mx-auto" />
+                  <h2 className="text-xl font-bold">{t('modes.onboard.collectorTitle', 'Your simulator')}</h2>
+                  <p className="text-sm text-muted-foreground">{t('modes.onboard.collectorBody', 'The Windows app that reads your games is coming soon. You can already explore the Virtual area.')}</p>
+                </div>
+                <Button size="lg" className="w-full" onClick={onComplete}>
+                  <CheckCircle className="w-4 h-4 mr-2" /> {t('modes.onboard.collectorFinish', 'Go to Virtual')}
+                </Button>
+                <div className="flex justify-start">
+                  <Button variant="ghost" onClick={() => setStep('mode')}>
+                    <ArrowLeft className="w-4 h-4 mr-1" /> {t('onboard.back', 'Back')}
+                  </Button>
+                </div>
+              </>
+            )}
+
             {step === 'car' && (
               <CarQuestions
                 initial={answers ?? undefined}
                 onSubmit={handleCar}
-                onExit={() => setStep('welcome')}
+                onExit={() => setStep(virtualAvailable ? 'mode' : 'welcome')}
                 exitLabel={t('onboard.back', 'Back')}
               />
             )}

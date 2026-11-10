@@ -14,6 +14,7 @@ import { installKind } from '@/lib/device';
 import { AndroidAppDownload, IosAddToHome, IphoneNoBluetooth } from '@/components/InstallApp';
 import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
+import { ModesCard } from '@/components/ModesCard';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -170,6 +171,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Real | Virtual: shown only while Virtual exists; each switch applies at once. */}
+        <ModesCard />
 
         <InstallSection />
 

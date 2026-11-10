@@ -50,6 +50,8 @@ export default defineConfig(async (env: ConfigEnv) => {
       },
     }],
     server: { ...base.server, port: 5010 },
+    // The Virtual (racing games) side is built but not released: it is on here so its screens can be clicked through.
+    define: { ...base.define, 'import.meta.env.VITE_ENABLE_VIRTUAL': JSON.stringify('true') },
     resolve: {
       ...base.resolve,
       alias: [
