@@ -15,7 +15,8 @@ class FakeRequest<T = unknown> {
 
 type StoreData = Map<string, unknown>;
 
-const clone = <T,>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
+// Structured clone, as a real IndexedDB does: plain data comes back the same, and typed arrays (the sim lap library keeps gzip bytes) survive.
+const clone = <T,>(v: T): T => (v === undefined ? v : structuredClone(v));
 
 export interface FakeIdb {
   /** Make every later transaction abort (disk full, blocked storage…). */
