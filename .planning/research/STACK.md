@@ -1,4 +1,4 @@
-# Stack Research — MCP Server for Car Insights AI
+# Stack Research — MCP Server for Xpeed
 
 **Domain:** MCP (Model Context Protocol) server — TypeScript, Supabase-integrated
 **Researched:** 2026-05-22
@@ -201,7 +201,7 @@ import { Hono } from 'npm:hono@^4.9.7'
 
 const app = new Hono()
 const server = new McpServer({
-  name: 'car-insights-mcp',
+  name: 'xpeed-mcp',
   version: '1.0.0',
 })
 
@@ -246,7 +246,7 @@ Users configure their MCP clients (Claude Desktop, Cursor, OpenCode, etc.) with:
 ```json
 {
   "mcpServers": {
-    "car-insights": {
+    "xpeed": {
       "type": "http",
       "url": "https://drqmrddxlrlbqnydumjm.supabase.co/functions/v1/mcp-server",
       "headers": {
@@ -285,5 +285,5 @@ Users configure their MCP clients (Claude Desktop, Cursor, OpenCode, etc.) with:
 
 ---
 
-*Stack research for: MCP Server (Car Insights AI v1.1)*
+*Stack research for: MCP Server (Xpeed v1.1)*
 *Researched: 2026-05-22*

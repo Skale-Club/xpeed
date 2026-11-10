@@ -7,11 +7,11 @@ trigger_when: next milestone
 scope: medium
 ---
 
-# SEED-001: MCP Server para Car Insights AI
+# SEED-001: MCP Server para Xpeed
 
 ## Why This Matters
 
-Expor dados e funcionalidades do Car Insights AI via protocolo MCP (Model Context Protocol) para que agentes/LLMs possam interagir diretamente com o sistema — consultar perfis de carros, sessions, DTCs, manutenção, análises e gerar insights.
+Expor dados e funcionalidades do Xpeed via protocolo MCP (Model Context Protocol) para que agentes/LLMs possam interagir diretamente com o sistema — consultar perfis de carros, sessions, DTCs, manutenção, análises e gerar insights.
 
 ## When to Surface
 
@@ -80,4 +80,4 @@ Tools que o MCP server poderia expor:
 
 - MCP server pode ser implementado como um serviço Node.js standalone ou como uma edge function separada
 - Precisa autenticar via Supabase JWT (reaproveitar auth existente)
-- Ideal para integrar o Car Insights AI com assistentes tipo Claude Desktop, Cursor, OpenCode, etc.
+- Ideal para integrar o Xpeed com assistentes tipo Claude Desktop, Cursor, OpenCode, etc.

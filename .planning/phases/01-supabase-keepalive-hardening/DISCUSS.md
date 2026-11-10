@@ -5,7 +5,7 @@
 Supabase free-tier auto-pauses projects after 7 days of inactivity. A keepalive
 implementation already exists (`scripts/supabase-keepalive.mjs` +
 `.github/workflows/supabase-keepalive.yml`, commit `ec7c480`, dated 2026-03-08),
-yet on **2026-05-14** the project `Car Insights AI` (ID `drqmrddxlrlbqnydumjm`)
+yet on **2026-05-14** the project `Xpeed` (ID `drqmrddxlrlbqnydumjm`)
 was auto-paused.
 
 ## Root cause (confirmed via `gh api`)

@@ -1,4 +1,4 @@
-# Feature Research: Car Insights AI — MCP Server
+# Feature Research: Xpeed — MCP Server
 
 **Domain:** MCP (Model Context Protocol) server for car diagnostics data
 **Researched:** 2026-05-22
@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-This MCP server exposes the Car Insights AI ecosystem to LLMs via Anthropic's Model Context Protocol. The server acts as a domain-specific bridge — LLMs can query car profiles, OBD2 sessions, diagnostic trouble codes, maintenance history, and compute trends using standard MCP primitives (tools, resources, prompts). Auth is handled via Supabase JWT (OAuth 2.1 with PKCE), reusing the existing user base and RLS policies.
+This MCP server exposes the Xpeed ecosystem to LLMs via Anthropic's Model Context Protocol. The server acts as a domain-specific bridge — LLMs can query car profiles, OBD2 sessions, diagnostic trouble codes, maintenance history, and compute trends using standard MCP primitives (tools, resources, prompts). Auth is handled via Supabase JWT (OAuth 2.1 with PKCE), reusing the existing user base and RLS policies.
 
 The server follows the **Aggregator pattern** (from MCP architecture best practices): it combines multiple data sources (Supabase DB, Gemini AI, DTC lookup) behind a single MCP server, exposing them as cohesive, high-level tools rather than 1:1 mappings of database tables.
 
@@ -306,7 +306,7 @@ MCP Client                    MCP Server                    Supabase Auth
 
 ## Competitor/Reference Analysis
 
-| Pattern | Supabase MCP (Official) | Generic DB MCP Server | Our Approach (Car Insights AI) |
+| Pattern | Supabase MCP (Official) | Generic DB MCP Server | Our Approach (Xpeed) |
 |---------|------------------------|-----------------------|-------------------------------|
 | **Tool granularity** | Maps DB tables to tools (PostgREST-style) | Raw SQL query tool | Domain-specific tools (not 1:1 with tables) |
 | **Auth** | OAuth 2.1 + PAT | JWT or none | Supabase JWT + OAuth 2.1 |
@@ -326,11 +326,11 @@ MCP Client                    MCP Server                    Supabase Auth
 - **MCP Server Best Practices (MCPcat):** https://mcpcat.io/blog/mcp-server-best-practices/ — tool organization, namespacing
 - **Awesome MCP Best Practices:** https://github.com/lirantal/awesome-mcp-best-practices/ — tool naming, descriptions
 - **MCP Resources, Tools, Prompts guide:** https://aiagentskit.com/blog/mcp-resources-tools-prompts/ — primitive usage patterns
-- **Car Insights AI codebase:** `src/lib/db.ts`, `src/lib/db-extras.ts`, `src/lib/dtc-codes.ts`, `src/lib/insight-engine.ts`, `src/lib/trends.ts`, `src/lib/chat/db.ts`, `src/lib/ai-client.ts`
+- **Xpeed codebase:** `src/lib/db.ts`, `src/lib/db-extras.ts`, `src/lib/dtc-codes.ts`, `src/lib/insight-engine.ts`, `src/lib/trends.ts`, `src/lib/chat/db.ts`, `src/lib/ai-client.ts`
 - **SEED-001:** `.planning/seeds/SEED-001-mcp-server.md` — initial tool surface ideation
 - **INTEGRATIONS.md:** `.planning/codebase/INTEGRATIONS.md` — full schema and auth audit
 
 ---
 
-*Feature research for: Car Insights AI MCP Server*
+*Feature research for: Xpeed MCP Server*
 *Researched: 2026-05-22*

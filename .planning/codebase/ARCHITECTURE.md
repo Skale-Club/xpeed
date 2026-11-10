@@ -83,7 +83,7 @@
   - `mcp-server/` — JSON-RPC 2.1 MCP endpoint; accepts Supabase JWT or MCP token; tools: listCars, getCar, listSessions, getSession, getSessionFlags, getSessionRows, getDtcInfo, searchDtcs, listMaintenance
   - `xpeed-oauth/` — OAuth 2.1 server (register, issue-code, token) with PKCE S256, HS256 JWT access tokens, opaque refresh tokens with rotation
   - `manage-mcp-tokens/` — MCP token lifecycle management
-  - `car-insights-mcp/` and `xpeed-mcp/` — additional MCP variants
+  - `xpeed-mcp/` — the MCP server
   - `_shared/admin-config.ts` — reads Gemini API key and model from `app_settings` DB table
   - `_shared/quota.ts` — per-user/day quota enforcement via `user_quotas` table (fails open on DB error)
 

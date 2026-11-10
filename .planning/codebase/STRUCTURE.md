@@ -40,7 +40,6 @@ xpeed/
 │   │   │   └── tools/          # MCP tool definitions
 │   │   ├── xpeed-oauth/        # OAuth 2.1 server (PKCE, JWT, refresh tokens)
 │   │   ├── manage-mcp-tokens/  # MCP token management
-│   │   ├── car-insights-mcp/   # MCP variant
 │   │   └── xpeed-mcp/          # MCP variant
 │   ├── config.toml             # Supabase project config
 │   └── setup_db.sql            # Legacy setup script (superseded by migrations)

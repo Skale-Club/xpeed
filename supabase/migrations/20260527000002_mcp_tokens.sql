@@ -1,5 +1,5 @@
 -- Tokens MCP por usuário. Cada usuário gera/revoga seus próprios tokens
--- para consumir o edge function car-insights-mcp. Tokens são armazenados
+-- para consumir o edge function MCP. Tokens são armazenados
 -- apenas como SHA-256 hash; o valor bruto é mostrado uma única vez ao gerar.
 
 CREATE TABLE IF NOT EXISTS public.mcp_tokens (

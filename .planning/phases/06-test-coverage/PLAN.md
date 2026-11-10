@@ -86,7 +86,7 @@ must_haves:
 ---
 
 <objective>
-Achieve meaningful automated test coverage for all critical paths in car-insights-ai: the pure-function lib layer (csv-parser, insight-engine, canonical-params), stateful hooks (useCars), React context (AuthContext), UI components (CarsPage, FlagsPanel), and the end-to-end CSV-to-flags integration pipeline.
+Achieve meaningful automated test coverage for all critical paths in xpeed: the pure-function lib layer (csv-parser, insight-engine, canonical-params), stateful hooks (useCars), React context (AuthContext), UI components (CarsPage, FlagsPanel), and the end-to-end CSV-to-flags integration pipeline.
 
 Purpose: The application currently has one trivial placeholder test. Any regression in parsing, flag generation, or auth state is invisible. This plan establishes a test foundation that catches regressions before they reach production and documents the expected behavior of every critical path.
 

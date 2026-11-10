@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implement a full-featured chat system for Car Insights AI based on the Vercel chatbot architecture, with conversation history stored in Supabase.
+Implement a full-featured chat system for Xpeed based on the Vercel chatbot architecture, with conversation history stored in Supabase.
 
 ## Architecture Comparison
 
@@ -13,7 +13,7 @@ Implement a full-featured chat system for Car Insights AI based on the Vercel ch
 - **Streaming**: Server-sent events via API routes
 - **Features**: Multi-model support, artifacts, tool calls, voting
 
-### Car Insights AI (Target)
+### Xpeed (Target)
 - **Framework**: Vite + React SPA
 - **Database**: Supabase PostgreSQL
 - **AI**: Google Gemini API

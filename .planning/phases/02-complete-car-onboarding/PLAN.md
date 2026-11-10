@@ -490,7 +490,7 @@ Create a self-contained 4-step wizard. State: `currentStep` (1-4), `newCarId` (s
 **Step layout:**
 ```
 Step 1 — Welcome
-  Heading: "Welcome to Car Insights"
+  Heading: "Welcome to Xpeed"
   Body: "Let's get you set up. We'll register your first vehicle and optionally upload your first OBD2 session."
   CTA Button: "Get Started →"
 

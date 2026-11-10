@@ -4,8 +4,6 @@ import './begin/ai-health';
 import '../../supabase/functions/ai-health/index.ts';
 import './begin/analyze-session';
 import '../../supabase/functions/analyze-session/index.ts';
-import './begin/car-insights-mcp';
-import '../../supabase/functions/car-insights-mcp/index.ts';
 import './begin/chat';
 import '../../supabase/functions/chat/index.ts';
 import './begin/manage-mcp-tokens';

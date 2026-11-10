@@ -244,7 +244,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
       key-management flow later (out of scope here)
   </action>
   <verify>
-    <automated>cd C:/Users/Vanildo/Dev/car-insights-ai && npx tsc --noEmit 2>&1 | grep -E "crypto|db\.ts" || echo "No type errors in crypto/db"</automated>
+    <automated>cd C:/Users/Vanildo/Dev/xpeed && npx tsc --noEmit 2>&1 | grep -E "crypto|db\.ts" || echo "No type errors in crypto/db"</automated>
   </verify>
   <done>
     - `src/lib/crypto.ts` exists and exports `encryptApiKey` and `decryptApiKey`
@@ -355,7 +355,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     Add the `AuthError` to the existing import from `@supabase/supabase-js` at line 3.
   </action>
   <verify>
-    <automated>cd C:/Users/Vanildo/Dev/car-insights-ai && npx tsc --noEmit 2>&1 | grep "AuthContext" || echo "No type errors in AuthContext"</automated>
+    <automated>cd C:/Users/Vanildo/Dev/xpeed && npx tsc --noEmit 2>&1 | grep "AuthContext" || echo "No type errors in AuthContext"</automated>
   </verify>
   <done>
     - `loading` initializes as `true` and is set to `false` only inside `onAuthStateChange`
@@ -432,7 +432,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     removing it is part of Task 4 (type cleanup) where those lines are touched anyway.
   </action>
   <verify>
-    <automated>ls C:/Users/Vanildo/Dev/car-insights-ai/supabase/migrations/20260517_chat_user_id_trigger.sql C:/Users/Vanildo/Dev/car-insights-ai/supabase/migrations/20260517_session_start_not_null.sql && echo "Both migration files exist"</automated>
+    <automated>ls C:/Users/Vanildo/Dev/xpeed/supabase/migrations/20260517_chat_user_id_trigger.sql C:/Users/Vanildo/Dev/xpeed/supabase/migrations/20260517_session_start_not_null.sql && echo "Both migration files exist"</automated>
   </verify>
   <done>
     - `20260517_chat_user_id_trigger.sql` exists and creates trigger on `chat_conversations`
@@ -583,7 +583,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     - Do NOT change runtime behavior in any of these edits — this is types-only cleanup
   </action>
   <verify>
-    <automated>cd C:/Users/Vanildo/Dev/car-insights-ai && npx tsc --noEmit 2>&1 | head -40</automated>
+    <automated>cd C:/Users/Vanildo/Dev/xpeed && npx tsc --noEmit 2>&1 | head -40</automated>
   </verify>
   <done>
     - `src/types/session.ts` exists and exports `SessionRow`, `SessionFlag`, `SessionSummaryItem`, `SessionProblem`

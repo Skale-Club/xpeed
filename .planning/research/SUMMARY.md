@@ -1,13 +1,13 @@
-# Research Summary: MCP Server for Car Insights AI
+# Research Summary: MCP Server for Xpeed
 
-**Project:** Car Insights AI — MCP Server Integration
+**Project:** Xpeed — MCP Server Integration
 **Domain:** MCP (Model Context Protocol) server — car diagnostics data exposed to LLM agents
 **Researched:** 2026-05-22
 **Confidence:** HIGH (research sources verified against official SDK docs, Supabase MCP guides, and production post-mortems)
 
 ## Executive Summary
 
-The Car Insights AI MCP server exposes vehicle diagnostics data (car profiles, OBD2 sessions, DTC codes, maintenance history, AI analysis) to LLM agents via Anthropic's Model Context Protocol. Experts build this as a bounded tool surface over an existing Supabase backend — an **Aggregator Pattern** server that combines DB queries, domain logic (trend computation, DTC lookup), and AI services behind cohesive tools. The recommended approach is to implement the MCP server as a **Supabase Edge Function (Deno)** using the `@modelcontextprotocol/sdk` v1.29 with Streamable HTTP transport and custom JWT auth, minimizing infrastructure delta from the existing project.
+The Xpeed MCP server exposes vehicle diagnostics data (car profiles, OBD2 sessions, DTC codes, maintenance history, AI analysis) to LLM agents via Anthropic's Model Context Protocol. Experts build this as a bounded tool surface over an existing Supabase backend — an **Aggregator Pattern** server that combines DB queries, domain logic (trend computation, DTC lookup), and AI services behind cohesive tools. The recommended approach is to implement the MCP server as a **Supabase Edge Function (Deno)** using the `@modelcontextprotocol/sdk` v1.29 with Streamable HTTP transport and custom JWT auth, minimizing infrastructure delta from the existing project.
 
 The single most important design decision — and the main tension across research — is the **deployment model**: STACK research (verified against official Supabase MCP docs) conclusively supports a Deno Edge Function using `WebStandardStreamableHTTPServerTransport`, while ARCHITECTURE research pushes for a standalone Node.js Express server. **The Edge Function approach is recommended for MVP** because it requires zero new infrastructure, follows the project's existing Edge Function pattern, and the SDK's `WebStandardStreamableHTTPServerTransport` resolves the SSE/state concerns that motivated the standalone recommendation. The standalone architecture remains a viable migration path for Phase 5 if SSE streaming or cold start latency becomes a production issue.
 
@@ -153,7 +153,7 @@ Phases with well-documented patterns (skip research-phase):
 | Area | Confidence | Notes |
 |------|------------|-------|
 | Stack | HIGH | Verified against official MCP SDK docs (npm, GitHub), Supabase MCP deployment guide, and npm registry. Version numbers confirmed. |
-| Features | HIGH | Thorough analysis of the Car Insights domain, existing codebase (15+ source files examined), seed document, and community best practices. Feature dependency graph is logical and consistent. |
+| Features | HIGH | Thorough analysis of the Xpeed domain, existing codebase (15+ source files examined), seed document, and community best practices. Feature dependency graph is logical and consistent. |
 | Architecture | MEDIUM | **Disagreement between STACK.md (Edge Function) and ARCHITECTURE.md (Standalone Node.js).** The Edge Function approach is recommended for MVP based on newer SDK capabilities (`WebStandardStreamableHTTPServerTransport`), existing project alignment, and the ARCHITECTURE.md concerns being addressable. The standalone approach remains a valid Phase 5 migration path. Code structure, auth patterns, and anti-pattern guidance from ARCHITECTURE.md are adopted regardless. |
 | Pitfalls | HIGH | 19+ production sources including official docs, post-mortems, production surveys (38.7% zero-auth servers in the wild), and documented MCP incidents. Mitigation strategies are concrete and verifiable. |
 

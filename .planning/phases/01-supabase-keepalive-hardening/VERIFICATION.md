@@ -7,7 +7,7 @@ All success criteria from PLAN.md confirmed end-to-end on 2026-05-15.
 ### 1. Workflows in `active` state
 
 ```
-$ gh api repos/Skale-Club/car-insights-ai/actions/workflows
+$ gh api repos/Skale-Club/xpeed/actions/workflows
 Supabase Keepalive Health Check -> active
 Supabase Keepalive              -> active
 ```

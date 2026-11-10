@@ -34,7 +34,7 @@ Any authenticated user can `INSERT` a `car_profiles` row with `is_admin: true`. 
 **Fix:** add `.eq("user_id", userId)`; return 404 on miss.
 
 ## 🟠 High
-- **S13-2** — `supabase/functions/mcp-server/services/sessions.ts:78` filters `session_flags`/`session_rows` on a non-existent `user_id` column; isolation holds only by query error. Verify parent-session ownership (mirror `car-insights-mcp`).
+- **S13-2** — `supabase/functions/mcp-server/services/sessions.ts:78` filters `session_flags`/`session_rows` on a non-existent `user_id` column; isolation holds only by query error. Verify parent-session ownership (mirror `xpeed-mcp`).
 - **S06-1** — `VITE_ADMIN_PASSWORD`/`VITE_ADMIN_EMAIL` baked into bundle + rendered in DOM (`src/pages/SetupAdminPage.tsx:10-11,273,324`). Rotate if ever set; delete page.
 - **S06-2** — Gemini API key plaintext in `app_settings` (`src/lib/db-extras.ts:276`). Current RLS hides `admin_secret_%` from client SELECT (verified), but S07-1 makes it exfiltratable. Move to Edge Function env / pgsodium.
 
@@ -56,7 +56,7 @@ Any authenticated user can `INSERT` a `car_profiles` row with `is_admin: true`. 
 - S01 dev migration scripts use `split(';')` + anon `exec_sql` (dead post-hardening) — delete.
 
 ## What PASSED
-Injection (parameterized PostgREST/RPC, `exec_sql` locked to service-role), XSS (safe `react-markdown` defaults, router CVE not exploitable — no data-router/SSR), CSRF (Bearer-in-header, not cookies), and webhook authenticity. The OAuth 2.1 server and the `xpeed-mcp`/`car-insights-mcp` per-tool `user_id` scoping are exemplary. RLS deliberately hardened in `20260528100000` (all legacy `USING(true)` removed).
+Injection (parameterized PostgREST/RPC, `exec_sql` locked to service-role), XSS (safe `react-markdown` defaults, router CVE not exploitable — no data-router/SSR), CSRF (Bearer-in-header, not cookies), and webhook authenticity. The OAuth 2.1 server and the `xpeed-mcp` per-tool `user_id` scoping are exemplary. RLS deliberately hardened in `20260528100000` (all legacy `USING(true)` removed).
 
 ## Phase 0 — Baseline (recap)
 - **B01** dependency scan: 20 → 2 vulns after `npm audit fix` (commit `fe41554`). Remaining 2 moderate are **dev/build-only** (esbuild/vite dev-server, need vite@8 major — deferred). Production `react-router` patched (6.30.3).

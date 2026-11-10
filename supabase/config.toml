@@ -11,9 +11,6 @@ verify_jwt = false
 [functions.xpeed-mcp]
 verify_jwt = false
 
-[functions.car-insights-mcp]
-verify_jwt = false
-
 [functions.mcp-server]
 verify_jwt = false
 
