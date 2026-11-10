@@ -4,7 +4,7 @@ Programa pequeno em Rust que lê a telemetria de um jogo de corrida no Windows e
 
 **Estado: primeira versão, ainda não testada com o jogo aberto.** O que está provado: o arquivo gerado bate byte a byte com o vetor de teste da especificação e é aceito pelo leitor estrito do app; a leitura da memória compartilhada funciona contra um "jogo falso" que cria os mesmos objetos do Windows; a lógica de cortar voltas passa em 14 cenários sintéticos. O que **não** está provado: que os números do layout correspondem ao jogo ao vivo e que a distância e a validade da volta saem certas com dados reais. Para isso existe o comando `probe`.
 
-Não há envio para o Xpeed, pareamento, ícone de bandeja nem outros jogos ainda: o coletor só grava arquivos numa pasta.
+O coletor grava as voltas numa pasta e, se você quiser, **envia para o Xpeed** (veja "Envio para o Xpeed" abaixo; o servidor ainda não recebe, só um servidor falso de teste). Ícone de bandeja e outros jogos ainda não existem.
 
 ## Compilar
 
@@ -21,8 +21,24 @@ cargo build --release
 ```powershell
 xpeed-collector probe [--seconds N]    # confere a conexão e mostra o que o jogo envia (nada é gravado)
 xpeed-collector record --out DIR       # grava cada volta em DIR como .xlap.gz (Ctrl+C para parar)
+xpeed-collector record --out DIR --upload   # idem, e envia cada volta ao Xpeed (precisa parear antes)
 xpeed-collector inspect ARQUIVO        # resume um arquivo de volta (funciona em qualquer sistema)
+xpeed-collector pair --server ENDEREÇO --code CÓDIGO [--name NOME]   # liga este computador à sua conta
+xpeed-collector status                 # mostra se este computador está pareado
+xpeed-collector unpair                 # esquece o pareamento neste computador
+xpeed-collector upload DIR             # envia as voltas de DIR que ainda não foram
 ```
+
+## Envio para o Xpeed
+
+O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md). **O servidor ainda não implementa isso** (depende do banco de produção próprio); o coletor foi testado contra um servidor falso que segue o contrato, com o programa de verdade (`pair`, `upload`, `status`, `unpair`). O que não foi testado: HTTPS de verdade (o servidor falso é `http://localhost`), e o `record --upload` com o jogo aberto.
+
+- **Parear uma vez:** no app, peça um código; no computador, `xpeed-collector pair --server https://… --code ABCD-2345`. O endereço precisa ser `https://` (só `localhost` aceita `http://`), para a chave do aparelho nunca viajar em texto aberto. A chave fica em `%APPDATA%\Xpeed\collector.json` (ou onde `XPEED_COLLECTOR_CONFIG` apontar) e **nunca é impressa**.
+- **A pasta de voltas é a fila.** O que já foi enviado (ou recusado) fica anotado em `.xpeed-upload.json`, ao lado das voltas. Se a rede cair, o computador desligar ou o servidor estiver fora, as voltas continuam na pasta e a próxima execução segue de onde parou. Nenhum arquivo de volta é apagado, movido ou alterado.
+- **Gravar não espera o envio:** em `record --upload` o envio roda em outra linha de execução; a leitura do jogo não perde amostra por causa de uma rede lenta. Com falha passageira ele tenta de novo com espera crescente (30 s até 5 min), e a cada volta nova.
+- **Chave recusada ou revogada:** o envio para e avisa para parear de novo; a gravação continua e nada se perde.
+- **Só sai do computador o que é uma volta válida:** antes de enviar, o arquivo passa pelo leitor estrito do formato.
+- **Sem redirecionamento:** o coletor não segue redirecionamentos, para a chave nunca ir para outro endereço.
 
 ## Como validar com o jogo aberto (o próximo passo)
 
@@ -55,7 +71,7 @@ Precisa do jogo instalado e do Visual Studio C++ Build Tools. O script foi confe
 ## Testes
 
 ```powershell
-cargo test            # 43 testes
+cargo test            # 69 testes (26 são do envio: rede de verdade contra um servidor falso local)
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```
@@ -68,3 +84,4 @@ Os testes do leitor criam objetos do Windows **com nomes próprios** (nunca `LMU
 - O tamanho do mapa é conferido antes de ler; um tamanho diferente do conhecido faz o `record` recusar.
 - Só o carro do jogador é lido, e o **nome do piloto nunca é guardado**.
 - O arquivo é gravado em `.part` e renomeado ao final, então um arquivo incompleto nunca aparece com o nome final.
+- A chave do aparelho é um arquivo comum da pasta do usuário (não está no Gerenciador de Credenciais do Windows): quem lê a sua pasta lê a chave. Ela só deve valer para **enviar** voltas, e se revoga no app.
