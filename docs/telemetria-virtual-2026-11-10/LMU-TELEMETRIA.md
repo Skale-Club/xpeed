@@ -75,6 +75,8 @@ Em `F:\SteamLibrary\steamapps\common\Le Mans Ultimate\Support\SharedMemoryInterf
 
 ## Escolha da linguagem do coletor
 
+**Decidido em 10/11/2026: Rust.** A primeira versão está em [`collector/`](../../collector/README.md): grava as voltas no formato de arquivo de volta e traz o comando `probe` para validar com o jogo aberto. Ainda não foi testada com o jogo rodando. O restante desta seção registra por que a escolha foi essa.
+
 O plano previa .NET. Mudou o que há instalado:
 
 | Opção | Prós | Contras |
