@@ -1,6 +1,6 @@
 # Envio de voltas do coletor para o Xpeed
 
-Este é o contrato entre o coletor (Windows) e o servidor do Xpeed. **O coletor já fala este contrato; o servidor ainda não o implementa.** Ele depende do banco de produção próprio (a virada da "fase 5" do [PLANO.md](PLANO.md)), porque precisa de uma tabela de aparelhos pareados e de um lugar para guardar as voltas. Até lá o coletor é testado contra um servidor falso local (`collector/src/stub.rs`), que segue exatamente o que está abaixo.
+Este é o contrato entre o coletor (Windows) e o servidor do Xpeed. **O coletor e o servidor já o implementam.** O servidor está em `api/sim/*` (migração `20261110200000_sim_collector.sql`, testes em `npm run test:sim`); o coletor, em `collector/src/net.rs` e `outbox.rs`, também é testado contra um servidor falso local (`collector/src/stub.rs`). Foi rodado o coletor de verdade contra os handlers de verdade, com um arquivo de volta escrito pelo próprio coletor (Rust) e aberto pelo leitor estrito do servidor (TypeScript).
 
 O que trafega é o **arquivo de volta** de [FORMATO-DE-VOLTA.md](FORMATO-DE-VOLTA.md), sem mudança: o envio não cria um formato novo.
 
@@ -14,7 +14,7 @@ O que trafega é o **arquivo de volta** de [FORMATO-DE-VOLTA.md](FORMATO-DE-VOLT
 
 ## 1. Pareamento (uma vez por computador)
 
-No app (Virtual > Coletor), a pessoa pede um **código de pareamento**: 8 caracteres de `A-Z` e `2-9` (sem `0 O 1 I`), válido por 10 minutos e usável **uma única vez**. No computador:
+No app, a pessoa pede um **código de pareamento** (`POST /api/sim/codes`, entrando com a conta; a tela do app para isso ainda não existe): 8 caracteres de `A-Z` e `2-9` (sem `0 O 1 I`), válido por 10 minutos e usável **uma única vez**. Cada pessoa tem no máximo 5 códigos abertos e pode pedir 10 por hora. Só o hash do código fica guardado. No computador:
 
 ```powershell
 xpeed-collector pair --server https://xpeed.skale.club --code ABCD-2345
@@ -33,11 +33,12 @@ O coletor tira traços e espaços e põe em maiúsculas antes de enviar. O nome 
 | Resposta | Significado |
 | --- | --- |
 | `200` `{ "token": "xpd_…", "deviceId": "…" }` | Pareado. O `token` é a **chave do aparelho** e só aparece aqui. |
-| `400`, `404`, `410` | Código inválido, expirado ou já usado. A pessoa pede outro no app. |
-| `429` | Muitas tentativas. Esperar. |
+| `400`, `404`, `410` | Código inválido, expirado ou já usado (o servidor responde `404 invalid_code` para os três, sem dizer qual). A pessoa pede outro no app. |
+| `409` `device_limit` | A conta já tem 10 aparelhos ativos. O código **não** é gasto: revogue um aparelho e tente de novo. |
+| `429` | Muitas tentativas (10 por minuto por endereço). Esperar. |
 | `5xx` | Servidor com problema. Tentar de novo depois. |
 
-A chave fica em `%APPDATA%\Xpeed\collector.json` (ou onde `XPEED_COLLECTOR_CONFIG` apontar), junto com o endereço. É um arquivo comum da pasta do usuário: quem lê essa pasta lê a chave. Por isso a chave só vale para **enviar voltas**, nunca para ler nada, e a pessoa a revoga no app (Virtual > Coletor > aparelhos), o que faz o próximo envio receber `401`.
+A chave (`xpd_` + 43 caracteres) fica em `%APPDATA%\Xpeed\collector.json` (ou onde `XPEED_COLLECTOR_CONFIG` apontar), junto com o endereço. É um arquivo comum da pasta do usuário: quem lê essa pasta lê a chave. Por isso a chave só vale para **enviar voltas**, nunca para ler nada, e a pessoa a revoga (`DELETE /api/sim/devices?id=…`), o que faz o próximo envio receber `401`. O servidor guarda só o hash da chave.
 
 ## 2. Envio de uma volta
 
@@ -63,7 +64,7 @@ O servidor **abre o arquivo com o leitor estrito** do formato (o mesmo do app) e
 | `404`, `405`, `501` | Este servidor ainda não recebe voltas. | Como acima, com a mensagem "este servidor não recebe voltas". |
 | `3xx` | Endereço mudou. | Como acima, com a mensagem de usar o endereço final. |
 
-Limites do lado do servidor: **16 MiB** por arquivo (o coletor já nem tenta enviar mais que isso) e, claro, os limites do próprio formato.
+Limites do lado do servidor: **16 MiB** por arquivo (o coletor já nem tenta enviar mais que isso), 60 envios por minuto por aparelho, **5.000 voltas por conta** (acima disso, `422`) e os limites do próprio formato. O arquivo fica no volume, no balde privado `sim-laps`, em `<conta>/<hash da identidade>.xlap.gz`.
 
 ## 3. O que o coletor guarda e o que ele nunca faz
 
@@ -72,10 +73,18 @@ Limites do lado do servidor: **16 MiB** por arquivo (o coletor já nem tenta env
 - **Gravar nunca espera o envio.** O envio roda em outra linha de execução, para a leitura do jogo (100 Hz) não perder amostras por causa de uma rede lenta.
 - **A chave nunca é impressa**, nem em erros.
 
-## O que falta do lado do servidor (quando houver banco)
+## Gerenciar aparelhos (a pessoa, com o login do app)
 
-1. Tabela de aparelhos: `id`, conta, nome, `token_hash` (só o hash da chave), criado em, último envio, revogado em.
-2. Código de pareamento: curta duração, uso único, limite de tentativas por IP e por conta.
-3. `POST /api/sim/pair` e `POST /api/sim/laps` como acima, com limite de tamanho e de ritmo por aparelho.
-4. Tela do app (Virtual > Coletor): gerar o código, listar e revogar aparelhos.
-5. O app passar a **listar as voltas do servidor** em Sessões, além das do aparelho (hoje elas só existem no navegador, em IndexedDB).
+| Chamada | O que faz |
+| --- | --- |
+| `POST /api/sim/codes` | Gera um código de pareamento: `{ "code": "ABCD-2345", "expiresAt": "…" }`. Aparece uma vez. |
+| `GET /api/sim/devices` | Lista os aparelhos da conta: `id`, `name`, `created_at`, `last_seen_at`, `last_lap_at`, `revoked_at`. Nunca a chave. |
+| `DELETE /api/sim/devices?id=…` | Revoga um aparelho. Os envios dele passam a dar `401`; as voltas já enviadas ficam. |
+
+A leitura vale pela segurança por linha do banco: a pessoa só vê as próprias linhas, e a coluna da chave nem é legível para ela.
+
+## O que ainda falta
+
+1. A **tela do app** (Virtual > Coletor): gerar o código, listar e revogar aparelhos. Os endpoints acima já existem.
+2. O app **listar as voltas do servidor** em Sessões, além das do aparelho (hoje só existem no navegador, em IndexedDB). Falta um endpoint para listar e baixar as voltas (`sim_laps` e o balde `sim-laps` já guardam tudo o que é preciso).
+3. Guardar a chave no Gerenciador de Credenciais do Windows, em vez de um arquivo comum.
