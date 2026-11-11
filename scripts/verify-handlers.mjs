@@ -179,6 +179,18 @@ try {
     assert.equal((await call(problems, '/api/sync-problems', { method: 'POST', bearer: B, body: {} })).status, 200);
   });
 
+  await check('deleting a saved trip leaves a mark, so the phone cannot bring it back (accounts that exist only as app_accounts)', async () => {
+    assert.equal((await query(A, { table: 'session_deletions', action: 'select', select: 'recording_id', filters: [{ column: 'recording_id', op: 'eq', value: tripId }] })).data.length, 0);
+    const removed = await query(A, { table: 'sessions', action: 'delete', filters: [{ column: 'id', op: 'eq', value: tripId }], returning: true, select: 'id' });
+    assert.equal(removed.error, null, JSON.stringify(removed.error));
+    assert.equal(removed.data.length, 1, 'the owner can delete their trip');
+    const mark = await query(A, { table: 'session_deletions', action: 'select', select: 'recording_id, car_profile_id', filters: [{ column: 'recording_id', op: 'eq', value: tripId }] });
+    assert.equal(mark.error, null, JSON.stringify(mark.error));
+    assert.equal(mark.data.length, 1, 'the deletion is remembered');
+    assert.equal(mark.data[0].car_profile_id, carA);
+    assert.equal((await query(B, { table: 'session_deletions', action: 'select', select: 'recording_id', filters: [{ column: 'recording_id', op: 'eq', value: tripId }] })).data.length, 0, 'nobody else sees it');
+  });
+
   console.log(`${checks.length} handler checks passed:\n- ${checks.join('\n- ')}`);
 } finally {
   await server.stop().catch(() => {});
