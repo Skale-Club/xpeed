@@ -36,7 +36,7 @@ const MARK: [(f32, f32); 12] = [
 ];
 /// How `public/logo.svg` places the mark inside its 512 x 512 square: `translate(87.04 87.04) scale(0.51403...)`.
 const MARK_OFFSET: f32 = 87.04;
-const MARK_SCALE: f32 = 0.514_032_77;
+const MARK_SCALE: f32 = 0.514_032_8;
 /// The corner radius of the square: `rx="112.64"` of 512.
 const CORNER: f32 = 112.64 / 512.0;
 
@@ -288,7 +288,7 @@ mod tests {
         assert_eq!((info.width, info.height), (512, 512));
         let mine = render(512, None);
         let (mut total, mut off) = (0u64, 0u64);
-        for (i, px) in official.chunks_exact(4).enumerate() {
+        for (i, px) in official.as_chunks::<4>().0.iter().enumerate() {
             // The PNG is R G B A; the drawing is B G R A.
             let drawn = [mine[i * 4 + 2], mine[i * 4 + 1], mine[i * 4], mine[i * 4 + 3]];
             let diff: u64 = px.iter().zip(drawn).map(|(a, b)| u64::from(a.abs_diff(b))).sum();
