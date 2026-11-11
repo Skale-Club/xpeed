@@ -9,8 +9,10 @@ import { gunzipTrack, trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/tra
  */
 
 const DB_NAME = 'xpeed-sim-tracks';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const TRACKS = 'tracks';
+/** Track names a game reports that a person tied to a kept layout by hand (a game can name a track unlike its folder). */
+const LINKS = 'links';
 
 export type TrackLibraryErrorCode = 'unavailable' | 'full' | 'failed';
 
@@ -89,6 +91,7 @@ function openDb(): Promise<IDBDatabase> {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains(TRACKS)) request.result.createObjectStore(TRACKS);
+        if (!request.result.objectStoreNames.contains(LINKS)) request.result.createObjectStore(LINKS);
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(fail(request.error, 'The track library could not be opened.'));
@@ -99,7 +102,7 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 /** One transaction. Resolves only when it has committed. */
-async function transact<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore, done: (value: T) => void) => void): Promise<T> {
+async function transact<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore, done: (value: T) => void) => void, storeName = TRACKS): Promise<T> {
   const db = await openDb();
   return new Promise<T>((resolve, reject) => {
     let result: T;
@@ -108,14 +111,14 @@ async function transact<T>(mode: IDBTransactionMode, work: (store: IDBObjectStor
       reject(fail(error, 'The track library could not be updated.'));
     };
     try {
-      const tx = db.transaction([TRACKS], mode);
+      const tx = db.transaction([storeName], mode);
       tx.oncomplete = () => {
         db.close();
         resolve(result);
       };
       tx.onerror = () => finish(tx.error);
       tx.onabort = () => finish(tx.error);
-      work(tx.objectStore(TRACKS), (value) => {
+      work(tx.objectStore(storeName), (value) => {
         result = value;
       });
     } catch (error) {
@@ -173,9 +176,7 @@ export async function listTracks(userId: string): Promise<LibraryTrack[]> {
   });
 }
 
-/** The layout of a track, as a lap file names it; null if none is kept (or it cannot be read). */
-export async function findTrack(userId: string, game: string, trackName: string, variant?: string | null): Promise<TrackFile | null> {
-  const id = `${userId}|${trackKeyOf(game, trackName, variant)}`;
+async function loadStored(id: string): Promise<TrackFile | null> {
   const stored = await transact<StoredTrack | undefined>('readonly', (store, done) => {
     const request = store.get(id);
     request.onsuccess = () => done(request.result as StoredTrack | undefined);
@@ -186,6 +187,38 @@ export async function findTrack(userId: string, game: string, trackName: string,
   } catch {
     return null;
   }
+}
+
+/** A kept layout by its id (from listTracks); null if it is not there or belongs to another account. */
+export async function loadTrack(userId: string, id: string): Promise<TrackFile | null> {
+  return ownedBy(userId, id) ? loadStored(id) : null;
+}
+
+/**
+ * The layout of a track, as a lap file names it: the one kept under that name, else the one the person tied that name
+ * to. Null if there is none (or it cannot be read).
+ */
+export async function findTrack(userId: string, game: string, trackName: string, variant?: string | null): Promise<TrackFile | null> {
+  const name = `${userId}|${trackKeyOf(game, trackName, variant)}`;
+  const direct = await loadStored(name);
+  if (direct) return direct;
+  const linked = await transact<string | undefined>('readonly', (store, done) => {
+    const request = store.get(name);
+    request.onsuccess = () => done(request.result as string | undefined);
+  }, LINKS).catch(() => undefined);
+  return linked && ownedBy(userId, linked) ? loadStored(linked) : null;
+}
+
+/** Ties the name a game gives a track to a kept layout, so its laps find it from now on. Returns that layout. */
+export async function linkTrack(userId: string, game: string, trackName: string, variant: string | null | undefined, trackId: string): Promise<TrackFile | null> {
+  if (!ownedBy(userId, trackId)) return null;
+  const layout = await loadStored(trackId);
+  if (!layout) return null;
+  await transact<void>('readwrite', (store) => {
+    store.put(trackId, `${userId}|${trackKeyOf(game, trackName, variant)}`);
+  }, LINKS);
+  notify();
+  return layout;
 }
 
 export async function removeTracks(userId: string, ids: readonly string[]): Promise<void> {

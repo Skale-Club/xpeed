@@ -239,10 +239,10 @@ async function readAll(stream: ReadableStream<Uint8Array>, maxBytes: number): Pr
 const streamOf = (bytes: Uint8Array) => new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes); controller.close(); } });
 
 /** Reads a track layout as it is stored (gzip). The unzipped size is capped while it is read. */
-export async function gunzipTrack(bytes: Uint8Array): Promise<TrackFile> {
+export async function gunzipTrack(bytes: Uint8Array, options: { maxBytes?: number } = {}): Promise<TrackFile> {
   let unpacked: Uint8Array;
   try {
-    unpacked = await readAll(streamOf(bytes).pipeThrough(new DecompressionStream('gzip')), TRACK_LIMITS.unpackedBytes);
+    unpacked = await readAll(streamOf(bytes).pipeThrough(new DecompressionStream('gzip')), Math.min(options.maxBytes ?? TRACK_LIMITS.unpackedBytes, TRACK_LIMITS.unpackedBytes));
   } catch (error) {
     if (error instanceof TrackFormatError) throw error;
     return fail('bad_gzip', 'The file is not valid gzip data.');

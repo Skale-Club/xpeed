@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { TrackReadError } from './read-track-file';
-import { addTrackFile, findTrack, listTracks, removeTracks, subscribeTrackLibrary, summarizeTrack } from './track-library';
+import { addTrackFile, findTrack, linkTrack, listTracks, removeTracks, subscribeTrackLibrary, summarizeTrack } from './track-library';
 import { trackKey, unpackTrack } from './track-file';
 
 let idb: FakeIdb;
@@ -78,6 +78,16 @@ describe('keeping a track layout', () => {
     expect(error).toBeInstanceOf(TrackReadError);
     expect(error.reason).toBe('not_a_track');
     expect(await listTracks('ana')).toEqual([]);
+  });
+
+  it('finds a layout by a name tied to it by hand, for this account only', async () => {
+    const { id } = await addTrackFile('ana', await gzFile());
+    expect(await findTrack('ana', 'ac', 'Autodromo di Monza')).toBeNull();
+    const linked = await linkTrack('ana', 'ac', 'Autodromo di Monza', null, id);
+    expect(linked && trackKey(linked)).toBe('ac|monza|gp');
+    expect((await findTrack('ana', 'AC', 'autodromo di monza'))?.header.track.name).toBe('Monza');
+    expect(await linkTrack('bia', 'ac', 'Autodromo di Monza', null, id)).toBeNull();
+    expect(await findTrack('bia', 'ac', 'Autodromo di Monza')).toBeNull();
   });
 
   it('finds nothing when no layout was kept for the track', async () => {

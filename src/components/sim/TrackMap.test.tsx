@@ -78,6 +78,24 @@ describe('the track map', () => {
     expect(screen.getByRole('button', { name: 'Show the whole track' })).toBeDisabled();
   });
 
+  it('zooms and moves with the keyboard', () => {
+    render(<TrackMap lap={lap} />);
+    const map = screen.getByTestId('track-map');
+    fireEvent.keyDown(map, { key: '+' });
+    expect(map.getAttribute('data-zoom')).toBe('2');
+    const before = map.getAttribute('viewBox');
+    fireEvent.keyDown(map, { key: 'ArrowRight' });
+    expect(map.getAttribute('viewBox')).not.toBe(before);
+    fireEvent.keyDown(map, { key: '0' });
+    expect(map.getAttribute('data-zoom')).toBe('1');
+  });
+
+  it('goes to a point asked for, zoomed in', () => {
+    const { rerender } = render(<TrackMap lap={lap} />);
+    rerender(<TrackMap lap={lap} focus={{ x: 20, z: 20, key: 1 }} />);
+    expect(screen.getByTestId('track-map').getAttribute('data-zoom')).toBe('8');
+  });
+
   it('stops zooming at a limit', () => {
     render(<TrackMap lap={lap} />);
     for (let i = 0; i < 10; i++) fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));

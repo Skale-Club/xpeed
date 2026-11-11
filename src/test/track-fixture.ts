@@ -12,6 +12,8 @@ export interface LayoutSpec {
   /** Metres to each edge; NaN or left out = unknown. */
   width?: number;
   ideal?: boolean;
+  /** How far the ideal line is moved from the centre line, in x and in z (default 1.5 m). */
+  idealShift?: number;
   pit?: Array<[x: number, z: number]>;
 }
 
@@ -34,7 +36,7 @@ export function makeLayout(spec: LayoutSpec): TrackFile {
       centerKind: 'edges_midpoint',
     },
     centerline: { x, y: new Float32Array(n), z, dist, left: side, right: side.slice() },
-    ...(spec.ideal ? { fast: { x: x.map((v) => v + 1.5), z: z.map((v) => v + 1.5) } } : {}),
+    ...(spec.ideal ? { fast: { x: x.map((v) => v + (spec.idealShift ?? 1.5)), z: z.map((v) => v + (spec.idealShift ?? 1.5)) } } : {}),
     ...(spec.pit
       ? {
           pitlane: {

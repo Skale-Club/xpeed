@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { LapAnalysis, type LoadedLap } from '@/components/sim/LapAnalysis';
 import { useAuth } from '@/contexts/AuthContext';
 import { loadLap } from '@/lib/sim/library';
-import { addTrackFile, findTrack } from '@/lib/sim/track-library';
+import { addTrackFile, findTrack, linkTrack, listTracks } from '@/lib/sim/track-library';
 
 /**
  * The compare screen, starting from laps kept on this device when the address names them
@@ -23,6 +23,12 @@ export function LibraryCompare() {
   // Track layouts are kept on this device like laps: one opened here is kept for next time, and a lap finds its own.
   const findLayout = useCallback(
     (game: string, trackName: string, variant?: string | null) => (userId ? findTrack(userId, game, trackName, variant) : Promise.resolve(null)),
+    [userId],
+  );
+  const listKeptLayouts = useCallback(() => (userId ? listTracks(userId) : Promise.resolve([])), [userId]);
+  const linkLayout = useCallback(
+    (game: string, trackName: string, variant: string | null, layoutId: string) =>
+      userId ? linkTrack(userId, game, trackName, variant, layoutId) : Promise.resolve(null),
     [userId],
   );
   const keepLayout = useCallback(
@@ -71,7 +77,7 @@ export function LibraryCompare() {
           {t('modes.compare.missing', 'Some of those laps are no longer on this device.')}
         </p>
       )}
-      <LapAnalysis key={key} initialLaps={ids.length > 0 ? state?.laps : undefined} findLayout={findLayout} onLayoutFile={keepLayout} />
+      <LapAnalysis key={key} initialLaps={ids.length > 0 ? state?.laps : undefined} findLayout={findLayout} onLayoutFile={keepLayout} listKeptLayouts={listKeptLayouts} linkLayout={linkLayout} />
     </>
   );
 }

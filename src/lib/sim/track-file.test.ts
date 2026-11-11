@@ -131,8 +131,11 @@ describe('a file that is not exactly the spec', () => {
 
   it('is refused when it is not gzip, and when it unzips to more than it may', async () => {
     expect(await asyncCodeOf(() => gunzipTrack(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])))).toBe('bad_gzip');
-    const huge = await gzipped(new Uint8Array(TRACK_LIMITS.unpackedBytes + 1));
-    expect(await asyncCodeOf(() => gunzipTrack(huge))).toBe('too_large');
+    // The cap is checked with a smaller one, so the test does not have to unzip 64 MiB (the real cap is the same code).
+    const golden = await gzipped(goldenBytes());
+    expect(await asyncCodeOf(() => gunzipTrack(golden, { maxBytes: 563 }))).toBe('too_large');
+    expect(await asyncCodeOf(() => gunzipTrack(golden, { maxBytes: 564 }))).toBe('no error');
+    expect(await asyncCodeOf(() => gunzipTrack(golden, { maxBytes: TRACK_LIMITS.unpackedBytes * 2 }))).toBe('no error');
   });
 });
 
