@@ -87,7 +87,7 @@ Check supabase/functions/_shared/fuel-receipt.ts
 Check supabase/functions/_shared/quota.ts
 Check supabase/functions/ai-health/index.ts
 Check supabase/functions/analyze-session/index.ts
-Check supabase/functions/car-insights-mcp/index.ts
+Check supabase/functions/xpeed-mcp/index.ts
 Check supabase/functions/chat/index.ts
 Check supabase/functions/manage-mcp-tokens/index.ts
 Check supabase/functions/mcp-server/auth.ts

@@ -1,6 +1,6 @@
 # MCP Server Architecture
 
-**Project:** Car Insights AI — MCP Server Integration
+**Project:** Xpeed — MCP Server Integration
 **Researched:** 2026-05-22
 **Confidence:** HIGH (verified against MCP SDK docs, Supabase MCP auth docs, and community production patterns)
 
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The MCP (Model Context Protocol) server for Car Insights AI should be implemented as a **separate Node.js Express application** using the `@modelcontextprotocol/sdk` (v1.x) with **Streamable HTTP transport**. This is the recommended architecture for production MCP servers as of the 2025-03-26 spec revision, which deprecated SSE transport.
+The MCP (Model Context Protocol) server for Xpeed should be implemented as a **separate Node.js Express application** using the `@modelcontextprotocol/sdk` (v1.x) with **Streamable HTTP transport**. This is the recommended architecture for production MCP servers as of the 2025-03-26 spec revision, which deprecated SSE transport.
 
 **Why not reuse Edge Functions:** Supabase Edge Functions (Deno) are ill-suited for MCP because:
 1. Edge Functions are stateless request-response handlers — MCP Streamable HTTP expects session state across requests
@@ -213,10 +213,10 @@ Browser (React SPA)                  Supabase Auth              MCP Server
     │  User configures MCP client:        │                        │
     │  {                                  │                        │
     │    "mcpServers": {                  │                        │
-    │      "car-insights": {              │                        │
+    │      "xpeed": {              │                        │
     │        "type": "http",              │                        │
     │        "url": "https://mcp.         │                        │
-    │          carinsights.app/mcp",      │                        │
+    │          xpeed.skale.club/mcp",      │                        │
     │        "headers": {                 │                        │
     │          "Authorization":           │                        │
     │          "Bearer <token>"           │                        │
@@ -422,7 +422,7 @@ const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
 ## Code Structure
 
 ```
-car-insights-ai/
+xpeed/
 ├── mcp-server/                          # NEW: Standalone MCP server package
 │   ├── package.json
 │   ├── tsconfig.json
@@ -514,7 +514,7 @@ If duplication becomes painful (2+ changes to the same logic), extract to a shar
 │  - HOST (default: 0.0.0.0)                   │
 │  - PORT (default: 3000)                      │
 │  - LOG_LEVEL (default: info)                 │
-│  - MCP_SERVER_NAME (default: car-insights)   │
+│  - MCP_SERVER_NAME (default: xpeed)   │
 │  - MCP_SERVER_VERSION (default: 1.0.0)      │
 └──────────────────────────────────────────────┘
 ```
@@ -562,7 +562,7 @@ Add to `SettingsPage.tsx`:
 │  Status: ● Connected (last used: 2m ago)   │
 │                                            │
 │  Your connection URL:                      │
-│  https://mcp.carinsights.app/mcp          │
+│  https://xpeed.skale.club/mcp          │
 │                                            │
 │  [Copy URL]                                │
 │                                            │
@@ -579,7 +579,7 @@ Add to `SettingsPage.tsx`:
 │  MCP client settings):                     │
 │  {                                         │
 │    "mcpServers": {                         │
-│      "car-insights": {                     │
+│      "xpeed": {                     │
 │        "type": "http",                     │
 │        "url": "https://mcp.../mcp",        │
 │        "headers": {                        │

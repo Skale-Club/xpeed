@@ -10,7 +10,7 @@
 //      Opaque per-user tokens (SHA-256 hashed) from public.mcp_tokens. They expire
 //      (expires_at) and can be revoked. NOT accepted in the URL (?key=): URLs get logged.
 //
-// This is the one MCP server. mcp-server, car-insights-mcp and manage-mcp-tokens are retired (410).
+// This is the one MCP server. mcp-server and manage-mcp-tokens are retired (410).
 //
 // On 401, returns WWW-Authenticate header pointing to OAuth metadata so Claude.ai
 // Custom Connector can discover the authorization server.

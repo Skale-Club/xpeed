@@ -99,10 +99,10 @@ try {
     return { status: response.status, json, text, headers: response.headers };
   };
 
-  await check('all nine functions are registered, and the retired ones still answer 410 Gone', async () => {
-    assert.deepEqual(functionNames().sort(), ['ai-health', 'analyze-session', 'car-insights-mcp', 'chat', 'manage-mcp-tokens', 'mcp-server', 'read-fuel-receipt', 'xpeed-mcp', 'xpeed-oauth']);
-    assert.equal((await call('car-insights-mcp')).status, 410);
-    assert.equal((await call('car-insights-mcp', { method: 'OPTIONS' })).status, 204);
+  await check('all eight functions are registered, and the retired ones still answer 410 Gone', async () => {
+    assert.deepEqual(functionNames().sort(), ['ai-health', 'analyze-session', 'chat', 'manage-mcp-tokens', 'mcp-server', 'read-fuel-receipt', 'xpeed-mcp', 'xpeed-oauth']);
+    assert.equal((await call('mcp-server')).status, 410);
+    assert.equal((await call('mcp-server', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call('no-such-function')).status, 404);
   });
 

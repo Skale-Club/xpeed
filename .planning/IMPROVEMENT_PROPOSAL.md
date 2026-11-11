@@ -1,4 +1,4 @@
-# Improvement Proposal — car-insights-ai
+# Improvement Proposal — xpeed
 
 **Date:** 2026-05-17
 **Author:** Deep system analysis

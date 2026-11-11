@@ -1,8 +1,8 @@
-# Roadmap: Car Insights AI
+# Roadmap: Xpeed
 
 ## Overview
 
-This roadmap covers the Car Insights AI project — a React + Supabase SPA for OBD2 diagnostics with Gemini AI. Milestone v1.0 (phases 01-06) delivers the core diagnostics platform. Milestone v1.1 (phases 07-10) adds an MCP (Model Context Protocol) server exposing vehicle diagnostics data to LLM agents, with auth token management in the Settings UI.
+This roadmap covers the Xpeed project — a React + Supabase SPA for OBD2 diagnostics with Gemini AI. Milestone v1.0 (phases 01-06) delivers the core diagnostics platform. Milestone v1.1 (phases 07-10) adds an MCP (Model Context Protocol) server exposing vehicle diagnostics data to LLM agents, with auth token management in the Settings UI.
 
 ## Milestones
 

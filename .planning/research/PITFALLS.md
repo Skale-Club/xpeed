@@ -1,6 +1,6 @@
 # Pitfalls Research: MCP Server + Supabase Integration
 
-**Domain:** Car Insights AI — MCP (Model Context Protocol) server integrated with Supabase
+**Domain:** Xpeed — MCP (Model Context Protocol) server integrated with Supabase
 **Researched:** 2026-05-22
 **Confidence:** HIGH (verified against Context7-available Supabase docs, official MCP spec references, and multiple production post-mortem articles)
 
@@ -22,7 +22,7 @@ This is not theoretical. The official `@supabase/mcp-server-supabase` package us
 - Developers think "it's just for my AI agent" and underestimate the prompt injection risk
 - The free tier has NO accessible backups — deleted data is gone forever
 - Most tutorials and templates use `service_role` without warning about the implications
-- The existing Car Insights codebase stores Gemini API keys in `app_settings` as plaintext (already flagged as CRITICAL in CONCERNS.md)
+- The existing Xpeed codebase stores Gemini API keys in `app_settings` as plaintext (already flagged as CRITICAL in CONCERNS.md)
 
 **How to avoid:**
 1. **Never use `service_role` for user-scoped queries.** Reserve it exclusively for admin operations (e.g., listing all users in an admin panel tool with explicit authorization).
@@ -106,7 +106,7 @@ An MCP tool reads data from an untrusted source — a CSV file uploaded by a use
 
 This is the #1 production MCP security incident in 2025-2026. The research by General Analysis showed exactly how this works: a user submits a support ticket with embedded instructions, a support agent agent reads the ticket via MCP, the LLM interprets the embedded instructions as commands, and the `service_role`-armed agent executes SQL to exfiltrate data.
 
-For Car Insights AI specifically: users upload CSV files containing OBD2 data. An attacker could craft a CSV file where parameter names or values contain prompt injection payloads. When a tool like `get_session_rows` reads this data (via `session_rows.data` JSONB column), the injected text enters the LLM's context.
+For Xpeed specifically: users upload CSV files containing OBD2 data. An attacker could craft a CSV file where parameter names or values contain prompt injection payloads. When a tool like `get_session_rows` reads this data (via `session_rows.data` JSONB column), the injected text enters the LLM's context.
 
 **Why it happens:**
 - Developers treat database content as "trusted" — it's "our data"
@@ -440,7 +440,7 @@ On the free tier, cold starts that exceed 10 seconds have been reported (GitHub 
 ### Pitfall 9: Mixing Up Resources vs Tools — The Architecture Mistake
 
 **What goes wrong:**
-You expose every database query as a "tool" when many of them should be "resources." The agent calls `get_session` when it could have just read a resource URI like `car-insights://sessions/{sessionId}`. This means:
+You expose every database query as a "tool" when many of them should be "resources." The agent calls `get_session` when it could have just read a resource URI like `xpeed://sessions/{sessionId}`. This means:
 - Every read requires an LLM decision (tool selection + parameter construction + execution)
 - Simple reads cost tokens for the entire tool-call round trip
 - Resources can be pre-loaded into context (addContextResource) — tools cannot
@@ -456,7 +456,7 @@ The MCP spec distinguishes: **Resources** are read-only data sources with URIs (
 
 **How to avoid:**
 1. **Use the following heuristic:** If it's read-only data the LLM might need for context (session metadata, car profile info, DTC lookup table), make it a **resource**. If it requires a computation or side-effect (running an analysis, computing trends, triggering an action), make it a **tool**.
-2. **For Car Insights AI specifically:**
+2. **For Xpeed specifically:**
 
    | Feature | Type | Reason |
    |---------|------|--------|
@@ -472,12 +472,12 @@ The MCP spec distinguishes: **Resources** are read-only data sources with URIs (
 
 3. **Use resource templates** for parameterized URIs:
    ```
-   car-insights://cars/{carId}
-   car-insights://cars/{carId}/sessions
-   car-insights://sessions/{sessionId}
-   car-insights://sessions/{sessionId}/flags
-   car-insights://sessions/{sessionId}/rows
-   car-insights://dtc/{code}
+   xpeed://cars/{carId}
+   xpeed://cars/{carId}/sessions
+   xpeed://sessions/{sessionId}
+   xpeed://sessions/{sessionId}/flags
+   xpeed://sessions/{sessionId}/rows
+   xpeed://dtc/{code}
    ```
 4. **Declare resource templates in `tools/list`** alongside tools — both can coexist in the same server.
 5. **For the MVP**, start with tools only (they're simpler), but design the URI namespace so resources can be added later without breaking existing tool names.
@@ -646,5 +646,5 @@ When pitfalls occur despite prevention, how to recover.
 
 ---
 
-*Pitfalls research for: Car Insights AI MCP Server + Supabase Integration*
+*Pitfalls research for: Xpeed MCP Server + Supabase Integration*
 *Researched: 2026-05-22*

@@ -19,7 +19,7 @@ A React + Supabase SPA for OBD2 car diagnostics powered by Gemini AI. Users uplo
 
 ## Current Milestone: v1.1 MCP Server
 
-**Goal:** Build an MCP (Model Context Protocol) server as a Supabase Edge Function that exposes Car Insights AI data (cars, sessions, DTCs, maintenance, trends, chat) as tools/resources for LLMs and AI agents, with per-user auth token management in Settings.
+**Goal:** Build an MCP (Model Context Protocol) server as a Supabase Edge Function that exposes Xpeed data (cars, sessions, DTCs, maintenance, trends, chat) as tools/resources for LLMs and AI agents, with per-user auth token management in Settings.
 
 **Target features:**
 - MCP server as Edge Function (Deno) with Streamable HTTP transport

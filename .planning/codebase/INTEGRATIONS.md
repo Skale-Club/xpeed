@@ -100,7 +100,7 @@
 - `supabase/functions/xpeed-mcp/` - MCP server (JSON-RPC 2.0)
 - `supabase/functions/xpeed-oauth/` - OAuth 2.1 authorization server
 - `supabase/functions/manage-mcp-tokens/` - MCP token CRUD
-- `supabase/functions/car-insights-mcp/` - Additional MCP tools (car insights)
+- `supabase/functions/xpeed-mcp/` - MCP tools
 - `supabase/functions/mcp-server/` - Modular MCP server with service/tool split
 
 ## MCP (Model Context Protocol) Server
