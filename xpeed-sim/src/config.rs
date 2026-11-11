@@ -50,6 +50,33 @@ pub fn default_path() -> Option<PathBuf> {
     home_dir().map(|home| home.join("config.json"))
 }
 
+/// The Xpeed site people connect to unless they were paired with another one.
+pub const DEFAULT_SERVER: &str = "https://xpeed.skale.club";
+
+/// What this computer calls itself in the person's list of computers in the Xpeed site.
+pub fn device_name() -> String {
+    let raw = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_default();
+    let name: String = raw.chars().filter(|c| !c.is_control()).take(60).collect();
+    if name.trim().is_empty() {
+        "Windows PC".into()
+    } else {
+        name.trim().to_owned()
+    }
+}
+
+/// Where laps are written unless someone chose a folder: `XPEED_SIM_LAPS`, else `Documents\Xpeed Sim\Laps`.
+pub fn default_laps_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("XPEED_SIM_LAPS").filter(|p| !p.is_empty()) {
+        return PathBuf::from(path);
+    }
+    match std::env::var_os("USERPROFILE").filter(|p| !p.is_empty()) {
+        Some(profile) => PathBuf::from(profile).join("Documents").join("Xpeed Sim").join("Laps"),
+        None => home_dir().unwrap_or_default().join("Laps"),
+    }
+}
+
 fn is_loopback(host: &str) -> bool {
     matches!(
         host.trim_start_matches('[').trim_end_matches(']'),
@@ -172,6 +199,20 @@ pub fn scratch_dir(name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn laps_go_where_the_person_said_or_to_documents() {
+        std::env::set_var("XPEED_SIM_LAPS", r"D:\mine");
+        assert_eq!(default_laps_dir(), PathBuf::from(r"D:\mine"));
+        std::env::remove_var("XPEED_SIM_LAPS");
+        assert!(default_laps_dir().ends_with(r"Xpeed Sim\Laps") || default_laps_dir().ends_with("Laps"));
+    }
+
+    #[test]
+    fn a_computer_always_has_a_short_name_without_control_characters() {
+        let name = device_name();
+        assert!(!name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control));
+    }
 
     #[test]
     fn keeps_https_addresses_without_a_trailing_slash() {

@@ -8,6 +8,10 @@ on:
       - "xpeed-sim/**"
       - ".github/workflows/xpeed-sim.yml"
       - "docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md"
+      # The icon is drawn from the Xpeed mark; if the mark changes, this must be checked against it.
+      - "branding/mark.svg"
+      - "public/logo.svg"
+      - "public/icon-512.png"
   push:
     branches: [main]
     paths:

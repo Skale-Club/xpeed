@@ -1,5 +1,11 @@
-//! xpeed-sim: reads racing-game telemetry on Windows and writes it as Xpeed lap files.
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
+//! Xpeed Sim: reads racing-game telemetry on Windows and sends it to your Xpeed account.
 //!
+//! Started with no arguments (from the Start menu, or with Windows) it runs as a tray icon: it records every lap
+//! while Le Mans Ultimate runs and sends the laps to the account it is connected to. With arguments it is a command
+//! line tool:
+//!
+//! * `run`     the tray app (what no arguments mean);
 //! * `probe`   checks that the game is sharing data and shows what it sends (nothing is written);
 //! * `record`  writes every lap to a folder as a `.xlap.gz` file (and, with `--upload`, sends them to Xpeed);
 //! * `inspect` shows what a lap file holds;
@@ -7,25 +13,42 @@
 //!
 //! The first game is Le Mans Ultimate. See `docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md`.
 
+mod applog;
 mod config;
+#[cfg(windows)]
+mod engine;
+mod icon;
 mod lapfile;
+mod link;
 mod lmu;
 mod net;
 mod outbox;
+mod present;
 mod recorder;
+mod status;
 #[cfg(test)]
 mod stub;
+mod text;
+#[cfg(windows)]
+mod tray;
 #[cfg(test)]
 mod upload_tests;
 mod util;
+#[cfg(windows)]
+mod win;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use crate::util::clock;
+
 const HELP: &str = "\
-xpeed-sim: racing-game telemetry to Xpeed lap files
+Xpeed Sim: racing-game telemetry to your Xpeed account
+
+With no arguments Xpeed Sim runs as a tray icon. Command line:
 
 USAGE:
+    xpeed-sim run                    The tray app (the same as no arguments)
     xpeed-sim probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
     xpeed-sim record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
@@ -35,6 +58,7 @@ USAGE:
     xpeed-sim status                 Show whether this computer is paired
     xpeed-sim unpair                 Forget the pairing on this computer
     xpeed-sim upload DIR             Send the laps in DIR that were not sent yet
+    xpeed-sim make-icon FILE         Write the Xpeed Sim icon to FILE (.ico)
     xpeed-sim help
 
 For the game to share data, 'Enable external plugins' must be on (Settings > Gameplay) and the game must be running.
@@ -42,6 +66,14 @@ For the game to share data, 'Enable external plugins' must be on (Settings > Gam
 
 #[derive(Debug, PartialEq)]
 enum Command {
+    Run,
+    /// `xpeedsim://pair?...`, opened by Windows when the Xpeed site asks to connect this computer.
+    Link {
+        url: String,
+    },
+    MakeIcon {
+        file: PathBuf,
+    },
     Probe {
         seconds: u64,
     },
@@ -68,7 +100,25 @@ enum Command {
 fn parse(args: &[String]) -> Result<Command, String> {
     let mut rest = args.iter().map(String::as_str);
     match rest.next() {
-        None | Some("help" | "--help" | "-h") => Ok(Command::Help),
+        None | Some("run") => match rest.next() {
+            None => Ok(Command::Run),
+            Some(extra) => Err(format!("unexpected argument {extra:?}")),
+        },
+        Some("help" | "--help" | "-h") => Ok(Command::Help),
+        Some("link") => {
+            let url = rest.next().ok_or("link needs an address")?;
+            match rest.next() {
+                None => Ok(Command::Link { url: url.to_owned() }),
+                Some(extra) => Err(format!("unexpected argument {extra:?}")),
+            }
+        }
+        Some("make-icon") => {
+            let file = rest.next().ok_or("make-icon needs a file name")?;
+            match rest.next() {
+                None => Ok(Command::MakeIcon { file: PathBuf::from(file) }),
+                Some(extra) => Err(format!("unexpected argument {extra:?}")),
+            }
+        }
         Some("probe") => {
             let mut seconds = 5;
             while let Some(flag) = rest.next() {
@@ -138,11 +188,6 @@ fn parse(args: &[String]) -> Result<Command, String> {
     }
 }
 
-/// `3:27.250` for a time in milliseconds.
-fn clock(ms: u32) -> String {
-    format!("{}:{:02}.{:03}", ms / 60_000, ms / 1000 % 60, ms % 1000)
-}
-
 fn inspect(file: &Path) -> ExitCode {
     let bytes = match std::fs::read(file) {
         Ok(bytes) => bytes,
@@ -202,19 +247,6 @@ fn inspect(file: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// What this computer calls itself, for the person's list of devices in the app.
-fn default_device_name() -> String {
-    let raw = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_default();
-    let name: String = raw.chars().filter(|c| !c.is_control()).take(60).collect();
-    if name.trim().is_empty() {
-        "Windows PC".into()
-    } else {
-        name.trim().to_owned()
-    }
-}
-
 fn config_path() -> Result<PathBuf, String> {
     config::default_path().ok_or_else(|| "cannot tell where to keep the pairing; set XPEED_SIM_HOME to a folder".to_owned())
 }
@@ -246,7 +278,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
     let device_name = name
         .map(|n| n.trim().to_owned())
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(default_device_name);
+        .unwrap_or_else(config::device_name);
     println!("Pairing {device_name:?} with {server} ...");
     let token = match net::pair(&net::agent(), &server, &code, &device_name) {
         Ok(token) => token,
@@ -324,25 +356,12 @@ mod live {
     use std::time::{Duration, Instant};
 
     use super::*;
+    use crate::engine::explain;
     use crate::lmu::layout::LAYOUT_SIZE;
-    use crate::lmu::reader::{LmuReader, Names, OpenError};
+    use crate::lmu::reader::{LmuReader, Names};
     use crate::lmu::snapshot::PlayerTelemetry;
-    use crate::outbox::{Backoff, Uploader};
-    use crate::recorder::Recorder;
-    use crate::util::{file_safe, iso_utc, now_ms};
-
-    fn explain(error: &OpenError) -> String {
-        match error {
-            OpenError::NotRunning => {
-                "Le Mans Ultimate is not sharing data. Is the game running, and is 'Enable external plugins' on (Settings > Gameplay)?"
-                    .into()
-            }
-            OpenError::TooSmall { found, expected } => {
-                format!("The game's shared memory is {found} bytes; this build expects {expected}. Another game version: nothing was read.")
-            }
-            OpenError::Os(message) => message.clone(),
-        }
-    }
+    use crate::outbox::{Backoff, Observer, Uploader};
+    use crate::status::Shared;
 
     pub fn probe(seconds: u64) -> ExitCode {
         let mut reader = match LmuReader::open(&Names::lmu()) {
@@ -441,39 +460,6 @@ mod live {
         ExitCode::SUCCESS
     }
 
-    /// True when the lap is now a file in `out`.
-    fn save(out: &Path, lap: &lapfile::Lap) -> bool {
-        let stamp: String = lap.started_at.chars().filter(char::is_ascii_digit).take(14).collect();
-        let name = format!(
-            "{}_{}_lap{}_{}.xlap.gz",
-            file_safe(&lap.track_name),
-            file_safe(&lap.car_name),
-            lap.lap_number,
-            stamp
-        );
-        let (path, partial) = (out.join(&name), out.join(format!("{name}.part")));
-        let result = lapfile::gzip(lap)
-            .map_err(|e| e.to_string())
-            .and_then(|bytes| std::fs::write(&partial, &bytes).map(|_| bytes.len()).map_err(|e| e.to_string()))
-            .and_then(|size| std::fs::rename(&partial, &path).map(|_| size).map_err(|e| e.to_string()));
-        match result {
-            Ok(size) => {
-                println!(
-                    "Saved lap {} {} ({}) -> {name} ({} KB)",
-                    lap.lap_number,
-                    clock(lap.time_ms),
-                    if lap.valid { "valid" } else { "not valid" },
-                    size.div_ceil(1024)
-                );
-                true
-            }
-            Err(error) => {
-                eprintln!("Could not save lap {}: {error}", lap.lap_number);
-                false
-            }
-        }
-    }
-
     pub fn record(out: &Path, upload: bool) -> ExitCode {
         // Checked first: asking to upload without a pairing is a mistake to hear about now, not after the first lap.
         let config = if upload {
@@ -484,67 +470,27 @@ mod live {
         } else {
             None
         };
-        if let Err(error) = std::fs::create_dir_all(out) {
-            eprintln!("Cannot create {}: {error}", out.display());
-            return ExitCode::from(1);
-        }
         println!("Writing laps to {} (Ctrl+C to stop).", out.display());
+        let shared = Shared::new(config.is_some());
         // A thread of its own: a slow network must never make the reading of the game miss a sample.
-        let uploader = config.map(|config| {
+        if let Some(config) = config {
             println!(
                 "Sending laps to {} as {:?}; laps that cannot go now stay here and go later.",
                 config.server, config.device_name
             );
-            Uploader::start(out.to_path_buf(), config, Backoff::default())
-        });
-        let saved = |lap: &lapfile::Lap| {
-            if save(out, lap) {
-                if let Some(uploader) = &uploader {
-                    uploader.wake();
-                }
+            shared.set_uploader(Some(Uploader::start(
+                out.to_path_buf(),
+                config,
+                Backoff::default(),
+                Observer::console(),
+            )));
+        }
+        match engine::run(out, &shared, &|line| println!("{line}"), true) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::from(2)
             }
-        };
-        let mut waiting = false;
-        loop {
-            let mut reader = match LmuReader::open(&Names::lmu()) {
-                Ok(reader) => reader,
-                Err(OpenError::NotRunning) => {
-                    if !waiting {
-                        println!("Waiting for Le Mans Ultimate ('Enable external plugins' must be on)...");
-                        waiting = true;
-                    }
-                    std::thread::sleep(Duration::from_secs(2));
-                    continue;
-                }
-                Err(error) => {
-                    eprintln!("{}", explain(&error));
-                    return ExitCode::from(2);
-                }
-            };
-            if !reader.layout_matches() {
-                eprintln!("The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update Xpeed Sim.", reader.mapped_bytes(), LAYOUT_SIZE);
-                return ExitCode::from(2);
-            }
-            waiting = false;
-            println!("Connected to Le Mans Ultimate at {}.", iso_utc(now_ms()));
-            let mut recorder = Recorder::new();
-            let mut silent_waits = 0;
-            // Without a frame for 10 s (the game closed, or sits in a menu) start over from a clean connection.
-            while silent_waits < 50 {
-                if !reader.wait_frame(200) {
-                    silent_waits += 1;
-                    continue;
-                }
-                silent_waits = 0;
-                let Some(snapshot) = reader.read() else { continue };
-                if let Some(t) = &snapshot.telemetry {
-                    recorder.on_telemetry(t, now_ms()).iter().for_each(saved);
-                }
-                if let Some(s) = &snapshot.scoring {
-                    recorder.on_scoring(s).iter().for_each(saved);
-                }
-            }
-            println!("No data from the game for 10 s; reconnecting.");
         }
     }
 }
@@ -558,7 +504,28 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // The program has no console of its own; a command typed in a terminal borrows that terminal's.
+    #[cfg(windows)]
+    if !matches!(command, Command::Run | Command::Link { .. }) {
+        win::attach_terminal();
+    }
     match command {
+        #[cfg(windows)]
+        Command::Run => tray::run(),
+        #[cfg(windows)]
+        Command::Link { url } => tray::pair_from_link(&url),
+        #[cfg(not(windows))]
+        Command::Run | Command::Link { .. } => {
+            eprintln!("The tray app needs Windows. `inspect` works everywhere.");
+            ExitCode::from(2)
+        }
+        Command::MakeIcon { file } => match std::fs::write(&file, icon::ico_file(&[16, 24, 32, 48, 64, 256], None)) {
+            Ok(()) => {
+                println!("Wrote {}", file.display());
+                ExitCode::SUCCESS
+            }
+            Err(error) => fail(format!("Cannot write {}: {error}", file.display())),
+        },
         Command::Help => {
             print!("{HELP}");
             ExitCode::SUCCESS
@@ -590,7 +557,19 @@ mod tests {
 
     #[test]
     fn reads_the_commands() {
-        assert_eq!(parse(&args(&[])), Ok(Command::Help));
+        assert_eq!(parse(&args(&[])), Ok(Command::Run));
+        assert_eq!(parse(&args(&["run"])), Ok(Command::Run));
+        assert_eq!(
+            parse(&args(&["link", "xpeedsim://pair?x=1"])),
+            Ok(Command::Link {
+                url: "xpeedsim://pair?x=1".into()
+            })
+        );
+        assert_eq!(
+            parse(&args(&["make-icon", "a.ico"])),
+            Ok(Command::MakeIcon { file: "a.ico".into() })
+        );
+        assert_eq!(parse(&args(&["--help"])), Ok(Command::Help));
         assert_eq!(parse(&args(&["help"])), Ok(Command::Help));
         assert_eq!(parse(&args(&["probe"])), Ok(Command::Probe { seconds: 5 }));
         assert_eq!(parse(&args(&["probe", "--seconds", "30"])), Ok(Command::Probe { seconds: 30 }));
@@ -653,16 +632,13 @@ mod tests {
             &["unpair", "now"],
             &["upload"],
             &["upload", "a", "b"],
+            &["run", "now"],
+            &["link"],
+            &["link", "a", "b"],
+            &["make-icon"],
             &["dance"],
         ] {
             assert!(parse(&args(bad)).is_err(), "{bad:?} should be refused");
         }
-    }
-
-    #[test]
-    fn writes_a_lap_time_like_a_clock() {
-        assert_eq!(clock(207_250), "3:27.250");
-        assert_eq!(clock(59_999), "0:59.999");
-        assert_eq!(clock(3_600_000), "60:00.000");
     }
 }

@@ -2,6 +2,11 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// `3:27.250` for a time in milliseconds.
+pub fn clock(ms: u32) -> String {
+    format!("{}:{:02}.{:03}", ms / 60_000, ms / 1000 % 60, ms % 1000)
+}
+
 pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
@@ -63,6 +68,13 @@ mod tests {
         assert_eq!(iso_utc(1_794_312_000_000), "2026-11-10T12:00:00.000Z");
         assert_eq!(iso_utc(951_868_799_999), "2000-02-29T23:59:59.999Z");
         assert_eq!(iso_utc(1_798_761_599_001), "2026-12-31T23:59:59.001Z");
+    }
+
+    #[test]
+    fn writes_a_lap_time_like_a_clock() {
+        assert_eq!(clock(207_250), "3:27.250");
+        assert_eq!(clock(59_999), "0:59.999");
+        assert_eq!(clock(3_600_000), "60:00.000");
     }
 
     #[test]
