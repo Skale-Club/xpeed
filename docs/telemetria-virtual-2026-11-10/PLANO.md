@@ -63,6 +63,8 @@ O dono informou que o sistema **também terá o módulo de carrinhos de RC com c
 
 **Análise de voltas no navegador (fase 4, sem banco).** Em Virtual > Comparar voltas dá para abrir arquivos `.xlap.gz` do coletor (ou voltas de exemplo) e ver, por distância: a diferença de tempo entre duas voltas, velocidade, acelerador e freio, o mapa da pista e os trechos onde se ganha ou perde tempo. Os arquivos ficam no navegador: nada é enviado. Falta ainda ler as voltas do servidor (fases 1b e 2, depois do corte).
 
+**Lista de sessões (local).** Em Virtual > Sessões as voltas ficam guardadas no navegador (IndexedDB, uma biblioteca por conta, sem duplicatas), são agrupadas em sessões (mesmo carro e pista, sem pausa de mais de 30 minutos) e dá para abrir duas voltas na tela de comparar. Dá para adicionar arquivos soltos ou a pasta de saída do coletor. Ficam só neste aparelho: limpar os dados do navegador as apaga. Quando houver servidor, esta lista passa a ler de lá.
+
 ## Como o Xpot faz (analisado em 10/11/2026)
 
 O Xpot (`C:\Users\Vanildo\Dev\xpot`) tem dois **módulos**, Visits e Tags, num app só. O desenho que ele usa serve quase igual ao Xpeed:

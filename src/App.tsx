@@ -34,6 +34,7 @@ const FaultCodesPage = lazy(() => import("./pages/FaultCodesPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const SimPage = lazy(() => import("./pages/SimPage"));
 const SimComparePage = lazy(() => import("./pages/SimComparePage"));
+const SimSessionsPage = lazy(() => import("./pages/SimSessionsPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -94,6 +95,12 @@ const AppProviders = () => (
   </QueryClientProvider>
 );
 
+// The Virtual screens that exist; the others are placeholders until they are built.
+const SIM_SCREENS: Record<string, React.ReactElement> = {
+  "/sim/sessions": <SimSessionsPage />,
+  "/sim/compare": <SimComparePage />,
+};
+
 const router = createBrowserRouter(createRoutesFromElements(
   <Route element={<AppProviders />}>
     {/* Public Routes */}
@@ -120,7 +127,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       </Route>
       {/* Virtual: racing games, only for someone who chose it. */}
       <Route element={<ModeGate mode="virtual" />}>
-        {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={item.to === "/sim/compare" ? <SimComparePage /> : <SimPage />} />)}
+        {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
       </Route>
       {/* Shared by both modes. */}
       <Route path="/onboarding" element={<OnboardingPage />} />

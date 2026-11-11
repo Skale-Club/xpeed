@@ -1,7 +1,7 @@
 import { ArrowLeftRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
-import { LapAnalysis } from '@/components/sim/LapAnalysis';
+import { LibraryCompare } from '@/components/sim/LibraryCompare';
 
 /** Virtual > Compare laps: lap files opened in the browser, side by side. */
 export default function SimComparePage() {
@@ -13,7 +13,7 @@ export default function SimComparePage() {
           <ArrowLeftRight className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('modes.nav.compare', 'Compare laps')}</h2>
         </div>
-        <LapAnalysis />
+        <LibraryCompare />
       </div>
     </AppLayout>
   );
