@@ -7,9 +7,11 @@
 
 use crate::game::Source;
 
+pub mod acevo;
 pub mod ams2;
 pub mod f1;
 pub mod kunos;
+pub mod rfactor1;
 pub mod wreckfest2;
 
 /// A reader this build has.
