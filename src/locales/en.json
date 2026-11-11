@@ -90,6 +90,7 @@
       "reasons": {
         "too_big": "it is too large to be a lap",
         "not_a_lap": "it is not a lap file",
+        "not_a_lap_or_track": "it is neither a lap nor a track layout file",
         "unreadable": "it could not be read"
       },
       "tooMany": "Only {{count}} laps can be open at once.",
@@ -111,7 +112,13 @@
       "gapHint": "Above zero, the lap is behind the reference at that point; below zero, ahead. Distance in {{unit}}.",
       "mapTitle": "Track",
       "mapLabel": "The line driven, seen from above",
-      "mapHint": "Solid: the lap. Dashed: the reference. Green dot: the start. Drawn from the game’s coordinates, so it may be turned or mirrored.",
+      "mapHint": "Solid: the lap. Dashed: the reference. Green dot: the start. Open the track’s layout file (.xtrk) to draw the road, its edges and the ideal line under it.",
+      "mapHintLayout": "Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.",
+      "layoutAdded": "Track layout opened: {{tracks}}.",
+      "mapZoomHint": "Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "zoomReset": "Show the whole track",
       "lostTitle": "Where the lap loses time",
       "gainedTitle": "Where the lap gains time",
       "noChanges": "No stretch of 150 m changes the gap by more than 0.01 s.",

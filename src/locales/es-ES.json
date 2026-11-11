@@ -90,6 +90,7 @@
       "reasons": {
         "too_big": "es demasiado grande para ser una vuelta",
         "not_a_lap": "no es un archivo de vuelta",
+        "not_a_lap_or_track": "no es un archivo de vuelta ni de trazado de circuito",
         "unreadable": "no se pudo leer"
       },
       "tooMany": "Solo se pueden abrir {{count}} vueltas a la vez.",
@@ -111,7 +112,13 @@
       "gapHint": "Por encima de cero, la vuelta va por detrás de la referencia en ese punto; por debajo, por delante. Distancia en {{unit}}.",
       "mapTitle": "Circuito",
       "mapLabel": "La línea recorrida, vista desde arriba",
-      "mapHint": "Línea continua: la vuelta. Discontinua: la referencia. Punto verde: la salida. Dibujado con las coordenadas del juego, así que puede estar girado o espejado.",
+      "mapHint": "Línea continua: la vuelta. Discontinua: la referencia. Punto verde: la salida. Abre el archivo de trazado del circuito (.xtrk) para dibujar el asfalto, sus bordes y la línea ideal debajo.",
+      "mapHintLayout": "Gris: el asfalto, entre sus bordes. Rojo: la línea ideal del juego. Naranja: el pit lane. Amarillo: la vuelta; azul discontinuo: la referencia. Punto verde: la salida.",
+      "layoutAdded": "Trazado de circuito abierto: {{tracks}}.",
+      "mapZoomHint": "Acerca (o haz doble clic en el mapa) para ver la vuelta contra los bordes y la línea ideal; arrastra para mover.",
+      "zoomIn": "Acercar",
+      "zoomOut": "Alejar",
+      "zoomReset": "Mostrar el circuito entero",
       "lostTitle": "Dónde pierde tiempo la vuelta",
       "gainedTitle": "Dónde gana tiempo la vuelta",
       "noChanges": "Ningún tramo de 150 m cambia la diferencia en más de 0,01 s.",

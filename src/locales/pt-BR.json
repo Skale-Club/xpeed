@@ -90,6 +90,7 @@
       "reasons": {
         "too_big": "é grande demais para ser uma volta",
         "not_a_lap": "não é um arquivo de volta",
+        "not_a_lap_or_track": "não é um arquivo de volta nem de traçado de pista",
         "unreadable": "não foi possível ler"
       },
       "tooMany": "Só dá para abrir {{count}} voltas ao mesmo tempo.",
@@ -111,7 +112,13 @@
       "gapHint": "Acima de zero, a volta está atrás da referência naquele ponto; abaixo de zero, à frente. Distância em {{unit}}.",
       "mapTitle": "Pista",
       "mapLabel": "A linha percorrida, vista de cima",
-      "mapHint": "Linha cheia: a volta. Tracejada: a referência. Ponto verde: a largada. Desenhado com as coordenadas do jogo, então pode estar girado ou espelhado.",
+      "mapHint": "Linha cheia: a volta. Tracejada: a referência. Ponto verde: a largada. Abra o arquivo de traçado da pista (.xtrk) para desenhar o asfalto, as bordas e a linha ideal por baixo.",
+      "mapHintLayout": "Cinza: o asfalto, entre as bordas. Vermelho: a linha ideal do jogo. Laranja: o pit lane. Amarelo: a volta; azul tracejado: a referência. Ponto verde: a largada.",
+      "layoutAdded": "Traçado de pista aberto: {{tracks}}.",
+      "mapZoomHint": "Aproxime (ou dê dois cliques no mapa) para ver a volta contra as bordas e a linha ideal; arraste para mover.",
+      "zoomIn": "Aproximar",
+      "zoomOut": "Afastar",
+      "zoomReset": "Mostrar a pista inteira",
       "lostTitle": "Onde a volta perde tempo",
       "gainedTitle": "Onde a volta ganha tempo",
       "noChanges": "Nenhum trecho de 150 m muda a diferença em mais de 0,01 s.",

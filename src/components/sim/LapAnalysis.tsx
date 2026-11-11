@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,9 @@ import {
 } from '@/lib/sim/analysis';
 import type { LapFile } from '@/lib/sim/lap-file';
 import { LapReadError, readLapFile } from '@/lib/sim/read-lap-file';
+import { readTrackFile } from '@/lib/sim/read-track-file';
 import { makeSampleLaps } from '@/lib/sim/sample-laps';
+import { trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 import { cn } from '@/lib/utils';
 
 export interface LoadedLap {
@@ -56,13 +58,26 @@ function Changes({ title, items, unit, tone }: { title: string; items: Array<{ f
  * lap and one as the reference, and read the gap between them along the track. The files are read here and go
  * nowhere else: no account, no server.
  */
-export function LapAnalysis({ initialLaps }: { initialLaps?: LoadedLap[] }) {
+export function LapAnalysis({
+  initialLaps,
+  findLayout,
+  onLayoutFile,
+}: {
+  initialLaps?: LoadedLap[];
+  /** Looks for the layout of the track of a lap among the ones kept on this device (a track layout opened here wins over it). */
+  findLayout?: (game: string, trackName: string, variant?: string | null) => Promise<TrackFile | null>;
+  /** Called with each track layout file that is opened here, so it can be kept. */
+  onLayoutFile?: (file: File, layout: TrackFile) => void;
+}) {
   const { t } = useTranslation();
   const { distanceUnit } = useSettings();
   const [laps, setLaps] = useState<LoadedLap[]>(initialLaps ?? []);
   const [aId, setAId] = useState<string | null>(initialLaps?.[0]?.id ?? null);
   const [bId, setBId] = useState<string | null>(initialLaps?.[1]?.id ?? null);
   const [problems, setProblems] = useState<string[]>([]);
+  const [opened, setOpened] = useState<TrackFile[]>([]);
+  const [kept, setKept] = useState<{ key: string; layout: TrackFile | null } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
@@ -72,20 +87,39 @@ export function LapAnalysis({ initialLaps }: { initialLaps?: LoadedLap[] }) {
     const bad: string[] = [];
     if (files.length > room) bad.push(t('modes.compare.tooMany', 'Only {{count}} laps can be open at once.', { count: MAX_LAPS }));
     const added: LoadedLap[] = [];
-    for (const file of files.slice(0, room)) {
+    const layouts: TrackFile[] = [];
+    // Track layouts are not counted against the laps that fit, so they are tried whatever the room.
+    for (const file of files) {
+      if (added.length >= room && !/\.xtrk(\.gz)?$/i.test(file.name)) continue;
       try {
+        if (added.length >= room) throw new LapReadError('not_a_lap', 'No room for another lap.');
         added.push({ id: `file-${nextId.current++}`, name: file.name, lap: await readLapFile(file) });
       } catch (error) {
         const reason = error instanceof LapReadError ? error.reason : 'unreadable';
+        if (reason === 'not_a_lap') {
+          try {
+            const layout = await readTrackFile(file);
+            layouts.push(layout);
+            onLayoutFile?.(file as File, layout);
+            continue;
+          } catch {
+            // Not a track layout either: it is reported below.
+          }
+        }
         const text = {
           too_big: t('modes.compare.reasons.too_big', 'it is too large to be a lap'),
-          not_a_lap: t('modes.compare.reasons.not_a_lap', 'it is not a lap file'),
+          not_a_lap: t('modes.compare.reasons.not_a_lap_or_track', 'it is neither a lap nor a track layout file'),
           unreadable: t('modes.compare.reasons.unreadable', 'it could not be read'),
         }[reason];
         bad.push(t('modes.compare.readError', '{{name}}: {{reason}}', { name: file.name, reason: text }));
       }
     }
     setProblems(bad);
+    setNotice(null);
+    if (layouts.length > 0) {
+      setOpened((current) => [...current.filter((c) => !layouts.some((l) => trackKey(l) === trackKey(c))), ...layouts]);
+      setNotice(t('modes.compare.layoutAdded', 'Track layout opened: {{tracks}}.', { tracks: layouts.map((l) => l.header.track.title ?? l.header.track.name).join(', ') }));
+    }
     if (added.length === 0) return;
     setLaps((current) => [...current, ...added]);
     const first = aId ?? added[0].id;
@@ -137,6 +171,25 @@ export function LapAnalysis({ initialLaps }: { initialLaps?: LoadedLap[] }) {
 
   const a = laps.find((entry) => entry.id === aId) ?? null;
   const b = laps.find((entry) => entry.id === bId) ?? null;
+
+  // The layout of the track of the lap being looked at: one opened here, else one kept on this device.
+  const wanted = a ? { game: a.lap.header.game, name: a.lap.header.track.name, variant: a.lap.header.track.variant ?? null } : null;
+  const wantedKey = wanted ? trackKeyOf(wanted.game, wanted.name, wanted.variant) : null;
+  useEffect(() => {
+    if (!wanted || !wantedKey || !findLayout) return;
+    let live = true;
+    findLayout(wanted.game, wanted.name, wanted.variant).then(
+      (layout) => live && setKept({ key: wantedKey, layout }),
+      () => live && setKept({ key: wantedKey, layout: null }),
+    );
+    return () => {
+      live = false;
+    };
+    // `wanted` is rebuilt every render; `wantedKey` says when it really changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedKey, findLayout, opened]);
+  const layout = (wantedKey && opened.find((entry) => trackKey(entry) === wantedKey)) || (kept && kept.key === wantedKey ? kept.layout : null) || null;
+
   const analysis = useMemo(() => {
     if (!a) return null;
     const same = !!b && comparable(a.lap, b.lap);
@@ -212,7 +265,7 @@ export function LapAnalysis({ initialLaps }: { initialLaps?: LoadedLap[] }) {
             ref={input}
             type="file"
             multiple
-            accept=".gz,.xlap,application/gzip,application/x-gzip,application/octet-stream"
+            accept=".gz,.xlap,.xtrk,application/gzip,application/x-gzip,application/octet-stream"
             className="sr-only"
             tabIndex={-1}
             aria-label={t('modes.compare.open', 'Open lap files')}
@@ -224,6 +277,12 @@ export function LapAnalysis({ initialLaps }: { initialLaps?: LoadedLap[] }) {
           />
         </CardContent>
       </Card>
+
+      {notice && (
+        <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="layout-notice">
+          {notice}
+        </p>
+      )}
 
       {problems.length > 0 && (
         <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
@@ -349,10 +408,15 @@ export function LapAnalysis({ initialLaps }: { initialLaps?: LoadedLap[] }) {
                 <CardTitle className="text-sm font-semibold">{t('modes.compare.mapTitle', 'Track')}</CardTitle>
               </CardHeader>
               <CardContent className="pb-3">
-                <TrackMap lap={analysis.pathA} reference={analysis.pathB} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Drawn from the game’s coordinates, so it may be turned or mirrored.')}
+                <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} />
+                <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
+                  {layout
+                    ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
+                    : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Open the track’s layout file (.xtrk) to draw the road, its edges and the ideal line under it.')}
                 </p>
+                {layout && (
+                  <p className="text-xs text-muted-foreground">{t('modes.compare.mapZoomHint', 'Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.')}</p>
+                )}
               </CardContent>
             </Card>
           )}

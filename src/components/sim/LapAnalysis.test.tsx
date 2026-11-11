@@ -5,6 +5,7 @@ import i18n from '@/lib/i18n';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { gzipLap, type LapFile } from '@/lib/sim/lap-file';
 import { makeSampleLaps } from '@/lib/sim/sample-laps';
+import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { LapAnalysis, type LoadedLap } from './LapAnalysis';
 
 // The real charts need a layout engine; what matters here is which charts are drawn and with how many points.
@@ -131,7 +132,7 @@ describe('opening files', () => {
     renderAnalysis();
     openFiles([new File(['not a lap'], 'notes.txt'), new File([await gzipLap(best)], 'good.xlap.gz')]);
     await waitFor(() => expect(rows()).toHaveLength(1));
-    expect(screen.getByRole('alert')).toHaveTextContent('notes.txt: it is not a lap file');
+    expect(screen.getByRole('alert')).toHaveTextContent('notes.txt: it is neither a lap nor a track layout file');
   });
 
   it('refuses more laps than it can hold, and says so', async () => {
@@ -140,6 +141,56 @@ describe('opening files', () => {
     openFiles([new File([await gzipLap(best)], 'one-more.xlap.gz')]);
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Only 12 laps can be open at once.'));
     expect(rows()).toHaveLength(12);
+  });
+});
+
+describe('the track layout', () => {
+  const sample = { game: mine.header.game, name: mine.header.track.name };
+  const layoutOfSample = (over: Partial<Parameters<typeof makeLayout>[0]> = {}) =>
+    makeLayout({ points: circle(300, 80), width: 8, closed: true, ideal: true, game: sample.game, name: sample.name, ...over });
+
+  it('is drawn under the lap when one is kept for the track, and the hint says what the colours are', async () => {
+    const findLayout = vi.fn(async () => layoutOfSample());
+    render(<SettingsProvider><LapAnalysis initialLaps={[loaded('mine', mine)]} findLayout={findLayout} /></SettingsProvider>);
+    await waitFor(() => expect(screen.getByTestId('track-layout')).toBeInTheDocument());
+    expect(findLayout).toHaveBeenCalledWith(sample.game, sample.name, null);
+    expect(screen.getByTestId('map-hint')).toHaveTextContent(/Red: the game’s ideal line/);
+  });
+
+  it('is not there when none is kept, and the hint says how to open one', async () => {
+    const findLayout = vi.fn(async () => null);
+    render(<SettingsProvider><LapAnalysis initialLaps={[loaded('mine', mine)]} findLayout={findLayout} /></SettingsProvider>);
+    await waitFor(() => expect(findLayout).toHaveBeenCalled());
+    expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
+    expect(screen.getByTestId('map-hint')).toHaveTextContent(/\.xtrk/);
+  });
+
+  it('is read from a file a person opens, drawn, and handed on to be kept', async () => {
+    const onLayoutFile = vi.fn();
+    render(<SettingsProvider><LapAnalysis initialLaps={[loaded('mine', mine)]} onLayoutFile={onLayoutFile} /></SettingsProvider>);
+    expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
+    openFiles([new File([await gzipBytes(packLayout(layoutOfSample()))], 'ring.xtrk.gz')]);
+    await waitFor(() => expect(screen.getByTestId('track-layout')).toBeInTheDocument());
+    expect(screen.getByTestId('layout-notice')).toHaveTextContent('Track layout opened: Sample Ring.');
+    expect(onLayoutFile).toHaveBeenCalledTimes(1);
+    expect(onLayoutFile.mock.calls[0][0].name).toBe('ring.xtrk.gz');
+    expect(rows()).toHaveLength(1); // a layout is not a lap
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('is read together with laps picked in the same go', async () => {
+    renderAnalysis();
+    openFiles([new File([await gzipLap(mine)], 'mine.xlap.gz'), new File([packLayout(layoutOfSample())], 'ring.xtrk')]);
+    await waitFor(() => expect(screen.getByTestId('track-layout')).toBeInTheDocument());
+    expect(rows()).toHaveLength(1);
+  });
+
+  it('is not used for a lap of another track', async () => {
+    const findLayout = vi.fn(async () => null);
+    render(<SettingsProvider><LapAnalysis initialLaps={[loaded('mine', mine)]} findLayout={findLayout} /></SettingsProvider>);
+    openFiles([new File([packLayout(layoutOfSample({ name: 'Somewhere Else' }))], 'else.xtrk')]);
+    await waitFor(() => expect(screen.getByTestId('layout-notice')).toBeInTheDocument());
+    expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
   });
 });
 
