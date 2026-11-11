@@ -9,6 +9,7 @@
 //! * `probe`   checks that the game is sharing data and shows what it sends (nothing is written);
 //! * `record`  writes every lap to a folder as a `.xlap.gz` file (and, with `--upload`, sends them to Xpeed);
 //! * `inspect` shows what a lap file holds;
+//! * `track-dump` reads a track's layout from a game's own files and writes it as a `.xtrk` file;
 //! * `pair`, `unpair`, `status`, `upload` connect this computer to an Xpeed account and send the laps in a folder.
 //!
 //! The first game is Le Mans Ultimate. See `docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md`.
@@ -35,6 +36,7 @@ mod status;
 #[cfg(test)]
 mod stub;
 mod text;
+mod tracks;
 #[cfg(windows)]
 mod tray;
 #[cfg(test)]
@@ -59,6 +61,10 @@ USAGE:
     xpeed-sim record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
     xpeed-sim inspect FILE           Show what a lap file holds
+    xpeed-sim track-dump GAME TRACK OUT.xtrk [--preview FILE.svg]
+                                     Read a track's layout (centre line, road width, ideal line, pit lane) from the
+                                     game's own files and write it as a track file. GAME is ac or sce; TRACK is a
+                                     folder or file of the game, or its name. Only reads the game's folders.
     xpeed-sim pair --server URL --code CODE [--name NAME]
                                            Connect this computer to your Xpeed account (the code comes from the app)
     xpeed-sim status                 Show whether this computer is paired
@@ -90,6 +96,7 @@ enum Command {
     Inspect {
         file: PathBuf,
     },
+    TrackDump(tracks::dump::Request),
     Pair {
         server: String,
         code: String,
@@ -182,6 +189,24 @@ fn parse(args: &[String]) -> Result<Command, String> {
                 None => Ok(Command::Upload { dir: PathBuf::from(dir) }),
                 Some(extra) => Err(format!("unexpected argument {extra:?}")),
             }
+        }
+        Some("track-dump") => {
+            let game = rest.next().ok_or("track-dump needs a game (ac or sce)")?;
+            let source = rest.next().ok_or("track-dump needs a track (a folder, a file or a name)")?;
+            let out = rest.next().ok_or("track-dump needs the file to write (OUT.xtrk)")?;
+            let mut preview = None;
+            while let Some(flag) = rest.next() {
+                match flag {
+                    "--preview" => preview = Some(PathBuf::from(rest.next().ok_or("--preview needs a file name")?)),
+                    other => return Err(format!("unknown option {other:?}")),
+                }
+            }
+            Ok(Command::TrackDump(tracks::dump::Request {
+                game: game.to_owned(),
+                source: source.to_owned(),
+                out: PathBuf::from(out),
+                preview,
+            }))
         }
         Some("inspect") => {
             let file = rest.next().ok_or("inspect needs a file")?;
@@ -537,6 +562,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Command::Inspect { file } => inspect(&file),
+        Command::TrackDump(request) => tracks::dump::run(&request),
         Command::Pair { server, code, name } => pair_command(&server, &code, name),
         Command::Status => status_command(),
         Command::Unpair => unpair_command(),
@@ -609,6 +635,24 @@ mod tests {
                 name: Some("RIG".into())
             })
         );
+        assert_eq!(
+            parse(&args(&["track-dump", "ac", "monza", "m.xtrk"])),
+            Ok(Command::TrackDump(tracks::dump::Request {
+                game: "ac".into(),
+                source: "monza".into(),
+                out: "m.xtrk".into(),
+                preview: None
+            }))
+        );
+        assert_eq!(
+            parse(&args(&["track-dump", "sce", "a.AIW", "a.xtrk", "--preview", "a.svg"])),
+            Ok(Command::TrackDump(tracks::dump::Request {
+                game: "sce".into(),
+                source: "a.AIW".into(),
+                out: "a.xtrk".into(),
+                preview: Some("a.svg".into())
+            }))
+        );
         assert_eq!(parse(&args(&["status"])), Ok(Command::Status));
         assert_eq!(parse(&args(&["unpair"])), Ok(Command::Unpair));
         assert_eq!(parse(&args(&["upload", "laps"])), Ok(Command::Upload { dir: "laps".into() }));
@@ -629,6 +673,11 @@ mod tests {
             &["record", "--out"],
             &["inspect"],
             &["inspect", "a", "b"],
+            &["track-dump"],
+            &["track-dump", "ac"],
+            &["track-dump", "ac", "monza"],
+            &["track-dump", "ac", "monza", "m.xtrk", "--preview"],
+            &["track-dump", "ac", "monza", "m.xtrk", "--fast"],
             &["pair"],
             &["pair", "--server", "https://x.example"],
             &["pair", "--code", "ABCD2345"],
