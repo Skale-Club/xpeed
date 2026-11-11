@@ -1,13 +1,13 @@
 # Telemetria do Le Mans Ultimate (LMU)
 
-Pesquisa de 10/11/2026. Objetivo: saber como um programa externo (o coletor do Xpeed) lê os dados do LMU e o que falta decidir antes de escrever o leitor. **Nenhum código de leitor foi escrito**; nada foi lido de um jogo em execução (o LMU estava fechado).
+Pesquisa de 10/11/2026. Objetivo: saber como um programa externo (o Xpeed Sim do Xpeed) lê os dados do LMU e o que falta decidir antes de escrever o leitor. **Nenhum código de leitor foi escrito**; nada foi lido de um jogo em execução (o LMU estava fechado).
 
 ## Resumo
 
 - O LMU **publica a própria memória compartilhada**, chamada `LMU_Data`, com telemetria (**100 Hz** por padrão) e pontuação (cerca de 5 Hz, segundo um projeto da comunidade). **Não precisa do plugin antigo do rFactor 2.**
 - A fonte primária são os cabeçalhos que o próprio jogo instala em `Support\SharedMemoryInterface` (três arquivos). Eles definem o nome do mapa, os eventos de sincronização, a trava e as estruturas.
 - Na sua máquina a opção do jogo que habilita isso (**"Enable external plugins"**) já está **ligada**.
-- Ponto de atenção: a **licença dos cabeçalhos proíbe copiá-los ou redistribuí-los**. O coletor deve ter definições próprias dos campos que usa (ver "Licença").
+- Ponto de atenção: a **licença dos cabeçalhos proíbe copiá-los ou redistribuí-los**. O Xpeed Sim deve ter definições próprias dos campos que usa (ver "Licença").
 - O jogo também tem gravador próprio de telemetria (arquivos `.ld` e `.csv`), mas **ainda não há nenhum nesta máquina**.
 
 ## Como o jogo expõe os dados
@@ -60,12 +60,12 @@ Em `F:\SteamLibrary\steamapps\common\Le Mans Ultimate\Support\SharedMemoryInterf
 `SharedMemoryInterface.hpp` diz que faz parte do Studio 397 Plugin SDK, que só pode ser usado para desenvolver plugins ou extensões de produtos da Studio 397 e que **redistribuição ou modificação não é permitida**. Consequências:
 
 - **Não copiar os cabeçalhos para o repositório** nem para a documentação. Este documento descreve a interface em palavras próprias.
-- O coletor deve ter **definições próprias, mínimas**, só dos campos usados, escritas à mão e conferidas contra o jogo (tamanho do mapa, posições dos campos). Projetos abertos (Pitwall, MIT; TinyPedal, GPL-3.0) fazem assim, o que mostra que é prática comum, mas não é um parecer jurídico.
-- Vale decidir se o dono quer consultar a Studio 397 antes de distribuir o coletor para terceiros. Para uso próprio, o risco é baixo; para um produto, é uma decisão do dono.
+- O Xpeed Sim deve ter **definições próprias, mínimas**, só dos campos usados, escritas à mão e conferidas contra o jogo (tamanho do mapa, posições dos campos). Projetos abertos (Pitwall, MIT; TinyPedal, GPL-3.0) fazem assim, o que mostra que é prática comum, mas não é um parecer jurídico.
+- Vale decidir se o dono quer consultar a Studio 397 antes de distribuir o Xpeed Sim para terceiros. Para uso próprio, o risco é baixo; para um produto, é uma decisão do dono.
 
 ## Riscos e pontos em aberto
 
-1. **O layout pode mudar com o jogo.** Os próprios avisos da comunidade dizem que o layout de memória não tem garantia de estabilidade. O campo de versão do jogo e uma conferência do tamanho do mapa na conexão devem fazer o coletor recusar uma versão desconhecida em vez de ler lixo.
+1. **O layout pode mudar com o jogo.** Os próprios avisos da comunidade dizem que o layout de memória não tem garantia de estabilidade. O campo de versão do jogo e uma conferência do tamanho do mapa na conexão devem fazer o Xpeed Sim recusar uma versão desconhecida em vez de ler lixo.
 2. **`dist` por amostra não vem pronto.** A distância na volta está na pontuação (poucas vezes por segundo), enquanto a telemetria chega a 100 Hz. Proposta: ancorar em cada atualização da pontuação e integrar velocidade × variação de tempo entre elas; recomeçar a cada troca de número da volta. **A validar com um jogo real.**
 3. **Volta válida ou anulada** (`lap.valid`): não achei um campo direto na pontuação. A verificar (penalidades, ou a volta ter sido fechada no box).
 4. **Eixos de `x`, `y`, `z`:** o arquivo de volta descreve leste, cima e norte; os eixos reais do jogo precisam ser conferidos antes de desenhar o mapa da pista.
@@ -73,9 +73,9 @@ Em `F:\SteamLibrary\steamapps\common\Le Mans Ultimate\Support\SharedMemoryInterf
 6. **Dois carros do jogador** apareceram em uma captura de outro projeto (mesmo "lugar" em duas linhas). Identificar o jogador pelo índice da telemetria e por "é o jogador", não pela posição na corrida.
 7. Nada aqui foi testado ao vivo. O primeiro passo real é um leitor mínimo que despeje uma volta com o jogo aberto.
 
-## Escolha da linguagem do coletor
+## Escolha da linguagem do Xpeed Sim
 
-**Decidido em 10/11/2026: Rust.** A primeira versão está em [`collector/`](../../collector/README.md): grava as voltas no formato de arquivo de volta e traz o comando `probe` para validar com o jogo aberto. Ainda não foi testada com o jogo rodando. O restante desta seção registra por que a escolha foi essa.
+**Decidido em 10/11/2026: Rust.** A primeira versão está em [`xpeed-sim/`](../../xpeed-sim/README.md): grava as voltas no formato de arquivo de volta e traz o comando `probe` para validar com o jogo aberto. Ainda não foi testada com o jogo rodando. O restante desta seção registra por que a escolha foi essa.
 
 O plano previa .NET. Mudou o que há instalado:
 
