@@ -1,0 +1,23 @@
+[package]
+name = "xpeed-collector"
+version = "0.1.0"
+edition = "2021"
+description = "Reads racing-game telemetry on Windows and writes it as Xpeed lap files."
+publish = false
+
+[dependencies]
+flate2 = "1"
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+] }
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

@@ -13,3 +13,4 @@ cloud
 *.log
 **/*.test.*
 src/test
+collector
