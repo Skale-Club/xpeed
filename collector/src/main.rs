@@ -1,14 +1,22 @@
 //! xpeed-collector: reads racing-game telemetry on Windows and writes it as Xpeed lap files.
 //!
 //! * `probe`   checks that the game is sharing data and shows what it sends (nothing is written);
-//! * `record`  writes every lap to a folder as a `.xlap.gz` file;
-//! * `inspect` shows what a lap file holds.
+//! * `record`  writes every lap to a folder as a `.xlap.gz` file (and, with `--upload`, sends them to Xpeed);
+//! * `inspect` shows what a lap file holds;
+//! * `pair`, `unpair`, `status`, `upload` connect this computer to an Xpeed account and send the laps in a folder.
 //!
 //! The first game is Le Mans Ultimate. See `docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md`.
 
+mod config;
 mod lapfile;
 mod lmu;
+mod net;
+mod outbox;
 mod recorder;
+#[cfg(test)]
+mod stub;
+#[cfg(test)]
+mod upload_tests;
 mod util;
 
 use std::path::{Path, PathBuf};
@@ -20,7 +28,13 @@ xpeed-collector: racing-game telemetry to Xpeed lap files
 USAGE:
     xpeed-collector probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
     xpeed-collector record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
+        --upload                           Also send each lap to Xpeed (pair first)
     xpeed-collector inspect FILE           Show what a lap file holds
+    xpeed-collector pair --server URL --code CODE [--name NAME]
+                                           Connect this computer to your Xpeed account (the code comes from the app)
+    xpeed-collector status                 Show whether this computer is paired
+    xpeed-collector unpair                 Forget the pairing on this computer
+    xpeed-collector upload DIR             Send the laps in DIR that were not sent yet
     xpeed-collector help
 
 For the game to share data, 'Enable external plugins' must be on (Settings > Gameplay) and the game must be running.
@@ -28,9 +42,26 @@ For the game to share data, 'Enable external plugins' must be on (Settings > Gam
 
 #[derive(Debug, PartialEq)]
 enum Command {
-    Probe { seconds: u64 },
-    Record { out: PathBuf },
-    Inspect { file: PathBuf },
+    Probe {
+        seconds: u64,
+    },
+    Record {
+        out: PathBuf,
+        upload: bool,
+    },
+    Inspect {
+        file: PathBuf,
+    },
+    Pair {
+        server: String,
+        code: String,
+        name: Option<String>,
+    },
+    Unpair,
+    Status,
+    Upload {
+        dir: PathBuf,
+    },
     Help,
 }
 
@@ -55,16 +86,46 @@ fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Probe { seconds })
         }
         Some("record") => {
-            let mut out = None;
+            let (mut out, mut upload) = (None, false);
             while let Some(flag) = rest.next() {
                 match flag {
                     "--out" => out = Some(PathBuf::from(rest.next().ok_or("--out needs a folder")?)),
+                    "--upload" => upload = true,
                     other => return Err(format!("unknown option {other:?}")),
                 }
             }
             Ok(Command::Record {
                 out: out.ok_or("record needs --out DIR")?,
+                upload,
             })
+        }
+        Some("pair") => {
+            let (mut server, mut code, mut name) = (None, None, None);
+            while let Some(flag) = rest.next() {
+                match flag {
+                    "--server" => server = Some(rest.next().ok_or("--server needs an address")?.to_owned()),
+                    "--code" => code = Some(rest.next().ok_or("--code needs the pairing code")?.to_owned()),
+                    "--name" => name = Some(rest.next().ok_or("--name needs a name")?.to_owned()),
+                    other => return Err(format!("unknown option {other:?}")),
+                }
+            }
+            Ok(Command::Pair {
+                server: server.ok_or("pair needs --server ADDRESS")?,
+                code: code.ok_or("pair needs --code CODE")?,
+                name,
+            })
+        }
+        Some(word @ ("unpair" | "status")) => match rest.next() {
+            None if word == "unpair" => Ok(Command::Unpair),
+            None => Ok(Command::Status),
+            Some(extra) => Err(format!("unexpected argument {extra:?}")),
+        },
+        Some("upload") => {
+            let dir = rest.next().ok_or("upload needs a folder")?;
+            match rest.next() {
+                None => Ok(Command::Upload { dir: PathBuf::from(dir) }),
+                Some(extra) => Err(format!("unexpected argument {extra:?}")),
+            }
         }
         Some("inspect") => {
             let file = rest.next().ok_or("inspect needs a file")?;
@@ -141,6 +202,123 @@ fn inspect(file: &Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// What this computer calls itself, for the person's list of devices in the app.
+fn default_device_name() -> String {
+    let raw = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_default();
+    let name: String = raw.chars().filter(|c| !c.is_control()).take(60).collect();
+    if name.trim().is_empty() {
+        "Collector".into()
+    } else {
+        name.trim().to_owned()
+    }
+}
+
+fn config_path() -> Result<PathBuf, String> {
+    config::default_path().ok_or_else(|| "cannot tell where to keep the pairing; set XPEED_COLLECTOR_CONFIG to a file path".to_owned())
+}
+
+/// The pairing of this computer, or what to do about it not being there.
+fn paired() -> Result<config::Config, String> {
+    config::load(&config_path()?)?
+        .ok_or_else(|| "this computer is not paired yet. Run: xpeed-collector pair --server ADDRESS --code CODE".to_owned())
+}
+
+fn fail(message: impl std::fmt::Display) -> ExitCode {
+    eprintln!("{message}");
+    ExitCode::from(1)
+}
+
+fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
+    let server = match config::normalize_server(server) {
+        Ok(server) => server,
+        Err(why) => return fail(why),
+    };
+    let code = match config::normalize_code(code) {
+        Ok(code) => code,
+        Err(why) => return fail(why),
+    };
+    let path = match config_path() {
+        Ok(path) => path,
+        Err(why) => return fail(why),
+    };
+    let device_name = name
+        .map(|n| n.trim().to_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(default_device_name);
+    println!("Pairing {device_name:?} with {server} ...");
+    let token = match net::pair(&net::agent(), &server, &code, &device_name) {
+        Ok(token) => token,
+        Err(why) => return fail(why),
+    };
+    match config::save(
+        &path,
+        &config::Config {
+            server: server.clone(),
+            token,
+            device_name,
+        },
+    ) {
+        Ok(()) => {
+            println!("Paired. The device key is kept in {}; it is never shown.", path.display());
+            println!("Send laps with: xpeed-collector record --out DIR --upload   (or: xpeed-collector upload DIR)");
+            ExitCode::SUCCESS
+        }
+        Err(why) => fail(format!(
+            "{why}\nThe server accepted the code, which cannot be used again: ask for a new one after fixing this."
+        )),
+    }
+}
+
+fn status_command() -> ExitCode {
+    match config_path().and_then(|path| config::load(&path).map(|found| (path, found))) {
+        Ok((_, Some(config))) => {
+            println!("Paired with {} as {:?}.", config.server, config.device_name);
+            ExitCode::SUCCESS
+        }
+        Ok((path, None)) => {
+            println!("Not paired (no {}).", path.display());
+            ExitCode::from(1)
+        }
+        Err(why) => fail(why),
+    }
+}
+
+fn unpair_command() -> ExitCode {
+    match config_path().and_then(|path| config::remove(&path)) {
+        Ok(true) => {
+            println!("Forgot the pairing on this computer. To stop the server accepting this device, remove it in the app (Virtual > Collector).");
+            ExitCode::SUCCESS
+        }
+        Ok(false) => {
+            println!("This computer was not paired.");
+            ExitCode::SUCCESS
+        }
+        Err(why) => fail(why),
+    }
+}
+
+fn upload_command(dir: &Path) -> ExitCode {
+    let config = match paired() {
+        Ok(config) => config,
+        Err(why) => return fail(why),
+    };
+    if !dir.is_dir() {
+        return fail(format!("{} is not a folder", dir.display()));
+    }
+    let report = outbox::upload_pending(dir, &config, &net::agent(), &mut |line| println!("{line}"));
+    println!(
+        "Sent {}, already on the server {}, not sendable {}, still waiting {}.",
+        report.sent, report.duplicates, report.rejected, report.left
+    );
+    match report.stopped {
+        None => ExitCode::SUCCESS,
+        Some(outbox::Stop::Unauthorized) => fail("The server no longer accepts this computer's key. Run `xpeed-collector pair` again."),
+        Some(outbox::Stop::Later { reason, .. }) => fail(format!("Stopped: {reason}. Run the command again later; nothing was lost.")),
+    }
+}
+
 #[cfg(windows)]
 mod live {
     use std::time::{Duration, Instant};
@@ -149,6 +327,7 @@ mod live {
     use crate::lmu::layout::LAYOUT_SIZE;
     use crate::lmu::reader::{LmuReader, Names, OpenError};
     use crate::lmu::snapshot::PlayerTelemetry;
+    use crate::outbox::{Backoff, Uploader};
     use crate::recorder::Recorder;
     use crate::util::{file_safe, iso_utc, now_ms};
 
@@ -262,7 +441,8 @@ mod live {
         ExitCode::SUCCESS
     }
 
-    fn save(out: &Path, lap: &lapfile::Lap) {
+    /// True when the lap is now a file in `out`.
+    fn save(out: &Path, lap: &lapfile::Lap) -> bool {
         let stamp: String = lap.started_at.chars().filter(char::is_ascii_digit).take(14).collect();
         let name = format!(
             "{}_{}_lap{}_{}.xlap.gz",
@@ -277,23 +457,53 @@ mod live {
             .and_then(|bytes| std::fs::write(&partial, &bytes).map(|_| bytes.len()).map_err(|e| e.to_string()))
             .and_then(|size| std::fs::rename(&partial, &path).map(|_| size).map_err(|e| e.to_string()));
         match result {
-            Ok(size) => println!(
-                "Saved lap {} {} ({}) -> {name} ({} KB)",
-                lap.lap_number,
-                clock(lap.time_ms),
-                if lap.valid { "valid" } else { "not valid" },
-                size.div_ceil(1024)
-            ),
-            Err(error) => eprintln!("Could not save lap {}: {error}", lap.lap_number),
+            Ok(size) => {
+                println!(
+                    "Saved lap {} {} ({}) -> {name} ({} KB)",
+                    lap.lap_number,
+                    clock(lap.time_ms),
+                    if lap.valid { "valid" } else { "not valid" },
+                    size.div_ceil(1024)
+                );
+                true
+            }
+            Err(error) => {
+                eprintln!("Could not save lap {}: {error}", lap.lap_number);
+                false
+            }
         }
     }
 
-    pub fn record(out: &Path) -> ExitCode {
+    pub fn record(out: &Path, upload: bool) -> ExitCode {
+        // Checked first: asking to upload without a pairing is a mistake to hear about now, not after the first lap.
+        let config = if upload {
+            match paired() {
+                Ok(config) => Some(config),
+                Err(why) => return fail(why),
+            }
+        } else {
+            None
+        };
         if let Err(error) = std::fs::create_dir_all(out) {
             eprintln!("Cannot create {}: {error}", out.display());
             return ExitCode::from(1);
         }
         println!("Writing laps to {} (Ctrl+C to stop).", out.display());
+        // A thread of its own: a slow network must never make the reading of the game miss a sample.
+        let uploader = config.map(|config| {
+            println!(
+                "Sending laps to {} as {:?}; laps that cannot go now stay here and go later.",
+                config.server, config.device_name
+            );
+            Uploader::start(out.to_path_buf(), config, Backoff::default())
+        });
+        let saved = |lap: &lapfile::Lap| {
+            if save(out, lap) {
+                if let Some(uploader) = &uploader {
+                    uploader.wake();
+                }
+            }
+        };
         let mut waiting = false;
         loop {
             let mut reader = match LmuReader::open(&Names::lmu()) {
@@ -328,10 +538,10 @@ mod live {
                 silent_waits = 0;
                 let Some(snapshot) = reader.read() else { continue };
                 if let Some(t) = &snapshot.telemetry {
-                    recorder.on_telemetry(t, now_ms()).iter().for_each(|lap| save(out, lap));
+                    recorder.on_telemetry(t, now_ms()).iter().for_each(saved);
                 }
                 if let Some(s) = &snapshot.scoring {
-                    recorder.on_scoring(s).iter().for_each(|lap| save(out, lap));
+                    recorder.on_scoring(s).iter().for_each(saved);
                 }
             }
             println!("No data from the game for 10 s; reconnecting.");
@@ -354,10 +564,14 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Command::Inspect { file } => inspect(&file),
+        Command::Pair { server, code, name } => pair_command(&server, &code, name),
+        Command::Status => status_command(),
+        Command::Unpair => unpair_command(),
+        Command::Upload { dir } => upload_command(&dir),
         #[cfg(windows)]
         Command::Probe { seconds } => live::probe(seconds),
         #[cfg(windows)]
-        Command::Record { out } => live::record(&out),
+        Command::Record { out, upload } => live::record(&out, upload),
         #[cfg(not(windows))]
         Command::Probe { .. } | Command::Record { .. } => {
             eprintln!("Reading the game needs Windows. `inspect` works everywhere.");
@@ -382,8 +596,37 @@ mod tests {
         assert_eq!(parse(&args(&["probe", "--seconds", "30"])), Ok(Command::Probe { seconds: 30 }));
         assert_eq!(
             parse(&args(&["record", "--out", "laps"])),
-            Ok(Command::Record { out: "laps".into() })
+            Ok(Command::Record {
+                out: "laps".into(),
+                upload: false
+            })
         );
+        assert_eq!(
+            parse(&args(&["record", "--upload", "--out", "laps"])),
+            Ok(Command::Record {
+                out: "laps".into(),
+                upload: true
+            })
+        );
+        assert_eq!(
+            parse(&args(&["pair", "--server", "https://x.example", "--code", "ABCD-2345"])),
+            Ok(Command::Pair {
+                server: "https://x.example".into(),
+                code: "ABCD-2345".into(),
+                name: None
+            })
+        );
+        assert_eq!(
+            parse(&args(&["pair", "--name", "RIG", "--code", "C", "--server", "S"])),
+            Ok(Command::Pair {
+                server: "S".into(),
+                code: "C".into(),
+                name: Some("RIG".into())
+            })
+        );
+        assert_eq!(parse(&args(&["status"])), Ok(Command::Status));
+        assert_eq!(parse(&args(&["unpair"])), Ok(Command::Unpair));
+        assert_eq!(parse(&args(&["upload", "laps"])), Ok(Command::Upload { dir: "laps".into() }));
         assert_eq!(
             parse(&args(&["inspect", "a.xlap.gz"])),
             Ok(Command::Inspect { file: "a.xlap.gz".into() })
@@ -401,6 +644,15 @@ mod tests {
             &["record", "--out"],
             &["inspect"],
             &["inspect", "a", "b"],
+            &["pair"],
+            &["pair", "--server", "https://x.example"],
+            &["pair", "--code", "ABCD2345"],
+            &["pair", "--server"],
+            &["pair", "--token", "x"],
+            &["status", "now"],
+            &["unpair", "now"],
+            &["upload"],
+            &["upload", "a", "b"],
             &["dance"],
         ] {
             assert!(parse(&args(bad)).is_err(), "{bad:?} should be refused");

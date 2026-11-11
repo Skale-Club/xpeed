@@ -14,6 +14,10 @@ import vehicleCare from '../api/vehicle-care';
 import tripCheckpoints from '../api/trip-checkpoints';
 import syncProblems from '../api/sync-problems';
 import sharedMedia from '../api/shared-media';
+import simPair from '../api/sim/pair';
+import simLaps from '../api/sim/laps';
+import simCodes from '../api/sim/codes';
+import simDevices from '../api/sim/devices';
 import manifest from '../api/brand/manifest';
 import authorizationServer from '../api/wellknown/oauth-authorization-server';
 import protectedResource from '../api/wellknown/oauth-protected-resource';
@@ -38,6 +42,7 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
+  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],
 ]);
 const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.txt':'text/plain; charset=utf-8','.woff2':'font/woff2','.wasm':'application/wasm','.webmanifest':'application/manifest+json'};
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -45,6 +50,8 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_DB_BODY_BYTES = 12 * 1024 * 1024;
 // Uploads: the largest bucket accepts 50 MB (trip CSV).
 const MAX_STORAGE_BODY_BYTES = 52 * 1024 * 1024;
+// A lap file from the collector: up to 16 MB, plus a little room for the request itself.
+const MAX_LAP_BODY_BYTES = 17 * 1024 * 1024;
 const storageRoute=createStorageRoute();
 // The Supabase edge functions, run in this process. /api/fn/<name>[/more] is what the app calls;
 // the api/* proxies reach the same functions through the hook.
@@ -102,7 +109,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const ip=trustProxy&&forwarded&&isIP(forwarded)?forwarded:req.socket.remoteAddress??'';
         headers.set('x-real-ip',ip);headers.set('x-forwarded-for',ip);
         headers.set('host',origin.host);headers.set('x-forwarded-proto',origin.protocol.slice(0,-1));
-        const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
+        const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
         const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
         await sendResponse(req,res,await handler(request));return;
       }
