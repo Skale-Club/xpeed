@@ -157,6 +157,40 @@
       "confirmSessionTitle": "¿Quitar esta sesión?",
       "confirmSessionBody": "Se quitan {{count}} vueltas de este dispositivo. Los archivos que añadiste siguen donde están.",
       "confirmRemove": "Quitar"
+    },
+    "collector": {
+      "intro": "El colector es el programa para Windows que lee tu juego de carreras y envía cada vuelta a tu cuenta. Conecta un ordenador una vez con un código de emparejamiento.",
+      "connectTitle": "Conectar un ordenador",
+      "connectBody": "Pide un código y ejecuta el comando de abajo en el ordenador Windows donde juegas. El código vale 10 minutos y solo funciona una vez.",
+      "getCode": "Obtener código de emparejamiento",
+      "newCode": "Obtener un código nuevo",
+      "codeLabel": "Código de emparejamiento",
+      "expiresIn": "Válido durante {{time}}",
+      "expired": "Este código ha caducado.",
+      "commandLabel": "Ejecuta esto en el ordenador Windows",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "install": "El colector tiene que estar instalado antes en ese ordenador. Por ahora se compila desde la carpeta collector del repositorio.",
+      "devicesTitle": "Tus ordenadores",
+      "devicesEmpty": "Aún no hay ningún ordenador conectado.",
+      "active": "Conectado",
+      "revoked": "Revocado",
+      "pairedOn": "Conectado el {{date}}",
+      "lastSeen": "Visto por última vez el {{date}}",
+      "neverSeen": "Nunca visto",
+      "lastLap": "Última vuelta enviada el {{date}}",
+      "noLaps": "Aún no ha enviado vueltas",
+      "revoke": "Revocar",
+      "limit": "Puedes conectar hasta 10 ordenadores.",
+      "confirmTitle": "¿Revocar {{name}}?",
+      "confirmBody": "Este ordenador ya no podrá enviar vueltas. Las vueltas que ya envió siguen en tu cuenta. Puedes conectarlo de nuevo con un código nuevo.",
+      "confirmRevoke": "Revocar",
+      "errors": {
+        "signin": "Inicia sesión de nuevo para gestionar tus ordenadores.",
+        "tooMany": "Has pedido demasiados códigos. Espera un momento e inténtalo de nuevo.",
+        "notFound": "No se encontró ese ordenador. Puede que ya esté revocado.",
+        "unavailable": "No se pudo contactar con el servidor. Inténtalo de nuevo."
+      }
     }
   },
   "refresh": {

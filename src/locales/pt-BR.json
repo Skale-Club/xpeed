@@ -157,6 +157,40 @@
       "confirmSessionTitle": "Remover esta sessão?",
       "confirmSessionBody": "{{count}} voltas serão removidas deste aparelho. Os arquivos que você adicionou continuam onde estão.",
       "confirmRemove": "Remover"
+    },
+    "collector": {
+      "intro": "O coletor é o programa para Windows que lê o seu jogo de corrida e envia cada volta para a sua conta. Conecte um computador uma vez com um código de pareamento.",
+      "connectTitle": "Conectar um computador",
+      "connectBody": "Peça um código e rode o comando abaixo no computador Windows onde você joga. O código vale por 10 minutos e só funciona uma vez.",
+      "getCode": "Gerar código de pareamento",
+      "newCode": "Gerar novo código",
+      "codeLabel": "Código de pareamento",
+      "expiresIn": "Vale por {{time}}",
+      "expired": "Este código expirou.",
+      "commandLabel": "Rode isto no computador Windows",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "install": "O coletor precisa estar instalado nesse computador antes. Por enquanto ele é compilado a partir da pasta collector do repositório.",
+      "devicesTitle": "Seus computadores",
+      "devicesEmpty": "Nenhum computador conectado ainda.",
+      "active": "Conectado",
+      "revoked": "Revogado",
+      "pairedOn": "Conectado em {{date}}",
+      "lastSeen": "Visto por último em {{date}}",
+      "neverSeen": "Nunca visto",
+      "lastLap": "Última volta enviada em {{date}}",
+      "noLaps": "Nenhuma volta enviada ainda",
+      "revoke": "Revogar",
+      "limit": "Você pode conectar até 10 computadores.",
+      "confirmTitle": "Revogar {{name}}?",
+      "confirmBody": "Este computador não poderá mais enviar voltas. As voltas que ele já enviou continuam na sua conta. Você pode conectá-lo de novo com um novo código.",
+      "confirmRevoke": "Revogar",
+      "errors": {
+        "signin": "Entre de novo para gerenciar os seus computadores.",
+        "tooMany": "Códigos demais pedidos. Espere um pouco e tente de novo.",
+        "notFound": "Esse computador não foi encontrado. Talvez já tenha sido revogado.",
+        "unavailable": "Não foi possível falar com o servidor. Tente de novo."
+      }
     }
   },
   "refresh": {

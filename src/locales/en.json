@@ -157,6 +157,40 @@
       "confirmSessionTitle": "Remove this session?",
       "confirmSessionBody": "{{count}} laps are removed from this device. The files you added stay wherever they are.",
       "confirmRemove": "Remove"
+    },
+    "collector": {
+      "intro": "The collector is the Windows program that reads your racing game and sends each lap to your account. Connect a computer once with a pairing code.",
+      "connectTitle": "Connect a computer",
+      "connectBody": "Get a code, then run the command below on the Windows computer where you play. The code works for 10 minutes and only once.",
+      "getCode": "Get a pairing code",
+      "newCode": "Get a new code",
+      "codeLabel": "Pairing code",
+      "expiresIn": "Valid for {{time}}",
+      "expired": "This code has expired.",
+      "commandLabel": "Run this on the Windows computer",
+      "copy": "Copy",
+      "copied": "Copied",
+      "install": "The collector has to be installed on that computer first. For now it is built from the collector folder of the repository.",
+      "devicesTitle": "Your computers",
+      "devicesEmpty": "No computer is connected yet.",
+      "active": "Connected",
+      "revoked": "Revoked",
+      "pairedOn": "Connected {{date}}",
+      "lastSeen": "Last seen {{date}}",
+      "neverSeen": "Never seen",
+      "lastLap": "Last lap sent {{date}}",
+      "noLaps": "No laps sent yet",
+      "revoke": "Revoke",
+      "limit": "You can connect up to 10 computers.",
+      "confirmTitle": "Revoke {{name}}?",
+      "confirmBody": "This computer can no longer send laps. Laps it already sent stay in your account. You can connect it again with a new code.",
+      "confirmRevoke": "Revoke",
+      "errors": {
+        "signin": "Sign in again to manage your computers.",
+        "tooMany": "Too many codes requested. Wait a moment and try again.",
+        "notFound": "That computer was not found. It may have been revoked already.",
+        "unavailable": "The server could not be reached. Try again."
+      }
     }
   },
   "refresh": {

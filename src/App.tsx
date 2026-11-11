@@ -34,6 +34,7 @@ const FaultCodesPage = lazy(() => import("./pages/FaultCodesPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const SimPage = lazy(() => import("./pages/SimPage"));
 const SimComparePage = lazy(() => import("./pages/SimComparePage"));
+const SimCollectorPage = lazy(() => import("./pages/SimCollectorPage"));
 const SimSessionsPage = lazy(() => import("./pages/SimSessionsPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
@@ -99,6 +100,7 @@ const AppProviders = () => (
 const SIM_SCREENS: Record<string, React.ReactElement> = {
   "/sim/sessions": <SimSessionsPage />,
   "/sim/compare": <SimComparePage />,
+  "/sim/collector": <SimCollectorPage />,
 };
 
 const router = createBrowserRouter(createRoutesFromElements(
