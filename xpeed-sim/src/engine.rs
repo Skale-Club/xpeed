@@ -4,12 +4,18 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use crate::game::Source;
+use crate::games::{Reader, READERS};
+use crate::lapcut::LapCutter;
 use crate::lapfile;
 use crate::lmu::layout::LAYOUT_SIZE;
 use crate::lmu::reader::{LmuReader, Names, OpenError};
 use crate::recorder::Recorder;
 use crate::status::{Game, Notice, Shared};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
+
+const LMU_ID: &str = "lmu";
+const LMU_NAME: &str = "Le Mans Ultimate";
 
 pub fn explain(error: &OpenError) -> String {
     match error {
@@ -77,7 +83,102 @@ fn rest(shared: &Shared, total: Duration) {
 
 /// Records until `shared.quit()`. With `stop_on_unsupported` a game this build cannot read ends the loop with the
 /// reason (the terminal wants to hear it); without it the loop keeps looking, because the tray app has no one to tell.
-pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupported: bool) -> Result<(), String> {
+pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
+    std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
+    std::thread::scope(|scope| {
+        // The other games have a reader each, looked after by one loop of its own; Le Mans Ultimate has its own.
+        scope.spawn(|| run_games(READERS, out, shared, say));
+        let result = run_lmu(out, shared, say, stop_on_unsupported);
+        shared.quit();
+        result
+    })
+}
+
+/// Reads whichever of the other games is running, and writes its laps like Le Mans Ultimate's.
+pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync)) {
+    struct Live {
+        family: &'static str,
+        source: Box<dyn Source>,
+        cutter: LapCutter,
+        last_frame: Instant,
+        lap_shown: i32,
+    }
+    let saved = |lap: &lapfile::Lap| {
+        if let Some(label) = save(out, lap, say) {
+            shared.update(|s| {
+                s.laps_saved += 1;
+                s.last_lap = Some(label.clone());
+            });
+            shared.notify(Notice::LapSaved(label));
+            shared.wake_uploader();
+        }
+    };
+    let mut live: Vec<Live> = Vec::new();
+    let mut last_look = Instant::now().checked_sub(Duration::from_secs(10)).unwrap_or_else(Instant::now);
+    while !shared.quitting() {
+        if shared.paused() {
+            for l in &live {
+                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Paused);
+            }
+            rest(shared, Duration::from_millis(500));
+            continue;
+        }
+        // Look again, every couple of seconds, for the games that are not open yet.
+        if last_look.elapsed() >= Duration::from_secs(2) {
+            last_look = Instant::now();
+            for reader in readers {
+                if live.iter().any(|l| l.family == reader.family) {
+                    continue;
+                }
+                if let Some(source) = (reader.open)() {
+                    say(format!("Connected to {}.", source.game_name()));
+                    shared.set_game(source.game_id(), source.game_name(), Game::Connected);
+                    live.push(Live {
+                        family: reader.family,
+                        cutter: LapCutter::new(source.game_id()),
+                        source,
+                        last_frame: Instant::now(),
+                        lap_shown: 0,
+                    });
+                }
+            }
+        }
+        if live.is_empty() {
+            rest(shared, Duration::from_millis(250));
+            continue;
+        }
+        let slice = Duration::from_millis((40 / live.len() as u64).clamp(5, 40));
+        for l in live.iter_mut() {
+            if let Some(frame) = l.source.next(slice) {
+                l.last_frame = Instant::now();
+                if frame.driving && frame.lap > 0 && frame.lap != l.lap_shown {
+                    l.lap_shown = frame.lap;
+                }
+                let state = if frame.driving && l.lap_shown > 0 {
+                    Game::Recording(l.lap_shown as u32)
+                } else {
+                    Game::Connected
+                };
+                shared.set_game(l.source.game_id(), l.source.game_name(), state);
+                l.cutter.on_frame(&frame, now_ms()).iter().for_each(saved);
+            } else if l.last_frame.elapsed() > Duration::from_secs(10) {
+                // A door that stays open but says nothing (a game sending UDP, stopped or in a menu).
+                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+                l.lap_shown = 0;
+            }
+        }
+        live.retain(|l| {
+            let alive = l.source.alive();
+            if !alive {
+                say(format!("{} closed.", l.source.game_name()));
+                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+            }
+            alive
+        });
+    }
+}
+
+fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
     say(format!("Writing laps to {}.", out.display()));
     let saved = |lap: &lapfile::Lap| {
@@ -93,7 +194,7 @@ pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupporte
     let mut waiting = false;
     while !shared.quitting() {
         if shared.paused() {
-            shared.update(|s| s.game = Game::Paused);
+            shared.set_game(LMU_ID, LMU_NAME, Game::Paused);
             rest(shared, Duration::from_millis(500));
             continue;
         }
@@ -104,7 +205,7 @@ pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupporte
                     say("Waiting for Le Mans Ultimate ('Enable external plugins' must be on)...".into());
                     waiting = true;
                 }
-                shared.update(|s| s.game = Game::Waiting);
+                shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
                 rest(shared, Duration::from_secs(2));
                 continue;
             }
@@ -114,7 +215,7 @@ pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupporte
                 if stop_on_unsupported {
                     return Err(why);
                 }
-                shared.update(|s| s.game = Game::Unsupported);
+                shared.set_game(LMU_ID, LMU_NAME, Game::Unsupported);
                 rest(shared, Duration::from_secs(30));
                 continue;
             }
@@ -129,13 +230,13 @@ pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupporte
             if stop_on_unsupported {
                 return Err(why);
             }
-            shared.update(|s| s.game = Game::Unsupported);
+            shared.set_game(LMU_ID, LMU_NAME, Game::Unsupported);
             rest(shared, Duration::from_secs(30));
             continue;
         }
         waiting = false;
         say(format!("Connected to Le Mans Ultimate at {}.", iso_utc(now_ms())));
-        shared.update(|s| s.game = Game::Connected);
+        shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
         let mut recorder = Recorder::new();
         let mut silent_waits = 0;
         let mut lap_shown = 0;
@@ -150,7 +251,7 @@ pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupporte
             if let Some(t) = &snapshot.telemetry {
                 if t.lap_number > 0 && t.lap_number != lap_shown {
                     lap_shown = t.lap_number;
-                    shared.update(|s| s.game = Game::Recording(lap_shown as u32));
+                    shared.set_game(LMU_ID, LMU_NAME, Game::Recording(lap_shown as u32));
                 }
                 recorder.on_telemetry(t, now_ms()).iter().for_each(saved);
             }
@@ -160,7 +261,7 @@ pub fn run(out: &Path, shared: &Shared, say: &dyn Fn(String), stop_on_unsupporte
         }
         if silent_waits >= 50 {
             say("No data from the game for 10 s; reconnecting.".into());
-            shared.update(|s| s.game = Game::Waiting);
+            shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
         }
     }
     Ok(())
@@ -246,6 +347,91 @@ mod tests {
         let started = Instant::now();
         rest(&shared, Duration::from_secs(5));
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    // A scripted game: the frames a test hands over, delivered one per call.
+    static SCRIPT: std::sync::Mutex<Vec<crate::game::Frame>> = std::sync::Mutex::new(Vec::new());
+    struct Scripted {
+        done: bool,
+    }
+    impl Source for Scripted {
+        fn game_id(&self) -> &'static str {
+            "fake"
+        }
+        fn game_name(&self) -> &'static str {
+            "Fake Racing"
+        }
+        fn next(&mut self, _timeout: Duration) -> Option<crate::game::Frame> {
+            let mut script = SCRIPT.lock().unwrap();
+            if script.is_empty() {
+                self.done = true;
+                return None;
+            }
+            Some(script.remove(0))
+        }
+        fn alive(&self) -> bool {
+            !self.done
+        }
+    }
+    fn open_scripted() -> Option<Box<dyn Source>> {
+        Some(Box::new(Scripted { done: false }))
+    }
+
+    #[test]
+    fn a_game_with_a_reader_gets_its_laps_written_and_its_name_shown() {
+        use crate::game::Frame;
+        let dir = crate::config::scratch_dir("engine-games");
+        let frame = |clock: f64, lap: i32, last: Option<f64>| {
+            let mut f = Frame::empty();
+            f.clock_s = clock;
+            f.driving = true;
+            f.lap = lap;
+            f.lap_time_s = Some(clock - 30.0 * f64::from(lap - 1));
+            f.last_lap_s = last;
+            f.dist_m = Some((clock - 30.0 * f64::from(lap - 1)) * 50.0);
+            f.speed_ms = 50.0;
+            f.car = "Test Car".into();
+            f.track = "Test Ring".into();
+            f
+        };
+        // Lap 1 from the start, then lap 2 begins carrying lap 1's official time.
+        let mut script: Vec<Frame> = (0..600).map(|i| frame(f64::from(i) * 0.05, 1, None)).collect();
+        script.extend((600..640).map(|i| frame(f64::from(i) * 0.05, 2, Some(30.0))));
+        *SCRIPT.lock().unwrap() = script;
+        let shared = Shared::new(true);
+        let readers = [Reader {
+            family: "fake",
+            open: open_scripted,
+        }];
+        let finished = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                run_games(&readers, &dir, &shared, &|_| {});
+                finished.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+            // The loop ends when told to quit; give it time to read the script, and to see the game go away.
+            let started = Instant::now();
+            while shared.snapshot().laps_saved == 0 && started.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let seen = shared.snapshot();
+            assert_eq!(seen.laps_saved, 1);
+            assert_eq!(seen.last_lap.as_deref(), Some("Lap 1  0:30.000"));
+            shared.quit();
+        });
+        assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+        let written: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(
+            written,
+            ["test-ring_test-car_lap1_20261110120000.xlap.gz"
+                .replace("20261110120000", &written[0][written[0].len() - 22..written[0].len() - 8])]
+        );
+        let bytes = std::fs::read(dir.join(&written[0])).unwrap();
+        let lap = lapfile::gunzip(&bytes, lapfile::MAX_UNPACKED).unwrap();
+        assert_eq!((lap.game.as_str(), lap.time_ms, lap.valid), ("fake", 30_000, true));
     }
 
     #[test]

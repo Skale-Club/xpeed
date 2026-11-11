@@ -1,6 +1,6 @@
 //! What Xpeed Sim is doing, shared between the thread that records, the thread that sends and the tray icon.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -32,6 +32,8 @@ pub enum Cloud {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
     pub game: Game,
+    /// The game `game` is about (the one recorded, or connected), when there is one.
+    pub title: Option<&'static str>,
     pub cloud: Cloud,
     pub laps_saved: u32,
     /// `Lap 3  1:42.318` for the last lap saved in this run.
@@ -56,6 +58,8 @@ type OnChange = Box<dyn Fn() + Send + Sync>;
 /// One of these lives as long as the program. Everything is cheap to read from any thread.
 pub struct Shared {
     snapshot: Mutex<Snapshot>,
+    /// What each game's reader says, by game id; the snapshot shows the most interesting one.
+    games: Mutex<BTreeMap<&'static str, (&'static str, Game)>>,
     notices: Mutex<VecDeque<Notice>>,
     on_change: Mutex<Option<OnChange>>,
     uploader: Mutex<Option<Uploader>>,
@@ -68,10 +72,12 @@ impl Shared {
         Arc::new(Shared {
             snapshot: Mutex::new(Snapshot {
                 game: Game::Waiting,
+                title: None,
                 cloud: if paired { Cloud::Idle } else { Cloud::NotPaired },
                 laps_saved: 0,
                 last_lap: None,
             }),
+            games: Mutex::new(BTreeMap::new()),
             notices: Mutex::new(VecDeque::new()),
             on_change: Mutex::new(None),
             uploader: Mutex::new(None),
@@ -95,6 +101,30 @@ impl Shared {
         if changed {
             self.changed();
         }
+    }
+
+    /// One game's reader reports its state; the snapshot shows the most interesting of all the readers' states
+    /// (recording beats connected beats a game this build cannot read beats paused beats waiting).
+    pub fn set_game(&self, id: &'static str, name: &'static str, state: Game) {
+        let (game, title) = {
+            let mut games = self.games.lock().unwrap();
+            games.insert(id, (name, state));
+            let rank = |g: &Game| match g {
+                Game::Recording(_) => 4,
+                Game::Connected => 3,
+                Game::Unsupported => 2,
+                Game::Paused => 1,
+                Game::Waiting => 0,
+            };
+            let best = games.values().max_by_key(|(_, g)| rank(g)).cloned().unwrap_or(("", Game::Waiting));
+            // A game that is only waited for has no name worth showing.
+            let title = (best.1 != Game::Waiting).then_some(best.0);
+            (best.1, title)
+        };
+        self.update(|s| {
+            s.game = game;
+            s.title = title;
+        });
     }
 
     pub fn set_on_change(&self, callback: impl Fn() + Send + Sync + 'static) {
@@ -160,6 +190,29 @@ mod tests {
         assert_eq!(shared.snapshot().game, Game::Recording(3));
         shared.update(|s| s.laps_saved += 1);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn shows_the_most_interesting_game_of_several() {
+        let shared = Shared::new(true);
+        shared.set_game("lmu", "Le Mans Ultimate", Game::Waiting);
+        shared.set_game("ac", "Assetto Corsa", Game::Waiting);
+        assert_eq!((shared.snapshot().game, shared.snapshot().title), (Game::Waiting, None));
+        shared.set_game("ac", "Assetto Corsa", Game::Connected);
+        assert_eq!(
+            (shared.snapshot().game, shared.snapshot().title),
+            (Game::Connected, Some("Assetto Corsa"))
+        );
+        shared.set_game("lmu", "Le Mans Ultimate", Game::Recording(3));
+        assert_eq!(
+            (shared.snapshot().game, shared.snapshot().title),
+            (Game::Recording(3), Some("Le Mans Ultimate"))
+        );
+        // The other reader going back to waiting does not hide a game that is being recorded.
+        shared.set_game("ac", "Assetto Corsa", Game::Waiting);
+        assert_eq!(shared.snapshot().game, Game::Recording(3));
+        shared.set_game("lmu", "Le Mans Ultimate", Game::Waiting);
+        assert_eq!((shared.snapshot().game, shared.snapshot().title), (Game::Waiting, None));
     }
 
     #[test]

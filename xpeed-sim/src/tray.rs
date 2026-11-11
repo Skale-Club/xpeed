@@ -185,7 +185,7 @@ impl App {
                 AppendMenuW(menu, flags, id, label.as_ptr());
             };
             // What is going on, in lines that cannot be clicked.
-            line(MF_STRING | MF_GRAYED, 0, win::wide(&present::game_line(self.lang, &snapshot.game)));
+            line(MF_STRING | MF_GRAYED, 0, win::wide(&present::game_line_of(self.lang, &snapshot)));
             line(
                 MF_STRING | MF_GRAYED,
                 0,

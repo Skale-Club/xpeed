@@ -14,6 +14,15 @@ pub fn light_of(snapshot: &Snapshot) -> Light {
     }
 }
 
+/// The state of the game, and which game when one is connected (`Recording lap 3 · Assetto Corsa`).
+pub fn game_line_of(lang: Lang, snapshot: &Snapshot) -> String {
+    let line = game_line(lang, &snapshot.game);
+    match snapshot.title {
+        Some(title) => format!("{line} · {title}"),
+        None => line,
+    }
+}
+
 pub fn game_line(lang: Lang, game: &Game) -> String {
     text(
         lang,
@@ -41,7 +50,7 @@ pub fn cloud_line(lang: Lang, cloud: &Cloud, device: Option<&str>) -> String {
 
 /// The tooltip over the icon. Windows keeps 127 characters; longer text is cut with an ellipsis.
 pub fn tooltip(lang: Lang, snapshot: &Snapshot, device: Option<&str>) -> String {
-    let full = format!("{}\n{}", game_line(lang, &snapshot.game), cloud_line(lang, &snapshot.cloud, device));
+    let full = format!("{}\n{}", game_line_of(lang, snapshot), cloud_line(lang, &snapshot.cloud, device));
     if full.encode_utf16().count() <= 127 {
         return full;
     }
@@ -72,6 +81,7 @@ mod tests {
     fn snapshot(game: Game, cloud: Cloud) -> Snapshot {
         Snapshot {
             game,
+            title: None,
             cloud,
             laps_saved: 0,
             last_lap: None,
@@ -95,7 +105,23 @@ mod tests {
         let tip = tooltip(Lang::En, &snapshot(Game::Recording(7), Cloud::Waiting(2)), Some("RIG"));
         assert_eq!(tip, "Recording lap 7\n2 lap(s) waiting to be sent");
         let tip = tooltip(Lang::Pt, &snapshot(Game::Waiting, Cloud::Idle), Some("MEU-PC"));
-        assert_eq!(tip, "Jogo: esperando o Le Mans Ultimate\nConectado como MEU-PC");
+        assert_eq!(tip, "Jogo: esperando um jogo de corrida\nConectado como MEU-PC");
+    }
+
+    #[test]
+    fn the_line_names_the_game_when_one_is_connected() {
+        let mut shot = snapshot(Game::Recording(7), Cloud::Idle);
+        shot.title = Some("Assetto Corsa");
+        assert_eq!(game_line_of(Lang::En, &shot), "Recording lap 7 · Assetto Corsa");
+        assert_eq!(
+            tooltip(Lang::En, &shot, Some("RIG")),
+            "Recording lap 7 · Assetto Corsa
+Connected as RIG"
+        );
+        assert_eq!(
+            game_line_of(Lang::En, &snapshot(Game::Waiting, Cloud::Idle)),
+            "Game: waiting for a racing game"
+        );
     }
 
     #[test]

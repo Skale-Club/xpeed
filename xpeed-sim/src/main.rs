@@ -17,7 +17,11 @@ mod applog;
 mod config;
 #[cfg(windows)]
 mod engine;
+mod game;
+#[cfg(windows)]
+mod games;
 mod icon;
+mod lapcut;
 mod lapfile;
 mod link;
 mod lmu;
@@ -25,6 +29,8 @@ mod net;
 mod outbox;
 mod present;
 mod recorder;
+#[cfg(windows)]
+mod shm;
 mod status;
 #[cfg(test)]
 mod stub;
