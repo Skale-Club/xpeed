@@ -1,4 +1,4 @@
-//! The two calls Xpeed Sim makes to the Xpeed server: pair this computer, and send one lap.
+//! The calls Xpeed Sim makes to the Xpeed server: pair this computer, send one lap, send one track layout.
 //! The contract is `docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md`.
 
 use std::time::Duration;
@@ -9,6 +9,8 @@ use crate::config::Config;
 
 /// The most a lap file may weigh to be sent (the server refuses more).
 pub const MAX_UPLOAD_BYTES: usize = 16 * 1024 * 1024;
+/// The most a track layout file may weigh to be sent (the server refuses more).
+pub const MAX_TRACK_UPLOAD_BYTES: usize = 32 * 1024 * 1024;
 /// The longest wait a server may ask for before the next try.
 pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(3600);
 const MAX_REPLY_BYTES: u64 = 64 * 1024;
@@ -44,11 +46,19 @@ pub fn agent() -> ureq::Agent {
     ureq::Agent::new_with_config(config)
 }
 
-/// The short text a server error carries (`{"error": "..."}`), cut to something that fits a line.
+/// The short text a server error carries (`{"error": "..."}`, with the `code` and `message` some answers add, as in
+/// `{"error": "bad_track", "code": "bad_data", "message": "..."}`), cut to something that fits a line.
 fn server_message(body: &str) -> Option<String> {
-    let text = serde_json::from_str::<Value>(body).ok()?.get("error")?.as_str()?.trim().to_owned();
-    let text: String = text.chars().filter(|c| !c.is_control()).take(160).collect();
-    (!text.is_empty()).then_some(text)
+    let value = serde_json::from_str::<Value>(body).ok()?;
+    let part = |key: &str| value.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty());
+    let mut text = part("error")?.to_owned();
+    if let Some(code) = part("code") {
+        text = format!("{text} ({code})");
+    }
+    if let Some(message) = part("message") {
+        text = format!("{text}: {message}");
+    }
+    Some(text.chars().filter(|c| !c.is_control()).take(160).collect())
 }
 
 fn retry_after(response: &ureq::http::Response<ureq::Body>) -> Option<Duration> {
@@ -93,8 +103,20 @@ fn explain(reply: &Reply, what: &str) -> String {
 
 /// Sends one lap file as it is on disk.
 pub fn send_lap(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sent, SendError> {
+    send_file(agent, config, "/api/sim/laps", file, ("lap", "laps"))
+}
+
+/// Sends one track layout file (`.xtrk.gz`) as it is on disk. The server keeps one per track and replaces it.
+pub fn send_track(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sent, SendError> {
+    send_file(agent, config, "/api/sim/tracks", file, ("track layout", "track layouts"))
+}
+
+/// The same rules for every file Xpeed Sim sends: the device key, the bytes as they are, and the answer judged by its
+/// status alone. `what` names one file and several, for the messages.
+fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what: (&str, &str)) -> Result<Sent, SendError> {
+    let (one, many) = what;
     let response = agent
-        .post(format!("{}/api/sim/laps", config.server))
+        .post(format!("{}{path}", config.server))
         .header("Authorization", format!("Bearer {}", config.token))
         .content_type("application/gzip")
         .send(file)
@@ -107,9 +129,9 @@ pub fn send_lap(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sen
         201 => Ok(Sent::New),
         200 => Ok(Sent::Duplicate),
         401 | 403 => Err(SendError::Unauthorized),
-        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused this lap"))),
+        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, &format!("the server refused this {one}")))),
         404 | 405 | 501 => Err(SendError::Later {
-            reason: "this server does not receive laps".into(),
+            reason: format!("this server does not receive {many}"),
             after: None,
         }),
         300..=399 => Err(SendError::Later {
@@ -117,7 +139,7 @@ pub fn send_lap(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sen
             after: None,
         }),
         _ => Err(SendError::Later {
-            reason: explain(&reply, "the server could not take the lap"),
+            reason: explain(&reply, &format!("the server could not take the {one}")),
             after: reply.after,
         }),
     }

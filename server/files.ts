@@ -26,6 +26,8 @@ export const BUCKETS: Readonly<Record<string, BucketRule>> = {
   'shared-trip-media': { access: 'server', maxBytes: 64 * 1024, mimes: ['application/json'] },
   // Lap files sent by Xpeed Sim (api/sim/laps).
   'sim-laps': { access: 'server', maxBytes: 16 * MB, mimes: ['application/gzip'] },
+  // Track layouts sent by Xpeed Sim (api/sim/tracks).
+  'sim-tracks': { access: 'server', maxBytes: 32 * MB, mimes: ['application/gzip'] },
 };
 
 const TYPES: Record<string, string> = {

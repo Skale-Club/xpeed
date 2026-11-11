@@ -2,6 +2,7 @@
 //! and the tray app run; the difference is only who listens to what it says (`say`) and to the shared status.
 
 use std::path::Path;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::game::Source;
@@ -12,6 +13,7 @@ use crate::lmu::layout::LAYOUT_SIZE;
 use crate::lmu::reader::{LmuReader, Names, OpenError};
 use crate::recorder::Recorder;
 use crate::status::{Game, Notice, Shared};
+use crate::tracks::auto::{self, Folders, Seen};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
 
 const LMU_ID: &str = "lmu";
@@ -86,16 +88,30 @@ fn rest(shared: &Shared, total: Duration) {
 pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
     std::thread::scope(|scope| {
+        // The tracks the games are on go to a thread of their own, which builds their layouts from the game's files:
+        // reading a game never waits for that.
+        let (tracks, seen) = mpsc::channel();
+        scope.spawn(move || {
+            auto::run(
+                out,
+                seen,
+                &Folders::installed,
+                &|| shared.quitting(),
+                &|| shared.wake_uploader(),
+                say,
+            );
+        });
         // The other games have a reader each, looked after by one loop of its own; Le Mans Ultimate has its own.
-        scope.spawn(|| run_games(READERS, out, shared, say));
+        scope.spawn(move || run_games(READERS, out, shared, say, Some(&tracks)));
         let result = run_lmu(out, shared, say, stop_on_unsupported);
         shared.quit();
         result
     })
 }
 
-/// Reads whichever of the other games is running, and writes its laps like Le Mans Ultimate's.
-pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync)) {
+/// Reads whichever of the other games is running, and writes its laps like Le Mans Ultimate's. Each track a game is
+/// driven on is told to `tracks` once (and again when it changes), for its layout to be built.
+pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), tracks: Option<&mpsc::Sender<Seen>>) {
     struct Live {
         family: &'static str,
         programs: &'static [&'static str],
@@ -103,6 +119,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         cutter: LapCutter,
         last_frame: Instant,
         lap_shown: i32,
+        track_told: Option<(String, Option<String>)>,
     }
     let saved = |lap: &lapfile::Lap| {
         if let Some(label) = save(out, lap, say) {
@@ -153,6 +170,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                         source,
                         last_frame: Instant::now(),
                         lap_shown: 0,
+                        track_told: None,
                     });
                 }
             }
@@ -174,6 +192,19 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     Game::Connected
                 };
                 shared.set_game(l.source.game_id(), l.source.game_name(), state);
+                if let Some(tracks) = tracks.filter(|_| frame.driving && !frame.track.is_empty()) {
+                    // Compared without copying: this runs for every frame.
+                    let here = (frame.track.as_str(), frame.track_variant.as_deref());
+                    if l.track_told.as_ref().map(|(t, v)| (t.as_str(), v.as_deref())) != Some(here) {
+                        // A send never blocks; if the other thread is gone, there is just no layout.
+                        let _ = tracks.send(Seen {
+                            game: l.source.game_id().to_owned(),
+                            track: frame.track.clone(),
+                            variant: frame.track_variant.clone(),
+                        });
+                        l.track_told = Some((frame.track.clone(), frame.track_variant.clone()));
+                    }
+                }
                 l.cutter.on_frame(&frame, now_ms()).iter().for_each(saved);
             } else if l.last_frame.elapsed() > Duration::from_secs(10) {
                 // A door that stays open but says nothing (a game sending UDP, stopped or in a menu).
@@ -419,9 +450,10 @@ mod tests {
             open: open_scripted,
         }];
         let finished = std::sync::atomic::AtomicBool::new(false);
+        let (tracks, seen) = mpsc::channel();
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                run_games(&readers, &dir, &shared, &|_| {});
+                run_games(&readers, &dir, &shared, &|_| {}, Some(&tracks));
                 finished.store(true, std::sync::atomic::Ordering::SeqCst);
             });
             // The loop ends when told to quit; give it time to read the script, and to see the game go away.
@@ -435,6 +467,15 @@ mod tests {
             shared.quit();
         });
         assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+        // 640 frames on one track: the track is told once, for its layout.
+        assert_eq!(
+            seen.try_iter().collect::<Vec<_>>(),
+            [Seen {
+                game: "fake".into(),
+                track: "Test Ring".into(),
+                variant: None
+            }]
+        );
         let written: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())

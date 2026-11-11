@@ -6,6 +6,10 @@ import type { LapHeader } from '../../src/lib/sim/lap-file';
 export const MAX_LAP_BYTES = 16 * 1024 * 1024;
 /// Laps one account may keep on the server.
 export const MAX_LAPS_PER_ACCOUNT = 5000;
+/// A track layout file (.xtrk.gz) as sent: the longest real tracks are a few MB, so this is plenty.
+export const MAX_TRACK_BYTES = 32 * 1024 * 1024;
+/// Track layouts one account may keep on the server (one per game, track and layout).
+export const MAX_TRACKS_PER_ACCOUNT = 500;
 
 export const reply = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), {

@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use crate::config::{scratch_dir, Config};
 use crate::lapfile::{self, Channel, Lap};
 use crate::net::{self, SendError};
-use crate::outbox::{upload_pending, Backoff, Observer, Report, Stop, Uploader};
+use crate::outbox::{upload_pending, upload_tracks, Backoff, Observer, Report, Stop, TrackState, Uploader};
 use crate::status::Cloud;
 use crate::stub::{Recorded, Reply, Stub};
+use crate::tracks::{self, auto, Centerline, Track};
 
 fn lap(number: u32) -> Lap {
     let channel = |id: &str, unit: &str, values: [f32; 3]| Channel {
@@ -411,4 +412,163 @@ fn the_worker_gives_up_on_a_refused_key_instead_of_knocking_forever() {
     assert_eq!(stub.requests().len(), 1);
     drop(uploader);
     assert!(dir.join("test-track_test-car_lap1_20261110120000.xlap.gz").exists());
+}
+
+// ---------------------------------------------------------------------------------------------- track layouts
+
+/// A small closed track (a 10 m square) as a track file; `y` changes the bytes without changing the track.
+fn track_bytes(name: &str, y: f32) -> Vec<u8> {
+    let track = Track {
+        game: "ac".into(),
+        name: name.into(),
+        variant: Some("GP".into()),
+        title: None,
+        length_m: Some(40.0),
+        source: "fast_lane.ai".into(),
+        frame: tracks::FRAME.into(),
+        closed: true,
+        center_kind: "edges_midpoint".into(),
+        centerline: Centerline {
+            x: vec![0.0, 10.0, 10.0, 0.0],
+            y: vec![y; 4],
+            z: vec![0.0, 0.0, 10.0, 10.0],
+            dist: vec![0.0, 10.0, 20.0, 30.0],
+            left: vec![5.0; 4],
+            right: vec![5.0; 4],
+        },
+        fast: None,
+        pitlane: None,
+    };
+    tracks::gzip(&track).unwrap()
+}
+
+/// Puts a layout in the outbox of the laps folder `dir`, as `tracks::auto` would. Returns the outbox.
+fn add_track(dir: &Path, file: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let outbox = dir.join(auto::TRACKS_DIR);
+    std::fs::create_dir_all(&outbox).unwrap();
+    std::fs::write(outbox.join(file), bytes).unwrap();
+    outbox
+}
+
+fn track_pass(outbox: &Path, config: &Config) -> Report {
+    upload_tracks(outbox, config, &net::agent(), &mut |_| {})
+}
+
+const LAYOUT: &str = "ac_test-track_gp_0000.xtrk.gz";
+
+#[test]
+fn sends_a_track_layout_once_and_again_only_when_its_file_changes() {
+    let dir = scratch_dir("track-send");
+    let bytes = track_bytes("Test Track", 0.0);
+    let outbox = add_track(&dir, LAYOUT, &bytes);
+    let stub = Stub::start(|_| Reply::new(201, r#"{"id":"t1","replaced":false}"#));
+    let config = config_for(&stub.url);
+    assert_eq!(
+        track_pass(&outbox, &config),
+        Report {
+            sent: 1,
+            ..Report::default()
+        }
+    );
+    let seen = stub.requests();
+    assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/tracks"));
+    assert_eq!(seen[0].headers["authorization"], "Bearer xpd_test");
+    assert_eq!(seen[0].headers["content-type"], "application/gzip");
+    assert_eq!(seen[0].body, bytes, "the server gets the file untouched");
+    let done = TrackState::load(&outbox, &stub.url).get(LAYOUT).cloned().unwrap();
+    assert_eq!(
+        (done.key.as_str(), done.hash, done.why),
+        ("ac|test track|gp", auto::hash_hex(&bytes), None)
+    );
+
+    // Nothing changed: nothing goes.
+    assert_eq!(track_pass(&outbox, &config), Report::default());
+    assert_eq!(stub.requests().len(), 1);
+    // The game's files changed and the layout was built again: it goes again, and the server replaces it.
+    let changed = track_bytes("Test Track", 1.5);
+    add_track(&dir, LAYOUT, &changed);
+    assert_eq!(track_pass(&outbox, &config).sent, 1);
+    assert_eq!(stub.requests()[1].body, changed);
+    // Another server has none of them.
+    let other = Stub::start(|_| Reply::new(201, "{}"));
+    assert_eq!(track_pass(&outbox, &config_for(&other.url)).sent, 1);
+    // The file itself is never changed or removed by sending.
+    assert_eq!(std::fs::read(outbox.join(LAYOUT)).unwrap(), changed);
+}
+
+#[test]
+fn a_layout_refused_for_good_is_not_offered_again_until_its_file_changes() {
+    let dir = scratch_dir("track-rejected");
+    let outbox = add_track(&dir, LAYOUT, &track_bytes("Test Track", 0.0));
+    let stub = Stub::start(|_| Reply::new(422, r#"{"error":"bad_track","code":"bad_data","message":"the widths are wrong"}"#));
+    let config = config_for(&stub.url);
+    let mut lines = Vec::new();
+    let report = upload_tracks(&outbox, &config, &net::agent(), &mut |line| lines.push(line));
+    assert_eq!((report.sent, report.rejected, report.stopped), (0, 1, None));
+    let why = TrackState::load(&outbox, &stub.url).get(LAYOUT).unwrap().why.clone().unwrap();
+    assert!(
+        why.contains("bad_track (bad_data): the widths are wrong") && why.contains("422"),
+        "{why}"
+    );
+    assert!(lines.iter().any(|line| line.contains(&why)), "{lines:?}");
+    assert_eq!(track_pass(&outbox, &config), Report::default());
+    assert_eq!(stub.requests().len(), 1);
+    add_track(&dir, LAYOUT, &track_bytes("Test Track", 2.0));
+    assert_eq!(track_pass(&outbox, &config).rejected, 1, "a new file is a new try");
+    assert_eq!(stub.requests().len(), 2);
+}
+
+#[test]
+fn what_is_not_a_track_layout_never_leaves_the_computer() {
+    let dir = scratch_dir("track-junk");
+    let outbox = add_track(&dir, "junk.xtrk.gz", b"definitely not a track");
+    std::fs::write(outbox.join("half.xtrk.gz.part"), b"still being written").unwrap();
+    // A lap file put there by mistake is not a layout either.
+    std::fs::write(outbox.join("a.xlap.gz"), lapfile::gzip(&lap(1)).unwrap()).unwrap();
+    let stub = accepts_everything();
+    let config = config_for(&stub.url);
+    let report = track_pass(&outbox, &config);
+    assert_eq!((report.sent, report.rejected), (0, 1));
+    assert!(stub.requests().is_empty());
+    assert_eq!(track_pass(&outbox, &config), Report::default());
+    // No outbox at all (no layout was ever built) is not a problem.
+    assert_eq!(track_pass(&dir.join("nothing-here"), &config), Report::default());
+}
+
+#[test]
+fn a_refused_key_or_a_passing_problem_keeps_the_layouts_pending() {
+    let dir = scratch_dir("track-later");
+    let outbox = add_track(&dir, LAYOUT, &track_bytes("Test Track", 0.0));
+    add_track(&dir, "ac_other_gp_0001.xtrk.gz", &track_bytes("Other", 0.0));
+    let refused = Stub::start(|_| Reply::new(401, "{}"));
+    let report = track_pass(&outbox, &config_for(&refused.url));
+    assert_eq!((report.stopped, report.left), (Some(Stop::Unauthorized), 2));
+    assert_eq!(refused.requests().len(), 1);
+    let missing = Stub::start(|_| Reply::new(404, "Not found"));
+    let Some(Stop::Later { reason, .. }) = track_pass(&outbox, &config_for(&missing.url)).stopped else {
+        panic!()
+    };
+    assert!(reason.contains("does not receive track layouts"), "{reason}");
+    assert_eq!(
+        track_pass(&outbox, &config_for(&accepts_everything().url)).sent,
+        2,
+        "both are still there"
+    );
+}
+
+#[test]
+fn the_worker_sends_the_laps_and_then_the_track_layouts() {
+    let dir = scratch_dir("worker-tracks");
+    add_lap(&dir, 1);
+    let outbox = add_track(&dir, LAYOUT, &track_bytes("Test Track", 0.0));
+    let stub = accepts_everything();
+    let uploader = Uploader::start(dir.clone(), config_for(&stub.url), Backoff::default(), Observer::silent());
+    wait_until("the layout to go", || TrackState::load(&outbox, &stub.url).get(LAYOUT).is_some());
+    let paths: Vec<String> = stub.requests().into_iter().map(|r| r.path).collect();
+    assert_eq!(paths, ["/api/sim/laps", "/api/sim/tracks"]);
+    // A layout built later goes when the worker is woken, like a lap.
+    add_track(&dir, "ac_other_gp_0001.xtrk.gz", &track_bytes("Other", 0.0));
+    uploader.wake();
+    wait_until("the second layout", || stub.requests().len() == 3);
+    drop(uploader);
 }

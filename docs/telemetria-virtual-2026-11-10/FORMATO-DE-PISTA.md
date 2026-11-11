@@ -2,7 +2,9 @@
 
 Contrato entre o **Xpeed Sim (Windows)** (que grava) e o **Xpeed** (que lê). O **traçado de uma pista**: a linha central, a largura da pista de cada lado dela (para desenhar as bordas), a linha ideal do jogo e o caminho do pit lane. O arquivo de volta ([FORMATO-DE-VOLTA.md](FORMATO-DE-VOLTA.md)) guarda a linha que o *carro* andou; este guarda a *pista*, e o Xpeed desenha a volta do piloto por cima dela.
 
-Implementação de referência: `xpeed-sim/src/tracks/mod.rs` (formato), `ac.rs` (Assetto Corsa), `aiw.rs` (Stock Car Extreme, motor do rFactor 1), `preview.rs` (desenho em SVG) e `dump.rs` (o comando `xpeed-sim track-dump`). O leitor em TypeScript ainda não existe: este documento é escrito para que ele possa ser feito só a partir dele.
+Implementação de referência: `xpeed-sim/src/tracks/mod.rs` (formato), `ac.rs` (Assetto Corsa), `aiw.rs` (Stock Car Extreme, motor do rFactor 1), `preview.rs` (desenho em SVG), `dump.rs` (o comando `xpeed-sim track-dump`) e `auto.rs` (o traçado feito sozinho enquanto a pessoa anda). O leitor em TypeScript, escrito só a partir deste documento, é `src/lib/sim/track-file.ts`; o servidor usa o mesmo leitor para conferir cada traçado recebido.
+
+**O Xpeed Sim agora manda os traçados sozinho.** Quando o Assetto Corsa ou o Stock Car Extreme está numa pista, ele monta o traçado dessa pista a partir dos arquivos do jogo (o mesmo código do `track-dump`) e o envia para a conta uma vez, e de novo só se o arquivo mudar. O envio (`POST /api/sim/tracks`) e a leitura pelo app (`GET /api/sim/tracks`) estão em [ENVIO-DE-VOLTAS.md](ENVIO-DE-VOLTAS.md), seção 2b.
 
 O arquivo guardado é esse conteúdo **comprimido com gzip**, extensão `.xtrk`. Os arquivos vêm de fora, então o leitor confere cada tamanho antes de alocar memória. O arquivo é gerado no computador da pessoa a partir dos arquivos do jogo dela, que só são lidos; ele fica lá até o envio para a conta dela.
 
@@ -139,7 +141,7 @@ Com esses dados, a borda esquerda do ponto 0 é `(0 + 5·l.x, 0 + 5·l.z)`, com 
 
 ## De onde vêm os dados
 
-Só são **lidos** arquivos do jogo instalado, nunca escritos. A extração roda no computador da pessoa (`xpeed-sim track-dump GAME PISTA SAIDA.xtrk --preview DESENHO.svg`) e o resultado só sai de lá no envio para a conta dela.
+Só são **lidos** arquivos do jogo instalado, nunca escritos. A extração roda no computador da pessoa, à mão (`xpeed-sim track-dump GAME PISTA SAIDA.xtrk --preview DESENHO.svg`) ou sozinha enquanto ela anda na pista (o arquivo vai para a pasta `tracks` dentro da pasta de voltas), e o resultado só sai de lá no envio para a conta dela.
 
 ### Assetto Corsa (`ac`): `ai/fast_lane.ai` e `ai/pit_lane.ai`
 

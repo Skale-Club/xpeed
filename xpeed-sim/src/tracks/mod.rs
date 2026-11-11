@@ -12,6 +12,9 @@
 //!
 //! * `ac`  Assetto Corsa: `ai/fast_lane.ai` and `ai/pit_lane.ai` of a track layout ([`ac`]);
 //! * `sce` Stock Car Extreme, and any rFactor 1 engine game: the `.AIW` file of a track ([`aiw`]).
+//!
+//! The files are made by hand with `track-dump` ([`dump`]), and by themselves while the person drives ([`auto`]): the
+//! layout of each track a game is on goes to the server once (and again when the game's files change).
 
 use std::fmt;
 use std::io::{Read, Write};
@@ -22,6 +25,7 @@ use flate2::Compression;
 
 pub mod ac;
 pub mod aiw;
+pub mod auto;
 pub mod dump;
 pub mod preview;
 
