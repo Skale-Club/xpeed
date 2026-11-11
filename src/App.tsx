@@ -33,6 +33,7 @@ const TrendsPage = lazy(() => import("./pages/TrendsPage"));
 const FaultCodesPage = lazy(() => import("./pages/FaultCodesPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const SimPage = lazy(() => import("./pages/SimPage"));
+const SimComparePage = lazy(() => import("./pages/SimComparePage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -119,7 +120,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       </Route>
       {/* Virtual: racing games, only for someone who chose it. */}
       <Route element={<ModeGate mode="virtual" />}>
-        {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={<SimPage />} />)}
+        {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={item.to === "/sim/compare" ? <SimComparePage /> : <SimPage />} />)}
       </Route>
       {/* Shared by both modes. */}
       <Route path="/onboarding" element={<OnboardingPage />} />

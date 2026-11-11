@@ -61,6 +61,8 @@ O dono informou que o sistema **também terá o módulo de carrinhos de RC com c
 
 **Fase 1 (interface) feita, sem commit.** Seletor Real | Virtual (só para quem tem os dois), passo "o que você quer usar" no onboarding, cartão **Modos** nos Settings, menu e barra do celular por modo, trava de rotas e telas provisórias em `/sim/*`. Tudo atrás de `VITE_ENABLE_VIRTUAL` (desligado em produção; ligado no harness). Verificado: 662 testes passando (36 novos), typecheck e lint sem erros, e navegação conferida no harness em desktop e celular. **Fase 1b (modos na conta + trava no servidor) e as seguintes continuam pendentes**, a 1b depende da produção sair do Supabase.
 
+**Análise de voltas no navegador (fase 4, sem banco).** Em Virtual > Comparar voltas dá para abrir arquivos `.xlap.gz` do coletor (ou voltas de exemplo) e ver, por distância: a diferença de tempo entre duas voltas, velocidade, acelerador e freio, o mapa da pista e os trechos onde se ganha ou perde tempo. Os arquivos ficam no navegador: nada é enviado. Falta ainda ler as voltas do servidor (fases 1b e 2, depois do corte).
+
 ## Como o Xpot faz (analisado em 10/11/2026)
 
 O Xpot (`C:\Users\Vanildo\Dev\xpot`) tem dois **módulos**, Visits e Tags, num app só. O desenho que ele usa serve quase igual ao Xpeed:
