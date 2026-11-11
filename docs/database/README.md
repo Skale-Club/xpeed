@@ -1,6 +1,6 @@
 # Banco de dados próprio e sincronização do desenvolvimento
 
-Atualizado em 04/11/2026. Fases 1 a 4 da saída do Supabase (resta o corte). O banco do Coolify (`xpeed-db`) existe, está migrado e conectado ao app. O servidor já atende tabelas e funções em `/api/db`, mas o app só passa a usá-lo com `VITE_DATA_API=true` (fase 5), então hoje ainda lê e grava no Supabase.
+Atualizado em 10/11/2026. **O corte (fase 5) já foi feito: desde 04/11/2026 o app em produção lê e grava no banco do Coolify (`xpeed-db`) e nos arquivos do volume `xpeed-files`.** O Supabase não recebe mais gravações do app. Em 04/11 as variáveis `DATA_BACKEND=own`, `XPEED_OAUTH_JWT_SECRET` e `VITE_DATA_API=true` foram criadas no app do Coolify (03:08), e a variável `VITE_DATA_API=true` também no GitHub. Os roteiros abaixo ficam como registro e para uma volta atrás.
 
 ## Como fica
 
@@ -40,7 +40,7 @@ O navegador e o app Android não falam mais com o PostgREST do Supabase quando `
 - **Servidor** (`server/db-route.ts`, `server/db-query.ts`): recebe a consulta como dado (nunca SQL), confere tabela e coluna contra o esquema real, passa todos os valores como parâmetros e executa como `authenticated` com as claims do token verificado. A RLS do banco decide o acesso. Sem token roda como `anon` (páginas públicas, como o relatório compartilhado). Token inválido é recusado, não rebaixado.
 - **Comportamento igual ao PostgREST:** teto de 1000 linhas por resposta, `single()` e `maybeSingle()` com o erro `PGRST116`, códigos do Postgres (`23505` etc.), `count`/`head`, `upsert`, relações embutidas por chave estrangeira e a expressão `or()` usada pela lista de viagens. `update` e `delete` sem filtro são recusados.
 - **Dev:** `npm run dev` já serve `/api/db` pelo próprio Vite quando há `DATABASE_URL`. Para testar o app contra o banco de desenvolvimento, ponha `VITE_DATA_API=true` no `.env`.
-- **Produção:** o app do Coolify já tem `DATABASE_URL` e `FIREBASE_PROJECT_ID`. A flag só liga no corte (fase 5), depois de levar os dados reais.
+- **Produção:** o app do Coolify tem `DATABASE_URL`, `FIREBASE_PROJECT_ID`, `DATA_BACKEND=own` e, no build, `VITE_DATA_API=true`. O corte foi feito em 04/11/2026.
 
 ## Arquivos (`/api/storage`)
 
@@ -80,7 +80,9 @@ Qualquer outro `https:`/`npm:` novo numa função **quebra o build** com uma men
 
 `npm run test:functions` roda as funções reais com banco real e o provedor de IA simulado: login e corpo da requisição, chave e modelo vindos do banco, só o carro da própria pessoa no prompt, reembolso da cota quando o provedor falha, limite diário de 30 mensagens, funções aposentadas respondendo 410, registro OAuth gravado no banco, e os proxies chamando a função sem sair do processo.
 
-## Corte (fase 5): roteiro
+## Corte (fase 5): roteiro (já executado em 04/11/2026)
+
+> **Não rode `scripts/cutover-copy.mjs` contra a produção de novo.** Ele **esvazia** as tabelas do destino e **substitui** os arquivos do volume pelo que está no Supabase. Como o Supabase parou de receber gravações em 04/11, rodá-lo agora devolve o banco e os arquivos àquele dia e apaga o que o app gravou depois. Isso aconteceu em 10/11/2026, por engano (o banco ficou igual ao Supabase de 04/11; o dump das 04:00 daquele dia, de antes da cópia, existe no Coolify; os arquivos do volume não entram no backup). O script só serve para um novo ensaio em outro banco, ou para um novo corte planejado.
 
 `scripts/cutover-copy.mjs` copia tudo do Supabase para o banco e o volume do Coolify. Lê o Supabase só pela API (chave de serviço do `.env`), abre um túnel SSH até o Coolify (o banco não tem porta pública) e **substitui** o conteúdo do destino, então pode ser repetido.
 
@@ -95,7 +97,7 @@ As URLs de ícones salvas em `app_settings.brand_config` apontavam para o storag
 
 **Ensaio feito em 04/11/2026:** 29 tabelas e 154 arquivos conferem; `--app` passa inteiro com a identidade Google real do dono.
 
-### Virada (precisa do dono presente)
+### Virada (como foi feita; precisa do dono presente)
 
 1. Parar de usar o app (as gravações precisam estar pausadas).
 2. `node scripts/cutover-copy.mjs --backup .codex-local/backup-AAAAMMDD` e depois `--app`. Os dois têm de terminar em "Everything matches".
@@ -107,12 +109,12 @@ As URLs de ícones salvas em `app_settings.brand_config` apontavam para o storag
 
 **Atenção:** o `xpeed-offline.apk` já instalado tem o código antigo embutido e continua gravando no Supabase; reinstale o APK novo. Depois de estável, os workflows `supabase-keepalive*` e as variáveis `VITE_SUPABASE_*` podem sair.
 
-## Estado da infraestrutura (04/11/2026)
+## Estado da infraestrutura (criada em 04/11/2026)
 
 - `xpeed-db` criado no Coolify (PostgreSQL 17, sem porta pública, 512 MB, backup diário às 04:00 mantendo 14, igual ao `xpot-db`).
-- O servidor aplicou as 58 migrações ao subir. O banco está com o esquema completo e **vazio**; os dados reais ainda estão no Supabase.
+- O servidor aplica as migrações ao subir. Em 04/11 o banco estava com o esquema completo e vazio; hoje é o banco de produção, com os dados reais.
 - Volume `xpeed-files` montado em `/data/files`, mais `STORAGE_DIR` e `STORAGE_SECRET` (aleatório) no app do Coolify.
-- Falta só você, no `.env` local: `DATABASE_URL` (string do Supabase de desenvolvimento) e, para a sincronização, um túnel até o banco de produção em `PROD_DATABASE_URL`.
+- No `.env` local: `DATABASE_URL` (string do Supabase de desenvolvimento) e, para a sincronização, um túnel até o banco de produção em `PROD_DATABASE_URL`.
 
 ## Testes
 
@@ -124,4 +126,4 @@ As URLs de ícones salvas em `app_settings.brand_config` apontavam para o storag
 
 ## Próximo passo
 
-A virada descrita em "Corte (fase 5)". Todo o código e o ensaio estão prontos; falta só a decisão e a presença do dono.
+Com o corte feito, o que resta da saída do Supabase: reinstalar o APK novo nos aparelhos (o `xpeed-offline.apk` antigo ainda grava no Supabase), e, quando estável, retirar os workflows `supabase-keepalive*` e as variáveis `VITE_SUPABASE_*`. Antes de qualquer operação que substitua dados, conferir o estado real da produção (variáveis do app no Coolify, `/api/health`, últimos deploys), e não só este documento.
