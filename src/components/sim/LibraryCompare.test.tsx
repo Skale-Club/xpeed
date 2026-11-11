@@ -12,6 +12,8 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { LibraryCompare } from './LibraryCompare';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
+// No account: layouts are looked for on the device only (the account sync has its own tests).
+vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => null }));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   LineChart: ({ data, children }: { data: unknown[]; children: ReactNode }) => <figure data-testid="chart" data-points={data.length}>{children}</figure>,

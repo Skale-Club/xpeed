@@ -13,6 +13,8 @@ interface Props {
   reference: Channels | null;
   /** The gap of the lap against the reference at each point (seconds), when they can be compared. */
   gap: number[] | null;
+  /** Metres from the game's ideal line at each point (+ = left of it), when the track's layout is known. */
+  offset?: { lap: number[]; reference: number[] | null } | null;
   unit: DistanceUnit;
 }
 
@@ -73,10 +75,11 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
 }
 
 /** Speed, pedals and the gap along the lap, one chart each, all by distance. */
-export function LapCharts({ grid, lap, reference, gap, unit }: Props) {
+export function LapCharts({ grid, lap, reference, gap, offset, unit }: Props) {
   const { t } = useTranslation();
   const rows = useMemo(() => {
     const speed = (ms: number) => finite(speedIn(ms, unit));
+    const length = (m: number | undefined) => (m === undefined ? null : finite(lengthIn(m, unit)));
     return grid.map((d, i) => ({
       d: lengthIn(d, unit),
       speed: speed(lap.speed[i]),
@@ -86,8 +89,10 @@ export function LapCharts({ grid, lap, reference, gap, unit }: Props) {
       brake: finite(lap.brake[i] * 100),
       brakeRef: reference ? finite(reference.brake[i] * 100) : null,
       gap: gap ? finite(gap[i]) : null,
+      offset: offset ? length(offset.lap[i]) : null,
+      offsetRef: offset?.reference ? length(offset.reference[i]) : null,
     }));
-  }, [grid, lap, reference, gap, unit]);
+  }, [grid, lap, reference, gap, offset, unit]);
 
   const mine = { color: CHART_PALETTE.yellow, name: t('modes.compare.lap', 'Lap') };
   const other = { color: CHART_PALETTE.blue, name: t('modes.compare.reference', 'Reference'), dashed: true };
@@ -109,6 +114,25 @@ export function LapCharts({ grid, lap, reference, gap, unit }: Props) {
           />
           <p className="mt-1 px-1 text-xs text-muted-foreground">
             {t('modes.compare.gapHint', 'Above zero, the lap is behind the reference at that point; below zero, ahead. Distance in {{unit}}.', { unit: distance })}
+          </p>
+        </div>
+      )}
+      {offset && (
+        <div className="lg:col-span-2" data-testid="offset-chart">
+          <Chart
+            title={t('modes.compare.offsetChart', 'Distance from the ideal line')}
+            unit={distance}
+            distance={distance}
+            data={rows}
+            series={[
+              { key: 'offset', ...mine },
+              ...(offset.reference ? [{ key: 'offsetRef', ...other }] : []),
+            ]}
+            zero
+            digits={1}
+          />
+          <p className="mt-1 px-1 text-xs text-muted-foreground">
+            {t('modes.compare.offsetHint', 'Zero is the game’s ideal line. Above zero, the car was to its left; below, to its right.')}
           </p>
         </div>
       )}
