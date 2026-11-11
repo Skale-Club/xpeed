@@ -61,6 +61,12 @@ npx vite --config vite.harness.config.ts --host 127.0.0.1
 
 The harness uses port **5010**, fake Supabase data and simulated Bluetooth. Unsupported RPCs return errors. It is not a migration or RLS simulator.
 
+### Real and Virtual modes
+
+Xpeed has two modes: **Real** (your own car, the default and always first) and **Virtual** (racing-game telemetry). Each person chooses at onboarding or in Settings; the Real | Virtual switch appears only for someone who has both. The plan is in [`docs/telemetria-virtual-2026-11-10/PLANO.md`](docs/telemetria-virtual-2026-11-10/PLANO.md).
+
+Virtual is hidden everywhere until its product exists. One build switch controls it: `VITE_ENABLE_VIRTUAL=true` turns it on (the screen-test harness already does). Without it the app is exactly the Real app, with no option, card or onboarding step. The choice is kept in this browser, per user, until accounts store it. Do not set the variable in production yet.
+
 ## Data and reprocessing
 
 Main tables include `car_profiles`, `sessions`, `session_rows`, `session_flags`, `vehicle_issues`, `vehicle_issue_occurrences`, `chat_conversations`, `chat_messages`, maintenance/photo/share tables and `app_settings`. Definitions are in `supabase/migrations`; generated types still lag some tables.

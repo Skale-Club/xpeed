@@ -8,6 +8,9 @@ import { createBrowserRouter, createRoutesFromElements, RouterProvider, Route, O
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
+import { ModesProvider } from "@/contexts/ModesContext";
+import { ModeGate } from "@/components/ModeGate";
+import { NAV } from "@/lib/mode-nav";
 import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
 import PrivateRoute from "@/components/PrivateRoute";
 import { PageLoader } from "@/components/PageLoader";
@@ -29,6 +32,7 @@ const FuelPage = lazy(() => import("./pages/FuelPage"));
 const TrendsPage = lazy(() => import("./pages/TrendsPage"));
 const FaultCodesPage = lazy(() => import("./pages/FaultCodesPage"));
 const IssuesPage = lazy(() => import("./pages/IssuesPage"));
+const SimPage = lazy(() => import("./pages/SimPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -79,8 +83,10 @@ const AppProviders = () => (
     <TooltipProvider>
       <AuthProvider>
         <SettingsProvider>
-          <Toaster />
-          <ErrorBoundary><Outlet /></ErrorBoundary>
+          <ModesProvider>
+            <Toaster />
+            <ErrorBoundary><Outlet /></ErrorBoundary>
+          </ModesProvider>
         </SettingsProvider>
       </AuthProvider>
     </TooltipProvider>
@@ -97,18 +103,26 @@ const router = createBrowserRouter(createRoutesFromElements(
 
     {/* Protected Routes */}
     <Route element={<AuthenticatedLayout />}>
-      <Route path="/" element={<Index />} />
-      <Route path="/session/:id" element={<SessionDetail />} />
-      <Route path="/history" element={<HistoryPage />} />
-      <Route path="/cars" element={<CarsPage />} />
+      {/* Real: the person's own car. Everyone has it unless they turned it off. */}
+      <Route element={<ModeGate mode="real" />}>
+        <Route path="/" element={<Index />} />
+        <Route path="/session/:id" element={<SessionDetail />} />
+        <Route path="/history" element={<HistoryPage />} />
+        <Route path="/cars" element={<CarsPage />} />
+        <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
+        <Route path="/live" element={<LivePage />} />
+        <Route path="/fuel" element={<FuelPage />} />
+        <Route path="/trends" element={<TrendsPage />} />
+        <Route path="/codes" element={<FaultCodesPage />} />
+        <Route path="/maintenance" element={<MaintenancePage />} />
+        <Route path="/issues" element={<IssuesPage />} />
+      </Route>
+      {/* Virtual: racing games, only for someone who chose it. */}
+      <Route element={<ModeGate mode="virtual" />}>
+        {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={<SimPage />} />)}
+      </Route>
+      {/* Shared by both modes. */}
       <Route path="/onboarding" element={<OnboardingPage />} />
-      <Route path="/scanner" element={<AdvancedToolsRoute><ScannerPage /></AdvancedToolsRoute>} />
-      <Route path="/live" element={<LivePage />} />
-      <Route path="/fuel" element={<FuelPage />} />
-      <Route path="/trends" element={<TrendsPage />} />
-      <Route path="/codes" element={<FaultCodesPage />} />
-      <Route path="/maintenance" element={<MaintenancePage />} />
-      <Route path="/issues" element={<IssuesPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/settings" element={<SettingsPage />} />
     </Route>

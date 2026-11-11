@@ -33,6 +33,42 @@
     "navigation": "Menu",
     "more": "More"
   },
+  "modes": {
+    "switchLabel": "Switch mode",
+    "real": "Real",
+    "virtual": "Virtual",
+    "nav": {
+      "overview": "Overview",
+      "sessions": "Sessions",
+      "compare": "Compare laps",
+      "tracks": "Tracks",
+      "cars": "Game cars",
+      "collector": "Collector"
+    },
+    "placeholder": "This area is being built. Your sessions and laps will appear here.",
+    "settings": {
+      "title": "Modes",
+      "hint": "Choose how you use Xpeed. You can change this at any time.",
+      "realTitle": "Real car",
+      "realHint": "Your own car: trips, problems, fuel and maintenance.",
+      "virtualTitle": "Racing games",
+      "virtualHint": "Sessions, laps and comparisons from your simulator.",
+      "lastOne": "Keep at least one mode on."
+    },
+    "onboard": {
+      "title": "What do you want to use Xpeed for?",
+      "hint": "You can change this later in Settings.",
+      "realTitle": "My real car",
+      "realHint": "Read the car with a Bluetooth adapter.",
+      "virtualTitle": "Racing games",
+      "virtualHint": "Telemetry from your simulator, on the PC.",
+      "bothTitle": "Both",
+      "bothHint": "Your car and your simulator.",
+      "collectorTitle": "Your simulator",
+      "collectorBody": "The Windows app that reads your games is coming soon. You can already explore the Virtual area.",
+      "collectorFinish": "Go to Virtual"
+    }
+  },
   "refresh": {
     "pull": "Pull down to refresh",
     "release": "Release to refresh",

@@ -33,6 +33,42 @@
     "issues": "Problemas",
     "more": "Más"
   },
+  "modes": {
+    "switchLabel": "Cambiar de modo",
+    "real": "Real",
+    "virtual": "Virtual",
+    "nav": {
+      "overview": "Panel",
+      "sessions": "Sesiones",
+      "compare": "Comparar vueltas",
+      "tracks": "Circuitos",
+      "cars": "Coches del juego",
+      "collector": "Colector"
+    },
+    "placeholder": "Esta área se está construyendo. Tus sesiones y vueltas aparecerán aquí.",
+    "settings": {
+      "title": "Modos",
+      "hint": "Elige cómo usas Xpeed. Puedes cambiarlo cuando quieras.",
+      "realTitle": "Coche real",
+      "realHint": "Tu coche: viajes, problemas, combustible y mantenimiento.",
+      "virtualTitle": "Juegos de carreras",
+      "virtualHint": "Sesiones, vueltas y comparaciones de tu simulador.",
+      "lastOne": "Mantén al menos un modo activado."
+    },
+    "onboard": {
+      "title": "¿Para qué quieres usar Xpeed?",
+      "hint": "Puedes cambiarlo más tarde en Ajustes.",
+      "realTitle": "Mi coche real",
+      "realHint": "Lee el coche con un adaptador Bluetooth.",
+      "virtualTitle": "Juegos de carreras",
+      "virtualHint": "Telemetría de tu simulador, en el PC.",
+      "bothTitle": "Los dos",
+      "bothHint": "Tu coche y tu simulador.",
+      "collectorTitle": "Tu simulador",
+      "collectorBody": "La app para Windows que lee tus juegos llegará pronto. Ya puedes explorar el área Virtual.",
+      "collectorFinish": "Ir a Virtual"
+    }
+  },
   "refresh": {
     "pull": "Desliza hacia abajo para actualizar",
     "release": "Suelta para actualizar",

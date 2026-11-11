@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  Car, Plus, ChevronDown, Gauge, History, Settings, Wrench, Shield,
-  LogOut, Loader2, User, AlertTriangle, Bluetooth, Activity, HeartPulse, Fuel, ScanSearch,
-} from 'lucide-react';
+import { Car, Plus, ChevronDown, Shield, LogOut, Loader2, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAdminStatus } from '@/hooks/use-admin-status';
 import { BrandLockup } from '@/components/BrandLockup';
 import { useSettings } from '@/contexts/SettingsContext';
+import { useModes } from '@/contexts/ModesContext';
+import { ModeSwitch } from '@/components/ModeSwitch';
+import { ADVANCED_ITEMS, NAV, SETTINGS_ITEM, TABS } from '@/lib/mode-nav';
+import { MODE_HOME, isActivePath } from '@/lib/modes';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '@/lib/logout';
 import { formatPhone } from '@/lib/phone';
@@ -46,23 +47,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-// Everyday places first; the technical Scanner only shows with "Advanced tools" on.
-// On phones Home, Trips and Problems live in the bottom tab bar, so the menu
-// ("More") only lists the rest.
-const NAV_ITEMS = [
-  { to: '/', i18nKey: 'nav.dashboard', icon: Gauge },
-  { to: '/live', i18nKey: 'nav.live', icon: Activity },
-  { to: '/fuel', i18nKey: 'fuel.title', icon: Fuel },
-  { to: '/trends', i18nKey: 'trends.title', icon: HeartPulse },
-  { to: '/issues', i18nKey: 'nav.issues', icon: AlertTriangle },
-  { to: '/codes', i18nKey: 'codes.title', icon: ScanSearch },
-  { to: '/history', i18nKey: 'nav.history', icon: History },
-  { to: '/maintenance', i18nKey: 'nav.maintenance', icon: Wrench },
-  { to: '/cars', i18nKey: 'nav.cars', icon: Car },
-];
-const ADVANCED_ITEMS = [{ to: '/scanner', i18nKey: 'nav.scanner', icon: Bluetooth }];
-const SETTINGS_ITEM = { to: '/settings', i18nKey: 'nav.settings', icon: Settings };
-const IN_TAB_BAR = new Set(['/', '/history', '/issues']);
+// The menu of each mode is in lib/mode-nav.ts. On phones the first three places
+// live in the bottom tab bar, so the menu ("More") only lists the rest.
 
 // Active page: yellow text and a short yellow bar at the left edge, no fill
 // (same language as the phone tab bar).
@@ -97,20 +83,25 @@ export function AppSidebar() {
   };
 
   const { advancedTools } = useSettings();
-  const navItems = [...NAV_ITEMS, ...(advancedTools ? ADVANCED_ITEMS : []), SETTINGS_ITEM]
-    .filter((item) => !(isMobile && IN_TAB_BAR.has(item.to)));
+  const { mode } = useModes();
+  const inTabBar = new Set(TABS[mode].map((tab) => tab.to));
+  const navItems = [...NAV[mode], ...(mode === 'real' && advancedTools ? ADVANCED_ITEMS : []), SETTINGS_ITEM]
+    .filter((item) => !(isMobile && inTabBar.has(item.to)));
   const adminActive = location.pathname.startsWith('/admin');
 
   return (
     <Sidebar collapsible="icon">
       {/* Logo */}
       <SidebarHeader className="border-b border-sidebar-border">
-        <Link to="/" className="flex items-center gap-3 px-2 py-2" onClick={handleNavClick} aria-label="Xpeed">
+        <Link to={MODE_HOME[mode]} className="flex items-center gap-3 px-2 py-2" onClick={handleNavClick} aria-label="Xpeed">
           <BrandLockup nameClassName="text-sm" labelClassName="group-data-[collapsible=icon]:hidden" tagline={t('sidebar.tagline', 'Your car, simply')} />
         </Link>
 
-        {/* Car Selector */}
-        {cars.length > 0 && (
+        {/* Real | Virtual: only for someone who has both modes. */}
+        <ModeSwitch className="mx-2 mb-2 group-data-[collapsible=icon]:hidden" />
+
+        {/* Car Selector: cars belong to the Real mode. */}
+        {mode === 'real' && cars.length > 0 && (
           <div className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
               <DropdownMenu>
@@ -171,9 +162,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => {
-                const active =
-                  location.pathname === item.to ||
-                  (item.to !== '/' && location.pathname.startsWith(item.to));
+                const active = isActivePath(item.to, location.pathname);
                 const label = t(item.i18nKey, item.i18nKey.split('.').pop() ?? '');
                 return (
                   <SidebarMenuItem key={item.to}>
