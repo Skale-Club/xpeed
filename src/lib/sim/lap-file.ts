@@ -2,7 +2,7 @@ import { REQUIRED_CHANNELS, standardUnit } from '@/lib/sim/channels';
 
 /**
  * The lap file: one lap of one car, every channel sampled at the same moments.
- * The Windows collector writes it, the app reads it; the byte layout is the
+ * The Windows app (Xpeed Sim) writes it, the app reads it; the byte layout is the
  * contract (docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md).
  *
  * Uncompressed layout, all numbers little-endian:
@@ -63,7 +63,7 @@ export interface LapHeader {
   };
   /** When the lap started, ISO 8601 in UTC. */
   startedAt: string;
-  /** How often the collector sampled, in Hz. Informational: `t` is the truth. */
+  /** How often Xpeed Sim sampled, in Hz. Informational: `t` is the truth. */
   sampleRateHz: number;
   sampleCount: number;
   channels: LapChannelInfo[];
@@ -184,7 +184,7 @@ export function packLap(file: LapFile): Uint8Array {
   return out;
 }
 
-/** Reads bytes laid out by `packLap` (or by the collector). Throws a LapFormatError on anything that is not a well-formed lap. */
+/** Reads bytes laid out by `packLap` (or by Xpeed Sim). Throws a LapFormatError on anything that is not a well-formed lap. */
 export function unpackLap(bytes: Uint8Array): LapFile {
   if (!HOST_IS_LITTLE_ENDIAN) return fail('unsupported', 'Lap files need a little-endian machine.');
   if (bytes.length < PREAMBLE_BYTES) return fail('bad_length', 'The file is too short.');

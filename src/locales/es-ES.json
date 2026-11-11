@@ -43,7 +43,7 @@
       "compare": "Comparar vueltas",
       "tracks": "Circuitos",
       "cars": "Coches del juego",
-      "collector": "Colector"
+      "xpeedSim": "Xpeed Sim"
     },
     "placeholder": "Esta área se está construyendo. Tus sesiones y vueltas aparecerán aquí.",
     "settings": {
@@ -64,12 +64,12 @@
       "virtualHint": "Telemetría de tu simulador, en el PC.",
       "bothTitle": "Los dos",
       "bothHint": "Tu coche y tu simulador.",
-      "collectorTitle": "Tu simulador",
-      "collectorBody": "La app para Windows que lee tus juegos llegará pronto. Ya puedes explorar el área Virtual.",
-      "collectorFinish": "Ir a Virtual"
+      "simTitle": "Tu simulador",
+      "simBody": "Xpeed Sim es la app para Windows que lee tus juegos. Instálala en el ordenador donde juegas y conéctala en Virtual > Xpeed Sim.",
+      "simFinish": "Ir a Virtual"
     },
     "compare": {
-      "intro": "Abre archivos de vuelta grabados por el colector de Xpeed para verlos lado a lado.",
+      "intro": "Abre archivos de vuelta grabados por Xpeed Sim para verlos lado a lado.",
       "private": "Los archivos se quedan en tu navegador; no se sube nada.",
       "open": "Abrir archivos de vuelta",
       "sample": "Probar con vueltas de ejemplo",
@@ -124,7 +124,7 @@
       "add": "Añadir archivos de vuelta",
       "addFolder": "Añadir una carpeta",
       "drop": "o suelta archivos de vuelta aquí",
-      "empty": "Aún no hay vueltas. Añade los archivos de vuelta que graba el colector (o toda su carpeta de salida) y aparecerán aquí, agrupadas en sesiones.",
+      "empty": "Aún no hay vueltas. Añade los archivos de vuelta que graba Xpeed Sim (o toda su carpeta de salida) y aparecerán aquí, agrupadas en sesiones.",
       "unavailable": "Este navegador no puede guardar vueltas en el dispositivo. Aún puedes abrir archivos directamente en Comparar vueltas.",
       "failed": "No se pudieron leer tus vueltas de este dispositivo.",
       "retry": "Reintentar",
@@ -157,6 +157,41 @@
       "confirmSessionTitle": "¿Quitar esta sesión?",
       "confirmSessionBody": "Se quitan {{count}} vueltas de este dispositivo. Los archivos que añadiste siguen donde están.",
       "confirmRemove": "Quitar"
+    },
+    "sim": {
+      "intro": "Xpeed Sim es la app para Windows que lee tu juego de carreras y envía cada vuelta a tu cuenta. Instálala en el ordenador donde juegas y conéctala una vez.",
+      "connectTitle": "Conectar un ordenador",
+      "connectBody": "Pide un código y abre Xpeed Sim con el botón de abajo (o ejecuta el comando en el ordenador Windows). El código vale 10 minutos y solo funciona una vez.",
+      "getCode": "Obtener código de emparejamiento",
+      "newCode": "Obtener un código nuevo",
+      "codeLabel": "Código de emparejamiento",
+      "expiresIn": "Válido durante {{time}}",
+      "expired": "Este código ha caducado.",
+      "commandLabel": "O ejecuta esto en el ordenador Windows",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "install": "Xpeed Sim tiene que estar instalado antes en ese ordenador.",
+      "devicesTitle": "Tus ordenadores",
+      "devicesEmpty": "Aún no hay ningún ordenador conectado.",
+      "active": "Conectado",
+      "revoked": "Revocado",
+      "pairedOn": "Conectado el {{date}}",
+      "lastSeen": "Visto por última vez el {{date}}",
+      "neverSeen": "Nunca visto",
+      "lastLap": "Última vuelta enviada el {{date}}",
+      "noLaps": "Aún no ha enviado vueltas",
+      "revoke": "Revocar",
+      "limit": "Puedes conectar hasta 10 ordenadores.",
+      "confirmTitle": "¿Revocar {{name}}?",
+      "confirmBody": "Este ordenador ya no podrá enviar vueltas. Las vueltas que ya envió siguen en tu cuenta. Puedes conectarlo de nuevo con un código nuevo.",
+      "confirmRevoke": "Revocar",
+      "errors": {
+        "signin": "Inicia sesión de nuevo para gestionar tus ordenadores.",
+        "tooMany": "Has pedido demasiados códigos. Espera un momento e inténtalo de nuevo.",
+        "notFound": "No se encontró ese ordenador. Puede que ya esté revocado.",
+        "unavailable": "No se pudo contactar con el servidor. Inténtalo de nuevo."
+      },
+      "openApp": "Abrir Xpeed Sim"
     }
   },
   "refresh": {
