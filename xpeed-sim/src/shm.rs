@@ -1,4 +1,3 @@
-#![allow(dead_code)] // until the readers of each game use everything here
 //! Reading a memory a game shares under a name: opened read-only, copied out, never worked on in place.
 //! (Le Mans Ultimate has its own reader because its memory is guarded by a lock and events.)
 
@@ -81,9 +80,6 @@ impl Page<'_> {
     }
     pub fn f32_at(&self, at: usize) -> f32 {
         self.0.get(at..at + 4).map_or(0.0, |b| f32::from_le_bytes(b.try_into().unwrap()))
-    }
-    pub fn f64_at(&self, at: usize) -> f64 {
-        self.0.get(at..at + 8).map_or(0.0, |b| f64::from_le_bytes(b.try_into().unwrap()))
     }
     pub fn i16_at(&self, at: usize) -> i16 {
         self.0.get(at..at + 2).map_or(0, |b| i16::from_le_bytes(b.try_into().unwrap()))

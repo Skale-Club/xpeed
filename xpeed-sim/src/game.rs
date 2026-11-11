@@ -1,4 +1,3 @@
-#![allow(dead_code)] // until the readers of each game use everything here
 //! What every game other than Le Mans Ultimate gives Xpeed Sim, in one shape.
 //!
 //! Each game has its own door (shared memory, UDP) and its own units. A `Source` opens one of them and turns what it

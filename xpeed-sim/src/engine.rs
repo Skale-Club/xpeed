@@ -98,6 +98,7 @@ pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
 pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync)) {
     struct Live {
         family: &'static str,
+        programs: &'static [&'static str],
         source: Box<dyn Source>,
         cutter: LapCutter,
         last_frame: Instant,
@@ -123,11 +124,23 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
             rest(shared, Duration::from_millis(500));
             continue;
         }
-        // Look again, every couple of seconds, for the games that are not open yet.
+        // Look again, every couple of seconds, for the games that are running and not open yet.
         if last_look.elapsed() >= Duration::from_secs(2) {
             last_look = Instant::now();
+            let running = crate::win::running_programs();
+            for l in &live {
+                if !l.programs.is_empty() && !crate::win::any_running(&running, l.programs) {
+                    // The game closed: its reader lets go of its door (and of its UDP port).
+                    shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+                    say(format!("{} closed.", l.source.game_name()));
+                }
+            }
+            live.retain(|l| l.programs.is_empty() || crate::win::any_running(&running, l.programs));
             for reader in readers {
                 if live.iter().any(|l| l.family == reader.family) {
+                    continue;
+                }
+                if !reader.programs.is_empty() && !crate::win::any_running(&running, reader.programs) {
                     continue;
                 }
                 if let Some(source) = (reader.open)() {
@@ -135,6 +148,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     shared.set_game(source.game_id(), source.game_name(), Game::Connected);
                     live.push(Live {
                         family: reader.family,
+                        programs: reader.programs,
                         cutter: LapCutter::new(source.game_id()),
                         source,
                         last_frame: Instant::now(),
@@ -401,6 +415,7 @@ mod tests {
         let shared = Shared::new(true);
         let readers = [Reader {
             family: "fake",
+            programs: &[],
             open: open_scripted,
         }];
         let finished = std::sync::atomic::AtomicBool::new(false);
