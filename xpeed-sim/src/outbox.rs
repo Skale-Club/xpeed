@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -14,6 +15,7 @@ use serde_json::{json, Value};
 use crate::config::Config;
 use crate::lapfile;
 use crate::net::{self, SendError, Sent, MAX_UPLOAD_BYTES};
+use crate::status::Cloud;
 
 const STATE_FILE: &str = ".xpeed-upload.json";
 
@@ -214,6 +216,34 @@ impl Default for Backoff {
     }
 }
 
+/// Where the thread that sends laps reports to: lines of text, how the cloud side stands, and how many laps just went.
+#[derive(Clone)]
+pub struct Observer {
+    pub say: Arc<dyn Fn(String) + Send + Sync>,
+    pub cloud: Arc<dyn Fn(Cloud) + Send + Sync>,
+    pub sent: Arc<dyn Fn(u32) + Send + Sync>,
+}
+
+impl Observer {
+    /// For the command line: lines go to the terminal, the rest is not needed.
+    pub fn console() -> Observer {
+        Observer {
+            say: Arc::new(|line| println!("{line}")),
+            cloud: Arc::new(|_| {}),
+            sent: Arc::new(|_| {}),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn silent() -> Observer {
+        Observer {
+            say: Arc::new(|_| {}),
+            cloud: Arc::new(|_| {}),
+            sent: Arc::new(|_| {}),
+        }
+    }
+}
+
 enum Message {
     Wake,
     Stop,
@@ -225,30 +255,40 @@ pub struct Uploader {
 }
 
 impl Uploader {
-    pub fn start(dir: PathBuf, config: Config, backoff: Backoff) -> Uploader {
+    pub fn start(dir: PathBuf, config: Config, backoff: Backoff, observer: Observer) -> Uploader {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let agent = net::agent();
             let mut delay = backoff.base;
             loop {
-                let report = upload_pending(&dir, &config, &agent, &mut |line| println!("{line}"));
+                let report = upload_pending(&dir, &config, &agent, &mut |line| (observer.say)(line));
+                if report.sent + report.duplicates > 0 {
+                    (observer.sent)(report.sent + report.duplicates);
+                }
                 let wait = match report.stopped {
                     Some(Stop::Unauthorized) => {
-                        eprintln!("The server no longer accepts this computer's key. Run `xpeed-collector pair` again; laps are still saved here and will be sent after that.");
+                        (observer.say)("The server no longer accepts this computer's key. Pair again; laps are still saved here and will be sent after that.".into());
+                        (observer.cloud)(Cloud::Refused);
                         return;
                     }
                     Some(Stop::Later { reason, after }) => {
                         let wait = after.unwrap_or(delay).max(backoff.base);
                         delay = (delay * 2).min(backoff.max);
-                        eprintln!(
+                        (observer.say)(format!(
                             "Could not send now: {reason}. {} lap(s) waiting; trying again in {} s.",
                             report.left,
                             wait.as_secs().max(1)
-                        );
+                        ));
+                        (observer.cloud)(Cloud::Waiting(report.left));
                         Some(wait)
                     }
                     None => {
                         delay = backoff.base;
+                        (observer.cloud)(if report.left > 0 {
+                            Cloud::Waiting(report.left)
+                        } else {
+                            Cloud::Idle
+                        });
                         // Nothing left to send: sleep until the recorder saves another lap.
                         (report.left > 0).then_some(backoff.base)
                     }

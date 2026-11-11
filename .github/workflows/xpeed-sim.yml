@@ -1,0 +1,64 @@
+# Builds and tests Xpeed Sim, the Windows app (Rust). Runs only when it or its file spec changes.
+# It is separate from CI on purpose: the Coolify deploy waits for "CI" only, and Xpeed Sim is not part of the app image.
+name: Xpeed Sim
+
+on:
+  pull_request:
+    paths:
+      - "xpeed-sim/**"
+      - ".github/workflows/xpeed-sim.yml"
+      - "docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md"
+      # The icon is drawn from the Xpeed mark; if the mark changes, this must be checked against it.
+      - "branding/mark.svg"
+      - "public/logo.svg"
+      - "public/icon-512.png"
+  push:
+    branches: [main]
+    paths:
+      - "xpeed-sim/**"
+      - ".github/workflows/xpeed-sim.yml"
+
+concurrency:
+  group: xpeed-sim-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xpeed-sim:
+    # Windows: the reader uses named memory mappings and events, and its tests create their own.
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: xpeed-sim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup component add clippy rustfmt
+          rustc --version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            xpeed-sim/target
+          key: xpeed-sim-${{ runner.os }}-${{ hashFiles('xpeed-sim/Cargo.lock') }}
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --locked
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          ./installer/build.ps1
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpeed-sim-setup
+          path: xpeed-sim/dist/*.exe
+          if-no-files-found: error

@@ -1,4 +1,4 @@
-// The collector's server side (api/sim/*) on the app's own backend: real PostgreSQL via PGlite, a real
+// Xpeed Sim's server side (api/sim/*) on the app's own backend: real PostgreSQL via PGlite, a real
 // file folder, real row level security. Pairing codes, device keys, lap upload, revoking.
 // Needs: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
 import assert from 'node:assert/strict';
@@ -303,7 +303,7 @@ try {
     assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_laps WHERE device_id = $1', [deviceId])).rows[0].n, 1);
   });
 
-  await check('the browser preflight is answered, and the collector endpoints are not open to every method', async () => {
+  await check('the browser preflight is answered, and the Xpeed Sim endpoints are not open to every method', async () => {
     assert.equal((await call(codes, '/api/sim/codes', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call(devices, '/api/sim/devices', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call(devices, '/api/sim/devices', { method: 'POST', bearer: A, body: {} })).status, 405);

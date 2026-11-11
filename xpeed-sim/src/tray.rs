@@ -1,0 +1,482 @@
+//! Xpeed Sim as a program that lives in the notification area: an icon whose colour tells the state, a menu, balloons
+//! for what matters, and the connection to the Xpeed account. Everything here runs on one thread (the Windows message
+//! loop); recording and sending run on their own threads and reach this one through `Shared`.
+
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::ptr::{null, null_mut};
+use std::sync::Arc;
+
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Shell::{
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow,
+    DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
+    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, CREATESTRUCTW,
+    GWLP_USERDATA, HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
+};
+
+use crate::config::{self, Config, DEFAULT_SERVER};
+use crate::icon::{self, Light};
+use crate::outbox::{Backoff, Observer, Uploader};
+use crate::present;
+use crate::status::{Cloud, Game, Notice, Shared};
+use crate::text::{text, Lang, Msg};
+use crate::{applog, engine, link, net, win};
+
+const CLASS: &str = "XpeedSimTray";
+const INSTANCE_NAME: &str = "Local\\XpeedSimTray";
+/// Where, in the Xpeed app, a computer is connected.
+const CONNECT_PATH: &str = "/sim/app";
+
+const WM_TRAY: u32 = WM_APP + 1;
+const WM_CHANGED: u32 = WM_APP + 2;
+const WM_RELOAD: u32 = WM_APP + 3;
+
+const CMD_CONNECT: usize = 1;
+const CMD_LAPS: usize = 2;
+const CMD_PAUSE: usize = 3;
+const CMD_AUTOSTART: usize = 4;
+const CMD_QUIT: usize = 5;
+
+const LIGHTS: [Light; 4] = [Light::Grey, Light::Amber, Light::Green, Light::Red];
+
+struct App {
+    hwnd: HWND,
+    shared: Arc<Shared>,
+    lang: Lang,
+    laps_dir: PathBuf,
+    config_path: PathBuf,
+    exe: PathBuf,
+    icons: [HICON; 4],
+    server: String,
+    device: Option<String>,
+    taskbar_created: u32,
+}
+
+fn icon_for(light: Light) -> HICON {
+    unsafe {
+        let size = GetSystemMetrics(SM_CXSMICON).clamp(16, 64) as u32;
+        let pixels = icon::render(size, Some(light));
+        let color = CreateBitmap(size as i32, size as i32, 1, 32, pixels.as_ptr().cast());
+        // The mask is not used (the alpha channel does the work); a one-bit bitmap takes rows of whole 16-bit words.
+        let mask_bytes = vec![0u8; (size.div_ceil(16) * 2 * size) as usize];
+        let mask = CreateBitmap(size as i32, size as i32, 1, 1, mask_bytes.as_ptr().cast());
+        let info = ICONINFO {
+            fIcon: 1,
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask,
+            hbmColor: color,
+        };
+        let handle = CreateIconIndirect(&info);
+        DeleteObject(mask);
+        DeleteObject(color);
+        handle
+    }
+}
+
+fn index_of(light: Light) -> usize {
+    LIGHTS.iter().position(|l| *l == light).unwrap_or(1)
+}
+
+/// Starts the thread that sends laps, reporting into the shared status and the log.
+fn start_uploader(shared: &Arc<Shared>, dir: &Path, config: Config) {
+    let (for_cloud, for_sent) = (shared.clone(), shared.clone());
+    let observer = Observer {
+        say: Arc::new(|line| applog::line(&line)),
+        cloud: Arc::new(move |state| {
+            if state == Cloud::Refused {
+                for_cloud.notify(Notice::Refused);
+            }
+            for_cloud.update(|s| s.cloud = state);
+        }),
+        // One lap going right after it was saved needs no word; a pile that was waiting does.
+        sent: Arc::new(move |n| {
+            if n >= 2 {
+                for_sent.notify(Notice::LapsSent(n));
+            }
+        }),
+    };
+    shared.set_uploader(Some(Uploader::start(dir.to_path_buf(), config, Backoff::default(), observer)));
+}
+
+impl App {
+    fn nid(&self, flags: u32) -> NOTIFYICONDATAW {
+        let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+        nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+        nid.hWnd = self.hwnd;
+        nid.uID = 1;
+        nid.uFlags = flags;
+        nid
+    }
+
+    fn add_icon(&self) {
+        let snapshot = self.shared.snapshot();
+        let mut nid = self.nid(NIF_ICON | NIF_MESSAGE | NIF_TIP);
+        nid.uCallbackMessage = WM_TRAY;
+        nid.hIcon = self.icons[index_of(present::light_of(&snapshot))];
+        win::fill(&mut nid.szTip, &present::tooltip(self.lang, &snapshot, self.device.as_deref()));
+        let added = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) } != 0;
+        applog::line(if added {
+            "tray icon added"
+        } else {
+            "the tray icon could not be added"
+        });
+    }
+
+    /// The icon, the tooltip and any balloons, to match the state.
+    fn refresh(&self) {
+        let snapshot = self.shared.snapshot();
+        let mut nid = self.nid(NIF_ICON | NIF_TIP);
+        nid.hIcon = self.icons[index_of(present::light_of(&snapshot))];
+        win::fill(&mut nid.szTip, &present::tooltip(self.lang, &snapshot, self.device.as_deref()));
+        unsafe {
+            Shell_NotifyIconW(NIM_MODIFY, &nid);
+        }
+        // Windows shows one balloon at a time, so the newest wins.
+        if let Some(notice) = self.shared.take_notices().last() {
+            let (title, body) = present::notice_text(self.lang, notice);
+            let mut nid = self.nid(NIF_INFO);
+            win::fill(&mut nid.szInfoTitle, &title);
+            win::fill(&mut nid.szInfo, &body);
+            nid.dwInfoFlags = NIIF_INFO;
+            unsafe {
+                Shell_NotifyIconW(NIM_MODIFY, &nid);
+            }
+        }
+    }
+
+    fn server_for_connect(&self) -> String {
+        format!("{}{}", self.server, CONNECT_PATH)
+    }
+
+    /// Reads the pairing again (a link just changed it) and starts or stops sending to match.
+    fn reload_pairing(&mut self) {
+        match config::load(&self.config_path) {
+            Ok(Some(config)) => {
+                applog::line(&format!("paired with {} as {}", config.server, config.device_name));
+                self.server = config.server.clone();
+                self.device = Some(config.device_name.clone());
+                self.shared.update(|s| s.cloud = Cloud::Idle);
+                self.shared.notify(Notice::Paired(config.device_name.clone()));
+                start_uploader(&self.shared, &self.laps_dir, config);
+            }
+            _ => {
+                self.device = None;
+                self.shared.set_uploader(None);
+                self.shared.update(|s| s.cloud = Cloud::NotPaired);
+            }
+        }
+        self.refresh();
+    }
+
+    fn show_menu(&self) {
+        let snapshot = self.shared.snapshot();
+        let say = |msg: Msg| win::wide(&text(self.lang, &msg));
+        unsafe {
+            let menu = CreatePopupMenu();
+            let line = |flags: u32, id: usize, label: Vec<u16>| {
+                AppendMenuW(menu, flags, id, label.as_ptr());
+            };
+            // What is going on, in lines that cannot be clicked.
+            line(MF_STRING | MF_GRAYED, 0, win::wide(&present::game_line(self.lang, &snapshot.game)));
+            line(
+                MF_STRING | MF_GRAYED,
+                0,
+                win::wide(&present::cloud_line(self.lang, &snapshot.cloud, self.device.as_deref())),
+            );
+            if let Some(last) = &snapshot.last_lap {
+                line(MF_STRING | MF_GRAYED, 0, win::wide(last));
+            }
+            line(MF_SEPARATOR, 0, vec![0]);
+            if snapshot.cloud == Cloud::NotPaired || snapshot.cloud == Cloud::Refused {
+                line(MF_STRING, CMD_CONNECT, say(Msg::MenuConnect));
+            }
+            line(MF_STRING, CMD_LAPS, say(Msg::MenuOpenLaps));
+            line(
+                MF_STRING,
+                CMD_PAUSE,
+                say(if self.shared.paused() { Msg::MenuResume } else { Msg::MenuPause }),
+            );
+            let on = win::autostart_enabled(win::RUN_KEY, win::RUN_NAME);
+            line(MF_STRING | if on { MF_CHECKED } else { 0 }, CMD_AUTOSTART, say(Msg::MenuAutostart));
+            line(MF_SEPARATOR, 0, vec![0]);
+            line(MF_STRING, CMD_QUIT, say(Msg::MenuQuit));
+
+            let mut at = POINT { x: 0, y: 0 };
+            GetCursorPos(&mut at);
+            // The menu closes when the person clicks elsewhere only if our window was in front first.
+            SetForegroundWindow(self.hwnd);
+            let chosen = TrackPopupMenu(
+                menu,
+                TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_RETURNCMD,
+                at.x,
+                at.y,
+                0,
+                self.hwnd,
+                null(),
+            );
+            PostMessageW(self.hwnd, WM_NULL, 0, 0);
+            DestroyMenu(menu);
+            self.command(chosen as usize);
+        }
+    }
+
+    fn command(&self, id: usize) {
+        match id {
+            CMD_CONNECT => win::open(&self.server_for_connect()),
+            CMD_LAPS => {
+                let _ = std::fs::create_dir_all(&self.laps_dir);
+                win::open(&self.laps_dir.display().to_string());
+            }
+            CMD_PAUSE => {
+                self.shared.set_paused(!self.shared.paused());
+                self.shared.update(|s| {
+                    if s.game == Game::Paused {
+                        s.game = Game::Waiting;
+                    }
+                });
+                self.refresh();
+            }
+            CMD_AUTOSTART => {
+                let on = win::autostart_enabled(win::RUN_KEY, win::RUN_NAME);
+                if let Err(why) = win::set_autostart(win::RUN_KEY, win::RUN_NAME, !on, &self.exe) {
+                    applog::line(&why);
+                }
+            }
+            CMD_QUIT => unsafe {
+                DestroyWindow(self.hwnd);
+            },
+            _ => {}
+        }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        for icon in self.icons {
+            unsafe {
+                DestroyIcon(icon);
+            }
+        }
+    }
+}
+
+unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if message == WM_NCCREATE {
+        let create = lparam as *const CREATESTRUCTW;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*create).lpCreateParams as isize);
+        return DefWindowProcW(hwnd, message, wparam, lparam);
+    }
+    let app = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App;
+    if app.is_null() {
+        return DefWindowProcW(hwnd, message, wparam, lparam);
+    }
+    let app = &mut *app;
+    match message {
+        WM_TRAY => {
+            let event = (lparam & 0xffff) as u32;
+            if event == WM_RBUTTONUP || event == WM_LBUTTONUP || event == WM_CONTEXTMENU {
+                app.show_menu();
+            }
+            0
+        }
+        WM_CHANGED => {
+            app.refresh();
+            0
+        }
+        WM_RELOAD => {
+            app.reload_pairing();
+            0
+        }
+        WM_DESTROY => {
+            let nid = app.nid(0);
+            Shell_NotifyIconW(NIM_DELETE, &nid);
+            PostQuitMessage(0);
+            0
+        }
+        other if other == app.taskbar_created => {
+            // Explorer restarted: its notification area is empty again.
+            app.add_icon();
+            0
+        }
+        _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+fn find_running() -> HWND {
+    unsafe { FindWindowW(win::wide(CLASS).as_ptr(), null()) }
+}
+
+/// Where laps are written when nobody chose a folder: `Documents\Xpeed Sim\Laps`.
+pub fn laps_dir() -> PathBuf {
+    config::default_laps_dir()
+}
+
+/// Runs the tray app until the person quits it.
+pub fn run() -> ExitCode {
+    let Some(_only_copy) = win::single_instance(INSTANCE_NAME) else {
+        return ExitCode::SUCCESS;
+    };
+    let Some(home) = config::home_dir() else {
+        win::tell_error("Xpeed Sim", "Cannot tell where to keep Xpeed Sim's files.");
+        return ExitCode::from(1);
+    };
+    applog::init(home.join("sim.log"));
+    applog::line(&format!("Xpeed Sim {} starting", env!("CARGO_PKG_VERSION")));
+
+    let config_path = home.join("config.json");
+    let config = match config::load(&config_path) {
+        Ok(config) => config,
+        Err(why) => {
+            applog::line(&why);
+            None
+        }
+    };
+    let lang = win::ui_lang();
+    let laps_dir = laps_dir();
+    let shared = Shared::new(config.is_some());
+
+    unsafe {
+        let instance = GetModuleHandleW(null());
+        let class = win::wide(CLASS);
+        let window_class = WNDCLASSW {
+            style: 0,
+            lpfnWndProc: Some(window_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: instance,
+            hIcon: null_mut(),
+            hCursor: null_mut(),
+            hbrBackground: null_mut(),
+            lpszMenuName: null(),
+            lpszClassName: class.as_ptr(),
+        };
+        if RegisterClassW(&window_class) == 0 {
+            applog::line("could not register the window class");
+            return ExitCode::from(1);
+        }
+        let app = Box::new(App {
+            hwnd: null_mut(),
+            shared: shared.clone(),
+            lang,
+            laps_dir: laps_dir.clone(),
+            config_path,
+            exe: std::env::current_exe().unwrap_or_default(),
+            icons: LIGHTS.map(icon_for),
+            server: config.as_ref().map_or_else(|| DEFAULT_SERVER.to_owned(), |c| c.server.clone()),
+            device: config.as_ref().map(|c| c.device_name.clone()),
+            taskbar_created: RegisterWindowMessageW(win::wide("TaskbarCreated").as_ptr()),
+        });
+        let app = Box::into_raw(app);
+        let hwnd = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            win::wide("Xpeed Sim").as_ptr(),
+            WS_OVERLAPPED,
+            0,
+            0,
+            0,
+            0,
+            null_mut(),
+            null_mut(),
+            instance,
+            app.cast(),
+        );
+        if hwnd.is_null() {
+            applog::line("could not create the window");
+            drop(Box::from_raw(app));
+            return ExitCode::from(1);
+        }
+        (*app).hwnd = hwnd;
+        (*app).add_icon();
+
+        // The other threads wake this one by posting a message; the window handle travels as a number.
+        let target = hwnd as isize;
+        shared.set_on_change(move || {
+            PostMessageW(target as HWND, WM_CHANGED, 0, 0);
+        });
+
+        if let Some(config) = config {
+            applog::line(&format!("paired with {} as {}", config.server, config.device_name));
+            start_uploader(&shared, &laps_dir, config);
+        } else {
+            shared.notify(Notice::NotPaired);
+        }
+        let recorder = {
+            let (shared, dir) = (shared.clone(), laps_dir.clone());
+            std::thread::spawn(move || {
+                if let Err(why) = engine::run(&dir, &shared, &|line| applog::line(&line), false) {
+                    applog::line(&why);
+                }
+            })
+        };
+
+        let mut message: MSG = std::mem::zeroed();
+        while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+
+        applog::line("quitting");
+        shared.quit();
+        let _ = recorder.join();
+        shared.set_uploader(None);
+        drop(Box::from_raw(app));
+    }
+    ExitCode::SUCCESS
+}
+
+/// What happens when the Xpeed site opens an `xpeedsim://pair?...` link: ask, connect, and tell the running copy
+/// (or start one).
+pub fn pair_from_link(url: &str) -> ExitCode {
+    let lang = win::ui_lang();
+    let failed = |why: String| {
+        win::tell_error(&text(lang, &Msg::PairFailedTitle), &text(lang, &Msg::PairFailed(why)));
+        ExitCode::from(1)
+    };
+    let link = match link::parse(url) {
+        Ok(link) => link,
+        Err(why) => return failed(why),
+    };
+    let host = link.server.split("://").nth(1).unwrap_or(&link.server).to_owned();
+    if !win::ask_yes_no(&text(lang, &Msg::AskPairTitle), &text(lang, &Msg::AskPair(host))) {
+        return ExitCode::SUCCESS;
+    }
+    let Some(path) = config::default_path() else {
+        return failed("cannot tell where to keep the pairing".into());
+    };
+    let name = config::device_name();
+    let token = match net::pair(&net::agent(), &link.server, &link.code, &name) {
+        Ok(token) => token,
+        Err(why) => return failed(why),
+    };
+    if let Err(why) = config::save(
+        &path,
+        &Config {
+            server: link.server,
+            token,
+            device_name: name,
+        },
+    ) {
+        return failed(why);
+    }
+    let running = find_running();
+    if running.is_null() {
+        // Not running: start it, and it reads the pairing it was just given.
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("run").spawn();
+        }
+    } else {
+        unsafe {
+            PostMessageW(running, WM_RELOAD, 0, 0);
+        }
+    }
+    ExitCode::SUCCESS
+}

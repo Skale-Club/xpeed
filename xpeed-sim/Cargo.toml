@@ -1,5 +1,5 @@
 [package]
-name = "xpeed-collector"
+name = "xpeed-sim"
 version = "0.1.0"
 edition = "2021"
 description = "Reads racing-game telemetry on Windows and writes it as Xpeed lap files."
@@ -16,9 +16,21 @@ windows-sys = { version = "0.61", features = [
   "Win32_Security",
   "Win32_System_Memory",
   "Win32_System_Threading",
+  "Win32_System_Console",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Registry",
+  "Win32_Storage_FileSystem",
+  "Win32_Globalization",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [profile.release]
 opt-level = 3
 lto = true
 strip = true
+
+[dev-dependencies]
+# Only to compare the drawn icon with the official PNG of the app.
+png = "0.18"

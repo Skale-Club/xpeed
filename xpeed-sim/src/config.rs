@@ -1,4 +1,4 @@
-//! Where the collector sends laps (server address and device key), kept in one small file in the user's profile.
+//! Where Xpeed Sim sends laps (server address and device key), kept in one small file in the user's profile.
 //!
 //! The device key is a secret: it is never printed, and the server it belongs to must be reached over HTTPS
 //! (plain HTTP is accepted only for the machine itself, for development).
@@ -28,21 +28,53 @@ impl std::fmt::Debug for Config {
     }
 }
 
-/// Where the configuration lives: `XPEED_COLLECTOR_CONFIG`, else `%APPDATA%\Xpeed\collector.json`
-/// (`$XDG_CONFIG_HOME` or `~/.config` elsewhere).
-pub fn default_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("XPEED_COLLECTOR_CONFIG").filter(|p| !p.is_empty()) {
+/// The folder Xpeed Sim keeps its files in (configuration, log): `XPEED_SIM_HOME`, else `%APPDATA%\Xpeed Sim`
+/// (`$XDG_CONFIG_HOME/xpeed-sim` or `~/.config/xpeed-sim` elsewhere).
+pub fn home_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("XPEED_SIM_HOME").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(path));
     }
     let base = if cfg!(windows) {
-        std::env::var_os("APPDATA").map(PathBuf::from)
+        std::env::var_os("APPDATA").map(|b| PathBuf::from(b).join("Xpeed Sim"))
     } else {
         std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .map(|b| b.join("xpeed-sim"))
     };
     base.filter(|b| !b.as_os_str().is_empty())
-        .map(|b| b.join("Xpeed").join("collector.json"))
+}
+
+/// Where the pairing (server address and device key) is kept.
+pub fn default_path() -> Option<PathBuf> {
+    home_dir().map(|home| home.join("config.json"))
+}
+
+/// The Xpeed site people connect to unless they were paired with another one.
+pub const DEFAULT_SERVER: &str = "https://xpeed.skale.club";
+
+/// What this computer calls itself in the person's list of computers in the Xpeed site.
+pub fn device_name() -> String {
+    let raw = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_default();
+    let name: String = raw.chars().filter(|c| !c.is_control()).take(60).collect();
+    if name.trim().is_empty() {
+        "Windows PC".into()
+    } else {
+        name.trim().to_owned()
+    }
+}
+
+/// Where laps are written unless someone chose a folder: `XPEED_SIM_LAPS`, else `Documents\Xpeed Sim\Laps`.
+pub fn default_laps_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("XPEED_SIM_LAPS").filter(|p| !p.is_empty()) {
+        return PathBuf::from(path);
+    }
+    match std::env::var_os("USERPROFILE").filter(|p| !p.is_empty()) {
+        Some(profile) => PathBuf::from(profile).join("Documents").join("Xpeed Sim").join("Laps"),
+        None => home_dir().unwrap_or_default().join("Laps"),
+    }
 }
 
 fn is_loopback(host: &str) -> bool {
@@ -52,7 +84,7 @@ fn is_loopback(host: &str) -> bool {
     )
 }
 
-/// Checks a server address and returns it in the form the collector keeps: no trailing slash.
+/// Checks a server address and returns it in the form Xpeed Sim keeps: no trailing slash.
 pub fn normalize_server(input: &str) -> Result<String, String> {
     let text = input.trim();
     let (scheme, rest) = text.split_once("://").ok_or("the server address must start with https://")?;
@@ -110,7 +142,7 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
     };
-    let broken = || format!("{} is not a valid collector configuration; pair again", path.display());
+    let broken = || format!("{} is not a valid configuration; pair again", path.display());
     let value: Value = serde_json::from_str(&text).map_err(|_| broken())?;
     let text_of = |key: &str| value.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     let (Some(server), Some(token)) = (text_of("server"), text_of("token")) else {
@@ -155,7 +187,7 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "xpeed-collector-test-{}-{name}-{}",
+        "xpeed-sim-test-{}-{name}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
@@ -167,6 +199,20 @@ pub fn scratch_dir(name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn laps_go_where_the_person_said_or_to_documents() {
+        std::env::set_var("XPEED_SIM_LAPS", r"D:\mine");
+        assert_eq!(default_laps_dir(), PathBuf::from(r"D:\mine"));
+        std::env::remove_var("XPEED_SIM_LAPS");
+        assert!(default_laps_dir().ends_with(r"Xpeed Sim\Laps") || default_laps_dir().ends_with("Laps"));
+    }
+
+    #[test]
+    fn a_computer_always_has_a_short_name_without_control_characters() {
+        let name = device_name();
+        assert!(!name.is_empty() && name.chars().count() <= 60 && !name.chars().any(char::is_control));
+    }
 
     #[test]
     fn keeps_https_addresses_without_a_trailing_slash() {
@@ -228,7 +274,7 @@ mod tests {
     #[test]
     fn saves_and_reads_back_the_pairing() {
         let dir = scratch_dir("config");
-        let path = dir.join("nested").join("collector.json");
+        let path = dir.join("nested").join("config.json");
         let config = Config {
             server: "https://xpeed.skale.club".into(),
             token: "xpd_secret".into(),
@@ -255,7 +301,7 @@ mod tests {
     #[test]
     fn refuses_a_file_that_was_damaged_or_edited_to_something_unsafe() {
         let dir = scratch_dir("config-bad");
-        let path = dir.join("collector.json");
+        let path = dir.join("config.json");
         for body in [
             "not json",
             "{}",

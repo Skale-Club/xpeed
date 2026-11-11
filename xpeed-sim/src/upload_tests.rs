@@ -2,13 +2,14 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::config::{scratch_dir, Config};
 use crate::lapfile::{self, Channel, Lap};
 use crate::net::{self, SendError};
-use crate::outbox::{upload_pending, Backoff, Report, Stop, Uploader};
+use crate::outbox::{upload_pending, Backoff, Observer, Report, Stop, Uploader};
+use crate::status::Cloud;
 use crate::stub::{Recorded, Reply, Stub};
 
 fn lap(number: u32) -> Lap {
@@ -58,6 +59,15 @@ fn pass(dir: &Path, config: &Config) -> Report {
     upload_pending(dir, config, &net::agent(), &mut |_| {})
 }
 
+/// An observer that remembers how the cloud side stood each time the worker said so.
+fn watching() -> (Observer, Arc<Mutex<Vec<Cloud>>>) {
+    let states = Arc::new(Mutex::new(Vec::new()));
+    let seen = states.clone();
+    let mut observer = Observer::silent();
+    observer.cloud = Arc::new(move |state| seen.lock().unwrap().push(state));
+    (observer, states)
+}
+
 fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     let started = Instant::now();
     while !done() {
@@ -89,7 +99,7 @@ fn sends_a_lap_exactly_as_it_is_on_disk() {
     assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/laps"));
     assert_eq!(seen[0].headers["authorization"], "Bearer xpd_test");
     assert_eq!(seen[0].headers["content-type"], "application/gzip");
-    assert!(seen[0].headers["user-agent"].starts_with("xpeed-collector/"));
+    assert!(seen[0].headers["user-agent"].starts_with("xpeed-sim/"));
     assert_eq!(seen[0].body, bytes, "the server gets the file untouched");
     // The lap file itself is never changed or removed by sending.
     assert_eq!(std::fs::read(dir.join(&name)).unwrap(), bytes);
@@ -205,7 +215,7 @@ fn a_passing_problem_stops_the_pass_and_keeps_the_laps_pending() {
 }
 
 #[test]
-fn a_server_cannot_make_the_collector_wait_for_days() {
+fn a_server_cannot_make_xpeed_sim_wait_for_days() {
     let dir = scratch_dir("retry-after");
     add_lap(&dir, 1);
     let stub = Stub::start(|_| Reply::new(429, "{}").header("Retry-After", "999999"));
@@ -304,7 +314,8 @@ fn pairing_trades_a_code_for_a_key() {
     let body: serde_json::Value = serde_json::from_slice(&seen.body).unwrap();
     assert_eq!(body["code"], "ABCD2345");
     assert_eq!(body["device"]["name"], "RIG");
-    assert_eq!(body["device"]["collector"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(body["device"]["app"], "xpeed-sim");
+    assert_eq!(body["device"]["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
@@ -346,6 +357,7 @@ fn the_worker_sends_when_told_and_keeps_trying_after_a_failure() {
             Reply::new(201, "{}")
         }
     });
+    let (observer, states) = watching();
     let uploader = Uploader::start(
         dir.clone(),
         config_for(&stub.url),
@@ -353,9 +365,19 @@ fn the_worker_sends_when_told_and_keeps_trying_after_a_failure() {
             base: Duration::from_millis(20),
             max: Duration::from_millis(80),
         },
+        observer,
     );
     wait_until("the first lap to go after two failures", || sent_count(&dir, &stub.url) == 1);
     assert_eq!(stub.requests().len(), 3);
+    wait_until("the worker to say everything is sent", || {
+        states.lock().unwrap().last() == Some(&Cloud::Idle)
+    });
+    let seen = states.lock().unwrap().clone();
+    assert_eq!(
+        seen.first(),
+        Some(&Cloud::Waiting(1)),
+        "it said the lap was waiting while the server failed: {seen:?}"
+    );
 
     // Idle until the recorder saves another lap and says so.
     add_lap(&dir, 2);
@@ -370,6 +392,7 @@ fn the_worker_gives_up_on_a_refused_key_instead_of_knocking_forever() {
     let dir = scratch_dir("worker-401");
     add_lap(&dir, 1);
     let stub = Stub::start(|_| Reply::new(401, "{}"));
+    let (observer, states) = watching();
     let uploader = Uploader::start(
         dir.clone(),
         config_for(&stub.url),
@@ -377,8 +400,12 @@ fn the_worker_gives_up_on_a_refused_key_instead_of_knocking_forever() {
             base: Duration::from_millis(10),
             max: Duration::from_millis(20),
         },
+        observer,
     );
     wait_until("the refused try", || !stub.requests().is_empty());
+    wait_until("the worker to say the key was refused", || {
+        states.lock().unwrap().contains(&Cloud::Refused)
+    });
     uploader.wake();
     std::thread::sleep(Duration::from_millis(150));
     assert_eq!(stub.requests().len(), 1);

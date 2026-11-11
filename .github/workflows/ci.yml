@@ -69,7 +69,7 @@ jobs:
         run: npm run test:dbapi
       - name: Server handlers on the own backend (fuel, care, checkpoints, sharing)
         run: npm run test:handlers
-      - name: Collector server side (pairing codes, device keys, lap upload, revoking)
+      - name: Xpeed Sim server side (pairing codes, device keys, lap upload, revoking)
         run: npm run test:sim
       - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
         run: npm run test:functions

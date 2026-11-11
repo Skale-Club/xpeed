@@ -1,4 +1,4 @@
--- Racing laps from the Windows collector (Virtual mode): paired devices, pairing codes, and the laps they send.
+-- Racing laps from the Windows app, Xpeed Sim (Virtual mode): paired devices, pairing codes, and the laps they send.
 -- The contract is docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md. Only hashes of secrets are stored:
 -- a device key or a pairing code can be checked but never read back. The server (service role) does the
 -- writes; a signed-in person may only read their own devices (never the key hash) and laps.

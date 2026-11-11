@@ -1,6 +1,6 @@
 # Formato do arquivo de volta (versão 1)
 
-Contrato entre o **coletor Windows** (que grava) e o **Xpeed** (que lê). Uma volta de um carro, com todos os canais amostrados nos mesmos instantes. Implementação de referência: `src/lib/sim/lap-file.ts` e `src/lib/sim/channels.ts`; testes em `src/lib/sim/lap-file.test.ts`.
+Contrato entre o **Xpeed Sim (Windows)** (que grava) e o **Xpeed** (que lê). Uma volta de um carro, com todos os canais amostrados nos mesmos instantes. Implementação de referência: `src/lib/sim/lap-file.ts` e `src/lib/sim/channels.ts`; testes em `src/lib/sim/lap-file.test.ts`.
 
 O arquivo enviado e guardado é esse conteúdo **comprimido com gzip**. Os arquivos vêm de fora, então o leitor confere cada tamanho antes de alocar memória.
 
@@ -44,7 +44,7 @@ Quem escreve deve usar sempre esta ordem de chaves, para que a mesma volta gere 
 
 Obrigatórios em todo arquivo: **`t`** (segundos desde o início da volta) e **`dist`** (metros percorridos desde o início da volta). As voltas são comparadas pela posição na pista, não pelo relógio.
 
-Canais padrão, cada um com **uma só unidade** (o coletor converte antes de gravar; se o id padrão vier com outra unidade, o arquivo é recusado):
+Canais padrão, cada um com **uma só unidade** (o Xpeed Sim converte antes de gravar; se o id padrão vier com outra unidade, o arquivo é recusado):
 
 | id | unidade | Significado |
 |---|---|---|
@@ -60,7 +60,7 @@ Canais padrão, cada um com **uma só unidade** (o coletor converte antes de gra
 | `x`, `y`, `z` | `m` | Posição no mundo (leste, cima, norte) |
 | `fuel` | `l` | Combustível no tanque |
 
-Cada jogo pode acrescentar canais próprios com qualquer outro id (por exemplo `tyre_fl_temp`), com a unidade que o coletor declarar. Valor que o jogo não informou em uma amostra é gravado como **NaN**.
+Cada jogo pode acrescentar canais próprios com qualquer outro id (por exemplo `tyre_fl_temp`), com a unidade que o Xpeed Sim declarar. Valor que o jogo não informou em uma amostra é gravado como **NaN**.
 
 ## Limites
 
@@ -77,7 +77,7 @@ O leitor devolve um destes códigos: `bad_magic`, `bad_version`, `bad_flags`, `b
 
 ## Vetor de teste
 
-Uma volta pequena que **o coletor deve gerar byte a byte** (antes do gzip; o gzip pode variar de uma biblioteca para outra, o conteúdo descomprimido não). Foi montada por um script separado, sem usar o código da referência, e o teste `writes exactly the bytes of the golden lap` confere que a implementação produz esses mesmos 396 bytes.
+Uma volta pequena que **o Xpeed Sim deve gerar byte a byte** (antes do gzip; o gzip pode variar de uma biblioteca para outra, o conteúdo descomprimido não). Foi montada por um script separado, sem usar o código da referência, e o teste `writes exactly the bytes of the golden lap` confere que a implementação produz esses mesmos 396 bytes.
 
 Cabeçalho (345 bytes de JSON, completados com 3 espaços até 348):
 
@@ -93,7 +93,7 @@ Arquivo completo em hexadecimal (396 bytes):
 584c4150010000005c0100007b2267616d65223a226c6d75222c22747261636b223a7b226e616d65223a225465737420547261636b222c2276617269616e74223a224750222c226c656e6774684d223a32307d2c22636172223a7b226e616d65223a225465737420436172222c22636c617373223a224859504552434152227d2c226c6170223a7b226e756d626572223a312c2274696d654d73223a313030302c2276616c6964223a747275652c22736563746f72734d73223a5b3430302c3630305d7d2c22737461727465644174223a22323032362d31312d31305431323a30303a30302e3030305a222c2273616d706c6552617465487a223a322c2273616d706c65436f756e74223a332c226368616e6e656c73223a5b7b226964223a2274222c22756e6974223a2273227d2c7b226964223a2264697374222c22756e6974223a226d227d2c7b226964223a227370656564222c22756e6974223a226d2f73227d5d7d202020000000000000003f0000803f00000000000020410000a04100000000000020410000a041
 ```
 
-## Notas para o coletor em .NET
+## Notas para o Xpeed Sim em .NET
 
 - `BinaryPrimitives.WriteUInt16LittleEndian`, `WriteUInt32LittleEndian` e `BinaryPrimitives.WriteSingleLittleEndian` dão os bytes certos em qualquer máquina.
 - Escreva o JSON com `System.Text.Json`, nomes de propriedade em camelCase e os campos na ordem da tabela. Não escreva campos opcionais ausentes como `null`: omita-os.

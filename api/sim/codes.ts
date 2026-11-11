@@ -1,4 +1,4 @@
-// POST /api/sim/codes: a signed-in person asks for a pairing code to type into the collector.
+// POST /api/sim/codes: a signed-in person asks for a pairing code to type into Xpeed Sim.
 // The code is shown once; only its hash is kept. It works ten minutes and once.
 import { openBackend } from '../_backend';
 import { bearer, browserHeaders, newPairingCode, reply, sha256Hex, showCode, tooMany } from './_shared';

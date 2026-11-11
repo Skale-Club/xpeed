@@ -1,4 +1,4 @@
-//! The two calls the collector makes to the Xpeed server: pair this computer, and send one lap.
+//! The two calls Xpeed Sim makes to the Xpeed server: pair this computer, and send one lap.
 //! The contract is `docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md`.
 
 use std::time::Duration;
@@ -39,7 +39,7 @@ pub fn agent() -> ureq::Agent {
         .max_redirects(0)
         .timeout_connect(Some(Duration::from_secs(10)))
         .timeout_global(Some(Duration::from_secs(120)))
-        .user_agent(concat!("xpeed-collector/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("xpeed-sim/", env!("CARGO_PKG_VERSION")))
         .build();
     ureq::Agent::new_with_config(config)
 }
@@ -127,7 +127,7 @@ pub fn send_lap(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sen
 pub fn pair(agent: &ureq::Agent, server: &str, code: &str, device_name: &str) -> Result<String, String> {
     let body = json!({
         "code": code,
-        "device": { "name": device_name, "platform": std::env::consts::OS, "collector": env!("CARGO_PKG_VERSION") },
+        "device": { "name": device_name, "platform": std::env::consts::OS, "app": "xpeed-sim", "version": env!("CARGO_PKG_VERSION") },
     });
     let response = agent
         .post(format!("{server}/api/sim/pair"))
