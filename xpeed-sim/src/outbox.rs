@@ -234,7 +234,7 @@ impl Uploader {
                 let report = upload_pending(&dir, &config, &agent, &mut |line| println!("{line}"));
                 let wait = match report.stopped {
                     Some(Stop::Unauthorized) => {
-                        eprintln!("The server no longer accepts this computer's key. Run `xpeed-collector pair` again; laps are still saved here and will be sent after that.");
+                        eprintln!("The server no longer accepts this computer's key. Run `xpeed-sim pair` again; laps are still saved here and will be sent after that.");
                         return;
                     }
                     Some(Stop::Later { reason, after }) => {

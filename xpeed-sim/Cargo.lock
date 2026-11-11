@@ -524,7 +524,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "xpeed-collector"
+name = "xpeed-sim"
 version = "0.1.0"
 dependencies = [
  "flate2",

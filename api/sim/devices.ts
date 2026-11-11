@@ -1,4 +1,4 @@
-// GET /api/sim/devices: the collectors paired to the signed-in account.
+// GET /api/sim/devices: the computers paired to the signed-in account.
 // DELETE /api/sim/devices?id=<uuid>: revokes one; its next upload is refused (401).
 import { openBackend } from '../_backend';
 import { bearer, browserHeaders, reply } from './_shared';

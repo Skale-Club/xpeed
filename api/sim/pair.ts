@@ -1,4 +1,4 @@
-// POST /api/sim/pair: the collector trades a pairing code (made in the app) for its device key.
+// POST /api/sim/pair: Xpeed Sim trades a pairing code (made in the app) for its device key.
 import { openBackend } from '../_backend';
 import { clientIp, newDeviceKey, readCode, reply, sha256Hex, tooMany } from './_shared';
 
@@ -15,7 +15,7 @@ export default async function pair(req: Request): Promise<Response> {
   const code = readCode(input?.code);
   if (!code) return reply({ error: 'invalid_code' }, 404);
   const rawName = typeof input?.device?.name === 'string' ? input.device.name : '';
-  const name = [...rawName].filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127).join('').trim().slice(0, 60) || 'Collector';
+  const name = [...rawName].filter((c) => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127).join('').trim().slice(0, 60) || 'Windows PC';
 
   const backend = openBackend();
   if (!backend) return reply({ error: 'unavailable' }, 503);

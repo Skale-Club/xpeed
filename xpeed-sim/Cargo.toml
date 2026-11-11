@@ -1,5 +1,5 @@
 [package]
-name = "xpeed-collector"
+name = "xpeed-sim"
 version = "0.1.0"
 edition = "2021"
 description = "Reads racing-game telemetry on Windows and writes it as Xpeed lap files."

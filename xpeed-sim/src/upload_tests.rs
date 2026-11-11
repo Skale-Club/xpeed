@@ -89,7 +89,7 @@ fn sends_a_lap_exactly_as_it_is_on_disk() {
     assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/laps"));
     assert_eq!(seen[0].headers["authorization"], "Bearer xpd_test");
     assert_eq!(seen[0].headers["content-type"], "application/gzip");
-    assert!(seen[0].headers["user-agent"].starts_with("xpeed-collector/"));
+    assert!(seen[0].headers["user-agent"].starts_with("xpeed-sim/"));
     assert_eq!(seen[0].body, bytes, "the server gets the file untouched");
     // The lap file itself is never changed or removed by sending.
     assert_eq!(std::fs::read(dir.join(&name)).unwrap(), bytes);
@@ -205,7 +205,7 @@ fn a_passing_problem_stops_the_pass_and_keeps_the_laps_pending() {
 }
 
 #[test]
-fn a_server_cannot_make_the_collector_wait_for_days() {
+fn a_server_cannot_make_xpeed_sim_wait_for_days() {
     let dir = scratch_dir("retry-after");
     add_lap(&dir, 1);
     let stub = Stub::start(|_| Reply::new(429, "{}").header("Retry-After", "999999"));
@@ -304,7 +304,8 @@ fn pairing_trades_a_code_for_a_key() {
     let body: serde_json::Value = serde_json::from_slice(&seen.body).unwrap();
     assert_eq!(body["code"], "ABCD2345");
     assert_eq!(body["device"]["name"], "RIG");
-    assert_eq!(body["device"]["collector"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(body["device"]["app"], "xpeed-sim");
+    assert_eq!(body["device"]["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]

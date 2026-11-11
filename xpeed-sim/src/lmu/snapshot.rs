@@ -1,4 +1,4 @@
-//! Turning the bytes of `LMU_Data` into the few values the collector uses.
+//! Turning the bytes of `LMU_Data` into the few values Xpeed Sim uses.
 //!
 //! `Snapshot::from_memory` reads a buffer laid out like the shared memory (see `layout.rs`). The
 //! reader fills that buffer from the game under the game's lock; the tests fill it by hand.

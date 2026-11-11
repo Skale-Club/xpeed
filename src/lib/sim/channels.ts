@@ -1,13 +1,13 @@
 /**
  * The channels every lap file may carry, with the one unit each is stored in.
  * Units are SI-ish on purpose: a lap recorded from any game is compared with a
- * lap from any other, so the collector converts to these units before writing
+ * lap from any other, so Xpeed Sim converts to these units before writing
  * (km/h becomes m/s, degrees stay out of the file, and so on).
  *
  * `t` and `dist` are required in every file. `dist` is the distance driven since
  * the start of the lap: laps are compared by where on the track the car is, not by
  * the clock. Games may add channels of their own with any other id (lowercase
- * letters, digits and underscores); those carry whatever unit the collector states.
+ * letters, digits and underscores); those carry whatever unit Xpeed Sim states.
  */
 export const STANDARD_CHANNELS = {
   t: { unit: 's', description: 'Time since the start of the lap' },

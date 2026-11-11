@@ -1,4 +1,4 @@
-//! xpeed-collector: reads racing-game telemetry on Windows and writes it as Xpeed lap files.
+//! xpeed-sim: reads racing-game telemetry on Windows and writes it as Xpeed lap files.
 //!
 //! * `probe`   checks that the game is sharing data and shows what it sends (nothing is written);
 //! * `record`  writes every lap to a folder as a `.xlap.gz` file (and, with `--upload`, sends them to Xpeed);
@@ -23,19 +23,19 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const HELP: &str = "\
-xpeed-collector: racing-game telemetry to Xpeed lap files
+xpeed-sim: racing-game telemetry to Xpeed lap files
 
 USAGE:
-    xpeed-collector probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
-    xpeed-collector record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
+    xpeed-sim probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
+    xpeed-sim record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
-    xpeed-collector inspect FILE           Show what a lap file holds
-    xpeed-collector pair --server URL --code CODE [--name NAME]
+    xpeed-sim inspect FILE           Show what a lap file holds
+    xpeed-sim pair --server URL --code CODE [--name NAME]
                                            Connect this computer to your Xpeed account (the code comes from the app)
-    xpeed-collector status                 Show whether this computer is paired
-    xpeed-collector unpair                 Forget the pairing on this computer
-    xpeed-collector upload DIR             Send the laps in DIR that were not sent yet
-    xpeed-collector help
+    xpeed-sim status                 Show whether this computer is paired
+    xpeed-sim unpair                 Forget the pairing on this computer
+    xpeed-sim upload DIR             Send the laps in DIR that were not sent yet
+    xpeed-sim help
 
 For the game to share data, 'Enable external plugins' must be on (Settings > Gameplay) and the game must be running.
 ";
@@ -209,20 +209,20 @@ fn default_device_name() -> String {
         .unwrap_or_default();
     let name: String = raw.chars().filter(|c| !c.is_control()).take(60).collect();
     if name.trim().is_empty() {
-        "Collector".into()
+        "Windows PC".into()
     } else {
         name.trim().to_owned()
     }
 }
 
 fn config_path() -> Result<PathBuf, String> {
-    config::default_path().ok_or_else(|| "cannot tell where to keep the pairing; set XPEED_COLLECTOR_CONFIG to a file path".to_owned())
+    config::default_path().ok_or_else(|| "cannot tell where to keep the pairing; set XPEED_SIM_HOME to a folder".to_owned())
 }
 
 /// The pairing of this computer, or what to do about it not being there.
 fn paired() -> Result<config::Config, String> {
     config::load(&config_path()?)?
-        .ok_or_else(|| "this computer is not paired yet. Run: xpeed-collector pair --server ADDRESS --code CODE".to_owned())
+        .ok_or_else(|| "this computer is not paired yet. Run: xpeed-sim pair --server ADDRESS --code CODE".to_owned())
 }
 
 fn fail(message: impl std::fmt::Display) -> ExitCode {
@@ -262,7 +262,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
     ) {
         Ok(()) => {
             println!("Paired. The device key is kept in {}; it is never shown.", path.display());
-            println!("Send laps with: xpeed-collector record --out DIR --upload   (or: xpeed-collector upload DIR)");
+            println!("Send laps with: xpeed-sim record --out DIR --upload   (or: xpeed-sim upload DIR)");
             ExitCode::SUCCESS
         }
         Err(why) => fail(format!(
@@ -288,7 +288,7 @@ fn status_command() -> ExitCode {
 fn unpair_command() -> ExitCode {
     match config_path().and_then(|path| config::remove(&path)) {
         Ok(true) => {
-            println!("Forgot the pairing on this computer. To stop the server accepting this device, remove it in the app (Virtual > Collector).");
+            println!("Forgot the pairing on this computer. To stop the server accepting this device, remove it in the app (Virtual > Xpeed Sim).");
             ExitCode::SUCCESS
         }
         Ok(false) => {
@@ -314,7 +314,7 @@ fn upload_command(dir: &Path) -> ExitCode {
     );
     match report.stopped {
         None => ExitCode::SUCCESS,
-        Some(outbox::Stop::Unauthorized) => fail("The server no longer accepts this computer's key. Run `xpeed-collector pair` again."),
+        Some(outbox::Stop::Unauthorized) => fail("The server no longer accepts this computer's key. Run `xpeed-sim pair` again."),
         Some(outbox::Stop::Later { reason, .. }) => fail(format!("Stopped: {reason}. Run the command again later; nothing was lost.")),
     }
 }
@@ -522,7 +522,7 @@ mod live {
                 }
             };
             if !reader.layout_matches() {
-                eprintln!("The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update the collector.", reader.mapped_bytes(), LAYOUT_SIZE);
+                eprintln!("The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update Xpeed Sim.", reader.mapped_bytes(), LAYOUT_SIZE);
                 return ExitCode::from(2);
             }
             waiting = false;
