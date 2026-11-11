@@ -97,8 +97,10 @@ impl Page<'_> {
             .0
             .get(at..at + units * 2)
             .unwrap_or(&[])
-            .chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
             .collect();
         crate::game::text_of_utf16(&raw)
     }
