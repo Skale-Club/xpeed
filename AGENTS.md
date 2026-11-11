@@ -31,3 +31,20 @@ They cover model routing (the session model plans and validates, cheaper models 
 This file adds only what is specific to this repository.
 <!-- /universal-rules -->
 
+<!-- brand-rule:v1 -->
+## The Xpeed logo: always the real one (mandatory)
+
+The mark is `branding/mark.svg`. Every logo and icon in this project comes from that file. **Never invent, redraw, trace,
+simplify, recolour or approximate it**, in any place (web app, Android, Windows app, documents, share images, tray icons,
+placeholders, tests with images). A plain "X", an icon-library X, or a look-alike made "for now" is a defect.
+
+- Web app: use `<BrandLogo />` (shows `/logo.svg`); no inline `<svg>` of your own.
+- Image files: take them from what `npm run brand` generates (`public/logo.svg`, `public/icon-512.png`, ...). A new size or
+  shape goes into `scripts/brand-assets.mjs`, not into a design tool.
+- Code that must draw it (for example `xpeed-sim/src/icon.rs`): copy the points of `branding/mark.svg` and the colours and
+  placement of `public/logo.svg` exactly, and add tests that read those files and fail on any difference.
+- Before you finish anything that shows the logo, look at it next to `public/icon-512.png`.
+
+Full rule, the list of surfaces and what the build checks: `branding/README.md`.
+<!-- /brand-rule -->
+

@@ -2,6 +2,8 @@
 
 Read `AGENTS.md` first; everything there applies to Claude.
 
+**The Xpeed logo is always the real one** (`branding/mark.svg`; never redrawn or approximated). Rule and checks: `branding/README.md` and the brand block of `AGENTS.md`.
+
 <!-- journal-protocol:v1 -->
 ## Journal (mandatory)
 
