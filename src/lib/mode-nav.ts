@@ -28,7 +28,7 @@ export const NAV: Record<Mode, NavEntry[]> = {
     { to: '/sim/compare', i18nKey: 'modes.nav.compare', icon: ArrowLeftRight },
     { to: '/sim/tracks', i18nKey: 'modes.nav.tracks', icon: Flag },
     { to: '/sim/cars', i18nKey: 'modes.nav.cars', icon: CarFront },
-    { to: '/sim/collector', i18nKey: 'modes.nav.collector', icon: Radio },
+    { to: '/sim/app', i18nKey: 'modes.nav.xpeedSim', icon: Radio },
   ],
 };
 

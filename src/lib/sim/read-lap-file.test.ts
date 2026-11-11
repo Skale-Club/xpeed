@@ -15,7 +15,7 @@ async function reasonOf(file: Blob): Promise<string> {
 }
 
 describe('reading a lap file picked by a person', () => {
-  it('reads the gzip file the collector writes', async () => {
+  it('reads the gzip file Xpeed Sim writes', async () => {
     const read = await readLapFile(new Blob([await gzipLap(lap)]));
     expect(read.header).toEqual(lap.header);
   });

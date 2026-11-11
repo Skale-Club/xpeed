@@ -3,30 +3,31 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/lib/i18n';
 import { SettingsProvider } from '@/contexts/SettingsContext';
-import type { CollectorDevice } from '@/lib/sim/collector-api';
+import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 
 const api = vi.hoisted(() => ({ list: vi.fn(), ask: vi.fn(), revoke: vi.fn() }));
-vi.mock('@/lib/sim/collector-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/sim/collector-api')>()),
+vi.mock('@/lib/sim/xpeed-sim-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/sim/xpeed-sim-api')>()),
   listDevices: api.list,
   requestPairingCode: api.ask,
   revokeDevice: api.revoke,
-  pairCommand: (code: string) => `xpeed-collector pair --server https://xpeed.test --code ${code}`,
+  pairCommand: (code: string) => `xpeed-sim pair --server https://xpeed.test --code ${code}`,
+  pairLink: (code: string) => `xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=${code}`,
 }));
 
-import { CollectorApiError } from '@/lib/sim/collector-api';
-import { CollectorPanel } from './CollectorPanel';
+import { XpeedSimApiError } from '@/lib/sim/xpeed-sim-api';
+import { XpeedSimPanel } from './XpeedSimPanel';
 
-const device = (over: Partial<CollectorDevice> = {}): CollectorDevice => ({
+const device = (over: Partial<SimDevice> = {}): SimDevice => ({
   id: 'd1', name: 'RIG', created_at: '2026-11-01T10:00:00.000Z', last_seen_at: '2026-11-10T09:00:00.000Z',
   last_lap_at: '2026-11-10T08:30:00.000Z', revoked_at: null, ...over,
 });
 const renderPanel = () =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <SettingsProvider><CollectorPanel /></SettingsProvider>
+      <SettingsProvider><XpeedSimPanel /></SettingsProvider>
     </QueryClientProvider>,
   );
 
@@ -47,8 +48,11 @@ describe('connecting a computer', () => {
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
     expect(await screen.findByTestId('pairing-code')).toHaveTextContent('ABCD-2345');
-    // The command carries the code without the dash, the way the collector reads it.
-    expect(screen.getByTestId('pairing-command')).toHaveTextContent('xpeed-collector pair --server https://xpeed.test --code ABCD2345');
+    // The command carries the code without the dash, the way Xpeed Sim reads it.
+    expect(screen.getByTestId('pairing-command')).toHaveTextContent('xpeed-sim pair --server https://xpeed.test --code ABCD2345');
+    // The button opens Xpeed Sim with the code in the link.
+    expect(screen.getByTestId('open-app')).toHaveAttribute('href', 'xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=ABCD2345');
+    expect(screen.getByTestId('open-app')).toHaveTextContent('Open Xpeed Sim');
     expect(screen.getByTestId('pairing-left')).toHaveTextContent(/Valid for (9|10):\d\d/);
     expect(screen.getByRole('button', { name: 'Get a new code' })).toBeEnabled();
   });
@@ -63,6 +67,7 @@ describe('connecting a computer', () => {
     expect(screen.getByTestId('pairing-expired')).toHaveTextContent('This code has expired.');
     expect(screen.queryByTestId('pairing-code')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pairing-command')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('open-app')).not.toBeInTheDocument();
   });
 
   it('copies the code and the command', async () => {
@@ -78,11 +83,11 @@ describe('connecting a computer', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('ABCD-2345'));
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
     fireEvent.click(copyCommand);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('xpeed-collector pair --server https://xpeed.test --code ABCD2345'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('xpeed-sim pair --server https://xpeed.test --code ABCD2345'));
   });
 
   it('says what is wrong when no code can be had', async () => {
-    api.ask.mockRejectedValue(new CollectorApiError('too_many'));
+    api.ask.mockRejectedValue(new XpeedSimApiError('too_many'));
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Too many codes requested');
@@ -138,7 +143,7 @@ describe('the computers already connected', () => {
   });
 
   it('says when the list cannot be read', async () => {
-    api.list.mockRejectedValue(new CollectorApiError('unavailable'));
+    api.list.mockRejectedValue(new XpeedSimApiError('unavailable'));
     renderPanel();
     expect(await screen.findByRole('alert')).toHaveTextContent('The server could not be reached');
     expect(screen.queryByTestId('devices-empty')).not.toBeInTheDocument();

@@ -43,7 +43,7 @@
       "compare": "Comparar voltas",
       "tracks": "Pistas",
       "cars": "Carros do jogo",
-      "collector": "Coletor"
+      "xpeedSim": "Xpeed Sim"
     },
     "placeholder": "Esta área está sendo construída. Suas sessões e voltas vão aparecer aqui.",
     "settings": {
@@ -64,12 +64,12 @@
       "virtualHint": "Telemetria do seu simulador, no PC.",
       "bothTitle": "Os dois",
       "bothHint": "O seu carro e o seu simulador.",
-      "collectorTitle": "Seu simulador",
-      "collectorBody": "O aplicativo para Windows que lê os seus jogos chega em breve. Você já pode conhecer a área Virtual.",
-      "collectorFinish": "Ir para o Virtual"
+      "simTitle": "Seu simulador",
+      "simBody": "O Xpeed Sim é o aplicativo para Windows que lê os seus jogos. Instale-o no computador onde você joga e conecte-o em Virtual > Xpeed Sim.",
+      "simFinish": "Ir para o Virtual"
     },
     "compare": {
-      "intro": "Abra arquivos de volta gravados pelo coletor do Xpeed para vê-los lado a lado.",
+      "intro": "Abra arquivos de volta gravados pelo Xpeed Sim para vê-los lado a lado.",
       "private": "Os arquivos ficam no seu navegador; nada é enviado.",
       "open": "Abrir arquivos de volta",
       "sample": "Testar com voltas de exemplo",
@@ -124,7 +124,7 @@
       "add": "Adicionar arquivos de volta",
       "addFolder": "Adicionar uma pasta",
       "drop": "ou solte arquivos de volta aqui",
-      "empty": "Nenhuma volta ainda. Adicione os arquivos de volta que o coletor grava (ou a pasta inteira de saída) e eles aparecem aqui, agrupados em sessões.",
+      "empty": "Nenhuma volta ainda. Adicione os arquivos de volta que o Xpeed Sim grava (ou a pasta inteira de saída) e eles aparecem aqui, agrupados em sessões.",
       "unavailable": "Este navegador não consegue guardar voltas no aparelho. Você ainda pode abrir arquivos direto em Comparar voltas.",
       "failed": "Não foi possível ler as suas voltas deste aparelho.",
       "retry": "Tentar de novo",
@@ -158,19 +158,19 @@
       "confirmSessionBody": "{{count}} voltas serão removidas deste aparelho. Os arquivos que você adicionou continuam onde estão.",
       "confirmRemove": "Remover"
     },
-    "collector": {
-      "intro": "O coletor é o programa para Windows que lê o seu jogo de corrida e envia cada volta para a sua conta. Conecte um computador uma vez com um código de pareamento.",
+    "sim": {
+      "intro": "O Xpeed Sim é o aplicativo para Windows que lê o seu jogo de corrida e envia cada volta para a sua conta. Instale-o no computador onde você joga e conecte-o uma vez.",
       "connectTitle": "Conectar um computador",
-      "connectBody": "Peça um código e rode o comando abaixo no computador Windows onde você joga. O código vale por 10 minutos e só funciona uma vez.",
+      "connectBody": "Peça um código e abra o Xpeed Sim com o botão abaixo (ou rode o comando no computador Windows). O código vale por 10 minutos e só funciona uma vez.",
       "getCode": "Gerar código de pareamento",
       "newCode": "Gerar novo código",
       "codeLabel": "Código de pareamento",
       "expiresIn": "Vale por {{time}}",
       "expired": "Este código expirou.",
-      "commandLabel": "Rode isto no computador Windows",
+      "commandLabel": "Ou rode isto no computador Windows",
       "copy": "Copiar",
       "copied": "Copiado",
-      "install": "O coletor precisa estar instalado nesse computador antes. Por enquanto ele é compilado a partir da pasta collector do repositório.",
+      "install": "O Xpeed Sim precisa estar instalado nesse computador antes.",
       "devicesTitle": "Seus computadores",
       "devicesEmpty": "Nenhum computador conectado ainda.",
       "active": "Conectado",
@@ -190,7 +190,8 @@
         "tooMany": "Códigos demais pedidos. Espere um pouco e tente de novo.",
         "notFound": "Esse computador não foi encontrado. Talvez já tenha sido revogado.",
         "unavailable": "Não foi possível falar com o servidor. Tente de novo."
-      }
+      },
+      "openApp": "Abrir o Xpeed Sim"
     }
   },
   "refresh": {

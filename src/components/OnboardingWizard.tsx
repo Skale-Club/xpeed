@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useModes } from '@/contexts/ModesContext';
 
-type StepKey = 'welcome' | 'mode' | 'car' | 'connect' | 'collector';
+type StepKey = 'welcome' | 'mode' | 'car' | 'connect' | 'sim';
 type ConnectChoice = 'adapter' | 'none' | null;
 /** What the person wants Xpeed for: their car (the default), racing games, or both. */
 type ModeChoice = 'real' | 'virtual' | 'both';
@@ -48,7 +48,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   const STEPS: StepKey[] = !virtualAvailable
     ? ['welcome', 'car', 'connect']
-    : modeChoice === 'virtual' ? ['welcome', 'mode', 'collector'] : ['welcome', 'mode', 'car', 'connect'];
+    : modeChoice === 'virtual' ? ['welcome', 'mode', 'sim'] : ['welcome', 'mode', 'car', 'connect'];
   const stepIndex = STEPS.indexOf(step);
 
   const handleWelcome = async () => {
@@ -64,7 +64,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   const handleMode = () => {
     setModes(modeChoice === 'real' ? ['real'] : modeChoice === 'virtual' ? ['virtual'] : ['real', 'virtual']);
-    setStep(modeChoice === 'virtual' ? 'collector' : 'car');
+    setStep(modeChoice === 'virtual' ? 'sim' : 'car');
   };
 
   const modeOptions: { key: ModeChoice; icon: typeof Car; title: string; hint: string }[] = [
@@ -166,15 +166,15 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
               </>
             )}
 
-            {step === 'collector' && (
+            {step === 'sim' && (
               <>
                 <div className="text-center space-y-2">
                   <Gamepad className="w-10 h-10 text-primary mx-auto" />
-                  <h2 className="text-xl font-bold">{t('modes.onboard.collectorTitle', 'Your simulator')}</h2>
-                  <p className="text-sm text-muted-foreground">{t('modes.onboard.collectorBody', 'The Windows app that reads your games is coming soon. You can already explore the Virtual area.')}</p>
+                  <h2 className="text-xl font-bold">{t('modes.onboard.simTitle', 'Your simulator')}</h2>
+                  <p className="text-sm text-muted-foreground">{t('modes.onboard.simBody', 'The Windows app that reads your games is coming soon. You can already explore the Virtual area.')}</p>
                 </div>
                 <Button size="lg" className="w-full" onClick={onComplete}>
-                  <CheckCircle className="w-4 h-4 mr-2" /> {t('modes.onboard.collectorFinish', 'Go to Virtual')}
+                  <CheckCircle className="w-4 h-4 mr-2" /> {t('modes.onboard.simFinish', 'Go to Virtual')}
                 </Button>
                 <div className="flex justify-start">
                   <Button variant="ghost" onClick={() => setStep('mode')}>

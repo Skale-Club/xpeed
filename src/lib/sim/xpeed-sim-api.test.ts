@@ -4,14 +4,14 @@ let token: string | null = 'google-token';
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => token }));
 vi.mock('@/lib/trips', () => ({ publicAppUrl: () => 'https://xpeed.test' }));
 
-import { CollectorApiError, listDevices, pairCommand, requestPairingCode, revokeDevice } from './collector-api';
+import { XpeedSimApiError, listDevices, pairCommand, pairLink, requestPairingCode, revokeDevice } from './xpeed-sim-api';
 
 const answer = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const reasonOf = async (run: () => Promise<unknown>) => {
   try {
     await run();
   } catch (error) {
-    return error instanceof CollectorApiError ? error.reason : `other: ${String(error)}`;
+    return error instanceof XpeedSimApiError ? error.reason : `other: ${String(error)}`;
   }
   return 'no error';
 };
@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('the collector calls', () => {
+describe('the Xpeed Sim calls', () => {
   it('asks for a pairing code with the signed-in token', async () => {
     fetchMock.mockResolvedValue(answer(200, { code: 'ABCD-2345', expiresAt: '2026-11-10T12:10:00.000Z' }));
     expect(await requestPairingCode()).toEqual({ code: 'ABCD-2345', expiresAt: '2026-11-10T12:10:00.000Z' });
@@ -69,6 +69,10 @@ describe('the collector calls', () => {
   });
 
   it('writes the command to type, with this app’s address in it', () => {
-    expect(pairCommand('ABCD2345')).toBe('xpeed-collector pair --server https://xpeed.test --code ABCD2345');
+    expect(pairCommand('ABCD2345')).toBe('xpeed-sim pair --server https://xpeed.test --code ABCD2345');
+  });
+
+  it('writes the link that opens Xpeed Sim, with the address escaped', () => {
+    expect(pairLink('ABCD2345')).toBe('xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=ABCD2345');
   });
 });
