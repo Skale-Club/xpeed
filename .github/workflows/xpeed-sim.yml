@@ -51,3 +51,14 @@ jobs:
         run: cargo test --locked
       - name: Release build
         run: cargo build --release --locked
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          ./installer/build.ps1
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpeed-sim-setup
+          path: xpeed-sim/dist/*.exe
+          if-no-files-found: error
