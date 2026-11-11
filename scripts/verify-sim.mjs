@@ -1,11 +1,12 @@
 // Xpeed Sim's server side (api/sim/*) on the app's own backend: real PostgreSQL via PGlite, a real
-// file folder, real row level security. Pairing codes, device keys, lap upload, revoking.
+// file folder, real row level security. Pairing codes, device keys, lap upload, revoking, track layouts.
 // Needs: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { build } from 'esbuild';
 import pg from 'pg';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
@@ -28,7 +29,7 @@ Object.assign(process.env, {
 
 await build({
   entryPoints: {
-    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', shared: 'api/sim/_shared.ts',
+    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', tracks: 'api/sim/tracks.ts', shared: 'api/sim/_shared.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', dbroute: 'server/db-route.ts', account: 'server/account-route.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
@@ -37,6 +38,7 @@ await build({
 const load = (name) => import(pathToFileURL(resolve(temp, name)).href);
 const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).default;
 const codes = (await load('codes.mjs')).default, devices = (await load('devices.mjs')).default;
+const tracks = (await load('tracks.mjs')).default;
 const { forgetLimits } = await load('shared.mjs');
 const { getPool } = await load('serverdb.mjs');
 const { gzipLap } = await load('lapfile.mjs');
@@ -307,6 +309,250 @@ try {
     assert.equal((await call(codes, '/api/sim/codes', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call(devices, '/api/sim/devices', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call(devices, '/api/sim/devices', { method: 'POST', bearer: A, body: {} })).status, 405);
+  });
+
+  // ------------------------------------------------------------------ track layouts (api/sim/tracks)
+
+  // The spec's own 564-byte test vector (FORMATO-DE-PISTA.md), with its header changed where a check needs another track.
+  const golden = (() => {
+    const page = readFileSync(resolve(root, 'docs/telemetria-virtual-2026-11-10/FORMATO-DE-PISTA.md'), 'utf8');
+    const hex = /```\r?\n([0-9a-f]+)\r?\n```/.exec(page.slice(page.indexOf('Arquivo completo em hexadecimal')))?.[1];
+    assert.ok(hex, 'the golden hex block is in the spec');
+    return Buffer.from(hex, 'hex');
+  })();
+  const goldenHeader = JSON.parse(golden.subarray(12, 12 + golden.readUInt32LE(8)).toString('utf8'));
+  /** The golden track, raw (not gzipped), with `track` merged into its header and, if given, one float of the data changed. */
+  const rawTrack = (track = {}, { floatAt, value } = {}) => {
+    const header = { ...goldenHeader, track: { ...goldenHeader.track, ...track } };
+    for (const key of Object.keys(header.track)) if (header.track[key] === undefined) delete header.track[key];
+    let text = Buffer.from(JSON.stringify(header), 'utf8');
+    text = Buffer.concat([text, Buffer.alloc((4 - (text.length % 4)) % 4, ' ')]);
+    const data = Buffer.from(golden.subarray(12 + golden.readUInt32LE(8)));
+    if (floatAt !== undefined) data.writeFloatLE(value, floatAt);
+    const pre = Buffer.alloc(12);
+    golden.copy(pre, 0, 0, 8);
+    pre.writeUInt32LE(text.length, 8);
+    return Buffer.concat([pre, text, data]);
+  };
+  const trackBytes = (track, change) => new Uint8Array(gzipSync(rawTrack(track, change)));
+  const sendTrack = (key, body, { type = 'application/gzip', ...extra } = {}) =>
+    call(tracks, '/api/sim/tracks', { method: 'POST', bearer: key, body, headers: { 'content-type': type }, ...extra });
+  const trackRows = async (userId) => (await direct.query('SELECT * FROM public.sim_tracks WHERE user_id = $1 ORDER BY created_at', [userId])).rows;
+  await direct.query('DELETE FROM public.sim_tracks');
+  // y of the second centre-line point: changes the bytes, not the track's identity.
+  const moved = { floatAt: 4 * 4 + 1 * 4, value: 0.5 };
+  // One computer sends every layout below (an account may pair ten).
+  const rig = await deviceFor(A, 'Tracks');
+
+  await check('a track layout is checked, stored as the same bytes, and listed for its owner', async () => {
+    const { token: key, deviceId } = rig;
+    const bytes = trackBytes();
+    const first = await sendTrack(key, bytes);
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    assert.deepEqual(Object.keys(first.body).sort(), ['id', 'replaced']);
+    assert.equal(first.body.replaced, false);
+    const [row] = await trackRows(ids.A);
+    assert.equal(row.id, first.body.id);
+    assert.deepEqual([row.device_id, row.track_key, row.game, row.track_name, row.variant, row.title, row.length_m, row.size_bytes, row.sha256],
+      [deviceId, 'ac|test track|gp', 'ac', 'Test Track', 'GP', null, 40, bytes.length, sha(Buffer.from(bytes))]);
+    assert.ok(row.storage_path.startsWith(`${ids.A}/`) && row.storage_path.endsWith('.xtrk.gz'));
+    assert.deepEqual(new Uint8Array(readFileSync(resolve(filesRoot, 'sim-tracks', row.storage_path))), bytes, 'exactly what was sent');
+
+    const listed = await call(tracks, '/api/sim/tracks', { bearer: A });
+    assert.equal(listed.status, 200, JSON.stringify(listed.body));
+    assert.equal(listed.body.tracks.length, 1);
+    const [item] = listed.body.tracks;
+    assert.deepEqual(Object.keys(item).sort(), ['game', 'id', 'lengthM', 'size', 'title', 'trackName', 'updatedAt', 'variant']);
+    assert.deepEqual({ ...item, updatedAt: undefined },
+      { id: first.body.id, game: 'ac', trackName: 'Test Track', variant: 'GP', title: null, lengthM: 40, size: bytes.length, updatedAt: undefined });
+    assert.equal(new Date(item.updatedAt).toISOString(), item.updatedAt, 'an ISO time');
+    assert.equal((await call(tracks, '/api/sim/tracks', { bearer: B })).body.tracks.length, 0, 'B sees none of A\'s');
+  });
+
+  await check('the same track sent again replaces the first, whatever the case of its names; another layout is another track', async () => {
+    const { token: key } = rig;
+    const [before] = await trackRows(ids.A);
+    const changed = trackBytes({ name: '  test TRACK ', variant: 'gp', title: 'The Test Track' }, moved);
+    const again = await sendTrack(key, changed);
+    assert.equal(again.status, 201, JSON.stringify(again.body));
+    assert.deepEqual(again.body, { id: before.id, replaced: true });
+    const rows = await trackRows(ids.A);
+    assert.equal(rows.length, 1, 'still one row');
+    assert.deepEqual([rows[0].track_name, rows[0].variant, rows[0].title, rows[0].sha256, rows[0].storage_path],
+      ['  test TRACK ', 'gp', 'The Test Track', sha(Buffer.from(changed)), before.storage_path]);
+    assert.ok(new Date(rows[0].updated_at) >= new Date(before.updated_at));
+    assert.deepEqual(new Uint8Array(readFileSync(resolve(filesRoot, 'sim-tracks', rows[0].storage_path))), changed, 'the new bytes replace the old');
+
+    const other = await sendTrack(key, trackBytes({ variant: 'Short' }));
+    assert.equal(other.status, 201);
+    assert.equal(other.body.replaced, false);
+    assert.notEqual(other.body.id, before.id);
+    const none = await sendTrack(key, trackBytes({ variant: undefined }));
+    assert.equal(none.body.replaced, false, 'no layout is a layout of its own');
+    assert.equal((await trackRows(ids.A)).length, 3);
+    const fromB = await sendTrack((await deviceFor(B, 'B tracks')).token, trackBytes());
+    assert.deepEqual([fromB.status, fromB.body.replaced], [201, false], 'the same track on another account is that account\'s own');
+  });
+
+  await check('what is not a track layout is refused with the reader\'s code, and nothing is stored for it', async () => {
+    const { token: key } = rig;
+    const before = (await direct.query('SELECT count(*)::int AS n FROM public.sim_tracks')).rows[0].n;
+    const files = readdirSync(resolve(filesRoot, 'sim-tracks', ids.A)).length;
+    const bad = Buffer.from(rawTrack());
+    bad.write('XTRQ', 0, 'latin1');
+    const wrongWidth = rawTrack({}, { floatAt: 4 * 16, value: -1 });
+    for (const [body, code] of [
+      [new TextEncoder().encode('not gzip at all'), 'bad_gzip'],
+      [new Uint8Array(gzipSync(bad)), 'bad_magic'],
+      [new Uint8Array(gzipSync(rawTrack().subarray(0, 100))), 'bad_length'],
+      [new Uint8Array(gzipSync(wrongWidth)), 'bad_data'],
+    ]) {
+      const r = await sendTrack(key, body);
+      assert.equal(r.status, 422, JSON.stringify(r.body));
+      assert.equal(r.body.error, 'bad_track');
+      assert.equal(r.body.code, code);
+    }
+    // A small file that unzips to more than the reader allows is stopped while it is read.
+    const bomb = await sendTrack(key, new Uint8Array(gzipSync(Buffer.alloc(64 * 1024 * 1024 + 1))));
+    assert.deepEqual([bomb.status, bomb.body.error], [413, 'too_large']);
+    const empty = await sendTrack(key, new Uint8Array(0));
+    assert.deepEqual([empty.status, empty.body.error], [400, 'empty_body']);
+    const big = await sendTrack(key, new Uint8Array(32 * 1024 * 1024 + 1));
+    assert.deepEqual([big.status, big.body.error], [413, 'too_large']);
+    assert.equal((await sendTrack(key, trackBytes(), { type: 'application/json' })).status, 415);
+    assert.equal((await sendTrack(key, trackBytes(), { type: 'text/plain' })).status, 415);
+    assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_tracks')).rows[0].n, before);
+    assert.equal(readdirSync(resolve(filesRoot, 'sim-tracks', ids.A)).length, files, 'no file was written');
+  });
+
+  await check('sending a track needs a live device key; listing and downloading need the person\'s sign-in', async () => {
+    const bytes = trackBytes();
+    assert.equal((await sendTrack('', bytes)).status, 401);
+    assert.equal((await sendTrack('xpd_unknown', bytes)).status, 401);
+    assert.equal((await sendTrack(A, bytes)).status, 401, 'a sign-in token is not a device key');
+    const { token: key } = rig;
+    assert.equal((await call(tracks, '/api/sim/tracks', { bearer: key })).status, 401, 'a device key cannot read anything');
+    assert.equal((await call(tracks, '/api/sim/tracks')).status, 401);
+    const [row] = await trackRows(ids.A);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`, { bearer: key })).status, 401);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'DELETE', bearer: key })).status, 401);
+  });
+
+  await check('an account keeps at most 500 layouts; a track it already has can still be replaced', async () => {
+    const { token: key } = rig;
+    const have = (await trackRows(ids.A)).length;
+    await direct.query(`INSERT INTO public.sim_tracks (user_id, track_key, game, track_name, size_bytes, sha256, storage_path)
+      SELECT $1::uuid, 'ac|filler ' || n || '|', 'ac', 'filler ' || n, 1, 'x', $1::text || '/filler' || n FROM generate_series(1, $2::int) AS n`, [ids.A, 500 - have]);
+    const refused = await sendTrack(key, trackBytes({ name: 'One Too Many' }));
+    assert.deepEqual([refused.status, refused.body.error], [422, 'too_many']);
+    const replaced = await sendTrack(key, trackBytes());
+    assert.deepEqual([replaced.status, replaced.body.replaced], [201, true]);
+    await direct.query("DELETE FROM public.sim_tracks WHERE user_id = $1 AND track_name LIKE 'filler %'", [ids.A]);
+  });
+
+  await check('a person downloads their own layout as the stored bytes, and nobody else\'s', async () => {
+    const [row] = await trackRows(ids.A);
+    const response = await tracks(new Request(`http://x/api/sim/tracks/${row.id}/file`, { headers: { authorization: `Bearer ${A}` } }));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/gzip');
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    const body = new Uint8Array(await response.arrayBuffer());
+    assert.deepEqual(body, new Uint8Array(readFileSync(resolve(filesRoot, 'sim-tracks', row.storage_path))));
+    assert.equal(sha(Buffer.from(body)), row.sha256);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`, { bearer: B })).status, 404, 'another account\'s layout is not found');
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`)).status, 401);
+    assert.equal((await call(tracks, '/api/sim/tracks/00000000-0000-4000-8000-000000000000/file', { bearer: A })).status, 404);
+    assert.equal((await call(tracks, '/api/sim/tracks/not-a-uuid/file', { bearer: A })).status, 404);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/other`, { bearer: A })).status, 404);
+  });
+
+  await check('a person deletes their own layout (row and file), and nobody else\'s', async () => {
+    const rows = await trackRows(ids.A);
+    const row = rows.find((r) => r.variant === 'Short');
+    const file = resolve(filesRoot, 'sim-tracks', row.storage_path);
+    assert.ok(existsSync(file));
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'DELETE', bearer: B })).status, 404);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'DELETE' })).status, 401);
+    const gone = await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'DELETE', bearer: A });
+    assert.equal(gone.status, 204);
+    assert.equal(gone.body, null, 'no body');
+    assert.ok(!existsSync(file), 'the file is gone too');
+    assert.equal((await trackRows(ids.A)).length, rows.length - 1);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'DELETE', bearer: A })).status, 404, 'already deleted');
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`, { bearer: A })).status, 404);
+    assert.ok(!(await call(tracks, '/api/sim/tracks', { bearer: A })).body.tracks.some((t) => t.id === row.id));
+  });
+
+  await check('row level security: a person reads their own layouts and cannot write them', async () => {
+    const mine = await query(A, { table: 'sim_tracks', action: 'select', select: 'track_key' });
+    assert.equal(mine.error, null, JSON.stringify(mine.error));
+    assert.ok(mine.data.length >= 1);
+    const others = await query(B, { table: 'sim_tracks', action: 'select', select: 'id', filters: [{ column: 'user_id', op: 'eq', value: ids.A }] });
+    assert.equal(others.error, null);
+    assert.equal(others.data.length, 0);
+    const forged = await query(A, { table: 'sim_tracks', action: 'insert', values: { user_id: ids.A, track_key: 'x', game: 'ac', track_name: 'x', size_bytes: 1, sha256: 'x', storage_path: 'x' }, returning: false });
+    assert.ok(forged.error, 'a person cannot write layouts themselves');
+    const count = (await trackRows(ids.A)).length;
+    await query(A, { table: 'sim_tracks', action: 'delete', filters: [{ column: 'user_id', op: 'eq', value: ids.A }], returning: false });
+    assert.equal((await trackRows(ids.A)).length, count, 'nor delete them behind the server');
+    const nobody = await query(null, { table: 'sim_tracks', action: 'select', select: 'id' });
+    assert.ok(nobody.error || nobody.data.length === 0);
+  });
+
+  await check('track uploads are limited per device, and the endpoints answer only their methods', async () => {
+    const { token: key } = rig;
+    let last;
+    for (let i = 0; i < 21; i++) last = await sendTrack(key, new TextEncoder().encode('x'));
+    assert.equal(last.status, 429);
+    assert.ok(Number(last.headers.get('retry-after')) >= 1);
+    assert.equal((await call(tracks, '/api/sim/tracks', { method: 'OPTIONS' })).status, 204);
+    assert.equal((await call(tracks, '/api/sim/tracks', { method: 'PUT', bearer: A })).status, 405);
+    const [row] = await trackRows(ids.A);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'GET', bearer: A })).status, 405);
+    assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`, { method: 'DELETE', bearer: A })).status, 405);
+  });
+
+  // The real Xpeed Sim against these handlers, when its program is given (XPEED_SIM_EXE=...\xpeed-sim.exe): it pairs,
+  // then `upload` sends a lap and the layouts of its `tracks` outbox, once.
+  if (process.env.XPEED_SIM_EXE) await check('Xpeed Sim itself pairs and sends a lap and a track layout, each once', async () => {
+    const { createServer } = await import('node:http');
+    const { execFile } = await import('node:child_process');
+    const web = createServer(async (req, res) => {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const path = req.url.split('?')[0];
+      const handler = path === '/api/sim/pair' ? pair : path === '/api/sim/laps' ? laps : path.startsWith('/api/sim/tracks') ? tracks : null;
+      if (!handler) { res.writeHead(404).end('{"error":"not_found"}'); return; }
+      const headers = { ...req.headers, 'x-real-ip': '10.7.7.7' };
+      const response = await handler(new Request(`http://x${req.url}`, { method: req.method, headers, ...(chunks.length ? { body: Buffer.concat(chunks) } : {}) }));
+      res.writeHead(response.status, Object.fromEntries(response.headers)).end(Buffer.from(await response.arrayBuffer()));
+    });
+    await new Promise((done) => web.listen(0, '127.0.0.1', done));
+    const base = `http://127.0.0.1:${web.address().port}`;
+    const home = mkdtempSync(resolve(temp, 'sim-home-'));
+    const lapsDir = mkdtempSync(resolve(temp, 'sim-laps-'));
+    const run = (...args) => new Promise((done, fail) => execFile(process.env.XPEED_SIM_EXE, args, { env: { ...process.env, XPEED_SIM_HOME: home } },
+      (error, stdout, stderr) => (error ? fail(new Error(`${args[0]}: ${error.message}\n${stdout}\n${stderr}`)) : done(stdout))));
+    try {
+      await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+      await run('pair', '--server', base, '--code', await newCode(B), '--name', 'E2E');
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(resolve(lapsDir, 'e2e.xlap.gz'), await lapBytes(42));
+      mkdirSync(resolve(lapsDir, 'tracks'));
+      const layout = trackBytes({ name: 'E2E Ring', variant: undefined });
+      writeFileSync(resolve(lapsDir, 'tracks', 'ac_e2e-ring_00000000.xtrk.gz'), layout);
+      const said = await run('upload', lapsDir);
+      assert.match(said, /Track layouts: sent 1/, said);
+      const [row] = (await direct.query("SELECT * FROM public.sim_tracks WHERE user_id = $1 AND track_key = 'ac|e2e ring|'", [ids.B])).rows;
+      assert.ok(row, 'the layout is on the server');
+      assert.deepEqual(new Uint8Array(readFileSync(resolve(filesRoot, 'sim-tracks', row.storage_path))), layout);
+      assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_laps WHERE user_id = $1 AND lap_number = 42', [ids.B])).rows[0].n, 1);
+      const again = await run('upload', lapsDir);
+      assert.doesNotMatch(again, /Track layouts: sent 1/, 'sent once');
+      assert.equal((await direct.query('SELECT updated_at FROM public.sim_tracks WHERE id = $1', [row.id])).rows[0].updated_at.getTime(), row.updated_at.getTime());
+    } finally {
+      await new Promise((done) => web.close(done));
+    }
   });
 
   console.log(`${checks.length} sim checks passed:\n- ${checks.join('\n- ')}`);

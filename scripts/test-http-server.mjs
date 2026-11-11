@@ -20,6 +20,10 @@ test('container serves the SPA, API guards, OAuth metadata and bounded requests'
   assert.equal((await fetch(base+'/api/sync-problems',{method:'POST'})).status,401);
   assert.equal((await fetch(base+'/api/fuel?carId=invalid')).status,400);
   const oversized=await fetch(base+'/api/sync-problems',{method:'POST',body:'x'.repeat(2*1024*1024+1)});assert.equal(oversized.status,413);
+  // Track layouts: the routes under /api/sim/tracks/ reach the handler, and its body may be up to 33 MB (not 2 MB).
+  assert.equal((await fetch(base+'/api/sim/tracks/00000000-0000-4000-8000-000000000000/file',{method:'OPTIONS'})).status,204);
+  assert.notEqual((await fetch(base+'/api/sim/tracks',{method:'POST',headers:{'content-type':'application/gzip'},body:new Uint8Array(3*1024*1024)})).status,413);
+  assert.equal((await fetch(base+'/api/sim/tracks',{method:'POST',headers:{'content-type':'application/gzip'},body:new Uint8Array(33*1024*1024+1)})).status,413);
   assert.match(health.headers.get('content-security-policy'),/accounts.google.com/);
  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });

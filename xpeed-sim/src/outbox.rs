@@ -3,6 +3,11 @@
 //! The folder of laps *is* the queue: a lap is pending while it is there and `.xpeed-upload.json`, next to it,
 //! does not list it as sent or refused. If the computer shuts down halfway, the next run goes on from there.
 //! No lap file is ever deleted, moved or changed by sending.
+//!
+//! Track layouts have an outbox of their own, `tracks/` inside the laps folder (filled by `tracks::auto`). A layout
+//! is known by its track, so its file is rewritten when the game's files change: `.xpeed-tracks.json`, in that folder,
+//! keeps the track key and a hash of the bytes of each file sent or refused, and a file whose bytes differ from what
+//! was recorded is pending again. The same rules as laps apply (HTTPS only, the same waits after a failure).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -14,10 +19,12 @@ use serde_json::{json, Value};
 
 use crate::config::Config;
 use crate::lapfile;
-use crate::net::{self, SendError, Sent, MAX_UPLOAD_BYTES};
+use crate::net::{self, SendError, Sent, MAX_TRACK_UPLOAD_BYTES, MAX_UPLOAD_BYTES};
 use crate::status::Cloud;
+use crate::tracks::{self, auto};
 
 const STATE_FILE: &str = ".xpeed-upload.json";
+const TRACK_STATE_FILE: &str = ".xpeed-tracks.json";
 
 /// What was already done with the laps of a folder, for one server.
 #[derive(Debug, Default, PartialEq)]
@@ -200,6 +207,190 @@ pub fn upload_pending(dir: &Path, config: &Config, agent: &ureq::Agent, say: &mu
     report
 }
 
+/// What became of one track layout file: the track it holds, the hash of the bytes that went (or were refused), and why
+/// it was refused.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackDone {
+    pub key: String,
+    pub hash: String,
+    pub why: Option<String>,
+}
+
+/// What was already done with the track layouts of the outbox, for one server, by file name.
+#[derive(Debug, Default, PartialEq)]
+pub struct TrackState {
+    server: String,
+    done: BTreeMap<String, TrackDone>,
+}
+
+impl TrackState {
+    /// Like the laps' state: missing, damaged or another server's starts empty, and at worst a layout goes again (the
+    /// server replaces it with the same bytes).
+    pub fn load(dir: &Path, server: &str) -> TrackState {
+        let mut state = TrackState {
+            server: server.to_owned(),
+            ..TrackState::default()
+        };
+        let Some(value) = std::fs::read_to_string(dir.join(TRACK_STATE_FILE))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        else {
+            return state;
+        };
+        if value.get("server").and_then(Value::as_str) != Some(server) {
+            return state;
+        }
+        let text = |entry: &Value, key: &str| entry.get(key).and_then(Value::as_str).map(str::to_owned);
+        for (name, entry) in value.get("files").and_then(Value::as_object).into_iter().flatten() {
+            if let (Some(key), Some(hash)) = (text(entry, "key"), text(entry, "hash")) {
+                let why = text(entry, "rejected");
+                state.done.insert(name.clone(), TrackDone { key, hash, why });
+            }
+        }
+        state
+    }
+
+    pub fn save(&self, dir: &Path) -> Result<(), String> {
+        let files: serde_json::Map<String, Value> = self
+            .done
+            .iter()
+            .map(|(name, done)| {
+                let mut entry = json!({ "key": done.key, "hash": done.hash });
+                if let Some(why) = &done.why {
+                    entry["rejected"] = json!(why);
+                }
+                (name.clone(), entry)
+            })
+            .collect();
+        let body = serde_json::to_string_pretty(&json!({ "server": self.server, "files": files })).map_err(|e| e.to_string())?;
+        let (path, partial) = (dir.join(TRACK_STATE_FILE), dir.join(format!("{TRACK_STATE_FILE}.part")));
+        std::fs::write(&partial, body + "\n").map_err(|e| format!("cannot write {}: {e}", partial.display()))?;
+        std::fs::rename(&partial, &path).map_err(|e| format!("cannot write {}: {e}", path.display()))
+    }
+
+    /// Whether these very bytes of this file were already sent or refused.
+    pub fn done(&self, name: &str, hash: &str) -> bool {
+        self.done.get(name).is_some_and(|done| done.hash == hash)
+    }
+
+    #[cfg(test)]
+    pub fn get(&self, name: &str) -> Option<&TrackDone> {
+        self.done.get(name)
+    }
+}
+
+/// The track layout files of the outbox, oldest first (a `.part` file is still being written).
+fn track_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        // No layout was ever built: nothing to send.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("cannot read {}: {error}", dir.display())),
+    };
+    let mut found: Vec<_> = entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let modified = entry.metadata().and_then(|m| m.modified()).ok();
+            name.ends_with(auto::EXTENSION).then(|| (modified, name, entry.path()))
+        })
+        .collect();
+    found.sort();
+    Ok(found.into_iter().map(|(_, name, path)| (name, path)).collect())
+}
+
+/// What the server would refuse anyway, found here: a file that is not a track layout never leaves the computer.
+/// Gives the track's key.
+fn check_track(bytes: &[u8], max_bytes: usize) -> Result<String, String> {
+    if bytes.len() > max_bytes {
+        return Err(format!(
+            "it is {} MB; the server takes up to {} MB",
+            bytes.len().div_ceil(1 << 20),
+            max_bytes >> 20
+        ));
+    }
+    tracks::gunzip(bytes, tracks::MAX_UNPACKED)
+        .map(|track| auto::track_key(&track.game, &track.name, track.variant.as_deref()))
+        .map_err(|error| format!("it is not a valid track layout: {error}"))
+}
+
+/// Sends every pending track layout of `dir` (the `tracks` outbox), one at a time, with the same rules as
+/// [`upload_pending`]: a layout refused for good is marked (until its file changes); anything that may pass, or a
+/// refused key, ends the pass.
+pub fn upload_tracks(dir: &Path, config: &Config, agent: &ureq::Agent, say: &mut dyn FnMut(String)) -> Report {
+    let mut report = Report::default();
+    let files = match track_files(dir) {
+        Ok(files) => files,
+        Err(reason) => {
+            return Report {
+                stopped: Some(Stop::Later { reason, after: None }),
+                ..report
+            }
+        }
+    };
+    if files.is_empty() {
+        return report;
+    }
+    let mut state = TrackState::load(dir, &config.server);
+    let mut pending = Vec::new();
+    for (name, path) in files {
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let hash = auto::hash_hex(&bytes);
+                if !state.done(&name, &hash) {
+                    pending.push((name, bytes, hash));
+                }
+            }
+            Err(error) => {
+                say(format!("Cannot read {name}: {error}; it stays pending."));
+                report.left += 1;
+            }
+        }
+    }
+    pending.reverse(); // pop() takes the oldest
+    let mut warned_about_state = false;
+    while let Some((name, bytes, hash)) = pending.pop() {
+        let (key, outcome) = match check_track(&bytes, MAX_TRACK_UPLOAD_BYTES) {
+            Ok(key) => (key, net::send_track(agent, config, &bytes)),
+            Err(why) => (String::new(), Err(SendError::Rejected(why))),
+        };
+        match outcome {
+            Ok(sent) => {
+                state.done.insert(name.clone(), TrackDone { key, hash, why: None });
+                if sent == Sent::Duplicate {
+                    report.duplicates += 1;
+                } else {
+                    report.sent += 1;
+                }
+                say(format!("Sent the track layout {name}."));
+            }
+            Err(SendError::Rejected(why)) => {
+                say(format!("Not sending the track layout {name}: {why}"));
+                state.done.insert(name, TrackDone { key, hash, why: Some(why) });
+                report.rejected += 1;
+            }
+            Err(SendError::Unauthorized) => {
+                report.left += pending.len() + 1;
+                report.stopped = Some(Stop::Unauthorized);
+                break;
+            }
+            Err(SendError::Later { reason, after }) => {
+                report.left += pending.len() + 1;
+                report.stopped = Some(Stop::Later { reason, after });
+                break;
+            }
+        }
+        if let Err(problem) = state.save(dir) {
+            if !warned_about_state {
+                say(format!("{problem}; track layouts already sent may be offered to the server again."));
+                warned_about_state = true;
+            }
+        }
+    }
+    report
+}
+
 /// The waits between tries while the server cannot take laps: it starts at `base` and doubles up to `max`.
 #[derive(Clone, Copy)]
 pub struct Backoff {
@@ -261,9 +452,16 @@ impl Uploader {
             let agent = net::agent();
             let mut delay = backoff.base;
             loop {
-                let report = upload_pending(&dir, &config, &agent, &mut |line| (observer.say)(line));
+                let mut report = upload_pending(&dir, &config, &agent, &mut |line| (observer.say)(line));
                 if report.sent + report.duplicates > 0 {
                     (observer.sent)(report.sent + report.duplicates);
+                }
+                let laps_left = report.left;
+                // Laps first: they are what the person is waiting for. Layouts go when the laps could.
+                if report.stopped.is_none() {
+                    let layouts = upload_tracks(&dir.join(auto::TRACKS_DIR), &config, &agent, &mut |line| (observer.say)(line));
+                    report.left += layouts.left;
+                    report.stopped = layouts.stopped;
                 }
                 let wait = match report.stopped {
                     Some(Stop::Unauthorized) => {
@@ -274,9 +472,14 @@ impl Uploader {
                     Some(Stop::Later { reason, after }) => {
                         let wait = after.unwrap_or(delay).max(backoff.base);
                         delay = (delay * 2).min(backoff.max);
+                        let layouts = report.left - laps_left;
                         (observer.say)(format!(
-                            "Could not send now: {reason}. {} lap(s) waiting; trying again in {} s.",
-                            report.left,
+                            "Could not send now: {reason}. {laps_left} lap(s){} waiting; trying again in {} s.",
+                            if layouts > 0 {
+                                format!(" and {layouts} track layout(s)")
+                            } else {
+                                String::new()
+                            },
                             wait.as_secs().max(1)
                         ));
                         (observer.cloud)(Cloud::Waiting(report.left));
@@ -306,7 +509,7 @@ impl Uploader {
         Uploader { tx }
     }
 
-    /// A new lap was saved: look at the folder now.
+    /// A new lap (or track layout) was saved: look at the folders now.
     pub fn wake(&self) {
         let _ = self.tx.send(Message::Wake);
     }

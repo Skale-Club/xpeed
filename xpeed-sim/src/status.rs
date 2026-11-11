@@ -163,7 +163,7 @@ impl Shared {
     pub fn set_uploader(&self, uploader: Option<Uploader>) {
         *self.uploader.lock().unwrap() = uploader;
     }
-    /// A lap was saved: let the uploader look at the folder.
+    /// A lap or a track layout was saved: let the uploader look at the folders.
     pub fn wake_uploader(&self) {
         if let Some(uploader) = self.uploader.lock().unwrap().as_ref() {
             uploader.wake();

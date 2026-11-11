@@ -61,7 +61,7 @@ fn has_ai(dir: &Path) -> bool {
 }
 
 /// A folder given by hand: the `ai` folder itself, a layout, or a track with a single layout.
-fn ac_from_dir(dir: &Path) -> Result<ac::Layout, String> {
+pub(crate) fn ac_from_dir(dir: &Path) -> Result<ac::Layout, String> {
     let bad = || format!("{} does not look like an Assetto Corsa track folder", dir.display());
     if dir.join(ac::SOURCE).is_file() {
         return ac::layout_of_ai_dir(dir).ok_or_else(bad);
@@ -113,12 +113,9 @@ pub fn resolve_ac(spec: &str) -> Result<ac::Layout, String> {
     ))
 }
 
-pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
-    let path = Path::new(spec);
-    if path.is_file() {
-        return Ok(path.to_path_buf());
-    }
-    let pick = |files: Vec<PathBuf>, what: &str| match files.as_slice() {
+/// The one `.AIW` file of a list, or why there is not exactly one.
+pub(crate) fn pick_aiw(files: Vec<PathBuf>, what: &str) -> Result<PathBuf, String> {
+    match files.as_slice() {
         [only] => Ok(only.clone()),
         [] => Err(format!("no .AIW file for {what}")),
         many => Err(format!(
@@ -129,7 +126,34 @@ pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
-    };
+    }
+}
+
+/// The `.AIW` files under a game's `GameData/Locations` that a name stands for: the file's own name without the
+/// extension (`InterlagosGP`), or `<place>/<name>`, in any case.
+pub(crate) fn sce_named(root: &Path, spec: &str) -> Vec<PathBuf> {
+    let wanted = spec.replace('\\', "/").to_lowercase();
+    aiw::list(root)
+        .into_iter()
+        .filter(|p| {
+            let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+            let place = p
+                .parent()
+                .and_then(|t| t.parent())
+                .and_then(|t| t.file_name())
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            stem == wanted || format!("{place}/{stem}") == wanted
+        })
+        .collect()
+}
+
+pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
+    let path = Path::new(spec);
+    if path.is_file() {
+        return Ok(path.to_path_buf());
+    }
     if path.is_dir() {
         let direct: Vec<PathBuf> = std::fs::read_dir(path)
             .map(|d| {
@@ -140,29 +164,15 @@ pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
             })
             .unwrap_or_default();
         if !direct.is_empty() {
-            return pick(direct, &path.display().to_string());
+            return pick_aiw(direct, &path.display().to_string());
         }
-        return pick(aiw::list(path), &path.display().to_string());
+        return pick_aiw(aiw::list(path), &path.display().to_string());
     }
-    let wanted = spec.replace('\\', "/").to_lowercase();
     let roots = game_folders("XPEED_SCE_DIR", "Stock Car Extreme", "GameData/Locations");
     for root in &roots {
-        let found: Vec<PathBuf> = aiw::list(root)
-            .into_iter()
-            .filter(|p| {
-                let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
-                let place = p
-                    .parent()
-                    .and_then(|t| t.parent())
-                    .and_then(|t| t.file_name())
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_lowercase();
-                stem == wanted || format!("{place}/{stem}") == wanted
-            })
-            .collect();
+        let found = sce_named(root, spec);
         if !found.is_empty() {
-            return pick(found, spec);
+            return pick_aiw(found, spec);
         }
     }
     Err(format!(
@@ -175,6 +185,20 @@ pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
 fn inside(out: &Path, folder: &Path) -> bool {
     let absolute = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
     absolute(out).starts_with(absolute(folder))
+}
+
+/// The track as it is stored and sent (gzip), once it reads back as the same bytes: the same check the readers of the
+/// file will do.
+pub(crate) fn gzip_checked(track: &Track) -> Result<Vec<u8>, String> {
+    let bytes = gzip(track).map_err(|why| why.to_string())?;
+    match gunzip(&bytes, MAX_UNPACKED)
+        .and_then(|back| pack(&back))
+        .and_then(|again| pack(track).map(|first| again == first))
+    {
+        Ok(true) => Ok(bytes),
+        Ok(false) => Err("the file does not read back as the same track".to_owned()),
+        Err(why) => Err(format!("the file does not read back: {why}")),
+    }
 }
 
 pub fn run(request: &Request) -> ExitCode {
@@ -226,19 +250,10 @@ pub fn run(request: &Request) -> ExitCode {
     println!();
     print!("{}", found.track.summary());
 
-    let bytes = match gzip(&found.track) {
+    let bytes = match gzip_checked(&found.track) {
         Ok(bytes) => bytes,
         Err(why) => return fail(format!("Not written: {why}")),
     };
-    // What is written must read back as the same bytes: the same check the readers of the file will do.
-    match gunzip(&bytes, MAX_UNPACKED)
-        .and_then(|back| pack(&back))
-        .and_then(|again| pack(&found.track).map(|first| again == first))
-    {
-        Ok(true) => {}
-        Ok(false) => return fail("Not written: the file does not read back as the same track".to_owned()),
-        Err(why) => return fail(format!("Not written: the file does not read back: {why}")),
-    }
     if let Err(error) = std::fs::write(&request.out, &bytes) {
         return fail(format!("Cannot write {}: {error}", request.out.display()));
     }

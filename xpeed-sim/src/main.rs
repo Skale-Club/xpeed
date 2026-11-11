@@ -10,6 +10,8 @@
 //! * `record`  writes every lap to a folder as a `.xlap.gz` file (and, with `--upload`, sends them to Xpeed);
 //! * `inspect` shows what a lap file holds;
 //! * `track-dump` reads a track's layout from a game's own files and writes it as a `.xtrk` file;
+//!   while recording, the layout of each Assetto Corsa or Stock Car Extreme track driven is also built by itself and sent
+//!   with the laps (`tracks::auto`);
 //! * `pair`, `unpair`, `status`, `upload` connect this computer to an Xpeed account and send the laps in a folder.
 //!
 //! The first game is Le Mans Ultimate. See `docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md`.
@@ -69,7 +71,7 @@ USAGE:
                                            Connect this computer to your Xpeed account (the code comes from the app)
     xpeed-sim status                 Show whether this computer is paired
     xpeed-sim unpair                 Forget the pairing on this computer
-    xpeed-sim upload DIR             Send the laps in DIR that were not sent yet
+    xpeed-sim upload DIR             Send the laps in DIR (and the track layouts in DIR\tracks) that were not sent yet
     xpeed-sim make-icon FILE         Write the Xpeed Sim icon to FILE (.ico)
     xpeed-sim help
 
@@ -370,11 +372,24 @@ fn upload_command(dir: &Path) -> ExitCode {
     if !dir.is_dir() {
         return fail(format!("{} is not a folder", dir.display()));
     }
-    let report = outbox::upload_pending(dir, &config, &net::agent(), &mut |line| println!("{line}"));
+    let agent = net::agent();
+    let mut report = outbox::upload_pending(dir, &config, &agent, &mut |line| println!("{line}"));
     println!(
         "Sent {}, already on the server {}, not sendable {}, still waiting {}.",
         report.sent, report.duplicates, report.rejected, report.left
     );
+    // Then the track layouts Xpeed Sim built while recording (the `tracks` folder inside the laps folder).
+    let layouts_dir = dir.join(tracks::auto::TRACKS_DIR);
+    if report.stopped.is_none() && layouts_dir.is_dir() {
+        let layouts = outbox::upload_tracks(&layouts_dir, &config, &agent, &mut |line| println!("{line}"));
+        println!(
+            "Track layouts: sent {}, not sendable {}, still waiting {}.",
+            layouts.sent + layouts.duplicates,
+            layouts.rejected,
+            layouts.left
+        );
+        report.stopped = layouts.stopped;
+    }
     match report.stopped {
         None => ExitCode::SUCCESS,
         Some(outbox::Stop::Unauthorized) => fail("The server no longer accepts this computer's key. Run `xpeed-sim pair` again."),
