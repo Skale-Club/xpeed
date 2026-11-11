@@ -179,7 +179,7 @@
     },
     "tracks": {
       "intro": "La forma real de cada circuito: el asfalto entre sus bordes, la línea ideal del juego y el pit lane, leídos por Xpeed Sim de los archivos del propio juego (Assetto Corsa y Stock Car Extreme). Tus vueltas se dibujan sobre ellos en la pantalla de comparar.",
-      "private": "Se guardan en este dispositivo.",
+      "private": "Xpeed Sim los envía a tu cuenta por sí solo cuando ruedas en un circuito; se guarda una copia en este dispositivo.",
       "open": "Añadir archivos de trazado",
       "drop": "o suelta archivos .xtrk aquí",
       "added_one": "1 trazado guardado.",
@@ -193,7 +193,9 @@
       "pitLane": "pit lane",
       "remove": "Quitar",
       "removeTitle": "¿Quitar este trazado?",
-      "removeText": "Las vueltas en este circuito se dibujarán sin él hasta que se vuelva a añadir su archivo.",
+      "removeText": "Se quita de este dispositivo y de tu cuenta. Las vueltas en este circuito se dibujarán sin él hasta que Xpeed Sim lo vuelva a enviar o se añada su archivo.",
+      "fromAccount_one": "1 trazado enviado por Xpeed Sim se trajo de tu cuenta.",
+      "fromAccount_other": "{{count}} trazados enviados por Xpeed Sim se trajeron de tu cuenta.",
       "reasons": {
         "too_big": "es demasiado grande para ser un trazado",
         "not_a_track": "no es un archivo de trazado",

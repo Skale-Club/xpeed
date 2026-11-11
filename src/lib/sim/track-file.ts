@@ -250,6 +250,13 @@ export async function gunzipTrack(bytes: Uint8Array, options: { maxBytes?: numbe
   return unpackTrack(unpacked);
 }
 
+/**
+ * The game id a layout file uses for laps of a game whose lap files say otherwise. Stock Car Extreme laps come through the
+ * rFactor 1 plugin and say `rfactor1`; its layouts are read from the game's files and say `sce`.
+ */
+const LAYOUT_GAME: Record<string, string> = { rfactor1: 'sce' };
+export const layoutGame = (lapGame: string) => LAYOUT_GAME[lapGame.trim().toLowerCase()] ?? lapGame;
+
 /** What a track layout is matched by: the game, the track and the layout, the way a lap file names them. */
 export const trackKeyOf = (game: string, name: string, variant?: string | null) =>
   [game, name, variant ?? ''].map((part) => part.trim().toLowerCase()).join('|');

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
-  TRACK_LIMITS, TrackFormatError, gunzipTrack, leftNormals, parseTrackHeader, roadRuns, trackKey, trackKeyOf, unpackTrack,
+  TRACK_LIMITS, TrackFormatError, gunzipTrack, layoutGame, leftNormals, parseTrackHeader, roadRuns, trackKey, trackKeyOf, unpackTrack,
   type TrackFormatCode,
 } from './track-file';
 
@@ -99,6 +99,12 @@ describe('the golden track', () => {
     expect(trackKey(unpackTrack(goldenBytes()))).toBe('ac|test track|gp');
     expect(trackKeyOf('AC', ' Test Track ', 'gp')).toBe('ac|test track|gp');
     expect(trackKeyOf('lmu', 'Monza')).toBe('lmu|monza|');
+  });
+
+  it('pairs Stock Car Extreme laps (game rfactor1) with its layouts (game sce), and leaves the other games alone', () => {
+    expect(layoutGame('rfactor1')).toBe('sce');
+    expect(layoutGame('ac')).toBe('ac');
+    expect(layoutGame('lmu')).toBe('lmu');
   });
 });
 

@@ -15,7 +15,7 @@ import type { LapFile } from '@/lib/sim/lap-file';
 import { LapReadError, readLapFile } from '@/lib/sim/read-lap-file';
 import { readTrackFile } from '@/lib/sim/read-track-file';
 import { makeSampleLaps } from '@/lib/sim/sample-laps';
-import { trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
+import { layoutGame, trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 import type { LibraryTrack } from '@/lib/sim/track-library';
 import { cn } from '@/lib/utils';
 
@@ -286,7 +286,7 @@ export function LapAnalysis({
   const b = laps.find((entry) => entry.id === bId) ?? null;
 
   // The layout of the track of the lap being looked at: one opened here, else one kept on this device.
-  const wanted = a ? { game: a.lap.header.game, name: a.lap.header.track.name, variant: a.lap.header.track.variant ?? null } : null;
+  const wanted = a ? { game: layoutGame(a.lap.header.game), name: a.lap.header.track.name, variant: a.lap.header.track.variant ?? null } : null;
   const wantedKey = wanted ? trackKeyOf(wanted.game, wanted.name, wanted.variant) : null;
   useEffect(() => {
     if (!wanted || !wantedKey || !findLayout) return;

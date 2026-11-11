@@ -8,6 +8,8 @@ import { listTracks } from '@/lib/sim/track-library';
 import { TracksList } from './TracksList';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
+// No account here: the screen works from the device alone (the account sync has its own tests).
+vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => null }));
 
 const layoutFile = async (name: string, fileName: string, over: Partial<Parameters<typeof makeLayout>[0]> = {}) =>
   new File([await gzipBytes(packLayout(makeLayout({ points: circle(400, 60), width: 8, closed: true, ideal: true, name, ...over })))], fileName);

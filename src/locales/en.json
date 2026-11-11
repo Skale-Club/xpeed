@@ -179,7 +179,7 @@
     },
     "tracks": {
       "intro": "The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Sim from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.",
-      "private": "They are kept on this device.",
+      "private": "Xpeed Sim sends them to your account by itself when you drive a track; a copy is kept on this device.",
       "open": "Add track layout files",
       "drop": "or drop .xtrk files here",
       "added_one": "1 track layout kept.",
@@ -193,7 +193,9 @@
       "pitLane": "pit lane",
       "remove": "Remove",
       "removeTitle": "Remove this track layout?",
-      "removeText": "Laps on this track will be drawn without it until its file is added again.",
+      "removeText": "It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Sim sends it again or its file is added.",
+      "fromAccount_one": "1 track layout sent by Xpeed Sim was added from your account.",
+      "fromAccount_other": "{{count}} track layouts sent by Xpeed Sim were added from your account.",
       "reasons": {
         "too_big": "it is too large to be a track layout",
         "not_a_track": "it is not a track layout file",

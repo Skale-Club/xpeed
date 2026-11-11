@@ -10,6 +10,7 @@ import { useTrackLibrary } from '@/hooks/use-track-library';
 import { lengthIn, type DistanceUnit } from '@/lib/sim/analysis';
 import { TrackReadError } from '@/lib/sim/read-track-file';
 import { TrackLibraryError, addTrackFile, loadTrack, removeTracks, type LibraryTrack } from '@/lib/sim/track-library';
+import { deleteAccountTrack, syncAccountTracks, type SyncResult } from '@/lib/sim/account-tracks';
 import type { TrackFile } from '@/lib/sim/track-file';
 import { cn } from '@/lib/utils';
 
@@ -104,6 +105,26 @@ export function TracksList() {
   const [added, setAdded] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState<LibraryTrack | null>(null);
+  const [account, setAccount] = useState<SyncResult | null>(null);
+
+  // The layouts Xpeed Sim sent to the account are copied onto this device when the screen opens.
+  useEffect(() => {
+    if (!library.userId) return;
+    let live = true;
+    syncAccountTracks(library.userId).then((result) => live && setAccount(result), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [library.userId]);
+
+  const remove = async (entry: LibraryTrack) => {
+    if (!library.userId) return;
+    const inAccount = account?.byKey.get(entry.id.slice(library.userId.length + 1));
+    if (inAccount && (await deleteAccountTrack(inAccount.id))) {
+      account?.byKey.delete(entry.id.slice(library.userId.length + 1));
+    }
+    await removeTracks(library.userId, [entry.id]);
+  };
 
   const addFiles = async (files: File[]) => {
     if (!library.userId || files.length === 0) return;
@@ -151,7 +172,7 @@ export function TracksList() {
         <CardContent className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
             {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Sim from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
-            {t('modes.tracks.private', 'They are kept on this device.')}
+            {t('modes.tracks.private', 'Xpeed Sim sends them to your account by itself when you drive a track; a copy is kept on this device.')}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => input.current?.click()} disabled={busy || !library.userId}>
@@ -177,6 +198,11 @@ export function TracksList() {
         </CardContent>
       </Card>
 
+      {account?.reached && account.copied > 0 && (
+        <p role="status" className="text-sm" data-testid="tracks-from-account">
+          {t('modes.tracks.fromAccount', { count: account.copied, defaultValue: '{{count}} track layouts sent by Xpeed Sim were added from your account.', defaultValue_one: '1 track layout sent by Xpeed Sim was added from your account.' })}
+        </p>
+      )}
       {added !== null && added > 0 && (
         <p role="status" className="text-sm" data-testid="tracks-added">
           {t('modes.tracks.added', { count: added, defaultValue: '{{count}} track layouts kept.', defaultValue_one: '1 track layout kept.' })}
@@ -218,10 +244,10 @@ export function TracksList() {
         open={!!pending}
         onOpenChange={(open) => !open && setPending(null)}
         title={t('modes.tracks.removeTitle', 'Remove this track layout?')}
-        description={t('modes.tracks.removeText', 'Laps on this track will be drawn without it until its file is added again.')}
+        description={t('modes.tracks.removeText', 'It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Sim sends it again or its file is added.')}
         confirmLabel={t('modes.tracks.remove', 'Remove')}
         onConfirm={() => {
-          if (pending && library.userId) void removeTracks(library.userId, [pending.id]);
+          if (pending) void remove(pending).catch(() => undefined);
           setPending(null);
         }}
       />
