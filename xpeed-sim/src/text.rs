@@ -54,9 +54,9 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
     let s = |x: &str| x.to_owned();
     match msg {
         GameWaiting => t(
-            s("Game: waiting for Le Mans Ultimate"),
-            s("Jogo: esperando o Le Mans Ultimate"),
-            s("Juego: esperando a Le Mans Ultimate"),
+            s("Game: waiting for a racing game"),
+            s("Jogo: esperando um jogo de corrida"),
+            s("Juego: esperando un juego de carreras"),
         ),
         GameConnected => t(s("Game: connected"), s("Jogo: conectado"), s("Juego: conectado")),
         GameRecording(lap) => t(

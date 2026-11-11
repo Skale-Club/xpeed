@@ -201,6 +201,36 @@ pub fn attach_terminal() {
     }
 }
 
+/// The names of the programs running right now, in lower case (`xpeed-sim.exe`, `f1_25.exe`...). Only names: nothing
+/// of what the programs do or hold is looked at.
+pub fn running_programs() -> Vec<String> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    let mut names = Vec::new();
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return names;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut more = Process32FirstW(snapshot, &mut entry) != 0;
+        while more {
+            let end = entry.szExeFile.iter().position(|&u| u == 0).unwrap_or(entry.szExeFile.len());
+            names.push(String::from_utf16_lossy(&entry.szExeFile[..end]).to_lowercase());
+            more = Process32NextW(snapshot, &mut entry) != 0;
+        }
+        CloseHandle(snapshot);
+    }
+    names
+}
+
+/// Whether any of `wanted` (lower case) is among the running programs.
+pub fn any_running(running: &[String], wanted: &[&str]) -> bool {
+    wanted.iter().any(|w| running.iter().any(|r| r == w))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +264,22 @@ mod tests {
         unsafe {
             windows_sys::Win32::System::Registry::RegDeleteKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr());
         }
+    }
+
+    #[test]
+    fn lists_the_running_programs_by_name_and_finds_this_one() {
+        let running = running_programs();
+        assert!(!running.is_empty());
+        let me = std::env::current_exe()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_lowercase();
+        assert!(any_running(&running, &[me.as_str()]), "{me} not in the list");
+        assert!(any_running(&running, &["no-such-game.exe", me.as_str()]));
+        assert!(!any_running(&running, &["no-such-game.exe"]));
+        assert!(!any_running(&[], &["f1_25.exe"]));
     }
 
     #[test]
