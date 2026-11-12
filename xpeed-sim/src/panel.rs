@@ -34,12 +34,13 @@ use windows_sys::Win32::Graphics::GdiPlus::{
     GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
     LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
 };
-use windows_sys::Win32::Graphics::GdiPlus::{GdipFillRectangle, GdipFillRectangleI, SmoothingModeNone};
+use windows_sys::Win32::Graphics::GdiPlus::{GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowLongPtrW, IsWindow, KillTimer,
     LoadCursorW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
@@ -61,11 +62,14 @@ use crate::util::{clock, now_ms};
 use crate::win;
 
 const CLASS: &str = "XpeedSimPanel";
+/// `WM_MOUSELEAVE`, sent once after `TrackMouseEvent` asked for it.
+const WM_MOUSELEAVE: u32 = 0x02a3;
+const WM_MOUSEMOVE: u32 = 0x0200;
 /// Where, in the Xpeed app, a computer is connected (the same page the tray menu opens).
 const CONNECT_PATH: &str = "/sim/app";
 const TIMER: usize = 1;
-/// About 30 frames a second.
-const FRAME_MS: u32 = 33;
+/// About 60 frames a second, so the carousel and the revs move smoothly.
+const FRAME_MS: u32 = 16;
 /// A reading older than this is not shown as live.
 const STALE_MS: i64 = 3000;
 /// Design size of the window at 96 DPI.
@@ -159,6 +163,8 @@ pub struct View<'a> {
     pub laps_dir: &'a str,
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
+    /// Where the mouse is over the window (pixels), for the icon buttons' tooltips.
+    pub mouse: Option<(i32, i32)>,
     /// The buttons drawn in this frame and where (pixels), for the clicks that follow.
     pub buttons: std::cell::RefCell<Vec<(Action, RECT)>>,
     /// Where the covers' carousel is: the index of the cover in the middle, fractional while it slides.
@@ -254,7 +260,7 @@ struct Carousel {
 }
 
 /// How long a slide takes, and how long a cover stays in the middle before the next one comes.
-const SLIDE_MS: i64 = 550;
+const SLIDE_MS: i64 = 800;
 const DWELL_MS: i64 = 3500;
 
 impl Carousel {
@@ -266,10 +272,14 @@ impl Carousel {
         }
     }
 
-    /// Where it is at `now`: eased out (fast, then settling) from where it set off to where it is going.
+    /// Where it is at `now`: eased in and out (gently away, gently in) from where it set off to where it is going.
     fn at(&self, now: i64) -> f32 {
         let t = ((now - self.since) as f32 / SLIDE_MS as f32).clamp(0.0, 1.0);
-        let eased = 1.0 - (1.0 - t).powi(3);
+        let eased = if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+        };
         self.from + (self.target as f32 - self.from) * eased
     }
 
@@ -289,6 +299,8 @@ impl Carousel {
 }
 
 struct State {
+    /// Where the mouse is over the window, while it is.
+    mouse: Option<(i32, i32)>,
     /// The buttons of the last frame, to know what a click hit.
     buttons: Vec<(Action, RECT)>,
     /// The covers' carousel on the waiting screen.
@@ -301,6 +313,9 @@ struct State {
     /// Full screen: where the window was and its style, to put it back.
     full: Option<(WINDOWPLACEMENT, isize)>,
 }
+
+/// The corner radius of buttons, pills and cards (design pixels): nearly square, as racing screens are.
+const CORNER: f32 = 2.5;
 
 /// Height of the header, in design pixels.
 const HEADER_H: f32 = 66.0;
@@ -317,17 +332,18 @@ const LIGHTS_FROM: f32 = 0.55;
 const SHIFT_AT: f32 = 0.97;
 const LIGHTS: usize = 20;
 
-/// The places of the header that can be clicked: the two tabs, "full screen" and "always on top".
+/// The places of the header that can be clicked: the two tabs, "full screen" and "always on top" (square icon
+/// buttons at the right).
 fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
     let p = |v: f32| (v * scale).round() as i32;
     let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
-    let (on_top_w, full_w, gap) = (p(178.0), p(162.0), p(10.0));
+    let (side, gap) = (p(38.0), p(8.0));
     [
         rect(p(20.0), p(17.0), p(136.0), p(47.0)),
         rect(p(136.0), p(17.0), p(252.0), p(47.0)),
-        rect(right - on_top_w - gap - full_w, top, right - on_top_w - gap, bottom),
-        rect(right - on_top_w, top, right, bottom),
+        rect(right - side - gap - side, top, right - side - gap, bottom),
+        rect(right - side, top, right, bottom),
     ]
 }
 
@@ -714,13 +730,26 @@ impl Painter {
         }
     }
 
-    /// A colour laid over a box (pixels) with `amount` (0..1) of opacity.
-    fn veil(&self, r: RECT, color: COLORREF, amount: f32) {
+    /// A box in design units as exact pixels (x, y, w, h), not rounded.
+    fn exact(&self, x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+        (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s, w * self.s, h * self.s)
+    }
+
+    /// An image in an exact box, smoothly scaled.
+    fn image_exact(&self, (x, y, w, h): (f32, f32, f32, f32), image: *mut GpImage) {
+        smooth(self.hdc, |graphics| unsafe {
+            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
+            GdipDrawImageRect(graphics, image, x, y, w, h);
+        });
+    }
+
+    /// A colour over an exact box with `amount` (0..1) of opacity.
+    fn veil_exact(&self, (x, y, w, h): (f32, f32, f32, f32), color: COLORREF, amount: f32) {
         let alpha = ((amount.clamp(0.0, 1.0) * 255.0).round() as u32) << 24;
         smooth(self.hdc, |graphics| unsafe {
             let mut brush = null_mut();
             GdipCreateSolidFill(alpha | (argb(color) & 0x00ff_ffff), &mut brush);
-            GdipFillRectangleI(graphics, brush.cast(), r.left, r.top, r.right - r.left, r.bottom - r.top);
+            GdipFillRectangle(graphics, brush.cast(), x, y, w, h);
             GdipDeleteBrush(brush.cast());
         });
     }
@@ -872,7 +901,7 @@ impl Painter {
 
     /// A tile: the card colour with its border.
     fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), 12.0, color, Some(EDGE));
+        self.round(self.r(x, y, w, h), CORNER, color, Some(EDGE));
     }
 
     /// A small upper-case label with its letters spaced out.
@@ -1009,6 +1038,37 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
         Tab::Dash => dashboard(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
     }
+    tooltip(&mut g, width, view);
+}
+
+/// The name of the icon button under the mouse, in a small label below it.
+fn tooltip(g: &mut Painter, width: i32, view: &View) {
+    let Some((mx, my)) = view.mouse else { return };
+    let [_, _, full, top] = header_hits(width, view.scale);
+    let (r, label) = if inside(&full, mx, my) {
+        (
+            full,
+            text(
+                view.lang,
+                if view.full {
+                    &Msg::PanelExitFullScreen
+                } else {
+                    &Msg::PanelFullScreen
+                },
+            ),
+        )
+    } else if inside(&top, mx, my) {
+        (top, text(view.lang, &Msg::PanelOnTop))
+    } else {
+        return;
+    };
+    g.place(view.scale, 0, 0);
+    let measured = g.width_of(&label, 12.5, FW_SEMIBOLD as i32, Face::Ui);
+    let w = g.px(measured + 20.0);
+    let h = g.px(28.0);
+    let tip = rect(r.right - w, r.bottom + g.px(6.0), r.right, r.bottom + g.px(6.0) + h);
+    g.round(tip, CORNER, CARD, Some(EDGE));
+    g.text(&label, tip, 12.5, FW_SEMIBOLD as i32, Face::Ui, TEXT, DT_CENTER);
 }
 
 fn header(g: &mut Painter, width: i32, view: &View) {
@@ -1017,49 +1077,24 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     let semi = FW_SEMIBOLD as i32;
     // The tabs: one pill, the chosen tab a yellow pill inside it.
     let control = g.r(16.0, 13.0, 240.0, 38.0);
-    g.round(control, 19.0, CARD, Some(EDGE));
+    g.round(control, CORNER, CARD, Some(EDGE));
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
         let selected = view.tab == tab;
         if selected {
-            g.round(r, 15.0, ACCENT, None);
+            g.round(r, CORNER, ACCENT, None);
         }
         let color = if selected { BG } else { MUTED };
         g.text(&text(view.lang, &label), r, 14.0, semi, Face::Ui, color, DT_CENTER);
     }
-    // Full screen and always on top: pill buttons with Windows' own icons; one that is on is filled yellow.
-    let full_label = text(
-        view.lang,
-        if view.full {
-            &Msg::PanelExitFullScreen
-        } else {
-            &Msg::PanelFullScreen
-        },
-    );
+    // Full screen and always on top: square buttons with Windows' own icons only; one that is on is filled yellow.
     let buttons = [
-        (full, view.full, if view.full { "\u{E73F}" } else { "\u{E740}" }, full_label),
-        (top, view.on_top, "\u{E718}", text(view.lang, &Msg::PanelOnTop)),
+        (full, view.full, if view.full { "\u{E73F}" } else { "\u{E740}" }),
+        (top, view.on_top, "\u{E718}"),
     ];
-    for (r, active, icon, label) in buttons {
-        let (fill, edge, icon_ink, ink) = if active {
-            (ACCENT, None, BG, BG)
-        } else {
-            (CARD, Some(EDGE), MUTED, TEXT)
-        };
-        g.round(r, 19.0, fill, edge);
-        // Icon and label centred together.
-        let (icon_w, space) = (g.px(14.0), g.px(9.0));
-        let measured = g.width_of(&label, 13.5, semi, Face::Ui);
-        let label_w = g.px(measured).min(r.right - r.left - icon_w - space - g.px(24.0));
-        let start = (r.left + r.right - icon_w - space - label_w) / 2;
-        let icon_box = rect(start, r.top, start + icon_w, r.bottom);
-        g.text(icon, icon_box, 13.0, FW_NORMAL as i32, Face::Icon, icon_ink, DT_CENTER);
-        let label_box = rect(
-            start + icon_w + space,
-            r.top,
-            start + icon_w + space + label_w + g.px(2.0),
-            r.bottom,
-        );
-        g.text(&label, label_box, 13.5, semi, Face::Ui, ink, DT_LEFT);
+    for (r, active, icon) in buttons {
+        let (fill, edge, ink) = if active { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
+        g.round(r, CORNER, fill, edge);
+        g.text(icon, r, 15.0, FW_NORMAL as i32, Face::Icon, ink, DT_CENTER);
     }
 }
 
@@ -1081,9 +1116,9 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     let (s, ox, oy) = canvas_fit(body);
     g.place(s, ox, oy);
     let title = text(view.lang, &Msg::PanelWaitingTitle);
-    let r = g.r(0.0, 128.0, CANVAS_W, 50.0);
+    let r = g.r(0.0, 66.0, CANVAS_W, 50.0);
     g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(0.0, 178.0, CANVAS_W, 26.0);
+    let r = g.r(0.0, 116.0, CANVAS_W, 26.0);
     g.text(
         &text(view.lang, &Msg::PanelWaiting),
         r,
@@ -1142,7 +1177,7 @@ fn carousel_offset(i: usize, count: usize, at: f32) -> f32 {
 /// has some, the name on a card where not.
 fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
     let count = covers.len();
-    let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 232.0);
+    let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 168.0);
     let big_h = big_w * 1.5;
     // Far covers first, so the nearer ones are drawn over them.
     let mut order: Vec<(usize, f32)> = (0..count).map(|i| (i, carousel_offset(i, count, at))).collect();
@@ -1157,20 +1192,19 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
         // Closer together further out, as on a curved shelf.
         let x = mid_x + d.signum() * (far * 128.0 - far * far * 9.0) - w / 2.0;
         let y = top + (big_h - h) / 2.0;
-        let r = g.r(x, y, w, h);
+        let exact = g.exact(x, y, w, h);
         let cover = &covers[i];
         if cover.image.is_null() {
-            g.fill(r, CARD);
-            g.fill(g.r(x, y, w, 3.0), EDGE);
+            g.veil_exact(exact, CARD, 1.0);
             let r = g.r(x + 6.0, y, w - 12.0, h);
             g.text(cover.name, r, 13.0 * scale, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
         } else {
-            g.image(r, cover.image);
+            g.image_exact(exact, cover.image);
         }
         // Darker the further from the middle.
         let shade = (far * 0.32).min(0.8);
         if shade > 0.01 {
-            g.veil(r, BG, shade);
+            g.veil_exact(exact, BG, shade);
         }
     }
     // The game in the middle, and where it is in the list.
@@ -1571,7 +1605,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
         let r = g.r(x, by, w, 36.0);
         let (fill, edge, ink) = if primary { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
-        g.round(r, 18.0, fill, edge);
+        g.round(r, CORNER, fill, edge);
         g.text(&label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
         view.buttons.borrow_mut().push((action, r));
         x += w + 10.0;
@@ -1642,7 +1676,7 @@ fn cover_for(title: &str, covers: &[CoverArt]) -> Option<*mut GpImage> {
 
 /// A small rounded label with a tinted background.
 fn pill(g: &mut Painter, x: f32, y: f32, w: f32, word: &str, color: COLORREF) {
-    g.round(g.r(x, y, w, 24.0), 12.0, mix(CARD, color, 0.18), None);
+    g.round(g.r(x, y, w, 24.0), CORNER, mix(CARD, color, 0.18), None);
     let r = g.r(x, y, w, 24.0);
     g.text(word, r, 12.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
 }
@@ -1741,6 +1775,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         log: &log,
         laps_dir: &ctx.laps_dir,
         covers: &state.covers,
+        mouse: state.mouse,
         buttons: Default::default(),
         carousel: state.carousel.at(now),
     };
@@ -1872,6 +1907,25 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             InvalidateRect(hwnd, null(), 0);
             0
         }
+        WM_MOUSEMOVE => {
+            let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+            if state.mouse.is_none() {
+                // Ask to be told when the mouse leaves the window, to drop the tooltip.
+                let mut track = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                };
+                TrackMouseEvent(&mut track);
+            }
+            state.mouse = Some((x, y));
+            0
+        }
+        WM_MOUSELEAVE => {
+            state.mouse = None;
+            0
+        }
         WM_LBUTTONDBLCLK => {
             // A double click below the header: full screen and back.
             let y = ((lparam >> 16) & 0xffff) as i16 as i32;
@@ -1969,6 +2023,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             on_top: false,
             full: None,
             covers: CoverArt::load_all(),
+            mouse: None,
             buttons: Vec::new(),
             carousel: Carousel::new(now_ms()),
         }));
@@ -2296,6 +2351,7 @@ mod tests {
             log: &f.log,
             laps_dir: "C:\\Users\\Driver\\Documents\\Xpeed Sim\\Laps",
             covers: &[],
+            mouse: None,
             buttons: Default::default(),
             carousel: 0.0,
         }
@@ -2416,6 +2472,12 @@ mod tests {
         ];
         let mut figures = String::new();
         let covers = CoverArt::load_all();
+        let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        let [_, _, full_button, _] = header_hits(960, 1.0);
+        hover.mouse = Some((full_button.left + 5, full_button.top + 5));
+        let pixels = render(&hover, 960, 600);
+        save(&pixels, 960, 600, "preview-tooltip.png");
+        figures.push_str("<figure><figcaption>Icon buttons, with the tooltip of the one under the mouse</figcaption><img data-src=\"preview-tooltip.png\" width=\"960\" height=\"600\"></figure>\n");
         let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
         with_covers.covers = &covers;
         with_covers.carousel = 3.0;
@@ -2476,8 +2538,8 @@ look(); setInterval(look, 1500);
         let [dash, mon, full, top] = header_hits(960, 1.0);
         assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
         assert!(inside(&mon, 160, 20));
-        assert!(inside(&full, 700, 20) && !inside(&full, 764, 20));
-        assert!(inside(&top, 900, 20) && !inside(&top, 900, 52));
+        assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
+        assert!(inside(&top, 920, 20) && !inside(&top, 920, 52));
         assert!(full.right < top.left && mon.right < full.left, "nothing overlaps");
         let [dash2, _, _, top2] = header_hits(1440, 1.5);
         assert_eq!((dash2.left, dash2.right), (30, 204));
@@ -2535,7 +2597,9 @@ look(); setInterval(look, 1500);
         assert_eq!(c.at(1_000), 0.0);
         c.step(1, 1_000);
         let half = c.at(1_000 + SLIDE_MS / 2);
-        assert!(half > 0.8 && half < 1.0, "eased out: most of the way at half time ({half})");
+        assert!((half - 0.5).abs() < 1e-3, "eased in and out: half way at half time ({half})");
+        let quarter = c.at(1_000 + SLIDE_MS / 4);
+        assert!(quarter < 0.1, "gently away ({quarter})");
         assert_eq!(c.at(1_000 + SLIDE_MS), 1.0);
         c.tick(1_000 + SLIDE_MS + DWELL_MS - 1);
         assert_eq!(c.target, 1, "not yet");
