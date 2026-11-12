@@ -47,6 +47,14 @@ pub const READERS: &[Reader] = &[
         open: ams2::open,
     },
     Reader {
+        family: "pcars",
+        title: "Project CARS 2 · Project CARS 3",
+        ids: &["pcars2", "pcars3"],
+        // The games' own program names (both also ship an AVX build).
+        programs: &["pcars2.exe", "pcars2avx.exe", "pcars3.exe", "pcars3avx.exe"],
+        open: ams2::open_pcars,
+    },
+    Reader {
         family: "wreckfest2",
         title: "Wreckfest 2",
         ids: &["wreckfest2"],
