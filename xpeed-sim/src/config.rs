@@ -173,6 +173,20 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
     std::fs::rename(&partial, path).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
+/// The language the person picked in the tray menu, kept in `language` next to the pairing. English when there is
+/// no choice yet (or the file cannot be read).
+pub fn load_lang(home: &Path) -> crate::text::Lang {
+    std::fs::read_to_string(home.join(LANGUAGE_FILE)).map_or(crate::text::Lang::En, |code| crate::text::Lang::from_code(&code))
+}
+
+pub fn save_lang(home: &Path, lang: crate::text::Lang) -> Result<(), String> {
+    std::fs::create_dir_all(home).map_err(|e| format!("cannot create {}: {e}", home.display()))?;
+    let path = home.join(LANGUAGE_FILE);
+    std::fs::write(&path, lang.code()).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+const LANGUAGE_FILE: &str = "language";
+
 /// Forgets the pairing on this computer. The server is not told: the person revokes the device in the app.
 pub fn remove(path: &Path) -> Result<bool, String> {
     match std::fs::remove_file(path) {
@@ -199,6 +213,17 @@ pub fn scratch_dir(name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembers_the_language_picked_and_starts_in_english() {
+        use crate::text::Lang;
+        let home = scratch_dir("lang");
+        assert_eq!(load_lang(&home), Lang::En);
+        save_lang(&home, Lang::Pt).unwrap();
+        assert_eq!(load_lang(&home), Lang::Pt);
+        save_lang(&home, Lang::En).unwrap();
+        assert_eq!(load_lang(&home), Lang::En);
+    }
 
     #[test]
     fn laps_go_where_the_person_said_or_to_documents() {

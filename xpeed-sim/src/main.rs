@@ -18,6 +18,7 @@
 
 mod applog;
 mod config;
+mod dash;
 #[cfg(windows)]
 mod engine;
 mod game;
@@ -30,6 +31,8 @@ mod link;
 mod lmu;
 mod net;
 mod outbox;
+#[cfg(windows)]
+mod panel;
 mod present;
 mod recorder;
 #[cfg(windows)]
@@ -59,6 +62,8 @@ With no arguments Xpeed Sim runs as a tray icon. Command line:
 
 USAGE:
     xpeed-sim run                    The tray app (the same as no arguments)
+    xpeed-sim panel                  Open the panel (dashboard and monitor) of the running tray app, or start it
+    xpeed-sim panel-demo             Open the panel alone with made-up driving, to see it without a game
     xpeed-sim probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
     xpeed-sim record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
@@ -81,6 +86,8 @@ For the game to share data, 'Enable external plugins' must be on (Settings > Gam
 #[derive(Debug, PartialEq)]
 enum Command {
     Run,
+    Panel,
+    PanelDemo,
     /// `xpeedsim://pair?...`, opened by Windows when the Xpeed site asks to connect this computer.
     Link {
         url: String,
@@ -120,6 +127,11 @@ fn parse(args: &[String]) -> Result<Command, String> {
             Some(extra) => Err(format!("unexpected argument {extra:?}")),
         },
         Some("help" | "--help" | "-h") => Ok(Command::Help),
+        Some(word @ ("panel" | "panel-demo")) => match rest.next() {
+            None if word == "panel" => Ok(Command::Panel),
+            None => Ok(Command::PanelDemo),
+            Some(extra) => Err(format!("unexpected argument {extra:?}")),
+        },
         Some("link") => {
             let url = rest.next().ok_or("link needs an address")?;
             match rest.next() {
@@ -552,16 +564,26 @@ fn main() -> ExitCode {
     };
     // The program has no console of its own; a command typed in a terminal borrows that terminal's.
     #[cfg(windows)]
-    if !matches!(command, Command::Run | Command::Link { .. }) {
+    if !matches!(command, Command::Run | Command::Panel | Command::PanelDemo | Command::Link { .. }) {
         win::attach_terminal();
     }
     match command {
         #[cfg(windows)]
-        Command::Run => tray::run(),
+        Command::Run => tray::run(false),
+        #[cfg(windows)]
+        Command::Panel => {
+            if tray::open_panel_of_running() {
+                ExitCode::SUCCESS
+            } else {
+                tray::run(true)
+            }
+        }
+        #[cfg(windows)]
+        Command::PanelDemo => panel::demo(config::home_dir().map_or(text::Lang::En, |home| config::load_lang(&home))),
         #[cfg(windows)]
         Command::Link { url } => tray::pair_from_link(&url),
         #[cfg(not(windows))]
-        Command::Run | Command::Link { .. } => {
+        Command::Run | Command::Panel | Command::PanelDemo | Command::Link { .. } => {
             eprintln!("The tray app needs Windows. `inspect` works everywhere.");
             ExitCode::from(2)
         }
@@ -606,6 +628,9 @@ mod tests {
     fn reads_the_commands() {
         assert_eq!(parse(&args(&[])), Ok(Command::Run));
         assert_eq!(parse(&args(&["run"])), Ok(Command::Run));
+        assert_eq!(parse(&args(&["panel"])), Ok(Command::Panel));
+        assert_eq!(parse(&args(&["panel-demo"])), Ok(Command::PanelDemo));
+        assert!(parse(&args(&["panel", "x"])).is_err());
         assert_eq!(
             parse(&args(&["link", "xpeedsim://pair?x=1"])),
             Ok(Command::Link {

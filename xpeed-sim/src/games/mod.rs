@@ -19,6 +19,10 @@ pub mod wreckfest2;
 pub struct Reader {
     /// The family of games it reads (`"kunos"`: Assetto Corsa, Assetto Corsa Competizione, Assetto Corsa Rally).
     pub family: &'static str,
+    /// The games it reads, as the panel lists them.
+    pub title: &'static str,
+    /// The ids its sources report (`Source::game_id`), to show their state against this line of the panel.
+    pub ids: &'static [&'static str],
     /// The program names of its games, in lower case. The reader is tried only while one of them is running, so a
     /// reader that listens on a UDP port does not hold the port (and keep other tools from it) when the game is not
     /// there, and it is let go when the game closes.
@@ -30,36 +34,50 @@ pub struct Reader {
 pub const READERS: &[Reader] = &[
     Reader {
         family: "kunos",
+        title: "Assetto Corsa · ACC · AC Rally",
+        ids: &["ac", "acc", "acr"],
         programs: &["acs.exe", "acs_x86.exe", "ac2-win64-shipping.exe", "acr.exe"],
         open: kunos::open,
     },
     Reader {
         family: "ams2",
+        title: "Automobilista 2",
+        ids: &["ams2"],
         programs: &["ams2.exe", "ams2avx.exe"],
         open: ams2::open,
     },
     Reader {
         family: "wreckfest2",
+        title: "Wreckfest 2",
+        ids: &["wreckfest2"],
         programs: &["wreckfest2.exe"],
         open: wreckfest2::open,
     },
     Reader {
         family: "f1",
+        title: "F1 25",
+        ids: &["f1"],
         programs: &["f1_25.exe"],
         open: f1::open,
     },
     Reader {
         family: "acevo",
+        title: "Assetto Corsa EVO",
+        ids: &["acevo"],
         programs: &["assettocorsaevo.exe"],
         open: acevo::open,
     },
     Reader {
         family: "rfactor1",
+        title: "Stock Car Extreme",
+        ids: &["rfactor1"],
         programs: &["gsc.exe"],
         open: rfactor1::open,
     },
     Reader {
         family: "iracing",
+        title: "iRacing",
+        ids: &["iracing"],
         programs: &["iracingsim64dx11.exe", "iracingsim64.exe"],
         open: iracing::open,
     },

@@ -120,6 +120,8 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         last_frame: Instant,
         lap_shown: i32,
         track_told: Option<(String, Option<String>)>,
+        /// The panel's view of this game (the delta to the best lap).
+        tracker: crate::dash::Tracker,
     }
     let saved = |lap: &lapfile::Lap| {
         if let Some(label) = save(out, lap, say) {
@@ -171,6 +173,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                         last_frame: Instant::now(),
                         lap_shown: 0,
                         track_told: None,
+                        tracker: crate::dash::Tracker::default(),
                     });
                 }
             }
@@ -205,6 +208,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                         l.track_told = Some((frame.track.clone(), frame.track_variant.clone()));
                     }
                 }
+                shared.offer_live(l.tracker.on_frame(l.source.game_name(), &frame, now_ms()));
                 for mut lap in l.cutter.on_frame(&frame, now_ms()) {
                     l.source.finish_lap(&mut lap);
                     saved(&lap);
@@ -286,6 +290,9 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         say(format!("Connected to Le Mans Ultimate at {}.", iso_utc(now_ms())));
         shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
         let mut recorder = Recorder::new();
+        // The panel needs the distance and times of the scoring stream alongside each telemetry update.
+        let mut tracker = crate::dash::Tracker::default();
+        let mut last_scoring = None;
         let mut silent_waits = 0;
         let mut lap_shown = 0;
         // Without a frame for 10 s (the game closed, or sits in a menu) start over from a clean connection.
@@ -296,7 +303,12 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
             }
             silent_waits = 0;
             let Some(snapshot) = reader.read() else { continue };
+            if let Some(s) = &snapshot.scoring {
+                last_scoring = Some(s.clone());
+            }
             if let Some(t) = &snapshot.telemetry {
+                let frame = crate::dash::lmu_frame(t, last_scoring.as_ref());
+                shared.offer_live(tracker.on_frame(LMU_NAME, &frame, now_ms()));
                 if t.lap_number > 0 && t.lap_number != lap_shown {
                     lap_shown = t.lap_number;
                     shared.set_game(LMU_ID, LMU_NAME, Game::Recording(lap_shown as u32));
@@ -449,6 +461,8 @@ mod tests {
         let shared = Shared::new(true);
         let readers = [Reader {
             family: "fake",
+            title: "Fake",
+            ids: &["fake"],
             programs: &[],
             open: open_scripted,
         }];
