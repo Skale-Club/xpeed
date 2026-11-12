@@ -200,6 +200,7 @@ RLS por `user_id` em todas, igual às tabelas atuais.
 | Madness | Project CARS, Project CARS 2, Automobilista 2 | Memória compartilhada |
 | Codemasters | F1 2015/2018/2020/25, DiRT 4, DiRT Rally, DiRT Rally 2.0, GRID 2 | UDP (o F1 tem um formato por ano) |
 | RaceRoom | RaceRoom | Memória compartilhada |
+| iRacing | iRacing | SDK oficial do jogo (memória `Local\IRSDKMemMapFileName`). A telemetria ao vivo não traz a posição do carro, então o mapa é estimado por velocidade e rumo e fechado a cada volta. O traçado da pista não sai dos arquivos do jogo, que são fechados. Leitor em `xpeed-sim/src/games/iracing.rs`, ainda não testado com o jogo (incluído em 12/11/2026 a pedido do dono). |
 | Outros | BeamNG.drive (UDP OutGauge), Euro Truck Simulator 2 (kit da SCS) | — |
 | **A confirmar** | AC EVO, AC Rally, RENNSPORT, Wreckfest 2, Dakar 18, art of rally, Circuit Superstars, City Car Driving, STAR WARS: Galactic Racer | Verificar se há telemetria oficial |
 | Fora | Motorsport Manager (gestão), Sim Racing Telemetry (é app concorrente, não jogo) | — |

@@ -10,6 +10,7 @@ use crate::game::Source;
 pub mod acevo;
 pub mod ams2;
 pub mod f1;
+pub mod iracing;
 pub mod kunos;
 pub mod rfactor1;
 pub mod wreckfest2;
@@ -56,5 +57,10 @@ pub const READERS: &[Reader] = &[
         family: "rfactor1",
         programs: &["gsc.exe"],
         open: rfactor1::open,
+    },
+    Reader {
+        family: "iracing",
+        programs: &["iracingsim64dx11.exe", "iracingsim64.exe"],
+        open: iracing::open,
     },
 ];

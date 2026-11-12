@@ -85,6 +85,8 @@ pub trait Source {
     fn next(&mut self, timeout: Duration) -> Option<Frame>;
     /// False once the game has gone away (its door closed); the engine then goes back to looking.
     fn alive(&self) -> bool;
+    /// A last touch on a finished lap before it is written (iRacing closes its estimated path). Nothing by default.
+    fn finish_lap(&self, _lap: &mut crate::lapfile::Lap) {}
 }
 
 /// A text field of a game's memory: UTF-16 or ASCII up to the first zero, trimmed.
