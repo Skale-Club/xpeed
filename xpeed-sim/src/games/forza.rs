@@ -1,4 +1,4 @@
-//! Forza Motorsport (2023), Forza Motorsport 7, Forza Horizon 4 and Forza Horizon 5: the UDP telemetry the game sends
+//! Forza Motorsport (2023), Forza Motorsport 7, Forza Horizon 4, 5 and 6: the UDP telemetry the game sends
 //! to this computer ("Data Out").
 //!
 //! The game only sends while it is running AND Data Out is switched on. The person has to set, in the game:
@@ -10,7 +10,7 @@
 //!   * Data Out IP Port: **5301** (this reader listens on it, on every local address)
 //!   * Data Out Packet Format: **Dash** ("Car Dash"). "Sled" has no lap times, lap number or position: its packets
 //!     reach the panel (rpm, car) but never make a lap.
-//! * Forza Horizon 4 and 5: **Settings > HUD and Gameplay**: Data Out **On**, IP **127.0.0.1**, port **5301**. There is
+//! * Forza Horizon 4, 5 and 6: **Settings > HUD and Gameplay**: Data Out **On**, IP **127.0.0.1**, port **5301**. There is
 //!   no format to pick (Horizon always sends its own 324-byte "Dash").
 //!
 //! The Microsoft Store / Game Pass builds of Forza Motorsport 7 and Forza Horizon 4 and 5 are Store apps, and Windows
@@ -37,7 +37,7 @@
 //! |-------|---------------------------------------------------|-------------------------------------------|
 //! | 232   | Sled                                              | Forza Motorsport 7 and (2023), "Sled"     |
 //! | 311   | Sled + Dash (79)                                  | Forza Motorsport 7, "Dash"                |
-//! | 324   | Sled + 12 Horizon bytes + Dash (79) + 1 (padding) | Forza Horizon 4 and 5                     |
+//! | 324   | Sled + 12 Horizon bytes + Dash (79) + 1 (padding) | Forza Horizon 4, 5 and 6                  |
 //! | 331   | Sled + Dash (79) + tyre wear x4, TrackOrdinal     | Forza Motorsport (2023), "Dash"           |
 //!
 //! Which game it is comes from the running program (`Game::ALL`), and a packet whose length that game does not send
@@ -178,11 +178,12 @@ enum Game {
     Fm7,
     Fh4,
     Fh5,
+    Fh6,
 }
 
 impl Game {
     /// In the order they are looked for when several run at once (the newest first).
-    const ALL: [Game; 4] = [Game::Fm, Game::Fh5, Game::Fh4, Game::Fm7];
+    const ALL: [Game; 5] = [Game::Fm, Game::Fh6, Game::Fh5, Game::Fh4, Game::Fm7];
 
     fn id(self) -> &'static str {
         match self {
@@ -190,6 +191,7 @@ impl Game {
             Game::Fm7 => "fm7",
             Game::Fh4 => "fh4",
             Game::Fh5 => "fh5",
+            Game::Fh6 => "fh6",
         }
     }
 
@@ -199,6 +201,7 @@ impl Game {
             Game::Fm7 => "Forza Motorsport 7",
             Game::Fh4 => "Forza Horizon 4",
             Game::Fh5 => "Forza Horizon 5",
+            Game::Fh6 => "Forza Horizon 6",
         }
     }
 
@@ -206,8 +209,9 @@ impl Game {
     /// * Forza Motorsport (2023): the Steam build `forza_steamworks_release_final.exe` (the process name in a crash
     ///   dump on the game's Steam forum, app 2440510); the Microsoft Store / Game Pass build
     ///   `forza_gaming.desktop.x64_release_final.exe` (Fanatec forum, about telemetry from the Store build).
-    /// * Forza Horizon 4 and 5: `ForzaHorizon4.exe`, `ForzaHorizon5.exe` (Turn 10's support article "My Game is Not
-    ///   Launching or is Crashing on PC"; the same name on Steam and the Store).
+    /// * Forza Horizon 4, 5 and 6: `ForzaHorizon4.exe`, `ForzaHorizon5.exe`, `ForzaHorizon6.exe` (Turn 10's support article "My Game is Not
+    ///   Launching or is Crashing on PC"; the same name on Steam and the Store). `ForzaHorizon6.exe` is the faulting
+    ///   application in downloadsource.net's FH6 startup-crash guide (version 6.354.221.0); Steam app 2483190.
     /// * Forza Motorsport 7 (Microsoft Store only): `ForzaMotorsport7.exe` (crash reports on the Forza forums).
     fn programs(self) -> &'static [&'static str] {
         match self {
@@ -215,6 +219,7 @@ impl Game {
             Game::Fm7 => &["forzamotorsport7.exe"],
             Game::Fh4 => &["forzahorizon4.exe"],
             Game::Fh5 => &["forzahorizon5.exe"],
+            Game::Fh6 => &["forzahorizon6.exe"],
         }
     }
 
@@ -223,7 +228,7 @@ impl Game {
         match self {
             Game::Fm => matches!(layout, Layout::Sled | Layout::FmDash),
             Game::Fm7 => matches!(layout, Layout::Sled | Layout::Fm7Dash),
-            Game::Fh4 | Game::Fh5 => layout == Layout::HorizonDash,
+            Game::Fh4 | Game::Fh5 | Game::Fh6 => layout == Layout::HorizonDash,
         }
     }
 
@@ -234,7 +239,7 @@ impl Game {
         let table: &[&str] = match self {
             Game::Fm7 => &["D", "C", "B", "A", "S", "R", "P", "X"],
             Game::Fm => &["E", "D", "C", "B", "A", "S", "R", "P", "X"],
-            Game::Fh4 | Game::Fh5 => &["D", "C", "B", "A", "S1", "S2", "X"],
+            Game::Fh4 | Game::Fh5 | Game::Fh6 => &["D", "C", "B", "A", "S1", "S2", "X"],
         };
         usize::try_from(class).ok().and_then(|i| table.get(i).copied())
     }
@@ -867,7 +872,7 @@ mod tests {
 
     #[test]
     fn reads_forza_horizon_dash() {
-        for game in [Game::Fh4, Game::Fh5] {
+        for game in [Game::Fh4, Game::Fh5, Game::Fh6] {
             let mut d = Decoder::new(game);
             let f = d.feed(&horizon_packet(&sample_sled(), &sample_dash()), 2.5).expect("a frame");
             assert_dash_values(&f);
@@ -915,7 +920,7 @@ mod tests {
         assert!(!sends(Game::Fm, &fm7) && !sends(Game::Fm, &horizon));
         assert!(sends(Game::Fm7, &sled) && sends(Game::Fm7, &fm7));
         assert!(!sends(Game::Fm7, &fm) && !sends(Game::Fm7, &horizon));
-        for game in [Game::Fh4, Game::Fh5] {
+        for game in [Game::Fh4, Game::Fh5, Game::Fh6] {
             assert!(sends(game, &horizon));
             assert!(!sends(game, &sled) && !sends(game, &fm7) && !sends(game, &fm));
         }
@@ -1183,6 +1188,7 @@ mod tests {
         assert_eq!(Game::running(&names(&["forzamotorsport7.exe"])), Some(Game::Fm7));
         assert_eq!(Game::running(&names(&["forzahorizon4.exe"])), Some(Game::Fh4));
         assert_eq!(Game::running(&names(&["forzahorizon5.exe"])), Some(Game::Fh5));
+        assert_eq!(Game::running(&names(&["forzahorizon6.exe"])), Some(Game::Fh6));
         assert_eq!(Game::running(&names(&["f1_25.exe", "acs.exe"])), None);
         assert_eq!(Game::running(&[]), None);
         for (game, id, name) in [
@@ -1190,6 +1196,7 @@ mod tests {
             (Game::Fm7, "fm7", "Forza Motorsport 7"),
             (Game::Fh4, "fh4", "Forza Horizon 4"),
             (Game::Fh5, "fh5", "Forza Horizon 5"),
+            (Game::Fh6, "fh6", "Forza Horizon 6"),
         ] {
             assert_eq!((game.id(), game.name()), (id, name));
         }
@@ -1202,7 +1209,7 @@ mod tests {
             .find(|r| r.family == "forza")
             .expect("a forza line in READERS");
         assert_eq!(reader.title, "Forza Motorsport · Forza Horizon");
-        assert_eq!(reader.ids, ["fm", "fm7", "fh4", "fh5"]);
+        assert_eq!(reader.ids, ["fm", "fm7", "fh4", "fh5", "fh6"]);
         let mut wanted: Vec<&str> = Game::ALL.iter().flat_map(|g| g.programs().iter().copied()).collect();
         let mut listed = reader.programs.to_vec();
         wanted.sort_unstable();

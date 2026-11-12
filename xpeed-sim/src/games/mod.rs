@@ -63,6 +63,7 @@ pub const PROGRAMS: &[(&str, &str, &str)] = &[
     ("forzamotorsport7.exe", "fm7", "Forza Motorsport 7"),
     ("forzahorizon4.exe", "fh4", "Forza Horizon 4"),
     ("forzahorizon5.exe", "fh5", "Forza Horizon 5"),
+    ("forzahorizon6.exe", "fh6", "Forza Horizon 6"),
 ];
 
 /// The game of `reader` whose program is running, if any: its id and name.
@@ -144,13 +145,14 @@ pub const READERS: &[Reader] = &[
     Reader {
         family: "forza",
         title: "Forza Motorsport · Forza Horizon",
-        ids: &["fm", "fm7", "fh4", "fh5"],
+        ids: &["fm", "fm7", "fh4", "fh5", "fh6"],
         programs: &[
             "forza_steamworks_release_final.exe",
             "forza_gaming.desktop.x64_release_final.exe",
             "forzamotorsport7.exe",
             "forzahorizon4.exe",
             "forzahorizon5.exe",
+            "forzahorizon6.exe",
         ],
         open: forza::open,
     },
