@@ -978,6 +978,19 @@ impl Painter {
     }
 
     /// An image filling a box (pixels), smoothly scaled.
+    /// The lines `s` breaks into to fit `w` design units at this size (words kept whole).
+    fn wrap_lines(&mut self, s: &str, w: f32, size: f32, weight: i32, face: Face) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        for word in s.split_whitespace() {
+            let longer = lines.last().map(|line| format!("{line} {word}"));
+            match (lines.last_mut(), longer) {
+                (Some(line), Some(longer)) if self.width_of(&longer, size, weight, face) <= w => *line = longer,
+                _ => lines.push(word.to_owned()),
+            }
+        }
+        lines
+    }
+
     /// Text in as many lines as it needs to fit `w` design units, `line_h` apart, from `y` down; the height used.
     #[allow(clippy::too_many_arguments)]
     fn wrapped(
@@ -993,14 +1006,7 @@ impl Painter {
         align: u32,
         line_h: f32,
     ) -> f32 {
-        let mut lines: Vec<String> = Vec::new();
-        for word in s.split_whitespace() {
-            let longer = lines.last().map(|line| format!("{line} {word}"));
-            match (lines.last_mut(), longer) {
-                (Some(line), Some(longer)) if self.width_of(&longer, size, weight, face) <= w => *line = longer,
-                _ => lines.push(word.to_owned()),
-            }
-        }
+        let lines = self.wrap_lines(s, w, size, weight, face);
         for (i, line) in lines.iter().enumerate() {
             let r = self.r(x, y + line_h * i as f32, w, line_h);
             self.text(line, r, size, weight, face, color, align);
@@ -1557,63 +1563,64 @@ fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static st
 
 /// The waiting screen about one open game: its cover, its name, and what happens next (or what to switch on). `cw` is
 /// the canvas width (narrower in a tall window), its text wrapped to fit.
-fn focus_screen(g: &mut Painter, view: &View, (id, name, game): (&'static str, &'static str, Game), cw: f32) {
+/// What the open-game screen says: its title, its line (in yellow when the person has something to do) and a note.
+fn focus_words(view: &View, (id, name, game): (&'static str, &'static str, Game)) -> (String, String, Option<String>, bool) {
     let (title, line, note) = match game {
         Game::Silent => (Msg::FocusOpen(name.into()), Msg::Setup(id), Some(Msg::FocusAutoConnect)),
         Game::Unsupported => (Msg::FocusOpen(name.into()), Msg::FocusUnsupported, None),
         Game::Paused => (Msg::FocusConnected(name.into()), Msg::FocusPaused, None),
         _ => (Msg::FocusConnected(name.into()), Msg::FocusGetInCar, None),
     };
+    let act = game == Game::Silent || game == Game::Unsupported;
+    (
+        text(view.lang, &title),
+        text(view.lang, &line),
+        note.map(|n| text(view.lang, &n)),
+        act,
+    )
+}
+
+/// The open-game screen's cover size, and the height of the whole block for a canvas `cw` wide.
+const FOCUS_COVER: (f32, f32) = (170.0, 255.0);
+fn focus_height(g: &mut Painter, view: &View, focus: (&'static str, &'static str, Game), cw: f32) -> f32 {
+    let (title, line, note, _) = focus_words(view, focus);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
-    let mut y = 56.0;
-    y += g.wrapped(
-        &text(view.lang, &title),
-        20.0,
-        y,
-        cw - 40.0,
-        34.0,
-        semi,
-        Face::Num,
-        TEXT,
-        DT_CENTER,
-        46.0,
-    );
+    let mut h = g.wrap_lines(&title, cw - 40.0, 34.0, semi, Face::Num).len() as f32 * 46.0 + 6.0;
+    h += g.wrap_lines(&line, cw - 60.0, 15.0, semi, Face::Ui).len() as f32 * 22.0;
+    if let Some(note) = note {
+        h += 4.0 + g.wrap_lines(&note, cw - 60.0, 13.0, normal, Face::Ui).len() as f32 * 20.0;
+    }
+    h + 24.0 + FOCUS_COVER.1 + 9.0
+}
+
+/// The waiting screen about one open game, from the top of its own canvas: its name, what happens next (or what to
+/// switch on), then its cover. `cw` is the canvas width (narrower in a tall window), the words wrapped to fit.
+fn focus_screen(g: &mut Painter, view: &View, focus: (&'static str, &'static str, Game), cw: f32) {
+    let (id, name, game) = focus.clone();
+    let (title, line, note, act) = focus_words(view, focus);
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let mut y = 0.0;
+    y += g.wrapped(&title, 20.0, y, cw - 40.0, 34.0, semi, Face::Num, TEXT, DT_CENTER, 46.0);
     y += 6.0;
-    let color = if game == Game::Silent || game == Game::Unsupported {
-        ACCENT
-    } else {
-        MUTED
-    };
     y += g.wrapped(
-        &text(view.lang, &line),
+        &line,
         30.0,
         y,
         cw - 60.0,
         15.0,
         semi,
         Face::Ui,
-        color,
+        if act { ACCENT } else { MUTED },
         DT_CENTER,
         22.0,
     );
     if let Some(note) = note {
         y += 4.0;
-        y += g.wrapped(
-            &text(view.lang, &note),
-            30.0,
-            y,
-            cw - 60.0,
-            13.0,
-            normal,
-            Face::Ui,
-            MUTED,
-            DT_CENTER,
-            20.0,
-        );
+        y += g.wrapped(&note, 30.0, y, cw - 60.0, 13.0, normal, Face::Ui, MUTED, DT_CENTER, 20.0);
     }
     // The game's cover, as big as the carousel's middle one; a name card when there is no cover.
-    let (w, h) = (170.0, 255.0);
-    let (x, y) = ((cw - w) / 2.0, (y + 24.0).max(172.0));
+    let (w, h) = FOCUS_COVER;
+    let (x, y) = ((cw - w) / 2.0, y + 24.0);
     let exact = g.exact(x, y, w, h);
     match view.covers.iter().find(|c| c.key == id).map(|c| c.image).filter(|i| !i.is_null()) {
         Some(image) => g.image_exact(exact, image),
@@ -1626,11 +1633,18 @@ fn focus_screen(g: &mut Painter, view: &View, (id, name, game): (&'static str, &
 fn waiting(g: &mut Painter, body: RECT, view: &View) {
     // A tall window (a phone held upright) gets a narrower canvas, so the words stay big enough to read.
     let tall = ((body.right - body.left) as f32) < ((body.bottom - body.top) as f32) * 0.9;
-    let (cw, ch) = if tall { (PORTRAIT_W, 820.0) } else { (CANVAS_W, CANVAS_H) };
-    let (s, ox, oy) = canvas_fit_wh(body, cw, ch);
+    let cw = if tall { PORTRAIT_W } else { CANVAS_W };
+    let (s, ox, oy) = canvas_fit_wh(body, cw, CANVAS_H);
     g.place(s, ox, oy);
     if let Some(focus) = view.focus.clone() {
-        return focus_screen(g, view, focus, cw);
+        // Measured first, then fitted by its own height: the block sits in the middle whatever the window's shape.
+        // On a phone the block is drawn narrower, so it comes out bigger (the title wraps).
+        let fcw = if tall { 440.0 } else { cw };
+        let margin = 40.0;
+        let h = focus_height(g, view, focus.clone(), fcw) + 2.0 * margin;
+        let (s, ox, oy) = canvas_fit_wh(body, fcw, h);
+        g.place(s, ox, oy + (margin * s).round() as i32);
+        return focus_screen(g, view, focus, fcw);
     }
     let title = text(view.lang, &Msg::PanelWaitingTitle);
     let r = g.r(0.0, 66.0, cw, 50.0);
@@ -1847,7 +1861,7 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         Layout::Wide => {
             main_block(g, live, view, w);
             side_column(g, live, view, h);
-            laps_band(g, view, CANVAS_H + 22.0, CANVAS_W, h);
+            laps_band(g, view, live, CANVAS_H + 22.0, CANVAS_W, h);
         }
         Layout::Square => {
             main_block(g, live, view, w);
@@ -1858,9 +1872,9 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     }
 }
 
-/// The recent laps as cards, oldest to newest (up to six): the fastest in purple, the newest marked yellow, each with
-/// its gap to the fastest.
-fn laps_band(g: &mut Painter, view: &View, top: f32, w: f32, bottom: f32) {
+/// The recent laps as cards, oldest to newest, then the lap being driven (marked yellow, its time running): the
+/// fastest in purple, each with its gap to the fastest.
+fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom: f32) {
     let r = g.r(0.0, top, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, 10.5, MUTED, DT_LEFT);
     let (y, h) = (top + 24.0, bottom - top - 24.0);
@@ -1872,66 +1886,80 @@ fn laps_band(g: &mut Painter, view: &View, top: f32, w: f32, bottom: f32) {
             (name, time, clock_seconds(time))
         })
         .collect();
+    let fastest = laps.iter().filter_map(|l| l.2).fold(f64::INFINITY, f64::min);
+    // Six places, always: the last completed laps (up to five), the lap being driven, then empty places, so the row
+    // keeps its shape from the first lap on.
+    let (n, gap) = (6_usize, 12.0);
+    let card_w = (w - gap * (n as f32 - 1.0)) / n as f32;
+    let shown = &laps[laps.len().saturating_sub(n - 1)..];
+    let semi = FW_SEMIBOLD as i32;
+    let card = |g: &mut Painter,
+                i: usize,
+                edge: COLORREF,
+                name: &str,
+                name_color: COLORREF,
+                time: &str,
+                time_color: COLORREF,
+                note: &str,
+                note_color: COLORREF| {
+        let x = i as f32 * (card_w + gap);
+        g.fill(g.r(x, y, card_w, h), CARD);
+        g.fill(g.r(x, y, card_w, 3.0), edge);
+        let r = g.r(x + 14.0, y + 14.0, card_w - 28.0, 16.0);
+        g.caps(name, r, 10.5, name_color, DT_LEFT);
+        let r = g.r(x + 12.0, y + 40.0, card_w - 20.0, 40.0);
+        g.text(time, r, 30.0, semi, Face::Num, time_color, DT_LEFT);
+        let r = g.r(x + 14.0, y + h - 36.0, card_w - 28.0, 20.0);
+        g.text(note, r, 14.0, semi, Face::Num, note_color, DT_LEFT);
+    };
+    for (i, (name, time, secs)) in shown.iter().enumerate() {
+        let is_fastest = secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
+        let note = match secs {
+            _ if is_fastest => text(view.lang, &Msg::PanelFastest),
+            Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
+            _ => String::new(),
+        };
+        let (edge, color) = if is_fastest { (PURPLE, PURPLE) } else { (EDGE, TEXT) };
+        card(g, i, edge, name, MUTED, time, color, &note, if is_fastest { PURPLE } else { MUTED });
+    }
+    // The lap being driven, its time running and its delta to the best lap.
+    let now = shown.len();
+    let delta_color = match live.delta_s {
+        Some(d) if d < 0.0 => GREEN,
+        Some(_) => RED,
+        None => MUTED,
+    };
+    let name = text(view.lang, &Msg::PanelLap(live.lap.max(1)));
+    card(
+        g,
+        now,
+        ACCENT,
+        &name,
+        ACCENT,
+        &lap_clock(live.lap_time_s),
+        TEXT,
+        &delta_text(live.delta_s),
+        delta_color,
+    );
+    // The places still to fill.
+    for i in now + 1..n {
+        let x = i as f32 * (card_w + gap);
+        g.fill(g.r(x, y, card_w, h), mix(BG, CARD, 0.45));
+    }
     if laps.is_empty() {
-        g.fill(g.r(0.0, y, w, h), mix(BG, CARD, 0.5));
+        let x = (now + 1) as f32 * (card_w + gap);
         let note = text(view.lang, &Msg::PanelNoLapsYet);
         g.wrapped(
             &note,
-            20.0,
+            x + 20.0,
             y + h / 2.0 - 11.0,
-            w - 40.0,
+            w - x - 40.0,
             14.0,
             FW_NORMAL as i32,
             Face::Ui,
             MUTED,
             DT_CENTER,
             22.0,
-        );
-        return;
-    }
-    let fastest = laps.iter().filter_map(|l| l.2).fold(f64::INFINITY, f64::min);
-    let (n, gap) = (6, 12.0);
-    let card_w = (w - gap * (n as f32 - 1.0)) / n as f32;
-    let shown = &laps[laps.len().saturating_sub(n)..];
-    for (i, (name, time, secs)) in shown.iter().enumerate() {
-        let x = i as f32 * (card_w + gap);
-        let is_fastest = secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
-        let newest = i + 1 == shown.len();
-        let edge = if is_fastest {
-            PURPLE
-        } else if newest {
-            ACCENT
-        } else {
-            EDGE
-        };
-        g.fill(g.r(x, y, card_w, h), CARD);
-        g.fill(g.r(x, y, card_w, 3.0), edge);
-        let r = g.r(x + 14.0, y + 14.0, card_w - 28.0, 16.0);
-        g.caps(name, r, 10.5, MUTED, DT_LEFT);
-        let r = g.r(x + 12.0, y + 40.0, card_w - 20.0, 40.0);
-        g.text(
-            time,
-            r,
-            30.0,
-            FW_SEMIBOLD as i32,
-            Face::Num,
-            if is_fastest { PURPLE } else { TEXT },
-            DT_LEFT,
-        );
-        let note = match secs {
-            _ if is_fastest => text(view.lang, &Msg::PanelFastest),
-            Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
-            _ => String::new(),
-        };
-        let r = g.r(x + 14.0, y + h - 36.0, card_w - 28.0, 20.0);
-        g.text(
-            &note,
-            r,
-            14.0,
-            FW_SEMIBOLD as i32,
-            Face::Num,
-            if is_fastest { PURPLE } else { MUTED },
-            DT_LEFT,
         );
     }
 }
