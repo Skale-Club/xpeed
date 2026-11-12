@@ -7,7 +7,6 @@ use std::path::Path;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, ERROR_SUCCESS, HANDLE, INVALID_HANDLE_VALUE};
-use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 use windows_sys::Win32::System::Console::{
     AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
@@ -22,8 +21,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_TOPMOST, MB_YESNO, SW_SHOWNORMAL,
 };
 
-use crate::text::{lang_from_id, Lang};
-
 /// UTF-16, with the zero Windows wants at the end.
 pub fn wide(text: &str) -> Vec<u16> {
     OsStr::new(text).encode_wide().chain(Some(0)).collect()
@@ -35,11 +32,6 @@ pub fn fill<const N: usize>(buffer: &mut [u16; N], text: &str) {
     for (slot, unit) in buffer.iter_mut().take(N - 1).zip(text.encode_utf16()) {
         *slot = unit;
     }
-}
-
-/// The language of Windows' own menus: the one the app speaks.
-pub fn ui_lang() -> Lang {
-    lang_from_id(unsafe { GetUserDefaultUILanguage() } & 0x3ff)
 }
 
 pub fn ask_yes_no(title: &str, text: &str) -> bool {

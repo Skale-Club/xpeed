@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::dash::Live;
 use crate::outbox::Uploader;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +56,9 @@ pub enum Notice {
 
 type OnChange = Box<dyn Fn() + Send + Sync>;
 
+/// How many saved laps the panel lists.
+const RECENT_LAPS: usize = 12;
+
 /// One of these lives as long as the program. Everything is cheap to read from any thread.
 pub struct Shared {
     snapshot: Mutex<Snapshot>,
@@ -63,6 +67,10 @@ pub struct Shared {
     notices: Mutex<VecDeque<Notice>>,
     on_change: Mutex<Option<OnChange>>,
     uploader: Mutex<Option<Uploader>>,
+    /// The latest reading of the car, for the panel. Not a change worth waking the tray for.
+    live: Mutex<Option<Live>>,
+    /// The labels of the last laps saved in this run, newest last.
+    recent_laps: Mutex<VecDeque<String>>,
     paused: AtomicBool,
     quit: AtomicBool,
 }
@@ -81,6 +89,8 @@ impl Shared {
             notices: Mutex::new(VecDeque::new()),
             on_change: Mutex::new(None),
             uploader: Mutex::new(None),
+            live: Mutex::new(None),
+            recent_laps: Mutex::new(VecDeque::new()),
             paused: AtomicBool::new(false),
             quit: AtomicBool::new(false),
         })
@@ -138,12 +148,50 @@ impl Shared {
     }
 
     pub fn notify(&self, notice: Notice) {
+        if let Notice::LapSaved(label) = &notice {
+            let mut recent = self.recent_laps.lock().unwrap();
+            recent.push_back(label.clone());
+            while recent.len() > RECENT_LAPS {
+                recent.pop_front();
+            }
+        }
         self.notices.lock().unwrap().push_back(notice);
         self.changed();
     }
 
     pub fn take_notices(&self) -> Vec<Notice> {
         self.notices.lock().unwrap().drain(..).collect()
+    }
+
+    /// The labels of the last laps saved in this run, newest last.
+    pub fn recent_laps(&self) -> Vec<String> {
+        self.recent_laps.lock().unwrap().iter().cloned().collect()
+    }
+
+    /// What every reader that has reported says: `(id, name, state)`, by id.
+    pub fn games(&self) -> Vec<(&'static str, &'static str, Game)> {
+        self.games
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, (name, game))| (*id, *name, game.clone()))
+            .collect()
+    }
+
+    /// A new reading of a car. It replaces the one shown when it is being driven, comes from the same game, or the
+    /// one shown is older than two seconds (so a second game sitting in its menu does not hide the one being driven).
+    pub fn offer_live(&self, live: Live) {
+        let mut shown = self.live.lock().unwrap();
+        let replace = shown
+            .as_ref()
+            .is_none_or(|old| live.driving || old.game == live.game || live.at_ms - old.at_ms > 2000);
+        if replace {
+            *shown = Some(live);
+        }
+    }
+
+    pub fn live(&self) -> Option<Live> {
+        self.live.lock().unwrap().clone()
     }
 
     pub fn paused(&self) -> bool {
@@ -229,6 +277,43 @@ mod tests {
         let taken = shared.take_notices();
         assert_eq!(taken, [Notice::LapSaved("Lap 3  1:42.318".into()), Notice::Paired("RIG".into())]);
         assert!(shared.take_notices().is_empty());
+    }
+
+    #[test]
+    fn keeps_the_last_laps_saved_for_the_panel() {
+        let shared = Shared::new(true);
+        for lap in 1..=15 {
+            shared.notify(Notice::LapSaved(format!("Lap {lap}")));
+        }
+        shared.notify(Notice::LapsSent(3));
+        let recent = shared.recent_laps();
+        assert_eq!(recent.len(), RECENT_LAPS);
+        assert_eq!((recent[0].as_str(), recent[RECENT_LAPS - 1].as_str()), ("Lap 4", "Lap 15"));
+    }
+
+    #[test]
+    fn the_car_being_driven_wins_the_panel() {
+        let shared = Shared::new(true);
+        let reading = |game: &'static str, driving: bool, at_ms: i64| {
+            let mut tracker = crate::dash::Tracker::default();
+            let mut frame = crate::game::Frame::empty();
+            frame.driving = driving;
+            tracker.on_frame(game, &frame, at_ms)
+        };
+        assert!(shared.live().is_none());
+        shared.offer_live(reading("Le Mans Ultimate", true, 1000));
+        shared.offer_live(reading("Assetto Corsa", false, 1500));
+        assert_eq!(
+            shared.live().unwrap().game,
+            "Le Mans Ultimate",
+            "a game in its menu does not take over"
+        );
+        shared.offer_live(reading("Assetto Corsa", false, 3500));
+        assert_eq!(shared.live().unwrap().game, "Assetto Corsa", "the other one went quiet");
+        shared.offer_live(reading("Le Mans Ultimate", true, 3600));
+        assert_eq!(shared.live().unwrap().game, "Le Mans Ultimate");
+        shared.set_game("lmu", "Le Mans Ultimate", Game::Recording(2));
+        assert_eq!(shared.games(), [("lmu", "Le Mans Ultimate", Game::Recording(2))]);
     }
 
     #[test]

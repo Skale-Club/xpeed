@@ -10,7 +10,27 @@ Os outros jogos têm leitores em `src/games/` (Assetto Corsa e família, AC EVO,
 
 Sem argumentos (menu Iniciar, ou ao ligar o Windows), o Xpeed Sim roda como um **ícone na bandeja**. A bolinha no canto do ícone mostra o estado: cinza (gravação pausada), âmbar (esperando o jogo), verde (conectado ou gravando), vermelho (precisa de atenção). O ícone é a marca verdadeira do Xpeed ([branding/README.md](../branding/README.md)).
 
-Menu do ícone: o estado do jogo e da conta, **Conectar à sua conta…**, **Abrir a pasta das voltas**, **Pausar/Retomar a gravação**, **Iniciar com o Windows** e **Sair**. Um balão avisa cada volta gravada, um lote de voltas enviado de uma vez, a conexão e uma chave recusada. Os textos seguem o idioma do Windows (inglês, português, espanhol).
+Clicar no ícone abre o **painel**; o botão direito abre o menu. Menu do ícone: o estado do jogo e da conta, **Abrir o painel**, **Conectar à sua conta…**, **Abrir a pasta das voltas**, **Pausar/Retomar a gravação**, **Iniciar com o Windows**, **Idioma** e **Sair**. Um balão avisa cada volta gravada, um lote de voltas enviado de uma vez, a conexão e uma chave recusada.
+
+**Idioma:** o programa abre em **inglês** (decisão do dono, 12/11/2026: inglês primeiro). Português e espanhol aparecem só se a pessoa escolher em **Language**, no menu. A escolha fica gravada no arquivo `language`, em `%APPDATA%\Xpeed Sim`.
+
+**O painel** (`src/panel.rs`) é uma janela com duas abas:
+
+- **Dashboard:** o que aparece enquanto se dirige, no lugar do SimHub:
+  - marcha, velocidade, barra de giro (verde, âmbar e vermelho perto do limite);
+  - tempo da volta e diferença para a melhor volta (verde quando mais rápido);
+  - última e melhor volta, pedais, volante, combustível e o ponto da volta em que o carro está.
+- **Monitor:** o estado de cada leitor de jogo, a conta, as voltas gravadas e as últimas linhas do registro.
+
+Atalhos do painel:
+
+- `1` e `2` trocam de aba.
+- **Tela cheia:** `F11`, o botão no topo ou um duplo clique na janela. `Esc` sai.
+- **Sempre por cima:** `T`.
+
+Em tela cheia, o dashboard cresce junto com a tela. O painel é desenhado com GDI 30 vezes por segundo e se ajusta ao DPI da tela; fechar a janela não para a gravação.
+
+Para ver o painel sem jogo aberto, rode `xpeed-sim panel-demo`, que mostra uma pilotagem inventada sem gravar nem enviar nada. `xpeed-sim panel` abre o painel da cópia que já está rodando.
 
 - **Conectar:** no Xpeed (Virtual > Xpeed Sim) a pessoa pede um código e abre o link `xpeedsim://pair?server=…&code=…`. O Windows o entrega ao programa, que **pergunta**, nomeando o servidor, se deve conectar (a resposta padrão é Não). Pelo terminal também dá: `xpeed-sim pair --server https://… --code ABCD-2345`.
 - **Onde ficam as coisas:** voltas em `Documentos\Xpeed Sim\Laps` (ou `XPEED_SIM_LAPS`); configuração e o registro (`sim.log`) em `%APPDATA%\Xpeed Sim` (ou `XPEED_SIM_HOME`). A chave do aparelho **nunca** é impressa nem vai para o registro.

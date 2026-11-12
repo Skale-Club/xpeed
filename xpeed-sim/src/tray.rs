@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::ptr::{null, null_mut};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
@@ -17,13 +17,15 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow,
     DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
     RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, CREATESTRUCTW,
-    GWLP_USERDATA, HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
+    GWLP_USERDATA, HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, TPM_BOTTOMALIGN,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
+    WS_OVERLAPPED,
 };
 
 use crate::config::{self, Config, DEFAULT_SERVER};
 use crate::icon::{self, Light};
 use crate::outbox::{Backoff, Observer, Uploader};
+use crate::panel::{self, Account};
 use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
 use crate::text::{text, Lang, Msg};
@@ -37,12 +39,17 @@ const CONNECT_PATH: &str = "/sim/app";
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_CHANGED: u32 = WM_APP + 2;
 const WM_RELOAD: u32 = WM_APP + 3;
+/// Another copy (`xpeed-sim panel`) asks this one to open its panel.
+const WM_OPEN_PANEL: u32 = WM_APP + 4;
 
 const CMD_CONNECT: usize = 1;
 const CMD_LAPS: usize = 2;
 const CMD_PAUSE: usize = 3;
 const CMD_AUTOSTART: usize = 4;
 const CMD_QUIT: usize = 5;
+const CMD_PANEL: usize = 6;
+/// The languages of the menu, in the order of `Lang::ALL`, from this id up.
+const CMD_LANG: usize = 20;
 
 const LIGHTS: [Light; 4] = [Light::Grey, Light::Amber, Light::Green, Light::Red];
 
@@ -57,12 +64,22 @@ struct App {
     server: String,
     device: Option<String>,
     taskbar_created: u32,
+    /// The panel window, when it has been opened (it may have been closed since).
+    panel: HWND,
+    /// The account as the panel shows it.
+    account: Arc<Mutex<Account>>,
+    /// The program's own icon (no state dot), big and small, for the panel's title bar and taskbar button.
+    panel_icons: [HICON; 2],
 }
 
 fn icon_for(light: Light) -> HICON {
+    let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as u32;
+    icon_of(size, Some(light))
+}
+
+fn icon_of(size: u32, light: Option<Light>) -> HICON {
     unsafe {
-        let size = GetSystemMetrics(SM_CXSMICON).clamp(16, 64) as u32;
-        let pixels = icon::render(size, Some(light));
+        let pixels = icon::render(size, light);
         let color = CreateBitmap(size as i32, size as i32, 1, 32, pixels.as_ptr().cast());
         // The mask is not used (the alpha channel does the work); a one-bit bitmap takes rows of whole 16-bit words.
         let mask_bytes = vec![0u8; (size.div_ceil(16) * 2 * size) as usize];
@@ -152,6 +169,43 @@ impl App {
         }
     }
 
+    /// Opens the panel, or brings it to the front.
+    fn open_panel(&mut self) {
+        let (shared, account) = (self.shared.clone(), self.account.clone());
+        let laps_dir = self.laps_dir.display().to_string();
+        let [icon_big, icon_small] = self.panel_icons;
+        self.panel = panel::show(self.panel, move || panel::Context {
+            shared,
+            account,
+            laps_dir,
+            readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
+            icon_big,
+            icon_small,
+            quit_on_close: false,
+        });
+    }
+
+    /// The account and language as the panel shows them, from what the tray knows now.
+    fn sync_account(&self) {
+        *self.account.lock().unwrap() = Account {
+            device: self.device.clone(),
+            server: self.server.clone(),
+            lang: self.lang,
+        };
+    }
+
+    /// The person picked a language in the menu: remember it, and show it everywhere at once.
+    fn set_lang(&mut self, lang: Lang) {
+        self.lang = lang;
+        if let Some(home) = config::home_dir() {
+            if let Err(why) = config::save_lang(&home, lang) {
+                applog::line(&why);
+            }
+        }
+        self.sync_account();
+        self.refresh();
+    }
+
     fn server_for_connect(&self) -> String {
         format!("{}{}", self.server, CONNECT_PATH)
     }
@@ -173,10 +227,11 @@ impl App {
                 self.shared.update(|s| s.cloud = Cloud::NotPaired);
             }
         }
+        self.sync_account();
         self.refresh();
     }
 
-    fn show_menu(&self) {
+    fn show_menu(&mut self) {
         let snapshot = self.shared.snapshot();
         let say = |msg: Msg| win::wide(&text(self.lang, &msg));
         unsafe {
@@ -195,6 +250,7 @@ impl App {
                 line(MF_STRING | MF_GRAYED, 0, win::wide(last));
             }
             line(MF_SEPARATOR, 0, vec![0]);
+            line(MF_STRING, CMD_PANEL, say(Msg::MenuPanel));
             if snapshot.cloud == Cloud::NotPaired || snapshot.cloud == Cloud::Refused {
                 line(MF_STRING, CMD_CONNECT, say(Msg::MenuConnect));
             }
@@ -206,6 +262,13 @@ impl App {
             );
             let on = win::autostart_enabled(win::RUN_KEY, win::RUN_NAME);
             line(MF_STRING | if on { MF_CHECKED } else { 0 }, CMD_AUTOSTART, say(Msg::MenuAutostart));
+            // The language: English unless the person picks another here (each shown in its own words).
+            let languages = CreatePopupMenu();
+            for (i, lang) in Lang::ALL.into_iter().enumerate() {
+                let checked = if lang == self.lang { MF_CHECKED } else { 0 };
+                AppendMenuW(languages, MF_STRING | checked, CMD_LANG + i, win::wide(lang.name()).as_ptr());
+            }
+            AppendMenuW(menu, MF_POPUP, languages as usize, say(Msg::MenuLanguage).as_ptr());
             line(MF_SEPARATOR, 0, vec![0]);
             line(MF_STRING, CMD_QUIT, say(Msg::MenuQuit));
 
@@ -228,8 +291,9 @@ impl App {
         }
     }
 
-    fn command(&self, id: usize) {
+    fn command(&mut self, id: usize) {
         match id {
+            CMD_PANEL => self.open_panel(),
             CMD_CONNECT => win::open(&self.server_for_connect()),
             CMD_LAPS => {
                 let _ = std::fs::create_dir_all(&self.laps_dir);
@@ -250,6 +314,7 @@ impl App {
                     applog::line(&why);
                 }
             }
+            id if (CMD_LANG..CMD_LANG + Lang::ALL.len()).contains(&id) => self.set_lang(Lang::ALL[id - CMD_LANG]),
             CMD_QUIT => unsafe {
                 DestroyWindow(self.hwnd);
             },
@@ -260,7 +325,7 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        for icon in self.icons {
+        for icon in self.icons.into_iter().chain(self.panel_icons) {
             unsafe {
                 DestroyIcon(icon);
             }
@@ -282,7 +347,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
     match message {
         WM_TRAY => {
             let event = (lparam & 0xffff) as u32;
-            if event == WM_RBUTTONUP || event == WM_LBUTTONUP || event == WM_CONTEXTMENU {
+            // A click opens the panel; the right button (or the menu key) opens the menu.
+            if event == WM_LBUTTONUP {
+                app.open_panel();
+            } else if event == WM_RBUTTONUP || event == WM_CONTEXTMENU {
                 app.show_menu();
             }
             0
@@ -293,6 +361,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_RELOAD => {
             app.reload_pairing();
+            0
+        }
+        WM_OPEN_PANEL => {
+            app.open_panel();
             0
         }
         WM_DESTROY => {
@@ -319,8 +391,14 @@ pub fn laps_dir() -> PathBuf {
     config::default_laps_dir()
 }
 
-/// Runs the tray app until the person quits it.
-pub fn run() -> ExitCode {
+/// Asks the copy that is running to open its panel. False when none is running.
+pub fn open_panel_of_running() -> bool {
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_OPEN_PANEL, 0, 0) } != 0
+}
+
+/// Runs the tray app until the person quits it, with the panel open from the start when `open_panel` is set.
+pub fn run(open_panel: bool) -> ExitCode {
     let Some(_only_copy) = win::single_instance(INSTANCE_NAME) else {
         return ExitCode::SUCCESS;
     };
@@ -339,7 +417,7 @@ pub fn run() -> ExitCode {
             None
         }
     };
-    let lang = win::ui_lang();
+    let lang = config::load_lang(&home);
     let laps_dir = laps_dir();
     let shared = Shared::new(config.is_some());
 
@@ -373,7 +451,11 @@ pub fn run() -> ExitCode {
             server: config.as_ref().map_or_else(|| DEFAULT_SERVER.to_owned(), |c| c.server.clone()),
             device: config.as_ref().map(|c| c.device_name.clone()),
             taskbar_created: RegisterWindowMessageW(win::wide("TaskbarCreated").as_ptr()),
+            panel: null_mut(),
+            account: Arc::new(Mutex::new(Account::default())),
+            panel_icons: [icon_of(32, None), icon_of(16, None)],
         });
+        app.sync_account();
         let app = Box::into_raw(app);
         let hwnd = CreateWindowExW(
             0,
@@ -396,6 +478,9 @@ pub fn run() -> ExitCode {
         }
         (*app).hwnd = hwnd;
         (*app).add_icon();
+        if open_panel {
+            (*app).open_panel();
+        }
 
         // The other threads wake this one by posting a message; the window handle travels as a number.
         let target = hwnd as isize;
@@ -436,7 +521,7 @@ pub fn run() -> ExitCode {
 /// What happens when the Xpeed site opens an `xpeedsim://pair?...` link: ask, connect, and tell the running copy
 /// (or start one).
 pub fn pair_from_link(url: &str) -> ExitCode {
-    let lang = win::ui_lang();
+    let lang = config::home_dir().map_or(Lang::En, |home| config::load_lang(&home));
     let failed = |why: String| {
         win::tell_error(&text(lang, &Msg::PairFailedTitle), &text(lang, &Msg::PairFailed(why)));
         ExitCode::from(1)
