@@ -9,7 +9,7 @@ pub fn light_of(snapshot: &Snapshot) -> Light {
     match (&snapshot.cloud, &snapshot.game) {
         (Cloud::Refused, _) | (_, Game::Unsupported) => Light::Red,
         (_, Game::Paused) => Light::Grey,
-        (_, Game::Waiting) => Light::Amber,
+        (_, Game::Waiting | Game::Silent) => Light::Amber,
         (_, Game::Connected | Game::Recording(_)) => Light::Green,
     }
 }
@@ -32,6 +32,7 @@ pub fn game_line(lang: Lang, game: &Game) -> String {
             Game::Recording(lap) => Msg::GameRecording(*lap),
             Game::Paused => Msg::GamePaused,
             Game::Unsupported => Msg::GameUnsupported,
+            Game::Silent => Msg::GameSilent,
         },
     )
 }

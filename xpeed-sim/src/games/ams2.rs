@@ -30,7 +30,7 @@ use std::sync::atomic::{fence, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{Frame, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// The name the games give their memory.
@@ -66,8 +66,9 @@ const PCARS3: Kind = Kind {
     name: "Project CARS 3",
     ..PCARS2
 };
-/// The bytes of the struct this reader uses, through `mSequenceNumber`.
-const PCARS_READ: usize = at::SEQUENCE_NUMBER + 4;
+/// The bytes of the struct this reader uses, through `mAirPressure` (the tyres' pressures, a version 8 field like
+/// `mSequenceNumber`).
+const PCARS_READ: usize = at::AIR_PRESSURE + 16;
 /// Project CARS 2's whole struct (Automobilista 2's without its additions), for the record and the tests.
 #[cfg(test)]
 const PCARS2_SIZE: usize = 20_576;
@@ -112,6 +113,12 @@ mod at {
     pub const RPM: usize = 6852;
     pub const GEAR: usize = 6876;
     pub const SEQUENCE_NUMBER: usize = 7320;
+    /// `float mTyreTemp[4]`, Celsius (front left, front right, rear left, rear right).
+    pub const TYRE_TEMP: usize = 7072;
+    /// `float mTyreWear[4]`, 0..1.
+    pub const TYRE_WEAR: usize = 7136;
+    /// `float mAirPressure[4]`, PSI (a Project CARS 2 addition, version 8).
+    pub const AIR_PRESSURE: usize = 7372;
 }
 
 // (Type#1) game states: only the first three of interest are named; `GAME_MAX` is the first value that is not one.
@@ -363,7 +370,34 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track_variant = Some(page.ascii_at(at::TRACK_VARIATION, STRING_LENGTH)).filter(|s| !s.is_empty());
     let length = within(page.f32_at(at::TRACK_LENGTH), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
+    frame.tyres = tyres_from(&page);
     Some(frame)
+}
+
+/// The four tyres: temperature (Celsius), pressure (PSI to kPa) and tread left (1 - wear). The header's "unset" is 0
+/// for each, so a 0 says nothing; `None` when no tyre says anything.
+fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
+    const KPA_PER_PSI: f32 = 6.894_757;
+    let tyre = |i: usize| {
+        let temp = page.f32_at(at::TYRE_TEMP + 4 * i);
+        let psi = page.f32_at(at::AIR_PRESSURE + 4 * i);
+        let wear = page.f32_at(at::TYRE_WEAR + 4 * i);
+        Tyre {
+            temp_c: if temp != 0.0 { within(temp, -40.0, 400.0) } else { f32::NAN },
+            pressure_kpa: if psi > 0.0 {
+                within(psi, 0.0, 100.0) * KPA_PER_PSI
+            } else {
+                f32::NAN
+            },
+            left: if (0.0..=1.0).contains(&wear) && (temp != 0.0 || psi > 0.0) {
+                1.0 - wear
+            } else {
+                f32::NAN
+            },
+        }
+    };
+    let tyres = [tyre(0), tyre(1), tyre(2), tyre(3)];
+    tyres.iter().any(Tyre::known).then_some(tyres)
 }
 
 #[cfg(test)]
@@ -693,6 +727,9 @@ mod tests {
             ("mRpm", at::RPM),
             ("mGear", at::GEAR),
             ("mSequenceNumber", at::SEQUENCE_NUMBER),
+            ("mTyreTemp", at::TYRE_TEMP),
+            ("mTyreWear", at::TYRE_WEAR),
+            ("mAirPressure", at::AIR_PRESSURE),
         ] {
             assert_eq!(offset_of(&o, name), want, "{name}");
         }
@@ -703,6 +740,23 @@ mod tests {
         // The game's memory is made `SIZE` bytes long; Windows rounds that to whole pages, and a page count that
         // still holds the struct is what `open_named` asks of the mapping.
         assert!(SIZE.div_ceil(4096) * 4096 >= SIZE);
+    }
+
+    #[test]
+    fn reads_the_tyres_and_says_nothing_for_unset_ones() {
+        let mut image = Image::on_track();
+        assert!(frame_from(&image.0, 0.0).unwrap().tyres.is_none(), "all zero: the header's unset");
+        for i in 0..4 {
+            image.f32(at::TYRE_TEMP + 4 * i, 80.0 + i as f32);
+            image.f32(at::AIR_PRESSURE + 4 * i, 25.0);
+            image.f32(at::TYRE_WEAR + 4 * i, 0.25);
+        }
+        image.f32(at::TYRE_TEMP + 12, f32::NAN);
+        let tyres = frame_from(&image.0, 0.0).unwrap().tyres.expect("tyres");
+        assert_eq!(tyres[0].temp_c, 80.0);
+        assert!((tyres[1].pressure_kpa - 172.368_93).abs() < 0.01, "25 psi");
+        assert_eq!(tyres[2].left, 0.75, "a quarter worn");
+        assert!(tyres[3].temp_c.is_nan() && tyres[3].pressure_kpa.is_finite());
     }
 
     #[test]

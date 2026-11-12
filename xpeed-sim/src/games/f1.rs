@@ -702,6 +702,10 @@ impl Source for F1Source {
     fn alive(&self) -> bool {
         self.alive
     }
+
+    fn listens(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

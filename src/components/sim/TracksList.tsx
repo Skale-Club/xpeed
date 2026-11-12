@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useTrackLibrary } from '@/hooks/use-track-library';
+import { useGames } from '@/lib/sim/games';
 import { lengthIn, type DistanceUnit } from '@/lib/sim/analysis';
 import { TrackReadError } from '@/lib/sim/read-track-file';
 import { TrackLibraryError, addTrackFile, loadTrack, removeTracks, type LibraryTrack } from '@/lib/sim/track-library';
@@ -14,9 +15,6 @@ import { deleteAccountTrack, syncAccountTracks, type SyncResult } from '@/lib/si
 import type { TrackFile } from '@/lib/sim/track-file';
 import { cn } from '@/lib/utils';
 
-/** The games whose files Xpeed Sim reads track layouts from, by the id a layout file uses. */
-const GAME_NAMES: Record<string, string> = { ac: 'Assetto Corsa', sce: 'Stock Car Extreme' };
-const gameName = (id: string) => GAME_NAMES[id] ?? id.toUpperCase();
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -64,6 +62,7 @@ function TrackRow({ entry, userId, unit, onRemove }: { entry: LibraryTrack; user
     };
   }, [userId, entry.id]);
   const { summary } = entry;
+  const games = useGames();
   const title = summary.title ?? summary.trackName;
   const length = summary.lengthM !== undefined ? `${(lengthIn(summary.lengthM, unit) / (unit === 'mi' ? 5280 : 1000)).toFixed(2)} ${unit === 'mi' ? 'mi' : 'km'}` : null;
   return (
@@ -75,7 +74,7 @@ function TrackRow({ entry, userId, unit, onRemove }: { entry: LibraryTrack; user
           {summary.variant ? <span className="text-muted-foreground"> · {summary.variant}</span> : null}
         </p>
         <p className="truncate text-xs text-muted-foreground">
-          {gameName(summary.game)}
+          {games.name(summary.game)}
           {length ? ` · ${length}` : ''} · {entry.fileName} · {formatBytes(entry.size)}
         </p>
         <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs">

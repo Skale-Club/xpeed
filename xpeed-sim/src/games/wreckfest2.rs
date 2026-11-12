@@ -423,6 +423,10 @@ impl Source for Wreckfest2 {
     fn alive(&self) -> bool {
         self.healthy
     }
+
+    fn listens(&self) -> bool {
+        true
+    }
 }
 
 pub fn open() -> Option<Box<dyn Source>> {

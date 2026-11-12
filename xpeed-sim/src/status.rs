@@ -17,6 +17,8 @@ pub enum Game {
     Paused,
     /// This build cannot read this version of the game.
     Unsupported,
+    /// The game is running but shares no data (its option is off, its plugin is missing, or it is still loading).
+    Silent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,10 +153,11 @@ impl Shared {
                 self.remember(event);
             }
             let rank = |g: &Game| match g {
-                Game::Recording(_) => 4,
-                Game::Connected => 3,
-                Game::Unsupported => 2,
-                Game::Paused => 1,
+                Game::Recording(_) => 5,
+                Game::Connected => 4,
+                Game::Unsupported => 3,
+                Game::Paused => 2,
+                Game::Silent => 1,
                 Game::Waiting => 0,
             };
             let best = games.values().max_by_key(|(_, g)| rank(g)).cloned().unwrap_or(("", Game::Waiting));
