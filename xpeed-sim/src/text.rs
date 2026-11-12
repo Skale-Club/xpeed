@@ -318,7 +318,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
                 s("Ligue os dados no jogo: Settings > Telemetry Settings > UDP Telemetry On, porta 20777, formato do ano do jogo."),
                 s("Activa los datos en el juego: Settings > Telemetry Settings > UDP Telemetry On, puerto 20777, formato del año del juego."),
             ),
-            "fm" | "fm7" | "fh4" | "fh5" => t(
+            "fm" | "fm7" | "fh4" | "fh5" | "fh6" => t(
                 s("Switch the data on in the game: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, port 5301."),
                 s("Ligue os dados no jogo: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, porta 5301."),
                 s("Activa los datos en el juego: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, puerto 5301."),
