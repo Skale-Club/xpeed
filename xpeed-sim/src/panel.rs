@@ -17,10 +17,11 @@ use std::sync::{Arc, Mutex};
 
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW,
-    Ellipse, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextColor,
-    CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE,
-    DT_VCENTER, FW_BOLD, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SRCCOPY, TRANSPARENT,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
+    DrawTextW, Ellipse, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
+    SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT,
+    DT_SINGLELINE, DT_VCENTER, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, NULL_BRUSH, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
+    SRCCOPY, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -60,22 +61,34 @@ const HEIGHT: i32 = 600;
 const MIN_WIDTH: i32 = 720;
 const MIN_HEIGHT: i32 = 480;
 
-/// The colours, as `0x00BBGGRR`. The background and the accent are the app's (`--background` #111214, `--primary`
-/// #F5E663).
+/// The colours, as `0x00BBGGRR`. The accent is the app's `--primary` (#F5E663); purple marks the best lap, as timing
+/// screens do.
 const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
-const BG: COLORREF = rgb(0x11, 0x12, 0x14);
-const CARD: COLORREF = rgb(0x1b, 0x1d, 0x21);
-const TRACK: COLORREF = rgb(0x2a, 0x2d, 0x33);
-const TEXT: COLORREF = rgb(0xec, 0xec, 0xee);
-const MUTED: COLORREF = rgb(0x8b, 0x90, 0x99);
+const BG: COLORREF = rgb(0x0c, 0x0d, 0x0f);
+const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
+const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
+const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
+const DIM: COLORREF = rgb(0x1f, 0x22, 0x27);
+const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
+const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
 const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
-const GREEN: COLORREF = rgb(0x3d, 0xdc, 0x84);
-const RED: COLORREF = rgb(0xff, 0x5a, 0x5a);
-const BLUE: COLORREF = rgb(0x4e, 0xa8, 0xff);
-const AMBER: COLORREF = rgb(0xff, 0xb5, 0x47);
+const GREEN: COLORREF = rgb(0x2f, 0xd6, 0x7b);
+const RED: COLORREF = rgb(0xff, 0x4d, 0x4d);
+const BLUE: COLORREF = rgb(0x3d, 0x9b, 0xff);
+const AMBER: COLORREF = rgb(0xff, 0xb0, 0x3b);
+const PURPLE: COLORREF = rgb(0xb5, 0x7c, 0xff);
 const GREY: COLORREF = rgb(0x5c, 0x61, 0x6b);
+
+/// `a` with `t` (0..1) of `b` mixed in.
+fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
+    let channel = |shift: u32| {
+        let (x, y) = ((a >> shift & 0xff) as f32, (b >> shift & 0xff) as f32);
+        ((x + (y - x) * t).round() as u32) << shift
+    };
+    channel(0) | channel(8) | channel(16)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -141,34 +154,27 @@ struct State {
     full: Option<(WINDOWPLACEMENT, isize)>,
 }
 
+/// Height of the header, in design pixels.
+const HEADER_H: f32 = 58.0;
+/// The dashboard is laid out on this canvas (design units) and scaled whole to fit the window, so it keeps its
+/// proportions at any size and fills a full screen instead of stretching empty cards.
+const CANVAS_W: f32 = 1000.0;
+const CANVAS_H: f32 = 520.0;
+/// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
+const LIGHTS_FROM: f32 = 0.55;
+const SHIFT_AT: f32 = 0.97;
+const LIGHTS: usize = 15;
+
 /// The places of the header that can be clicked: the two tabs, "full screen" and "always on top".
 fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
     let p = |v: f32| (v * scale).round() as i32;
+    let (top, bottom) = (p(12.0), p(46.0));
+    let right = width - p(16.0);
     [
-        RECT {
-            left: p(16.0),
-            top: p(10.0),
-            right: p(146.0),
-            bottom: p(42.0),
-        },
-        RECT {
-            left: p(154.0),
-            top: p(10.0),
-            right: p(284.0),
-            bottom: p(42.0),
-        },
-        RECT {
-            left: width - p(16.0) - p(200.0) - p(8.0) - p(170.0),
-            top: p(10.0),
-            right: width - p(16.0) - p(200.0) - p(8.0),
-            bottom: p(42.0),
-        },
-        RECT {
-            left: width - p(16.0) - p(200.0),
-            top: p(10.0),
-            right: width - p(16.0),
-            bottom: p(42.0),
-        },
+        rect(p(19.0), p(15.0), p(133.0), p(43.0)),
+        rect(p(135.0), p(15.0), p(249.0), p(43.0)),
+        rect(right - p(176.0) - p(8.0) - p(152.0), top, right - p(176.0) - p(8.0), bottom),
+        rect(right - p(176.0), top, right, bottom),
     ]
 }
 
@@ -176,43 +182,88 @@ fn inside(r: &RECT, x: i32, y: i32) -> bool {
     x >= r.left && x < r.right && y >= r.top && y < r.bottom
 }
 
-/// Drawing helpers over one device context, with the fonts it made (deleted when it is dropped).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Face {
+    /// Labels and running text.
+    Ui,
+    /// Numbers: Bahnschrift, the DIN-like face Windows ships, as motorsport screens use.
+    Num,
+    /// The log.
+    Mono,
+    /// Windows' icon font (full screen, pin).
+    Icon,
+}
+
+impl Face {
+    fn name(self, weight: i32) -> &'static str {
+        match self {
+            Face::Ui => "Segoe UI",
+            Face::Num if weight >= FW_SEMIBOLD as i32 => "Bahnschrift SemiBold",
+            Face::Num => "Bahnschrift",
+            Face::Mono => "Cascadia Mono",
+            Face::Icon => "Segoe MDL2 Assets",
+        }
+    }
+}
+
+/// Drawing over one device context in design units: `s` pixels per unit from the origin `(ox, oy)`. The fonts it
+/// made are deleted when it is dropped.
 struct Painter {
     hdc: HDC,
-    scale: f32,
-    fonts: Vec<((i32, i32), HFONT)>,
-    face: Vec<u16>,
+    s: f32,
+    ox: i32,
+    oy: i32,
+    fonts: Vec<((i32, i32, Face), HFONT)>,
 }
 
 impl Painter {
-    fn new(hdc: HDC, scale: f32) -> Painter {
+    fn new(hdc: HDC, s: f32) -> Painter {
         unsafe {
             SetBkMode(hdc, TRANSPARENT as i32);
         }
         Painter {
             hdc,
-            scale,
+            s,
+            ox: 0,
+            oy: 0,
             fonts: Vec::new(),
-            face: win::wide("Segoe UI"),
         }
     }
 
-    fn p(&self, v: f32) -> i32 {
-        (v * self.scale).round() as i32
+    /// Design units from here on: `s` pixels each, starting at pixel `(ox, oy)`.
+    fn place(&mut self, s: f32, ox: i32, oy: i32) {
+        (self.s, self.ox, self.oy) = (s, ox, oy);
     }
 
-    fn font(&mut self, size: f32, weight: i32) -> HFONT {
-        let key = (self.p(size).max(1), weight);
+    fn px(&self, v: f32) -> i32 {
+        (v * self.s).round() as i32
+    }
+
+    /// A box in design units, as pixels.
+    fn r(&self, x: f32, y: f32, w: f32, h: f32) -> RECT {
+        rect(
+            self.ox + self.px(x),
+            self.oy + self.px(y),
+            self.ox + self.px(x + w),
+            self.oy + self.px(y + h),
+        )
+    }
+
+    fn font(&mut self, size: f32, weight: i32, face: Face) -> HFONT {
+        let key = (self.px(size).max(1), weight, face);
         if let Some((_, font)) = self.fonts.iter().find(|(k, _)| *k == key) {
             return *font;
         }
+        let name = win::wide(face.name(weight));
+        // Bahnschrift's weights are faces of their own; asking them for bold again would thicken them twice.
+        let gdi_weight = if face == Face::Num { FW_NORMAL as i32 } else { weight };
         let font = unsafe {
             CreateFontW(
                 -key.0,
                 0,
                 0,
                 0,
-                weight,
+                gdi_weight,
                 0,
                 0,
                 0,
@@ -221,7 +272,7 @@ impl Painter {
                 CLIP_DEFAULT_PRECIS as u32,
                 CLEARTYPE_QUALITY as u32,
                 0,
-                self.face.as_ptr(),
+                name.as_ptr(),
             )
         };
         self.fonts.push((key, font));
@@ -236,35 +287,61 @@ impl Painter {
         }
     }
 
-    fn round(&self, r: RECT, radius: f32, color: COLORREF) {
+    /// A rounded box; `edge` draws a one-pixel border in that colour.
+    fn round(&self, r: RECT, radius: f32, color: COLORREF, edge: Option<COLORREF>) {
+        unsafe {
+            let brush = CreateSolidBrush(color);
+            let pen = edge.map(|c| CreatePen(PS_SOLID, 1, c));
+            let old_brush = SelectObject(self.hdc, brush);
+            let old_pen = SelectObject(self.hdc, pen.unwrap_or_else(|| GetStockObject(NULL_PEN)));
+            let d = self.px(radius * 2.0).max(1);
+            let grow = i32::from(edge.is_none());
+            RoundRect(self.hdc, r.left, r.top, r.right + grow, r.bottom + grow, d, d);
+            SelectObject(self.hdc, old_pen);
+            SelectObject(self.hdc, old_brush);
+            DeleteObject(brush);
+            if let Some(pen) = pen {
+                DeleteObject(pen);
+            }
+        }
+    }
+
+    /// A filled circle around a design-unit centre.
+    fn dot(&self, cx: f32, cy: f32, radius: f32, color: COLORREF) {
+        let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
         unsafe {
             let brush = CreateSolidBrush(color);
             let old_brush = SelectObject(self.hdc, brush);
             let old_pen = SelectObject(self.hdc, GetStockObject(NULL_PEN));
-            let d = self.p(radius * 2.0);
-            RoundRect(self.hdc, r.left, r.top, r.right + 1, r.bottom + 1, d, d);
+            Ellipse(self.hdc, r.left, r.top, r.right + 1, r.bottom + 1);
             SelectObject(self.hdc, old_pen);
             SelectObject(self.hdc, old_brush);
             DeleteObject(brush);
         }
     }
 
-    fn dot(&self, cx: i32, cy: i32, radius: f32, color: COLORREF) {
-        let r = self.p(radius);
+    /// A circle outline `width` units thick.
+    fn ring(&self, cx: f32, cy: f32, radius: f32, width: f32, color: COLORREF) {
+        let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
         unsafe {
-            let brush = CreateSolidBrush(color);
-            let old_brush = SelectObject(self.hdc, brush);
-            let old_pen = SelectObject(self.hdc, GetStockObject(NULL_PEN));
-            Ellipse(self.hdc, cx - r, cy - r, cx + r + 1, cy + r + 1);
-            SelectObject(self.hdc, old_pen);
+            let pen = CreatePen(PS_SOLID, self.px(width).max(1), color);
+            let old_pen = SelectObject(self.hdc, pen);
+            let old_brush = SelectObject(self.hdc, GetStockObject(NULL_BRUSH));
+            Ellipse(self.hdc, r.left, r.top, r.right, r.bottom);
             SelectObject(self.hdc, old_brush);
-            DeleteObject(brush);
+            SelectObject(self.hdc, old_pen);
+            DeleteObject(pen);
         }
     }
 
-    /// Text in a box, one line, cut with "…" when it does not fit. `align` is `DT_LEFT`, `DT_CENTER` or `DT_RIGHT`.
-    fn text(&mut self, s: &str, r: RECT, size: f32, weight: i32, color: COLORREF, align: u32) {
-        let font = self.font(size, weight);
+    /// One line of text in a box, cut with "…" when it does not fit.
+    #[allow(clippy::too_many_arguments)]
+    fn text(&mut self, s: &str, r: RECT, size: f32, weight: i32, face: Face, color: COLORREF, align: u32) {
+        // An empty string has a dangling pointer, and DrawTextW reads it even with a length of zero.
+        if s.is_empty() {
+            return;
+        }
+        let font = self.font(size, weight, face);
         let wide: Vec<u16> = s.encode_utf16().collect();
         let mut r = r;
         unsafe {
@@ -281,8 +358,12 @@ impl Painter {
         }
     }
 
-    fn width_of(&mut self, s: &str, size: f32, weight: i32) -> i32 {
-        let font = self.font(size, weight);
+    /// The width of a text, in design units.
+    fn width_of(&mut self, s: &str, size: f32, weight: i32, face: Face) -> f32 {
+        if s.is_empty() {
+            return 0.0;
+        }
+        let font = self.font(size, weight, face);
         let wide: Vec<u16> = s.encode_utf16().collect();
         let mut extent = SIZE { cx: 0, cy: 0 };
         unsafe {
@@ -290,39 +371,18 @@ impl Painter {
             GetTextExtentPoint32W(self.hdc, wide.as_ptr(), wide.len() as i32, &mut extent);
             SelectObject(self.hdc, old);
         }
-        extent.cx
+        extent.cx as f32 / self.s
     }
 
-    /// A bar filled `share` of the way (0..1) from the left.
-    fn hbar(&self, r: RECT, share: f32, color: COLORREF) {
-        self.round(r, 3.0, TRACK);
-        if share.is_finite() && share > 0.0 {
-            let w = ((r.right - r.left) as f32 * share.min(1.0)).round() as i32;
-            self.round(
-                RECT {
-                    right: r.left + w.max(1),
-                    ..r
-                },
-                3.0,
-                color,
-            );
-        }
+    /// A tile: the card colour with its border.
+    fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
+        self.round(self.r(x, y, w, h), 12.0, color, Some(EDGE));
     }
 
-    /// A bar filled `share` of the way (0..1) from the bottom.
-    fn vbar(&self, r: RECT, share: f32, color: COLORREF) {
-        self.round(r, 4.0, TRACK);
-        if share.is_finite() && share > 0.0 {
-            let h = ((r.bottom - r.top) as f32 * share.min(1.0)).round() as i32;
-            self.round(
-                RECT {
-                    top: r.bottom - h.max(1),
-                    ..r
-                },
-                4.0,
-                color,
-            );
-        }
+    /// The small upper-case label at the top left of a tile.
+    fn label(&mut self, s: &str, x: f32, y: f32, w: f32) {
+        let r = self.r(x, y, w, 18.0);
+        self.text(&s.to_uppercase(), r, 11.5, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_LEFT);
     }
 }
 
@@ -388,15 +448,30 @@ fn state_color(game: &Game) -> COLORREF {
     }
 }
 
-/// The colour of the rev bar: green, then amber, then red near the top.
-fn rev_color(share: f32) -> COLORREF {
-    if share >= 0.95 {
-        RED
-    } else if share >= 0.85 {
-        AMBER
-    } else {
-        GREEN
+/// The colour of shift light `i` of `LIGHTS`: five green, five amber, five red.
+fn light_color(i: usize) -> COLORREF {
+    match i * 3 / LIGHTS {
+        0 => GREEN,
+        1 => AMBER,
+        _ => RED,
     }
+}
+
+/// How many shift lights are lit at `share` of the top RPM, and whether they flash (time to shift).
+fn lights_lit(share: f32) -> (usize, bool) {
+    if !share.is_finite() {
+        return (0, false);
+    }
+    if share >= SHIFT_AT {
+        return (LIGHTS, true);
+    }
+    let lit = ((share - LIGHTS_FROM) / (SHIFT_AT - LIGHTS_FROM) * LIGHTS as f32).floor();
+    (lit.clamp(0.0, LIGHTS as f32) as usize, false)
+}
+
+/// Splits a saved lap's label (`Lap 3  1:47.918`) into its name and its time.
+fn lap_parts(label: &str) -> (&str, &str) {
+    label.split_once("  ").map_or((label, ""), |(name, time)| (name, time.trim()))
 }
 
 /// Draws one frame of the window.
@@ -404,531 +479,410 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let mut g = Painter::new(hdc, view.scale);
     g.fill(rect(0, 0, width, height), BG);
     header(&mut g, width, view);
-    let top = g.p(54.0);
-    let body = rect(g.p(16.0), top, width - g.p(16.0), height - g.p(14.0));
+    let top = g.px(HEADER_H);
+    let body = rect(g.px(16.0), top, width - g.px(16.0), height - g.px(16.0));
     match view.tab {
-        Tab::Dash => {
-            // On a big window (full screen) the dashboard grows with it instead of leaving empty space.
-            g.scale = view.scale * zoom(body, view.scale);
-            dashboard(&mut g, body, view);
-            g.scale = view.scale;
-        }
+        Tab::Dash => dashboard(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
     }
 }
 
 fn header(g: &mut Painter, width: i32, view: &View) {
+    g.place(view.scale, 0, 0);
     let [dash, mon, full, top] = header_hits(width, view.scale);
-    g.round(full, 8.0, CARD);
-    let full_label = text(
-        view.lang,
-        if view.full {
-            &Msg::PanelExitFullScreen
-        } else {
-            &Msg::PanelFullScreen
-        },
-    );
-    g.text(&full_label, full, 14.0, FW_NORMAL as i32, TEXT, DT_CENTER);
+    // The tabs, as one segmented control.
+    let control = g.r(16.0, 12.0, 236.0, 34.0);
+    g.round(control, 10.0, CARD, Some(EDGE));
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
         let selected = view.tab == tab;
-        g.round(r, 8.0, if selected { ACCENT } else { CARD });
-        let color = if selected { BG } else { TEXT };
-        g.text(&text(view.lang, &label), r, 15.0, FW_SEMIBOLD as i32, color, DT_CENTER);
+        if selected {
+            g.round(r, 8.0, ACCENT, None);
+        }
+        let color = if selected { BG } else { MUTED };
+        g.text(&text(view.lang, &label), r, 14.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
     }
-    g.round(top, 8.0, if view.on_top { CARD } else { BG });
-    let box_size = g.p(14.0);
-    let bx = top.left + g.p(12.0);
-    let by = (top.top + top.bottom - box_size) / 2;
-    let check = rect(bx, by, bx + box_size, by + box_size);
-    g.round(check, 3.0, if view.on_top { ACCENT } else { TRACK });
-    if view.on_top {
-        g.text("\u{2713}", check, 12.0, FW_BOLD as i32, BG, DT_CENTER);
+    // Full screen and always on top: buttons with Windows' own icons.
+    let buttons = [
+        (
+            full,
+            view.full,
+            if view.full { "\u{E73F}" } else { "\u{E740}" },
+            text(
+                view.lang,
+                if view.full {
+                    &Msg::PanelExitFullScreen
+                } else {
+                    &Msg::PanelFullScreen
+                },
+            ),
+        ),
+        (top, view.on_top, "\u{E718}", text(view.lang, &Msg::PanelOnTop)),
+    ];
+    for (r, active, icon, label) in buttons {
+        let (fill, edge, ink) = if active {
+            (mix(CARD, ACCENT, 0.14), ACCENT, ACCENT)
+        } else {
+            (CARD, EDGE, TEXT)
+        };
+        g.round(r, 10.0, fill, Some(edge));
+        let icon_box = rect(r.left + g.px(12.0), r.top, r.left + g.px(32.0), r.bottom);
+        g.text(icon, icon_box, 13.0, FW_NORMAL as i32, Face::Icon, ink, DT_CENTER);
+        let label_box = rect(r.left + g.px(38.0), r.top, r.right - g.px(10.0), r.bottom);
+        g.text(&label, label_box, 13.0, FW_SEMIBOLD as i32, Face::Ui, ink, DT_LEFT);
     }
-    let label = rect(bx + box_size + g.p(8.0), top.top, top.right - g.p(8.0), top.bottom);
-    g.text(
-        &text(view.lang, &Msg::PanelOnTop),
-        label,
-        14.0,
-        FW_NORMAL as i32,
-        if view.on_top { TEXT } else { MUTED },
-        DT_LEFT,
-    );
 }
 
-/// How much bigger than its design size (928 × 532 at this DPI) the dashboard can be drawn in `body`: 1 at the
-/// normal size, up to 3 on a big screen.
-fn zoom(body: RECT, scale: f32) -> f32 {
-    let w = (body.right - body.left) as f32 / (928.0 * scale);
-    let h = (body.bottom - body.top) as f32 / (532.0 * scale);
-    w.min(h).clamp(1.0, 3.0)
+/// Fits the canvas in `body`: the scale and where its top left goes.
+fn canvas_fit(body: RECT) -> (f32, i32, i32) {
+    let (bw, bh) = ((body.right - body.left) as f32, (body.bottom - body.top) as f32);
+    let s = (bw / CANVAS_W).min(bh / CANVAS_H).max(0.1);
+    let ox = body.left + ((bw - CANVAS_W * s) / 2.0).round() as i32;
+    let oy = body.top + ((bh - CANVAS_H * s) / 2.0).round() as i32;
+    (s, ox, oy)
+}
+
+fn waiting(g: &mut Painter, body: RECT, view: &View) {
+    let (s, ox, oy) = canvas_fit(body);
+    g.place(s, ox, oy);
+    let title = text(view.lang, &Msg::PanelWaitingTitle);
+    let r = g.r(0.0, 150.0, CANVAS_W, 50.0);
+    g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
+    let r = g.r(0.0, 202.0, CANVAS_W, 26.0);
+    g.text(
+        &text(view.lang, &Msg::PanelWaiting),
+        r,
+        15.0,
+        FW_NORMAL as i32,
+        Face::Ui,
+        MUTED,
+        DT_CENTER,
+    );
+    // The games it reads, as chips, centred in rows.
+    let chips: Vec<(String, f32)> = view
+        .games
+        .iter()
+        .map(|row| (row.title.clone(), g.width_of(&row.title, 13.0, FW_SEMIBOLD as i32, Face::Ui) + 28.0))
+        .collect();
+    let mut rows: Vec<Vec<(String, f32)>> = vec![Vec::new()];
+    let mut used = 0.0;
+    for chip in chips {
+        if used + chip.1 > 760.0 && !rows.last().unwrap().is_empty() {
+            rows.push(Vec::new());
+            used = 0.0;
+        }
+        used += chip.1 + 10.0;
+        rows.last_mut().unwrap().push(chip);
+    }
+    for (i, row) in rows.iter().enumerate() {
+        let total: f32 = row.iter().map(|(_, w)| w + 10.0).sum::<f32>() - 10.0;
+        let mut x = (CANVAS_W - total) / 2.0;
+        let y = 262.0 + i as f32 * 40.0;
+        for (name, w) in row {
+            g.round(g.r(x, y, *w, 30.0), 15.0, CARD, Some(EDGE));
+            let r = g.r(x, y, *w, 30.0);
+            g.text(name, r, 13.0, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
+            x += w + 10.0;
+        }
+    }
 }
 
 fn dashboard(g: &mut Painter, body: RECT, view: &View) {
-    let live = view.live.filter(|l| view.now_ms - l.at_ms <= STALE_MS);
-    let Some(live) = live else {
-        let mid = (body.top + body.bottom) / 2;
-        g.text(
-            &text(view.lang, &Msg::PanelWaiting),
-            rect(body.left, mid - g.p(40.0), body.right, mid),
-            22.0,
-            FW_SEMIBOLD as i32,
-            TEXT,
-            DT_CENTER,
-        );
-        g.text(
-            &present::game_line_of(view.lang, view.snapshot),
-            rect(body.left, mid, body.right, mid + g.p(30.0)),
-            15.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_CENTER,
-        );
-        return;
+    let Some(live) = view.live.filter(|l| view.now_ms - l.at_ms <= STALE_MS) else {
+        return waiting(g, body, view);
     };
-    let sc = g.scale;
-    let p = |v: f32| (v * sc).round() as i32;
-    let (left, right) = (body.left, body.right);
-    let width = right - left;
+    let (s, ox, oy) = canvas_fit(body);
+    g.place(s, ox, oy);
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
 
-    // What is being driven, and the lap.
-    let info = [live.game, live.track.as_str(), live.car.as_str()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("  ·  ");
-    let lap_label = if live.in_pits {
-        format!(
-            "{}  ·  {}",
-            text(view.lang, &Msg::PanelLap(live.lap)),
-            text(view.lang, &Msg::PanelPits)
-        )
-    } else if !live.driving {
-        text(view.lang, &Msg::PanelNotDriving)
+    // Top: track and car, the shift lights, the lap.
+    let r = g.r(0.0, 2.0, 268.0, 22.0);
+    g.text(&live.track, r, 15.0, semi, Face::Ui, TEXT, DT_LEFT);
+    let car = if live.car.is_empty() {
+        live.game.to_owned()
     } else {
-        text(view.lang, &Msg::PanelLap(live.lap))
+        format!("{}  ·  {}", live.car, live.game)
     };
-    let lap_w = g.width_of(&lap_label, 16.0, FW_SEMIBOLD as i32) + p(8.0);
+    let r = g.r(0.0, 24.0, 268.0, 20.0);
+    g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    let r = g.r(800.0, 0.0, 200.0, 28.0);
     g.text(
-        &info,
-        rect(left, body.top, right - lap_w, body.top + p(26.0)),
-        15.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_LEFT,
-    );
-    let lap_color = if live.in_pits || !live.driving { AMBER } else { ACCENT };
-    g.text(
-        &lap_label,
-        rect(right - lap_w, body.top, right, body.top + p(26.0)),
-        16.0,
-        FW_SEMIBOLD as i32,
-        lap_color,
+        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
+        r,
+        22.0,
+        semi,
+        Face::Num,
+        ACCENT,
         DT_RIGHT,
     );
-
-    // The rev bar, in segments.
-    let rev_top = body.top + p(34.0);
-    let rev = rect(left, rev_top, right, rev_top + p(22.0));
+    let (status, status_color) = if live.in_pits {
+        (text(view.lang, &Msg::PanelPits), AMBER)
+    } else if !live.driving {
+        (text(view.lang, &Msg::PanelNotDriving), AMBER)
+    } else {
+        (String::new(), MUTED)
+    };
+    let r = g.r(780.0, 26.0, 220.0, 18.0);
+    g.text(&status.to_uppercase(), r, 11.5, semi, Face::Ui, status_color, DT_RIGHT);
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
-    let segments = 40;
-    let gap = p(3.0).max(1);
-    let seg_w = (width - gap * (segments - 1)) as f32 / segments as f32;
-    for i in 0..segments {
-        let x0 = left + (i as f32 * (seg_w + gap as f32)).round() as i32;
-        let x1 = left + (i as f32 * (seg_w + gap as f32) + seg_w).round() as i32;
-        let at = (i as f32 + 1.0) / segments as f32;
-        let lit = share.is_finite() && share >= at - 0.5 / segments as f32;
-        let color = if lit { rev_color(at) } else { TRACK };
-        g.round(rect(x0, rev.top, x1, rev.bottom), 2.0, color);
+    let (lit, flash) = lights_lit(share);
+    let blink_on = view.now_ms / 120 % 2 == 0;
+    for i in 0..LIGHTS {
+        let cx = 500.0 + (i as f32 - (LIGHTS as f32 - 1.0) / 2.0) * 31.0;
+        let color = match (flash, i < lit) {
+            (true, _) if blink_on => BLUE,
+            (true, _) => DIM,
+            (false, true) => light_color(i),
+            (false, false) => DIM,
+        };
+        g.dot(cx, 22.0, 11.5, color);
     }
-    let rpm_text = if live.rpm.is_finite() {
-        format!("{:.0} rpm", live.rpm)
+
+    // Left: the lap's times.
+    g.tile(0.0, 60.0, 300.0, 108.0, CARD);
+    g.label(&text(view.lang, &Msg::PanelLapTime), 20.0, 74.0, 260.0);
+    let r = g.r(20.0, 96.0, 270.0, 62.0);
+    g.text(&lap_clock(live.lap_time_s), r, 50.0, semi, Face::Num, TEXT, DT_LEFT);
+    for (y, label, value, color) in [
+        (180.0, Msg::PanelLastLap, live.last_lap_s, TEXT),
+        (282.0, Msg::PanelBestLap, live.best_lap_s, PURPLE),
+    ] {
+        g.tile(0.0, y, 300.0, 90.0, CARD);
+        g.label(&text(view.lang, &label), 20.0, y + 12.0, 260.0);
+        let r = g.r(20.0, y + 32.0, 270.0, 50.0);
+        g.text(&lap_clock(value), r, 36.0, semi, Face::Num, color, DT_LEFT);
+    }
+
+    // Centre: the gear, the speed, the revs.
+    g.tile(316.0, 60.0, 368.0, 312.0, CARD);
+    let rpm = if live.rpm.is_finite() {
+        format!("{:.0} RPM", live.rpm)
     } else {
         String::new()
     };
-    g.text(
-        &rpm_text,
-        rect(left, rev.bottom + p(2.0), right, rev.bottom + p(22.0)),
-        13.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_RIGHT,
-    );
-
-    // Main area: gear and speed on the left, times on the right.
-    let main_top = rev.bottom + p(26.0);
-    let bottom_h = p(150.0);
-    let main_bottom = body.bottom - bottom_h - p(12.0);
-    let split = left + width * 2 / 5;
-    let gear_card = rect(left, main_top, split - p(8.0), main_bottom);
-    g.round(gear_card, 12.0, CARD);
-    let gear_h = (gear_card.bottom - gear_card.top) * 3 / 5;
-    let gear_px = ((gear_h as f32 / g.scale) * 0.95).min(180.0);
-    g.text(
-        &gear_text(live.gear),
-        rect(gear_card.left, gear_card.top + p(6.0), gear_card.right, gear_card.top + gear_h),
-        gear_px,
-        FW_BOLD as i32,
-        ACCENT,
-        DT_CENTER,
-    );
+    let r = g.r(330.0, 72.0, 340.0, 18.0);
+    g.text(&rpm, r, 12.0, semi, Face::Num, MUTED, DT_RIGHT);
+    let r = g.r(316.0, 70.0, 368.0, 210.0);
+    g.text(&gear_text(live.gear), r, 196.0, semi, Face::Num, ACCENT, DT_CENTER);
     let speed = if live.speed_ms.is_finite() {
         format!("{:.0}", live.speed_ms * 3.6)
     } else {
         "–".to_owned()
     };
-    let speed_area = rect(gear_card.left, gear_card.top + gear_h, gear_card.right, gear_card.bottom - p(30.0));
-    g.text(&speed, speed_area, 54.0, FW_BOLD as i32, TEXT, DT_CENTER);
-    g.text(
-        "km/h",
-        rect(
-            gear_card.left,
-            gear_card.bottom - p(34.0),
-            gear_card.right,
-            gear_card.bottom - p(8.0),
-        ),
-        14.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_CENTER,
-    );
+    let r = g.r(316.0, 278.0, 368.0, 62.0);
+    g.text(&speed, r, 58.0, semi, Face::Num, TEXT, DT_CENTER);
+    let r = g.r(316.0, 338.0, 368.0, 20.0);
+    g.text("KM/H", r, 11.5, semi, Face::Ui, MUTED, DT_CENTER);
 
-    let times = rect(split + p(8.0), main_top, right, main_bottom);
-    g.round(times, 12.0, CARD);
-    let pad = p(18.0);
-    let (tl, tr) = (times.left + pad, times.right - pad);
-    let rows = (times.bottom - times.top - 2 * pad) as f32;
-    let row = |share: f32| times.top + pad + (rows * share).round() as i32;
-    g.text(
-        &lap_clock(live.lap_time_s),
-        rect(tl, row(0.0), tr, row(0.36)),
-        50.0,
-        FW_BOLD as i32,
-        TEXT,
-        DT_LEFT,
-    );
+    // Right: the delta, with a bar from the centre (green: faster than the best lap), then fuel and lap progress.
     let delta_color = match live.delta_s {
         Some(d) if d < 0.0 => GREEN,
         Some(_) => RED,
         None => MUTED,
     };
-    let delta_label = text(view.lang, &Msg::PanelDelta);
-    g.text(
-        &delta_label,
-        rect(tl, row(0.36), tr, row(0.48)),
-        13.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_LEFT,
-    );
-    g.text(
-        &delta_text(live.delta_s),
-        rect(tl, row(0.46), tr, row(0.72)),
-        40.0,
-        FW_BOLD as i32,
-        delta_color,
-        DT_LEFT,
-    );
-    let half = (tl + tr) / 2;
-    for (x0, x1, label, value) in [
-        (tl, half, Msg::PanelLastLap, live.last_lap_s),
-        (half, tr, Msg::PanelBestLap, live.best_lap_s),
-    ] {
-        g.text(
-            &text(view.lang, &label),
-            rect(x0, row(0.74), x1, row(0.84)),
-            13.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_LEFT,
-        );
-        g.text(
-            &lap_clock(value),
-            rect(x0, row(0.83), x1, row(1.0)),
-            24.0,
-            FW_SEMIBOLD as i32,
-            TEXT,
-            DT_LEFT,
-        );
+    let tint = if live.delta_s.is_some() {
+        mix(CARD, delta_color, 0.10)
+    } else {
+        CARD
+    };
+    g.tile(700.0, 60.0, 300.0, 186.0, tint);
+    g.label(&text(view.lang, &Msg::PanelDelta), 720.0, 74.0, 260.0);
+    let r = g.r(720.0, 96.0, 260.0, 74.0);
+    g.text(&delta_text(live.delta_s), r, 62.0, semi, Face::Num, delta_color, DT_LEFT);
+    let bar = (720.0, 192.0, 260.0, 10.0);
+    g.round(g.r(bar.0, bar.1, bar.2, bar.3), 5.0, TRACK, None);
+    if let Some(d) = live.delta_s.filter(|d| d.is_finite()) {
+        let reach = (d.clamp(-1.0, 1.0) as f32) * bar.2 / 2.0;
+        let mid = bar.0 + bar.2 / 2.0;
+        let (x, w) = if reach < 0.0 { (mid + reach, -reach) } else { (mid, reach) };
+        g.round(g.r(x, bar.1, w.max(2.0), bar.3), 5.0, delta_color, None);
+    }
+    g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
+    for (x, label, align) in [(720.0, "-1.0", DT_LEFT), (800.0, "0", DT_CENTER), (880.0, "+1.0", DT_RIGHT)] {
+        let r = g.r(x, 208.0, 100.0, 16.0);
+        g.text(label, r, 10.5, normal, Face::Num, MUTED, align);
     }
 
-    // Bottom strip: pedals, wheel, fuel and where on the lap.
-    let strip = rect(left, body.bottom - bottom_h, right, body.bottom);
-    g.round(strip, 12.0, CARD);
-    let bar_w = p(30.0);
-    let bar_top = strip.top + p(16.0);
-    let bar_bottom = strip.bottom - p(34.0);
-    let mut x = strip.left + p(20.0);
-    for (label, value, color) in [
+    g.tile(700.0, 258.0, 300.0, 114.0, CARD);
+    g.label(&text(view.lang, &Msg::PanelFuel), 720.0, 270.0, 120.0);
+    let fuel = if live.fuel_l.is_finite() {
+        format!("{:.1} L", live.fuel_l)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(720.0, 288.0, 130.0, 40.0);
+    g.text(&fuel, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
+    g.label(&text(view.lang, &Msg::PanelLapProgress), 860.0, 270.0, 120.0);
+    let progress = match (live.dist_m, live.track_length_m) {
+        (Some(d), Some(l)) if l > 0.0 => Some((d / l).clamp(0.0, 1.0) as f32),
+        _ => None,
+    };
+    let percent = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
+    let r = g.r(860.0, 288.0, 120.0, 40.0);
+    g.text(&percent, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
+    g.round(g.r(720.0, 340.0, 260.0, 8.0), 4.0, TRACK, None);
+    if let Some(p) = progress {
+        g.round(g.r(720.0, 340.0, (260.0 * p).max(8.0), 8.0), 4.0, ACCENT, None);
+    }
+
+    // Bottom: the driver's inputs, and the wheel.
+    g.tile(0.0, 388.0, 1000.0, 132.0, CARD);
+    for (i, (label, value, color)) in [
         (Msg::PanelThrottle, live.throttle, GREEN),
         (Msg::PanelBrake, live.brake, RED),
         (Msg::PanelClutch, live.clutch, BLUE),
-    ] {
-        g.vbar(rect(x, bar_top, x + bar_w, bar_bottom), value, color);
-        g.text(
-            &text(view.lang, &label),
-            rect(x - p(22.0), bar_bottom + p(4.0), x + bar_w + p(22.0), strip.bottom - p(8.0)),
-            12.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_CENTER,
-        );
-        x += bar_w + p(44.0);
-    }
-    let info_left = x + p(10.0);
-    let info_right = strip.right - p(20.0);
-    // The wheel: a bar with the centre marked; the fill goes from the centre to where the wheel is.
-    let wheel_y = strip.top + p(26.0);
-    g.text(
-        &text(view.lang, &Msg::PanelSteer),
-        rect(info_left, strip.top + p(6.0), info_right, wheel_y - p(2.0)),
-        12.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_LEFT,
-    );
-    let wheel = rect(info_left, wheel_y, info_right, wheel_y + p(12.0));
-    g.round(wheel, 3.0, TRACK);
-    let centre = (wheel.left + wheel.right) / 2;
-    if live.steer.is_finite() {
-        let reach = ((wheel.right - wheel.left) as f32 / 2.0 * live.steer.clamp(-1.0, 1.0)).round() as i32;
-        let (a, b) = if reach < 0 {
-            (centre + reach, centre)
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let y = 408.0 + i as f32 * 34.0;
+        let r = g.r(20.0, y, 110.0, 22.0);
+        g.text(&text(view.lang, &label).to_uppercase(), r, 11.5, semi, Face::Ui, MUTED, DT_LEFT);
+        g.round(g.r(136.0, y + 5.0, 480.0, 12.0), 6.0, TRACK, None);
+        if value.is_finite() && value > 0.0 {
+            g.round(g.r(136.0, y + 5.0, (480.0 * value.min(1.0)).max(12.0), 12.0), 6.0, color, None);
+        }
+        let value_text = if value.is_finite() {
+            format!("{:.0}%", value * 100.0)
         } else {
-            (centre, centre + reach)
+            "–".to_owned()
         };
-        g.round(rect(a, wheel.top, b.max(a + 1), wheel.bottom), 3.0, ACCENT);
+        let r = g.r(626.0, y, 60.0, 22.0);
+        g.text(&value_text, r, 17.0, semi, Face::Num, TEXT, DT_RIGHT);
     }
-    g.fill(rect(centre - 1, wheel.top - p(3.0), centre + 1, wheel.bottom + p(3.0)), TEXT);
-
-    // Where on the lap.
-    let lap_y = wheel.bottom + p(30.0);
-    let share = match (live.dist_m, live.track_length_m) {
-        (Some(d), Some(l)) if l > 0.0 => (d / l) as f32,
-        _ => f32::NAN,
-    };
-    let where_label = match (live.dist_m, live.track_length_m) {
-        (Some(d), Some(l)) => format!("{:.0} / {:.0} m", d, l),
-        (Some(d), None) => format!("{:.0} m", d),
-        _ => String::new(),
-    };
-    g.text(
-        &where_label,
-        rect(info_left, lap_y - p(20.0), info_right, lap_y - p(2.0)),
-        12.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_LEFT,
-    );
-    g.hbar(rect(info_left, lap_y, info_right, lap_y + p(8.0)), share, ACCENT);
-
-    // Fuel.
-    let fuel = if live.fuel_l.is_finite() {
-        format!("{}  {:.1} L", text(view.lang, &Msg::PanelFuel), live.fuel_l)
-    } else {
-        format!("{}  –", text(view.lang, &Msg::PanelFuel))
-    };
-    g.text(
-        &fuel,
-        rect(info_left, lap_y + p(16.0), info_right, strip.bottom - p(10.0)),
-        18.0,
-        FW_SEMIBOLD as i32,
-        TEXT,
-        DT_LEFT,
-    );
-}
-
-/// A card with a title; returns the area under the title.
-fn card(g: &mut Painter, r: RECT, title: &str) -> RECT {
-    g.round(r, 12.0, CARD);
-    let pad = g.p(16.0);
-    g.text(
-        title,
-        rect(r.left + pad, r.top + g.p(10.0), r.right - pad, r.top + g.p(36.0)),
-        15.0,
-        FW_SEMIBOLD as i32,
-        ACCENT,
-        DT_LEFT,
-    );
-    rect(r.left + pad, r.top + g.p(42.0), r.right - pad, r.bottom - g.p(12.0))
+    g.fill(g.r(712.0, 404.0, 1.0, 100.0), EDGE);
+    g.label(&text(view.lang, &Msg::PanelSteer), 736.0, 402.0, 120.0);
+    let (cx, cy, radius) = (872.0, 454.0, 48.0);
+    g.ring(cx, cy, radius, 7.0, TRACK);
+    if live.steer.is_finite() {
+        // 135° each way stands for full lock: the marker moves like the top of the wheel, the reading sits inside.
+        let angle = (live.steer.clamp(-1.0, 1.0) * 135.0).to_radians();
+        g.dot(cx + radius * angle.sin(), cy - radius * angle.cos(), 8.5, ACCENT);
+        let side = if live.steer < -0.005 {
+            "L "
+        } else if live.steer > 0.005 {
+            "R "
+        } else {
+            ""
+        };
+        let reading = format!("{side}{:.0}%", live.steer.abs() * 100.0);
+        let r = g.r(cx - 40.0, cy - 16.0, 80.0, 32.0);
+        g.text(&reading, r, 20.0, semi, Face::Num, TEXT, DT_CENTER);
+    }
 }
 
 fn monitor(g: &mut Painter, body: RECT, view: &View) {
-    let sc = g.scale;
-    let p = |v: f32| (v * sc).round() as i32;
-    let footer_h = p(40.0);
-    let area = rect(body.left, body.top, body.right, body.bottom - footer_h);
-    let split = (area.left + area.right) / 2;
-    let line_h = p(24.0);
+    let s = view.scale;
+    g.place(s, body.left, body.top);
+    let (w, h) = ((body.right - body.left) as f32 / s, (body.bottom - body.top) as f32 / s);
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let gap = 16.0;
+    let footer = 26.0;
+    let col = (w - gap) / 2.0;
+    let right = col + gap;
+    let area_h = h - footer;
 
-    // Games.
-    let games_h = p(56.0) + line_h * view.games.len().max(1) as i32;
-    let games = card(
-        g,
-        rect(area.left, area.top, split - p(8.0), area.top + games_h),
-        &text(view.lang, &Msg::PanelGames),
-    );
+    // Games: each reader with a status pill.
+    let row_h = 38.0;
+    let games_h = 54.0 + row_h * view.games.len().max(1) as f32;
+    g.tile(0.0, 0.0, col, games_h, CARD);
+    g.label(&text(view.lang, &Msg::PanelGames), 20.0, 16.0, col - 40.0);
     for (i, row) in view.games.iter().enumerate() {
-        let y = games.top + line_h * i as i32;
-        g.dot(games.left + p(6.0), y + line_h / 2, 5.0, state_color(&row.state));
+        let y = 44.0 + row_h * i as f32;
+        if i > 0 {
+            g.fill(g.r(20.0, y, col - 40.0, 1.0), EDGE);
+        }
         let state = state_text(view.lang, &row.state);
-        let state_w = g.width_of(&state, 13.0, FW_NORMAL as i32) + p(4.0);
-        g.text(
-            &row.title,
-            rect(games.left + p(20.0), y, games.right - state_w, y + line_h),
-            14.0,
-            FW_NORMAL as i32,
-            TEXT,
-            DT_LEFT,
-        );
-        g.text(
-            &state,
-            rect(games.right - state_w, y, games.right, y + line_h),
-            13.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_RIGHT,
-        );
+        let pill_w = g.width_of(&state, 12.0, semi, Face::Ui) + 22.0;
+        let r = g.r(20.0, y, col - 60.0 - pill_w, row_h);
+        g.text(&row.title, r, 14.5, normal, Face::Ui, TEXT, DT_LEFT);
+        pill(g, col - 20.0 - pill_w, y + 7.0, pill_w, &state, state_color(&row.state));
     }
 
     // Account.
-    let account_top = area.top + games_h + p(12.0);
-    let account = card(
-        g,
-        rect(area.left, account_top, split - p(8.0), area.bottom),
-        &text(view.lang, &Msg::PanelAccount),
-    );
-    let cloud_color = match view.snapshot.cloud {
-        Cloud::Idle => GREEN,
-        Cloud::Waiting(_) => AMBER,
-        Cloud::NotPaired => GREY,
-        Cloud::Refused => RED,
+    let account_y = games_h + gap;
+    g.tile(0.0, account_y, col, area_h - account_y, CARD);
+    g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
+    let (cloud_word, cloud_color) = match view.snapshot.cloud {
+        Cloud::Idle => ("OK", GREEN),
+        Cloud::Waiting(_) => ("…", AMBER),
+        Cloud::NotPaired => ("—", GREY),
+        Cloud::Refused => ("!", RED),
     };
-    g.dot(account.left + p(6.0), account.top + line_h / 2, 5.0, cloud_color);
-    g.text(
-        &present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
-        rect(account.left + p(20.0), account.top, account.right, account.top + line_h),
-        14.0,
-        FW_NORMAL as i32,
-        TEXT,
-        DT_LEFT,
-    );
-    g.text(
-        view.server,
-        rect(
-            account.left + p(20.0),
-            account.top + line_h,
-            account.right,
-            account.top + 2 * line_h,
-        ),
-        13.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_LEFT,
-    );
+    pill(g, 20.0, account_y + 46.0, 40.0, cloud_word, cloud_color);
+    let r = g.r(72.0, account_y + 42.0, col - 92.0, 30.0);
+    let cloud = present::cloud_line(view.lang, &view.snapshot.cloud, view.device);
+    g.text(&cloud, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
+    let r = g.r(72.0, account_y + 70.0, col - 92.0, 20.0);
+    g.text(view.server, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    let r = g.r(20.0, account_y + 100.0, col - 40.0, 20.0);
     g.text(
         &present::game_line_of(view.lang, view.snapshot),
-        rect(
-            account.left + p(20.0),
-            account.top + 2 * line_h + p(6.0),
-            account.right,
-            account.top + 3 * line_h + p(6.0),
-        ),
-        13.0,
-        FW_NORMAL as i32,
+        r,
+        12.5,
+        normal,
+        Face::Ui,
         MUTED,
         DT_LEFT,
     );
+    if area_h - account_y > 170.0 {
+        let folder = text(view.lang, &Msg::PanelLapsFolder(view.laps_dir.to_owned()));
+        let r = g.r(20.0, area_h - 36.0, col - 40.0, 20.0);
+        g.text(&folder, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
+    }
 
     // Laps saved, newest first.
-    let laps_h = (area.bottom - area.top) * 2 / 5;
-    let laps = card(
-        g,
-        rect(split + p(8.0), area.top, area.right, area.top + laps_h),
-        &text(view.lang, &Msg::PanelLaps),
-    );
+    let laps_h = (area_h * 0.44).max(150.0);
+    g.tile(right, 0.0, col, laps_h, CARD);
+    g.label(&text(view.lang, &Msg::PanelLaps), right + 20.0, 16.0, col - 40.0);
     if view.recent_laps.is_empty() {
-        g.text(
-            &text(view.lang, &Msg::PanelNoLaps),
-            rect(laps.left, laps.top, laps.right, laps.top + line_h),
-            14.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_LEFT,
-        );
+        let r = g.r(right + 20.0, 44.0, col - 40.0, 24.0);
+        g.text(&text(view.lang, &Msg::PanelNoLaps), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
     } else {
-        g.text(
-            &text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved)),
-            rect(laps.left, laps.top, laps.right, laps.top + line_h),
-            13.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_LEFT,
-        );
-        let room = ((laps.bottom - laps.top - line_h) / line_h).max(0) as usize;
+        let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
+        let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
+        g.text(&count, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+        let lap_row = 34.0;
+        let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
         for (i, label) in view.recent_laps.iter().rev().take(room).enumerate() {
-            let y = laps.top + line_h * (i as i32 + 1);
-            g.text(
-                label,
-                rect(laps.left, y, laps.right, y + line_h),
-                14.0,
-                FW_NORMAL as i32,
-                TEXT,
-                DT_LEFT,
-            );
+            let y = 44.0 + lap_row * i as f32;
+            if i > 0 {
+                g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
+            }
+            let (name, time) = lap_parts(label);
+            let r = g.r(right + 20.0, y, col / 2.0, lap_row);
+            g.text(name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
+            g.text(time, r, 18.0, semi, Face::Num, if i == 0 { ACCENT } else { TEXT }, DT_RIGHT);
         }
     }
 
-    // The log, newest at the bottom.
-    let log = card(
-        g,
-        rect(split + p(8.0), area.top + laps_h + p(12.0), area.right, area.bottom),
-        &text(view.lang, &Msg::PanelLog),
-    );
-    let small = p(19.0);
-    let room = ((log.bottom - log.top) / small).max(0) as usize;
+    // The log, newest at the bottom, on alternating rows.
+    let log_y = laps_h + gap;
+    g.tile(right, log_y, col, area_h - log_y, CARD);
+    g.label(&text(view.lang, &Msg::PanelLog), right + 20.0, log_y + 16.0, col - 40.0);
+    let line_h = 21.0;
+    let room = ((area_h - log_y - 56.0) / line_h).floor().max(0.0) as usize;
     let shown = &view.log[view.log.len().saturating_sub(room)..];
-    let time_w = g.width_of("00:00:00", 12.0, FW_NORMAL as i32) + p(10.0);
     for (i, (time, line)) in shown.iter().enumerate() {
-        let y = log.top + small * i as i32;
-        g.text(
-            time,
-            rect(log.left, y, log.left + time_w, y + small),
-            12.0,
-            FW_NORMAL as i32,
-            MUTED,
-            DT_LEFT,
-        );
-        g.text(
-            line,
-            rect(log.left + time_w, y, log.right, y + small),
-            12.0,
-            FW_NORMAL as i32,
-            TEXT,
-            DT_LEFT,
-        );
+        let y = log_y + 44.0 + line_h * i as f32;
+        if i % 2 == 1 {
+            g.fill(g.r(right + 12.0, y, col - 24.0, line_h), mix(CARD, BG, 0.45));
+        }
+        let r = g.r(right + 20.0, y, 70.0, line_h);
+        g.text(time, r, 11.5, normal, Face::Mono, MUTED, DT_LEFT);
+        let r = g.r(right + 92.0, y, col - 112.0, line_h);
+        g.text(line, r, 11.5, normal, Face::Mono, TEXT, DT_LEFT);
     }
 
-    // Footer: the folder and the keys.
-    let footer = rect(body.left, body.bottom - footer_h + p(8.0), body.right, body.bottom);
-    let half = (footer.left + footer.right) / 2 + p(60.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLapsFolder(view.laps_dir.to_owned())),
-        rect(footer.left, footer.top, half, footer.bottom),
-        12.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_LEFT,
-    );
-    g.text(
-        &text(view.lang, &Msg::PanelHint),
-        rect(half, footer.top, footer.right, footer.bottom),
-        12.0,
-        FW_NORMAL as i32,
-        MUTED,
-        DT_RIGHT,
-    );
+    let r = g.r(0.0, h - 20.0, w, 20.0);
+    g.text(&text(view.lang, &Msg::PanelHint), r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+}
+
+/// A small rounded label with a tinted background.
+fn pill(g: &mut Painter, x: f32, y: f32, w: f32, word: &str, color: COLORREF) {
+    g.round(g.r(x, y, w, 24.0), 12.0, mix(CARD, color, 0.18), None);
+    let r = g.r(x, y, w, 24.0);
+    g.text(word, r, 12.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
 }
 
 /// `HH:MM:SS` on this computer's clock for a Unix time in ms.
@@ -1536,7 +1490,7 @@ mod tests {
         let (w, h) = (960, 600);
         let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
         save(&pixels, w, h, "panel-dashboard.png");
-        assert_eq!(&pixels[..3], &[0x14, 0x12, 0x11], "the corner is the background");
+        assert_eq!(&pixels[..3], &[0x0f, 0x0d, 0x0c], "the corner is the background");
         assert!(
             has_color(&pixels, ACCENT) > 2000,
             "the selected tab and the gear are drawn in the accent"
@@ -1568,7 +1522,10 @@ mod tests {
         save(&waiting, w, h, "panel-waiting.png");
         let stale = render(&view(&f, Some(&old), Tab::Dash, 1.0, Lang::En), w, h);
         assert_eq!(waiting, stale, "a reading older than 3 s is not shown");
-        assert!(has_color(&waiting, CARD) < 20_000, "no cards while waiting");
+        assert!(
+            has_color(&waiting, ACCENT) < 6000,
+            "no gear while waiting: only the selected tab is in the accent"
+        );
     }
 
     #[test]
@@ -1576,11 +1533,11 @@ mod tests {
         let [dash, mon, full, top] = header_hits(960, 1.0);
         assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
         assert!(inside(&mon, 160, 20));
-        assert!(inside(&full, 600, 20) && !inside(&full, 740, 20));
+        assert!(inside(&full, 700, 20) && !inside(&full, 764, 20));
         assert!(inside(&top, 900, 20) && !inside(&top, 900, 60));
         assert!(full.right < top.left && mon.right < full.left, "nothing overlaps");
         let [dash2, _, _, top2] = header_hits(1440, 1.5);
-        assert_eq!((dash2.left, dash2.right), (24, 219));
+        assert_eq!((dash2.left, dash2.right), (29, 200));
         assert_eq!(top2.right, 1440 - 24);
     }
 
@@ -1595,17 +1552,33 @@ mod tests {
             (gear_text(-1.0), gear_text(0.0), gear_text(5.0), gear_text(f32::NAN)),
             ("R".into(), "N".into(), "5".into(), "–".into())
         );
-        assert_eq!((rev_color(0.5), rev_color(0.9), rev_color(0.97)), (GREEN, AMBER, RED));
     }
 
     #[test]
-    fn the_dashboard_grows_on_a_big_screen_and_never_shrinks() {
-        assert_eq!(zoom(rect(16, 54, 944, 586), 1.0), 1.0);
-        assert_eq!(zoom(rect(0, 0, 400, 300), 1.0), 1.0, "a small window keeps the design size");
-        let full_hd = zoom(rect(16, 54, 1904, 1066), 1.0);
-        assert!((full_hd - 1.902).abs() < 0.01, "{full_hd}");
-        assert_eq!(zoom(rect(0, 0, 10_000, 10_000), 1.0), 3.0);
-        assert_eq!(zoom(rect(0, 0, 1392, 798), 1.5), 1.0, "the screen's DPI is already counted");
+    fn the_dashboard_canvas_fills_the_window_and_keeps_its_shape() {
+        let (s, ox, oy) = canvas_fit(rect(16, 58, 944, 584));
+        assert!((s - 0.928).abs() < 0.001 && ox == 16, "{s} {ox}");
+        assert_eq!(oy, 58 + ((526.0 - 520.0 * s) / 2.0).round() as i32);
+        let (s, ox, _) = canvas_fit(rect(16, 58, 1904, 1064));
+        assert!((s - 1.888).abs() < 0.001, "full HD: {s}");
+        assert_eq!(ox, 16);
+        let (s, ox, oy) = canvas_fit(rect(0, 0, 3000, 520));
+        assert_eq!((s, oy), (1.0, 0), "a wide window keeps the height");
+        assert_eq!(ox, 1000, "and centres the canvas");
+    }
+
+    #[test]
+    fn the_shift_lights_fill_up_and_flash_at_the_top() {
+        assert_eq!(lights_lit(0.3), (0, false));
+        assert_eq!(lights_lit(LIGHTS_FROM), (0, false));
+        assert_eq!(lights_lit(0.76), (7, false));
+        assert_eq!(lights_lit(0.969), (14, false));
+        assert_eq!(lights_lit(0.98), (LIGHTS, true));
+        assert_eq!(lights_lit(f32::NAN), (0, false));
+        assert_eq!((light_color(0), light_color(5), light_color(14)), (GREEN, AMBER, RED));
+        assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
+        assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
+        assert_eq!(lap_parts("odd"), ("odd", ""));
     }
 
     #[test]
