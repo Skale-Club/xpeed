@@ -63,7 +63,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED
 
 use crate::dash::Live;
 use crate::present;
-use crate::status::{Cloud, Game, Shared, Snapshot};
+use crate::status::{Activity, Cloud, Game, Notice, Shared, Snapshot};
 use crate::text::{text, Lang, Msg};
 use crate::util::{clock, now_ms};
 use crate::win;
@@ -167,8 +167,8 @@ pub struct View<'a> {
     pub device: Option<&'a str>,
     pub server: &'a str,
     pub recent_laps: &'a [String],
-    /// `(time as HH:MM:SS, text)`, oldest first.
-    pub log: &'a [(String, String)],
+    /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
+    pub activity: &'a [(String, String)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
     /// Where the mouse is over the window (pixels), for the icon buttons' tooltips.
@@ -480,20 +480,16 @@ enum Face {
     Ui,
     /// Numbers.
     Num,
-    /// The log.
-    Mono,
     /// The small upper-case labels over the values.
     Label,
 }
 
 impl Face {
     /// The font name, the GDI weight to ask for and whether it is italic. Everything is in Chakra Petch (the owner's
-    /// pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira): numbers italic, words upright; the
-    /// log in Cascadia Mono.
+    /// pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira): numbers italic, words upright.
     fn font(self, weight: i32) -> (&'static str, i32, bool) {
         let normal = FW_NORMAL as i32;
         match self {
-            Face::Mono => ("Cascadia Mono", weight, false),
             Face::Ui if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch SemiBold", normal, false),
             Face::Ui => ("Chakra Petch", normal, false),
             Face::Label => ("Chakra Petch SemiBold", normal, false),
@@ -1284,6 +1280,11 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     let (full_ink, pin_ink) = (if view.full { BG } else { TEXT }, if view.on_top { BG } else { TEXT });
     full_icon(g, full, full_ink, view.full);
     pin_icon(g, top, pin_ink);
+    // The version, small, left of the icon buttons, where every tab shows it.
+    let version = concat!("v", env!("CARGO_PKG_VERSION"));
+    let right = full.left - g.px(14.0);
+    let r = rect(right - g.px(120.0), full.top, right, full.bottom);
+    g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
 }
 
 /// Four square corners in a box (pixels): pointing out to go full screen, in to leave it.
@@ -1905,22 +1906,25 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
     }
 
-    // The log, newest at the bottom, on alternating rows.
+    // Activity: what happened, newest first, in plain words (the technical log stays in the log file).
     let log_y = laps_h + gap;
     g.tile(right, log_y, col, area_h - log_y, CARD);
-    g.label(&text(view.lang, &Msg::PanelLog), right + 20.0, log_y + 16.0, col - 40.0);
-    let line_h = 21.0;
-    let room = ((area_h - log_y - 56.0) / line_h).floor().max(0.0) as usize;
-    let shown = &view.log[view.log.len().saturating_sub(room)..];
-    for (i, (time, line)) in shown.iter().enumerate() {
-        let y = log_y + 44.0 + line_h * i as f32;
-        if i % 2 == 1 {
-            g.fill(g.r(right + 12.0, y, col - 24.0, line_h), mix(CARD, BG, 0.45));
+    g.label(&text(view.lang, &Msg::PanelActivity), right + 20.0, log_y + 16.0, col - 40.0);
+    if view.activity.is_empty() {
+        let r = g.r(right + 20.0, log_y + 44.0, col - 40.0, 24.0);
+        g.text(&text(view.lang, &Msg::PanelNoActivity), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
+    }
+    let line_h = 32.0;
+    let room = ((area_h - log_y - 52.0) / line_h).floor().max(0.0) as usize;
+    for (i, (time, line)) in view.activity.iter().take(room).enumerate() {
+        let y = log_y + 42.0 + line_h * i as f32;
+        if i > 0 {
+            g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
         }
-        let r = g.r(right + 20.0, y, 70.0, line_h);
-        g.text(time, r, 11.5, normal, Face::Mono, MUTED, DT_LEFT);
-        let r = g.r(right + 92.0, y, col - 112.0, line_h);
-        g.text(line, r, 11.5, normal, Face::Mono, TEXT, DT_LEFT);
+        let r = g.r(right + 20.0, y, 52.0, line_h);
+        g.text(time, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
+        let r = g.r(right + 76.0, y, col - 96.0, line_h);
+        g.text(line, r, 13.5, normal, Face::Ui, TEXT, DT_LEFT);
     }
 
     let r = g.r(0.0, h - 20.0, w, 20.0);
@@ -2080,9 +2084,18 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let games = game_rows(ctx, state.installed.as_ref());
     let account = ctx.account.lock().unwrap().clone();
     let recent_laps = ctx.shared.recent_laps();
-    let log: Vec<(String, String)> = crate::applog::recent(60)
+    let activity: Vec<(String, String)> = ctx
+        .shared
+        .activity()
         .into_iter()
-        .map(|(ms, line)| (local_time(ms), line))
+        .rev()
+        .map(|(ms, event)| {
+            let time = local_time(ms);
+            (
+                time.get(..5).unwrap_or(&time).to_owned(),
+                text(account.lang, &activity_message(event)),
+            )
+        })
         .collect();
     let now = now_ms();
     state.carousel.tick(now);
@@ -2099,7 +2112,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         device: account.device.as_deref(),
         server: &account.server,
         recent_laps: &recent_laps,
-        log: &log,
+        activity: &activity,
         covers: &state.covers,
         mouse: state.mouse,
         buttons: Default::default(),
@@ -2158,6 +2171,20 @@ fn refresh_installed(state: &mut State) {
         state.installed = now;
         state.covers = CoverArt::load(state.installed.as_ref());
         state.games_scroll = 0.0;
+    }
+}
+
+/// An activity as a message of the person's language.
+fn activity_message(event: Activity) -> Msg {
+    match event {
+        Activity::GameConnected(name) => Msg::ActivityGameConnected(name.to_owned()),
+        Activity::GameClosed(name) => Msg::ActivityGameClosed(name.to_owned()),
+        Activity::GameUnsupported(name) => Msg::ActivityGameUnsupported(name.to_owned()),
+        Activity::Notice(Notice::LapSaved(label)) => Msg::NoticeLapSaved(label),
+        Activity::Notice(Notice::LapsSent(n)) => Msg::NoticeLapsSent(n),
+        Activity::Notice(Notice::Paired(name)) => Msg::NoticePaired(name),
+        Activity::Notice(Notice::NotPaired) => Msg::CloudNotPaired,
+        Activity::Notice(Notice::Refused) => Msg::NoticeRefused,
     }
 }
 
@@ -2833,10 +2860,11 @@ mod tests {
             ],
             laps: vec!["Lap 1  1:49.002".into(), "Lap 2  1:48.115".into(), "Lap 3  1:47.918".into()],
             log: vec![
-                ("21:40:02".into(), "Xpeed Sim 0.1.0 starting".into()),
-                ("21:40:02".into(), "paired with https://xpeed.skale.club as RIG".into()),
-                ("21:41:15".into(), "Connected to Assetto Corsa.".into()),
-                ("21:43:05".into(), "Saved lap 1 (1:49.002) to ac_monza_lap1.xlap.gz".into()),
+                ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
+                ("21:45".into(), "Lap saved: Lap 2  1:48.115".into()),
+                ("21:43".into(), "Lap saved: Lap 1  1:49.002".into()),
+                ("21:41".into(), "Assetto Corsa connected".into()),
+                ("21:40".into(), "Connected as RIG".into()),
             ],
         }
     }
@@ -2855,7 +2883,7 @@ mod tests {
             device: Some("RIG"),
             server: "https://xpeed.skale.club",
             recent_laps: &f.laps,
-            log: &f.log,
+            activity: &f.log,
             covers: &[],
             mouse: None,
             buttons: Default::default(),
