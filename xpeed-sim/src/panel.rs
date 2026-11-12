@@ -16,6 +16,7 @@ use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex};
 
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
     DrawTextW, Ellipse, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
@@ -24,6 +25,12 @@ use windows_sys::Win32::Graphics::Gdi::{
     SRCCOPY, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows_sys::Win32::Graphics::GdiPlus::{
+    FillModeAlternate, GdipAddPathArc, GdipClosePathFigure, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
+    GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDrawEllipse, GdipDrawPath, GdipFillEllipse, GdipFillPath,
+    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpPath, PixelOffsetModeHalf,
+    SmoothingModeAntiAlias, UnitPixel,
+};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{
@@ -155,7 +162,7 @@ struct State {
 }
 
 /// Height of the header, in design pixels.
-const HEADER_H: f32 = 58.0;
+const HEADER_H: f32 = 66.0;
 /// The dashboard is laid out on this canvas (design units) and scaled whole to fit the window, so it keeps its
 /// proportions at any size and fills a full screen instead of stretching empty cards.
 const CANVAS_W: f32 = 1000.0;
@@ -168,14 +175,65 @@ const LIGHTS: usize = 15;
 /// The places of the header that can be clicked: the two tabs, "full screen" and "always on top".
 fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
     let p = |v: f32| (v * scale).round() as i32;
-    let (top, bottom) = (p(12.0), p(46.0));
+    let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
+    let (on_top_w, full_w, gap) = (p(178.0), p(162.0), p(10.0));
     [
-        rect(p(19.0), p(15.0), p(133.0), p(43.0)),
-        rect(p(135.0), p(15.0), p(249.0), p(43.0)),
-        rect(right - p(176.0) - p(8.0) - p(152.0), top, right - p(176.0) - p(8.0), bottom),
-        rect(right - p(176.0), top, right, bottom),
+        rect(p(20.0), p(17.0), p(136.0), p(47.0)),
+        rect(p(136.0), p(17.0), p(252.0), p(47.0)),
+        rect(right - on_top_w - gap - full_w, top, right - on_top_w - gap, bottom),
+        rect(right - on_top_w, top, right, bottom),
     ]
+}
+
+/// GDI+ is started once for the process; shapes are drawn with it (smooth edges) when it starts, with plain GDI
+/// otherwise.
+fn gdiplus_ready() -> bool {
+    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *READY.get_or_init(|| {
+        let mut token = 0usize;
+        let input = GdiplusStartupInput {
+            GdiplusVersion: 1,
+            ..Default::default()
+        };
+        unsafe { GdiplusStartup(&mut token, &input, null_mut()) == 0 }
+    })
+}
+
+/// A GDI colour (`0x00BBGGRR`) as GDI+ wants it (`0xAARRGGBB`, opaque).
+fn argb(color: COLORREF) -> u32 {
+    0xff00_0000 | (color & 0xff) << 16 | (color & 0xff00) | (color >> 16 & 0xff)
+}
+
+/// Runs `draw` with a GDI+ surface over `hdc`, smoothing on. False when GDI+ is not there.
+fn smooth(hdc: HDC, draw: impl FnOnce(*mut GpGraphics)) -> bool {
+    if !gdiplus_ready() {
+        return false;
+    }
+    unsafe {
+        let mut graphics = null_mut();
+        if GdipCreateFromHDC(hdc, &mut graphics) != 0 || graphics.is_null() {
+            return false;
+        }
+        GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+        GdipSetPixelOffsetMode(graphics, PixelOffsetModeHalf);
+        draw(graphics);
+        GdipDeleteGraphics(graphics);
+    }
+    true
+}
+
+/// A rounded rectangle as a GDI+ path (`radius` in pixels, no more than half the shorter side).
+unsafe fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> *mut GpPath {
+    let mut path = null_mut();
+    GdipCreatePath(FillModeAlternate, &mut path);
+    let d = (radius * 2.0).min(w).min(h).max(0.5);
+    GdipAddPathArc(path, x, y, d, d, 180.0, 90.0);
+    GdipAddPathArc(path, x + w - d, y, d, d, 270.0, 90.0);
+    GdipAddPathArc(path, x + w - d, y + h - d, d, d, 0.0, 90.0);
+    GdipAddPathArc(path, x, y + h - d, d, d, 90.0, 90.0);
+    GdipClosePathFigure(path);
+    path
 }
 
 fn inside(r: &RECT, x: i32, y: i32) -> bool {
@@ -289,6 +347,28 @@ impl Painter {
 
     /// A rounded box; `edge` draws a one-pixel border in that colour.
     fn round(&self, r: RECT, radius: f32, color: COLORREF, edge: Option<COLORREF>) {
+        let (x, y, w, h) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let radius_px = radius * self.s;
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let path = rounded_path(x, y, w, h, radius_px);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(color), &mut brush);
+            GdipFillPath(graphics, brush.cast(), path);
+            GdipDeleteBrush(brush.cast());
+            GdipDeletePath(path);
+            if let Some(edge) = edge {
+                // Half a pixel in, so the one-pixel line falls on whole pixels.
+                let path = rounded_path(x + 0.5, y + 0.5, w - 1.0, h - 1.0, radius_px - 0.5);
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(edge), 1.0, UnitPixel, &mut pen);
+                GdipDrawPath(graphics, pen, path);
+                GdipDeletePen(pen);
+                GdipDeletePath(path);
+            }
+        });
+        if drawn {
+            return;
+        }
         unsafe {
             let brush = CreateSolidBrush(color);
             let pen = edge.map(|c| CreatePen(PS_SOLID, 1, c));
@@ -308,6 +388,20 @@ impl Painter {
 
     /// A filled circle around a design-unit centre.
     fn dot(&self, cx: f32, cy: f32, radius: f32, color: COLORREF) {
+        let (x, y, d) = (
+            self.ox as f32 + (cx - radius) * self.s,
+            self.oy as f32 + (cy - radius) * self.s,
+            radius * 2.0 * self.s,
+        );
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(color), &mut brush);
+            GdipFillEllipse(graphics, brush.cast(), x, y, d, d);
+            GdipDeleteBrush(brush.cast());
+        });
+        if drawn {
+            return;
+        }
         let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
         unsafe {
             let brush = CreateSolidBrush(color);
@@ -322,6 +416,21 @@ impl Painter {
 
     /// A circle outline `width` units thick.
     fn ring(&self, cx: f32, cy: f32, radius: f32, width: f32, color: COLORREF) {
+        let (x, y, d, pen_w) = (
+            self.ox as f32 + (cx - radius) * self.s,
+            self.oy as f32 + (cy - radius) * self.s,
+            radius * 2.0 * self.s,
+            width * self.s,
+        );
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), pen_w, UnitPixel, &mut pen);
+            GdipDrawEllipse(graphics, pen, x, y, d, d);
+            GdipDeletePen(pen);
+        });
+        if drawn {
+            return;
+        }
         let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
         unsafe {
             let pen = CreatePen(PS_SOLID, self.px(width).max(1), color);
@@ -490,45 +599,52 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
 fn header(g: &mut Painter, width: i32, view: &View) {
     g.place(view.scale, 0, 0);
     let [dash, mon, full, top] = header_hits(width, view.scale);
-    // The tabs, as one segmented control.
-    let control = g.r(16.0, 12.0, 236.0, 34.0);
-    g.round(control, 10.0, CARD, Some(EDGE));
+    let semi = FW_SEMIBOLD as i32;
+    // The tabs: one pill, the chosen tab a yellow pill inside it.
+    let control = g.r(16.0, 13.0, 240.0, 38.0);
+    g.round(control, 19.0, CARD, Some(EDGE));
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
         let selected = view.tab == tab;
         if selected {
-            g.round(r, 8.0, ACCENT, None);
+            g.round(r, 15.0, ACCENT, None);
         }
         let color = if selected { BG } else { MUTED };
-        g.text(&text(view.lang, &label), r, 14.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
+        g.text(&text(view.lang, &label), r, 14.0, semi, Face::Ui, color, DT_CENTER);
     }
-    // Full screen and always on top: buttons with Windows' own icons.
+    // Full screen and always on top: pill buttons with Windows' own icons; one that is on is filled yellow.
+    let full_label = text(
+        view.lang,
+        if view.full {
+            &Msg::PanelExitFullScreen
+        } else {
+            &Msg::PanelFullScreen
+        },
+    );
     let buttons = [
-        (
-            full,
-            view.full,
-            if view.full { "\u{E73F}" } else { "\u{E740}" },
-            text(
-                view.lang,
-                if view.full {
-                    &Msg::PanelExitFullScreen
-                } else {
-                    &Msg::PanelFullScreen
-                },
-            ),
-        ),
+        (full, view.full, if view.full { "\u{E73F}" } else { "\u{E740}" }, full_label),
         (top, view.on_top, "\u{E718}", text(view.lang, &Msg::PanelOnTop)),
     ];
     for (r, active, icon, label) in buttons {
-        let (fill, edge, ink) = if active {
-            (mix(CARD, ACCENT, 0.14), ACCENT, ACCENT)
+        let (fill, edge, icon_ink, ink) = if active {
+            (ACCENT, None, BG, BG)
         } else {
-            (CARD, EDGE, TEXT)
+            (CARD, Some(EDGE), MUTED, TEXT)
         };
-        g.round(r, 10.0, fill, Some(edge));
-        let icon_box = rect(r.left + g.px(12.0), r.top, r.left + g.px(32.0), r.bottom);
-        g.text(icon, icon_box, 13.0, FW_NORMAL as i32, Face::Icon, ink, DT_CENTER);
-        let label_box = rect(r.left + g.px(38.0), r.top, r.right - g.px(10.0), r.bottom);
-        g.text(&label, label_box, 13.0, FW_SEMIBOLD as i32, Face::Ui, ink, DT_LEFT);
+        g.round(r, 19.0, fill, edge);
+        // Icon and label centred together.
+        let (icon_w, space) = (g.px(14.0), g.px(9.0));
+        let measured = g.width_of(&label, 13.5, semi, Face::Ui);
+        let label_w = g.px(measured).min(r.right - r.left - icon_w - space - g.px(24.0));
+        let start = (r.left + r.right - icon_w - space - label_w) / 2;
+        let icon_box = rect(start, r.top, start + icon_w, r.bottom);
+        g.text(icon, icon_box, 13.0, FW_NORMAL as i32, Face::Icon, icon_ink, DT_CENTER);
+        let label_box = rect(
+            start + icon_w + space,
+            r.top,
+            start + icon_w + space + label_w + g.px(2.0),
+            r.bottom,
+        );
+        g.text(&label, label_box, 13.5, semi, Face::Ui, ink, DT_LEFT);
     }
 }
 
@@ -1088,7 +1204,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_LBUTTONDBLCLK => {
             // A double click below the header: full screen and back.
             let y = ((lparam >> 16) & 0xffff) as i16 as i32;
-            if y > (54.0 * scale_of(hwnd)) as i32 {
+            if y > (HEADER_H * scale_of(hwnd)) as i32 {
                 toggle_full(hwnd, state);
                 InvalidateRect(hwnd, null(), 0);
             }
@@ -1197,6 +1313,12 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         );
         if !before.is_null() {
             SetThreadDpiAwarenessContext(before);
+        }
+        if !hwnd.is_null() {
+            // A dark title bar, the colour of the window (Windows 11; older versions ignore what they do not know).
+            let dark: i32 = 1;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE as u32, (&dark as *const i32).cast(), 4);
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR as u32, (&BG as *const COLORREF).cast(), 4);
         }
         if hwnd.is_null() {
             crate::applog::line("could not create the panel window");
@@ -1534,10 +1656,10 @@ mod tests {
         assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
         assert!(inside(&mon, 160, 20));
         assert!(inside(&full, 700, 20) && !inside(&full, 764, 20));
-        assert!(inside(&top, 900, 20) && !inside(&top, 900, 60));
+        assert!(inside(&top, 900, 20) && !inside(&top, 900, 52));
         assert!(full.right < top.left && mon.right < full.left, "nothing overlaps");
         let [dash2, _, _, top2] = header_hits(1440, 1.5);
-        assert_eq!((dash2.left, dash2.right), (29, 200));
+        assert_eq!((dash2.left, dash2.right), (30, 204));
         assert_eq!(top2.right, 1440 - 24);
     }
 
@@ -1565,6 +1687,12 @@ mod tests {
         let (s, ox, oy) = canvas_fit(rect(0, 0, 3000, 520));
         assert_eq!((s, oy), (1.0, 0), "a wide window keeps the height");
         assert_eq!(ox, 1000, "and centres the canvas");
+    }
+
+    #[test]
+    fn turns_gdi_colours_into_gdiplus_colours() {
+        assert_eq!(argb(rgb(0x12, 0x34, 0x56)), 0xff12_3456);
+        assert_eq!(argb(ACCENT), 0xfff5_e663);
     }
 
     #[test]
