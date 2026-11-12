@@ -18,12 +18,12 @@ use std::sync::{Arc, Mutex};
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
-    AddFontMemResourceEx, BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush,
-    DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetGlyphOutlineW, GetStockObject, GetTextExtentPoint32W, GetTextMetricsW,
-    InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextCharacterExtra, SetTextColor, ANTIALIASED_QUALITY,
-    CLEARTYPE_NATURAL_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOCLIP, DT_NOPREFIX, DT_RIGHT,
-    DT_SINGLELINE, DT_TOP, DT_VCENTER, FIXED, FW_BOLD, FW_NORMAL, FW_SEMIBOLD, GGO_METRICS, GLYPHMETRICS, HDC, HFONT, MAT2, NULL_PEN,
-    OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, SRCCOPY, TEXTMETRICW, TRANSPARENT,
+    AddFontMemResourceEx, BeginPaint, BitBlt, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
+    DrawTextW, EndPaint, FillRect, GetGlyphOutlineW, GetStockObject, GetTextExtentPoint32W, GetTextMetricsW, InvalidateRect, RoundRect,
+    SelectObject, SetBkMode, SetTextCharacterExtra, SetTextColor, ANTIALIASED_QUALITY, CLEARTYPE_NATURAL_QUALITY, CLIP_DEFAULT_PRECIS,
+    DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOCLIP, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_TOP, DT_VCENTER, FIXED,
+    FW_BOLD, FW_NORMAL, FW_SEMIBOLD, GGO_METRICS, GLYPHMETRICS, HDC, HFONT, MAT2, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
+    SRCCOPY, TEXTMETRICW, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::Graphics::GdiPlus::{
@@ -34,7 +34,7 @@ use windows_sys::Win32::Graphics::GdiPlus::{
     GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
     LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
 };
-use windows_sys::Win32::Graphics::GdiPlus::{GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
+use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{
@@ -240,13 +240,24 @@ fn load_thumbnail(file: &std::path::Path, w: u32, h: u32) -> *mut GpImage {
         let mut small = null_mut();
         let made = GdipGetImageThumbnail(full.cast(), w, h, &mut small, 0, null_mut()) == 0;
         GdipDisposeImage(full.cast());
-        if made {
-            small
+        if !made {
+            return null_mut();
+        }
+        // Kept in premultiplied 32-bit pixels, the format GDI+ draws without converting: drawing a cover took about
+        // 7 ms each before, converting its pixels every time.
+        let mut ready = null_mut();
+        let cloned = GdipCloneBitmapAreaI(0, 0, w as i32, h as i32, PIXEL_FORMAT_32BPP_PARGB, small.cast(), &mut ready) == 0;
+        if cloned && !ready.is_null() {
+            GdipDisposeImage(small);
+            ready.cast()
         } else {
-            null_mut()
+            small
         }
     }
 }
+
+/// `PixelFormat32bppPARGB` of GDI+.
+const PIXEL_FORMAT_32BPP_PARGB: i32 = 0x000e_200b;
 
 /// The covers' carousel: it moves on by one every few seconds, or when asked, sliding there with an ease.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -299,6 +310,8 @@ impl Carousel {
 }
 
 struct State {
+    /// The back buffer frames are drawn into, kept for the window's size.
+    buffer: Option<Backdrop>,
     /// Where the mouse is over the window, while it is.
     mouse: Option<(i32, i32)>,
     /// The buttons of the last frame, to know what a click hit.
@@ -709,31 +722,107 @@ impl Painter {
     }
 
     /// The window's background: a light gradient from top to bottom, with very fine diagonal lines over it.
+    ///
+    /// It is drawn once for each window size and kept: a frame copies it (drawing its hundreds of lines every frame
+    /// took most of a frame's time).
     fn backdrop(&self, w: i32, h: i32) {
-        let (fw, fh) = (w as f32, h as f32);
-        let step = (7.0 * self.s).max(5.0);
-        let drawn = smooth(self.hdc, |graphics| unsafe {
-            let (from, to) = (PointF { X: 0.0, Y: -1.0 }, PointF { X: 0.0, Y: fh + 1.0 });
-            let mut gradient = null_mut();
-            GdipCreateLineBrush(&from, &to, argb(BG_TOP), argb(BG_BOTTOM), WrapModeTile, &mut gradient);
-            GdipFillRectangle(graphics, gradient.cast(), 0.0, 0.0, fw, fh);
-            GdipDeleteBrush(gradient.cast());
-            // Hairlines one pixel wide, crisp (no smoothing), white at a few per cent.
-            GdipSetSmoothingMode(graphics, SmoothingModeNone);
-            let mut pen = null_mut();
-            GdipCreatePen1(0x09ff_ffff, 1.0, UnitPixel, &mut pen);
-            let mut x = -fh;
-            while x < fw {
-                GdipDrawLine(graphics, pen, x, fh, x + fh, 0.0);
-                x += step;
+        let key = (w, h, self.px(7.0));
+        BACKDROP.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            if kept.as_ref().is_none_or(|b| b.key != key) {
+                *kept = Some(Backdrop::new(self.hdc, key, |dc| draw_backdrop(dc, w, h, (7.0 * self.s).max(5.0))));
             }
-            GdipDeletePen(pen);
+            if let Some(b) = kept.as_ref() {
+                unsafe {
+                    BitBlt(self.hdc, 0, 0, w, h, b.dc, 0, 0, SRCCOPY);
+                }
+            }
         });
-        if !drawn {
-            self.fill(rect(0, 0, w, h), BG);
+    }
+}
+
+thread_local! {
+    /// The background as last drawn, for the window's size; one per thread (the window's, and each test's).
+    static BACKDROP: std::cell::RefCell<Option<Backdrop>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A 32-bit bitmap in plain memory (a DIB): GDI+ draws into it directly, much faster than into a device bitmap.
+unsafe fn dib(hdc: HDC, w: i32, h: i32) -> windows_sys::Win32::Graphics::Gdi::HBITMAP {
+    use windows_sys::Win32::Graphics::Gdi::{CreateDIBSection, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
+    let mut info: BITMAPINFO = std::mem::zeroed();
+    info.bmiHeader = BITMAPINFOHEADER {
+        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: w.max(1),
+        biHeight: -h.max(1),
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB,
+        ..std::mem::zeroed()
+    };
+    let mut bits = null_mut();
+    CreateDIBSection(hdc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0)
+}
+
+/// A drawn background kept in a memory bitmap.
+struct Backdrop {
+    key: (i32, i32, i32),
+    dc: HDC,
+    bitmap: windows_sys::Win32::Graphics::Gdi::HBITMAP,
+    old: windows_sys::Win32::Graphics::Gdi::HGDIOBJ,
+}
+
+impl Backdrop {
+    fn new(like: HDC, key: (i32, i32, i32), draw: impl FnOnce(HDC)) -> Backdrop {
+        unsafe {
+            let dc = CreateCompatibleDC(like);
+            let bitmap = dib(dc, key.0, key.1);
+            let old = SelectObject(dc, bitmap);
+            draw(dc);
+            Backdrop { key, dc, bitmap, old }
         }
     }
+}
 
+impl Drop for Backdrop {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.old);
+            DeleteObject(self.bitmap);
+            DeleteDC(self.dc);
+        }
+    }
+}
+
+/// The background itself: a light gradient from top to bottom with very fine diagonal lines over it.
+fn draw_backdrop(hdc: HDC, w: i32, h: i32, step: f32) {
+    let (fw, fh) = (w as f32, h as f32);
+    let drawn = smooth(hdc, |graphics| unsafe {
+        let (from, to) = (PointF { X: 0.0, Y: -1.0 }, PointF { X: 0.0, Y: fh + 1.0 });
+        let mut gradient = null_mut();
+        GdipCreateLineBrush(&from, &to, argb(BG_TOP), argb(BG_BOTTOM), WrapModeTile, &mut gradient);
+        GdipFillRectangle(graphics, gradient.cast(), 0.0, 0.0, fw, fh);
+        GdipDeleteBrush(gradient.cast());
+        // Hairlines one pixel wide, crisp (no smoothing), white at a few per cent.
+        GdipSetSmoothingMode(graphics, SmoothingModeNone);
+        let mut pen = null_mut();
+        GdipCreatePen1(0x09ff_ffff, 1.0, UnitPixel, &mut pen);
+        let mut x = -fh;
+        while x < fw {
+            GdipDrawLine(graphics, pen, x, fh, x + fh, 0.0);
+            x += step;
+        }
+        GdipDeletePen(pen);
+    });
+    if !drawn {
+        unsafe {
+            let brush = CreateSolidBrush(BG);
+            FillRect(hdc, &rect(0, 0, w, h), brush);
+            DeleteObject(brush);
+        }
+    }
+}
+
+impl Painter {
     /// A cover for a game Steam has no art for here: a dark card with two yellow racing stripes across its top
     /// corner and the game's name in the racing font. Xpeed's own design, not the game's art.
     fn cover_card(&mut self, (x, y, w, h): (f32, f32, f32, f32), name: &str, scale: f32) {
@@ -786,10 +875,14 @@ impl Painter {
         (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s, w * self.s, h * self.s)
     }
 
-    /// An image in an exact box, smoothly scaled.
+    /// An image in an exact box. The carousel draws several every frame, so the settings are the fastest that still
+    /// look right, as measured (`frame_times`): high-quality bilinear without the half-pixel offset took 1.4 ms a
+    /// cover at full HD, against 4.9 ms for plain bilinear and 7 ms for bicubic with the offset.
     fn image_exact(&self, (x, y, w, h): (f32, f32, f32, f32), image: *mut GpImage) {
+        use windows_sys::Win32::Graphics::GdiPlus::{InterpolationModeHighQualityBilinear, PixelOffsetModeNone};
         smooth(self.hdc, |graphics| unsafe {
-            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
+            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBilinear);
+            GdipSetPixelOffsetMode(graphics, PixelOffsetModeNone);
             GdipDrawImageRect(graphics, image, x, y, w, h);
         });
     }
@@ -1269,7 +1362,7 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
     order.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
     for (i, d) in order {
         let far = d.abs();
-        if far > 3.6 {
+        if far > 3.2 {
             continue;
         }
         let scale = (1.0 - 0.17 * far).max(0.4);
@@ -1826,9 +1919,12 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let mut client = rect(0, 0, 0, 0);
     GetClientRect(hwnd, &mut client);
     let (w, h) = (client.right.max(1), client.bottom.max(1));
-    let memory = CreateCompatibleDC(hdc);
-    let bitmap = CreateCompatibleBitmap(hdc, w, h);
-    let old = SelectObject(memory, bitmap);
+    // The back buffer is kept between frames (a new 8 MB bitmap every frame cost time), and remade when the size
+    // changes.
+    if state.buffer.as_ref().is_none_or(|b| b.key != (w, h, 0)) {
+        state.buffer = Some(Backdrop::new(hdc, (w, h, 0), |_| {}));
+    }
+    let memory = state.buffer.as_ref().map_or(null_mut(), |b| b.dc);
 
     let ctx = &state.ctx;
     let snapshot = ctx.shared.snapshot();
@@ -1865,9 +1961,6 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     paint(memory, w, h, &view);
     state.buttons = view.buttons.take();
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
-    SelectObject(memory, old);
-    DeleteObject(bitmap);
-    DeleteDC(memory);
     EndPaint(hwnd, &ps);
 }
 
@@ -2106,6 +2199,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             on_top: false,
             full: None,
             covers: CoverArt::load_all(),
+            buffer: None,
             mouse: None,
             buttons: Vec::new(),
             carousel: Carousel::new(now_ms()),
@@ -2645,6 +2739,70 @@ look(); setInterval(look, 1500);
             (gear_text(-1.0), gear_text(0.0), gear_text(5.0), gear_text(f32::NAN)),
             ("R".into(), "N".into(), "5".into(), "–".into())
         );
+    }
+
+    /// How long a frame takes to draw, by screen: `cargo test frame_times -- --ignored --nocapture`. Not run by
+    /// default (it needs this computer's covers and measures, it does not check).
+    #[test]
+    #[ignore]
+    fn frame_times() {
+        let f = fixture();
+        let live = live_reading();
+        let covers = CoverArt::load_all();
+        for (name, reading, tab) in [
+            ("carousel", None, Tab::Dash),
+            ("dashboard", Some(&live), Tab::Dash),
+            ("monitor", None, Tab::Monitor),
+        ] {
+            let mut v = view(&f, reading, tab, 1.0, Lang::En);
+            v.covers = &covers;
+            let (w, h) = (1920, 1080);
+            render(&v, w, h);
+            let start = std::time::Instant::now();
+            let frames = 30;
+            for i in 0..frames {
+                v.carousel = i as f32 * 0.1;
+                render(&v, w, h);
+            }
+            println!(
+                "{name}: {:.1} ms a frame at {w}x{h}",
+                start.elapsed().as_secs_f64() * 1000.0 / frames as f64
+            );
+        }
+        // The parts of a carousel frame, alone.
+        let (w, h) = (1920, 1080);
+        let time = |label: &str, draw: &dyn Fn(&mut Painter)| unsafe {
+            let hdc = CreateCompatibleDC(null_mut());
+            let bitmap = dib(hdc, w, h);
+            let old = SelectObject(hdc, bitmap);
+            let mut g = Painter::new(hdc, 1.0);
+            let start = std::time::Instant::now();
+            for _ in 0..30 {
+                draw(&mut g);
+            }
+            println!("  {label}: {:.2} ms", start.elapsed().as_secs_f64() * 1000.0 / 30.0);
+            drop(g);
+            SelectObject(hdc, old);
+            DeleteObject(bitmap);
+            DeleteDC(hdc);
+        };
+        if let Some(image) = covers.iter().find(|c| !c.image.is_null()).map(|c| c.image) {
+            time("one cover image 283x425", &|g| g.image_exact((100.0, 100.0, 283.0, 425.0), image));
+        }
+        time("one veil 283x425", &|g| g.veil_exact((100.0, 100.0, 283.0, 425.0), BG, 0.5));
+        time("backdrop (kept)", &|g| g.backdrop(w, h));
+        time("rev bar", &|g| g.rev_bar(0.0, 0.0, 1360.0, 36.0, 0.9, false));
+        time("text 34px", &|g| {
+            g.text(
+                "Waiting for a game",
+                rect(0, 0, 900, 60),
+                34.0,
+                FW_SEMIBOLD as i32,
+                Face::Num,
+                TEXT,
+                DT_CENTER,
+            )
+        });
     }
 
     #[test]
