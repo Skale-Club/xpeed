@@ -19,6 +19,7 @@ import simLaps from '../api/sim/laps';
 import simCodes from '../api/sim/codes';
 import simDevices from '../api/sim/devices';
 import simTracks from '../api/sim/tracks';
+import simGames from '../api/sim/games';
 import manifest from '../api/brand/manifest';
 import authorizationServer from '../api/wellknown/oauth-authorization-server';
 import protectedResource from '../api/wellknown/oauth-protected-resource';
@@ -43,7 +44,7 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
-  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/tracks',simTracks],
+  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],
 ]);
 const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.txt':'text/plain; charset=utf-8','.woff2':'font/woff2','.wasm':'application/wasm','.webmanifest':'application/manifest+json'};
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -100,7 +101,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
         res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database,storage:await storageStatus()}));return;
       }
-      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/tracks/')?simTracks:routes.get(url.pathname.replace(/\/$/,''));
+      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/games/')?simGames:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
         const controller=new AbortController();
         req.once('aborted',()=>controller.abort());
