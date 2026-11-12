@@ -539,6 +539,79 @@ mod tests {
         Some(Box::new(Scripted { done: false }))
     }
 
+    // A game that only listens (like a UDP reader): silent until the test lets it "send".
+    static SENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    struct Listening;
+    impl Source for Listening {
+        fn game_id(&self) -> &'static str {
+            "fakeudp"
+        }
+        fn game_name(&self) -> &'static str {
+            "Fake UDP Racing"
+        }
+        fn next(&mut self, timeout: Duration) -> Option<crate::game::Frame> {
+            std::thread::sleep(timeout.min(Duration::from_millis(5)));
+            SENDING.load(std::sync::atomic::Ordering::SeqCst).then(crate::game::Frame::empty)
+        }
+        fn alive(&self) -> bool {
+            true
+        }
+        fn listens(&self) -> bool {
+            true
+        }
+    }
+    fn open_listening() -> Option<Box<dyn Source>> {
+        Some(Box::new(Listening))
+    }
+
+    #[test]
+    fn a_game_that_only_listens_is_open_without_data_until_its_first_packet() {
+        let dir = crate::config::scratch_dir("engine-listening");
+        let shared = Shared::new(true);
+        let readers = [Reader {
+            family: "fakeudp",
+            title: "Fake UDP",
+            ids: &["fakeudp"],
+            programs: &[],
+            open: open_listening,
+        }];
+        let said = std::sync::Mutex::new(Vec::<String>::new());
+        let state = || shared.games().into_iter().find(|(id, _, _)| *id == "fakeudp").map(|(_, _, g)| g);
+        let wait_for = |want: Game| {
+            let started = Instant::now();
+            while state() != Some(want.clone()) && started.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            state()
+        };
+        std::thread::scope(|scope| {
+            scope.spawn(|| run_games(&readers, &dir, &shared, &|line| said.lock().unwrap().push(line), None));
+            assert_eq!(wait_for(Game::Silent), Some(Game::Silent), "open, nothing heard yet");
+            std::thread::sleep(Duration::from_millis(300));
+            assert_eq!(state(), Some(Game::Silent), "stays without data while nothing comes");
+            assert!(
+                !said.lock().unwrap().iter().any(|l| l.starts_with("Connected")),
+                "{:?}",
+                said.lock().unwrap()
+            );
+            SENDING.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(wait_for(Game::Connected), Some(Game::Connected), "the first packet connects it");
+            std::thread::sleep(Duration::from_millis(300));
+            shared.quit();
+        });
+        let said = said.into_inner().unwrap();
+        assert_eq!(
+            said.iter().filter(|l| l.as_str() == "Connected to Fake UDP Racing.").count(),
+            1,
+            "{said:?}"
+        );
+        assert_eq!(
+            said.iter().filter(|l| l.ends_with("is open but shares no data yet.")).count(),
+            1,
+            "{said:?}"
+        );
+    }
+
     #[test]
     fn a_game_with_a_reader_gets_its_laps_written_and_its_name_shown() {
         use crate::game::Frame;
