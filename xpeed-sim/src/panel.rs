@@ -439,8 +439,8 @@ enum Face {
     Num,
     /// The log.
     Mono,
-    /// Windows' icon font (full screen, pin).
-    Icon,
+    /// The small upper-case labels over the values.
+    Label,
 }
 
 impl Face {
@@ -450,8 +450,8 @@ impl Face {
         let normal = FW_NORMAL as i32;
         match self {
             Face::Mono => ("Cascadia Mono", weight, false),
-            Face::Icon => ("Segoe MDL2 Assets", normal, false),
             Face::Ui => ("Segoe UI", weight, false),
+            Face::Label => ("Chakra Petch SemiBold", normal, false),
             Face::Num if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch", FW_BOLD as i32, true),
             Face::Num => ("Chakra Petch Medium", normal, true),
         }
@@ -463,9 +463,10 @@ impl Face {
 fn register_fonts() {
     static DONE: std::sync::Once = std::sync::Once::new();
     DONE.call_once(|| {
-        const FONTS: [&[u8]; 2] = [
+        const FONTS: [&[u8]; 3] = [
             include_bytes!("../assets/fonts/ChakraPetch-BoldItalic.ttf"),
             include_bytes!("../assets/fonts/ChakraPetch-MediumItalic.ttf"),
+            include_bytes!("../assets/fonts/ChakraPetch-SemiBold.ttf"),
         ];
         for font in FONTS {
             let mut added = 0u32;
@@ -914,7 +915,9 @@ impl Painter {
         unsafe {
             SetTextCharacterExtra(self.hdc, extra);
         }
-        let width = (self.width_of(&upper, size, FW_SEMIBOLD as i32, Face::Ui) * self.s).round() as i32 - extra;
+        // Chakra Petch's capitals are small for their size: drawn a little bigger to read like the old labels.
+        let size = size * 1.18;
+        let width = (self.width_of(&upper, size, FW_SEMIBOLD as i32, Face::Label) * self.s).round() as i32 - extra;
         let left = if align == DT_RIGHT {
             r.right - width
         } else if align == DT_CENTER {
@@ -923,7 +926,7 @@ impl Painter {
             r.left
         };
         let placed = rect(left.max(r.left), r.top, left + width + extra + self.px(4.0), r.bottom);
-        self.text(&upper, placed, size, FW_SEMIBOLD as i32, Face::Ui, color, DT_LEFT);
+        self.text(&upper, placed, size, FW_SEMIBOLD as i32, Face::Label, color, DT_LEFT);
         unsafe {
             SetTextCharacterExtra(self.hdc, 0);
         }
@@ -932,7 +935,7 @@ impl Painter {
     /// The small upper-case label at the top left of a tile.
     fn label(&mut self, s: &str, x: f32, y: f32, w: f32) {
         let r = self.r(x, y, w, 18.0);
-        self.text(&s.to_uppercase(), r, 11.5, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_LEFT);
+        self.caps(s, r, 11.0, MUTED, DT_LEFT);
     }
 }
 
@@ -1086,15 +1089,47 @@ fn header(g: &mut Painter, width: i32, view: &View) {
         let color = if selected { BG } else { MUTED };
         g.text(&text(view.lang, &label), r, 14.0, semi, Face::Ui, color, DT_CENTER);
     }
-    // Full screen and always on top: square buttons with Windows' own icons only; one that is on is filled yellow.
-    let buttons = [
-        (full, view.full, if view.full { "\u{E73F}" } else { "\u{E740}" }),
-        (top, view.on_top, "\u{E718}"),
-    ];
-    for (r, active, icon) in buttons {
-        let (fill, edge, ink) = if active { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
+    // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
+    // Windows' own icon; the pin is drawn here, upright and square like the rest.
+    for (r, active) in [(full, view.full), (top, view.on_top)] {
+        let (fill, edge) = if active { (ACCENT, None) } else { (CARD, Some(EDGE)) };
         g.round(r, CORNER, fill, edge);
-        g.text(icon, r, 15.0, FW_NORMAL as i32, Face::Icon, ink, DT_CENTER);
+    }
+    let (full_ink, pin_ink) = (if view.full { BG } else { TEXT }, if view.on_top { BG } else { TEXT });
+    full_icon(g, full, full_ink, view.full);
+    pin_icon(g, top, pin_ink);
+}
+
+/// Four square corners in a box (pixels): pointing out to go full screen, in to leave it.
+fn full_icon(g: &mut Painter, r: RECT, color: COLORREF, leaving: bool) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let (reach, near, arm, t) = (g.px(8.0), g.px(3.0), g.px(5.0), g.px(1.6).max(1));
+    // A box from two corners in any order.
+    let span = |x0: i32, y0: i32, x1: i32, y1: i32| rect(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1));
+    for (sx, sy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+        // Going full screen: each corner's point at the outside, its arms back toward the middle. Leaving: the
+        // point near the middle, its arms out.
+        let (vx, vy, d) = if leaving {
+            (cx + sx * near, cy + sy * near, 1)
+        } else {
+            (cx + sx * reach, cy + sy * reach, -1)
+        };
+        g.fill(span(vx, vy, vx + d * sx * arm, vy + d * sy * t), color);
+        g.fill(span(vx, vy, vx + d * sx * t, vy + d * sy * arm), color);
+    }
+}
+
+/// An upright push pin in a box (pixels): a cap, a body, a wide collar and the needle, all square.
+fn pin_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let p = |v: f32| g.px(v);
+    for (x0, y0, x1, y1) in [
+        (-4.5, -9.0, 4.5, -6.5),  // cap
+        (-3.0, -6.5, 3.0, 1.0),   // body
+        (-6.5, 1.0, 6.5, 3.5),    // collar
+        (-0.75, 3.5, 0.75, 10.0), // needle
+    ] {
+        g.fill(rect(cx + p(x0), cy + p(y0), cx + p(x1).max(p(x0) + 1), cy + p(y1)), color);
     }
 }
 
@@ -2518,6 +2553,11 @@ let shown = "";
 async function look() {{
   try {{
     const stamp = (await (await fetch("stamp.txt?" + Date.now())).text()).trim();
+    if (stamp && shown && stamp !== shown) {{
+      // Redrawn: load the page again, since the list of pictures can change too.
+      location.reload();
+      return;
+    }}
     if (stamp && stamp !== shown) {{
       shown = stamp;
       document.querySelectorAll("img[data-src]").forEach(img => img.src = img.dataset.src + "?" + stamp);
