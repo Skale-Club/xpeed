@@ -205,7 +205,10 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                         l.track_told = Some((frame.track.clone(), frame.track_variant.clone()));
                     }
                 }
-                l.cutter.on_frame(&frame, now_ms()).iter().for_each(saved);
+                for mut lap in l.cutter.on_frame(&frame, now_ms()) {
+                    l.source.finish_lap(&mut lap);
+                    saved(&lap);
+                }
             } else if l.last_frame.elapsed() > Duration::from_secs(10) {
                 // A door that stays open but says nothing (a game sending UDP, stopped or in a menu).
                 shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
