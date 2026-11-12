@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useLapLibrary } from '@/hooks/use-lap-library';
+import { useGames } from '@/lib/sim/games';
 import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { importLapFiles, type ImportFailure, type ImportResult } from '@/lib/sim/import-laps';
 import { compareUrl } from '@/lib/sim/compare-url';
@@ -28,6 +29,7 @@ type Pending = { kind: 'session'; session: Session } | { kind: 'all' } | null;
  * uploaded, and each account sees only its own.
  */
 export function SessionsList() {
+  const games = useGames();
   const { t, i18n } = useTranslation();
   const { timezone } = useSettings();
   const library = useLapLibrary();
@@ -216,7 +218,10 @@ export function SessionsList() {
                 </div>
                 <div className="flex items-center gap-2">
                   {session.carClass && <Badge variant="secondary">{session.carClass}</Badge>}
-                  <Badge variant="outline" className="uppercase">{session.game}</Badge>
+                  <Badge variant="outline" className="gap-1.5">
+                    {games.cover(session.game) && <img src={games.cover(session.game)!} alt="" className="h-4 w-4 rounded-sm object-cover" loading="lazy" />}
+                    {games.name(session.game)}
+                  </Badge>
                   <Button
                     size="icon"
                     variant="ghost"
