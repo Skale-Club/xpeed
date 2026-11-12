@@ -2779,6 +2779,15 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
     }
 }
 
+/// The inside of the window as it opens (pixels), for a screen whose work area is `work_w` x `work_h`: 16:9, about
+/// 80% of the work area (1536 x 864 on a 1920 x 1080 screen), never smaller than the smallest window.
+fn opening_size(work_w: i32, work_h: i32, scale: f32) -> (i32, i32) {
+    let (min_w, min_h) = (MIN_WIDTH as f32 * scale, MIN_HEIGHT as f32 * scale);
+    let w = (work_w as f32 * 0.8).min(work_h as f32 * 0.85 * 16.0 / 9.0).max(min_w);
+    let h = (w * 9.0 / 16.0).max(min_h);
+    (w.round() as i32, h.round() as i32)
+}
+
 /// Brings the game covers up to date with the Xpeed server's, once a run (again the next time the window opens when
 /// the server could not be reached), off the window's thread; the window reads them again when some changed.
 fn fetch_covers_once(hwnd: HWND, server: String) {
@@ -2877,16 +2886,26 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         // The design size is the inside of the window, at the screen's scale; the frame goes around it.
         let dpi = GetDpiForWindow(hwnd).max(96);
         let scale = dpi as f32 / 96.0;
-        let mut outer = rect(0, 0, (WIDTH as f32 * scale) as i32, (HEIGHT as f32 * scale) as i32);
+        // 16:9 like the screens it runs on, sized from the screen's work area and centred on it.
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        let work = if GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info) != 0 {
+            info.rcWork
+        } else {
+            rect(0, 0, (WIDTH as f32 * scale) as i32 * 5 / 4, (HEIGHT as f32 * scale) as i32 * 5 / 4)
+        };
+        let (cw, ch) = opening_size(work.right - work.left, work.bottom - work.top, scale);
+        let mut outer = rect(0, 0, cw, ch);
         AdjustWindowRectExForDpi(&mut outer, WS_OVERLAPPEDWINDOW, 0, 0, dpi);
+        let (ow, oh) = (outer.right - outer.left, outer.bottom - outer.top);
         SetWindowPos(
             hwnd,
             null_mut(),
-            0,
-            0,
-            outer.right - outer.left,
-            outer.bottom - outer.top,
-            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            work.left + ((work.right - work.left) - ow).max(0) / 2,
+            work.top + ((work.bottom - work.top) - oh).max(0) / 2,
+            ow,
+            oh,
+            SWP_NOZORDER | SWP_NOACTIVATE,
         );
         ShowWindow(hwnd, SW_SHOWNORMAL);
         SetForegroundWindow(hwnd);
@@ -3038,6 +3057,15 @@ mod tests {
         ];
         assert_eq!(focus_of(&games), Some(("f1", "EA SPORTS F1 25", Game::Connected)));
         assert_eq!(focus_of(&games[..2]), Some(("ams2", "Automobilista 2", Game::Silent)));
+    }
+
+    #[test]
+    fn the_window_opens_16_by_9_from_the_screen_it_is_on() {
+        assert_eq!(opening_size(1920, 1032, 1.0), (1536, 864), "a 1920 x 1080 screen with its taskbar");
+        assert_eq!(opening_size(2560, 1392, 1.0), (2048, 1152));
+        assert_eq!(opening_size(1366, 728, 1.0), (1093, 615));
+        let (w, h) = opening_size(800, 560, 1.0);
+        assert!(w >= MIN_WIDTH && h >= MIN_HEIGHT, "never under the smallest window: {w} x {h}");
     }
 
     #[test]
@@ -3331,12 +3359,12 @@ mod tests {
         let shots = [
             (
                 "preview-window.png",
-                "Window as it opens (1180 × 640)",
+                "Window as it opens on a 1920 × 1080 screen (1536 × 864)",
                 Some(&live),
                 Tab::Dash,
                 Lang::En,
-                1180,
-                640,
+                1536,
+                864,
                 1.0,
             ),
             (
