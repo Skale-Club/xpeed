@@ -4,8 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// The games Xpeed Sim reads, in the order the waiting screen shows them, with their Steam app id (0: not on Steam).
-/// The ids were checked against the games' own Steam manifests (`appmanifest_<id>.acf`).
+/// The games Xpeed Sim reads, in the order the waiting screen shows them, with their Steam app id. The ids were
+/// checked against the games' own Steam manifests (`appmanifest_<id>.acf`), except iRacing's (266410, its Steam
+/// store id), which only finds art when iRacing is in the person's Steam library.
 pub const GAMES: &[(&str, u32)] = &[
     ("Le Mans Ultimate", 2_399_420),
     ("Assetto Corsa", 244_210),
@@ -16,7 +17,7 @@ pub const GAMES: &[(&str, u32)] = &[
     ("F1 25", 3_059_520),
     ("Wreckfest 2", 1_203_190),
     ("Stock Car Extreme", 273_840),
-    ("iRacing", 0),
+    ("iRacing", 266_410),
 ];
 
 /// The portrait cover of a game in Steam's library cache, if Steam has one: newer Steam keeps it in a hashed
@@ -105,9 +106,9 @@ mod tests {
 
     #[test]
     fn lists_every_game_once() {
-        let mut ids: Vec<u32> = GAMES.iter().map(|(_, id)| *id).filter(|id| *id != 0).collect();
+        let mut ids: Vec<u32> = GAMES.iter().map(|(_, id)| *id).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), GAMES.len() - 1, "one game is not on Steam");
+        assert_eq!(ids.len(), GAMES.len());
     }
 }

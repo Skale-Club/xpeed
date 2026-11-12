@@ -444,13 +444,15 @@ enum Face {
 }
 
 impl Face {
-    /// The font name, the GDI weight to ask for and whether it is italic. Numbers are in Chakra Petch, italic
-    /// (the owner's pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira); words in Segoe UI.
+    /// The font name, the GDI weight to ask for and whether it is italic. Everything is in Chakra Petch (the owner's
+    /// pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira): numbers italic, words upright; the
+    /// log in Cascadia Mono.
     fn font(self, weight: i32) -> (&'static str, i32, bool) {
         let normal = FW_NORMAL as i32;
         match self {
             Face::Mono => ("Cascadia Mono", weight, false),
-            Face::Ui => ("Segoe UI", weight, false),
+            Face::Ui if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch SemiBold", normal, false),
+            Face::Ui => ("Chakra Petch", normal, false),
             Face::Label => ("Chakra Petch SemiBold", normal, false),
             Face::Num if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch", FW_BOLD as i32, true),
             Face::Num => ("Chakra Petch Medium", normal, true),
@@ -463,10 +465,11 @@ impl Face {
 fn register_fonts() {
     static DONE: std::sync::Once = std::sync::Once::new();
     DONE.call_once(|| {
-        const FONTS: [&[u8]; 3] = [
+        const FONTS: [&[u8]; 4] = [
             include_bytes!("../assets/fonts/ChakraPetch-BoldItalic.ttf"),
             include_bytes!("../assets/fonts/ChakraPetch-MediumItalic.ttf"),
             include_bytes!("../assets/fonts/ChakraPetch-SemiBold.ttf"),
+            include_bytes!("../assets/fonts/ChakraPetch-Regular.ttf"),
         ];
         for font in FONTS {
             let mut added = 0u32;
@@ -729,6 +732,53 @@ impl Painter {
         if !drawn {
             self.fill(rect(0, 0, w, h), BG);
         }
+    }
+
+    /// A cover for a game Steam has no art for here: a dark card with two yellow racing stripes across its top
+    /// corner and the game's name in the racing font. Xpeed's own design, not the game's art.
+    fn cover_card(&mut self, (x, y, w, h): (f32, f32, f32, f32), name: &str, scale: f32) {
+        let k = h * 0.36 / (w * 0.48);
+        smooth(self.hdc, |graphics| unsafe {
+            let fill = |color: COLORREF, points: &[PointF]| {
+                let mut path = null_mut();
+                GdipCreatePath(FillModeAlternate, &mut path);
+                GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+                GdipClosePathFigure(path);
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(color), &mut brush);
+                GdipFillPath(graphics, brush.cast(), path);
+                GdipDeleteBrush(brush.cast());
+                GdipDeletePath(path);
+            };
+            let pt = |px: f32, py: f32| PointF { X: px, Y: py };
+            fill(mix(BG, CARD, 0.8), &[pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]);
+            // Two stripes parallel to the corner's edge: a wide one at the corner, a thin one beside it.
+            fill(ACCENT, &[pt(x + w * 0.52, y), pt(x + w, y), pt(x + w, y + w * 0.48 * k)]);
+            let (a, b) = (0.36, 0.44);
+            fill(
+                ACCENT,
+                &[
+                    pt(x + w * a, y),
+                    pt(x + w * b, y),
+                    pt(x + w, y + w * (1.0 - b) * k),
+                    pt(x + w, y + w * (1.0 - a) * k),
+                ],
+            );
+        });
+        // The name, upper case, one word a line, in the middle.
+        let words: Vec<String> = name.split_whitespace().map(str::to_uppercase).collect();
+        let size = 22.0 * scale;
+        let line = size * 1.1 * self.s;
+        let top = y + h * 0.58 - line * words.len() as f32 / 2.0;
+        for (i, word) in words.iter().enumerate() {
+            let ly = top + line * i as f32;
+            let r = rect(x as i32, ly as i32, (x + w) as i32, (ly + line) as i32);
+            self.text(word, r, size, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
+        }
+        self.fill(
+            rect(x as i32, (y + h) as i32 - self.px(3.0), (x + w) as i32, (y + h) as i32),
+            ACCENT,
+        );
     }
 
     /// A box in design units as exact pixels (x, y, w, h), not rounded.
@@ -1230,9 +1280,7 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
         let exact = g.exact(x, y, w, h);
         let cover = &covers[i];
         if cover.image.is_null() {
-            g.veil_exact(exact, CARD, 1.0);
-            let r = g.r(x + 6.0, y, w - 12.0, h);
-            g.text(cover.name, r, 13.0 * scale, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
+            g.cover_card(exact, cover.name, scale);
         } else {
             g.image_exact(exact, cover.image);
         }
@@ -2515,7 +2563,7 @@ mod tests {
         figures.push_str("<figure><figcaption>Icon buttons, with the tooltip of the one under the mouse</figcaption><img data-src=\"preview-tooltip.png\" width=\"960\" height=\"600\"></figure>\n");
         let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
         with_covers.covers = &covers;
-        with_covers.carousel = 3.0;
+        with_covers.carousel = 9.0;
         let mut unpaired = fixture();
         unpaired.snapshot.cloud = Cloud::NotPaired;
         let mut monitor_covers = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
