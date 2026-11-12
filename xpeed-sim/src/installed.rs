@@ -25,6 +25,11 @@ const GAMES: &[(&str, u32, &[&str])] = &[
     ("ams1", 431_600, &["automobilista"]),
     ("rf1", 339_790, &["rfactor"]),
     ("r3e", 211_500, &["raceroom racing experience", "raceroom"]),
+    ("fm", 2_440_510, &["forza motorsport"]),
+    // Only on the Microsoft Store (no Steam id): found by name when Windows lists it.
+    ("fm7", 0, &["forza motorsport 7"]),
+    ("fh4", 1_293_830, &["forza horizon 4"]),
+    ("fh5", 1_551_360, &["forza horizon 5"]),
     (
         "iracing",
         266_410,

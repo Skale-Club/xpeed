@@ -10,6 +10,7 @@ use crate::game::Source;
 pub mod acevo;
 pub mod ams2;
 pub mod f1;
+pub mod forza;
 pub mod iracing;
 pub mod kunos;
 pub mod r3e;
@@ -99,5 +100,18 @@ pub const READERS: &[Reader] = &[
         // The official API sample (`sample-c/src/utils.c`) looks for these two.
         programs: &["rrre64.exe", "rrre.exe"],
         open: r3e::open,
+    },
+    Reader {
+        family: "forza",
+        title: "Forza Motorsport · Forza Horizon",
+        ids: &["fm", "fm7", "fh4", "fh5"],
+        programs: &[
+            "forza_steamworks_release_final.exe",
+            "forza_gaming.desktop.x64_release_final.exe",
+            "forzamotorsport7.exe",
+            "forzahorizon4.exe",
+            "forzahorizon5.exe",
+        ],
+        open: forza::open,
     },
 ];
