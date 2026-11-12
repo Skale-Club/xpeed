@@ -83,8 +83,8 @@ const FRAME_MS: u32 = 16;
 /// A reading older than this is not shown as live.
 const STALE_MS: i64 = 3000;
 /// Design size of the window at 96 DPI.
-const WIDTH: i32 = 960;
-const HEIGHT: i32 = 600;
+const WIDTH: i32 = 1180;
+const HEIGHT: i32 = 640;
 const MIN_WIDTH: i32 = 720;
 const MIN_HEIGHT: i32 = 480;
 
@@ -415,7 +415,7 @@ const CANVAS_H: f32 = 520.0;
 /// The column on the right for the track map and the tyres, shown when the game gives them and the window is big
 /// enough for the wider canvas not to shrink the rest (full screen, a large window).
 const SIDE_W: f32 = 360.0;
-const SIDE_MIN_SCALE: f32 = 0.95;
+const SIDE_MIN_SCALE: f32 = 0.8;
 /// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
 const LIGHTS_FROM: f32 = 0.55;
 const SHIFT_AT: f32 = 0.97;
@@ -3331,12 +3331,12 @@ mod tests {
         let shots = [
             (
                 "preview-window.png",
-                "Window (960 × 600)",
+                "Window as it opens (1180 × 640)",
                 Some(&live),
                 Tab::Dash,
                 Lang::En,
-                960,
-                600,
+                1180,
+                640,
                 1.0,
             ),
             (
