@@ -22,6 +22,7 @@ pub const GAMES: &[(&str, &str)] = &[
     ("rfactor1", "Stock Car Extreme"),
     ("ams1", "Automobilista"),
     ("rf1", "rFactor"),
+    ("r3e", "RaceRoom Racing Experience"),
     ("iracing", "iRacing"),
 ];
 
