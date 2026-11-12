@@ -12,6 +12,7 @@ pub mod ams2;
 pub mod f1;
 pub mod iracing;
 pub mod kunos;
+pub mod r3e;
 pub mod rfactor1;
 pub mod wreckfest2;
 
@@ -47,6 +48,14 @@ pub const READERS: &[Reader] = &[
         open: ams2::open,
     },
     Reader {
+        family: "pcars",
+        title: "Project CARS 2 · Project CARS 3",
+        ids: &["pcars2", "pcars3"],
+        // The games' own program names (both also ship an AVX build).
+        programs: &["pcars2.exe", "pcars2avx.exe", "pcars3.exe", "pcars3avx.exe"],
+        open: ams2::open_pcars,
+    },
+    Reader {
         family: "wreckfest2",
         title: "Wreckfest 2",
         ids: &["wreckfest2"],
@@ -69,9 +78,9 @@ pub const READERS: &[Reader] = &[
     },
     Reader {
         family: "rfactor1",
-        title: "Stock Car Extreme",
-        ids: &["rfactor1"],
-        programs: &["gsc.exe"],
+        title: "Stock Car Extreme \u{b7} Automobilista \u{b7} rFactor",
+        ids: &["rfactor1", "ams1", "rf1"],
+        programs: &["gsc.exe", "ams.exe", "rfactor.exe"],
         open: rfactor1::open,
     },
     Reader {
@@ -80,5 +89,13 @@ pub const READERS: &[Reader] = &[
         ids: &["iracing"],
         programs: &["iracingsim64dx11.exe", "iracingsim64.exe"],
         open: iracing::open,
+    },
+    Reader {
+        family: "r3e",
+        title: "RaceRoom Racing Experience",
+        ids: &["r3e"],
+        // The official API sample (`sample-c/src/utils.c`) looks for these two.
+        programs: &["rrre64.exe", "rrre.exe"],
+        open: r3e::open,
     },
 ];

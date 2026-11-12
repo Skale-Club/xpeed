@@ -54,6 +54,20 @@ pub enum Notice {
     Refused,
 }
 
+/// Something the person would want to know happened, for the panel's activity list (put in their language there).
+/// The technical log stays in the log file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Activity {
+    GameConnected(&'static str),
+    GameClosed(&'static str),
+    /// This build cannot read the version of the game that is running.
+    GameUnsupported(&'static str),
+    Notice(Notice),
+}
+
+/// How many activities the panel can list.
+const ACTIVITY: usize = 50;
+
 type OnChange = Box<dyn Fn() + Send + Sync>;
 
 /// How many saved laps the panel lists.
@@ -71,6 +85,8 @@ pub struct Shared {
     live: Mutex<Option<Live>>,
     /// The labels of the last laps saved in this run, newest last.
     recent_laps: Mutex<VecDeque<String>>,
+    /// What happened in this run worth telling the person, with the Unix time in ms, newest last.
+    activity: Mutex<VecDeque<(i64, Activity)>>,
     paused: AtomicBool,
     quit: AtomicBool,
 }
@@ -91,6 +107,7 @@ impl Shared {
             uploader: Mutex::new(None),
             live: Mutex::new(None),
             recent_laps: Mutex::new(VecDeque::new()),
+            activity: Mutex::new(VecDeque::new()),
             paused: AtomicBool::new(false),
             quit: AtomicBool::new(false),
         })
@@ -118,7 +135,21 @@ impl Shared {
     pub fn set_game(&self, id: &'static str, name: &'static str, state: Game) {
         let (game, title) = {
             let mut games = self.games.lock().unwrap();
-            games.insert(id, (name, state));
+            let was = games.insert(id, (name, state.clone())).map_or(Game::Waiting, |(_, g)| g);
+            // A game coming, going, or a version this build cannot read is worth a line in the activity list.
+            let on = |g: &Game| matches!(g, Game::Connected | Game::Recording(_) | Game::Paused);
+            let event = if state == Game::Unsupported && was != Game::Unsupported {
+                Some(Activity::GameUnsupported(name))
+            } else if on(&state) && !on(&was) {
+                Some(Activity::GameConnected(name))
+            } else if state == Game::Waiting && was != Game::Waiting {
+                Some(Activity::GameClosed(name))
+            } else {
+                None
+            };
+            if let Some(event) = event {
+                self.remember(event);
+            }
             let rank = |g: &Game| match g {
                 Game::Recording(_) => 4,
                 Game::Connected => 3,
@@ -155,8 +186,22 @@ impl Shared {
                 recent.pop_front();
             }
         }
+        self.remember(Activity::Notice(notice.clone()));
         self.notices.lock().unwrap().push_back(notice);
         self.changed();
+    }
+
+    fn remember(&self, event: Activity) {
+        let mut activity = self.activity.lock().unwrap();
+        activity.push_back((crate::util::now_ms(), event));
+        while activity.len() > ACTIVITY {
+            activity.pop_front();
+        }
+    }
+
+    /// What happened in this run worth telling the person, with the Unix time in ms, newest last.
+    pub fn activity(&self) -> Vec<(i64, Activity)> {
+        self.activity.lock().unwrap().iter().cloned().collect()
     }
 
     pub fn take_notices(&self) -> Vec<Notice> {
@@ -222,6 +267,31 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_what_happened_in_plain_events() {
+        let shared = Shared::new(true);
+        shared.set_game("ac", "Assetto Corsa", Game::Waiting);
+        shared.set_game("ac", "Assetto Corsa", Game::Connected);
+        shared.set_game("ac", "Assetto Corsa", Game::Recording(1));
+        shared.notify(Notice::LapSaved("Lap 1  1:49.002".into()));
+        shared.set_game("ac", "Assetto Corsa", Game::Paused);
+        shared.set_game("ac", "Assetto Corsa", Game::Connected);
+        shared.set_game("ac", "Assetto Corsa", Game::Waiting);
+        shared.set_game("rfactor1", "Stock Car Extreme", Game::Unsupported);
+        shared.set_game("rfactor1", "Stock Car Extreme", Game::Unsupported);
+        let events: Vec<Activity> = shared.activity().into_iter().map(|(_, a)| a).collect();
+        assert_eq!(
+            events,
+            [
+                Activity::GameConnected("Assetto Corsa"),
+                Activity::Notice(Notice::LapSaved("Lap 1  1:49.002".into())),
+                Activity::GameClosed("Assetto Corsa"),
+                Activity::GameUnsupported("Stock Car Extreme"),
+            ],
+            "waiting at start, laps starting and pauses are not news"
+        );
+    }
     use std::sync::atomic::AtomicUsize;
 
     #[test]

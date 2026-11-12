@@ -29,6 +29,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::Graphics::Gdi::{IntersectClipRect, ScreenToClient, SelectClipRgn};
+use windows_sys::Win32::Graphics::GdiPlus::GdipCreateBitmapFromScan0;
 use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
@@ -63,7 +64,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED
 
 use crate::dash::Live;
 use crate::present;
-use crate::status::{Cloud, Game, Shared, Snapshot};
+use crate::status::{Activity, Cloud, Game, Notice, Shared, Snapshot};
 use crate::text::{text, Lang, Msg};
 use crate::util::{clock, now_ms};
 use crate::win;
@@ -134,6 +135,10 @@ pub enum Action {
     Connect,
     /// Opens Xpeed in the browser.
     OpenXpeed,
+    /// Brings this cover of the waiting screen's carousel to the middle.
+    Cover(usize),
+    /// Picks this language (its place in `Lang::ALL`) from the language list.
+    Lang(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,8 +172,8 @@ pub struct View<'a> {
     pub device: Option<&'a str>,
     pub server: &'a str,
     pub recent_laps: &'a [String],
-    /// `(time as HH:MM:SS, text)`, oldest first.
-    pub log: &'a [(String, String)],
+    /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
+    pub activity: &'a [(String, String)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
     /// Where the mouse is over the window (pixels), for the icon buttons' tooltips.
@@ -179,6 +184,10 @@ pub struct View<'a> {
     pub carousel: f32,
     /// How far the games list is scrolled (design units).
     pub games_scroll: f32,
+    /// The carousel's step from one cover to the next as drawn in this frame (pixels), for dragging it.
+    pub carousel_step: std::cell::Cell<f32>,
+    /// The language list under the language button is open.
+    pub lang_open: bool,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
 }
@@ -291,6 +300,8 @@ struct Carousel {
     from: f32,
     /// When it set off (Unix ms).
     since: i64,
+    /// Where a mouse drag holds it, while the button is down.
+    held: Option<f32>,
 }
 
 /// How long a slide takes, and how long a cover stays in the middle before the next one comes.
@@ -303,11 +314,15 @@ impl Carousel {
             target: 0,
             from: 0.0,
             since: now,
+            held: None,
         }
     }
 
     /// Where it is at `now`: eased in and out (gently away, gently in) from where it set off to where it is going.
     fn at(&self, now: i64) -> f32 {
+        if let Some(held) = self.held {
+            return held;
+        }
         let t = ((now - self.since) as f32 / SLIDE_MS as f32).clamp(0.0, 1.0);
         let eased = if t < 0.5 {
             4.0 * t * t * t
@@ -324,9 +339,31 @@ impl Carousel {
         self.since = now;
     }
 
+    /// Held by a drag at `at` (in covers, fractional).
+    fn hold(&mut self, at: f32) {
+        self.held = Some(at);
+    }
+
+    /// Let go after a drag that started at `start`: it eases onto the nearest cover, leaning the way it was dragged
+    /// (a fifth of a cover is enough to go on to the next one).
+    fn let_go(&mut self, start: f32, now: i64) {
+        let Some(at) = self.held.take() else { return };
+        let moved = at - start;
+        let target = if moved > 0.2 {
+            at.ceil()
+        } else if moved < -0.2 {
+            at.floor()
+        } else {
+            at.round()
+        };
+        self.from = at;
+        self.target = target as i64;
+        self.since = now;
+    }
+
     /// Moves on by itself once a cover has had its time in the middle.
     fn tick(&mut self, now: i64) {
-        if now - self.since >= SLIDE_MS + DWELL_MS {
+        if self.held.is_none() && now - self.since >= SLIDE_MS + DWELL_MS {
             self.step(1, now);
         }
     }
@@ -346,6 +383,13 @@ struct State {
     games_scroll: f32,
     scroll: Option<ScrollBar>,
     drag: Option<(i32, f32)>,
+    /// A press on the waiting screen's carousel: where (pixels), where the carousel was, and whether it has become a
+    /// drag. A press that never moved acts as a click when the button comes up.
+    press: Option<(i32, i32, f32, bool)>,
+    /// The carousel's step from one cover to the next (pixels), from the last frame that drew it.
+    carousel_step: f32,
+    /// The language list is open.
+    lang_open: bool,
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
@@ -377,16 +421,18 @@ const LIGHTS: usize = 20;
 
 /// The places of the header that can be clicked: the two tabs, "full screen" and "always on top" (square icon
 /// buttons at the right).
-fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
+fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
     let p = |v: f32| (v * scale).round() as i32;
     let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
     let (side, gap) = (p(38.0), p(8.0));
+    let nth = |n: i32| rect(right - side - n * (side + gap), top, right - n * (side + gap), bottom);
     [
         rect(p(20.0), p(17.0), p(136.0), p(47.0)),
         rect(p(136.0), p(17.0), p(252.0), p(47.0)),
-        rect(right - side - gap - side, top, right - side - gap, bottom),
-        rect(right - side, top, right, bottom),
+        nth(2),
+        nth(1),
+        nth(0),
     ]
 }
 
@@ -480,20 +526,16 @@ enum Face {
     Ui,
     /// Numbers.
     Num,
-    /// The log.
-    Mono,
     /// The small upper-case labels over the values.
     Label,
 }
 
 impl Face {
     /// The font name, the GDI weight to ask for and whether it is italic. Everything is in Chakra Petch (the owner's
-    /// pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira): numbers italic, words upright; the
-    /// log in Cascadia Mono.
+    /// pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira): numbers italic, words upright.
     fn font(self, weight: i32) -> (&'static str, i32, bool) {
         let normal = FW_NORMAL as i32;
         match self {
-            Face::Mono => ("Cascadia Mono", weight, false),
             Face::Ui if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch SemiBold", normal, false),
             Face::Ui => ("Chakra Petch", normal, false),
             Face::Label => ("Chakra Petch SemiBold", normal, false),
@@ -917,13 +959,17 @@ impl Painter {
         });
     }
 
-    /// A colour over an exact box with `amount` (0..1) of opacity.
+    /// A colour over an exact box with `amount` (0..1) of opacity: the shade over a cover drawn by `image_exact`. It
+    /// uses the same pixel offset as the cover and reaches half a pixel past it on every side, so no edge of the cover
+    /// is left unshaded (a lighter line showed at the right edge when the two were half a pixel apart).
     fn veil_exact(&self, (x, y, w, h): (f32, f32, f32, f32), color: COLORREF, amount: f32) {
+        use windows_sys::Win32::Graphics::GdiPlus::PixelOffsetModeNone;
         let alpha = ((amount.clamp(0.0, 1.0) * 255.0).round() as u32) << 24;
         smooth(self.hdc, |graphics| unsafe {
+            GdipSetPixelOffsetMode(graphics, PixelOffsetModeNone);
             let mut brush = null_mut();
             GdipCreateSolidFill(alpha | (argb(color) & 0x00ff_ffff), &mut brush);
-            GdipFillRectangle(graphics, brush.cast(), x, y, w, h);
+            GdipFillRectangle(graphics, brush.cast(), x - 0.5, y - 0.5, w + 1.0, h + 1.0);
             GdipDeleteBrush(brush.cast());
         });
     }
@@ -1216,6 +1262,58 @@ fn lap_parts(label: &str) -> (&str, &str) {
     label.split_once("  ").map_or((label, ""), |(name, time)| (name, time.trim()))
 }
 
+/// The flags of the languages, in the order of `Lang::ALL`: Nucleo's flag icons (`assets/flags/*.svg`), drawn once
+/// into premultiplied 32-bit pixels at 120 x 96 (`*.bgra`, made from the SVGs with headless Chrome; `*.png` are the
+/// same pixels to look at).
+const FLAG_W: i32 = 120;
+const FLAG_H: i32 = 96;
+static FLAG_PIXELS: [&[u8]; 3] = [
+    include_bytes!("../assets/flags/us.bgra"),
+    include_bytes!("../assets/flags/br.bgra"),
+    include_bytes!("../assets/flags/es.bgra"),
+];
+
+thread_local! {
+    static FLAGS: std::cell::OnceCell<[usize; 3]> = const { std::cell::OnceCell::new() };
+}
+
+/// The flag of a language as a GDI+ image (made on first use, kept for the program's life); null without GDI+.
+fn flag_image(lang: Lang) -> *mut GpImage {
+    let index = Lang::ALL.iter().position(|l| *l == lang).unwrap_or(0);
+    FLAGS.with(|flags| {
+        flags.get_or_init(|| {
+            FLAG_PIXELS.map(|pixels| {
+                if !gdiplus_ready() || pixels.len() != (FLAG_W * FLAG_H * 4) as usize {
+                    return 0;
+                }
+                unsafe {
+                    // A bitmap over the embedded pixels, copied at once into one GDI+ owns (the pixels are only read).
+                    let mut over = null_mut();
+                    let made = GdipCreateBitmapFromScan0(
+                        FLAG_W,
+                        FLAG_H,
+                        FLAG_W * 4,
+                        PIXEL_FORMAT_32BPP_PARGB,
+                        pixels.as_ptr().cast_mut(),
+                        &mut over,
+                    ) == 0;
+                    if !made || over.is_null() {
+                        return 0;
+                    }
+                    let mut own = null_mut();
+                    let copied = GdipCloneBitmapAreaI(0, 0, FLAG_W, FLAG_H, PIXEL_FORMAT_32BPP_PARGB, over, &mut own) == 0;
+                    GdipDisposeImage(over.cast());
+                    if copied {
+                        own as usize
+                    } else {
+                        0
+                    }
+                }
+            })
+        })[index] as *mut GpImage
+    })
+}
+
 /// Draws one frame of the window.
 pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let mut g = Painter::new(hdc, view.scale);
@@ -1227,14 +1325,72 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
         Tab::Dash => dashboard(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
     }
-    tooltip(&mut g, width, view);
+    if view.lang_open {
+        lang_list(&mut g, width, view);
+    } else {
+        tooltip(&mut g, width, view);
+    }
+}
+
+/// The language list, open under the language button: each language's flag and its name in its own words, the one
+/// in use marked in yellow, the row under the mouse lit.
+fn lang_list(g: &mut Painter, width: i32, view: &View) {
+    let [_, _, button, _, _] = header_hits(width, view.scale);
+    g.place(view.scale, 0, 0);
+    let (row_h, pad, list_w) = (g.px(40.0), g.px(6.0), g.px(200.0));
+    let rows = Lang::ALL.len() as i32;
+    let list = rect(
+        button.right - list_w,
+        button.bottom + g.px(6.0),
+        button.right,
+        button.bottom + g.px(6.0) + pad * 2 + row_h * rows,
+    );
+    g.round(list, CORNER, CARD, Some(EDGE));
+    for (i, lang) in Lang::ALL.into_iter().enumerate() {
+        let top = list.top + pad + row_h * i as i32;
+        let row = rect(list.left + pad, top, list.right - pad, top + row_h);
+        let current = lang == view.lang;
+        if view.mouse.is_some_and(|(mx, my)| inside(&row, mx, my)) {
+            g.fill(row, mix(CARD, TEXT, 0.07));
+        }
+        if current {
+            g.fill(
+                rect(row.left, row.top + g.px(8.0), row.left + g.px(3.0), row.bottom - g.px(8.0)),
+                ACCENT,
+            );
+        }
+        let (fw, fh) = (g.px(25.0), g.px(20.0));
+        let flag = rect(
+            row.left + g.px(14.0),
+            top + (row_h - fh) / 2,
+            row.left + g.px(14.0) + fw,
+            top + (row_h - fh) / 2 + fh,
+        );
+        let image = flag_image(lang);
+        if !image.is_null() {
+            g.image(flag, image);
+        }
+        let label = rect(flag.right + g.px(12.0), top, row.right - g.px(8.0), top + row_h);
+        g.text(
+            lang.name(),
+            label,
+            14.0,
+            FW_SEMIBOLD as i32,
+            Face::Ui,
+            if current { ACCENT } else { TEXT },
+            DT_LEFT,
+        );
+        view.buttons.borrow_mut().push((Action::Lang(i), row));
+    }
 }
 
 /// The name of the icon button under the mouse, in a small label below it.
 fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
-    let [_, _, full, top] = header_hits(width, view.scale);
-    let (r, label) = if inside(&full, mx, my) {
+    let [_, _, lang, full, top] = header_hits(width, view.scale);
+    let (r, label) = if inside(&lang, mx, my) {
+        (lang, text(view.lang, &Msg::MenuLanguage))
+    } else if inside(&full, mx, my) {
         (
             full,
             text(
@@ -1262,7 +1418,7 @@ fn tooltip(g: &mut Painter, width: i32, view: &View) {
 
 fn header(g: &mut Painter, width: i32, view: &View) {
     g.place(view.scale, 0, 0);
-    let [dash, mon, full, top] = header_hits(width, view.scale);
+    let [dash, mon, lang, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
     // The tabs: one pill, the chosen tab a yellow pill inside it.
     let control = g.r(16.0, 13.0, 240.0, 38.0);
@@ -1277,6 +1433,16 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     }
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
+    // The language: a square button with its flag (yellow edge while its list is open); a click opens the list.
+    g.round(lang, CORNER, CARD, Some(if view.lang_open { ACCENT } else { EDGE }));
+    let (fw, fh) = (g.px(22.5), g.px(18.0));
+    let (cx, cy) = ((lang.left + lang.right) / 2, (lang.top + lang.bottom) / 2);
+    let image = flag_image(view.lang);
+    if image.is_null() {
+        g.text(&view.lang.code().to_uppercase(), lang, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
+    } else {
+        g.image(rect(cx - fw / 2, cy - fh / 2, cx - fw / 2 + fw, cy - fh / 2 + fh), image);
+    }
     for (r, active) in [(full, view.full), (top, view.on_top)] {
         let (fill, edge) = if active { (ACCENT, None) } else { (CARD, Some(EDGE)) };
         g.round(r, CORNER, fill, edge);
@@ -1284,6 +1450,11 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     let (full_ink, pin_ink) = (if view.full { BG } else { TEXT }, if view.on_top { BG } else { TEXT });
     full_icon(g, full, full_ink, view.full);
     pin_icon(g, top, pin_ink);
+    // The version, small, left of the icon buttons, where every tab shows it.
+    let version = concat!("v", env!("CARGO_PKG_VERSION"));
+    let right = lang.left - g.px(14.0);
+    let r = rect(right - g.px(120.0), lang.top, right, lang.bottom);
+    g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
 }
 
 /// Four square corners in a box (pixels): pointing out to go full screen, in to leave it.
@@ -1350,7 +1521,8 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
         DT_CENTER,
     );
     if !view.covers.is_empty() {
-        return cover_carousel(g, view.covers, view.carousel);
+        view.carousel_step.set(120.0 * g.s);
+        return cover_carousel(g, view.covers, view.carousel, &view.buttons);
     }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
@@ -1393,10 +1565,26 @@ fn carousel_offset(i: usize, count: usize, at: f32) -> f32 {
     }
 }
 
+/// How many steps (the nearest way round, negative to the left) take a carousel of `count` covers whose middle is
+/// heading to `target` to cover `to`.
+fn carousel_steps(target: i64, to: usize, count: usize) -> i64 {
+    if count == 0 {
+        return 0;
+    }
+    let n = count as i64;
+    let by = (to as i64 - target).rem_euclid(n);
+    if by > n / 2 {
+        by - n
+    } else {
+        by
+    }
+}
+
 /// The games as a carousel: the cover in the middle big, the others smaller and darker the further they are, going
 /// round; the middle game's name under it and a row of small squares saying which one it is. Steam's art where it
-/// has some, the name on a card where not.
-fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
+/// has some, the name on a card where not. A click on a side cover or on one of the squares brings that game to the
+/// middle.
+fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::cell::RefCell<Vec<(Action, RECT)>>) {
     let count = covers.len();
     let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 168.0);
     let big_h = big_w * 1.5;
@@ -1425,6 +1613,10 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
         if shade > 0.01 {
             g.veil_exact(exact, BG, shade);
         }
+        // A side cover is a button; nearer covers are drawn later and go first, as they are on top.
+        if far > 0.5 {
+            buttons.borrow_mut().insert(0, (Action::Cover(i), g.r(x, y, w, h)));
+        }
     }
     // The game in the middle, and where it is in the list.
     let middle = (at.round() as i64).rem_euclid(count as i64) as usize;
@@ -1443,6 +1635,9 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
     for i in 0..count {
         let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
         g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { ACCENT } else { TRACK });
+        // A square is small: its button reaches halfway to its neighbours and a little above and below.
+        let hit = g.r(x - gap / 2.0, top + big_h + 40.0, dot + gap, dot + 16.0);
+        buttons.borrow_mut().push((Action::Cover(i), hit));
     }
 }
 
@@ -1905,22 +2100,25 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
     }
 
-    // The log, newest at the bottom, on alternating rows.
+    // Activity: what happened, newest first, in plain words (the technical log stays in the log file).
     let log_y = laps_h + gap;
     g.tile(right, log_y, col, area_h - log_y, CARD);
-    g.label(&text(view.lang, &Msg::PanelLog), right + 20.0, log_y + 16.0, col - 40.0);
-    let line_h = 21.0;
-    let room = ((area_h - log_y - 56.0) / line_h).floor().max(0.0) as usize;
-    let shown = &view.log[view.log.len().saturating_sub(room)..];
-    for (i, (time, line)) in shown.iter().enumerate() {
-        let y = log_y + 44.0 + line_h * i as f32;
-        if i % 2 == 1 {
-            g.fill(g.r(right + 12.0, y, col - 24.0, line_h), mix(CARD, BG, 0.45));
+    g.label(&text(view.lang, &Msg::PanelActivity), right + 20.0, log_y + 16.0, col - 40.0);
+    if view.activity.is_empty() {
+        let r = g.r(right + 20.0, log_y + 44.0, col - 40.0, 24.0);
+        g.text(&text(view.lang, &Msg::PanelNoActivity), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
+    }
+    let line_h = 32.0;
+    let room = ((area_h - log_y - 52.0) / line_h).floor().max(0.0) as usize;
+    for (i, (time, line)) in view.activity.iter().take(room).enumerate() {
+        let y = log_y + 42.0 + line_h * i as f32;
+        if i > 0 {
+            g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
         }
-        let r = g.r(right + 20.0, y, 70.0, line_h);
-        g.text(time, r, 11.5, normal, Face::Mono, MUTED, DT_LEFT);
-        let r = g.r(right + 92.0, y, col - 112.0, line_h);
-        g.text(line, r, 11.5, normal, Face::Mono, TEXT, DT_LEFT);
+        let r = g.r(right + 20.0, y, 52.0, line_h);
+        g.text(time, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
+        let r = g.r(right + 76.0, y, col - 96.0, line_h);
+        g.text(line, r, 13.5, normal, Face::Ui, TEXT, DT_LEFT);
     }
 
     let r = g.r(0.0, h - 20.0, w, 20.0);
@@ -2080,9 +2278,18 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let games = game_rows(ctx, state.installed.as_ref());
     let account = ctx.account.lock().unwrap().clone();
     let recent_laps = ctx.shared.recent_laps();
-    let log: Vec<(String, String)> = crate::applog::recent(60)
+    let activity: Vec<(String, String)> = ctx
+        .shared
+        .activity()
         .into_iter()
-        .map(|(ms, line)| (local_time(ms), line))
+        .rev()
+        .map(|(ms, event)| {
+            let time = local_time(ms);
+            (
+                time.get(..5).unwrap_or(&time).to_owned(),
+                text(account.lang, &activity_message(event)),
+            )
+        })
         .collect();
     let now = now_ms();
     state.carousel.tick(now);
@@ -2099,17 +2306,22 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         device: account.device.as_deref(),
         server: &account.server,
         recent_laps: &recent_laps,
-        log: &log,
+        activity: &activity,
         covers: &state.covers,
         mouse: state.mouse,
         buttons: Default::default(),
         carousel: state.carousel.at(now),
         games_scroll: state.games_scroll,
         scroll: Default::default(),
+        carousel_step: Default::default(),
+        lang_open: state.lang_open,
     };
     paint(memory, w, h, &view);
     state.buttons = view.buttons.take();
     state.scroll = view.scroll.get();
+    if view.carousel_step.get() > 0.0 {
+        state.carousel_step = view.carousel_step.get();
+    }
     state.games_scroll = state.games_scroll.clamp(0.0, state.scroll.map_or(0.0, |bar| bar.max));
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
     EndPaint(hwnd, &ps);
@@ -2159,6 +2371,43 @@ fn refresh_installed(state: &mut State) {
         state.covers = CoverArt::load(state.installed.as_ref());
         state.games_scroll = 0.0;
     }
+}
+
+/// An activity as a message of the person's language.
+fn activity_message(event: Activity) -> Msg {
+    match event {
+        Activity::GameConnected(name) => Msg::ActivityGameConnected(name.to_owned()),
+        Activity::GameClosed(name) => Msg::ActivityGameClosed(name.to_owned()),
+        Activity::GameUnsupported(name) => Msg::ActivityGameUnsupported(name.to_owned()),
+        Activity::Notice(Notice::LapSaved(label)) => Msg::NoticeLapSaved(label),
+        Activity::Notice(Notice::LapsSent(n)) => Msg::NoticeLapsSent(n),
+        Activity::Notice(Notice::Paired(name)) => Msg::NoticePaired(name),
+        Activity::Notice(Notice::NotPaired) => Msg::CloudNotPaired,
+        Activity::Notice(Notice::Refused) => Msg::NoticeRefused,
+    }
+}
+
+/// A click on the carousel (a press that did not move): a square or a side cover brings that game to the middle;
+/// elsewhere, left of the middle goes back one and right of it goes on one.
+unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i32) {
+    let now = now_ms();
+    if let Some(&(Action::Cover(i), _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
+        let steps = carousel_steps(state.carousel.target, i, state.covers.len());
+        if steps != 0 {
+            state.carousel.step(steps, now);
+        }
+        return;
+    }
+    let mut client = rect(0, 0, 0, 0);
+    GetClientRect(hwnd, &mut client);
+    state.carousel.step(if x < client.right / 2 { -1 } else { 1 }, now);
+}
+
+/// The person picked a language in the panel: shown at once here, and the tray (which keeps it in the settings and
+/// shows it in its menu) is told, so both always say the same.
+fn choose_lang(state: &mut State, lang: Lang) {
+    state.ctx.account.lock().unwrap().lang = lang;
+    crate::tray::set_lang_of_running(lang);
 }
 
 fn waiting_now(state: &State) -> bool {
@@ -2239,7 +2488,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONDOWN
-            if state.tab == Tab::Monitor
+            if !state.lang_open
+                && state.tab == Tab::Monitor
                 && state.scroll.is_some_and(|bar| {
                     let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
                     inside(&bar.track, x, y)
@@ -2262,10 +2512,23 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             if state.drag.take().is_some() {
                 ReleaseCapture();
             }
+            if let Some((x, y, start, dragged)) = state.press.take() {
+                ReleaseCapture();
+                if dragged {
+                    state.carousel.let_go(start, now_ms());
+                } else {
+                    carousel_click(hwnd, state, x, y);
+                }
+                InvalidateRect(hwnd, null(), 0);
+            }
             0
         }
         WM_CAPTURECHANGED => {
             state.drag = None;
+            // The capture went elsewhere mid-drag: settle where it is.
+            if let Some((_, _, start, true)) = state.press.take() {
+                state.carousel.let_go(start, now_ms());
+            }
             0
         }
         WM_MOUSEWHEEL => {
@@ -2289,8 +2552,16 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
             let mut client = rect(0, 0, 0, 0);
             GetClientRect(hwnd, &mut client);
-            let [dash, mon, full, top] = header_hits(client.right, scale_of(hwnd));
-            if inside(&dash, x, y) {
+            let [dash, mon, lang, full, top] = header_hits(client.right, scale_of(hwnd));
+            if inside(&lang, x, y) {
+                state.lang_open = !state.lang_open;
+            } else if state.lang_open {
+                // With the list open, a click picks a language or, anywhere else, only closes the list.
+                if let Some(&(Action::Lang(i), _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
+                    choose_lang(state, Lang::ALL[i]);
+                }
+                state.lang_open = false;
+            } else if inside(&dash, x, y) {
                 state.tab = Tab::Dash;
             } else if inside(&mon, x, y) {
                 state.tab = Tab::Monitor;
@@ -2299,16 +2570,23 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if inside(&top, x, y) {
                 state.on_top = !state.on_top;
                 set_on_top(hwnd, state.on_top);
+            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
+                // The carousel: it follows the mouse while dragged; a press that does not move is a click, on release.
+                state.press = Some((x, y, state.carousel.at(now_ms()), false));
+                SetCapture(hwnd);
             } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
                 let account = state.ctx.account.lock().unwrap().clone();
                 match action {
                     Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
                     Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
+                    Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
+                    Action::Cover(i) => {
+                        let steps = carousel_steps(state.carousel.target, i, state.covers.len());
+                        if steps != 0 {
+                            state.carousel.step(steps, now_ms());
+                        }
+                    }
                 }
-            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
-                // The carousel: a click left of the middle goes back, right of it goes on.
-                let by = if x < client.right / 2 { -1 } else { 1 };
-                state.carousel.step(by, now_ms());
             }
             InvalidateRect(hwnd, null(), 0);
             0
@@ -2326,6 +2604,15 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 TrackMouseEvent(&mut track);
             }
             state.mouse = Some((x, y));
+            if let Some((x0, y0, start, dragged)) = state.press {
+                // A few pixels before it counts as a drag, so a shaky click stays a click.
+                let dx = x - x0;
+                if dragged || dx.abs() as f32 > 4.0 * scale_of(hwnd) {
+                    state.carousel.hold(start - dx as f32 / state.carousel_step.max(1.0));
+                    state.press = Some((x0, y0, start, true));
+                    InvalidateRect(hwnd, null(), 0);
+                }
+            }
             if let (Some((from_y, from_scroll)), Some(bar)) = (state.drag, state.scroll) {
                 state.games_scroll = (from_scroll + (y - from_y) as f32 * bar.per_px).clamp(0.0, bar.max);
                 InvalidateRect(hwnd, null(), 0);
@@ -2359,11 +2646,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONDBLCLK => {
-            // A double click below the header: full screen and back.
-            let y = ((lparam >> 16) & 0xffff) as i16 as i32;
-            if y > (HEADER_H * scale_of(hwnd)) as i32 && !waiting_now(state) {
-                toggle_full(hwnd, state);
-                InvalidateRect(hwnd, null(), 0);
+            // A double click below the header: full screen and back. On the carousel, the second click of a quick
+            // pair is one more press (two quick clicks move it two covers).
+            let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+            if y > (HEADER_H * scale_of(hwnd)) as i32 {
+                if waiting_now(state) {
+                    state.press = Some((x, y, state.carousel.at(now_ms()), false));
+                    SetCapture(hwnd);
+                } else {
+                    toggle_full(hwnd, state);
+                    InvalidateRect(hwnd, null(), 0);
+                }
             }
             0
         }
@@ -2378,6 +2671,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                     set_on_top(hwnd, state.on_top);
                 }
                 VK_F11 | 0x46 => toggle_full(hwnd, state),
+                VK_ESCAPE if state.lang_open => state.lang_open = false,
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
                 // Left and right arrows move the covers' carousel.
                 0x25 => state.carousel.step(-1, now_ms()),
@@ -2485,6 +2779,9 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             games_scroll: 0.0,
             scroll: None,
             drag: None,
+            press: None,
+            carousel_step: 120.0,
+            lang_open: false,
         }));
         refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
@@ -2649,6 +2946,36 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dragged_carousel_settles_on_a_cover_leaning_the_way_it_was_dragged() {
+        let mut c = Carousel::new(0);
+        c.hold(0.3);
+        assert_eq!(c.at(10), 0.3, "held where the mouse is");
+        c.tick(1_000_000);
+        assert_eq!(c.at(1_000_000), 0.3, "no moving on by itself while held");
+        c.let_go(0.0, 100);
+        assert_eq!(c.target, 1, "a third of a cover to the right goes on to the next");
+        assert_eq!(c.at(100), 0.3, "and eases from where it was let go");
+        assert!((c.at(100 + SLIDE_MS) - 1.0).abs() < 1e-6);
+        let mut c = Carousel::new(0);
+        c.hold(-0.1);
+        c.let_go(0.0, 0);
+        assert_eq!(c.target, 0, "a tenth of a cover goes back");
+        let mut c = Carousel::new(0);
+        c.hold(1.7);
+        c.let_go(2.0, 0);
+        assert_eq!(c.target, 1, "dragged back past a fifth: the previous cover");
+    }
+
+    #[test]
+    fn a_click_on_a_cover_goes_there_the_nearest_way() {
+        assert_eq!(carousel_steps(0, 3, 9), 3);
+        assert_eq!(carousel_steps(0, 7, 9), -2, "round the other side is shorter");
+        assert_eq!(carousel_steps(11, 2, 9), 0, "11 is cover 2 after going round once");
+        assert_eq!(carousel_steps(-1, 0, 9), 1);
+        assert_eq!(carousel_steps(5, 0, 0), 0);
+    }
 
     #[test]
     fn a_line_for_several_games_names_only_those_installed() {
@@ -2833,10 +3160,11 @@ mod tests {
             ],
             laps: vec!["Lap 1  1:49.002".into(), "Lap 2  1:48.115".into(), "Lap 3  1:47.918".into()],
             log: vec![
-                ("21:40:02".into(), "Xpeed Sim 0.1.0 starting".into()),
-                ("21:40:02".into(), "paired with https://xpeed.skale.club as RIG".into()),
-                ("21:41:15".into(), "Connected to Assetto Corsa.".into()),
-                ("21:43:05".into(), "Saved lap 1 (1:49.002) to ac_monza_lap1.xlap.gz".into()),
+                ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
+                ("21:45".into(), "Lap saved: Lap 2  1:48.115".into()),
+                ("21:43".into(), "Lap saved: Lap 1  1:49.002".into()),
+                ("21:41".into(), "Assetto Corsa connected".into()),
+                ("21:40".into(), "Connected as RIG".into()),
             ],
         }
     }
@@ -2855,13 +3183,15 @@ mod tests {
             device: Some("RIG"),
             server: "https://xpeed.skale.club",
             recent_laps: &f.laps,
-            log: &f.log,
+            activity: &f.log,
             covers: &[],
             mouse: None,
             buttons: Default::default(),
             carousel: 0.0,
             games_scroll: 0.0,
             scroll: Default::default(),
+            carousel_step: Default::default(),
+            lang_open: false,
         }
     }
 
@@ -2981,7 +3311,7 @@ mod tests {
         let mut figures = String::new();
         let covers = CoverArt::load(None);
         let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-        let [_, _, full_button, _] = header_hits(960, 1.0);
+        let [_, _, _, full_button, _] = header_hits(960, 1.0);
         hover.mouse = Some((full_button.left + 5, full_button.top + 5));
         let pixels = render(&hover, 960, 600);
         save(&pixels, 960, 600, "preview-tooltip.png");
@@ -2996,6 +3326,14 @@ mod tests {
         let pixels = render(&monitor_covers, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-covers.png");
         figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut open = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
+        open.covers = &covers;
+        open.lang_open = true;
+        let [_, _, lang_button, _, _] = header_hits(960, 1.0);
+        open.mouse = Some((lang_button.right - 100, lang_button.bottom + 6 + 6 + 40 * 2 + 20));
+        let pixels = render(&open, 960, 600);
+        save(&pixels, 960, 600, "preview-languages.png");
+        figures.push_str("<figure><figcaption>The language list, open (Portuguese in use, the mouse on Español)</figcaption><img data-src=\"preview-languages.png\" width=\"960\" height=\"600\"></figure>\n");
         monitor_covers.games_scroll = 30.0;
         let pixels = render(&monitor_covers, 720, 480);
         save(&pixels, 720, 480, "preview-monitor-small.png");
@@ -3052,13 +3390,17 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn the_header_can_be_clicked_where_it_is_drawn() {
-        let [dash, mon, full, top] = header_hits(960, 1.0);
+        let [dash, mon, lang, full, top] = header_hits(960, 1.0);
         assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
         assert!(inside(&mon, 160, 20));
+        assert!(inside(&lang, 834, 20) && !inside(&lang, 853, 20));
         assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
         assert!(inside(&top, 920, 20) && !inside(&top, 920, 52));
-        assert!(full.right < top.left && mon.right < full.left, "nothing overlaps");
-        let [dash2, _, _, top2] = header_hits(1440, 1.5);
+        assert!(
+            lang.right < full.left && full.right < top.left && mon.right < lang.left,
+            "nothing overlaps"
+        );
+        let [dash2, _, _, _, top2] = header_hits(1440, 1.5);
         assert_eq!((dash2.left, dash2.right), (30, 204));
         assert_eq!(top2.right, 1440 - 24);
     }

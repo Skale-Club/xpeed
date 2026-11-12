@@ -1,4 +1,11 @@
-//! Automobilista 2 (Project CARS 2 format): shared memory `$pcars2$`.
+//! Automobilista 2, Project CARS 2 and Project CARS 3 (the Project CARS 2 format): shared memory `$pcars2$`.
+//!
+//! The three games write the same struct. Automobilista 2's header (version 14) is Project CARS 2's (version 9, the
+//! last one; its header still says 8) with fields added at the end ("AMS2 Additions (v10...)"): Project CARS 2's
+//! struct is the first 20,576 of Automobilista 2's 20,700 bytes. Every field this reader uses lies in the first
+//! `PCARS_READ` bytes (through `mSequenceNumber`, added in version 8), so the same reading serves all three; which
+//! game it is comes from the header version (14: Automobilista 2) and, for the two Project CARS (both write the
+//! Project CARS 2 memory), from the program running. Project CARS 1 writes another, older memory (`$pcars$`).
 //!
 //! Sources, all from what the game installs (`Support\SharedMemory\AMS2_SharedMemoryExampleApp\SharedMemory.h` and
 //! `App.cpp`, header version 14):
@@ -26,8 +33,44 @@ use std::time::{Duration, Instant};
 use crate::game::{Frame, Source};
 use crate::shm::{Mapping, Page};
 
-/// The name the game gives its memory.
+/// The name the games give their memory.
 const MEMORY_NAME: &str = "$pcars2$";
+
+/// Which game of the format a reader is for: its id and name, the header versions it writes and how many bytes of
+/// the struct a copy takes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Kind {
+    id: &'static str,
+    name: &'static str,
+    versions: (u32, u32),
+    size: usize,
+}
+
+const AMS2: Kind = Kind {
+    id: "ams2",
+    name: "Automobilista 2",
+    versions: (VERSION, VERSION),
+    size: SIZE,
+};
+/// Project CARS 2: version 9 (8 in its last header); any version from 8 (when `mSequenceNumber` came) to just before
+/// Automobilista 2's own has the fields this reader uses at the same places.
+const PCARS2: Kind = Kind {
+    id: "pcars2",
+    name: "Project CARS 2",
+    versions: (8, VERSION - 1),
+    size: PCARS_READ,
+};
+/// Project CARS 3 writes the Project CARS 2 memory.
+const PCARS3: Kind = Kind {
+    id: "pcars3",
+    name: "Project CARS 3",
+    ..PCARS2
+};
+/// The bytes of the struct this reader uses, through `mSequenceNumber`.
+const PCARS_READ: usize = at::SEQUENCE_NUMBER + 4;
+/// Project CARS 2's whole struct (Automobilista 2's without its additions), for the record and the tests.
+#[cfg(test)]
+const PCARS2_SIZE: usize = 20_576;
 /// `SHARED_MEMORY_VERSION` of the header this reader is written against.
 const VERSION: u32 = 14;
 /// `sizeof(SharedMemory)`.
@@ -88,10 +131,22 @@ const POLL: Duration = Duration::from_millis(10);
 const STALE: Duration = Duration::from_secs(30);
 
 pub fn open() -> Option<Box<dyn Source>> {
-    Ams2::open_named(MEMORY_NAME).map(|reader| Box::new(reader) as Box<dyn Source>)
+    Ams2::open_as(MEMORY_NAME, AMS2).map(|reader| Box::new(reader) as Box<dyn Source>)
+}
+
+/// Project CARS 2 or 3, whichever is running (both write the Project CARS 2 memory).
+pub fn open_pcars() -> Option<Box<dyn Source>> {
+    let running = crate::win::running_programs();
+    let kind = if crate::win::any_running(&running, &["pcars3.exe", "pcars3avx.exe"]) {
+        PCARS3
+    } else {
+        PCARS2
+    };
+    Ams2::open_as(MEMORY_NAME, kind).map(|reader| Box::new(reader) as Box<dyn Source>)
 }
 
 struct Ams2 {
+    kind: Kind,
     memory: Mapping,
     started: Instant,
     /// The sequence number of the last copy used.
@@ -104,18 +159,26 @@ struct Ams2 {
 }
 
 impl Ams2 {
-    /// `None` when there is no such memory, it is shorter than the struct, or its version is not the header's.
+    /// Automobilista 2's reader on the memory of that name (the tests' fake memories).
+    #[cfg(test)]
     fn open_named(name: &str) -> Option<Ams2> {
+        Ams2::open_as(name, AMS2)
+    }
+
+    /// `None` when there is no such memory, it is shorter than the game's struct, or its version is not the game's.
+    fn open_as(name: &str, kind: Kind) -> Option<Ams2> {
         let memory = Mapping::open(name)?;
-        if memory.len() < SIZE {
+        if memory.len() < kind.size {
             return None;
         }
         let head = memory.read(at::VERSION, 4)?;
-        if Page(&head).u32_at(0) != VERSION {
+        let version = Page(&head).u32_at(0);
+        if version < kind.versions.0 || version > kind.versions.1 {
             return None;
         }
         let now = Instant::now();
         Some(Ams2 {
+            kind,
             memory,
             started: now,
             last_used: None,
@@ -149,7 +212,7 @@ impl Ams2 {
             if self.last_used == Some(before) {
                 return None;
             }
-            let copy = self.memory.read(0, SIZE)?;
+            let copy = self.memory.read(0, self.kind.size)?;
             fence(Ordering::Acquire);
             let after = self.sequence()?;
             if !consistent(before, Page(&copy).u32_at(at::SEQUENCE_NUMBER), after) {
@@ -157,7 +220,7 @@ impl Ams2 {
             }
             self.last_used = Some(before);
             self.exited = Page(&copy).u32_at(at::GAME_STATE) == GAME_EXITED;
-            return frame_from(&copy, self.started.elapsed().as_secs_f64());
+            return frame_of(self.kind, &copy, self.started.elapsed().as_secs_f64());
         }
         None
     }
@@ -170,11 +233,11 @@ fn consistent(before: u32, in_copy: u32, after: u32) -> bool {
 
 impl Source for Ams2 {
     fn game_id(&self) -> &'static str {
-        "ams2"
+        self.kind.id
     }
 
     fn game_name(&self) -> &'static str {
-        "Automobilista 2"
+        self.kind.name
     }
 
     fn next(&mut self, timeout: Duration) -> Option<Frame> {
@@ -227,12 +290,19 @@ fn viewed_slot(page: &Page) -> Option<usize> {
 
 /// Turns one consistent copy of the memory into a frame. `None` for a copy this reader cannot vouch for (too short,
 /// not version 14, a game state that is not one of the header's, a lap count that cannot be real).
+#[cfg(test)]
 fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
-    if bytes.len() < SIZE {
+    frame_of(AMS2, bytes, clock_s)
+}
+
+/// `frame_from` for one game of the format.
+fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
+    if bytes.len() < kind.size {
         return None;
     }
     let page = Page(bytes);
-    if page.u32_at(at::VERSION) != VERSION {
+    let version = page.u32_at(at::VERSION);
+    if version < kind.versions.0 || version > kind.versions.1 {
         return None;
     }
     let state = page.u32_at(at::GAME_STATE);
@@ -879,6 +949,45 @@ mod tests {
         image.participant(63, [9.0, 9.0, 9.0], 99.0, 1);
         let frame = frame_from(&image.0, 0.0).unwrap();
         assert_eq!((frame.x, frame.dist_m, frame.lap, frame.driving), (9.0, Some(99.0), 2, true));
+    }
+
+    #[test]
+    fn reads_project_cars_2_and_3_from_their_shorter_memory() {
+        // Project CARS 2's struct ends where Automobilista 2's additions start, and everything read is before that.
+        assert_eq!(
+            SIZE - PCARS2_SIZE,
+            124,
+            "the AMS2 additions: 2 + 12 + 1 + 4 + 2 + 2 + 1 + 1 + 4 + 2 + 1 + 1 fields, padded"
+        );
+        const { assert!(PCARS_READ <= PCARS2_SIZE) };
+        for end in [
+            at::GEAR + 4,
+            at::FUEL_CAPACITY + 4,
+            at::TRACK_VARIATION + STRING_LENGTH,
+            at::PARTICIPANTS + 64 * PARTICIPANT_SIZE,
+        ] {
+            assert!(end <= PCARS_READ, "{end}");
+        }
+        for (version, kind) in [(9, PCARS2), (8, PCARS3)] {
+            let mut image = Image::on_track();
+            image.u32(at::VERSION, version);
+            image.u32(at::SEQUENCE_NUMBER, 2);
+            let fake = FakeMemory::new("pcars", PCARS2_SIZE);
+            fake.write(0, &image.0[..PCARS2_SIZE]);
+            assert!(Ams2::open_named(&fake.name).is_none(), "not Automobilista 2");
+            let mut reader = Ams2::open_as(&fake.name, kind).expect("opens");
+            assert_eq!((reader.game_id(), reader.game_name()), (kind.id, kind.name));
+            let frame = reader.next(NOW).expect("a frame");
+            assert_eq!(frame.speed_ms, 55.5);
+            assert!(frame.track.contains("Interlagos"), "{}", frame.track);
+        }
+        // Too old (before mSequenceNumber), or Automobilista 2's own version: not Project CARS.
+        for version in [7, VERSION] {
+            let mut image = Image::on_track();
+            image.u32(at::VERSION, version);
+            let rig = Rig::new("pcars-version", image);
+            assert!(Ams2::open_as(&rig.fake.name, PCARS2).is_none(), "version {version}");
+        }
     }
 
     #[test]

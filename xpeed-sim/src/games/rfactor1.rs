@@ -1,5 +1,10 @@
-//! rFactor 1 engine games (Stock Car Extreme, `GSC.exe`): the shared memory of Dan Allongo's rFactorSharedMemoryMap
-//! plugin, version `3.0.0.0`.
+//! rFactor 1 engine games (Stock Car Extreme, `GSC.exe`; Automobilista, `AMS.exe`; rFactor, `rFactor.exe`): the shared
+//! memory of Dan Allongo's rFactorSharedMemoryMap plugin, version `3.0.0.0`.
+//!
+//! The plugin uses the ISI plugin interface every rFactor 1 engine game loads from its `Plugins` folder, so the same
+//! memory and the same reading serve the three games; which one it is comes from the program running. Only Stock Car
+//! Extreme was tried with the plugin; Automobilista and rFactor load plugins the same way (the folder and the build,
+//! 32-bit, may differ per game: check the game's own `Plugins` folder and whether its executable is 32-bit).
 //!
 //! The game has no shared memory of its own. A plugin the person puts in the game's `Plugins` folder copies the ISI
 //! plugin interface (telemetry of the player's car, and scoring of every car) into a named memory.
@@ -136,11 +141,29 @@ const POLL: Duration = Duration::from_millis(10);
 /// scoring part alone moves twice a second while any session is loaded.
 const STALE: Duration = Duration::from_secs(30);
 
+/// The games of this engine Xpeed Sim knows: the program, then the game's id and name. Stock Car Extreme keeps the id
+/// `rfactor1` its laps were always written with.
+const GAMES: [(&str, &str, &str); 3] = [
+    ("gsc.exe", "rfactor1", "Stock Car Extreme"),
+    ("ams.exe", "ams1", "Automobilista"),
+    ("rfactor.exe", "rf1", "rFactor"),
+];
+
 pub fn open() -> Option<Box<dyn Source>> {
-    RFactor1::open_named(MEMORY_NAME).map(|reader| Box::new(reader) as Box<dyn Source>)
+    let running = crate::win::running_programs();
+    let (_, id, name) = GAMES
+        .into_iter()
+        .find(|(program, _, _)| crate::win::any_running(&running, &[program]))
+        .unwrap_or(GAMES[0]);
+    RFactor1::open_named(MEMORY_NAME).map(|mut reader| {
+        reader.game = (id, name);
+        Box::new(reader) as Box<dyn Source>
+    })
 }
 
 struct RFactor1 {
+    /// The game's id and name, from the program running.
+    game: (&'static str, &'static str),
     memory: Mapping,
     started: Instant,
     /// The bytes of the last copy used, to skip a poll that finds the same thing.
@@ -168,6 +191,7 @@ impl RFactor1 {
         }
         let now = Instant::now();
         Some(RFactor1 {
+            game: (GAMES[0].1, GAMES[0].2),
             memory,
             started: now,
             last_used: None,
@@ -224,11 +248,11 @@ fn stable_copy(mut read: impl FnMut() -> Option<Vec<u8>>, mut gap: impl FnMut())
 
 impl Source for RFactor1 {
     fn game_id(&self) -> &'static str {
-        "rfactor1"
+        self.game.0
     }
 
     fn game_name(&self) -> &'static str {
-        "Stock Car Extreme"
+        self.game.1
     }
 
     fn next(&mut self, timeout: Duration) -> Option<Frame> {

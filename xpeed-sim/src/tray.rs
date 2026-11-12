@@ -41,6 +41,8 @@ const WM_CHANGED: u32 = WM_APP + 2;
 const WM_RELOAD: u32 = WM_APP + 3;
 /// Another copy (`xpeed-sim panel`) asks this one to open its panel.
 const WM_OPEN_PANEL: u32 = WM_APP + 4;
+/// The panel picked a language (`wparam`: its place in `Lang::ALL`).
+const WM_SET_LANG: u32 = WM_APP + 5;
 
 const CMD_CONNECT: usize = 1;
 const CMD_LAPS: usize = 2;
@@ -365,6 +367,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             app.open_panel();
             0
         }
+        WM_SET_LANG => {
+            if let Some(&lang) = Lang::ALL.get(wparam) {
+                app.set_lang(lang);
+            }
+            0
+        }
         WM_DESTROY => {
             let nid = app.nid(0);
             Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -387,6 +395,15 @@ fn find_running() -> HWND {
 /// Where laps are written when nobody chose a folder: `Documents\Xpeed Sim\Laps`.
 pub fn laps_dir() -> PathBuf {
     config::default_laps_dir()
+}
+
+/// Tells the tray of this program that the panel picked a language. False when there is none (the panel demo).
+pub fn set_lang_of_running(lang: Lang) -> bool {
+    let Some(index) = Lang::ALL.iter().position(|l| *l == lang) else {
+        return false;
+    };
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_SET_LANG, index, 0) } != 0
 }
 
 /// Asks the copy that is running to open its panel. False when none is running.
