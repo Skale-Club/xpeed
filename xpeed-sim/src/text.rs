@@ -280,10 +280,16 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Xpeed Sim se conecta solo en cuanto lleguen los datos."),
         ),
         Setup(id) => match *id {
-            "ams2" | "pcars2" | "pcars3" => t(
-                s("Switch the data on in the game: Options > System > Shared Memory > Project CARS 2."),
-                s("Ligue os dados no jogo: Options > System > Shared Memory > Project CARS 2."),
-                s("Activa los datos en el juego: Options > System > Shared Memory > Project CARS 2."),
+            // Automobilista 2's own menu (seen in the game, 2026-11-12): System > Use Shared Memory, Yes or No.
+            "ams2" => t(
+                s("Switch the data on in the game: Options > System > Use Shared Memory > Yes, then Save."),
+                s("Ligue os dados no jogo: Options > System > Use Shared Memory > Yes e depois Save."),
+                s("Activa los datos en el juego: Options > System > Use Shared Memory > Yes y luego Save."),
+            ),
+            "pcars2" | "pcars3" => t(
+                s("Switch the data on in the game's options: Shared Memory, in the Project CARS 2 format."),
+                s("Ligue os dados nas opções do jogo: Shared Memory, no formato Project CARS 2."),
+                s("Activa los datos en las opciones del juego: Shared Memory, en el formato Project CARS 2."),
             ),
             "f1" | "f124" | "f123" => t(
                 s("Switch the data on in the game: Settings > Telemetry Settings > UDP Telemetry On, port 20777, format of the game's year."),
