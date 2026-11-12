@@ -134,6 +134,8 @@ pub enum Action {
     Connect,
     /// Opens Xpeed in the browser.
     OpenXpeed,
+    /// Brings this cover of the waiting screen's carousel to the middle.
+    Cover(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -913,13 +915,17 @@ impl Painter {
         });
     }
 
-    /// A colour over an exact box with `amount` (0..1) of opacity.
+    /// A colour over an exact box with `amount` (0..1) of opacity: the shade over a cover drawn by `image_exact`. It
+    /// uses the same pixel offset as the cover and reaches half a pixel past it on every side, so no edge of the cover
+    /// is left unshaded (a lighter line showed at the right edge when the two were half a pixel apart).
     fn veil_exact(&self, (x, y, w, h): (f32, f32, f32, f32), color: COLORREF, amount: f32) {
+        use windows_sys::Win32::Graphics::GdiPlus::PixelOffsetModeNone;
         let alpha = ((amount.clamp(0.0, 1.0) * 255.0).round() as u32) << 24;
         smooth(self.hdc, |graphics| unsafe {
+            GdipSetPixelOffsetMode(graphics, PixelOffsetModeNone);
             let mut brush = null_mut();
             GdipCreateSolidFill(alpha | (argb(color) & 0x00ff_ffff), &mut brush);
-            GdipFillRectangle(graphics, brush.cast(), x, y, w, h);
+            GdipFillRectangle(graphics, brush.cast(), x - 0.5, y - 0.5, w + 1.0, h + 1.0);
             GdipDeleteBrush(brush.cast());
         });
     }
@@ -1351,7 +1357,7 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
         DT_CENTER,
     );
     if !view.covers.is_empty() {
-        return cover_carousel(g, view.covers, view.carousel);
+        return cover_carousel(g, view.covers, view.carousel, &view.buttons);
     }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
@@ -1394,10 +1400,26 @@ fn carousel_offset(i: usize, count: usize, at: f32) -> f32 {
     }
 }
 
+/// How many steps (the nearest way round, negative to the left) take a carousel of `count` covers whose middle is
+/// heading to `target` to cover `to`.
+fn carousel_steps(target: i64, to: usize, count: usize) -> i64 {
+    if count == 0 {
+        return 0;
+    }
+    let n = count as i64;
+    let by = (to as i64 - target).rem_euclid(n);
+    if by > n / 2 {
+        by - n
+    } else {
+        by
+    }
+}
+
 /// The games as a carousel: the cover in the middle big, the others smaller and darker the further they are, going
 /// round; the middle game's name under it and a row of small squares saying which one it is. Steam's art where it
-/// has some, the name on a card where not.
-fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
+/// has some, the name on a card where not. A click on a side cover or on one of the squares brings that game to the
+/// middle.
+fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::cell::RefCell<Vec<(Action, RECT)>>) {
     let count = covers.len();
     let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 168.0);
     let big_h = big_w * 1.5;
@@ -1426,6 +1448,10 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
         if shade > 0.01 {
             g.veil_exact(exact, BG, shade);
         }
+        // A side cover is a button; nearer covers are drawn later and go first, as they are on top.
+        if far > 0.5 {
+            buttons.borrow_mut().insert(0, (Action::Cover(i), g.r(x, y, w, h)));
+        }
     }
     // The game in the middle, and where it is in the list.
     let middle = (at.round() as i64).rem_euclid(count as i64) as usize;
@@ -1444,6 +1470,9 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
     for i in 0..count {
         let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
         g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { ACCENT } else { TRACK });
+        // A square is small: its button reaches halfway to its neighbours and a little above and below.
+        let hit = g.r(x - gap / 2.0, top + big_h + 40.0, dot + gap, dot + 16.0);
+        buttons.borrow_mut().push((Action::Cover(i), hit));
     }
 }
 
@@ -2331,6 +2360,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 match action {
                     Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
                     Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
+                    Action::Cover(i) => {
+                        let steps = carousel_steps(state.carousel.target, i, state.covers.len());
+                        if steps != 0 {
+                            state.carousel.step(steps, now_ms());
+                        }
+                    }
                 }
             } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
                 // The carousel: a click left of the middle goes back, right of it goes on.
@@ -2676,6 +2711,15 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_on_a_cover_goes_there_the_nearest_way() {
+        assert_eq!(carousel_steps(0, 3, 9), 3);
+        assert_eq!(carousel_steps(0, 7, 9), -2, "round the other side is shorter");
+        assert_eq!(carousel_steps(11, 2, 9), 0, "11 is cover 2 after going round once");
+        assert_eq!(carousel_steps(-1, 0, 9), 1);
+        assert_eq!(carousel_steps(5, 0, 0), 0);
+    }
 
     #[test]
     fn a_line_for_several_games_names_only_those_installed() {
