@@ -34,6 +34,7 @@ use windows_sys::Win32::Graphics::GdiPlus::{
     GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
     LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
 };
+use windows_sys::Win32::Graphics::GdiPlus::{GdipFillRectangle, GdipFillRectangleI, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{
@@ -60,6 +61,8 @@ use crate::util::{clock, now_ms};
 use crate::win;
 
 const CLASS: &str = "XpeedSimPanel";
+/// Where, in the Xpeed app, a computer is connected (the same page the tray menu opens).
+const CONNECT_PATH: &str = "/sim/app";
 const TIMER: usize = 1;
 /// About 30 frames a second.
 const FRAME_MS: u32 = 33;
@@ -77,6 +80,9 @@ const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
 const BG: COLORREF = rgb(0x0c, 0x0d, 0x0f);
+/// The window's background runs from this at the top to that at the bottom.
+const BG_TOP: COLORREF = rgb(0x14, 0x16, 0x1a);
+const BG_BOTTOM: COLORREF = rgb(0x08, 0x09, 0x0b);
 const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
 const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
 const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
@@ -106,6 +112,17 @@ fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
         ((x + (y - x) * t).round() as u32) << shift
     };
     channel(0) | channel(8) | channel(16)
+}
+
+/// What a button on the panel does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Opens the Xpeed page where this computer is connected to an account.
+    Connect,
+    /// Opens Xpeed in the browser.
+    OpenXpeed,
+    /// Opens the folder the laps are written to.
+    OpenFolder,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,6 +159,10 @@ pub struct View<'a> {
     pub laps_dir: &'a str,
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
+    /// The buttons drawn in this frame and where (pixels), for the clicks that follow.
+    pub buttons: std::cell::RefCell<Vec<(Action, RECT)>>,
+    /// Where the covers' carousel is: the index of the cover in the middle, fractional while it slides.
+    pub carousel: f32,
 }
 
 /// The account and the language as the tray knows them; the tray changes them when the computer is connected again
@@ -221,7 +242,57 @@ fn load_thumbnail(file: &std::path::Path, w: u32, h: u32) -> *mut GpImage {
     }
 }
 
+/// The covers' carousel: it moves on by one every few seconds, or when asked, sliding there with an ease.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Carousel {
+    /// The cover it is going to (counts up and down without wrapping; the drawing wraps it).
+    target: i64,
+    /// Where it was when it set off.
+    from: f32,
+    /// When it set off (Unix ms).
+    since: i64,
+}
+
+/// How long a slide takes, and how long a cover stays in the middle before the next one comes.
+const SLIDE_MS: i64 = 550;
+const DWELL_MS: i64 = 3500;
+
+impl Carousel {
+    fn new(now: i64) -> Carousel {
+        Carousel {
+            target: 0,
+            from: 0.0,
+            since: now,
+        }
+    }
+
+    /// Where it is at `now`: eased out (fast, then settling) from where it set off to where it is going.
+    fn at(&self, now: i64) -> f32 {
+        let t = ((now - self.since) as f32 / SLIDE_MS as f32).clamp(0.0, 1.0);
+        let eased = 1.0 - (1.0 - t).powi(3);
+        self.from + (self.target as f32 - self.from) * eased
+    }
+
+    /// One step on (or back), from wherever it is now.
+    fn step(&mut self, by: i64, now: i64) {
+        self.from = self.at(now);
+        self.target += by;
+        self.since = now;
+    }
+
+    /// Moves on by itself once a cover has had its time in the middle.
+    fn tick(&mut self, now: i64) {
+        if now - self.since >= SLIDE_MS + DWELL_MS {
+            self.step(1, now);
+        }
+    }
+}
+
 struct State {
+    /// The buttons of the last frame, to know what a click hit.
+    buttons: Vec<(Action, RECT)>,
+    /// The covers' carousel on the waiting screen.
+    carousel: Carousel,
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
@@ -617,6 +688,43 @@ impl Painter {
         });
     }
 
+    /// The window's background: a light gradient from top to bottom, with very fine diagonal lines over it.
+    fn backdrop(&self, w: i32, h: i32) {
+        let (fw, fh) = (w as f32, h as f32);
+        let step = (7.0 * self.s).max(5.0);
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let (from, to) = (PointF { X: 0.0, Y: -1.0 }, PointF { X: 0.0, Y: fh + 1.0 });
+            let mut gradient = null_mut();
+            GdipCreateLineBrush(&from, &to, argb(BG_TOP), argb(BG_BOTTOM), WrapModeTile, &mut gradient);
+            GdipFillRectangle(graphics, gradient.cast(), 0.0, 0.0, fw, fh);
+            GdipDeleteBrush(gradient.cast());
+            // Hairlines one pixel wide, crisp (no smoothing), white at a few per cent.
+            GdipSetSmoothingMode(graphics, SmoothingModeNone);
+            let mut pen = null_mut();
+            GdipCreatePen1(0x09ff_ffff, 1.0, UnitPixel, &mut pen);
+            let mut x = -fh;
+            while x < fw {
+                GdipDrawLine(graphics, pen, x, fh, x + fh, 0.0);
+                x += step;
+            }
+            GdipDeletePen(pen);
+        });
+        if !drawn {
+            self.fill(rect(0, 0, w, h), BG);
+        }
+    }
+
+    /// A colour laid over a box (pixels) with `amount` (0..1) of opacity.
+    fn veil(&self, r: RECT, color: COLORREF, amount: f32) {
+        let alpha = ((amount.clamp(0.0, 1.0) * 255.0).round() as u32) << 24;
+        smooth(self.hdc, |graphics| unsafe {
+            let mut brush = null_mut();
+            GdipCreateSolidFill(alpha | (argb(color) & 0x00ff_ffff), &mut brush);
+            GdipFillRectangleI(graphics, brush.cast(), r.left, r.top, r.right - r.left, r.bottom - r.top);
+            GdipDeleteBrush(brush.cast());
+        });
+    }
+
     /// An image filling a box (pixels), smoothly scaled.
     fn image(&self, r: RECT, image: *mut GpImage) {
         smooth(self.hdc, |graphics| unsafe {
@@ -893,7 +1001,7 @@ fn lap_parts(label: &str) -> (&str, &str) {
 /// Draws one frame of the window.
 pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let mut g = Painter::new(hdc, view.scale);
-    g.fill(rect(0, 0, width, height), BG);
+    g.backdrop(width, height);
     header(&mut g, width, view);
     let top = g.px(HEADER_H);
     let body = rect(g.px(16.0), top, width - g.px(16.0), height - g.px(16.0));
@@ -973,9 +1081,9 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     let (s, ox, oy) = canvas_fit(body);
     g.place(s, ox, oy);
     let title = text(view.lang, &Msg::PanelWaitingTitle);
-    let r = g.r(0.0, 150.0, CANVAS_W, 50.0);
+    let r = g.r(0.0, 128.0, CANVAS_W, 50.0);
     g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(0.0, 202.0, CANVAS_W, 26.0);
+    let r = g.r(0.0, 178.0, CANVAS_W, 26.0);
     g.text(
         &text(view.lang, &Msg::PanelWaiting),
         r,
@@ -986,7 +1094,7 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
         DT_CENTER,
     );
     if !view.covers.is_empty() {
-        return cover_shelf(g, view.covers);
+        return cover_carousel(g, view.covers, view.carousel);
     }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
@@ -1017,28 +1125,71 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     }
 }
 
-/// The games as a row of covers (Steam's art where it has some, the name on a card where not), centred under the
-/// title, with each game's name below its cover.
-fn cover_shelf(g: &mut Painter, covers: &[CoverArt]) {
-    let gap = 12.0;
-    let count = covers.len() as f32;
-    let w = ((CANVAS_W - 40.0 - gap * (count - 1.0)) / count).min(110.0);
-    let h = w * 1.5;
-    let mut x = (CANVAS_W - (w * count + gap * (count - 1.0))) / 2.0;
-    let y = 250.0;
-    for cover in covers {
+/// Where cover `i` of `count` sits from the middle of a carousel at `at`: a signed distance in covers, wrapped so the
+/// covers go round (the nearest way).
+fn carousel_offset(i: usize, count: usize, at: f32) -> f32 {
+    let n = count as f32;
+    let d = (i as f32 - at).rem_euclid(n);
+    if d > n / 2.0 {
+        d - n
+    } else {
+        d
+    }
+}
+
+/// The games as a carousel: the cover in the middle big, the others smaller and darker the further they are, going
+/// round; the middle game's name under it and a row of small squares saying which one it is. Steam's art where it
+/// has some, the name on a card where not.
+fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
+    let count = covers.len();
+    let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 232.0);
+    let big_h = big_w * 1.5;
+    // Far covers first, so the nearer ones are drawn over them.
+    let mut order: Vec<(usize, f32)> = (0..count).map(|i| (i, carousel_offset(i, count, at))).collect();
+    order.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+    for (i, d) in order {
+        let far = d.abs();
+        if far > 3.6 {
+            continue;
+        }
+        let scale = (1.0 - 0.17 * far).max(0.4);
+        let (w, h) = (big_w * scale, big_h * scale);
+        // Closer together further out, as on a curved shelf.
+        let x = mid_x + d.signum() * (far * 128.0 - far * far * 9.0) - w / 2.0;
+        let y = top + (big_h - h) / 2.0;
         let r = g.r(x, y, w, h);
+        let cover = &covers[i];
         if cover.image.is_null() {
             g.fill(r, CARD);
             g.fill(g.r(x, y, w, 3.0), EDGE);
             let r = g.r(x + 6.0, y, w - 12.0, h);
-            g.text(cover.name, r, 12.0, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
+            g.text(cover.name, r, 13.0 * scale, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
         } else {
             g.image(r, cover.image);
         }
-        let r = g.r(x - 4.0, y + h + 8.0, w + 8.0, 16.0);
-        g.text(cover.name, r, 10.5, FW_NORMAL as i32, Face::Ui, MUTED, DT_CENTER);
-        x += w + gap;
+        // Darker the further from the middle.
+        let shade = (far * 0.32).min(0.8);
+        if shade > 0.01 {
+            g.veil(r, BG, shade);
+        }
+    }
+    // The game in the middle, and where it is in the list.
+    let middle = (at.round() as i64).rem_euclid(count as i64) as usize;
+    let r = g.r(0.0, top + big_h + 14.0, CANVAS_W, 26.0);
+    g.text(
+        &covers[middle].name.to_uppercase(),
+        r,
+        18.0,
+        FW_SEMIBOLD as i32,
+        Face::Num,
+        TEXT,
+        DT_CENTER,
+    );
+    let (dot, gap) = (7.0, 6.0);
+    let total = count as f32 * dot + (count as f32 - 1.0) * gap;
+    for i in 0..count {
+        let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
+        g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { ACCENT } else { TRACK });
     }
 }
 
@@ -1352,52 +1503,82 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let right = col + gap;
     let area_h = h - footer;
 
-    // Games: each reader with a status pill.
-    let row_h = 38.0;
-    let games_h = 54.0 + row_h * view.games.len().max(1) as f32;
+    // Games: each reader with its cover, its name and a status pill.
+    let row_h = 52.0;
+    let games_h = 50.0 + row_h * view.games.len().max(1) as f32;
     g.tile(0.0, 0.0, col, games_h, CARD);
     g.label(&text(view.lang, &Msg::PanelGames), 20.0, 16.0, col - 40.0);
     for (i, row) in view.games.iter().enumerate() {
-        let y = 44.0 + row_h * i as f32;
+        let y = 42.0 + row_h * i as f32;
         if i > 0 {
             g.fill(g.r(20.0, y, col - 40.0, 1.0), EDGE);
         }
+        // The cover, small; the game's initial on a card when there is none.
+        let (tw, th) = (28.0, 42.0);
+        let thumb = g.r(20.0, y + (row_h - th) / 2.0, tw, th);
+        match cover_for(&row.title, view.covers) {
+            Some(image) => g.image(thumb, image),
+            None => {
+                g.fill(thumb, TRACK);
+                let initial: String = row.title.chars().take(1).collect();
+                g.text(&initial, thumb, 14.0, semi, Face::Num, MUTED, DT_CENTER);
+            }
+        }
         let state = state_text(view.lang, &row.state);
         let pill_w = g.width_of(&state, 12.0, semi, Face::Ui) + 22.0;
-        let r = g.r(20.0, y, col - 60.0 - pill_w, row_h);
+        let r = g.r(62.0, y, col - 102.0 - pill_w, row_h);
         g.text(&row.title, r, 14.5, normal, Face::Ui, TEXT, DT_LEFT);
-        pill(g, col - 20.0 - pill_w, y + 7.0, pill_w, &state, state_color(&row.state));
+        pill(
+            g,
+            col - 20.0 - pill_w,
+            y + (row_h - 24.0) / 2.0,
+            pill_w,
+            &state,
+            state_color(&row.state),
+        );
     }
 
-    // Account.
+    // Account: the state in words, where it connects, and what can be done about it.
     let account_y = games_h + gap;
-    g.tile(0.0, account_y, col, area_h - account_y, CARD);
+    let account_h = area_h - account_y;
+    g.tile(0.0, account_y, col, account_h, CARD);
     g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
-    let (cloud_word, cloud_color) = match view.snapshot.cloud {
-        Cloud::Idle => ("OK", GREEN),
-        Cloud::Waiting(_) => ("…", AMBER),
-        Cloud::NotPaired => ("—", GREY),
-        Cloud::Refused => ("!", RED),
+    let paired = matches!(view.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_));
+    let cloud_color = match view.snapshot.cloud {
+        Cloud::Idle => GREEN,
+        Cloud::Waiting(_) => AMBER,
+        Cloud::NotPaired => GREY,
+        Cloud::Refused => RED,
     };
-    pill(g, 20.0, account_y + 46.0, 40.0, cloud_word, cloud_color);
-    let r = g.r(72.0, account_y + 42.0, col - 92.0, 30.0);
+    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), cloud_color);
+    let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
     let cloud = present::cloud_line(view.lang, &view.snapshot.cloud, view.device);
     g.text(&cloud, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
-    let r = g.r(72.0, account_y + 70.0, col - 92.0, 20.0);
+    let r = g.r(40.0, account_y + 70.0, col - 60.0, 20.0);
     g.text(view.server, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(20.0, account_y + 100.0, col - 40.0, 20.0);
-    g.text(
-        &present::game_line_of(view.lang, view.snapshot),
-        r,
-        12.5,
-        normal,
-        Face::Ui,
-        MUTED,
-        DT_LEFT,
-    );
-    if area_h - account_y > 170.0 {
+    // The buttons: connecting comes first while there is no account (or it refused this computer).
+    let mut x = 20.0;
+    let by = account_y + 104.0;
+    let first = if paired {
+        (Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)
+    } else {
+        (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
+    };
+    for (action, label, primary) in [first, (Action::OpenFolder, text(view.lang, &Msg::MenuOpenLaps), false)] {
+        let w = g.width_of(&label, 13.5, semi, Face::Ui) + 36.0;
+        if x + w > col - 20.0 {
+            break;
+        }
+        let r = g.r(x, by, w, 36.0);
+        let (fill, edge, ink) = if primary { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
+        g.round(r, 18.0, fill, edge);
+        g.text(&label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
+        view.buttons.borrow_mut().push((action, r));
+        x += w + 10.0;
+    }
+    if account_h > 200.0 {
         let folder = text(view.lang, &Msg::PanelLapsFolder(view.laps_dir.to_owned()));
-        let r = g.r(20.0, area_h - 36.0, col - 40.0, 20.0);
+        let r = g.r(20.0, area_h - 34.0, col - 40.0, 18.0);
         g.text(&folder, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
     }
 
@@ -1447,6 +1628,16 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
 
     let r = g.r(0.0, h - 20.0, w, 20.0);
     g.text(&text(view.lang, &Msg::PanelHint), r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+}
+
+/// The cover for a line of the games list: the game of that name, or the first game of a family line
+/// ("Assetto Corsa · ACC · AC Rally").
+fn cover_for(title: &str, covers: &[CoverArt]) -> Option<*mut GpImage> {
+    covers
+        .iter()
+        .find(|c| c.name == title || title.starts_with(&format!("{} \u{b7}", c.name)))
+        .map(|c| c.image)
+        .filter(|image| !image.is_null())
 }
 
 /// A small rounded label with a tinted background.
@@ -1512,7 +1703,7 @@ fn scale_of(hwnd: HWND) -> f32 {
     }
 }
 
-unsafe fn paint_window(hwnd: HWND, state: &State) {
+unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let mut ps: PAINTSTRUCT = std::mem::zeroed();
     let hdc = BeginPaint(hwnd, &mut ps);
     let mut client = rect(0, 0, 0, 0);
@@ -1532,13 +1723,15 @@ unsafe fn paint_window(hwnd: HWND, state: &State) {
         .into_iter()
         .map(|(ms, line)| (local_time(ms), line))
         .collect();
+    let now = now_ms();
+    state.carousel.tick(now);
     let view = View {
         lang: account.lang,
         tab: state.tab,
         on_top: state.on_top,
         full: state.full.is_some(),
         scale: scale_of(hwnd),
-        now_ms: now_ms(),
+        now_ms: now,
         snapshot: &snapshot,
         live: live.as_ref(),
         games: &games,
@@ -1548,8 +1741,11 @@ unsafe fn paint_window(hwnd: HWND, state: &State) {
         log: &log,
         laps_dir: &ctx.laps_dir,
         covers: &state.covers,
+        buttons: Default::default(),
+        carousel: state.carousel.at(now),
     };
     paint(memory, w, h, &view);
+    state.buttons = view.buttons.take();
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
     SelectObject(memory, old);
     DeleteObject(bitmap);
@@ -1573,6 +1769,11 @@ fn set_on_top(hwnd: HWND, on: bool) {
 
 /// Fills the screen the window is on, or puts it back where it was (the usual way: drop the frame, cover the
 /// monitor; then restore the style and the placement).
+/// The dashboard tab shows the waiting screen (no reading, or none for a while).
+fn waiting_now(state: &State) -> bool {
+    state.tab == Tab::Dash && state.ctx.shared.live().is_none_or(|l| now_ms() - l.at_ms > STALE_MS)
+}
+
 unsafe fn toggle_full(hwnd: HWND, state: &mut State) {
     if let Some((placement, style)) = state.full.take() {
         SetWindowLongPtrW(hwnd, GWL_STYLE, style);
@@ -1653,6 +1854,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if inside(&top, x, y) {
                 state.on_top = !state.on_top;
                 set_on_top(hwnd, state.on_top);
+            } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
+                let account = state.ctx.account.lock().unwrap().clone();
+                match action {
+                    Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
+                    Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
+                    Action::OpenFolder => {
+                        let _ = std::fs::create_dir_all(&state.ctx.laps_dir);
+                        win::open(&state.ctx.laps_dir);
+                    }
+                }
+            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
+                // The carousel: a click left of the middle goes back, right of it goes on.
+                let by = if x < client.right / 2 { -1 } else { 1 };
+                state.carousel.step(by, now_ms());
             }
             InvalidateRect(hwnd, null(), 0);
             0
@@ -1660,7 +1875,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_LBUTTONDBLCLK => {
             // A double click below the header: full screen and back.
             let y = ((lparam >> 16) & 0xffff) as i16 as i32;
-            if y > (HEADER_H * scale_of(hwnd)) as i32 {
+            if y > (HEADER_H * scale_of(hwnd)) as i32 && !waiting_now(state) {
                 toggle_full(hwnd, state);
                 InvalidateRect(hwnd, null(), 0);
             }
@@ -1678,6 +1893,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 }
                 VK_F11 | 0x46 => toggle_full(hwnd, state),
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
+                // Left and right arrows move the covers' carousel.
+                0x25 => state.carousel.step(-1, now_ms()),
+                0x27 => state.carousel.step(1, now_ms()),
                 _ => return DefWindowProcW(hwnd, message, wparam, lparam),
             }
             InvalidateRect(hwnd, null(), 0);
@@ -1751,6 +1969,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             on_top: false,
             full: None,
             covers: CoverArt::load_all(),
+            buttons: Vec::new(),
+            carousel: Carousel::new(now_ms()),
         }));
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
         let before = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -2076,6 +2296,8 @@ mod tests {
             log: &f.log,
             laps_dir: "C:\\Users\\Driver\\Documents\\Xpeed Sim\\Laps",
             covers: &[],
+            buttons: Default::default(),
+            carousel: 0.0,
         }
     }
 
@@ -2086,7 +2308,7 @@ mod tests {
         let (w, h) = (960, 600);
         let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
         save(&pixels, w, h, "panel-dashboard.png");
-        assert_eq!(&pixels[..3], &[0x0f, 0x0d, 0x0c], "the corner is the background");
+        assert!(pixels[..3].iter().all(|&c| c < 0x24), "the corner is the dark background");
         assert!(
             has_color(&pixels, ACCENT) > 2000,
             "the selected tab and the gear are drawn in the accent"
@@ -2196,6 +2418,14 @@ mod tests {
         let covers = CoverArt::load_all();
         let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
         with_covers.covers = &covers;
+        with_covers.carousel = 3.0;
+        let mut unpaired = fixture();
+        unpaired.snapshot.cloud = Cloud::NotPaired;
+        let mut monitor_covers = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
+        monitor_covers.covers = &covers;
+        let pixels = render(&monitor_covers, 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-covers.png");
+        figures.push_str("<figure><figcaption>Monitor tab, with this computer's Steam covers</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
         let pixels = render(&with_covers, 1280, 720);
         save(&pixels, 1280, 720, "preview-covers.png");
         figures.push_str("<figure><figcaption>Waiting for a game, with this computer's Steam covers</figcaption><img data-src=\"preview-covers.png\" width=\"1280\" height=\"720\"></figure>\n");
@@ -2297,6 +2527,24 @@ look(); setInterval(look, 1500);
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
         assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
         assert_eq!(lap_parts("odd"), ("odd", ""));
+    }
+
+    #[test]
+    fn the_carousel_slides_with_an_ease_goes_round_and_moves_on_by_itself() {
+        let mut c = Carousel::new(1_000);
+        assert_eq!(c.at(1_000), 0.0);
+        c.step(1, 1_000);
+        let half = c.at(1_000 + SLIDE_MS / 2);
+        assert!(half > 0.8 && half < 1.0, "eased out: most of the way at half time ({half})");
+        assert_eq!(c.at(1_000 + SLIDE_MS), 1.0);
+        c.tick(1_000 + SLIDE_MS + DWELL_MS - 1);
+        assert_eq!(c.target, 1, "not yet");
+        c.tick(1_000 + SLIDE_MS + DWELL_MS);
+        assert_eq!(c.target, 2, "on by itself");
+        // Going round: cover 0 is just right of the middle when the carousel is at the last cover.
+        assert_eq!(carousel_offset(0, 10, 9.0), 1.0);
+        assert_eq!(carousel_offset(9, 10, 0.0), -1.0);
+        assert_eq!(carousel_offset(3, 10, 2.5), 0.5);
     }
 
     #[test]

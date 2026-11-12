@@ -78,6 +78,7 @@ pub enum Msg {
     PanelWaiting,
     PanelLapTime,
     PanelTrack,
+    PanelOpenXpeed,
     PanelTyres,
     PanelLapProgress,
     PanelNotDriving,
@@ -220,6 +221,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         ),
         PanelLapTime => t(s("Lap time"), s("Tempo da volta"), s("Tiempo de vuelta")),
         PanelTrack => t(s("Track"), s("Pista"), s("Pista")),
+        PanelOpenXpeed => t(s("Open Xpeed"), s("Abrir o Xpeed"), s("Abrir Xpeed")),
         PanelTyres => t(s("Tyres"), s("Pneus"), s("Neumáticos")),
         PanelLapProgress => t(s("Lap"), s("Volta"), s("Vuelta")),
         PanelNotDriving => t(
@@ -322,6 +324,7 @@ mod tests {
             Msg::PanelWaiting,
             Msg::PanelLapTime,
             Msg::PanelTrack,
+            Msg::PanelOpenXpeed,
             Msg::PanelTyres,
             Msg::PanelLapProgress,
             Msg::PanelNotDriving,
