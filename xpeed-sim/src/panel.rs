@@ -414,16 +414,18 @@ const LIGHTS: usize = 20;
 
 /// The places of the header that can be clicked: the two tabs, "full screen" and "always on top" (square icon
 /// buttons at the right).
-fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
+fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
     let p = |v: f32| (v * scale).round() as i32;
     let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
     let (side, gap) = (p(38.0), p(8.0));
+    let nth = |n: i32| rect(right - side - n * (side + gap), top, right - n * (side + gap), bottom);
     [
         rect(p(20.0), p(17.0), p(136.0), p(47.0)),
         rect(p(136.0), p(17.0), p(252.0), p(47.0)),
-        rect(right - side - gap - side, top, right - side - gap, bottom),
-        rect(right - side, top, right, bottom),
+        nth(2),
+        nth(1),
+        nth(0),
     ]
 }
 
@@ -1270,8 +1272,10 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
 /// The name of the icon button under the mouse, in a small label below it.
 fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
-    let [_, _, full, top] = header_hits(width, view.scale);
-    let (r, label) = if inside(&full, mx, my) {
+    let [_, _, lang, full, top] = header_hits(width, view.scale);
+    let (r, label) = if inside(&lang, mx, my) {
+        (lang, text(view.lang, &Msg::MenuLanguage))
+    } else if inside(&full, mx, my) {
         (
             full,
             text(
@@ -1299,7 +1303,7 @@ fn tooltip(g: &mut Painter, width: i32, view: &View) {
 
 fn header(g: &mut Painter, width: i32, view: &View) {
     g.place(view.scale, 0, 0);
-    let [dash, mon, full, top] = header_hits(width, view.scale);
+    let [dash, mon, lang, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
     // The tabs: one pill, the chosen tab a yellow pill inside it.
     let control = g.r(16.0, 13.0, 240.0, 38.0);
@@ -1314,6 +1318,9 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     }
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
+    // The language: a square button with its code; a click opens the list of languages.
+    g.round(lang, CORNER, CARD, Some(EDGE));
+    g.text(&view.lang.code().to_uppercase(), lang, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
     for (r, active) in [(full, view.full), (top, view.on_top)] {
         let (fill, edge) = if active { (ACCENT, None) } else { (CARD, Some(EDGE)) };
         g.round(r, CORNER, fill, edge);
@@ -1323,8 +1330,8 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     pin_icon(g, top, pin_ink);
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
-    let right = full.left - g.px(14.0);
-    let r = rect(right - g.px(120.0), full.top, right, full.bottom);
+    let right = lang.left - g.px(14.0);
+    let r = rect(right - g.px(120.0), lang.top, right, lang.bottom);
     g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
 }
 
@@ -2273,6 +2280,41 @@ unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i32) {
     state.carousel.step(if x < client.right / 2 { -1 } else { 1 }, now);
 }
 
+/// The list of languages under the language button, each in its own words, the one in use checked. The one picked,
+/// if any.
+unsafe fn pick_lang(hwnd: HWND, button: RECT, now: Lang) -> Option<Lang> {
+    use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, TrackPopupMenu, MF_CHECKED, MF_STRING, TPM_RETURNCMD, TPM_RIGHTALIGN, TPM_TOPALIGN,
+    };
+    let menu = CreatePopupMenu();
+    if menu.is_null() {
+        return None;
+    }
+    for (i, lang) in Lang::ALL.into_iter().enumerate() {
+        let checked = if lang == now { MF_CHECKED } else { 0 };
+        AppendMenuW(menu, MF_STRING | checked, i + 1, win::wide(lang.name()).as_ptr());
+    }
+    let mut at = POINT {
+        x: button.right,
+        y: button.bottom + 4,
+    };
+    ClientToScreen(hwnd, &mut at);
+    let chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_TOPALIGN, at.x, at.y, 0, hwnd, null());
+    DestroyMenu(menu);
+    usize::try_from(chosen)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|i| Lang::ALL.get(i).copied())
+}
+
+/// The person picked a language in the panel: shown at once here, and the tray (which keeps it in the settings and
+/// shows it in its menu) is told, so both always say the same.
+fn choose_lang(state: &mut State, lang: Lang) {
+    state.ctx.account.lock().unwrap().lang = lang;
+    crate::tray::set_lang_of_running(lang);
+}
+
 fn waiting_now(state: &State) -> bool {
     state.tab == Tab::Dash && state.ctx.shared.live().is_none_or(|l| now_ms() - l.at_ms > STALE_MS)
 }
@@ -2414,8 +2456,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
             let mut client = rect(0, 0, 0, 0);
             GetClientRect(hwnd, &mut client);
-            let [dash, mon, full, top] = header_hits(client.right, scale_of(hwnd));
-            if inside(&dash, x, y) {
+            let [dash, mon, lang, full, top] = header_hits(client.right, scale_of(hwnd));
+            if inside(&lang, x, y) {
+                let now = state.ctx.account.lock().unwrap().lang;
+                if let Some(chosen) = pick_lang(hwnd, lang, now) {
+                    choose_lang(state, chosen);
+                }
+            } else if inside(&dash, x, y) {
                 state.tab = Tab::Dash;
             } else if inside(&mon, x, y) {
                 state.tab = Tab::Monitor;
@@ -3161,7 +3208,7 @@ mod tests {
         let mut figures = String::new();
         let covers = CoverArt::load(None);
         let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-        let [_, _, full_button, _] = header_hits(960, 1.0);
+        let [_, _, _, full_button, _] = header_hits(960, 1.0);
         hover.mouse = Some((full_button.left + 5, full_button.top + 5));
         let pixels = render(&hover, 960, 600);
         save(&pixels, 960, 600, "preview-tooltip.png");
@@ -3232,13 +3279,17 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn the_header_can_be_clicked_where_it_is_drawn() {
-        let [dash, mon, full, top] = header_hits(960, 1.0);
+        let [dash, mon, lang, full, top] = header_hits(960, 1.0);
         assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
         assert!(inside(&mon, 160, 20));
+        assert!(inside(&lang, 834, 20) && !inside(&lang, 853, 20));
         assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
         assert!(inside(&top, 920, 20) && !inside(&top, 920, 52));
-        assert!(full.right < top.left && mon.right < full.left, "nothing overlaps");
-        let [dash2, _, _, top2] = header_hits(1440, 1.5);
+        assert!(
+            lang.right < full.left && full.right < top.left && mon.right < lang.left,
+            "nothing overlaps"
+        );
+        let [dash2, _, _, _, top2] = header_hits(1440, 1.5);
         assert_eq!((dash2.left, dash2.right), (30, 204));
         assert_eq!(top2.right, 1440 - 24);
     }
