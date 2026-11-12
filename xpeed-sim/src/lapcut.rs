@@ -95,6 +95,11 @@ impl LapCutter {
         }
     }
 
+    /// The game id its laps are written with.
+    pub fn game(&self) -> &'static str {
+        self.game
+    }
+
     /// Feeds one frame and returns the laps that are now complete (usually none).
     pub fn on_frame(&mut self, frame: &Frame, wall_ms: i64) -> Vec<Lap> {
         let mut done = Vec::new();

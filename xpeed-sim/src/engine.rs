@@ -186,6 +186,17 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         for l in live.iter_mut() {
             if let Some(frame) = l.source.next(slice) {
                 l.last_frame = Instant::now();
+                // One door can serve several games (the F1 reader reads F1 25, 24 and 23 on one UDP port, and names
+                // itself after the game of the packets): when the game changes, its laps start over under its own id.
+                let game = l.source.game_id();
+                if l.cutter.game() != game {
+                    shared.set_game(l.cutter.game(), l.source.game_name(), Game::Waiting);
+                    say(format!("Now reading {}.", l.source.game_name()));
+                    l.cutter = LapCutter::new(game);
+                    l.tracker = crate::dash::Tracker::default();
+                    l.track_told = None;
+                    l.lap_shown = 0;
+                }
                 if frame.driving && frame.lap > 0 && frame.lap != l.lap_shown {
                     l.lap_shown = frame.lap;
                 }
