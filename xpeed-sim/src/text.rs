@@ -323,6 +323,16 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
                 s("Ligue os dados no jogo: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, porta 5301."),
                 s("Activa los datos en el juego: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, puerto 5301."),
             ),
+            "wreckfest2" => t(
+                s("Switch the data on in the game's telemetry config.json: set \"enabled\" to 1 (IP 127.0.0.1, port 23123), then restart the game."),
+                s("Ligue os dados no config.json de telemetria do jogo: coloque \"enabled\" em 1 (IP 127.0.0.1, porta 23123) e abra o jogo de novo."),
+                s("Activa los datos en el config.json de telemetría del juego: pon \"enabled\" en 1 (IP 127.0.0.1, puerto 23123) y vuelve a abrir el juego."),
+            ),
+            "lmu" => t(
+                s("Switch the data on in the game: Settings > Gameplay > Enable external plugins."),
+                s("Ligue os dados no jogo: Settings > Gameplay > Enable external plugins."),
+                s("Activa los datos en el juego: Settings > Gameplay > Enable external plugins."),
+            ),
             "rfactor1" | "ams1" | "rf1" => t(
                 s("Put the rFactorSharedMemoryMap plugin in the game's Plugins folder, then start the game again."),
                 s("Coloque o plugin rFactorSharedMemoryMap na pasta Plugins do jogo e abra o jogo de novo."),
@@ -464,6 +474,8 @@ mod tests {
             Msg::Setup("ams2"),
             Msg::Setup("f1"),
             Msg::Setup("fm"),
+            Msg::Setup("wreckfest2"),
+            Msg::Setup("lmu"),
             Msg::Setup("rfactor1"),
             Msg::Setup("ac"),
             Msg::StateSilent,

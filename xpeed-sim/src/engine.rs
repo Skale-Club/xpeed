@@ -18,6 +18,8 @@ use crate::util::{clock, file_safe, iso_utc, now_ms};
 
 const LMU_ID: &str = "lmu";
 const LMU_NAME: &str = "Le Mans Ultimate";
+/// The game's program (lower case), to tell "open, not sharing" from "not running" when its memory is missing.
+const LMU_PROGRAMS: &[&str] = &["le mans ultimate.exe"];
 
 pub fn explain(error: &OpenError) -> String {
     match error {
@@ -122,6 +124,12 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         track_told: Option<(String, Option<String>)>,
         /// The panel's view of this game (the delta to the best lap).
         tracker: crate::dash::Tracker,
+        /// A frame has arrived. A source that only listens (`Source::listens`) is "open, no data yet" until then.
+        heard: bool,
+        /// Opened again after being let go while its game ran: no "Connected" line when the data comes back.
+        quiet: bool,
+        /// The game shown as open without data while no frame has come (it may differ from the source's own id).
+        silent_as: Option<(&'static str, &'static str)>,
     }
     let saved = |lap: &lapfile::Lap| {
         if let Some(label) = save(out, lap, say) {
@@ -152,6 +160,9 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
             for l in &live {
                 if !l.programs.is_empty() && !crate::win::any_running(&running, l.programs) {
                     // The game closed: its reader lets go of its door (and of its UDP port).
+                    if let Some((id, name)) = l.silent_as {
+                        shared.set_game(id, name, Game::Waiting);
+                    }
                     shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
                     say(format!("{} closed.", l.source.game_name()));
                 }
@@ -182,12 +193,29 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     }
                 }
                 if let Some(source) = opened {
-                    if !reopen_quietly.contains(&reader.family) {
-                        say(format!("Connected to {}.", source.game_name()));
-                    }
+                    let quiet = reopen_quietly.contains(&reader.family);
                     reopen_quietly.retain(|f| *f != reader.family);
-                    shared.set_game(source.game_id(), source.game_name(), Game::Connected);
+                    let listens = source.listens();
+                    let mut silent_as = None;
+                    if listens {
+                        // Only a socket is open: the game may send nothing. Say so until the first packet.
+                        let (id, name) = crate::games::running_game(&running, reader).unwrap_or((source.game_id(), source.game_name()));
+                        let told = shared.games().iter().any(|(i, _, g)| *i == id && *g == Game::Silent);
+                        if !told && !quiet {
+                            say(format!("{name} is open but shares no data yet."));
+                        }
+                        shared.set_game(id, name, Game::Silent);
+                        silent_as = Some((id, name));
+                    } else {
+                        if !quiet {
+                            say(format!("Connected to {}.", source.game_name()));
+                        }
+                        shared.set_game(source.game_id(), source.game_name(), Game::Connected);
+                    }
                     live.push(Live {
+                        heard: !listens,
+                        quiet,
+                        silent_as,
                         family: reader.family,
                         programs: reader.programs,
                         cutter: LapCutter::new(source.game_id()),
@@ -208,6 +236,18 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         for l in live.iter_mut() {
             if let Some(frame) = l.source.next(slice) {
                 l.last_frame = Instant::now();
+                if !l.heard {
+                    // The first packet: the game shares after all.
+                    l.heard = true;
+                    if let Some((id, name)) = l.silent_as.take() {
+                        if id != l.source.game_id() {
+                            shared.set_game(id, name, Game::Waiting);
+                        }
+                    }
+                    if !l.quiet {
+                        say(format!("Connected to {}.", l.source.game_name()));
+                    }
+                }
                 // One door can serve several games (the F1 reader reads F1 25, 24 and 23 on one UDP port, and names
                 // itself after the game of the packets): when the game changes, its laps start over under its own id.
                 let game = l.source.game_id();
@@ -246,6 +286,11 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     l.source.finish_lap(&mut lap);
                     saved(&lap);
                 }
+            } else if !l.heard {
+                // Open, nothing heard yet: stays "no data" for as long as its program runs (and after a pause).
+                if let Some((id, name)) = l.silent_as {
+                    shared.set_game(id, name, Game::Silent);
+                }
             } else if l.last_frame.elapsed() > Duration::from_secs(10) {
                 // A door that stays open but says nothing (a game sending UDP, stopped or in a menu).
                 shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
@@ -267,6 +312,9 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     reopen_quietly.push(l.family);
                 } else {
                     say(format!("{} closed.", l.source.game_name()));
+                    if let Some((id, name)) = l.silent_as {
+                        shared.set_game(id, name, Game::Waiting);
+                    }
                     shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
                 }
             }
@@ -289,6 +337,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         }
     };
     let mut waiting = false;
+    let mut told_silent = false;
     while !shared.quitting() {
         if shared.paused() {
             shared.set_game(LMU_ID, LMU_NAME, Game::Paused);
@@ -302,7 +351,14 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                     say("Waiting for Le Mans Ultimate ('Enable external plugins' must be on)...".into());
                     waiting = true;
                 }
-                shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
+                // No memory. With the game's program running, it is open and not sharing: the panel says how to switch
+                // that on. Without it, the game is simply not there.
+                let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
+                if running && !told_silent {
+                    say("Le Mans Ultimate is open but shares no data yet.".into());
+                }
+                told_silent = running;
+                shared.set_game(LMU_ID, LMU_NAME, if running { Game::Silent } else { Game::Waiting });
                 rest(shared, Duration::from_secs(2));
                 continue;
             }
@@ -332,6 +388,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
             continue;
         }
         waiting = false;
+        told_silent = false;
         say(format!("Connected to Le Mans Ultimate at {}.", iso_utc(now_ms())));
         shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
         let mut recorder = Recorder::new();

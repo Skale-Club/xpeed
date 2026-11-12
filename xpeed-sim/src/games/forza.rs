@@ -475,6 +475,10 @@ impl Source for ForzaSource {
     fn alive(&self) -> bool {
         self.alive
     }
+
+    fn listens(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

@@ -105,6 +105,12 @@ pub trait Source {
     fn next(&mut self, timeout: Duration) -> Option<Frame>;
     /// False once the game has gone away (its door closed); the engine then goes back to looking.
     fn alive(&self) -> bool;
+    /// True for a source that is only a socket waiting for packets: its game may send nothing at all (the person has
+    /// not switched its telemetry output on), so opening it proves nothing and the game counts as connected only once
+    /// the first frame arrives. False (the default) for shared memory, where finding the memory means the game shares.
+    fn listens(&self) -> bool {
+        false
+    }
     /// A last touch on a finished lap before it is written (iRacing closes its estimated path). Nothing by default.
     fn finish_lap(&self, _lap: &mut crate::lapfile::Lap) {}
 }
