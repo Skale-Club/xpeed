@@ -160,9 +160,26 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     continue;
                 }
                 if !reader.programs.is_empty() && !crate::win::any_running(&running, reader.programs) {
+                    // Not running (any more): a game that was open without data goes back to waiting.
+                    for (id, name, game) in shared.games() {
+                        if game == Game::Silent && reader.ids.contains(&id) {
+                            shared.set_game(id, name, Game::Waiting);
+                        }
+                    }
                     continue;
                 }
-                if let Some(source) = (reader.open)() {
+                let opened = (reader.open)();
+                if opened.is_none() {
+                    // Its program runs but there is no data: the panel names the game and tells how to switch it on.
+                    if let Some((id, name)) = crate::games::running_game(&running, reader) {
+                        let told = shared.games().iter().any(|(i, _, g)| *i == id && *g == Game::Silent);
+                        if !told {
+                            say(format!("{name} is open but shares no data yet."));
+                        }
+                        shared.set_game(id, name, Game::Silent);
+                    }
+                }
+                if let Some(source) = opened {
                     say(format!("Connected to {}.", source.game_name()));
                     shared.set_game(source.game_id(), source.game_name(), Game::Connected);
                     live.push(Live {

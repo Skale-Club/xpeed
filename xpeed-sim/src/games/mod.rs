@@ -33,6 +33,46 @@ pub struct Reader {
     pub open: fn() -> Option<Box<dyn Source>>,
 }
 
+/// Every program a reader waits for, with the game it is: its id and name. When the program runs but the reader finds
+/// no data, the panel names that game and tells how to switch its data on.
+pub const PROGRAMS: &[(&str, &str, &str)] = &[
+    ("acs.exe", "ac", "Assetto Corsa"),
+    ("acs_x86.exe", "ac", "Assetto Corsa"),
+    ("ac2-win64-shipping.exe", "acc", "Assetto Corsa Competizione"),
+    ("acr.exe", "acr", "Assetto Corsa Rally"),
+    ("ams2.exe", "ams2", "Automobilista 2"),
+    ("ams2avx.exe", "ams2", "Automobilista 2"),
+    ("pcars2.exe", "pcars2", "Project CARS 2"),
+    ("pcars2avx.exe", "pcars2", "Project CARS 2"),
+    ("pcars3.exe", "pcars3", "Project CARS 3"),
+    ("pcars3avx.exe", "pcars3", "Project CARS 3"),
+    ("wreckfest2.exe", "wreckfest2", "Wreckfest 2"),
+    ("f1_25.exe", "f1", "EA SPORTS F1 25"),
+    ("f1_24.exe", "f124", "EA SPORTS F1 24"),
+    ("f1_23.exe", "f123", "EA SPORTS F1 23"),
+    ("assettocorsaevo.exe", "acevo", "Assetto Corsa EVO"),
+    ("gsc.exe", "rfactor1", "Stock Car Extreme"),
+    ("ams.exe", "ams1", "Automobilista"),
+    ("rfactor.exe", "rf1", "rFactor"),
+    ("iracingsim64dx11.exe", "iracing", "iRacing"),
+    ("iracingsim64.exe", "iracing", "iRacing"),
+    ("rrre64.exe", "r3e", "RaceRoom Racing Experience"),
+    ("rrre.exe", "r3e", "RaceRoom Racing Experience"),
+    ("forza_steamworks_release_final.exe", "fm", "Forza Motorsport"),
+    ("forza_gaming.desktop.x64_release_final.exe", "fm", "Forza Motorsport"),
+    ("forzamotorsport7.exe", "fm7", "Forza Motorsport 7"),
+    ("forzahorizon4.exe", "fh4", "Forza Horizon 4"),
+    ("forzahorizon5.exe", "fh5", "Forza Horizon 5"),
+];
+
+/// The game of `reader` whose program is running, if any: its id and name.
+pub fn running_game(running: &[String], reader: &Reader) -> Option<(&'static str, &'static str)> {
+    PROGRAMS
+        .iter()
+        .find(|(program, _, _)| reader.programs.contains(program) && running.iter().any(|r| r == program))
+        .map(|&(_, id, name)| (id, name))
+}
+
 pub const READERS: &[Reader] = &[
     Reader {
         family: "kunos",
@@ -115,3 +155,25 @@ pub const READERS: &[Reader] = &[
         open: forza::open,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_program_a_reader_waits_for_names_one_of_its_games() {
+        for reader in READERS {
+            for program in reader.programs {
+                let found = PROGRAMS.iter().find(|(p, _, _)| p == program);
+                let (_, id, _) = found.unwrap_or_else(|| panic!("{program} is not in PROGRAMS"));
+                assert!(reader.ids.contains(id), "{program}: {id} is not one of {:?}", reader.ids);
+            }
+        }
+        let ams2 = READERS.iter().find(|r| r.family == "ams2").unwrap();
+        assert_eq!(
+            running_game(&["explorer.exe".into(), "ams2avx.exe".into()], ams2),
+            Some(("ams2", "Automobilista 2"))
+        );
+        assert_eq!(running_game(&["pcars2.exe".into()], ams2), None, "another reader's program");
+    }
+}

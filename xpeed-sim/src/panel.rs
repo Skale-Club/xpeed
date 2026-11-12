@@ -188,6 +188,8 @@ pub struct View<'a> {
     pub carousel_step: std::cell::Cell<f32>,
     /// The language list under the language button is open.
     pub lang_open: bool,
+    /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
+    pub focus: Option<(&'static str, &'static str, Game)>,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
 }
@@ -1231,6 +1233,7 @@ fn state_text(lang: Lang, game: &Game) -> String {
             Game::Recording(lap) => Msg::StateRecording(*lap),
             Game::Paused => Msg::StatePaused,
             Game::Unsupported => Msg::StateUnsupported,
+            Game::Silent => Msg::StateSilent,
         },
     )
 }
@@ -1242,6 +1245,7 @@ fn state_color(game: &Game) -> COLORREF {
         Game::Waiting => GREY,
         Game::Paused => AMBER,
         Game::Unsupported => RED,
+        Game::Silent => AMBER,
     }
 }
 
@@ -1504,9 +1508,63 @@ fn canvas_fit_w(body: RECT, width: f32) -> (f32, i32, i32) {
     (s, ox, oy)
 }
 
+/// The game the waiting screen is about: the most interesting one that is open (recording, connected, unsupported,
+/// paused, open without data), if any.
+fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static str, &'static str, Game)> {
+    let rank = |g: &Game| match g {
+        Game::Recording(_) => 5,
+        Game::Connected => 4,
+        Game::Unsupported => 3,
+        Game::Paused => 2,
+        Game::Silent => 1,
+        Game::Waiting => 0,
+    };
+    games
+        .iter()
+        .filter(|(_, _, g)| *g != Game::Waiting)
+        .max_by_key(|(_, _, g)| rank(g))
+        .cloned()
+}
+
+/// The waiting screen about one open game: its cover, its name, and what happens next (or what to switch on).
+fn focus_screen(g: &mut Painter, view: &View, (id, name, game): (&'static str, &'static str, Game)) {
+    let (title, line, note) = match game {
+        Game::Silent => (Msg::FocusOpen(name.into()), Msg::Setup(id), Some(Msg::FocusAutoConnect)),
+        Game::Unsupported => (Msg::FocusOpen(name.into()), Msg::FocusUnsupported, None),
+        Game::Paused => (Msg::FocusConnected(name.into()), Msg::FocusPaused, None),
+        _ => (Msg::FocusConnected(name.into()), Msg::FocusGetInCar, None),
+    };
+    let r = g.r(0.0, 56.0, CANVAS_W, 50.0);
+    g.text(&text(view.lang, &title), r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
+    let r = g.r(40.0, 106.0, CANVAS_W - 80.0, 26.0);
+    let color = if game == Game::Silent || game == Game::Unsupported {
+        ACCENT
+    } else {
+        MUTED
+    };
+    g.text(&text(view.lang, &line), r, 15.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
+    if let Some(note) = note {
+        let r = g.r(40.0, 132.0, CANVAS_W - 80.0, 22.0);
+        g.text(&text(view.lang, &note), r, 13.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_CENTER);
+    }
+    // The game's cover, as big as the carousel's middle one; a name card when there is no cover.
+    let (w, h) = (170.0, 255.0);
+    let (x, y) = ((CANVAS_W - w) / 2.0, 172.0);
+    let exact = g.exact(x, y, w, h);
+    match view.covers.iter().find(|c| c.key == id).map(|c| c.image).filter(|i| !i.is_null()) {
+        Some(image) => g.image_exact(exact, image),
+        None => g.cover_card(exact, name, 1.1),
+    }
+    // A yellow line under it: the game is the one being watched.
+    g.fill(g.r(x, y + h + 6.0, w, 3.0), if game == Game::Silent { AMBER } else { ACCENT });
+}
+
 fn waiting(g: &mut Painter, body: RECT, view: &View) {
     let (s, ox, oy) = canvas_fit(body);
     g.place(s, ox, oy);
+    if let Some(focus) = view.focus.clone() {
+        return focus_screen(g, view, focus);
+    }
     let title = text(view.lang, &Msg::PanelWaitingTitle);
     let r = g.r(0.0, 66.0, CANVAS_W, 50.0);
     g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
@@ -2198,8 +2256,9 @@ fn game_rows(ctx: &Context, installed: Option<&HashSet<&'static str>>) -> Vec<Ga
     let rank = |g: &Game| match g {
         Game::Recording(_) => 4,
         Game::Connected => 3,
-        Game::Unsupported => 2,
-        Game::Paused => 1,
+        Game::Unsupported => 3,
+        Game::Paused => 2,
+        Game::Silent => 1,
         Game::Waiting => 0,
     };
     let state_of = |ids: &[&str]| {
@@ -2315,6 +2374,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         scroll: Default::default(),
         carousel_step: Default::default(),
         lang_open: state.lang_open,
+        focus: focus_of(&ctx.shared.games()),
     };
     paint(memory, w, h, &view);
     state.buttons = view.buttons.take();
@@ -2969,6 +3029,18 @@ mod tests {
     }
 
     #[test]
+    fn the_waiting_screen_is_about_the_most_interesting_open_game() {
+        assert_eq!(focus_of(&[("ac", "Assetto Corsa", Game::Waiting)]), None);
+        let games = [
+            ("ac", "Assetto Corsa", Game::Waiting),
+            ("ams2", "Automobilista 2", Game::Silent),
+            ("f1", "EA SPORTS F1 25", Game::Connected),
+        ];
+        assert_eq!(focus_of(&games), Some(("f1", "EA SPORTS F1 25", Game::Connected)));
+        assert_eq!(focus_of(&games[..2]), Some(("ams2", "Automobilista 2", Game::Silent)));
+    }
+
+    #[test]
     fn a_click_on_a_cover_goes_there_the_nearest_way() {
         assert_eq!(carousel_steps(0, 3, 9), 3);
         assert_eq!(carousel_steps(0, 7, 9), -2, "round the other side is shorter");
@@ -3192,6 +3264,7 @@ mod tests {
             scroll: Default::default(),
             carousel_step: Default::default(),
             lang_open: false,
+            focus: None,
         }
     }
 
@@ -3334,6 +3407,27 @@ mod tests {
         let pixels = render(&open, 960, 600);
         save(&pixels, 960, 600, "preview-languages.png");
         figures.push_str("<figure><figcaption>The language list, open (Portuguese in use, the mouse on Español)</figcaption><img data-src=\"preview-languages.png\" width=\"960\" height=\"600\"></figure>\n");
+        for (file, caption, game) in [
+            (
+                "preview-open-no-data.png",
+                "A game open without data: what to switch on",
+                Game::Silent,
+            ),
+            (
+                "preview-open-connected.png",
+                "A game connected, the driver not on track yet",
+                Game::Connected,
+            ),
+        ] {
+            let mut open_game = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
+            open_game.covers = &covers;
+            open_game.focus = Some(("ams2", "Automobilista 2", game));
+            let pixels = render(&open_game, 1280, 720);
+            save(&pixels, 1280, 720, file);
+            figures.push_str(&format!(
+                "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"1280\" height=\"720\"></figure>\n"
+            ));
+        }
         monitor_covers.games_scroll = 30.0;
         let pixels = render(&monitor_covers, 720, 480);
         save(&pixels, 720, 480, "preview-monitor-small.png");
