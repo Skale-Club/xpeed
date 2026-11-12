@@ -51,6 +51,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "xpeed-sim.ico"; DestDir: "{app}"; Flags: ignoreversion
+; The licence of Chakra Petch, the font the panel's numbers are drawn in (carried inside the program).
+Source: "..\assets\fonts\OFL.txt"; DestDir: "{app}"; DestName: "ChakraPetch-OFL.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "run"; IconFilename: "{app}\xpeed-sim.ico"

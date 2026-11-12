@@ -7,6 +7,23 @@
 
 use std::time::Duration;
 
+/// One tyre as the game tells it; `NaN` for what it does not give.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tyre {
+    /// Temperature in °C: the tread where the game gives it, else the core.
+    pub temp_c: f32,
+    pub pressure_kpa: f32,
+    /// How much of the tread is left, 0..1 (1 = new).
+    pub left: f32,
+}
+
+impl Tyre {
+    /// True when the game said anything about this tyre.
+    pub fn known(&self) -> bool {
+        self.temp_c.is_finite() || self.pressure_kpa.is_finite() || self.left.is_finite()
+    }
+}
+
 /// One reading of the player's car.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
@@ -36,6 +53,8 @@ pub struct Frame {
     pub y: f32,
     pub z: f32,
     pub fuel_l: f32,
+    /// Front left, front right, rear left, rear right; `None` when the game gives nothing about tyres.
+    pub tyres: Option<[Tyre; 4]>,
     pub car: String,
     pub car_class: Option<String>,
     pub track: String,
@@ -66,6 +85,7 @@ impl Frame {
             y: f32::NAN,
             z: f32::NAN,
             fuel_l: f32::NAN,
+            tyres: None,
             car: String::new(),
             car_class: None,
             track: String::new(),

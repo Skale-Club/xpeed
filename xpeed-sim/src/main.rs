@@ -18,6 +18,7 @@
 
 mod applog;
 mod config;
+mod covers;
 mod dash;
 #[cfg(windows)]
 mod engine;

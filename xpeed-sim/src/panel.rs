@@ -18,17 +18,21 @@ use std::sync::{Arc, Mutex};
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
-    DrawTextW, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
-    SetTextCharacterExtra, SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT,
-    DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
-    PS_SOLID, SRCCOPY, TRANSPARENT,
+    AddFontMemResourceEx, BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush,
+    DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, GetGlyphOutlineW, GetStockObject, GetTextExtentPoint32W, GetTextMetricsW,
+    InvalidateRect, RoundRect, SelectObject, SetBkMode, SetTextCharacterExtra, SetTextColor, ANTIALIASED_QUALITY,
+    CLEARTYPE_NATURAL_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOCLIP, DT_NOPREFIX, DT_RIGHT,
+    DT_SINGLELINE, DT_TOP, DT_VCENTER, FIXED, FW_BOLD, FW_NORMAL, FW_SEMIBOLD, GGO_METRICS, GLYPHMETRICS, HDC, HFONT, MAT2, NULL_PEN,
+    OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, SRCCOPY, TEXTMETRICW, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::Graphics::GdiPlus::{
-    FillModeAlternate, GdipAddPathArc, GdipClosePathFigure, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
-    GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDrawPath, GdipFillPath, GdipSetPixelOffsetMode,
-    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpPath, PixelOffsetModeHalf, SmoothingModeAntiAlias, UnitPixel,
+    FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
+    GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
+    GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipFillEllipse, GdipFillPath,
+    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
+    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
+    LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
@@ -76,7 +80,6 @@ const BG: COLORREF = rgb(0x0c, 0x0d, 0x0f);
 const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
 const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
 const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
-const DIM: COLORREF = rgb(0x1f, 0x22, 0x27);
 const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
 const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
 const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
@@ -86,6 +89,15 @@ const BLUE: COLORREF = rgb(0x3d, 0x9b, 0xff);
 const AMBER: COLORREF = rgb(0xff, 0xb0, 0x3b);
 const PURPLE: COLORREF = rgb(0xb5, 0x7c, 0xff);
 const GREY: COLORREF = rgb(0x5c, 0x61, 0x6b);
+/// The rev bar's base line, and its gradient from low revs to the limit.
+const CYAN: COLORREF = rgb(0x26, 0xc6, 0xff);
+const REV_STOPS: [(f32, COLORREF); 4] = [
+    (0.0, rgb(0x57, 0xe3, 0x3a)),
+    (0.55, rgb(0xe9, 0xef, 0x3c)),
+    (0.8, rgb(0xff, 0x9f, 0x1c)),
+    (1.0, rgb(0xff, 0x30, 0x30)),
+];
+const REV_DIVISIONS: usize = 10;
 
 /// `a` with `t` (0..1) of `b` mixed in.
 fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
@@ -128,6 +140,8 @@ pub struct View<'a> {
     /// `(time as HH:MM:SS, text)`, oldest first.
     pub log: &'a [(String, String)],
     pub laps_dir: &'a str,
+    /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
+    pub covers: &'a [CoverArt],
 }
 
 /// The account and the language as the tray knows them; the tray changes them when the computer is connected again
@@ -152,8 +166,65 @@ pub struct Context {
     pub quit_on_close: bool,
 }
 
+/// A game for the waiting screen: its name, and its cover when Steam keeps one here (a small copy, made once).
+pub struct CoverArt {
+    pub name: &'static str,
+    image: *mut GpImage,
+}
+
+impl CoverArt {
+    /// The covers of every game Xpeed Sim reads, read from Steam's cache at about twice the size they are drawn.
+    pub fn load_all() -> Vec<CoverArt> {
+        let cache = crate::covers::library_cache();
+        crate::covers::GAMES
+            .iter()
+            .map(|&(name, app)| {
+                let file = cache.as_deref().and_then(|cache| crate::covers::cover_file(cache, app));
+                CoverArt {
+                    name,
+                    image: file.map_or(null_mut(), |file| load_thumbnail(&file, 240, 360)),
+                }
+            })
+            .collect()
+    }
+}
+
+impl Drop for CoverArt {
+    fn drop(&mut self) {
+        if !self.image.is_null() {
+            unsafe {
+                GdipDisposeImage(self.image);
+            }
+        }
+    }
+}
+
+/// An image file as a GDI+ image of `w` × `h` pixels; null when GDI+ or the file cannot be read.
+fn load_thumbnail(file: &std::path::Path, w: u32, h: u32) -> *mut GpImage {
+    if !gdiplus_ready() {
+        return null_mut();
+    }
+    unsafe {
+        let mut full = null_mut();
+        let name = win::wide(&file.display().to_string());
+        if GdipCreateBitmapFromFile(name.as_ptr(), &mut full) != 0 || full.is_null() {
+            return null_mut();
+        }
+        let mut small = null_mut();
+        let made = GdipGetImageThumbnail(full.cast(), w, h, &mut small, 0, null_mut()) == 0;
+        GdipDisposeImage(full.cast());
+        if made {
+            small
+        } else {
+            null_mut()
+        }
+    }
+}
+
 struct State {
     ctx: Context,
+    /// The games' covers, read when the window opens.
+    covers: Vec<CoverArt>,
     tab: Tab,
     on_top: bool,
     /// Full screen: where the window was and its style, to put it back.
@@ -166,6 +237,10 @@ const HEADER_H: f32 = 66.0;
 /// proportions at any size and fills a full screen instead of stretching empty cards.
 const CANVAS_W: f32 = 1000.0;
 const CANVAS_H: f32 = 520.0;
+/// The column on the right for the track map and the tyres, shown when the game gives them and the window is big
+/// enough for the wider canvas not to shrink the rest (full screen, a large window).
+const SIDE_W: f32 = 360.0;
+const SIDE_MIN_SCALE: f32 = 0.95;
 /// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
 const LIGHTS_FROM: f32 = 0.55;
 const SHIFT_AT: f32 = 0.97;
@@ -222,6 +297,36 @@ fn smooth(hdc: HDC, draw: impl FnOnce(*mut GpGraphics)) -> bool {
     true
 }
 
+/// The top edge of the rev bar at `t` (0 at the left end, 1 at the right): highest in the middle, `side` lower at
+/// the ends, along a parabola.
+fn dome_top(y: f32, side: f32, t: f32) -> f32 {
+    let from_middle = 2.0 * t - 1.0;
+    y + side * from_middle * from_middle
+}
+
+/// The part of the rev bar from `t0` to `t1` (shares of its width) as a GDI+ path: the curved top, sampled finely
+/// so it stays smooth, and the flat bottom. Filled directly (no clipping, which GDI+ does by whole pixels and would
+/// turn the curve into steps).
+unsafe fn dome_part(x: f32, y: f32, w: f32, h: f32, side: f32, t0: f32, t1: f32) -> *mut GpPath {
+    let mut path = null_mut();
+    GdipCreatePath(FillModeAlternate, &mut path);
+    let steps = ((t1 - t0) * 160.0).ceil().max(2.0) as usize;
+    let mut points: Vec<PointF> = (0..=steps)
+        .map(|i| {
+            let t = t0 + (t1 - t0) * i as f32 / steps as f32;
+            PointF {
+                X: x + w * t,
+                Y: dome_top(y, side, t),
+            }
+        })
+        .collect();
+    points.push(PointF { X: x + w * t1, Y: y + h });
+    points.push(PointF { X: x + w * t0, Y: y + h });
+    GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+    GdipClosePathFigure(path);
+    path
+}
+
 /// A rounded rectangle as a GDI+ path (`radius` in pixels, no more than half the shorter side).
 unsafe fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> *mut GpPath {
     let mut path = null_mut();
@@ -243,7 +348,7 @@ fn inside(r: &RECT, x: i32, y: i32) -> bool {
 enum Face {
     /// Labels and running text.
     Ui,
-    /// Numbers: Bahnschrift, the DIN-like face Windows ships, as motorsport screens use.
+    /// Numbers.
     Num,
     /// The log.
     Mono,
@@ -252,15 +357,42 @@ enum Face {
 }
 
 impl Face {
-    fn name(self, weight: i32) -> &'static str {
+    /// The font name, the GDI weight to ask for and whether it is italic. Numbers are in Chakra Petch, italic
+    /// (the owner's pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira); words in Segoe UI.
+    fn font(self, weight: i32) -> (&'static str, i32, bool) {
+        let normal = FW_NORMAL as i32;
         match self {
-            Face::Ui => "Segoe UI",
-            Face::Num if weight >= FW_SEMIBOLD as i32 => "Bahnschrift SemiBold",
-            Face::Num => "Bahnschrift",
-            Face::Mono => "Cascadia Mono",
-            Face::Icon => "Segoe MDL2 Assets",
+            Face::Mono => ("Cascadia Mono", weight, false),
+            Face::Icon => ("Segoe MDL2 Assets", normal, false),
+            Face::Ui => ("Segoe UI", weight, false),
+            Face::Num if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch", FW_BOLD as i32, true),
+            Face::Num => ("Chakra Petch Medium", normal, true),
         }
     }
+}
+
+/// Chakra Petch (SIL Open Font License 1.1, `assets/fonts/OFL.txt`), carried inside the program and made known to
+/// this process only, so nothing is installed and every computer draws the same.
+fn register_fonts() {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| {
+        const FONTS: [&[u8]; 2] = [
+            include_bytes!("../assets/fonts/ChakraPetch-BoldItalic.ttf"),
+            include_bytes!("../assets/fonts/ChakraPetch-MediumItalic.ttf"),
+        ];
+        for font in FONTS {
+            let mut added = 0u32;
+            unsafe {
+                // Windows writes the count through this pointer (declared const in the bindings).
+                AddFontMemResourceEx(
+                    font.as_ptr().cast(),
+                    font.len() as u32,
+                    null(),
+                    std::ptr::addr_of_mut!(added).cast_const(),
+                );
+            }
+        }
+    });
 }
 
 /// Drawing over one device context in design units: `s` pixels per unit from the origin `(ox, oy)`. The fonts it
@@ -275,6 +407,7 @@ struct Painter {
 
 impl Painter {
     fn new(hdc: HDC, s: f32) -> Painter {
+        register_fonts();
         unsafe {
             SetBkMode(hdc, TRANSPARENT as i32);
         }
@@ -311,9 +444,14 @@ impl Painter {
         if let Some((_, font)) = self.fonts.iter().find(|(k, _)| *k == key) {
             return *font;
         }
-        let name = win::wide(face.name(weight));
-        // Bahnschrift's weights are faces of their own; asking them for bold again would thicken them twice.
-        let gdi_weight = if face == Face::Num { FW_NORMAL as i32 } else { weight };
+        let (name, gdi_weight, italic) = face.font(weight);
+        let name = win::wide(name);
+        // Big text is smoothed in grey (no colour fringes on the dark background); small text keeps ClearType.
+        let quality = if key.0 >= 18 {
+            ANTIALIASED_QUALITY as u32
+        } else {
+            CLEARTYPE_NATURAL_QUALITY
+        };
         let font = unsafe {
             CreateFontW(
                 -key.0,
@@ -321,13 +459,13 @@ impl Painter {
                 0,
                 0,
                 gdi_weight,
-                0,
+                u32::from(italic),
                 0,
                 0,
                 DEFAULT_CHARSET as u32,
                 OUT_DEFAULT_PRECIS as u32,
                 CLIP_DEFAULT_PRECIS as u32,
-                CLEARTYPE_QUALITY as u32,
+                quality,
                 0,
                 name.as_ptr(),
             )
@@ -385,6 +523,128 @@ impl Painter {
         }
     }
 
+    /// The rev bar in design units: the dome filled `share` (0..1) of the way with the green-to-red gradient,
+    /// divided in tenths; all blue when `flash_on` (time to shift).
+    fn rev_bar(&self, x: f32, y: f32, w: f32, h: f32, share: f32, flash_on: bool) {
+        let (px, py, pw, ph) = (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s, w * self.s, h * self.s);
+        let fill = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
+        let line_w = (2.0 * self.s).max(1.5);
+        let side = ph * 0.45;
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let whole = dome_part(px, py, pw, ph, side, 0.0, 1.0);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(if flash_on { BLUE } else { TRACK }), &mut brush);
+            GdipFillPath(graphics, brush.cast(), whole);
+            GdipDeleteBrush(brush.cast());
+            GdipDeletePath(whole);
+            if !flash_on && fill > 0.0 {
+                let lit = dome_part(px, py, pw, ph, side, 0.0, fill);
+                let (from, to) = (PointF { X: px, Y: py }, PointF { X: px + pw, Y: py });
+                let mut gradient = null_mut();
+                GdipCreateLineBrush(&from, &to, argb(REV_STOPS[0].1), argb(REV_STOPS[3].1), WrapModeTile, &mut gradient);
+                let colors = REV_STOPS.map(|(_, c)| argb(c));
+                let places = REV_STOPS.map(|(at, _)| at);
+                GdipSetLinePresetBlend(gradient, colors.as_ptr(), places.as_ptr(), colors.len() as i32);
+                GdipFillPath(graphics, gradient.cast(), lit);
+                GdipDeleteBrush(gradient.cast());
+                GdipDeletePath(lit);
+            }
+            // The divisions, cut in the background colour from the curve down.
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(BG), line_w, UnitPixel, &mut pen);
+            for i in 1..REV_DIVISIONS {
+                let t = i as f32 / REV_DIVISIONS as f32;
+                let lx = px + pw * t;
+                GdipDrawLine(graphics, pen, lx, dome_top(py, side, t) - 2.0, lx, py + ph);
+            }
+            GdipDeletePen(pen);
+        });
+        if !drawn {
+            self.fill(self.r(x, y + h * 0.45, w, h * 0.55), TRACK);
+            self.fill(self.r(x, y + h * 0.45, w * fill, h * 0.55), if flash_on { BLUE } else { GREEN });
+        }
+    }
+
+    /// The track in a box (design units), scaled to fit without stretching: the path as a road, the start as a
+    /// white tick, the car as a yellow dot.
+    fn track_map(&self, x: f32, y: f32, w: f32, h: f32, path: &[(f32, f32)], car: Option<(f32, f32)>) {
+        let (min_x, max_x, min_z, max_z) = path.iter().fold(
+            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY),
+            |(a, b, c, d), &(px, pz)| (a.min(px), b.max(px), c.min(pz), d.max(pz)),
+        );
+        let span = (max_x - min_x).max(max_z - min_z);
+        if !span.is_finite() || span <= 0.0 {
+            return;
+        }
+        let pad = 14.0;
+        let fit = ((w - 2.0 * pad) / (max_x - min_x).max(1.0)).min((h - 2.0 * pad) / (max_z - min_z).max(1.0));
+        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
+        let to_px = |(px, pz): (f32, f32)| PointF {
+            X: self.ox as f32 + (x + w / 2.0 + (px - cx) * fit) * self.s,
+            Y: self.oy as f32 + (y + h / 2.0 + (pz - cz) * fit) * self.s,
+        };
+        let mut points: Vec<PointF> = path.iter().map(|&p| to_px(p)).collect();
+        if let Some(first) = points.first().copied() {
+            points.push(first);
+        }
+        let road = (9.0 * self.s).max(3.0);
+        let centre = (2.0 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            for (width, color) in [(road, TRACK), (centre, mix(TRACK, TEXT, 0.35))] {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
+                GdipSetPenLineJoin(pen, LineJoinRound);
+                GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                GdipDeletePen(pen);
+            }
+            if let Some(start) = points.first() {
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(TEXT), &mut brush);
+                let d = 6.0 * self.s;
+                GdipFillEllipse(graphics, brush.cast(), start.X - d / 2.0, start.Y - d / 2.0, d, d);
+                GdipDeleteBrush(brush.cast());
+            }
+            if let Some(car) = car {
+                let at = to_px(car);
+                for (radius, color) in [(13.0, mix(BG, ACCENT, 0.3)), (7.0, ACCENT)] {
+                    let mut brush = null_mut();
+                    GdipCreateSolidFill(argb(color), &mut brush);
+                    let d = radius * 2.0 * self.s;
+                    GdipFillEllipse(graphics, brush.cast(), at.X - d / 2.0, at.Y - d / 2.0, d, d);
+                    GdipDeleteBrush(brush.cast());
+                }
+            }
+        });
+    }
+
+    /// An image filling a box (pixels), smoothly scaled.
+    fn image(&self, r: RECT, image: *mut GpImage) {
+        smooth(self.hdc, |graphics| unsafe {
+            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
+            GdipDrawImageRectI(graphics, image, r.left, r.top, r.right - r.left, r.bottom - r.top);
+        });
+    }
+
+    /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
+    /// `from` and `to` (shares of the bar's width), dark otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn blocks(&self, x: f32, y: f32, w: f32, h: f32, count: usize, from: f32, to: f32, color: COLORREF) {
+        // Square blocks a hair apart, laid out in whole pixels so every gap is the same.
+        let area = self.r(x, y, w, h);
+        let gap = (1.5 * self.s).round().max(1.0);
+        let block = ((area.right - area.left) as f32 - gap * (count as f32 - 1.0)) / count as f32;
+        for i in 0..count {
+            let middle = (i as f32 + 0.5) / count as f32;
+            let lit = from.is_finite() && to.is_finite() && middle >= from && middle <= to;
+            let left = area.left + (i as f32 * (block + gap)).round() as i32;
+            let right = area.left + (i as f32 * (block + gap) + block).round() as i32;
+            self.fill(
+                rect(left, area.top, right.max(left + 1), area.bottom),
+                if lit { color } else { TRACK },
+            );
+        }
+    }
+
     /// One line of text in a box, cut with "…" when it does not fit.
     #[allow(clippy::too_many_arguments)]
     fn text(&mut self, s: &str, r: RECT, size: f32, weight: i32, face: Face, color: COLORREF, align: u32) {
@@ -393,6 +653,9 @@ impl Painter {
             return;
         }
         let font = self.font(size, weight, face);
+        if face == Face::Num {
+            return self.tabular(s, r, font, color, align);
+        }
         let wide: Vec<u16> = s.encode_utf16().collect();
         let mut r = r;
         unsafe {
@@ -405,6 +668,80 @@ impl Painter {
                 &mut r,
                 align | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS,
             );
+            SelectObject(self.hdc, old);
+        }
+    }
+
+    /// Numbers with every digit in a slot as wide as the widest digit, so a running time does not shift sideways as
+    /// its digits change (the fonts' own digits are proportional, and GDI cannot ask for their tabular ones).
+    ///
+    /// They are centred on their own height (the capital height), not on the font's line, which also holds room
+    /// for descenders and would leave figures sitting high in their box.
+    fn tabular(&mut self, s: &str, r: RECT, font: HFONT, color: COLORREF, align: u32) {
+        unsafe {
+            let old = SelectObject(self.hdc, font);
+            SetTextColor(self.hdc, color);
+            let width = |c: char| {
+                let mut unit = [0u16; 2];
+                let unit = c.encode_utf16(&mut unit);
+                let mut extent = SIZE { cx: 0, cy: 0 };
+                GetTextExtentPoint32W(self.hdc, unit.as_ptr(), unit.len() as i32, &mut extent);
+                extent.cx
+            };
+            let digit = ('0'..='9').map(width).max().unwrap_or(0);
+            // The real ink of the letters and figures (not dots, colons or signs): how far above and below the
+            // baseline it reaches. The text is placed so that ink is centred in the box.
+            let identity = MAT2 {
+                eM11: FIXED { fract: 0, value: 1 },
+                eM12: FIXED { fract: 0, value: 0 },
+                eM21: FIXED { fract: 0, value: 0 },
+                eM22: FIXED { fract: 0, value: 1 },
+            };
+            let mut ink: Option<(i32, i32)> = None;
+            for c in s.chars().filter(|c| c.is_alphanumeric()) {
+                let mut glyph: GLYPHMETRICS = std::mem::zeroed();
+                if GetGlyphOutlineW(self.hdc, c as u32, GGO_METRICS, &mut glyph, 0, null_mut(), &identity) == u32::MAX {
+                    continue;
+                }
+                let above = glyph.gmptGlyphOrigin.y;
+                let below = above - glyph.gmBlackBoxY as i32;
+                ink = Some(ink.map_or((above, below), |(a, b)| (a.max(above), b.min(below))));
+            }
+            let mut metrics: TEXTMETRICW = std::mem::zeroed();
+            let have_metrics = GetTextMetricsW(self.hdc, &mut metrics) != 0;
+            let (vertical, top, line) = match ink {
+                Some((above, below)) if have_metrics => {
+                    let baseline = (r.top + r.bottom) / 2 + (above + below) / 2;
+                    (DT_TOP, baseline - metrics.tmAscent, metrics.tmHeight)
+                }
+                _ => (DT_VCENTER, r.top, r.bottom - r.top),
+            };
+            let slots: Vec<(char, i32)> = s.chars().map(|c| (c, if c.is_ascii_digit() { digit } else { width(c) })).collect();
+            let total: i32 = slots.iter().map(|(_, w)| w).sum();
+            let mut x = if align == DT_RIGHT {
+                r.right - total
+            } else if align == DT_CENTER {
+                (r.left + r.right - total) / 2
+            } else {
+                r.left
+            };
+            for (c, w) in slots {
+                let mut unit = [0u16; 2];
+                let unit = c.encode_utf16(&mut unit);
+                let mut cell = if vertical == DT_TOP {
+                    rect(x, top, x + w, top + line)
+                } else {
+                    rect(x, r.top, x + w, r.bottom)
+                };
+                DrawTextW(
+                    self.hdc,
+                    unit.as_ptr(),
+                    unit.len() as i32,
+                    &mut cell,
+                    DT_CENTER | DT_SINGLELINE | vertical | DT_NOPREFIX | DT_NOCLIP,
+                );
+                x += w;
+            }
             SelectObject(self.hdc, old);
         }
     }
@@ -492,6 +829,18 @@ fn delta_text(d: Option<f64>) -> String {
     }
 }
 
+/// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
+/// reverse; the top gear is not known to every game, so there is always one above a forward gear.
+fn neighbour_gears(gear: f32) -> (Option<String>, Option<String>) {
+    if !gear.is_finite() {
+        return (None, None);
+    }
+    let g = gear.round() as i32;
+    let below = (g > -1).then(|| gear_text((g - 1) as f32));
+    let above = Some(gear_text((g + 1) as f32));
+    (below, above)
+}
+
 fn gear_text(gear: f32) -> String {
     match gear {
         g if !g.is_finite() => "–".to_owned(),
@@ -521,15 +870,6 @@ fn state_color(game: &Game) -> COLORREF {
         Game::Waiting => GREY,
         Game::Paused => AMBER,
         Game::Unsupported => RED,
-    }
-}
-
-/// The colour of shift light `i` of `LIGHTS`: the first third green, then amber, then red.
-fn light_color(i: usize) -> COLORREF {
-    match i * 3 / LIGHTS {
-        0 => GREEN,
-        1 => AMBER,
-        _ => RED,
     }
 }
 
@@ -617,9 +957,14 @@ fn header(g: &mut Painter, width: i32, view: &View) {
 
 /// Fits the canvas in `body`: the scale and where its top left goes.
 fn canvas_fit(body: RECT) -> (f32, i32, i32) {
+    canvas_fit_w(body, CANVAS_W)
+}
+
+/// Fits a canvas `width` design units wide (and `CANVAS_H` high) in `body`.
+fn canvas_fit_w(body: RECT, width: f32) -> (f32, i32, i32) {
     let (bw, bh) = ((body.right - body.left) as f32, (body.bottom - body.top) as f32);
-    let s = (bw / CANVAS_W).min(bh / CANVAS_H).max(0.1);
-    let ox = body.left + ((bw - CANVAS_W * s) / 2.0).round() as i32;
+    let s = (bw / width).min(bh / CANVAS_H).max(0.1);
+    let ox = body.left + ((bw - width * s) / 2.0).round() as i32;
     let oy = body.top + ((bh - CANVAS_H * s) / 2.0).round() as i32;
     (s, ox, oy)
 }
@@ -640,6 +985,9 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
         MUTED,
         DT_CENTER,
     );
+    if !view.covers.is_empty() {
+        return cover_shelf(g, view.covers);
+    }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
         .games
@@ -669,36 +1017,56 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     }
 }
 
+/// The games as a row of covers (Steam's art where it has some, the name on a card where not), centred under the
+/// title, with each game's name below its cover.
+fn cover_shelf(g: &mut Painter, covers: &[CoverArt]) {
+    let gap = 12.0;
+    let count = covers.len() as f32;
+    let w = ((CANVAS_W - 40.0 - gap * (count - 1.0)) / count).min(110.0);
+    let h = w * 1.5;
+    let mut x = (CANVAS_W - (w * count + gap * (count - 1.0))) / 2.0;
+    let y = 250.0;
+    for cover in covers {
+        let r = g.r(x, y, w, h);
+        if cover.image.is_null() {
+            g.fill(r, CARD);
+            g.fill(g.r(x, y, w, 3.0), EDGE);
+            let r = g.r(x + 6.0, y, w - 12.0, h);
+            g.text(cover.name, r, 12.0, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
+        } else {
+            g.image(r, cover.image);
+        }
+        let r = g.r(x - 4.0, y + h + 8.0, w + 8.0, 16.0);
+        g.text(cover.name, r, 10.5, FW_NORMAL as i32, Face::Ui, MUTED, DT_CENTER);
+        x += w + gap;
+    }
+}
+
 fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     let Some(live) = view.live.filter(|l| view.now_ms - l.at_ms <= STALE_MS) else {
         return waiting(g, body, view);
     };
-    let (s, ox, oy) = canvas_fit(body);
+    let has_map = live.map.as_ref().is_some_and(|m| m.len() >= 30);
+    let has_tyres = live.tyres.is_some();
+    let side = (has_map || has_tyres) && canvas_fit_w(body, CANVAS_W + SIDE_W).0 >= SIDE_MIN_SCALE;
+    let width = if side { CANVAS_W + SIDE_W } else { CANVAS_W };
+    let (s, ox, oy) = canvas_fit_w(body, width);
     g.place(s, ox, oy);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    if side {
+        side_column(g, live, view, has_map, has_tyres);
+    }
 
-    // The shift lights: a bar of segments the width of the screen, glowing when lit, flashing at the top.
+    // The rev bar: a dome across the top, green to red as the revs climb, on a cyan line; it flashes blue at the
+    // shift point.
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
     let (lit, flash) = lights_lit(share);
     let blink_on = view.now_ms / 120 % 2 == 0;
-    let seg_gap = 6.0;
-    let seg_w = (CANVAS_W - seg_gap * (LIGHTS as f32 - 1.0)) / LIGHTS as f32;
-    for i in 0..LIGHTS {
-        let x = i as f32 * (seg_w + seg_gap);
-        let color = match (flash, i < lit) {
-            (true, _) if blink_on => BLUE,
-            (true, _) => DIM,
-            (false, true) => light_color(i),
-            (false, false) => DIM,
-        };
-        if color != DIM {
-            g.round(g.r(x - 3.0, -3.0, seg_w + 6.0, 28.0), 7.0, mix(BG, color, 0.22), None);
-        }
-        g.round(g.r(x, 0.0, seg_w, 22.0), 4.0, color, None);
-    }
+    g.rev_bar(0.0, 0.0, width, 36.0, share, flash && blink_on);
+    g.round(g.r(0.0, 37.0, width, 3.0), 1.5, CYAN, None);
 
     // Where and what: track and car on the left, the lap on the right.
-    let r = g.r(0.0, 38.0, 640.0, 26.0);
+    let r = g.r(0.0, 48.0, 640.0, 24.0);
     g.text(&live.track.to_uppercase(), r, 17.0, semi, Face::Num, TEXT, DT_LEFT);
     let car = [live.car.as_str(), live.game]
         .iter()
@@ -706,9 +1074,9 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         .cloned()
         .collect::<Vec<_>>()
         .join("  ·  ");
-    let r = g.r(0.0, 64.0, 640.0, 18.0);
+    let r = g.r(0.0, 72.0, 640.0, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(640.0, 36.0, 360.0, 30.0);
+    let r = g.r(width - 360.0, 46.0, 360.0, 28.0);
     g.text(
         &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
         r,
@@ -725,9 +1093,9 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     } else {
         String::new()
     };
-    let r = g.r(640.0, 64.0, 360.0, 18.0);
+    let r = g.r(width - 360.0, 72.0, 360.0, 18.0);
     g.caps(&status, r, 11.0, AMBER, DT_RIGHT);
-    g.fill(g.r(0.0, 92.0, CANVAS_W, 1.0), EDGE);
+    g.fill(g.r(0.0, 95.0, width, 1.0), EDGE);
 
     // Left column: the lap's times. Right column, mirrored: fuel, revs, lap progress.
     let rows = [(100.0, 112.0, 54.0), (212.0, 96.0, 40.0), (308.0, 96.0, 40.0)];
@@ -772,10 +1140,7 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         let r = g.r(680.0, y + 28.0, 322.0, h - 34.0);
         g.text(r_value, r, *size, semi, Face::Num, *r_color, DT_RIGHT);
     }
-    g.round(g.r(760.0, 392.0, 240.0, 6.0), 3.0, TRACK, None);
-    if let Some(p) = progress {
-        g.round(g.r(760.0, 392.0, (240.0 * p).max(6.0), 6.0), 3.0, ACCENT, None);
-    }
+    g.blocks(760.0, 390.0, 240.0, 9.0, 20, 0.0, progress.unwrap_or(f32::NAN), ACCENT);
 
     // Centre: the delta to the best lap above the gear, the speed below it.
     let delta_color = match live.delta_s {
@@ -787,27 +1152,52 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     g.caps(&text(view.lang, &Msg::PanelDelta), r, 10.5, MUTED, DT_CENTER);
     let r = g.r(330.0, 114.0, 340.0, 40.0);
     g.text(&delta_text(live.delta_s), r, 38.0, semi, Face::Num, delta_color, DT_CENTER);
-    let bar = (350.0, 158.0, 300.0, 6.0);
-    g.round(g.r(bar.0, bar.1, bar.2, bar.3), 4.0, TRACK, None);
-    if let Some(d) = live.delta_s.filter(|d| d.is_finite()) {
-        let reach = (d.clamp(-1.0, 1.0) as f32) * bar.2 / 2.0;
-        let mid = bar.0 + bar.2 / 2.0;
-        let (x, w) = if reach < 0.0 { (mid + reach, -reach) } else { (mid, reach) };
-        g.round(g.r(x, bar.1, w.max(3.0), bar.3), 4.0, delta_color, None);
-    }
+    let bar = (350.0, 156.0, 300.0, 9.0);
+    // Each block is a tenth of a second, faster to the left.
+    let (from, to) = match live.delta_s.filter(|d| d.is_finite()) {
+        Some(d) => {
+            let at = 0.5 + (d.clamp(-1.0, 1.0) as f32) / 2.0;
+            (at.min(0.5), at.max(0.5))
+        }
+        None => (f32::NAN, f32::NAN),
+    };
+    g.blocks(bar.0, bar.1, bar.2, bar.3, 20, from, to, delta_color);
     g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
 
-    // The gear in a frame that lights up red near the limit and flashes blue when it is time to shift.
+    // The gear between four square corner brackets that turn red near the limit and flash blue when it is time
+    // to shift.
     let frame = match (flash, lit) {
         (true, _) if blink_on => BLUE,
         (true, _) => RED,
         (false, n) if n >= LIGHTS - 2 => RED,
-        _ => EDGE,
+        _ => MUTED,
     };
-    g.round(g.r(352.0, 172.0, 296.0, 188.0), 20.0, frame, None);
-    g.round(g.r(355.0, 175.0, 290.0, 182.0), 17.0, mix(BG, CARD, 0.75), None);
+    let (fx, fy, fw, fh, arm, thick) = (360.0, 176.0, 280.0, 180.0, 26.0, 3.0);
+    for (cx, cy, dx, dy) in [
+        (fx, fy, 1.0, 1.0),
+        (fx + fw, fy, -1.0, 1.0),
+        (fx, fy + fh, 1.0, -1.0),
+        (fx + fw, fy + fh, -1.0, -1.0),
+    ] {
+        let x0 = if dx > 0.0 { cx } else { cx - arm };
+        let y0 = if dy > 0.0 { cy } else { cy - thick };
+        g.fill(g.r(x0, y0, arm, thick), frame);
+        let x1 = if dx > 0.0 { cx } else { cx - thick };
+        let y1 = if dy > 0.0 { cy } else { cy - arm };
+        g.fill(g.r(x1, y1, thick, arm), frame);
+    }
     let r = g.r(352.0, 172.0, 296.0, 188.0);
     g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
+    let (below, above) = neighbour_gears(live.gear);
+    for (gear, x) in [(below, 384.0), (above, 576.0)] {
+        if let Some(gear) = gear {
+            let (w, h) = (40.0, 52.0);
+            let y = 172.0 + 94.0 - h / 2.0;
+            g.fill(g.r(x, y, w, h), CARD);
+            let r = g.r(x, y, w, h);
+            g.text(&gear, r, 26.0, semi, Face::Num, MUTED, DT_CENTER);
+        }
+    }
     let speed = if live.speed_ms.is_finite() {
         format!("{:.0}", live.speed_ms * 3.6)
     } else {
@@ -838,15 +1228,11 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     side(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 432.0, DT_RIGHT);
     let (bx, bw, by, bh) = (140.0, 720.0, 444.0, 18.0);
     let mid = bx + bw / 2.0;
-    g.round(g.r(bx, by, bw, bh), 9.0, TRACK, None);
-    if live.brake.is_finite() && live.brake > 0.0 {
-        let w = (bw / 2.0 * live.brake.min(1.0)).max(bh);
-        g.round(g.r(mid - w, by, w, bh), 9.0, RED, None);
-    }
-    if live.throttle.is_finite() && live.throttle > 0.0 {
-        let w = (bw / 2.0 * live.throttle.min(1.0)).max(bh);
-        g.round(g.r(mid, by, w, bh), 9.0, GREEN, None);
-    }
+    // One bar of blocks: brake lights from the centre to the left, throttle from the centre to the right.
+    let half = bw / 2.0 - 4.0;
+    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+    g.blocks(bx, by, half, bh, 24, 1.0 - pedal(live.brake), 1.0, RED);
+    g.blocks(mid + 4.0, by, half, bh, 24, 0.0, pedal(live.throttle), GREEN);
     g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
 
     let wheel = if live.steer.is_finite() {
@@ -863,12 +1249,95 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     };
     side(g, &text(view.lang, &Msg::PanelSteer), wheel, 476.0, DT_LEFT);
     side(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 476.0, DT_RIGHT);
-    let (ty, th) = (494.0, 6.0);
-    g.round(g.r(bx, ty, bw, th), 3.0, TRACK, None);
+    let (ty, th) = (492.0, 10.0);
+    // The wheel: the block where the wheel points is lit (a block either side when it sits between two).
+    let at = if live.steer.is_finite() {
+        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
+    } else {
+        f32::NAN
+    };
+    let reach = 1.0 / 48.0;
+    g.blocks(bx, ty, bw, th, 48, at - reach, at + reach, ACCENT);
     g.fill(g.r(mid - 1.0, ty - 5.0, 2.0, th + 10.0), MUTED);
-    if live.steer.is_finite() {
-        let x = mid + live.steer.clamp(-1.0, 1.0) * bw / 2.0;
-        g.round(g.r(x - 16.0, ty - 5.0, 32.0, th + 10.0), 8.0, ACCENT, None);
+}
+
+/// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
+/// tyres; each game and compound has its own window, so this is a guide, not a target).
+fn tyre_color(temp_c: f32) -> COLORREF {
+    match temp_c {
+        t if !t.is_finite() => MUTED,
+        t if t < 65.0 => BLUE,
+        t if t < 95.0 => GREEN,
+        t if t < 110.0 => AMBER,
+        _ => RED,
+    }
+}
+
+/// The right-hand column: the track map (the car's own path, with where it is now) and the four tyres.
+fn side_column(g: &mut Painter, live: &Live, view: &View, has_map: bool, has_tyres: bool) {
+    let x = CANVAS_W + 24.0;
+    let w = SIDE_W - 24.0;
+    let (top, bottom) = (106.0, CANVAS_H);
+    let tyres_h = if has_tyres { 214.0 } else { 0.0 };
+    let map_bottom = if has_tyres { bottom - tyres_h - 14.0 } else { bottom };
+    if has_map {
+        let r = g.r(x, top, w, 16.0);
+        g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
+        if let Some(map) = &live.map {
+            g.track_map(x, top + 22.0, w, map_bottom - top - 22.0, map, live.pos);
+        }
+    }
+    if has_tyres {
+        let tyres = live.tyres.unwrap_or(
+            [crate::game::Tyre {
+                temp_c: f32::NAN,
+                pressure_kpa: f32::NAN,
+                left: f32::NAN,
+            }; 4],
+        );
+        let y0 = if has_map { bottom - tyres_h } else { top };
+        let r = g.r(x, y0, w, 16.0);
+        g.caps(&text(view.lang, &Msg::PanelTyres), r, 10.5, MUTED, DT_LEFT);
+        let (gap, box_w) = (8.0, (w - 8.0) / 2.0);
+        let box_h = (tyres_h - 22.0 - gap) / 2.0;
+        for (i, (label, tyre)) in ["FL", "FR", "RL", "RR"].iter().zip(tyres.iter()).enumerate() {
+            let bx = x + (i % 2) as f32 * (box_w + gap);
+            let by = y0 + 22.0 + (i / 2) as f32 * (box_h + gap);
+            tyre_box(g, bx, by, box_w, box_h, label, tyre);
+        }
+    }
+}
+
+/// One tyre: its temperature, big, in its colour; the pressure; the tread left as blocks when the game gives it.
+fn tyre_box(g: &mut Painter, x: f32, y: f32, w: f32, h: f32, label: &str, tyre: &crate::game::Tyre) {
+    let color = tyre_color(tyre.temp_c);
+    g.fill(g.r(x, y, w, h), mix(BG, color, 0.13));
+    g.fill(g.r(x, y, w, 3.0), color);
+    let r = g.r(x + 12.0, y + 10.0, 40.0, 16.0);
+    g.caps(label, r, 10.5, MUTED, DT_LEFT);
+    let pressure = if tyre.pressure_kpa.is_finite() {
+        format!("{:.1} psi", tyre.pressure_kpa / 6.894_757)
+    } else {
+        String::new()
+    };
+    let r = g.r(x, y + 8.0, w - 12.0, 20.0);
+    g.text(&pressure, r, 15.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_RIGHT);
+    let temp = if tyre.temp_c.is_finite() {
+        format!("{:.0}°", tyre.temp_c)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(x + 12.0, y + 28.0, w - 24.0, h - 48.0);
+    g.text(&temp, r, 34.0, FW_SEMIBOLD as i32, Face::Num, color, DT_LEFT);
+    if tyre.left.is_finite() {
+        let wear = if tyre.left > 0.5 {
+            GREEN
+        } else if tyre.left > 0.25 {
+            AMBER
+        } else {
+            RED
+        };
+        g.blocks(x + 12.0, y + h - 16.0, w - 24.0, 6.0, 10, 0.0, tyre.left, wear);
     }
 }
 
@@ -1078,6 +1547,7 @@ unsafe fn paint_window(hwnd: HWND, state: &State) {
         recent_laps: &recent_laps,
         log: &log,
         laps_dir: &ctx.laps_dir,
+        covers: &state.covers,
     };
     paint(memory, w, h, &view);
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
@@ -1280,6 +1750,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             tab: Tab::Dash,
             on_top: false,
             full: None,
+            covers: CoverArt::load_all(),
         }));
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
         let before = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -1443,6 +1914,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 mod tests {
     use super::*;
     use crate::game::Frame;
+
     use windows_sys::Win32::Graphics::Gdi::{CreateDIBSection, GdiFlush, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
 
     /// Paints a view into a bitmap and gives back its pixels (BGRA, top row first).
@@ -1518,7 +1990,22 @@ mod tests {
         frame.clutch = 0.0;
         frame.steer = -0.18;
         frame.fuel_l = 38.6;
+        frame.tyres = Some(
+            [(84.0, 26.9, 0.91), (88.0, 27.2, 0.9), (97.0, 26.4, 0.86), (101.0, 26.6, 0.84)].map(|(t, psi, left)| crate::game::Tyre {
+                temp_c: t,
+                pressure_kpa: psi * 6.894_757,
+                left,
+            }),
+        );
         let mut live = tracker.on_frame("Assetto Corsa", &frame, 1_000);
+        let track: Vec<(f32, f32)> = (0..400)
+            .map(|i| {
+                let t = i as f32 / 400.0 * std::f32::consts::TAU;
+                (600.0 * t.cos() + 130.0 * (3.0 * t).cos(), 300.0 * t.sin() - 110.0 * (2.0 * t).sin())
+            })
+            .collect();
+        live.pos = Some(track[160]);
+        live.map = Some(std::sync::Arc::new(track));
         live.best_lap_s = Some(107.204);
         live.delta_s = Some(-0.27);
         live
@@ -1588,6 +2075,7 @@ mod tests {
             recent_laps: &f.laps,
             log: &f.log,
             laps_dir: "C:\\Users\\Driver\\Documents\\Xpeed Sim\\Laps",
+            covers: &[],
         }
     }
 
@@ -1634,6 +2122,123 @@ mod tests {
             has_color(&waiting, ACCENT) < 6000,
             "no gear while waiting: only the selected tab is in the accent"
         );
+    }
+
+    /// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
+    /// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
+    /// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
+    #[test]
+    fn writes_the_design_preview_page() {
+        let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") else {
+            return;
+        };
+        let f = fixture();
+        let live = live_reading();
+        let mut pits = live.clone();
+        pits.in_pits = true;
+        pits.delta_s = Some(0.43);
+        pits.throttle = 0.0;
+        pits.brake = 0.8;
+        let shots = [
+            (
+                "preview-window.png",
+                "Window (960 × 600)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                960,
+                600,
+                1.0,
+            ),
+            (
+                "preview-full-hd.png",
+                "Full screen, 1920 × 1080",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                1920,
+                1080,
+                1.0,
+            ),
+            (
+                "preview-ultrawide.png",
+                "Full screen, ultrawide 2560 × 1080",
+                Some(&pits),
+                Tab::Dash,
+                Lang::Pt,
+                2560,
+                1080,
+                1.0,
+            ),
+            ("preview-monitor.png", "Monitor tab", None, Tab::Monitor, Lang::En, 1280, 800, 1.0),
+            (
+                "preview-waiting.png",
+                "Waiting for a game",
+                None,
+                Tab::Dash,
+                Lang::En,
+                960,
+                600,
+                1.0,
+            ),
+            (
+                "preview-small.png",
+                "Smallest window (720 × 480)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                720,
+                480,
+                1.0,
+            ),
+        ];
+        let mut figures = String::new();
+        let covers = CoverArt::load_all();
+        let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
+        with_covers.covers = &covers;
+        let pixels = render(&with_covers, 1280, 720);
+        save(&pixels, 1280, 720, "preview-covers.png");
+        figures.push_str("<figure><figcaption>Waiting for a game, with this computer's Steam covers</figcaption><img data-src=\"preview-covers.png\" width=\"1280\" height=\"720\"></figure>\n");
+        for (file, caption, reading, tab, lang, w, h, scale) in shots {
+            let pixels = render(&view(&f, reading, tab, scale, lang), w, h);
+            save(&pixels, w, h, file);
+            figures.push_str(&format!(
+                "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+            ));
+        }
+        let stamp = crate::util::now_ms().to_string();
+        let page = format!(
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>Xpeed Sim panel</title>
+<style>
+body {{ margin: 0; background: #050607; color: #c9ccd2; font: 14px "Segoe UI", sans-serif; }}
+header {{ position: sticky; top: 0; padding: 12px 24px; background: #0c0d0fee; border-bottom: 1px solid #25282e; display: flex; gap: 16px; align-items: baseline; z-index: 1; }}
+header b {{ color: #f5e663; font-size: 16px; }}
+main {{ padding: 24px; display: grid; gap: 32px; }}
+figure {{ margin: 0; }}
+figcaption {{ margin-bottom: 8px; color: #7c828c; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }}
+img {{ display: block; max-width: 100%; height: auto; border: 1px solid #25282e; border-radius: 8px; }}
+</style></head><body>
+<header><b>Xpeed Sim panel</b><span>drawn by the program's own code · updates by itself</span><span id="when"></span></header>
+<main>
+{figures}</main>
+<script>
+let shown = "";
+async function look() {{
+  try {{
+    const stamp = (await (await fetch("stamp.txt?" + Date.now())).text()).trim();
+    if (stamp && stamp !== shown) {{
+      shown = stamp;
+      document.querySelectorAll("img[data-src]").forEach(img => img.src = img.dataset.src + "?" + stamp);
+      document.getElementById("when").textContent = "updated " + new Date(Number(stamp)).toLocaleTimeString();
+    }}
+  }} catch (e) {{}}
+}}
+look(); setInterval(look, 1500);
+</script></body></html>"#
+        );
+        let dir = std::path::Path::new(&dir);
+        std::fs::write(dir.join("index.html"), page).unwrap();
+        std::fs::write(dir.join("stamp.txt"), stamp).unwrap();
     }
 
     #[test]
@@ -1689,10 +2294,18 @@ mod tests {
         assert_eq!(lights_lit(0.969), (19, false));
         assert_eq!(lights_lit(0.98), (LIGHTS, true));
         assert_eq!(lights_lit(f32::NAN), (0, false));
-        assert_eq!((light_color(0), light_color(7), light_color(19)), (GREEN, AMBER, RED));
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
         assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
         assert_eq!(lap_parts("odd"), ("odd", ""));
+    }
+
+    #[test]
+    fn shows_the_gears_either_side() {
+        assert_eq!(neighbour_gears(4.0), (Some("3".into()), Some("5".into())));
+        assert_eq!(neighbour_gears(1.0), (Some("N".into()), Some("2".into())));
+        assert_eq!(neighbour_gears(0.0), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN), (None, None));
     }
 
     #[test]

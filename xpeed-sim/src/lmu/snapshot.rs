@@ -28,6 +28,18 @@ fn text_at(bytes: &[u8], at: usize, max: usize) -> String {
     String::from_utf8_lossy(&field[..end]).into_owned()
 }
 
+/// One wheel of the player's car (`TelemWheelV01`).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Wheel {
+    /// kPa.
+    pub pressure_kpa: f64,
+    /// Kelvin, across the tread: left, centre, right.
+    pub temperature_k: [f64; 3],
+    /// The header says "wear (0.0-1.0, fraction of maximum)"; in rFactor 2 games it starts at 1.0 on a new tyre and
+    /// falls, so it is taken as the tread left. Not yet checked against a live session of Le Mans Ultimate.
+    pub wear: f64,
+}
+
 /// The player's car, as the game reports it every telemetry update (100 Hz by default).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayerTelemetry {
@@ -50,6 +62,8 @@ pub struct PlayerTelemetry {
     pub steering: f64,
     pub clutch: f64,
     pub fuel_l: f64,
+    /// Front left, front right, rear left, rear right.
+    pub wheels: [Wheel; 4],
 }
 
 impl PlayerTelemetry {
@@ -120,6 +134,14 @@ pub fn parse_telemetry(info: &[u8]) -> PlayerTelemetry {
         steering: f64_at(info, TI_STEERING),
         clutch: f64_at(info, TI_CLUTCH),
         fuel_l: f64_at(info, TI_FUEL),
+        wheels: std::array::from_fn(|i| {
+            let at = TI_WHEEL + i * TELEM_WHEEL_SIZE;
+            Wheel {
+                pressure_kpa: f64_at(info, at + TW_PRESSURE),
+                temperature_k: vect3_at(info, at + TW_TEMPERATURE),
+                wear: f64_at(info, at + TW_WEAR),
+            }
+        }),
     }
 }
 
@@ -254,6 +276,14 @@ pub mod fake {
             self.put_f64(base + TI_STEERING, t.steering);
             self.put_f64(base + TI_CLUTCH, t.clutch);
             self.put_f64(base + TI_FUEL, t.fuel_l);
+            for (i, wheel) in t.wheels.iter().enumerate() {
+                let at = base + TI_WHEEL + i * TELEM_WHEEL_SIZE;
+                self.put_f64(at + TW_PRESSURE, wheel.pressure_kpa);
+                for (side, kelvin) in wheel.temperature_k.iter().enumerate() {
+                    self.put_f64(at + TW_TEMPERATURE + side * 8, *kelvin);
+                }
+                self.put_f64(at + TW_WEAR, wheel.wear);
+            }
         }
 
         /// Session scoring and a list of cars; `player` is the index of the player's own car.
@@ -307,6 +337,11 @@ mod tests {
             steering: -0.25,
             clutch: 0.0,
             fuel_l: 55.5,
+            wheels: [0.0, 1.0, 2.0, 3.0].map(|i| Wheel {
+                pressure_kpa: 170.0 + i,
+                temperature_k: [350.0 + i, 352.0 + i, 354.0 + i],
+                wear: 0.95 - i * 0.01,
+            }),
         }
     }
 
