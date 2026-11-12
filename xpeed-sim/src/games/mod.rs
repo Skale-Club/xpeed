@@ -10,6 +10,7 @@ use crate::game::Source;
 pub mod acevo;
 pub mod ams2;
 pub mod f1;
+pub mod forza;
 pub mod iracing;
 pub mod kunos;
 pub mod r3e;
@@ -64,9 +65,11 @@ pub const READERS: &[Reader] = &[
     },
     Reader {
         family: "f1",
-        title: "F1 25",
-        ids: &["f1"],
-        programs: &["f1_25.exe"],
+        title: "F1 25 · F1 24 · F1 23",
+        // One UDP port for the three: the format of each packet says which game sent it (`f1.rs`).
+        ids: &["f1", "f124", "f123"],
+        // The games' own executables (Steam and EA app installs): F1_25.exe, F1_24.exe, F1_23.exe.
+        programs: &["f1_25.exe", "f1_24.exe", "f1_23.exe"],
         open: f1::open,
     },
     Reader {
@@ -97,5 +100,18 @@ pub const READERS: &[Reader] = &[
         // The official API sample (`sample-c/src/utils.c`) looks for these two.
         programs: &["rrre64.exe", "rrre.exe"],
         open: r3e::open,
+    },
+    Reader {
+        family: "forza",
+        title: "Forza Motorsport · Forza Horizon",
+        ids: &["fm", "fm7", "fh4", "fh5"],
+        programs: &[
+            "forza_steamworks_release_final.exe",
+            "forza_gaming.desktop.x64_release_final.exe",
+            "forzamotorsport7.exe",
+            "forzahorizon4.exe",
+            "forzahorizon5.exe",
+        ],
+        open: forza::open,
     },
 ];

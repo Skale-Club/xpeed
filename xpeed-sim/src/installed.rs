@@ -18,11 +18,18 @@ const GAMES: &[(&str, u32, &[&str])] = &[
     ("pcars2", 378_860, &["project cars 2"]),
     ("pcars3", 958_400, &["project cars 3"]),
     ("f1", 3_059_520, &["f1 25", "ea sports f1 25"]),
+    ("f124", 2_488_620, &["f1 24", "ea sports f1 24"]),
+    ("f123", 2_108_330, &["f1 23", "ea sports f1 23"]),
     ("wreckfest2", 1_203_190, &["wreckfest 2"]),
     ("rfactor1", 273_840, &["stock car extreme", "game stock car extreme"]),
     ("ams1", 431_600, &["automobilista"]),
     ("rf1", 339_790, &["rfactor"]),
     ("r3e", 211_500, &["raceroom racing experience", "raceroom"]),
+    ("fm", 2_440_510, &["forza motorsport"]),
+    // Only on the Microsoft Store (no Steam id): found by name when Windows lists it.
+    ("fm7", 0, &["forza motorsport 7"]),
+    ("fh4", 1_293_830, &["forza horizon 4"]),
+    ("fh5", 1_551_360, &["forza horizon 5"]),
     (
         "iracing",
         266_410,
