@@ -134,6 +134,8 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         }
     };
     let mut live: Vec<Live> = Vec::new();
+    // Families let go while their game still ran: opened again without a word.
+    let mut reopen_quietly: Vec<&'static str> = Vec::new();
     let mut last_look = Instant::now().checked_sub(Duration::from_secs(10)).unwrap_or_else(Instant::now);
     while !shared.quitting() {
         if shared.paused() {
@@ -180,7 +182,10 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     }
                 }
                 if let Some(source) = opened {
-                    say(format!("Connected to {}.", source.game_name()));
+                    if !reopen_quietly.contains(&reader.family) {
+                        say(format!("Connected to {}.", source.game_name()));
+                    }
+                    reopen_quietly.retain(|f| *f != reader.family);
                     shared.set_game(source.game_id(), source.game_name(), Game::Connected);
                     live.push(Live {
                         family: reader.family,
@@ -247,11 +252,23 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                 l.lap_shown = 0;
             }
         }
+        // A source that stopped answering is let go. When its program still runs (a game that stops writing in a
+        // menu, or after its data option was switched on mid-session) it is not "closed": it is opened again at the
+        // next look, quietly, and the game stays connected meanwhile.
+        if live.iter().all(|l| l.source.alive()) {
+            continue;
+        }
+        let running = crate::win::running_programs();
         live.retain(|l| {
             let alive = l.source.alive();
             if !alive {
-                say(format!("{} closed.", l.source.game_name()));
-                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+                let still_open = !l.programs.is_empty() && crate::win::any_running(&running, l.programs);
+                if still_open {
+                    reopen_quietly.push(l.family);
+                } else {
+                    say(format!("{} closed.", l.source.game_name()));
+                    shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+                }
             }
             alive
         });
