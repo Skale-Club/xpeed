@@ -79,5 +79,11 @@ int main() {
   OFF_IN("TI_STEERING", TelemInfoV01, mUnfilteredSteering);
   OFF_IN("TI_CLUTCH", TelemInfoV01, mUnfilteredClutch);
   OFF_IN("TI_FUEL", TelemInfoV01, mFuel);
+  OFF_IN("TI_WHEEL", TelemInfoV01, mWheel);
+  SIZE("TELEM_WHEEL_SIZE", TelemWheelV01);
+  OFF_IN("TW_PRESSURE", TelemWheelV01, mPressure);
+  OFF_IN("TW_TEMPERATURE", TelemWheelV01, mTemperature);
+  OFF_IN("TW_WEAR", TelemWheelV01, mWear);
+  OFF_IN("TW_CARCASS_TEMPERATURE", TelemWheelV01, mTireCarcassTemperature);
   return 0;
 }

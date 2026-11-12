@@ -18,6 +18,7 @@
 
 mod applog;
 mod config;
+mod covers;
 mod dash;
 #[cfg(windows)]
 mod engine;
@@ -25,6 +26,7 @@ mod game;
 #[cfg(windows)]
 mod games;
 mod icon;
+mod installed;
 mod lapcut;
 mod lapfile;
 mod link;

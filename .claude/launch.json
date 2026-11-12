@@ -31,6 +31,20 @@
         "--strictPort"
       ],
       "port": 4173
+    },
+    {
+      "name": "xpeed-sim-panel-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5180",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "xpeed-sim/target/panel-preview"
+      ],
+      "port": 5180
     }
   ]
 }

@@ -15,20 +15,36 @@
 use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex};
 
+use std::collections::HashSet;
+use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
-    DrawTextW, Ellipse, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT,
-    DT_SINGLELINE, DT_VCENTER, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, NULL_BRUSH, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
-    SRCCOPY, TRANSPARENT,
+    AddFontMemResourceEx, BeginPaint, BitBlt, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
+    DrawTextW, EndPaint, FillRect, GetGlyphOutlineW, GetStockObject, GetTextExtentPoint32W, GetTextMetricsW, InvalidateRect, RoundRect,
+    SelectObject, SetBkMode, SetTextCharacterExtra, SetTextColor, ANTIALIASED_QUALITY, CLEARTYPE_NATURAL_QUALITY, CLIP_DEFAULT_PRECIS,
+    DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOCLIP, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_TOP, DT_VCENTER, FIXED,
+    FW_BOLD, FW_NORMAL, FW_SEMIBOLD, GGO_METRICS, GLYPHMETRICS, HDC, HFONT, MAT2, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
+    SRCCOPY, TEXTMETRICW, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows_sys::Win32::Graphics::Gdi::{IntersectClipRect, ScreenToClient, SelectClipRgn};
+use windows_sys::Win32::Graphics::GdiPlus::{
+    FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
+    GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
+    GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipFillEllipse, GdipFillPath,
+    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
+    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
+    LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
+};
+use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
 use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowLongPtrW, IsWindow, KillTimer,
     LoadCursorW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
@@ -37,10 +53,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_NCCREATE, WM_PAINT, WM_SETICON, WM_TIMER, WNDCLASSW,
     WS_OVERLAPPEDWINDOW,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, IsIconic, PostMessageW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowPlacement, SetWindowPlacement, CS_DBLCLKS, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED, SWP_NOOWNERZORDER, WINDOWPLACEMENT,
     WM_LBUTTONDBLCLK,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, WM_SETCURSOR};
+use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
 
 use crate::dash::Live;
 use crate::present;
@@ -50,9 +69,16 @@ use crate::util::{clock, now_ms};
 use crate::win;
 
 const CLASS: &str = "XpeedSimPanel";
+/// `WM_MOUSELEAVE`, sent once after `TrackMouseEvent` asked for it.
+const WM_MOUSELEAVE: u32 = 0x02a3;
+/// Covers fetched in the background have arrived: read them again.
+const WM_COVERS: u32 = 0x8000 + 20;
+const WM_MOUSEMOVE: u32 = 0x0200;
+/// Where, in the Xpeed app, a computer is connected (the same page the tray menu opens).
+const CONNECT_PATH: &str = "/sim/app";
 const TIMER: usize = 1;
-/// About 30 frames a second.
-const FRAME_MS: u32 = 33;
+/// About 60 frames a second, so the carousel and the revs move smoothly.
+const FRAME_MS: u32 = 16;
 /// A reading older than this is not shown as live.
 const STALE_MS: i64 = 3000;
 /// Design size of the window at 96 DPI.
@@ -67,10 +93,12 @@ const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
 const BG: COLORREF = rgb(0x0c, 0x0d, 0x0f);
+/// The window's background runs from this at the top to that at the bottom.
+const BG_TOP: COLORREF = rgb(0x14, 0x16, 0x1a);
+const BG_BOTTOM: COLORREF = rgb(0x08, 0x09, 0x0b);
 const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
 const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
 const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
-const DIM: COLORREF = rgb(0x1f, 0x22, 0x27);
 const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
 const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
 const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
@@ -80,6 +108,15 @@ const BLUE: COLORREF = rgb(0x3d, 0x9b, 0xff);
 const AMBER: COLORREF = rgb(0xff, 0xb0, 0x3b);
 const PURPLE: COLORREF = rgb(0xb5, 0x7c, 0xff);
 const GREY: COLORREF = rgb(0x5c, 0x61, 0x6b);
+/// The rev bar's base line, and its gradient from low revs to the limit.
+const CYAN: COLORREF = rgb(0x26, 0xc6, 0xff);
+const REV_STOPS: [(f32, COLORREF); 4] = [
+    (0.0, rgb(0x57, 0xe3, 0x3a)),
+    (0.55, rgb(0xe9, 0xef, 0x3c)),
+    (0.8, rgb(0xff, 0x9f, 0x1c)),
+    (1.0, rgb(0xff, 0x30, 0x30)),
+];
+const REV_DIVISIONS: usize = 10;
 
 /// `a` with `t` (0..1) of `b` mixed in.
 fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
@@ -88,6 +125,15 @@ fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
         ((x + (y - x) * t).round() as u32) << shift
     };
     channel(0) | channel(8) | channel(16)
+}
+
+/// What a button on the panel does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Opens the Xpeed page where this computer is connected to an account.
+    Connect,
+    /// Opens Xpeed in the browser.
+    OpenXpeed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +145,8 @@ pub enum Tab {
 /// One line of the monitor's game list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameRow {
+    /// The game whose cover the line shows (the first of its games installed here).
+    pub key: &'static str,
     pub title: String,
     pub state: Game,
 }
@@ -121,7 +169,29 @@ pub struct View<'a> {
     pub recent_laps: &'a [String],
     /// `(time as HH:MM:SS, text)`, oldest first.
     pub log: &'a [(String, String)],
-    pub laps_dir: &'a str,
+    /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
+    pub covers: &'a [CoverArt],
+    /// Where the mouse is over the window (pixels), for the icon buttons' tooltips.
+    pub mouse: Option<(i32, i32)>,
+    /// The buttons drawn in this frame and where (pixels), for the clicks that follow.
+    pub buttons: std::cell::RefCell<Vec<(Action, RECT)>>,
+    /// Where the covers' carousel is: the index of the cover in the middle, fractional while it slides.
+    pub carousel: f32,
+    /// How far the games list is scrolled (design units).
+    pub games_scroll: f32,
+    /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
+    pub scroll: std::cell::Cell<Option<ScrollBar>>,
+}
+
+/// A list's scroll bar as drawn (pixels): the list, the bar's track and thumb, how far the list scrolls (design
+/// units) and how many of those one pixel of the thumb's travel is.
+#[derive(Clone, Copy)]
+pub struct ScrollBar {
+    area: RECT,
+    track: RECT,
+    thumb: RECT,
+    max: f32,
+    per_px: f32,
 }
 
 /// The account and the language as the tray knows them; the tray changes them when the computer is connected again
@@ -137,7 +207,6 @@ pub struct Account {
 pub struct Context {
     pub shared: Arc<Shared>,
     pub account: Arc<Mutex<Account>>,
-    pub laps_dir: String,
     /// The readers' lines: the title the panel shows and the game ids that report into it.
     pub readers: Vec<(String, Vec<&'static str>)>,
     pub icon_big: HICON,
@@ -146,36 +215,259 @@ pub struct Context {
     pub quit_on_close: bool,
 }
 
+/// A game for the waiting screen: its name, and its cover once Xpeed Sim has it from the Xpeed server (a small copy,
+/// made once).
+pub struct CoverArt {
+    pub key: &'static str,
+    pub name: &'static str,
+    image: *mut GpImage,
+}
+
+impl CoverArt {
+    /// The covers of the games installed here (every game Xpeed Sim reads when none was found), from its covers
+    /// folder, at about twice the size they are drawn.
+    pub fn load(installed: Option<&HashSet<&'static str>>) -> Vec<CoverArt> {
+        crate::covers::GAMES
+            .iter()
+            .filter(|(key, _)| installed.is_none_or(|set| set.is_empty() || set.contains(key)))
+            .map(|&(key, name)| CoverArt {
+                key,
+                name,
+                image: crate::covers::file(key).map_or(null_mut(), |file| load_thumbnail(&file, 240, 360)),
+            })
+            .collect()
+    }
+}
+
+impl Drop for CoverArt {
+    fn drop(&mut self) {
+        if !self.image.is_null() {
+            unsafe {
+                GdipDisposeImage(self.image);
+            }
+        }
+    }
+}
+
+/// An image file as a GDI+ image of `w` × `h` pixels; null when GDI+ or the file cannot be read.
+fn load_thumbnail(file: &std::path::Path, w: u32, h: u32) -> *mut GpImage {
+    if !gdiplus_ready() {
+        return null_mut();
+    }
+    unsafe {
+        let mut full = null_mut();
+        let name = win::wide(&file.display().to_string());
+        if GdipCreateBitmapFromFile(name.as_ptr(), &mut full) != 0 || full.is_null() {
+            return null_mut();
+        }
+        let mut small = null_mut();
+        let made = GdipGetImageThumbnail(full.cast(), w, h, &mut small, 0, null_mut()) == 0;
+        GdipDisposeImage(full.cast());
+        if !made {
+            return null_mut();
+        }
+        // Kept in premultiplied 32-bit pixels, the format GDI+ draws without converting: drawing a cover took about
+        // 7 ms each before, converting its pixels every time.
+        let mut ready = null_mut();
+        let cloned = GdipCloneBitmapAreaI(0, 0, w as i32, h as i32, PIXEL_FORMAT_32BPP_PARGB, small.cast(), &mut ready) == 0;
+        if cloned && !ready.is_null() {
+            GdipDisposeImage(small);
+            ready.cast()
+        } else {
+            small
+        }
+    }
+}
+
+/// `PixelFormat32bppPARGB` of GDI+.
+const PIXEL_FORMAT_32BPP_PARGB: i32 = 0x000e_200b;
+
+/// The covers' carousel: it moves on by one every few seconds, or when asked, sliding there with an ease.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Carousel {
+    /// The cover it is going to (counts up and down without wrapping; the drawing wraps it).
+    target: i64,
+    /// Where it was when it set off.
+    from: f32,
+    /// When it set off (Unix ms).
+    since: i64,
+}
+
+/// How long a slide takes, and how long a cover stays in the middle before the next one comes.
+const SLIDE_MS: i64 = 800;
+const DWELL_MS: i64 = 3500;
+
+impl Carousel {
+    fn new(now: i64) -> Carousel {
+        Carousel {
+            target: 0,
+            from: 0.0,
+            since: now,
+        }
+    }
+
+    /// Where it is at `now`: eased in and out (gently away, gently in) from where it set off to where it is going.
+    fn at(&self, now: i64) -> f32 {
+        let t = ((now - self.since) as f32 / SLIDE_MS as f32).clamp(0.0, 1.0);
+        let eased = if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+        };
+        self.from + (self.target as f32 - self.from) * eased
+    }
+
+    /// One step on (or back), from wherever it is now.
+    fn step(&mut self, by: i64, now: i64) {
+        self.from = self.at(now);
+        self.target += by;
+        self.since = now;
+    }
+
+    /// Moves on by itself once a cover has had its time in the middle.
+    fn tick(&mut self, now: i64) {
+        if now - self.since >= SLIDE_MS + DWELL_MS {
+            self.step(1, now);
+        }
+    }
+}
+
 struct State {
+    /// The back buffer frames are drawn into, kept for the window's size.
+    buffer: Option<Backdrop>,
+    /// Where the mouse is over the window, while it is.
+    mouse: Option<(i32, i32)>,
+    /// The buttons of the last frame, to know what a click hit.
+    buttons: Vec<(Action, RECT)>,
+    /// The covers' carousel on the waiting screen.
+    carousel: Carousel,
+    /// How far the games list is scrolled (design units), its bar in the last frame, and the thumb being dragged
+    /// (where the mouse was pressed, and the scroll then).
+    games_scroll: f32,
+    scroll: Option<ScrollBar>,
+    drag: Option<(i32, f32)>,
     ctx: Context,
+    /// The games' covers, read when the window opens.
+    covers: Vec<CoverArt>,
+    /// The games installed here, read when the window opens and each time it comes to the front.
+    installed: Option<HashSet<&'static str>>,
     tab: Tab,
     on_top: bool,
     /// Full screen: where the window was and its style, to put it back.
     full: Option<(WINDOWPLACEMENT, isize)>,
 }
 
+/// The corner radius of buttons, pills and cards (design pixels): nearly square, as racing screens are.
+const CORNER: f32 = 2.5;
+
 /// Height of the header, in design pixels.
-const HEADER_H: f32 = 58.0;
+const HEADER_H: f32 = 66.0;
 /// The dashboard is laid out on this canvas (design units) and scaled whole to fit the window, so it keeps its
 /// proportions at any size and fills a full screen instead of stretching empty cards.
 const CANVAS_W: f32 = 1000.0;
 const CANVAS_H: f32 = 520.0;
+/// The column on the right for the track map and the tyres, shown when the game gives them and the window is big
+/// enough for the wider canvas not to shrink the rest (full screen, a large window).
+const SIDE_W: f32 = 360.0;
+const SIDE_MIN_SCALE: f32 = 0.95;
 /// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
 const LIGHTS_FROM: f32 = 0.55;
 const SHIFT_AT: f32 = 0.97;
-const LIGHTS: usize = 15;
+const LIGHTS: usize = 20;
 
-/// The places of the header that can be clicked: the two tabs, "full screen" and "always on top".
+/// The places of the header that can be clicked: the two tabs, "full screen" and "always on top" (square icon
+/// buttons at the right).
 fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
     let p = |v: f32| (v * scale).round() as i32;
-    let (top, bottom) = (p(12.0), p(46.0));
+    let (top, bottom) = (p(13.0), p(51.0));
     let right = width - p(16.0);
+    let (side, gap) = (p(38.0), p(8.0));
     [
-        rect(p(19.0), p(15.0), p(133.0), p(43.0)),
-        rect(p(135.0), p(15.0), p(249.0), p(43.0)),
-        rect(right - p(176.0) - p(8.0) - p(152.0), top, right - p(176.0) - p(8.0), bottom),
-        rect(right - p(176.0), top, right, bottom),
+        rect(p(20.0), p(17.0), p(136.0), p(47.0)),
+        rect(p(136.0), p(17.0), p(252.0), p(47.0)),
+        rect(right - side - gap - side, top, right - side - gap, bottom),
+        rect(right - side, top, right, bottom),
     ]
+}
+
+/// GDI+ is started once for the process; shapes are drawn with it (smooth edges) when it starts, with plain GDI
+/// otherwise.
+fn gdiplus_ready() -> bool {
+    static READY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *READY.get_or_init(|| {
+        let mut token = 0usize;
+        let input = GdiplusStartupInput {
+            GdiplusVersion: 1,
+            ..Default::default()
+        };
+        unsafe { GdiplusStartup(&mut token, &input, null_mut()) == 0 }
+    })
+}
+
+/// A GDI colour (`0x00BBGGRR`) as GDI+ wants it (`0xAARRGGBB`, opaque).
+fn argb(color: COLORREF) -> u32 {
+    0xff00_0000 | (color & 0xff) << 16 | (color & 0xff00) | (color >> 16 & 0xff)
+}
+
+/// Runs `draw` with a GDI+ surface over `hdc`, smoothing on. False when GDI+ is not there.
+fn smooth(hdc: HDC, draw: impl FnOnce(*mut GpGraphics)) -> bool {
+    if !gdiplus_ready() {
+        return false;
+    }
+    unsafe {
+        let mut graphics = null_mut();
+        if GdipCreateFromHDC(hdc, &mut graphics) != 0 || graphics.is_null() {
+            return false;
+        }
+        GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+        GdipSetPixelOffsetMode(graphics, PixelOffsetModeHalf);
+        draw(graphics);
+        GdipDeleteGraphics(graphics);
+    }
+    true
+}
+
+/// The top edge of the rev bar at `t` (0 at the left end, 1 at the right): highest in the middle, `side` lower at
+/// the ends, along a parabola.
+fn dome_top(y: f32, side: f32, t: f32) -> f32 {
+    let from_middle = 2.0 * t - 1.0;
+    y + side * from_middle * from_middle
+}
+
+/// The part of the rev bar from `t0` to `t1` (shares of its width) as a GDI+ path: the curved top, sampled finely
+/// so it stays smooth, and the flat bottom. Filled directly (no clipping, which GDI+ does by whole pixels and would
+/// turn the curve into steps).
+unsafe fn dome_part(x: f32, y: f32, w: f32, h: f32, side: f32, t0: f32, t1: f32) -> *mut GpPath {
+    let mut path = null_mut();
+    GdipCreatePath(FillModeAlternate, &mut path);
+    let steps = ((t1 - t0) * 160.0).ceil().max(2.0) as usize;
+    let mut points: Vec<PointF> = (0..=steps)
+        .map(|i| {
+            let t = t0 + (t1 - t0) * i as f32 / steps as f32;
+            PointF {
+                X: x + w * t,
+                Y: dome_top(y, side, t),
+            }
+        })
+        .collect();
+    points.push(PointF { X: x + w * t1, Y: y + h });
+    points.push(PointF { X: x + w * t0, Y: y + h });
+    GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+    GdipClosePathFigure(path);
+    path
+}
+
+/// A rounded rectangle as a GDI+ path (`radius` in pixels, no more than half the shorter side).
+unsafe fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> *mut GpPath {
+    let mut path = null_mut();
+    GdipCreatePath(FillModeAlternate, &mut path);
+    let d = (radius * 2.0).min(w).min(h).max(0.5);
+    GdipAddPathArc(path, x, y, d, d, 180.0, 90.0);
+    GdipAddPathArc(path, x + w - d, y, d, d, 270.0, 90.0);
+    GdipAddPathArc(path, x + w - d, y + h - d, d, d, 0.0, 90.0);
+    GdipAddPathArc(path, x, y + h - d, d, d, 90.0, 90.0);
+    GdipClosePathFigure(path);
+    path
 }
 
 fn inside(r: &RECT, x: i32, y: i32) -> bool {
@@ -186,24 +478,55 @@ fn inside(r: &RECT, x: i32, y: i32) -> bool {
 enum Face {
     /// Labels and running text.
     Ui,
-    /// Numbers: Bahnschrift, the DIN-like face Windows ships, as motorsport screens use.
+    /// Numbers.
     Num,
     /// The log.
     Mono,
-    /// Windows' icon font (full screen, pin).
-    Icon,
+    /// The small upper-case labels over the values.
+    Label,
 }
 
 impl Face {
-    fn name(self, weight: i32) -> &'static str {
+    /// The font name, the GDI weight to ask for and whether it is italic. Everything is in Chakra Petch (the owner's
+    /// pick, 2026-11-12, over Bahnschrift, Racing Sans One, Russo One and Saira): numbers italic, words upright; the
+    /// log in Cascadia Mono.
+    fn font(self, weight: i32) -> (&'static str, i32, bool) {
+        let normal = FW_NORMAL as i32;
         match self {
-            Face::Ui => "Segoe UI",
-            Face::Num if weight >= FW_SEMIBOLD as i32 => "Bahnschrift SemiBold",
-            Face::Num => "Bahnschrift",
-            Face::Mono => "Cascadia Mono",
-            Face::Icon => "Segoe MDL2 Assets",
+            Face::Mono => ("Cascadia Mono", weight, false),
+            Face::Ui if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch SemiBold", normal, false),
+            Face::Ui => ("Chakra Petch", normal, false),
+            Face::Label => ("Chakra Petch SemiBold", normal, false),
+            Face::Num if weight >= FW_SEMIBOLD as i32 => ("Chakra Petch", FW_BOLD as i32, true),
+            Face::Num => ("Chakra Petch Medium", normal, true),
         }
     }
+}
+
+/// Chakra Petch (SIL Open Font License 1.1, `assets/fonts/OFL.txt`), carried inside the program and made known to
+/// this process only, so nothing is installed and every computer draws the same.
+fn register_fonts() {
+    static DONE: std::sync::Once = std::sync::Once::new();
+    DONE.call_once(|| {
+        const FONTS: [&[u8]; 4] = [
+            include_bytes!("../assets/fonts/ChakraPetch-BoldItalic.ttf"),
+            include_bytes!("../assets/fonts/ChakraPetch-MediumItalic.ttf"),
+            include_bytes!("../assets/fonts/ChakraPetch-SemiBold.ttf"),
+            include_bytes!("../assets/fonts/ChakraPetch-Regular.ttf"),
+        ];
+        for font in FONTS {
+            let mut added = 0u32;
+            unsafe {
+                // Windows writes the count through this pointer (declared const in the bindings).
+                AddFontMemResourceEx(
+                    font.as_ptr().cast(),
+                    font.len() as u32,
+                    null(),
+                    std::ptr::addr_of_mut!(added).cast_const(),
+                );
+            }
+        }
+    });
 }
 
 /// Drawing over one device context in design units: `s` pixels per unit from the origin `(ox, oy)`. The fonts it
@@ -218,6 +541,7 @@ struct Painter {
 
 impl Painter {
     fn new(hdc: HDC, s: f32) -> Painter {
+        register_fonts();
         unsafe {
             SetBkMode(hdc, TRANSPARENT as i32);
         }
@@ -254,9 +578,14 @@ impl Painter {
         if let Some((_, font)) = self.fonts.iter().find(|(k, _)| *k == key) {
             return *font;
         }
-        let name = win::wide(face.name(weight));
-        // Bahnschrift's weights are faces of their own; asking them for bold again would thicken them twice.
-        let gdi_weight = if face == Face::Num { FW_NORMAL as i32 } else { weight };
+        let (name, gdi_weight, italic) = face.font(weight);
+        let name = win::wide(name);
+        // Big text is smoothed in grey (no colour fringes on the dark background); small text keeps ClearType.
+        let quality = if key.0 >= 18 {
+            ANTIALIASED_QUALITY as u32
+        } else {
+            CLEARTYPE_NATURAL_QUALITY
+        };
         let font = unsafe {
             CreateFontW(
                 -key.0,
@@ -264,13 +593,13 @@ impl Painter {
                 0,
                 0,
                 gdi_weight,
-                0,
+                u32::from(italic),
                 0,
                 0,
                 DEFAULT_CHARSET as u32,
                 OUT_DEFAULT_PRECIS as u32,
                 CLIP_DEFAULT_PRECIS as u32,
-                CLEARTYPE_QUALITY as u32,
+                quality,
                 0,
                 name.as_ptr(),
             )
@@ -289,6 +618,28 @@ impl Painter {
 
     /// A rounded box; `edge` draws a one-pixel border in that colour.
     fn round(&self, r: RECT, radius: f32, color: COLORREF, edge: Option<COLORREF>) {
+        let (x, y, w, h) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let radius_px = radius * self.s;
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let path = rounded_path(x, y, w, h, radius_px);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(color), &mut brush);
+            GdipFillPath(graphics, brush.cast(), path);
+            GdipDeleteBrush(brush.cast());
+            GdipDeletePath(path);
+            if let Some(edge) = edge {
+                // Half a pixel in, so the one-pixel line falls on whole pixels.
+                let path = rounded_path(x + 0.5, y + 0.5, w - 1.0, h - 1.0, radius_px - 0.5);
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(edge), 1.0, UnitPixel, &mut pen);
+                GdipDrawPath(graphics, pen, path);
+                GdipDeletePen(pen);
+                GdipDeletePath(path);
+            }
+        });
+        if drawn {
+            return;
+        }
         unsafe {
             let brush = CreateSolidBrush(color);
             let pen = edge.map(|c| CreatePen(PS_SOLID, 1, c));
@@ -306,31 +657,315 @@ impl Painter {
         }
     }
 
-    /// A filled circle around a design-unit centre.
-    fn dot(&self, cx: f32, cy: f32, radius: f32, color: COLORREF) {
-        let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
-        unsafe {
-            let brush = CreateSolidBrush(color);
-            let old_brush = SelectObject(self.hdc, brush);
-            let old_pen = SelectObject(self.hdc, GetStockObject(NULL_PEN));
-            Ellipse(self.hdc, r.left, r.top, r.right + 1, r.bottom + 1);
-            SelectObject(self.hdc, old_pen);
-            SelectObject(self.hdc, old_brush);
-            DeleteObject(brush);
+    /// The rev bar in design units: the dome filled `share` (0..1) of the way with the green-to-red gradient,
+    /// divided in tenths; all blue when `flash_on` (time to shift).
+    fn rev_bar(&self, x: f32, y: f32, w: f32, h: f32, share: f32, flash_on: bool) {
+        let (px, py, pw, ph) = (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s, w * self.s, h * self.s);
+        let fill = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
+        let line_w = (2.0 * self.s).max(1.5);
+        let side = ph * 0.45;
+        let drawn = smooth(self.hdc, |graphics| unsafe {
+            let whole = dome_part(px, py, pw, ph, side, 0.0, 1.0);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(if flash_on { BLUE } else { TRACK }), &mut brush);
+            GdipFillPath(graphics, brush.cast(), whole);
+            GdipDeleteBrush(brush.cast());
+            GdipDeletePath(whole);
+            if !flash_on && fill > 0.0 {
+                let lit = dome_part(px, py, pw, ph, side, 0.0, fill);
+                let (from, to) = (PointF { X: px, Y: py }, PointF { X: px + pw, Y: py });
+                let mut gradient = null_mut();
+                GdipCreateLineBrush(&from, &to, argb(REV_STOPS[0].1), argb(REV_STOPS[3].1), WrapModeTile, &mut gradient);
+                let colors = REV_STOPS.map(|(_, c)| argb(c));
+                let places = REV_STOPS.map(|(at, _)| at);
+                GdipSetLinePresetBlend(gradient, colors.as_ptr(), places.as_ptr(), colors.len() as i32);
+                GdipFillPath(graphics, gradient.cast(), lit);
+                GdipDeleteBrush(gradient.cast());
+                GdipDeletePath(lit);
+            }
+            // The divisions, cut in the background colour from the curve down.
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(BG), line_w, UnitPixel, &mut pen);
+            for i in 1..REV_DIVISIONS {
+                let t = i as f32 / REV_DIVISIONS as f32;
+                let lx = px + pw * t;
+                GdipDrawLine(graphics, pen, lx, dome_top(py, side, t) - 2.0, lx, py + ph);
+            }
+            GdipDeletePen(pen);
+        });
+        if !drawn {
+            self.fill(self.r(x, y + h * 0.45, w, h * 0.55), TRACK);
+            self.fill(self.r(x, y + h * 0.45, w * fill, h * 0.55), if flash_on { BLUE } else { GREEN });
         }
     }
 
-    /// A circle outline `width` units thick.
-    fn ring(&self, cx: f32, cy: f32, radius: f32, width: f32, color: COLORREF) {
-        let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
+    /// The track in a box (design units), scaled to fit without stretching: the path as a road, the start as a
+    /// white tick, the car as a yellow dot.
+    fn track_map(&self, x: f32, y: f32, w: f32, h: f32, path: &[(f32, f32)], car: Option<(f32, f32)>) {
+        let (min_x, max_x, min_z, max_z) = path.iter().fold(
+            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY),
+            |(a, b, c, d), &(px, pz)| (a.min(px), b.max(px), c.min(pz), d.max(pz)),
+        );
+        let span = (max_x - min_x).max(max_z - min_z);
+        if !span.is_finite() || span <= 0.0 {
+            return;
+        }
+        let pad = 14.0;
+        let fit = ((w - 2.0 * pad) / (max_x - min_x).max(1.0)).min((h - 2.0 * pad) / (max_z - min_z).max(1.0));
+        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
+        let to_px = |(px, pz): (f32, f32)| PointF {
+            X: self.ox as f32 + (x + w / 2.0 + (px - cx) * fit) * self.s,
+            Y: self.oy as f32 + (y + h / 2.0 + (pz - cz) * fit) * self.s,
+        };
+        let mut points: Vec<PointF> = path.iter().map(|&p| to_px(p)).collect();
+        if let Some(first) = points.first().copied() {
+            points.push(first);
+        }
+        let road = (9.0 * self.s).max(3.0);
+        let centre = (2.0 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            for (width, color) in [(road, TRACK), (centre, mix(TRACK, TEXT, 0.35))] {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
+                GdipSetPenLineJoin(pen, LineJoinRound);
+                GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                GdipDeletePen(pen);
+            }
+            if let Some(start) = points.first() {
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(TEXT), &mut brush);
+                let d = 6.0 * self.s;
+                GdipFillEllipse(graphics, brush.cast(), start.X - d / 2.0, start.Y - d / 2.0, d, d);
+                GdipDeleteBrush(brush.cast());
+            }
+            if let Some(car) = car {
+                let at = to_px(car);
+                for (radius, color) in [(13.0, mix(BG, ACCENT, 0.3)), (7.0, ACCENT)] {
+                    let mut brush = null_mut();
+                    GdipCreateSolidFill(argb(color), &mut brush);
+                    let d = radius * 2.0 * self.s;
+                    GdipFillEllipse(graphics, brush.cast(), at.X - d / 2.0, at.Y - d / 2.0, d, d);
+                    GdipDeleteBrush(brush.cast());
+                }
+            }
+        });
+    }
+
+    /// The window's background: a light gradient from top to bottom, with very fine diagonal lines over it.
+    ///
+    /// It is drawn once for each window size and kept: a frame copies it (drawing its hundreds of lines every frame
+    /// took most of a frame's time).
+    fn backdrop(&self, w: i32, h: i32) {
+        let key = (w, h, self.px(7.0));
+        BACKDROP.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            if kept.as_ref().is_none_or(|b| b.key != key) {
+                *kept = Some(Backdrop::new(self.hdc, key, |dc| draw_backdrop(dc, w, h, (7.0 * self.s).max(5.0))));
+            }
+            if let Some(b) = kept.as_ref() {
+                unsafe {
+                    BitBlt(self.hdc, 0, 0, w, h, b.dc, 0, 0, SRCCOPY);
+                }
+            }
+        });
+    }
+}
+
+thread_local! {
+    /// The background as last drawn, for the window's size; one per thread (the window's, and each test's).
+    static BACKDROP: std::cell::RefCell<Option<Backdrop>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A 32-bit bitmap in plain memory (a DIB): GDI+ draws into it directly, much faster than into a device bitmap.
+unsafe fn dib(hdc: HDC, w: i32, h: i32) -> windows_sys::Win32::Graphics::Gdi::HBITMAP {
+    use windows_sys::Win32::Graphics::Gdi::{CreateDIBSection, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
+    let mut info: BITMAPINFO = std::mem::zeroed();
+    info.bmiHeader = BITMAPINFOHEADER {
+        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+        biWidth: w.max(1),
+        biHeight: -h.max(1),
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: BI_RGB,
+        ..std::mem::zeroed()
+    };
+    let mut bits = null_mut();
+    CreateDIBSection(hdc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0)
+}
+
+/// A drawn background kept in a memory bitmap.
+struct Backdrop {
+    key: (i32, i32, i32),
+    dc: HDC,
+    bitmap: windows_sys::Win32::Graphics::Gdi::HBITMAP,
+    old: windows_sys::Win32::Graphics::Gdi::HGDIOBJ,
+}
+
+impl Backdrop {
+    fn new(like: HDC, key: (i32, i32, i32), draw: impl FnOnce(HDC)) -> Backdrop {
         unsafe {
-            let pen = CreatePen(PS_SOLID, self.px(width).max(1), color);
-            let old_pen = SelectObject(self.hdc, pen);
-            let old_brush = SelectObject(self.hdc, GetStockObject(NULL_BRUSH));
-            Ellipse(self.hdc, r.left, r.top, r.right, r.bottom);
-            SelectObject(self.hdc, old_brush);
-            SelectObject(self.hdc, old_pen);
-            DeleteObject(pen);
+            let dc = CreateCompatibleDC(like);
+            let bitmap = dib(dc, key.0, key.1);
+            let old = SelectObject(dc, bitmap);
+            draw(dc);
+            Backdrop { key, dc, bitmap, old }
+        }
+    }
+}
+
+impl Drop for Backdrop {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.old);
+            DeleteObject(self.bitmap);
+            DeleteDC(self.dc);
+        }
+    }
+}
+
+/// The background itself: a light gradient from top to bottom with very fine diagonal lines over it.
+fn draw_backdrop(hdc: HDC, w: i32, h: i32, step: f32) {
+    let (fw, fh) = (w as f32, h as f32);
+    let drawn = smooth(hdc, |graphics| unsafe {
+        let (from, to) = (PointF { X: 0.0, Y: -1.0 }, PointF { X: 0.0, Y: fh + 1.0 });
+        let mut gradient = null_mut();
+        GdipCreateLineBrush(&from, &to, argb(BG_TOP), argb(BG_BOTTOM), WrapModeTile, &mut gradient);
+        GdipFillRectangle(graphics, gradient.cast(), 0.0, 0.0, fw, fh);
+        GdipDeleteBrush(gradient.cast());
+        // Hairlines one pixel wide, crisp (no smoothing), white at a few per cent.
+        GdipSetSmoothingMode(graphics, SmoothingModeNone);
+        let mut pen = null_mut();
+        GdipCreatePen1(0x09ff_ffff, 1.0, UnitPixel, &mut pen);
+        let mut x = -fh;
+        while x < fw {
+            GdipDrawLine(graphics, pen, x, fh, x + fh, 0.0);
+            x += step;
+        }
+        GdipDeletePen(pen);
+    });
+    if !drawn {
+        unsafe {
+            let brush = CreateSolidBrush(BG);
+            FillRect(hdc, &rect(0, 0, w, h), brush);
+            DeleteObject(brush);
+        }
+    }
+}
+
+impl Painter {
+    /// A cover for a game Steam has no art for here: a dark card with two yellow racing stripes across its top
+    /// corner and the game's name in the racing font. Xpeed's own design, not the game's art.
+    fn cover_card(&mut self, (x, y, w, h): (f32, f32, f32, f32), name: &str, scale: f32) {
+        let k = h * 0.36 / (w * 0.48);
+        smooth(self.hdc, |graphics| unsafe {
+            let fill = |color: COLORREF, points: &[PointF]| {
+                let mut path = null_mut();
+                GdipCreatePath(FillModeAlternate, &mut path);
+                GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+                GdipClosePathFigure(path);
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(color), &mut brush);
+                GdipFillPath(graphics, brush.cast(), path);
+                GdipDeleteBrush(brush.cast());
+                GdipDeletePath(path);
+            };
+            let pt = |px: f32, py: f32| PointF { X: px, Y: py };
+            fill(mix(BG, CARD, 0.8), &[pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]);
+            // Two stripes parallel to the corner's edge: a wide one at the corner, a thin one beside it.
+            fill(ACCENT, &[pt(x + w * 0.52, y), pt(x + w, y), pt(x + w, y + w * 0.48 * k)]);
+            let (a, b) = (0.36, 0.44);
+            fill(
+                ACCENT,
+                &[
+                    pt(x + w * a, y),
+                    pt(x + w * b, y),
+                    pt(x + w, y + w * (1.0 - b) * k),
+                    pt(x + w, y + w * (1.0 - a) * k),
+                ],
+            );
+        });
+        // The name, upper case, one word a line, in the middle.
+        let words: Vec<String> = name.split_whitespace().map(str::to_uppercase).collect();
+        let size = 22.0 * scale;
+        let line = size * 1.1 * self.s;
+        let top = y + h * 0.58 - line * words.len() as f32 / 2.0;
+        for (i, word) in words.iter().enumerate() {
+            let ly = top + line * i as f32;
+            let r = rect(x as i32, ly as i32, (x + w) as i32, (ly + line) as i32);
+            self.text(word, r, size, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
+        }
+        self.fill(
+            rect(x as i32, (y + h) as i32 - self.px(3.0), (x + w) as i32, (y + h) as i32),
+            ACCENT,
+        );
+    }
+
+    /// A box in design units as exact pixels (x, y, w, h), not rounded.
+    fn exact(&self, x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+        (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s, w * self.s, h * self.s)
+    }
+
+    /// An image in an exact box. The carousel draws several every frame, so the settings are the fastest that still
+    /// look right, as measured (`frame_times`): high-quality bilinear without the half-pixel offset took 1.4 ms a
+    /// cover at full HD, against 4.9 ms for plain bilinear and 7 ms for bicubic with the offset.
+    fn image_exact(&self, (x, y, w, h): (f32, f32, f32, f32), image: *mut GpImage) {
+        use windows_sys::Win32::Graphics::GdiPlus::{InterpolationModeHighQualityBilinear, PixelOffsetModeNone};
+        smooth(self.hdc, |graphics| unsafe {
+            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBilinear);
+            GdipSetPixelOffsetMode(graphics, PixelOffsetModeNone);
+            GdipDrawImageRect(graphics, image, x, y, w, h);
+        });
+    }
+
+    /// A colour over an exact box with `amount` (0..1) of opacity.
+    fn veil_exact(&self, (x, y, w, h): (f32, f32, f32, f32), color: COLORREF, amount: f32) {
+        let alpha = ((amount.clamp(0.0, 1.0) * 255.0).round() as u32) << 24;
+        smooth(self.hdc, |graphics| unsafe {
+            let mut brush = null_mut();
+            GdipCreateSolidFill(alpha | (argb(color) & 0x00ff_ffff), &mut brush);
+            GdipFillRectangle(graphics, brush.cast(), x, y, w, h);
+            GdipDeleteBrush(brush.cast());
+        });
+    }
+
+    /// An image filling a box (pixels), smoothly scaled.
+    /// Draws only inside `r` until `unclip` (GDI and GDI+ both keep to it).
+    fn clip(&self, r: RECT) {
+        unsafe {
+            IntersectClipRect(self.hdc, r.left, r.top, r.right, r.bottom);
+        }
+    }
+
+    fn unclip(&self) {
+        unsafe {
+            SelectClipRgn(self.hdc, null_mut());
+        }
+    }
+
+    fn image(&self, r: RECT, image: *mut GpImage) {
+        smooth(self.hdc, |graphics| unsafe {
+            GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
+            GdipDrawImageRectI(graphics, image, r.left, r.top, r.right - r.left, r.bottom - r.top);
+        });
+    }
+
+    /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
+    /// `from` and `to` (shares of the bar's width), dark otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn blocks(&self, x: f32, y: f32, w: f32, h: f32, count: usize, from: f32, to: f32, color: COLORREF) {
+        // Square blocks a hair apart, laid out in whole pixels so every gap is the same.
+        let area = self.r(x, y, w, h);
+        let gap = (1.5 * self.s).round().max(1.0);
+        let block = ((area.right - area.left) as f32 - gap * (count as f32 - 1.0)) / count as f32;
+        for i in 0..count {
+            let middle = (i as f32 + 0.5) / count as f32;
+            let lit = from.is_finite() && to.is_finite() && middle >= from && middle <= to;
+            let left = area.left + (i as f32 * (block + gap)).round() as i32;
+            let right = area.left + (i as f32 * (block + gap) + block).round() as i32;
+            self.fill(
+                rect(left, area.top, right.max(left + 1), area.bottom),
+                if lit { color } else { TRACK },
+            );
         }
     }
 
@@ -342,6 +977,9 @@ impl Painter {
             return;
         }
         let font = self.font(size, weight, face);
+        if face == Face::Num {
+            return self.tabular(s, r, font, color, align);
+        }
         let wide: Vec<u16> = s.encode_utf16().collect();
         let mut r = r;
         unsafe {
@@ -354,6 +992,80 @@ impl Painter {
                 &mut r,
                 align | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS,
             );
+            SelectObject(self.hdc, old);
+        }
+    }
+
+    /// Numbers with every digit in a slot as wide as the widest digit, so a running time does not shift sideways as
+    /// its digits change (the fonts' own digits are proportional, and GDI cannot ask for their tabular ones).
+    ///
+    /// They are centred on their own height (the capital height), not on the font's line, which also holds room
+    /// for descenders and would leave figures sitting high in their box.
+    fn tabular(&mut self, s: &str, r: RECT, font: HFONT, color: COLORREF, align: u32) {
+        unsafe {
+            let old = SelectObject(self.hdc, font);
+            SetTextColor(self.hdc, color);
+            let width = |c: char| {
+                let mut unit = [0u16; 2];
+                let unit = c.encode_utf16(&mut unit);
+                let mut extent = SIZE { cx: 0, cy: 0 };
+                GetTextExtentPoint32W(self.hdc, unit.as_ptr(), unit.len() as i32, &mut extent);
+                extent.cx
+            };
+            let digit = ('0'..='9').map(width).max().unwrap_or(0);
+            // The real ink of the letters and figures (not dots, colons or signs): how far above and below the
+            // baseline it reaches. The text is placed so that ink is centred in the box.
+            let identity = MAT2 {
+                eM11: FIXED { fract: 0, value: 1 },
+                eM12: FIXED { fract: 0, value: 0 },
+                eM21: FIXED { fract: 0, value: 0 },
+                eM22: FIXED { fract: 0, value: 1 },
+            };
+            let mut ink: Option<(i32, i32)> = None;
+            for c in s.chars().filter(|c| c.is_alphanumeric()) {
+                let mut glyph: GLYPHMETRICS = std::mem::zeroed();
+                if GetGlyphOutlineW(self.hdc, c as u32, GGO_METRICS, &mut glyph, 0, null_mut(), &identity) == u32::MAX {
+                    continue;
+                }
+                let above = glyph.gmptGlyphOrigin.y;
+                let below = above - glyph.gmBlackBoxY as i32;
+                ink = Some(ink.map_or((above, below), |(a, b)| (a.max(above), b.min(below))));
+            }
+            let mut metrics: TEXTMETRICW = std::mem::zeroed();
+            let have_metrics = GetTextMetricsW(self.hdc, &mut metrics) != 0;
+            let (vertical, top, line) = match ink {
+                Some((above, below)) if have_metrics => {
+                    let baseline = (r.top + r.bottom) / 2 + (above + below) / 2;
+                    (DT_TOP, baseline - metrics.tmAscent, metrics.tmHeight)
+                }
+                _ => (DT_VCENTER, r.top, r.bottom - r.top),
+            };
+            let slots: Vec<(char, i32)> = s.chars().map(|c| (c, if c.is_ascii_digit() { digit } else { width(c) })).collect();
+            let total: i32 = slots.iter().map(|(_, w)| w).sum();
+            let mut x = if align == DT_RIGHT {
+                r.right - total
+            } else if align == DT_CENTER {
+                (r.left + r.right - total) / 2
+            } else {
+                r.left
+            };
+            for (c, w) in slots {
+                let mut unit = [0u16; 2];
+                let unit = c.encode_utf16(&mut unit);
+                let mut cell = if vertical == DT_TOP {
+                    rect(x, top, x + w, top + line)
+                } else {
+                    rect(x, r.top, x + w, r.bottom)
+                };
+                DrawTextW(
+                    self.hdc,
+                    unit.as_ptr(),
+                    unit.len() as i32,
+                    &mut cell,
+                    DT_CENTER | DT_SINGLELINE | vertical | DT_NOPREFIX | DT_NOCLIP,
+                );
+                x += w;
+            }
             SelectObject(self.hdc, old);
         }
     }
@@ -376,13 +1088,40 @@ impl Painter {
 
     /// A tile: the card colour with its border.
     fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), 12.0, color, Some(EDGE));
+        self.round(self.r(x, y, w, h), CORNER, color, Some(EDGE));
+    }
+
+    /// A small upper-case label with its letters spaced out.
+    ///
+    /// The spacing also follows the last letter, which right or centred alignment would count as text and push the
+    /// label off its place (and cut it); so the label is measured and placed by hand, without that last space.
+    fn caps(&mut self, s: &str, r: RECT, size: f32, color: COLORREF, align: u32) {
+        let upper = s.to_uppercase();
+        let extra = self.px(1.3);
+        unsafe {
+            SetTextCharacterExtra(self.hdc, extra);
+        }
+        // Chakra Petch's capitals are small for their size: drawn a little bigger to read like the old labels.
+        let size = size * 1.18;
+        let width = (self.width_of(&upper, size, FW_SEMIBOLD as i32, Face::Label) * self.s).round() as i32 - extra;
+        let left = if align == DT_RIGHT {
+            r.right - width
+        } else if align == DT_CENTER {
+            (r.left + r.right - width) / 2
+        } else {
+            r.left
+        };
+        let placed = rect(left.max(r.left), r.top, left + width + extra + self.px(4.0), r.bottom);
+        self.text(&upper, placed, size, FW_SEMIBOLD as i32, Face::Label, color, DT_LEFT);
+        unsafe {
+            SetTextCharacterExtra(self.hdc, 0);
+        }
     }
 
     /// The small upper-case label at the top left of a tile.
     fn label(&mut self, s: &str, x: f32, y: f32, w: f32) {
         let r = self.r(x, y, w, 18.0);
-        self.text(&s.to_uppercase(), r, 11.5, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_LEFT);
+        self.caps(s, r, 11.0, MUTED, DT_LEFT);
     }
 }
 
@@ -414,6 +1153,18 @@ fn delta_text(d: Option<f64>) -> String {
         Some(d) if d.is_finite() => format!("{}{:.2}", if d < 0.0 { "-" } else { "+" }, d.abs()),
         _ => "—".to_owned(),
     }
+}
+
+/// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
+/// reverse; the top gear is not known to every game, so there is always one above a forward gear.
+fn neighbour_gears(gear: f32) -> (Option<String>, Option<String>) {
+    if !gear.is_finite() {
+        return (None, None);
+    }
+    let g = gear.round() as i32;
+    let below = (g > -1).then(|| gear_text((g - 1) as f32));
+    let above = Some(gear_text((g + 1) as f32));
+    (below, above)
 }
 
 fn gear_text(gear: f32) -> String {
@@ -448,15 +1199,6 @@ fn state_color(game: &Game) -> COLORREF {
     }
 }
 
-/// The colour of shift light `i` of `LIGHTS`: five green, five amber, five red.
-fn light_color(i: usize) -> COLORREF {
-    match i * 3 / LIGHTS {
-        0 => GREEN,
-        1 => AMBER,
-        _ => RED,
-    }
-}
-
 /// How many shift lights are lit at `share` of the top RPM, and whether they flash (time to shift).
 fn lights_lit(share: f32) -> (usize, bool) {
     if !share.is_finite() {
@@ -477,7 +1219,7 @@ fn lap_parts(label: &str) -> (&str, &str) {
 /// Draws one frame of the window.
 pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let mut g = Painter::new(hdc, view.scale);
-    g.fill(rect(0, 0, width, height), BG);
+    g.backdrop(width, height);
     header(&mut g, width, view);
     let top = g.px(HEADER_H);
     let body = rect(g.px(16.0), top, width - g.px(16.0), height - g.px(16.0));
@@ -485,28 +1227,16 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
         Tab::Dash => dashboard(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
     }
+    tooltip(&mut g, width, view);
 }
 
-fn header(g: &mut Painter, width: i32, view: &View) {
-    g.place(view.scale, 0, 0);
-    let [dash, mon, full, top] = header_hits(width, view.scale);
-    // The tabs, as one segmented control.
-    let control = g.r(16.0, 12.0, 236.0, 34.0);
-    g.round(control, 10.0, CARD, Some(EDGE));
-    for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
-        let selected = view.tab == tab;
-        if selected {
-            g.round(r, 8.0, ACCENT, None);
-        }
-        let color = if selected { BG } else { MUTED };
-        g.text(&text(view.lang, &label), r, 14.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
-    }
-    // Full screen and always on top: buttons with Windows' own icons.
-    let buttons = [
+/// The name of the icon button under the mouse, in a small label below it.
+fn tooltip(g: &mut Painter, width: i32, view: &View) {
+    let Some((mx, my)) = view.mouse else { return };
+    let [_, _, full, top] = header_hits(width, view.scale);
+    let (r, label) = if inside(&full, mx, my) {
         (
             full,
-            view.full,
-            if view.full { "\u{E73F}" } else { "\u{E740}" },
             text(
                 view.lang,
                 if view.full {
@@ -515,28 +1245,90 @@ fn header(g: &mut Painter, width: i32, view: &View) {
                     &Msg::PanelFullScreen
                 },
             ),
-        ),
-        (top, view.on_top, "\u{E718}", text(view.lang, &Msg::PanelOnTop)),
-    ];
-    for (r, active, icon, label) in buttons {
-        let (fill, edge, ink) = if active {
-            (mix(CARD, ACCENT, 0.14), ACCENT, ACCENT)
+        )
+    } else if inside(&top, mx, my) {
+        (top, text(view.lang, &Msg::PanelOnTop))
+    } else {
+        return;
+    };
+    g.place(view.scale, 0, 0);
+    let measured = g.width_of(&label, 12.5, FW_SEMIBOLD as i32, Face::Ui);
+    let w = g.px(measured + 20.0);
+    let h = g.px(28.0);
+    let tip = rect(r.right - w, r.bottom + g.px(6.0), r.right, r.bottom + g.px(6.0) + h);
+    g.round(tip, CORNER, CARD, Some(EDGE));
+    g.text(&label, tip, 12.5, FW_SEMIBOLD as i32, Face::Ui, TEXT, DT_CENTER);
+}
+
+fn header(g: &mut Painter, width: i32, view: &View) {
+    g.place(view.scale, 0, 0);
+    let [dash, mon, full, top] = header_hits(width, view.scale);
+    let semi = FW_SEMIBOLD as i32;
+    // The tabs: one pill, the chosen tab a yellow pill inside it.
+    let control = g.r(16.0, 13.0, 240.0, 38.0);
+    g.round(control, CORNER, CARD, Some(EDGE));
+    for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
+        let selected = view.tab == tab;
+        if selected {
+            g.round(r, CORNER, ACCENT, None);
+        }
+        let color = if selected { BG } else { MUTED };
+        g.text(&text(view.lang, &label), r, 14.0, semi, Face::Ui, color, DT_CENTER);
+    }
+    // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
+    // Windows' own icon; the pin is drawn here, upright and square like the rest.
+    for (r, active) in [(full, view.full), (top, view.on_top)] {
+        let (fill, edge) = if active { (ACCENT, None) } else { (CARD, Some(EDGE)) };
+        g.round(r, CORNER, fill, edge);
+    }
+    let (full_ink, pin_ink) = (if view.full { BG } else { TEXT }, if view.on_top { BG } else { TEXT });
+    full_icon(g, full, full_ink, view.full);
+    pin_icon(g, top, pin_ink);
+}
+
+/// Four square corners in a box (pixels): pointing out to go full screen, in to leave it.
+fn full_icon(g: &mut Painter, r: RECT, color: COLORREF, leaving: bool) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let (reach, near, arm, t) = (g.px(8.0), g.px(3.0), g.px(5.0), g.px(1.6).max(1));
+    // A box from two corners in any order.
+    let span = |x0: i32, y0: i32, x1: i32, y1: i32| rect(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1));
+    for (sx, sy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+        // Going full screen: each corner's point at the outside, its arms back toward the middle. Leaving: the
+        // point near the middle, its arms out.
+        let (vx, vy, d) = if leaving {
+            (cx + sx * near, cy + sy * near, 1)
         } else {
-            (CARD, EDGE, TEXT)
+            (cx + sx * reach, cy + sy * reach, -1)
         };
-        g.round(r, 10.0, fill, Some(edge));
-        let icon_box = rect(r.left + g.px(12.0), r.top, r.left + g.px(32.0), r.bottom);
-        g.text(icon, icon_box, 13.0, FW_NORMAL as i32, Face::Icon, ink, DT_CENTER);
-        let label_box = rect(r.left + g.px(38.0), r.top, r.right - g.px(10.0), r.bottom);
-        g.text(&label, label_box, 13.0, FW_SEMIBOLD as i32, Face::Ui, ink, DT_LEFT);
+        g.fill(span(vx, vy, vx + d * sx * arm, vy + d * sy * t), color);
+        g.fill(span(vx, vy, vx + d * sx * t, vy + d * sy * arm), color);
+    }
+}
+
+/// An upright push pin in a box (pixels): a cap, a body, a wide collar and the needle, all square.
+fn pin_icon(g: &mut Painter, r: RECT, color: COLORREF) {
+    let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    let p = |v: f32| g.px(v);
+    for (x0, y0, x1, y1) in [
+        (-4.5, -9.0, 4.5, -6.5),  // cap
+        (-3.0, -6.5, 3.0, 1.0),   // body
+        (-6.5, 1.0, 6.5, 3.5),    // collar
+        (-0.75, 3.5, 0.75, 10.0), // needle
+    ] {
+        g.fill(rect(cx + p(x0), cy + p(y0), cx + p(x1).max(p(x0) + 1), cy + p(y1)), color);
     }
 }
 
 /// Fits the canvas in `body`: the scale and where its top left goes.
 fn canvas_fit(body: RECT) -> (f32, i32, i32) {
+    canvas_fit_w(body, CANVAS_W)
+}
+
+/// Fits a canvas `width` design units wide (and `CANVAS_H` high) in `body`.
+fn canvas_fit_w(body: RECT, width: f32) -> (f32, i32, i32) {
     let (bw, bh) = ((body.right - body.left) as f32, (body.bottom - body.top) as f32);
-    let s = (bw / CANVAS_W).min(bh / CANVAS_H).max(0.1);
-    let ox = body.left + ((bw - CANVAS_W * s) / 2.0).round() as i32;
+    let s = (bw / width).min(bh / CANVAS_H).max(0.1);
+    let ox = body.left + ((bw - width * s) / 2.0).round() as i32;
     let oy = body.top + ((bh - CANVAS_H * s) / 2.0).round() as i32;
     (s, ox, oy)
 }
@@ -545,9 +1337,9 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     let (s, ox, oy) = canvas_fit(body);
     g.place(s, ox, oy);
     let title = text(view.lang, &Msg::PanelWaitingTitle);
-    let r = g.r(0.0, 150.0, CANVAS_W, 50.0);
+    let r = g.r(0.0, 66.0, CANVAS_W, 50.0);
     g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(0.0, 202.0, CANVAS_W, 26.0);
+    let r = g.r(0.0, 116.0, CANVAS_W, 26.0);
     g.text(
         &text(view.lang, &Msg::PanelWaiting),
         r,
@@ -557,6 +1349,9 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
         MUTED,
         DT_CENTER,
     );
+    if !view.covers.is_empty() {
+        return cover_carousel(g, view.covers, view.carousel);
+    }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
         .games
@@ -586,177 +1381,265 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     }
 }
 
+/// Where cover `i` of `count` sits from the middle of a carousel at `at`: a signed distance in covers, wrapped so the
+/// covers go round (the nearest way).
+fn carousel_offset(i: usize, count: usize, at: f32) -> f32 {
+    let n = count as f32;
+    let d = (i as f32 - at).rem_euclid(n);
+    if d > n / 2.0 {
+        d - n
+    } else {
+        d
+    }
+}
+
+/// The games as a carousel: the cover in the middle big, the others smaller and darker the further they are, going
+/// round; the middle game's name under it and a row of small squares saying which one it is. Steam's art where it
+/// has some, the name on a card where not.
+fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32) {
+    let count = covers.len();
+    let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 168.0);
+    let big_h = big_w * 1.5;
+    // Far covers first, so the nearer ones are drawn over them.
+    let mut order: Vec<(usize, f32)> = (0..count).map(|i| (i, carousel_offset(i, count, at))).collect();
+    order.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+    for (i, d) in order {
+        let far = d.abs();
+        if far > 3.2 {
+            continue;
+        }
+        let scale = (1.0 - 0.17 * far).max(0.4);
+        let (w, h) = (big_w * scale, big_h * scale);
+        // Closer together further out, as on a curved shelf.
+        let x = mid_x + d.signum() * (far * 128.0 - far * far * 9.0) - w / 2.0;
+        let y = top + (big_h - h) / 2.0;
+        let exact = g.exact(x, y, w, h);
+        let cover = &covers[i];
+        if cover.image.is_null() {
+            g.cover_card(exact, cover.name, scale);
+        } else {
+            g.image_exact(exact, cover.image);
+        }
+        // Darker the further from the middle.
+        let shade = (far * 0.32).min(0.8);
+        if shade > 0.01 {
+            g.veil_exact(exact, BG, shade);
+        }
+    }
+    // The game in the middle, and where it is in the list.
+    let middle = (at.round() as i64).rem_euclid(count as i64) as usize;
+    let r = g.r(0.0, top + big_h + 14.0, CANVAS_W, 26.0);
+    g.text(
+        &covers[middle].name.to_uppercase(),
+        r,
+        18.0,
+        FW_SEMIBOLD as i32,
+        Face::Num,
+        TEXT,
+        DT_CENTER,
+    );
+    let (dot, gap) = (7.0, 6.0);
+    let total = count as f32 * dot + (count as f32 - 1.0) * gap;
+    for i in 0..count {
+        let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
+        g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { ACCENT } else { TRACK });
+    }
+}
+
 fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     let Some(live) = view.live.filter(|l| view.now_ms - l.at_ms <= STALE_MS) else {
         return waiting(g, body, view);
     };
-    let (s, ox, oy) = canvas_fit(body);
+    let has_map = live.map.as_ref().is_some_and(|m| m.len() >= 30);
+    let has_tyres = live.tyres.is_some();
+    let side = (has_map || has_tyres) && canvas_fit_w(body, CANVAS_W + SIDE_W).0 >= SIDE_MIN_SCALE;
+    let width = if side { CANVAS_W + SIDE_W } else { CANVAS_W };
+    let (s, ox, oy) = canvas_fit_w(body, width);
     g.place(s, ox, oy);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    if side {
+        side_column(g, live, view, has_map, has_tyres);
+    }
 
-    // Top: track and car, the shift lights, the lap.
-    let r = g.r(0.0, 2.0, 268.0, 22.0);
-    g.text(&live.track, r, 15.0, semi, Face::Ui, TEXT, DT_LEFT);
-    let car = if live.car.is_empty() {
-        live.game.to_owned()
-    } else {
-        format!("{}  ·  {}", live.car, live.game)
-    };
-    let r = g.r(0.0, 24.0, 268.0, 20.0);
+    // The rev bar: a dome across the top, green to red as the revs climb, on a cyan line; it flashes blue at the
+    // shift point.
+    let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
+    let (lit, flash) = lights_lit(share);
+    let blink_on = view.now_ms / 120 % 2 == 0;
+    g.rev_bar(0.0, 0.0, width, 36.0, share, flash && blink_on);
+    g.round(g.r(0.0, 37.0, width, 3.0), 1.5, CYAN, None);
+
+    // Where and what: track and car on the left, the lap on the right.
+    let r = g.r(0.0, 48.0, 640.0, 24.0);
+    g.text(&live.track.to_uppercase(), r, 17.0, semi, Face::Num, TEXT, DT_LEFT);
+    let car = [live.car.as_str(), live.game]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("  ·  ");
+    let r = g.r(0.0, 72.0, 640.0, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(800.0, 0.0, 200.0, 28.0);
+    let r = g.r(width - 360.0, 46.0, 360.0, 28.0);
     g.text(
         &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
         r,
-        22.0,
+        26.0,
         semi,
         Face::Num,
         ACCENT,
         DT_RIGHT,
     );
-    let (status, status_color) = if live.in_pits {
-        (text(view.lang, &Msg::PanelPits), AMBER)
+    let status = if live.in_pits {
+        text(view.lang, &Msg::PanelPits)
     } else if !live.driving {
-        (text(view.lang, &Msg::PanelNotDriving), AMBER)
-    } else {
-        (String::new(), MUTED)
-    };
-    let r = g.r(780.0, 26.0, 220.0, 18.0);
-    g.text(&status.to_uppercase(), r, 11.5, semi, Face::Ui, status_color, DT_RIGHT);
-    let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
-    let (lit, flash) = lights_lit(share);
-    let blink_on = view.now_ms / 120 % 2 == 0;
-    for i in 0..LIGHTS {
-        let cx = 500.0 + (i as f32 - (LIGHTS as f32 - 1.0) / 2.0) * 31.0;
-        let color = match (flash, i < lit) {
-            (true, _) if blink_on => BLUE,
-            (true, _) => DIM,
-            (false, true) => light_color(i),
-            (false, false) => DIM,
-        };
-        g.dot(cx, 22.0, 11.5, color);
-    }
-
-    // Left: the lap's times.
-    g.tile(0.0, 60.0, 300.0, 108.0, CARD);
-    g.label(&text(view.lang, &Msg::PanelLapTime), 20.0, 74.0, 260.0);
-    let r = g.r(20.0, 96.0, 270.0, 62.0);
-    g.text(&lap_clock(live.lap_time_s), r, 50.0, semi, Face::Num, TEXT, DT_LEFT);
-    for (y, label, value, color) in [
-        (180.0, Msg::PanelLastLap, live.last_lap_s, TEXT),
-        (282.0, Msg::PanelBestLap, live.best_lap_s, PURPLE),
-    ] {
-        g.tile(0.0, y, 300.0, 90.0, CARD);
-        g.label(&text(view.lang, &label), 20.0, y + 12.0, 260.0);
-        let r = g.r(20.0, y + 32.0, 270.0, 50.0);
-        g.text(&lap_clock(value), r, 36.0, semi, Face::Num, color, DT_LEFT);
-    }
-
-    // Centre: the gear, the speed, the revs.
-    g.tile(316.0, 60.0, 368.0, 312.0, CARD);
-    let rpm = if live.rpm.is_finite() {
-        format!("{:.0} RPM", live.rpm)
+        text(view.lang, &Msg::PanelNotDriving)
     } else {
         String::new()
     };
-    let r = g.r(330.0, 72.0, 340.0, 18.0);
-    g.text(&rpm, r, 12.0, semi, Face::Num, MUTED, DT_RIGHT);
-    let r = g.r(316.0, 70.0, 368.0, 210.0);
-    g.text(&gear_text(live.gear), r, 196.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let speed = if live.speed_ms.is_finite() {
-        format!("{:.0}", live.speed_ms * 3.6)
-    } else {
-        "–".to_owned()
-    };
-    let r = g.r(316.0, 278.0, 368.0, 62.0);
-    g.text(&speed, r, 58.0, semi, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(316.0, 338.0, 368.0, 20.0);
-    g.text("KM/H", r, 11.5, semi, Face::Ui, MUTED, DT_CENTER);
+    let r = g.r(width - 360.0, 72.0, 360.0, 18.0);
+    g.caps(&status, r, 11.0, AMBER, DT_RIGHT);
+    g.fill(g.r(0.0, 95.0, width, 1.0), EDGE);
 
-    // Right: the delta, with a bar from the centre (green: faster than the best lap), then fuel and lap progress.
-    let delta_color = match live.delta_s {
-        Some(d) if d < 0.0 => GREEN,
-        Some(_) => RED,
-        None => MUTED,
-    };
-    let tint = if live.delta_s.is_some() {
-        mix(CARD, delta_color, 0.10)
-    } else {
-        CARD
-    };
-    g.tile(700.0, 60.0, 300.0, 186.0, tint);
-    g.label(&text(view.lang, &Msg::PanelDelta), 720.0, 74.0, 260.0);
-    let r = g.r(720.0, 96.0, 260.0, 74.0);
-    g.text(&delta_text(live.delta_s), r, 62.0, semi, Face::Num, delta_color, DT_LEFT);
-    let bar = (720.0, 192.0, 260.0, 10.0);
-    g.round(g.r(bar.0, bar.1, bar.2, bar.3), 5.0, TRACK, None);
-    if let Some(d) = live.delta_s.filter(|d| d.is_finite()) {
-        let reach = (d.clamp(-1.0, 1.0) as f32) * bar.2 / 2.0;
-        let mid = bar.0 + bar.2 / 2.0;
-        let (x, w) = if reach < 0.0 { (mid + reach, -reach) } else { (mid, reach) };
-        g.round(g.r(x, bar.1, w.max(2.0), bar.3), 5.0, delta_color, None);
-    }
-    g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
-    for (x, label, align) in [(720.0, "-1.0", DT_LEFT), (800.0, "0", DT_CENTER), (880.0, "+1.0", DT_RIGHT)] {
-        let r = g.r(x, 208.0, 100.0, 16.0);
-        g.text(label, r, 10.5, normal, Face::Num, MUTED, align);
-    }
-
-    g.tile(700.0, 258.0, 300.0, 114.0, CARD);
-    g.label(&text(view.lang, &Msg::PanelFuel), 720.0, 270.0, 120.0);
+    // Left column: the lap's times. Right column, mirrored: fuel, revs, lap progress.
+    let rows = [(100.0, 112.0, 54.0), (212.0, 96.0, 40.0), (308.0, 96.0, 40.0)];
     let fuel = if live.fuel_l.is_finite() {
         format!("{:.1} L", live.fuel_l)
     } else {
         "–".to_owned()
     };
-    let r = g.r(720.0, 288.0, 130.0, 40.0);
-    g.text(&fuel, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
-    g.label(&text(view.lang, &Msg::PanelLapProgress), 860.0, 270.0, 120.0);
+    let rpm = if live.rpm.is_finite() {
+        format!("{:.0}", live.rpm)
+    } else {
+        "–".to_owned()
+    };
     let progress = match (live.dist_m, live.track_length_m) {
         (Some(d), Some(l)) if l > 0.0 => Some((d / l).clamp(0.0, 1.0) as f32),
         _ => None,
     };
-    let percent = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
-    let r = g.r(860.0, 288.0, 120.0, 40.0);
-    g.text(&percent, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
-    g.round(g.r(720.0, 340.0, 260.0, 8.0), 4.0, TRACK, None);
-    if let Some(p) = progress {
-        g.round(g.r(720.0, 340.0, (260.0 * p).max(8.0), 8.0), 4.0, ACCENT, None);
-    }
-
-    // Bottom: the driver's inputs, and the wheel.
-    g.tile(0.0, 388.0, 1000.0, 132.0, CARD);
-    for (i, (label, value, color)) in [
-        (Msg::PanelThrottle, live.throttle, GREEN),
-        (Msg::PanelBrake, live.brake, RED),
-        (Msg::PanelClutch, live.clutch, BLUE),
-    ]
-    .into_iter()
-    .enumerate()
+    let lap_share = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
+    let left = [
+        (text(view.lang, &Msg::PanelLapTime), lap_clock(live.lap_time_s), TEXT),
+        (text(view.lang, &Msg::PanelLastLap), lap_clock(live.last_lap_s), TEXT),
+        (text(view.lang, &Msg::PanelBestLap), lap_clock(live.best_lap_s), PURPLE),
+    ];
+    let right = [
+        (text(view.lang, &Msg::PanelFuel), fuel, TEXT),
+        ("RPM".to_owned(), rpm, TEXT),
+        (text(view.lang, &Msg::PanelLapProgress), lap_share, TEXT),
+    ];
+    for (i, ((y, h, size), ((l_label, l_value, l_color), (r_label, r_value, r_color)))) in
+        rows.iter().zip(left.iter().zip(right.iter())).enumerate()
     {
-        let y = 408.0 + i as f32 * 34.0;
-        let r = g.r(20.0, y, 110.0, 22.0);
-        g.text(&text(view.lang, &label).to_uppercase(), r, 11.5, semi, Face::Ui, MUTED, DT_LEFT);
-        g.round(g.r(136.0, y + 5.0, 480.0, 12.0), 6.0, TRACK, None);
-        if value.is_finite() && value > 0.0 {
-            g.round(g.r(136.0, y + 5.0, (480.0 * value.min(1.0)).max(12.0), 12.0), 6.0, color, None);
+        if i > 0 {
+            g.fill(g.r(0.0, *y, 300.0, 1.0), EDGE);
+            g.fill(g.r(700.0, *y, 300.0, 1.0), EDGE);
         }
-        let value_text = if value.is_finite() {
-            format!("{:.0}%", value * 100.0)
+        let r = g.r(0.0, y + 10.0, 300.0, 18.0);
+        g.caps(l_label, r, 11.0, MUTED, DT_LEFT);
+        let r = g.r(-2.0, y + 28.0, 320.0, h - 34.0);
+        g.text(l_value, r, *size, semi, Face::Num, *l_color, DT_LEFT);
+        let r = g.r(700.0, y + 10.0, 300.0, 18.0);
+        g.caps(r_label, r, 11.0, MUTED, DT_RIGHT);
+        let r = g.r(680.0, y + 28.0, 322.0, h - 34.0);
+        g.text(r_value, r, *size, semi, Face::Num, *r_color, DT_RIGHT);
+    }
+    g.blocks(760.0, 390.0, 240.0, 9.0, 20, 0.0, progress.unwrap_or(f32::NAN), ACCENT);
+
+    // Centre: the delta to the best lap above the gear, the speed below it.
+    let delta_color = match live.delta_s {
+        Some(d) if d < 0.0 => GREEN,
+        Some(_) => RED,
+        None => MUTED,
+    };
+    let r = g.r(330.0, 100.0, 340.0, 16.0);
+    g.caps(&text(view.lang, &Msg::PanelDelta), r, 10.5, MUTED, DT_CENTER);
+    let r = g.r(330.0, 114.0, 340.0, 40.0);
+    g.text(&delta_text(live.delta_s), r, 38.0, semi, Face::Num, delta_color, DT_CENTER);
+    let bar = (350.0, 156.0, 300.0, 9.0);
+    // Each block is a tenth of a second, faster to the left.
+    let (from, to) = match live.delta_s.filter(|d| d.is_finite()) {
+        Some(d) => {
+            let at = 0.5 + (d.clamp(-1.0, 1.0) as f32) / 2.0;
+            (at.min(0.5), at.max(0.5))
+        }
+        None => (f32::NAN, f32::NAN),
+    };
+    g.blocks(bar.0, bar.1, bar.2, bar.3, 20, from, to, delta_color);
+    g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
+
+    // The gear between four square corner brackets that turn red near the limit and flash blue when it is time
+    // to shift.
+    let frame = match (flash, lit) {
+        (true, _) if blink_on => BLUE,
+        (true, _) => RED,
+        (false, n) if n >= LIGHTS - 2 => RED,
+        _ => MUTED,
+    };
+    let (fx, fy, fw, fh, arm, thick) = (360.0, 176.0, 280.0, 180.0, 26.0, 3.0);
+    for (cx, cy, dx, dy) in [
+        (fx, fy, 1.0, 1.0),
+        (fx + fw, fy, -1.0, 1.0),
+        (fx, fy + fh, 1.0, -1.0),
+        (fx + fw, fy + fh, -1.0, -1.0),
+    ] {
+        let x0 = if dx > 0.0 { cx } else { cx - arm };
+        let y0 = if dy > 0.0 { cy } else { cy - thick };
+        g.fill(g.r(x0, y0, arm, thick), frame);
+        let x1 = if dx > 0.0 { cx } else { cx - thick };
+        let y1 = if dy > 0.0 { cy } else { cy - arm };
+        g.fill(g.r(x1, y1, thick, arm), frame);
+    }
+    let r = g.r(352.0, 172.0, 296.0, 188.0);
+    g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
+    let (below, above) = neighbour_gears(live.gear);
+    for (gear, x) in [(below, 384.0), (above, 576.0)] {
+        if let Some(gear) = gear {
+            let (w, h) = (40.0, 52.0);
+            let y = 172.0 + 94.0 - h / 2.0;
+            g.fill(g.r(x, y, w, h), CARD);
+            let r = g.r(x, y, w, h);
+            g.text(&gear, r, 26.0, semi, Face::Num, MUTED, DT_CENTER);
+        }
+    }
+    let speed = if live.speed_ms.is_finite() {
+        format!("{:.0}", live.speed_ms * 3.6)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(330.0, 364.0, 340.0, 40.0);
+    g.text(&speed, r, 42.0, semi, Face::Num, TEXT, DT_CENTER);
+    let r = g.r(330.0, 402.0, 340.0, 14.0);
+    g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
+
+    // Bottom: brake and throttle on one bar from the centre, then the wheel; clutch on the right.
+    g.fill(g.r(0.0, 424.0, CANVAS_W, 1.0), EDGE);
+    let percent = |v: f32| {
+        if v.is_finite() {
+            format!("{:.0}%", v * 100.0)
         } else {
             "–".to_owned()
-        };
-        let r = g.r(626.0, y, 60.0, 22.0);
-        g.text(&value_text, r, 17.0, semi, Face::Num, TEXT, DT_RIGHT);
-    }
-    g.fill(g.r(712.0, 404.0, 1.0, 100.0), EDGE);
-    g.label(&text(view.lang, &Msg::PanelSteer), 736.0, 402.0, 120.0);
-    let (cx, cy, radius) = (872.0, 454.0, 48.0);
-    g.ring(cx, cy, radius, 7.0, TRACK);
-    if live.steer.is_finite() {
-        // 135° each way stands for full lock: the marker moves like the top of the wheel, the reading sits inside.
-        let angle = (live.steer.clamp(-1.0, 1.0) * 135.0).to_radians();
-        g.dot(cx + radius * angle.sin(), cy - radius * angle.cos(), 8.5, ACCENT);
+        }
+    };
+    let side = |g: &mut Painter, label: &str, value: String, y: f32, align: u32| {
+        let x = if align == DT_RIGHT { 880.0 } else { 0.0 };
+        let r = g.r(x, y, 120.0, 16.0);
+        g.caps(label, r, 10.5, MUTED, align);
+        let r = g.r(x, y + 15.0, 120.0, 28.0);
+        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
+    };
+    side(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 432.0, DT_LEFT);
+    side(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 432.0, DT_RIGHT);
+    let (bx, bw, by, bh) = (140.0, 720.0, 444.0, 18.0);
+    let mid = bx + bw / 2.0;
+    // One bar of blocks: brake lights from the centre to the left, throttle from the centre to the right.
+    let half = bw / 2.0 - 4.0;
+    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+    g.blocks(bx, by, half, bh, 24, 1.0 - pedal(live.brake), 1.0, RED);
+    g.blocks(mid + 4.0, by, half, bh, 24, 0.0, pedal(live.throttle), GREEN);
+    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
+
+    let wheel = if live.steer.is_finite() {
         let side = if live.steer < -0.005 {
             "L "
         } else if live.steer > 0.005 {
@@ -764,9 +1647,101 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         } else {
             ""
         };
-        let reading = format!("{side}{:.0}%", live.steer.abs() * 100.0);
-        let r = g.r(cx - 40.0, cy - 16.0, 80.0, 32.0);
-        g.text(&reading, r, 20.0, semi, Face::Num, TEXT, DT_CENTER);
+        format!("{side}{:.0}%", live.steer.abs() * 100.0)
+    } else {
+        "–".to_owned()
+    };
+    side(g, &text(view.lang, &Msg::PanelSteer), wheel, 476.0, DT_LEFT);
+    side(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 476.0, DT_RIGHT);
+    let (ty, th) = (492.0, 10.0);
+    // The wheel: the block where the wheel points is lit (a block either side when it sits between two).
+    let at = if live.steer.is_finite() {
+        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
+    } else {
+        f32::NAN
+    };
+    let reach = 1.0 / 48.0;
+    g.blocks(bx, ty, bw, th, 48, at - reach, at + reach, ACCENT);
+    g.fill(g.r(mid - 1.0, ty - 5.0, 2.0, th + 10.0), MUTED);
+}
+
+/// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
+/// tyres; each game and compound has its own window, so this is a guide, not a target).
+fn tyre_color(temp_c: f32) -> COLORREF {
+    match temp_c {
+        t if !t.is_finite() => MUTED,
+        t if t < 65.0 => BLUE,
+        t if t < 95.0 => GREEN,
+        t if t < 110.0 => AMBER,
+        _ => RED,
+    }
+}
+
+/// The right-hand column: the track map (the car's own path, with where it is now) and the four tyres.
+fn side_column(g: &mut Painter, live: &Live, view: &View, has_map: bool, has_tyres: bool) {
+    let x = CANVAS_W + 24.0;
+    let w = SIDE_W - 24.0;
+    let (top, bottom) = (106.0, CANVAS_H);
+    let tyres_h = if has_tyres { 214.0 } else { 0.0 };
+    let map_bottom = if has_tyres { bottom - tyres_h - 14.0 } else { bottom };
+    if has_map {
+        let r = g.r(x, top, w, 16.0);
+        g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
+        if let Some(map) = &live.map {
+            g.track_map(x, top + 22.0, w, map_bottom - top - 22.0, map, live.pos);
+        }
+    }
+    if has_tyres {
+        let tyres = live.tyres.unwrap_or(
+            [crate::game::Tyre {
+                temp_c: f32::NAN,
+                pressure_kpa: f32::NAN,
+                left: f32::NAN,
+            }; 4],
+        );
+        let y0 = if has_map { bottom - tyres_h } else { top };
+        let r = g.r(x, y0, w, 16.0);
+        g.caps(&text(view.lang, &Msg::PanelTyres), r, 10.5, MUTED, DT_LEFT);
+        let (gap, box_w) = (8.0, (w - 8.0) / 2.0);
+        let box_h = (tyres_h - 22.0 - gap) / 2.0;
+        for (i, (label, tyre)) in ["FL", "FR", "RL", "RR"].iter().zip(tyres.iter()).enumerate() {
+            let bx = x + (i % 2) as f32 * (box_w + gap);
+            let by = y0 + 22.0 + (i / 2) as f32 * (box_h + gap);
+            tyre_box(g, bx, by, box_w, box_h, label, tyre);
+        }
+    }
+}
+
+/// One tyre: its temperature, big, in its colour; the pressure; the tread left as blocks when the game gives it.
+fn tyre_box(g: &mut Painter, x: f32, y: f32, w: f32, h: f32, label: &str, tyre: &crate::game::Tyre) {
+    let color = tyre_color(tyre.temp_c);
+    g.fill(g.r(x, y, w, h), mix(BG, color, 0.13));
+    g.fill(g.r(x, y, w, 3.0), color);
+    let r = g.r(x + 12.0, y + 10.0, 40.0, 16.0);
+    g.caps(label, r, 10.5, MUTED, DT_LEFT);
+    let pressure = if tyre.pressure_kpa.is_finite() {
+        format!("{:.1} psi", tyre.pressure_kpa / 6.894_757)
+    } else {
+        String::new()
+    };
+    let r = g.r(x, y + 8.0, w - 12.0, 20.0);
+    g.text(&pressure, r, 15.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_RIGHT);
+    let temp = if tyre.temp_c.is_finite() {
+        format!("{:.0}°", tyre.temp_c)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(x + 12.0, y + 28.0, w - 24.0, h - 48.0);
+    g.text(&temp, r, 34.0, FW_SEMIBOLD as i32, Face::Num, color, DT_LEFT);
+    if tyre.left.is_finite() {
+        let wear = if tyre.left > 0.5 {
+            GREEN
+        } else if tyre.left > 0.25 {
+            AMBER
+        } else {
+            RED
+        };
+        g.blocks(x + 12.0, y + h - 16.0, w - 24.0, 6.0, 10, 0.0, tyre.left, wear);
     }
 }
 
@@ -781,53 +1756,122 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let right = col + gap;
     let area_h = h - footer;
 
-    // Games: each reader with a status pill.
-    let row_h = 38.0;
-    let games_h = 54.0 + row_h * view.games.len().max(1) as f32;
+    // The account card always gets the height its content needs, and the games list takes what is left: its rows
+    // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
+    // ever drawn outside its card, whatever the window's size.
+    let paired = matches!(view.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_));
+    let first = if paired {
+        (Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)
+    } else {
+        (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
+    };
+    let buttons: Vec<(Action, String, bool, f32)> = [first]
+        .into_iter()
+        .map(|(action, label, primary)| {
+            let w = (g.width_of(&label, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0);
+            (action, label, primary, w)
+        })
+        .collect();
+    let lines = button_lines(&buttons.iter().map(|b| b.3).collect::<Vec<_>>(), col - 40.0);
+    let line_count = lines.iter().map(|&(line, _)| line).max().map_or(0, |l| l + 1) as f32;
+    let (button_h, button_gap) = (36.0, 10.0);
+    let account_need = 104.0 + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
+    let games = view.games.len().max(1);
+    let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need);
+    let offset = view.games_scroll.clamp(0.0, max_scroll);
+    let scrolling = max_scroll > 0.0;
+
+    // Games: each reader with its cover, its name and a status pill; the list scrolls inside its card when it is
+    // longer than the room (mouse wheel, or the thin bar at the right).
     g.tile(0.0, 0.0, col, games_h, CARD);
     g.label(&text(view.lang, &Msg::PanelGames), 20.0, 16.0, col - 40.0);
+    let (list_top, list_bottom) = (42.0, games_h - 8.0);
+    let bar = if scrolling { 14.0 } else { 0.0 };
+    g.clip(g.r(0.0, list_top, col, list_bottom - list_top));
     for (i, row) in view.games.iter().enumerate() {
-        let y = 44.0 + row_h * i as f32;
+        let y = list_top + row_h * i as f32 - offset;
+        if y + row_h < list_top || y > list_bottom {
+            continue;
+        }
         if i > 0 {
-            g.fill(g.r(20.0, y, col - 40.0, 1.0), EDGE);
+            g.fill(g.r(20.0, y, col - 40.0 - bar, 1.0), EDGE);
+        }
+        // The cover, small; the game's initial on a card when there is none.
+        let th = (row_h - 10.0).min(42.0);
+        let tw = th * 2.0 / 3.0;
+        let thumb = g.r(20.0, y + (row_h - th) / 2.0, tw, th);
+        match cover_for(row.key, view.covers) {
+            Some(image) => g.image(thumb, image),
+            None => {
+                g.fill(thumb, TRACK);
+                let initial: String = row.title.chars().take(1).collect();
+                g.text(&initial, thumb, 14.0, semi, Face::Num, MUTED, DT_CENTER);
+            }
         }
         let state = state_text(view.lang, &row.state);
         let pill_w = g.width_of(&state, 12.0, semi, Face::Ui) + 22.0;
-        let r = g.r(20.0, y, col - 60.0 - pill_w, row_h);
+        let text_x = 20.0 + tw + 14.0;
+        let r = g.r(text_x, y, col - text_x - 40.0 - bar - pill_w, row_h);
         g.text(&row.title, r, 14.5, normal, Face::Ui, TEXT, DT_LEFT);
-        pill(g, col - 20.0 - pill_w, y + 7.0, pill_w, &state, state_color(&row.state));
+        pill(
+            g,
+            col - 20.0 - bar - pill_w,
+            y + (row_h - 24.0) / 2.0,
+            pill_w,
+            &state,
+            state_color(&row.state),
+        );
+    }
+    g.unclip();
+    if scrolling {
+        // A thin square bar: the track in the edge colour, the thumb lit when the mouse is on it.
+        let track_h = list_bottom - list_top;
+        let content = row_h * games as f32;
+        let thumb_h = (track_h * track_h / content).clamp(24.0, track_h);
+        let thumb_y = list_top + (track_h - thumb_h) * offset / max_scroll;
+        let x = col - 17.0;
+        g.fill(g.r(x, list_top, 3.0, track_h), EDGE);
+        let thumb_hit = g.r(x - 6.0, thumb_y, 15.0, thumb_h);
+        let lit = view.mouse.is_some_and(|(mx, my)| inside(&thumb_hit, mx, my));
+        g.fill(g.r(x - 1.0, thumb_y, 5.0, thumb_h), if lit { ACCENT } else { MUTED });
+        view.scroll.set(Some(ScrollBar {
+            area: g.r(0.0, 0.0, col, games_h),
+            track: g.r(x - 6.0, list_top, 15.0, track_h),
+            thumb: thumb_hit,
+            max: max_scroll,
+            per_px: max_scroll / ((track_h - thumb_h).max(1.0) * s),
+        }));
     }
 
-    // Account.
+    // Account: the state in words, where it connects, and what can be done about it.
     let account_y = games_h + gap;
-    g.tile(0.0, account_y, col, area_h - account_y, CARD);
+    let account_h = area_h - account_y;
+    g.tile(0.0, account_y, col, account_h, CARD);
     g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
-    let (cloud_word, cloud_color) = match view.snapshot.cloud {
-        Cloud::Idle => ("OK", GREEN),
-        Cloud::Waiting(_) => ("…", AMBER),
-        Cloud::NotPaired => ("—", GREY),
-        Cloud::Refused => ("!", RED),
+    let cloud_color = match view.snapshot.cloud {
+        Cloud::Idle => GREEN,
+        Cloud::Waiting(_) => AMBER,
+        Cloud::NotPaired => GREY,
+        Cloud::Refused => RED,
     };
-    pill(g, 20.0, account_y + 46.0, 40.0, cloud_word, cloud_color);
-    let r = g.r(72.0, account_y + 42.0, col - 92.0, 30.0);
+    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), cloud_color);
+    let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
     let cloud = present::cloud_line(view.lang, &view.snapshot.cloud, view.device);
     g.text(&cloud, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
-    let r = g.r(72.0, account_y + 70.0, col - 92.0, 20.0);
+    let r = g.r(40.0, account_y + 70.0, col - 60.0, 20.0);
     g.text(view.server, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(20.0, account_y + 100.0, col - 40.0, 20.0);
-    g.text(
-        &present::game_line_of(view.lang, view.snapshot),
-        r,
-        12.5,
-        normal,
-        Face::Ui,
-        MUTED,
-        DT_LEFT,
-    );
-    if area_h - account_y > 170.0 {
-        let folder = text(view.lang, &Msg::PanelLapsFolder(view.laps_dir.to_owned()));
-        let r = g.r(20.0, area_h - 36.0, col - 40.0, 20.0);
-        g.text(&folder, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
+    // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
+    // it refused this computer).
+    for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
+        let by = account_y + 104.0 + line as f32 * (button_h + button_gap);
+        if by + button_h > area_h - 12.0 {
+            break;
+        }
+        let r = g.r(20.0 + x, by, *w, button_h);
+        let (fill, edge, ink) = if *primary { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
+        g.round(r, CORNER, fill, edge);
+        g.text(label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
+        view.buttons.borrow_mut().push((*action, r));
     }
 
     // Laps saved, newest first.
@@ -838,9 +1882,14 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         let r = g.r(right + 20.0, 44.0, col - 40.0, 24.0);
         g.text(&text(view.lang, &Msg::PanelNoLaps), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
     } else {
+        // The count beside the title only when both fit on the line (in a small window they would run into each other).
         let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
-        let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
-        g.text(&count, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+        let title = text(view.lang, &Msg::PanelLaps).to_uppercase();
+        let need = g.width_of(&count, 12.0, normal, Face::Ui) + g.width_of(&title, 12.0, semi, Face::Label) * 1.3 + 24.0;
+        if need <= col - 40.0 {
+            let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
+            g.text(&count, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+        }
         let lap_row = 34.0;
         let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
         for (i, label) in view.recent_laps.iter().rev().take(room).enumerate() {
@@ -878,9 +1927,48 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.text(&text(view.lang, &Msg::PanelHint), r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
 }
 
+/// Buttons of these widths in lines no wider than `room`, 10 apart: each one's line and its left edge in the line.
+fn button_lines(widths: &[f32], room: f32) -> Vec<(usize, f32)> {
+    let mut placed = Vec::with_capacity(widths.len());
+    let (mut line, mut x) = (0, 0.0);
+    for &w in widths {
+        if x > 0.0 && x + w > room {
+            line += 1;
+            x = 0.0;
+        }
+        placed.push((line, x));
+        x += w + 10.0;
+    }
+    placed
+}
+
+/// The games card in `room` design units of height, for `games` lines: its height, the height of a line (from 52
+/// down to 44) and how far the list scrolls (0 when every line fits).
+fn games_layout(games: usize, room: f32) -> (f32, f32, f32) {
+    let games = games.max(1) as f32;
+    let (head, foot) = (42.0, 8.0);
+    let list = (room - head - foot).max(44.0);
+    let row_h = (list / games).clamp(44.0, 52.0);
+    let content = row_h * games;
+    if content <= list {
+        (head + foot + content, row_h, 0.0)
+    } else {
+        (head + foot + list, row_h, content - list)
+    }
+}
+
+/// The cover of a game, when it is loaded.
+fn cover_for(key: &str, covers: &[CoverArt]) -> Option<*mut GpImage> {
+    covers
+        .iter()
+        .find(|c| c.key == key)
+        .map(|c| c.image)
+        .filter(|image| !image.is_null())
+}
+
 /// A small rounded label with a tinted background.
 fn pill(g: &mut Painter, x: f32, y: f32, w: f32, word: &str, color: COLORREF) {
-    g.round(g.r(x, y, w, 24.0), 12.0, mix(CARD, color, 0.18), None);
+    g.round(g.r(x, y, w, 24.0), CORNER, mix(CARD, color, 0.18), None);
     let r = g.r(x, y, w, 24.0);
     g.text(word, r, 12.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
 }
@@ -904,7 +1992,10 @@ fn local_time(unix_ms: i64) -> String {
 }
 
 /// The game list for the monitor: Le Mans Ultimate, then each reader, with the best state any of its games reports.
-fn game_rows(ctx: &Context) -> Vec<GameRow> {
+/// The games list: one line per reader, only for games installed here (all of them when none was found, and always
+/// a game that is running). A line for several games names only those installed ("ACC · AC Rally"), and a single one
+/// by its full name.
+fn game_rows(ctx: &Context, installed: Option<&HashSet<&'static str>>) -> Vec<GameRow> {
     let reported = ctx.shared.games();
     let rank = |g: &Game| match g {
         Game::Recording(_) => 4,
@@ -921,15 +2012,44 @@ fn game_rows(ctx: &Context) -> Vec<GameRow> {
             .max_by_key(rank)
             .unwrap_or(Game::Waiting)
     };
-    let mut rows = vec![GameRow {
-        title: "Le Mans Ultimate".to_owned(),
-        state: state_of(&["lmu"]),
-    }];
-    rows.extend(ctx.readers.iter().map(|(title, ids)| GameRow {
-        title: title.clone(),
-        state: state_of(ids),
-    }));
-    rows
+    let lines = std::iter::once(("Le Mans Ultimate".to_owned(), vec!["lmu"])).chain(ctx.readers.iter().cloned());
+    lines
+        .filter_map(|(title, ids)| {
+            let state = state_of(&ids);
+            let here: Vec<&'static str> = match installed {
+                Some(set) if !set.is_empty() => ids.iter().copied().filter(|id| set.contains(id)).collect(),
+                _ => ids.clone(),
+            };
+            if here.is_empty() && matches!(state, Game::Waiting) {
+                return None;
+            }
+            let here = if here.is_empty() { ids.clone() } else { here };
+            Some(GameRow {
+                key: here[0],
+                title: line_title(&title, &ids, &here),
+                state,
+            })
+        })
+        .collect()
+}
+
+/// The title of a line for the games `here` among the reader's `ids` (its title naming them in order, "A · B · C").
+fn line_title(title: &str, ids: &[&'static str], here: &[&'static str]) -> String {
+    let parts: Vec<&str> = title.split(" \u{b7} ").collect();
+    if parts.len() != ids.len() || here.len() == ids.len() {
+        return title.to_owned();
+    }
+    if let [only] = here {
+        if let Some((_, name)) = crate::covers::GAMES.iter().find(|(key, _)| key == only) {
+            return (*name).to_owned();
+        }
+    }
+    ids.iter()
+        .zip(&parts)
+        .filter(|(id, _)| here.contains(id))
+        .map(|(_, part)| *part)
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
 }
 
 fn scale_of(hwnd: HWND) -> f32 {
@@ -941,33 +2061,38 @@ fn scale_of(hwnd: HWND) -> f32 {
     }
 }
 
-unsafe fn paint_window(hwnd: HWND, state: &State) {
+unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let mut ps: PAINTSTRUCT = std::mem::zeroed();
     let hdc = BeginPaint(hwnd, &mut ps);
     let mut client = rect(0, 0, 0, 0);
     GetClientRect(hwnd, &mut client);
     let (w, h) = (client.right.max(1), client.bottom.max(1));
-    let memory = CreateCompatibleDC(hdc);
-    let bitmap = CreateCompatibleBitmap(hdc, w, h);
-    let old = SelectObject(memory, bitmap);
+    // The back buffer is kept between frames (a new 8 MB bitmap every frame cost time), and remade when the size
+    // changes.
+    if state.buffer.as_ref().is_none_or(|b| b.key != (w, h, 0)) {
+        state.buffer = Some(Backdrop::new(hdc, (w, h, 0), |_| {}));
+    }
+    let memory = state.buffer.as_ref().map_or(null_mut(), |b| b.dc);
 
     let ctx = &state.ctx;
     let snapshot = ctx.shared.snapshot();
     let live = ctx.shared.live();
-    let games = game_rows(ctx);
+    let games = game_rows(ctx, state.installed.as_ref());
     let account = ctx.account.lock().unwrap().clone();
     let recent_laps = ctx.shared.recent_laps();
     let log: Vec<(String, String)> = crate::applog::recent(60)
         .into_iter()
         .map(|(ms, line)| (local_time(ms), line))
         .collect();
+    let now = now_ms();
+    state.carousel.tick(now);
     let view = View {
         lang: account.lang,
         tab: state.tab,
         on_top: state.on_top,
         full: state.full.is_some(),
         scale: scale_of(hwnd),
-        now_ms: now_ms(),
+        now_ms: now,
         snapshot: &snapshot,
         live: live.as_ref(),
         games: &games,
@@ -975,13 +2100,18 @@ unsafe fn paint_window(hwnd: HWND, state: &State) {
         server: &account.server,
         recent_laps: &recent_laps,
         log: &log,
-        laps_dir: &ctx.laps_dir,
+        covers: &state.covers,
+        mouse: state.mouse,
+        buttons: Default::default(),
+        carousel: state.carousel.at(now),
+        games_scroll: state.games_scroll,
+        scroll: Default::default(),
     };
     paint(memory, w, h, &view);
+    state.buttons = view.buttons.take();
+    state.scroll = view.scroll.get();
+    state.games_scroll = state.games_scroll.clamp(0.0, state.scroll.map_or(0.0, |bar| bar.max));
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
-    SelectObject(memory, old);
-    DeleteObject(bitmap);
-    DeleteDC(memory);
     EndPaint(hwnd, &ps);
 }
 
@@ -1001,6 +2131,40 @@ fn set_on_top(hwnd: HWND, on: bool) {
 
 /// Fills the screen the window is on, or puts it back where it was (the usual way: drop the frame, cover the
 /// monitor; then restore the style and the placement).
+/// The dashboard tab shows the waiting screen (no reading, or none for a while).
+/// Whether the window shows something in motion: the dashboard's live readings, or a cover sliding.
+fn moving(state: &State) -> bool {
+    if state.tab != Tab::Dash {
+        return false;
+    }
+    let now = now_ms();
+    !waiting_now(state) || now - state.carousel.since < SLIDE_MS
+}
+
+/// Whether the point (in the window's pixels) is on something a click acts on: a tab, a header button or a button
+/// of the last frame.
+unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> bool {
+    let mut client = rect(0, 0, 0, 0);
+    GetClientRect(hwnd, &mut client);
+    header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
+        || state.buttons.iter().any(|(_, r)| inside(r, x, y))
+        || (state.tab == Tab::Monitor && state.scroll.is_some_and(|bar| inside(&bar.thumb, x, y)))
+}
+
+/// Reads again which games are installed, and their covers when that changed.
+fn refresh_installed(state: &mut State) {
+    let now = Some(crate::installed::keys());
+    if now != state.installed || state.covers.is_empty() {
+        state.installed = now;
+        state.covers = CoverArt::load(state.installed.as_ref());
+        state.games_scroll = 0.0;
+    }
+}
+
+fn waiting_now(state: &State) -> bool {
+    state.tab == Tab::Dash && state.ctx.shared.live().is_none_or(|l| now_ms() - l.at_ms > STALE_MS)
+}
+
 unsafe fn toggle_full(hwnd: HWND, state: &mut State) {
     if let Some((placement, style)) = state.full.take() {
         SetWindowLongPtrW(hwnd, GWL_STYLE, style);
@@ -1065,7 +2229,61 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_ERASEBKGND => 1,
         WM_PAINT => {
             paint_window(hwnd, state);
+            // While something moves (a cover sliding, the live readings), the next frame follows the screen's own
+            // refresh: wait for the compositor's next pass, then ask for another frame. The timer alone ticks
+            // unevenly (Windows' timer granularity), which shows as stutter even when every frame is fast.
+            if moving(state) && IsIconic(hwnd) == 0 {
+                DwmFlush();
+                InvalidateRect(hwnd, null(), 0);
+            }
             0
+        }
+        WM_LBUTTONDOWN
+            if state.tab == Tab::Monitor
+                && state.scroll.is_some_and(|bar| {
+                    let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+                    inside(&bar.track, x, y)
+                }) =>
+        {
+            // On the games list's bar: a press on the thumb drags it; on the track, the thumb jumps there first.
+            let y = ((lparam >> 16) & 0xffff) as i16 as i32;
+            if let Some(bar) = state.scroll {
+                if y < bar.thumb.top || y > bar.thumb.bottom {
+                    let middle = (bar.thumb.top + bar.thumb.bottom) / 2;
+                    state.games_scroll = (state.games_scroll + (y - middle) as f32 * bar.per_px).clamp(0.0, bar.max);
+                }
+            }
+            state.drag = Some((y, state.games_scroll));
+            SetCapture(hwnd);
+            InvalidateRect(hwnd, null(), 0);
+            0
+        }
+        WM_LBUTTONUP => {
+            if state.drag.take().is_some() {
+                ReleaseCapture();
+            }
+            0
+        }
+        WM_CAPTURECHANGED => {
+            state.drag = None;
+            0
+        }
+        WM_MOUSEWHEEL => {
+            // Over the games list (Monitor tab), the wheel scrolls it: about one line a notch.
+            let mut at = POINT {
+                x: (lparam & 0xffff) as i16 as i32,
+                y: ((lparam >> 16) & 0xffff) as i16 as i32,
+            };
+            ScreenToClient(hwnd, &mut at);
+            match state.scroll {
+                Some(bar) if state.tab == Tab::Monitor && inside(&bar.area, at.x, at.y) => {
+                    let notches = ((wparam >> 16) & 0xffff) as i16 as f32 / 120.0;
+                    state.games_scroll = (state.games_scroll - notches * 48.0).clamp(0.0, bar.max);
+                    InvalidateRect(hwnd, null(), 0);
+                    0
+                }
+                _ => DefWindowProcW(hwnd, message, wparam, lparam),
+            }
         }
         WM_LBUTTONDOWN => {
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
@@ -1081,14 +2299,69 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if inside(&top, x, y) {
                 state.on_top = !state.on_top;
                 set_on_top(hwnd, state.on_top);
+            } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
+                let account = state.ctx.account.lock().unwrap().clone();
+                match action {
+                    Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
+                    Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
+                }
+            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
+                // The carousel: a click left of the middle goes back, right of it goes on.
+                let by = if x < client.right / 2 { -1 } else { 1 };
+                state.carousel.step(by, now_ms());
             }
+            InvalidateRect(hwnd, null(), 0);
+            0
+        }
+        WM_MOUSEMOVE => {
+            let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+            if state.mouse.is_none() {
+                // Ask to be told when the mouse leaves the window, to drop the tooltip.
+                let mut track = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                };
+                TrackMouseEvent(&mut track);
+            }
+            state.mouse = Some((x, y));
+            if let (Some((from_y, from_scroll)), Some(bar)) = (state.drag, state.scroll) {
+                state.games_scroll = (from_scroll + (y - from_y) as f32 * bar.per_px).clamp(0.0, bar.max);
+                InvalidateRect(hwnd, null(), 0);
+            }
+            0
+        }
+        WM_SETCURSOR if (lparam & 0xffff) as u32 == HTCLIENT => {
+            let mut at = POINT { x: 0, y: 0 };
+            GetCursorPos(&mut at);
+            ScreenToClient(hwnd, &mut at);
+            if clickable(hwnd, state, at.x, at.y) {
+                SetCursor(LoadCursorW(null_mut(), IDC_HAND));
+                1
+            } else {
+                DefWindowProcW(hwnd, message, wparam, lparam)
+            }
+        }
+        WM_MOUSELEAVE => {
+            state.mouse = None;
+            0
+        }
+        WM_ACTIVATE if wparam & 0xffff != 0 => {
+            // Back to the front: a game may have been installed or removed meanwhile.
+            refresh_installed(state);
+            InvalidateRect(hwnd, null(), 0);
+            0
+        }
+        WM_COVERS => {
+            state.covers = CoverArt::load(state.installed.as_ref());
             InvalidateRect(hwnd, null(), 0);
             0
         }
         WM_LBUTTONDBLCLK => {
             // A double click below the header: full screen and back.
             let y = ((lparam >> 16) & 0xffff) as i16 as i32;
-            if y > (54.0 * scale_of(hwnd)) as i32 {
+            if y > (HEADER_H * scale_of(hwnd)) as i32 && !waiting_now(state) {
                 toggle_full(hwnd, state);
                 InvalidateRect(hwnd, null(), 0);
             }
@@ -1106,6 +2379,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 }
                 VK_F11 | 0x46 => toggle_full(hwnd, state),
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
+                // Left and right arrows move the covers' carousel.
+                0x25 => state.carousel.step(-1, now_ms()),
+                0x27 => state.carousel.step(1, now_ms()),
                 _ => return DefWindowProcW(hwnd, message, wparam, lparam),
             }
             InvalidateRect(hwnd, null(), 0);
@@ -1149,6 +2425,28 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
     }
 }
 
+/// Brings the game covers up to date with the Xpeed server's, once a run (again the next time the window opens when
+/// the server could not be reached), off the window's thread; the window reads them again when some changed.
+fn fetch_covers_once(hwnd: HWND, server: String) {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let server = if server.is_empty() {
+        crate::config::DEFAULT_SERVER.to_owned()
+    } else {
+        server
+    };
+    let target = hwnd as isize;
+    std::thread::spawn(move || match crate::covers::sync(&server) {
+        Some(0) => {}
+        Some(_) => unsafe {
+            PostMessageW(target as HWND, WM_COVERS, 0, 0);
+        },
+        None => STARTED.store(false, std::sync::atomic::Ordering::SeqCst),
+    });
+}
+
 /// Shows the window, making it if it is not open (`existing` is the one made before, if any). Returns its handle.
 pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
     unsafe {
@@ -1178,7 +2476,17 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             tab: Tab::Dash,
             on_top: false,
             full: None,
+            covers: Vec::new(),
+            installed: None,
+            buffer: None,
+            mouse: None,
+            buttons: Vec::new(),
+            carousel: Carousel::new(now_ms()),
+            games_scroll: 0.0,
+            scroll: None,
+            drag: None,
         }));
+        refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
         let before = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let hwnd = CreateWindowExW(
@@ -1197,6 +2505,12 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         );
         if !before.is_null() {
             SetThreadDpiAwarenessContext(before);
+        }
+        if !hwnd.is_null() {
+            // A dark title bar, the colour of the window (Windows 11; older versions ignore what they do not know).
+            let dark: i32 = 1;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE as u32, (&dark as *const i32).cast(), 4);
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR as u32, (&BG as *const COLORREF).cast(), 4);
         }
         if hwnd.is_null() {
             crate::applog::line("could not create the panel window");
@@ -1219,6 +2533,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         );
         ShowWindow(hwnd, SW_SHOWNORMAL);
         SetForegroundWindow(hwnd);
+        let server = (*state).ctx.account.lock().map(|a| a.server.clone()).unwrap_or_default();
+        fetch_covers_once(hwnd, server);
         hwnd
     }
 }
@@ -1311,7 +2627,6 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
             server: "https://xpeed.skale.club".into(),
             lang,
         })),
-        laps_dir: "(demo)".into(),
         readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
         icon_big: null_mut(),
         icon_small: null_mut(),
@@ -1334,7 +2649,49 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_for_several_games_names_only_those_installed() {
+        let ids = ["ac", "acc", "acr"];
+        let title = "Assetto Corsa \u{b7} ACC \u{b7} AC Rally";
+        assert_eq!(line_title(title, &ids, &ids), title);
+        assert_eq!(line_title(title, &ids, &["acc", "acr"]), "ACC \u{b7} AC Rally");
+        assert_eq!(
+            line_title(title, &ids, &["acc"]),
+            "Assetto Corsa Competizione",
+            "one game: its full name"
+        );
+        assert_eq!(line_title("iRacing", &["iracing"], &["iracing"]), "iRacing");
+    }
+
+    #[test]
+    fn games_list_fits_its_room_and_scrolls_the_rest() {
+        // Plenty of room: full-height lines, no scrolling.
+        assert_eq!(games_layout(7, 1000.0), (50.0 + 52.0 * 7.0, 52.0, 0.0));
+        // Less: lower lines, still no scrolling.
+        let (h, row, max) = games_layout(7, 400.0);
+        assert!((44.0..52.0).contains(&row) && max == 0.0 && h <= 400.0);
+        // Too little: the card fills its room exactly and the rest of the list scrolls.
+        for room in [94.0, 150.0, 250.0] {
+            let (h, row, max) = games_layout(7, room);
+            assert_eq!(row, 44.0);
+            assert_eq!(h, room);
+            assert_eq!(max, 44.0 * 7.0 - (room - 50.0), "{room}");
+        }
+    }
+
+    #[test]
+    fn buttons_wrap_to_a_new_line_when_the_card_is_narrow() {
+        assert_eq!(button_lines(&[200.0, 180.0], 400.0), vec![(0, 0.0), (0, 210.0)]);
+        assert_eq!(button_lines(&[200.0, 180.0], 300.0), vec![(0, 0.0), (1, 0.0)]);
+        assert_eq!(
+            button_lines(&[320.0], 300.0),
+            vec![(0, 0.0)],
+            "a lone button stays on the first line"
+        );
+    }
     use crate::game::Frame;
+
     use windows_sys::Win32::Graphics::Gdi::{CreateDIBSection, GdiFlush, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
 
     /// Paints a view into a bitmap and gives back its pixels (BGRA, top row first).
@@ -1410,7 +2767,22 @@ mod tests {
         frame.clutch = 0.0;
         frame.steer = -0.18;
         frame.fuel_l = 38.6;
+        frame.tyres = Some(
+            [(84.0, 26.9, 0.91), (88.0, 27.2, 0.9), (97.0, 26.4, 0.86), (101.0, 26.6, 0.84)].map(|(t, psi, left)| crate::game::Tyre {
+                temp_c: t,
+                pressure_kpa: psi * 6.894_757,
+                left,
+            }),
+        );
         let mut live = tracker.on_frame("Assetto Corsa", &frame, 1_000);
+        let track: Vec<(f32, f32)> = (0..400)
+            .map(|i| {
+                let t = i as f32 / 400.0 * std::f32::consts::TAU;
+                (600.0 * t.cos() + 130.0 * (3.0 * t).cos(), 300.0 * t.sin() - 110.0 * (2.0 * t).sin())
+            })
+            .collect();
+        live.pos = Some(track[160]);
+        live.map = Some(std::sync::Arc::new(track));
         live.best_lap_s = Some(107.204);
         live.delta_s = Some(-0.27);
         live
@@ -1434,22 +2806,27 @@ mod tests {
             },
             games: vec![
                 GameRow {
+                    key: "lmu",
                     title: "Le Mans Ultimate".into(),
                     state: Game::Waiting,
                 },
                 GameRow {
+                    key: "ac",
                     title: "Assetto Corsa · ACC · AC Rally".into(),
                     state: Game::Recording(4),
                 },
                 GameRow {
+                    key: "ams2",
                     title: "Automobilista 2".into(),
                     state: Game::Waiting,
                 },
                 GameRow {
+                    key: "iracing",
                     title: "iRacing".into(),
                     state: Game::Connected,
                 },
                 GameRow {
+                    key: "rfactor1",
                     title: "Stock Car Extreme".into(),
                     state: Game::Unsupported,
                 },
@@ -1479,7 +2856,12 @@ mod tests {
             server: "https://xpeed.skale.club",
             recent_laps: &f.laps,
             log: &f.log,
-            laps_dir: "C:\\Users\\Driver\\Documents\\Xpeed Sim\\Laps",
+            covers: &[],
+            mouse: None,
+            buttons: Default::default(),
+            carousel: 0.0,
+            games_scroll: 0.0,
+            scroll: Default::default(),
         }
     }
 
@@ -1490,7 +2872,7 @@ mod tests {
         let (w, h) = (960, 600);
         let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
         save(&pixels, w, h, "panel-dashboard.png");
-        assert_eq!(&pixels[..3], &[0x0f, 0x0d, 0x0c], "the corner is the background");
+        assert!(pixels[..3].iter().all(|&c| c < 0x24), "the corner is the dark background");
         assert!(
             has_color(&pixels, ACCENT) > 2000,
             "the selected tab and the gear are drawn in the accent"
@@ -1528,16 +2910,156 @@ mod tests {
         );
     }
 
+    /// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
+    /// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
+    /// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
+    #[test]
+    fn writes_the_design_preview_page() {
+        let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") else {
+            return;
+        };
+        let f = fixture();
+        let live = live_reading();
+        let mut pits = live.clone();
+        pits.in_pits = true;
+        pits.delta_s = Some(0.43);
+        pits.throttle = 0.0;
+        pits.brake = 0.8;
+        let shots = [
+            (
+                "preview-window.png",
+                "Window (960 × 600)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                960,
+                600,
+                1.0,
+            ),
+            (
+                "preview-full-hd.png",
+                "Full screen, 1920 × 1080",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                1920,
+                1080,
+                1.0,
+            ),
+            (
+                "preview-ultrawide.png",
+                "Full screen, ultrawide 2560 × 1080",
+                Some(&pits),
+                Tab::Dash,
+                Lang::Pt,
+                2560,
+                1080,
+                1.0,
+            ),
+            ("preview-monitor.png", "Monitor tab", None, Tab::Monitor, Lang::En, 1280, 800, 1.0),
+            (
+                "preview-waiting.png",
+                "Waiting for a game",
+                None,
+                Tab::Dash,
+                Lang::En,
+                960,
+                600,
+                1.0,
+            ),
+            (
+                "preview-small.png",
+                "Smallest window (720 × 480)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                720,
+                480,
+                1.0,
+            ),
+        ];
+        let mut figures = String::new();
+        let covers = CoverArt::load(None);
+        let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        let [_, _, full_button, _] = header_hits(960, 1.0);
+        hover.mouse = Some((full_button.left + 5, full_button.top + 5));
+        let pixels = render(&hover, 960, 600);
+        save(&pixels, 960, 600, "preview-tooltip.png");
+        figures.push_str("<figure><figcaption>Icon buttons, with the tooltip of the one under the mouse</figcaption><img data-src=\"preview-tooltip.png\" width=\"960\" height=\"600\"></figure>\n");
+        let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
+        with_covers.covers = &covers;
+        with_covers.carousel = 9.0;
+        let mut unpaired = fixture();
+        unpaired.snapshot.cloud = Cloud::NotPaired;
+        let mut monitor_covers = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
+        monitor_covers.covers = &covers;
+        let pixels = render(&monitor_covers, 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-covers.png");
+        figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        monitor_covers.games_scroll = 30.0;
+        let pixels = render(&monitor_covers, 720, 480);
+        save(&pixels, 720, 480, "preview-monitor-small.png");
+        figures.push_str("<figure><figcaption>Monitor tab in the smallest window (720 × 480): everything stays in its card, the games list scrolls</figcaption><img data-src=\"preview-monitor-small.png\" width=\"720\" height=\"480\"></figure>\n");
+        let pixels = render(&with_covers, 1280, 720);
+        save(&pixels, 1280, 720, "preview-covers.png");
+        figures.push_str("<figure><figcaption>Waiting for a game, with the covers from the Xpeed server</figcaption><img data-src=\"preview-covers.png\" width=\"1280\" height=\"720\"></figure>\n");
+        for (file, caption, reading, tab, lang, w, h, scale) in shots {
+            let pixels = render(&view(&f, reading, tab, scale, lang), w, h);
+            save(&pixels, w, h, file);
+            figures.push_str(&format!(
+                "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+            ));
+        }
+        let stamp = crate::util::now_ms().to_string();
+        let page = format!(
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>Xpeed Sim panel</title>
+<style>
+body {{ margin: 0; background: #050607; color: #c9ccd2; font: 14px "Segoe UI", sans-serif; }}
+header {{ position: sticky; top: 0; padding: 12px 24px; background: #0c0d0fee; border-bottom: 1px solid #25282e; display: flex; gap: 16px; align-items: baseline; z-index: 1; }}
+header b {{ color: #f5e663; font-size: 16px; }}
+main {{ padding: 24px; display: grid; gap: 32px; }}
+figure {{ margin: 0; }}
+figcaption {{ margin-bottom: 8px; color: #7c828c; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }}
+img {{ display: block; max-width: 100%; height: auto; border: 1px solid #25282e; border-radius: 8px; }}
+</style></head><body>
+<header><b>Xpeed Sim panel</b><span>drawn by the program's own code · updates by itself</span><span id="when"></span></header>
+<main>
+{figures}</main>
+<script>
+let shown = "";
+async function look() {{
+  try {{
+    const stamp = (await (await fetch("stamp.txt?" + Date.now())).text()).trim();
+    if (stamp && shown && stamp !== shown) {{
+      // Redrawn: load the page again, since the list of pictures can change too.
+      location.reload();
+      return;
+    }}
+    if (stamp && stamp !== shown) {{
+      shown = stamp;
+      document.querySelectorAll("img[data-src]").forEach(img => img.src = img.dataset.src + "?" + stamp);
+      document.getElementById("when").textContent = "updated " + new Date(Number(stamp)).toLocaleTimeString();
+    }}
+  }} catch (e) {{}}
+}}
+look(); setInterval(look, 1500);
+</script></body></html>"#
+        );
+        let dir = std::path::Path::new(&dir);
+        std::fs::write(dir.join("index.html"), page).unwrap();
+        std::fs::write(dir.join("stamp.txt"), stamp).unwrap();
+    }
+
     #[test]
     fn the_header_can_be_clicked_where_it_is_drawn() {
         let [dash, mon, full, top] = header_hits(960, 1.0);
         assert!(inside(&dash, 20, 20) && !inside(&dash, 150, 20));
         assert!(inside(&mon, 160, 20));
-        assert!(inside(&full, 700, 20) && !inside(&full, 764, 20));
-        assert!(inside(&top, 900, 20) && !inside(&top, 900, 60));
+        assert!(inside(&full, 880, 20) && !inside(&full, 899, 20));
+        assert!(inside(&top, 920, 20) && !inside(&top, 920, 52));
         assert!(full.right < top.left && mon.right < full.left, "nothing overlaps");
         let [dash2, _, _, top2] = header_hits(1440, 1.5);
-        assert_eq!((dash2.left, dash2.right), (29, 200));
+        assert_eq!((dash2.left, dash2.right), (30, 204));
         assert_eq!(top2.right, 1440 - 24);
     }
 
@@ -1554,6 +3076,70 @@ mod tests {
         );
     }
 
+    /// How long a frame takes to draw, by screen: `cargo test frame_times -- --ignored --nocapture`. Not run by
+    /// default (it needs this computer's covers and measures, it does not check).
+    #[test]
+    #[ignore]
+    fn frame_times() {
+        let f = fixture();
+        let live = live_reading();
+        let covers = CoverArt::load(None);
+        for (name, reading, tab) in [
+            ("carousel", None, Tab::Dash),
+            ("dashboard", Some(&live), Tab::Dash),
+            ("monitor", None, Tab::Monitor),
+        ] {
+            let mut v = view(&f, reading, tab, 1.0, Lang::En);
+            v.covers = &covers;
+            let (w, h) = (1920, 1080);
+            render(&v, w, h);
+            let start = std::time::Instant::now();
+            let frames = 30;
+            for i in 0..frames {
+                v.carousel = i as f32 * 0.1;
+                render(&v, w, h);
+            }
+            println!(
+                "{name}: {:.1} ms a frame at {w}x{h}",
+                start.elapsed().as_secs_f64() * 1000.0 / frames as f64
+            );
+        }
+        // The parts of a carousel frame, alone.
+        let (w, h) = (1920, 1080);
+        let time = |label: &str, draw: &dyn Fn(&mut Painter)| unsafe {
+            let hdc = CreateCompatibleDC(null_mut());
+            let bitmap = dib(hdc, w, h);
+            let old = SelectObject(hdc, bitmap);
+            let mut g = Painter::new(hdc, 1.0);
+            let start = std::time::Instant::now();
+            for _ in 0..30 {
+                draw(&mut g);
+            }
+            println!("  {label}: {:.2} ms", start.elapsed().as_secs_f64() * 1000.0 / 30.0);
+            drop(g);
+            SelectObject(hdc, old);
+            DeleteObject(bitmap);
+            DeleteDC(hdc);
+        };
+        if let Some(image) = covers.iter().find(|c| !c.image.is_null()).map(|c| c.image) {
+            time("one cover image 283x425", &|g| g.image_exact((100.0, 100.0, 283.0, 425.0), image));
+        }
+        time("one veil 283x425", &|g| g.veil_exact((100.0, 100.0, 283.0, 425.0), BG, 0.5));
+        time("backdrop (kept)", &|g| g.backdrop(w, h));
+        time("rev bar", &|g| g.rev_bar(0.0, 0.0, 1360.0, 36.0, 0.9, false));
+        time("text 34px", &|g| {
+            g.text(
+                "Waiting for a game",
+                rect(0, 0, 900, 60),
+                34.0,
+                FW_SEMIBOLD as i32,
+                Face::Num,
+                TEXT,
+                DT_CENTER,
+            )
+        });
+    }
+
     #[test]
     fn the_dashboard_canvas_fills_the_window_and_keeps_its_shape() {
         let (s, ox, oy) = canvas_fit(rect(16, 58, 944, 584));
@@ -1568,17 +3154,51 @@ mod tests {
     }
 
     #[test]
+    fn turns_gdi_colours_into_gdiplus_colours() {
+        assert_eq!(argb(rgb(0x12, 0x34, 0x56)), 0xff12_3456);
+        assert_eq!(argb(ACCENT), 0xfff5_e663);
+    }
+
+    #[test]
     fn the_shift_lights_fill_up_and_flash_at_the_top() {
         assert_eq!(lights_lit(0.3), (0, false));
         assert_eq!(lights_lit(LIGHTS_FROM), (0, false));
-        assert_eq!(lights_lit(0.76), (7, false));
-        assert_eq!(lights_lit(0.969), (14, false));
+        assert_eq!(lights_lit(0.761), (10, false));
+        assert_eq!(lights_lit(0.969), (19, false));
         assert_eq!(lights_lit(0.98), (LIGHTS, true));
         assert_eq!(lights_lit(f32::NAN), (0, false));
-        assert_eq!((light_color(0), light_color(5), light_color(14)), (GREEN, AMBER, RED));
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
         assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
         assert_eq!(lap_parts("odd"), ("odd", ""));
+    }
+
+    #[test]
+    fn the_carousel_slides_with_an_ease_goes_round_and_moves_on_by_itself() {
+        let mut c = Carousel::new(1_000);
+        assert_eq!(c.at(1_000), 0.0);
+        c.step(1, 1_000);
+        let half = c.at(1_000 + SLIDE_MS / 2);
+        assert!((half - 0.5).abs() < 1e-3, "eased in and out: half way at half time ({half})");
+        let quarter = c.at(1_000 + SLIDE_MS / 4);
+        assert!(quarter < 0.1, "gently away ({quarter})");
+        assert_eq!(c.at(1_000 + SLIDE_MS), 1.0);
+        c.tick(1_000 + SLIDE_MS + DWELL_MS - 1);
+        assert_eq!(c.target, 1, "not yet");
+        c.tick(1_000 + SLIDE_MS + DWELL_MS);
+        assert_eq!(c.target, 2, "on by itself");
+        // Going round: cover 0 is just right of the middle when the carousel is at the last cover.
+        assert_eq!(carousel_offset(0, 10, 9.0), 1.0);
+        assert_eq!(carousel_offset(9, 10, 0.0), -1.0);
+        assert_eq!(carousel_offset(3, 10, 2.5), 0.5);
+    }
+
+    #[test]
+    fn shows_the_gears_either_side() {
+        assert_eq!(neighbour_gears(4.0), (Some("3".into()), Some("5".into())));
+        assert_eq!(neighbour_gears(1.0), (Some("N".into()), Some("2".into())));
+        assert_eq!(neighbour_gears(0.0), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN), (None, None));
     }
 
     #[test]

@@ -64,7 +64,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{Frame, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// How often the loop looks at the memory while it waits for a new reading (about 100 Hz).
@@ -90,6 +90,10 @@ mod layout {
     pub const PHYS_RPMS: usize = 20;
     pub const PHYS_STEER: usize = 24;
     pub const PHYS_SPEED_KMH: usize = 28;
+    /// `float wheelsPressure[4]`, psi.
+    pub const PHYS_WHEELS_PRESSURE: usize = 88;
+    /// `float tyreCoreTemperature[4]`, °C.
+    pub const PHYS_TYRE_CORE_TEMPERATURE: usize = 152;
     /// The end of `abs`: the physics prefix shared by the three games.
     pub const PHYS_LEN: usize = 256;
 
@@ -436,6 +440,27 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         }
     };
 
+    // Tyres, front left to rear right: pressure (psi in the page) and core temperature. The page's `tyreWear` has
+    // no documented unit (and Competizione leaves it empty), so the tread left is not given.
+    let tyres: [Tyre; 4] = std::array::from_fn(|i| {
+        let psi = p.f32_at(PHYS_WHEELS_PRESSURE + 4 * i);
+        let core = p.f32_at(PHYS_TYRE_CORE_TEMPERATURE + 4 * i);
+        Tyre {
+            temp_c: if core.is_finite() && core != 0.0 && (-50.0..=400.0).contains(&core) {
+                core
+            } else {
+                f32::NAN
+            },
+            pressure_kpa: if psi.is_finite() && (1.0..=100.0).contains(&psi) {
+                psi * 6.894_757
+            } else {
+                f32::NAN
+            },
+            left: f32::NAN,
+        }
+    });
+    f.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
+
     f.car = s.utf16_at(STAT_CAR_MODEL, 33);
     f.track = s.utf16_at(STAT_TRACK, 33);
 
@@ -752,6 +777,8 @@ mod tests {
             ("rpms", PHYS_RPMS),
             ("steerAngle", PHYS_STEER),
             ("speedKmh", PHYS_SPEED_KMH),
+            ("wheelsPressure", PHYS_WHEELS_PRESSURE),
+            ("tyreCoreTemperature", PHYS_TYRE_CORE_TEMPERATURE),
         ] {
             assert_eq!(offset_of(PHYSICS, name), at, "{name}");
         }
