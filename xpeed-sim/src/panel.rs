@@ -29,6 +29,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::Graphics::Gdi::{IntersectClipRect, ScreenToClient, SelectClipRgn};
+use windows_sys::Win32::Graphics::GdiPlus::GdipCreateBitmapFromScan0;
 use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
@@ -136,6 +137,8 @@ pub enum Action {
     OpenXpeed,
     /// Brings this cover of the waiting screen's carousel to the middle.
     Cover(usize),
+    /// Picks this language (its place in `Lang::ALL`) from the language list.
+    Lang(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,6 +186,8 @@ pub struct View<'a> {
     pub games_scroll: f32,
     /// The carousel's step from one cover to the next as drawn in this frame (pixels), for dragging it.
     pub carousel_step: std::cell::Cell<f32>,
+    /// The language list under the language button is open.
+    pub lang_open: bool,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
 }
@@ -383,6 +388,8 @@ struct State {
     press: Option<(i32, i32, f32, bool)>,
     /// The carousel's step from one cover to the next (pixels), from the last frame that drew it.
     carousel_step: f32,
+    /// The language list is open.
+    lang_open: bool,
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
@@ -1255,6 +1262,58 @@ fn lap_parts(label: &str) -> (&str, &str) {
     label.split_once("  ").map_or((label, ""), |(name, time)| (name, time.trim()))
 }
 
+/// The flags of the languages, in the order of `Lang::ALL`: Nucleo's flag icons (`assets/flags/*.svg`), drawn once
+/// into premultiplied 32-bit pixels at 120 x 96 (`*.bgra`, made from the SVGs with headless Chrome; `*.png` are the
+/// same pixels to look at).
+const FLAG_W: i32 = 120;
+const FLAG_H: i32 = 96;
+static FLAG_PIXELS: [&[u8]; 3] = [
+    include_bytes!("../assets/flags/us.bgra"),
+    include_bytes!("../assets/flags/br.bgra"),
+    include_bytes!("../assets/flags/es.bgra"),
+];
+
+thread_local! {
+    static FLAGS: std::cell::OnceCell<[usize; 3]> = const { std::cell::OnceCell::new() };
+}
+
+/// The flag of a language as a GDI+ image (made on first use, kept for the program's life); null without GDI+.
+fn flag_image(lang: Lang) -> *mut GpImage {
+    let index = Lang::ALL.iter().position(|l| *l == lang).unwrap_or(0);
+    FLAGS.with(|flags| {
+        flags.get_or_init(|| {
+            FLAG_PIXELS.map(|pixels| {
+                if !gdiplus_ready() || pixels.len() != (FLAG_W * FLAG_H * 4) as usize {
+                    return 0;
+                }
+                unsafe {
+                    // A bitmap over the embedded pixels, copied at once into one GDI+ owns (the pixels are only read).
+                    let mut over = null_mut();
+                    let made = GdipCreateBitmapFromScan0(
+                        FLAG_W,
+                        FLAG_H,
+                        FLAG_W * 4,
+                        PIXEL_FORMAT_32BPP_PARGB,
+                        pixels.as_ptr().cast_mut(),
+                        &mut over,
+                    ) == 0;
+                    if !made || over.is_null() {
+                        return 0;
+                    }
+                    let mut own = null_mut();
+                    let copied = GdipCloneBitmapAreaI(0, 0, FLAG_W, FLAG_H, PIXEL_FORMAT_32BPP_PARGB, over, &mut own) == 0;
+                    GdipDisposeImage(over.cast());
+                    if copied {
+                        own as usize
+                    } else {
+                        0
+                    }
+                }
+            })
+        })[index] as *mut GpImage
+    })
+}
+
 /// Draws one frame of the window.
 pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let mut g = Painter::new(hdc, view.scale);
@@ -1266,7 +1325,63 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
         Tab::Dash => dashboard(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
     }
-    tooltip(&mut g, width, view);
+    if view.lang_open {
+        lang_list(&mut g, width, view);
+    } else {
+        tooltip(&mut g, width, view);
+    }
+}
+
+/// The language list, open under the language button: each language's flag and its name in its own words, the one
+/// in use marked in yellow, the row under the mouse lit.
+fn lang_list(g: &mut Painter, width: i32, view: &View) {
+    let [_, _, button, _, _] = header_hits(width, view.scale);
+    g.place(view.scale, 0, 0);
+    let (row_h, pad, list_w) = (g.px(40.0), g.px(6.0), g.px(200.0));
+    let rows = Lang::ALL.len() as i32;
+    let list = rect(
+        button.right - list_w,
+        button.bottom + g.px(6.0),
+        button.right,
+        button.bottom + g.px(6.0) + pad * 2 + row_h * rows,
+    );
+    g.round(list, CORNER, CARD, Some(EDGE));
+    for (i, lang) in Lang::ALL.into_iter().enumerate() {
+        let top = list.top + pad + row_h * i as i32;
+        let row = rect(list.left + pad, top, list.right - pad, top + row_h);
+        let current = lang == view.lang;
+        if view.mouse.is_some_and(|(mx, my)| inside(&row, mx, my)) {
+            g.fill(row, mix(CARD, TEXT, 0.07));
+        }
+        if current {
+            g.fill(
+                rect(row.left, row.top + g.px(8.0), row.left + g.px(3.0), row.bottom - g.px(8.0)),
+                ACCENT,
+            );
+        }
+        let (fw, fh) = (g.px(25.0), g.px(20.0));
+        let flag = rect(
+            row.left + g.px(14.0),
+            top + (row_h - fh) / 2,
+            row.left + g.px(14.0) + fw,
+            top + (row_h - fh) / 2 + fh,
+        );
+        let image = flag_image(lang);
+        if !image.is_null() {
+            g.image(flag, image);
+        }
+        let label = rect(flag.right + g.px(12.0), top, row.right - g.px(8.0), top + row_h);
+        g.text(
+            lang.name(),
+            label,
+            14.0,
+            FW_SEMIBOLD as i32,
+            Face::Ui,
+            if current { ACCENT } else { TEXT },
+            DT_LEFT,
+        );
+        view.buttons.borrow_mut().push((Action::Lang(i), row));
+    }
 }
 
 /// The name of the icon button under the mouse, in a small label below it.
@@ -1318,9 +1433,16 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     }
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
-    // The language: a square button with its code; a click opens the list of languages.
-    g.round(lang, CORNER, CARD, Some(EDGE));
-    g.text(&view.lang.code().to_uppercase(), lang, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
+    // The language: a square button with its flag (yellow edge while its list is open); a click opens the list.
+    g.round(lang, CORNER, CARD, Some(if view.lang_open { ACCENT } else { EDGE }));
+    let (fw, fh) = (g.px(22.5), g.px(18.0));
+    let (cx, cy) = ((lang.left + lang.right) / 2, (lang.top + lang.bottom) / 2);
+    let image = flag_image(view.lang);
+    if image.is_null() {
+        g.text(&view.lang.code().to_uppercase(), lang, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
+    } else {
+        g.image(rect(cx - fw / 2, cy - fh / 2, cx - fw / 2 + fw, cy - fh / 2 + fh), image);
+    }
     for (r, active) in [(full, view.full), (top, view.on_top)] {
         let (fill, edge) = if active { (ACCENT, None) } else { (CARD, Some(EDGE)) };
         g.round(r, CORNER, fill, edge);
@@ -2192,6 +2314,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         games_scroll: state.games_scroll,
         scroll: Default::default(),
         carousel_step: Default::default(),
+        lang_open: state.lang_open,
     };
     paint(memory, w, h, &view);
     state.buttons = view.buttons.take();
@@ -2280,34 +2403,6 @@ unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i32) {
     state.carousel.step(if x < client.right / 2 { -1 } else { 1 }, now);
 }
 
-/// The list of languages under the language button, each in its own words, the one in use checked. The one picked,
-/// if any.
-unsafe fn pick_lang(hwnd: HWND, button: RECT, now: Lang) -> Option<Lang> {
-    use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        AppendMenuW, CreatePopupMenu, DestroyMenu, TrackPopupMenu, MF_CHECKED, MF_STRING, TPM_RETURNCMD, TPM_RIGHTALIGN, TPM_TOPALIGN,
-    };
-    let menu = CreatePopupMenu();
-    if menu.is_null() {
-        return None;
-    }
-    for (i, lang) in Lang::ALL.into_iter().enumerate() {
-        let checked = if lang == now { MF_CHECKED } else { 0 };
-        AppendMenuW(menu, MF_STRING | checked, i + 1, win::wide(lang.name()).as_ptr());
-    }
-    let mut at = POINT {
-        x: button.right,
-        y: button.bottom + 4,
-    };
-    ClientToScreen(hwnd, &mut at);
-    let chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTALIGN | TPM_TOPALIGN, at.x, at.y, 0, hwnd, null());
-    DestroyMenu(menu);
-    usize::try_from(chosen)
-        .ok()
-        .and_then(|n| n.checked_sub(1))
-        .and_then(|i| Lang::ALL.get(i).copied())
-}
-
 /// The person picked a language in the panel: shown at once here, and the tray (which keeps it in the settings and
 /// shows it in its menu) is told, so both always say the same.
 fn choose_lang(state: &mut State, lang: Lang) {
@@ -2393,7 +2488,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONDOWN
-            if state.tab == Tab::Monitor
+            if !state.lang_open
+                && state.tab == Tab::Monitor
                 && state.scroll.is_some_and(|bar| {
                     let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
                     inside(&bar.track, x, y)
@@ -2458,10 +2554,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             GetClientRect(hwnd, &mut client);
             let [dash, mon, lang, full, top] = header_hits(client.right, scale_of(hwnd));
             if inside(&lang, x, y) {
-                let now = state.ctx.account.lock().unwrap().lang;
-                if let Some(chosen) = pick_lang(hwnd, lang, now) {
-                    choose_lang(state, chosen);
+                state.lang_open = !state.lang_open;
+            } else if state.lang_open {
+                // With the list open, a click picks a language or, anywhere else, only closes the list.
+                if let Some(&(Action::Lang(i), _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
+                    choose_lang(state, Lang::ALL[i]);
                 }
+                state.lang_open = false;
             } else if inside(&dash, x, y) {
                 state.tab = Tab::Dash;
             } else if inside(&mon, x, y) {
@@ -2480,6 +2579,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 match action {
                     Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
                     Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
+                    Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
                     Action::Cover(i) => {
                         let steps = carousel_steps(state.carousel.target, i, state.covers.len());
                         if steps != 0 {
@@ -2571,6 +2671,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                     set_on_top(hwnd, state.on_top);
                 }
                 VK_F11 | 0x46 => toggle_full(hwnd, state),
+                VK_ESCAPE if state.lang_open => state.lang_open = false,
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
                 // Left and right arrows move the covers' carousel.
                 0x25 => state.carousel.step(-1, now_ms()),
@@ -2680,6 +2781,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             drag: None,
             press: None,
             carousel_step: 120.0,
+            lang_open: false,
         }));
         refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
@@ -3089,6 +3191,7 @@ mod tests {
             games_scroll: 0.0,
             scroll: Default::default(),
             carousel_step: Default::default(),
+            lang_open: false,
         }
     }
 
@@ -3223,6 +3326,14 @@ mod tests {
         let pixels = render(&monitor_covers, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-covers.png");
         figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut open = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
+        open.covers = &covers;
+        open.lang_open = true;
+        let [_, _, lang_button, _, _] = header_hits(960, 1.0);
+        open.mouse = Some((lang_button.right - 100, lang_button.bottom + 6 + 6 + 40 * 2 + 20));
+        let pixels = render(&open, 960, 600);
+        save(&pixels, 960, 600, "preview-languages.png");
+        figures.push_str("<figure><figcaption>The language list, open (Portuguese in use, the mouse on Español)</figcaption><img data-src=\"preview-languages.png\" width=\"960\" height=\"600\"></figure>\n");
         monitor_covers.games_scroll = 30.0;
         let pixels = render(&monitor_covers, 720, 480);
         save(&pixels, 720, 480, "preview-monitor-small.png");
