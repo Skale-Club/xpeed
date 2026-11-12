@@ -85,7 +85,7 @@ const STALE_MS: i64 = 3000;
 /// Design size of the window at 96 DPI.
 const WIDTH: i32 = 1180;
 const HEIGHT: i32 = 640;
-const MIN_WIDTH: i32 = 720;
+const MIN_WIDTH: i32 = 360;
 const MIN_HEIGHT: i32 = 480;
 
 /// The colours, as `0x00BBGGRR`. The accent is the app's `--primary` (#F5E663); purple marks the best lap, as timing
@@ -415,7 +415,6 @@ const CANVAS_H: f32 = 520.0;
 /// The column on the right for the track map and the tyres, shown when the game gives them and the window is big
 /// enough for the wider canvas not to shrink the rest (full screen, a large window).
 const SIDE_W: f32 = 360.0;
-const SIDE_MIN_SCALE: f32 = 0.8;
 /// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
 const LIGHTS_FROM: f32 = 0.55;
 const SHIFT_AT: f32 = 0.97;
@@ -429,9 +428,11 @@ fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
     let right = width - p(16.0);
     let (side, gap) = (p(38.0), p(8.0));
     let nth = |n: i32| rect(right - side - n * (side + gap), top, right - n * (side + gap), bottom);
+    // Narrower tabs in a narrow window (a phone held upright), so they never run into the buttons.
+    let tab = if (width as f32 / scale) < 560.0 { 80.0 } else { 116.0 };
     [
-        rect(p(20.0), p(17.0), p(136.0), p(47.0)),
-        rect(p(136.0), p(17.0), p(252.0), p(47.0)),
+        rect(p(20.0), p(17.0), p(20.0 + tab), p(47.0)),
+        rect(p(20.0 + tab), p(17.0), p(20.0 + 2.0 * tab), p(47.0)),
         nth(2),
         nth(1),
         nth(0),
@@ -977,6 +978,36 @@ impl Painter {
     }
 
     /// An image filling a box (pixels), smoothly scaled.
+    /// Text in as many lines as it needs to fit `w` design units, `line_h` apart, from `y` down; the height used.
+    #[allow(clippy::too_many_arguments)]
+    fn wrapped(
+        &mut self,
+        s: &str,
+        x: f32,
+        y: f32,
+        w: f32,
+        size: f32,
+        weight: i32,
+        face: Face,
+        color: COLORREF,
+        align: u32,
+        line_h: f32,
+    ) -> f32 {
+        let mut lines: Vec<String> = Vec::new();
+        for word in s.split_whitespace() {
+            let longer = lines.last().map(|line| format!("{line} {word}"));
+            match (lines.last_mut(), longer) {
+                (Some(line), Some(longer)) if self.width_of(&longer, size, weight, face) <= w => *line = longer,
+                _ => lines.push(word.to_owned()),
+            }
+        }
+        for (i, line) in lines.iter().enumerate() {
+            let r = self.r(x, y + line_h * i as f32, w, line_h);
+            self.text(line, r, size, weight, face, color, align);
+        }
+        line_h * lines.len() as f32
+    }
+
     /// Draws only inside `r` until `unclip` (GDI and GDI+ both keep to it).
     fn clip(&self, r: RECT) {
         unsafe {
@@ -1425,15 +1456,16 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     let [dash, mon, lang, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
     // The tabs: one pill, the chosen tab a yellow pill inside it.
-    let control = g.r(16.0, 13.0, 240.0, 38.0);
+    let control = rect(dash.left - g.px(4.0), g.px(13.0), mon.right + g.px(4.0), g.px(51.0));
     g.round(control, CORNER, CARD, Some(EDGE));
+    let tab_size = if mon.right - dash.left < g.px(200.0) { 12.0 } else { 14.0 };
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
         let selected = view.tab == tab;
         if selected {
             g.round(r, CORNER, ACCENT, None);
         }
         let color = if selected { BG } else { MUTED };
-        g.text(&text(view.lang, &label), r, 14.0, semi, Face::Ui, color, DT_CENTER);
+        g.text(&text(view.lang, &label), r, tab_size, semi, Face::Ui, color, DT_CENTER);
     }
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
@@ -1457,8 +1489,10 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
     let right = lang.left - g.px(14.0);
-    let r = rect(right - g.px(120.0), lang.top, right, lang.bottom);
-    g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
+    if right - g.px(60.0) > mon.right + g.px(12.0) {
+        let r = rect(right - g.px(120.0), lang.top, right, lang.bottom);
+        g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
+    }
 }
 
 /// Four square corners in a box (pixels): pointing out to go full screen, in to leave it.
@@ -1494,17 +1528,12 @@ fn pin_icon(g: &mut Painter, r: RECT, color: COLORREF) {
     }
 }
 
-/// Fits the canvas in `body`: the scale and where its top left goes.
-fn canvas_fit(body: RECT) -> (f32, i32, i32) {
-    canvas_fit_w(body, CANVAS_W)
-}
-
-/// Fits a canvas `width` design units wide (and `CANVAS_H` high) in `body`.
-fn canvas_fit_w(body: RECT, width: f32) -> (f32, i32, i32) {
+/// Fits a canvas of `width` x `height` design units in `body`, centred: its scale and where it starts (pixels).
+fn canvas_fit_wh(body: RECT, width: f32, height: f32) -> (f32, i32, i32) {
     let (bw, bh) = ((body.right - body.left) as f32, (body.bottom - body.top) as f32);
-    let s = (bw / width).min(bh / CANVAS_H).max(0.1);
+    let s = (bw / width).min(bh / height).max(0.1);
     let ox = body.left + ((bw - width * s) / 2.0).round() as i32;
-    let oy = body.top + ((bh - CANVAS_H * s) / 2.0).round() as i32;
+    let oy = body.top + ((bh - height * s) / 2.0).round() as i32;
     (s, ox, oy)
 }
 
@@ -1526,61 +1555,101 @@ fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static st
         .cloned()
 }
 
-/// The waiting screen about one open game: its cover, its name, and what happens next (or what to switch on).
-fn focus_screen(g: &mut Painter, view: &View, (id, name, game): (&'static str, &'static str, Game)) {
+/// The waiting screen about one open game: its cover, its name, and what happens next (or what to switch on). `cw` is
+/// the canvas width (narrower in a tall window), its text wrapped to fit.
+fn focus_screen(g: &mut Painter, view: &View, (id, name, game): (&'static str, &'static str, Game), cw: f32) {
     let (title, line, note) = match game {
         Game::Silent => (Msg::FocusOpen(name.into()), Msg::Setup(id), Some(Msg::FocusAutoConnect)),
         Game::Unsupported => (Msg::FocusOpen(name.into()), Msg::FocusUnsupported, None),
         Game::Paused => (Msg::FocusConnected(name.into()), Msg::FocusPaused, None),
         _ => (Msg::FocusConnected(name.into()), Msg::FocusGetInCar, None),
     };
-    let r = g.r(0.0, 56.0, CANVAS_W, 50.0);
-    g.text(&text(view.lang, &title), r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(40.0, 106.0, CANVAS_W - 80.0, 26.0);
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let mut y = 56.0;
+    y += g.wrapped(
+        &text(view.lang, &title),
+        20.0,
+        y,
+        cw - 40.0,
+        34.0,
+        semi,
+        Face::Num,
+        TEXT,
+        DT_CENTER,
+        46.0,
+    );
+    y += 6.0;
     let color = if game == Game::Silent || game == Game::Unsupported {
         ACCENT
     } else {
         MUTED
     };
-    g.text(&text(view.lang, &line), r, 15.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
+    y += g.wrapped(
+        &text(view.lang, &line),
+        30.0,
+        y,
+        cw - 60.0,
+        15.0,
+        semi,
+        Face::Ui,
+        color,
+        DT_CENTER,
+        22.0,
+    );
     if let Some(note) = note {
-        let r = g.r(40.0, 132.0, CANVAS_W - 80.0, 22.0);
-        g.text(&text(view.lang, &note), r, 13.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_CENTER);
+        y += 4.0;
+        y += g.wrapped(
+            &text(view.lang, &note),
+            30.0,
+            y,
+            cw - 60.0,
+            13.0,
+            normal,
+            Face::Ui,
+            MUTED,
+            DT_CENTER,
+            20.0,
+        );
     }
     // The game's cover, as big as the carousel's middle one; a name card when there is no cover.
     let (w, h) = (170.0, 255.0);
-    let (x, y) = ((CANVAS_W - w) / 2.0, 172.0);
+    let (x, y) = ((cw - w) / 2.0, (y + 24.0).max(172.0));
     let exact = g.exact(x, y, w, h);
     match view.covers.iter().find(|c| c.key == id).map(|c| c.image).filter(|i| !i.is_null()) {
         Some(image) => g.image_exact(exact, image),
         None => g.cover_card(exact, name, 1.1),
     }
-    // A yellow line under it: the game is the one being watched.
+    // A line under it: yellow while the game is the one being watched, amber while it shares no data.
     g.fill(g.r(x, y + h + 6.0, w, 3.0), if game == Game::Silent { AMBER } else { ACCENT });
 }
 
 fn waiting(g: &mut Painter, body: RECT, view: &View) {
-    let (s, ox, oy) = canvas_fit(body);
+    // A tall window (a phone held upright) gets a narrower canvas, so the words stay big enough to read.
+    let tall = ((body.right - body.left) as f32) < ((body.bottom - body.top) as f32) * 0.9;
+    let (cw, ch) = if tall { (PORTRAIT_W, 820.0) } else { (CANVAS_W, CANVAS_H) };
+    let (s, ox, oy) = canvas_fit_wh(body, cw, ch);
     g.place(s, ox, oy);
     if let Some(focus) = view.focus.clone() {
-        return focus_screen(g, view, focus);
+        return focus_screen(g, view, focus, cw);
     }
     let title = text(view.lang, &Msg::PanelWaitingTitle);
-    let r = g.r(0.0, 66.0, CANVAS_W, 50.0);
+    let r = g.r(0.0, 66.0, cw, 50.0);
     g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(0.0, 116.0, CANVAS_W, 26.0);
-    g.text(
+    g.wrapped(
         &text(view.lang, &Msg::PanelWaiting),
-        r,
+        20.0,
+        116.0,
+        cw - 40.0,
         15.0,
         FW_NORMAL as i32,
         Face::Ui,
         MUTED,
         DT_CENTER,
+        22.0,
     );
     if !view.covers.is_empty() {
         view.carousel_step.set(120.0 * g.s);
-        return cover_carousel(g, view.covers, view.carousel, &view.buttons);
+        return cover_carousel(g, view.covers, view.carousel, &view.buttons, cw);
     }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
@@ -1591,7 +1660,7 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     let mut rows: Vec<Vec<(String, f32)>> = vec![Vec::new()];
     let mut used = 0.0;
     for chip in chips {
-        if used + chip.1 > 760.0 && !rows.last().unwrap().is_empty() {
+        if used + chip.1 > cw - 240.0 && !rows.last().unwrap().is_empty() {
             rows.push(Vec::new());
             used = 0.0;
         }
@@ -1600,7 +1669,7 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
     }
     for (i, row) in rows.iter().enumerate() {
         let total: f32 = row.iter().map(|(_, w)| w + 10.0).sum::<f32>() - 10.0;
-        let mut x = (CANVAS_W - total) / 2.0;
+        let mut x = (cw - total) / 2.0;
         let y = 262.0 + i as f32 * 40.0;
         for (name, w) in row {
             g.round(g.r(x, y, *w, 30.0), 15.0, CARD, Some(EDGE));
@@ -1642,9 +1711,9 @@ fn carousel_steps(target: i64, to: usize, count: usize) -> i64 {
 /// round; the middle game's name under it and a row of small squares saying which one it is. Steam's art where it
 /// has some, the name on a card where not. A click on a side cover or on one of the squares brings that game to the
 /// middle.
-fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::cell::RefCell<Vec<(Action, RECT)>>) {
+fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::cell::RefCell<Vec<(Action, RECT)>>, cw: f32) {
     let count = covers.len();
-    let (big_w, mid_x, top) = (150.0, CANVAS_W / 2.0, 168.0);
+    let (big_w, mid_x, top) = (150.0, cw / 2.0, 168.0);
     let big_h = big_w * 1.5;
     // Far covers first, so the nearer ones are drawn over them.
     let mut order: Vec<(usize, f32)> = (0..count).map(|i| (i, carousel_offset(i, count, at))).collect();
@@ -1678,7 +1747,7 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::
     }
     // The game in the middle, and where it is in the list.
     let middle = (at.round() as i64).rem_euclid(count as i64) as usize;
-    let r = g.r(0.0, top + big_h + 14.0, CANVAS_W, 26.0);
+    let r = g.r(0.0, top + big_h + 14.0, cw, 26.0);
     g.text(
         &covers[middle].name.to_uppercase(),
         r,
@@ -1699,21 +1768,397 @@ fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::
     }
 }
 
+/// The dashboard's layouts, one per shape of window. Each is a canvas in design units, scaled whole to fit, so the
+/// panel works on an ultrawide screen, a 16:9 or 16:10 one, a 4:3 one and a phone held upright alike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Layout {
+    /// The main dashboard alone (a small window).
+    Classic,
+    /// Ultrawide (21:9): the main dashboard and the track and tyre column.
+    Ultrawide,
+    /// 16:9 and 16:10: the column, and the recent laps under the dashboard.
+    Wide,
+    /// 4:3 and 5:4: the track and the tyres side by side under the dashboard.
+    Square,
+    /// A tall window (a phone held upright): everything in one column.
+    Portrait,
+}
+
+/// The recent laps under the dashboard (`Layout::Wide`).
+const BAND_H: f32 = 188.0;
+/// The track and tyre row under the dashboard (`Layout::Square`).
+const SQUARE_ROW_H: f32 = 310.0;
+/// The tall layout's canvas (about 9:16).
+const PORTRAIT_W: f32 = 600.0;
+const PORTRAIT_H: f32 = 1080.0;
+
+impl Layout {
+    fn size(self) -> (f32, f32) {
+        match self {
+            Layout::Classic => (CANVAS_W, CANVAS_H),
+            Layout::Ultrawide => (CANVAS_W + SIDE_W, CANVAS_H),
+            Layout::Wide => (CANVAS_W + SIDE_W, CANVAS_H + BAND_H),
+            Layout::Square => (CANVAS_W, CANVAS_H + SQUARE_ROW_H),
+            Layout::Portrait => (PORTRAIT_W, PORTRAIT_H),
+        }
+    }
+
+    /// The smallest scale at which the layout still reads well (the tall one is drawn bigger to begin with).
+    fn min_scale(self) -> f32 {
+        match self {
+            Layout::Classic => 0.0,
+            Layout::Portrait => 0.5,
+            _ => 0.75,
+        }
+    }
+}
+
+/// The layout that fills a body of `bw` x `bh` pixels best while staying readable; between two that fill it about as
+/// well, the one that shows more.
+fn pick_layout(bw: f32, bh: f32) -> Layout {
+    let order = [Layout::Wide, Layout::Ultrawide, Layout::Square, Layout::Portrait, Layout::Classic];
+    let fill = |l: Layout| {
+        let (w, h) = l.size();
+        let s = (bw / w).min(bh / h);
+        (s >= l.min_scale()).then(|| s * s * w * h / (bw * bh).max(1.0))
+    };
+    let best = order.iter().filter_map(|&l| fill(l)).fold(0.0_f32, f32::max);
+    order
+        .into_iter()
+        .find(|&l| fill(l).is_some_and(|f| f >= best - 0.03))
+        .unwrap_or(Layout::Classic)
+}
+
 fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     let Some(live) = view.live.filter(|l| view.now_ms - l.at_ms <= STALE_MS) else {
         return waiting(g, body, view);
     };
-    let has_map = live.map.as_ref().is_some_and(|m| m.len() >= 30);
-    let has_tyres = live.tyres.is_some();
-    let side = (has_map || has_tyres) && canvas_fit_w(body, CANVAS_W + SIDE_W).0 >= SIDE_MIN_SCALE;
-    let width = if side { CANVAS_W + SIDE_W } else { CANVAS_W };
-    let (s, ox, oy) = canvas_fit_w(body, width);
+    let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32);
+    let (w, h) = layout.size();
+    let (s, ox, oy) = canvas_fit_wh(body, w, h);
     g.place(s, ox, oy);
-    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
-    if side {
-        side_column(g, live, view, has_map, has_tyres);
+    match layout {
+        Layout::Portrait => portrait_block(g, live, view),
+        Layout::Classic => main_block(g, live, view, w),
+        Layout::Ultrawide => {
+            main_block(g, live, view, w);
+            side_column(g, live, view, CANVAS_H);
+        }
+        Layout::Wide => {
+            main_block(g, live, view, w);
+            side_column(g, live, view, h);
+            laps_band(g, view, CANVAS_H + 22.0, CANVAS_W, h);
+        }
+        Layout::Square => {
+            main_block(g, live, view, w);
+            let (top, half) = (CANVAS_H + 22.0, (CANVAS_W - 20.0) / 2.0);
+            track_panel(g, live, view, 0.0, top, half, h - top);
+            tyres_panel(g, live, view, half + 20.0, top, half, h - top, 2);
+        }
     }
+}
 
+/// The recent laps as cards, oldest to newest (up to six): the fastest in purple, the newest marked yellow, each with
+/// its gap to the fastest.
+fn laps_band(g: &mut Painter, view: &View, top: f32, w: f32, bottom: f32) {
+    let r = g.r(0.0, top, w, 16.0);
+    g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, 10.5, MUTED, DT_LEFT);
+    let (y, h) = (top + 24.0, bottom - top - 24.0);
+    let laps: Vec<(&str, &str, Option<f64>)> = view
+        .recent_laps
+        .iter()
+        .map(|label| {
+            let (name, time) = lap_parts(label);
+            (name, time, clock_seconds(time))
+        })
+        .collect();
+    if laps.is_empty() {
+        g.fill(g.r(0.0, y, w, h), mix(BG, CARD, 0.5));
+        let note = text(view.lang, &Msg::PanelNoLapsYet);
+        g.wrapped(
+            &note,
+            20.0,
+            y + h / 2.0 - 11.0,
+            w - 40.0,
+            14.0,
+            FW_NORMAL as i32,
+            Face::Ui,
+            MUTED,
+            DT_CENTER,
+            22.0,
+        );
+        return;
+    }
+    let fastest = laps.iter().filter_map(|l| l.2).fold(f64::INFINITY, f64::min);
+    let (n, gap) = (6, 12.0);
+    let card_w = (w - gap * (n as f32 - 1.0)) / n as f32;
+    let shown = &laps[laps.len().saturating_sub(n)..];
+    for (i, (name, time, secs)) in shown.iter().enumerate() {
+        let x = i as f32 * (card_w + gap);
+        let is_fastest = secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
+        let newest = i + 1 == shown.len();
+        let edge = if is_fastest {
+            PURPLE
+        } else if newest {
+            ACCENT
+        } else {
+            EDGE
+        };
+        g.fill(g.r(x, y, card_w, h), CARD);
+        g.fill(g.r(x, y, card_w, 3.0), edge);
+        let r = g.r(x + 14.0, y + 14.0, card_w - 28.0, 16.0);
+        g.caps(name, r, 10.5, MUTED, DT_LEFT);
+        let r = g.r(x + 12.0, y + 40.0, card_w - 20.0, 40.0);
+        g.text(
+            time,
+            r,
+            30.0,
+            FW_SEMIBOLD as i32,
+            Face::Num,
+            if is_fastest { PURPLE } else { TEXT },
+            DT_LEFT,
+        );
+        let note = match secs {
+            _ if is_fastest => text(view.lang, &Msg::PanelFastest),
+            Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
+            _ => String::new(),
+        };
+        let r = g.r(x + 14.0, y + h - 36.0, card_w - 28.0, 20.0);
+        g.text(
+            &note,
+            r,
+            14.0,
+            FW_SEMIBOLD as i32,
+            Face::Num,
+            if is_fastest { PURPLE } else { MUTED },
+            DT_LEFT,
+        );
+    }
+}
+
+/// `1:47.918` as seconds.
+fn clock_seconds(text: &str) -> Option<f64> {
+    let (minutes, seconds) = text.split_once(':')?;
+    Some(minutes.trim().parse::<f64>().ok()? * 60.0 + seconds.trim().parse::<f64>().ok()?)
+}
+
+/// The tall layout (a phone held upright), on a 600 x 1080 canvas: the rev bar, the lap, the delta, the gear and the
+/// speed, the times and the car's numbers in two columns, the pedals and the wheel, then the track and the tyres.
+fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
+    let (w, semi, normal) = (PORTRAIT_W, FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
+    let (lit, flash) = lights_lit(share);
+    let blink_on = view.now_ms / 120 % 2 == 0;
+    g.rev_bar(0.0, 0.0, w, 36.0, share, flash && blink_on);
+    g.round(g.r(0.0, 37.0, w, 3.0), 1.5, CYAN, None);
+
+    let r = g.r(0.0, 48.0, 400.0, 24.0);
+    g.text(&live.track.to_uppercase(), r, 17.0, semi, Face::Num, TEXT, DT_LEFT);
+    let car = [live.car.as_str(), live.game]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("  ·  ");
+    let r = g.r(0.0, 72.0, 420.0, 18.0);
+    g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    let r = g.r(w - 200.0, 46.0, 200.0, 28.0);
+    g.text(
+        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
+        r,
+        26.0,
+        semi,
+        Face::Num,
+        ACCENT,
+        DT_RIGHT,
+    );
+    let status = if live.in_pits {
+        text(view.lang, &Msg::PanelPits)
+    } else if !live.driving {
+        text(view.lang, &Msg::PanelNotDriving)
+    } else {
+        String::new()
+    };
+    let r = g.r(w - 200.0, 72.0, 200.0, 18.0);
+    g.caps(&status, r, 11.0, AMBER, DT_RIGHT);
+    g.fill(g.r(0.0, 95.0, w, 1.0), EDGE);
+
+    // The delta, then the gear between its brackets, then the speed.
+    let delta_color = match live.delta_s {
+        Some(d) if d < 0.0 => GREEN,
+        Some(_) => RED,
+        None => MUTED,
+    };
+    let r = g.r(0.0, 106.0, w, 16.0);
+    g.caps(&text(view.lang, &Msg::PanelDelta), r, 10.5, MUTED, DT_CENTER);
+    let r = g.r(0.0, 120.0, w, 40.0);
+    g.text(&delta_text(live.delta_s), r, 38.0, semi, Face::Num, delta_color, DT_CENTER);
+    let (from, to) = match live.delta_s.filter(|d| d.is_finite()) {
+        Some(d) => {
+            let at = 0.5 + (d.clamp(-1.0, 1.0) as f32) / 2.0;
+            (at.min(0.5), at.max(0.5))
+        }
+        None => (f32::NAN, f32::NAN),
+    };
+    g.blocks(150.0, 164.0, 300.0, 9.0, 20, from, to, delta_color);
+    g.fill(g.r(w / 2.0 - 1.0, 160.0, 2.0, 17.0), TEXT);
+    let frame = match (flash, lit) {
+        (true, _) if blink_on => BLUE,
+        (true, _) => RED,
+        (false, n) if n >= LIGHTS - 2 => RED,
+        _ => MUTED,
+    };
+    let (fx, fy, fw, fh, arm, thick) = (160.0, 190.0, 280.0, 180.0, 26.0, 3.0);
+    for (cx, cy, dx, dy) in [
+        (fx, fy, 1.0, 1.0),
+        (fx + fw, fy, -1.0, 1.0),
+        (fx, fy + fh, 1.0, -1.0),
+        (fx + fw, fy + fh, -1.0, -1.0),
+    ] {
+        let x0 = if dx > 0.0 { cx } else { cx - arm };
+        let y0 = if dy > 0.0 { cy } else { cy - thick };
+        g.fill(g.r(x0, y0, arm, thick), frame);
+        let x1 = if dx > 0.0 { cx } else { cx - thick };
+        let y1 = if dy > 0.0 { cy } else { cy - arm };
+        g.fill(g.r(x1, y1, thick, arm), frame);
+    }
+    let r = g.r(152.0, 186.0, 296.0, 188.0);
+    g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
+    let (below, above) = neighbour_gears(live.gear);
+    for (gear, x) in [(below, 184.0), (above, 376.0)] {
+        if let Some(gear) = gear {
+            let (gw, gh) = (40.0, 52.0);
+            let y = 186.0 + 94.0 - gh / 2.0;
+            g.fill(g.r(x, y, gw, gh), CARD);
+            let r = g.r(x, y, gw, gh);
+            g.text(&gear, r, 26.0, semi, Face::Num, MUTED, DT_CENTER);
+        }
+    }
+    let speed = if live.speed_ms.is_finite() {
+        format!("{:.0}", live.speed_ms * 3.6)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(0.0, 378.0, w, 40.0);
+    g.text(&speed, r, 42.0, semi, Face::Num, TEXT, DT_CENTER);
+    let r = g.r(0.0, 416.0, w, 14.0);
+    g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
+    g.fill(g.r(0.0, 440.0, w, 1.0), EDGE);
+
+    // The times on the left, the car's numbers on the right.
+    let fuel = if live.fuel_l.is_finite() {
+        format!("{:.1} L", live.fuel_l)
+    } else {
+        "–".to_owned()
+    };
+    let rpm = if live.rpm.is_finite() {
+        format!("{:.0}", live.rpm)
+    } else {
+        "–".to_owned()
+    };
+    let progress = match (live.dist_m, live.track_length_m) {
+        (Some(d), Some(l)) if l > 0.0 => Some((d / l).clamp(0.0, 1.0) as f32),
+        _ => None,
+    };
+    let lap_share = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
+    let rows = [
+        (
+            (text(view.lang, &Msg::PanelLapTime), lap_clock(live.lap_time_s), TEXT),
+            (text(view.lang, &Msg::PanelFuel), fuel, TEXT),
+        ),
+        (
+            (text(view.lang, &Msg::PanelLastLap), lap_clock(live.last_lap_s), TEXT),
+            ("RPM".to_owned(), rpm, TEXT),
+        ),
+        (
+            (text(view.lang, &Msg::PanelBestLap), lap_clock(live.best_lap_s), PURPLE),
+            (text(view.lang, &Msg::PanelLapProgress), lap_share, TEXT),
+        ),
+    ];
+    for (i, ((l_label, l_value, l_color), (r_label, r_value, r_color))) in rows.iter().enumerate() {
+        let y = 450.0 + 88.0 * i as f32;
+        if i > 0 {
+            g.fill(g.r(0.0, y - 6.0, w, 1.0), EDGE);
+        }
+        let size = if i == 0 { 40.0 } else { 34.0 };
+        let r = g.r(0.0, y, 290.0, 18.0);
+        g.caps(l_label, r, 11.0, MUTED, DT_LEFT);
+        let r = g.r(-2.0, y + 18.0, 300.0, 52.0);
+        g.text(l_value, r, size, semi, Face::Num, *l_color, DT_LEFT);
+        let r = g.r(w - 290.0, y, 290.0, 18.0);
+        g.caps(r_label, r, 11.0, MUTED, DT_RIGHT);
+        let r = g.r(w - 302.0, y + 18.0, 304.0, 52.0);
+        g.text(r_value, r, size, semi, Face::Num, *r_color, DT_RIGHT);
+    }
+    g.blocks(
+        w - 200.0,
+        450.0 + 88.0 * 2.0 + 72.0,
+        200.0,
+        8.0,
+        20,
+        0.0,
+        progress.unwrap_or(f32::NAN),
+        ACCENT,
+    );
+    g.fill(g.r(0.0, 712.0, w, 1.0), EDGE);
+
+    // The pedals on one bar from the centre, then the wheel.
+    let percent = |v: f32| {
+        if v.is_finite() {
+            format!("{:.0}%", v * 100.0)
+        } else {
+            "–".to_owned()
+        }
+    };
+    let label = |g: &mut Painter, name: &str, value: String, y: f32, right: bool| {
+        let (x, align) = if right { (w - 110.0, DT_RIGHT) } else { (0.0, DT_LEFT) };
+        let r = g.r(x, y, 110.0, 16.0);
+        g.caps(name, r, 10.5, MUTED, align);
+        let r = g.r(x, y + 15.0, 110.0, 28.0);
+        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
+    };
+    label(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 722.0, false);
+    label(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 722.0, true);
+    let (bx, bw, by, bh) = (120.0, 360.0, 736.0, 18.0);
+    let mid = bx + bw / 2.0;
+    let half = bw / 2.0 - 4.0;
+    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+    g.blocks(bx, by, half, bh, 16, 1.0 - pedal(live.brake), 1.0, RED);
+    g.blocks(mid + 4.0, by, half, bh, 16, 0.0, pedal(live.throttle), GREEN);
+    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
+    let wheel = if live.steer.is_finite() {
+        let side = if live.steer < -0.005 {
+            "L "
+        } else if live.steer > 0.005 {
+            "R "
+        } else {
+            ""
+        };
+        format!("{side}{:.0}%", live.steer.abs() * 100.0)
+    } else {
+        "–".to_owned()
+    };
+    label(g, &text(view.lang, &Msg::PanelSteer), wheel, 770.0, false);
+    label(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 770.0, true);
+    let at = if live.steer.is_finite() {
+        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
+    } else {
+        f32::NAN
+    };
+    let reach = 1.0 / 32.0;
+    g.blocks(bx, 786.0, bw, 10.0, 32, at - reach, at + reach, ACCENT);
+    g.fill(g.r(mid - 1.0, 781.0, 2.0, 20.0), MUTED);
+    g.fill(g.r(0.0, 816.0, w, 1.0), EDGE);
+
+    // The track, then the four tyres in a row.
+    track_panel(g, live, view, 0.0, 826.0, w, 124.0);
+    tyres_panel(g, live, view, 0.0, 958.0, w, PORTRAIT_H - 958.0, 4);
+}
+
+/// The main dashboard on its 1000 x 520 canvas: rev bar (as wide as the whole layout, `width`), track and car, the
+/// lap's times, fuel, revs and lap progress, the delta, the gear and the speed, the pedals and the wheel.
+fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     // The rev bar: a dome across the top, green to red as the revs climb, on a cyan line; it flashes blue at the
     // shift point.
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
@@ -1930,38 +2375,71 @@ fn tyre_color(temp_c: f32) -> COLORREF {
     }
 }
 
-/// The right-hand column: the track map (the car's own path, with where it is now) and the four tyres.
-fn side_column(g: &mut Painter, live: &Live, view: &View, has_map: bool, has_tyres: bool) {
-    let x = CANVAS_W + 24.0;
-    let w = SIDE_W - 24.0;
-    let (top, bottom) = (106.0, CANVAS_H);
-    let tyres_h = if has_tyres { 214.0 } else { 0.0 };
-    let map_bottom = if has_tyres { bottom - tyres_h - 14.0 } else { bottom };
-    if has_map {
-        let r = g.r(x, top, w, 16.0);
-        g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
-        if let Some(map) = &live.map {
-            g.track_map(x, top + 22.0, w, map_bottom - top - 22.0, map, live.pos);
+/// The right-hand column, from under the header line to `bottom`: the track map, then the four tyres.
+fn side_column(g: &mut Painter, live: &Live, view: &View, bottom: f32) {
+    let (x, w, top) = (CANVAS_W + 24.0, SIDE_W - 24.0, 106.0);
+    let tyres_h = ((bottom - top) * 0.46).clamp(214.0, 330.0);
+    track_panel(g, live, view, x, top, w, bottom - top - tyres_h - 14.0);
+    tyres_panel(g, live, view, x, bottom - tyres_h, w, tyres_h, 2);
+}
+
+/// The track map (the car's own path, with where it is now) in a box; until there is enough of a path, a word that
+/// it draws itself as the car goes.
+fn track_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32) {
+    let r = g.r(x, y, w, 16.0);
+    g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
+    match live.map.as_ref().filter(|m| m.len() >= 30) {
+        Some(map) => g.track_map(x, y + 22.0, w, h - 22.0, map, live.pos),
+        None => {
+            g.fill(g.r(x, y + 22.0, w, h - 22.0), mix(BG, CARD, 0.5));
+            let note = text(view.lang, &Msg::PanelMapSoon);
+            g.wrapped(
+                &note,
+                x + 16.0,
+                y + 22.0 + (h - 22.0) / 2.0 - 10.0,
+                w - 32.0,
+                13.0,
+                FW_NORMAL as i32,
+                Face::Ui,
+                MUTED,
+                DT_CENTER,
+                20.0,
+            );
         }
     }
-    if has_tyres {
-        let tyres = live.tyres.unwrap_or(
-            [crate::game::Tyre {
-                temp_c: f32::NAN,
-                pressure_kpa: f32::NAN,
-                left: f32::NAN,
-            }; 4],
+}
+
+/// The four tyres in `cols` columns (2: two rows of two; 4: one row); when the game says nothing about tyres, a word
+/// that it does not.
+#[allow(clippy::too_many_arguments)]
+fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32, cols: usize) {
+    let r = g.r(x, y, w, 16.0);
+    g.caps(&text(view.lang, &Msg::PanelTyres), r, 10.5, MUTED, DT_LEFT);
+    let Some(tyres) = live.tyres else {
+        g.fill(g.r(x, y + 22.0, w, h - 22.0), mix(BG, CARD, 0.5));
+        let note = text(view.lang, &Msg::PanelNoTyres);
+        g.wrapped(
+            &note,
+            x + 16.0,
+            y + 22.0 + (h - 22.0) / 2.0 - 10.0,
+            w - 32.0,
+            13.0,
+            FW_NORMAL as i32,
+            Face::Ui,
+            MUTED,
+            DT_CENTER,
+            20.0,
         );
-        let y0 = if has_map { bottom - tyres_h } else { top };
-        let r = g.r(x, y0, w, 16.0);
-        g.caps(&text(view.lang, &Msg::PanelTyres), r, 10.5, MUTED, DT_LEFT);
-        let (gap, box_w) = (8.0, (w - 8.0) / 2.0);
-        let box_h = (tyres_h - 22.0 - gap) / 2.0;
-        for (i, (label, tyre)) in ["FL", "FR", "RL", "RR"].iter().zip(tyres.iter()).enumerate() {
-            let bx = x + (i % 2) as f32 * (box_w + gap);
-            let by = y0 + 22.0 + (i / 2) as f32 * (box_h + gap);
-            tyre_box(g, bx, by, box_w, box_h, label, tyre);
-        }
+        return;
+    };
+    let rows = 4_usize.div_ceil(cols.max(1));
+    let gap = 8.0;
+    let box_w = (w - gap * (cols as f32 - 1.0)) / cols as f32;
+    let box_h = (h - 22.0 - gap * (rows as f32 - 1.0)) / rows as f32;
+    for (i, (label, tyre)) in ["FL", "FR", "RL", "RR"].iter().zip(tyres.iter()).enumerate() {
+        let bx = x + (i % cols) as f32 * (box_w + gap);
+        let by = y + 22.0 + (i / cols) as f32 * (box_h + gap);
+        tyre_box(g, bx, by, box_w, box_h, label, tyre);
     }
 }
 
@@ -2005,9 +2483,12 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let gap = 16.0;
     let footer = 26.0;
-    let col = (w - gap) / 2.0;
-    let right = col + gap;
-    let area_h = h - footer;
+    // Two columns side by side; in a narrow window (a phone held upright) one under the other.
+    let stacked = w < 640.0;
+    let col = if stacked { w } else { (w - gap) / 2.0 };
+    let right = if stacked { 0.0 } else { col + gap };
+    let left_h = if stacked { ((h - footer - gap) * 0.55).round() } else { h - footer };
+    let area_h = left_h;
 
     // The account card always gets the height its content needs, and the games list takes what is left: its rows
     // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
@@ -2127,8 +2608,17 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         view.buttons.borrow_mut().push((*action, r));
     }
 
+    // The right column (laps and activity), under the left one when stacked.
+    let area_h = if stacked { h - footer - left_h - gap } else { h - footer };
+    if stacked {
+        g.place(s, body.left, body.top + ((left_h + gap) * s).round() as i32);
+    }
     // Laps saved, newest first.
-    let laps_h = (area_h * 0.44).max(150.0);
+    let laps_h = if stacked {
+        (area_h * 0.4).max(110.0)
+    } else {
+        (area_h * 0.44).max(150.0)
+    };
     g.tile(right, 0.0, col, laps_h, CARD);
     g.label(&text(view.lang, &Msg::PanelLaps), right + 20.0, 16.0, col - 40.0);
     if view.recent_laps.is_empty() {
@@ -2179,6 +2669,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         g.text(line, r, 13.5, normal, Face::Ui, TEXT, DT_LEFT);
     }
 
+    g.place(s, body.left, body.top);
     let r = g.r(0.0, h - 20.0, w, 20.0);
     g.text(&text(view.lang, &Msg::PanelHint), r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
 }
@@ -3069,6 +3560,28 @@ mod tests {
     }
 
     #[test]
+    fn each_screen_shape_gets_the_layout_that_fills_it() {
+        // The window's body: the window less the header (66) and the margins (16 around).
+        let body = |w: f32, h: f32| (w - 32.0, h - 66.0 - 16.0);
+        let pick = |w: f32, h: f32| {
+            let (bw, bh) = body(w, h);
+            pick_layout(bw, bh)
+        };
+        assert_eq!(pick(2560.0, 1080.0), Layout::Ultrawide);
+        assert_eq!(pick(3440.0, 1440.0), Layout::Ultrawide);
+        assert_eq!(pick(1920.0, 1080.0), Layout::Wide);
+        assert_eq!(pick(1536.0, 864.0), Layout::Wide, "the window as it opens on a 1080p screen");
+        assert_eq!(pick(1680.0, 1050.0), Layout::Wide);
+        assert_eq!(pick(1024.0, 768.0), Layout::Square);
+        assert_eq!(pick(1280.0, 1024.0), Layout::Square);
+        assert_eq!(pick(430.0, 900.0), Layout::Portrait);
+        assert_eq!(pick(768.0, 1024.0), Layout::Portrait, "a tablet held upright");
+        assert_eq!(pick(960.0, 600.0), Layout::Classic, "too small for the column to read well");
+        assert_eq!(clock_seconds("1:47.918"), Some(107.918));
+        assert_eq!(clock_seconds("-:--.---"), None);
+    }
+
+    #[test]
     fn a_click_on_a_cover_goes_there_the_nearest_way() {
         assert_eq!(carousel_steps(0, 3, 9), 3);
         assert_eq!(carousel_steps(0, 7, 9), -2, "round the other side is shorter");
@@ -3435,6 +3948,34 @@ mod tests {
         let pixels = render(&open, 960, 600);
         save(&pixels, 960, 600, "preview-languages.png");
         figures.push_str("<figure><figcaption>The language list, open (Portuguese in use, the mouse on Español)</figcaption><img data-src=\"preview-languages.png\" width=\"960\" height=\"600\"></figure>\n");
+        // The dashboard on the common screen shapes, and a phone held upright.
+        let mut tall_window = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        tall_window.recent_laps = &f.laps;
+        for (file, caption, w, h) in [
+            ("preview-shape-21x9.png", "Ultrawide 21:9 (2560 × 1080)", 2560, 1080),
+            ("preview-shape-16x9.png", "16:9 (1920 × 1080)", 1920, 1080),
+            ("preview-shape-16x10.png", "16:10 (1680 × 1050)", 1680, 1050),
+            ("preview-shape-4x3.png", "4:3 (1024 × 768)", 1024, 768),
+            ("preview-shape-5x4.png", "5:4 (1280 × 1024)", 1280, 1024),
+            ("preview-shape-phone.png", "Phone held upright (430 × 900)", 430, 900),
+        ] {
+            let pixels = render(&tall_window, w, h);
+            save(&pixels, w, h, file);
+            figures.push_str(&format!(
+                "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+            ));
+        }
+        let mut phone_monitor = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
+        phone_monitor.covers = &covers;
+        let pixels = render(&phone_monitor, 430, 900);
+        save(&pixels, 430, 900, "preview-phone-monitor.png");
+        figures.push_str("<figure><figcaption>Monitor tab on a phone held upright</figcaption><img data-src=\"preview-phone-monitor.png\" width=\"430\" height=\"900\"></figure>\n");
+        let mut phone_wait = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
+        phone_wait.covers = &covers;
+        phone_wait.focus = Some(("ams2", "Automobilista 2", Game::Silent));
+        let pixels = render(&phone_wait, 430, 900);
+        save(&pixels, 430, 900, "preview-phone-open.png");
+        figures.push_str("<figure><figcaption>A game open without data, on a phone held upright</figcaption><img data-src=\"preview-phone-open.png\" width=\"430\" height=\"900\"></figure>\n");
         for (file, caption, game) in [
             (
                 "preview-open-no-data.png",
@@ -3606,13 +4147,13 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn the_dashboard_canvas_fills_the_window_and_keeps_its_shape() {
-        let (s, ox, oy) = canvas_fit(rect(16, 58, 944, 584));
+        let (s, ox, oy) = canvas_fit_wh(rect(16, 58, 944, 584), CANVAS_W, CANVAS_H);
         assert!((s - 0.928).abs() < 0.001 && ox == 16, "{s} {ox}");
         assert_eq!(oy, 58 + ((526.0 - 520.0 * s) / 2.0).round() as i32);
-        let (s, ox, _) = canvas_fit(rect(16, 58, 1904, 1064));
+        let (s, ox, _) = canvas_fit_wh(rect(16, 58, 1904, 1064), CANVAS_W, CANVAS_H);
         assert!((s - 1.888).abs() < 0.001, "full HD: {s}");
         assert_eq!(ox, 16);
-        let (s, ox, oy) = canvas_fit(rect(0, 0, 3000, 520));
+        let (s, ox, oy) = canvas_fit_wh(rect(0, 0, 3000, 520), CANVAS_W, CANVAS_H);
         assert_eq!((s, oy), (1.0, 0), "a wide window keeps the height");
         assert_eq!(ox, 1000, "and centres the canvas");
     }
