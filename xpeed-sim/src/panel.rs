@@ -19,17 +19,16 @@ use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, 
 use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
-    DrawTextW, Ellipse, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT,
-    DT_SINGLELINE, DT_VCENTER, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, NULL_BRUSH, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID,
-    SRCCOPY, TRANSPARENT,
+    DrawTextW, EndPaint, FillRect, GetStockObject, GetTextExtentPoint32W, InvalidateRect, RoundRect, SelectObject, SetBkMode,
+    SetTextCharacterExtra, SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT,
+    DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, NULL_PEN, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
+    PS_SOLID, SRCCOPY, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipClosePathFigure, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill,
-    GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDrawEllipse, GdipDrawPath, GdipFillEllipse, GdipFillPath,
-    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpPath, PixelOffsetModeHalf,
-    SmoothingModeAntiAlias, UnitPixel,
+    GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDrawPath, GdipFillPath, GdipSetPixelOffsetMode,
+    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpPath, PixelOffsetModeHalf, SmoothingModeAntiAlias, UnitPixel,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime};
@@ -170,7 +169,7 @@ const CANVAS_H: f32 = 520.0;
 /// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
 const LIGHTS_FROM: f32 = 0.55;
 const SHIFT_AT: f32 = 0.97;
-const LIGHTS: usize = 15;
+const LIGHTS: usize = 20;
 
 /// The places of the header that can be clicked: the two tabs, "full screen" and "always on top".
 fn header_hits(width: i32, scale: f32) -> [RECT; 4] {
@@ -386,63 +385,6 @@ impl Painter {
         }
     }
 
-    /// A filled circle around a design-unit centre.
-    fn dot(&self, cx: f32, cy: f32, radius: f32, color: COLORREF) {
-        let (x, y, d) = (
-            self.ox as f32 + (cx - radius) * self.s,
-            self.oy as f32 + (cy - radius) * self.s,
-            radius * 2.0 * self.s,
-        );
-        let drawn = smooth(self.hdc, |graphics| unsafe {
-            let mut brush = null_mut();
-            GdipCreateSolidFill(argb(color), &mut brush);
-            GdipFillEllipse(graphics, brush.cast(), x, y, d, d);
-            GdipDeleteBrush(brush.cast());
-        });
-        if drawn {
-            return;
-        }
-        let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
-        unsafe {
-            let brush = CreateSolidBrush(color);
-            let old_brush = SelectObject(self.hdc, brush);
-            let old_pen = SelectObject(self.hdc, GetStockObject(NULL_PEN));
-            Ellipse(self.hdc, r.left, r.top, r.right + 1, r.bottom + 1);
-            SelectObject(self.hdc, old_pen);
-            SelectObject(self.hdc, old_brush);
-            DeleteObject(brush);
-        }
-    }
-
-    /// A circle outline `width` units thick.
-    fn ring(&self, cx: f32, cy: f32, radius: f32, width: f32, color: COLORREF) {
-        let (x, y, d, pen_w) = (
-            self.ox as f32 + (cx - radius) * self.s,
-            self.oy as f32 + (cy - radius) * self.s,
-            radius * 2.0 * self.s,
-            width * self.s,
-        );
-        let drawn = smooth(self.hdc, |graphics| unsafe {
-            let mut pen = null_mut();
-            GdipCreatePen1(argb(color), pen_w, UnitPixel, &mut pen);
-            GdipDrawEllipse(graphics, pen, x, y, d, d);
-            GdipDeletePen(pen);
-        });
-        if drawn {
-            return;
-        }
-        let r = self.r(cx - radius, cy - radius, radius * 2.0, radius * 2.0);
-        unsafe {
-            let pen = CreatePen(PS_SOLID, self.px(width).max(1), color);
-            let old_pen = SelectObject(self.hdc, pen);
-            let old_brush = SelectObject(self.hdc, GetStockObject(NULL_BRUSH));
-            Ellipse(self.hdc, r.left, r.top, r.right, r.bottom);
-            SelectObject(self.hdc, old_brush);
-            SelectObject(self.hdc, old_pen);
-            DeleteObject(pen);
-        }
-    }
-
     /// One line of text in a box, cut with "…" when it does not fit.
     #[allow(clippy::too_many_arguments)]
     fn text(&mut self, s: &str, r: RECT, size: f32, weight: i32, face: Face, color: COLORREF, align: u32) {
@@ -486,6 +428,31 @@ impl Painter {
     /// A tile: the card colour with its border.
     fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
         self.round(self.r(x, y, w, h), 12.0, color, Some(EDGE));
+    }
+
+    /// A small upper-case label with its letters spaced out.
+    ///
+    /// The spacing also follows the last letter, which right or centred alignment would count as text and push the
+    /// label off its place (and cut it); so the label is measured and placed by hand, without that last space.
+    fn caps(&mut self, s: &str, r: RECT, size: f32, color: COLORREF, align: u32) {
+        let upper = s.to_uppercase();
+        let extra = self.px(1.3);
+        unsafe {
+            SetTextCharacterExtra(self.hdc, extra);
+        }
+        let width = (self.width_of(&upper, size, FW_SEMIBOLD as i32, Face::Ui) * self.s).round() as i32 - extra;
+        let left = if align == DT_RIGHT {
+            r.right - width
+        } else if align == DT_CENTER {
+            (r.left + r.right - width) / 2
+        } else {
+            r.left
+        };
+        let placed = rect(left.max(r.left), r.top, left + width + extra + self.px(4.0), r.bottom);
+        self.text(&upper, placed, size, FW_SEMIBOLD as i32, Face::Ui, color, DT_LEFT);
+        unsafe {
+            SetTextCharacterExtra(self.hdc, 0);
+        }
     }
 
     /// The small upper-case label at the top left of a tile.
@@ -557,7 +524,7 @@ fn state_color(game: &Game) -> COLORREF {
     }
 }
 
-/// The colour of shift light `i` of `LIGHTS`: five green, five amber, five red.
+/// The colour of shift light `i` of `LIGHTS`: the first third green, then amber, then red.
 fn light_color(i: usize) -> COLORREF {
     match i * 3 / LIGHTS {
         0 => GREEN,
@@ -710,169 +677,179 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
     g.place(s, ox, oy);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
 
-    // Top: track and car, the shift lights, the lap.
-    let r = g.r(0.0, 2.0, 268.0, 22.0);
-    g.text(&live.track, r, 15.0, semi, Face::Ui, TEXT, DT_LEFT);
-    let car = if live.car.is_empty() {
-        live.game.to_owned()
-    } else {
-        format!("{}  ·  {}", live.car, live.game)
-    };
-    let r = g.r(0.0, 24.0, 268.0, 20.0);
-    g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(800.0, 0.0, 200.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        22.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
-    let (status, status_color) = if live.in_pits {
-        (text(view.lang, &Msg::PanelPits), AMBER)
-    } else if !live.driving {
-        (text(view.lang, &Msg::PanelNotDriving), AMBER)
-    } else {
-        (String::new(), MUTED)
-    };
-    let r = g.r(780.0, 26.0, 220.0, 18.0);
-    g.text(&status.to_uppercase(), r, 11.5, semi, Face::Ui, status_color, DT_RIGHT);
+    // The shift lights: a bar of segments the width of the screen, glowing when lit, flashing at the top.
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
     let (lit, flash) = lights_lit(share);
     let blink_on = view.now_ms / 120 % 2 == 0;
+    let seg_gap = 6.0;
+    let seg_w = (CANVAS_W - seg_gap * (LIGHTS as f32 - 1.0)) / LIGHTS as f32;
     for i in 0..LIGHTS {
-        let cx = 500.0 + (i as f32 - (LIGHTS as f32 - 1.0) / 2.0) * 31.0;
+        let x = i as f32 * (seg_w + seg_gap);
         let color = match (flash, i < lit) {
             (true, _) if blink_on => BLUE,
             (true, _) => DIM,
             (false, true) => light_color(i),
             (false, false) => DIM,
         };
-        g.dot(cx, 22.0, 11.5, color);
+        if color != DIM {
+            g.round(g.r(x - 3.0, -3.0, seg_w + 6.0, 28.0), 7.0, mix(BG, color, 0.22), None);
+        }
+        g.round(g.r(x, 0.0, seg_w, 22.0), 4.0, color, None);
     }
 
-    // Left: the lap's times.
-    g.tile(0.0, 60.0, 300.0, 108.0, CARD);
-    g.label(&text(view.lang, &Msg::PanelLapTime), 20.0, 74.0, 260.0);
-    let r = g.r(20.0, 96.0, 270.0, 62.0);
-    g.text(&lap_clock(live.lap_time_s), r, 50.0, semi, Face::Num, TEXT, DT_LEFT);
-    for (y, label, value, color) in [
-        (180.0, Msg::PanelLastLap, live.last_lap_s, TEXT),
-        (282.0, Msg::PanelBestLap, live.best_lap_s, PURPLE),
-    ] {
-        g.tile(0.0, y, 300.0, 90.0, CARD);
-        g.label(&text(view.lang, &label), 20.0, y + 12.0, 260.0);
-        let r = g.r(20.0, y + 32.0, 270.0, 50.0);
-        g.text(&lap_clock(value), r, 36.0, semi, Face::Num, color, DT_LEFT);
-    }
-
-    // Centre: the gear, the speed, the revs.
-    g.tile(316.0, 60.0, 368.0, 312.0, CARD);
-    let rpm = if live.rpm.is_finite() {
-        format!("{:.0} RPM", live.rpm)
+    // Where and what: track and car on the left, the lap on the right.
+    let r = g.r(0.0, 38.0, 640.0, 26.0);
+    g.text(&live.track.to_uppercase(), r, 17.0, semi, Face::Num, TEXT, DT_LEFT);
+    let car = [live.car.as_str(), live.game]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("  ·  ");
+    let r = g.r(0.0, 64.0, 640.0, 18.0);
+    g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    let r = g.r(640.0, 36.0, 360.0, 30.0);
+    g.text(
+        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
+        r,
+        26.0,
+        semi,
+        Face::Num,
+        ACCENT,
+        DT_RIGHT,
+    );
+    let status = if live.in_pits {
+        text(view.lang, &Msg::PanelPits)
+    } else if !live.driving {
+        text(view.lang, &Msg::PanelNotDriving)
     } else {
         String::new()
     };
-    let r = g.r(330.0, 72.0, 340.0, 18.0);
-    g.text(&rpm, r, 12.0, semi, Face::Num, MUTED, DT_RIGHT);
-    let r = g.r(316.0, 70.0, 368.0, 210.0);
-    g.text(&gear_text(live.gear), r, 196.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let speed = if live.speed_ms.is_finite() {
-        format!("{:.0}", live.speed_ms * 3.6)
-    } else {
-        "–".to_owned()
-    };
-    let r = g.r(316.0, 278.0, 368.0, 62.0);
-    g.text(&speed, r, 58.0, semi, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(316.0, 338.0, 368.0, 20.0);
-    g.text("KM/H", r, 11.5, semi, Face::Ui, MUTED, DT_CENTER);
+    let r = g.r(640.0, 64.0, 360.0, 18.0);
+    g.caps(&status, r, 11.0, AMBER, DT_RIGHT);
+    g.fill(g.r(0.0, 92.0, CANVAS_W, 1.0), EDGE);
 
-    // Right: the delta, with a bar from the centre (green: faster than the best lap), then fuel and lap progress.
-    let delta_color = match live.delta_s {
-        Some(d) if d < 0.0 => GREEN,
-        Some(_) => RED,
-        None => MUTED,
-    };
-    let tint = if live.delta_s.is_some() {
-        mix(CARD, delta_color, 0.10)
-    } else {
-        CARD
-    };
-    g.tile(700.0, 60.0, 300.0, 186.0, tint);
-    g.label(&text(view.lang, &Msg::PanelDelta), 720.0, 74.0, 260.0);
-    let r = g.r(720.0, 96.0, 260.0, 74.0);
-    g.text(&delta_text(live.delta_s), r, 62.0, semi, Face::Num, delta_color, DT_LEFT);
-    let bar = (720.0, 192.0, 260.0, 10.0);
-    g.round(g.r(bar.0, bar.1, bar.2, bar.3), 5.0, TRACK, None);
-    if let Some(d) = live.delta_s.filter(|d| d.is_finite()) {
-        let reach = (d.clamp(-1.0, 1.0) as f32) * bar.2 / 2.0;
-        let mid = bar.0 + bar.2 / 2.0;
-        let (x, w) = if reach < 0.0 { (mid + reach, -reach) } else { (mid, reach) };
-        g.round(g.r(x, bar.1, w.max(2.0), bar.3), 5.0, delta_color, None);
-    }
-    g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
-    for (x, label, align) in [(720.0, "-1.0", DT_LEFT), (800.0, "0", DT_CENTER), (880.0, "+1.0", DT_RIGHT)] {
-        let r = g.r(x, 208.0, 100.0, 16.0);
-        g.text(label, r, 10.5, normal, Face::Num, MUTED, align);
-    }
-
-    g.tile(700.0, 258.0, 300.0, 114.0, CARD);
-    g.label(&text(view.lang, &Msg::PanelFuel), 720.0, 270.0, 120.0);
+    // Left column: the lap's times. Right column, mirrored: fuel, revs, lap progress.
+    let rows = [(100.0, 112.0, 54.0), (212.0, 96.0, 40.0), (308.0, 96.0, 40.0)];
     let fuel = if live.fuel_l.is_finite() {
         format!("{:.1} L", live.fuel_l)
     } else {
         "–".to_owned()
     };
-    let r = g.r(720.0, 288.0, 130.0, 40.0);
-    g.text(&fuel, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
-    g.label(&text(view.lang, &Msg::PanelLapProgress), 860.0, 270.0, 120.0);
+    let rpm = if live.rpm.is_finite() {
+        format!("{:.0}", live.rpm)
+    } else {
+        "–".to_owned()
+    };
     let progress = match (live.dist_m, live.track_length_m) {
         (Some(d), Some(l)) if l > 0.0 => Some((d / l).clamp(0.0, 1.0) as f32),
         _ => None,
     };
-    let percent = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
-    let r = g.r(860.0, 288.0, 120.0, 40.0);
-    g.text(&percent, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
-    g.round(g.r(720.0, 340.0, 260.0, 8.0), 4.0, TRACK, None);
+    let lap_share = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
+    let left = [
+        (text(view.lang, &Msg::PanelLapTime), lap_clock(live.lap_time_s), TEXT),
+        (text(view.lang, &Msg::PanelLastLap), lap_clock(live.last_lap_s), TEXT),
+        (text(view.lang, &Msg::PanelBestLap), lap_clock(live.best_lap_s), PURPLE),
+    ];
+    let right = [
+        (text(view.lang, &Msg::PanelFuel), fuel, TEXT),
+        ("RPM".to_owned(), rpm, TEXT),
+        (text(view.lang, &Msg::PanelLapProgress), lap_share, TEXT),
+    ];
+    for (i, ((y, h, size), ((l_label, l_value, l_color), (r_label, r_value, r_color)))) in
+        rows.iter().zip(left.iter().zip(right.iter())).enumerate()
+    {
+        if i > 0 {
+            g.fill(g.r(0.0, *y, 300.0, 1.0), EDGE);
+            g.fill(g.r(700.0, *y, 300.0, 1.0), EDGE);
+        }
+        let r = g.r(0.0, y + 10.0, 300.0, 18.0);
+        g.caps(l_label, r, 11.0, MUTED, DT_LEFT);
+        let r = g.r(-2.0, y + 28.0, 320.0, h - 34.0);
+        g.text(l_value, r, *size, semi, Face::Num, *l_color, DT_LEFT);
+        let r = g.r(700.0, y + 10.0, 300.0, 18.0);
+        g.caps(r_label, r, 11.0, MUTED, DT_RIGHT);
+        let r = g.r(680.0, y + 28.0, 322.0, h - 34.0);
+        g.text(r_value, r, *size, semi, Face::Num, *r_color, DT_RIGHT);
+    }
+    g.round(g.r(760.0, 392.0, 240.0, 6.0), 3.0, TRACK, None);
     if let Some(p) = progress {
-        g.round(g.r(720.0, 340.0, (260.0 * p).max(8.0), 8.0), 4.0, ACCENT, None);
+        g.round(g.r(760.0, 392.0, (240.0 * p).max(6.0), 6.0), 3.0, ACCENT, None);
     }
 
-    // Bottom: the driver's inputs, and the wheel.
-    g.tile(0.0, 388.0, 1000.0, 132.0, CARD);
-    for (i, (label, value, color)) in [
-        (Msg::PanelThrottle, live.throttle, GREEN),
-        (Msg::PanelBrake, live.brake, RED),
-        (Msg::PanelClutch, live.clutch, BLUE),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let y = 408.0 + i as f32 * 34.0;
-        let r = g.r(20.0, y, 110.0, 22.0);
-        g.text(&text(view.lang, &label).to_uppercase(), r, 11.5, semi, Face::Ui, MUTED, DT_LEFT);
-        g.round(g.r(136.0, y + 5.0, 480.0, 12.0), 6.0, TRACK, None);
-        if value.is_finite() && value > 0.0 {
-            g.round(g.r(136.0, y + 5.0, (480.0 * value.min(1.0)).max(12.0), 12.0), 6.0, color, None);
-        }
-        let value_text = if value.is_finite() {
-            format!("{:.0}%", value * 100.0)
+    // Centre: the delta to the best lap above the gear, the speed below it.
+    let delta_color = match live.delta_s {
+        Some(d) if d < 0.0 => GREEN,
+        Some(_) => RED,
+        None => MUTED,
+    };
+    let r = g.r(330.0, 100.0, 340.0, 16.0);
+    g.caps(&text(view.lang, &Msg::PanelDelta), r, 10.5, MUTED, DT_CENTER);
+    let r = g.r(330.0, 114.0, 340.0, 40.0);
+    g.text(&delta_text(live.delta_s), r, 38.0, semi, Face::Num, delta_color, DT_CENTER);
+    let bar = (350.0, 158.0, 300.0, 6.0);
+    g.round(g.r(bar.0, bar.1, bar.2, bar.3), 4.0, TRACK, None);
+    if let Some(d) = live.delta_s.filter(|d| d.is_finite()) {
+        let reach = (d.clamp(-1.0, 1.0) as f32) * bar.2 / 2.0;
+        let mid = bar.0 + bar.2 / 2.0;
+        let (x, w) = if reach < 0.0 { (mid + reach, -reach) } else { (mid, reach) };
+        g.round(g.r(x, bar.1, w.max(3.0), bar.3), 4.0, delta_color, None);
+    }
+    g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
+
+    // The gear in a frame that lights up red near the limit and flashes blue when it is time to shift.
+    let frame = match (flash, lit) {
+        (true, _) if blink_on => BLUE,
+        (true, _) => RED,
+        (false, n) if n >= LIGHTS - 2 => RED,
+        _ => EDGE,
+    };
+    g.round(g.r(352.0, 172.0, 296.0, 188.0), 20.0, frame, None);
+    g.round(g.r(355.0, 175.0, 290.0, 182.0), 17.0, mix(BG, CARD, 0.75), None);
+    let r = g.r(352.0, 172.0, 296.0, 188.0);
+    g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
+    let speed = if live.speed_ms.is_finite() {
+        format!("{:.0}", live.speed_ms * 3.6)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(330.0, 364.0, 340.0, 40.0);
+    g.text(&speed, r, 42.0, semi, Face::Num, TEXT, DT_CENTER);
+    let r = g.r(330.0, 402.0, 340.0, 14.0);
+    g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
+
+    // Bottom: brake and throttle on one bar from the centre, then the wheel; clutch on the right.
+    g.fill(g.r(0.0, 424.0, CANVAS_W, 1.0), EDGE);
+    let percent = |v: f32| {
+        if v.is_finite() {
+            format!("{:.0}%", v * 100.0)
         } else {
             "–".to_owned()
-        };
-        let r = g.r(626.0, y, 60.0, 22.0);
-        g.text(&value_text, r, 17.0, semi, Face::Num, TEXT, DT_RIGHT);
+        }
+    };
+    let side = |g: &mut Painter, label: &str, value: String, y: f32, align: u32| {
+        let x = if align == DT_RIGHT { 880.0 } else { 0.0 };
+        let r = g.r(x, y, 120.0, 16.0);
+        g.caps(label, r, 10.5, MUTED, align);
+        let r = g.r(x, y + 15.0, 120.0, 28.0);
+        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
+    };
+    side(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 432.0, DT_LEFT);
+    side(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 432.0, DT_RIGHT);
+    let (bx, bw, by, bh) = (140.0, 720.0, 444.0, 18.0);
+    let mid = bx + bw / 2.0;
+    g.round(g.r(bx, by, bw, bh), 9.0, TRACK, None);
+    if live.brake.is_finite() && live.brake > 0.0 {
+        let w = (bw / 2.0 * live.brake.min(1.0)).max(bh);
+        g.round(g.r(mid - w, by, w, bh), 9.0, RED, None);
     }
-    g.fill(g.r(712.0, 404.0, 1.0, 100.0), EDGE);
-    g.label(&text(view.lang, &Msg::PanelSteer), 736.0, 402.0, 120.0);
-    let (cx, cy, radius) = (872.0, 454.0, 48.0);
-    g.ring(cx, cy, radius, 7.0, TRACK);
-    if live.steer.is_finite() {
-        // 135° each way stands for full lock: the marker moves like the top of the wheel, the reading sits inside.
-        let angle = (live.steer.clamp(-1.0, 1.0) * 135.0).to_radians();
-        g.dot(cx + radius * angle.sin(), cy - radius * angle.cos(), 8.5, ACCENT);
+    if live.throttle.is_finite() && live.throttle > 0.0 {
+        let w = (bw / 2.0 * live.throttle.min(1.0)).max(bh);
+        g.round(g.r(mid, by, w, bh), 9.0, GREEN, None);
+    }
+    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
+
+    let wheel = if live.steer.is_finite() {
         let side = if live.steer < -0.005 {
             "L "
         } else if live.steer > 0.005 {
@@ -880,9 +857,18 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         } else {
             ""
         };
-        let reading = format!("{side}{:.0}%", live.steer.abs() * 100.0);
-        let r = g.r(cx - 40.0, cy - 16.0, 80.0, 32.0);
-        g.text(&reading, r, 20.0, semi, Face::Num, TEXT, DT_CENTER);
+        format!("{side}{:.0}%", live.steer.abs() * 100.0)
+    } else {
+        "–".to_owned()
+    };
+    side(g, &text(view.lang, &Msg::PanelSteer), wheel, 476.0, DT_LEFT);
+    side(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 476.0, DT_RIGHT);
+    let (ty, th) = (494.0, 6.0);
+    g.round(g.r(bx, ty, bw, th), 3.0, TRACK, None);
+    g.fill(g.r(mid - 1.0, ty - 5.0, 2.0, th + 10.0), MUTED);
+    if live.steer.is_finite() {
+        let x = mid + live.steer.clamp(-1.0, 1.0) * bw / 2.0;
+        g.round(g.r(x - 16.0, ty - 5.0, 32.0, th + 10.0), 8.0, ACCENT, None);
     }
 }
 
@@ -1699,11 +1685,11 @@ mod tests {
     fn the_shift_lights_fill_up_and_flash_at_the_top() {
         assert_eq!(lights_lit(0.3), (0, false));
         assert_eq!(lights_lit(LIGHTS_FROM), (0, false));
-        assert_eq!(lights_lit(0.76), (7, false));
-        assert_eq!(lights_lit(0.969), (14, false));
+        assert_eq!(lights_lit(0.761), (10, false));
+        assert_eq!(lights_lit(0.969), (19, false));
         assert_eq!(lights_lit(0.98), (LIGHTS, true));
         assert_eq!(lights_lit(f32::NAN), (0, false));
-        assert_eq!((light_color(0), light_color(5), light_color(14)), (GREEN, AMBER, RED));
+        assert_eq!((light_color(0), light_color(7), light_color(19)), (GREEN, AMBER, RED));
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
         assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
         assert_eq!(lap_parts("odd"), ("odd", ""));
