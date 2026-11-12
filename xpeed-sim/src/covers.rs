@@ -18,6 +18,8 @@ pub const GAMES: &[(&str, &str)] = &[
     ("pcars2", "Project CARS 2"),
     ("pcars3", "Project CARS 3"),
     ("f1", "F1 25"),
+    ("f124", "F1 24"),
+    ("f123", "F1 23"),
     ("wreckfest2", "Wreckfest 2"),
     ("rfactor1", "Stock Car Extreme"),
     ("ams1", "Automobilista"),
