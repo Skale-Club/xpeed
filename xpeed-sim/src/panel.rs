@@ -15,8 +15,9 @@
 use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex};
 
+use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
-use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
+use windows_sys::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
     AddFontMemResourceEx, BeginPaint, BitBlt, CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DeleteDC, DeleteObject,
     DrawTextW, EndPaint, FillRect, GetGlyphOutlineW, GetStockObject, GetTextExtentPoint32W, GetTextMetricsW, InvalidateRect, RoundRect,
@@ -26,6 +27,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     SRCCOPY, TEXTMETRICW, TRANSPARENT,
 };
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows_sys::Win32::Graphics::Gdi::{IntersectClipRect, ScreenToClient, SelectClipRgn};
 use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
@@ -40,6 +42,7 @@ use windows_sys::Win32::System::Time::{FileTimeToSystemTime, SystemTimeToTzSpeci
 use windows_sys::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowLongPtrW, IsWindow, KillTimer,
@@ -49,10 +52,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_NCCREATE, WM_PAINT, WM_SETICON, WM_TIMER, WNDCLASSW,
     WS_OVERLAPPEDWINDOW,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, IsIconic, PostMessageW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowPlacement, SetWindowPlacement, CS_DBLCLKS, GWL_STYLE, HWND_TOP, SWP_FRAMECHANGED, SWP_NOOWNERZORDER, WINDOWPLACEMENT,
     WM_LBUTTONDBLCLK,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, WM_SETCURSOR};
+use windows_sys::Win32::UI::WindowsAndMessaging::{WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
 
 use crate::dash::Live;
 use crate::present;
@@ -64,6 +70,8 @@ use crate::win;
 const CLASS: &str = "XpeedSimPanel";
 /// `WM_MOUSELEAVE`, sent once after `TrackMouseEvent` asked for it.
 const WM_MOUSELEAVE: u32 = 0x02a3;
+/// Covers fetched in the background have arrived: read them again.
+const WM_COVERS: u32 = 0x8000 + 20;
 const WM_MOUSEMOVE: u32 = 0x0200;
 /// Where, in the Xpeed app, a computer is connected (the same page the tray menu opens).
 const CONNECT_PATH: &str = "/sim/app";
@@ -169,6 +177,21 @@ pub struct View<'a> {
     pub buttons: std::cell::RefCell<Vec<(Action, RECT)>>,
     /// Where the covers' carousel is: the index of the cover in the middle, fractional while it slides.
     pub carousel: f32,
+    /// How far the games list is scrolled (design units).
+    pub games_scroll: f32,
+    /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
+    pub scroll: std::cell::Cell<Option<ScrollBar>>,
+}
+
+/// A list's scroll bar as drawn (pixels): the list, the bar's track and thumb, how far the list scrolls (design
+/// units) and how many of those one pixel of the thumb's travel is.
+#[derive(Clone, Copy)]
+pub struct ScrollBar {
+    area: RECT,
+    track: RECT,
+    thumb: RECT,
+    max: f32,
+    per_px: f32,
 }
 
 /// The account and the language as the tray knows them; the tray changes them when the computer is connected again
@@ -193,20 +216,20 @@ pub struct Context {
     pub quit_on_close: bool,
 }
 
-/// A game for the waiting screen: its name, and its cover when Steam keeps one here (a small copy, made once).
+/// A game for the waiting screen: its name, and its cover once Xpeed Sim has it from the Xpeed server (a small copy,
+/// made once).
 pub struct CoverArt {
     pub name: &'static str,
     image: *mut GpImage,
 }
 
 impl CoverArt {
-    /// The covers of every game Xpeed Sim reads, read from Steam's cache at about twice the size they are drawn.
+    /// The covers of every game Xpeed Sim reads, from its covers folder, at about twice the size they are drawn.
     pub fn load_all() -> Vec<CoverArt> {
-        let cache = crate::covers::library_cache();
         crate::covers::GAMES
             .iter()
-            .map(|&(name, app)| {
-                let file = cache.as_deref().and_then(|cache| crate::covers::cover_file(cache, app));
+            .map(|&(key, name)| {
+                let file = crate::covers::file(key);
                 CoverArt {
                     name,
                     image: file.map_or(null_mut(), |file| load_thumbnail(&file, 240, 360)),
@@ -318,6 +341,11 @@ struct State {
     buttons: Vec<(Action, RECT)>,
     /// The covers' carousel on the waiting screen.
     carousel: Carousel,
+    /// How far the games list is scrolled (design units), its bar in the last frame, and the thumb being dragged
+    /// (where the mouse was pressed, and the scroll then).
+    games_scroll: f32,
+    scroll: Option<ScrollBar>,
+    drag: Option<(i32, f32)>,
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
@@ -899,6 +927,19 @@ impl Painter {
     }
 
     /// An image filling a box (pixels), smoothly scaled.
+    /// Draws only inside `r` until `unclip` (GDI and GDI+ both keep to it).
+    fn clip(&self, r: RECT) {
+        unsafe {
+            IntersectClipRect(self.hdc, r.left, r.top, r.right, r.bottom);
+        }
+    }
+
+    fn unclip(&self) {
+        unsafe {
+            SelectClipRgn(self.hdc, null_mut());
+        }
+    }
+
     fn image(&self, r: RECT, image: *mut GpImage) {
         smooth(self.hdc, |graphics| unsafe {
             GdipSetInterpolationMode(graphics, InterpolationModeHighQualityBicubic);
@@ -1713,18 +1754,49 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let right = col + gap;
     let area_h = h - footer;
 
-    // Games: each reader with its cover, its name and a status pill.
-    let row_h = 52.0;
-    let games_h = 50.0 + row_h * view.games.len().max(1) as f32;
+    // The account card always gets the height its content needs, and the games list takes what is left: its rows
+    // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
+    // ever drawn outside its card, whatever the window's size.
+    let paired = matches!(view.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_));
+    let first = if paired {
+        (Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)
+    } else {
+        (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
+    };
+    let buttons: Vec<(Action, String, bool, f32)> = [first, (Action::OpenFolder, text(view.lang, &Msg::MenuOpenLaps), false)]
+        .into_iter()
+        .map(|(action, label, primary)| {
+            let w = (g.width_of(&label, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0);
+            (action, label, primary, w)
+        })
+        .collect();
+    let lines = button_lines(&buttons.iter().map(|b| b.3).collect::<Vec<_>>(), col - 40.0);
+    let line_count = lines.iter().map(|&(line, _)| line).max().map_or(0, |l| l + 1) as f32;
+    let (button_h, button_gap) = (36.0, 10.0);
+    let account_need = 104.0 + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
+    let games = view.games.len().max(1);
+    let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need);
+    let offset = view.games_scroll.clamp(0.0, max_scroll);
+    let scrolling = max_scroll > 0.0;
+
+    // Games: each reader with its cover, its name and a status pill; the list scrolls inside its card when it is
+    // longer than the room (mouse wheel, or the thin bar at the right).
     g.tile(0.0, 0.0, col, games_h, CARD);
     g.label(&text(view.lang, &Msg::PanelGames), 20.0, 16.0, col - 40.0);
+    let (list_top, list_bottom) = (42.0, games_h - 8.0);
+    let bar = if scrolling { 14.0 } else { 0.0 };
+    g.clip(g.r(0.0, list_top, col, list_bottom - list_top));
     for (i, row) in view.games.iter().enumerate() {
-        let y = 42.0 + row_h * i as f32;
+        let y = list_top + row_h * i as f32 - offset;
+        if y + row_h < list_top || y > list_bottom {
+            continue;
+        }
         if i > 0 {
-            g.fill(g.r(20.0, y, col - 40.0, 1.0), EDGE);
+            g.fill(g.r(20.0, y, col - 40.0 - bar, 1.0), EDGE);
         }
         // The cover, small; the game's initial on a card when there is none.
-        let (tw, th) = (28.0, 42.0);
+        let th = (row_h - 10.0).min(42.0);
+        let tw = th * 2.0 / 3.0;
         let thumb = g.r(20.0, y + (row_h - th) / 2.0, tw, th);
         match cover_for(&row.title, view.covers) {
             Some(image) => g.image(thumb, image),
@@ -1736,16 +1808,37 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
         let state = state_text(view.lang, &row.state);
         let pill_w = g.width_of(&state, 12.0, semi, Face::Ui) + 22.0;
-        let r = g.r(62.0, y, col - 102.0 - pill_w, row_h);
+        let text_x = 20.0 + tw + 14.0;
+        let r = g.r(text_x, y, col - text_x - 40.0 - bar - pill_w, row_h);
         g.text(&row.title, r, 14.5, normal, Face::Ui, TEXT, DT_LEFT);
         pill(
             g,
-            col - 20.0 - pill_w,
+            col - 20.0 - bar - pill_w,
             y + (row_h - 24.0) / 2.0,
             pill_w,
             &state,
             state_color(&row.state),
         );
+    }
+    g.unclip();
+    if scrolling {
+        // A thin square bar: the track in the edge colour, the thumb lit when the mouse is on it.
+        let track_h = list_bottom - list_top;
+        let content = row_h * games as f32;
+        let thumb_h = (track_h * track_h / content).clamp(24.0, track_h);
+        let thumb_y = list_top + (track_h - thumb_h) * offset / max_scroll;
+        let x = col - 17.0;
+        g.fill(g.r(x, list_top, 3.0, track_h), EDGE);
+        let thumb_hit = g.r(x - 6.0, thumb_y, 15.0, thumb_h);
+        let lit = view.mouse.is_some_and(|(mx, my)| inside(&thumb_hit, mx, my));
+        g.fill(g.r(x - 1.0, thumb_y, 5.0, thumb_h), if lit { ACCENT } else { MUTED });
+        view.scroll.set(Some(ScrollBar {
+            area: g.r(0.0, 0.0, col, games_h),
+            track: g.r(x - 6.0, list_top, 15.0, track_h),
+            thumb: thumb_hit,
+            max: max_scroll,
+            per_px: max_scroll / ((track_h - thumb_h).max(1.0) * s),
+        }));
     }
 
     // Account: the state in words, where it connects, and what can be done about it.
@@ -1753,7 +1846,6 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let account_h = area_h - account_y;
     g.tile(0.0, account_y, col, account_h, CARD);
     g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
-    let paired = matches!(view.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_));
     let cloud_color = match view.snapshot.cloud {
         Cloud::Idle => GREEN,
         Cloud::Waiting(_) => AMBER,
@@ -1766,27 +1858,20 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.text(&cloud, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
     let r = g.r(40.0, account_y + 70.0, col - 60.0, 20.0);
     g.text(view.server, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    // The buttons: connecting comes first while there is no account (or it refused this computer).
-    let mut x = 20.0;
-    let by = account_y + 104.0;
-    let first = if paired {
-        (Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)
-    } else {
-        (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
-    };
-    for (action, label, primary) in [first, (Action::OpenFolder, text(view.lang, &Msg::MenuOpenLaps), false)] {
-        let w = g.width_of(&label, 13.5, semi, Face::Ui) + 36.0;
-        if x + w > col - 20.0 {
+    // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
+    // it refused this computer).
+    for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
+        let by = account_y + 104.0 + line as f32 * (button_h + button_gap);
+        if by + button_h > area_h - 12.0 {
             break;
         }
-        let r = g.r(x, by, w, 36.0);
-        let (fill, edge, ink) = if primary { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
+        let r = g.r(20.0 + x, by, *w, button_h);
+        let (fill, edge, ink) = if *primary { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
         g.round(r, CORNER, fill, edge);
-        g.text(&label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
-        view.buttons.borrow_mut().push((action, r));
-        x += w + 10.0;
+        g.text(label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
+        view.buttons.borrow_mut().push((*action, r));
     }
-    if account_h > 200.0 {
+    if account_h > account_need + 30.0 {
         let folder = text(view.lang, &Msg::PanelLapsFolder(view.laps_dir.to_owned()));
         let r = g.r(20.0, area_h - 34.0, col - 40.0, 18.0);
         g.text(&folder, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
@@ -1800,9 +1885,14 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         let r = g.r(right + 20.0, 44.0, col - 40.0, 24.0);
         g.text(&text(view.lang, &Msg::PanelNoLaps), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
     } else {
+        // The count beside the title only when both fit on the line (in a small window they would run into each other).
         let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
-        let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
-        g.text(&count, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+        let title = text(view.lang, &Msg::PanelLaps).to_uppercase();
+        let need = g.width_of(&count, 12.0, normal, Face::Ui) + g.width_of(&title, 12.0, semi, Face::Label) * 1.3 + 24.0;
+        if need <= col - 40.0 {
+            let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
+            g.text(&count, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+        }
         let lap_row = 34.0;
         let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
         for (i, label) in view.recent_laps.iter().rev().take(room).enumerate() {
@@ -1838,6 +1928,36 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
 
     let r = g.r(0.0, h - 20.0, w, 20.0);
     g.text(&text(view.lang, &Msg::PanelHint), r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+}
+
+/// Buttons of these widths in lines no wider than `room`, 10 apart: each one's line and its left edge in the line.
+fn button_lines(widths: &[f32], room: f32) -> Vec<(usize, f32)> {
+    let mut placed = Vec::with_capacity(widths.len());
+    let (mut line, mut x) = (0, 0.0);
+    for &w in widths {
+        if x > 0.0 && x + w > room {
+            line += 1;
+            x = 0.0;
+        }
+        placed.push((line, x));
+        x += w + 10.0;
+    }
+    placed
+}
+
+/// The games card in `room` design units of height, for `games` lines: its height, the height of a line (from 52
+/// down to 44) and how far the list scrolls (0 when every line fits).
+fn games_layout(games: usize, room: f32) -> (f32, f32, f32) {
+    let games = games.max(1) as f32;
+    let (head, foot) = (42.0, 8.0);
+    let list = (room - head - foot).max(44.0);
+    let row_h = (list / games).clamp(44.0, 52.0);
+    let content = row_h * games;
+    if content <= list {
+        (head + foot + content, row_h, 0.0)
+    } else {
+        (head + foot + list, row_h, content - list)
+    }
 }
 
 /// The cover for a line of the games list: the game of that name, or the first game of a family line
@@ -1957,9 +2077,13 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         mouse: state.mouse,
         buttons: Default::default(),
         carousel: state.carousel.at(now),
+        games_scroll: state.games_scroll,
+        scroll: Default::default(),
     };
     paint(memory, w, h, &view);
     state.buttons = view.buttons.take();
+    state.scroll = view.scroll.get();
+    state.games_scroll = state.games_scroll.clamp(0.0, state.scroll.map_or(0.0, |bar| bar.max));
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
     EndPaint(hwnd, &ps);
 }
@@ -1981,6 +2105,25 @@ fn set_on_top(hwnd: HWND, on: bool) {
 /// Fills the screen the window is on, or puts it back where it was (the usual way: drop the frame, cover the
 /// monitor; then restore the style and the placement).
 /// The dashboard tab shows the waiting screen (no reading, or none for a while).
+/// Whether the window shows something in motion: the dashboard's live readings, or a cover sliding.
+fn moving(state: &State) -> bool {
+    if state.tab != Tab::Dash {
+        return false;
+    }
+    let now = now_ms();
+    !waiting_now(state) || now - state.carousel.since < SLIDE_MS
+}
+
+/// Whether the point (in the window's pixels) is on something a click acts on: a tab, a header button or a button
+/// of the last frame.
+unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> bool {
+    let mut client = rect(0, 0, 0, 0);
+    GetClientRect(hwnd, &mut client);
+    header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
+        || state.buttons.iter().any(|(_, r)| inside(r, x, y))
+        || (state.tab == Tab::Monitor && state.scroll.is_some_and(|bar| inside(&bar.thumb, x, y)))
+}
+
 fn waiting_now(state: &State) -> bool {
     state.tab == Tab::Dash && state.ctx.shared.live().is_none_or(|l| now_ms() - l.at_ms > STALE_MS)
 }
@@ -2049,7 +2192,61 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_ERASEBKGND => 1,
         WM_PAINT => {
             paint_window(hwnd, state);
+            // While something moves (a cover sliding, the live readings), the next frame follows the screen's own
+            // refresh: wait for the compositor's next pass, then ask for another frame. The timer alone ticks
+            // unevenly (Windows' timer granularity), which shows as stutter even when every frame is fast.
+            if moving(state) && IsIconic(hwnd) == 0 {
+                DwmFlush();
+                InvalidateRect(hwnd, null(), 0);
+            }
             0
+        }
+        WM_LBUTTONDOWN
+            if state.tab == Tab::Monitor
+                && state.scroll.is_some_and(|bar| {
+                    let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+                    inside(&bar.track, x, y)
+                }) =>
+        {
+            // On the games list's bar: a press on the thumb drags it; on the track, the thumb jumps there first.
+            let y = ((lparam >> 16) & 0xffff) as i16 as i32;
+            if let Some(bar) = state.scroll {
+                if y < bar.thumb.top || y > bar.thumb.bottom {
+                    let middle = (bar.thumb.top + bar.thumb.bottom) / 2;
+                    state.games_scroll = (state.games_scroll + (y - middle) as f32 * bar.per_px).clamp(0.0, bar.max);
+                }
+            }
+            state.drag = Some((y, state.games_scroll));
+            SetCapture(hwnd);
+            InvalidateRect(hwnd, null(), 0);
+            0
+        }
+        WM_LBUTTONUP => {
+            if state.drag.take().is_some() {
+                ReleaseCapture();
+            }
+            0
+        }
+        WM_CAPTURECHANGED => {
+            state.drag = None;
+            0
+        }
+        WM_MOUSEWHEEL => {
+            // Over the games list (Monitor tab), the wheel scrolls it: about one line a notch.
+            let mut at = POINT {
+                x: (lparam & 0xffff) as i16 as i32,
+                y: ((lparam >> 16) & 0xffff) as i16 as i32,
+            };
+            ScreenToClient(hwnd, &mut at);
+            match state.scroll {
+                Some(bar) if state.tab == Tab::Monitor && inside(&bar.area, at.x, at.y) => {
+                    let notches = ((wparam >> 16) & 0xffff) as i16 as f32 / 120.0;
+                    state.games_scroll = (state.games_scroll - notches * 48.0).clamp(0.0, bar.max);
+                    InvalidateRect(hwnd, null(), 0);
+                    0
+                }
+                _ => DefWindowProcW(hwnd, message, wparam, lparam),
+            }
         }
         WM_LBUTTONDOWN => {
             let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
@@ -2096,10 +2293,30 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 TrackMouseEvent(&mut track);
             }
             state.mouse = Some((x, y));
+            if let (Some((from_y, from_scroll)), Some(bar)) = (state.drag, state.scroll) {
+                state.games_scroll = (from_scroll + (y - from_y) as f32 * bar.per_px).clamp(0.0, bar.max);
+                InvalidateRect(hwnd, null(), 0);
+            }
             0
+        }
+        WM_SETCURSOR if (lparam & 0xffff) as u32 == HTCLIENT => {
+            let mut at = POINT { x: 0, y: 0 };
+            GetCursorPos(&mut at);
+            ScreenToClient(hwnd, &mut at);
+            if clickable(hwnd, state, at.x, at.y) {
+                SetCursor(LoadCursorW(null_mut(), IDC_HAND));
+                1
+            } else {
+                DefWindowProcW(hwnd, message, wparam, lparam)
+            }
         }
         WM_MOUSELEAVE => {
             state.mouse = None;
+            0
+        }
+        WM_COVERS => {
+            state.covers = CoverArt::load_all();
+            InvalidateRect(hwnd, null(), 0);
             0
         }
         WM_LBUTTONDBLCLK => {
@@ -2169,6 +2386,28 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
     }
 }
 
+/// Brings the game covers up to date with the Xpeed server's, once a run (again the next time the window opens when
+/// the server could not be reached), off the window's thread; the window reads them again when some changed.
+fn fetch_covers_once(hwnd: HWND, server: String) {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let server = if server.is_empty() {
+        crate::config::DEFAULT_SERVER.to_owned()
+    } else {
+        server
+    };
+    let target = hwnd as isize;
+    std::thread::spawn(move || match crate::covers::sync(&server) {
+        Some(0) => {}
+        Some(_) => unsafe {
+            PostMessageW(target as HWND, WM_COVERS, 0, 0);
+        },
+        None => STARTED.store(false, std::sync::atomic::Ordering::SeqCst),
+    });
+}
+
 /// Shows the window, making it if it is not open (`existing` is the one made before, if any). Returns its handle.
 pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
     unsafe {
@@ -2203,6 +2442,9 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             mouse: None,
             buttons: Vec::new(),
             carousel: Carousel::new(now_ms()),
+            games_scroll: 0.0,
+            scroll: None,
+            drag: None,
         }));
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
         let before = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -2250,6 +2492,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         );
         ShowWindow(hwnd, SW_SHOWNORMAL);
         SetForegroundWindow(hwnd);
+        let server = (*state).ctx.account.lock().map(|a| a.server.clone()).unwrap_or_default();
+        fetch_covers_once(hwnd, server);
         hwnd
     }
 }
@@ -2365,6 +2609,33 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn games_list_fits_its_room_and_scrolls_the_rest() {
+        // Plenty of room: full-height lines, no scrolling.
+        assert_eq!(games_layout(7, 1000.0), (50.0 + 52.0 * 7.0, 52.0, 0.0));
+        // Less: lower lines, still no scrolling.
+        let (h, row, max) = games_layout(7, 400.0);
+        assert!((44.0..52.0).contains(&row) && max == 0.0 && h <= 400.0);
+        // Too little: the card fills its room exactly and the rest of the list scrolls.
+        for room in [94.0, 150.0, 250.0] {
+            let (h, row, max) = games_layout(7, room);
+            assert_eq!(row, 44.0);
+            assert_eq!(h, room);
+            assert_eq!(max, 44.0 * 7.0 - (room - 50.0), "{room}");
+        }
+    }
+
+    #[test]
+    fn buttons_wrap_to_a_new_line_when_the_card_is_narrow() {
+        assert_eq!(button_lines(&[200.0, 180.0], 400.0), vec![(0, 0.0), (0, 210.0)]);
+        assert_eq!(button_lines(&[200.0, 180.0], 300.0), vec![(0, 0.0), (1, 0.0)]);
+        assert_eq!(
+            button_lines(&[320.0], 300.0),
+            vec![(0, 0.0)],
+            "a lone button stays on the first line"
+        );
+    }
     use crate::game::Frame;
 
     use windows_sys::Win32::Graphics::Gdi::{CreateDIBSection, GdiFlush, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
@@ -2531,6 +2802,8 @@ mod tests {
             mouse: None,
             buttons: Default::default(),
             carousel: 0.0,
+            games_scroll: 0.0,
+            scroll: Default::default(),
         }
     }
 
@@ -2664,10 +2937,14 @@ mod tests {
         monitor_covers.covers = &covers;
         let pixels = render(&monitor_covers, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-covers.png");
-        figures.push_str("<figure><figcaption>Monitor tab, with this computer's Steam covers</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        monitor_covers.games_scroll = 30.0;
+        let pixels = render(&monitor_covers, 720, 480);
+        save(&pixels, 720, 480, "preview-monitor-small.png");
+        figures.push_str("<figure><figcaption>Monitor tab in the smallest window (720 × 480): everything stays in its card, the games list scrolls</figcaption><img data-src=\"preview-monitor-small.png\" width=\"720\" height=\"480\"></figure>\n");
         let pixels = render(&with_covers, 1280, 720);
         save(&pixels, 1280, 720, "preview-covers.png");
-        figures.push_str("<figure><figcaption>Waiting for a game, with this computer's Steam covers</figcaption><img data-src=\"preview-covers.png\" width=\"1280\" height=\"720\"></figure>\n");
+        figures.push_str("<figure><figcaption>Waiting for a game, with the covers from the Xpeed server</figcaption><img data-src=\"preview-covers.png\" width=\"1280\" height=\"720\"></figure>\n");
         for (file, caption, reading, tab, lang, w, h, scale) in shots {
             let pixels = render(&view(&f, reading, tab, scale, lang), w, h);
             save(&pixels, w, h, file);
