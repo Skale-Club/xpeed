@@ -172,12 +172,10 @@ impl App {
     /// Opens the panel, or brings it to the front.
     fn open_panel(&mut self) {
         let (shared, account) = (self.shared.clone(), self.account.clone());
-        let laps_dir = self.laps_dir.display().to_string();
         let [icon_big, icon_small] = self.panel_icons;
         self.panel = panel::show(self.panel, move || panel::Context {
             shared,
             account,
-            laps_dir,
             readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
             icon_big,
             icon_small,

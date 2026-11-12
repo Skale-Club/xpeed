@@ -15,6 +15,7 @@
 use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex};
 
+use std::collections::HashSet;
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, FILETIME, HWND, LPARAM, LRESULT, RECT, SIZE, SYSTEMTIME, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmFlush, DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
@@ -58,7 +59,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_LBUTTONDBLCLK,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, WM_SETCURSOR};
-use windows_sys::Win32::UI::WindowsAndMessaging::{WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
+use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
 
 use crate::dash::Live;
 use crate::present;
@@ -133,8 +134,6 @@ pub enum Action {
     Connect,
     /// Opens Xpeed in the browser.
     OpenXpeed,
-    /// Opens the folder the laps are written to.
-    OpenFolder,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,6 +145,8 @@ pub enum Tab {
 /// One line of the monitor's game list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameRow {
+    /// The game whose cover the line shows (the first of its games installed here).
+    pub key: &'static str,
     pub title: String,
     pub state: Game,
 }
@@ -168,7 +169,6 @@ pub struct View<'a> {
     pub recent_laps: &'a [String],
     /// `(time as HH:MM:SS, text)`, oldest first.
     pub log: &'a [(String, String)],
-    pub laps_dir: &'a str,
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
     /// Where the mouse is over the window (pixels), for the icon buttons' tooltips.
@@ -207,7 +207,6 @@ pub struct Account {
 pub struct Context {
     pub shared: Arc<Shared>,
     pub account: Arc<Mutex<Account>>,
-    pub laps_dir: String,
     /// The readers' lines: the title the panel shows and the game ids that report into it.
     pub readers: Vec<(String, Vec<&'static str>)>,
     pub icon_big: HICON,
@@ -219,21 +218,22 @@ pub struct Context {
 /// A game for the waiting screen: its name, and its cover once Xpeed Sim has it from the Xpeed server (a small copy,
 /// made once).
 pub struct CoverArt {
+    pub key: &'static str,
     pub name: &'static str,
     image: *mut GpImage,
 }
 
 impl CoverArt {
-    /// The covers of every game Xpeed Sim reads, from its covers folder, at about twice the size they are drawn.
-    pub fn load_all() -> Vec<CoverArt> {
+    /// The covers of the games installed here (every game Xpeed Sim reads when none was found), from its covers
+    /// folder, at about twice the size they are drawn.
+    pub fn load(installed: Option<&HashSet<&'static str>>) -> Vec<CoverArt> {
         crate::covers::GAMES
             .iter()
-            .map(|&(key, name)| {
-                let file = crate::covers::file(key);
-                CoverArt {
-                    name,
-                    image: file.map_or(null_mut(), |file| load_thumbnail(&file, 240, 360)),
-                }
+            .filter(|(key, _)| installed.is_none_or(|set| set.is_empty() || set.contains(key)))
+            .map(|&(key, name)| CoverArt {
+                key,
+                name,
+                image: crate::covers::file(key).map_or(null_mut(), |file| load_thumbnail(&file, 240, 360)),
             })
             .collect()
     }
@@ -349,6 +349,8 @@ struct State {
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
+    /// The games installed here, read when the window opens and each time it comes to the front.
+    installed: Option<HashSet<&'static str>>,
     tab: Tab,
     on_top: bool,
     /// Full screen: where the window was and its style, to put it back.
@@ -1763,7 +1765,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     } else {
         (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
     };
-    let buttons: Vec<(Action, String, bool, f32)> = [first, (Action::OpenFolder, text(view.lang, &Msg::MenuOpenLaps), false)]
+    let buttons: Vec<(Action, String, bool, f32)> = [first]
         .into_iter()
         .map(|(action, label, primary)| {
             let w = (g.width_of(&label, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0);
@@ -1798,7 +1800,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         let th = (row_h - 10.0).min(42.0);
         let tw = th * 2.0 / 3.0;
         let thumb = g.r(20.0, y + (row_h - th) / 2.0, tw, th);
-        match cover_for(&row.title, view.covers) {
+        match cover_for(row.key, view.covers) {
             Some(image) => g.image(thumb, image),
             None => {
                 g.fill(thumb, TRACK);
@@ -1870,11 +1872,6 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         g.round(r, CORNER, fill, edge);
         g.text(label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
         view.buttons.borrow_mut().push((*action, r));
-    }
-    if account_h > account_need + 30.0 {
-        let folder = text(view.lang, &Msg::PanelLapsFolder(view.laps_dir.to_owned()));
-        let r = g.r(20.0, area_h - 34.0, col - 40.0, 18.0);
-        g.text(&folder, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
     }
 
     // Laps saved, newest first.
@@ -1960,12 +1957,11 @@ fn games_layout(games: usize, room: f32) -> (f32, f32, f32) {
     }
 }
 
-/// The cover for a line of the games list: the game of that name, or the first game of a family line
-/// ("Assetto Corsa · ACC · AC Rally").
-fn cover_for(title: &str, covers: &[CoverArt]) -> Option<*mut GpImage> {
+/// The cover of a game, when it is loaded.
+fn cover_for(key: &str, covers: &[CoverArt]) -> Option<*mut GpImage> {
     covers
         .iter()
-        .find(|c| c.name == title || title.starts_with(&format!("{} \u{b7}", c.name)))
+        .find(|c| c.key == key)
         .map(|c| c.image)
         .filter(|image| !image.is_null())
 }
@@ -1996,7 +1992,10 @@ fn local_time(unix_ms: i64) -> String {
 }
 
 /// The game list for the monitor: Le Mans Ultimate, then each reader, with the best state any of its games reports.
-fn game_rows(ctx: &Context) -> Vec<GameRow> {
+/// The games list: one line per reader, only for games installed here (all of them when none was found, and always
+/// a game that is running). A line for several games names only those installed ("ACC · AC Rally"), and a single one
+/// by its full name.
+fn game_rows(ctx: &Context, installed: Option<&HashSet<&'static str>>) -> Vec<GameRow> {
     let reported = ctx.shared.games();
     let rank = |g: &Game| match g {
         Game::Recording(_) => 4,
@@ -2013,15 +2012,44 @@ fn game_rows(ctx: &Context) -> Vec<GameRow> {
             .max_by_key(rank)
             .unwrap_or(Game::Waiting)
     };
-    let mut rows = vec![GameRow {
-        title: "Le Mans Ultimate".to_owned(),
-        state: state_of(&["lmu"]),
-    }];
-    rows.extend(ctx.readers.iter().map(|(title, ids)| GameRow {
-        title: title.clone(),
-        state: state_of(ids),
-    }));
-    rows
+    let lines = std::iter::once(("Le Mans Ultimate".to_owned(), vec!["lmu"])).chain(ctx.readers.iter().cloned());
+    lines
+        .filter_map(|(title, ids)| {
+            let state = state_of(&ids);
+            let here: Vec<&'static str> = match installed {
+                Some(set) if !set.is_empty() => ids.iter().copied().filter(|id| set.contains(id)).collect(),
+                _ => ids.clone(),
+            };
+            if here.is_empty() && matches!(state, Game::Waiting) {
+                return None;
+            }
+            let here = if here.is_empty() { ids.clone() } else { here };
+            Some(GameRow {
+                key: here[0],
+                title: line_title(&title, &ids, &here),
+                state,
+            })
+        })
+        .collect()
+}
+
+/// The title of a line for the games `here` among the reader's `ids` (its title naming them in order, "A · B · C").
+fn line_title(title: &str, ids: &[&'static str], here: &[&'static str]) -> String {
+    let parts: Vec<&str> = title.split(" \u{b7} ").collect();
+    if parts.len() != ids.len() || here.len() == ids.len() {
+        return title.to_owned();
+    }
+    if let [only] = here {
+        if let Some((_, name)) = crate::covers::GAMES.iter().find(|(key, _)| key == only) {
+            return (*name).to_owned();
+        }
+    }
+    ids.iter()
+        .zip(&parts)
+        .filter(|(id, _)| here.contains(id))
+        .map(|(_, part)| *part)
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
 }
 
 fn scale_of(hwnd: HWND) -> f32 {
@@ -2049,7 +2077,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let ctx = &state.ctx;
     let snapshot = ctx.shared.snapshot();
     let live = ctx.shared.live();
-    let games = game_rows(ctx);
+    let games = game_rows(ctx, state.installed.as_ref());
     let account = ctx.account.lock().unwrap().clone();
     let recent_laps = ctx.shared.recent_laps();
     let log: Vec<(String, String)> = crate::applog::recent(60)
@@ -2072,7 +2100,6 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         server: &account.server,
         recent_laps: &recent_laps,
         log: &log,
-        laps_dir: &ctx.laps_dir,
         covers: &state.covers,
         mouse: state.mouse,
         buttons: Default::default(),
@@ -2122,6 +2149,16 @@ unsafe fn clickable(hwnd: HWND, state: &State, x: i32, y: i32) -> bool {
     header_hits(client.right, scale_of(hwnd)).iter().any(|r| inside(r, x, y))
         || state.buttons.iter().any(|(_, r)| inside(r, x, y))
         || (state.tab == Tab::Monitor && state.scroll.is_some_and(|bar| inside(&bar.thumb, x, y)))
+}
+
+/// Reads again which games are installed, and their covers when that changed.
+fn refresh_installed(state: &mut State) {
+    let now = Some(crate::installed::keys());
+    if now != state.installed || state.covers.is_empty() {
+        state.installed = now;
+        state.covers = CoverArt::load(state.installed.as_ref());
+        state.games_scroll = 0.0;
+    }
 }
 
 fn waiting_now(state: &State) -> bool {
@@ -2267,10 +2304,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 match action {
                     Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
                     Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
-                    Action::OpenFolder => {
-                        let _ = std::fs::create_dir_all(&state.ctx.laps_dir);
-                        win::open(&state.ctx.laps_dir);
-                    }
                 }
             } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
                 // The carousel: a click left of the middle goes back, right of it goes on.
@@ -2314,8 +2347,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             state.mouse = None;
             0
         }
+        WM_ACTIVATE if wparam & 0xffff != 0 => {
+            // Back to the front: a game may have been installed or removed meanwhile.
+            refresh_installed(state);
+            InvalidateRect(hwnd, null(), 0);
+            0
+        }
         WM_COVERS => {
-            state.covers = CoverArt::load_all();
+            state.covers = CoverArt::load(state.installed.as_ref());
             InvalidateRect(hwnd, null(), 0);
             0
         }
@@ -2437,7 +2476,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             tab: Tab::Dash,
             on_top: false,
             full: None,
-            covers: CoverArt::load_all(),
+            covers: Vec::new(),
+            installed: None,
             buffer: None,
             mouse: None,
             buttons: Vec::new(),
@@ -2446,6 +2486,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             scroll: None,
             drag: None,
         }));
+        refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
         let before = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let hwnd = CreateWindowExW(
@@ -2586,7 +2627,6 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
             server: "https://xpeed.skale.club".into(),
             lang,
         })),
-        laps_dir: "(demo)".into(),
         readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
         icon_big: null_mut(),
         icon_small: null_mut(),
@@ -2609,6 +2649,20 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_for_several_games_names_only_those_installed() {
+        let ids = ["ac", "acc", "acr"];
+        let title = "Assetto Corsa \u{b7} ACC \u{b7} AC Rally";
+        assert_eq!(line_title(title, &ids, &ids), title);
+        assert_eq!(line_title(title, &ids, &["acc", "acr"]), "ACC \u{b7} AC Rally");
+        assert_eq!(
+            line_title(title, &ids, &["acc"]),
+            "Assetto Corsa Competizione",
+            "one game: its full name"
+        );
+        assert_eq!(line_title("iRacing", &["iracing"], &["iracing"]), "iRacing");
+    }
 
     #[test]
     fn games_list_fits_its_room_and_scrolls_the_rest() {
@@ -2752,22 +2806,27 @@ mod tests {
             },
             games: vec![
                 GameRow {
+                    key: "lmu",
                     title: "Le Mans Ultimate".into(),
                     state: Game::Waiting,
                 },
                 GameRow {
+                    key: "ac",
                     title: "Assetto Corsa · ACC · AC Rally".into(),
                     state: Game::Recording(4),
                 },
                 GameRow {
+                    key: "ams2",
                     title: "Automobilista 2".into(),
                     state: Game::Waiting,
                 },
                 GameRow {
+                    key: "iracing",
                     title: "iRacing".into(),
                     state: Game::Connected,
                 },
                 GameRow {
+                    key: "rfactor1",
                     title: "Stock Car Extreme".into(),
                     state: Game::Unsupported,
                 },
@@ -2797,7 +2856,6 @@ mod tests {
             server: "https://xpeed.skale.club",
             recent_laps: &f.laps,
             log: &f.log,
-            laps_dir: "C:\\Users\\Driver\\Documents\\Xpeed Sim\\Laps",
             covers: &[],
             mouse: None,
             buttons: Default::default(),
@@ -2921,7 +2979,7 @@ mod tests {
             ),
         ];
         let mut figures = String::new();
-        let covers = CoverArt::load_all();
+        let covers = CoverArt::load(None);
         let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
         let [_, _, full_button, _] = header_hits(960, 1.0);
         hover.mouse = Some((full_button.left + 5, full_button.top + 5));
@@ -3025,7 +3083,7 @@ look(); setInterval(look, 1500);
     fn frame_times() {
         let f = fixture();
         let live = live_reading();
-        let covers = CoverArt::load_all();
+        let covers = CoverArt::load(None);
         for (name, reading, tab) in [
             ("carousel", None, Tab::Dash),
             ("dashboard", Some(&live), Tab::Dash),

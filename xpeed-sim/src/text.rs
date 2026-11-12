@@ -98,7 +98,6 @@ pub enum Msg {
     PanelLog,
     PanelNoLaps,
     PanelLapsCount(u32),
-    PanelLapsFolder(String),
     PanelHint,
     StateWaiting,
     StateConnected,
@@ -253,7 +252,6 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             format!("{n} volta(s) gravada(s) desde que o Xpeed Sim abriu"),
             format!("{n} vuelta(s) guardada(s) desde que se abrió Xpeed Sim"),
         ),
-        PanelLapsFolder(path) => t(format!("Folder: {path}"), format!("Pasta: {path}"), format!("Carpeta: {path}")),
         PanelHint => t(
             s("Keys: 1 dashboard · 2 monitor · F11 full screen · T always on top"),
             s("Teclas: 1 painel · 2 monitor · F11 tela cheia · T sempre por cima"),
@@ -344,7 +342,6 @@ mod tests {
             Msg::PanelLog,
             Msg::PanelNoLaps,
             Msg::PanelLapsCount(2),
-            Msg::PanelLapsFolder("C:/Laps".into()),
             Msg::PanelHint,
             Msg::StateWaiting,
             Msg::StateConnected,

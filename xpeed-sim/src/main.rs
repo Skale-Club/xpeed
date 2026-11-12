@@ -26,6 +26,7 @@ mod game;
 #[cfg(windows)]
 mod games;
 mod icon;
+mod installed;
 mod lapcut;
 mod lapfile;
 mod link;
