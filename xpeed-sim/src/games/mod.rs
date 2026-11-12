@@ -12,6 +12,7 @@ pub mod ams2;
 pub mod f1;
 pub mod iracing;
 pub mod kunos;
+pub mod r3e;
 pub mod rfactor1;
 pub mod wreckfest2;
 
@@ -88,5 +89,13 @@ pub const READERS: &[Reader] = &[
         ids: &["iracing"],
         programs: &["iracingsim64dx11.exe", "iracingsim64.exe"],
         open: iracing::open,
+    },
+    Reader {
+        family: "r3e",
+        title: "RaceRoom Racing Experience",
+        ids: &["r3e"],
+        // The official API sample (`sample-c/src/utils.c`) looks for these two.
+        programs: &["rrre64.exe", "rrre.exe"],
+        open: r3e::open,
     },
 ];
