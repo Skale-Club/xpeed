@@ -20,6 +20,8 @@ const GAMES: &[(&str, u32, &[&str])] = &[
     ("f1", 3_059_520, &["f1 25", "ea sports f1 25"]),
     ("wreckfest2", 1_203_190, &["wreckfest 2"]),
     ("rfactor1", 273_840, &["stock car extreme", "game stock car extreme"]),
+    ("ams1", 431_600, &["automobilista"]),
+    ("rf1", 339_790, &["rfactor"]),
     (
         "iracing",
         266_410,

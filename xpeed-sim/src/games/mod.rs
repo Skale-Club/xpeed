@@ -77,9 +77,9 @@ pub const READERS: &[Reader] = &[
     },
     Reader {
         family: "rfactor1",
-        title: "Stock Car Extreme",
-        ids: &["rfactor1"],
-        programs: &["gsc.exe"],
+        title: "Stock Car Extreme \u{b7} Automobilista \u{b7} rFactor",
+        ids: &["rfactor1", "ams1", "rf1"],
+        programs: &["gsc.exe", "ams.exe", "rfactor.exe"],
         open: rfactor1::open,
     },
     Reader {
