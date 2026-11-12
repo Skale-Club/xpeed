@@ -181,6 +181,8 @@ pub struct View<'a> {
     pub carousel: f32,
     /// How far the games list is scrolled (design units).
     pub games_scroll: f32,
+    /// The carousel's step from one cover to the next as drawn in this frame (pixels), for dragging it.
+    pub carousel_step: std::cell::Cell<f32>,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
 }
@@ -293,6 +295,8 @@ struct Carousel {
     from: f32,
     /// When it set off (Unix ms).
     since: i64,
+    /// Where a mouse drag holds it, while the button is down.
+    held: Option<f32>,
 }
 
 /// How long a slide takes, and how long a cover stays in the middle before the next one comes.
@@ -305,11 +309,15 @@ impl Carousel {
             target: 0,
             from: 0.0,
             since: now,
+            held: None,
         }
     }
 
     /// Where it is at `now`: eased in and out (gently away, gently in) from where it set off to where it is going.
     fn at(&self, now: i64) -> f32 {
+        if let Some(held) = self.held {
+            return held;
+        }
         let t = ((now - self.since) as f32 / SLIDE_MS as f32).clamp(0.0, 1.0);
         let eased = if t < 0.5 {
             4.0 * t * t * t
@@ -326,9 +334,31 @@ impl Carousel {
         self.since = now;
     }
 
+    /// Held by a drag at `at` (in covers, fractional).
+    fn hold(&mut self, at: f32) {
+        self.held = Some(at);
+    }
+
+    /// Let go after a drag that started at `start`: it eases onto the nearest cover, leaning the way it was dragged
+    /// (a fifth of a cover is enough to go on to the next one).
+    fn let_go(&mut self, start: f32, now: i64) {
+        let Some(at) = self.held.take() else { return };
+        let moved = at - start;
+        let target = if moved > 0.2 {
+            at.ceil()
+        } else if moved < -0.2 {
+            at.floor()
+        } else {
+            at.round()
+        };
+        self.from = at;
+        self.target = target as i64;
+        self.since = now;
+    }
+
     /// Moves on by itself once a cover has had its time in the middle.
     fn tick(&mut self, now: i64) {
-        if now - self.since >= SLIDE_MS + DWELL_MS {
+        if self.held.is_none() && now - self.since >= SLIDE_MS + DWELL_MS {
             self.step(1, now);
         }
     }
@@ -348,6 +378,11 @@ struct State {
     games_scroll: f32,
     scroll: Option<ScrollBar>,
     drag: Option<(i32, f32)>,
+    /// A press on the waiting screen's carousel: where (pixels), where the carousel was, and whether it has become a
+    /// drag. A press that never moved acts as a click when the button comes up.
+    press: Option<(i32, i32, f32, bool)>,
+    /// The carousel's step from one cover to the next (pixels), from the last frame that drew it.
+    carousel_step: f32,
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
@@ -1357,6 +1392,7 @@ fn waiting(g: &mut Painter, body: RECT, view: &View) {
         DT_CENTER,
     );
     if !view.covers.is_empty() {
+        view.carousel_step.set(120.0 * g.s);
         return cover_carousel(g, view.covers, view.carousel, &view.buttons);
     }
     // The games it reads, as chips, centred in rows.
@@ -2148,10 +2184,14 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         carousel: state.carousel.at(now),
         games_scroll: state.games_scroll,
         scroll: Default::default(),
+        carousel_step: Default::default(),
     };
     paint(memory, w, h, &view);
     state.buttons = view.buttons.take();
     state.scroll = view.scroll.get();
+    if view.carousel_step.get() > 0.0 {
+        state.carousel_step = view.carousel_step.get();
+    }
     state.games_scroll = state.games_scroll.clamp(0.0, state.scroll.map_or(0.0, |bar| bar.max));
     BitBlt(hdc, 0, 0, w, h, memory, 0, 0, SRCCOPY);
     EndPaint(hwnd, &ps);
@@ -2215,6 +2255,22 @@ fn activity_message(event: Activity) -> Msg {
         Activity::Notice(Notice::NotPaired) => Msg::CloudNotPaired,
         Activity::Notice(Notice::Refused) => Msg::NoticeRefused,
     }
+}
+
+/// A click on the carousel (a press that did not move): a square or a side cover brings that game to the middle;
+/// elsewhere, left of the middle goes back one and right of it goes on one.
+unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i32) {
+    let now = now_ms();
+    if let Some(&(Action::Cover(i), _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
+        let steps = carousel_steps(state.carousel.target, i, state.covers.len());
+        if steps != 0 {
+            state.carousel.step(steps, now);
+        }
+        return;
+    }
+    let mut client = rect(0, 0, 0, 0);
+    GetClientRect(hwnd, &mut client);
+    state.carousel.step(if x < client.right / 2 { -1 } else { 1 }, now);
 }
 
 fn waiting_now(state: &State) -> bool {
@@ -2318,10 +2374,23 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             if state.drag.take().is_some() {
                 ReleaseCapture();
             }
+            if let Some((x, y, start, dragged)) = state.press.take() {
+                ReleaseCapture();
+                if dragged {
+                    state.carousel.let_go(start, now_ms());
+                } else {
+                    carousel_click(hwnd, state, x, y);
+                }
+                InvalidateRect(hwnd, null(), 0);
+            }
             0
         }
         WM_CAPTURECHANGED => {
             state.drag = None;
+            // The capture went elsewhere mid-drag: settle where it is.
+            if let Some((_, _, start, true)) = state.press.take() {
+                state.carousel.let_go(start, now_ms());
+            }
             0
         }
         WM_MOUSEWHEEL => {
@@ -2355,6 +2424,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if inside(&top, x, y) {
                 state.on_top = !state.on_top;
                 set_on_top(hwnd, state.on_top);
+            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
+                // The carousel: it follows the mouse while dragged; a press that does not move is a click, on release.
+                state.press = Some((x, y, state.carousel.at(now_ms()), false));
+                SetCapture(hwnd);
             } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
                 let account = state.ctx.account.lock().unwrap().clone();
                 match action {
@@ -2367,10 +2440,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                         }
                     }
                 }
-            } else if waiting_now(state) && y > (HEADER_H * scale_of(hwnd)) as i32 {
-                // The carousel: a click left of the middle goes back, right of it goes on.
-                let by = if x < client.right / 2 { -1 } else { 1 };
-                state.carousel.step(by, now_ms());
             }
             InvalidateRect(hwnd, null(), 0);
             0
@@ -2388,6 +2457,15 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 TrackMouseEvent(&mut track);
             }
             state.mouse = Some((x, y));
+            if let Some((x0, y0, start, dragged)) = state.press {
+                // A few pixels before it counts as a drag, so a shaky click stays a click.
+                let dx = x - x0;
+                if dragged || dx.abs() as f32 > 4.0 * scale_of(hwnd) {
+                    state.carousel.hold(start - dx as f32 / state.carousel_step.max(1.0));
+                    state.press = Some((x0, y0, start, true));
+                    InvalidateRect(hwnd, null(), 0);
+                }
+            }
             if let (Some((from_y, from_scroll)), Some(bar)) = (state.drag, state.scroll) {
                 state.games_scroll = (from_scroll + (y - from_y) as f32 * bar.per_px).clamp(0.0, bar.max);
                 InvalidateRect(hwnd, null(), 0);
@@ -2421,11 +2499,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_LBUTTONDBLCLK => {
-            // A double click below the header: full screen and back.
-            let y = ((lparam >> 16) & 0xffff) as i16 as i32;
-            if y > (HEADER_H * scale_of(hwnd)) as i32 && !waiting_now(state) {
-                toggle_full(hwnd, state);
-                InvalidateRect(hwnd, null(), 0);
+            // A double click below the header: full screen and back. On the carousel, the second click of a quick
+            // pair is one more press (two quick clicks move it two covers).
+            let (x, y) = ((lparam & 0xffff) as i16 as i32, ((lparam >> 16) & 0xffff) as i16 as i32);
+            if y > (HEADER_H * scale_of(hwnd)) as i32 {
+                if waiting_now(state) {
+                    state.press = Some((x, y, state.carousel.at(now_ms()), false));
+                    SetCapture(hwnd);
+                } else {
+                    toggle_full(hwnd, state);
+                    InvalidateRect(hwnd, null(), 0);
+                }
             }
             0
         }
@@ -2547,6 +2631,8 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             games_scroll: 0.0,
             scroll: None,
             drag: None,
+            press: None,
+            carousel_step: 120.0,
         }));
         refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
@@ -2711,6 +2797,27 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dragged_carousel_settles_on_a_cover_leaning_the_way_it_was_dragged() {
+        let mut c = Carousel::new(0);
+        c.hold(0.3);
+        assert_eq!(c.at(10), 0.3, "held where the mouse is");
+        c.tick(1_000_000);
+        assert_eq!(c.at(1_000_000), 0.3, "no moving on by itself while held");
+        c.let_go(0.0, 100);
+        assert_eq!(c.target, 1, "a third of a cover to the right goes on to the next");
+        assert_eq!(c.at(100), 0.3, "and eases from where it was let go");
+        assert!((c.at(100 + SLIDE_MS) - 1.0).abs() < 1e-6);
+        let mut c = Carousel::new(0);
+        c.hold(-0.1);
+        c.let_go(0.0, 0);
+        assert_eq!(c.target, 0, "a tenth of a cover goes back");
+        let mut c = Carousel::new(0);
+        c.hold(1.7);
+        c.let_go(2.0, 0);
+        assert_eq!(c.target, 1, "dragged back past a fifth: the previous cover");
+    }
 
     #[test]
     fn a_click_on_a_cover_goes_there_the_nearest_way() {
@@ -2934,6 +3041,7 @@ mod tests {
             carousel: 0.0,
             games_scroll: 0.0,
             scroll: Default::default(),
+            carousel_step: Default::default(),
         }
     }
 
