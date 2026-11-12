@@ -55,9 +55,11 @@ pub const READERS: &[Reader] = &[
     },
     Reader {
         family: "f1",
-        title: "F1 25",
-        ids: &["f1"],
-        programs: &["f1_25.exe"],
+        title: "F1 25 · F1 24 · F1 23",
+        // One UDP port for the three: the format of each packet says which game sent it (`f1.rs`).
+        ids: &["f1", "f124", "f123"],
+        // The games' own executables (Steam and EA app installs): F1_25.exe, F1_24.exe, F1_23.exe.
+        programs: &["f1_25.exe", "f1_24.exe", "f1_23.exe"],
         open: f1::open,
     },
     Reader {
