@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { APK_URL } from '@/lib/app-update';
 import { GoogleIdentityButton } from '@/components/auth/GoogleIdentityButton';
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Bluetooth, Car, FileText, Loader2, Route, ShieldCheck, Smartphone } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -205,6 +205,10 @@ export default function LoginPage() {
 
       <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted-foreground">
         <p>{t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}</p>
+        <p className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+          <Link to="/privacy" className="underline underline-offset-2">{t('legal.links.privacy', 'Privacy Policy')}</Link>
+          <Link to="/terms" className="underline underline-offset-2">{t('legal.links.terms', 'Terms of Use')}</Link>
+        </p>
       </footer>
 
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>

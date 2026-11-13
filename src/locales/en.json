@@ -1768,5 +1768,197 @@
     "update": "Update app",
     "available": "A new version of Xpeed is available",
     "hint": "Update to get the latest app improvements."
+  },
+  "legal": {
+    "links": {
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Use",
+      "settings": "Privacy settings"
+    },
+    "updated": "Last updated: {{date}}",
+    "index": "On this page",
+    "contact": {
+      "title": "Contact",
+      "body": "For questions, to ask for your data or to use any right on this page:",
+      "label": "E-mail",
+      "without": "Xpeed does not publish an e-mail address yet. Meanwhile you can export and delete your data yourself on the privacy settings page, without having to talk to anyone."
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "intro": "This text explains in plain words which data Xpeed keeps, what for, who else receives it and how you control all of it. It covers the website, the Android app and Xpeed Companion.",
+      "who": {
+        "title": "Who is responsible",
+        "p": [
+          "The controller of your data is the Xpeed service (\"Xpeed\", \"we\"). How to reach us is in the Contact section at the end of this page."
+        ]
+      },
+      "data": {
+        "title": "Which data we keep",
+        "p": [
+          "We keep data in two groups, depending on what you use."
+        ],
+        "items": [
+          "Real car: your account (the phone number or the Google account e-mail you sign in with), your cars, trips and their readings, fault codes, fuel and maintenance records and the photos you add yourself.",
+          "Racing games (Virtual): the lap telemetry sent by Xpeed Companion (speed, pedals, steering, position on the track, fuel, tyre and brake data and session details such as the weather), the game, track and car names, lap and sector times, your computer's name and the date it was last seen, a profile with a handle and display name, friends, shared links and reports."
+        ]
+      },
+      "companion": {
+        "title": "What Xpeed Companion sends (and never sends)",
+        "p": [
+          "Xpeed Companion is the Windows program that reads your game."
+        ],
+        "items": [
+          "It sends: laps and track layouts built from the game's own files, the computer name and the account label.",
+          "It never sends: your Windows user name, files outside Companion's own folder, data of other programs, or the device key in diagnostics.",
+          "The key that links the computer to your account is kept protected by Windows."
+        ]
+      },
+      "profile": {
+        "title": "Public profile and shared links",
+        "p": [
+          "Your profile is public by default. In the profile settings you can choose public, friends only or private at any time.",
+          "A public profile shows your display name, handle, best laps and rankings. Your e-mail, phone number and account name are never shown. If you do not pick a name, we generate a default one to show instead.",
+          "A share link shows the lap to anyone who has the link, until you revoke it or it expires."
+        ]
+      },
+      "why": {
+        "title": "Why we use it and on what basis",
+        "p": [
+          "We use the data to provide the service (record trips and laps, show analysis), to build rankings and to keep things secure. In plain words, the legal basis is:"
+        ],
+        "items": [
+          "your consent, when you sign up and connect Companion (you can withdraw it at any time);",
+          "performance of the service you asked for;",
+          "legitimate interest, for security and to prevent abuse and fraud."
+        ]
+      },
+      "where": {
+        "title": "Where and for how long",
+        "p": [
+          "The data is stored on Xpeed's own server and connections use HTTPS. We keep it until you delete the data or the account.",
+          "Laps older than 90 days that are not a personal best and are not marked are kept in a reduced version, with 10 samples per second. Times and summaries stay complete."
+        ]
+      },
+      "rights": {
+        "title": "Your rights (LGPD and GDPR)",
+        "p": [
+          "Under the LGPD, and in the same words under the GDPR, you can ask for:"
+        ],
+        "items": [
+          "access and a copy of your data;",
+          "correction of wrong data;",
+          "deletion of your data;",
+          "portability, which means taking your data with you;",
+          "objection to a use of your data;",
+          "withdrawal of consent, at any time."
+        ],
+        "after": [
+          "To use them: use the export and delete options on the privacy settings page, or contact us as described below. To stop sending laps, revoke the computer in your account. If you think we handle your data wrongly, you can complain to the data protection authority of your country."
+        ]
+      },
+      "third": {
+        "title": "Third parties",
+        "p": [
+          "We do not sell data and we show no advertising. We use no analytics tools or third-party trackers: we only keep your language and your sign-in session on your device. These companies receive data in specific cases:"
+        ],
+        "items": [
+          "Sign-in: Google (Firebase) confirms your number by text message or your Google account. Google reCAPTCHA is also used for phone sign-in in the browser.",
+          "Fonts: the pages load fonts from Google Fonts, so Google receives your IP address when a page opens.",
+          "AI, Real car only: the AI provider (OpenRouter and the model chosen) receives data only when the feature acts: when a trip worth a summary is saved (car details, duration, fault codes and summarised readings), in questions to the assistant (with the car's open problems, recent trips and maintenance) and when a fuel receipt photo is read. Nothing from racing games goes to the AI.",
+          "VIN: if you type a VIN to fill in the car's details, it is looked up in the public NHTSA vPIC decoder, in the USA.",
+          "GitHub: the download of Companion and of the Android app is a GitHub link, and the Android app checks there for a new version. GitHub sees the request (for example your IP address)."
+        ]
+      },
+      "children": {
+        "title": "Children",
+        "p": [
+          "Xpeed is not meant for people under 13 (or under the minimum age in the law of your country, if higher). If we learn of such an account, we will delete it."
+        ]
+      },
+      "changes": {
+        "title": "Changes to this policy",
+        "p": [
+          "We may update this text. The \"Last updated\" date at the top shows the version in force. For important changes, we will tell you in the app."
+        ]
+      }
+    },
+    "terms": {
+      "title": "Terms of Use",
+      "intro": "By creating an account or using Xpeed you agree to these terms. They are short on purpose.",
+      "service": {
+        "title": "What Xpeed is",
+        "p": [
+          "Xpeed has two parts: Real car, which reads your car through an OBD2 adapter and explains in plain words what needs attention, and Virtual, which receives through Xpeed Companion the laps from your racing games so you can analyse them, compare them and climb the rankings.",
+          "It is a hobby project, provided as is."
+        ]
+      },
+      "account": {
+        "title": "Your account",
+        "p": [
+          "You sign in with your phone or your Google account. Look after access to your device and your account: whatever is done through it is your responsibility. Give true information and do not create new accounts to get around a suspension."
+        ]
+      },
+      "content": {
+        "title": "Names and public content",
+        "p": [
+          "Handles, display names and any public text follow these rules:"
+        ],
+        "items": [
+          "nothing offensive or discriminatory;",
+          "nothing that impersonates another person, team or brand;",
+          "nothing you have no right to publish."
+        ]
+      },
+      "fair": {
+        "title": "Fair play",
+        "p": [
+          "Do not fake laps, telemetry or times, and do not use the service to cheat the rankings. Laps are checked, and those that look impossible are left out of the rankings. Do not try to reach other people's data or to overload or attack the service either.",
+          "Xpeed may hide content and suspend accounts for abuse."
+        ]
+      },
+      "data": {
+        "title": "Your data",
+        "p": [
+          "Your data stays yours. By using Xpeed you give the service the right to store it and to show it as you chose (for example a public profile, friends or shared links), only so that the service works. The details are in the Privacy Policy."
+        ]
+      },
+      "warranty": {
+        "title": "No warranty",
+        "p": [
+          "Xpeed does not promise that it will work without errors or interruptions.",
+          "In Real car it gives hints from data, not a diagnosis: with warning lights or serious symptoms, see a mechanic."
+        ]
+      },
+      "liability": {
+        "title": "Limits of liability",
+        "p": [
+          "As far as the law allows, Xpeed is not liable for indirect damages, lost profits, lost data or decisions made from the app's hints, such as maintenance or driving. Use it at your own risk and never in a way that takes your attention off the road or the track. Nothing here limits rights that the law does not allow to be limited."
+        ]
+      },
+      "companion": {
+        "title": "Xpeed Companion",
+        "p": [
+          "Xpeed Companion is software provided as is. It updates itself (it checks for new versions in the background and installs them, never during a game). You can turn automatic updates off in Companion itself."
+        ]
+      },
+      "ending": {
+        "title": "Ending an account",
+        "p": [
+          "You can delete your account whenever you like on the privacy settings page; that deletes your data. We may suspend or close accounts that break these terms, and the service may change or end."
+        ]
+      },
+      "changes": {
+        "title": "Changes to the terms",
+        "p": [
+          "We may update these terms. The \"Last updated\" date at the top shows the version in force. Continuing to use Xpeed after a change means you accept it."
+        ]
+      },
+      "law": {
+        "title": "Applicable law",
+        "p": [
+          "These terms follow the law of the country where the service operator is established."
+        ]
+      }
+    }
   }
 }
