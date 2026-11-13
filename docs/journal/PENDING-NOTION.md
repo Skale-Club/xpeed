@@ -67,3 +67,49 @@ Three Sonnet subagents worked in worktrees: one on the icon and version, one on 
 ### Next
 - A public download for the Companion installer.
 - Remove the leftover copy in the Claude package cache, if the owner agrees.
+
+---
+
+## 2026-11-13 — Companion shows the account email (GET /api/sim/me), 0.3.1
+
+- **Type:** Fix · **Area:** General, i18n & UX · **Status:** Done
+- **Agent:** Claude Code · **Model:** Opus 5.5 orchestrating, Sonnet 5.5 subagent executing
+- **Repo / Branch:** Skale-Club/xpeed / main = dev 8b16ca6
+- **Commits / PR:** 8a62244; merge 8b16ca6
+- **Tests:** vitest 975; cargo test 475; tsc api/server clean; CI ran 37 sim checks incl. the 3 new `me:` checks; deploy green; `/api/sim/me` without a key is 401 in production; after installing 0.3.1 the saved config has the account email.
+- **Summary:** The Account card said "Connected as xpeed.skale.club" for PCs paired the old way (no account saved). New `GET /api/sim/me` (device key) returns the account; the app asks it at every start, saves it and shows the email. Unknown shows "Connected", never the host.
+
+### Context
+The owner saw "Connected as xpeed.skale.club" in the Companion's Account card and expected their email. The PC had been paired through the old code + `xpeedsim:` link flow, which never stored an account label, so the card fell back to the server host.
+
+### What changed
+- **Server.** `api/sim/me.ts`: `GET /api/sim/me` with `Authorization: Bearer <device key>`.
+  - It authenticates through `sim_authenticate_device`, like `laps.ts` does.
+  - A 200 answer is `{account, deviceName}`. The account is the email, else the full name, else the phone.
+  - A missing, unknown or revoked key gets 401.
+  - It is limited to 30 requests a minute per device.
+  - It needs no migration, and it is routed in `server/index.ts`.
+- **App 0.3.1.**
+  - `net::whoami` asks `/api/sim/me`, at every start and after each pairing reload.
+  - `config::update_account` saves the label and changes nothing else.
+  - A new `WM_ACCOUNT` message refreshes the tray and the card.
+  - When the label is unknown, the card says "Connected" (PT/ES "Conectado"), never the host.
+
+### How it was built
+One Sonnet subagent wrote it in a worktree. Opus checked the tests, merged it, re-ran cargo, released it after the owner's OK, followed CI and the deploy, then built the installer and installed it through WMI.
+
+### Decisions and why
+The app refreshes the label at every start, so a changed email shows up. A network error keeps the old label and blocks nothing.
+
+### Tests and evidence
+- CI: "37 sim checks passed", including:
+  - `me: a paired device gets its account email and device name, the name when there is no email, never anything else`;
+  - `me: no key, an unknown key and a revoked key are 401`.
+- Production: health is ok on 8b16ca6, and `/api/sim/me` returns 401 without a key.
+- On this PC, after installing 0.3.1, `config.json` holds `"account": "skale.club@gmail.com"`.
+
+### Not done / risks
+The local `npm run test:sim` lacks `@electric-sql/pglite` under `node_modules/.xpeed-audit-tools`; CI installs it.
+
+### Next
+None.
