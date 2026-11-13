@@ -7,7 +7,9 @@
 import { gzipLap } from '@/lib/sim/lap-file';
 import type { V1CarItem, V1Lap, V1Ref, V1Session, V1TrackItem } from '@/lib/sim/v1-client';
 import { makeLapFixtures } from '@/test/lap-fixture';
-import { fakeV1State, handleV1, type FakeV1State } from '@/test/v1-fake-server';
+import { fakeV1State, type FakeV1State } from '@/test/v1-fake-server';
+import { handleSocial, handlePublic, type FakeSocialState } from '@/test/social-fake-server';
+import { buildSocial } from './sim-social';
 
 let seed = 20261113;
 const random = () => {
@@ -119,8 +121,10 @@ export interface HarnessAnswer { status: number; json?: unknown; bytes?: Uint8Ar
 
 let down = process.env.HARNESS_API_DOWN === '1';
 
-/** Answers one call of the API: `path` is what follows `/api/sim/v1`. */
-export async function answerV1(method: string, path: string, params: Record<string, string>): Promise<HarnessAnswer> {
+let social: FakeSocialState | null = null;
+
+/** Answers one call of the API (the read side and the social side, docs/platform/API-V1.md): `path` is what follows `/api/sim/v1`. */
+export async function answerV1(method: string, path: string, params: Record<string, string>, body?: unknown): Promise<HarnessAnswer> {
   if (path === '/__fail') {
     down = params.on === '1';
     return { status: 200, json: { down } };
@@ -128,7 +132,19 @@ export async function answerV1(method: string, path: string, params: Record<stri
   built ??= build();
   const state = await built;
   state.failing = down ? { status: 503, error: 'unavailable', retryable: true } : null;
-  const answer = handleV1(state, method, path, params);
+  social ??= buildSocial(state);
+  social.failing = state.failing;
+  const answer = handleSocial(social, method, path, params, body);
   state.requests.length = 0; // nobody reads them here
+  social.requests.length = 0;
   return answer;
+}
+
+/** Answers the public share endpoint (`/api/sim/public/share/<token>`): no sign-in. Try /s/demo-lap, /s/demo-session and /s/demo-anon. */
+export async function answerPublic(path: string): Promise<HarnessAnswer> {
+  built ??= build();
+  const state = await built;
+  social ??= buildSocial(state);
+  social.failing = down ? { status: 503, error: 'unavailable', retryable: true } : null;
+  return handlePublic(social, path);
 }

@@ -14,6 +14,7 @@ import { reconcileSession } from '@/lib/sim/library';
 import { bestLapOf, bestSectors, consistency, inDrivingOrder, sectorTone, theoreticalBest, type SectorTone } from '@/lib/sim/session-stats';
 import { V1Error, isSignedOut, usePbs, useSession, type V1Lap } from '@/lib/sim/v1-client';
 import { cn } from '@/lib/utils';
+import { ShareButton } from '@/components/social/ShareDialog';
 import { SessionLapChart } from './SessionLapChart';
 import { GameBadge, KindBadge } from './session-bits';
 import { useConditions, useOrigin } from './use-session-text';
@@ -127,9 +128,12 @@ export function SessionPage() {
                         </>
                       )}
                     </p>
-                    <Button size="sm" variant="outline" onClick={() => setPending({ kind: 'session' })} disabled={remove.isPending}>
-                      <Trash2 className="mr-2 h-4 w-4" /> {t('modes.session.delete', 'Delete session')}
-                    </Button>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <ShareButton target={{ sessionId: session.id }} label={t('social.share.sessionButton', 'Share session')} />
+                      <Button size="sm" variant="outline" onClick={() => setPending({ kind: 'session' })} disabled={remove.isPending}>
+                        <Trash2 className="mr-2 h-4 w-4" /> {t('modes.session.delete', 'Delete session')}
+                      </Button>
+                    </span>
                   </div>
                 </CardContent>
               </Card>
@@ -260,6 +264,7 @@ export function SessionPage() {
                                       >
                                         <ArrowLeftRight className="h-4 w-4" />
                                       </Button>
+                                      <ShareButton compact target={{ lapId: lap.id }} label={`${t('social.share.lapButton', 'Share lap')} ${lap.lapNumber}`} title={t('social.share.titleLap', 'Share this lap')} />
                                       <Button
                                         size="icon"
                                         variant="ghost"

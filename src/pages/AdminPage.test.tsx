@@ -8,6 +8,8 @@ const admin = vi.hoisted(() => ({ status: { isAdmin: false, loading: false } }))
 vi.mock('@/hooks/use-admin-status', () => ({ useAdminStatus: () => admin.status }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/admin/AIProviderSection', () => ({ default: () => <div>AI provider settings</div> }));
+// The racing games section reads the server and has its own tests (components/social/RacingAdmin.test.tsx).
+vi.mock('@/components/social/RacingAdmin', () => ({ RacingAdmin: () => <div>Racing games section</div> }));
 
 beforeAll(async () => {
   await i18n.changeLanguage('en');
@@ -26,6 +28,7 @@ describe('AdminPage', () => {
     expect(text).not.toMatch(/@/); // no e-mail address
     expect(text).not.toMatch(/UPDATE|SELECT|is_admin|car_profiles|SQL/i); // no SQL, no table names
     expect(screen.queryByText('AI provider settings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Racing games section')).not.toBeInTheDocument();
   });
 
   it('is translated', async () => {
@@ -39,5 +42,6 @@ describe('AdminPage', () => {
     admin.status = { isAdmin: true, loading: false };
     render(<AdminPage />);
     expect(screen.getByText('AI provider settings')).toBeInTheDocument();
+    expect(screen.getByText('Racing games section')).toBeInTheDocument();
   });
 });
