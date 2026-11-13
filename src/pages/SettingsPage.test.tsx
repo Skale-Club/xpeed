@@ -132,3 +132,10 @@ it('only applies the new currency and volume choices after Save', async () => {
   expect(localStorage.getItem('settings_volumeUnit')).toBe('US gal');
   expect(localStorage.getItem('settings_distanceUnit')).toBe('km');
 });
+
+it("links to the Privacy Policy and the Terms of Use in About", () => {
+  open();
+  const links = screen.getByTestId("legal-links");
+  expect(links.querySelector("a[href=\"/privacy\"]")).toHaveTextContent("Privacy Policy");
+  expect(links.querySelector("a[href=\"/terms\"]")).toHaveTextContent("Terms of Use");
+});

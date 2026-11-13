@@ -163,8 +163,10 @@ export default function CompanionPage() {
         </section>
       </main>
 
-      <footer className="border-t border-border px-4 py-6 text-center text-xs text-muted-foreground">
+      <footer className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-border px-4 py-6 text-center text-xs text-muted-foreground">
         <Link to="/login" className="underline underline-offset-2">{t('companionSite.footerAccount', 'Xpeed account')}</Link>
+        <Link to="/privacy" className="underline underline-offset-2">{t('legal.links.privacy', 'Privacy Policy')}</Link>
+        <Link to="/terms" className="underline underline-offset-2">{t('legal.links.terms', 'Terms of Use')}</Link>
       </footer>
     </div>
   );

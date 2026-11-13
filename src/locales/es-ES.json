@@ -1808,5 +1808,197 @@
     "update": "Actualizar aplicación",
     "available": "Hay una nueva versión de Xpeed disponible",
     "hint": "Actualiza para recibir las mejoras de la aplicación."
+  },
+  "legal": {
+    "links": {
+      "privacy": "Política de Privacidad",
+      "terms": "Términos de Uso",
+      "settings": "Ajustes de privacidad"
+    },
+    "updated": "Última actualización: {{date}}",
+    "index": "En esta página",
+    "contact": {
+      "title": "Contacto",
+      "body": "Para resolver dudas, pedir tus datos o ejercer cualquier derecho de esta página:",
+      "label": "Correo electrónico",
+      "without": "Xpeed todavía no publica una dirección de correo electrónico. Mientras tanto, puedes exportar y borrar tus datos tú mismo en la página de ajustes de privacidad, sin hablar con nadie."
+    },
+    "privacy": {
+      "title": "Política de Privacidad",
+      "intro": "Este texto explica, en lenguaje sencillo, qué datos guarda Xpeed, para qué, quién más los recibe y cómo controlas todo eso. Vale para el sitio web, la app de Android y Xpeed Companion.",
+      "who": {
+        "title": "Quién es el responsable",
+        "p": [
+          "El responsable de tus datos es el servicio Xpeed (\"Xpeed\", \"nosotros\"). Cómo contactarnos está en la sección Contacto, al final de esta página."
+        ]
+      },
+      "data": {
+        "title": "Qué datos guardamos",
+        "p": [
+          "Guardamos datos en dos grupos, según lo que uses."
+        ],
+        "items": [
+          "Coche real: tu cuenta (el número de teléfono o el correo de la cuenta de Google con la que entras), tus coches, los viajes y sus lecturas, los códigos de avería, los registros de combustible y de mantenimiento y las fotos que añades tú mismo.",
+          "Juegos de carreras (Virtual): la telemetría de las vueltas que envía Xpeed Companion (velocidad, pedales, volante, posición en la pista, combustible, datos de neumáticos y frenos y detalles de la sesión, como el clima), los nombres del juego, la pista y el coche, los tiempos de vuelta y de sector, el nombre de tu ordenador y la fecha en que se vio por última vez, un perfil con alias y nombre visible, amigos, enlaces compartidos e informes."
+        ]
+      },
+      "companion": {
+        "title": "Qué envía Xpeed Companion (y qué nunca envía)",
+        "p": [
+          "Xpeed Companion es el programa para Windows que lee tu juego."
+        ],
+        "items": [
+          "Envía: las vueltas y los trazados de pista construidos a partir de los archivos del propio juego, el nombre del ordenador y la etiqueta de la cuenta.",
+          "Nunca envía: el nombre de usuario de Windows, archivos fuera de la carpeta del propio Companion, datos de otros programas ni la clave del dispositivo en los diagnósticos.",
+          "La clave que une el ordenador con tu cuenta queda protegida por Windows."
+        ]
+      },
+      "profile": {
+        "title": "Perfil público y enlaces compartidos",
+        "p": [
+          "Tu perfil es público por defecto. En los ajustes del perfil eliges, cuando quieras, entre público, solo amigos o privado.",
+          "Un perfil público muestra el nombre visible, el alias, las mejores vueltas y las posiciones en los rankings. El correo, el teléfono y el nombre de la cuenta nunca se muestran. Si no eliges un nombre, generamos uno por defecto para mostrar en su lugar.",
+          "Un enlace de compartir muestra la vuelta a cualquiera que tenga el enlace, hasta que lo revoques o caduque."
+        ]
+      },
+      "why": {
+        "title": "Para qué los usamos y con qué base",
+        "p": [
+          "Usamos los datos para prestar el servicio (registrar viajes y vueltas, mostrar análisis), armar rankings y mantener la seguridad. En palabras sencillas, la base legal es:"
+        ],
+        "items": [
+          "tu consentimiento, cuando creas la cuenta y conectas Companion (puedes retirarlo cuando quieras);",
+          "la ejecución del servicio que pediste;",
+          "el interés legítimo, para la seguridad y para evitar abusos y fraudes."
+        ]
+      },
+      "where": {
+        "title": "Dónde y por cuánto tiempo",
+        "p": [
+          "Los datos están en el servidor del propio Xpeed y las conexiones usan HTTPS. Los guardamos hasta que borres el dato o la cuenta.",
+          "Las vueltas de más de 90 días que no sean un récord personal ni estén marcadas se guardan en una versión reducida, con 10 muestras por segundo. Los tiempos y los resúmenes siguen completos."
+        ]
+      },
+      "rights": {
+        "title": "Tus derechos (LGPD y GDPR)",
+        "p": [
+          "Según la LGPD, y con las mismas palabras según el GDPR, puedes pedir:"
+        ],
+        "items": [
+          "acceso y una copia de tus datos;",
+          "corrección de datos erróneos;",
+          "eliminación de los datos;",
+          "portabilidad, es decir, llevarte tus datos;",
+          "oposición a un uso de los datos;",
+          "retirada del consentimiento, en cualquier momento."
+        ],
+        "after": [
+          "Para ejercerlos: usa las opciones de exportar y de borrar de la página de ajustes de privacidad o contáctanos como se indica abajo. Para dejar de enviar vueltas, revoca el ordenador en tu cuenta. Si crees que tratamos mal tus datos, puedes reclamar ante la autoridad de protección de datos de tu país."
+        ]
+      },
+      "third": {
+        "title": "Terceros",
+        "p": [
+          "No vendemos datos y no mostramos publicidad. No usamos herramientas de análisis ni rastreadores de terceros: solo guardamos en tu dispositivo el idioma y la sesión de acceso. Estas empresas reciben datos en casos concretos:"
+        ],
+        "items": [
+          "Acceso: Google (Firebase) confirma tu número por mensaje de texto o tu cuenta de Google. En el acceso por teléfono en el navegador también se usa Google reCAPTCHA.",
+          "Fuentes: las páginas cargan fuentes de Google Fonts, así que Google recibe tu dirección IP cuando se abre una página.",
+          "IA, solo en Coche real: el proveedor de IA (OpenRouter y el modelo elegido) recibe datos solo cuando la función actúa: al guardar un viaje que merezca resumen (datos del coche, duración, códigos de avería y lecturas resumidas), en las preguntas al asistente (con los problemas abiertos, los viajes recientes y el mantenimiento del coche) y al leer la foto de un recibo de combustible. Nada de los juegos de carreras va a la IA.",
+          "Bastidor (VIN): si escribes el VIN para rellenar los datos del coche, se consulta en el decodificador público NHTSA vPIC, de EE. UU.",
+          "GitHub: la descarga de Companion y de la app de Android es un enlace de GitHub, y la app de Android consulta allí si hay una versión nueva. GitHub ve la petición (por ejemplo, tu dirección IP)."
+        ]
+      },
+      "children": {
+        "title": "Menores",
+        "p": [
+          "Xpeed no está pensado para menores de 13 años (o de la edad mínima de la ley de tu país, si es mayor). Si sabemos de una cuenta así, la borraremos."
+        ]
+      },
+      "changes": {
+        "title": "Cambios en esta política",
+        "p": [
+          "Podemos actualizar este texto. La fecha de \"Última actualización\" de arriba muestra la versión vigente. En cambios importantes, avisaremos en la app."
+        ]
+      }
+    },
+    "terms": {
+      "title": "Términos de Uso",
+      "intro": "Al crear una cuenta o usar Xpeed aceptas estos términos. Son cortos a propósito.",
+      "service": {
+        "title": "Qué es Xpeed",
+        "p": [
+          "Xpeed tiene dos partes: Coche real, que lee tu coche con un adaptador OBD2 y explica en palabras sencillas qué merece atención, y Virtual, que recibe por Xpeed Companion las vueltas de tus juegos de carreras para que las analices, las compares y subas en los rankings.",
+          "Es un proyecto de afición, ofrecido tal cual."
+        ]
+      },
+      "account": {
+        "title": "Tu cuenta",
+        "p": [
+          "Entras con tu teléfono o con tu cuenta de Google. Cuida el acceso a tu dispositivo y a tu cuenta: lo que se haga con ella es responsabilidad tuya. Da datos verdaderos y no crees cuentas nuevas para saltarte una suspensión."
+        ]
+      },
+      "content": {
+        "title": "Nombres y contenido público",
+        "p": [
+          "Los alias, los nombres visibles y cualquier texto público siguen estas reglas:"
+        ],
+        "items": [
+          "nada ofensivo ni discriminatorio;",
+          "nada que suplante a otra persona, equipo o marca;",
+          "nada que no tengas derecho a publicar."
+        ]
+      },
+      "fair": {
+        "title": "Juego limpio",
+        "p": [
+          "No falsifiques vueltas, telemetría ni tiempos, y no uses el servicio para engañar a los rankings. Las vueltas se comprueban y las que parecen imposibles quedan fuera de los rankings. Tampoco intentes acceder a datos de otras personas ni sobrecargar o atacar el servicio.",
+          "Xpeed puede ocultar contenido y suspender cuentas por abuso."
+        ]
+      },
+      "data": {
+        "title": "Tus datos",
+        "p": [
+          "Los datos siguen siendo tuyos. Al usar Xpeed das al servicio el derecho a guardarlos y a mostrarlos como elegiste (por ejemplo, perfil público, amigos o enlaces compartidos), solo para que el servicio funcione. Los detalles están en la Política de Privacidad."
+        ]
+      },
+      "warranty": {
+        "title": "Sin garantía",
+        "p": [
+          "Xpeed no garantiza que funcione sin errores ni sin interrupciones.",
+          "En Coche real da pistas a partir de los datos, no un diagnóstico: con testigos encendidos o síntomas serios, acude a un mecánico."
+        ]
+      },
+      "liability": {
+        "title": "Límites de responsabilidad",
+        "p": [
+          "En la medida en que la ley lo permita, Xpeed no responde por daños indirectos, lucro cesante, pérdida de datos ni por decisiones tomadas a partir de las pistas de la app, como el mantenimiento o la conducción. Úsalo bajo tu propio riesgo y nunca de una forma que te quite la atención de la carretera o de la pista. Nada de esto limita derechos que la ley no permite limitar."
+        ]
+      },
+      "companion": {
+        "title": "Xpeed Companion",
+        "p": [
+          "Xpeed Companion es software ofrecido tal cual. Se actualiza solo (comprueba versiones nuevas en segundo plano y las instala, nunca durante una partida). Puedes desactivar las actualizaciones automáticas en el propio Companion."
+        ]
+      },
+      "ending": {
+        "title": "Cierre de la cuenta",
+        "p": [
+          "Puedes borrar tu cuenta cuando quieras en la página de ajustes de privacidad; eso borra tus datos. Podemos suspender o cerrar cuentas que incumplan estos términos, y el servicio puede cambiar o terminar."
+        ]
+      },
+      "changes": {
+        "title": "Cambios en los términos",
+        "p": [
+          "Podemos actualizar estos términos. La fecha de \"Última actualización\" de arriba muestra la versión vigente. Seguir usando Xpeed tras un cambio significa que lo aceptas."
+        ]
+      },
+      "law": {
+        "title": "Ley aplicable",
+        "p": [
+          "Estos términos se rigen por la ley del país donde está establecido el operador del servicio."
+        ]
+      }
+    }
   }
 }

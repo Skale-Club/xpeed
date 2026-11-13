@@ -210,6 +210,10 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">
               {t('settings.about.body', 'Xpeed reads your car through a small Bluetooth adapter, records your trips and explains in plain words what needs attention.')}
             </p>
+            <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm" data-testid="legal-links">
+              <Link to="/privacy" className="text-primary underline underline-offset-2">{t('legal.links.privacy', 'Privacy Policy')}</Link>
+              <Link to="/terms" className="text-primary underline underline-offset-2">{t('legal.links.terms', 'Terms of Use')}</Link>
+            </p>
           </CardContent>
         </Card>
       </div>
