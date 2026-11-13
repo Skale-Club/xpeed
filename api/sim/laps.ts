@@ -237,6 +237,31 @@ export async function download(req: Request, id: string, answer: Answer): Promis
   }
 }
 
+/** DELETE /api/sim/v1/sessions/<id>: every lap of the person's session (rows, then files), the session, and the personal bests the laps held. */
+export async function removeSession(req: Request, id: string, answer: Answer): Promise<Response> {
+  try {
+    const who = await person(req, answer);
+    if (who.refused) return who.refused;
+    // One transaction: the laps, the session and (by the delete triggers) the personal bests. Unknown, someone else's or already gone: null.
+    const gone = await who.backend.service.rpc('sim_delete_session', { p_user: who.userId, p_session: id });
+    if (gone.error) throw gone.error;
+    const result = gone.data as { deleted: number; paths: string[] } | null;
+    if (!result) return answer({ error: 'session_not_found' }, 404);
+    forgetOverview(who.userId);
+    // The rows are what the app sees; a file this cannot remove is picked up by the orphan sweeper.
+    for (let i = 0; i < result.paths.length; i += 100) {
+      try {
+        const removed = await who.backend.service.storage.from(BUCKET).remove(result.paths.slice(i, i + 100));
+        if (removed.error) failed('sim_session_file_remove_failed', removed.error);
+      } catch (error) { failed('sim_session_file_remove_failed', error); }
+    }
+    return answer({ deleted: result.deleted }, 200, { 'Cache-Control': 'private, no-store' });
+  } catch (error) {
+    failed('sim_session_delete_failed', error);
+    return answer({ error: 'unavailable' }, 503);
+  }
+}
+
 export async function remove(req: Request, id: string, answer: Answer): Promise<Response> {
   try {
     const who = await person(req, answer);

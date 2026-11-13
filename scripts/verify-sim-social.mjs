@@ -32,7 +32,7 @@ await build({
   entryPoints: {
     pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', tracks: 'api/sim/tracks.ts', v1: 'api/sim/v1.ts', publicshare: 'api/sim/public.ts',
     plausibility: 'api/sim/_plausibility.ts', social: 'api/sim/_social.ts', shared: 'api/sim/_shared.ts', backend: 'api/_backend.ts', webserver: 'server/index.ts',
-    lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', account: 'server/account-route.ts',
+    lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', account: 'server/account-route.ts', jobs: 'server/jobs.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
   external: ['pg', 'jose', '@supabase/supabase-js'], tsconfig: 'tsconfig.app.json', absWorkingDir: root, logLevel: 'error', plugins: [edgeFunctions],
@@ -40,7 +40,8 @@ await build({
 const load = (name) => import(pathToFileURL(resolve(temp, name)).href);
 const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).default;
 const codes = (await load('codes.mjs')).default, v1 = (await load('v1.mjs')).default, simPublic = (await load('publicshare.mjs')).default;
-const { checkPlausibility, PLAUSIBILITY, CHECKS } = await load('plausibility.mjs');
+const { checkPlausibility, PLAUSIBILITY, CHECKS, recheckLaps } = await load('plausibility.mjs');
+const { runPlausibilityRecheck, enabledJobs } = await load('jobs.mjs');
 const { RESERVED_HANDLES, readHandle, readDisplayName } = await load('social.mjs');
 const { createXpeedServer } = await load('webserver.mjs');
 const { forgetLimits } = await load('shared.mjs');
@@ -1077,6 +1078,67 @@ try {
     assert.ok(!entryHandles(await board('F', 'lmu', T.track, T.car)).includes(hb));
   });
 
+  await check('plausibility recheck job: works through the laps with no verdict in batches until none is left, marks an unreadable file once and never loops on it, stops at its time budget, and is a job of the schedule', async () => {
+    const T = { track: 'Job Ring', car: 'Job Car' };
+    const legacy = async (count, { lost = 0, bad = 0 } = {}) => {
+      const made = [];
+      for (let i = 0; i < count; i++) made.push(await put('A', { ...T, timeMs: 90_000 + i, ...(i < bad ? { tScale: 1.2 } : {}) }));
+      await direct.query('UPDATE public.sim_laps SET plausible = NULL, plausibility = NULL WHERE id = ANY($1)', [made]);
+      for (let i = 0; i < lost; i++) {
+        made.push((await direct.query(
+          `INSERT INTO public.sim_laps (user_id, identity, game, track_name, car_name, lap_number, time_ms, valid, started_at, sample_count, size_bytes, storage_path)
+           VALUES ($1, $2, 'lmu', 'Job Ring', 'Job Car', 1, 80000, true, now(), 3, 100, $3) RETURNING id`, [ids.D, `job-lost|${made.length}|${Math.random()}`, `${ids.D}/gone-${Math.random()}.xlap.gz`])).rows[0].id);
+      }
+      return made;
+    };
+    const unchecked = async () => (await direct.query('SELECT count(*)::int AS n FROM public.sim_laps WHERE plausible IS NULL')).rows[0].n;
+    assert.equal(await unchecked(), 0, 'nothing waits before this check');
+    const backend = openBackend();
+
+    // 7 laps with no verdict (one implausible once read, one whose file is gone): batches of 3 until none is left.
+    const first = await legacy(6, { lost: 1, bad: 1 });
+    const sizes = [];
+    const done = await runPlausibilityRecheck({ recheck: (limit) => { sizes.push(limit); return recheckLaps(backend, limit); }, batch: 3 });
+    assert.deepEqual(sizes, [3, 3, 3], 'three batches: 3 + 3 + 1, the last one finds the end');
+    assert.deepEqual(done, { checked: 7, plausible: 5, implausible: 2, remaining: 0 });
+    assert.equal(await unchecked(), 0);
+    assert.deepEqual((await lapRow(first[6])).plausibility.failed.map((f) => f.check), ['file_unreadable'], 'the lost file is marked');
+    assert.equal((await lapRow(first[0])).plausible, false, 'the implausible one');
+    // Nothing is tried twice: the lost file does not come back, and a run with nothing to do ends after one look.
+    const calls = [];
+    assert.deepEqual(await runPlausibilityRecheck({ recheck: (limit) => { calls.push(limit); return recheckLaps(backend, limit); }, batch: 3 }), { checked: 0, plausible: 0, implausible: 0, remaining: 0 });
+    assert.equal(calls.length, 1);
+
+    // A batch that settles nothing ends the run instead of looping, however many are said to remain.
+    let stuck = 0;
+    assert.deepEqual(await runPlausibilityRecheck({ recheck: async () => { stuck++; return { checked: 0, plausible: 0, implausible: 0, remaining: 9 }; } }), { checked: 0, plausible: 0, implausible: 0, remaining: 9 });
+    assert.equal(stuck, 1);
+
+    // The time budget stops it between batches: each batch takes two minutes on this clock, the budget is three.
+    await legacy(6);
+    let clock = 0, batches = 0;
+    const partial = await runPlausibilityRecheck({ recheck: (limit) => { batches++; clock += 120_000; return recheckLaps(backend, limit); }, batch: 2, budgetMs: 180_000, now: () => clock });
+    assert.equal(batches, 2, 'a batch is not started once the budget is spent');
+    assert.deepEqual([partial.checked, partial.remaining], [4, 2]);
+    assert.equal(await unchecked(), 2, 'the rest waits for the next run');
+
+    // The scheduled job is the same thing with the real defaults (200 a batch), logs one line through the schedule, and finishes the rest.
+    const job = enabledJobs(process.env).find((j) => j.name === 'plausibility_recheck');
+    assert.ok(job, 'on by default');
+    const summary = await job.run();
+    assert.deepEqual(summary, { checked: 2, plausible: 2, implausible: 0, remaining: 0 });
+    assert.equal(await unchecked(), 0);
+    assert.equal((await enabledJobs({ ...process.env, PLAUSIBILITY_RECHECK: 'false' }).find((j) => j.name === 'plausibility_recheck')), undefined, 'off with PLAUSIBILITY_RECHECK=false');
+
+    // Two runs at once: the second one steps aside.
+    let release;
+    const slow = runPlausibilityRecheck({ recheck: () => new Promise((resolveBatch) => { release = () => resolveBatch({ checked: 1, plausible: 1, implausible: 0, remaining: 0 }); }) });
+    assert.deepEqual(await runPlausibilityRecheck({ recheck: async () => assert.fail('it must not run twice at once') }), { skipped: true });
+    release();
+    assert.equal((await slow).checked, 1);
+    assert.deepEqual(await runPlausibilityRecheck({ recheck: async () => ({ checked: 0, plausible: 0, implausible: 0, remaining: 0 }) }), { checked: 0, plausible: 0, implausible: 0, remaining: 0 }, 'and the next one runs again');
+  });
+
   // ================================================================== privacy rights
 
   await check('export: one JSON file with every kind of the person\'s data and links to their files, and nothing of anyone else', async () => {
@@ -1322,7 +1384,7 @@ try {
       assert.equal(legacy.bests.length, 2);
 
       const applied = await migrate(client);
-      assert.deepEqual(applied.applied.filter((name) => name.startsWith('20261113')).map((name) => name.slice(0, 14)), ['20261113170000']);
+      assert.deepEqual(applied.applied.filter((name) => name.startsWith('20261113')).map((name) => name.slice(0, 14)), ['20261113170000', '20261113180000']);
       assert.deepEqual(await snapshot(), legacy, 'every row, session and personal best is as it was');
       const columns = (await client.query('SELECT plausible, plausibility, hidden FROM public.sim_laps ORDER BY identity')).rows;
       assert.deepEqual(columns.map((c) => [c.plausible, c.plausibility, c.hidden]), [[null, null, false], [null, null, false], [null, null, false]], 'old laps: no verdict yet, not hidden');

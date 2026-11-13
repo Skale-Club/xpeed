@@ -1,8 +1,8 @@
 // Racing data, read side: API v1 under /api/sim/v1/. The signed-in person only (a device key is not a sign-in: 401), cursor-paged,
 // filterable, one error shape everywhere: { "error": "<code>", "retryable": <bool> }. Contract: docs/platform/API-V1.md.
 //
-//   GET    /v1/laps?game&track&car&session&valid&cursor&limit     GET /v1/laps/<id>/file     DELETE /v1/laps/<id>
-//   GET    /v1/sessions?game&track&car&cursor&limit               GET /v1/sessions/<id>
+//   GET    /v1/laps?game&track&car&session&valid&cursor&limit     GET /v1/laps/<id>   GET /v1/laps/<id>/file   DELETE /v1/laps/<id>
+//   GET    /v1/sessions?game&track&car&cursor&limit               GET /v1/sessions/<id>      DELETE /v1/sessions/<id>
 //   GET    /v1/tracks?game&cursor&limit        GET /v1/tracks/<id>       GET /v1/cars?...        GET /v1/cars/<id>
 //   GET    /v1/pbs?game&track&car&cursor&limit                    GET /v1/overview
 //   profiles, friends, shares, leaderboards, reports, admin, me/export, me/data: api/sim/_social.ts
@@ -11,7 +11,7 @@
 // own rows; this file checks the parameters, pages with an opaque cursor and shapes the answer.
 import { openBackend } from '../_backend';
 import { bearer, browserHeaders, MAX_ACCOUNT_BYTES, reply } from './_shared';
-import { download, remove, type Answer } from './laps';
+import { download, remove, removeSession, type Answer } from './laps';
 import { cachedOverview, rememberOverview } from './_v1cache';
 import { call, decodeCursor, DEFAULT_LIMIT, failed, gameParam, Invalid, limitParam, MAX_LIMIT, paged, UUID, uuidParam, type Item } from './_v1util';
 import { handleSocial, isSocialPath } from './_social';
@@ -36,7 +36,7 @@ function route(parts: string[]): { resource: Resource; id?: string; file?: boole
   if (parts.length === 1 && LISTS.has(resource)) return { resource: resource as Resource, methods: ['GET'] };
   if (parts.length >= 2 && !WITH_ID.has(resource)) return null;
   if (parts.length >= 2 && !UUID.test(id)) return null;
-  if (parts.length === 2) return { resource: resource as Resource, id: id.toLowerCase(), methods: resource === 'laps' ? ['DELETE'] : ['GET'] };
+  if (parts.length === 2) return { resource: resource as Resource, id: id.toLowerCase(), methods: resource === 'laps' ? ['GET', 'DELETE'] : resource === 'sessions' ? ['GET', 'DELETE'] : ['GET'] };
   if (parts.length === 3 && resource === 'laps' && tail === 'file') return { resource: 'laps', id: id.toLowerCase(), file: true, methods: ['GET'] };
   return null;
 }
@@ -66,10 +66,11 @@ export default async function v1(req: Request): Promise<Response> {
   if (!token) return problem('unauthorized', 401);
 
   try {
-    if (resource === 'laps' && lower !== undefined) {
+    if (resource === 'laps' && lower !== undefined && (where.file || req.method === 'DELETE')) {
       // The same file download and deletion as /api/sim/laps/<id>/file and DELETE /api/sim/laps/<id>.
       return where.file ? await download(req, lower, shared) : await remove(req, lower, shared);
     }
+    if (resource === 'sessions' && lower !== undefined && req.method === 'DELETE') return await removeSession(req, lower, shared);
     const userId = await backend.userId(token);
     if (!userId) return problem('unauthorized', 401);
     // As the person: the functions below run with their rights, so row level security decides what they see.
@@ -78,6 +79,10 @@ export default async function v1(req: Request): Promise<Response> {
 
     switch (resource) {
       case 'laps': {
+        if (lower !== undefined) {
+          const found = await call<Item | null>(db, 'sim_v1_lap', { p_id: lower });
+          return found ? send(found) : problem('lap_not_found', 404);
+        }
         const limit = limitParam(params), after = decodeCursor(params.get('cursor'));
         const rows = await call<Item[]>(db, 'sim_v1_laps', {
           p_game: gameParam(params), p_track: uuidParam(params, 'track'), p_car: uuidParam(params, 'car'), p_session: uuidParam(params, 'session'),
