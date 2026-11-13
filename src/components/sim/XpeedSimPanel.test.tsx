@@ -105,3 +105,25 @@ describe('the computers already connected', () => {
     expect(screen.queryByTestId('devices-empty')).not.toBeInTheDocument();
   });
 });
+
+describe('the download step', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('links step 1 to the public Companion page and shows the latest version', async () => {
+    const release = { version: '0.5.0', build: 'abc1234', downloadUrl: 'https://xpeed.test/api/companion/download', sha256: 'a'.repeat(64), size: 3145728, releasedAt: '2026-11-13T12:00:00Z', minVersion: '0.4.0', signed: false };
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(release) } as Response)));
+    renderPanel();
+    const steps = await screen.findByTestId('how-to-connect');
+    expect(within(steps).getByTestId('companion-page-link')).toHaveAttribute('href', '/companion');
+    expect(await within(steps).findByTestId('companion-latest')).toHaveTextContent('latest: 0.5.0');
+    expect(steps).toHaveTextContent('Install Xpeed Companion on the PC where you play.');
+  });
+
+  it('keeps the link when the version cannot be read', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('offline'))));
+    renderPanel();
+    const steps = await screen.findByTestId('how-to-connect');
+    expect(within(steps).getByTestId('companion-page-link')).toHaveAttribute('href', '/companion');
+    expect(within(steps).queryByTestId('companion-latest')).not.toBeInTheDocument();
+  });
+});

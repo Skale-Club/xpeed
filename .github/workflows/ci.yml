@@ -71,6 +71,8 @@ jobs:
         run: npm run test:handlers
       - name: Xpeed Sim server side (pairing codes, device keys, lap upload, revoking)
         run: npm run test:sim
+      - name: Xpeed Companion release endpoints (version, stable download link)
+        run: npm run test:companion-release
       - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
         run: npm run test:functions
       - name: Server starts, migrates and answers (needs the build from the HTTP test)

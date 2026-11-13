@@ -1,5 +1,7 @@
-# Builds and tests Xpeed Sim, the Windows app (Rust). Runs only when it or its file spec changes.
-# It is separate from CI on purpose: the Coolify deploy waits for "CI" only, and Xpeed Sim is not part of the app image.
+# Builds and tests Xpeed Companion, the Windows app (Rust). Runs only when it or its file spec changes.
+# It is separate from CI on purpose: the Coolify deploy waits for "CI" only, and Xpeed Companion is not part of the app image.
+# On a push to main, a second job (release) publishes the installer: companion-v<version> and the rolling companion-latest.
+# Releases: docs/platform/RELEASES.md. Code signing (optional): docs/platform/SIGNING.md.
 name: Xpeed Sim
 
 on:
@@ -18,9 +20,10 @@ on:
       - "xpeed-sim/**"
       - ".github/workflows/xpeed-sim.yml"
 
+# A main build is never cancelled: it may be in the middle of publishing a release.
 concurrency:
   group: xpeed-sim-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   xpeed-sim:
@@ -62,3 +65,122 @@ jobs:
           name: xpeed-companion-setup
           path: xpeed-sim/dist/*.exe
           if-no-files-found: error
+
+  # Publishes the installer the first job just built and tested. Only on a push to main (never on a pull request).
+  # Two releases: companion-v<version> (made once, never changed) and companion-latest (the rolling one the site and
+  # the program read). The logic lives in scripts/release-companion.ps1; how it works: docs/platform/RELEASES.md.
+  release:
+    needs: xpeed-sim
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    # Two releases never run at once, and a running one is never cancelled halfway.
+    concurrency:
+      group: companion-release
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the release notes list the commits since the previous version tag.
+          fetch-depth: 0
+
+      # Signing is optional. It happens only when all of these exist in the repository (docs/platform/SIGNING.md);
+      # without them the build is released unsigned and the release notes say so.
+      - name: Is code signing set up?
+        id: signing
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: |
+          $names = 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_SIGNING_ENDPOINT', 'AZURE_SIGNING_ACCOUNT', 'AZURE_SIGNING_PROFILE'
+          $missing = @($names | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })
+          if ($missing.Count -eq 0) {
+            'enabled=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host 'Code signing is set up: the program and the installer will be signed.'
+          } else {
+            'enabled=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            Write-Host "Code signing is not set up (missing: $($missing -join ', ')). Releasing an unsigned build."
+          }
+
+      # Unsigned: the very installer the first job tested.
+      - name: Take the tested installer
+        if: steps.signing.outputs.enabled != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: xpeed-companion-setup
+          path: xpeed-sim/dist
+
+      # Signed: the program has to be signed before it goes into the installer, so build it again from the same commit,
+      # sign it, pack the installer from that exact program (build.ps1 -NoCargo), then sign the installer too.
+      - name: Rust toolchain (signed build)
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          rustup update stable --no-self-update
+          rustc --version
+      - uses: actions/cache@v4
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            xpeed-sim/target
+          key: xpeed-sim-${{ runner.os }}-${{ hashFiles('xpeed-sim/Cargo.lock') }}
+      - name: Build the program (signed build)
+        if: steps.signing.outputs.enabled == 'true'
+        working-directory: xpeed-sim
+        run: cargo build --release --locked
+      - name: Sign the program
+        if: steps.signing.outputs.enabled == 'true'
+        uses: azure/trusted-signing-action@v0.5.0
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\xpeed-sim\target\release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Installer from the signed program (Inno Setup)
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          choco install innosetup --no-progress -y
+          ./xpeed-sim/installer/build.ps1 -NoCargo
+      - name: Sign the installer
+        if: steps.signing.outputs.enabled == 'true'
+        uses: azure/trusted-signing-action@v0.5.0
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\xpeed-sim\dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # The hash is computed here, after any signing: signing changes the file.
+      - name: Publish the releases
+        run: |
+          $installers = @(Get-ChildItem xpeed-sim/dist -Filter 'xpeed-companion-setup-*.exe')
+          if ($installers.Count -ne 1) { throw "Expected exactly one installer in xpeed-sim/dist, found $($installers.Count)" }
+          ./scripts/release-companion.ps1 -Installer $installers[0].FullName -Signed '${{ steps.signing.outputs.enabled }}'

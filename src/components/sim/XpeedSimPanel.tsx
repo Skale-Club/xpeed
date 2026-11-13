@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCompanionRelease } from '@/lib/companion-release';
 import { useSettings } from '@/contexts/SettingsContext';
 import { XpeedSimApiError, listDevices, revokeDevice, type SimDevice, type SimErrorReason } from '@/lib/sim/xpeed-sim-api';
 
@@ -29,6 +30,7 @@ export function XpeedSimPanel() {
   const client = useQueryClient();
   const devicesKey = ['sim-devices', user?.id ?? null];
 
+  const release = useCompanionRelease();
   const devices = useQuery({ queryKey: devicesKey, queryFn: listDevices, enabled: Boolean(user), retry: false });
   const [pending, setPending] = useState<SimDevice | null>(null);
   const revoke = useMutation({
@@ -64,7 +66,13 @@ export function XpeedSimPanel() {
         <CardContent className="space-y-3 p-4">
           <h3 className="font-semibold">{t('modes.sim.howTitle', 'How to connect')}</h3>
           <ol className="list-decimal space-y-1 pl-5 text-sm" data-testid="how-to-connect">
-            <li>{t('modes.sim.howInstall', 'Install Xpeed Companion on the PC where you play.')}</li>
+            <li>
+              {t('modes.sim.howInstall', 'Install Xpeed Companion on the PC where you play.')}{' '}
+              <a href="/companion" className="font-medium text-primary underline underline-offset-2" data-testid="companion-page-link">
+                {t('companionSite.getIt', 'Download it here')}
+              </a>
+              {release.data && <span className="text-muted-foreground" data-testid="companion-latest"> ({t('companionSite.latest', 'latest: {{version}}', { version: release.data.version })})</span>}
+            </li>
             <li>{t('modes.sim.howOpen', 'Open it and click Connect to your account.')}</li>
           </ol>
           <p className="text-xs text-muted-foreground">{t('modes.sim.howAfter', 'Your browser opens and asks you once to confirm. There is nothing to copy or type.')}</p>
