@@ -47,6 +47,13 @@ class ServerBucket {
       return bytes ? { data: new Blob([bytes as BlobPart]), error: null } : { data: null, error: { message: 'Object not found', statusCode: '404' } };
     } catch (error) { return { data: null, error: failure(error) }; }
   }
+  /** Renames an object in this bucket, replacing the target (the staging name of an upload becomes its final name). */
+  async move(from: string, to: string) {
+    try {
+      await this.store.move(this.bucket, from, to);
+      return { data: { message: 'Successfully moved' }, error: null };
+    } catch (error) { return { data: null, error: failure(error) }; }
+  }
   async list(prefix = '', options?: { limit?: number; offset?: number; search?: string }) {
     try {
       const files = await this.store.list(this.bucket, prefix.replace(/\/+$/, ''), options);

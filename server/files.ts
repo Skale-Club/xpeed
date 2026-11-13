@@ -60,6 +60,8 @@ export interface ListedFile { name: string; size: number; updatedAt: string; fol
 export interface FileStore {
   put(bucket: string, path: string, data: Uint8Array, options: { upsert: boolean }): Promise<void>;
   get(bucket: string, path: string): Promise<Uint8Array | null>;
+  /** Renames a file inside a bucket, replacing whatever is at `to`. Fails with 404 when `from` does not exist. */
+  move(bucket: string, from: string, to: string): Promise<void>;
   remove(bucket: string, paths: string[]): Promise<void>;
   /** Direct children of `prefix`, files and folders, like Supabase's list(). */
   list(bucket: string, prefix: string, options?: { limit?: number; offset?: number; search?: string }): Promise<ListedFile[]>;
@@ -102,6 +104,18 @@ export class DiskStore implements FileStore {
       try { return new Uint8Array(await handle.readFile()); } finally { await handle.close(); }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'EISDIR') return null;
+      throw error;
+    }
+  }
+
+  async move(bucket: string, from: string, to: string) {
+    const source = this.locate(bucket, from);
+    const target = this.locate(bucket, to);
+    await mkdir(dirname(target), { recursive: true });
+    try {
+      await rename(source, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new FileError(404, 'not_found', 'Object not found');
       throw error;
     }
   }

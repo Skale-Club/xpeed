@@ -61,6 +61,17 @@ export interface LapHeader {
     valid: boolean;
     sectorsMs?: number[];
   };
+  /** The Companion's own id for the stretch of driving this lap belongs to; laps with the same id are one session. */
+  sessionId?: string;
+  /** practice, qualifying, race (anything else is read as unknown). */
+  sessionKind?: string;
+  weather?: string;
+  airTempC?: number;
+  trackTempC?: number;
+  tyreCompound?: string;
+  /** The lap that leaves the pits (outLap) or goes back into them (inLap). */
+  inLap?: boolean;
+  outLap?: boolean;
   /** When the lap started, ISO 8601 in UTC. */
   startedAt: string;
   /** How often Xpeed Companion sampled, in Hz. Informational: `t` is the truth. */
@@ -90,6 +101,7 @@ function fail(code: LapFormatCode, message: string): never {
 export function parseHeader(input: unknown): LapHeader {
   if (!isRecord(input)) return fail('bad_header', 'The header is not an object.');
   const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels } = input;
+  const { sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, inLap, outLap } = input;
 
   if (typeof game !== 'string' || !GAME_ID.test(game)) fail('bad_header', 'game must be a lowercase id.');
   if (!isRecord(track) || !isText(track.name, 120)) return fail('bad_header', 'track.name is missing or too long.');
@@ -103,6 +115,18 @@ export function parseHeader(input: unknown): LapHeader {
   if (!isInt(lap.timeMs, 0, 86_400_000)) fail('bad_header', 'lap.timeMs must be milliseconds, up to 24 hours.');
   if (typeof lap.valid !== 'boolean') fail('bad_header', 'lap.valid must be true or false.');
   if (lap.sectorsMs !== undefined && !(Array.isArray(lap.sectorsMs) && lap.sectorsMs.length <= 8 && lap.sectorsMs.every((ms) => isInt(ms, 0, 86_400_000)))) fail('bad_header', 'lap.sectorsMs must be up to 8 whole milliseconds.');
+
+  // Optional session details: written by newer Companions, never required.
+  if (sessionId !== undefined && !isText(sessionId, 80)) fail('bad_header', 'sessionId must be 1 to 80 characters.');
+  if (sessionKind !== undefined && !isText(sessionKind, 20)) fail('bad_header', 'sessionKind is too long.');
+  if (weather !== undefined && !isText(weather, 40)) fail('bad_header', 'weather is too long.');
+  if (tyreCompound !== undefined && !isText(tyreCompound, 40)) fail('bad_header', 'tyreCompound is too long.');
+  for (const [name, value] of [['airTempC', airTempC], ['trackTempC', trackTempC]] as const) {
+    if (value !== undefined && !(typeof value === 'number' && Number.isFinite(value) && value >= -100 && value <= 200)) fail('bad_header', `${name} must be -100 to 200.`);
+  }
+  for (const [name, value] of [['inLap', inLap], ['outLap', outLap]] as const) {
+    if (value !== undefined && typeof value !== 'boolean') fail('bad_header', `${name} must be true or false.`);
+  }
 
   if (typeof startedAt !== 'string' || startedAt.length > 40 || Number.isNaN(Date.parse(startedAt))) fail('bad_header', 'startedAt must be an ISO 8601 date.');
   if (!(typeof sampleRateHz === 'number' && Number.isFinite(sampleRateHz) && sampleRateHz > 0 && sampleRateHz <= 1000)) fail('bad_header', 'sampleRateHz must be above 0 and at most 1000.');
@@ -131,6 +155,14 @@ export function parseHeader(input: unknown): LapHeader {
       number: lap.number as number, timeMs: lap.timeMs as number, valid: lap.valid as boolean,
       ...(lap.sectorsMs !== undefined ? { sectorsMs: lap.sectorsMs as number[] } : {}),
     },
+    ...(sessionId !== undefined ? { sessionId: sessionId as string } : {}),
+    ...(sessionKind !== undefined ? { sessionKind: sessionKind as string } : {}),
+    ...(weather !== undefined ? { weather: weather as string } : {}),
+    ...(airTempC !== undefined ? { airTempC: airTempC as number } : {}),
+    ...(trackTempC !== undefined ? { trackTempC: trackTempC as number } : {}),
+    ...(tyreCompound !== undefined ? { tyreCompound: tyreCompound as string } : {}),
+    ...(inLap !== undefined ? { inLap: inLap as boolean } : {}),
+    ...(outLap !== undefined ? { outLap: outLap as boolean } : {}),
     startedAt: startedAt as string,
     sampleRateHz: sampleRateHz as number,
     sampleCount: sampleCount as number,
@@ -145,6 +177,8 @@ function serializeHeader(header: LapHeader): string {
     track: { name: header.track.name, variant: header.track.variant, lengthM: header.track.lengthM },
     car: { name: header.car.name, class: header.car.class },
     lap: { number: header.lap.number, timeMs: header.lap.timeMs, valid: header.lap.valid, sectorsMs: header.lap.sectorsMs },
+    sessionId: header.sessionId, sessionKind: header.sessionKind, weather: header.weather, airTempC: header.airTempC,
+    trackTempC: header.trackTempC, tyreCompound: header.tyreCompound, inLap: header.inLap, outLap: header.outLap,
     startedAt: header.startedAt,
     sampleRateHz: header.sampleRateHz,
     sampleCount: header.sampleCount,
