@@ -22,6 +22,8 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     frame.speed_ms = speed as f32;
     frame.rpm = t.rpm as f32;
     frame.gear = t.gear as f32;
+    // `mMaxGears`: maximum forward gears; 0 is unset.
+    frame.gears = (t.max_gears > 0).then_some(t.max_gears);
     frame.throttle = t.throttle as f32;
     frame.brake = t.brake as f32;
     frame.clutch = t.clutch as f32;
@@ -92,6 +94,8 @@ pub struct Live {
     /// The highest RPM seen in this run with this car: the top of the rev bar (the games do not all give the limit).
     pub rpm_top: f32,
     pub gear: f32,
+    /// How many forward gears the car has: the game's own count, else the top gear seen to be left (see `Tracker`).
+    pub gears: Option<u8>,
     pub throttle: f32,
     pub brake: f32,
     pub clutch: f32,
@@ -132,6 +136,9 @@ pub struct Tracker {
     /// The official time of the last lap as the previous reading showed it.
     official: Option<f64>,
     rpm_top: f32,
+    /// The highest forward gear seen with this car, and whether the car was seen in a lower one afterwards.
+    top_gear: u8,
+    top_gear_left: bool,
 }
 
 /// A first reading further than this from the line means the lap was joined midway.
@@ -197,6 +204,7 @@ impl Tracker {
         if frame.rpm.is_finite() && frame.rpm > self.rpm_top {
             self.rpm_top = frame.rpm;
         }
+        self.see_gear(frame.gear);
         let delta_s = match (&self.best, frame.dist_m, frame.lap_time_s) {
             (Some((_, best)), Some(dist), Some(t)) if self.current_from_line && frame.driving => {
                 time_at(best, dist).map(|best_t| t - best_t)
@@ -220,6 +228,7 @@ impl Tracker {
             rpm: frame.rpm,
             rpm_top: self.rpm_top,
             gear: frame.gear,
+            gears: frame.gears.or_else(|| self.top_gear_left.then_some(self.top_gear)),
             throttle: frame.throttle,
             brake: frame.brake,
             clutch: frame.clutch,
@@ -232,6 +241,21 @@ impl Tracker {
                 .or_else(|| (self.path.len() >= MAP_MIN_POINTS).then(|| Arc::new(self.path.clone()))),
             pos: (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z)),
             at_ms,
+        }
+    }
+
+    /// Remembers the highest forward gear. It only counts as the car's top gear once the car has been seen in a lower
+    /// one after it: just reaching a gear says nothing about whether there is another above it.
+    fn see_gear(&mut self, gear: f32) {
+        if !gear.is_finite() || !(1.0..=30.0).contains(&gear.round()) {
+            return;
+        }
+        let g = gear.round() as u8;
+        if g > self.top_gear {
+            self.top_gear = g;
+            self.top_gear_left = false;
+        } else if g < self.top_gear {
+            self.top_gear_left = true;
         }
     }
 
@@ -356,6 +380,43 @@ mod tests {
     }
 
     #[test]
+    fn the_gear_count_is_the_games_or_the_top_gear_seen_once_it_was_left() {
+        let mut tracker = Tracker::default();
+        let mut frame = at(1, 0.0, 0.0, None);
+        let mut gears = |tracker: &mut Tracker, gear: f32, count: Option<u8>| {
+            frame.gear = gear;
+            frame.gears = count;
+            tracker.on_frame("Test", &frame, 0).gears
+        };
+        // Climbing through the gears says nothing yet: there may be one more above.
+        assert_eq!(gears(&mut tracker, 1.0, None), None);
+        assert_eq!(gears(&mut tracker, 2.0, None), None);
+        assert_eq!(gears(&mut tracker, 6.0, None), None);
+        assert_eq!(gears(&mut tracker, 0.0, None), None, "neutral is not a lower gear");
+        // Back from 6th to 5th: 6 is the highest seen, and the car has been below it since.
+        assert_eq!(gears(&mut tracker, 5.0, None), Some(6));
+        assert_eq!(gears(&mut tracker, 6.0, None), Some(6));
+        // The game's own count wins.
+        assert_eq!(gears(&mut tracker, 6.0, Some(7)), Some(7));
+        // Reverse is not a forward gear.
+        let mut other = Tracker::default();
+        assert_eq!(gears(&mut other, -1.0, None), None);
+        assert_eq!(gears(&mut other, f32::NAN, None), None);
+    }
+
+    #[test]
+    fn another_car_forgets_the_top_gear() {
+        let mut tracker = Tracker::default();
+        let mut frame = at(1, 0.0, 0.0, None);
+        for gear in [4.0, 3.0] {
+            frame.gear = gear;
+            tracker.on_frame("Test", &frame, 0);
+        }
+        frame.car = "Other".into();
+        assert_eq!(tracker.on_frame("Test", &frame, 0).gears, None);
+    }
+
+    #[test]
     fn keeps_the_top_rpm_seen() {
         let mut tracker = Tracker::default();
         let lap = drive_lap(&mut tracker, 1, 50.0, None);
@@ -376,6 +437,7 @@ mod tests {
             track_name: "Sarthe".into(),
             local_vel: [0.0, 0.0, -50.0],
             gear: 5,
+            max_gears: 7,
             rpm: 7800.0,
             throttle: 1.0,
             steering: -0.2,
@@ -400,6 +462,7 @@ mod tests {
         let frame = lmu_frame(&t, Some(&scoring));
         assert!(frame.driving);
         assert_eq!((frame.lap, frame.speed_ms, frame.gear, frame.steer), (5, 50.0, 5.0, -0.2));
+        assert_eq!(frame.gears, Some(7));
         assert!((frame.lap_time_s.unwrap() - 40.4).abs() < 1e-9);
         assert!(
             (frame.dist_m.unwrap() - 2020.0).abs() < 1e-9,
