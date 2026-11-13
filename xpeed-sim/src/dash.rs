@@ -114,6 +114,10 @@ pub struct Live {
     pub fuel_l: f32,
     /// Front left to rear right, when the game gives them.
     pub tyres: Option<[Tyre; 4]>,
+    /// Dashboard lights, engine temperatures, electronics settings and damage, as the game gives them.
+    pub state: crate::game::CarState,
+    /// Fuel used per lap (litres), from the laps driven in this run; `None` until one full lap is known.
+    pub fuel_per_lap_l: Option<f32>,
     /// The track as the car has driven it (the best lap's path, or the first full lap's until there is a best one),
     /// in the game's x and z; shared, as it changes once a lap at most.
     pub map: Option<Arc<Vec<(f32, f32)>>>,
@@ -285,6 +289,8 @@ impl Tracker {
             steer: frame.steer,
             fuel_l: frame.fuel_l,
             tyres: frame.tyres,
+            state: frame.state,
+            fuel_per_lap_l: None,
             map: self
                 .map
                 .clone()

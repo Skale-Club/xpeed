@@ -26,6 +26,88 @@ impl Tyre {
     }
 }
 
+/// A flag the race shows the player.
+// The readers fill these in (next change); until then nothing builds them.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flag {
+    Green,
+    Yellow,
+    Blue,
+    White,
+    Black,
+    Chequered,
+}
+
+/// The rear wing's state where the car has DRS (or a push to pass the game reports the same way).
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drs {
+    /// Not allowed here.
+    Off,
+    /// Allowed: the driver may open it.
+    Available,
+    Open,
+}
+
+/// The dashboard lights and the car's own state, as the game tells them. `None` (or `NaN`) is what the game does
+/// not give, which the panel leaves out rather than showing as off or zero (`Option`, not `NaN`, so frames still
+/// compare equal in tests).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CarState {
+    /// The pit lane speed limiter is on.
+    pub pit_limiter: Option<bool>,
+    /// ABS is acting right now (not just switched on).
+    pub abs_active: Option<bool>,
+    /// Traction control is acting right now.
+    pub tc_active: Option<bool>,
+    pub drs: Option<Drs>,
+    pub headlights: Option<bool>,
+    pub handbrake: Option<bool>,
+    /// The game warns about the engine (overheating, stalled, damaged).
+    pub engine_warning: Option<bool>,
+    pub flag: Option<Flag>,
+    /// Coolant (water) temperature in °C.
+    pub water_c: Option<f32>,
+    /// Oil temperature in °C.
+    pub oil_c: Option<f32>,
+    /// The driver's settings as the car's dash shows them: TC and ABS levels (0 = off) and the engine map.
+    pub tc_level: Option<u8>,
+    pub abs_level: Option<u8>,
+    pub engine_map: Option<u8>,
+    /// Share of braking on the front axle, 0..1 (0.56 = 56 % front).
+    pub brake_bias: Option<f32>,
+    /// Damage, 0 = none .. 1 = destroyed: bodywork and aero, engine, gearbox, and the worst of the four suspensions.
+    pub damage_body: Option<f32>,
+    pub damage_engine: Option<f32>,
+    pub damage_gearbox: Option<f32>,
+    pub damage_suspension: Option<f32>,
+}
+
+impl CarState {
+    /// Nothing known.
+    pub const UNKNOWN: CarState = CarState {
+        pit_limiter: None,
+        abs_active: None,
+        tc_active: None,
+        drs: None,
+        headlights: None,
+        handbrake: None,
+        engine_warning: None,
+        flag: None,
+        water_c: None,
+        oil_c: None,
+        tc_level: None,
+        abs_level: None,
+        engine_map: None,
+        brake_bias: None,
+        damage_body: None,
+        damage_engine: None,
+        damage_gearbox: None,
+        damage_suspension: None,
+    };
+}
+
 /// One reading of the player's car.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
@@ -59,6 +141,8 @@ pub struct Frame {
     pub fuel_l: f32,
     /// Front left, front right, rear left, rear right; `None` when the game gives nothing about tyres.
     pub tyres: Option<[Tyre; 4]>,
+    /// Dashboard lights, engine temperatures, electronics settings and damage.
+    pub state: CarState,
     pub car: String,
     pub car_class: Option<String>,
     pub track: String,
@@ -91,6 +175,7 @@ impl Frame {
             z: f32::NAN,
             fuel_l: f32::NAN,
             tyres: None,
+            state: CarState::UNKNOWN,
             car: String::new(),
             car_class: None,
             track: String::new(),
