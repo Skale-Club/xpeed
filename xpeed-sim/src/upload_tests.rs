@@ -641,3 +641,26 @@ fn polling_sends_the_key_as_bearer_and_reads_all_four_statuses() {
     assert_eq!(seen[0].headers["authorization"], "Bearer xpd_the-key");
     assert!(seen[0].body.is_empty());
 }
+
+#[test]
+fn whoami_sends_the_key_as_bearer_and_reads_the_account() {
+    let stub = Stub::start(|_| Reply::new(200, r#"{"account":"ana@example.com","deviceName":"RIG"}"#));
+    let agent = net::agent();
+    assert_eq!(net::whoami(&agent, &stub.url, "xpd_the-key"), Ok("ana@example.com".to_owned()));
+    let seen = stub.requests();
+    assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("GET", "/api/sim/me"));
+    assert_eq!(seen[0].headers["authorization"], "Bearer xpd_the-key");
+}
+
+#[test]
+fn whoami_with_a_refused_key_or_a_broken_answer_is_an_error() {
+    let stub = Stub::start(|_| Reply::new(401, r#"{"error":"unauthorized"}"#));
+    let agent = net::agent();
+    assert!(net::whoami(&agent, &stub.url, "xpd_revoked")
+        .unwrap_err()
+        .contains("does not accept"));
+    let odd = Stub::start(|_| Reply::new(200, "not json"));
+    assert!(net::whoami(&agent, &odd.url, "xpd_k").is_err());
+    let down = Stub::start(|_| Reply::new(503, r#"{"error":"unavailable"}"#));
+    assert!(net::whoami(&agent, &down.url, "xpd_k").is_err());
+}

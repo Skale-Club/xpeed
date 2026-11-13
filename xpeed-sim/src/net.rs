@@ -252,6 +252,40 @@ pub fn link_poll(agent: &ureq::Agent, server: &str, id: &str, key: &str) -> Resu
     }
 }
 
+/// Asks the server who this device key belongs to: the account's email (else its name), for the Account card. A key
+/// the server refuses is an error like any other; the caller changes nothing then (the uploader deals with a refused
+/// key when it sends a lap).
+pub fn whoami(agent: &ureq::Agent, server: &str, key: &str) -> Result<String, String> {
+    let response = agent
+        .get(format!("{server}/api/sim/me"))
+        .header("Authorization", format!("Bearer {key}"))
+        .call()
+        .map_err(|error| network_problem(&error))?;
+    let reply = read_reply(response);
+    match reply.status {
+        200 => {
+            let value = serde_json::from_str::<Value>(&reply.body).ok();
+            let account = value
+                .as_ref()
+                .and_then(|v| v.get("account"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| "the server answered who this computer is in a way this app does not know".to_owned())?;
+            Ok(account
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(120)
+                .collect::<String>()
+                .trim()
+                .to_owned())
+        }
+        401 | 403 => Err("the server does not accept this computer's key".into()),
+        429 => Err("too many attempts; wait a little and try again".into()),
+        404 | 405 | 501 => Err("this server cannot say who this computer is connected as".into()),
+        300..=399 => Err("the server moved; use its final address".into()),
+        _ => Err(explain(&reply, "the server could not say who this computer is connected as")),
+    }
+}
+
 /// The SHA-256 of `data` as 64 lower-case hex digits (FIPS 180-4). The server stores the hash of a device key, so the
 /// app sends this and keeps the key.
 pub fn sha256_hex(data: &[u8]) -> String {

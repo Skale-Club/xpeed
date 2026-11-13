@@ -179,8 +179,8 @@ pub enum Card {
     NotConnected { note: Option<Note> },
     /// A request is open: the person has to click Connect in the browser.
     Waiting,
-    /// Connected as this (the account when known, else the server's host).
-    Connected { who: String },
+    /// Connected, as this account when it is known (the card never says it is connected "as" the server).
+    Connected { who: Option<String> },
 }
 
 pub fn host_of(server: &str) -> &str {
@@ -188,11 +188,11 @@ pub fn host_of(server: &str) -> &str {
 }
 
 /// The card for this moment: whether the computer is connected, how the flow stands, and who it is connected as.
-pub fn card(connected: bool, phase: &Phase, account: Option<&str>, server: &str) -> Card {
+pub fn card(connected: bool, phase: &Phase, account: Option<&str>) -> Card {
     match phase {
         Phase::Waiting { .. } => Card::Waiting,
         _ if connected => Card::Connected {
-            who: account.filter(|a| !a.is_empty()).unwrap_or_else(|| host_of(server)).to_owned(),
+            who: account.filter(|a| !a.is_empty()).map(str::to_owned),
         },
         Phase::Ended(note) => Card::NotConnected { note: Some(note.clone()) },
         Phase::Idle => Card::NotConnected { note: None },
@@ -449,11 +449,10 @@ mod tests {
 
     #[test]
     fn the_account_card_goes_from_not_connected_to_waiting_to_connected() {
-        let server = "https://xpeed.skale.club";
         let flow = Flow::new();
-        assert_eq!(card(false, &flow.phase(), None, server), Card::NotConnected { note: None });
+        assert_eq!(card(false, &flow.phase(), None), Card::NotConnected { note: None });
         let generation = flow.begin().unwrap();
-        assert_eq!(card(false, &flow.phase(), None, server), Card::Waiting);
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting);
         // A second click only gets the page back (none yet while the server is being asked).
         assert_eq!(flow.begin(), Err(None));
         assert!(flow.set(
@@ -466,34 +465,25 @@ mod tests {
         // Approved: the pairing exists and the flow is idle.
         assert!(flow.set(generation, Phase::Idle));
         assert_eq!(
-            card(true, &flow.phase(), Some("ana@example.com"), server),
+            card(true, &flow.phase(), Some("ana@example.com")),
             Card::Connected {
-                who: "ana@example.com".into()
+                who: Some("ana@example.com".into())
             }
         );
-        // A pairing made the old way has no account: the host says where it is connected.
-        assert_eq!(
-            card(true, &flow.phase(), None, server),
-            Card::Connected {
-                who: "xpeed.skale.club".into()
-            }
-        );
+        // A pairing made the old way has no account until the server says it: just "Connected", never the host.
+        assert_eq!(card(true, &flow.phase(), None), Card::Connected { who: None });
     }
 
     #[test]
     fn waiting_then_expired_goes_back_to_not_connected_with_the_note() {
-        let server = "https://xpeed.skale.club";
         let flow = Flow::new();
         let generation = flow.begin().unwrap();
-        assert_eq!(card(false, &flow.phase(), None, server), Card::Waiting);
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting);
         assert!(flow.set(generation, Phase::Ended(Note::Expired)));
-        assert_eq!(
-            card(false, &flow.phase(), None, server),
-            Card::NotConnected { note: Some(Note::Expired) }
-        );
+        assert_eq!(card(false, &flow.phase(), None), Card::NotConnected { note: Some(Note::Expired) });
         // Connect again starts clean.
         assert!(flow.begin().is_ok());
-        assert_eq!(card(false, &flow.phase(), None, server), Card::Waiting);
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting);
         // An attempt that was cancelled cannot change the state of the next one.
         flow.cancel();
         let next = flow.begin().unwrap();

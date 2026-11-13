@@ -29,7 +29,7 @@ Object.assign(process.env, {
 
 await build({
   entryPoints: {
-    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', shared: 'api/sim/_shared.ts',
+    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', shared: 'api/sim/_shared.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', dbroute: 'server/db-route.ts', account: 'server/account-route.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
@@ -40,6 +40,7 @@ const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).d
 const codes = (await load('codes.mjs')).default, devices = (await load('devices.mjs')).default;
 const tracks = (await load('tracks.mjs')).default;
 const link = (await load('link.mjs')).default;
+const me = (await load('me.mjs')).default;
 const { forgetLimits } = await load('shared.mjs');
 const { getPool } = await load('serverdb.mjs');
 const { gzipLap } = await load('lapfile.mjs');
@@ -467,6 +468,41 @@ try {
     assert.ok(listed.revoked_at, 'it stays in the list, marked revoked');
     // Laps it already sent are kept.
     assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_laps WHERE device_id = $1', [deviceId])).rows[0].n, 1);
+  });
+
+  await check('me: a paired device gets its account email and device name, the name when there is no email, never anything else', async () => {
+    await direct.query("UPDATE public.app_accounts SET email = 'ana@example.com', full_name = 'Ana Lima' WHERE id = $1", [ids.A]);
+    const a = await deviceFor(A, 'Ana PC');
+    const got = await call(me, '/api/sim/me', { bearer: a.token });
+    assert.equal(got.status, 200, JSON.stringify(got.body));
+    assert.deepEqual(got.body, { account: 'ana@example.com', deviceName: 'Ana PC' });
+    await direct.query("UPDATE public.app_accounts SET email = NULL, full_name = 'Ana Lima' WHERE id = $1", [ids.A]);
+    assert.equal((await call(me, '/api/sim/me', { bearer: a.token })).body.account, 'Ana Lima', 'the name is the fallback');
+    await direct.query("UPDATE public.app_accounts SET email = '', full_name = '' WHERE id = $1", [ids.A]);
+    assert.equal((await call(me, '/api/sim/me', { bearer: a.token })).body.account, '+15550000001', 'then the phone');
+    await direct.query("UPDATE public.app_accounts SET email = 'ana@example.com' WHERE id = $1", [ids.A]);
+    assert.equal((await call(me, '/api/sim/me', { method: 'POST', bearer: a.token })).status, 405);
+  });
+
+  await check('me: no key, an unknown key and a revoked key are 401', async () => {
+    assert.deepEqual((await call(me, '/api/sim/me')).body, { error: 'unauthorized' });
+    const unknown = await call(me, '/api/sim/me', { bearer: newKey() });
+    assert.equal(unknown.status, 401);
+    assert.deepEqual(unknown.body, { error: 'unauthorized' });
+    const d = await deviceFor(B, 'To revoke');
+    assert.equal((await call(me, '/api/sim/me', { bearer: d.token })).status, 200);
+    await direct.query('UPDATE public.sim_devices SET revoked_at = now() WHERE id = $1', [d.deviceId]);
+    const revoked = await call(me, '/api/sim/me', { bearer: d.token });
+    assert.equal(revoked.status, 401);
+    assert.deepEqual(revoked.body, { error: 'unauthorized' });
+  });
+
+  await check('me: asking is limited to 30 a minute per device', async () => {
+    const d = await deviceFor(B, 'Chatty');
+    for (let i = 0; i < 30; i++) assert.equal((await call(me, '/api/sim/me', { bearer: d.token })).status, 200);
+    const last = await call(me, '/api/sim/me', { bearer: d.token });
+    assert.equal(last.status, 429);
+    assert.ok(Number(last.headers.get('retry-after')) > 0);
   });
 
   await check('the browser preflight is answered, and the Xpeed Sim endpoints are not open to every method', async () => {
