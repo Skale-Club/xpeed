@@ -22,6 +22,7 @@ import simLink from '../api/sim/link';
 import simTracks from '../api/sim/tracks';
 import simGames from '../api/sim/games';
 import simMe from '../api/sim/me';
+import simV1 from '../api/sim/v1';
 import carBrands from '../api/car-brands';
 import vehicleVisuals from '../api/vehicle-visuals';
 import manifest from '../api/brand/manifest';
@@ -120,7 +121,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         res.statusCode=ok?200:503;
         res.end(req.method==='HEAD'?undefined:JSON.stringify(ok?{ok:true,version:process.env.SOURCE_COMMIT??'local'}:{ok:false,database,storage}));return;
       }
-      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/laps/')?simLaps:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
+      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/v1/')?simV1:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/laps/')?simLaps:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
         const controller=new AbortController();
         req.once('aborted',()=>controller.abort());

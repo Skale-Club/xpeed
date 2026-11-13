@@ -5,8 +5,14 @@ import type { LapHeader } from '../../src/lib/sim/lap-file';
 import { corsHeaders } from '../../server/cors';
 
 export const MAX_LAP_BYTES = 16 * 1024 * 1024;
-/// Laps one account may keep on the server.
-export const MAX_LAPS_PER_ACCOUNT = 5000;
+/// What one account may keep on the server in lap files, measured from sim_laps.size_bytes: a cap that stops abuse and
+/// never gets in the way of normal use (a lap is a few hundred KB, so this is tens of thousands of laps).
+export const MAX_ACCOUNT_BYTES = 20 * 1024 * 1024 * 1024;
+/// How many laps the unversioned GET /api/sim/laps answers (newest first); the paged API v1 has no such ceiling.
+export const LEGACY_LIST_LIMIT = 5000;
+/// Uploads one device may make per window; the counters live in the database (sim_rate), so they survive a restart
+/// and are shared by every server instance.
+export const LAP_UPLOADS_PER_MINUTE = 60;
 /// A track layout file (.xtrk.gz) as sent: the longest real tracks are a few MB, so this is plenty.
 export const MAX_TRACK_BYTES = 32 * 1024 * 1024;
 /// Track layouts one account may keep on the server (one per game, track and layout).

@@ -73,6 +73,8 @@ jobs:
         run: npm run test:sim
       - name: File storage (S3 driver against a fake S3 with SigV4 checks, the copy script, lap retention)
         run: npm run test:storage
+      - name: Xpeed Sim racing data model and API v1 (catalog, sessions, personal bests, atomic upload, quota, backfill)
+        run: npm run test:sim-v1
       - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
         run: npm run test:functions
       - name: Server starts, migrates and answers (needs the build from the HTTP test)

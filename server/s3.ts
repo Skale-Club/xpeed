@@ -221,6 +221,15 @@ export class S3Store implements FileStore {
     return { size };
   }
 
+  /** Renames an object: the bytes are read, written under the new name, and only then is the old one removed. A crash in
+   *  between leaves two copies, never none (the orphan sweeper removes a stray staging file). */
+  async move(bucket: string, from: string, to: string) {
+    const bytes = await this.get(bucket, from);
+    if (!bytes) throw new FileError(404, 'not_found', 'Object not found');
+    await this.put(bucket, to, bytes, { upsert: true });
+    await this.remove(bucket, [from]);
+  }
+
   async remove(bucket: string, paths: string[]) {
     const keys = paths.map((path) => this.key(bucket, path));
     // A few at a time: B2 and R2 are happy with that, and a hundred paths is the most the route sends.

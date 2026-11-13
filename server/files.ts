@@ -68,6 +68,8 @@ export interface FileStore {
   get(bucket: string, path: string): Promise<Uint8Array | null>;
   /** The size of an object without reading it, or null when it does not exist. */
   head(bucket: string, path: string): Promise<{ size: number } | null>;
+  /** Renames a file inside a bucket, replacing whatever is at `to`. Fails with 404 when `from` does not exist. */
+  move(bucket: string, from: string, to: string): Promise<void>;
   /** Missing objects are ignored. */
   remove(bucket: string, paths: string[]): Promise<void>;
   /** Direct children of `prefix`, files and folders, like Supabase's list(). */
@@ -133,6 +135,18 @@ export class DiskStore implements FileStore {
       return info.isFile() ? { size: info.size } : null;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return null;
+      throw error;
+    }
+  }
+
+  async move(bucket: string, from: string, to: string) {
+    const source = this.locate(bucket, from);
+    const target = this.locate(bucket, to);
+    await mkdir(dirname(target), { recursive: true });
+    try {
+      await rename(source, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new FileError(404, 'not_found', 'Object not found');
       throw error;
     }
   }

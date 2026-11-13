@@ -4,8 +4,9 @@ import { clientIp, newDeviceKey, readCode, reply, sha256Hex, tooMany } from './_
 
 export default async function pair(req: Request): Promise<Response> {
   if (req.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
-  // Eight characters of a 32-letter alphabet, valid ten minutes, once: guessing is stopped here, by address and overall.
-  const wait = tooMany(`pair:${clientIp(req)}`, 10, 60_000) ?? tooMany('pair:all', 120, 60_000);
+  // Eight characters of a 32-letter alphabet, valid ten minutes, once: guessing is stopped here, by address. There is no
+  // bucket for everybody together: one caller could fill it and keep every real person from pairing.
+  const wait = tooMany(`pair:${clientIp(req)}`, 10, 60_000);
   if (wait) return reply({ error: 'too_many_requests' }, 429, { 'Retry-After': String(wait) });
 
   const text = await req.text();

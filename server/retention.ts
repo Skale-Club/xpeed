@@ -27,14 +27,9 @@ export interface LapCandidate { id: string; userId: string; storagePath: string;
 // ---------------------------------------------------------------- which laps
 
 /**
- * TODO(merge): resolve against the real schema. Assumed columns, none of which exists in the migrations of this commit
- * (the data-model task adds them):
- *   public.sim_laps.reduced            boolean NOT NULL DEFAULT false
- *   public.sim_laps.marked             boolean NOT NULL DEFAULT false      (a lap the person asked to keep in full detail)
- *   public.sim_personal_bests.lap_id   uuid  REFERENCES sim_laps(id)       (one row per user + track + car, pointing at the best lap)
- * and these existing ones: sim_laps.id, user_id, storage_path, size_bytes, started_at.
+ * The columns it relies on: sim_laps.reduced and sim_laps.marked (a lap the person asked to keep in full detail),
+ * sim_personal_bests.lap_id, and sim_laps.id, user_id, storage_path, size_bytes, started_at.
  * "Older than N days" is measured on started_at (when the lap was driven), not created_at.
- * If the real names differ, change this query and nothing else: everything after it only sees the LapCandidate fields.
  */
 export const CANDIDATES_SQL = `
   SELECT l.id, l.user_id, l.storage_path, l.size_bytes, l.started_at, l.reduced, l.marked,
@@ -48,7 +43,7 @@ export const CANDIDATES_SQL = `
    ORDER BY l.started_at ASC
    LIMIT $2`;
 
-/** TODO(merge): the same assumed columns. `reduced = false` in the WHERE makes a second instance running at the same time harmless. */
+/** `reduced = false` in the WHERE makes a second instance running at the same time harmless. */
 export const MARK_REDUCED_SQL = 'UPDATE public.sim_laps SET reduced = true, size_bytes = $2 WHERE id = $1 AND reduced = false RETURNING id';
 
 const truthy = (value: unknown) => value === true || value === 't' || value === 'true' || value === 1;

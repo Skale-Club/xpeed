@@ -144,8 +144,24 @@ describe('checking an untrusted header', () => {
     ['a channel id that starts with a digit', () => header({ channels: [...HEADER.channels, { id: '1st', unit: 'c' }] }), 'bad_channels'],
     ['a channel with no unit', () => header({ channels: [...HEADER.channels, { id: 'extra', unit: '' }] }), 'bad_channels'],
     ['no time channel', () => header({ channels: [{ id: 'dist', unit: 'm' }, { id: 'speed', unit: 'm/s' }] }), 'bad_channels'],
+    ['an empty session id', () => header({ sessionId: '' }), 'bad_header'],
+    ['a session id that is not text', () => header({ sessionId: 12 }), 'bad_header'],
+    ['a session id of 81 characters', () => header({ sessionId: 'x'.repeat(81) }), 'bad_header'],
+    ['weather of 41 characters', () => header({ weather: 'x'.repeat(41) }), 'bad_header'],
+    ['an air temperature that is not a number', () => header({ airTempC: '20' }), 'bad_header'],
+    ['a track temperature of 900', () => header({ trackTempC: 900 }), 'bad_header'],
+    ['an in-lap flag that is not true or false', () => header({ inLap: 1 }), 'bad_header'],
   ] as const)('refuses %s', (_name, make, code) => {
     expect(codeOf(() => parseHeader(make()))).toBe(code);
+  });
+  it('reads the session details a newer Companion adds, and writes them back', async () => {
+    const details = { sessionId: 'abc-123', sessionKind: 'race', weather: 'Rain', airTempC: 14.5, trackTempC: 19, tyreCompound: 'Wet', inLap: false, outLap: true };
+    expect(parseHeader(header(details))).toEqual({ ...HEADER, ...details });
+    const file: LapFile = { header: { ...structuredClone(HEADER), ...details }, data: lap().data };
+    expect((await gunzipLap(await gzipLap(file))).header).toEqual({ ...HEADER, ...details });
+  });
+  it('writes the same bytes as before when the session details are not given', () => {
+    expect(hex(packLap(lap()))).toBe(GOLDEN_HEX);
   });
 });
 

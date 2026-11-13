@@ -329,6 +329,21 @@ try {
       assert.deepEqual(await store.list('sim-laps', ''), [], 'folders only exist while they hold something');
     });
 
+    await check(`contract (${label}): move renames an object, replaces what is at the target, and says 404 for a missing source`, async () => {
+      const store = make();
+      const one = bytesOf('one');
+      const two = bytesOf('two');
+      await store.put('sim-laps', 'm/stage.xlap.gz', one, { upsert: true });
+      await store.move('sim-laps', 'm/stage.xlap.gz', 'm/final.xlap.gz');
+      assert.equal(await store.get('sim-laps', 'm/stage.xlap.gz'), null, 'the old name is gone');
+      assert.deepEqual(Array.from(await store.get('sim-laps', 'm/final.xlap.gz')), Array.from(one));
+      await store.put('sim-laps', 'm/stage2.xlap.gz', two, { upsert: true });
+      await store.move('sim-laps', 'm/stage2.xlap.gz', 'm/final.xlap.gz');
+      assert.deepEqual(Array.from(await store.get('sim-laps', 'm/final.xlap.gz')), Array.from(two), 'the target is replaced');
+      await assert.rejects(() => store.move('sim-laps', 'm/missing.xlap.gz', 'm/other.xlap.gz'), (error) => error.status === 404 && error.code === 'not_found');
+      assert.equal(await store.get('sim-laps', 'm/other.xlap.gz'), null, 'nothing is created for a missing source');
+      await store.remove('sim-laps', ['m/final.xlap.gz']);
+    });
     await check(`contract (${label}): paths and buckets are checked, with the same error codes`, async () => {
       const store = make();
       for (const bad of ['', '../x', 'a/../b', 'a//b', '/a', 'a/', './a', 'a\\b', 'a/\u0001b', 'x'.repeat(513)]) {

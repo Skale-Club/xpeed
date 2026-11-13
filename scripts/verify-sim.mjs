@@ -55,13 +55,16 @@ const { createDbRoute } = await load('dbroute.mjs');
 const { createAccountRoute } = await load('account.mjs');
 
 const checks = [];
-const check = async (name, test) => { forgetLimits(); await test(); checks.push(name); };
+// The in-memory limiters and the database's upload counters (sim_rate) both start from zero for every check.
+const check = async (name, test) => { forgetLimits(); if (resetRates) await resetRates(); await test(); checks.push(name); };
+let resetRates;
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const db = await PGlite.create();
 const server = new PGLiteSocketServer({ db, port, host: '127.0.0.1' });
 await server.start();
 // PGlite serves one connection at a time: the checks read the database through the app's own single-connection pool.
 const direct = { query: (...args) => getPool().query(...args), end: async () => {} };
+resetRates = () => direct.query('DELETE FROM public.sim_rate');
 let webServer;
 
 try {
@@ -968,6 +971,7 @@ try {
     assert.ok(Number(limited.headers.get('retry-after')) >= 1);
     // Called on its own, without the server in front, the handler still asks who the key belongs to.
     forgetLimits();
+    await resetRates();
     assert.equal((await upload('xpd_unknown', await lapBytes(72))).status, 401);
     assert.equal((await upload(key, await lapBytes(72))).status, 201);
     await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);

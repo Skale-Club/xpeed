@@ -77,7 +77,8 @@ export default async function link(req: Request): Promise<Response> {
 }
 
 async function start(req: Request, answer: Answer): Promise<Response> {
-  const wait = tooMany(`link:${clientIp(req)}`, 10, 60_000) ?? tooMany('link:all', 120, 60_000);
+  // By address only: a bucket shared by everybody would let one caller keep every real person from connecting.
+  const wait = tooMany(`link:${clientIp(req)}`, 10, 60_000);
   if (wait) return answer({ error: 'too_many_requests' }, 429, { 'Retry-After': String(wait) });
   const text = await req.text();
   if (text.length > 2048) return answer({ error: 'invalid_request' }, 400);

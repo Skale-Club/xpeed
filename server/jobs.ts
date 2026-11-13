@@ -1,12 +1,12 @@
 // Background jobs, one run a day each, started once from server/index.ts:
 //   - retention (RETENTION_ENABLED=true): old laps are reduced to 10 Hz (server/retention.ts);
-//   - orphan sweeper: `sweepOrphanLaps()` removes lap files that have no row. It lives in the sim data model code; this
-//     file calls it when it exists (typeof check), so the schedule works before and after that function lands.
+//   - orphan sweeper: `sweepOrphanLaps()` (api/sim/_sweep.ts) removes lap files that have no row. It is passed in, so a test
+//     can run the schedule with or without it.
 // Every run logs one JSON line. A job never throws into the process and never overlaps itself.
 import { getPool } from './db';
 import { createStore } from './storage-driver';
 import { reduceOldLaps, type RetentionDb } from './retention';
-import * as simShared from '../api/sim/_shared';
+import { sweepOrphanLaps } from '../api/sim/_sweep';
 
 type Env = Record<string, string | undefined>;
 const DAY_MS = 24 * 3600 * 1000;
@@ -35,7 +35,7 @@ export function scheduleDaily(job: Job, { random = Math.random, maxOffsetMs = 3 
 }
 
 /** The jobs this environment asks for. Exported so a test can see which ones would run. */
-export function enabledJobs(env: Env = process.env, shared: Record<string, unknown> = simShared): Job[] {
+export function enabledJobs(env: Env = process.env, shared: Record<string, unknown> = { sweepOrphanLaps }): Job[] {
   const jobs: Job[] = [];
   if (env.RETENTION_ENABLED === 'true' && env.DATABASE_URL) {
     jobs.push({
@@ -44,8 +44,6 @@ export function enabledJobs(env: Env = process.env, shared: Record<string, unkno
     });
   }
   const sweep = shared.sweepOrphanLaps;
-  // TODO(merge): sweepOrphanLaps() comes from the data-model task. It is looked up in api/sim/_shared; if it lands in
-  // another module, import it there and pass it here. Its result (a count, or an object) is logged as it is.
   if (typeof sweep === 'function' && env.DATABASE_URL) {
     jobs.push({
       name: 'orphan_sweeper',

@@ -6,10 +6,14 @@
 // DELETE /api/sim/laps/<id>       the signed-in person deletes one, the row and the stored file.
 //
 // An uploaded file is opened with the same strict reader the app uses; what that refuses is refused here.
-import { openBackend } from '../_backend';
+// The signed-in side is also served, paged and filterable, under /api/sim/v1 (api/sim/v1.ts), which reuses download() and remove().
+import { randomUUID } from 'node:crypto';
+import { openBackend, type Backend } from '../_backend';
 import { gunzipLap, LapFormatError, LAP_LIMITS, type LapFile } from '../../src/lib/sim/lap-file';
-import { bearer, browserHeaders, lapIdentity, MAX_LAP_BYTES, MAX_LAPS_PER_ACCOUNT, refuse, reply, sha256Hex, tooMany } from './_shared';
+import { bearer, browserHeaders, lapIdentity, LAP_UPLOADS_PER_MINUTE, LEGACY_LIST_LIMIT, MAX_ACCOUNT_BYTES, MAX_LAP_BYTES, refuse, reply, sha256Hex } from './_shared';
 import { authenticateDevice, rememberedDevice } from './_upload';
+import { summarizeLap } from './_summary';
+import { forgetOverview } from './_v1cache';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUCKET = 'sim-laps';
@@ -29,7 +33,7 @@ function route(pathname: string): { id?: string; file?: boolean } | null {
   return null;
 }
 
-type Answer = (body: unknown, status?: number, extra?: Record<string, string>) => Response;
+export type Answer = (body: unknown, status?: number, extra?: Record<string, string>) => Response;
 
 export default async function laps(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
@@ -59,14 +63,19 @@ async function receive(req: Request): Promise<Response> {
   const declared = Number(req.headers.get('content-length') ?? '0');
   if (declared > MAX_LAP_BYTES) return refuse({ error: 'lap file is too big' }, 413, false);
 
+  // The path of a file that is stored but whose row is not in yet: if anything fails, it is removed in `finally`.
+  let stored: string | null = null;
   try {
     // The server checked the key before it read the body; asked again only when this handler is called on its own.
     const device = rememberedDevice(req) ?? await authenticateDevice(backend, key);
     if (!device) return refuse({ error: 'unauthorized' }, 401, false);
     const { userId, deviceId } = device;
 
-    const wait = tooMany(`lap:${deviceId}`, 60, 60_000);
-    if (wait) return refuse({ error: 'too_many_requests' }, 429, true, { 'Retry-After': String(wait) });
+    // The count lives in the database: a restart does not forget it and every server instance shares it.
+    const rate = await backend.service.rpc('sim_rate_hit', { p_key: `lap:${deviceId}`, p_max: LAP_UPLOADS_PER_MINUTE, p_window_seconds: 60 });
+    if (rate.error) throw rate.error;
+    const wait = Number(rate.data);
+    if (wait > 0) return refuse({ error: 'too_many_requests' }, 429, true, { 'Retry-After': String(wait) });
 
     const bytes = new Uint8Array(await req.arrayBuffer());
     if (bytes.length === 0) return refuse({ error: 'empty body' }, 400, false);
@@ -81,41 +90,86 @@ async function receive(req: Request): Promise<Response> {
     }
     const header = lap.header;
     const identity = lapIdentity(header);
+    const summary = summarizeLap(lap);
 
-    const known = await backend.service.from('sim_laps').select('id').eq('user_id', userId).eq('identity', identity).maybeSingle();
-    if (known.error) throw known.error;
-    if (known.data) return reply({ id: known.data.id, duplicate: true });
-
-    const count = await backend.service.from('sim_laps').select('id', { count: 'exact', head: true }).eq('user_id', userId);
-    if (count.error) throw count.error;
-    if ((count.count ?? 0) >= MAX_LAPS_PER_ACCOUNT) return refuse({ error: 'this account has reached the limit of laps kept on the server' }, 422, false);
+    // Already here, or no room left: answered before the file is written.
+    const admission = await backend.service.rpc('sim_lap_admission', { p_user_id: userId, p_identity: identity, p_size: bytes.length, p_max_bytes: MAX_ACCOUNT_BYTES });
+    if (admission.error) throw admission.error;
+    const admitted = admission.data as { status?: string; id?: string } | null;
+    if (admitted?.status === 'duplicate' && admitted.id) return reply({ id: admitted.id, duplicate: true });
+    if (admitted?.status === 'quota') return refuse({ error: 'quota' }, 422, false);
 
     // The name comes from the identity, never from the request: one lap, one file.
     const path = `${userId}/${sha256Hex(identity).slice(0, 40)}.xlap.gz`;
-    const stored = await backend.service.storage.from('sim-laps').upload(path, bytes, { contentType: 'application/gzip', upsert: true });
-    if (stored.error) throw stored.error;
+    await placeFile(backend, userId, path, bytes);
+    stored = path;
 
-    const row = await backend.service.from('sim_laps').insert({
-      user_id: userId, device_id: deviceId, identity, game: header.game, track_name: header.track.name, car_name: header.car.name,
-      lap_number: header.lap.number, time_ms: header.lap.timeMs, valid: header.lap.valid, started_at: header.startedAt,
-      sample_count: header.sampleCount, size_bytes: bytes.length, storage_path: path,
-    }).select('id').single();
-    if (row.error?.code === '23505') {
-      // Another request stored the same lap a moment ago.
-      const again = await backend.service.from('sim_laps').select('id').eq('user_id', userId).eq('identity', identity).maybeSingle();
-      if (again.data) return reply({ id: again.data.id, duplicate: true });
-    }
-    if (row.error) throw row.error;
-    await backend.service.from('sim_devices').update({ last_lap_at: new Date().toISOString() }).eq('id', deviceId);
-    return reply({ id: row.data.id, duplicate: false }, 201);
+    // The row, the catalog, the session, the personal best and the device's last-lap time: one transaction in the database.
+    const ingested = await backend.service.rpc('sim_ingest_lap', {
+      p_user_id: userId, p_device_id: deviceId, p_max_bytes: MAX_ACCOUNT_BYTES,
+      p_lap: {
+        identity, game: header.game, track_name: header.track.name, track_length_m: header.track.lengthM ?? null,
+        car_name: header.car.name, car_class: header.car.class ?? null, lap_number: header.lap.number, time_ms: header.lap.timeMs,
+        valid: header.lap.valid, started_at: header.startedAt, sample_count: header.sampleCount, size_bytes: bytes.length, storage_path: path,
+        sector_ms: summary.sectorMs, top_speed_kmh: summary.topSpeedKmh, fuel_used_l: summary.fuelUsedL, in_lap: summary.inLap,
+        out_lap: summary.outLap, format_version: summary.formatVersion, session_id: summary.session.id, session_kind: summary.session.kind,
+        weather: summary.session.weather, air_temp_c: summary.session.airTempC, track_temp_c: summary.session.trackTempC,
+      },
+    });
+    if (ingested.error) throw ingested.error;
+    const result = ingested.data as { status?: string; id?: string } | null;
+    forgetOverview(userId);
+    if (result?.status === 'created' && result.id) { stored = null; return reply({ id: result.id, duplicate: false }, 201); }
+    // Another request stored the same lap a moment ago: its row owns the file.
+    if (result?.status === 'duplicate' && result.id) { stored = null; return reply({ id: result.id, duplicate: true }); }
+    if (result?.status === 'quota') return refuse({ error: 'quota' }, 422, false);
+    throw new Error('unexpected sim_ingest_lap answer');
   } catch (error) {
     failed('sim_lap_failed', error);
     return refuse({ error: 'unavailable' }, 503, true);
+  } finally {
+    // A failure leaves nothing visible (no row: the transaction rolled back) and no file behind.
+    if (stored) await discardFile(backend, stored);
+  }
+}
+
+/**
+ * Writes the lap file so that it is never half there: first under a staging name, then renamed to its final name in one step.
+ * A failure takes the staging file with it. Finishing the rename before the row exists means a visible row always has its file.
+ */
+async function placeFile(backend: Backend, userId: string, path: string, bytes: Uint8Array): Promise<void> {
+  const bucket = backend.service.storage.from(BUCKET);
+  const staging = `${userId}/staging-${randomUUID()}.xlap.gz`;
+  const put = await bucket.upload(staging, bytes, { contentType: 'application/gzip', upsert: false });
+  if (put.error) throw put.error;
+  try {
+    let moved = await bucket.move(staging, path);
+    // The lap was stored before (a file with no row, left by a crash): the new bytes replace it.
+    if (moved.error && (moved.error as { statusCode?: string }).statusCode === '409') {
+      await bucket.remove([path]);
+      moved = await bucket.move(staging, path);
+    }
+    if (moved.error) throw moved.error;
+  } catch (error) {
+    await bucket.remove([staging]).catch(() => undefined);
+    throw error;
+  }
+}
+
+/** Removes a file whose row did not get in, unless a row now owns that path (a concurrent upload of the same lap). If unsure, leaves it: the sweeper decides. */
+async function discardFile(backend: Backend, path: string): Promise<void> {
+  try {
+    const owner = await backend.service.from('sim_laps').select('id').eq('storage_path', path).limit(1);
+    if (owner.error || (owner.data?.length ?? 0) > 0) return;
+    const removed = await backend.service.storage.from(BUCKET).remove([path]);
+    if (removed.error) failed('sim_lap_cleanup_failed', removed.error);
+  } catch (error) {
+    failed('sim_lap_cleanup_failed', error);
   }
 }
 
 /** The signed-in person behind the request, or a reply that says why not. */
-async function person(req: Request, answer: Answer) {
+export async function person(req: Request, answer: Answer) {
   const backend = openBackend();
   if (!backend) return { refused: answer({ error: 'unavailable' }, 503) };
   const token = bearer(req);
@@ -138,7 +192,7 @@ async function list(req: Request, answer: Answer): Promise<Response> {
     const db = await who.backend.asUser(who.token);
     const rows = await db.from('sim_laps')
       .select('id,game,track_name,car_name,lap_number,time_ms,valid,started_at,sample_count,size_bytes,created_at,device_id')
-      .order('started_at', { ascending: false }).limit(MAX_LAPS_PER_ACCOUNT);
+      .order('started_at', { ascending: false }).limit(LEGACY_LIST_LIMIT);
     if (rows.error) throw rows.error;
     const devices = await db.from('sim_devices').select('id,name');
     if (devices.error) throw devices.error;
@@ -156,7 +210,7 @@ async function list(req: Request, answer: Answer): Promise<Response> {
   }
 }
 
-async function download(req: Request, id: string, answer: Answer): Promise<Response> {
+export async function download(req: Request, id: string, answer: Answer): Promise<Response> {
   try {
     const who = await person(req, answer);
     if (who.refused) return who.refused;
@@ -179,7 +233,7 @@ async function download(req: Request, id: string, answer: Answer): Promise<Respo
   }
 }
 
-async function remove(req: Request, id: string, answer: Answer): Promise<Response> {
+export async function remove(req: Request, id: string, answer: Answer): Promise<Response> {
   try {
     const who = await person(req, answer);
     if (who.refused) return who.refused;
@@ -188,6 +242,8 @@ async function remove(req: Request, id: string, answer: Answer): Promise<Respons
     const paths = (gone.data as { storage_path: string }[] | null ?? []).map((r) => r.storage_path);
     if (paths.length === 0) return answer({ error: 'lap_not_found' }, 404);
     // The row is what the app sees; a file left behind by a failure here is overwritten if the lap comes back.
+    // The database already corrected the session and the personal best (triggers on the delete).
+    forgetOverview(who.userId);
     const removed = await who.backend.service.storage.from(BUCKET).remove(paths);
     if (removed.error) failed('sim_lap_file_remove_failed', removed.error);
     return new Response(null, { status: 204, headers: { ...browserHeaders(req), 'Cache-Control': 'private, no-store' } });
