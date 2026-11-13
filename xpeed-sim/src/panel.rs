@@ -1107,6 +1107,55 @@ impl Painter {
         });
     }
 
+    /// A steering wheel glyph centred at (`cx`, `cy`) with the outer `radius` (design units), turned `degrees`
+    /// clockwise: a rim, a hub and three spokes (left, right, down) and a yellow mark at the top of the rim. With
+    /// `live` false (no steering value) it is drawn dim and without the mark.
+    fn steering_wheel(&self, cx: f32, cy: f32, radius: f32, degrees: f32, live: bool) {
+        let body = if live { mix(TRACK, TEXT, 0.55) } else { TRACK };
+        let to_px = |(x, y): (f32, f32)| PointF {
+            X: self.ox as f32 + x * self.s,
+            Y: self.oy as f32 + y * self.s,
+        };
+        smooth(self.hdc, |graphics| unsafe {
+            let pen_of = |color: COLORREF, width: f32| {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(color), (width * self.s).max(1.0), UnitPixel, &mut pen);
+                pen
+            };
+            // The rim, as a closed many-sided line.
+            let steps = 48;
+            let rim: Vec<PointF> = (0..=steps)
+                .map(|i| to_px(polar(cx, cy, radius - 2.0, i as f32 * 360.0 / steps as f32)))
+                .collect();
+            let pen = pen_of(body, 4.0);
+            GdipSetPenLineJoin(pen, LineJoinRound);
+            GdipDrawLines(graphics, pen, rim.as_ptr(), rim.len() as i32);
+            GdipDeletePen(pen);
+            // The spokes, from the hub to the rim.
+            let pen = pen_of(body, 3.5);
+            for turn in [-90.0, 90.0, 180.0] {
+                let (a, b) = (to_px((cx, cy)), to_px(polar(cx, cy, radius - 3.0, degrees + turn)));
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+            }
+            GdipDeletePen(pen);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(body), &mut brush);
+            let (d, c) = (radius * 0.44 * self.s, to_px((cx, cy)));
+            GdipFillEllipse(graphics, brush.cast(), c.X - d / 2.0, c.Y - d / 2.0, d, d);
+            GdipDeleteBrush(brush.cast());
+            // The mark at the top of the rim: the wheel's own twelve o'clock, so the turn is easy to read.
+            if live {
+                let pen = pen_of(ACCENT, 5.5);
+                let (a, b) = (
+                    to_px(polar(cx, cy, radius - 6.0, degrees)),
+                    to_px(polar(cx, cy, radius + 1.0, degrees)),
+                );
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+                GdipDeletePen(pen);
+            }
+        });
+    }
+
     /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
     /// `from` and `to` (shares of the bar's width), dark otherwise.
     #[allow(clippy::too_many_arguments)]
@@ -2292,52 +2341,8 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     );
     g.fill(g.r(0.0, 712.0, w, 1.0), EDGE);
 
-    // The pedals on one bar from the centre, then the wheel.
-    let percent = |v: f32| {
-        if v.is_finite() {
-            format!("{:.0}%", v * 100.0)
-        } else {
-            "–".to_owned()
-        }
-    };
-    let label = |g: &mut Painter, name: &str, value: String, y: f32, right: bool| {
-        let (x, align) = if right { (w - 110.0, DT_RIGHT) } else { (0.0, DT_LEFT) };
-        let r = g.r(x, y, 110.0, 16.0);
-        g.caps(name, r, 10.5, MUTED, align);
-        let r = g.r(x, y + 15.0, 110.0, 28.0);
-        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
-    };
-    label(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 722.0, false);
-    label(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 722.0, true);
-    let (bx, bw, by, bh) = (120.0, 360.0, 736.0, 18.0);
-    let mid = bx + bw / 2.0;
-    let half = bw / 2.0 - 4.0;
-    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    g.blocks(bx, by, half, bh, 16, 1.0 - pedal(live.brake), 1.0, RED);
-    g.blocks(mid + 4.0, by, half, bh, 16, 0.0, pedal(live.throttle), GREEN);
-    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
-    let wheel = if live.steer.is_finite() {
-        let side = if live.steer < -0.005 {
-            "L "
-        } else if live.steer > 0.005 {
-            "R "
-        } else {
-            ""
-        };
-        format!("{side}{:.0}%", live.steer.abs() * 100.0)
-    } else {
-        "–".to_owned()
-    };
-    label(g, &text(view.lang, &Msg::PanelSteer), wheel, 770.0, false);
-    label(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 770.0, true);
-    let at = if live.steer.is_finite() {
-        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
-    } else {
-        f32::NAN
-    };
-    let reach = 1.0 / 32.0;
-    g.blocks(bx, 786.0, bw, 10.0, 32, at - reach, at + reach, ACCENT);
-    g.fill(g.r(mid - 1.0, 781.0, 2.0, 20.0), MUTED);
+    // The pedals and the wheel: a small panel in the middle of the strip.
+    pedals_panel(g, live, view, 0.0, 713.0, w, 103.0);
     g.fill(g.r(0.0, 816.0, w, 1.0), EDGE);
 
     // The track, then the four tyres in a row.
@@ -2497,57 +2502,67 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     let r = g.r(330.0, 402.0, 340.0, 14.0);
     g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
 
-    // Bottom: brake and throttle on one bar from the centre, then the wheel; clutch on the right.
+    // Bottom: a small panel with the pedals and the wheel.
     g.fill(g.r(0.0, 424.0, CANVAS_W, 1.0), EDGE);
-    let percent = |v: f32| {
-        if v.is_finite() {
-            format!("{:.0}%", v * 100.0)
-        } else {
-            "–".to_owned()
-        }
-    };
-    let side = |g: &mut Painter, label: &str, value: String, y: f32, align: u32| {
-        let x = if align == DT_RIGHT { 880.0 } else { 0.0 };
-        let r = g.r(x, y, 120.0, 16.0);
-        g.caps(label, r, 10.5, MUTED, align);
-        let r = g.r(x, y + 15.0, 120.0, 28.0);
-        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
-    };
-    side(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 432.0, DT_LEFT);
-    side(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 432.0, DT_RIGHT);
-    let (bx, bw, by, bh) = (140.0, 720.0, 444.0, 18.0);
-    let mid = bx + bw / 2.0;
-    // One bar of blocks: brake lights from the centre to the left, throttle from the centre to the right.
-    let half = bw / 2.0 - 4.0;
-    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    g.blocks(bx, by, half, bh, 24, 1.0 - pedal(live.brake), 1.0, RED);
-    g.blocks(mid + 4.0, by, half, bh, 24, 0.0, pedal(live.throttle), GREEN);
-    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
+    pedals_panel(g, live, view, 0.0, 425.0, CANVAS_W, 95.0);
+}
 
-    let wheel = if live.steer.is_finite() {
-        let side = if live.steer < -0.005 {
-            "L "
-        } else if live.steer > 0.005 {
-            "R "
-        } else {
-            ""
-        };
-        format!("{side}{:.0}%", live.steer.abs() * 100.0)
+/// The height of a pedal bar's fill, in the same units as `full`: `value` is 0..1; out of range is clamped and a
+/// value the game does not give (NaN) counts as released.
+fn pedal_fill(value: f32, full: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0) * full
     } else {
-        "–".to_owned()
-    };
-    side(g, &text(view.lang, &Msg::PanelSteer), wheel, 476.0, DT_LEFT);
-    side(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 476.0, DT_RIGHT);
-    let (ty, th) = (492.0, 10.0);
-    // The wheel: the block where the wheel points is lit (a block either side when it sits between two).
-    let at = if live.steer.is_finite() {
-        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
+        0.0
+    }
+}
+
+/// The one-letter tag under a pedal bar: the first letter of its (translated) name, in capitals.
+fn pedal_tag(name: &str) -> String {
+    name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default()
+}
+
+/// How far the steering wheel glyph is turned, in degrees clockwise, for a steering input of -1..1 (full left to
+/// full right): a quarter turn each way. No value (NaN) leaves it straight.
+fn wheel_angle(steer: f32) -> f32 {
+    if steer.is_finite() {
+        steer.clamp(-1.0, 1.0) * 90.0
     } else {
-        f32::NAN
-    };
-    let reach = 1.0 / 48.0;
-    g.blocks(bx, ty, bw, th, 48, at - reach, at + reach, ACCENT);
-    g.fill(g.r(mid - 1.0, ty - 5.0, 2.0, th + 10.0), MUTED);
+        0.0
+    }
+}
+
+/// The point at `radius` from the centre, `degrees` clockwise from straight up (screen axes, y down).
+fn polar(cx: f32, cy: f32, radius: f32, degrees: f32) -> (f32, f32) {
+    let a = degrees.to_radians();
+    (cx + radius * a.sin(), cy - radius * a.cos())
+}
+
+/// The pedals and the wheel as one small group, centred in the box: slim bars for the clutch (left out when the game
+/// gives no value), the brake and the throttle, each filling from the bottom with a letter under it, then the
+/// steering wheel turning with the input.
+fn pedals_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32) {
+    let (bar_w, gap, bar_h, label_h, wheel_r, wheel_gap) = (22.0, 14.0, 56.0, 14.0, 30.0, 44.0);
+    let mut bars = vec![(Msg::PanelBrake, live.brake, RED), (Msg::PanelThrottle, live.throttle, GREEN)];
+    if live.clutch.is_finite() {
+        bars.insert(0, (Msg::PanelClutch, live.clutch, BLUE));
+    }
+    let bars_w = bars.len() as f32 * bar_w + (bars.len() as f32 - 1.0) * gap;
+    let total = bars_w + wheel_gap + wheel_r * 2.0;
+    let left = x + (w - total) / 2.0;
+    let top = y + (h - (bar_h + 4.0 + label_h)) / 2.0;
+    for (i, (name, value, color)) in bars.iter().enumerate() {
+        let bx = left + i as f32 * (bar_w + gap);
+        g.fill(g.r(bx, top, bar_w, bar_h), TRACK);
+        let filled = pedal_fill(*value, bar_h);
+        if filled > 0.0 {
+            g.fill(g.r(bx, top + bar_h - filled, bar_w, filled), *color);
+        }
+        let r = g.r(bx - 8.0, top + bar_h + 4.0, bar_w + 16.0, label_h);
+        g.caps(&pedal_tag(&text(view.lang, name)), r, 10.0, MUTED, DT_CENTER);
+    }
+    let (cx, cy) = (left + bars_w + wheel_gap + wheel_r, top + bar_h / 2.0);
+    g.steering_wheel(cx, cy, wheel_r, wheel_angle(live.steer), live.steer.is_finite());
 }
 
 /// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
@@ -3715,6 +3730,48 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pedal_bar_fills_with_its_value_and_never_past_the_bar() {
+        assert_eq!(pedal_fill(0.0, 50.0), 0.0);
+        assert_eq!(pedal_fill(0.5, 50.0), 25.0);
+        assert_eq!(pedal_fill(1.0, 50.0), 50.0);
+        assert_eq!(pedal_fill(1.7, 50.0), 50.0);
+        assert_eq!(pedal_fill(-0.3, 50.0), 0.0);
+    }
+
+    #[test]
+    fn a_pedal_without_a_value_counts_as_released() {
+        assert_eq!(pedal_fill(f32::NAN, 50.0), 0.0);
+        assert_eq!(pedal_fill(f32::INFINITY, 50.0), 0.0);
+    }
+
+    #[test]
+    fn a_pedal_tag_is_the_first_letter_in_capitals() {
+        assert_eq!(pedal_tag("Brake"), "B");
+        assert_eq!(pedal_tag("embreagem"), "E");
+        assert_eq!(pedal_tag(""), "");
+    }
+
+    #[test]
+    fn the_wheel_turns_a_quarter_each_way_and_stays_straight_without_a_value() {
+        assert_eq!(wheel_angle(0.0), 0.0);
+        assert_eq!(wheel_angle(1.0), 90.0);
+        assert_eq!(wheel_angle(-1.0), -90.0);
+        assert_eq!(wheel_angle(0.5), 45.0);
+        assert_eq!(wheel_angle(3.0), 90.0);
+        assert_eq!(wheel_angle(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn the_wheel_mark_moves_clockwise_from_the_top() {
+        let (x, y) = polar(100.0, 100.0, 10.0, 0.0);
+        assert!((x - 100.0).abs() < 1e-4 && (y - 90.0).abs() < 1e-4);
+        let (x, y) = polar(100.0, 100.0, 10.0, 90.0);
+        assert!((x - 110.0).abs() < 1e-4 && (y - 100.0).abs() < 1e-4);
+        let (x, _) = polar(100.0, 100.0, 10.0, -45.0);
+        assert!(x < 100.0);
+    }
+
     use super::*;
 
     #[test]
