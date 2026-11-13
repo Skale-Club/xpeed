@@ -4,6 +4,9 @@
 #   pwsh xpeed-sim/installer/build.ps1
 #
 # Needs Rust (MSVC) and Inno Setup 6 (ISCC.exe): on PATH, in INNO_SETUP_DIR, or in a usual folder.
+#
+# -NoCargo packs the program already built at target\release (CI uses it to sign that program before it goes into the installer).
+param([switch]$NoCargo)
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 $crate = Split-Path $here -Parent
@@ -23,11 +26,15 @@ if (Test-Path $previous) {
     Write-Warning "!!! $previous already exists: version $version was already built. Bump 'version' in Cargo.toml (patch for fixes, minor for features) before this installer goes to anyone. !!!"
 }
 
-Push-Location $crate
-try {
-    cargo build --release --locked
-    if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
-} finally { Pop-Location }
+if (-not $NoCargo) {
+    Push-Location $crate
+    try {
+        cargo build --release --locked
+        if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
+    } finally { Pop-Location }
+} elseif (-not (Test-Path (Join-Path $crate 'target\release\xpeed-companion.exe'))) {
+    throw '-NoCargo needs target\release\xpeed-companion.exe: build it first'
+}
 
 $exe = Join-Path $crate 'target\release\xpeed-companion.exe'
 # The program has no console of its own, so wait for it explicitly.

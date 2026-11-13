@@ -44,6 +44,7 @@ const SimTracksPage = lazy(() => import("./pages/SimTracksPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
+const CompanionPage = lazy(() => import("./pages/CompanionPage"));
 const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -119,6 +120,8 @@ const router = createBrowserRouter(createRoutesFromElements(
 
     {/* Public Routes */}
     <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
+    {/* The public page of the Windows app (download, steps, games): no sign-in. */}
+    <Route path="/companion" element={<PublicLayout><CompanionPage /></PublicLayout>} />
     <Route path="/reset-password" element={<Navigate to="/login?entrar" replace />} />
     {/* A new phone number gets an account at sign-in, so sign-up is the same page. */}
     <Route path="/signup" element={<Navigate to="/login?entrar" replace />} />

@@ -14,6 +14,7 @@
     "test:sim": "node scripts/verify-sim.mjs",
     "test:storage": "node scripts/verify-storage.mjs",
     "test:sim-v1": "node scripts/verify-sim-v1.mjs",
+    "test:companion-release": "node scripts/verify-companion-release.mjs",
     "test:car-brands": "node scripts/verify-car-brands.mjs",
     "test:vehicle-visuals": "node scripts/verify-vehicle-visuals.mjs",
     "test:functions": "node scripts/verify-functions.mjs",

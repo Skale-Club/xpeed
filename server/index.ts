@@ -23,6 +23,8 @@ import simTracks from '../api/sim/tracks';
 import simGames from '../api/sim/games';
 import simMe from '../api/sim/me';
 import simV1 from '../api/sim/v1';
+import companionLatest from '../api/companion/latest';
+import companionDownload from '../api/companion/download';
 import carBrands from '../api/car-brands';
 import vehicleVisuals from '../api/vehicle-visuals';
 import manifest from '../api/brand/manifest';
@@ -54,6 +56,7 @@ const routes = new Map<string,Handler>([
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
   ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],
+  ['/api/companion/latest',companionLatest],['/api/companion/download',companionDownload],
   ['/api/car-brands',carBrands],
   ['/api/vehicle-visuals',vehicleVisuals],
 ]);
