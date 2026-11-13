@@ -172,9 +172,10 @@ mod at {
     pub const TYRE_WEAR: usize = 7136;
     /// `float mBrakeTempCelsius[4]`, Celsius, right after `mBrakeDamage` (7152) and `mSuspensionDamage` (7168).
     pub const BRAKE_TEMP: usize = 7184;
-    /// `float mAirPressure[4]`, PSI (a Project CARS 2 addition, version 8).
+    /// `float mAirPressure[4]`: the header says PSI, but the game writes kPa (seen live in Automobilista 2: 176 for a tyre
+    /// the game shows as 1.77 bar). A Project CARS 2 addition, version 8.
     pub const AIR_PRESSURE: usize = 7372;
-    /// `float mBrakeBias`, 0..1, unset -1 (a Project CARS 2 addition).
+    /// `float mBrakeBias`, 0..1, unset -1: the REAR share of the braking (a Project CARS 2 addition).
     pub const BRAKE_BIAS: usize = 19_380;
     /// `char mTyreCompound[4][40]`: Automobilista 2's copy only, with `TYRE_COMPOUND_LENGTH` bytes for each tyre.
     pub const TYRE_COMPOUND: usize = 19_388;
@@ -559,8 +560,9 @@ fn state_from(page: &Page) -> CarState {
         tc_level: setting(at::TRACTION_CONTROL_SETTING),
         abs_level: setting(at::ANTI_LOCK_SETTING),
         engine_map: None,
-        // The header says only "0..1" (unset -1), not which axle: taken as the front share, the usual meaning.
-        brake_bias: (bias > 0.0 && bias <= 1.0).then_some(bias),
+        // The header says only "0..1" (unset -1). Seen live in Automobilista 2: the setup screen read "Brake Bias (F/R)
+        // 64.0 / 36.0" while the memory held 0.36, so the field is the REAR share and the front share is what is left.
+        brake_bias: (bias > 0.0 && bias < 1.0).then_some(1.0 - bias),
         damage_body: damage(at::AERO_DAMAGE),
         damage_engine: damage(at::ENGINE_DAMAGE),
         // The header has no gearbox damage (its clutch wear is the clutch's).
@@ -583,24 +585,19 @@ fn flag_of(colour: u32) -> Option<Flag> {
     }
 }
 
-/// The four tyres: temperature (Celsius), pressure (PSI to kPa), tread left (1 - wear) and the brake's temperature (Celsius). The header's "unset" is 0
+/// The four tyres: temperature (Celsius), pressure (kPa as written, whatever the header says), tread left (1 - wear) and the brake's temperature (Celsius). The header's "unset" is 0
 /// for each, so a 0 says nothing; `None` when no tyre says anything.
 fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
-    const KPA_PER_PSI: f32 = 6.894_757;
     let tyre = |i: usize| {
         let temp = page.f32_at(at::TYRE_TEMP + 4 * i);
-        let psi = page.f32_at(at::AIR_PRESSURE + 4 * i);
+        let kpa = page.f32_at(at::AIR_PRESSURE + 4 * i);
         let wear = page.f32_at(at::TYRE_WEAR + 4 * i);
         let brake = page.f32_at(at::BRAKE_TEMP + 4 * i);
         Tyre {
             brake_c: if brake != 0.0 { within(brake, -40.0, 2000.0) } else { f32::NAN },
             temp_c: if temp != 0.0 { within(temp, -40.0, 400.0) } else { f32::NAN },
-            pressure_kpa: if psi > 0.0 {
-                within(psi, 0.0, 100.0) * KPA_PER_PSI
-            } else {
-                f32::NAN
-            },
-            left: if (0.0..=1.0).contains(&wear) && (temp != 0.0 || psi > 0.0) {
+            pressure_kpa: if kpa > 0.0 { within(kpa, 0.0, 1000.0) } else { f32::NAN },
+            left: if (0.0..=1.0).contains(&wear) && (temp != 0.0 || kpa > 0.0) {
                 1.0 - wear
             } else {
                 f32::NAN
@@ -686,7 +683,7 @@ mod tests {
             i.u32(at::HIGHEST_FLAG_COLOUR, 6);
             i.f32(at::OIL_TEMP, 98.5);
             i.f32(at::WATER_TEMP, 91.25);
-            i.f32(at::BRAKE_BIAS, 0.5625);
+            i.f32(at::BRAKE_BIAS, 0.4375);
             i.f32(at::AERO_DAMAGE, 0.25);
             i.f32(at::ENGINE_DAMAGE, 0.125);
             for (n, d) in [0.0f32, 0.5, 0.0625, 0.0].into_iter().enumerate() {
@@ -1145,13 +1142,16 @@ mod tests {
         assert!(frame_from(&image.0, 0.0).unwrap().tyres.is_none(), "all zero: the header's unset");
         for i in 0..4 {
             image.f32(at::TYRE_TEMP + 4 * i, 80.0 + i as f32);
-            image.f32(at::AIR_PRESSURE + 4 * i, 25.0);
+            image.f32(at::AIR_PRESSURE + 4 * i, 176.43);
             image.f32(at::TYRE_WEAR + 4 * i, 0.25);
         }
         image.f32(at::TYRE_TEMP + 12, f32::NAN);
         let tyres = frame_from(&image.0, 0.0).unwrap().tyres.expect("tyres");
         assert_eq!(tyres[0].temp_c, 80.0);
-        assert!((tyres[1].pressure_kpa - 172.368_93).abs() < 0.01, "25 psi");
+        assert!(
+            (tyres[1].pressure_kpa - 176.43).abs() < 0.01,
+            "kPa as the game writes it: 176.43 is 1.76 bar"
+        );
         assert_eq!(tyres[2].left, 0.75, "a quarter worn");
         assert!(tyres[3].temp_c.is_nan() && tyres[3].pressure_kpa.is_finite());
         assert!(
