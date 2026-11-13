@@ -1,4 +1,4 @@
-//! The calls Xpeed Sim makes to the Xpeed server: pair this computer, send one lap, send one track layout.
+//! The calls Xpeed Companion makes to the Xpeed server: pair this computer, send one lap, send one track layout.
 //! The contract is `docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md`.
 
 use std::time::Duration;
@@ -111,7 +111,7 @@ pub fn send_track(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<S
     send_file(agent, config, "/api/sim/tracks", file, ("track layout", "track layouts"))
 }
 
-/// The same rules for every file Xpeed Sim sends: the device key, the bytes as they are, and the answer judged by its
+/// The same rules for every file Xpeed Companion sends: the device key, the bytes as they are, and the answer judged by its
 /// status alone. `what` names one file and several, for the messages.
 fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what: (&str, &str)) -> Result<Sent, SendError> {
     let (one, many) = what;

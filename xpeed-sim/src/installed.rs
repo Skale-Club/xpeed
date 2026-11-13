@@ -1,4 +1,4 @@
-//! Which of the games Xpeed Sim reads are installed on this computer, so the panel lists only those: from Steam's
+//! Which of the games Xpeed Companion reads are installed on this computer, so the panel lists only those: from Steam's
 //! libraries (the game's `appmanifest_<id>.acf` in one of the folders Steam's `libraryfolders.vdf` lists) and from
 //! Windows' list of installed programs (for games installed outside Steam, such as iRacing or the EA app's F1) and
 //! from Windows' list of installed Store packages (the Forza games from the Microsoft Store / Xbox app).

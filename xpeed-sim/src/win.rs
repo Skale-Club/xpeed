@@ -72,6 +72,8 @@ pub fn open(target: &str) {
 }
 
 pub const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+// The Run value name is an identity, not a label: it is the product's old name on purpose. Installs made before the
+// rename registered it under this name, so a new name would leave a second autostart entry behind.
 pub const RUN_NAME: &str = "Xpeed Sim";
 
 /// Whether `name` is set under the per-user "start with Windows" key `key`.

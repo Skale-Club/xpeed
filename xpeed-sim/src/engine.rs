@@ -127,8 +127,8 @@ pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
     })
 }
 
-/// A panel tracker that keeps each track's map in `maps` (under the Xpeed Sim folder) and takes the built layout from
-/// the outbox in `out`; with no Xpeed Sim folder the maps are just not kept.
+/// A panel tracker that keeps each track's map in `maps` (under the Xpeed Companion folder) and takes the built layout from
+/// the outbox in `out`; with no Xpeed Companion folder the maps are just not kept.
 fn tracker_for(game: &'static str, out: &Path) -> crate::dash::Tracker {
     match crate::maps::default_dir() {
         Some(maps) => crate::dash::Tracker::stored(crate::maps::Store {
@@ -478,7 +478,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         };
         if !reader.layout_matches() {
             let why = format!(
-                "The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update Xpeed Sim.",
+                "The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update Xpeed Companion.",
                 reader.mapped_bytes(),
                 LAYOUT_SIZE
             );

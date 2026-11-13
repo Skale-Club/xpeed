@@ -39,14 +39,14 @@ pub fn parse(link: &str) -> Result<PairLink, String> {
     if link.len() > 2048 {
         return Err("the link is too long".into());
     }
-    let (scheme, rest) = link.split_once(':').ok_or("this is not an Xpeed Sim link")?;
+    let (scheme, rest) = link.split_once(':').ok_or("this is not an Xpeed Companion link")?;
     if !scheme.eq_ignore_ascii_case(SCHEME) {
-        return Err("this is not an Xpeed Sim link".into());
+        return Err("this is not an Xpeed Companion link".into());
     }
-    let rest = rest.strip_prefix("//").ok_or("this is not an Xpeed Sim link")?;
+    let rest = rest.strip_prefix("//").ok_or("this is not an Xpeed Companion link")?;
     let (action, query) = rest.split_once('?').ok_or("the link has nothing to pair with")?;
     if !action.trim_end_matches('/').eq_ignore_ascii_case("pair") {
-        return Err("this link asks for something Xpeed Sim does not do".into());
+        return Err("this link asks for something Xpeed Companion does not do".into());
     }
     let (mut server, mut code) = (None, None);
     for pair in query.split('&').filter(|p| !p.is_empty()) {

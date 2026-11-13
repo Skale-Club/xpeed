@@ -1,4 +1,4 @@
-//! What Xpeed Sim is doing, shared between the thread that records, the thread that sends and the tray icon.
+//! What Xpeed Companion is doing, shared between the thread that records, the thread that sends and the tray icon.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
