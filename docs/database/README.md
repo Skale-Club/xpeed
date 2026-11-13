@@ -33,6 +33,17 @@ Se algo falhar, o script diz o motivo e o Vite sobe mesmo assim. `npm run dev:fa
 
 O sync **recusa** gravar quando `DATABASE_URL` aponta para o mesmo servidor da produção ou para um servidor que não seja do Supabase nem local. Para um banco de desenvolvimento em outro lugar, defina `DEV_SYNC_ALLOW_TARGET=host:porta`.
 
+### Travas nos scripts destrutivos (desde 13/11/2026)
+
+Depois do incidente de 10/11, todo script que esvazia, apaga ou substitui dados passa por `db/guard-destructive.mjs`: `scripts/cutover-copy.mjs`, `scripts/dev-sync.mjs` (via `db/sync.mjs`) e `scripts/recreate-admin.ts`.
+
+- **Produção é recusada.** Os hosts de produção vêm de uma lista embutida (o `xpeed-db` do Coolify e seu container, o servidor, o volume `xpeed-files`, o túnel `127.0.0.1:55432`, `xpeed.skale.club` e `xpeed.app`) mais a variável `XPEED_PROD_HOSTS` (separada por vírgula; ela só acrescenta). O sync de desenvolvimento nunca grava em produção e não tem como forçar.
+- **Sobrescrever produção de propósito** (quase nunca é certo) exige `--i-know-this-is-production` **e** digitar o host exato num terminal interativo; sem terminal, recusa.
+- **Antes de apagar**, o script mostra o host, o banco e as tabelas ou pastas com contagens, e pede o nome do alvo digitado de volta (`--yes` pula essa pergunta, nunca para produção).
+- **`cutover-copy` é ensaio (dry run) por padrão:** só `--apply` faz de verdade.
+- `PROD_DATABASE_URL` no `.env` é opcional e só de leitura; o `.env.example` não traz credenciais de produção.
+- Alertas de queda do site: `docs/operations/alerts.md`.
+
 ## Dados pelo servidor (`/api/db`)
 
 O navegador e o app Android não falam mais com o PostgREST do Supabase quando `VITE_DATA_API=true`. O cliente (`src/lib/api-data.ts`) mantém as mesmas chamadas encadeadas (`from().select().eq()...`, `rpc()`), então nenhum dos ~16 arquivos de acesso a dados mudou. Com a mesma flag, arquivos e avisos de mudança também passam pelo servidor (seção abaixo). As edge functions seguem no Supabase até a fase 4.
@@ -88,7 +99,7 @@ Qualquer outro `https:`/`npm:` novo numa função **quebra o build** com uma men
 
 | Comando | O que faz |
 |---|---|
-| `node scripts/cutover-copy.mjs` | Copia as 29 tabelas e os 154 arquivos, e compara contagem e chaves de cada tabela e bytes dos arquivos. |
+| `node scripts/cutover-copy.mjs` | **Ensaio (dry run), o padrão:** só mostra o que seria esvaziado e substituído. Com `--apply` copia as 29 tabelas e os 154 arquivos, e compara contagem e chaves de cada tabela e bytes dos arquivos. |
 | `... --backup .codex-local/backup-AAAAMMDD` | Também guarda uma cópia simples (um `.jsonl` por tabela e os arquivos) fora do Git. |
 | `... --app` | Não copia nada: roda o código de consulta do servidor sobre a cópia, como o dono, e compara com o Supabase (conta, carros, viagens, leituras, problemas, painel, calendário, admin, estranho e anônimo sem ver nada, CSVs no volume). |
 | `--data` / `--files` | Só o banco ou só os arquivos. |

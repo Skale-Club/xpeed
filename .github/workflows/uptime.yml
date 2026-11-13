@@ -1,0 +1,120 @@
+name: Uptime
+
+# Calls the public health endpoint every 5 minutes. When the site is down (3 tries, 20 s apart) it opens a
+# GitHub issue titled "Site down" (or comments on the one already open); when the site is healthy again it
+# comments "Recovered" and closes it. GitHub emails the repository owner about issues and comments, which is
+# the alert. No secret is needed: only the built-in GITHUB_TOKEN. See docs/operations/alerts.md.
+#
+# The address is the repository variable XPEED_PUBLIC_URL (Settings > Secrets and variables > Actions >
+# Variables); without it https://xpeed.skale.club is used. Change the variable when the domain moves to xpeed.app.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      BASE_URL: ${{ vars.XPEED_PUBLIC_URL || 'https://xpeed.skale.club' }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Probe the site (3 tries, 20 s apart)
+        id: probe
+        shell: bash
+        run: |
+          set -u
+          base="${BASE_URL%/}"
+          case "$base" in https://*) ;; *) echo "XPEED_PUBLIC_URL must start with https:// (got: $base)"; exit 1 ;; esac
+          report="$RUNNER_TEMP/report.md"
+          body="$RUNNER_TEMP/body.txt"
+          : > "$report"
+          healthy=false
+
+          # Prints "<http code>" and leaves the body in $body. 000 means no answer at all.
+          fetch() { local out; : > "$body"; out=$(curl -sS --connect-timeout 10 --max-time 15 -o "$body" -w '%{http_code}' "$1" 2>"$RUNNER_TEMP/curl.err") || true; echo "${out:-000}"; }
+          is_ok() { grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' "$body"; }
+
+          for attempt in 1 2 3; do
+            note=""
+            # 1. The deep check: 200 only when the database and the storage are ok, else 503.
+            code=$(fetch "$base/api/health/deep")
+            if [ "$code" = 200 ] && is_ok; then
+              healthy=true; break
+            fi
+            case "$code" in
+              503)
+                note="/api/health/deep answered 503: the database or the storage is not ok. Body: $(head -c 300 "$body" | tr '\n' ' ')" ;;
+              200|404|405|410)
+                # The deep endpoint is not deployed yet (404, or the page shell answering 200 without
+                # "status":"ok"): fall back to the plain check, where only a non-200 or a body without
+                # "status":"ok" counts as down.
+                code2=$(fetch "$base/api/health")
+                if [ "$code2" = 200 ] && is_ok; then
+                  healthy=true; break
+                fi
+                note="/api/health/deep is not available (HTTP $code); fallback /api/health answered HTTP $code2. Body: $(head -c 300 "$body" | tr '\n' ' ')" ;;
+              *)
+                note="/api/health/deep answered HTTP $code. $(head -c 200 "$RUNNER_TEMP/curl.err" | tr '\n' ' ') $(head -c 200 "$body" | tr '\n' ' ')" ;;
+            esac
+            echo "try $attempt of 3 failed: $note"
+            printf -- '- try %s of 3 (%s UTC): %s\n' "$attempt" "$(date -u +%H:%M:%S)" "$note" >> "$report"
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
+
+          echo "healthy=$healthy" >> "$GITHUB_OUTPUT"
+          if [ "$healthy" = true ]; then echo "The site is healthy: $base"; else echo "The site looks down: $base"; fi
+
+      - name: Open, update or close the "Site down" issue
+        shell: bash
+        env:
+          HEALTHY: ${{ steps.probe.outputs.healthy }}
+        run: |
+          set -eu
+          title="Site down"
+          base="${BASE_URL%/}"
+          now="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          number="$(gh issue list --state open --limit 100 --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")"
+
+          if [ "$HEALTHY" = true ]; then
+            if [ -n "$number" ]; then
+              gh issue comment "$number" --body "Recovered at $now: $base answers healthy again. Run: $RUN_URL"
+              gh issue close "$number" --reason completed
+            fi
+            exit 0
+          fi
+
+          {
+            echo "The health check of $base failed 3 times in a row (20 s apart) at $now."
+            echo
+            cat "$RUNNER_TEMP/report.md"
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo "This issue closes by itself, with a \"Recovered\" comment, when the check passes again."
+          } > "$RUNNER_TEMP/issue.md"
+
+          if [ -z "$number" ]; then
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+            exit 0
+          fi
+
+          # One comment per hour at most, so a long outage is not 288 emails a day.
+          last="$(gh issue view "$number" --json createdAt,comments --jq '([.createdAt] + [.comments[].createdAt]) | max')"
+          age=$(( $(date -u +%s) - $(date -u -d "$last" +%s) ))
+          if [ "$age" -ge 3300 ]; then
+            gh issue comment "$number" --body-file "$RUNNER_TEMP/issue.md"
+          else
+            echo "Still down; the open issue #$number was updated $age s ago, not commenting again yet."
+          fi

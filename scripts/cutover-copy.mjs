@@ -1,14 +1,21 @@
 // Copies the real data and files from Supabase into the app's own database and file volume.
 //
-//   node scripts/cutover-copy.mjs            rehearsal: copy, then compare. Safe to repeat.
+// DANGER: this EMPTIES the target tables and REPLACES the target files. Production has been the
+// target of record since 2026-11-04 and the Supabase source stopped receiving writes that day, so
+// running this against production sends it back to that day and erases everything written since.
+// That happened on 2026-11-10. The script is now a DRY RUN by default and goes through the shared
+// guard (db/guard-destructive.mjs): a production target is refused unless you pass
+// --i-know-this-is-production and type the host in a terminal. Read docs/database/README.md first.
+//
+//   node scripts/cutover-copy.mjs            DRY RUN (default): prints what would be emptied and replaced. Changes nothing.
+//   node scripts/cutover-copy.mjs --apply    really do it: copy, then compare. Asks for the target name typed back (--yes skips that, never for production).
 //   node scripts/cutover-copy.mjs --files    only the files
 //   node scripts/cutover-copy.mjs --data     only the database
 //   node scripts/cutover-copy.mjs --backup <folder>   also keep a plain copy (JSON lines + the files) in that folder
-//   node scripts/cutover-copy.mjs --app      no copy: run the app's own server code on the copy, as the owner, and compare with Supabase
+//   node scripts/cutover-copy.mjs --app      no copy: run the app's own server code on the copy, as the owner, and compare with Supabase (read only, no guard needed)
 //
 // Supabase is only READ (its REST and Storage APIs, with the service role key from .env). The target
-// is REPLACED: every table is emptied and refilled, so run it again for the final sync while writes
-// are paused. The target database has no public port, so this opens an SSH tunnel through the
+// is REPLACED (with --apply): every table is emptied and refilled. The target database has no public port, so this opens an SSH tunnel through the
 // Coolify host and takes the database URL from the Coolify API; nothing secret is printed.
 import 'dotenv/config';
 import { createHash } from 'node:crypto';
@@ -19,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import net from 'node:net';
 import pg from 'pg';
+import { GuardError, confirmDestructive, exitOnGuardError, findProductionMatch, guardDestructive } from '../db/guard-destructive.mjs';
 
 const env = process.env;
 const SOURCE = (env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
@@ -36,6 +44,7 @@ const backupAt = process.argv.includes('--backup') ? process.argv[process.argv.i
 if (process.argv.includes('--backup') && (!backupAt || backupAt.startsWith('--'))) throw new Error('--backup needs a folder');
 const PUBLIC_URL = (env.CUTOVER_PUBLIC_URL ?? 'https://xpeed.skale.club').replace(/\/$/, '');
 const appOnly = args.has('--app');
+const apply = args.has('--apply');
 const doData = !appOnly && !args.has('--files'), doFiles = !appOnly && !args.has('--data');
 
 if (!SOURCE || !SOURCE_KEY) throw new Error('VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be in .env');
@@ -89,9 +98,11 @@ async function targetUrl() {
   const base = (infra.COOLIFY_BASE ?? '').replace(/\/$/, '');
   const response = await fetch(`${base}/databases/${DB_UUID}`, { headers: { Authorization: `Bearer ${infra.COOLIFY_TOKEN}`, Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Coolify answered ${response.status}`);
-  const url = new URL((await response.json()).internal_db_url);
+  const internal = (await response.json()).internal_db_url;
+  const url = new URL(internal);
   url.hostname = '127.0.0.1'; url.port = String(LOCAL_PORT);
-  return url.toString();
+  // `tunnel` looks like localhost; `internal` is the real identity of the target, the one to check.
+  return { tunnel: url.toString(), internal };
 }
 
 const publicTables = async (client) => (await client.query(`SELECT table_name FROM information_schema.tables
@@ -101,6 +112,23 @@ const columnsOf = async (client, table) => (await client.query(`SELECT column_na
 const primaryKey = async (client, table) => (await client.query(`SELECT a.attname::text AS c FROM pg_index i
   JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
   WHERE i.indrelid = ('public.' || quote_ident($1))::regclass AND i.indisprimary ORDER BY array_position(i.indkey::int2[], a.attnum)`, [table])).rows.map((r) => r.c);
+
+// ------------------------------------------------------------------ what a run would change (read only)
+async function planData(target) {
+  const lines = [];
+  for (const table of await publicTables(target)) {
+    const now = (await target.query(`SELECT count(*)::int AS n FROM public.${quote(table)}`)).rows[0].n;
+    const incoming = await sourceCount(table).catch(() => 'no');
+    lines.push(`table ${table}: ${now} rows now, ALL emptied; ${incoming} rows come from Supabase`);
+  }
+  return lines;
+}
+async function planFiles() {
+  const mountpoint = await ssh(`docker volume inspect ${VOLUME} -f '{{.Mountpoint}}'`);
+  if (!mountpoint.startsWith('/var/lib/docker/volumes/')) throw new Error('Unexpected volume path');
+  const [files = 0, bytes = 0] = (await ssh(`cd ${mountpoint} && find . -type f | wc -l && find . -type f -printf '%s\\n' | awk '{s+=$1} END {print s+0}'`)).split(/\s+/).map(Number);
+  return [`volume ${VOLUME}: ${files} files (${bytes} bytes) now, ALL deleted and replaced by the Supabase files`];
+}
 
 // ------------------------------------------------------------------ data
 async function copyData(target) {
@@ -334,25 +362,49 @@ async function verifyApp(url) {
 const started = Date.now();
 let tunnel, target, problems = 0;
 try {
+  let guard = { production: false };
+  if (!appOnly) {
+    // Before any connection: is what this run would overwrite production?
+    const touched = [doData && `postgres://${DB_CONTAINER}/`, doData && DB_UUID !== DB_CONTAINER && `postgres://${DB_UUID}/`, doFiles && VOLUME].filter(Boolean);
+    guard = await guardDestructive({ targets: touched, action: 'cutover copy (empties the app database tables and replaces the files of its volume)' });
+    say(apply ? 'APPLY: this run changes the target.' : 'DRY RUN (default): nothing is changed. Add --apply to do it.');
+  }
+  let databaseTarget = VOLUME;
   if (doData) {
     say('Opening the tunnel to the database…');
     tunnel = await openTunnel();
-    target = new pg.Client({ connectionString: await targetUrl(), connectionTimeoutMillis: 15_000 });
+    const urls = await targetUrl();
+    // The Coolify API says which database this really is (the tunnel always looks like localhost).
+    const hit = findProductionMatch(urls.internal);
+    if (hit && !guard.production) throw new GuardError(`REFUSED: the database behind this run is production (${new URL(urls.internal).hostname}, matches "${hit}"). Nothing was changed. See docs/database/README.md.`);
+    databaseTarget = urls.internal;
+    target = new pg.Client({ connectionString: urls.tunnel, connectionTimeoutMillis: 15_000 });
     await target.connect();
-    say('Copying tables (the target is emptied first):');
-    const result = await copyData(target);
-    problems += await verifyData(target, result);
   }
-  if (doFiles) problems += await copyFiles();
+  if (!appOnly) {
+    const plan = [...(doData ? await planData(target) : []), ...(doFiles ? await planFiles() : [])];
+    if (!apply) {
+      say('\nWould change:'); for (const line of plan) say(`  ${line}`);
+      say('\nDry run: nothing was changed.');
+      process.exitCode = 0;
+    } else {
+      await confirmDestructive({ target: databaseTarget, action: 'cutover copy: empty the tables and replace the files', plan, production: guard.production });
+      if (doData) {
+        say('Copying tables (the target is emptied first):');
+        const result = await copyData(target);
+        problems += await verifyData(target, result);
+      }
+      if (doFiles) problems += await copyFiles();
+    }
+  }
   if (appOnly) {
     tunnel = await openTunnel();
-    problems += await verifyApp(await targetUrl());
+    problems += await verifyApp((await targetUrl()).tunnel);
   }
-  say(`\n${problems === 0 ? 'Everything matches.' : `${problems} difference(s) found.`} (${Math.round((Date.now() - started) / 1000)} s)`);
-  process.exitCode = problems === 0 ? 0 : 1;
+  if (apply || appOnly) say(`\n${problems === 0 ? 'Everything matches.' : `${problems} difference(s) found.`} (${Math.round((Date.now() - started) / 1000)} s)`);
+  if (apply || appOnly) process.exitCode = problems === 0 ? 0 : 1;
 } catch (error) {
-  console.error(`\nFAILED: ${error.message}`);
-  process.exitCode = 1;
+  if (!exitOnGuardError(error)) { console.error(`\nFAILED: ${error.message}`); process.exitCode = 1; }
 } finally {
   await target?.end().catch(() => {});
   tunnel?.kill();

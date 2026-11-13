@@ -5,6 +5,11 @@
 //   2. when PROD_DATABASE_URL is set, replaces the development data with an
 //      anonymized copy of production. Production is only read, never written.
 //
+// This script only ever WRITES to the development database. assertSafeTarget (db/sync.mjs, which uses
+// the shared guard db/guard-destructive.mjs) refuses DATABASE_URL when it is a production host
+// (built-in list + XPEED_PROD_HOSTS), the same server as PROD_DATABASE_URL, or not Supabase/local.
+// There is no flag to override that here. It prints the target and the tables it empties before it does.
+//
 // Skip the data copy with `DEV_SYNC=off` or `npm run dev:fast`. Never blocks `npm run dev`
 // when the database is not configured or unreachable: it says why and carries on.
 import 'dotenv/config';
@@ -38,7 +43,7 @@ async function main() {
     const prod = await connect(env.PROD_DATABASE_URL, 'production (PROD_DATABASE_URL)');
     try {
       say('copying anonymized production data into the development database…');
-      const summary = await pullAnonymized(prod, dev, { keepEmails: list(env.DEV_KEEP_EMAILS), keepPhones: list(env.DEV_KEEP_PHONES), log: say });
+      const summary = await pullAnonymized(prod, dev, { keepEmails: list(env.DEV_KEEP_EMAILS), keepPhones: list(env.DEV_KEEP_PHONES), log: say, env });
       const rows = Object.values(summary.tables).reduce((a, b) => a + b, 0);
       say(`done: ${rows} rows in ${Object.keys(summary.tables).length} tables; ${summary.keptAccounts} account(s) kept recognizable; not copied: ${summary.skipped.join(', ') || 'nothing'}`);
     } finally { await prod.end().catch(() => {}); }

@@ -1,8 +1,10 @@
 // Copies production data into the development database, anonymized.
 // Production is only ever read (a READ ONLY transaction); everything is written to `dev`.
 import { SKIPPED_TABLES, createAnonymizer } from './anonymize.mjs';
+import { findProductionMatch } from './guard-destructive.mjs';
 
 const BATCH = 500;
+const describeHost = (url) => { try { return new URL(url).host; } catch { return 'the target'; } };
 const quote = (name) => `"${String(name).replace(/"/g, '""')}"`;
 
 async function publicTables(client) {
@@ -17,9 +19,15 @@ async function columnsOf(client, table, { writable = false } = {}) {
   return rows.map((r) => r.column_name);
 }
 
-/** Refuses to write to anything that does not look like a development database. */
+/**
+ * Refuses to write to anything that does not look like a development database. The development
+ * sync only ever writes to the development database: a production host (db/guard-destructive.mjs,
+ * XPEED_PROD_HOSTS) is refused outright, with no flag that overrides it here.
+ */
 export function assertSafeTarget(devUrl, prodUrl, env = process.env) {
   if (!devUrl) throw new Error('DATABASE_URL (the development database) is not set');
+  const known = findProductionMatch(devUrl, env);
+  if (known) throw new Error(`Refusing to overwrite ${describeHost(devUrl)}: it matches the production host "${known}" (built-in list or XPEED_PROD_HOSTS). The development sync only writes to the development database.`);
   const host = (url) => { try { return new URL(url).host; } catch { return url; } };
   if (prodUrl && host(devUrl) === host(prodUrl)) throw new Error('DATABASE_URL and PROD_DATABASE_URL point at the same server; refusing to overwrite production');
   const dev = host(devUrl);
@@ -33,7 +41,10 @@ export function assertSafeTarget(devUrl, prodUrl, env = process.env) {
  * @param {import('pg').Client} prod  connected to production (only read)
  * @param {import('pg').Client} dev   connected to the development database, already migrated
  */
-export async function pullAnonymized(prod, dev, { keepEmails = [], keepPhones = [], log = () => {} } = {}) {
+export async function pullAnonymized(prod, dev, { keepEmails = [], keepPhones = [], log = () => {}, env = process.env } = {}) {
+  // Defense in depth: even called directly, never write to a production host.
+  const known = findProductionMatch(`postgres://${dev.host ?? ''}${dev.port ? `:${dev.port}` : ''}/`, env);
+  if (known) throw new Error(`Refusing to overwrite ${dev.host}${dev.port ? `:${dev.port}` : ''}: it matches the production host "${known}". The development sync only writes to the development database.`);
   const anonymizer = createAnonymizer({ keepEmails, keepPhones });
   const summary = { tables: {}, skipped: [] };
   await prod.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -45,6 +56,9 @@ export async function pullAnonymized(prod, dev, { keepEmails = [], keepPhones = 
 
     await dev.query('BEGIN');
     try {
+      // Say what is about to be emptied (host, database, tables with their current rows) before it is.
+      log(`about to REPLACE the data of ${dev.host ?? 'the development database'}${dev.port ? `:${dev.port}` : ''}/${dev.database ?? ''}: ${copy.length} tables are emptied and refilled from production`);
+      for (const table of copy) log(`  ${table}: ${(await dev.query(`SELECT count(*)::int AS n FROM public.${quote(table)}`)).rows[0].n} rows now`);
       // Triggers and foreign keys would reject rows that are only valid as a whole.
       await dev.query("SET LOCAL session_replication_role = 'replica'");
       await dev.query(`TRUNCATE ${copy.map((t) => `public.${quote(t)}`).join(', ')} RESTART IDENTITY CASCADE`);

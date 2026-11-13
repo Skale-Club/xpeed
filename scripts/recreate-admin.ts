@@ -1,4 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { confirmDestructive, exitOnGuardError, guardDestructive } from '../db/guard-destructive.mjs';
+
+// DESTRUCTIVE: deletes the admin auth user (which cascades to that user's rows) and creates it again.
+// Legacy (the app signs in with Google now). Guarded by db/guard-destructive.mjs: a production host is
+// refused unless --i-know-this-is-production and the host typed; otherwise the target is shown and its
+// name must be typed back (or --yes).
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -23,6 +29,14 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 });
 
 async function recreateAdmin() {
+    const action = 'delete the admin auth user and create it again';
+    const guard = await guardDestructive({ target: supabaseUrl, action });
+    await confirmDestructive({
+        target: supabaseUrl,
+        action,
+        production: guard.production,
+        plan: [`auth user ${ADMIN_EMAIL}: deleted if it exists (this also deletes the rows that belong to it), then created again`],
+    });
     console.log(`🔍 Looking for user: ${ADMIN_EMAIL}`);
 
     const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
@@ -107,4 +121,6 @@ async function recreateAdmin() {
     }
 }
 
-recreateAdmin();
+recreateAdmin().catch((error) => {
+    if (!exitOnGuardError(error)) { console.error(error); process.exitCode = 1; }
+});
