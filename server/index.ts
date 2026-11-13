@@ -107,7 +107,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
         res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database,storage:await storageStatus()}));return;
       }
-      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
+      const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/laps/')?simLaps:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
         const controller=new AbortController();
         req.once('aborted',()=>controller.abort());

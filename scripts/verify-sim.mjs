@@ -409,7 +409,7 @@ try {
     assert.equal((await upload('xpd_unknown', bytes)).status, 401);
     // A person's own sign-in token is not a device key.
     assert.equal((await upload(A, bytes)).status, 401);
-    assert.equal((await call(laps, '/api/sim/laps', { method: 'GET' })).status, 405);
+    assert.equal((await call(laps, '/api/sim/laps', { method: 'PUT' })).status, 405);
   });
 
   await check('uploads are limited per device', async () => {
@@ -710,6 +710,94 @@ try {
     const [row] = await trackRows(ids.A);
     assert.equal((await call(tracks, `/api/sim/tracks/${row.id}`, { method: 'GET', bearer: A })).status, 405);
     assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`, { method: 'DELETE', bearer: A })).status, 405);
+  });
+
+  // ------------------------------------------------------------------ reading laps back (GET/DELETE /api/sim/laps)
+  const lapRows = async (userId) => (await direct.query('SELECT * FROM public.sim_laps WHERE user_id = $1 ORDER BY started_at DESC', [userId])).rows;
+  await check('laps read: the device upload still works, and a person lists only their own laps, newest first, with the contract fields', async () => {
+    await direct.query('DELETE FROM public.sim_laps WHERE user_id IN ($1, $2)', [ids.A, ids.B]);
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id IN ($1, $2)', [ids.A, ids.B]);
+    const dev = await deviceFor(A, 'READ RIG');
+    const devB = await deviceFor(B, 'B RIG');
+    const older = await upload(dev.token, await lapBytes(1, { startedAt: '2026-11-01T10:00:00.000Z' }));
+    const newer = await upload(dev.token, await lapBytes(2, { startedAt: '2026-11-05T10:00:00.000Z', lap: { number: 2, timeMs: 83456, valid: false } }));
+    assert.equal(older.status, 201);
+    assert.equal(newer.status, 201);
+    assert.equal((await upload(devB.token, await lapBytes(3))).status, 201);
+
+    const listed = await call(laps, '/api/sim/laps', { bearer: A });
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.laps.length, 2, 'only A\'s laps');
+    assert.deepEqual(listed.body.laps.map((l) => l.id), [newer.body.id, older.body.id], 'newest startedAt first');
+    const [first] = listed.body.laps;
+    assert.deepEqual(Object.keys(first).sort(), ['car', 'createdAt', 'deviceName', 'game', 'id', 'lapNumber', 'sampleCount', 'sizeBytes', 'startedAt', 'timeMs', 'track', 'valid']);
+    assert.equal(first.game, 'lmu');
+    assert.equal(first.track, 'Test Track');
+    assert.equal(first.car, 'Test Car');
+    assert.equal(first.lapNumber, 2);
+    assert.equal(first.timeMs, 83456);
+    assert.equal(first.valid, false);
+    assert.equal(first.startedAt, '2026-11-05T10:00:00.000Z');
+    assert.equal(first.sampleCount, 3);
+    assert.equal(first.deviceName, 'READ RIG');
+    assert.ok(!Number.isNaN(Date.parse(first.createdAt)));
+    assert.equal(first.sizeBytes, (await lapRows(ids.A)).find((r) => r.id === newer.body.id).size_bytes);
+    assert.equal((await call(laps, '/api/sim/laps', { bearer: B })).body.laps.length, 1);
+
+    // A removed device leaves the lap with no device name.
+    await direct.query('DELETE FROM public.sim_devices WHERE id = $1', [(await direct.query('SELECT device_id FROM public.sim_laps WHERE id = $1', [older.body.id])).rows[0].device_id]);
+    const after = await call(laps, '/api/sim/laps', { bearer: A });
+    assert.deepEqual(after.body.laps.map((l) => l.deviceName), [null, null]);
+  });
+
+  await check('laps read: a person downloads their own lap exactly as uploaded, cached for good', async () => {
+    const bytes = await lapBytes(11, { startedAt: '2026-11-06T10:00:00.000Z' });
+    const sent = await upload((await deviceFor(A, 'FILE RIG')).token, bytes);
+    assert.equal(sent.status, 201);
+    const response = await laps(new Request(`http://x/api/sim/laps/${sent.body.id}/file`, { headers: { authorization: `Bearer ${A}` } }));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/gzip');
+    assert.equal(response.headers.get('cache-control'), 'private, max-age=31536000, immutable');
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array(bytes), 'the stored bytes, as sent');
+  });
+
+  await check('laps read: nobody lists, downloads or deletes another person\'s lap, and sign-in is required', async () => {
+    const [mine] = await lapRows(ids.A);
+    const file = resolve(filesRoot, 'sim-laps', mine.storage_path);
+    assert.equal((await call(laps, '/api/sim/laps')).status, 401);
+    assert.equal((await call(laps, '/api/sim/laps', { bearer: 'not-a-token' })).status, 401);
+    assert.equal((await call(laps, `/api/sim/laps/${mine.id}/file`)).status, 401);
+    assert.equal((await call(laps, `/api/sim/laps/${mine.id}`, { method: 'DELETE' })).status, 401);
+    const { token: key } = await deviceFor(A, 'KEY RIG');
+    assert.equal((await call(laps, '/api/sim/laps', { bearer: key })).status, 401, 'a device key cannot read');
+    assert.ok(!(await call(laps, '/api/sim/laps', { bearer: B })).body.laps.some((l) => l.id === mine.id));
+    assert.equal((await call(laps, `/api/sim/laps/${mine.id}/file`, { bearer: B })).status, 404);
+    assert.equal((await call(laps, `/api/sim/laps/${mine.id}`, { method: 'DELETE', bearer: B })).status, 404);
+    assert.equal((await call(laps, '/api/sim/laps/00000000-0000-4000-8000-000000000000/file', { bearer: A })).status, 404);
+    assert.equal((await call(laps, '/api/sim/laps/not-a-uuid/file', { bearer: A })).status, 404);
+    assert.equal((await lapRows(ids.A)).some((r) => r.id === mine.id), true, 'B deleted nothing');
+    assert.equal(existsSync(file), true);
+  });
+
+  await check('laps read: a person deletes their own lap; the row and the stored file are gone', async () => {
+    const [mine] = await lapRows(ids.A);
+    const file = resolve(filesRoot, 'sim-laps', mine.storage_path);
+    assert.equal(existsSync(file), true);
+    const gone = await call(laps, `/api/sim/laps/${mine.id}`, { method: 'DELETE', bearer: A });
+    assert.equal(gone.status, 204);
+    assert.equal((await lapRows(ids.A)).some((r) => r.id === mine.id), false);
+    assert.equal(existsSync(file), false);
+    assert.equal((await call(laps, `/api/sim/laps/${mine.id}/file`, { bearer: A })).status, 404);
+    assert.equal((await call(laps, `/api/sim/laps/${mine.id}`, { method: 'DELETE', bearer: A })).status, 404, 'already deleted');
+    assert.ok(!(await call(laps, '/api/sim/laps', { bearer: A })).body.laps.some((l) => l.id === mine.id));
+  });
+
+  await check('laps read: the endpoint answers only its methods, with CORS for the browser', async () => {
+    const [row] = await lapRows(ids.A);
+    assert.equal((await call(laps, '/api/sim/laps', { method: 'OPTIONS' })).status, 204);
+    assert.equal((await call(laps, `/api/sim/laps/${row.id}`, { method: 'GET', bearer: A })).status, 405);
+    assert.equal((await call(laps, `/api/sim/laps/${row.id}/file`, { method: 'DELETE', bearer: A })).status, 405);
+    assert.ok((await call(laps, '/api/sim/laps', { bearer: A })).headers.get('access-control-allow-origin'));
   });
 
   // The real Xpeed Sim against these handlers, when its program is given (XPEED_SIM_EXE=...\xpeed-sim.exe): it pairs,
