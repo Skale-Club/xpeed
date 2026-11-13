@@ -136,7 +136,15 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         let release:(()=>void)|undefined,device;
         if(limit!==null){
           const admission=await admitUpload(headers,limit);
-          if('refused' in admission){res.setHeader('Connection','close');await sendResponse(req,res,admission.refused);return;}
+          if('refused' in admission){
+            // Closing the connection while the client is still sending makes it see a reset instead of this answer (the
+            // Companion would not learn that its key was revoked). So a refusal within the limit keeps the connection:
+            // Node reads and throws away the rest of the body without holding it. Only a body declared far beyond the
+            // limit (or already refused as too large) closes the connection, so nobody can make the server swallow gigabytes.
+            const declared=Number(req.headers['content-length']);
+            if(admission.refused.status===413||(Number.isFinite(declared)&&declared>limit*2))res.setHeader('Connection','close');
+            await sendResponse(req,res,admission.refused);return;
+          }
           ({release,device}=admission);
         }
         let response: Response;
