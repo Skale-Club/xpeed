@@ -113,3 +113,63 @@ The local `npm run test:sim` lacks `@electric-sql/pglite` under `node_modules/.x
 
 ### Next
 None.
+
+---
+
+## 2026-11-13 — Virtual reads the account's laps; Overview and Game cars built
+
+- **Type:** Feature · **Area:** General, i18n & UX · **Status:** Done
+- **Agent:** Claude Code · **Model:** Opus 5.5 orchestrating, Sonnet 5.5 subagents executing
+- **Repo / Branch:** Skale-Club/xpeed / main = dev 9742b58
+- **Commits / PR:** 816489c, 41cc095; merges 9742b58
+- **Tests:** vitest 993; test:sim 42 (5 new "laps read" checks); tsc app/api/server clean; CI and deploy green; in production, signed in, Overview, Game cars and Sessions show the owner's real AMS2 lap (Interlagos, Ginetta G40, 2:34.252, not valid).
+- **Summary:** Companion uploaded laps but the site never read them, and Overview and Game cars were placeholders. Added GET/DELETE /api/sim/laps and GET /api/sim/laps/<id>/file; Sessions and Compare merge account and local laps; Overview and Game cars are real pages.
+
+### Context
+The owner asked why Overview and Game cars "do not exist". Both pointed at a placeholder page. The server also accepted Companion's uploads but had no read endpoint, so Sessions only showed lap files added by hand.
+
+### What changed
+- **Server (`api/sim/laps.ts`).**
+  - `GET /api/sim/laps`, signed in, under RLS: the person's laps, newest first, at most 5000, each with its device name.
+  - `GET /api/sim/laps/<id>/file`: the stored `.xlap.gz`, cached as immutable.
+  - `DELETE /api/sim/laps/<id>`: removes the row and the file.
+  - A lap that belongs to someone else returns 404, and a request without sign-in returns 401.
+  - The upload `POST` is unchanged.
+- **Site.**
+  - `account-laps.ts` lists, downloads and deletes account laps. It merges them with local laps by identity, so no lap appears twice.
+  - Sessions and Compare use the merged list. A lap is downloaded the first time it is opened, then kept in the browser.
+  - The Overview shows:
+    - the Companion card, with the connected computers and the last lap received;
+    - the 5 most recent sessions;
+    - the best valid laps;
+    - the games played.
+  - Game cars shows the cars of each game, with the brand logo, laps, tracks, best valid lap per track and the date last driven.
+  - EN/PT/ES.
+- **Behaviour change.** Removing a session or "Remove everything" also deletes those laps from the account. The confirm text says so; without it, the laps would come back at the next refresh.
+
+### How it was built
+Two Sonnet subagents ran in parallel against one contract that Opus wrote, modelled on `/api/sim/tracks`. Opus merged both branches, ran vitest, test:sim and tsc, released after the owner's OK, followed CI and the deploy, and checked the pages in the owner's Chrome.
+
+### Decisions and why
+- The account list carries metadata only. Lap files are downloaded only when someone opens one, which keeps the pages fast.
+- Deleting a lap removes it from the account too, so a deleted lap does not reappear.
+
+### Tests and evidence
+- vitest 993 passed.
+- test:sim: 42 checks passed, including:
+  - a person lists only their own laps;
+  - the downloaded file equals the upload;
+  - nobody can list, download or delete another person's laps;
+  - delete removes both the row and the file.
+- Production after the deploy:
+  - `/api/sim/laps` returns 401 without sign-in.
+  - Overview shows VANILDO-PC and the last lap received.
+  - Game cars lists Ginetta G40 under Automobilista 2.
+  - Sessions lists the Interlagos session.
+
+### Not done / risks
+- Opening a server lap through Compare was not exercised end to end in a browser; it is covered by unit tests only.
+- The harness has no `/api/sim/games`, so game covers were not seen there.
+
+### Next
+None required.
