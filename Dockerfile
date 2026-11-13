@@ -14,6 +14,8 @@ ARG VITE_FIREBASE_AUTH_DOMAIN
 ARG VITE_GOOGLE_CLIENT_ID
 # true = the app uses its own server for data, files and functions instead of Supabase (see docs/database).
 ARG VITE_DATA_API
+# true = the Virtual mode (racing games, Xpeed Sim) can be chosen in Settings. Each person still opts in there.
+ARG VITE_ENABLE_VIRTUAL=true
 RUN npm run build
 FROM base AS runner
 ENV NODE_ENV=production PORT=8888 TRUST_PROXY=true
