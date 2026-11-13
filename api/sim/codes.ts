@@ -4,8 +4,8 @@ import { openBackend } from '../_backend';
 import { bearer, browserHeaders, newPairingCode, reply, sha256Hex, showCode, tooMany } from './_shared';
 
 export default async function codes(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders });
-  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders, ...extra });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
+  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders(req), ...extra });
   if (req.method !== 'POST') return answer({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
   const backend = openBackend();
   if (!backend) return answer({ error: 'unavailable' }, 503);

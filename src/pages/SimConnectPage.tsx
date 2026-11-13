@@ -95,6 +95,21 @@ export default function SimConnectPage() {
         <Monitor className="mx-auto h-10 w-10 text-primary" aria-hidden />
         <h1 className="text-lg font-semibold">{t('modes.connect.title', 'Connect Xpeed Companion?')}</h1>
         <p className="break-words text-2xl font-bold" data-testid="connect-device">{found.deviceName}</p>
+        {found.deviceNameFromComputer !== false && (
+          <p className="text-xs text-muted-foreground" data-testid="connect-name-notice">
+            {t('modes.connect.nameNotChecked', 'The name {{device}} is sent by the computer and is not checked.', { device: found.deviceName })}
+          </p>
+        )}
+        {found.verifyCode && (
+          <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3" data-testid="connect-verify">
+            <p className="text-sm">
+              {t('modes.connect.verify', 'Check that the code is the same one shown in Xpeed Companion on your computer:')}
+            </p>
+            <p className="font-mono text-4xl font-bold tracking-[0.3em]" data-testid="connect-code" aria-label={found.verifyCode.split('').join(' ')}>
+              {found.verifyCode}
+            </p>
+          </div>
+        )}
         {account && (
           <p className="text-sm">
             {t('modes.connect.goesTo', 'Your laps from this computer will go to {{account}}.', { account })}

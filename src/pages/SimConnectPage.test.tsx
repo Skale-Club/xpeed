@@ -54,6 +54,34 @@ describe('the connect page', () => {
     expect(api.approve).not.toHaveBeenCalled();
   });
 
+  it('shows the verification code big, with the check to make, and says the computer name is not checked', async () => {
+    api.read.mockResolvedValue({ ...pending, verifyCode: 'K7QM', deviceNameFromComputer: true });
+    open();
+    expect(await screen.findByTestId('connect-code')).toHaveTextContent('K7QM');
+    expect(screen.getByTestId('connect-verify')).toHaveTextContent('Check that the code is the same one shown in Xpeed Companion on your computer:');
+    expect(screen.getByTestId('connect-name-notice')).toHaveTextContent('The name DESKTOP-RIG is sent by the computer and is not checked.');
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
+  it('says the same in Portuguese and Spanish', async () => {
+    api.read.mockResolvedValue({ ...pending, verifyCode: 'K7QM', deviceNameFromComputer: true });
+    await i18n.changeLanguage('pt-BR');
+    const first = open();
+    expect(await screen.findByTestId('connect-verify')).toHaveTextContent('Confira se o código é o mesmo que aparece no Xpeed Companion no seu computador:');
+    expect(screen.getByTestId('connect-name-notice')).toHaveTextContent('O nome DESKTOP-RIG é enviado pelo computador e não é verificado.');
+    first.unmount();
+    await i18n.changeLanguage('es-ES');
+    open();
+    expect(await screen.findByTestId('connect-verify')).toHaveTextContent('Comprueba que el código sea el mismo que aparece en Xpeed Companion en tu ordenador:');
+    expect(screen.getByTestId('connect-name-notice')).toHaveTextContent('El nombre DESKTOP-RIG lo envía el ordenador y no se verifica.');
+  });
+
+  it('shows no code box when an older server sends none', async () => {
+    open();
+    await screen.findByTestId('connect-ask');
+    expect(screen.queryByTestId('connect-code')).not.toBeInTheDocument();
+  });
+
   it('shows a loading state while the request is read', async () => {
     api.read.mockReturnValue(new Promise(() => undefined));
     open();

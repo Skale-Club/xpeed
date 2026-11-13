@@ -6,8 +6,8 @@ import { bearer, browserHeaders, reply } from './_shared';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function devices(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders });
-  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders, ...extra });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
+  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders(req), ...extra });
   if (!['GET', 'DELETE'].includes(req.method)) return answer({ error: 'method_not_allowed' }, 405, { Allow: 'GET, DELETE' });
   const backend = openBackend();
   if (!backend) return answer({ error: 'unavailable' }, 503);

@@ -24,8 +24,8 @@ const failed = (error: unknown) => console.error(JSON.stringify({
 }));
 
 export default async function games(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders });
-  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders, ...extra });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
+  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders(req), ...extra });
   const where = route(new URL(req.url).pathname);
   if (!where) return answer({ error: 'not_found' }, 404);
   if (req.method !== 'GET') return answer({ error: 'method_not_allowed' }, 405, { Allow: 'GET' });
@@ -49,7 +49,7 @@ export default async function games(req: Request): Promise<Response> {
     if (row.error) throw row.error;
     if (!row.data) return answer({ error: 'not_found' }, 404);
     const tag = `"${row.data.cover_sha256}"`;
-    const headers = { ...browserHeaders, ETag: tag, 'Cache-Control': COVER_CACHE, 'X-Content-Type-Options': 'nosniff' };
+    const headers = { ...browserHeaders(req), ETag: tag, 'Cache-Control': COVER_CACHE, 'X-Content-Type-Options': 'nosniff' };
     const asked = (req.headers.get('if-none-match') ?? '').split(',').map((t) => t.trim().replace(/^W\//, ''));
     if (asked.includes(tag)) return new Response(null, { status: 304, headers });
     const bytes = Buffer.from(String(row.data.cover_base64), 'base64');
