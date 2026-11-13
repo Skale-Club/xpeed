@@ -161,7 +161,7 @@ function OffLine({ items, unit, onShow }: { items: OffLineStretch[]; unit: Dista
 }
 
 /**
- * Looking at laps in the browser: open lap files written by Xpeed Sim (or the sample laps), pick one as the
+ * Looking at laps in the browser: open lap files written by Xpeed Companion (or the sample laps), pick one as the
  * lap and one as the reference, and read the gap between them along the track. The files are read here and go
  * nowhere else: no account, no server.
  */
@@ -386,7 +386,7 @@ export function LapAnalysis({
       >
         <CardContent className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
-            {t('modes.compare.intro', 'Open lap files written by Xpeed Sim to see them side by side.')} {t('modes.compare.private', 'The files stay in your browser; nothing is uploaded.')}
+            {t('modes.compare.intro', 'Open lap files written by Xpeed Companion to see them side by side.')} {t('modes.compare.private', 'The files stay in your browser; nothing is uploaded.')}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => input.current?.click()}>

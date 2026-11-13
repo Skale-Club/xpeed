@@ -22,7 +22,7 @@ export function LibraryCompare() {
   const [state, setState] = useState<{ key: string; laps: LoadedLap[]; missing: boolean } | null>(null);
 
   // Track layouts are kept on this device like laps: one opened here is kept for next time, and a lap finds its own.
-  // A layout not on this device yet may be in the account (Xpeed Sim sends them): the account is copied over once, then
+  // A layout not on this device yet may be in the account (Xpeed Companion sends them): the account is copied over once, then
   // looked in again.
   const synced = useRef<Promise<unknown> | null>(null);
   const findLayout = useCallback(

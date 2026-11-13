@@ -43,7 +43,7 @@
       "compare": "Comparar vueltas",
       "tracks": "Circuitos",
       "cars": "Coches del juego",
-      "xpeedSim": "Xpeed Sim"
+      "xpeedSim": "Xpeed Companion"
     },
     "placeholder": "Esta área se está construyendo. Tus sesiones y vueltas aparecerán aquí.",
     "settings": {
@@ -57,7 +57,7 @@
     },
     "offer": {
       "virtualTitle": "Juegos de carreras está desactivado",
-      "virtualBody": "Esta página es parte de Juegos de carreras: sesiones y vueltas de tu simulador y la conexión con Xpeed Sim. Actívalo para continuar.",
+      "virtualBody": "Esta página es parte de Juegos de carreras: sesiones y vueltas de tu simulador y la conexión con Xpeed Companion. Actívalo para continuar.",
       "realTitle": "Coche real está desactivado",
       "realBody": "Esta página es parte de Coche real: viajes, problemas, combustible y mantenimiento. Actívalo para continuar.",
       "later": "Puedes desactivarlo de nuevo en Ajustes.",
@@ -74,11 +74,11 @@
       "bothTitle": "Los dos",
       "bothHint": "Tu coche y tu simulador.",
       "simTitle": "Tu simulador",
-      "simBody": "Xpeed Sim es la app para Windows que lee tus juegos. Instálala en el ordenador donde juegas y conéctala en Virtual > Xpeed Sim.",
+      "simBody": "Xpeed Companion es la app para Windows que lee tus juegos. Instálala en el ordenador donde juegas y conéctala en Virtual > Xpeed Companion.",
       "simFinish": "Ir a Virtual"
     },
     "compare": {
-      "intro": "Abre archivos de vuelta grabados por Xpeed Sim para verlos lado a lado.",
+      "intro": "Abre archivos de vuelta grabados por Xpeed Companion para verlos lado a lado.",
       "private": "Los archivos se quedan en tu navegador; no se sube nada.",
       "open": "Abrir archivos de vuelta",
       "sample": "Probar con vueltas de ejemplo",
@@ -152,7 +152,7 @@
       "add": "Añadir archivos de vuelta",
       "addFolder": "Añadir una carpeta",
       "drop": "o suelta archivos de vuelta aquí",
-      "empty": "Aún no hay vueltas. Añade los archivos de vuelta que graba Xpeed Sim (o toda su carpeta de salida) y aparecerán aquí, agrupadas en sesiones.",
+      "empty": "Aún no hay vueltas. Añade los archivos de vuelta que graba Xpeed Companion (o toda su carpeta de salida) y aparecerán aquí, agrupadas en sesiones.",
       "unavailable": "Este navegador no puede guardar vueltas en el dispositivo. Aún puedes abrir archivos directamente en Comparar vueltas.",
       "failed": "No se pudieron leer tus vueltas de este dispositivo.",
       "retry": "Reintentar",
@@ -187,24 +187,24 @@
       "confirmRemove": "Quitar"
     },
     "tracks": {
-      "intro": "La forma real de cada circuito: el asfalto entre sus bordes, la línea ideal del juego y el pit lane, leídos por Xpeed Sim de los archivos del propio juego (Assetto Corsa y Stock Car Extreme). Tus vueltas se dibujan sobre ellos en la pantalla de comparar.",
-      "private": "Xpeed Sim los envía a tu cuenta por sí solo cuando ruedas en un circuito; se guarda una copia en este dispositivo.",
+      "intro": "La forma real de cada circuito: el asfalto entre sus bordes, la línea ideal del juego y el pit lane, leídos por Xpeed Companion de los archivos del propio juego (Assetto Corsa y Stock Car Extreme). Tus vueltas se dibujan sobre ellos en la pantalla de comparar.",
+      "private": "Xpeed Companion los envía a tu cuenta por sí solo cuando ruedas en un circuito; se guarda una copia en este dispositivo.",
       "open": "Añadir archivos de trazado",
       "drop": "o suelta archivos .xtrk aquí",
       "added_one": "1 trazado guardado.",
       "added_other": "{{count}} trazados guardados.",
       "count_one": "1 trazado",
       "count_other": "{{count}} trazados",
-      "empty": "Todavía no hay trazados. Añade los archivos .xtrk que graba Xpeed Sim, o abre uno en la pantalla de comparar.",
+      "empty": "Todavía no hay trazados. Añade los archivos .xtrk que graba Xpeed Companion, o abre uno en la pantalla de comparar.",
       "unavailable": "Este navegador no puede guardar trazados en el dispositivo.",
       "edges": "bordes",
       "idealLine": "línea ideal",
       "pitLane": "pit lane",
       "remove": "Quitar",
       "removeTitle": "¿Quitar este trazado?",
-      "removeText": "Se quita de este dispositivo y de tu cuenta. Las vueltas en este circuito se dibujarán sin él hasta que Xpeed Sim lo vuelva a enviar o se añada su archivo.",
-      "fromAccount_one": "1 trazado enviado por Xpeed Sim se trajo de tu cuenta.",
-      "fromAccount_other": "{{count}} trazados enviados por Xpeed Sim se trajeron de tu cuenta.",
+      "removeText": "Se quita de este dispositivo y de tu cuenta. Las vueltas en este circuito se dibujarán sin él hasta que Xpeed Companion lo vuelva a enviar o se añada su archivo.",
+      "fromAccount_one": "1 trazado enviado por Xpeed Companion se trajo de tu cuenta.",
+      "fromAccount_other": "{{count}} trazados enviados por Xpeed Companion se trajeron de tu cuenta.",
       "reasons": {
         "too_big": "es demasiado grande para ser un trazado",
         "not_a_track": "no es un archivo de trazado",
@@ -214,9 +214,9 @@
       }
     },
     "sim": {
-      "intro": "Xpeed Sim es la app para Windows que lee tu juego de carreras y envía cada vuelta a tu cuenta. Instálala en el ordenador donde juegas y conéctala una vez.",
+      "intro": "Xpeed Companion es la app para Windows que lee tu juego de carreras y envía cada vuelta a tu cuenta. Instálala en el ordenador donde juegas y conéctala una vez.",
       "connectTitle": "Conectar un ordenador",
-      "connectBody": "Pide un código y abre Xpeed Sim con el botón de abajo (o ejecuta el comando en el ordenador Windows). El código vale 10 minutos y solo funciona una vez.",
+      "connectBody": "Pide un código y abre Xpeed Companion con el botón de abajo (o ejecuta el comando en el ordenador Windows). El código vale 10 minutos y solo funciona una vez.",
       "getCode": "Obtener código de emparejamiento",
       "newCode": "Obtener un código nuevo",
       "codeLabel": "Código de emparejamiento",
@@ -225,7 +225,7 @@
       "commandLabel": "O ejecuta esto en el ordenador Windows",
       "copy": "Copiar",
       "copied": "Copiado",
-      "install": "Xpeed Sim tiene que estar instalado antes en ese ordenador.",
+      "install": "Xpeed Companion tiene que estar instalado antes en ese ordenador.",
       "devicesTitle": "Tus ordenadores",
       "devicesEmpty": "Aún no hay ningún ordenador conectado.",
       "active": "Conectado",
@@ -246,7 +246,7 @@
         "notFound": "No se encontró ese ordenador. Puede que ya esté revocado.",
         "unavailable": "No se pudo contactar con el servidor. Inténtalo de nuevo."
       },
-      "openApp": "Abrir Xpeed Sim"
+      "openApp": "Abrir Xpeed Companion"
     }
   },
   "refresh": {

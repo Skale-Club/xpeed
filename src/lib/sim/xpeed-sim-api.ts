@@ -1,4 +1,4 @@
-// The calls the Virtual > Xpeed Sim screen makes (server side: api/sim/codes and api/sim/devices).
+// The calls the Virtual > Xpeed Companion screen makes (server side: api/sim/codes and api/sim/devices).
 // Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md.
 import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '@/lib/trips';
@@ -53,8 +53,8 @@ export async function listDevices(): Promise<SimDevice[]> {
 export const revokeDevice = (id: string) => call<{ revoked: boolean }>(`/api/sim/devices?id=${encodeURIComponent(id)}`, 'DELETE');
 
 /**
- * The link that opens Xpeed Sim on this computer and proposes to connect it (Xpeed Sim asks the person first, naming the
- * server). Windows hands `xpeedsim:` links to Xpeed Sim once it is installed.
+ * The link that opens Xpeed Companion on this computer and proposes to connect it (Xpeed Companion asks the person first, naming the
+ * server). Windows hands `xpeedsim:` links to Xpeed Companion once it is installed.
  */
 export const pairLink = (code: string) => `xpeedsim://pair?server=${encodeURIComponent(publicAppUrl())}&code=${code}`;
 

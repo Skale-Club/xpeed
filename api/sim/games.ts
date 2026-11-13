@@ -1,5 +1,5 @@
-// The games Xpeed Sim reads and their covers, from Xpeed's own database (public.sim_games). Public: no sign-in,
-// nothing personal. Xpeed Sim keeps a copy of each cover and fetches it again only when its hash changes.
+// The games Xpeed Companion reads and their covers, from Xpeed's own database (public.sim_games). Public: no sign-in,
+// nothing personal. Xpeed Companion keeps a copy of each cover and fetches it again only when its hash changes.
 //
 // GET /api/sim/games               the list: key, title and the cover's type, size and hash.
 // GET /api/sim/games/<key>/cover   one cover's image bytes (an ETag of its hash; If-None-Match answers 304).

@@ -25,7 +25,7 @@ type Pending = { kind: 'session'; session: Session } | { kind: 'all' } | null;
 
 /**
  * Virtual > Sessions: the laps kept on this device, grouped into sessions (one car, one track, no long break).
- * Laps come from lap files added by hand (or a whole folder: the one Xpeed Sim writes into); nothing is
+ * Laps come from lap files added by hand (or a whole folder: the one Xpeed Companion writes into); nothing is
  * uploaded, and each account sees only its own.
  */
 export function SessionsList() {
@@ -197,7 +197,7 @@ export function SessionsList() {
       )}
       {library.status === 'ready' && sessions.length === 0 && (
         <p className="text-sm text-muted-foreground" data-testid="sessions-empty">
-          {t('modes.sessions.empty', 'No laps yet. Add the lap files Xpeed Sim writes (or its whole output folder) and they show up here, grouped into sessions.')}
+          {t('modes.sessions.empty', 'No laps yet. Add the lap files Xpeed Companion writes (or its whole output folder) and they show up here, grouped into sessions.')}
         </p>
       )}
 

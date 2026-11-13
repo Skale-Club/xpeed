@@ -1,4 +1,4 @@
-// POST /api/sim/pair: Xpeed Sim trades a pairing code (made in the app) for its device key.
+// POST /api/sim/pair: Xpeed Companion trades a pairing code (made in the app) for its device key.
 import { openBackend } from '../_backend';
 import { clientIp, newDeviceKey, readCode, reply, sha256Hex, tooMany } from './_shared';
 

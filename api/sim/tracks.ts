@@ -1,6 +1,6 @@
 // Track layouts (.xtrk.gz) of an account. Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md.
 //
-// POST   /api/sim/tracks            Xpeed Sim (device key) sends one layout it built from the game's own files.
+// POST   /api/sim/tracks            Xpeed Companion (device key) sends one layout it built from the game's own files.
 // GET    /api/sim/tracks            the signed-in person lists their layouts.
 // GET    /api/sim/tracks/<id>/file  the signed-in person downloads one (the gzip bytes, as sent).
 // DELETE /api/sim/tracks/<id>       the signed-in person deletes one.
@@ -50,7 +50,7 @@ export default async function tracks(req: Request): Promise<Response> {
 
 type Answer = (body: unknown, status?: number, extra?: Record<string, string>) => Response;
 
-/** Xpeed Sim sends a layout. Not a browser: no CORS headers, like /api/sim/laps. */
+/** Xpeed Companion sends a layout. Not a browser: no CORS headers, like /api/sim/laps. */
 async function receive(req: Request): Promise<Response> {
   const backend = openBackend();
   if (!backend) return reply({ error: 'unavailable' }, 503);

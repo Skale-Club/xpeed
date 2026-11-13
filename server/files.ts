@@ -24,9 +24,9 @@ export const BUCKETS: Readonly<Record<string, BucketRule>> = {
   'trip-checkpoints': { access: 'server', maxBytes: 256 * 1024, mimes: ['application/json'] },
   'vehicle-fuel-records': { access: 'server', maxBytes: 16 * 1024, mimes: ['application/json'] },
   'shared-trip-media': { access: 'server', maxBytes: 64 * 1024, mimes: ['application/json'] },
-  // Lap files sent by Xpeed Sim (api/sim/laps).
+  // Lap files sent by Xpeed Companion (api/sim/laps).
   'sim-laps': { access: 'server', maxBytes: 16 * MB, mimes: ['application/gzip'] },
-  // Track layouts sent by Xpeed Sim (api/sim/tracks).
+  // Track layouts sent by Xpeed Companion (api/sim/tracks).
   'sim-tracks': { access: 'server', maxBytes: 32 * MB, mimes: ['application/gzip'] },
 };
 

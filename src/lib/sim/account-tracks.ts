@@ -1,4 +1,4 @@
-// The track layouts kept in the account (Xpeed Sim sends them by itself; server side: api/sim/tracks).
+// The track layouts kept in the account (Xpeed Companion sends them by itself; server side: api/sim/tracks).
 // Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md. The web keeps a copy of each on the device (the track
 // library), so the compare screen works without asking the server every time.
 import { getAccessToken } from '@/lib/auth/google';

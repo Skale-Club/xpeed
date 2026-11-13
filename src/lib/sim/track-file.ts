@@ -1,5 +1,5 @@
 /**
- * The track layout file (.xtrk, version 1): the real shape of a circuit as Xpeed Sim reads it from a game's own files.
+ * The track layout file (.xtrk, version 1): the real shape of a circuit as Xpeed Companion reads it from a game's own files.
  * Spec: docs/telemetria-virtual-2026-11-10/FORMATO-DE-PISTA.md (that page is the contract; this is a strict reader of it).
  *
  * A layout is the centre line of the track, how far each edge is on either side, the game's ideal line and the pit lane;

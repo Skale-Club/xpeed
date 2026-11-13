@@ -52,9 +52,9 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_DB_BODY_BYTES = 12 * 1024 * 1024;
 // Uploads: the largest bucket accepts 50 MB (trip CSV).
 const MAX_STORAGE_BODY_BYTES = 52 * 1024 * 1024;
-// A lap file from Xpeed Sim: up to 16 MB, plus a little room for the request itself.
+// A lap file from Xpeed Companion: up to 16 MB, plus a little room for the request itself.
 const MAX_LAP_BODY_BYTES = 17 * 1024 * 1024;
-// A track layout from Xpeed Sim: up to 32 MB, plus the same room.
+// A track layout from Xpeed Companion: up to 32 MB, plus the same room.
 const MAX_TRACK_BODY_BYTES = 33 * 1024 * 1024;
 const storageRoute=createStorageRoute();
 // The Supabase edge functions, run in this process. /api/fn/<name>[/more] is what the app calls;
