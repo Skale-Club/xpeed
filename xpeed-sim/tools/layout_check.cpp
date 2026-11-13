@@ -55,6 +55,8 @@ int main() {
   OFF_IN("VS_LAP_START_ET", VehicleScoringInfoV01, mLapStartET);
   OFF_IN("VS_TIME_INTO_LAP", VehicleScoringInfoV01, mTimeIntoLap);
   OFF_IN("VS_COUNT_LAP_FLAG", VehicleScoringInfoV01, mCountLapFlag);
+  OFF_IN("VS_FLAG", VehicleScoringInfoV01, mFlag);
+  OFF_IN("VS_UNDER_YELLOW", VehicleScoringInfoV01, mUnderYellow);
 
   std::printf("\n// Telemetry\n");
   OFF_OBJ("TELEMETRY_ACTIVE_VEHICLES", gObj.telemetry.activeVehicles);
@@ -79,6 +81,24 @@ int main() {
   OFF_IN("TI_STEERING", TelemInfoV01, mUnfilteredSteering);
   OFF_IN("TI_CLUTCH", TelemInfoV01, mUnfilteredClutch);
   OFF_IN("TI_FUEL", TelemInfoV01, mFuel);
+  OFF_IN("TI_WATER_TEMP", TelemInfoV01, mEngineWaterTemp);
+  OFF_IN("TI_OIL_TEMP", TelemInfoV01, mEngineOilTemp);
+  OFF_IN("TI_OVERHEATING", TelemInfoV01, mOverheating);
+  OFF_IN("TI_HEADLIGHTS", TelemInfoV01, mHeadlights);
+  OFF_IN("TI_DENT_SEVERITY", TelemInfoV01, mDentSeverity);
+  OFF_IN("TI_MAX_GEARS", TelemInfoV01, mMaxGears);
+  OFF_IN("TI_REAR_FLAP_ACTIVATED", TelemInfoV01, mRearFlapActivated);
+  OFF_IN("TI_REAR_FLAP_LEGAL_STATUS", TelemInfoV01, mRearFlapLegalStatus);
+  OFF_IN("TI_REAR_BRAKE_BIAS", TelemInfoV01, mRearBrakeBias);
+  OFF_IN("TI_ABS_ACTIVE", TelemInfoV01, mABSActive);
+  OFF_IN("TI_TC_ACTIVE", TelemInfoV01, mTCActive);
+  OFF_IN("TI_SPEED_LIMITER_ACTIVE", TelemInfoV01, mSpeedLimiterActive);
+  OFF_IN("TI_TC", TelemInfoV01, mTC);
+  OFF_IN("TI_TC_MAX", TelemInfoV01, mTCMax);
+  OFF_IN("TI_ABS", TelemInfoV01, mABS);
+  OFF_IN("TI_ABS_MAX", TelemInfoV01, mABSMax);
+  OFF_IN("TI_MOTOR_MAP", TelemInfoV01, mMotorMap);
+  OFF_IN("TI_MOTOR_MAP_MAX", TelemInfoV01, mMotorMapMax);
   OFF_IN("TI_WHEEL", TelemInfoV01, mWheel);
   SIZE("TELEM_WHEEL_SIZE", TelemWheelV01);
   OFF_IN("TW_BRAKE_TEMP", TelemWheelV01, mBrakeTemp);
@@ -86,5 +106,7 @@ int main() {
   OFF_IN("TW_TEMPERATURE", TelemWheelV01, mTemperature);
   OFF_IN("TW_WEAR", TelemWheelV01, mWear);
   OFF_IN("TW_CARCASS_TEMPERATURE", TelemWheelV01, mTireCarcassTemperature);
+  OFF_IN("TW_FLAT", TelemWheelV01, mFlat);
+  OFF_IN("TW_DETACHED", TelemWheelV01, mDetached);
   return 0;
 }

@@ -65,7 +65,7 @@
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// `R3E_SHARED_MEMORY_NAME`.
@@ -121,6 +121,41 @@ mod at {
     /// `r3e_brake_temp brake_temp[4]`: the first float of each is `current_temp`, °C (-1 N/A).
     pub const BRAKE_TEMP: usize = 1856;
     pub const NUM_CARS: usize = 2008;
+
+    // The car's state. `r3e_flags` (from 932): the ints `blue`, `black`, `green`, `checkered`, `white` and
+    // `black_and_white` (-1 no data, 0 not active, 1 active; the last one also the reason) and `yellow` at its start.
+    pub const FLAG_YELLOW: usize = 932;
+    pub const FLAG_BLUE: usize = 964;
+    pub const FLAG_BLACK: usize = 968;
+    pub const FLAG_GREEN: usize = 972;
+    pub const FLAG_CHECKERED: usize = 976;
+    pub const FLAG_WHITE: usize = 980;
+    pub const FLAG_BLACK_AND_WHITE: usize = 984;
+    /// `float engine_temp` and `float engine_oil_temp`, Celsius.
+    pub const ENGINE_TEMP: usize = 1480;
+    pub const ENGINE_OIL_TEMP: usize = 1484;
+    /// `r3e_aid_settings`: `int abs` and `int tc` (-1 N/A, 0 off, 1 on, 5 currently active).
+    pub const AID_ABS: usize = 1536;
+    pub const AID_TC: usize = 1540;
+    /// `r3e_drs`: `int equipped`, `int available` (an activation left) and `int engaged` (-1 N/A, 0 no, 1 yes).
+    pub const DRS_EQUIPPED: usize = 1556;
+    pub const DRS_AVAILABLE: usize = 1560;
+    pub const DRS_ENGAGED: usize = 1568;
+    /// `int pit_limiter` (-1 N/A, 0 inactive, 1 active).
+    pub const PIT_LIMITER: usize = 1572;
+    /// `float brake_bias`: the share toward the REAR (0.3 = 30 %), -1 N/A.
+    pub const BRAKE_BIAS: usize = 1596;
+    /// `int abs_setting` (-1 N/A) and `int headlights` (-1 N/A, 0 off, 1 on, 2 strobing).
+    pub const ABS_SETTING: usize = 1616;
+    pub const HEADLIGHTS: usize = 1620;
+    /// `int traction_control_setting` and `int engine_map_setting` (-1 N/A).
+    pub const TRACTION_CONTROL_SETTING: usize = 1936;
+    pub const ENGINE_MAP_SETTING: usize = 1940;
+    /// `r3e_car_damage`: `float engine`, `transmission`, `aerodynamics`, `suspension`, 0..1, -1 N/A.
+    pub const DAMAGE_ENGINE: usize = 1984;
+    pub const DAMAGE_TRANSMISSION: usize = 1988;
+    pub const DAMAGE_AERODYNAMICS: usize = 1992;
+    pub const DAMAGE_SUSPENSION: usize = 1996;
 }
 
 // `r3e_session_phase`: the phases before the start, in which a lap does not count.
@@ -406,6 +441,8 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     let tyres = [0, 1, 2, 3].map(|i| tyre(&page, i));
     frame.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
 
+    frame.state = state_from(&page);
+
     let model = page.i32_at(at::VEHICLE_INFO + at::DI_MODEL_ID);
     let class = page.i32_at(at::VEHICLE_INFO + at::DI_CLASS_ID);
     frame.car = if model >= 0 { format!("R3E model {model}") } else { String::new() };
@@ -415,6 +452,98 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     let length = within(page.f32_at(at::LAYOUT_LENGTH), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
     Some(frame)
+}
+
+/// A three-way int of the header (-1 no data, 0 no, 1 yes) as a bool; 2 and the rest are not given.
+fn yes_no(v: i32) -> Option<bool> {
+    match v {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// An aid (`r3e_aid_settings`): -1 N/A, 0 off, 1 on, 5 currently active. The aid acting is a bool; N/A is not given.
+fn aid_acting(v: i32) -> Option<bool> {
+    match v {
+        0 | 1 => Some(false),
+        5 => Some(true),
+        _ => None,
+    }
+}
+
+/// A temperature in Celsius: -1 is N/A and 0 is not a running engine's.
+fn celsius(v: f32) -> Option<f32> {
+    (v.is_finite() && v > 0.0 && v <= 400.0).then_some(v)
+}
+
+/// A setting (-1 N/A) as the level the dash shows.
+fn level(v: i32) -> Option<u8> {
+    u8::try_from(v).ok()
+}
+
+/// `car_damage` is 0..1 with 0.0 the bad end (the header says of the aerodynamics that "0.0 doesn't necessarily
+/// mean completely destroyed"), so the damage is 1 minus the value; -1 is N/A.
+fn damage(v: f32) -> Option<f32> {
+    (0.0..=1.0).contains(&v).then_some(1.0 - v)
+}
+
+/// The dashboard lights, temperatures, electronics and damage. The handbrake and the engine warning are not in the
+/// header.
+fn state_from(page: &Page) -> CarState {
+    let on = |at: usize| page.i32_at(at) == 1;
+    // The most serious flag showing: a black one (with the black and white warning), the chequered, yellow, blue,
+    // white, then green. The header has no red flag.
+    let flag = if on(at::FLAG_BLACK) || page.i32_at(at::FLAG_BLACK_AND_WHITE) > 0 {
+        Some(Flag::Black)
+    } else if on(at::FLAG_CHECKERED) {
+        Some(Flag::Chequered)
+    } else if on(at::FLAG_YELLOW) {
+        Some(Flag::Yellow)
+    } else if on(at::FLAG_BLUE) {
+        Some(Flag::Blue)
+    } else if on(at::FLAG_WHITE) {
+        Some(Flag::White)
+    } else if on(at::FLAG_GREEN) {
+        Some(Flag::Green)
+    } else {
+        None
+    };
+    let drs = if on(at::DRS_ENGAGED) {
+        Some(Drs::Open)
+    } else if on(at::DRS_AVAILABLE) {
+        Some(Drs::Available)
+    } else if on(at::DRS_EQUIPPED) {
+        Some(Drs::Off)
+    } else {
+        None
+    };
+    // `brake_bias` is the REAR share: the front's is what is left.
+    let rear = page.f32_at(at::BRAKE_BIAS);
+    CarState {
+        pit_limiter: yes_no(page.i32_at(at::PIT_LIMITER)),
+        abs_active: aid_acting(page.i32_at(at::AID_ABS)),
+        tc_active: aid_acting(page.i32_at(at::AID_TC)),
+        drs,
+        headlights: match page.i32_at(at::HEADLIGHTS) {
+            0 => Some(false),
+            1 | 2 => Some(true),
+            _ => None,
+        },
+        handbrake: None,
+        engine_warning: None,
+        flag,
+        water_c: celsius(page.f32_at(at::ENGINE_TEMP)),
+        oil_c: celsius(page.f32_at(at::ENGINE_OIL_TEMP)),
+        tc_level: level(page.i32_at(at::TRACTION_CONTROL_SETTING)),
+        abs_level: level(page.i32_at(at::ABS_SETTING)),
+        engine_map: level(page.i32_at(at::ENGINE_MAP_SETTING)),
+        brake_bias: (rear > 0.0 && rear < 1.0).then_some(1.0 - rear),
+        damage_body: damage(page.f32_at(at::DAMAGE_AERODYNAMICS)),
+        damage_engine: damage(page.f32_at(at::DAMAGE_ENGINE)),
+        damage_gearbox: damage(page.f32_at(at::DAMAGE_TRANSMISSION)),
+        damage_suspension: damage(page.f32_at(at::DAMAGE_SUSPENSION)),
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +627,27 @@ mod tests {
             for (t, c) in [450.0, 455.0, 300.0, 305.0].into_iter().enumerate() {
                 i.f32(at::BRAKE_TEMP + t * BRAKE_TEMP_SIZE, c);
             }
+            // The car's state: limiter on, ABS acting, TC on but not acting, the wing open, a yellow flag and a blue one
+            // (yellow wins), headlights strobing, water 88.5 and oil 105.25, 30 % of the braking behind, TC 4 and ABS 2
+            // and map 3, damage: aero 0.75 left, engine 0.5 left, gearbox untouched, suspension 0.25 left.
+            i.i32(at::PIT_LIMITER, 1);
+            i.i32(at::AID_ABS, 5);
+            i.i32(at::AID_TC, 1);
+            i.i32(at::DRS_EQUIPPED, 1);
+            i.i32(at::DRS_ENGAGED, 1);
+            i.i32(at::FLAG_YELLOW, 1);
+            i.i32(at::FLAG_BLUE, 1);
+            i.i32(at::HEADLIGHTS, 2);
+            i.f32(at::ENGINE_TEMP, 88.5);
+            i.f32(at::ENGINE_OIL_TEMP, 105.25);
+            i.f32(at::BRAKE_BIAS, 0.25);
+            i.i32(at::TRACTION_CONTROL_SETTING, 4);
+            i.i32(at::ABS_SETTING, 2);
+            i.i32(at::ENGINE_MAP_SETTING, 3);
+            i.f32(at::DAMAGE_AERODYNAMICS, 0.75);
+            i.f32(at::DAMAGE_ENGINE, 0.5);
+            i.f32(at::DAMAGE_TRANSMISSION, 1.0);
+            i.f32(at::DAMAGE_SUSPENSION, 0.25);
             i.i32(at::VEHICLE_INFO + at::DI_MODEL_ID, 5031);
             i.i32(at::VEHICLE_INFO + at::DI_CLASS_ID, 1703);
             // The driver's name sits where a car name might be looked for; it must not be taken for one.
@@ -931,12 +1081,50 @@ mod tests {
             ("tire_pressure", at::TIRE_PRESSURE),
             ("tire_temp", at::TIRE_TEMP),
             ("brake_temp", at::BRAKE_TEMP),
+            ("flags", at::FLAG_YELLOW),
+            ("engine_temp", at::ENGINE_TEMP),
+            ("engine_oil_temp", at::ENGINE_OIL_TEMP),
+            ("aid_settings", at::AID_ABS),
+            ("drs", at::DRS_EQUIPPED),
+            ("pit_limiter", at::PIT_LIMITER),
+            ("brake_bias", at::BRAKE_BIAS),
+            ("abs_setting", at::ABS_SETTING),
+            ("headlights", at::HEADLIGHTS),
+            ("traction_control_setting", at::TRACTION_CONTROL_SETTING),
+            ("engine_map_setting", at::ENGINE_MAP_SETTING),
+            ("car_damage", at::DAMAGE_ENGINE),
             ("num_cars", at::NUM_CARS),
         ] {
             assert_eq!(offset_of(&o, name), want, "{name}");
         }
         // The game says where `num_cars` is (`all_drivers_offset`, "Offset to num_cars"); the reader checks that against
         // this, and copies everything up to it. Every field read lies inside that part.
+        // Inside the structs: `r3e_flags` (yellow first, then four ints before `blue`), `r3e_aid_settings`, `r3e_drs`
+        // and `r3e_car_damage`, whose fields follow one another.
+        assert_eq!(at::FLAG_BLUE, at::FLAG_YELLOW + 8 * 4);
+        assert_eq!(
+            (
+                at::FLAG_BLACK,
+                at::FLAG_GREEN,
+                at::FLAG_CHECKERED,
+                at::FLAG_WHITE,
+                at::FLAG_BLACK_AND_WHITE
+            ),
+            (
+                at::FLAG_BLUE + 4,
+                at::FLAG_BLUE + 8,
+                at::FLAG_BLUE + 12,
+                at::FLAG_BLUE + 16,
+                at::FLAG_BLUE + 20
+            )
+        );
+        assert_eq!(at::AID_TC, at::AID_ABS + 4);
+        assert_eq!((at::DRS_AVAILABLE, at::DRS_ENGAGED), (at::DRS_EQUIPPED + 4, at::DRS_EQUIPPED + 12));
+        assert_eq!(
+            (at::DAMAGE_TRANSMISSION, at::DAMAGE_AERODYNAMICS, at::DAMAGE_SUSPENSION),
+            (at::DAMAGE_ENGINE + 4, at::DAMAGE_ENGINE + 8, at::DAMAGE_ENGINE + 12)
+        );
+        assert_eq!(at::FLAG_BLACK_AND_WHITE + 4, offset_of(&o, "flags") + flags);
         assert_eq!(HEAD, offset_of(&o, "num_cars"));
         const { assert!(at::TIRE_TEMP + 4 * TIRE_TEMP_SIZE <= HEAD) };
         const { assert!(at::BRAKE_TEMP + 4 * BRAKE_TEMP_SIZE <= HEAD) };
@@ -1002,6 +1190,26 @@ mod tests {
         want.track = "Nürburgring".into();
         want.track_variant = Some("Grand Prix".into());
         want.track_length_m = Some(5148.0);
+        want.state = CarState {
+            pit_limiter: Some(true),
+            abs_active: Some(true),
+            tc_active: Some(false),
+            drs: Some(Drs::Open),
+            headlights: Some(true),
+            handbrake: None,
+            engine_warning: None,
+            flag: Some(Flag::Yellow),
+            water_c: Some(88.5),
+            oil_c: Some(105.25),
+            tc_level: Some(4),
+            abs_level: Some(2),
+            engine_map: Some(3),
+            brake_bias: Some(0.75), // 0.25 of the braking is behind
+            damage_body: Some(0.25),
+            damage_engine: Some(0.5),
+            damage_gearbox: Some(0.0),
+            damage_suspension: Some(0.75),
+        };
         // NaN is never equal to itself: the tyres are compared apart.
         let (got_tyres, want_tyres) = (frame.tyres.unwrap(), want.tyres.take().unwrap());
         let mut frame = frame;
@@ -1016,6 +1224,69 @@ mod tests {
         }
         assert!((frame.rpm - 7500.0).abs() < 0.01, "rpm {}", frame.rpm);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_car_state_says_nothing_for_what_the_header_calls_not_available() {
+        // The header's -1 in every field that has it.
+        let mut image = Image::new();
+        for at in [
+            at::PIT_LIMITER,
+            at::AID_ABS,
+            at::AID_TC,
+            at::DRS_EQUIPPED,
+            at::DRS_AVAILABLE,
+            at::DRS_ENGAGED,
+            at::HEADLIGHTS,
+            at::ABS_SETTING,
+            at::TRACTION_CONTROL_SETTING,
+            at::ENGINE_MAP_SETTING,
+            at::FLAG_BLACK,
+            at::FLAG_BLUE,
+            at::FLAG_GREEN,
+            at::FLAG_YELLOW,
+        ] {
+            image.i32(at, -1);
+        }
+        for at in [
+            at::ENGINE_TEMP,
+            at::ENGINE_OIL_TEMP,
+            at::BRAKE_BIAS,
+            at::DAMAGE_ENGINE,
+            at::DAMAGE_TRANSMISSION,
+            at::DAMAGE_AERODYNAMICS,
+            at::DAMAGE_SUSPENSION,
+        ] {
+            image.f32(at, -1.0);
+        }
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state, CarState::UNKNOWN);
+        // Flags by their weight, and the drs by what it says.
+        image.i32(at::FLAG_GREEN, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, Some(Flag::Green));
+        image.i32(at::FLAG_WHITE, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, Some(Flag::White));
+        image.i32(at::FLAG_BLUE, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, Some(Flag::Blue));
+        image.i32(at::FLAG_YELLOW, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, Some(Flag::Yellow));
+        image.i32(at::FLAG_CHECKERED, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, Some(Flag::Chequered));
+        image.i32(at::FLAG_BLACK_AND_WHITE, 3); // wrong way
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, Some(Flag::Black));
+        image.i32(at::DRS_EQUIPPED, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.drs, Some(Drs::Off));
+        image.i32(at::DRS_AVAILABLE, 1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().state.drs, Some(Drs::Available));
+        // ABS and TC: "on" is not "acting"; a pit limiter and a wild bias or damage are not believed.
+        image.i32(at::AID_ABS, 1);
+        image.i32(at::PIT_LIMITER, 7);
+        image.f32(at::BRAKE_BIAS, 1.5);
+        image.f32(at::DAMAGE_ENGINE, 3.0);
+        let state = frame_from(&image.0, 0.0).unwrap().state;
+        assert_eq!(
+            (state.abs_active, state.pit_limiter, state.brake_bias, state.damage_engine),
+            (Some(false), None, None, None)
+        );
     }
 
     #[test]

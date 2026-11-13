@@ -54,14 +54,18 @@
 //! livery colours. Motion, Car Telemetry and the fields read from the header and from the start of the Session packet
 //! are the same in the three years. The team ids differ (Appendix: Team IDs of each year).
 //!
-//! Every other packet (events, setups, car status, damage, history...) is ignored. Car Status gives the fuel as a
-//! mass in kilograms and the spec states no density, so `fuel_l` stays NaN.
+//! Car Status (1239 bytes in the three years) and Car Damage (953 bytes in 2023 and 2024, 1041 in 2025, which added
+//! `tyreBlisters[4]`) also feed the car's state: the aids, the brake bias, the pit limiter, the DRS permission and the
+//! FIA flag from Car Status, the wing, floor, gearbox and engine damage (percentages) from Car Damage. Every other
+//! packet (events, setups, history...) is ignored. Car Status gives the fuel as a mass in kilograms and the spec
+//! states no density, so `fuel_l` stays NaN. The one `engineTemperature` of Car Telemetry is not said to be the
+//! water's or the oil's, so neither is given; the spec has no suspension damage, headlights or handbrake.
 
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{CarState, Drs, Flag, Frame, Source};
 use crate::shm::Page;
 
 /// The port the game sends to unless the person changes it (the spec's default).
@@ -76,6 +80,12 @@ const ID_SESSION: u8 = 1;
 const ID_LAP_DATA: u8 = 2;
 const ID_PARTICIPANTS: u8 = 4;
 const ID_CAR_TELEMETRY: u8 = 6;
+const ID_CAR_STATUS: u8 = 7;
+const ID_CAR_DAMAGE: u8 = 10;
+
+/// `CarStatusData` is 55 bytes in the three years: `PacketCarStatusData` is 1239 bytes.
+const STATUS_CAR: usize = 55;
+const STATUS_SIZE: usize = HEADER_SIZE + CARS * STATUS_CAR;
 
 // The same in the three years.
 const MOTION_CAR: usize = 60;
@@ -110,6 +120,29 @@ const T_BRAKE: usize = 10; // f32 0..1
 const T_CLUTCH: usize = 14; // u8 0..100
 const T_GEAR: usize = 15; // i8: -1 reverse, 0 neutral, 1..8
 const T_RPM: usize = 16; // u16
+const T_DRS: usize = 18; // u8: 0 off, 1 on
+
+// Car Status (offsets from the start of the car's entry; the same in the three years).
+const C_TRACTION_CONTROL: usize = 0; // u8: 0 off, 1 medium, 2 full
+const C_ANTI_LOCK: usize = 1; // u8: 0 off, 1 on
+const C_FRONT_BRAKE_BIAS: usize = 3; // u8, percentage
+const C_PIT_LIMITER: usize = 4; // u8: 0 off, 1 on
+const C_DRS_ALLOWED: usize = 22; // u8: 0 not allowed, 1 allowed
+const C_FIA_FLAGS: usize = 28; // i8: -1 unknown, 0 none, 1 green, 2 blue, 3 yellow
+
+// Car Damage (offsets inside the car's entry from `damage_wings`, the front left wing; every field is a percentage).
+const D_FRONT_LEFT_WING: usize = 0;
+const D_FRONT_RIGHT_WING: usize = 1;
+const D_REAR_WING: usize = 2;
+const D_FLOOR: usize = 3;
+const D_DIFFUSER: usize = 4;
+const D_SIDEPOD: usize = 5;
+const D_GEARBOX: usize = 8;
+const D_ENGINE: usize = 9;
+const D_ENGINE_BLOWN: usize = 16;
+const D_ENGINE_SEIZED: usize = 17;
+/// The size of `CarDamageData` from `damage_wings` to its end.
+const D_TAIL: usize = 18;
 
 /// Where the Lap Data fields this reader uses sit in one car's entry (they move between the years).
 #[derive(Debug)]
@@ -137,6 +170,9 @@ struct Layout {
     lap: LapFields,
     /// One car's entry in Participants.
     participant_car: usize,
+    /// Where `frontLeftWingDamage` sits in a `CarDamageData`: after tyresWear[4] (f32), tyresDamage[4] and
+    /// brakesDamage[4], and in 2025 also tyreBlisters[4]. The entry ends `D_TAIL` bytes later.
+    damage_wings: usize,
     /// The year's Appendix: Team IDs, with the class each team races in.
     team: fn(u8) -> Option<(&'static str, &'static str)>,
 }
@@ -160,6 +196,8 @@ impl Layout {
             ID_LAP_DATA => Some(self.lap_data_size()),
             ID_PARTICIPANTS => Some(self.participants_size()),
             ID_CAR_TELEMETRY => Some(TELEMETRY_SIZE),
+            ID_CAR_STATUS => Some(STATUS_SIZE),
+            ID_CAR_DAMAGE => Some(HEADER_SIZE + CARS * (self.damage_wings + D_TAIL)),
             _ => None,
         }
     }
@@ -184,6 +222,7 @@ const F1_25: Layout = Layout {
         result_status: 45,
     },
     participant_car: 57,
+    damage_wings: 28,
     team: team_25,
 };
 
@@ -204,6 +243,7 @@ const F1_24: Layout = Layout {
         result_status: 45,
     },
     participant_car: 60,
+    damage_wings: 24,
     team: team_24,
 };
 
@@ -226,6 +266,7 @@ const F1_23: Layout = Layout {
         result_status: 43,
     },
     participant_car: 58,
+    damage_wings: 24,
     team: team_23,
 };
 
@@ -465,6 +506,27 @@ struct SessionInfo {
     spectating: bool,
 }
 
+/// What Car Status says of the player's car.
+#[derive(Clone, Copy, Debug)]
+struct StatusInfo {
+    traction_control: u8,
+    anti_lock: u8,
+    front_brake_bias: u8,
+    pit_limiter: u8,
+    drs_allowed: u8,
+    fia_flag: i8,
+}
+
+/// What Car Damage says of the player's car (percentages, 0..100).
+#[derive(Clone, Copy, Debug)]
+struct DamageInfo {
+    /// The worst of the two front wings, the rear wing, the floor, the diffuser and the sidepod.
+    body: u8,
+    gearbox: u8,
+    engine: u8,
+    engine_gone: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct LapInfo {
     last_lap_ms: u32,
@@ -488,6 +550,8 @@ struct Decoder {
     lap: Option<LapInfo>,
     position: Option<[f32; 3]>,
     team_id: Option<u8>,
+    status: Option<StatusInfo>,
+    damage: Option<DamageInfo>,
 }
 
 impl Decoder {
@@ -545,6 +609,34 @@ impl Decoder {
                 self.team_id = Some(page.u8_at(entry + P_TEAM_ID));
                 None
             }
+            ID_CAR_STATUS => {
+                let car = at(STATUS_CAR);
+                self.status = Some(StatusInfo {
+                    traction_control: page.u8_at(car + C_TRACTION_CONTROL),
+                    anti_lock: page.u8_at(car + C_ANTI_LOCK),
+                    front_brake_bias: page.u8_at(car + C_FRONT_BRAKE_BIAS),
+                    pit_limiter: page.u8_at(car + C_PIT_LIMITER),
+                    drs_allowed: page.u8_at(car + C_DRS_ALLOWED),
+                    fia_flag: i8_at(&page, car + C_FIA_FLAGS),
+                });
+                None
+            }
+            ID_CAR_DAMAGE => {
+                let car = at(layout.damage_wings + D_TAIL) + layout.damage_wings;
+                let b = |off: usize| page.u8_at(car + off);
+                let body = [D_FRONT_LEFT_WING, D_FRONT_RIGHT_WING, D_REAR_WING, D_FLOOR, D_DIFFUSER, D_SIDEPOD]
+                    .into_iter()
+                    .map(b)
+                    .max()
+                    .unwrap_or(0);
+                self.damage = Some(DamageInfo {
+                    body,
+                    gearbox: b(D_GEARBOX),
+                    engine: b(D_ENGINE),
+                    engine_gone: b(D_ENGINE_BLOWN) != 0 || b(D_ENGINE_SEIZED) != 0,
+                });
+                None
+            }
             ID_CAR_TELEMETRY => Some(self.frame(layout, &page, at(TELEMETRY_CAR), clock_s)),
             _ => None,
         }
@@ -564,6 +656,7 @@ impl Decoder {
         f.brake = page.f32_at(car + T_BRAKE).clamp(0.0, 1.0);
         f.steer = page.f32_at(car + T_STEER).clamp(-1.0, 1.0);
         f.clutch = (f32::from(page.u8_at(car + T_CLUTCH)) / 100.0).clamp(0.0, 1.0);
+        f.state = self.state(page.u8_at(car + T_DRS));
 
         if let Some([x, y, z]) = self.position {
             (f.x, f.y, f.z) = (x, y, z);
@@ -594,6 +687,40 @@ impl Decoder {
         }
         f.driving = self.driving();
         f
+    }
+
+    /// The car's state from Car Status and Car Damage (`None`s until those packets have come) and the DRS flag of the
+    /// telemetry packet. Percentages become 0..1; a percentage above 100 is not one.
+    fn state(&self, drs_on: u8) -> CarState {
+        let mut state = CarState::UNKNOWN;
+        let percent = |v: u8| (v <= 100).then(|| f32::from(v) / 100.0);
+        if let Some(s) = &self.status {
+            state.pit_limiter = (s.pit_limiter <= 1).then_some(s.pit_limiter == 1);
+            // The settings: traction control 0 off, 1 medium, 2 full; ABS 0 off, 1 on.
+            state.tc_level = (s.traction_control <= 2).then_some(s.traction_control);
+            state.abs_level = (s.anti_lock <= 1).then_some(s.anti_lock);
+            state.brake_bias = percent(s.front_brake_bias).filter(|b| *b > 0.0);
+            state.drs = Some(if drs_on == 1 {
+                Drs::Open
+            } else if s.drs_allowed == 1 {
+                Drs::Available
+            } else {
+                Drs::Off
+            });
+            state.flag = match s.fia_flag {
+                1 => Some(Flag::Green),
+                2 => Some(Flag::Blue),
+                3 => Some(Flag::Yellow),
+                _ => None,
+            };
+        }
+        if let Some(d) = &self.damage {
+            state.damage_body = percent(d.body);
+            state.damage_gearbox = percent(d.gearbox);
+            state.damage_engine = percent(d.engine);
+            state.engine_warning = Some(d.engine_gone);
+        }
+        state
     }
 
     /// In a car on a track session: the game gave a session (a known track, not "unknown", not spectating) and lap
@@ -1047,6 +1174,265 @@ mod tests {
 
     fn running(player: u8) -> (Decoder, Frame) {
         running_in(&F1_25, player)
+    }
+
+    /// What the tests put in one car's Car Status and Car Damage.
+    struct Car {
+        traction_control: u8,
+        anti_lock: u8,
+        front_brake_bias: u8,
+        pit_limiter: u8,
+        drs_allowed: u8,
+        fia_flags: i8,
+        /// Front left wing, front right wing, rear wing, floor, diffuser, sidepod, gearbox, engine (percentages).
+        damage: [u8; 8],
+        blown: u8,
+        seized: u8,
+    }
+
+    impl Car {
+        fn sample() -> Car {
+            Car {
+                traction_control: 2,
+                anti_lock: 1,
+                front_brake_bias: 56,
+                pit_limiter: 1,
+                drs_allowed: 1,
+                fia_flags: 3,
+                damage: [10, 40, 25, 5, 0, 15, 20, 35],
+                blown: 0,
+                seized: 0,
+            }
+        }
+    }
+
+    /// CarStatusData (every year, 55 bytes): tractionControl, antiLockBrakes, fuelMix, frontBrakeBias,
+    /// pitLimiterStatus u8, fuelInTank, fuelCapacity, fuelRemainingLaps f32, maxRPM, idleRPM u16, maxGears,
+    /// drsAllowed u8, drsActivationDistance u16, actualTyreCompound, visualTyreCompound, tyresAgeLaps u8,
+    /// vehicleFiaFlags i8, enginePowerICE, enginePowerMGUK, ersStoreEnergy f32, ersDeployMode u8, three ers f32,
+    /// networkPaused u8.
+    fn status_car(w: &mut W, c: &Car) {
+        w.u8(c.traction_control)
+            .u8(c.anti_lock)
+            .u8(1)
+            .u8(c.front_brake_bias)
+            .u8(c.pit_limiter);
+        w.f32(50.0).f32(110.0).f32(20.0);
+        w.u16(13_000).u16(4_000).u8(8).u8(c.drs_allowed).u16(0);
+        w.u8(18).u8(17).u8(3).i8(c.fia_flags);
+        w.f32(1.0).f32(2.0).f32(3.0).u8(1).f32(4.0).f32(5.0).f32(6.0).u8(0);
+    }
+
+    fn status_packet_in(format: u16, player: u8, c: &Car) -> Vec<u8> {
+        let decoy = Car {
+            traction_control: 0,
+            anti_lock: 0,
+            front_brake_bias: 99,
+            pit_limiter: 0,
+            drs_allowed: 0,
+            fia_flags: 2,
+            ..Car::sample()
+        };
+        let mut w = header(format, ID_CAR_STATUS, UID, player);
+        for i in 0..CARS {
+            status_car(&mut w, if i == usize::from(player) { c } else { &decoy });
+        }
+        w.0
+    }
+
+    /// CarDamageData: tyresWear[4] f32, tyresDamage[4], brakesDamage[4] u8, (2025: tyreBlisters[4] u8), then the
+    /// six wing and body parts, drsFault, ersFault, gearBoxDamage, engineDamage, six engine wears, engineBlown and
+    /// engineSeized (u8). 42 bytes in 2023 and 2024, 46 in 2025.
+    fn damage_car(format: u16, w: &mut W, c: &Car) {
+        for _ in 0..4 {
+            w.f32(7.0);
+        }
+        w.zeros(8);
+        if format == 2025 {
+            w.zeros(4);
+        }
+        for d in &c.damage[..6] {
+            w.u8(*d);
+        }
+        w.u8(0).u8(0).u8(c.damage[6]).u8(c.damage[7]);
+        w.zeros(6);
+        w.u8(c.blown).u8(c.seized);
+    }
+
+    fn damage_packet_in(format: u16, player: u8, c: &Car) -> Vec<u8> {
+        let decoy = Car {
+            damage: [90; 8],
+            blown: 1,
+            seized: 1,
+            ..Car::sample()
+        };
+        let mut w = header(format, ID_CAR_DAMAGE, UID, player);
+        for i in 0..CARS {
+            damage_car(format, &mut w, if i == usize::from(player) { c } else { &decoy });
+        }
+        w.0
+    }
+
+    /// The decoder of a running session of the year, after the status and the damage of `c` came too.
+    fn running_with(y: &Layout, player: u8, c: &Car) -> (Decoder, Frame) {
+        let (mut d, _) = running_in(y, player);
+        assert!(d.feed(&status_packet_in(y.format, player, c), 1.5).is_none());
+        assert!(d.feed(&damage_packet_in(y.format, player, c), 1.5).is_none());
+        let frame = d.feed(&tele_packet_in(y.format, player, &sample_tele()), 3.0).expect("a frame");
+        (d, frame)
+    }
+
+    #[test]
+    fn the_car_state_comes_from_status_damage_and_the_drs_flag_in_every_year() {
+        for y in ALL {
+            for player in [0u8, 7, 21] {
+                let (_, f) = running_with(y, player, &Car::sample());
+                assert_eq!(
+                    f.state,
+                    CarState {
+                        pit_limiter: Some(true),
+                        abs_active: None,
+                        tc_active: None,
+                        // The telemetry packet's `drs` is 1: the wing is open.
+                        drs: Some(Drs::Open),
+                        headlights: None,
+                        handbrake: None,
+                        engine_warning: Some(false),
+                        flag: Some(Flag::Yellow),
+                        water_c: None,
+                        oil_c: None,
+                        tc_level: Some(2),
+                        abs_level: Some(1),
+                        engine_map: None,
+                        brake_bias: Some(0.56),
+                        damage_body: Some(0.4), // the worst of the six parts: the front right wing
+                        damage_engine: Some(0.35),
+                        damage_gearbox: Some(0.2),
+                        damage_suspension: None,
+                    },
+                    "{} player {player}",
+                    y.format
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn before_status_and_damage_come_the_state_has_only_what_the_telemetry_says() {
+        let (_, f) = running(0);
+        assert_eq!(f.state, CarState::UNKNOWN, "no Car Status or Car Damage yet");
+    }
+
+    #[test]
+    fn the_flags_the_wing_and_a_blown_engine_map_as_the_spec_says() {
+        for (fia, want) in [
+            (-1, None),
+            (0, None),
+            (1, Some(Flag::Green)),
+            (2, Some(Flag::Blue)),
+            (3, Some(Flag::Yellow)),
+            (4, None),
+        ] {
+            let car = Car {
+                fia_flags: fia,
+                ..Car::sample()
+            };
+            assert_eq!(running_with(&F1_25, 0, &car).1.state.flag, want, "flag {fia}");
+        }
+        // The wing: not open and not allowed is off; allowed is available.
+        let mut d = running_with(
+            &F1_25,
+            0,
+            &Car {
+                drs_allowed: 0,
+                ..Car::sample()
+            },
+        )
+        .0;
+        let mut t = sample_tele_packet_with_drs(0);
+        assert_eq!(d.feed(&t, 4.0).unwrap().state.drs, Some(Drs::Off));
+        d.feed(&status_packet_in(FORMAT, 0, &Car::sample()), 4.0);
+        assert_eq!(d.feed(&t, 4.1).unwrap().state.drs, Some(Drs::Available));
+        // An engine that is blown or seized is a warning; a percentage above 100 is not one.
+        for (blown, seized) in [(1, 0), (0, 1)] {
+            let car = Car {
+                blown,
+                seized,
+                ..Car::sample()
+            };
+            assert_eq!(running_with(&F1_25, 0, &car).1.state.engine_warning, Some(true));
+        }
+        t.clear();
+        let car = Car {
+            damage: [101, 0, 0, 0, 0, 0, 255, 100],
+            front_brake_bias: 150,
+            traction_control: 9,
+            pit_limiter: 4,
+            ..Car::sample()
+        };
+        let state = running_with(&F1_25, 0, &car).1.state;
+        assert_eq!(
+            (state.damage_body, state.damage_gearbox, state.damage_engine),
+            (None, None, Some(1.0))
+        );
+        assert_eq!((state.brake_bias, state.tc_level, state.pit_limiter), (None, None, None));
+    }
+
+    /// A Car Telemetry packet of 2025 with the DRS flag off (the sample has it on).
+    fn sample_tele_packet_with_drs(drs: u8) -> Vec<u8> {
+        let mut packet = tele_packet(0, &sample_tele());
+        packet[HEADER_SIZE + T_DRS] = drs;
+        packet
+    }
+
+    #[test]
+    fn the_status_and_damage_packets_are_the_spec_sizes_and_offsets() {
+        // CarStatusData: 55 bytes, with tractionControl .. pitLimiterStatus, drsAllowed and vehicleFiaFlags where the
+        // reader looks (the three specs share the layout).
+        let status = [1, 1, 1, 1, 1, 4, 4, 4, 2, 2, 1, 1, 2, 1, 1, 1, 1, 4, 4, 4, 1, 4, 4, 4, 1];
+        assert_eq!(status.iter().sum::<usize>(), STATUS_CAR);
+        let at = field_offsets(&status);
+        assert_eq!(
+            [at[0], at[1], at[3], at[4], at[11], at[16]],
+            [
+                C_TRACTION_CONTROL,
+                C_ANTI_LOCK,
+                C_FRONT_BRAKE_BIAS,
+                C_PIT_LIMITER,
+                C_DRS_ALLOWED,
+                C_FIA_FLAGS
+            ]
+        );
+        // CarTelemetryData's `drs` follows engineRPM.
+        let telemetry = [2, 4, 4, 4, 1, 1, 2, 1];
+        assert_eq!(field_offsets(&telemetry)[7], T_DRS);
+        // CarDamageData: 42 bytes in 2023 and 2024 (953-byte packet), 46 in 2025 (1041), which added tyreBlisters.
+        let tail = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+        assert_eq!(tail.iter().sum::<usize>(), D_TAIL);
+        let tail_at = field_offsets(&tail);
+        assert_eq!(
+            [tail_at[0], tail_at[3], tail_at[5], tail_at[8], tail_at[9], tail_at[16], tail_at[17]],
+            [
+                D_FRONT_LEFT_WING,
+                D_FLOOR,
+                D_SIDEPOD,
+                D_GEARBOX,
+                D_ENGINE,
+                D_ENGINE_BLOWN,
+                D_ENGINE_SEIZED
+            ]
+        );
+        let head_2023 = 16 + 4 + 4;
+        assert_eq!(F1_23.damage_wings, head_2023);
+        assert_eq!(F1_24.damage_wings, head_2023);
+        assert_eq!(F1_25.damage_wings, head_2023 + 4, "2025 added tyreBlisters[4]");
+        assert_eq!(HEADER_SIZE + CARS * STATUS_CAR, 1239);
+        for (y, want) in [(&F1_23, 953), (&F1_24, 953), (&F1_25, 1041)] {
+            assert_eq!(y.expected_size(ID_CAR_DAMAGE), Some(want), "{}", y.format);
+            assert_eq!(y.expected_size(ID_CAR_STATUS), Some(1239));
+            assert_eq!(damage_packet_in(y.format, 0, &Car::sample()).len(), want);
+            assert_eq!(status_packet_in(y.format, 0, &Car::sample()).len(), 1239);
+        }
     }
 
     fn close(a: f32, b: f32) -> bool {
@@ -1634,7 +2020,7 @@ mod tests {
     fn other_packets_are_ignored() {
         let mut d = Decoder::default();
         for y in ALL {
-            for id in [3u8, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 255] {
+            for id in [3u8, 5, 8, 9, 11, 12, 13, 14, 15, 16, 255] {
                 for size in [1352, 1239, 1349] {
                     let mut w = header(y.format, id, UID, 0);
                     w.zeros(size - HEADER_SIZE);
