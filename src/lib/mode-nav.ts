@@ -23,12 +23,12 @@ export const NAV: Record<Mode, NavEntry[]> = {
     { to: '/cars', i18nKey: 'nav.cars', icon: Car },
   ],
   virtual: [
-    { to: '/sim', i18nKey: 'modes.nav.overview', icon: LayoutDashboard },
-    { to: '/sim/sessions', i18nKey: 'modes.nav.sessions', icon: Timer },
-    { to: '/sim/compare', i18nKey: 'modes.nav.compare', icon: ArrowLeftRight },
-    { to: '/sim/tracks', i18nKey: 'modes.nav.tracks', icon: Flag },
-    { to: '/sim/cars', i18nKey: 'modes.nav.cars', icon: CarFront },
-    { to: '/sim/app', i18nKey: 'modes.nav.xpeedSim', icon: Radio },
+    { to: '/virtual', i18nKey: 'modes.nav.overview', icon: LayoutDashboard },
+    { to: '/virtual/sessions', i18nKey: 'modes.nav.sessions', icon: Timer },
+    { to: '/virtual/compare', i18nKey: 'modes.nav.compare', icon: ArrowLeftRight },
+    { to: '/virtual/tracks', i18nKey: 'modes.nav.tracks', icon: Flag },
+    { to: '/virtual/cars', i18nKey: 'modes.nav.cars', icon: CarFront },
+    { to: '/virtual/companion', i18nKey: 'modes.nav.xpeedSim', icon: Radio },
   ],
 };
 
@@ -40,5 +40,5 @@ const entries = (mode: Mode, ...paths: string[]) => paths.flatMap((to) => NAV[mo
 /** The phone tab bar: three places always one tap away, then "More". */
 export const TABS: Record<Mode, NavEntry[]> = {
   real: entries('real', '/', '/history', '/issues'),
-  virtual: entries('virtual', '/sim', '/sim/sessions', '/sim/compare'),
+  virtual: entries('virtual', '/virtual', '/virtual/sessions', '/virtual/compare'),
 };

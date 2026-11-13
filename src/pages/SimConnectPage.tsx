@@ -23,7 +23,7 @@ const FAILURE_TEXT: Record<LinkFailure, [key: string, fallback: string]> = {
 const failureOf = (error: unknown): LinkFailure => (error instanceof XpeedSimLinkError ? error.reason : 'unavailable');
 
 /**
- * /sim/connect/<id>: the page Xpeed Companion opens when the person clicks "Connect to your account". One question,
+ * /companion/connect/<id>: the page Xpeed Companion opens when the person clicks "Connect to your account". One question,
  * one button. The app learns the answer by itself; nothing is copied or typed.
  */
 export default function SimConnectPage() {
@@ -72,7 +72,7 @@ export default function SimConnectPage() {
             {t('modes.connect.doneBody', 'Go back to Xpeed Companion, it already knows. You can close this tab.')}
           </p>
           <Button variant="outline" asChild>
-            <Link to="/sim">{t('modes.connect.openGames', 'Open Racing games')}</Link>
+            <Link to="/virtual">{t('modes.connect.openGames', 'Open Racing games')}</Link>
           </Button>
         </div>
       );

@@ -24,8 +24,8 @@ const pending = { deviceName: 'DESKTOP-RIG', status: 'pending', expiresAt: '2099
 const open = () =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter initialEntries={['/sim/connect/req-1']}>
-        <Routes><Route path="/sim/connect/:id" element={<SimConnectPage />} /></Routes>
+      <MemoryRouter initialEntries={['/companion/connect/req-1']}>
+        <Routes><Route path="/companion/connect/:id" element={<SimConnectPage />} /></Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -68,7 +68,7 @@ describe('the connect page', () => {
     expect(api.approve).toHaveBeenCalledWith('req-1');
     expect(modes.setModes).toHaveBeenCalledWith(['real', 'virtual']);
     expect(screen.getByText('Go back to Xpeed Companion, it already knows. You can close this tab.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open Racing games' })).toHaveAttribute('href', '/sim');
+    expect(screen.getByRole('link', { name: 'Open Racing games' })).toHaveAttribute('href', '/virtual');
   });
 
   it('leaves the modes alone when Virtual is already on, or is not in this build', async () => {

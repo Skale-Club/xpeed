@@ -20,7 +20,7 @@ const reasonOf = (error: unknown): SimErrorReason => (error instanceof XpeedSimA
 
 /**
  * Virtual > Xpeed Companion: how to connect a Windows computer, and the computers already connected (revoke one here).
- * Connecting itself happens in the app: it opens /sim/connect/<id> (SimConnectPage), where the person approves.
+ * Connecting itself happens in the app: it opens /companion/connect/<id> (SimConnectPage), where the person approves.
  */
 export function XpeedSimPanel() {
   const { t, i18n } = useTranslation();

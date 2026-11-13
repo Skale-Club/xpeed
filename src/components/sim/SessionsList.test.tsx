@@ -26,7 +26,7 @@ function Where() {
 }
 function renderSessions() {
   return render(
-    <MemoryRouter initialEntries={['/sim/sessions']}>
+    <MemoryRouter initialEntries={['/virtual/sessions']}>
       <SettingsProvider><SessionsList /><Where /></SettingsProvider>
     </MemoryRouter>,
   );
@@ -122,7 +122,7 @@ describe('looking at a session', () => {
     const slower = rows(session).find((row) => row.textContent?.includes('0:41.390'))!;
     fireEvent.click(within(slower).getByRole('button', { name: 'Compare with best' }));
     const params = decoded();
-    expect(screen.getByTestId('where').textContent?.startsWith('/sim/compare?a=')).toBe(true);
+    expect(screen.getByTestId('where').textContent?.startsWith('/virtual/compare?a=')).toBe(true);
     expect(params.get('a')).toMatch(/^ana\|sample\|Sample Ring\|Sample Car\|.*\|7\|41390\|/);
     expect(params.get('b')).toMatch(/\|5\|41076\|/);
     // The best lap has nothing to be compared with.
