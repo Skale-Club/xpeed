@@ -37,6 +37,8 @@ import { createAccountRoute } from './account-route';
 import { createDbRoute } from './db-route';
 import { createStorageRoute, storageStatus } from './storage-route';
 import { deepHealth } from './health';
+import { assertStorageEnv } from './storage-driver';
+import { startBackgroundJobs } from './jobs';
 import { admitUpload, rememberDevice, uploadLimit } from '../api/sim/_upload';
 import { functionNames, invokeFunction } from './functions';
 import { setFunctionRunner } from './functions/invoke-hook';
@@ -180,6 +182,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
   if(!process.env.VITE_SUPABASE_URL||!process.env.SUPABASE_SERVICE_ROLE_KEY)throw Error('Missing runtime database configuration');
+  assertStorageEnv();
   if(databaseConfigured()&&process.env.RUN_MIGRATIONS!=='false'){
     const client=new pg.Client({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='true'?{rejectUnauthorized:false}:undefined});
     await client.connect();
@@ -191,5 +194,6 @@ if(process.argv[1]&&fileURLToPath(import.meta.url)===resolve(process.argv[1])){
   }
   const server=createXpeedServer();
   server.listen(Number(process.env.PORT??8888),'0.0.0.0',()=>console.log(JSON.stringify({event:'server_ready',port:Number(process.env.PORT??8888)})));
+  startBackgroundJobs();
   for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>{server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),15_000).unref();});
 }

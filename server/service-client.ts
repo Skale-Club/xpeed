@@ -4,7 +4,8 @@
 import type pg from 'pg';
 import { execute, type Caller, type DbRequest } from './db-query';
 import { QueryBuilder, RpcBuilder, type Runner } from '../src/lib/query-builder';
-import { DiskStore, FileError, checkPath, signLink, type FileStore } from './files';
+import { FileError, checkPath, signLink, type FileStore } from './files';
+import { createStore } from './storage-driver';
 import { getPool } from './db';
 
 export interface ServiceClientOptions {
@@ -76,7 +77,7 @@ export function createServiceClient(options: ServiceClientOptions = {}) {
   const pool = options.pool ?? getPool();
   // A promise lets the edge-function shim hand over a token that still has to be verified.
   const caller: Caller | PromiseLike<Caller> = options.caller === undefined ? 'service' : options.caller;
-  const store = options.store ?? new DiskStore(process.env.STORAGE_DIR ?? '/data/files');
+  const store = options.store ?? createStore();
   const secret = options.secret ?? process.env.STORAGE_SECRET ?? '';
   const origin = (options.origin ?? process.env.PUBLIC_APP_URL ?? 'https://xpeed.skale.club').replace(/\/$/, '');
   const run: Runner = async (payload) => execute(pool, await caller, payload as unknown as DbRequest);

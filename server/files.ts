@@ -57,12 +57,33 @@ export function checkBucket(bucket: unknown): string {
 }
 
 export interface ListedFile { name: string; size: number; updatedAt: string; folder: boolean }
+/**
+ * Where the bytes live. Two implementations: DiskStore (a folder, the default) and S3Store (server/s3.ts: Cloudflare R2,
+ * Backblaze B2, Hetzner Object Storage, anything that speaks the S3 API). `createStore()` in server/storage-driver.ts
+ * picks one from the environment. Both must behave the same: that is what scripts/verify-storage.mjs checks.
+ */
 export interface FileStore {
+  /** `upsert: false` refuses to replace an existing object (FileError 409 already_exists). */
   put(bucket: string, path: string, data: Uint8Array, options: { upsert: boolean }): Promise<void>;
   get(bucket: string, path: string): Promise<Uint8Array | null>;
+  /** The size of an object without reading it, or null when it does not exist. */
+  head(bucket: string, path: string): Promise<{ size: number } | null>;
+  /** Missing objects are ignored. */
   remove(bucket: string, paths: string[]): Promise<void>;
   /** Direct children of `prefix`, files and folders, like Supabase's list(). */
   list(bucket: string, prefix: string, options?: { limit?: number; offset?: number; search?: string }): Promise<ListedFile[]>;
+  /** Every object of the bucket under `prefix`, at any depth (`path` is relative to the bucket), in name order. Hidden names (starting with a dot) are skipped. */
+  listAll(bucket: string, prefix?: string): AsyncIterable<{ path: string; size: number }>;
+  /** Writes and deletes a tiny object: proves the storage is reachable and writable with the credentials in use. */
+  probe(): Promise<boolean>;
+}
+
+/** The content type an object is stored with: from the extension, else the bucket's only allowed type (lap files are `.xlap.gz`). */
+export function storedContentType(bucket: string, path: string): string {
+  const byName = contentTypeOf(path);
+  if (byName !== 'application/octet-stream') return byName;
+  const only = BUCKETS[bucket]?.mimes;
+  return only && only.length === 1 ? only[0] : byName;
 }
 
 export class DiskStore implements FileStore {
@@ -104,6 +125,36 @@ export class DiskStore implements FileStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'EISDIR') return null;
       throw error;
     }
+  }
+
+  async head(bucket: string, path: string) {
+    try {
+      const info = await stat(this.locate(bucket, path));
+      return info.isFile() ? { size: info.size } : null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return null;
+      throw error;
+    }
+  }
+
+  async *listAll(bucket: string, prefix = ''): AsyncGenerator<{ path: string; size: number }> {
+    const folder = resolve(this.root, checkBucket(bucket));
+    const start = prefix ? this.locate(bucket, prefix) : folder;
+    const walk = async function* (directory: string, relativePath: string): AsyncGenerator<{ path: string; size: number }> {
+      let entries: import('node:fs').Dirent[];
+      try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return;
+        throw error;
+      }
+      entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const next = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) yield* walk(join(directory, entry.name), next);
+        else if (entry.isFile()) yield { path: next, size: (await stat(join(directory, entry.name))).size };
+      }
+    };
+    yield* walk(start, prefix);
   }
 
   /** Writes and deletes a tiny file in the root: proves the volume is mounted and writable by this user. */
