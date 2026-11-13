@@ -32,7 +32,7 @@ function renderApp(path = '/') {
             <Route path="/history" element={<p>Trips</p>} />
           </Route>
           <Route element={<ModeGate mode="virtual" />}>
-            <Route path="/sim" element={<p>Virtual home</p>} />
+            <Route path="/virtual" element={<p>Virtual home</p>} />
           </Route>
           <Route path="/settings" element={<ModesCard />} />
         </Routes>
@@ -62,7 +62,7 @@ describe('the Real | Virtual switch', () => {
 
   it('does not exist for someone with only racing games either', () => {
     choose(['virtual']);
-    renderApp('/sim');
+    renderApp('/virtual');
     expect(screen.queryByTestId('mode-switch')).not.toBeInTheDocument();
   });
 
@@ -82,7 +82,7 @@ describe('the Real | Virtual switch', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Virtual' }));
     expect(screen.getByText('Virtual home')).toBeInTheDocument();
-    expect(screen.getByTestId('where')).toHaveTextContent('/sim');
+    expect(screen.getByTestId('where')).toHaveTextContent('/virtual');
     expect(screen.getByRole('tab', { name: 'Virtual' })).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.click(screen.getByRole('tab', { name: 'Real' }));
@@ -93,7 +93,7 @@ describe('the Real | Virtual switch', () => {
     choose(['real', 'virtual']);
     renderApp('/history');
     fireEvent.click(screen.getByRole('tab', { name: 'Virtual' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/sim');
+    expect(screen.getByTestId('where')).toHaveTextContent('/virtual');
     fireEvent.click(screen.getByRole('tab', { name: 'Real' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/history');
   });
@@ -101,12 +101,12 @@ describe('the Real | Virtual switch', () => {
 
 describe('the mode gates', () => {
   it('offers Racing games on a Virtual screen to someone who did not choose it, instead of leaving without a word', () => {
-    renderApp('/sim');
+    renderApp('/virtual');
     expect(screen.queryByText('Virtual home')).not.toBeInTheDocument();
     expect(screen.getByTestId('mode-offer')).toBeInTheDocument();
     expect(screen.getByTestId('app-layout')).toContainElement(screen.getByTestId('mode-offer'));
     expect(screen.getByText('Racing games is off')).toBeInTheDocument();
-    expect(screen.getByTestId('where')).toHaveTextContent('/sim');
+    expect(screen.getByTestId('where')).toHaveTextContent('/virtual');
 
     fireEvent.click(screen.getByRole('button', { name: 'Turn it on' }));
     expect(screen.getByText('Virtual home')).toBeInTheDocument();
@@ -115,7 +115,7 @@ describe('the mode gates', () => {
   });
 
   it('goes home without turning anything on when the person says not now', () => {
-    renderApp('/sim');
+    renderApp('/virtual');
     fireEvent.click(screen.getByRole('link', { name: 'Not now' }));
     expect(screen.getByText('Real home')).toBeInTheDocument();
     expect(stored()).toBeNull();
@@ -132,7 +132,7 @@ describe('the mode gates', () => {
 
   it('still sends a Virtual link home when this build has no Virtual', () => {
     vi.stubEnv('VITE_ENABLE_VIRTUAL', 'false');
-    renderApp('/sim');
+    renderApp('/virtual');
     expect(screen.queryByTestId('mode-offer')).not.toBeInTheDocument();
     expect(screen.getByText('Real home')).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent('/');

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MODES_KEY, currentMode, isActivePath, modeEntryPath, modeOfPath, normalizeModes, readModes, rememberMode,
+  MODES_KEY, MODE_HOME, currentMode, isActivePath, modeEntryPath, modeOfPath, normalizeModes, readModes, rememberMode,
   rememberModeRoute, virtualBuildEnabled, writeModes,
 } from './modes';
 
@@ -71,8 +71,8 @@ describe('paths and modes', () => {
     expect(modeOfPath('/')).toBe('real');
     expect(modeOfPath('/history')).toBe('real');
     expect(modeOfPath('/session/abc')).toBe('real');
-    expect(modeOfPath('/sim')).toBe('virtual');
-    expect(modeOfPath('/sim/sessions')).toBe('virtual');
+    expect(modeOfPath('/virtual')).toBe('virtual');
+    expect(modeOfPath('/virtual/sessions')).toBe('virtual');
     expect(modeOfPath('/simulator')).toBe('real');
   });
   it('treats Settings, Admin and onboarding as shared', () => {
@@ -81,9 +81,9 @@ describe('paths and modes', () => {
   it('marks one menu entry active, not its parent', () => {
     expect(isActivePath('/', '/')).toBe(true);
     expect(isActivePath('/', '/history')).toBe(false);
-    expect(isActivePath('/sim', '/sim')).toBe(true);
-    expect(isActivePath('/sim', '/sim/sessions')).toBe(false);
-    expect(isActivePath('/sim/sessions', '/sim/sessions')).toBe(true);
+    expect(isActivePath('/virtual', '/virtual')).toBe(true);
+    expect(isActivePath('/virtual', '/virtual/sessions')).toBe(false);
+    expect(isActivePath('/virtual/sessions', '/virtual/sessions')).toBe(true);
     expect(isActivePath('/history', '/history/2')).toBe(true);
     expect(isActivePath('/history', '/historyx')).toBe(false);
   });
@@ -91,7 +91,7 @@ describe('paths and modes', () => {
 
 describe('the current mode and where each mode reopens', () => {
   it('follows the path when the person has that mode', () => {
-    expect(currentMode(['real', 'virtual'], '/sim/tracks')).toBe('virtual');
+    expect(currentMode(['real', 'virtual'], '/virtual/tracks')).toBe('virtual');
     expect(currentMode(['real', 'virtual'], '/history')).toBe('real');
   });
   it('keeps the last mode on shared pages, if still available', () => {
@@ -101,18 +101,27 @@ describe('the current mode and where each mode reopens', () => {
   });
   it('falls back to the first mode the person has', () => {
     expect(currentMode(['virtual'], '/history')).toBe('virtual');
-    expect(currentMode(['real'], '/sim')).toBe('real');
+    expect(currentMode(['real'], '/virtual')).toBe('real');
   });
   it('reopens the last screen of a mode, or its first screen', () => {
     expect(modeEntryPath('real')).toBe('/');
-    expect(modeEntryPath('virtual')).toBe('/sim');
+    expect(modeEntryPath('virtual')).toBe('/virtual');
     rememberModeRoute('real', '/fuel?month=3');
-    rememberModeRoute('virtual', '/sim/compare');
+    rememberModeRoute('virtual', '/virtual/compare');
     expect(modeEntryPath('real')).toBe('/fuel?month=3');
-    expect(modeEntryPath('virtual')).toBe('/sim/compare');
+    expect(modeEntryPath('virtual')).toBe('/virtual/compare');
+  });
+  it('translates an old stored /sim route to the new address', () => {
+    sessionStorage.setItem('xpeed.route.virtual', '/sim/sessions');
+    expect(modeEntryPath('virtual')).toBe('/virtual/sessions');
+  });
+  it('knows the new Virtual and Companion paths', () => {
+    expect(MODE_HOME.virtual).toBe('/virtual');
+    expect(modeOfPath('/virtual/companion')).toBe('virtual');
+    expect(modeOfPath('/companion/connect/abc')).toBeNull();
   });
   it('does not remember a screen under the wrong mode', () => {
-    rememberModeRoute('real', '/sim/compare');
+    rememberModeRoute('real', '/virtual/compare');
     expect(modeEntryPath('real')).toBe('/');
   });
 });

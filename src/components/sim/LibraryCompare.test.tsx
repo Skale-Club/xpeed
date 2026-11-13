@@ -69,7 +69,7 @@ describe('the compare screen started from kept laps', () => {
   });
 
   it('starts empty when the address names nothing', async () => {
-    renderAt('/sim/compare');
+    renderAt('/virtual/compare');
     expect(await screen.findByText(/Open one or two lap files/)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });

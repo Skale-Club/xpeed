@@ -1,4 +1,5 @@
 import { readPreference, writePreference } from '@/lib/browser-storage';
+import { currentRoute } from '@/lib/legacy-paths';
 
 /**
  * The two sides of Xpeed: Real (the person's own car, read over Bluetooth) and
@@ -49,7 +50,7 @@ export function writeModes(userId: string | null | undefined, modes: readonly Mo
 }
 
 /** The first screen of each mode. */
-export const MODE_HOME: Record<Mode, string> = { real: '/', virtual: '/sim' };
+export const MODE_HOME: Record<Mode, string> = { real: '/', virtual: '/virtual' };
 
 /** Pages every account shares: they belong to neither mode. */
 const SHARED_PREFIXES = ['/settings', '/admin', '/onboarding'];
@@ -57,15 +58,15 @@ const SHARED_PREFIXES = ['/settings', '/admin', '/onboarding'];
 /** Which mode a path belongs to; null for the pages both modes share. */
 export function modeOfPath(path: string): Mode | null {
   // The page that approves a connection from Xpeed Companion works for either mode: it turns Virtual on itself.
-  if (path.startsWith('/sim/connect/')) return null;
-  if (path === '/sim' || path.startsWith('/sim/')) return 'virtual';
+  if (path.startsWith('/companion/connect/')) return null;
+  if (path === '/virtual' || path.startsWith('/virtual/')) return 'virtual';
   if (SHARED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return null;
   return 'real';
 }
 
-/** Whether a menu entry is the page being shown ("/" and "/sim" match only themselves). */
+/** Whether a menu entry is the page being shown ("/" and "/virtual" match only themselves). */
 export function isActivePath(to: string, pathname: string): boolean {
-  if (to === '/' || to === '/sim') return pathname === to;
+  if (to === '/' || to === '/virtual') return pathname === to;
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -85,7 +86,9 @@ export function rememberModeRoute(mode: Mode, route: string) {
 /** The last screen used in a mode, or its first screen. */
 export function modeEntryPath(mode: Mode): string {
   try {
-    const route = window.sessionStorage.getItem(LAST_ROUTE_KEY[mode]);
+    const stored = window.sessionStorage.getItem(LAST_ROUTE_KEY[mode]);
+    // A route kept by an older build may still start with /sim: use its new address.
+    const route = stored ? currentRoute(stored) : null;
     if (route && modeOfPath(route.split(/[?#]/)[0]) === mode) return route;
   } catch { /* Storage blocked. */ }
   return MODE_HOME[mode];

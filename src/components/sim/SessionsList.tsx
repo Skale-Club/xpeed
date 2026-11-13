@@ -187,7 +187,7 @@ export function SessionsList() {
       {library.status === 'unavailable' && (
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
           {t('modes.sessions.unavailable', 'This browser cannot keep laps on the device. You can still open lap files directly in Compare laps.')}{' '}
-          <Link to="/sim/compare" className="underline">{t('modes.nav.compare', 'Compare laps')}</Link>
+          <Link to="/virtual/compare" className="underline">{t('modes.nav.compare', 'Compare laps')}</Link>
         </p>
       )}
       {library.status === 'failed' && (

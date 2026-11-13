@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, createRoutesFromElements, RouterProvider, Route, Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
+import LegacySimRedirect from "@/components/LegacySimRedirect";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
@@ -100,14 +101,18 @@ const AppProviders = () => (
 
 // The Virtual screens that exist; the others are placeholders until they are built.
 const SIM_SCREENS: Record<string, React.ReactElement> = {
-  "/sim/sessions": <SimSessionsPage />,
-  "/sim/compare": <SimComparePage />,
-  "/sim/tracks": <SimTracksPage />,
-  "/sim/app": <SimAppPage />,
+  "/virtual/sessions": <SimSessionsPage />,
+  "/virtual/compare": <SimComparePage />,
+  "/virtual/tracks": <SimTracksPage />,
+  "/virtual/companion": <SimAppPage />,
 };
 
 const router = createBrowserRouter(createRoutesFromElements(
   <Route element={<AppProviders />}>
+    {/* Old /sim addresses (Companion 0.2.0, saved links) move to the new ones. */}
+    <Route path="/sim" element={<LegacySimRedirect />} />
+    <Route path="/sim/*" element={<LegacySimRedirect />} />
+
     {/* Public Routes */}
     <Route path="/login" element={<PublicLayout><LoginPage /></PublicLayout>} />
     <Route path="/reset-password" element={<Navigate to="/login?entrar" replace />} />
@@ -135,7 +140,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
       </Route>
       {/* Shared by both modes. */}
-      <Route path="/sim/connect/:id" element={<SimConnectPage />} />
+      <Route path="/companion/connect/:id" element={<SimConnectPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/settings" element={<SettingsPage />} />
