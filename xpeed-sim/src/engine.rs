@@ -292,8 +292,11 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     shared.set_game(id, name, Game::Silent);
                 }
             } else if l.last_frame.elapsed() > Duration::from_secs(10) {
-                // A door that stays open but says nothing (a game sending UDP, stopped or in a menu).
-                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+                // A door that stays open but says nothing for a while: the game is in a menu, paused, or between
+                // sessions (Automobilista 2 stops writing there). It is still open and connected, only not on track,
+                // so it stays Connected (the panel says "connected, get in the car"), never Waiting: Waiting is for a
+                // game that is not running, set when its program closes.
+                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Connected);
                 l.lap_shown = 0;
             }
         }
