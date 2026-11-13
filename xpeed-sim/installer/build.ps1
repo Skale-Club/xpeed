@@ -1,5 +1,5 @@
 # Builds the Xpeed Companion installer: the release program, its icon (the real Xpeed mark, drawn by the program itself),
-# then Inno Setup. Output: xpeed-sim\dist\xpeed-sim-setup-<version>.exe
+# then Inno Setup. Output: xpeed-sim\dist\xpeed-companion-setup-<version>.exe
 #
 #   pwsh xpeed-sim/installer/build.ps1
 #
@@ -18,7 +18,7 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
     }
 }
 Write-Host "Xpeed Companion $version (build $build)"
-$previous = Join-Path $crate "dist\xpeed-sim-setup-$version.exe"
+$previous = Join-Path $crate "dist\xpeed-companion-setup-$version.exe"
 if (Test-Path $previous) {
     Write-Warning "!!! $previous already exists: version $version was already built. Bump 'version' in Cargo.toml (patch for fixes, minor for features) before this installer goes to anyone. !!!"
 }
@@ -29,10 +29,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 } finally { Pop-Location }
 
-$exe = Join-Path $crate 'target\release\xpeed-sim.exe'
+$exe = Join-Path $crate 'target\release\xpeed-companion.exe'
 # The program has no console of its own, so wait for it explicitly.
-Start-Process -FilePath $exe -ArgumentList 'make-icon', (Join-Path $here 'xpeed-sim.ico') -Wait
-if (-not (Test-Path (Join-Path $here 'xpeed-sim.ico'))) { throw 'the icon was not written' }
+Start-Process -FilePath $exe -ArgumentList 'make-icon', (Join-Path $here 'xpeed-companion.ico') -Wait
+if (-not (Test-Path (Join-Path $here 'xpeed-companion.ico'))) { throw 'the icon was not written' }
 
 $candidates = @()
 if ($env:INNO_SETUP_DIR) { $candidates += (Join-Path $env:INNO_SETUP_DIR 'ISCC.exe') }
@@ -49,4 +49,4 @@ if (-not $iscc) { throw 'Inno Setup 6 (ISCC.exe) was not found' }
 
 & $iscc "/DAppVersion=$version" (Join-Path $here 'xpeed-sim.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
-Write-Host "Done: $(Join-Path $crate "dist\xpeed-sim-setup-$version.exe") (version $version, build $build)"
+Write-Host "Done: $(Join-Path $crate "dist\xpeed-companion-setup-$version.exe") (version $version, build $build)"

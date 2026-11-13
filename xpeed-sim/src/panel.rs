@@ -4083,13 +4083,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 let account = state.ctx.account.lock().unwrap().clone();
                 match action {
                     Action::Connect => crate::tray::start_connect(&account.server),
-                    Action::OpenConnectPage => {
-                        if let Some(page) = crate::connect::Flow::global().page() {
-                            win::open(&page);
-                        }
-                    }
+                    Action::OpenConnectPage => match crate::connect::Flow::global().page() {
+                        Some(page) => win::open(&page),
+                        None => win::open(&format!("{}{}", account.server, crate::connect::CONNECT_PATH)),
+                    },
                     Action::CancelConnect => crate::connect::Flow::global().cancel(),
-                    Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
+                    Action::OpenXpeed => win::open(&format!("{}{}", account.server, crate::connect::OPEN_PATH)),
                     Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
                     Action::Cover(i) => {
                         let steps = carousel_steps(state.carousel.target, i, state.covers.len());

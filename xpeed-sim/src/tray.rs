@@ -37,7 +37,7 @@ const INSTANCE_NAME: &str = "Local\\XpeedSimTray";
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_CHANGED: u32 = WM_APP + 2;
 const WM_RELOAD: u32 = WM_APP + 3;
-/// Another copy (`xpeed-sim panel`) asks this one to open its panel.
+/// Another copy (`xpeed-companion panel`) asks this one to open its panel.
 const WM_OPEN_PANEL: u32 = WM_APP + 4;
 /// The panel picked a language (`wparam`: its place in `Lang::ALL`).
 const WM_SET_LANG: u32 = WM_APP + 5;
@@ -448,12 +448,24 @@ pub fn run(open_panel: bool) -> ExitCode {
         win::tell_error("Xpeed Companion", "Cannot tell where to keep Xpeed Companion's files.");
         return ExitCode::from(1);
     };
-    applog::init(home.join("sim.log"));
+    applog::init(home.join("companion.log"));
     applog::line(&format!(
         "Xpeed Companion {} ({}) starting",
         env!("CARGO_PKG_VERSION"),
         env!("XPEED_BUILD")
     ));
+
+    // The old "Xpeed Sim" start-up value: carried to the new name when it was on, and removed either way.
+    match win::migrate_autostart(
+        win::RUN_KEY,
+        win::LEGACY_RUN_NAME,
+        win::RUN_NAME,
+        &std::env::current_exe().unwrap_or_default(),
+    ) {
+        Ok(true) => applog::line("start with Windows: the old start-up entry was replaced by the new one"),
+        Ok(false) => {}
+        Err(why) => applog::line(&format!("start with Windows: could not replace the old start-up entry: {why}")),
+    }
 
     let config_path = home.join("config.json");
     let config = match config::load(&config_path) {

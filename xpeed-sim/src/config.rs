@@ -32,21 +32,53 @@ impl std::fmt::Debug for Config {
     }
 }
 
-/// The folder Xpeed Companion keeps its files in (configuration, log): `XPEED_SIM_HOME`, else `%APPDATA%\Xpeed Sim`
-/// (`$XDG_CONFIG_HOME/xpeed-sim` or `~/.config/xpeed-sim` elsewhere).
-pub fn home_dir() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("XPEED_SIM_HOME").filter(|p| !p.is_empty()) {
-        return Some(PathBuf::from(path));
-    }
-    let base = if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|b| PathBuf::from(b).join("Xpeed Sim"))
+/// An environment variable that was set to something: the new name first, then the old one (accepted as a fallback).
+fn env_path(names: [&str; 2]) -> Option<PathBuf> {
+    names
+        .iter()
+        .find_map(|name| std::env::var_os(name).filter(|p| !p.is_empty()))
+        .map(PathBuf::from)
+}
+
+/// Whether the folder of the configuration was chosen by the person (`XPEED_COMPANION_HOME`, or the old `XPEED_SIM_HOME`).
+/// Then nothing is moved: it is theirs.
+pub fn home_is_overridden() -> bool {
+    env_path(["XPEED_COMPANION_HOME", "XPEED_SIM_HOME"]).is_some()
+}
+
+/// Whether the folder of the laps was chosen by the person (`XPEED_COMPANION_LAPS`, or the old `XPEED_SIM_LAPS`).
+pub fn laps_is_overridden() -> bool {
+    env_path(["XPEED_COMPANION_LAPS", "XPEED_SIM_LAPS"]).is_some()
+}
+
+/// The folder under `base` that the configuration lives in, with the name of `product` (a per-OS spelling).
+fn home_under(product: &str, base: Option<PathBuf>) -> Option<PathBuf> {
+    base.map(|b| b.join(product)).filter(|b| !b.as_os_str().is_empty())
+}
+
+fn config_base() -> Option<PathBuf> {
+    if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from)
     } else {
         std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-            .map(|b| b.join("xpeed-sim"))
-    };
-    base.filter(|b| !b.as_os_str().is_empty())
+    }
+}
+
+/// The folder Xpeed Companion keeps its files in (configuration, log): `XPEED_COMPANION_HOME` (or the old
+/// `XPEED_SIM_HOME`), else `%APPDATA%\Xpeed Companion` (`$XDG_CONFIG_HOME/xpeed-companion` or `~/.config/xpeed-companion`
+/// elsewhere).
+pub fn home_dir() -> Option<PathBuf> {
+    if let Some(path) = env_path(["XPEED_COMPANION_HOME", "XPEED_SIM_HOME"]) {
+        return Some(path);
+    }
+    home_under(if cfg!(windows) { "Xpeed Companion" } else { "xpeed-companion" }, config_base())
+}
+
+/// Where the configuration lived before the program was renamed (never used for anything but moving it).
+pub fn legacy_home_dir() -> Option<PathBuf> {
+    home_under(if cfg!(windows) { "Xpeed Sim" } else { "xpeed-sim" }, config_base())
 }
 
 /// Where the pairing (server address and device key) is kept.
@@ -70,13 +102,31 @@ pub fn device_name() -> String {
     }
 }
 
-/// Where laps are written unless someone chose a folder: `XPEED_SIM_LAPS`, else `Documents\Xpeed Sim\Laps`.
+/// The folder in Documents that holds the laps: `Documents\Xpeed Companion` (the old one is `Documents\Xpeed Sim`).
+fn documents_folder(name: &str) -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .filter(|p| !p.is_empty())
+        .map(|profile| PathBuf::from(profile).join("Documents").join(name))
+}
+
+/// `Documents\Xpeed Companion`, the folder that holds the laps.
+pub fn documents_dir() -> Option<PathBuf> {
+    documents_folder("Xpeed Companion")
+}
+
+/// The old `Documents\Xpeed Sim` (only to move it).
+pub fn legacy_documents_dir() -> Option<PathBuf> {
+    documents_folder("Xpeed Sim")
+}
+
+/// Where laps are written unless someone chose a folder: `XPEED_COMPANION_LAPS` (or the old `XPEED_SIM_LAPS`), else
+/// `Documents\Xpeed Companion\Laps`.
 pub fn default_laps_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os("XPEED_SIM_LAPS").filter(|p| !p.is_empty()) {
-        return PathBuf::from(path);
+    if let Some(path) = env_path(["XPEED_COMPANION_LAPS", "XPEED_SIM_LAPS"]) {
+        return path;
     }
-    match std::env::var_os("USERPROFILE").filter(|p| !p.is_empty()) {
-        Some(profile) => PathBuf::from(profile).join("Documents").join("Xpeed Sim").join("Laps"),
+    match documents_dir() {
+        Some(dir) => dir.join("Laps"),
         None => home_dir().unwrap_or_default().join("Laps"),
     }
 }
@@ -209,7 +259,7 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "xpeed-sim-test-{}-{name}-{}",
+        "xpeed-companion-test-{}-{name}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
@@ -235,10 +285,13 @@ mod tests {
 
     #[test]
     fn laps_go_where_the_person_said_or_to_documents() {
-        std::env::set_var("XPEED_SIM_LAPS", r"D:\mine");
-        assert_eq!(default_laps_dir(), PathBuf::from(r"D:\mine"));
+        std::env::set_var("XPEED_SIM_LAPS", r"D:\old-name");
+        assert_eq!(default_laps_dir(), PathBuf::from(r"D:\old-name"), "the old variable still works");
+        std::env::set_var("XPEED_COMPANION_LAPS", r"D:\mine");
+        assert_eq!(default_laps_dir(), PathBuf::from(r"D:\mine"), "the new one wins");
         std::env::remove_var("XPEED_SIM_LAPS");
-        assert!(default_laps_dir().ends_with(r"Xpeed Sim\Laps") || default_laps_dir().ends_with("Laps"));
+        std::env::remove_var("XPEED_COMPANION_LAPS");
+        assert!(default_laps_dir().ends_with(r"Xpeed Companion\Laps") || default_laps_dir().ends_with("Laps"));
     }
 
     #[test]

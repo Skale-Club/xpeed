@@ -1,6 +1,6 @@
 //! The link the Xpeed app opens to connect this computer: `xpeedsim://pair?server=<address>&code=<code>`.
 //!
-//! Windows hands such a link to `xpeed-sim.exe link "<link>"` (the installer registers the `xpeedsim:` scheme).
+//! The `link` command is kept for old links; the installer no longer registers the `xpeedsim:` scheme.
 //! Anything on the web can send one, so a link only *proposes* a pairing: the program shows which server it
 //! would connect to and waits for a yes before it does anything.
 

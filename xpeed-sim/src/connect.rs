@@ -13,6 +13,13 @@ use crate::config::{self, Config};
 use crate::net::{self, LinkStatus};
 
 /// How often the server is asked whether the person clicked Connect.
+/// The page of the Xpeed site that explains and starts the connection (opened when this computer is not connected).
+pub const CONNECT_PATH: &str = "/virtual/companion";
+/// The part of the Xpeed site a connected person goes to ("Open Xpeed").
+pub const OPEN_PATH: &str = "/virtual";
+/// The page where the person confirms one connection request, followed by `/<request id>`.
+pub const DEVICE_PAGE: &str = "/companion/connect";
+
 pub const POLL_EVERY: Duration = Duration::from_secs(2);
 /// How long a request is waited for (the server's own request lives 10 minutes).
 pub const GIVE_UP_AFTER: Duration = Duration::from_secs(10 * 60);
@@ -251,7 +258,7 @@ fn run(flow: &Flow, generation: u64, server: &str, config_path: Option<PathBuf>,
         Ok((id, _expires)) => id,
         Err(why) => return failed(why),
     };
-    let page = format!("{server}/sim/connect/{id}");
+    let page = format!("{server}{DEVICE_PAGE}/{id}");
     if !flow.set(generation, Phase::Waiting { page: Some(page.clone()) }) {
         return None;
     }
@@ -370,7 +377,7 @@ mod tests {
         click(&flow, &stub.url, Some(path.clone()), silent_hooks(&opened, &connected), quick());
         wait_for("the connection", || !connected.lock().unwrap().is_empty());
 
-        assert_eq!(*opened.lock().unwrap(), [format!("{}/sim/connect/abc-123", stub.url)]);
+        assert_eq!(*opened.lock().unwrap(), [format!("{}/companion/connect/abc-123", stub.url)]);
         let saved = config::load(&path).unwrap().expect("a pairing was saved");
         let key = saved.token.clone();
         assert!(key.starts_with("xpd_"));
@@ -452,10 +459,10 @@ mod tests {
         assert!(flow.set(
             generation,
             Phase::Waiting {
-                page: Some("https://xpeed.skale.club/sim/connect/x".into())
+                page: Some("https://xpeed.skale.club/companion/connect/x".into())
             }
         ));
-        assert_eq!(flow.begin(), Err(Some("https://xpeed.skale.club/sim/connect/x".into())));
+        assert_eq!(flow.begin(), Err(Some("https://xpeed.skale.club/companion/connect/x".into())));
         // Approved: the pairing exists and the flow is idle.
         assert!(flow.set(generation, Phase::Idle));
         assert_eq!(

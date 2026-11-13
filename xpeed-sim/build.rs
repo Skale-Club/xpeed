@@ -1,4 +1,4 @@
-//! Gives `xpeed-sim.exe` its icon and version info (a compiled resource, linked in) and stamps the build.
+//! Gives `xpeed-companion.exe` its icon and version info (a compiled resource, linked in) and stamps the build.
 //! No crate is needed: the icon is drawn by `src/icon.rs` (the real Xpeed mark), the resource script is written by
 //! `src/rcgen.rs`, and Windows' own `rc.exe` compiles it. When `rc.exe` is not there the program still builds, without
 //! the resources.
@@ -64,16 +64,16 @@ fn embed_resources() {
 
     let ico = out_dir.join("xpeed.ico");
     if let Err(e) = std::fs::write(&ico, icon::ico_file(&[16, 24, 32, 48, 64, 256], None)) {
-        println!("cargo:warning=xpeed-sim: could not write the icon ({e}); building without resources");
+        println!("cargo:warning=xpeed-companion: could not write the icon ({e}); building without resources");
         return;
     }
     let rc = out_dir.join("app.rc");
     if let Err(e) = std::fs::write(&rc, rcgen::resource_script(&version, &ico.display().to_string())) {
-        println!("cargo:warning=xpeed-sim: could not write app.rc ({e}); building without resources");
+        println!("cargo:warning=xpeed-companion: could not write app.rc ({e}); building without resources");
         return;
     }
     let Some(rc_exe) = find_rc() else {
-        println!("cargo:warning=xpeed-sim: rc.exe was not found (set RC, or install the Windows SDK); building without the icon and version info");
+        println!("cargo:warning=xpeed-companion: rc.exe was not found (set RC, or install the Windows SDK); building without the icon and version info");
         return;
     };
     let res = out_dir.join("app.res");
@@ -86,7 +86,7 @@ fn embed_resources() {
         Ok(s) if s.success() && res.exists() => {
             println!("cargo:rustc-link-arg-bins={}", res.display());
         }
-        other => println!("cargo:warning=xpeed-sim: rc.exe failed ({other:?}); building without the icon and version info"),
+        other => println!("cargo:warning=xpeed-companion: rc.exe failed ({other:?}); building without the icon and version info"),
     }
 }
 

@@ -1,5 +1,5 @@
 //! The log file of the tray app: what happened, one line each, with the time. It never holds the device key.
-//! When it passes 512 KB the old half is kept as `sim.log.old` and a new one starts. It is for support: the panel
+//! When it passes 512 KB the old half is kept as `companion.log.old` and a new one starts. It is for support: the panel
 //! shows the person's activity in plain words instead (`status::Activity`).
 
 use std::io::Write;
@@ -10,12 +10,22 @@ use crate::util::{iso_utc, now_ms};
 
 const LIMIT: u64 = 512 * 1024;
 static FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
+static EARLY: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// A line from before the log could be opened (the start-up migration). It is written when `init` runs.
+pub fn early(text: &str) {
+    EARLY.lock().unwrap().push(text.to_owned());
+}
 
 pub fn init(path: PathBuf) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     *FILE.lock().unwrap() = Some(path);
+    let waiting = std::mem::take(&mut *EARLY.lock().unwrap());
+    for text in waiting {
+        line(&text);
+    }
 }
 
 pub fn line(text: &str) {
@@ -38,7 +48,7 @@ mod tests {
     #[test]
     fn appends_lines_with_a_time_and_starts_over_when_it_gets_big() {
         let dir = crate::config::scratch_dir("log");
-        let path = dir.join("sim.log");
+        let path = dir.join("companion.log");
         line("nothing is written before init");
         assert!(!path.exists());
         init(path.clone());
