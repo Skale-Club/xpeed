@@ -27,8 +27,6 @@ impl Tyre {
 }
 
 /// A flag the race shows the player.
-// The readers fill these in (next change); until then nothing builds them.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flag {
     Green,
@@ -40,7 +38,6 @@ pub enum Flag {
 }
 
 /// The rear wing's state where the car has DRS (or a push to pass the game reports the same way).
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drs {
     /// Not allowed here.

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::game::{Frame, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, Tyre};
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
 
@@ -60,6 +60,7 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
         }
     });
     frame.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
+    frame.state = lmu_state(t, scoring.and_then(|s| s.player.as_ref()));
     frame.car = t.vehicle_name.clone();
     frame.track = t.track_name.clone();
     if let Some(s) = scoring {
@@ -79,6 +80,61 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
         }
     }
     frame
+}
+
+/// The dashboard lights, temperatures, electronics and damage of Le Mans Ultimate's car (`TelemInfoV01`, and the
+/// player's scoring entry for the flag). The header has no handbrake, no gearbox or engine damage and no suspension
+/// damage, so those stay `None`.
+fn lmu_state(t: &PlayerTelemetry, player: Option<&crate::lmu::snapshot::VehicleScoring>) -> CarState {
+    let temp = |c: f64| (c.is_finite() && c > 0.0 && c <= 400.0).then_some(c as f32);
+    // A setting is given for a car that has the aid (its maximum is above 0).
+    let setting = |value: u8, max: u8| (max > 0).then_some(value);
+    // `mDentSeverity`: eight places, each 0 none, 1 some, 2 more. Body damage is their sum over the worst case
+    // (all eight at 2), so 1.0 is a car dented everywhere.
+    let dents = t.dents.iter().map(|&d| u32::from(d.min(2))).sum::<u32>() as f32 / 16.0;
+    // `mRearBrakeBias` is the rear share; 0 is what an unset field holds, and a bias is never all on one axle.
+    let bias = 1.0 - t.rear_brake_bias;
+    // The rear flap (DRS-like): open when activated; 2 = allowed, 1 = the criteria are met but not yet. 0 is also what
+    // a car without the device writes, so it is not given.
+    let drs = if t.rear_flap_activated {
+        Some(Drs::Open)
+    } else {
+        match t.rear_flap_legal {
+            2 => Some(Drs::Available),
+            1 => Some(Drs::Off),
+            _ => None,
+        }
+    };
+    // The header names only green (0) and blue (6) for `mFlag`; a car that took the full-course caution is under yellow.
+    let flag = player.and_then(|p| {
+        if p.under_yellow {
+            Some(Flag::Yellow)
+        } else if p.flag == 6 {
+            Some(Flag::Blue)
+        } else {
+            None
+        }
+    });
+    CarState {
+        pit_limiter: Some(t.speed_limiter_active),
+        abs_active: Some(t.abs_active),
+        tc_active: Some(t.tc_active),
+        drs,
+        headlights: Some(t.headlights),
+        handbrake: None,
+        engine_warning: Some(t.overheating),
+        flag,
+        water_c: temp(t.water_c),
+        oil_c: temp(t.oil_c),
+        tc_level: setting(t.tc, t.tc_max),
+        abs_level: setting(t.abs, t.abs_max),
+        engine_map: setting(t.motor_map, t.motor_map_max),
+        brake_bias: (t.rear_brake_bias > 0.0 && t.rear_brake_bias < 1.0).then_some(bias as f32),
+        damage_body: Some(dents),
+        damage_engine: None,
+        damage_gearbox: None,
+        damage_suspension: None,
+    }
 }
 
 /// One picture of the car for the panel. Values the game does not give are `NaN` or `None`, like in `Frame`.
@@ -163,7 +219,24 @@ pub struct Tracker {
     /// The highest forward gear seen with this car, and whether the car was seen in a lower one afterwards.
     top_gear: u8,
     top_gear_left: bool,
+    /// The fuel (litres) when the lap being driven began, when this run saw it begin (a lap joined midway has none).
+    fuel_lap_start: Option<f32>,
+    /// The last fuel reading of this lap.
+    fuel_prev: Option<f32>,
+    /// Nothing so far on this lap makes its fuel use meaningless (no refuel, no pit lane, never out of the car).
+    fuel_clean: bool,
+    /// The biggest fuel reading seen with this car: the tank, as far as the run has seen it.
+    fuel_tank: f32,
+    /// The fuel used by the last complete laps (at most `FUEL_LAPS`), oldest first.
+    fuel_laps: Vec<f32>,
 }
+
+/// How many of the last laps the fuel per lap averages.
+const FUEL_LAPS: usize = 3;
+/// A lap that uses more than this share of the tank is not a lap's fuel use (a refuel the readings missed).
+const FUEL_MAX_SHARE: f32 = 0.3;
+/// A rise in the fuel above this (litres) between two readings is a refuel, not noise.
+const REFUEL_LITRES: f32 = 0.2;
 
 /// A first reading further than this from the line means the lap was joined midway.
 const FROM_LINE_METRES: f64 = 50.0;
@@ -204,6 +277,7 @@ impl Tracker {
             }
         }
         if frame.lap != self.lap {
+            self.fuel_lap_ended(frame);
             self.look_for_layout();
             // The lap ended: keep it until its official time shows (it can come a moment after the new lap starts),
             // with the official time that was showing while it was driven (the one before it).
@@ -242,6 +316,9 @@ impl Tracker {
                 }
                 self.path.push(here);
             }
+        }
+        if frame.lap == self.lap {
+            self.fuel_seen(frame);
         }
         self.official = frame.last_lap_s;
         if frame.driving {
@@ -290,7 +367,7 @@ impl Tracker {
             fuel_l: frame.fuel_l,
             tyres: frame.tyres,
             state: frame.state,
-            fuel_per_lap_l: None,
+            fuel_per_lap_l: (!self.fuel_laps.is_empty()).then(|| self.fuel_laps.iter().sum::<f32>() / self.fuel_laps.len() as f32),
             map: self
                 .map
                 .clone()
@@ -298,6 +375,42 @@ impl Tracker {
             map_complete: self.map.is_some(),
             pos: (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z)),
             at_ms,
+        }
+    }
+
+    /// The lap number changed. If it went up by one, the lap began where this run saw it and nothing spoiled it (no
+    /// refuel, no pit lane, never out of the car), the fuel it used counts: what it started with less what the last
+    /// reading of it held, when that is above 0 and below `FUEL_MAX_SHARE` of the tank. The next lap starts with this
+    /// frame's fuel.
+    fn fuel_lap_ended(&mut self, frame: &Frame) {
+        let advanced = frame.lap == self.lap + 1;
+        if let (true, true, Some(start), Some(end)) = (advanced, self.fuel_clean, self.fuel_lap_start, self.fuel_prev) {
+            let used = start - end;
+            if used > 0.0 && used < FUEL_MAX_SHARE * self.fuel_tank {
+                self.fuel_laps.push(used);
+                if self.fuel_laps.len() > FUEL_LAPS {
+                    self.fuel_laps.remove(0);
+                }
+            }
+        }
+        let fuel = Some(frame.fuel_l).filter(|f| f.is_finite());
+        self.fuel_tank = self.fuel_tank.max(fuel.unwrap_or(0.0));
+        self.fuel_clean = frame.driving && !frame.in_pits;
+        self.fuel_lap_start = fuel.filter(|_| advanced && self.fuel_clean);
+        self.fuel_prev = fuel;
+    }
+
+    /// A reading within the lap: the tank, the last fuel, and whether the lap is still clean.
+    fn fuel_seen(&mut self, frame: &Frame) {
+        if !frame.driving || frame.in_pits {
+            self.fuel_clean = false;
+        }
+        if frame.fuel_l.is_finite() {
+            if self.fuel_prev.is_some_and(|prev| frame.fuel_l > prev + REFUEL_LITRES) {
+                self.fuel_clean = false;
+            }
+            self.fuel_tank = self.fuel_tank.max(frame.fuel_l);
+            self.fuel_prev = Some(frame.fuel_l);
         }
     }
 
@@ -395,6 +508,113 @@ mod tests {
                 tracker.on_frame("Test", &at(lap, t * speed, t, last), 0)
             })
             .collect()
+    }
+
+    /// Drives lap `lap` with the fuel going from `from` to `to` litres, `pits` of it in the pit lane.
+    fn drive_fuel(tracker: &mut Tracker, lap: i32, from: f32, to: f32) -> Live {
+        let mut last = None;
+        for i in 0..=100 {
+            let mut f = at(lap, f64::from(i) * 9.0, f64::from(i) / 10.0, None);
+            f.fuel_l = from + (to - from) * i as f32 / 100.0;
+            last = Some(tracker.on_frame("Test", &f, 0));
+        }
+        last.unwrap()
+    }
+
+    #[test]
+    fn the_fuel_per_lap_is_the_average_of_the_last_three_full_laps() {
+        let mut tracker = Tracker::default();
+        // Lap 1 is joined from the start of the run, not seen beginning: it does not count.
+        let live = drive_fuel(&mut tracker, 1, 50.0, 47.5);
+        assert_eq!(live.fuel_per_lap_l, None);
+        // Laps 2 and 3 are full: 2 l and 2.5 l.
+        let live = drive_fuel(&mut tracker, 2, 47.0, 45.0);
+        assert_eq!(live.fuel_per_lap_l, None, "lap 2 is not over until lap 3 starts");
+        let live = drive_fuel(&mut tracker, 3, 45.0, 42.5);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0), "lap 2 used 47 - 45");
+        let live = drive_fuel(&mut tracker, 4, 42.5, 40.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.25), "laps 2 and 3: (2 + 2.5) / 2");
+        // The average keeps the last three: lap 5 uses 3 l, lap 6 uses 3.5 l, so laps 4, 5, 6.
+        drive_fuel(&mut tracker, 5, 40.0, 37.0);
+        drive_fuel(&mut tracker, 6, 37.0, 33.5);
+        let live = drive_fuel(&mut tracker, 7, 33.5, 31.0);
+        let want = (2.5 + 3.0 + 3.5) / 3.0;
+        assert!((live.fuel_per_lap_l.unwrap() - want).abs() < 1e-5, "{:?}", live.fuel_per_lap_l);
+    }
+
+    #[test]
+    fn a_refuel_a_pit_lap_and_a_partial_lap_do_not_count() {
+        let mut tracker = Tracker::default();
+        drive_fuel(&mut tracker, 1, 50.0, 48.0);
+        drive_fuel(&mut tracker, 2, 48.0, 46.0);
+        let live = drive_fuel(&mut tracker, 3, 46.0, 44.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0));
+        // Lap 4: the fuel goes up (a refuel) and comes down again.
+        for (lap, from, to) in [(4, 44.0, 43.0), (4, 60.0, 59.0)] {
+            drive_fuel(&mut tracker, lap, from, to);
+        }
+        let live = drive_fuel(&mut tracker, 5, 59.0, 57.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0), "the refuelled lap 4 added nothing");
+        // Lap 5 in the pit lane: not a lap's use either.
+        for i in 0..50 {
+            let mut f = at(5, 400.0 + f64::from(i), 40.0 + f64::from(i) / 10.0, None);
+            f.fuel_l = 57.0;
+            f.in_pits = true;
+            tracker.on_frame("Test", &f, 0);
+        }
+        drive_fuel(&mut tracker, 6, 57.0, 55.0);
+        let live = drive_fuel(&mut tracker, 7, 55.0, 53.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0));
+        // The fuel dropping by more than 30 % of the tank in a lap (a missed refuel or a restart) is not a lap's use.
+        drive_fuel(&mut tracker, 8, 53.0, 10.0);
+        let live = drive_fuel(&mut tracker, 9, 10.0, 8.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0), "43 l in one lap of a 60 l tank is not credible");
+        // A lap that jumps a number (a restart to lap 12) is not a lap one longer than the one before it.
+        drive_fuel(&mut tracker, 12, 8.0, 6.0);
+        let live = drive_fuel(&mut tracker, 13, 6.0, 4.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0));
+        // A reading without a fuel (a game that gives none) never makes a fuel per lap.
+        let mut other = Tracker::default();
+        for lap in 1..=4 {
+            let live = drive_lap(&mut other, lap, 50.0, None).pop().unwrap();
+            assert_eq!(live.fuel_per_lap_l, None);
+        }
+    }
+
+    #[test]
+    fn a_new_track_or_car_starts_the_fuel_per_lap_over() {
+        let mut tracker = Tracker::default();
+        for (lap, from) in [(1, 50.0), (2, 48.0), (3, 46.0), (4, 44.0)] {
+            drive_fuel(&mut tracker, lap, from, from - 2.0);
+        }
+        let live = drive_fuel(&mut tracker, 5, 42.0, 40.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0));
+        let mut frame = at(1, 0.0, 0.0, None);
+        frame.track = "Spa".into();
+        frame.fuel_l = 40.0;
+        let live = tracker.on_frame("Test", &frame, 0);
+        assert_eq!(live.fuel_per_lap_l, None, "another track");
+        // And a lap of the new track begun from its start counts only once seen from the start.
+        let live = drive_fuel_on(&mut tracker, "Spa", 2, 40.0, 38.0);
+        assert_eq!(live.fuel_per_lap_l, None);
+        let live = drive_fuel_on(&mut tracker, "Spa", 3, 38.0, 36.0);
+        assert_eq!(live.fuel_per_lap_l, Some(2.0));
+        let mut changed_car = at(3, 10.0, 1.0, None);
+        changed_car.track = "Spa".into();
+        changed_car.car = "LMP2".into();
+        changed_car.fuel_l = 30.0;
+        assert_eq!(tracker.on_frame("Test", &changed_car, 0).fuel_per_lap_l, None, "another car");
+    }
+
+    fn drive_fuel_on(tracker: &mut Tracker, track: &str, lap: i32, from: f32, to: f32) -> Live {
+        let mut last = None;
+        for i in 0..=100 {
+            let mut f = at(lap, f64::from(i) * 9.0, f64::from(i) / 10.0, None);
+            f.track = track.into();
+            f.fuel_l = from + (to - from) * i as f32 / 100.0;
+            last = Some(tracker.on_frame("Test", &f, 0));
+        }
+        last.unwrap()
     }
 
     #[test]
@@ -561,6 +781,79 @@ mod tests {
         // Without scoring yet: no distance, and the car counts as driven.
         let alone = lmu_frame(&t, None);
         assert!(alone.driving && alone.dist_m.is_none() && alone.track == "Sarthe");
+    }
+
+    #[test]
+    fn a_le_mans_ultimate_frame_carries_the_car_state() {
+        use crate::lmu::snapshot::{SessionScoring, VehicleScoring};
+        let t = PlayerTelemetry {
+            water_c: 88.5,
+            oil_c: 101.25,
+            overheating: true,
+            headlights: true,
+            speed_limiter_active: true,
+            abs_active: false,
+            tc_active: true,
+            tc: 4,
+            tc_max: 10,
+            abs: 0,
+            abs_max: 0,
+            motor_map: 3,
+            motor_map_max: 5,
+            rear_brake_bias: 0.375,
+            dents: [0, 2, 1, 0, 0, 0, 0, 1],
+            rear_flap_activated: false,
+            rear_flap_legal: 2,
+            ..PlayerTelemetry::default()
+        };
+        let scoring = |flag: u8, under_yellow: bool| ScoringFrame {
+            session: SessionScoring::default(),
+            player: Some(VehicleScoring {
+                flag,
+                under_yellow,
+                ..VehicleScoring::default()
+            }),
+        };
+        let state = lmu_frame(&t, Some(&scoring(6, false))).state;
+        assert_eq!(
+            state,
+            CarState {
+                pit_limiter: Some(true),
+                abs_active: Some(false),
+                tc_active: Some(true),
+                drs: Some(Drs::Available),
+                headlights: Some(true),
+                handbrake: None,
+                engine_warning: Some(true),
+                flag: Some(Flag::Blue),
+                water_c: Some(88.5),
+                oil_c: Some(101.25),
+                tc_level: Some(4),
+                abs_level: None, // the car has no ABS (its maximum is 0)
+                engine_map: Some(3),
+                brake_bias: Some(0.625), // 0.375 of the braking is on the rear
+                damage_body: Some(0.25), // dents 2 + 1 + 1 of a worst case of 16
+                damage_engine: None,
+                damage_gearbox: None,
+                damage_suspension: None,
+            }
+        );
+        assert_eq!(lmu_frame(&t, Some(&scoring(0, true))).state.flag, Some(Flag::Yellow));
+        assert_eq!(lmu_frame(&t, Some(&scoring(0, false))).state.flag, None);
+        assert_eq!(lmu_frame(&t, None).state.flag, None, "no scoring yet");
+        // The rear flap: activated is open; "1" is not yet; 0 is what a car without one writes.
+        let mut flap = t.clone();
+        flap.rear_flap_activated = true;
+        assert_eq!(lmu_frame(&flap, None).state.drs, Some(Drs::Open));
+        flap.rear_flap_activated = false;
+        flap.rear_flap_legal = 1;
+        assert_eq!(lmu_frame(&flap, None).state.drs, Some(Drs::Off));
+        flap.rear_flap_legal = 0;
+        assert_eq!(lmu_frame(&flap, None).state.drs, None);
+        // Nothing the game left at 0 is shown as a temperature or a bias.
+        let blank = lmu_frame(&PlayerTelemetry::default(), None).state;
+        assert_eq!((blank.water_c, blank.oil_c, blank.brake_bias), (None, None, None));
+        assert_eq!((blank.tc_level, blank.engine_map), (None, None));
     }
 
     #[test]

@@ -66,6 +66,30 @@ pub struct PlayerTelemetry {
     pub steering: f64,
     pub clutch: f64,
     pub fuel_l: f64,
+    /// `mEngineWaterTemp` and `mEngineOilTemp`, Celsius (0 when the game gives none).
+    pub water_c: f64,
+    pub oil_c: f64,
+    /// `mOverheating`: the overheating icon is shown.
+    pub overheating: bool,
+    pub headlights: bool,
+    /// `mSpeedLimiterActive`, `mABSActive` and `mTCActive`: the pit limiter is on, ABS or TC is acting.
+    pub speed_limiter_active: bool,
+    pub abs_active: bool,
+    pub tc_active: bool,
+    /// The driver's settings (`mTC`, `mABS`, `mMotorMap`) and their maxima (0 for a car without that aid).
+    pub tc: u8,
+    pub tc_max: u8,
+    pub abs: u8,
+    pub abs_max: u8,
+    pub motor_map: u8,
+    pub motor_map_max: u8,
+    /// `mRearBrakeBias`: the fraction of the braking on the rear axle.
+    pub rear_brake_bias: f64,
+    /// `mDentSeverity[8]`: dents at eight places around the car, 0 none, 1 some, 2 more.
+    pub dents: [u8; 8],
+    /// `mRearFlapActivated` and `mRearFlapLegalStatus` (0 disallowed, 1 criteria met but not yet, 2 allowed).
+    pub rear_flap_activated: bool,
+    pub rear_flap_legal: u8,
     /// Front left, front right, rear left, rear right.
     pub wheels: [Wheel; 4],
 }
@@ -103,6 +127,10 @@ pub struct VehicleScoring {
     pub lap_start_et: f64,
     pub in_pits: bool,
     pub num_penalties: i16,
+    /// `mFlag`, the flag shown to the car (the header: only 0 green or 6 blue) and `mUnderYellow` (it has taken a
+    /// full-course caution).
+    pub flag: u8,
+    pub under_yellow: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -139,6 +167,23 @@ pub fn parse_telemetry(info: &[u8]) -> PlayerTelemetry {
         steering: f64_at(info, TI_STEERING),
         clutch: f64_at(info, TI_CLUTCH),
         fuel_l: f64_at(info, TI_FUEL),
+        water_c: f64_at(info, TI_WATER_TEMP),
+        oil_c: f64_at(info, TI_OIL_TEMP),
+        overheating: info[TI_OVERHEATING] != 0,
+        headlights: info[TI_HEADLIGHTS] != 0,
+        speed_limiter_active: info[TI_SPEED_LIMITER_ACTIVE] != 0,
+        abs_active: info[TI_ABS_ACTIVE] != 0,
+        tc_active: info[TI_TC_ACTIVE] != 0,
+        tc: info[TI_TC],
+        tc_max: info[TI_TC_MAX],
+        abs: info[TI_ABS],
+        abs_max: info[TI_ABS_MAX],
+        motor_map: info[TI_MOTOR_MAP],
+        motor_map_max: info[TI_MOTOR_MAP_MAX],
+        rear_brake_bias: f64_at(info, TI_REAR_BRAKE_BIAS),
+        dents: std::array::from_fn(|i| info[TI_DENT_SEVERITY + i]),
+        rear_flap_activated: info[TI_REAR_FLAP_ACTIVATED] != 0,
+        rear_flap_legal: info[TI_REAR_FLAP_LEGAL_STATUS],
         wheels: std::array::from_fn(|i| {
             let at = TI_WHEEL + i * TELEM_WHEEL_SIZE;
             Wheel {
@@ -180,6 +225,8 @@ pub fn parse_vehicle(vehicle: &[u8]) -> VehicleScoring {
         lap_start_et: f64_at(vehicle, VS_LAP_START_ET),
         in_pits: vehicle[VS_IN_PITS] != 0,
         num_penalties: i16_at(vehicle, VS_NUM_PENALTIES),
+        flag: vehicle[VS_FLAG],
+        under_yellow: vehicle[VS_UNDER_YELLOW] != 0,
     }
 }
 
@@ -283,6 +330,23 @@ pub mod fake {
             self.put_f64(base + TI_STEERING, t.steering);
             self.put_f64(base + TI_CLUTCH, t.clutch);
             self.put_f64(base + TI_FUEL, t.fuel_l);
+            self.put_f64(base + TI_WATER_TEMP, t.water_c);
+            self.put_f64(base + TI_OIL_TEMP, t.oil_c);
+            self.0[base + TI_OVERHEATING] = t.overheating as u8;
+            self.0[base + TI_HEADLIGHTS] = t.headlights as u8;
+            self.0[base + TI_SPEED_LIMITER_ACTIVE] = t.speed_limiter_active as u8;
+            self.0[base + TI_ABS_ACTIVE] = t.abs_active as u8;
+            self.0[base + TI_TC_ACTIVE] = t.tc_active as u8;
+            self.0[base + TI_TC] = t.tc;
+            self.0[base + TI_TC_MAX] = t.tc_max;
+            self.0[base + TI_ABS] = t.abs;
+            self.0[base + TI_ABS_MAX] = t.abs_max;
+            self.0[base + TI_MOTOR_MAP] = t.motor_map;
+            self.0[base + TI_MOTOR_MAP_MAX] = t.motor_map_max;
+            self.put_f64(base + TI_REAR_BRAKE_BIAS, t.rear_brake_bias);
+            self.put(base + TI_DENT_SEVERITY, &t.dents);
+            self.0[base + TI_REAR_FLAP_ACTIVATED] = t.rear_flap_activated as u8;
+            self.0[base + TI_REAR_FLAP_LEGAL_STATUS] = t.rear_flap_legal;
             for (i, wheel) in t.wheels.iter().enumerate() {
                 let at = base + TI_WHEEL + i * TELEM_WHEEL_SIZE;
                 self.put_f64(at + TW_BRAKE_TEMP, wheel.brake_temp_c);
@@ -316,6 +380,8 @@ pub mod fake {
                 self.put_f64(at + VS_LAP_START_ET, car.lap_start_et);
                 self.0[at + VS_IN_PITS] = car.in_pits as u8;
                 self.put(at + VS_NUM_PENALTIES, &car.num_penalties.to_le_bytes());
+                self.0[at + VS_FLAG] = car.flag;
+                self.0[at + VS_UNDER_YELLOW] = car.under_yellow as u8;
                 self.0[at + VS_IS_PLAYER] = (Some(i) == player) as u8;
                 self.0[at + VS_CONTROL] = if Some(i) == player { 0 } else { 1 };
             }
@@ -346,6 +412,23 @@ mod tests {
             steering: -0.25,
             clutch: 0.0,
             fuel_l: 55.5,
+            water_c: 88.5,
+            oil_c: 101.25,
+            overheating: true,
+            headlights: true,
+            speed_limiter_active: true,
+            abs_active: false,
+            tc_active: true,
+            tc: 4,
+            tc_max: 10,
+            abs: 2,
+            abs_max: 12,
+            motor_map: 3,
+            motor_map_max: 5,
+            rear_brake_bias: 0.5,
+            dents: [0, 2, 1, 0, 0, 0, 0, 1],
+            rear_flap_activated: false,
+            rear_flap_legal: 2,
             wheels: [0.0, 1.0, 2.0, 3.0].map(|i| Wheel {
                 brake_temp_c: 300.0 + i,
                 pressure_kpa: 170.0 + i,
@@ -367,6 +450,25 @@ mod tests {
         assert_eq!(TW_BRAKE_TEMP, 3 * 8);
         assert_eq!(TW_PRESSURE - TW_BRAKE_TEMP, 12 * 8);
         assert_eq!(VEHICLE_SCORING_SIZE, 584);
+        // The car-state fields follow from the header's order and sizes: `mEngineWaterTemp` and `mEngineOilTemp` are
+        // adjacent doubles; `mOverheating`, `mDetached`, `mHeadlights` and `mDentSeverity[8]` follow `mEngineMaxRPM`
+        // and `mScheduledStops`; the three booleans after `mElectricBoostMotorState` / `mLapInvalidated` (`mABSActive`,
+        // `mTCActive`, `mSpeedLimiterActive`) are adjacent, then `mWiperState`, and the aids are (value, max) pairs.
+        assert_eq!(TI_OIL_TEMP, TI_WATER_TEMP + 8);
+        assert_eq!(TI_FUEL + 8 + 8 + 1, TI_OVERHEATING);
+        assert_eq!(TI_HEADLIGHTS, TI_OVERHEATING + 2);
+        assert_eq!(TI_DENT_SEVERITY, TI_HEADLIGHTS + 1);
+        assert_eq!(TI_REAR_FLAP_LEGAL_STATUS, TI_REAR_FLAP_ACTIVATED + 1);
+        assert_eq!((TI_TC_ACTIVE, TI_SPEED_LIMITER_ACTIVE), (TI_ABS_ACTIVE + 1, TI_ABS_ACTIVE + 2));
+        assert_eq!(TI_TC, TI_SPEED_LIMITER_ACTIVE + 2, "mWiperState sits between");
+        assert_eq!(TI_TC_MAX, TI_TC + 1);
+        assert_eq!(
+            (TI_ABS, TI_ABS_MAX, TI_MOTOR_MAP, TI_MOTOR_MAP_MAX),
+            (TI_TC + 6, TI_TC + 7, TI_TC + 8, TI_TC + 9)
+        );
+        assert_eq!(TW_DETACHED, TW_FLAT + 1);
+        // `mFlag`, `mUnderYellow` and `mCountLapFlag` are consecutive bytes of the scoring entry.
+        assert_eq!((VS_UNDER_YELLOW, VS_COUNT_LAP_FLAG), (VS_FLAG + 1, VS_FLAG + 2));
         // The last car's telemetry ends 4 bytes short of the end: the whole object is padded to a multiple of 8.
         let telemetry_end = TELEMETRY_INFO + MAX_VEHICLES * TELEM_INFO_SIZE;
         assert!(telemetry_end <= LAYOUT_SIZE && LAYOUT_SIZE - telemetry_end < 8 && LAYOUT_SIZE.is_multiple_of(8));
@@ -433,6 +535,8 @@ mod tests {
             lap_start_et: 800.0,
             in_pits: false,
             num_penalties: 0,
+            flag: 6,
+            under_yellow: false,
         };
         let other = VehicleScoring {
             vehicle_name: "Ferrari 499P #51".into(),
