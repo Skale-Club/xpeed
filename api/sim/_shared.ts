@@ -40,7 +40,7 @@ export const refuse = (body: Record<string, unknown>, status: number, retryable:
 export const browserHeaders = (req: Request): Record<string, string> => {
   let own: string[] = [];
   try { if (process.env.PUBLIC_APP_URL) own = [new URL(process.env.PUBLIC_APP_URL).origin]; } catch { /* a bad address allows nothing extra */ }
-  return corsHeaders(req, 'GET, POST, DELETE, OPTIONS', own);
+  return corsHeaders(req, 'GET, POST, PATCH, DELETE, OPTIONS', own);
 };
 
 export const sha256Hex = (text: string) => createHash('sha256').update(text).digest('hex');

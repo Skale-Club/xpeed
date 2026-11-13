@@ -5,51 +5,19 @@
 //   GET    /v1/sessions?game&track&car&cursor&limit               GET /v1/sessions/<id>
 //   GET    /v1/tracks?game&cursor&limit        GET /v1/tracks/<id>       GET /v1/cars?...        GET /v1/cars/<id>
 //   GET    /v1/pbs?game&track&car&cursor&limit                    GET /v1/overview
+//   profiles, friends, shares, leaderboards, reports, admin, me/export, me/data: api/sim/_social.ts
 //
 // The queries are database functions (sim_v1_*) that run as the signed-in person, so row level security keeps everyone to their
 // own rows; this file checks the parameters, pages with an opaque cursor and shapes the answer.
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { openBackend } from '../_backend';
 import { bearer, browserHeaders, MAX_ACCOUNT_BYTES, reply } from './_shared';
 import { download, remove, type Answer } from './laps';
 import { cachedOverview, rememberOverview } from './_v1cache';
+import { call, decodeCursor, DEFAULT_LIMIT, failed, gameParam, Invalid, limitParam, MAX_LIMIT, paged, UUID, uuidParam, type Item } from './_v1util';
+import { handleSocial, isSocialPath } from './_social';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const GAME = /^[a-z][a-z0-9_]{0,31}$/;
-const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
-export const DEFAULT_LIMIT = 50;
-export const MAX_LIMIT = 100;
+export { DEFAULT_LIMIT, MAX_LIMIT };
 
-/** A request the caller got wrong: the code names the parameter; nothing about it can work on a retry. */
-class Invalid extends Error {
-  constructor(readonly code: string) { super(code); }
-}
-
-type Item = Record<string, unknown> & { _k?: string; _i?: string };
-
-const encodeCursor = (time: string, id: string) => Buffer.from(JSON.stringify([time, id])).toString('base64url');
-function decodeCursor(raw: string | null): { t: string; id: string } | null {
-  if (raw === null || raw === '') return null;
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
-    if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'string' && typeof parsed[1] === 'string'
-      && CURSOR_TIME.test(parsed[0]) && UUID.test(parsed[1])) return { t: parsed[0], id: parsed[1].toLowerCase() };
-  } catch { /* falls through */ }
-  throw new Invalid('invalid_cursor');
-}
-
-function uuidParam(params: URLSearchParams, name: string): string | null {
-  const value = params.get(name);
-  if (value === null || value === '') return null;
-  if (!UUID.test(value)) throw new Invalid(`invalid_${name}`);
-  return value.toLowerCase();
-}
-function gameParam(params: URLSearchParams): string | null {
-  const value = params.get('game');
-  if (value === null || value === '') return null;
-  if (!GAME.test(value)) throw new Invalid('invalid_game');
-  return value;
-}
 function validParam(params: URLSearchParams): boolean | null {
   const value = params.get('valid');
   if (value === null || value === '') return null;
@@ -57,32 +25,6 @@ function validParam(params: URLSearchParams): boolean | null {
   if (value === 'false' || value === '0') return false;
   throw new Invalid('invalid_valid');
 }
-/** 1 to 100, 50 when absent; a number above 100 is read as 100. */
-function limitParam(params: URLSearchParams): number {
-  const value = params.get('limit');
-  if (value === null || value === '') return DEFAULT_LIMIT;
-  if (!/^\d{1,9}$/.test(value) || Number(value) < 1) throw new Invalid('invalid_limit');
-  return Math.min(Number(value), MAX_LIMIT);
-}
-
-/** The functions return up to limit + 1 items: the extra one says there is another page, and the cursor points after the last one kept. */
-function paged(rows: Item[], limit: number): { items: Record<string, unknown>[]; nextCursor: string | null } {
-  const kept = rows.slice(0, limit);
-  const last = kept[kept.length - 1];
-  const nextCursor = rows.length > limit && last?._k && last._i ? encodeCursor(last._k, last._i) : null;
-  return { items: kept.map(({ _k, _i, ...item }) => item), nextCursor };
-}
-
-async function call<T>(db: SupabaseClient, name: string, args: Record<string, unknown>): Promise<T> {
-  const answer = await db.rpc(name, args);
-  if (answer.error) throw answer.error;
-  return answer.data as T;
-}
-
-const failed = (event: string, error: unknown) => console.error(JSON.stringify({
-  event,
-  message: error instanceof Error ? error.message : typeof (error as { message?: unknown })?.message === 'string' ? (error as { message: string }).message : 'unknown',
-}));
 
 type Resource = 'laps' | 'sessions' | 'tracks' | 'cars' | 'pbs' | 'overview';
 const LISTS = new Set<string>(['laps', 'sessions', 'tracks', 'cars', 'pbs', 'overview']);
@@ -110,7 +52,10 @@ export default async function v1(req: Request): Promise<Response> {
     send(typeof body === 'object' && body !== null && 'error' in body && !('retryable' in body)
       ? { ...body, retryable: status === 429 || status >= 500 } : body, status, extra);
 
-  const where = route(url.pathname.replace(/\/$/, '').split('/').slice(4)); // after /api/sim/v1
+  const parts = url.pathname.replace(/\/$/, '').split('/').slice(4); // after /api/sim/v1
+  // Profiles, friends, shares, leaderboards, reports, moderation and the privacy rights: api/sim/_social.ts.
+  if (isSocialPath(parts)) return handleSocial(req, parts, { send, problem, empty: () => new Response(null, { status: 204, headers: { ...browserHeaders(req), 'Cache-Control': 'private, no-store' } }) });
+  const where = route(parts);
   if (!where) return problem('not_found', 404);
   if (!where.methods.includes(req.method)) return problem('method_not_allowed', 405, { Allow: where.methods.join(', ') });
   const { resource, id: lower } = where;
