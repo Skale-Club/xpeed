@@ -16,6 +16,7 @@ import { logout } from '@/lib/logout';
 import { formatPhone } from '@/lib/phone';
 import { AddVehicleForm } from '@/components/AddVehicleForm';
 import { CountryFlag } from '@/components/CountryFlag';
+import { CarBrandLogo } from '@/components/car/CarBrandLogo';
 import { LANGUAGES, currentLanguage } from '@/lib/languages';
 import {
   Sidebar,
@@ -108,7 +109,7 @@ export function AppSidebar() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="w-full gap-2 text-sm justify-between">
                     <div className="flex items-center gap-2 min-w-0">
-                      <Car className="w-3.5 h-3.5 flex-shrink-0" />
+                      {selectedCar ? <CarBrandLogo make={selectedCar.make} className="h-6 w-6" /> : <Car className="w-3.5 h-3.5 flex-shrink-0" />}
                       <span className="truncate">{selectedCar ? selectedCar.name : t('sidebar.selectCar', 'Choose your car')}</span>
                     </div>
                     <ChevronDown className="w-3 h-3 flex-shrink-0" />
@@ -123,7 +124,7 @@ export function AppSidebar() {
                       onClick={() => selectCar(car.id)}
                       className={selectedCarId === car.id ? 'bg-accent' : ''}
                     >
-                      <Car className="w-3.5 h-3.5 mr-2" />
+                      <CarBrandLogo make={car.make} className="mr-2 h-6 w-6" />
                       <span className="truncate">{car.name}</span>
                     </DropdownMenuItem>
                   ))}

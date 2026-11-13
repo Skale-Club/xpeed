@@ -48,3 +48,4 @@ gitleaks-report.json
 
 # Working copies of agents running in parallel
 /.claude/worktrees/
+/.worktrees/

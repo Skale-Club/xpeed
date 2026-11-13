@@ -16,6 +16,8 @@ function dataApiForDev(mode: string): Plugin {
         if (env[key] && !process.env[key]) process.env[key] = env[key];
       }
       if (!process.env.DATABASE_URL) return;
+      // The local public catalog uses this same development PostgreSQL connection.
+      process.env.DATA_BACKEND ??= "own";
       // Development only: files stay in the project folder and links are signed with a fixed key.
       process.env.STORAGE_DIR ??= path.resolve(process.cwd(), ".dev-files");
       process.env.STORAGE_SECRET ??= "development-only-secret";
@@ -42,6 +44,7 @@ function dataApiForDev(mode: string): Plugin {
         });
       mount("/api/db", async () => ((await server.ssrLoadModule("/server/db-route.ts")) as typeof import("./server/db-route")).createDbRoute());
       mount("/api/storage", async () => ((await server.ssrLoadModule("/server/storage-route.ts")) as typeof import("./server/storage-route")).createStorageRoute());
+      mount("/api/car-brands", async () => (await server.ssrLoadModule("/api/car-brands.ts")).default as (request: Request) => Promise<Response>);
     },
   };
 }
