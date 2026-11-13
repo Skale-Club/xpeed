@@ -97,17 +97,41 @@ describe('the Real | Virtual switch', () => {
 });
 
 describe('the mode gates', () => {
-  it('keeps Virtual screens from someone who did not choose Virtual', () => {
+  it('offers Racing games on a Virtual screen to someone who did not choose it, instead of leaving without a word', () => {
     renderApp('/sim');
-    expect(screen.getByText('Real home')).toBeInTheDocument();
-    expect(screen.getByTestId('where')).toHaveTextContent('/');
+    expect(screen.queryByText('Virtual home')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mode-offer')).toBeInTheDocument();
+    expect(screen.getByText('Racing games is off')).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('/sim');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn it on' }));
+    expect(screen.getByText('Virtual home')).toBeInTheDocument();
+    expect(stored()).toEqual(['real', 'virtual']);
+    expect(screen.getByTestId('mode-switch')).toBeInTheDocument();
   });
 
-  it('keeps the car screens from someone who chose only racing games', () => {
+  it('goes home without turning anything on when the person says not now', () => {
+    renderApp('/sim');
+    fireEvent.click(screen.getByRole('link', { name: 'Not now' }));
+    expect(screen.getByText('Real home')).toBeInTheDocument();
+    expect(stored()).toBeNull();
+  });
+
+  it('offers Real car on a car screen to someone who chose only racing games', () => {
     choose(['virtual']);
     renderApp('/history');
-    expect(screen.getByText('Virtual home')).toBeInTheDocument();
-    expect(screen.getByTestId('where')).toHaveTextContent('/sim');
+    expect(screen.getByText('Real car is off')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Turn it on' }));
+    expect(screen.getByText('Trips')).toBeInTheDocument();
+    expect(stored()).toEqual(['real', 'virtual']);
+  });
+
+  it('still sends a Virtual link home when this build has no Virtual', () => {
+    vi.stubEnv('VITE_ENABLE_VIRTUAL', 'false');
+    renderApp('/sim');
+    expect(screen.queryByTestId('mode-offer')).not.toBeInTheDocument();
+    expect(screen.getByText('Real home')).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('/');
   });
 });
 
