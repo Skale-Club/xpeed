@@ -380,6 +380,26 @@ pub fn run_games(
     }
 }
 
+/// Waits of 200 ms without a frame that make a 10 s quiet period.
+const LMU_QUIET_WAITS: u32 = 50;
+
+/// What to do when Le Mans Ultimate has been quiet for a whole quiet period.
+#[derive(Debug, PartialEq, Eq)]
+enum QuietAction {
+    /// The program still runs (a menu, a pause): keep the same reader and stay connected.
+    KeepReading,
+    /// The program is gone: let the reader go and start over.
+    Reconnect,
+}
+
+fn lmu_quiet_action(program_running: bool) -> QuietAction {
+    if program_running {
+        QuietAction::KeepReading
+    } else {
+        QuietAction::Reconnect
+    }
+}
+
 fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
     say(format!("Writing laps to {}.", out.display()));
@@ -463,10 +483,28 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         let mut last_scoring = None;
         let mut silent_waits = 0;
         let mut lap_shown = 0;
-        // Without a frame for 10 s (the game closed, or sits in a menu) start over from a clean connection.
-        while silent_waits < 50 && !shared.quitting() && !shared.paused() {
+        let mut gone = false;
+        // Without a frame for 10 s the game is either closed or sitting in a menu. The process list is looked at once
+        // per quiet period (never every 200 ms). A game that still runs stays connected on the same reader, quietly:
+        // Waiting is only for a game whose program closed, which starts over from a clean connection.
+        while !shared.quitting() && !shared.paused() {
             if !reader.wait_frame(200) {
                 silent_waits += 1;
+                if silent_waits >= LMU_QUIET_WAITS {
+                    let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
+                    match lmu_quiet_action(running) {
+                        QuietAction::KeepReading => {
+                            // Open but not on track: it may have been recording a lap.
+                            shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
+                            lap_shown = 0;
+                            silent_waits = 0;
+                        }
+                        QuietAction::Reconnect => {
+                            gone = true;
+                            break;
+                        }
+                    }
+                }
                 continue;
             }
             silent_waits = 0;
@@ -487,7 +525,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                 recorder.on_scoring(s).iter().for_each(saved);
             }
         }
-        if silent_waits >= 50 {
+        if gone {
             say("No data from the game for 10 s; reconnecting.".into());
             shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
         }
@@ -498,6 +536,14 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lmu_quiet_period_keeps_reading_while_the_game_runs() {
+        assert_eq!(lmu_quiet_action(true), QuietAction::KeepReading);
+        assert_eq!(lmu_quiet_action(false), QuietAction::Reconnect);
+        // 50 waits of 200 ms are the 10 s quiet period.
+        assert_eq!(LMU_QUIET_WAITS * 200, 10_000);
+    }
     use crate::lapfile::{Channel, Lap};
 
     fn lap(number: u32) -> Lap {
