@@ -113,6 +113,185 @@ pub fn default_dir() -> Option<PathBuf> {
     crate::config::home_dir().map(|home| home.join("maps"))
 }
 
+/// The path cut into runs wherever two neighbours are further apart than `max_gap` metres (a restart, the pits, a
+/// teleport): each run is drawn alone, so nothing is drawn across a jump. Runs of one point are dropped.
+pub fn split_at_gaps(path: &[(f32, f32)], max_gap: f32) -> Vec<Path2> {
+    let mut runs: Vec<Path2> = Vec::new();
+    let mut run: Path2 = Vec::new();
+    for &p in path {
+        if run.last().is_some_and(|&(x, z)| (x - p.0).hypot(z - p.1) > max_gap) {
+            runs.push(std::mem::take(&mut run));
+        }
+        run.push(p);
+    }
+    runs.push(run);
+    runs.retain(|r| r.len() >= 2);
+    runs
+}
+
+/// A centred moving average over `2 * reach + 1` points, so the corners of a 4 m polyline round off. The number of
+/// points stays. An open path keeps its two ends and averages what it has near them; a closed one wraps round.
+pub fn smooth(path: &[(f32, f32)], reach: usize, closed: bool) -> Path2 {
+    let n = path.len();
+    if n < 3 || reach == 0 {
+        return path.to_vec();
+    }
+    (0..n)
+        .map(|i| {
+            if !closed && (i == 0 || i == n - 1) {
+                return path[i];
+            }
+            let r = if closed { reach } else { reach.min(i).min(n - 1 - i) };
+            let (mut sx, mut sz) = (0.0, 0.0);
+            for k in 0..=2 * r {
+                let j = (i + n + k - r) % n;
+                sx += path[j].0;
+                sz += path[j].1;
+            }
+            let count = (2 * r + 1) as f32;
+            (sx / count, sz / count)
+        })
+        .collect()
+}
+
+/// How a map is laid in its box: turned so its long side runs along the box's long side, scaled to fit with a
+/// margin (never stretched), and centred. The car is placed with the same numbers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fit {
+    cos: f32,
+    sin: f32,
+    /// The centre of the turned shape.
+    cx: f32,
+    cz: f32,
+    pub scale: f32,
+    /// The centre of the box.
+    bx: f32,
+    by: f32,
+}
+
+impl Fit {
+    pub fn apply(&self, (x, z): (f32, f32)) -> (f32, f32) {
+        let (u, v) = (x * self.cos - z * self.sin, x * self.sin + z * self.cos);
+        (self.bx + (u - self.cx) * self.scale, self.by + (v - self.cz) * self.scale)
+    }
+}
+
+/// The long axis of the points (the principal axis of their covariance), as an angle of the (x, z) plane.
+pub fn principal_angle(points: &[(f32, f32)]) -> f32 {
+    let n = points.len().max(1) as f32;
+    let (mx, mz) = points.iter().fold((0.0, 0.0), |(a, b), p| (a + p.0, b + p.1));
+    let (mx, mz) = (mx / n, mz / n);
+    let (mut sxx, mut szz, mut sxz) = (0.0, 0.0, 0.0);
+    for &(x, z) in points {
+        let (dx, dz) = (x - mx, z - mz);
+        sxx += dx * dx;
+        szz += dz * dz;
+        sxz += dx * dz;
+    }
+    0.5 * (2.0 * sxz).atan2(sxx - szz)
+}
+
+/// Fits `points` in a box `w` by `h` centred on (`bx`, `by`) with `pad` on every side. Of the shape turned along its
+/// long axis, and the same turned a quarter more, the one that fills the box better is used. `None` for a shape with
+/// no size.
+pub fn fit(points: &[(f32, f32)], bx: f32, by: f32, w: f32, h: f32, pad: f32) -> Option<Fit> {
+    if points.is_empty() {
+        return None;
+    }
+    let along = -principal_angle(points);
+    let mut best: Option<Fit> = None;
+    for angle in [along, along + std::f32::consts::FRAC_PI_2] {
+        let (sin, cos) = angle.sin_cos();
+        let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY);
+        for &(x, z) in points {
+            let (u, v) = (x * cos - z * sin, x * sin + z * cos);
+            (lo_u, hi_u, lo_v, hi_v) = (lo_u.min(u), hi_u.max(u), lo_v.min(v), hi_v.max(v));
+        }
+        let scale = ((w - 2.0 * pad) / (hi_u - lo_u).max(1.0)).min((h - 2.0 * pad) / (hi_v - lo_v).max(1.0));
+        if !scale.is_finite() || scale <= 0.0 {
+            continue;
+        }
+        let candidate = Fit {
+            cos,
+            sin,
+            cx: (lo_u + hi_u) / 2.0,
+            cz: (lo_v + hi_v) / 2.0,
+            scale,
+            bx,
+            by,
+        };
+        if best.is_none_or(|b| candidate.scale > b.scale) {
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+#[cfg(test)]
+mod draw_tests {
+    #[test]
+    fn breaks_the_path_at_a_jump_and_keeps_the_runs() {
+        let mut path: Vec<(f32, f32)> = (0..10).map(|i| (i as f32 * 4.0, 0.0)).collect();
+        path.extend((0..10).map(|i| (500.0 + i as f32 * 4.0, 300.0)));
+        path.push((9000.0, 0.0));
+        let runs = super::split_at_gaps(&path, 40.0);
+        assert_eq!(runs.len(), 2, "the lone point after the second jump is dropped");
+        assert_eq!((runs[0].len(), runs[1].len()), (10, 10));
+        assert_eq!(super::split_at_gaps(&path[..10], 40.0), vec![path[..10].to_vec()]);
+        assert!(super::split_at_gaps(&[], 40.0).is_empty());
+    }
+
+    #[test]
+    fn smoothing_keeps_the_ends_and_the_count_and_rounds_a_corner() {
+        use super::smooth;
+        let corner: Vec<(f32, f32)> = (0..11)
+            .map(|i| if i <= 5 { (i as f32, 0.0) } else { (5.0, (i - 5) as f32) })
+            .collect();
+        let soft = smooth(&corner, 2, false);
+        assert_eq!(soft.len(), corner.len());
+        assert_eq!((soft[0], soft[10]), (corner[0], corner[10]));
+        assert!(soft[5].0 < 5.0 && soft[5].1 > 0.0, "the corner is cut: {:?}", soft[5]);
+        assert_eq!(smooth(&corner[..2], 2, false), corner[..2].to_vec());
+        // A closed path wraps round: a ring stays a ring.
+        let ring: Vec<(f32, f32)> = (0..60)
+            .map(|i| {
+                let a = i as f32 / 60.0 * std::f32::consts::TAU;
+                (a.cos() * 100.0, a.sin() * 100.0)
+            })
+            .collect();
+        let round = smooth(&ring, 2, true);
+        assert_eq!(round.len(), 60);
+        assert!(round.iter().all(|p| (p.0.hypot(p.1) - 100.0).abs() < 2.0));
+    }
+
+    #[test]
+    fn turns_the_long_side_of_the_shape_along_the_long_side_of_the_box() {
+        use super::{fit, principal_angle};
+        // A long thin diagonal strip, in a wide box and in a tall one.
+        let strip: Vec<(f32, f32)> = (0..100)
+            .map(|i| (i as f32 * 10.0, i as f32 * 10.0 + (i % 2) as f32 * 20.0))
+            .collect();
+        let extent = |points: &[(f32, f32)], pick: fn(&(f32, f32)) -> f32| {
+            let v: Vec<f32> = points.iter().map(pick).collect();
+            v.iter().copied().fold(f32::NEG_INFINITY, f32::max) - v.iter().copied().fold(f32::INFINITY, f32::min)
+        };
+        for (w, h) in [(400.0, 100.0), (100.0, 400.0)] {
+            let fitted = fit(&strip, 0.0, 0.0, w, h, 10.0).unwrap();
+            let moved: Vec<(f32, f32)> = strip.iter().map(|&p| fitted.apply(p)).collect();
+            let (sx, sy) = (extent(&moved, |p| p.0), extent(&moved, |p| p.1));
+            assert!((sx > sy) == (w > h), "{w}x{h}: {sx} by {sy}");
+            assert!(
+                moved.iter().all(|p| p.0.abs() <= w / 2.0 - 9.9 && p.1.abs() <= h / 2.0 - 9.9),
+                "inside the margin"
+            );
+            let plain = ((w - 20.0) / 990.0).min((h - 20.0) / 1010.0);
+            assert!(fitted.scale > plain * 1.5, "{} against {plain}", fitted.scale);
+        }
+        assert!(fit(&[], 0.0, 0.0, 100.0, 100.0, 5.0).is_none());
+        assert!(principal_angle(&[(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)]).abs() < 1e-6);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

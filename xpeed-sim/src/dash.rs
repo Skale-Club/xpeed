@@ -108,6 +108,9 @@ pub struct Live {
     pub map: Option<Arc<Vec<(f32, f32)>>>,
     /// Where the car is now, in the same x and z.
     pub pos: Option<(f32, f32)>,
+    /// `map` is a whole lap (or the real layout), a closed shape. When false it is the path driven so far, an open
+    /// line, and may hold jumps (`MAP_JUMP_METRES`) the drawing must not join.
+    pub map_complete: bool,
     /// When this reading arrived (Unix ms), so the panel can tell a stale one.
     pub at_ms: i64,
 }
@@ -134,6 +137,8 @@ pub struct Tracker {
     finished: Option<(Profile, Path, Option<f64>)>,
     /// The current lap's path (x, z), a point every few metres.
     path: Path,
+    /// The current lap's path has a jump in it (a restart, the pits, a teleport): it is not a lap's map.
+    path_jumped: bool,
     /// The path shown as the map.
     map: Option<Arc<Path>>,
     best: Option<(f64, Profile)>,
@@ -146,6 +151,9 @@ pub struct Tracker {
 const FROM_LINE_METRES: f64 = 50.0;
 /// The map keeps a point every this many metres of the car's path.
 const MAP_STEP_METRES: f32 = 4.0;
+/// Two points of the path further apart than this are not one drive (points are kept every `MAP_STEP_METRES`): a
+/// restart, a return to the pits or a teleport. The map is not drawn across it, and such a lap is not a map.
+pub const MAP_JUMP_METRES: f32 = 40.0;
 /// A path shorter than this is not a map yet.
 const MAP_MIN_POINTS: usize = 30;
 /// A finished lap must cover this share of the track (when its length is known) to be a full lap.
@@ -182,7 +190,9 @@ impl Tracker {
             // The lap ended: keep it until its official time shows (it can come a moment after the new lap starts),
             // with the official time that was showing while it was driven (the one before it).
             let done = std::mem::take(&mut self.current);
-            let done_path = std::mem::take(&mut self.path);
+            let jumped = std::mem::take(&mut self.path_jumped);
+            let done_path = if jumped { Vec::new() } else { std::mem::take(&mut self.path) };
+            self.path.clear();
             let full = self.current_from_line && is_full(&done, frame.track_length_m);
             if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
                 self.keep_map(done_path.clone());
@@ -205,6 +215,13 @@ impl Tracker {
                 .last()
                 .is_none_or(|&(x, z)| (x - here.0).hypot(z - here.1) >= MAP_STEP_METRES);
             if far_enough {
+                if self
+                    .path
+                    .last()
+                    .is_some_and(|&(x, z)| (x - here.0).hypot(z - here.1) > MAP_JUMP_METRES)
+                {
+                    self.path_jumped = true;
+                }
                 self.path.push(here);
             }
         }
@@ -255,6 +272,7 @@ impl Tracker {
                 .map
                 .clone()
                 .or_else(|| (self.path.len() >= MAP_MIN_POINTS).then(|| Arc::new(self.path.clone()))),
+            map_complete: self.map.is_some(),
             pos: (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z)),
             at_ms,
         }
@@ -531,6 +549,31 @@ mod tests {
             let frame = lmu_frame(&t, None);
             assert!(frame.x.is_nan() && frame.z.is_nan(), "{bad} is not a position");
         }
+    }
+
+    #[test]
+    fn a_jump_in_the_path_is_not_a_lap_s_map_and_a_partial_path_is_not_complete() {
+        let mut tracker = Tracker::default();
+        let drive = |tracker: &mut Tracker, lap: i32, last: Option<f64>, jump_at: Option<usize>| {
+            let mut out = Vec::new();
+            for i in 0..200 {
+                let mut frame = at(lap, i as f64 * 5.0, i as f64 * 0.1, last);
+                let a = i as f32 / 200.0 * std::f32::consts::TAU;
+                let r = if jump_at.is_some_and(|j| i >= j) { 300.0 } else { 160.0 };
+                (frame.x, frame.z) = (r * a.cos(), r * a.sin());
+                out.push(tracker.on_frame("Test", &frame, 0));
+            }
+            out
+        };
+        let first = drive(&mut tracker, 1, None, Some(100));
+        assert!(first.iter().all(|l| !l.map_complete), "a lap being driven is a partial path");
+        // Lap 1 had a teleport: it is no map, even though it was a full lap.
+        let second = drive(&mut tracker, 2, Some(20.0), None);
+        assert!(!second[5].map_complete, "a path with a jump is not taken as the map");
+        drive(&mut tracker, 3, Some(20.0), None);
+        let fourth = drive(&mut tracker, 4, Some(20.0), None);
+        assert!(fourth[0].map_complete, "a clean full lap is");
+        assert_eq!(fourth[0].map.as_ref().unwrap()[0], (160.0, 0.0));
     }
 
     #[test]
