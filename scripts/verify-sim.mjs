@@ -2,7 +2,7 @@
 // file folder, real row level security. Pairing codes, device keys, lap upload, revoking, track layouts.
 // Needs: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -29,7 +29,7 @@ Object.assign(process.env, {
 
 await build({
   entryPoints: {
-    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', tracks: 'api/sim/tracks.ts', shared: 'api/sim/_shared.ts',
+    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', shared: 'api/sim/_shared.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', dbroute: 'server/db-route.ts', account: 'server/account-route.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
@@ -39,6 +39,7 @@ const load = (name) => import(pathToFileURL(resolve(temp, name)).href);
 const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).default;
 const codes = (await load('codes.mjs')).default, devices = (await load('devices.mjs')).default;
 const tracks = (await load('tracks.mjs')).default;
+const link = (await load('link.mjs')).default;
 const { forgetLimits } = await load('shared.mjs');
 const { getPool } = await load('serverdb.mjs');
 const { gzipLap } = await load('lapfile.mjs');
@@ -188,6 +189,169 @@ try {
     await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
     assert.equal((await pairWith(code)).status, 200, 'the code was not spent by the refusal');
     await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
+  // ---- Connecting without a code: the app makes its own key and sends only its hash; the person approves in the browser.
+  const linkApi = (path, opts) => call(link, `/api/sim/link${path}`, opts);
+  const newKey = () => `xpd_${randomBytes(32).toString('base64url')}`;
+  const startLink = (key, name = 'RIG', ip) => linkApi('', { method: 'POST', body: { device: { name }, tokenHash: sha(key) }, ip });
+  const pollLink = (id, key, ip) => linkApi(`/${id}/poll`, { method: 'POST', bearer: key, ip });
+
+  await check('link: start, read, approve, poll returns approved with the account, and the key uploads a lap', async () => {
+    await direct.query("UPDATE public.app_accounts SET email = 'ana@example.com' WHERE id = $1", [ids.A]);
+    const key = newKey();
+    const started = await startLink(key, 'My Rig\u0007');
+    assert.equal(started.status, 201, JSON.stringify(started.body));
+    assert.match(started.body.id, /^[0-9a-f-]{36}$/);
+    assert.ok(new Date(started.body.expiresAt) > new Date(Date.now() + 9 * 60_000) && new Date(started.body.expiresAt) < new Date(Date.now() + 11 * 60_000));
+    const row = (await direct.query('SELECT token_hash, device_name FROM public.sim_link_requests WHERE id = $1', [started.body.id])).rows[0];
+    assert.equal(row.token_hash, sha(key), 'only the hash is kept');
+    assert.equal(row.device_name, 'My Rig');
+    assert.equal((await pollLink(started.body.id, key)).body.status, 'pending');
+    const read = await linkApi(`/${started.body.id}`, { bearer: A });
+    assert.equal(read.status, 200);
+    assert.deepEqual({ ...read.body, expiresAt: undefined }, { deviceName: 'My Rig', status: 'pending', expiresAt: undefined });
+    // No device exists yet: the key is not accepted for laps.
+    assert.equal((await upload(key, await lapBytes(61))).status, 401);
+    const approved = await linkApi(`/${started.body.id}/approve`, { method: 'POST', bearer: A });
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    assert.equal(approved.body.status, 'approved');
+    const device = (await direct.query('SELECT user_id, name, token_hash FROM public.sim_devices WHERE id = $1', [approved.body.deviceId])).rows[0];
+    assert.deepEqual({ ...device }, { user_id: ids.A, name: 'My Rig', token_hash: sha(key) });
+    const linked = (await direct.query('SELECT status, user_id, device_id, decided_at FROM public.sim_link_requests WHERE id = $1', [started.body.id])).rows[0];
+    assert.equal(linked.status, 'approved');
+    assert.equal(linked.user_id, ids.A);
+    assert.equal(linked.device_id, approved.body.deviceId);
+    assert.ok(linked.decided_at);
+    const polled = await pollLink(started.body.id, key);
+    assert.deepEqual(polled.body, { status: 'approved', account: 'ana@example.com' });
+    assert.equal((await linkApi(`/${started.body.id}`, { bearer: A })).body.status, 'approved');
+    const lap = await upload(key, await lapBytes(61));
+    assert.equal(lap.status, 201, JSON.stringify(lap.body));
+    assert.equal((await direct.query('SELECT user_id, device_id FROM public.sim_laps WHERE id = $1', [lap.body.id])).rows[0].user_id, ids.A);
+    const twice = await linkApi(`/${started.body.id}/approve`, { method: 'POST', bearer: A });
+    assert.equal(twice.status, 409, 'a request is decided once');
+    assert.equal(twice.body.error, 'already_decided');
+  });
+
+  await check('link: the account answer falls back to the name when there is no email', async () => {
+    await direct.query("UPDATE public.app_accounts SET email = NULL, full_name = 'Bia Souza' WHERE id = $1", [ids.B]);
+    const key = newKey();
+    const { body } = await startLink(key);
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+    assert.equal((await linkApi(`/${body.id}/approve`, { method: 'POST', bearer: B })).status, 200);
+    assert.deepEqual((await pollLink(body.id, key)).body, { status: 'approved', account: 'Bia Souza' });
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
+  await check('link: a poll with the wrong key, no key, or an unknown id is 404', async () => {
+    const key = newKey();
+    const { body } = await startLink(key);
+    for (const wrong of [newKey(), 'x', '']) {
+      const r = await pollLink(body.id, wrong);
+      assert.equal(r.status, 404);
+      assert.deepEqual(r.body, { error: 'not_found' });
+    }
+    assert.equal((await pollLink('00000000-0000-4000-8000-000000000000', key)).status, 404);
+    assert.equal((await pollLink('not-a-uuid', key)).status, 404);
+    assert.equal((await pollLink(body.id, key)).status, 200);
+    assert.equal((await linkApi(`/${body.id}/poll`, { method: 'GET', bearer: key })).status, 405);
+  });
+
+  await check('link: a request that is not approved in ten minutes expires, and cannot be approved', async () => {
+    const key = newKey();
+    const { body } = await startLink(key);
+    await direct.query("UPDATE public.sim_link_requests SET expires_at = now() - interval '1 second' WHERE id = $1", [body.id]);
+    assert.deepEqual((await pollLink(body.id, key)).body, { status: 'expired' });
+    assert.equal((await linkApi(`/${body.id}`, { bearer: A })).body.status, 'expired');
+    const refused = await linkApi(`/${body.id}/approve`, { method: 'POST', bearer: A });
+    assert.equal(refused.status, 410);
+    assert.equal(refused.body.error, 'expired');
+    assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_devices WHERE token_hash = $1', [sha(key)])).rows[0].n, 0);
+  });
+
+  await check('link: cancel is told to the app, and a cancelled or approved request cannot be cancelled again', async () => {
+    const key = newKey();
+    const { body } = await startLink(key);
+    const cancelled = await linkApi(`/${body.id}/cancel`, { method: 'POST', bearer: A });
+    assert.equal(cancelled.status, 200);
+    assert.deepEqual(cancelled.body, { status: 'cancelled' });
+    assert.deepEqual((await pollLink(body.id, key)).body, { status: 'cancelled' });
+    assert.equal((await linkApi(`/${body.id}`, { bearer: A })).body.status, 'cancelled');
+    assert.equal((await linkApi(`/${body.id}/cancel`, { method: 'POST', bearer: A })).status, 409);
+    assert.equal((await linkApi(`/${body.id}/approve`, { method: 'POST', bearer: A })).body.error, 'already_decided');
+    assert.equal((await linkApi('/00000000-0000-4000-8000-000000000000/cancel', { method: 'POST', bearer: A })).status, 404);
+    const second = (await startLink(newKey())).body;
+    await linkApi(`/${second.id}/approve`, { method: 'POST', bearer: A });
+    const late = await linkApi(`/${second.id}/cancel`, { method: 'POST', bearer: A });
+    assert.equal(late.status, 409);
+    assert.equal(late.body.error, 'already_decided');
+  });
+
+  await check('link: a person with ten live devices cannot approve an eleventh, and the request stays pending', async () => {
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+    for (let i = 0; i < 10; i++) {
+      const { body } = await startLink(newKey(), `PC ${i}`, `10.2.0.${i}`);
+      assert.equal((await linkApi(`/${body.id}/approve`, { method: 'POST', bearer: B })).status, 200);
+    }
+    const key = newKey();
+    const { body } = await startLink(key);
+    const refused = await linkApi(`/${body.id}/approve`, { method: 'POST', bearer: B });
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.error, 'device_limit');
+    assert.equal((await pollLink(body.id, key)).body.status, 'pending');
+    await direct.query("UPDATE public.sim_devices SET revoked_at = now() WHERE user_id = $1 AND name = 'PC 0'", [ids.B]);
+    assert.equal((await linkApi(`/${body.id}/approve`, { method: 'POST', bearer: B })).status, 200, 'a revoked device frees a place');
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
+  await check('link: a key hash cannot be reused, and a bad start is refused', async () => {
+    const key = newKey();
+    const first = await startLink(key);
+    assert.equal(first.status, 201);
+    const again = await startLink(key);
+    assert.equal(again.status, 409);
+    assert.deepEqual(again.body, { error: 'invalid_request' });
+    await linkApi(`/${first.body.id}/approve`, { method: 'POST', bearer: A });
+    assert.equal((await startLink(key)).status, 409, 'the hash is a device now');
+    for (const body of [{ device: { name: 'x' } }, { device: { name: 'x' }, tokenHash: 'ABC' }, { device: { name: 'x' }, tokenHash: 'A'.repeat(64) }, { device: { name: 'x' }, tokenHash: 12 }, null]) {
+      assert.equal((await linkApi('', { method: 'POST', body })).status, 400, JSON.stringify(body));
+    }
+    assert.equal((await linkApi('', { method: 'POST', body: '{ not json' })).status, 400);
+    assert.equal((await linkApi('', { method: 'GET' })).status, 405);
+    const unnamed = await startLink(newKey(), '   ', '10.3.3.3');
+    assert.equal((await direct.query('SELECT device_name FROM public.sim_link_requests WHERE id = $1', [unnamed.body.id])).rows[0].device_name, 'Windows PC');
+    const long = await startLink(newKey(), 'x'.repeat(100), '10.3.3.4');
+    assert.equal((await direct.query('SELECT device_name FROM public.sim_link_requests WHERE id = $1', [long.body.id])).rows[0].device_name.length, 60);
+  });
+
+  await check('link: reading, approving and cancelling need a signed-in person', async () => {
+    const { body } = await startLink(newKey());
+    for (const [path, method] of [[`/${body.id}`, 'GET'], [`/${body.id}/approve`, 'POST'], [`/${body.id}/cancel`, 'POST']]) {
+      assert.equal((await linkApi(path, { method })).status, 401, `${method} ${path} without a token`);
+      assert.equal((await linkApi(path, { method, bearer: 'not-a-token' })).status, 401, `${method} ${path} with a bad token`);
+    }
+    assert.equal((await direct.query('SELECT status FROM public.sim_link_requests WHERE id = $1', [body.id])).rows[0].status, 'pending');
+    assert.equal((await linkApi(`/${body.id}`, { bearer: A })).status, 200);
+    assert.equal((await linkApi('/00000000-0000-4000-8000-000000000000', { bearer: A })).status, 404);
+    assert.equal((await linkApi(`/${body.id}/approve`, { method: 'GET', bearer: A })).status, 405);
+    const options = await linkApi(`/${body.id}/approve`, { method: 'OPTIONS' });
+    assert.equal(options.status, 204);
+    assert.equal(options.headers.get('access-control-allow-origin'), '*');
+  });
+
+  await check('link: starting and polling are rate limited', async () => {
+    let last;
+    for (let i = 0; i < 11; i++) last = await startLink(newKey(), 'RIG', '10.7.7.7');
+    assert.equal(last.status, 429);
+    assert.ok(Number(last.headers.get('retry-after')) >= 1);
+    assert.equal((await startLink(newKey(), 'RIG', '10.7.7.8')).status, 201, 'another address is not held back');
+    const key = newKey();
+    const { body } = await startLink(key, 'RIG', '10.7.7.9');
+    let poll;
+    for (let i = 0; i < 61; i++) poll = await pollLink(body.id, key, '10.6.6.6');
+    assert.equal(poll.status, 429);
+    assert.equal((await pollLink(body.id, key, '10.6.6.7')).status, 200);
   });
 
   await check('a lap is checked, stored as the same bytes, and a repeat is recognized', async () => {

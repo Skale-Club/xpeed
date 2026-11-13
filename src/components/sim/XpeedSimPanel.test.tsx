@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import i18n from '@/lib/i18n';
 import { SettingsProvider } from '@/contexts/SettingsContext';
@@ -7,14 +7,11 @@ import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 
-const api = vi.hoisted(() => ({ list: vi.fn(), ask: vi.fn(), revoke: vi.fn() }));
+const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
 vi.mock('@/lib/sim/xpeed-sim-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/sim/xpeed-sim-api')>()),
   listDevices: api.list,
-  requestPairingCode: api.ask,
   revokeDevice: api.revoke,
-  pairCommand: (code: string) => `xpeed-sim pair --server https://xpeed.test --code ${code}`,
-  pairLink: (code: string) => `xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=${code}`,
 }));
 
 import { XpeedSimApiError } from '@/lib/sim/xpeed-sim-api';
@@ -33,65 +30,24 @@ const renderPanel = () =>
 
 beforeEach(async () => {
   api.list.mockReset().mockResolvedValue([]);
-  api.ask.mockReset();
   api.revoke.mockReset().mockResolvedValue({ revoked: true });
   await i18n.changeLanguage('en');
 });
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
+afterEach(cleanup);
 
 describe('connecting a computer', () => {
-  it('shows a pairing code with the command to run, and how long it is good for', async () => {
-    api.ask.mockResolvedValue({ code: 'ABCD-2345', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() });
+  it('explains how to connect, and offers no code, command or link to copy', async () => {
     renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
-    expect(await screen.findByTestId('pairing-code')).toHaveTextContent('ABCD-2345');
-    // The command carries the code without the dash, the way Xpeed Companion reads it.
-    expect(screen.getByTestId('pairing-command')).toHaveTextContent('xpeed-sim pair --server https://xpeed.test --code ABCD2345');
-    // The button opens Xpeed Companion with the code in the link.
-    expect(screen.getByTestId('open-app')).toHaveAttribute('href', 'xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=ABCD2345');
-    expect(screen.getByTestId('open-app')).toHaveTextContent('Open Xpeed Companion');
-    expect(screen.getByTestId('pairing-left')).toHaveTextContent(/Valid for (9|10):\d\d/);
-    expect(screen.getByRole('button', { name: 'Get a new code' })).toBeEnabled();
-  });
-
-  it('counts down, and says so when the code has expired', async () => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
-    api.ask.mockResolvedValue({ code: 'ABCD-2345', expiresAt: new Date(Date.now() + 3000).toISOString() });
-    renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
-    await screen.findByTestId('pairing-code');
-    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
-    expect(screen.getByTestId('pairing-expired')).toHaveTextContent('This code has expired.');
+    const steps = await screen.findByTestId('how-to-connect');
+    expect(steps).toHaveTextContent('Install Xpeed Companion on the PC where you play.');
+    expect(steps).toHaveTextContent('Open it and click Connect to your account.');
+    expect(screen.getByText('How to connect')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pairing code/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new code/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pairing')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pairing-code')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pairing-command')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('open-app')).not.toBeInTheDocument();
-  });
-
-  it('copies the code and the command', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    api.ask.mockResolvedValue({ code: 'ABCD-2345', expiresAt: new Date(Date.now() + 600_000).toISOString() });
-    renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
-    await screen.findByTestId('pairing-code');
-    // Two buttons copy: the code (with its word) and the command (icon only, named for screen readers).
-    const [copyCode, copyCommand] = screen.getAllByRole('button', { name: 'Copy' });
-    fireEvent.click(copyCode);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('ABCD-2345'));
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
-    fireEvent.click(copyCommand);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('xpeed-sim pair --server https://xpeed.test --code ABCD2345'));
-  });
-
-  it('says what is wrong when no code can be had', async () => {
-    api.ask.mockRejectedValue(new XpeedSimApiError('too_many'));
-    renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Too many codes requested');
-    expect(screen.queryByTestId('pairing')).not.toBeInTheDocument();
+    expect(document.querySelector('a[href^="xpeedsim"]')).toBeNull();
   });
 });
 

@@ -214,18 +214,7 @@
       }
     },
     "sim": {
-      "intro": "O Xpeed Companion é o aplicativo para Windows que lê o seu jogo de corrida e envia cada volta para a sua conta. Instale-o no computador onde você joga e conecte-o uma vez.",
-      "connectTitle": "Conectar um computador",
-      "connectBody": "Peça um código e abra o Xpeed Companion com o botão abaixo (ou rode o comando no computador Windows). O código vale por 10 minutos e só funciona uma vez.",
-      "getCode": "Gerar código de pareamento",
-      "newCode": "Gerar novo código",
-      "codeLabel": "Código de pareamento",
-      "expiresIn": "Vale por {{time}}",
-      "expired": "Este código expirou.",
-      "commandLabel": "Ou rode isto no computador Windows",
-      "copy": "Copiar",
-      "copied": "Copiado",
-      "install": "O Xpeed Companion precisa estar instalado nesse computador antes.",
+      "intro": "O Xpeed Companion é o aplicativo para Windows que lê o seu jogo de corrida e envia cada volta para a sua conta.",
       "devicesTitle": "Seus computadores",
       "devicesEmpty": "Nenhum computador conectado ainda.",
       "active": "Conectado",
@@ -238,15 +227,36 @@
       "revoke": "Revogar",
       "limit": "Você pode conectar até 10 computadores.",
       "confirmTitle": "Revogar {{name}}?",
-      "confirmBody": "Este computador não poderá mais enviar voltas. As voltas que ele já enviou continuam na sua conta. Você pode conectá-lo de novo com um novo código.",
+      "confirmBody": "Este computador não poderá mais enviar voltas. As voltas que ele já enviou continuam na sua conta. Você pode conectá-lo de novo pelo Xpeed Companion.",
       "confirmRevoke": "Revogar",
       "errors": {
         "signin": "Entre de novo para gerenciar os seus computadores.",
-        "tooMany": "Códigos demais pedidos. Espere um pouco e tente de novo.",
+        "tooMany": "Pedidos demais. Espere um pouco e tente de novo.",
         "notFound": "Esse computador não foi encontrado. Talvez já tenha sido revogado.",
         "unavailable": "Não foi possível falar com o servidor. Tente de novo."
       },
-      "openApp": "Abrir o Xpeed Companion"
+      "howTitle": "Como conectar",
+      "howInstall": "Instale o Xpeed Companion no PC onde você joga.",
+      "howOpen": "Abra-o e clique em Conectar à sua conta.",
+      "howAfter": "O navegador abre e pede uma única confirmação. Não há nada para copiar ou digitar."
+    },
+    "connect": {
+      "title": "Conectar o Xpeed Companion?",
+      "goesTo": "As voltas deste computador irão para {{account}}.",
+      "onlyIf": "Só conecte se você acabou de clicar em Conectar no Xpeed Companion neste computador.",
+      "connect": "Conectar",
+      "doneTitle": "Conectado",
+      "doneBody": "Volte ao Xpeed Companion, ele já sabe. Você pode fechar esta aba.",
+      "openGames": "Abrir Jogos de corrida",
+      "cancelled": "Cancelado. Este computador não foi conectado.",
+      "cancelledBefore": "Este pedido foi cancelado. Clique em Conectar de novo no Xpeed Companion.",
+      "expired": "Este pedido expirou. Clique em Conectar de novo no Xpeed Companion.",
+      "alreadyConnected": "Este computador já está conectado, ou o pedido foi encerrado.",
+      "alreadyConnectedNamed": "{{name}} já está conectado.",
+      "notFound": "Não encontramos este pedido. Clique em Conectar de novo no Xpeed Companion.",
+      "deviceLimit": "Você já tem 10 computadores conectados. Revogue um aqui e tente de novo.",
+      "signin": "Entre de novo para conectar este computador.",
+      "unavailable": "Não foi possível falar com o servidor. Tente de novo."
     }
   },
   "refresh": {

@@ -214,18 +214,7 @@
       }
     },
     "sim": {
-      "intro": "Xpeed Companion is the Windows app that reads your racing game and sends each lap to your account. Install it on the computer where you play and connect it once.",
-      "connectTitle": "Connect a computer",
-      "connectBody": "Get a code, then open Xpeed Companion with the button below (or run the command on the Windows computer). The code works for 10 minutes and only once.",
-      "getCode": "Get a pairing code",
-      "newCode": "Get a new code",
-      "codeLabel": "Pairing code",
-      "expiresIn": "Valid for {{time}}",
-      "expired": "This code has expired.",
-      "commandLabel": "Or run this on the Windows computer",
-      "copy": "Copy",
-      "copied": "Copied",
-      "install": "Xpeed Companion has to be installed on that computer first.",
+      "intro": "Xpeed Companion is the Windows app that reads your racing game and sends each lap to your account.",
       "devicesTitle": "Your computers",
       "devicesEmpty": "No computer is connected yet.",
       "active": "Connected",
@@ -238,15 +227,36 @@
       "revoke": "Revoke",
       "limit": "You can connect up to 10 computers.",
       "confirmTitle": "Revoke {{name}}?",
-      "confirmBody": "This computer can no longer send laps. Laps it already sent stay in your account. You can connect it again with a new code.",
+      "confirmBody": "This computer can no longer send laps. Laps it already sent stay in your account. You can connect it again from Xpeed Companion.",
       "confirmRevoke": "Revoke",
       "errors": {
         "signin": "Sign in again to manage your computers.",
-        "tooMany": "Too many codes requested. Wait a moment and try again.",
+        "tooMany": "Too many requests. Wait a moment and try again.",
         "notFound": "That computer was not found. It may have been revoked already.",
         "unavailable": "The server could not be reached. Try again."
       },
-      "openApp": "Open Xpeed Companion"
+      "howTitle": "How to connect",
+      "howInstall": "Install Xpeed Companion on the PC where you play.",
+      "howOpen": "Open it and click Connect to your account.",
+      "howAfter": "Your browser opens and asks you once to confirm. There is nothing to copy or type."
+    },
+    "connect": {
+      "title": "Connect Xpeed Companion?",
+      "goesTo": "Your laps from this computer will go to {{account}}.",
+      "onlyIf": "Only connect if you just clicked Connect in Xpeed Companion on this computer.",
+      "connect": "Connect",
+      "doneTitle": "Connected",
+      "doneBody": "Go back to Xpeed Companion, it already knows. You can close this tab.",
+      "openGames": "Open Racing games",
+      "cancelled": "Cancelled. This computer was not connected.",
+      "cancelledBefore": "This request was cancelled. Click Connect again in Xpeed Companion.",
+      "expired": "This request expired. Click Connect again in Xpeed Companion.",
+      "alreadyConnected": "This computer is already connected, or the request was closed.",
+      "alreadyConnectedNamed": "{{name}} is already connected.",
+      "notFound": "We could not find this request. Click Connect again in Xpeed Companion.",
+      "deviceLimit": "You already have 10 computers connected. Revoke one in Xpeed Companion, then try again.",
+      "signin": "Sign in again to connect this computer.",
+      "unavailable": "The server could not be reached. Try again."
     }
   },
   "refresh": {

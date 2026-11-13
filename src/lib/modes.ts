@@ -56,6 +56,8 @@ const SHARED_PREFIXES = ['/settings', '/admin', '/onboarding'];
 
 /** Which mode a path belongs to; null for the pages both modes share. */
 export function modeOfPath(path: string): Mode | null {
+  // The page that approves a connection from Xpeed Companion works for either mode: it turns Virtual on itself.
+  if (path.startsWith('/sim/connect/')) return null;
   if (path === '/sim' || path.startsWith('/sim/')) return 'virtual';
   if (SHARED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return null;
   return 'real';
