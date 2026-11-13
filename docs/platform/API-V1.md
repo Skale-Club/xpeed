@@ -1,7 +1,7 @@
 # API v1: racing data (read side)
 
 Base path `/api/sim/v1/`. Phase 1 of the platform (`PHASE-1-DATA-MODEL.md`). Code: `api/sim/v1.ts`; the queries are the
-`sim_v1_*` functions of `supabase/migrations/20261113150000_sim_platform_model.sql`. Checks: `npm run test:sim-v1`.
+`sim_v1_*` functions of `supabase/migrations/20261113150000_sim_platform_model.sql`. Checks: `npm run test:sim-v1`. The social side (profiles, friends, shares, leaderboards, reports, privacy rights) is at the end of this file.
 
 ## Rules for every call
 
@@ -105,3 +105,203 @@ once whole, and the row, catalog, session and personal best are one database tra
 account would pass 20 GB of lap files (measured from `sim_laps.size_bytes`; the old 5000-lap cap is gone), `429` when one device
 sends more than 60 laps a minute (counted in the database, so restarts and several instances share it).
 The unversioned `GET /api/sim/laps` stays for the current site.
+
+# Social side (profiles, friends, shares, leaderboards, reports, privacy rights)
+
+Same base path, same rules as above (sign-in token only, `{ "error", "retryable" }`, cursor paging, CORS for the app: the allowed
+methods now include `PATCH`). Code: `api/sim/_social.ts` (the signed-in endpoints), `api/sim/public.ts` (the one public endpoint),
+`api/sim/_plausibility.ts`; the queries are the `sim_*` functions of `supabase/migrations/20261113170000_sim_social.sql`, callable by the
+server only. Checks: `npm run test:sim-social`. What is public, what never is, and what export and delete cover:
+`PRIVACY-MODEL.md`. **No answer of any endpoint below contains an e-mail, a phone number, the account's real name, a sign-in id or an
+account id**; people are identified by `handle` and `displayName` only, and the suite scans every response for that.
+
+Extra errors (all `{ "error", "retryable" }`):
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `invalid_body`, `invalid_request` | the body is not a JSON object / has a field this endpoint does not take, or none of the needed ones |
+| 400 | `invalid_handle`, `reserved_handle`, `invalid_display_name`, `invalid_visibility` | profile fields |
+| 400 | `invalid_status`, `invalid_scope`, `invalid_track`, `invalid_car`, `invalid_game`, `invalid_lap`, `invalid_session`, `invalid_expires`, `invalid_kind`, `invalid_reason`, `invalid_details`, `invalid_target`, `invalid_action`, `invalid_limit`, `invalid_cursor` | the parameter named in the code |
+| 400 | `confirmation_required` | `DELETE /me/data` without the exact sentence |
+| 403 | `forbidden` | an admin endpoint, and the person is not a moderator |
+| 404 | `profile_not_found`, `handle_not_found`, `request_not_found`, `friend_not_found`, `share_not_found`, `target_not_found`, `report_not_found`, `lap_not_found`, `session_not_found`, `track_not_found`, `car_not_found` | nothing such for this person (a private, hidden, blocked or unknown handle all give the same one) |
+| 409 | `handle_taken`, `already_friends`, `already_requested`, `blocked`, `already_reported`, `already_decided` | the state does not allow it |
+| 422 | `friend_limit`, `pending_limit`, `share_limit`, `too_many_open_reports` | 200 friends, 50 pending requests, 100 live share links, 50 open reports |
+| 429 | `too_many_requests`, `handle_change_limit` | a rate limit or the 3 handle changes in 30 days (`Retry-After`, `retryable: true`) |
+
+Rate limits (counted in the database, per person unless noted): profile changes 60 per 10 minutes; profile page lookups 120 a minute;
+friend requests 30 an hour; new share links 30 an hour; reports 10 an hour; exports 5 an hour; deleting data 3 an hour; the public share
+endpoints 120 reads a minute **per address**.
+
+## Visibility rules
+
+Each driver chooses `visibility` at any time: `public` (the default), `friends` or `private`. "Friend" means an accepted friendship.
+A hidden profile (moderation) and a block (either direction) take a person out of every answer below as if they did not exist.
+
+| What the viewer asks | `public` | `friends` | `private` | blocked pair or hidden |
+|---|---|---|---|---|
+| `GET /profiles/<handle>` | anyone signed in | the owner and their friends | the owner only | `404 profile_not_found` |
+| the name in friend lists and requests | shown | shown to friends | never shown (`null`) | not listed |
+| row on `leaderboard?scope=public` | yes | no | no | no |
+| row on `leaderboard?scope=friends` (viewer is a friend) | yes | yes | no | no |
+| the owner's own row on `scope=friends` | yes | yes | yes | no (hidden) |
+| `POST /friends/requests {handle}` by a stranger | works | works | `404 handle_not_found`, same body as an unknown handle | `404 handle_not_found` |
+| `POST /reports` against the profile or its laps | works | only if the reporter could see it | `404 target_not_found` | `404 target_not_found` |
+| a share link the owner made | summary with name | summary with name | summary **without** driver | `404` (hidden) |
+
+Laps count on any board, profile page or share only when they are `valid`, `plausible` and not `hidden`.
+
+## Profile
+
+**Own profile** `{ handle, displayName, visibility, createdAt, handleChangesLeft (0-3), handleChangesResetAt | null }`.
+**Driver page** `{ handle, displayName, joinedAt, isMe, relation: "self" | "friend" | "requested" | "incoming" | "none", visibility (the owner only, else null),
+gamesPlayed: [game], personalBestsCount, bestLaps: [{ lapId, game, track: {id, name}, car: {id, name}, timeMs, achievedAt }] }` (the 5 most
+recent personal bests that count).
+
+### `GET /profile`
+`{ "profile": <own profile> }`. Created now when it does not exist: handle `driver_` plus six letters and digits (no look-alikes), display
+name `Driver ` plus the first four of them in capitals, visibility `public`. Nothing is derived from the e-mail, the phone or the account's
+name. The first uploaded lap creates it too.
+
+### `PATCH /profile`
+Body: any of `handle`, `displayName`, `visibility` (other fields are `400 invalid_request`; none is `400 invalid_request`).
+Answer `{ "profile": <own profile> }`.
+- `handle`: trimmed and lower-cased; 3 to 24 characters of `a-z0-9_`; not reserved (`admin`, `support`, `xpeed...`, `moderator...`, `staff...`,
+  `driver`, `me`, `requests`, ... see `RESERVED_HANDLES` in `api/sim/_social.ts`); not taken (`409 handle_taken`, which is not counted).
+  A change to the handle you already have is not a change. **3 changes per 30 days**: the 4th is `429 handle_change_limit` with
+  `Retry-After` until the oldest of the three leaves the window. The generated handle is not a change.
+- `displayName`: trimmed, 1 to 40 characters, no control or invisible formatting characters, nothing that looks like an e-mail address.
+- `visibility`: `public`, `friends` or `private`; takes effect at once everywhere.
+
+### `GET /profiles/<handle>`
+`{ "profile": <driver page> }` as the table above allows, else `404 profile_not_found` (a handle that is not valid, a private profile, a
+hidden one, a block and a handle nobody has are the same answer).
+
+## Friends
+
+**Friend** `{ handle, displayName | null, status: "accepted" | "incoming" | "outgoing" | "blocked", since }`.
+
+- `GET /friends?status&limit&cursor`: `status` is `accepted` (default), `incoming`, `outgoing` or `blocked` (the people you blocked). Newest
+  first. `{ friends: [Friend], nextCursor }`.
+- `POST /friends/requests` `{ "handle": "..." }`: `201 { friend }` (status `outgoing`), or `200 { friend }` with status `accepted` when that
+  person had already asked you. `404 handle_not_found` for an unknown, hidden or private handle and for a person who blocked you;
+  `400 invalid_target` for yourself; `409 already_friends`, `already_requested`, `blocked` (you blocked them); `422 friend_limit` (200),
+  `pending_limit` (50 requests sent and waiting).
+- `POST /friends/requests/<handle>/accept`: `200 { friend }` (also `422 friend_limit` when either of you is at 200).
+  `POST /friends/requests/<handle>/decline`: `204`. `404 request_not_found` when that person has no request to you.
+- `DELETE /friends/<handle>`: `204`. Either side removes a friendship; the sender withdraws a request; the blocker lifts their block.
+  `404 friend_not_found` otherwise (a person you cannot unblock because they blocked you is also this).
+- `POST /friends/<handle>/block`: `200 { friend }` with status `blocked`. Whatever there was (friendship, request) is replaced. The blocked
+  person is told nothing: they cannot see, find, ask or be listed with you. A private or unknown handle you have no relation with is
+  `404 handle_not_found`.
+
+## Share links
+
+**Share** `{ id, kind: "lap" | "session", lapId | null, sessionId | null, createdAt, expiresAt | null, revokedAt | null, active }`.
+
+- `POST /shares` body `{ "lapId" | "sessionId": "<uuid>", "expiresInDays"?: 1-365 }` (exactly one of the two ids; your own lap or session,
+  not a hidden lap): `201 { share, token, path }`. `token` is 43 URL-safe characters (32 random bytes), **shown only here**: the database
+  keeps its sha256. `path` is `/api/sim/public/share/<token>`; the page that people open is the site's to design. `422 share_limit` at 100 live links.
+- `GET /shares?limit&cursor`: your links, newest first, revoked and expired ones included (`active: false`); never the token.
+  `{ shares: [Share], nextCursor }`.
+- `DELETE /shares/<id>`: revokes it (`204`, also when it was already revoked); at once for everybody. `404 share_not_found` for someone else's.
+- Deleting the lap or the session deletes its links.
+
+### Public: `GET /api/sim/public/share/<token>` (no sign-in, no cookies)
+```
+lap:     { kind: "lap", createdAt, expiresAt | null, driver: { handle, displayName } | null,
+           lap: { id, game, track: { name, lengthM | null }, car: { name, class | null }, lapNumber, timeMs, valid, startedAt, sectorsMs | null, topSpeedKmh | null } }
+session: { kind: "session", createdAt, expiresAt | null, driver,
+           session: { game, track, car, kind, startedAt, endedAt, weather | null, airTempC | null, trackTempC | null, lapCount, bestLapMs | null,
+                      laps: [{ id, lapNumber, timeMs, valid, startedAt, sectorsMs | null, topSpeedKmh | null }] } }   // at most 500 laps
+```
+`driver` is `null` when the owner's profile is `private`. Never an e-mail, an account id, a device, a file path or the lap's identity.
+`GET /api/sim/public/share/<token>/file/<lapId>`: the lap file, exactly the gzip bytes (`application/gzip`,
+`Cache-Control: private, max-age=31536000, immutable`), for a lap the link covers (the lap itself, or any lap of the linked session).
+Unknown, malformed, revoked and expired tokens, hidden laps and profiles, and laps the link does not cover are all
+`404 { "error": "not_found", "retryable": false }`. `429 too_many_requests` past 120 reads a minute from one address. CORS as the rest.
+
+## Plausibility
+
+The server checks every lap file when it arrives, inside the same transaction as the ingest, and stores `sim_laps.plausible` and a small
+`plausibility` document `{ "v": 1, "failed": [{ "check", "detail": {...} }] }`. A lap that fails is **kept** (the upload is accepted) but never ranks.
+Laps that arrived before the check have `plausible = null` and rank nowhere until `POST /admin/recheck` reads their files.
+
+| Check | Fails when | Threshold |
+|---|---|---|
+| `sector_sum` | the header's sector times do not add up to the lap time (skipped with no sectors) | more than 50 ms apart |
+| `elapsed_time` | the span of the `t` channel is not the lap time | more than 0.5 % of the lap time apart |
+| `distance` | the span of the `dist` channel is not the track length (skipped when the header has no length or the file no `dist`) | more than 3 % of the length apart |
+| `speed_range` | any `speed` sample (m/s) is above 150 (540 km/h) or below 0 (skipped with no `speed`; NaN samples are ignored) | above 150 or below 0 |
+| `sample_count` | `sampleCount` is not what `sampleRateHz` times the lap time gives | more than 15 % of that, and more than 3 samples |
+| `time_gap` | two consecutive `t` samples are more than 2 s apart, or `t` goes backwards | more than 2 s, or any step below 0 |
+| `file_unreadable` | (recheck only) the stored file cannot be read | |
+
+## Leaderboards
+
+### `GET /leaderboard?track&car&scope&game&limit&cursor`
+`track` and `car` are catalog ids (required; a track of another game than `game` is `400 invalid_game`); `scope` is `public` (default) or
+`friends`. The best valid, plausible, visible lap of every driver for that track and car, ranked by time. **Ties share a rank** (1, 2, 2, 4),
+the earlier lap first; `gapMs` is the distance to the leader. Cursor paging, `limit` up to 100.
+```
+{ game, scope, track: { id, name, lengthM | null }, car: { id, name, class | null },
+  entries: [{ rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe }], nextCursor }
+```
+`scope=public`: public profiles only, not hidden, not blocked either way with the caller. `scope=friends`: the caller (whatever their visibility)
+and their accepted friends who are not private or hidden. `lapId` is the lap that counts, for `POST /reports`.
+
+### `GET /leaderboard/me?track&car&scope`
+```
+{ game, scope, track, car, total, me: { rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe: true } | null,
+  reason: null | "not_listed", neighbours: { above: [Entry], below: [Entry] } }
+```
+The two drivers above and the two below by position. `me` is `null` (reason `not_listed`) when the caller is not on that board: no valid plausible
+lap, a profile that is not `public` (for `scope=public`) or hidden.
+
+## Reports
+
+### `POST /reports`
+Body `{ "kind": "profile" | "lap", "handle" (profile) | "lapId" (lap), "reason": "cheating" | "offensive_name" | "impersonation" | "spam" | "other",
+"details"?: up to 300 characters (no control characters) }`. `201 { report: { id, status: "open", createdAt } }`.
+One **open** report per reporter and target (`409 already_reported`; a decided report frees the pair); at most 50 open per person
+(`422 too_many_open_reports`); not yourself (`400 invalid_target`); a target the reporter could not see is `404 target_not_found`.
+
+## Moderation (admin only)
+
+Moderators are decided by the app's own server-side check (`is_admin_user()`, run as the signed-in person): anyone else gets `403 forbidden`.
+
+- `GET /admin/reports?status=open|dismissed|actioned|all&limit&cursor` (default `open`), newest first: `{ reports: [Report], nextCursor }` with
+  `Report { id, kind, status, reason, details | null, createdAt, decidedAt | null, reporter: {handle, displayName}, target }`; `target` is
+  `{ handle, displayName, visibility, hidden }` for a profile, `{ lapId, game, track, car, timeMs, plausible, hidden, owner: {handle, displayName} }`
+  for a lap, `null` when it is gone.
+- `POST /admin/reports/<id>` body `{ "action": "dismiss" | "action" | "unhide", "hideTarget"?: bool }`: `dismiss` closes it with nothing done;
+  `action` marks it actioned and, with `hideTarget: true`, **hides the profile or the lap** (it disappears from every social answer; the owner
+  still has their own laps); `unhide` shows the target again (and dismisses an open report). `200 { report }`; `409 already_decided`.
+- `GET /admin/laps/<id>`: `{ lap: { id, game, track, car, lapNumber, timeMs, valid, startedAt, sectorsMs, topSpeedKmh, sampleCount, sizeBytes,
+  formatVersion, createdAt, marked, plausible, plausibility, hidden }, owner: { handle, displayName, visibility, hidden } | null,
+  onLeaderboard, reports: [{ id, status, reason, createdAt }] }`. `plausibility.failed` lists the checks and the numbers.
+- `POST /admin/recheck` body `{ "limit"?: 1-200 }` (default 50): reads the files of laps with no verdict and fills it in; unreadable files become
+  `file_unreadable`. `{ checked, plausible, implausible, remaining }`. Run it until `remaining` is 0 after the migration.
+
+## Privacy rights
+
+### `GET /me/export`
+One JSON file (`Content-Disposition: attachment; filename="xpeed-virtual-data.json"`), at most 5 an hour:
+```
+{ format: "xpeed-virtual-export", version: 1, exportedAt,
+  profile: { handle, displayName, visibility, createdAt, updatedAt } | null,
+  friends: [{ handle, status: "accepted" | "incoming" | "outgoing" | "blocked", since }],        // by handle only
+  sessions: [Session], laps: [Lap + { marked, plausible, plausibility }], personalBests: [{ game, track, car, bestMs, lapId, achievedAt }],
+  devices: [{ id, name, pairedAt, lastSeenAt, lastLapAt, revokedAt }], shares: [Share], trackLayouts: [{ id, game, track, variant, title, lengthM, sizeBytes, updatedAt }],
+  reportsMade: [{ kind, reason, details, status, createdAt }],
+  lapFiles: [{ lapId, sizeBytes, path: "/api/sim/v1/laps/<id>/file" }], trackLayoutFiles: [{ id, sizeBytes, path: "/api/sim/tracks/<id>/file" }] }
+```
+The files are not inside the document: each `path` is downloaded with the same sign-in. No e-mail (the person's or anyone's), no device key or its hash,
+no share token, no other person's data.
+
+### `DELETE /me/data` body `{ "confirm": "delete my racing data" }`
+Exactly that sentence, else `400 confirmation_required`. Deletes, in one transaction, the person's laps, sessions, personal bests, track layouts, share links,
+friendships, the reports they made and the reports about them, handle history, profile, devices, pairing codes and link requests, then removes
+their lap and track files. It does **not** delete the account. `200 { deleted: { laps, sessions, trackLayouts, shares, friendships, reports, devices, profile } }`.
+Afterwards nothing of theirs is reachable or listed: their handle is a `404`, their share links are `404`, their device keys are `401`, they are on no board
+and in nobody's friend list. A new use of the Virtual API starts a new, generated profile.

@@ -13,6 +13,7 @@ import { gunzipLap, LapFormatError, LAP_LIMITS, type LapFile } from '../../src/l
 import { bearer, browserHeaders, lapIdentity, LAP_UPLOADS_PER_MINUTE, LEGACY_LIST_LIMIT, MAX_ACCOUNT_BYTES, MAX_LAP_BYTES, refuse, reply, sha256Hex } from './_shared';
 import { authenticateDevice, rememberedDevice } from './_upload';
 import { summarizeLap } from './_summary';
+import { checkPlausibility, plausibilityJson } from './_plausibility';
 import { forgetOverview } from './_v1cache';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,6 +92,8 @@ async function receive(req: Request): Promise<Response> {
     const header = lap.header;
     const identity = lapIdentity(header);
     const summary = summarizeLap(lap);
+    // Whether the file can be believed (docs/platform/API-V1.md): stored with the lap, in the same transaction. A lap that fails is kept, but ranks nowhere.
+    const plausibility = checkPlausibility(lap);
 
     // Already here, or no room left: answered before the file is written.
     const admission = await backend.service.rpc('sim_lap_admission', { p_user_id: userId, p_identity: identity, p_size: bytes.length, p_max_bytes: MAX_ACCOUNT_BYTES });
@@ -114,6 +117,7 @@ async function receive(req: Request): Promise<Response> {
         sector_ms: summary.sectorMs, top_speed_kmh: summary.topSpeedKmh, fuel_used_l: summary.fuelUsedL, in_lap: summary.inLap,
         out_lap: summary.outLap, format_version: summary.formatVersion, session_id: summary.session.id, session_kind: summary.session.kind,
         weather: summary.session.weather, air_temp_c: summary.session.airTempC, track_temp_c: summary.session.trackTempC,
+        plausible: plausibility.plausible, plausibility: plausibilityJson(plausibility),
       },
     });
     if (ingested.error) throw ingested.error;

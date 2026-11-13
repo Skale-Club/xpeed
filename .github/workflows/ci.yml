@@ -75,6 +75,8 @@ jobs:
         run: npm run test:storage
       - name: Xpeed Sim racing data model and API v1 (catalog, sessions, personal bests, atomic upload, quota, backfill)
         run: npm run test:sim-v1
+      - name: Xpeed Sim social side (profiles, friends, shares, plausibility, leaderboards, reports, export and delete)
+        run: npm run test:sim-social
       - name: Xpeed Companion release endpoints (version, stable download link)
         run: npm run test:companion-release
       - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
