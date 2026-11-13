@@ -18,6 +18,7 @@
 
 mod applog;
 mod config;
+mod connect;
 mod covers;
 mod dash;
 #[cfg(windows)]
@@ -338,6 +339,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
             server: server.clone(),
             token,
             device_name,
+            account: None,
         },
     ) {
         Ok(()) => {

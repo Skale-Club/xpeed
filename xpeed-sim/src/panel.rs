@@ -63,6 +63,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, WM_SETCURSOR};
 use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
 
+use crate::connect::{self, Card, Note};
 use crate::dash::Live;
 use crate::present;
 use crate::status::{Activity, Cloud, Game, Notice, Shared, Snapshot};
@@ -76,8 +77,6 @@ const WM_MOUSELEAVE: u32 = 0x02a3;
 /// Covers fetched in the background have arrived: read them again.
 const WM_COVERS: u32 = 0x8000 + 20;
 const WM_MOUSEMOVE: u32 = 0x0200;
-/// Where, in the Xpeed app, a computer is connected (the same page the tray menu opens).
-const CONNECT_PATH: &str = "/sim/app";
 const TIMER: usize = 1;
 /// About 60 frames a second, so the carousel and the revs move smoothly.
 const FRAME_MS: u32 = 16;
@@ -135,8 +134,12 @@ fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
 /// What a button on the panel does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Opens the Xpeed page where this computer is connected to an account.
+    /// Starts connecting this computer to an account (or, with a request already open, opens its page again).
     Connect,
+    /// Opens the page of the open connection request again.
+    OpenConnectPage,
+    /// Stops waiting for the click on that page.
+    CancelConnect,
     /// Opens Xpeed in the browser.
     OpenXpeed,
     /// Brings this cover of the waiting screen's carousel to the middle.
@@ -175,6 +178,8 @@ pub struct View<'a> {
     pub games: &'a [GameRow],
     pub device: Option<&'a str>,
     pub server: &'a str,
+    /// What the Account card shows (not connected, waiting for the browser, connected).
+    pub card: crate::connect::Card,
     pub recent_laps: &'a [String],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
     pub activity: &'a [(String, String)],
@@ -215,6 +220,8 @@ pub struct ScrollBar {
 pub struct Account {
     pub device: Option<String>,
     pub server: String,
+    /// Who the computer is connected as (the account's email or name), when known.
+    pub label: Option<String>,
     pub lang: Lang,
 }
 
@@ -3327,13 +3334,15 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // The account card always gets the height its content needs, and the games list takes what is left: its rows
     // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
     // ever drawn outside its card, whatever the window's size.
-    let paired = matches!(view.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_));
-    let first = if paired {
-        (Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)
-    } else {
-        (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
+    let wanted: Vec<(Action, String, bool)> = match &view.card {
+        Card::Connected { .. } => vec![(Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)],
+        Card::Waiting => vec![
+            (Action::OpenConnectPage, text(view.lang, &Msg::ConnectOpenAgain), true),
+            (Action::CancelConnect, text(view.lang, &Msg::ConnectCancel), false),
+        ],
+        Card::NotConnected { .. } => vec![(Action::Connect, text(view.lang, &Msg::MenuConnect), true)],
     };
-    let buttons: Vec<(Action, String, bool, f32)> = [first]
+    let buttons: Vec<(Action, String, bool, f32)> = wanted
         .into_iter()
         .map(|(action, label, primary)| {
             let w = (g.width_of(&label, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0);
@@ -3422,12 +3431,39 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         Cloud::NotPaired => GREY,
         Cloud::Refused => RED,
     };
-    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), cloud_color);
+    let host = connect::host_of(view.server);
+    // The headline, its colour and the muted line under it, by what the card says.
+    let (dot, headline, muted) = match &view.card {
+        Card::Waiting => (
+            AMBER,
+            text(view.lang, &Msg::ConnectWaiting),
+            text(view.lang, &Msg::ConnectWaitingHint),
+        ),
+        Card::Connected { who } => (
+            cloud_color,
+            // Laps waiting to be sent matter more than who it is: say that when it is so.
+            match view.snapshot.cloud {
+                Cloud::Waiting(_) => present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
+                _ => text(view.lang, &Msg::ConnectedAs(who.clone())),
+            },
+            host.to_owned(),
+        ),
+        Card::NotConnected { note } => (
+            cloud_color,
+            present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
+            match note {
+                Some(Note::Cancelled) => text(view.lang, &Msg::ConnectNoteCancelled),
+                Some(Note::Expired) => text(view.lang, &Msg::ConnectNoteExpired),
+                Some(Note::Failed(why)) => why.clone(),
+                None => host.to_owned(),
+            },
+        ),
+    };
+    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), dot);
     let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
-    let cloud = present::cloud_line(view.lang, &view.snapshot.cloud, view.device);
-    g.text(&cloud, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
+    g.text(&headline, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
     let r = g.r(40.0, account_y + 70.0, col - 60.0, 20.0);
-    g.text(view.server, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    g.text(&muted, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
     // it refused this computer).
     for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
@@ -3702,6 +3738,12 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         games: &games,
         device: account.device.as_deref(),
         server: &account.server,
+        card: crate::connect::card(
+            matches!(snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
+            &crate::connect::Flow::global().phase(),
+            account.label.as_deref(),
+            &account.server,
+        ),
         recent_laps: &recent_laps,
         activity: &activity,
         covers: &state.covers,
@@ -3975,7 +4017,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
                 let account = state.ctx.account.lock().unwrap().clone();
                 match action {
-                    Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
+                    Action::Connect => crate::tray::start_connect(&account.server),
+                    Action::OpenConnectPage => {
+                        if let Some(page) = crate::connect::Flow::global().page() {
+                            win::open(&page);
+                        }
+                    }
+                    Action::CancelConnect => crate::connect::Flow::global().cancel(),
                     Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
                     Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
                     Action::Cover(i) => {
@@ -4339,6 +4387,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
         account: Arc::new(Mutex::new(Account {
             device: Some("DEMO".into()),
             server: "https://xpeed.skale.club".into(),
+            label: None,
             lang,
         })),
         readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
@@ -4949,6 +4998,12 @@ mod tests {
             games: &f.games,
             device: Some("RIG"),
             server: "https://xpeed.skale.club",
+            card: crate::connect::card(
+                matches!(f.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
+                &crate::connect::Phase::Idle,
+                Some("ana@example.com"),
+                "https://xpeed.skale.club",
+            ),
             recent_laps: &f.laps,
             activity: &f.log,
             covers: &[],
@@ -5330,6 +5385,18 @@ mod tests {
         let pixels = render(&monitor_covers, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-covers.png");
         figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut waiting_card = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+        waiting_card.card = connect::Card::Waiting;
+        let pixels = render(&waiting_card, 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-connecting.png");
+        figures.push_str("<figure><figcaption>Monitor tab while the browser page waits for the click on Connect</figcaption><img data-src=\"preview-monitor-connecting.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut expired_card = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
+        expired_card.card = connect::Card::NotConnected {
+            note: Some(connect::Note::Expired),
+        };
+        let pixels = render(&expired_card, 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-expired.png");
+        figures.push_str("<figure><figcaption>Monitor tab after the request expired</figcaption><img data-src=\"preview-monitor-expired.png\" width=\"1280\" height=\"800\"></figure>\n");
         let mut open = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
         open.covers = &covers;
         open.lang_open = true;
