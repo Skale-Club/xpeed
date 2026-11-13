@@ -108,10 +108,14 @@ pub enum Msg {
     FocusPaused,
     FocusUnsupported,
     FocusAutoConnect,
+    /// The open-game screen's line while the game is still loading.
+    FocusLoading,
     /// How to switch on the data of the game of this id.
     Setup(&'static str),
     StateSilent,
     GameSilent,
+    StateLoading,
+    GameLoading,
     PanelNoActivity,
     ActivityGameConnected(String),
     ActivityGameClosed(String),
@@ -301,6 +305,11 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("O Xpeed Sim conecta sozinho assim que os dados chegarem."),
             s("Xpeed Sim se conecta solo en cuanto lleguen los datos."),
         ),
+        FocusLoading => t(
+            s("Loading… Xpeed Sim connects as soon as the game is ready."),
+            s("Carregando… o Xpeed Sim conecta assim que o jogo estiver pronto."),
+            s("Cargando… Xpeed Sim se conecta en cuanto el juego esté listo."),
+        ),
         Setup(id) => match *id {
             // Automobilista 2's own menu (seen in the game, 2026-11-12): System > Use Shared Memory, Yes or No.
             "ams2" => t(
@@ -345,6 +354,8 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             ),
         },
         StateSilent => t(s("no data"), s("sem dados"), s("sin datos")),
+        StateLoading => t(s("loading"), s("carregando"), s("cargando")),
+        GameLoading => t(s("Open, loading"), s("Aberto, carregando"), s("Abierto, cargando")),
         GameSilent => t(s("Open, no data yet"), s("Aberto, sem dados ainda"), s("Abierto, sin datos todavía")),
         PanelNoActivity => t(
             s("Nothing yet. Start a game and drive a lap."),
@@ -471,6 +482,7 @@ mod tests {
             Msg::FocusPaused,
             Msg::FocusUnsupported,
             Msg::FocusAutoConnect,
+            Msg::FocusLoading,
             Msg::Setup("ams2"),
             Msg::Setup("f1"),
             Msg::Setup("fm"),
@@ -480,6 +492,8 @@ mod tests {
             Msg::Setup("ac"),
             Msg::StateSilent,
             Msg::GameSilent,
+            Msg::StateLoading,
+            Msg::GameLoading,
             Msg::PanelNoActivity,
             Msg::ActivityGameConnected("Assetto Corsa".into()),
             Msg::ActivityGameClosed("Assetto Corsa".into()),

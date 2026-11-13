@@ -19,6 +19,8 @@ pub enum Game {
     Unsupported,
     /// The game is running but shares no data (its option is off, its plugin is missing, or it is still loading).
     Silent,
+    /// The game's program has just started: no data yet, give it time (splash screens; some games share only once loaded).
+    Loading,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,7 +159,7 @@ impl Shared {
                 Game::Connected => 4,
                 Game::Unsupported => 3,
                 Game::Paused => 2,
-                Game::Silent => 1,
+                Game::Silent | Game::Loading => 1,
                 Game::Waiting => 0,
             };
             let best = games.values().max_by_key(|(_, g)| rank(g)).cloned().unwrap_or(("", Game::Waiting));

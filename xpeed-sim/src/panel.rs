@@ -1271,6 +1271,7 @@ fn state_text(lang: Lang, game: &Game) -> String {
             Game::Paused => Msg::StatePaused,
             Game::Unsupported => Msg::StateUnsupported,
             Game::Silent => Msg::StateSilent,
+            Game::Loading => Msg::StateLoading,
         },
     )
 }
@@ -1283,6 +1284,7 @@ fn state_color(game: &Game) -> COLORREF {
         Game::Paused => AMBER,
         Game::Unsupported => RED,
         Game::Silent => AMBER,
+        Game::Loading => MUTED,
     }
 }
 
@@ -1551,7 +1553,7 @@ fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static st
         Game::Connected => 4,
         Game::Unsupported => 3,
         Game::Paused => 2,
-        Game::Silent => 1,
+        Game::Silent | Game::Loading => 1,
         Game::Waiting => 0,
     };
     games
@@ -1567,6 +1569,7 @@ fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static st
 fn focus_words(view: &View, (id, name, game): (&'static str, &'static str, Game)) -> (String, String, Option<String>, bool) {
     let (title, line, note) = match game {
         Game::Silent => (Msg::FocusOpen(name.into()), Msg::Setup(id), Some(Msg::FocusAutoConnect)),
+        Game::Loading => (Msg::FocusOpen(name.into()), Msg::FocusLoading, None),
         Game::Unsupported => (Msg::FocusOpen(name.into()), Msg::FocusUnsupported, None),
         Game::Paused => (Msg::FocusConnected(name.into()), Msg::FocusPaused, None),
         _ => (Msg::FocusConnected(name.into()), Msg::FocusGetInCar, None),
@@ -2777,7 +2780,7 @@ fn game_rows(ctx: &Context, installed: Option<&HashSet<&'static str>>) -> Vec<Ga
         Game::Connected => 3,
         Game::Unsupported => 3,
         Game::Paused => 2,
-        Game::Silent => 1,
+        Game::Silent | Game::Loading => 1,
         Game::Waiting => 0,
     };
     let state_of = |ids: &[&str]| {
@@ -3576,6 +3579,34 @@ mod tests {
         ];
         assert_eq!(focus_of(&games), Some(("f1", "EA SPORTS F1 25", Game::Connected)));
         assert_eq!(focus_of(&games[..2]), Some(("ams2", "Automobilista 2", Game::Silent)));
+    }
+
+    #[test]
+    fn a_game_that_is_loading_ranks_like_one_open_without_data_and_says_to_wait() {
+        let loading = ("ams2", "Automobilista 2", Game::Loading);
+        assert_eq!(
+            focus_of(&[("ac", "Assetto Corsa", Game::Waiting), loading.clone()]),
+            Some(loading.clone())
+        );
+        let silent = ("lmu", "Le Mans Ultimate", Game::Silent);
+        // Same rank: the last of the two is the focus, whichever order (so neither beats the other).
+        assert_eq!(focus_of(&[loading.clone(), silent.clone()]), Some(silent.clone()));
+        assert_eq!(focus_of(&[silent.clone(), loading.clone()]), Some(loading.clone()));
+        let paused = ("ac", "Assetto Corsa", Game::Paused);
+        assert_eq!(focus_of(&[loading.clone(), paused.clone()]), Some(paused), "paused beats loading");
+        let f = fixture();
+        let view = view(&f, None, Tab::Dash, 1.0, Lang::En);
+        let (title, line, note, act) = focus_words(&view, loading);
+        assert_eq!(title, "Automobilista 2 is open");
+        assert_eq!(line, text(Lang::En, &Msg::FocusLoading));
+        assert!(line.starts_with("Loading"), "{line}");
+        assert_eq!(note, None, "no note while it loads");
+        assert!(!act, "muted, not the colour of something to do");
+        let (_, setup, _, act) = focus_words(&view, silent);
+        assert_ne!(setup, line);
+        assert!(act, "no data after the wait: there is something to do");
+        assert_eq!(state_text(Lang::En, &Game::Loading), "loading");
+        assert_eq!(state_color(&Game::Loading), MUTED);
     }
 
     #[test]
