@@ -74,6 +74,7 @@ pub const TI_CLUTCH: usize = 412;
 pub const TI_FUEL: usize = 524;
 pub const TI_WHEEL: usize = 848;
 pub const TELEM_WHEEL_SIZE: usize = 260;
+pub const TW_BRAKE_TEMP: usize = 24;
 pub const TW_PRESSURE: usize = 120;
 pub const TW_TEMPERATURE: usize = 128;
 pub const TW_WEAR: usize = 152;

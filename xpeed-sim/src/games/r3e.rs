@@ -79,6 +79,8 @@ const HEAD: usize = at::NUM_CARS;
 const STRING_LENGTH: usize = 64;
 /// `sizeof(r3e_tire_temp)`: `current_temp[3]` and the optimal, cold and hot temperatures.
 const TIRE_TEMP_SIZE: usize = 24;
+/// `sizeof(r3e_brake_temp)`: `current_temp` and the optimal, cold and hot temperatures.
+const BRAKE_TEMP_SIZE: usize = 16;
 
 /// Byte offsets of the fields read, from the start of the memory.
 mod at {
@@ -114,6 +116,8 @@ mod at {
     pub const STEER_INPUT_RAW: usize = 1524;
     pub const TIRE_PRESSURE: usize = 1712;
     pub const TIRE_TEMP: usize = 1744;
+    /// `r3e_brake_temp brake_temp[4]`: the first float of each is `current_temp`, °C (-1 N/A).
+    pub const BRAKE_TEMP: usize = 1856;
     pub const NUM_CARS: usize = 2008;
 }
 
@@ -313,7 +317,14 @@ fn tyre(page: &Page, index: usize) -> Tyre {
     let temps = tread_points(at::TIRE_TEMP + index * TIRE_TEMP_SIZE);
     let points: Vec<f32> = temps.iter().filter_map(|&at| tyre_temp(page.f32_at(at))).collect();
     let pressure = page.f32_at(at::TIRE_PRESSURE + index * 4);
+    let brake = page.f32_at(at::BRAKE_TEMP + index * BRAKE_TEMP_SIZE);
     Tyre {
+        // Carbon brakes run past 500 °C, so this has its own, wider limit than a tyre's.
+        brake_c: if brake.is_finite() && brake > 0.0 && brake <= 2000.0 {
+            brake
+        } else {
+            f32::NAN
+        },
         temp_c: if points.is_empty() {
             f32::NAN
         } else {
@@ -434,6 +445,7 @@ mod tests {
                     i.f32(p, -1.0);
                 }
                 i.f32(at::TIRE_PRESSURE + t * 4, -1.0);
+                i.f32(at::BRAKE_TEMP + t * BRAKE_TEMP_SIZE, -1.0);
             }
             i
         }
@@ -477,6 +489,9 @@ mod tests {
             i.tyre(1, [81.0, 91.0, 101.0], 181.5);
             i.tyre(2, [70.0, 75.0, 80.0], 170.25);
             i.tyre(3, [71.0, 76.0, 81.0], 171.25);
+            for (t, c) in [450.0, 455.0, 300.0, 305.0].into_iter().enumerate() {
+                i.f32(at::BRAKE_TEMP + t * BRAKE_TEMP_SIZE, c);
+            }
             i.i32(at::VEHICLE_INFO + at::DI_MODEL_ID, 5031);
             i.i32(at::VEHICLE_INFO + at::DI_CLASS_ID, 1703);
             // The driver's name sits where a car name might be looked for; it must not be taken for one.
@@ -908,6 +923,7 @@ mod tests {
             ("steer_input_raw", at::STEER_INPUT_RAW),
             ("tire_pressure", at::TIRE_PRESSURE),
             ("tire_temp", at::TIRE_TEMP),
+            ("brake_temp", at::BRAKE_TEMP),
             ("num_cars", at::NUM_CARS),
         ] {
             assert_eq!(offset_of(&o, name), want, "{name}");
@@ -916,6 +932,7 @@ mod tests {
         // this, and copies everything up to it. Every field read lies inside that part.
         assert_eq!(HEAD, offset_of(&o, "num_cars"));
         const { assert!(at::TIRE_TEMP + 4 * TIRE_TEMP_SIZE <= HEAD) };
+        const { assert!(at::BRAKE_TEMP + 4 * BRAKE_TEMP_SIZE <= HEAD) };
         // The mapping is rounded up to whole pages; what `open_named` asks of it still holds the struct.
         assert!(SIZE.div_ceil(4096) * 4096 >= SIZE);
     }
@@ -948,21 +965,25 @@ mod tests {
         want.fuel_l = 42.5;
         want.tyres = Some([
             Tyre {
+                brake_c: 450.0,
                 temp_c: 90.0,
                 pressure_kpa: 180.5,
                 left: f32::NAN,
             },
             Tyre {
+                brake_c: 455.0,
                 temp_c: 91.0,
                 pressure_kpa: 181.5,
                 left: f32::NAN,
             },
             Tyre {
+                brake_c: 300.0,
                 temp_c: 75.0,
                 pressure_kpa: 170.25,
                 left: f32::NAN,
             },
             Tyre {
+                brake_c: 305.0,
                 temp_c: 76.0,
                 pressure_kpa: 171.25,
                 left: f32::NAN,
@@ -979,7 +1000,10 @@ mod tests {
         frame.tyres = None;
         assert_eq!(frame, want);
         for (got, want) in got_tyres.iter().zip(want_tyres) {
-            assert_eq!((got.temp_c, got.pressure_kpa), (want.temp_c, want.pressure_kpa));
+            assert_eq!(
+                (got.temp_c, got.pressure_kpa, got.brake_c),
+                (want.temp_c, want.pressure_kpa, want.brake_c)
+            );
             assert!(got.left.is_nan(), "tread left is not given");
         }
         assert!((frame.rpm - 7500.0).abs() < 0.01, "rpm {}", frame.rpm);
@@ -1132,6 +1156,7 @@ mod tests {
         assert_eq!(tyres[1].temp_c, 91.0);
         // Nothing about one tyre: that tyre is unknown, the others are still given.
         image.tyre(0, [-1.0, -1.0, -1.0], -1.0);
+        image.f32(at::BRAKE_TEMP, -1.0);
         let tyres = frame_from(&image.0, 0.0).unwrap().tyres.unwrap();
         assert!(!tyres[0].known() && tyres[3].known());
         // Nothing about any tyre (the game says -1 everywhere): no tyres at all.
@@ -1143,9 +1168,21 @@ mod tests {
             image.tyre(t, [0.0; 3], 0.0);
         }
         assert_eq!(frame_from(&image.0, 0.0).unwrap().tyres, None);
+        // A brake temperature alone is a known tyre; -1 and zero are not given; carbon brakes run past 500 °C.
+        let mut image = Image::new();
+        image.f32(at::BRAKE_TEMP, 820.0);
+        image.f32(at::BRAKE_TEMP + BRAKE_TEMP_SIZE, 0.0);
+        let tyres = frame_from(&image.0, 0.0)
+            .unwrap()
+            .tyres
+            .expect("a brake alone is something to show");
+        assert_eq!(tyres[0].brake_c, 820.0);
+        assert!(tyres[0].known() && tyres[0].temp_c.is_nan());
+        assert!(tyres[1].brake_c.is_nan() && tyres[2].brake_c.is_nan() && !tyres[1].known());
         // Absurd values are not given.
         let mut image = Image::on_track();
         image.tyre(2, [f32::NAN, 9000.0, f32::INFINITY], 1.0e9);
+        image.f32(at::BRAKE_TEMP + 2 * BRAKE_TEMP_SIZE, 1.0e9);
         let tyres = frame_from(&image.0, 0.0).unwrap().tyres.unwrap();
         assert!(!tyres[2].known());
     }
@@ -1321,6 +1358,7 @@ mod tests {
                 for t in 0..4 {
                     floats.extend(tread_points(at::TIRE_TEMP + t * TIRE_TEMP_SIZE));
                     floats.push(at::TIRE_PRESSURE + t * 4);
+                    floats.push(at::BRAKE_TEMP + t * BRAKE_TEMP_SIZE);
                 }
                 for float_at in floats {
                     let v = (next() % 4000) as f32 / 1000.0 - 2.0;
@@ -1346,6 +1384,7 @@ mod tests {
                 assert!(t.temp_c.is_nan() || (0.0..=500.0).contains(&t.temp_c));
                 assert!(t.pressure_kpa.is_nan() || (0.0..=2000.0).contains(&t.pressure_kpa));
                 assert!(t.left.is_nan());
+                assert!(t.brake_c.is_nan() || (0.0..=2000.0).contains(&t.brake_c));
             }
             assert!(f.lap >= 0);
         }

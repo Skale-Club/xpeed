@@ -10,6 +10,8 @@ use std::time::Duration;
 /// One tyre as the game tells it; `NaN` for what it does not give.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tyre {
+    /// The brake's temperature in °C, when the game gives it.
+    pub brake_c: f32,
     /// Temperature in °C: the tread where the game gives it, else the core.
     pub temp_c: f32,
     pub pressure_kpa: f32,
@@ -20,7 +22,7 @@ pub struct Tyre {
 impl Tyre {
     /// True when the game said anything about this tyre.
     pub fn known(&self) -> bool {
-        self.temp_c.is_finite() || self.pressure_kpa.is_finite() || self.left.is_finite()
+        self.temp_c.is_finite() || self.pressure_kpa.is_finite() || self.left.is_finite() || self.brake_c.is_finite()
     }
 }
 

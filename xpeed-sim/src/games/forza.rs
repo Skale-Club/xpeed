@@ -335,6 +335,8 @@ impl Decoder {
             };
             let left = extras.map_or(f32::NAN, |e| 1.0 - within(p.f32_at(e + E_TIRE_WEAR + 4 * i), 0.0..=1.0));
             Tyre {
+                // Data Out has no brake temperature.
+                brake_c: f32::NAN,
                 temp_c,
                 pressure_kpa: f32::NAN,
                 left,

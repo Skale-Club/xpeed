@@ -31,6 +31,11 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
         let w = &t.wheels[i];
         let kelvin = w.temperature_k.iter().sum::<f64>() / 3.0;
         Tyre {
+            brake_c: if w.brake_temp_c > 0.0 && w.brake_temp_c <= 2000.0 {
+                w.brake_temp_c as f32
+            } else {
+                f32::NAN
+            },
             temp_c: if (200.0..=600.0).contains(&kelvin) {
                 (kelvin - 273.15) as f32
             } else {
@@ -457,6 +462,7 @@ mod tests {
         let mut tyred = at(3, 1000.0, 20.0, None);
         tyred.tyres = Some(
             [Tyre {
+                brake_c: f32::NAN,
                 temp_c: 85.0,
                 pressure_kpa: 180.0,
                 left: 0.9,
@@ -470,6 +476,7 @@ mod tests {
         use crate::lmu::snapshot::Wheel;
         let mut t = PlayerTelemetry::default();
         t.wheels[0] = Wheel {
+            brake_temp_c: 412.5,
             pressure_kpa: 175.0,
             temperature_k: [358.15, 363.15, 368.15],
             wear: 0.94,
@@ -478,7 +485,14 @@ mod tests {
         let tyres = frame.tyres.expect("one wheel is enough");
         assert!((tyres[0].temp_c - 90.0).abs() < 1e-3);
         assert_eq!((tyres[0].pressure_kpa, tyres[0].left), (175.0, 0.94));
+        assert_eq!(tyres[0].brake_c, 412.5, "the brake temperature is already Celsius");
+        assert!(tyres[1].brake_c.is_nan(), "0 is the header's nothing");
         assert!(!tyres[1].known(), "an empty wheel says nothing");
+        // A brake temperature alone is something to show.
+        let mut only_brakes = PlayerTelemetry::default();
+        only_brakes.wheels[2].brake_temp_c = 350.0;
+        let tyres = lmu_frame(&only_brakes, None).tyres.expect("a brake temperature is enough");
+        assert!(tyres[2].known() && tyres[2].temp_c.is_nan());
         assert!(lmu_frame(&PlayerTelemetry::default(), None).tyres.is_none());
     }
 

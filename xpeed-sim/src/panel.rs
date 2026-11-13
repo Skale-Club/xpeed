@@ -1870,7 +1870,7 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
             main_block(g, live, view, w);
             let (top, half) = (CANVAS_H + 22.0, (CANVAS_W - 20.0) / 2.0);
             track_panel(g, live, view, 0.0, top, half, h - top);
-            tyres_panel(g, live, view, half + 20.0, top, half, h - top, 2);
+            tyres_panel(g, live, view, half + 20.0, top, half, h - top);
         }
     }
 }
@@ -2181,9 +2181,9 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     g.fill(g.r(mid - 1.0, 781.0, 2.0, 20.0), MUTED);
     g.fill(g.r(0.0, 816.0, w, 1.0), EDGE);
 
-    // The track, then the four tyres in a row.
-    track_panel(g, live, view, 0.0, 826.0, w, 124.0);
-    tyres_panel(g, live, view, 0.0, 958.0, w, PORTRAIT_H - 958.0, 4);
+    // The track, then the car's four tyres (a compact schematic, with the room the track gave up).
+    track_panel(g, live, view, 0.0, 826.0, w, 90.0);
+    tyres_panel(g, live, view, 0.0, 924.0, w, PORTRAIT_H - 924.0);
 }
 
 /// The main dashboard on its 1000 x 520 canvas: rev bar (as wide as the whole layout, `width`), track and car, the
@@ -2411,7 +2411,7 @@ fn side_column(g: &mut Painter, live: &Live, view: &View, bottom: f32) {
     let (x, w, top) = (CANVAS_W + 24.0, SIDE_W - 24.0, 106.0);
     let tyres_h = ((bottom - top) * 0.46).clamp(214.0, 330.0);
     track_panel(g, live, view, x, top, w, bottom - top - tyres_h - 14.0);
-    tyres_panel(g, live, view, x, bottom - tyres_h, w, tyres_h, 2);
+    tyres_panel(g, live, view, x, bottom - tyres_h, w, tyres_h);
 }
 
 /// The track map (the car's own path, with where it is now) in a box; until there is enough of a path, a word that
@@ -2440,10 +2440,11 @@ fn track_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
     }
 }
 
-/// The four tyres in `cols` columns (2: two rows of two; 4: one row); when the game says nothing about tyres, a word
-/// that it does not.
-#[allow(clippy::too_many_arguments)]
-fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32, cols: usize) {
+/// The four tyres as a top view of the car: a rounded tyre at each corner, joined by two axle bars and a spine, each
+/// in its temperature's colour; on the outer side the temperature and the pressure, above the front tyres and
+/// below the rear ones the brake's temperature, inside each tyre a thin bar of tread left. When the game says nothing
+/// about tyres, a word that it does not.
+fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32) {
     let r = g.r(x, y, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelTyres), r, 10.5, MUTED, DT_LEFT);
     let Some(tyres) = live.tyres else {
@@ -2463,47 +2464,150 @@ fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
         );
         return;
     };
-    let rows = 4_usize.div_ceil(cols.max(1));
-    let gap = 8.0;
-    let box_w = (w - gap * (cols as f32 - 1.0)) / cols as f32;
-    let box_h = (h - 22.0 - gap * (rows as f32 - 1.0)) / rows as f32;
-    for (i, (label, tyre)) in ["FL", "FR", "RL", "RR"].iter().zip(tyres.iter()).enumerate() {
-        let bx = x + (i % cols) as f32 * (box_w + gap);
-        let by = y + 22.0 + (i / cols) as f32 * (box_h + gap);
-        tyre_box(g, bx, by, box_w, box_h, label, tyre);
+    let brakes = tyres.iter().any(|t| t.brake_c.is_finite());
+    let plan = schematic(x, y + 22.0, w, h - 22.0, brakes);
+    // The chassis first, so the tyres sit on top of it.
+    for (bx, by, bw, bh) in [plan.front_axle, plan.rear_axle, plan.spine] {
+        g.round(g.r(bx, by, bw, bh), bh.min(bw) / 2.0, mix(BG, MUTED, 0.45), None);
+    }
+    for (i, tyre) in tyres.iter().enumerate() {
+        tyre_box(g, &plan, i, tyre);
     }
 }
 
-/// One tyre: its temperature, big, in its colour; the pressure; the tread left as blocks when the game gives it.
-fn tyre_box(g: &mut Painter, x: f32, y: f32, w: f32, h: f32, label: &str, tyre: &crate::game::Tyre) {
+/// A box in design units: `(x, y, width, height)`.
+type Area = (f32, f32, f32, f32);
+
+/// Where everything of the tyre schematic goes. Tyre order everywhere: front left, front right, rear left, rear right.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Schematic {
+    tyres: [Area; 4],
+    /// Beside each tyre, on its outer side: the temperature and the pressure. Left tyres' text is right-aligned (it
+    /// hugs the tyre), right tyres' text left-aligned.
+    readout: [Area; 4],
+    /// The brake temperature: above the front tyres, below the rear ones. Zero height when no brake is shown.
+    brake: [Area; 4],
+    front_axle: Area,
+    rear_axle: Area,
+    spine: Area,
+    /// The size of the big temperature.
+    temp_size: f32,
+}
+
+/// The schematic for a box: the car in the middle, as large as the height allows, the readouts on its two sides.
+/// `brakes`: keep a row above and below for the brake temperatures.
+fn schematic(x: f32, y: f32, w: f32, h: f32, brakes: bool) -> Schematic {
+    let brake_h = if brakes { 16.0 } else { 0.0 };
+    let inner_h = (h - 2.0 * brake_h).max(1.0);
+    // A tyre is about twice as long as it is wide; the two pairs leave room between them for the spine.
+    let th = (inner_h * 0.4).clamp(22.0, 66.0).min(inner_h / 2.0 - 4.0).max(8.0);
+    let tw = (th * 0.52).clamp(8.0, 34.0);
+    // The distance between the two tyres of an axle: wide, but never so wide that the readouts lose their room.
+    let (readout_min, pad) = (88.0, 10.0);
+    let gap = (th * 1.1)
+        .clamp(30.0, 70.0)
+        .min((w - 2.0 * tw - 2.0 * (readout_min + pad)).max(14.0));
+    let cx = x + w / 2.0;
+    let (left_x, right_x) = (cx - gap / 2.0 - tw, cx + gap / 2.0);
+    let (front_y, rear_y) = (y + brake_h, y + h - brake_h - th);
+    let mut plan = Schematic {
+        tyres: [
+            (left_x, front_y, tw, th),
+            (right_x, front_y, tw, th),
+            (left_x, rear_y, tw, th),
+            (right_x, rear_y, tw, th),
+        ],
+        readout: [(0.0, 0.0, 0.0, 0.0); 4],
+        brake: [(0.0, 0.0, 0.0, 0.0); 4],
+        front_axle: (left_x + tw / 2.0, front_y + th / 2.0 - 2.0, gap + tw, 4.0),
+        rear_axle: (left_x + tw / 2.0, rear_y + th / 2.0 - 2.0, gap + tw, 4.0),
+        spine: (cx - 2.0, front_y + th / 2.0, 4.0, rear_y - front_y),
+        temp_size: (th * 0.5).clamp(18.0, 30.0),
+    };
+    for i in 0..4 {
+        let (tx, ty, tw, th) = plan.tyres[i];
+        plan.readout[i] = if i.is_multiple_of(2) {
+            (x, ty, (tx - pad - x).max(0.0), th)
+        } else {
+            (tx + tw + pad, ty, (x + w - tx - tw - pad).max(0.0), th)
+        };
+        if brakes {
+            let by = if i < 2 { y } else { y + h - brake_h };
+            plan.brake[i] = (tx + tw / 2.0 - 40.0, by, 80.0, brake_h);
+        }
+    }
+    plan
+}
+
+/// One tyre of the schematic: the tyre in its temperature's colour with faint tread lines and its tread left, the
+/// temperature big and the pressure under it on the outer side, the brake's temperature in its row.
+fn tyre_box(g: &mut Painter, plan: &Schematic, i: usize, tyre: &crate::game::Tyre) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let color = tyre_color(tyre.temp_c);
-    g.fill(g.r(x, y, w, h), mix(BG, color, 0.13));
-    g.fill(g.r(x, y, w, 3.0), color);
-    let r = g.r(x + 12.0, y + 10.0, 40.0, 16.0);
-    g.caps(label, r, 10.5, MUTED, DT_LEFT);
-    let pressure = if tyre.pressure_kpa.is_finite() {
-        format!("{:.1} psi", tyre.pressure_kpa / 6.894_757)
-    } else {
-        String::new()
-    };
-    let r = g.r(x, y + 8.0, w - 12.0, 20.0);
-    g.text(&pressure, r, 15.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_RIGHT);
-    let temp = if tyre.temp_c.is_finite() {
-        format!("{:.0}°", tyre.temp_c)
-    } else {
-        "–".to_owned()
-    };
-    let r = g.r(x + 12.0, y + 28.0, w - 24.0, h - 48.0);
-    g.text(&temp, r, 34.0, FW_SEMIBOLD as i32, Face::Num, color, DT_LEFT);
+    let (x, y, w, h) = plan.tyres[i];
+    let fill = if tyre.temp_c.is_finite() { color } else { mix(BG, MUTED, 0.35) };
+    g.round(g.r(x, y, w, h), (w * 0.3).min(8.0), fill, None);
+    // Tread lines across the tyre.
+    let lines = ((h / 9.0) as usize).clamp(2, 6);
+    let tread = mix(fill, BG, 0.4);
+    for k in 1..=lines {
+        let ly = y + h * k as f32 / (lines + 1) as f32;
+        g.fill(g.r(x + 3.0, ly, w - 6.0, 1.0), tread);
+    }
+    // Tread left: a thin bar by the tyre's outer edge, lit from the bottom up.
     if tyre.left.is_finite() {
-        let wear = if tyre.left > 0.5 {
-            GREEN
+        let bar_x = if i.is_multiple_of(2) { x + 3.0 } else { x + w - 6.0 };
+        let (bar_y, bar_h) = (y + 5.0, h - 10.0);
+        let share = tyre.left.clamp(0.0, 1.0);
+        let lit = if tyre.left > 0.5 {
+            TEXT
         } else if tyre.left > 0.25 {
             AMBER
         } else {
             RED
         };
-        g.blocks(x + 12.0, y + h - 16.0, w - 24.0, 6.0, 10, 0.0, tyre.left, wear);
+        g.fill(g.r(bar_x, bar_y, 3.0, bar_h), mix(fill, BG, 0.65));
+        g.fill(g.r(bar_x, bar_y + bar_h * (1.0 - share), 3.0, bar_h * share), lit);
+    }
+    // The readout, centred on the tyre's height, on its outer side.
+    let (rx, _, rw, _) = plan.readout[i];
+    let right_aligned = i.is_multiple_of(2);
+    let size = plan.temp_size;
+    let block = size * 1.15 + 16.0;
+    let top = y + h / 2.0 - block / 2.0;
+    let temp = if tyre.temp_c.is_finite() {
+        format!("{:.0}°", tyre.temp_c)
+    } else {
+        "–".to_owned()
+    };
+    let r = g.r(rx, top, rw, size * 1.15);
+    g.text(
+        &temp,
+        r,
+        size,
+        semi,
+        Face::Num,
+        color,
+        if right_aligned { DT_RIGHT } else { DT_LEFT },
+    );
+    if tyre.pressure_kpa.is_finite() {
+        let num = format!("{:.1}", tyre.pressure_kpa / 6.894_757);
+        let (num_w, psi_w) = (g.width_of(&num, 14.0, semi, Face::Num), g.width_of("psi", 10.0, normal, Face::Ui));
+        let ly = top + size * 1.15 + 1.0;
+        let (num_x, psi_x) = if right_aligned {
+            (rx + rw - psi_w - 4.0 - num_w, rx + rw - psi_w)
+        } else {
+            (rx, rx + num_w + 4.0)
+        };
+        let r = g.r(num_x - 1.0, ly, num_w + 2.0, 18.0);
+        g.text(&num, r, 14.0, semi, Face::Num, TEXT, DT_LEFT);
+        let r = g.r(psi_x, ly + 4.0, psi_w + 2.0, 14.0);
+        g.text("psi", r, 10.0, normal, Face::Ui, MUTED, DT_LEFT);
+    }
+    let (bx, by, bw, bh) = plan.brake[i];
+    if tyre.brake_c.is_finite() && bh > 0.0 {
+        let r = g.r(bx, by, bw, bh);
+        g.text(&format!("{:.0} °C", tyre.brake_c), r, 12.0, normal, Face::Num, MUTED, DT_CENTER);
     }
 }
 
@@ -3768,6 +3872,7 @@ mod tests {
         frame.fuel_l = 38.6;
         frame.tyres = Some(
             [(84.0, 26.9, 0.91), (88.0, 27.2, 0.9), (97.0, 26.4, 0.86), (101.0, 26.6, 0.84)].map(|(t, psi, left)| crate::game::Tyre {
+                brake_c: t * 3.4,
                 temp_c: t,
                 pressure_kpa: psi * 6.894_757,
                 left,
@@ -3913,6 +4018,113 @@ mod tests {
         );
     }
 
+    /// The boxes the tyre schematic gets in each layout that shows it (the area under the "Tyres" title).
+    const SCHEMATIC_BOXES: [(&str, f32, f32); 5] = [
+        ("side column, short", 312.0, 192.0),
+        ("side column, tall", 312.0, 308.0),
+        ("4:3 bottom row", 490.0, 266.0),
+        ("portrait", 600.0, 134.0),
+        ("narrow", 200.0, 120.0),
+    ];
+
+    fn inside_box(a: Area, x: f32, y: f32, w: f32, h: f32) -> bool {
+        let eps = 0.01;
+        a.0 >= x - eps && a.1 >= y - eps && a.0 + a.2 <= x + w + eps && a.1 + a.3 <= y + h + eps
+    }
+
+    fn overlap(a: Area, b: Area) -> bool {
+        a.2 > 0.0 && b.2 > 0.0 && a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+    }
+
+    #[test]
+    fn the_tyre_schematic_fits_its_box_in_every_layout_without_text_over_a_tyre() {
+        for brakes in [true, false] {
+            for (name, w, h) in SCHEMATIC_BOXES {
+                let (x, y) = (7.0, 11.0);
+                let plan = schematic(x, y, w, h, brakes);
+                for i in 0..4 {
+                    assert!(inside_box(plan.tyres[i], x, y, w, h), "{name}: tyre {i} is inside the box");
+                    assert!(inside_box(plan.readout[i], x, y, w, h), "{name}: readout {i} is inside the box");
+                    assert!(plan.tyres[i].2 < plan.tyres[i].3, "{name}: a tyre is longer than it is wide");
+                    assert!(!overlap(plan.readout[i], plan.tyres[i]), "{name}: readout {i} clear of its tyre");
+                    for j in 0..4 {
+                        if i != j {
+                            assert!(!overlap(plan.tyres[i], plan.tyres[j]), "{name}: tyres {i} and {j} apart");
+                            assert!(!overlap(plan.readout[i], plan.tyres[j]), "{name}: readout {i} off tyre {j}");
+                        }
+                    }
+                    if brakes {
+                        assert!(inside_box(plan.brake[i], x, y, w, h), "{name}: brake row {i} inside");
+                        assert!(!overlap(plan.brake[i], plan.tyres[i]), "{name}: brake row {i} clear of the tyre");
+                    } else {
+                        assert_eq!(plan.brake[i].3, 0.0, "{name}: no brake row without brake temperatures");
+                    }
+                }
+                // The readouts of a side have room for "100°" and "25.3 psi" (about 70 units), except in the
+                // narrowest box.
+                if w >= 300.0 {
+                    assert!(plan.readout[0].2 >= 70.0 && plan.readout[1].2 >= 70.0, "{name}: room for text");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_tyre_schematic_is_the_car_seen_from_above_with_brakes_at_its_ends() {
+        let (x, y, w, h) = (0.0, 0.0, 340.0, 240.0);
+        let plan = schematic(x, y, w, h, true);
+        let [fl, fr, rl, rr] = plan.tyres;
+        assert_eq!(fl.1, fr.1, "the fronts side by side, level");
+        assert_eq!(rl.1, rr.1, "the rears side by side, level");
+        assert!(fl.1 + fl.3 < rl.1, "front above rear, with the spine between");
+        // Symmetric around the middle.
+        let mid = w / 2.0;
+        assert!(((fl.0 + fl.2 / 2.0 + fr.0 + fr.2 / 2.0) / 2.0 - mid).abs() < 1e-3);
+        assert!(((fl.0 + fl.2) - (mid - (fr.0 - mid))).abs() < 1e-3);
+        // Fronts' brake above the tyre, rears' below.
+        assert!(plan.brake[0].1 + plan.brake[0].3 <= fl.1 && plan.brake[1].1 + plan.brake[1].3 <= fr.1);
+        assert!(plan.brake[2].1 >= rl.1 + rl.3 && plan.brake[3].1 >= rr.1 + rr.3);
+        // Axles run centre to centre of a pair of tyres, the spine between the axles.
+        assert_eq!(plan.front_axle.0, fl.0 + fl.2 / 2.0);
+        assert!((plan.front_axle.0 + plan.front_axle.2 - (fr.0 + fr.2 / 2.0)).abs() < 1e-3);
+        assert!((plan.front_axle.1 + plan.front_axle.3 / 2.0 - (fl.1 + fl.3 / 2.0)).abs() < 1e-3);
+        assert!((plan.spine.1 + plan.spine.3 - (rl.1 + rl.3 / 2.0)).abs() < 1e-3);
+        // Left tyres' readouts end before their tyre, right tyres' start after it.
+        assert!(plan.readout[0].0 + plan.readout[0].2 < fl.0);
+        assert!(plan.readout[1].0 > fr.0 + fr.2);
+    }
+
+    #[test]
+    fn the_schematic_is_painted_for_every_shape_and_a_brake_only_tyre_gets_its_row() {
+        let f = fixture();
+        let mut live = live_reading();
+        let with_brakes = {
+            let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            render(&v, 1536, 864)
+        };
+        // A game that gives no brake temperatures: the rows are not kept and the picture still paints.
+        for t in live.tyres.as_mut().unwrap() {
+            t.brake_c = f32::NAN;
+        }
+        let without = {
+            let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            render(&v, 1536, 864)
+        };
+        assert_ne!(with_brakes, without);
+        // Brake temperatures alone (no tyre temperature, pressure or wear): still a schematic.
+        let tyre = crate::game::Tyre {
+            brake_c: 400.0,
+            temp_c: f32::NAN,
+            pressure_kpa: f32::NAN,
+            left: f32::NAN,
+        };
+        live.tyres = Some([tyre; 4]);
+        for (w, h) in [(1536, 864), (1024, 768), (540, 1080)] {
+            let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            assert!(!render(&v, w, h).is_empty());
+        }
+    }
+
     /// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
     /// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
     /// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
@@ -3968,6 +4180,26 @@ mod tests {
                 Lang::En,
                 960,
                 600,
+                1.0,
+            ),
+            (
+                "preview-4x3.png",
+                "4:3 window (1024 × 768)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                1024,
+                768,
+                1.0,
+            ),
+            (
+                "preview-phone.png",
+                "Phone held upright (540 × 1080)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                540,
+                1080,
                 1.0,
             ),
             (

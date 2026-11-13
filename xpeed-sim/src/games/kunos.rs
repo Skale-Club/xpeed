@@ -446,6 +446,8 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         let psi = p.f32_at(PHYS_WHEELS_PRESSURE + 4 * i);
         let core = p.f32_at(PHYS_TYRE_CORE_TEMPERATURE + 4 * i);
         Tyre {
+            // `brakeTemp[4]` lies past the 256 bytes of the physics page this reader copies: not given.
+            brake_c: f32::NAN,
             temp_c: if core.is_finite() && core != 0.0 && (-50.0..=400.0).contains(&core) {
                 core
             } else {

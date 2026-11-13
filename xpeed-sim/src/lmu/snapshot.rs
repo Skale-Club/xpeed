@@ -31,6 +31,8 @@ fn text_at(bytes: &[u8], at: usize, max: usize) -> String {
 /// One wheel of the player's car (`TelemWheelV01`).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Wheel {
+    /// Brake temperature in Celsius (`mBrakeTemp`); 0 when the game gives none.
+    pub brake_temp_c: f64,
     /// kPa.
     pub pressure_kpa: f64,
     /// Kelvin, across the tread: left, centre, right.
@@ -137,6 +139,7 @@ pub fn parse_telemetry(info: &[u8]) -> PlayerTelemetry {
         wheels: std::array::from_fn(|i| {
             let at = TI_WHEEL + i * TELEM_WHEEL_SIZE;
             Wheel {
+                brake_temp_c: f64_at(info, at + TW_BRAKE_TEMP),
                 pressure_kpa: f64_at(info, at + TW_PRESSURE),
                 temperature_k: vect3_at(info, at + TW_TEMPERATURE),
                 wear: f64_at(info, at + TW_WEAR),
@@ -278,6 +281,7 @@ pub mod fake {
             self.put_f64(base + TI_FUEL, t.fuel_l);
             for (i, wheel) in t.wheels.iter().enumerate() {
                 let at = base + TI_WHEEL + i * TELEM_WHEEL_SIZE;
+                self.put_f64(at + TW_BRAKE_TEMP, wheel.brake_temp_c);
                 self.put_f64(at + TW_PRESSURE, wheel.pressure_kpa);
                 for (side, kelvin) in wheel.temperature_k.iter().enumerate() {
                     self.put_f64(at + TW_TEMPERATURE + side * 8, *kelvin);
@@ -338,6 +342,7 @@ mod tests {
             clutch: 0.0,
             fuel_l: 55.5,
             wheels: [0.0, 1.0, 2.0, 3.0].map(|i| Wheel {
+                brake_temp_c: 300.0 + i,
                 pressure_kpa: 170.0 + i,
                 temperature_k: [350.0 + i, 352.0 + i, 354.0 + i],
                 wear: 0.95 - i * 0.01,
@@ -351,6 +356,11 @@ mod tests {
         assert_eq!(LAYOUT_SIZE, 324_824);
         assert_eq!(MAX_VEHICLES, 104);
         assert_eq!(TELEM_INFO_SIZE, 1888);
+        // `mBrakeTemp` (Celsius) is the fourth double of `TelemWheelV01`, after the suspension deflection, the ride
+        // height and the pushrod load; `mPressure` follows it by twelve doubles (the brake pressure, rotation, four
+        // patch and ground velocities, camber, two forces, the tyre load and the grip fraction come between).
+        assert_eq!(TW_BRAKE_TEMP, 3 * 8);
+        assert_eq!(TW_PRESSURE - TW_BRAKE_TEMP, 12 * 8);
         assert_eq!(VEHICLE_SCORING_SIZE, 584);
         // The last car's telemetry ends 4 bytes short of the end: the whole object is padded to a multiple of 8.
         let telemetry_end = TELEMETRY_INFO + MAX_VEHICLES * TELEM_INFO_SIZE;

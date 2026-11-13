@@ -117,6 +117,8 @@ mod at {
     pub const TYRE_TEMP: usize = 7072;
     /// `float mTyreWear[4]`, 0..1.
     pub const TYRE_WEAR: usize = 7136;
+    /// `float mBrakeTempCelsius[4]`, Celsius, right after `mBrakeDamage` (7152) and `mSuspensionDamage` (7168).
+    pub const BRAKE_TEMP: usize = 7184;
     /// `float mAirPressure[4]`, PSI (a Project CARS 2 addition, version 8).
     pub const AIR_PRESSURE: usize = 7372;
 }
@@ -374,7 +376,7 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     Some(frame)
 }
 
-/// The four tyres: temperature (Celsius), pressure (PSI to kPa) and tread left (1 - wear). The header's "unset" is 0
+/// The four tyres: temperature (Celsius), pressure (PSI to kPa), tread left (1 - wear) and the brake's temperature (Celsius). The header's "unset" is 0
 /// for each, so a 0 says nothing; `None` when no tyre says anything.
 fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
     const KPA_PER_PSI: f32 = 6.894_757;
@@ -382,7 +384,9 @@ fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
         let temp = page.f32_at(at::TYRE_TEMP + 4 * i);
         let psi = page.f32_at(at::AIR_PRESSURE + 4 * i);
         let wear = page.f32_at(at::TYRE_WEAR + 4 * i);
+        let brake = page.f32_at(at::BRAKE_TEMP + 4 * i);
         Tyre {
+            brake_c: if brake != 0.0 { within(brake, -40.0, 2000.0) } else { f32::NAN },
             temp_c: if temp != 0.0 { within(temp, -40.0, 400.0) } else { f32::NAN },
             pressure_kpa: if psi > 0.0 {
                 within(psi, 0.0, 100.0) * KPA_PER_PSI
@@ -729,6 +733,7 @@ mod tests {
             ("mSequenceNumber", at::SEQUENCE_NUMBER),
             ("mTyreTemp", at::TYRE_TEMP),
             ("mTyreWear", at::TYRE_WEAR),
+            ("mBrakeTempCelsius", at::BRAKE_TEMP),
             ("mAirPressure", at::AIR_PRESSURE),
         ] {
             assert_eq!(offset_of(&o, name), want, "{name}");
@@ -757,6 +762,28 @@ mod tests {
         assert!((tyres[1].pressure_kpa - 172.368_93).abs() < 0.01, "25 psi");
         assert_eq!(tyres[2].left, 0.75, "a quarter worn");
         assert!(tyres[3].temp_c.is_nan() && tyres[3].pressure_kpa.is_finite());
+        assert!(
+            tyres.iter().all(|t| t.brake_c.is_nan()),
+            "the brakes were left at the header's unset 0"
+        );
+    }
+
+    #[test]
+    fn reads_the_brake_temperatures_in_celsius_and_a_brake_alone_is_a_tyre_that_is_known() {
+        // `mBrakeTempCelsius` sits right after `mSuspensionDamage` (7168), four floats on.
+        assert_eq!(at::BRAKE_TEMP, 7168 + 16);
+        let mut image = Image::on_track();
+        for (i, c) in [310.0f32, 305.5, 220.0, 0.0].into_iter().enumerate() {
+            image.f32(at::BRAKE_TEMP + 4 * i, c);
+        }
+        let tyres = frame_from(&image.0, 0.0)
+            .unwrap()
+            .tyres
+            .expect("brakes alone are something to show");
+        assert_eq!((tyres[0].brake_c, tyres[1].brake_c, tyres[2].brake_c), (310.0, 305.5, 220.0));
+        assert!(tyres[3].brake_c.is_nan(), "0 is the header's unset");
+        assert!(tyres[0].known() && tyres[0].temp_c.is_nan() && tyres[0].pressure_kpa.is_nan());
+        assert!(!tyres[3].known());
     }
 
     #[test]

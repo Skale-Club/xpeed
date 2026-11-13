@@ -81,6 +81,7 @@ int main() {
   OFF_IN("TI_FUEL", TelemInfoV01, mFuel);
   OFF_IN("TI_WHEEL", TelemInfoV01, mWheel);
   SIZE("TELEM_WHEEL_SIZE", TelemWheelV01);
+  OFF_IN("TW_BRAKE_TEMP", TelemWheelV01, mBrakeTemp);
   OFF_IN("TW_PRESSURE", TelemWheelV01, mPressure);
   OFF_IN("TW_TEMPERATURE", TelemWheelV01, mTemperature);
   OFF_IN("TW_WEAR", TelemWheelV01, mWear);
