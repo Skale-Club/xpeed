@@ -1,105 +1,85 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import i18n from '@/lib/i18n';
-import { SettingsProvider } from '@/contexts/SettingsContext';
-import { accountLap, stubSimServer } from '@/test/account-laps-fixture';
-import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
+import { renderSim } from '@/test/sim-render';
+import { fakeV1State, ref, v1Lap, v1Session } from '@/test/v1-fake-server';
+import { SimCars } from './SimCars';
 import { SimOverview } from './SimOverview';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span>{name}</span> }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
 
-function renderOverview() {
-  return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter initialEntries={['/virtual']}>
-        <SettingsProvider><SimOverview /></SettingsProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-}
+const monza = ref('Monza');
+const ferrari = ref('Ferrari 499P');
 
-let idb: FakeIdb;
 beforeEach(async () => {
-  idb = installFakeIndexedDb();
+  localStorage.clear();
   await i18n.changeLanguage('en');
 });
 afterEach(() => {
   cleanup();
-  idb.uninstall();
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 
-describe('with laps in the account', () => {
-  beforeEach(() => {
-    const laps = [
-      // Monza / Ferrari: a slow valid lap, a quick valid one and a quicker one that does not count.
-      accountLap({ track: 'Monza', car: 'Ferrari 499P', timeMs: 101_000, startedAt: '2026-11-10T12:00:00.000Z', createdAt: '2026-11-10T12:05:00.000Z' }),
-      accountLap({ track: 'Monza', car: 'Ferrari 499P', timeMs: 99_500, startedAt: '2026-11-10T12:03:00.000Z', createdAt: '2026-11-10T12:08:00.000Z' }),
-      accountLap({ track: 'Monza', car: 'Ferrari 499P', timeMs: 90_000, valid: false, startedAt: '2026-11-10T12:06:00.000Z', createdAt: '2026-11-10T12:10:00.000Z' }),
-      // Spa / Porsche: another game, a different day; the last lap the server received.
-      accountLap({ game: 'lmu', track: 'Spa', car: 'Porsche 963', timeMs: 135_000, startedAt: '2026-11-12T18:00:00.000Z', createdAt: '2026-11-12T18:30:00.000Z' }),
-    ];
-    vi.stubGlobal('fetch', vi.fn(stubSimServer(laps, [{ id: 'd1', name: 'Racing PC', last_seen_at: '2026-11-12T18:31:00.000Z' }])));
+describe('Overview', () => {
+  it('shows the Companion connection, recent sessions, best laps and games from one call, and downloads no lap file', async () => {
+    const session = v1Session({ track: monza, car: ferrari, lapCount: 2, bestLapMs: 99_000 });
+    const fast = v1Lap({ track: monza, car: ferrari, sessionId: session.id, timeMs: 99_000, createdAt: '2026-11-12T10:00:00.000Z' });
+    const slow = v1Lap({ track: monza, car: ferrari, sessionId: session.id, timeMs: 101_000, createdAt: '2026-11-12T09:00:00.000Z' });
+    const state = fakeV1State({
+      sessions: [session],
+      laps: [fast, slow],
+      devices: [{ id: 'd1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: new Date().toISOString(), lastLapAt: null }],
+    });
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+
+    expect(await screen.findByTestId('overview-device')).toHaveTextContent('Racing PC');
+    expect(screen.getByTestId('overview-last-lap')).toHaveTextContent('Monza · Ferrari 499P · 1:39.000');
+    expect(within(screen.getByTestId('overview-session')).getByRole('link')).toHaveAttribute('href', `/virtual/sessions/${session.id}`);
+    expect(screen.getByTestId('overview-best-lap')).toHaveTextContent('1:39.000');
+    expect(within(screen.getByTestId('overview-best-lap')).getByRole('link')).toHaveAttribute('href', `/virtual/compare?a=${fast.id}`);
+    expect(screen.getByTestId('overview-game')).toHaveTextContent('Le Mans Ultimate');
+    expect(state.requests.map((request) => request.path)).toEqual(['/overview']);
   });
 
-  it('shows the Companion card with the computers and the last lap received', async () => {
-    renderOverview();
-    const card = await screen.findByTestId('overview-companion');
-    await waitFor(() => expect(within(card).getAllByTestId('overview-device')).toHaveLength(1));
-    expect(within(card).getByTestId('overview-device')).toHaveTextContent('Racing PC');
-    expect(within(card).getByTestId('overview-last-lap')).toHaveTextContent('Spa · Porsche 963 · 2:15.000');
-    expect(within(card).getByRole('link', { name: /Manage Xpeed Companion/ })).toHaveAttribute('href', '/virtual/companion');
+  it('invites to connect Xpeed Companion when there is nothing', async () => {
+    renderSim(<SimOverview />, { state: fakeV1State(), route: '/virtual' });
+    const empty = await screen.findByTestId('overview-empty');
+    expect(within(empty).getByRole('link', { name: 'Get Xpeed Companion' })).toHaveAttribute('href', '/companion');
+    expect(within(screen.getByTestId('overview-companion')).getByRole('link', { name: 'Connect Xpeed Companion' })).toHaveAttribute('href', '/virtual/companion');
   });
 
-  it('lists the recent sessions, linking to Sessions', async () => {
-    renderOverview();
-    const list = await screen.findAllByTestId('overview-session');
-    expect(list).toHaveLength(2);
-    expect(list[0]).toHaveTextContent('Spa');
-    expect(list[0]).toHaveTextContent('Laps: 1');
-    expect(list[1]).toHaveTextContent('Monza');
-    expect(list[1]).toHaveTextContent('Laps: 3');
-    expect(list[1]).toHaveTextContent('1:39.500');
-    expect(within(list[1]).getByRole('link')).toHaveAttribute('href', '/virtual/sessions');
-  });
-
-  it('lists the best valid lap of each game, track and car with a Compare link', async () => {
-    renderOverview();
-    const best = await screen.findAllByTestId('overview-best-lap');
-    expect(best).toHaveLength(2);
-    expect(best[0]).toHaveTextContent('Spa');
-    expect(best[1]).toHaveTextContent('Monza');
-    expect(best[1]).toHaveTextContent('1:39.500');
-    expect(best[1]).not.toHaveTextContent('1:30.000');
-    expect(within(best[1]).getByRole('link', { name: 'Compare' }).getAttribute('href')).toMatch(/^\/virtual\/compare\?a=ana%7Cac%7CMonza%7CFerrari/);
-  });
-
-  it('shows the games played with their laps', async () => {
-    renderOverview();
-    const games = await screen.findAllByTestId('overview-game');
-    expect(games).toHaveLength(2);
-    expect(games[0]).toHaveTextContent('Assetto Corsa');
-    expect(games[0]).toHaveTextContent('Laps: 3');
-    expect(games[1]).toHaveTextContent('Le Mans Ultimate');
-    expect(games[1]).toHaveTextContent('Laps: 1');
+  it('says the server is not answering, which is not an empty account', async () => {
+    const state = fakeV1State();
+    state.failing = { status: 503, error: 'unavailable', retryable: true };
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    expect(await screen.findByTestId('sim-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('overview-empty')).not.toBeInTheDocument();
   });
 });
 
-describe('with nothing yet', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(stubSimServer([], [])));
+describe('Game cars', () => {
+  it('lists the cars by game with their best valid lap', async () => {
+    const state = fakeV1State({
+      cars: [
+        { id: ferrari.id, game: 'lmu', name: ferrari.name, brand: null, class: null, lapCount: 8, validLapCount: 6, sessionCount: 2, trackCount: 3, bestLapMs: 99_000, lastDrivenAt: '2026-11-12T10:00:00.000Z' },
+        { id: 'c2', game: 'ac', name: 'Porsche 911 GT3 R', brand: null, class: null, lapCount: 1, validLapCount: 0, sessionCount: 1, trackCount: 1, bestLapMs: null, lastDrivenAt: '2026-11-11T10:00:00.000Z' },
+      ],
+    });
+    renderSim(<SimCars />, { state, route: '/virtual/cars' });
+    await waitFor(() => expect(screen.getAllByTestId('cars-game')).toHaveLength(2));
+    const [lmu, ac] = screen.getAllByTestId('cars-car');
+    expect(lmu).toHaveTextContent('Ferrari 499P');
+    expect(lmu).toHaveTextContent('Laps: 8');
+    expect(lmu).toHaveTextContent('1:39.000');
+    expect(ac).toHaveTextContent('Porsche 911 GT3 R');
+    expect(ac).toHaveTextContent('–');
   });
 
-  it('asks to connect Xpeed Companion, in the card and in one line below', async () => {
-    renderOverview();
-    const card = await screen.findByTestId('overview-companion');
-    await waitFor(() => expect(within(card).getByRole('link', { name: 'Connect Xpeed Companion' })).toHaveAttribute('href', '/virtual/companion'));
-    expect(await screen.findByTestId('overview-empty')).toHaveTextContent('No laps yet. Connect Xpeed Companion and drive');
-    expect(screen.queryByTestId('overview-sessions')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('overview-best')).not.toBeInTheDocument();
+  it('invites to connect Xpeed Companion when there are no cars', async () => {
+    renderSim(<SimCars />, { state: fakeV1State(), route: '/virtual/cars' });
+    expect(await screen.findByTestId('cars-empty')).toHaveTextContent('No cars yet');
   });
 });

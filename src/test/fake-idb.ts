@@ -25,6 +25,8 @@ export interface FakeIdb {
   dump(store: string): Record<string, unknown>;
   /** Number of transactions run so far. */
   transactions(): number;
+  /** Number of cursors opened so far (a cursor walks a whole store). */
+  cursors(): number;
   uninstall(): void;
 }
 
@@ -32,6 +34,7 @@ export function installFakeIndexedDb(): FakeIdb {
   const databases = new Map<string, { version: number; stores: Map<string, StoreData> }>();
   let failing = false;
   let txCount = 0;
+  let cursorCount = 0;
 
   class FakeTransaction {
     oncomplete: Listener = null;
@@ -102,13 +105,16 @@ export function installFakeIndexedDb(): FakeIdb {
         get: (key: string) => tx.request(() => clone(data.get(key))),
         delete: (key: string) => tx.request(() => { data.delete(key); return undefined; }),
         openCursor: () => {
-          const keys = Array.from(data.keys()).sort();
+          cursorCount++;
+          // The keys are read when the cursor first moves, so requests queued before it (puts, deletes) are seen, as in a browser.
+          let keys: string[] | null = null;
           let i = -1;
           const req = new FakeRequest<unknown>();
           const step = () => {
             tx.pending++;
             queueMicrotask(() => {
               if (tx.finished) return;
+              keys ??= Array.from(data.keys()).sort();
               i++;
               if (i >= keys.length) {
                 req.result = null;
@@ -170,6 +176,7 @@ export function installFakeIndexedDb(): FakeIdb {
       return out;
     },
     transactions: () => txCount,
+    cursors: () => cursorCount,
     uninstall: () => { g.indexedDB = previous; },
   };
 }

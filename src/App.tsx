@@ -38,6 +38,7 @@ const SimComparePage = lazy(() => import("./pages/SimComparePage"));
 const SimAppPage = lazy(() => import("./pages/SimAppPage"));
 const SimConnectPage = lazy(() => import("./pages/SimConnectPage"));
 const SimSessionsPage = lazy(() => import("./pages/SimSessionsPage"));
+const SimSessionPage = lazy(() => import("./pages/SimSessionPage"));
 const SimOverviewPage = lazy(() => import("./pages/SimOverviewPage"));
 const SimCarsPage = lazy(() => import("./pages/SimCarsPage"));
 const SimTracksPage = lazy(() => import("./pages/SimTracksPage"));
@@ -145,6 +146,8 @@ const router = createBrowserRouter(createRoutesFromElements(
       {/* Virtual: racing games, only for someone who chose it. */}
       <Route element={<ModeGate mode="virtual" />}>
         {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
+        {/* One session: no menu entry of its own (Sessions stays highlighted). */}
+        <Route path="/virtual/sessions/:id" element={<SimSessionPage />} />
       </Route>
       {/* Shared by both modes. */}
       <Route path="/companion/connect/:id" element={<SimConnectPage />} />

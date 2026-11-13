@@ -10,7 +10,8 @@ export class LapReadError extends Error {
   }
 }
 
-async function bytesOf(file: Blob): Promise<Uint8Array> {
+/** The bytes of a file or a download (older engines have no `Blob.arrayBuffer`). */
+export async function bytesOf(file: Blob): Promise<Uint8Array> {
   if (typeof file.arrayBuffer === 'function') return new Uint8Array(await file.arrayBuffer());
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
