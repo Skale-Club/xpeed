@@ -2,9 +2,10 @@ import { corsHeaders } from './cors';
 import { asIdentity, databaseConfigured, getPool, type VerifiedClaims } from './db';
 import { identityFromRequest, type IdentityOptions } from './identity';
 import {
-  BUCKETS, DiskStore, FileError, checkBucket, checkPath, contentTypeOf, isActiveContent, openLink, signLink,
+  BUCKETS, FileError, checkBucket, checkPath, contentTypeOf, isActiveContent, openLink, signLink,
   type FileStore,
 } from './files';
+import { createStore, storageConfigured } from './storage-driver';
 
 type Pool = ReturnType<typeof getPool>;
 export interface StorageRouteOptions extends IdentityOptions {
@@ -43,15 +44,15 @@ function objectTarget(pathname: string) {
 /** 'off' when no folder is configured, otherwise whether it can be written (checked at most once a minute). */
 let probed: { at: number; result: 'ok' | 'down' } | undefined;
 export async function storageStatus(env: NodeJS.ProcessEnv = process.env): Promise<'ok' | 'down' | 'off'> {
-  if (!env.STORAGE_DIR) return 'off';
+  if (!storageConfigured(env)) return 'off';
   if (probed && Date.now() - probed.at < 60_000) return probed.result;
-  probed = { at: Date.now(), result: (await new DiskStore(env.STORAGE_DIR).probe()) ? 'ok' : 'down' };
+  probed = { at: Date.now(), result: (await createStore(env).probe()) ? 'ok' : 'down' };
   return probed.result;
 }
 
 export function createStorageRoute(options: StorageRouteOptions = {}) {
   let store = options.store;
-  const files = () => (store ??= new DiskStore(process.env.STORAGE_DIR ?? '/data/files'));
+  const files = () => (store ??= createStore());
   const secret = () => options.secret ?? process.env.STORAGE_SECRET ?? '';
   const pool = () => options.pool ?? getPool();
 

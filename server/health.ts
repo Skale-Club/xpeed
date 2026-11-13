@@ -1,5 +1,5 @@
 import { asService, databaseConfigured } from './db';
-import { DiskStore } from './files';
+import { createStore, storageConfigured } from './storage-driver';
 
 export type Part = 'ok' | 'down' | 'off';
 export interface DeepHealth { ok: boolean; database: Part; storage: Part }
@@ -25,7 +25,7 @@ export async function deepHealth(env: NodeJS.ProcessEnv = process.env, now = Dat
   if (last && now - last.at < MAX_AGE_MS) return last.value;
   const [database, storage] = await Promise.all([
     databaseConfigured(env) ? within(asService((client) => client.query('SELECT 1'))).then((): Part => 'ok', (): Part => 'down') : Promise.resolve<Part>('off'),
-    env.STORAGE_DIR ? within(new DiskStore(env.STORAGE_DIR).probe()).then((fine): Part => (fine ? 'ok' : 'down'), (): Part => 'down') : Promise.resolve<Part>('off'),
+    storageConfigured(env) ? within(createStore(env).probe()).then((fine): Part => (fine ? 'ok' : 'down'), (): Part => 'down') : Promise.resolve<Part>('off'),
   ]);
   const value = { ok: database === 'ok' && storage === 'ok', database, storage };
   last = { at: Date.now(), value };
