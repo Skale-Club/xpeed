@@ -1,4 +1,4 @@
-import type { V1CarItem, V1Lap, V1Overview, V1Pb, V1Ref, V1Session, V1TrackItem } from '@/lib/sim/v1-client';
+import type { V1CarDetail, V1CarItem, V1Lap, V1Overview, V1Pb, V1Ref, V1Session, V1TrackDetail, V1TrackItem } from '@/lib/sim/v1-client';
 
 // A fake of the racing data API (docs/platform/API-V1.md) for tests and the screen harness: the same paths, filters, cursor paging,
 // error shape and delete behaviour (a deleted lap leaves its session's counters, its personal best and the overview consistent).
@@ -48,6 +48,28 @@ export function fakeV1State(partial: Partial<FakeV1State> = {}): FakeV1State {
   return { laps: [], sessions: [], tracks: [], cars: [], devices: [], files: new Map(), requests: [], failing: null, delayMs: 0, ...partial };
 }
 
+/** The track and car catalogs the person has driven, worked out from the laps in `state` (as the server keeps them), most recently driven first. */
+export function buildCatalog(state: FakeV1State, lengths: Record<string, number> = {}): void {
+  const groups = <T extends V1Ref>(refOf: (lap: V1Lap) => T | null) => {
+    const map = new Map<string, { ref: T; laps: V1Lap[] }>();
+    for (const lap of state.laps) {
+      const ref = refOf(lap);
+      if (ref) map.set(ref.id, { ref, laps: [...(map.get(ref.id)?.laps ?? []), lap] });
+    }
+    return [...map.values()].sort((p, q) => Date.parse(lastDriven(q.laps)!) - Date.parse(lastDriven(p.laps)!));
+  };
+  const counts = (laps: V1Lap[]) => ({
+    lapCount: laps.length, validLapCount: laps.filter((lap) => lap.valid).length, sessionCount: new Set(laps.map((lap) => lap.sessionId)).size,
+    bestLapMs: fastest(laps)?.timeMs ?? null, lastDrivenAt: lastDriven(laps)!,
+  });
+  state.tracks = groups((lap) => lap.track).map(({ ref, laps }) => ({
+    id: ref.id, game: laps[0].game, name: ref.name, lengthM: lengths[ref.name] ?? null, carCount: new Set(laps.map((lap) => lap.car?.id)).size, ...counts(laps),
+  }));
+  state.cars = groups((lap) => lap.car).map(({ ref, laps }) => ({
+    id: ref.id, game: laps[0].game, name: ref.name, brand: null, class: null, trackCount: new Set(laps.map((lap) => lap.track?.id)).size, ...counts(laps),
+  }));
+}
+
 export interface FakeResponse { status: number; json?: unknown; bytes?: Uint8Array }
 
 const fail = (status: number, error: string, retryable = false): FakeResponse => ({ status, json: { error, retryable } });
@@ -86,6 +108,73 @@ function refresh(state: FakeV1State) {
       return { ...session, lapCount: laps.length, bestLapMs: valid.length ? Math.min(...valid.map((lap) => lap.timeMs)) : null };
     })
     .filter((session) => session.lapCount > 0);
+}
+
+const day = (lap: V1Lap) => lap.startedAt.slice(0, 10);
+const fastest = (laps: V1Lap[]) => laps.filter((lap) => lap.valid && lap.timeMs > 0).sort((p, q) => p.timeMs - q.timeMs)[0] ?? null;
+const lastDriven = (laps: V1Lap[]) => laps.map((lap) => lap.startedAt).sort().at(-1) ?? null;
+
+/** What `GET /tracks/<id>` says: the totals, the best valid lap of each day, laps per day and the best lap of each car. */
+export function trackDetail(state: FakeV1State, id: string): V1TrackDetail | null {
+  const item = state.tracks.find((track) => track.id === id);
+  if (!item) return null;
+  const laps = state.laps.filter((lap) => lap.track?.id === id);
+  const days = [...new Set(laps.map(day))].sort();
+  const cars = new Map<string, V1Lap[]>();
+  for (const lap of laps) if (lap.car) cars.set(lap.car.id, [...(cars.get(lap.car.id) ?? []), lap]);
+  return {
+    track: { id: item.id, game: item.game, name: item.name, lengthM: item.lengthM },
+    totals: {
+      lapCount: laps.length, validLapCount: laps.filter((lap) => lap.valid).length, sessionCount: new Set(laps.map((lap) => lap.sessionId)).size,
+      carCount: cars.size, bestLapMs: fastest(laps)?.timeMs ?? null, lastDrivenAt: lastDriven(laps),
+    },
+    progress: {
+      bestPerDay: days.flatMap((d) => {
+        const best = fastest(laps.filter((lap) => day(lap) === d));
+        return best && best.car ? [{ day: d, bestMs: best.timeMs, lapId: best.id, car: best.car }] : [];
+      }),
+      lapsPerDay: days.map((d) => {
+        const ofDay = laps.filter((lap) => day(lap) === d);
+        return { day: d, laps: ofDay.length, validLaps: ofDay.filter((lap) => lap.valid).length };
+      }),
+    },
+    bestPerCar: [...cars.values()]
+      .map((ofCar) => {
+        const best = fastest(ofCar);
+        const car = state.cars.find((entry) => entry.id === ofCar[0].car!.id);
+        return { car: { id: ofCar[0].car!.id, name: ofCar[0].car!.name, class: car?.class ?? null }, lapCount: ofCar.length, validLapCount: ofCar.filter((lap) => lap.valid).length, bestMs: best?.timeMs ?? null, lapId: best?.id ?? null, achievedAt: best?.startedAt ?? null };
+      })
+      .sort((p, q) => (p.bestMs ?? Infinity) - (q.bestMs ?? Infinity)),
+  };
+}
+
+/** What `GET /cars/<id>` says: the totals, laps per day and the best valid lap on each track. */
+export function carDetail(state: FakeV1State, id: string): V1CarDetail | null {
+  const item = state.cars.find((car) => car.id === id);
+  if (!item) return null;
+  const laps = state.laps.filter((lap) => lap.car?.id === id);
+  const days = [...new Set(laps.map(day))].sort();
+  const tracks = new Map<string, V1Lap[]>();
+  for (const lap of laps) if (lap.track) tracks.set(lap.track.id, [...(tracks.get(lap.track.id) ?? []), lap]);
+  return {
+    car: { id: item.id, game: item.game, name: item.name, brand: item.brand, class: item.class },
+    totals: {
+      lapCount: laps.length, validLapCount: laps.filter((lap) => lap.valid).length, sessionCount: new Set(laps.map((lap) => lap.sessionId)).size,
+      trackCount: tracks.size, bestLapMs: fastest(laps)?.timeMs ?? null, lastDrivenAt: lastDriven(laps),
+    },
+    progress: {
+      lapsPerDay: days.map((d) => {
+        const ofDay = laps.filter((lap) => day(lap) === d);
+        return { day: d, laps: ofDay.length, validLaps: ofDay.filter((lap) => lap.valid).length };
+      }),
+    },
+    bestPerTrack: [...tracks.values()]
+      .map((ofTrack) => {
+        const best = fastest(ofTrack);
+        return { track: ofTrack[0].track!, lapCount: ofTrack.length, validLapCount: ofTrack.filter((lap) => lap.valid).length, bestMs: best?.timeMs ?? null, lapId: best?.id ?? null, achievedAt: best?.startedAt ?? null };
+      })
+      .sort((p, q) => p.track.name.localeCompare(q.track.name)),
+  };
 }
 
 const byNewest = <T extends { startedAt: string }>(items: T[]) => [...items].sort((p, q) => Date.parse(q.startedAt) - Date.parse(p.startedAt));
@@ -134,10 +223,20 @@ export function handleV1(state: FakeV1State, method: string, path: string, param
       );
       return page(sessions, params, 'sessions');
     }
-    case 'tracks':
+    case 'tracks': {
+      if (id) {
+        const detail = trackDetail(state, id);
+        return detail ? { status: 200, json: detail } : fail(404, 'track_not_found');
+      }
       return page(state.tracks.filter((track) => !params.game || track.game === params.game), params, 'tracks');
-    case 'cars':
+    }
+    case 'cars': {
+      if (id) {
+        const detail = carDetail(state, id);
+        return detail ? { status: 200, json: detail } : fail(404, 'car_not_found');
+      }
       return page(state.cars.filter((car) => !params.game || car.game === params.game), params, 'cars');
+    }
     case 'pbs': {
       const pbs = personalBests(state.laps).filter(
         (pb) => (!params.game || pb.game === params.game) && (!params.track || pb.track.id === params.track) && (!params.car || pb.car.id === params.car),

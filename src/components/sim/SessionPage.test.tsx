@@ -72,6 +72,13 @@ afterEach(() => {
 });
 
 describe('the session page', () => {
+  it('links the track and the car to their pages', async () => {
+    const { state, sessionId } = seeded();
+    await openSession(state, sessionId);
+    expect(screen.getByTestId('session-track-link')).toHaveAttribute('href', `/virtual/tracks/${monza.id}`);
+    expect(screen.getByTestId('session-car-link')).toHaveAttribute('href', `/virtual/cars/${ferrari.id}`);
+  });
+
   it('shows the session, a chart of the lap times and the table of laps in driving order', async () => {
     const { state, sessionId } = seeded();
     await openSession(state, sessionId);

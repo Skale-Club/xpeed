@@ -11,6 +11,7 @@ import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { useDeleteLaps } from '@/lib/sim/lap-delete';
 import { reconcileSession } from '@/lib/sim/library';
+import { carPath, trackPath } from '@/lib/sim/routes';
 import { bestLapOf, bestSectors, consistency, inDrivingOrder, sectorTone, theoreticalBest, type SectorTone } from '@/lib/sim/session-stats';
 import { V1Error, isSignedOut, usePbs, useSession, type V1Lap } from '@/lib/sim/v1-client';
 import { cn } from '@/lib/utils';
@@ -104,8 +105,12 @@ export function SessionPage() {
                 <CardContent className="space-y-2 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h2 className="truncate text-lg font-bold">{session.track.name}</h2>
-                      <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                      <h2 className="truncate text-lg font-bold">
+                        <Link to={trackPath(session.track.id)} className="hover:underline" data-testid="session-track-link">{session.track.name}</Link>
+                      </h2>
+                      <Link to={carPath(session.car.id)} className="inline-flex min-w-0 hover:underline" data-testid="session-car-link">
+                        <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+                      </Link>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <KindBadge kind={session.kind} />

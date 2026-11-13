@@ -4,11 +4,20 @@ import { MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LapCharts } from '@/components/sim/LapCharts';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useLapStudy } from '@/lib/sim/lap-study-client';
+import { cornerRange, type Range } from '@/lib/sim/corner-table';
+import type { CornerDelta } from '@/lib/sim/corner-compare';
+import { sectorStrip } from '@/lib/sim/sector-strip';
+import { CornerTable } from './CornerTable';
+import { SectorStripCard } from './SectorStripCard';
+import { WhereTimeWent } from './WhereTimeWent';
 import { TrackMap, type MapFocus } from '@/components/sim/TrackMap';
 import { offLineStretches, offsetsFromLine, type OffLineStretch } from '@/lib/sim/line-offset';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
-  distanceGrid, formatGap, formatLapTime, gapSeries, incomparableReason, lapLength, lapStats, lengthIn, lengthLabel, resampleLap, speedIn,
+  distanceGrid, formatGap, formatLapTime, gapSeries, incomparableReason, lapLength, lapStats, lengthIn, lengthLabel, resampleLap, sampleAlong, speedIn,
   speedLabel, timeChanges, trackPath, type DistanceUnit,
 } from '@/lib/sim/analysis';
 import type { LapFile } from '@/lib/sim/lap-file';
@@ -167,7 +176,10 @@ export function LapAnalysis({
   findLayout,
   listKeptLayouts,
   linkLayout,
+  phone,
 }: {
+  /** Show the phone layout (tabs) whatever the screen; left out, it follows the width of the screen. */
+  phone?: boolean;
   lap: LoadedLap;
   reference?: LoadedLap | null;
   /** Looks for the layout of the track of a lap among the ones Xpeed Companion sent (kept on this device). */
@@ -244,12 +256,72 @@ export function LapAnalysis({
     const [x, z] = [analysis.lap.x[i], analysis.lap.z[i]];
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     setFocus((current) => ({ x, z, key: (current?.key ?? 0) + 1 }));
+    // On a phone the map is on its own tab (it is mounted there with this focus).
+    if (asPhone) setTab('map');
     mapCard.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   };
   const canShow = !!analysis.pathA && analysis.lap.x.some(Number.isFinite);
 
   const unit = distanceUnit as DistanceUnit;
   const finalGap = b ? (a.lap.header.lap.timeMs - b.lap.header.lap.timeMs) / 1000 : null;
+
+  // The corner analysis runs off the render path (a Web Worker); the page shows the numbers at once and the corners when they arrive.
+  const mobile = useIsMobile();
+  const asPhone = phone ?? mobile;
+  const compared = analysis.same && !!b;
+  const study = useLapStudy(compared ? a.lap : null, compared && b ? b.lap : null);
+  const strip = useMemo(() => (compared && b ? sectorStrip(a.lap, b.lap) : null), [compared, a, b]);
+  const lapLengthM = analysis.grid[analysis.grid.length - 1] ?? 0;
+  const [tab, setTab] = useState('summary');
+
+  // The stretch the charts and the map are zoomed to (a corner picked in the table or in "where the time went").
+  const [zoom, setZoom] = useState<{ corner: number; range: Range; marked: Range } | null>(null);
+  const zoomed = useMemo(() => {
+    if (!zoom) return null;
+    const { fromM, toM } = zoom.range;
+    const count = Math.min(700, Math.max(2, Math.ceil(toM - fromM) + 1));
+    const grid = Array.from({ length: count }, (_, i) => fromM + ((toM - fromM) * i) / (count - 1));
+    const ids = ['t', 'speed', 'throttle', 'brake', 'x', 'z'];
+    const lap = resampleLap(a.lap, ids, grid);
+    const reference = analysis.same && b ? resampleLap(b.lap, ids, grid) : null;
+    // The gap and the distance from the ideal line are smooth: they are read off the whole-lap series at the new distances.
+    const along = (values: ArrayLike<number> | null) => (values ? sampleAlong(Float64Array.from(analysis.grid), values, grid) : null);
+    const marked: Array<[number, number]> = [];
+    grid.forEach((d, i) => {
+      if (d >= zoom.marked.fromM && d <= zoom.marked.toM && Number.isFinite(lap.x[i]) && Number.isFinite(lap.z[i])) marked.push([lap.x[i], lap.z[i]]);
+    });
+    return {
+      grid,
+      lap,
+      reference,
+      gap: along(analysis.gap),
+      offset: lineStudy && !lineStudy.mismatch ? { lap: along(lineStudy.lap) as number[], reference: along(lineStudy.reference) } : null,
+      marked,
+    };
+  }, [zoom, a, b, analysis, lineStudy]);
+
+  // The map follows the zoom: it shows the corner, with a little road around it.
+  useEffect(() => {
+    if (!zoomed) return;
+    const [xs, zs] = [zoomed.lap.x, zoomed.lap.z].map((values) => values.filter(Number.isFinite));
+    if (xs.length === 0 || zs.length === 0) return;
+    const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+    setFocus((current) => ({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, span: Math.max(x1 - x0, z1 - z0) * 1.4 + 30, key: (current?.key ?? 0) + 1 }));
+  }, [zoomed]);
+
+  const zoomTo = (corner: CornerDelta, range: Range) => {
+    setZoom({ corner: corner.index, range, marked: { fromM: corner.startDist, toM: corner.endDist } });
+    // On a phone the charts are on another tab: go and look at them.
+    if (asPhone) setTab('charts');
+  };
+  const zoomToIndex = (index: number) => {
+    const corner = study.status === 'ready' ? study.value.comparison.corners.find((c) => c.index === index) : undefined;
+    if (corner) zoomTo(corner, cornerRange(corner, lapLengthM));
+  };
+  const showWhole = () => {
+    setZoom(null);
+    setFocus((current) => ({ x: 0, z: 0, key: (current?.key ?? 0) + 1, reset: true }));
+  };
 
   const metric = (label: string, mine: string, other: string | null, diff: string | null) => (
     <tr key={label} className="border-t border-border">
@@ -263,140 +335,217 @@ export function LapAnalysis({
   const percent = (share: number) => `${(share * 100).toFixed(1)} %`;
   const signed = (value: number, digits: number) => `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
 
-  return (
-    <div className="space-y-4" data-testid="lap-analysis">
-        <>
-          {refusal && (
-            <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="different-tracks">
-              {{
-                game: t('modes.compare.refused.game', 'These laps are from different games, so they cannot be compared. Only the lap is shown.'),
-                track: t('modes.compare.refused.track', 'These laps are from different tracks, so they cannot be compared. Only the lap is shown.'),
-                length: t('modes.compare.refused.length', 'These laps have different lengths (more than 3 % apart), so they are not the same layout and cannot be compared. Only the lap is shown.'),
-              }[refusal]}
-            </p>
-          )}
+  const refusalNote = refusal && (
+    <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="different-tracks">
+      {{
+        game: t('modes.compare.refused.game', 'These laps are from different games, so they cannot be compared. Only the lap is shown.'),
+        track: t('modes.compare.refused.track', 'These laps are from different tracks, so they cannot be compared. Only the lap is shown.'),
+        length: t('modes.compare.refused.length', 'These laps have different lengths (more than 3 % apart), so they are not the same layout and cannot be compared. Only the lap is shown.'),
+      }[refusal]}
+    </p>
+  );
 
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-1">
-              <CardTitle className="text-sm font-semibold">{t('modes.compare.summary', 'Numbers')}</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-3">
-              {finalGap !== null && analysis.same && (
-                <p className="mb-2 text-sm">
-                  {t('modes.compare.finalGap', 'Gap at the finish')}:{' '}
-                  <span className={cn('font-mono text-lg font-semibold tabular-nums', finalGap > 0.0005 ? 'text-destructive' : finalGap < -0.0005 ? 'text-green-500' : '')} data-testid="final-gap">
-                    {formatGap(finalGap)} s
-                  </span>
-                </p>
-              )}
-              <table className="w-full text-xs sm:text-sm" data-testid="lap-numbers">
-                <thead>
-                  <tr className="text-xs text-muted-foreground">
-                    <th />
-                    <th scope="col" className="pr-3 text-right font-normal">{t('modes.compare.lap', 'Lap')}</th>
-                    {b && <th scope="col" className="pr-3 text-right font-normal">{t('modes.compare.reference', 'Reference')}</th>}
-                    {b && <th scope="col" className="text-right font-normal">{t('modes.compare.difference', 'Difference')}</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {metric(
-                    t('modes.compare.time', 'Lap time'),
-                    formatLapTime(a.lap.header.lap.timeMs),
-                    b ? formatLapTime(b.lap.header.lap.timeMs) : null,
-                    b ? `${formatGap(finalGap ?? 0)} s` : null,
-                  )}
-                  {metric(
-                    t('modes.compare.topSpeed', 'Top speed'),
-                    kmh(analysis.statsA.topSpeedMs),
-                    analysis.statsB ? kmh(analysis.statsB.topSpeedMs) : null,
-                    analysis.statsB ? `${signed(speedIn(analysis.statsA.topSpeedMs - analysis.statsB.topSpeedMs, unit), 1)} ${speedLabel(unit)}` : null,
-                  )}
-                  {metric(
-                    t('modes.compare.avgSpeed', 'Average speed'),
-                    kmh(analysis.statsA.averageSpeedMs),
-                    analysis.statsB ? kmh(analysis.statsB.averageSpeedMs) : null,
-                    analysis.statsB ? `${signed(speedIn(analysis.statsA.averageSpeedMs - analysis.statsB.averageSpeedMs, unit), 1)} ${speedLabel(unit)}` : null,
-                  )}
-                  {metric(
-                    t('modes.compare.fullThrottle', 'Full throttle'),
-                    percent(analysis.statsA.fullThrottleShare),
-                    analysis.statsB ? percent(analysis.statsB.fullThrottleShare) : null,
-                    analysis.statsB ? `${signed((analysis.statsA.fullThrottleShare - analysis.statsB.fullThrottleShare) * 100, 1)} %` : null,
-                  )}
-                  {metric(
-                    t('modes.compare.braking', 'Braking'),
-                    percent(analysis.statsA.brakingShare),
-                    analysis.statsB ? percent(analysis.statsB.brakingShare) : null,
-                    analysis.statsB ? `${signed((analysis.statsA.brakingShare - analysis.statsB.brakingShare) * 100, 1)} %` : null,
-                  )}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
+  const numbersCard = (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-1">
+        <CardTitle className="text-sm font-semibold">{t('modes.compare.summary', 'Numbers')}</CardTitle>
+      </CardHeader>
+      <CardContent className="pb-3">
+        {finalGap !== null && analysis.same && (
+          <p className="mb-2 text-sm">
+            {t('modes.compare.finalGap', 'Gap at the finish')}:{' '}
+            <span className={cn('font-mono text-lg font-semibold tabular-nums', finalGap > 0.0005 ? 'text-destructive' : finalGap < -0.0005 ? 'text-green-500' : '')} data-testid="final-gap">
+              {formatGap(finalGap)} s
+            </span>
+          </p>
+        )}
+        <table className="w-full text-xs sm:text-sm" data-testid="lap-numbers">
+          <thead>
+            <tr className="text-xs text-muted-foreground">
+              <th />
+              <th scope="col" className="pr-3 text-right font-normal">{t('modes.compare.lap', 'Lap')}</th>
+              {b && <th scope="col" className="pr-3 text-right font-normal">{t('modes.compare.reference', 'Reference')}</th>}
+              {b && <th scope="col" className="text-right font-normal">{t('modes.compare.difference', 'Difference')}</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {metric(
+              t('modes.compare.time', 'Lap time'),
+              formatLapTime(a.lap.header.lap.timeMs),
+              b ? formatLapTime(b.lap.header.lap.timeMs) : null,
+              b ? `${formatGap(finalGap ?? 0)} s` : null,
+            )}
+            {metric(
+              t('modes.compare.topSpeed', 'Top speed'),
+              kmh(analysis.statsA.topSpeedMs),
+              analysis.statsB ? kmh(analysis.statsB.topSpeedMs) : null,
+              analysis.statsB ? `${signed(speedIn(analysis.statsA.topSpeedMs - analysis.statsB.topSpeedMs, unit), 1)} ${speedLabel(unit)}` : null,
+            )}
+            {metric(
+              t('modes.compare.avgSpeed', 'Average speed'),
+              kmh(analysis.statsA.averageSpeedMs),
+              analysis.statsB ? kmh(analysis.statsB.averageSpeedMs) : null,
+              analysis.statsB ? `${signed(speedIn(analysis.statsA.averageSpeedMs - analysis.statsB.averageSpeedMs, unit), 1)} ${speedLabel(unit)}` : null,
+            )}
+            {metric(
+              t('modes.compare.fullThrottle', 'Full throttle'),
+              percent(analysis.statsA.fullThrottleShare),
+              analysis.statsB ? percent(analysis.statsB.fullThrottleShare) : null,
+              analysis.statsB ? `${signed((analysis.statsA.fullThrottleShare - analysis.statsB.fullThrottleShare) * 100, 1)} %` : null,
+            )}
+            {metric(
+              t('modes.compare.braking', 'Braking'),
+              percent(analysis.statsA.brakingShare),
+              analysis.statsB ? percent(analysis.statsB.brakingShare) : null,
+              analysis.statsB ? `${signed((analysis.statsA.brakingShare - analysis.statsB.brakingShare) * 100, 1)} %` : null,
+            )}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
 
-          {lineStudy?.mismatch && (
-            <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="layout-mismatch">
-              {t('modes.compare.layoutMismatch', 'This lap does not sit on the track layout: most of it is more than 25 m from the ideal line. The layout may be of another version of the track, so the distance from the ideal line is not shown.')}
-            </p>
-          )}
+  const whereCard = compared ? <WhereTimeWent study={study} unit={unit} onShowCorner={canShow ? zoomToIndex : undefined} /> : null;
+  const stripCard = strip ? <SectorStripCard strip={strip} /> : null;
+  const cornersCard = compared ? (
+    <CornerTable study={study} lapLengthM={lapLengthM} unit={unit} selected={zoom?.corner ?? null} onSelect={zoomTo} onReset={showWhole} />
+  ) : null;
 
-          <LapCharts
-            grid={analysis.grid}
-            lap={analysis.lap}
-            reference={analysis.reference}
-            gap={analysis.gap}
-            offset={lineStudy && !lineStudy.mismatch ? { lap: lineStudy.lap, reference: lineStudy.reference } : null}
-            unit={unit}
-          />
-
-          {analysis.changes && (
-            <Card className="bg-card border-border" data-testid="time-changes">
-              <CardContent className="grid gap-4 p-4 sm:grid-cols-2">
-                <Changes title={t('modes.compare.lostTitle', 'Where the lap loses time')} items={analysis.changes.losses} unit={unit} tone="loss" onShow={canShow ? showOnMap : undefined} />
-                <Changes title={t('modes.compare.gainedTitle', 'Where the lap gains time')} items={analysis.changes.gains} unit={unit} tone="gain" onShow={canShow ? showOnMap : undefined} />
-              </CardContent>
-            </Card>
-          )}
-
-          {lineStudy && !lineStudy.mismatch && <OffLine items={lineStudy.stretches} unit={unit} onShow={showOnMap} />}
-
-          {analysis.pathA && (
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-semibold">{t('modes.compare.mapTitle', 'Track')}</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-3">
-                <div ref={mapCard}>
-                  <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} />
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
-                  {layout
-                    ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
-                    : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Once Xpeed Companion has sent the track’s layout, the road, its edges and the ideal line are drawn under it.')}
-                </p>
-                {!layout && wanted && wantedKey && findLayout && kept?.key === wantedKey && (
-                  <NoLayout
-                    game={wanted.game}
-                    track={[wanted.name, wanted.variant].filter(Boolean).join(' · ')}
-                    listKept={listKeptLayouts}
-                    onPick={
-                      linkLayout
-                        ? (id) =>
-                            void linkLayout(wanted.game, wanted.name, wanted.variant, id).then(
-                              (picked) => setKept({ key: wantedKey, layout: picked }),
-                              () => undefined,
-                            )
-                        : undefined
-                    }
-                  />
-                )}
-                {layout && (
-                  <p className="text-xs text-muted-foreground">{t('modes.compare.mapZoomHint', 'Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.')}</p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </>
+  const zoomBar = zoom && (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-2 text-sm" data-testid="zoom-bar">
+      <span>
+        {t('modes.analysis.zoomedTo', 'Zoomed to corner {{corner}} ({{from}}–{{to}} {{unit}})', {
+          corner: zoom.corner,
+          from: Math.round(lengthIn(zoom.range.fromM, unit)),
+          to: Math.round(lengthIn(zoom.range.toM, unit)),
+          unit: lengthLabel(unit),
+        })}
+      </span>
+      <Button type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={showWhole} data-testid="zoom-bar-reset">
+        {t('modes.analysis.showWhole', 'Show whole lap')}
+      </Button>
     </div>
+  );
+
+  const layoutNote = lineStudy?.mismatch && (
+    <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="layout-mismatch">
+      {t('modes.compare.layoutMismatch', 'This lap does not sit on the track layout: most of it is more than 25 m from the ideal line. The layout may be of another version of the track, so the distance from the ideal line is not shown.')}
+    </p>
+  );
+
+  const charts = (
+    <LapCharts
+      grid={zoomed?.grid ?? analysis.grid}
+      lap={zoomed?.lap ?? analysis.lap}
+      reference={zoomed ? zoomed.reference : analysis.reference}
+      gap={zoomed ? zoomed.gap : analysis.gap}
+      offset={zoomed ? zoomed.offset : lineStudy && !lineStudy.mismatch ? { lap: lineStudy.lap, reference: lineStudy.reference } : null}
+      unit={unit}
+      range={zoom?.range ?? null}
+    />
+  );
+
+  const changesCard = analysis.changes && (
+    <Card className="bg-card border-border" data-testid="time-changes">
+      <CardContent className="grid gap-4 p-4 sm:grid-cols-2">
+        <Changes title={t('modes.compare.lostTitle', 'Where the lap loses time')} items={analysis.changes.losses} unit={unit} tone="loss" onShow={canShow ? showOnMap : undefined} />
+        <Changes title={t('modes.compare.gainedTitle', 'Where the lap gains time')} items={analysis.changes.gains} unit={unit} tone="gain" onShow={canShow ? showOnMap : undefined} />
+      </CardContent>
+    </Card>
+  );
+
+  const offLine = lineStudy && !lineStudy.mismatch ? <OffLine items={lineStudy.stretches} unit={unit} onShow={showOnMap} /> : null;
+
+  const mapNode = analysis.pathA && (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-1">
+        <CardTitle className="text-sm font-semibold">{t('modes.compare.mapTitle', 'Track')}</CardTitle>
+      </CardHeader>
+      <CardContent className="pb-3">
+        <div ref={mapCard}>
+          <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} />
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
+          {layout
+            ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
+            : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Once Xpeed Companion has sent the track’s layout, the road, its edges and the ideal line are drawn under it.')}
+        </p>
+        {!layout && wanted && wantedKey && findLayout && kept?.key === wantedKey && (
+          <NoLayout
+            game={wanted.game}
+            track={[wanted.name, wanted.variant].filter(Boolean).join(' · ')}
+            listKept={listKeptLayouts}
+            onPick={
+              linkLayout
+                ? (id) =>
+                    void linkLayout(wanted.game, wanted.name, wanted.variant, id).then(
+                      (picked) => setKept({ key: wantedKey, layout: picked }),
+                      () => undefined,
+                    )
+                : undefined
+            }
+          />
+        )}
+        {layout && (
+          <p className="text-xs text-muted-foreground">{t('modes.compare.mapZoomHint', 'Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.')}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  if (!asPhone) {
+    return (
+      <div className="space-y-4" data-testid="lap-analysis">
+        {refusalNote}
+        {numbersCard}
+        {whereCard}
+        {stripCard}
+        {cornersCard}
+        {zoomBar}
+        {layoutNote}
+        {charts}
+        {changesCard}
+        {offLine}
+        {mapNode}
+      </div>
+    );
+  }
+
+  // A phone: one thing at a time, in tabs, under the lap selector that stays in view.
+  const tabs = [
+    { id: 'summary', label: t('modes.analysis.tab.summary', 'Summary') },
+    ...(compared ? [{ id: 'corners', label: t('modes.analysis.tab.corners', 'Corners') }] : []),
+    { id: 'charts', label: t('modes.analysis.tab.charts', 'Charts') },
+    ...(analysis.pathA ? [{ id: 'map', label: t('modes.analysis.tab.map', 'Map') }] : []),
+  ];
+  const current = tabs.some((item) => item.id === tab) ? tab : 'summary';
+  return (
+    <Tabs value={current} onValueChange={setTab} className="space-y-3" data-testid="lap-analysis" data-layout="tabs">
+      <TabsList className={cn('sticky top-28 z-20 grid h-10 w-full shadow-sm')} style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} data-testid="analysis-tabs">
+        {tabs.map((item) => (
+          <TabsTrigger key={item.id} value={item.id} className="px-1 text-xs" data-testid={`tab-${item.id}`}>{item.label}</TabsTrigger>
+        ))}
+      </TabsList>
+      <TabsContent value="summary" className="mt-0 space-y-4">
+        {refusalNote}
+        {numbersCard}
+        {whereCard}
+        {stripCard}
+      </TabsContent>
+      <TabsContent value="corners" className="mt-0 space-y-4">
+        {cornersCard}
+        {changesCard}
+        {offLine}
+      </TabsContent>
+      <TabsContent value="charts" className="mt-0 space-y-4">
+        {zoomBar}
+        {layoutNote}
+        {charts}
+      </TabsContent>
+      <TabsContent value="map" className="mt-0 space-y-4">
+        {zoomBar}
+        {mapNode}
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -1,177 +1,113 @@
-import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Check, Loader2, Minus, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { ChevronRight, Map as MapIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useSettings } from '@/contexts/SettingsContext';
-import { useTrackLibrary } from '@/hooks/use-track-library';
+import { formatLapTime, type DistanceUnit } from '@/lib/sim/analysis';
 import { useGames } from '@/lib/sim/games';
-import { lengthIn, type DistanceUnit } from '@/lib/sim/analysis';
-import { loadTrack, removeTracks, type LibraryTrack } from '@/lib/sim/track-library';
-import { deleteAccountTrack, syncAccountTracks, type SyncResult } from '@/lib/sim/account-tracks';
-import type { TrackFile } from '@/lib/sim/track-file';
-import { cn } from '@/lib/utils';
+import { trackPath } from '@/lib/sim/routes';
+import { trackLength } from '@/lib/sim/track-length';
+import { hasSyncedLayout, useAccountLayouts } from '@/lib/sim/track-layout-match';
+import { useOverview, useTracks, type V1TrackItem } from '@/lib/sim/v1-client';
+import { FilterSelect } from './FilterSelect';
+import { CompanionInvite, LoadMore, QueryGate } from './SimStates';
+import { useWhen } from './use-when';
 
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** The shape of the track, small: its centre line, z down like the big map. */
-function TrackThumb({ layout }: { layout: TrackFile | null }) {
-  if (!layout) return <div className="h-16 w-24 shrink-0 rounded-md bg-muted/40" aria-hidden />;
-  const { x, z } = layout.centerline;
-  const step = Math.max(1, Math.ceil(x.length / 300));
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (let i = 0; i < x.length; i++) {
-    minX = Math.min(minX, x[i]);
-    maxX = Math.max(maxX, x[i]);
-    minZ = Math.min(minZ, z[i]);
-    maxZ = Math.max(maxZ, z[i]);
-  }
-  const margin = Math.max(maxX - minX, maxZ - minZ) * 0.06 + 1;
-  const points: string[] = [];
-  for (let i = 0; i < x.length; i += step) points.push(`${(x[i] - minX + margin).toFixed(0)},${(z[i] - minZ + margin).toFixed(0)}`);
-  return (
-    <svg viewBox={`0 0 ${(maxX - minX + 2 * margin).toFixed(0)} ${(maxZ - minZ + 2 * margin).toFixed(0)}`} className="h-16 w-24 shrink-0 rounded-md bg-muted/40 text-primary" aria-hidden data-testid="track-thumb">
-      <polyline points={points.join(' ')} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
-function Feature({ on, label }: { on: boolean; label: string }) {
-  return (
-    <span className={cn('inline-flex items-center gap-0.5', !on && 'text-muted-foreground/60 line-through')}>
-      {on ? <Check className="h-3 w-3" /> : <Minus className="h-3 w-3" />} {label}
-    </span>
-  );
-}
-
-function TrackRow({ entry, userId, unit, onRemove }: { entry: LibraryTrack; userId: string; unit: DistanceUnit; onRemove: () => void }) {
+function TrackCard({ track, layout, unit }: { track: V1TrackItem; layout: boolean; unit: DistanceUnit }) {
   const { t } = useTranslation();
-  const [layout, setLayout] = useState<TrackFile | null>(null);
-  useEffect(() => {
-    let live = true;
-    loadTrack(userId, entry.id).then((found) => live && setLayout(found), () => undefined);
-    return () => {
-      live = false;
-    };
-  }, [userId, entry.id]);
-  const { summary } = entry;
   const games = useGames();
-  const title = summary.title ?? summary.trackName;
-  const length = summary.lengthM !== undefined ? `${(lengthIn(summary.lengthM, unit) / (unit === 'mi' ? 5280 : 1000)).toFixed(2)} ${unit === 'mi' ? 'mi' : 'km'}` : null;
+  const when = useWhen('date');
   return (
-    <li className="flex items-center gap-3 py-3" data-testid="track-row">
-      <TrackThumb layout={layout} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {title}
-          {summary.variant ? <span className="text-muted-foreground"> · {summary.variant}</span> : null}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {games.name(summary.game)}
-          {length ? ` · ${length}` : ''} · {entry.fileName} · {formatBytes(entry.size)}
-        </p>
-        <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs">
-          <Feature on={summary.hasEdges} label={t('modes.tracks.edges', 'edges')} />
-          <Feature on={summary.hasIdealLine} label={t('modes.tracks.idealLine', 'ideal line')} />
-          <Feature on={summary.hasPitLane} label={t('modes.tracks.pitLane', 'pit lane')} />
-        </p>
-      </div>
-      <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" aria-label={`${t('modes.tracks.remove', 'Remove')} ${title}`} onClick={onRemove}>
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </li>
+    <Link to={trackPath(track.id)} className="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="track-link">
+      <Card className="h-full bg-card border-border transition-colors hover:bg-muted/30" data-testid="track">
+        <CardContent className="space-y-2 p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold">{track.name}</h3>
+              <p className="truncate text-xs text-muted-foreground">
+                {games.name(track.game)}
+                {track.lengthM ? ` · ${trackLength(track.lengthM, unit)}` : ''}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {layout && (
+                <Badge variant="secondary" className="gap-1" data-testid="track-layout-badge" title={t('modes.tracks.layoutTitle', 'Xpeed Companion has sent the layout of this track: the lap is drawn on it')}>
+                  <MapIcon className="h-3 w-3" aria-hidden /> {t('modes.tracks.layoutBadge', 'Layout')}
+                </Badge>
+              )}
+              <ChevronRight className="hidden h-4 w-4 text-muted-foreground sm:block" aria-hidden />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+            <span data-testid="track-laps">{t('modes.sessions.lapCount', 'Laps: {{count}}', { count: track.lapCount })}</span>
+            <span data-testid="track-best">
+              <span className="text-xs text-muted-foreground">{t('modes.cars.bestLap', 'Best valid lap')}: </span>
+              <span className="font-mono tabular-nums">{track.bestLapMs !== null ? formatLapTime(track.bestLapMs) : '–'}</span>
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('modes.cars.lastDriven', 'Last driven {{when}}', { when: when(Date.parse(track.lastDrivenAt)) })}</p>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
 /**
- * Virtual > Tracks: the track layouts kept on this device (the real shape of each circuit, read by Xpeed Companion from the
- * game's own files). A lap is drawn on the layout of its track on the compare screen.
+ * Virtual > Tracks: the tracks the person has driven (from the account, most recently driven first), a page at a time, with the number
+ * of laps, the best valid lap, when each was last driven, and a small badge when Xpeed Companion has sent the layout of the track. A
+ * track opens its own page. The list never opens a lap file.
  */
 export function TracksList() {
   const { t } = useTranslation();
   const { distanceUnit } = useSettings();
-  const library = useTrackLibrary();
-  const [pending, setPending] = useState<LibraryTrack | null>(null);
-  const [account, setAccount] = useState<SyncResult | null>(null);
+  const games = useGames();
+  const [params, setParams] = useSearchParams();
+  const game = params.get('game') ?? '';
+  const overview = useOverview();
+  const tracks = useTracks(game ? { game } : {});
+  const layouts = useAccountLayouts();
 
-  // The layouts Xpeed Companion sent to the account are copied onto this device when the screen opens.
-  useEffect(() => {
-    if (!library.userId) return;
-    let live = true;
-    syncAccountTracks(library.userId).then((result) => live && setAccount(result), () => undefined);
-    return () => {
-      live = false;
-    };
-  }, [library.userId]);
-
-  const remove = async (entry: LibraryTrack) => {
-    if (!library.userId) return;
-    const inAccount = account?.byKey.get(entry.id.slice(library.userId.length + 1));
-    if (inAccount && (await deleteAccountTrack(inAccount.id))) {
-      account?.byKey.delete(entry.id.slice(library.userId.length + 1));
-    }
-    await removeTracks(library.userId, [entry.id]);
+  const setGame = (value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set('game', value);
+    else next.delete('game');
+    setParams(next, { replace: true });
   };
-
-  const sorted = [...library.tracks].sort((p, q) => (p.summary.title ?? p.summary.trackName).localeCompare(q.summary.title ?? q.summary.trackName));
 
   return (
     <div className="space-y-4" data-testid="tracks-list">
-      <p className="text-sm text-muted-foreground">
-        {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
-        {t('modes.tracks.private', 'Xpeed Companion sends them to your account by itself when you drive a track; a copy is kept on this device.')}
-      </p>
-
-      {account?.reached && account.copied > 0 && (
-        <p role="status" className="text-sm" data-testid="tracks-from-account">
-          {t('modes.tracks.fromAccount', { count: account.copied, defaultValue: '{{count}} track layouts sent by Xpeed Companion were added from your account.', defaultValue_one: '1 track layout sent by Xpeed Companion was added from your account.' })}
-        </p>
-      )}
-      {library.status === 'unavailable' ? (
-        <p className="text-sm text-muted-foreground">{t('modes.tracks.unavailable', 'This browser cannot keep track layouts on the device.')}</p>
-      ) : library.status === 'loading' ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-          <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading', 'Loading…')}
-        </p>
-      ) : sorted.length === 0 ? (
-        <p className="text-sm text-muted-foreground" data-testid="tracks-empty">
-          {t('modes.tracks.empty', 'No track layouts yet. Xpeed Companion sends one by itself when you drive a track.')}{' '}
-          <Link to="/virtual/companion" className="underline">{t('modes.sessions.emptyLink', 'Connect Xpeed Companion')}</Link>
-        </p>
-      ) : (
-        <Card className="bg-card border-border">
-          <CardContent className="py-1">
-            <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
-              <span>{t('modes.tracks.count', { count: sorted.length, defaultValue: '{{count}} track layouts', defaultValue_one: '1 track layout' })}</span>
-              <Badge variant="secondary">{formatBytes(sorted.reduce((sum, entry) => sum + entry.size, 0))}</Badge>
-            </div>
-            <ul className="divide-y divide-border">
-              {sorted.map((entry) => (
-                <TrackRow key={entry.id} entry={entry} userId={library.userId!} unit={distanceUnit as DistanceUnit} onRemove={() => setPending(entry)} />
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      <ConfirmDialog
-        open={!!pending}
-        onOpenChange={(open) => !open && setPending(null)}
-        title={t('modes.tracks.removeTitle', 'Remove this track layout?')}
-        description={t('modes.tracks.removeText', 'It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Companion sends it again or its file is added.')}
-        confirmLabel={t('modes.tracks.remove', 'Remove')}
-        onConfirm={() => {
-          if (pending) void remove(pending).catch(() => undefined);
-          setPending(null);
-        }}
-      />
+      <p className="text-sm text-muted-foreground">{t('modes.tracks.listIntro', 'The tracks you have driven. Open one to see your progress on it and your best lap with each car.')}</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <FilterSelect
+          label={t('modes.sessions.filterGame', 'Game')}
+          allLabel={t('modes.sessions.all', 'All')}
+          value={game}
+          onChange={setGame}
+          options={(overview.data?.lapsPerGame ?? []).map((entry) => ({ value: entry.game, label: games.name(entry.game) }))}
+          testId="filter-game"
+        />
+      </div>
+      <QueryGate
+        query={tracks}
+        empty={tracks.items.length === 0}
+        emptyNode={
+          game ? (
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground" data-testid="tracks-no-match">{t('modes.tracks.noMatch', 'No track of this game yet.')}</p>
+          ) : (
+            <CompanionInvite testId="tracks-empty" body={t('modes.tracks.emptyAccount', 'No tracks yet. Install Xpeed Companion and connect it to your account: the tracks you drive show up here.')} />
+          )
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {tracks.items.map((track) => (
+              <TrackCard key={track.id} track={track} layout={!!layouts && hasSyncedLayout(layouts, track)} unit={distanceUnit as DistanceUnit} />
+            ))}
+          </div>
+          <LoadMore hasNextPage={!!tracks.hasNextPage} isFetchingNextPage={tracks.isFetchingNextPage} onClick={() => void tracks.fetchNextPage()} />
+        </div>
+      </QueryGate>
     </div>
   );
 }

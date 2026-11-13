@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeftRight, Award, Loader2, RefreshCw, X } from 'lucide-react';
@@ -6,13 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { LapAnalysis } from '@/components/sim/LapAnalysis';
-import { useAuth } from '@/contexts/AuthContext';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { compareParams } from '@/lib/sim/compare-url';
 import { LapReadError } from '@/lib/sim/read-lap-file';
-import { syncAccountTracks } from '@/lib/sim/account-tracks';
 import type { LapFile } from '@/lib/sim/lap-file';
-import { findTrack, linkTrack, listTracks } from '@/lib/sim/track-library';
+import { useLayoutFinder } from '@/lib/sim/use-track-layouts';
 import { useLapFile } from '@/lib/sim/use-lap-file';
 import { V1Error, isSignedOut, usePbs, type V1Lap } from '@/lib/sim/v1-client';
 import { LapPicker, type PickerStart } from './LapPicker';
@@ -107,8 +106,8 @@ function LapSlot({ label, testId, hint, file, lapId, onChange, onClear, clearLab
  */
 export function CompareScreen() {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  const userId = user?.id ?? null;
+  const mobile = useIsMobile();
+  const [editing, setEditing] = useState(false);
   const [params, setParams] = useSearchParams();
   const { a: aId, b: bParam } = compareParams(params);
   const [picking, setPicking] = useState<'a' | 'b' | null>(null);
@@ -147,29 +146,37 @@ export function CompareScreen() {
   };
 
   // Track layouts are the ones Xpeed Companion sent to the account: copied onto this device once, then looked in.
-  const synced = useRef<Promise<unknown> | null>(null);
-  const findLayout = useCallback(
-    async (game: string, trackName: string, variant?: string | null) => {
-      if (!userId) return null;
-      const here = await findTrack(userId, game, trackName, variant);
-      if (here) return here;
-      synced.current ??= syncAccountTracks(userId).catch(() => undefined);
-      await synced.current;
-      return findTrack(userId, game, trackName, variant);
-    },
-    [userId],
-  );
-  const listKeptLayouts = useCallback(() => (userId ? listTracks(userId) : Promise.resolve([])), [userId]);
-  const linkLayout = useCallback(
-    (game: string, trackName: string, variant: string | null, layoutId: string) => (userId ? linkTrack(userId, game, trackName, variant, layoutId) : Promise.resolve(null)),
-    [userId],
-  );
+  const { findLayout, listKeptLayouts, linkLayout } = useLayoutFinder();
 
   const start: PickerStart | undefined = aHeader ? { game: aHeader.game, trackName: aHeader.track.name, carName: aHeader.car.name } : undefined;
   // With nothing chosen yet the picker is open: that is how a comparison starts.
   const showPicker = picking !== null || !aId;
   const usingDefault = !bParam && !!defaultRef;
   const isPb = !!aId && !!pb && pb.lapId === aId;
+
+  // On a phone the two laps stay in view as a slim bar while the page scrolls; "Change" opens the full selector.
+  const slim = mobile && !!aId && !!aFile.data;
+  const aInfo = aFile.data ? describe(aFile.data) : null;
+  const bInfo = bFile.data && bId ? describe(bFile.data) : null;
+  const slimBar = slim && aInfo && (
+    <div className="sticky top-14 z-30 -mx-4 flex h-14 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur" data-testid="sticky-laps">
+      <div className="min-w-0 flex-1 text-xs leading-tight">
+        <p className="truncate font-medium" data-testid="sticky-lap">
+          {t('modes.compare.lap', 'Lap')} {aInfo.number} · <span className="font-mono tabular-nums">{formatLapTime(aInfo.timeMs)}</span> · {aInfo.track}
+        </p>
+        <p className="truncate text-muted-foreground" data-testid="sticky-reference">
+          {bInfo
+            ? <>{t('modes.compare.reference', 'Reference')} {bInfo.number} · <span className="font-mono tabular-nums">{formatLapTime(bInfo.timeMs)}</span></>
+            : bFile.isPending && !!bId
+              ? t('modes.compare.downloading', 'Downloading the lap…')
+              : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
+        </p>
+      </div>
+      <Button size="sm" variant="outline" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="sticky-change">
+        {t('modes.compare.change', 'Change')}
+      </Button>
+    </div>
+  );
 
   const analysis =
     aId && aFile.data ? (
@@ -185,6 +192,8 @@ export function CompareScreen() {
 
   return (
     <div className="space-y-4" data-testid="compare">
+      {slimBar}
+      {(!slim || editing || picking !== null) && (
       <Card className="bg-card border-border">
         <CardContent className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
@@ -219,6 +228,7 @@ export function CompareScreen() {
           )}
         </CardContent>
       </Card>
+      )}
 
       {analysis}
     </div>

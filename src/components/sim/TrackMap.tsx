@@ -62,6 +62,10 @@ export interface MapFocus {
   x: number;
   z: number;
   key: number;
+  /** How much of the track to show around the point, in meters (the longer side of what must fit); the usual close-up when left out. */
+  span?: number;
+  /** Go back to the whole track (the point is ignored). */
+  reset?: boolean;
 }
 
 /**
@@ -71,7 +75,14 @@ export interface MapFocus {
  *
  * Zoom: buttons, double click, pinch, or + and - on the keyboard; zoomed in, it is dragged (or moved with the arrows).
  */
-export function TrackMap({ lap, reference, layout, focus }: { lap: TrackPath; reference?: TrackPath | null; layout?: TrackFile | null; focus?: MapFocus | null }) {
+export function TrackMap({ lap, reference, layout, focus, highlight }: {
+  lap: TrackPath;
+  reference?: TrackPath | null;
+  layout?: TrackFile | null;
+  focus?: MapFocus | null;
+  /** A stretch of the lap to mark (the corner being looked at): [x, z] points, drawn over the lap. */
+  highlight?: Array<[number, number]> | null;
+}) {
   const { t } = useTranslation();
   const [view, setView] = useState<{ k: number; cx: number; cy: number; sig: string } | null>(null);
   const drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
@@ -113,8 +124,13 @@ export function TrackMap({ lap, reference, layout, focus }: { lap: TrackPath; re
 
   useEffect(() => {
     if (!focus) return;
+    if (focus.reset) {
+      setView(null);
+      return;
+    }
     const at = toMap(focus.x, focus.z);
-    setView({ k: FOCUS_ZOOM, cx: at.x, cy: at.y, sig });
+    const fit = focus.span && focus.span > 0 ? Math.max(width, height) / focus.span : FOCUS_ZOOM;
+    setView({ k: Math.min(MAX_ZOOM, Math.max(1, fit)), cx: at.x, cy: at.y, sig });
     // Only a new request moves the map; the rest is read as it is now.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.key]);
@@ -254,6 +270,9 @@ export function TrackMap({ lap, reference, layout, focus }: { lap: TrackPath; re
         )}
         {/* Over a layout, seen whole, the lap is drawn thinner so the road around it shows. */}
         <polyline points={points(lap.points)} fill="none" stroke={CHART_PALETTE.yellow} strokeWidth={drawing && k < 4 ? 2 : 3} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {highlight && highlight.length > 1 && (
+          <polyline points={points(highlight)} fill="none" stroke={CHART_PALETTE.pink} strokeWidth={4.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" data-testid="map-highlight" />
+        )}
         {/* The start keeps its size on screen whatever the zoom. */}
         <circle cx={start.x} cy={start.y} r={Math.max(vbW, vbH) * 0.012} fill={CHART_PALETTE.green} />
       </svg>
