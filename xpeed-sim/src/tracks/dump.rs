@@ -1,4 +1,4 @@
-//! `xpeed-sim track-dump <game> <track-or-path> <out.xtrk> [--preview FILE.svg]`: reads a track from a game's own files,
+//! `xpeed-companion track-dump <game> <track-or-path> <out.xtrk> [--preview FILE.svg]`: reads a track from a game's own files,
 //! prints what it found and what was checked, and writes the track file (and, when asked, a picture of it).
 //!
 //! Only reads the game's folders. The files stay on this computer.

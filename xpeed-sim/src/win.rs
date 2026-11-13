@@ -72,9 +72,37 @@ pub fn open(target: &str) {
 }
 
 pub const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-// The Run value name is an identity, not a label: it is the product's old name on purpose. Installs made before the
-// rename registered it under this name, so a new name would leave a second autostart entry behind.
-pub const RUN_NAME: &str = "Xpeed Sim";
+pub const RUN_NAME: &str = "Xpeed Companion";
+/// The name the "start with Windows" value had before the program was renamed. Only read to carry it over, then removed.
+pub const LEGACY_RUN_NAME: &str = "Xpeed Sim";
+
+/// What to do about the old start-up value: the person's choice (on) is carried to the new name, and the old one
+/// always goes away.
+#[derive(Debug, PartialEq)]
+pub struct AutostartPlan {
+    pub remove_legacy: bool,
+    pub write_new: bool,
+}
+
+pub fn plan_autostart_migration(legacy_present: bool) -> AutostartPlan {
+    AutostartPlan {
+        remove_legacy: legacy_present,
+        write_new: legacy_present,
+    }
+}
+
+/// At start-up: if the old "Xpeed Sim" value is there, the person had the program starting with Windows. Writes the new
+/// value (pointing at this exe) and deletes the old one. True when something was carried over.
+pub fn migrate_autostart(key: &str, legacy: &str, current: &str, exe: &Path) -> Result<bool, String> {
+    let plan = plan_autostart_migration(autostart_enabled(key, legacy));
+    if plan.write_new {
+        set_autostart(key, current, true, exe)?;
+    }
+    if plan.remove_legacy {
+        set_autostart(key, legacy, false, exe)?;
+    }
+    Ok(plan.write_new)
+}
 
 /// Whether `name` is set under the per-user "start with Windows" key `key`.
 pub fn autostart_enabled(key: &str, name: &str) -> bool {
@@ -195,7 +223,7 @@ pub fn attach_terminal() {
     }
 }
 
-/// The names of the programs running right now, in lower case (`xpeed-sim.exe`, `f1_25.exe`...). Only names: nothing
+/// The names of the programs running right now, in lower case (`xpeed-companion.exe`, `f1_25.exe`...). Only names: nothing
 /// of what the programs do or hold is looked at.
 pub fn running_programs() -> Vec<String> {
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -246,8 +274,8 @@ mod tests {
 
     #[test]
     fn starts_with_windows_only_under_a_key_the_test_owns() {
-        let key = format!("Software\\XpeedSimTest{}", std::process::id());
-        let exe = Path::new("C:\\Program Files\\Xpeed Sim\\xpeed-sim.exe");
+        let key = format!("Software\\XpeedCompanionTest{}", std::process::id());
+        let exe = Path::new("C:\\Program Files\\Xpeed Companion\\xpeed-companion.exe");
         assert!(!autostart_enabled(&key, RUN_NAME));
         set_autostart(&key, RUN_NAME, true, exe).unwrap();
         assert!(autostart_enabled(&key, RUN_NAME));
@@ -255,6 +283,38 @@ mod tests {
         assert!(!autostart_enabled(&key, RUN_NAME));
         // Turning it off when it is already off is fine.
         set_autostart(&key, RUN_NAME, false, exe).unwrap();
+        unsafe {
+            windows_sys::Win32::System::Registry::RegDeleteKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr());
+        }
+    }
+
+    #[test]
+    fn the_old_start_up_value_is_carried_over_to_the_new_name() {
+        assert_eq!(
+            plan_autostart_migration(true),
+            AutostartPlan {
+                remove_legacy: true,
+                write_new: true
+            }
+        );
+        assert_eq!(
+            plan_autostart_migration(false),
+            AutostartPlan {
+                remove_legacy: false,
+                write_new: false
+            }
+        );
+        let key = format!("Software\\XpeedCompanionMigrateTest{}", std::process::id());
+        let exe = Path::new("C:\\Apps\\Xpeed Companion\\xpeed-companion.exe");
+        // Nothing before: nothing after, and the person's "off" stays off.
+        assert_eq!(migrate_autostart(&key, LEGACY_RUN_NAME, RUN_NAME, exe), Ok(false));
+        assert!(!autostart_enabled(&key, RUN_NAME));
+        // The old value was on: the new one is on, the old one is gone.
+        set_autostart(&key, LEGACY_RUN_NAME, true, exe).unwrap();
+        assert_eq!(migrate_autostart(&key, LEGACY_RUN_NAME, RUN_NAME, exe), Ok(true));
+        assert!(autostart_enabled(&key, RUN_NAME) && !autostart_enabled(&key, LEGACY_RUN_NAME));
+        // A second start finds nothing to do.
+        assert_eq!(migrate_autostart(&key, LEGACY_RUN_NAME, RUN_NAME, exe), Ok(false));
         unsafe {
             windows_sys::Win32::System::Registry::RegDeleteKeyW(HKEY_CURRENT_USER, wide(&key).as_ptr());
         }
@@ -278,7 +338,7 @@ mod tests {
 
     #[test]
     fn only_one_copy_of_a_name_runs_at_a_time() {
-        let name = format!("Local\\XpeedSimTest{}", std::process::id());
+        let name = format!("Local\\XpeedCompanionTest{}", std::process::id());
         let first = single_instance(&name).expect("the first copy runs");
         assert!(single_instance(&name).is_none(), "the second is turned away");
         drop(first);

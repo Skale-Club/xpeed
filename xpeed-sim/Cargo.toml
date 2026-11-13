@@ -5,6 +5,11 @@ edition = "2021"
 description = "Reads racing-game telemetry on Windows and writes it as Xpeed lap files."
 publish = false
 
+# The program people see is named Xpeed Companion; the package name stays the internal identifier.
+[[bin]]
+name = "xpeed-companion"
+path = "src/main.rs"
+
 [dependencies]
 flate2 = "1"
 serde_json = "1"

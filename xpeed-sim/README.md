@@ -30,15 +30,15 @@ Atalhos do painel:
 
 Em tela cheia, o dashboard cresce junto com a tela. O painel é desenhado com GDI 30 vezes por segundo e se ajusta ao DPI da tela; fechar a janela não para a gravação.
 
-Para ver o painel sem jogo aberto, rode `xpeed-sim panel-demo`, que mostra uma pilotagem inventada sem gravar nem enviar nada. `xpeed-sim panel` abre o painel da cópia que já está rodando.
+Para ver o painel sem jogo aberto, rode `xpeed-companion panel-demo`, que mostra uma pilotagem inventada sem gravar nem enviar nada. `xpeed-companion panel` abre o painel da cópia que já está rodando.
 
-- **Conectar:** no Xpeed (Virtual > Xpeed Companion) a pessoa pede um código e abre o link `xpeedsim://pair?server=…&code=…`. O Windows o entrega ao programa, que **pergunta**, nomeando o servidor, se deve conectar (a resposta padrão é Não). Pelo terminal também dá: `xpeed-sim pair --server https://… --code ABCD-2345`.
-- **Onde ficam as coisas:** voltas em `Documentos\Xpeed Sim\Laps` (ou `XPEED_SIM_LAPS`); configuração e o registro (`sim.log`) em `%APPDATA%\Xpeed Companion` (ou `XPEED_SIM_HOME`). A chave do aparelho **nunca** é impressa nem vai para o registro.
+- **Conectar:** no Xpeed (Virtual > Xpeed Companion) a pessoa clica em Conectar no programa (ou no painel): o navegador abre a página `<servidor>/companion/connect/<id>`, onde ela confirma uma vez. Não há mais esquema de URL registrado no Windows (o instalador apaga o antigo). Pelo terminal também dá: `xpeed-companion pair --server https://… --code ABCD-2345`.
+- **Onde ficam as coisas:** voltas em `Documentos\Xpeed Companion\Laps` (ou `XPEED_COMPANION_LAPS`); configuração e o registro (`companion.log`) em `%APPDATA%\Xpeed Companion` (ou `XPEED_COMPANION_HOME`). Os nomes antigos `XPEED_SIM_HOME` e `XPEED_SIM_LAPS` ainda valem como alternativa. Na primeira abertura depois da atualização, as pastas antigas (`%APPDATA%\Xpeed Sim` e `Documentos\Xpeed Sim`) são **movidas** para as novas (se mover não der, copia e confere, e a antiga fica intocada; se as duas existirem, nada é feito). A chave do aparelho **nunca** é impressa nem vai para o registro.
 - **Uma cópia por vez:** abrir de novo não abre outra.
 
 ## Versões
 
-Todo instalador que sai desta máquina leva uma versão nova (`version` no `Cargo.toml`): *patch* (0.2.1) para correções, *minor* (0.3.0) para recursos novos. O instalador usa essa versão no nome (`dist\xpeed-sim-setup-<versão>.exe`) e o programa a mostra no painel (`v0.2.0`) e nas propriedades do `.exe`. O carimbo da compilação (hash curto do commit, com `-dirty` se havia mudanças não commitadas) separa duas compilações da mesma versão: aparece no log ao iniciar e ao passar o mouse sobre a versão no painel. O `installer\build.ps1` imprime os dois e avisa em voz alta se o instalador dessa versão já existe, sinal de que a versão não foi subida.
+Todo instalador que sai desta máquina leva uma versão nova (`version` no `Cargo.toml`): *patch* (0.2.1) para correções, *minor* (0.3.0) para recursos novos. O instalador usa essa versão no nome (`dist\xpeed-companion-setup-<versão>.exe`) e o programa a mostra no painel (`v0.2.0`) e nas propriedades do `.exe`. O carimbo da compilação (hash curto do commit, com `-dirty` se havia mudanças não commitadas) separa duas compilações da mesma versão: aparece no log ao iniciar e ao passar o mouse sobre a versão no painel. O `installer\build.ps1` imprime os dois e avisa em voz alta se o instalador dessa versão já existe, sinal de que a versão não foi subida.
 
 ## Compilar
 
@@ -47,7 +47,7 @@ Precisa de um Rust recente (testado com a 1.99; o clippy do CI usa o estável ma
 ```powershell
 cd xpeed-sim
 cargo build --release
-# o programa fica em target\release\xpeed-sim.exe
+# o programa fica em target\release\xpeed-companion.exe
 ```
 
 ## Comandos (para quem usa o terminal)
@@ -55,23 +55,23 @@ cargo build --release
 O programa não tem console próprio (é um aplicativo de bandeja): num terminal ele empresta o do terminal. Se a saída aparecer depois do prompt, é por isso.
 
 ```powershell
-xpeed-sim run                          # a bandeja (o mesmo que sem argumentos)
-xpeed-sim probe [--seconds N]    # confere a conexão e mostra o que o jogo envia (nada é gravado)
-xpeed-sim record --out DIR       # grava cada volta em DIR como .xlap.gz (Ctrl+C para parar)
-xpeed-sim record --out DIR --upload   # idem, e envia cada volta ao Xpeed (precisa parear antes)
-xpeed-sim inspect ARQUIVO        # resume um arquivo de volta (funciona em qualquer sistema)
-xpeed-sim pair --server ENDEREÇO --code CÓDIGO [--name NOME]   # liga este computador à sua conta
-xpeed-sim status                 # mostra se este computador está pareado
-xpeed-sim unpair                 # esquece o pareamento neste computador
-xpeed-sim upload DIR             # envia as voltas de DIR que ainda não foram
-xpeed-sim make-icon ARQUIVO      # escreve o ícone (a marca do Xpeed) em ARQUIVO.ico
+xpeed-companion run                          # a bandeja (o mesmo que sem argumentos)
+xpeed-companion probe [--seconds N]    # confere a conexão e mostra o que o jogo envia (nada é gravado)
+xpeed-companion record --out DIR       # grava cada volta em DIR como .xlap.gz (Ctrl+C para parar)
+xpeed-companion record --out DIR --upload   # idem, e envia cada volta ao Xpeed (precisa parear antes)
+xpeed-companion inspect ARQUIVO        # resume um arquivo de volta (funciona em qualquer sistema)
+xpeed-companion pair --server ENDEREÇO --code CÓDIGO [--name NOME]   # liga este computador à sua conta
+xpeed-companion status                 # mostra se este computador está pareado
+xpeed-companion unpair                 # esquece o pareamento neste computador
+xpeed-companion upload DIR             # envia as voltas de DIR que ainda não foram
+xpeed-companion make-icon ARQUIVO      # escreve o ícone (a marca do Xpeed) em ARQUIVO.ico
 ```
 
 ## Envio para o Xpeed
 
 O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md). O servidor implementa isso em `api/sim/*`. O Xpeed Companion foi testado contra um servidor falso e também contra os handlers de verdade, com o programa de verdade (`pair`, `upload`, `status`, `unpair`). O que não foi testado: HTTPS de verdade (os testes usam `http://localhost`), e o `record --upload` com o jogo aberto. O código de pareamento vem de `POST /api/sim/codes`; a tela do app para pedi-lo ainda não existe.
 
-- **Parear uma vez:** no app, peça um código; no computador, `xpeed-sim pair --server https://… --code ABCD-2345`. O endereço precisa ser `https://` (só `localhost` aceita `http://`), para a chave do aparelho nunca viajar em texto aberto. A chave fica em `%APPDATA%\Xpeed Sim\config.json` (ou na pasta que `XPEED_SIM_HOME` indicar) e **nunca é impressa**.
+- **Parear uma vez:** no app, peça um código; no computador, `xpeed-companion pair --server https://… --code ABCD-2345`. O endereço precisa ser `https://` (só `localhost` aceita `http://`), para a chave do aparelho nunca viajar em texto aberto. A chave fica em `%APPDATA%\Xpeed Sim\config.json` (ou na pasta que `XPEED_SIM_HOME` indicar) e **nunca é impressa**.
 - **A pasta de voltas é a fila.** O que já foi enviado (ou recusado) fica anotado em `.xpeed-upload.json`, ao lado das voltas. Se a rede cair, o computador desligar ou o servidor estiver fora, as voltas continuam na pasta e a próxima execução segue de onde parou. Nenhum arquivo de volta é apagado, movido ou alterado.
 - **Gravar não espera o envio:** em `record --upload` o envio roda em outra linha de execução; a leitura do jogo não perde amostra por causa de uma rede lenta. Com falha passageira ele tenta de novo com espera crescente (30 s até 5 min), e a cada volta nova.
 - **Chave recusada ou revogada:** o envio para e avisa para parear de novo; a gravação continua e nada se perde.
@@ -81,15 +81,15 @@ O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtu
 ## Como validar com o jogo aberto (o próximo passo)
 
 1. Abra o Le Mans Ultimate e entre numa sessão com o carro (garagem ou pista). **Settings > Gameplay > "Enable external plugins"** precisa estar ligado (já está na sua instalação).
-2. Rode `xpeed-sim probe --seconds 10`. Confira:
+2. Rode `xpeed-companion probe --seconds 10`. Confira:
    - "Connected" e o tamanho da memória marcado como **same size**. Se disser DIFFERENT, o layout do jogo mudou: não grave nada e regenere o arquivo de posições (abaixo);
    - telemetria perto de **100 Hz** e pontuação de poucos Hz;
    - o carro e a pista corretos, e a velocidade, a rotação e a marcha mudando como no jogo.
 3. Dê duas ou três voltas completas com `record`:
    ```powershell
-   xpeed-sim record --out $env:USERPROFILE\Documents\xpeed-laps
+   xpeed-companion record --out $env:USERPROFILE\Documents\xpeed-laps
    ```
-   e abra o resultado: `xpeed-sim inspect <arquivo>`. Compare o tempo de volta e os setores com os do jogo. Confira que `dist` termina perto do comprimento da pista e nunca diminui.
+   e abra o resultado: `xpeed-companion inspect <arquivo>`. Compare o tempo de volta e os setores com os do jogo. Confira que `dist` termina perto do comprimento da pista e nunca diminui.
 4. Anote o que não bate. Os pontos mais prováveis de erro estão em [LMU-TELEMETRIA.md](../docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md) (distância por amostra, volta válida, eixos de x/y/z).
 
 ## Como a volta é cortada

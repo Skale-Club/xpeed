@@ -34,6 +34,7 @@ mod lapfile;
 mod link;
 mod lmu;
 mod maps;
+mod migrate;
 mod net;
 mod outbox;
 #[cfg(windows)]
@@ -68,24 +69,24 @@ Xpeed Companion: racing-game telemetry to your Xpeed account
 With no arguments Xpeed Companion runs as a tray icon. Command line:
 
 USAGE:
-    xpeed-sim run                    The tray app (the same as no arguments)
-    xpeed-sim panel                  Open the panel (dashboard and monitor) of the running tray app, or start it
-    xpeed-sim panel-demo             Open the panel alone with made-up driving, to see it without a game
-    xpeed-sim probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
-    xpeed-sim record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
+    xpeed-companion run                    The tray app (the same as no arguments)
+    xpeed-companion panel                  Open the panel (dashboard and monitor) of the running tray app, or start it
+    xpeed-companion panel-demo             Open the panel alone with made-up driving, to see it without a game
+    xpeed-companion probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
+    xpeed-companion record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
-    xpeed-sim inspect FILE           Show what a lap file holds
-    xpeed-sim track-dump GAME TRACK OUT.xtrk [--preview FILE.svg]
+    xpeed-companion inspect FILE           Show what a lap file holds
+    xpeed-companion track-dump GAME TRACK OUT.xtrk [--preview FILE.svg]
                                      Read a track's layout (centre line, road width, ideal line, pit lane) from the
                                      game's own files and write it as a track file. GAME is ac or sce; TRACK is a
                                      folder or file of the game, or its name. Only reads the game's folders.
-    xpeed-sim pair --server URL --code CODE [--name NAME]
+    xpeed-companion pair --server URL --code CODE [--name NAME]
                                            Connect this computer to your Xpeed account (the code comes from the app)
-    xpeed-sim status                 Show whether this computer is paired
-    xpeed-sim unpair                 Forget the pairing on this computer
-    xpeed-sim upload DIR             Send the laps in DIR (and the track layouts in DIR\tracks) that were not sent yet
-    xpeed-sim make-icon FILE         Write the Xpeed Companion icon to FILE (.ico)
-    xpeed-sim help
+    xpeed-companion status                 Show whether this computer is paired
+    xpeed-companion unpair                 Forget the pairing on this computer
+    xpeed-companion upload DIR             Send the laps in DIR (and the track layouts in DIR\tracks) that were not sent yet
+    xpeed-companion make-icon FILE         Write the Xpeed Companion icon to FILE (.ico)
+    xpeed-companion help
 
 For the game to share data, 'Enable external plugins' must be on (Settings > Gameplay) and the game must be running.
 ";
@@ -300,13 +301,13 @@ fn inspect(file: &Path) -> ExitCode {
 }
 
 fn config_path() -> Result<PathBuf, String> {
-    config::default_path().ok_or_else(|| "cannot tell where to keep the pairing; set XPEED_SIM_HOME to a folder".to_owned())
+    config::default_path().ok_or_else(|| "cannot tell where to keep the pairing; set XPEED_COMPANION_HOME to a folder".to_owned())
 }
 
 /// The pairing of this computer, or what to do about it not being there.
 fn paired() -> Result<config::Config, String> {
     config::load(&config_path()?)?
-        .ok_or_else(|| "this computer is not paired yet. Run: xpeed-sim pair --server ADDRESS --code CODE".to_owned())
+        .ok_or_else(|| "this computer is not paired yet. Run: xpeed-companion pair --server ADDRESS --code CODE".to_owned())
 }
 
 fn fail(message: impl std::fmt::Display) -> ExitCode {
@@ -347,7 +348,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
     ) {
         Ok(()) => {
             println!("Paired. The device key is kept in {}; it is never shown.", path.display());
-            println!("Send laps with: xpeed-sim record --out DIR --upload   (or: xpeed-sim upload DIR)");
+            println!("Send laps with: xpeed-companion record --out DIR --upload   (or: xpeed-companion upload DIR)");
             ExitCode::SUCCESS
         }
         Err(why) => fail(format!(
@@ -412,7 +413,7 @@ fn upload_command(dir: &Path) -> ExitCode {
     }
     match report.stopped {
         None => ExitCode::SUCCESS,
-        Some(outbox::Stop::Unauthorized) => fail("The server no longer accepts this computer's key. Run `xpeed-sim pair` again."),
+        Some(outbox::Stop::Unauthorized) => fail("The server no longer accepts this computer's key. Run `xpeed-companion pair` again."),
         Some(outbox::Stop::Later { reason, .. }) => fail(format!("Stopped: {reason}. Run the command again later; nothing was lost.")),
     }
 }
@@ -570,6 +571,11 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // What the program kept under its old name moves to the new folders before anything reads the configuration. The log is
+    // not open yet (it lives in the folder that moves), so its lines wait for it.
+    for line in migrate::run() {
+        applog::early(&line);
+    }
     // The program has no console of its own; a command typed in a terminal borrows that terminal's.
     #[cfg(windows)]
     if !matches!(command, Command::Run | Command::Panel | Command::PanelDemo | Command::Link { .. }) {

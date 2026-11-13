@@ -1,4 +1,4 @@
-//! The text of the Windows resource script that gives `xpeed-sim.exe` its icon and its version info. `build.rs`
+//! The text of the Windows resource script that gives `xpeed-companion.exe` its icon and its version info. `build.rs`
 //! includes this file (std only) to write `app.rc`; the program's tests include it too, so the text is checked.
 
 /// The version as the four numbers of a Windows file version: `0.2.0` is `0, 2, 0, 0`. A suffix such as
@@ -35,10 +35,10 @@ pub fn resource_script(version: &str, icon_path: &str) -> String {
         "      VALUE \"CompanyName\", \"Skale Club\"".to_owned(),
         "      VALUE \"FileDescription\", \"Xpeed Companion\"".to_owned(),
         format!("      VALUE \"FileVersion\", \"{version}\""),
-        "      VALUE \"InternalName\", \"xpeed-sim\"".to_owned(),
+        "      VALUE \"InternalName\", \"xpeed-companion\"".to_owned(),
         // \251 is the copyright sign in the code page the resource compiler reads by default (Latin-1).
         "      VALUE \"LegalCopyright\", \"\\251 Skale Club\"".to_owned(),
-        "      VALUE \"OriginalFilename\", \"xpeed-sim.exe\"".to_owned(),
+        "      VALUE \"OriginalFilename\", \"xpeed-companion.exe\"".to_owned(),
         "      VALUE \"ProductName\", \"Xpeed Companion\"".to_owned(),
         format!("      VALUE \"ProductVersion\", \"{version}\""),
         "    END".to_owned(),
@@ -76,8 +76,8 @@ mod tests {
         assert!(rc.contains("VALUE \"CompanyName\", \"Skale Club\""));
         assert!(rc.contains("VALUE \"FileDescription\", \"Xpeed Companion\""));
         assert!(rc.contains("VALUE \"ProductName\", \"Xpeed Companion\""));
-        assert!(rc.contains("VALUE \"OriginalFilename\", \"xpeed-sim.exe\""));
-        assert!(rc.contains("VALUE \"InternalName\", \"xpeed-sim\""));
+        assert!(rc.contains("VALUE \"OriginalFilename\", \"xpeed-companion.exe\""));
+        assert!(rc.contains("VALUE \"InternalName\", \"xpeed-companion\""));
         assert!(rc.contains("VALUE \"Translation\", 0x409, 1200"));
     }
 
