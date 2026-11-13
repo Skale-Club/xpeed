@@ -28,8 +28,10 @@ use crate::outbox::{Backoff, Observer, Uploader};
 use crate::panel::{self, Account};
 use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
+use crate::supervisor;
 use crate::text::{text, Lang, Msg};
-use crate::{applog, connect, engine, link, net, win};
+use crate::util::lock;
+use crate::{applog, connect, engine, net, win};
 
 const CLASS: &str = "XpeedSimTray";
 const INSTANCE_NAME: &str = "Local\\XpeedSimTray";
@@ -135,7 +137,7 @@ fn index_of(light: Light) -> usize {
 
 /// Starts the thread that sends laps, reporting into the shared status and the log.
 fn start_uploader(shared: &Arc<Shared>, dir: &Path, config: Config) {
-    let (for_cloud, for_sent) = (shared.clone(), shared.clone());
+    let (for_cloud, for_sent, for_worker) = (shared.clone(), shared.clone(), shared.clone());
     let observer = Observer {
         say: Arc::new(|line| applog::line(&line)),
         cloud: Arc::new(move |state| {
@@ -150,6 +152,7 @@ fn start_uploader(shared: &Arc<Shared>, dir: &Path, config: Config) {
                 for_sent.notify(Notice::LapsSent(n));
             }
         }),
+        worker: Arc::new(move |health| for_worker.set_worker(supervisor::UPLOADER, health)),
     };
     shared.set_uploader(Some(Uploader::start(dir.to_path_buf(), config, Backoff::default(), observer)));
 }
@@ -237,7 +240,7 @@ impl App {
 
     /// The account and language as the panel shows them, from what the tray knows now.
     fn sync_account(&self) {
-        *self.account.lock().unwrap() = Account {
+        *lock(&self.account) = Account {
             device: self.device.clone(),
             server: self.server.clone(),
             label: self.account_label.clone(),
@@ -500,10 +503,17 @@ pub fn run(open_panel: bool) -> ExitCode {
     }
 
     let config_path = home.join("config.json");
-    let config = match config::load(&config_path) {
+    let config = match config::load_checked(&config_path) {
         Ok(config) => config,
-        Err(why) => {
+        Err(config::LoadError::KeyUnreadable(why)) => {
+            // A profile copied to another user or PC: the key in the file cannot be opened here. The file is left alone;
+            // the Account card says to reconnect, which makes a new key (and replaces the file) once the person confirms.
             applog::line(&why);
+            connect::Flow::global().end_with(connect::Note::Reconnect);
+            None
+        }
+        Err(other) => {
+            applog::line(&other.to_string());
             None
         }
     };
@@ -606,55 +616,6 @@ pub fn run(open_panel: bool) -> ExitCode {
         let _ = recorder.join();
         shared.set_uploader(None);
         drop(Box::from_raw(app));
-    }
-    ExitCode::SUCCESS
-}
-
-/// What happens when the Xpeed site opens an `xpeedsim://pair?...` link: ask, connect, and tell the running copy
-/// (or start one).
-pub fn pair_from_link(url: &str) -> ExitCode {
-    let lang = config::home_dir().map_or(Lang::En, |home| config::load_lang(&home));
-    let failed = |why: String| {
-        win::tell_error(&text(lang, &Msg::PairFailedTitle), &text(lang, &Msg::PairFailed(why)));
-        ExitCode::from(1)
-    };
-    let link = match link::parse(url) {
-        Ok(link) => link,
-        Err(why) => return failed(why),
-    };
-    let host = link.server.split("://").nth(1).unwrap_or(&link.server).to_owned();
-    if !win::ask_yes_no(&text(lang, &Msg::AskPairTitle), &text(lang, &Msg::AskPair(host))) {
-        return ExitCode::SUCCESS;
-    }
-    let Some(path) = config::default_path() else {
-        return failed("cannot tell where to keep the pairing".into());
-    };
-    let name = config::device_name();
-    let token = match net::pair(&net::agent(), &link.server, &link.code, &name) {
-        Ok(token) => token,
-        Err(why) => return failed(why),
-    };
-    if let Err(why) = config::save(
-        &path,
-        &Config {
-            server: link.server,
-            token,
-            device_name: name,
-            account: None,
-        },
-    ) {
-        return failed(why);
-    }
-    let running = find_running();
-    if running.is_null() {
-        // Not running: start it, and it reads the pairing it was just given.
-        if let Ok(exe) = std::env::current_exe() {
-            let _ = std::process::Command::new(exe).arg("run").spawn();
-        }
-    } else {
-        unsafe {
-            PostMessageW(running, WM_RELOAD, 0, 0);
-        }
     }
     ExitCode::SUCCESS
 }

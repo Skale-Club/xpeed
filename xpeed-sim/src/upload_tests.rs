@@ -101,7 +101,7 @@ fn sends_a_lap_exactly_as_it_is_on_disk() {
     assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/laps"));
     assert_eq!(seen[0].headers["authorization"], "Bearer xpd_test");
     assert_eq!(seen[0].headers["content-type"], "application/gzip");
-    assert!(seen[0].headers["user-agent"].starts_with("xpeed-sim/"));
+    assert!(seen[0].headers["user-agent"].starts_with("xpeed-companion/"));
     assert_eq!(seen[0].body, bytes, "the server gets the file untouched");
     // The lap file itself is never changed or removed by sending.
     assert_eq!(std::fs::read(dir.join(&name)).unwrap(), bytes);
@@ -316,7 +316,7 @@ fn pairing_trades_a_code_for_a_key() {
     let body: serde_json::Value = serde_json::from_slice(&seen.body).unwrap();
     assert_eq!(body["code"], "ABCD2345");
     assert_eq!(body["device"]["name"], "RIG");
-    assert_eq!(body["device"]["app"], "xpeed-sim");
+    assert_eq!(body["device"]["app"], "xpeed-companion");
     assert_eq!(body["device"]["version"], env!("CARGO_PKG_VERSION"));
 }
 
@@ -579,8 +579,12 @@ fn starting_a_connection_sends_the_hash_of_the_key_and_never_the_key() {
     let stub = Stub::start(|_| Reply::new(201, r#"{"id":"abc-123","expiresAt":"2026-11-13T12:10:00.000Z"}"#));
     let key = crate::connect::new_key().unwrap();
     let hash = net::sha256_hex(key.as_bytes());
-    let (id, expires) = net::link_start(&net::agent(), &stub.url, "RIG", &hash).unwrap();
-    assert_eq!((id.as_str(), expires.as_str()), ("abc-123", "2026-11-13T12:10:00.000Z"));
+    let start = net::link_start(&net::agent(), &stub.url, "RIG", &hash).unwrap();
+    assert_eq!(
+        (start.id.as_str(), start.expires_at.as_str()),
+        ("abc-123", "2026-11-13T12:10:00.000Z")
+    );
+    assert_eq!(start.verify_code, None, "this server sends no verification code");
     let seen = stub.requests();
     assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/link"));
     let body: serde_json::Value = serde_json::from_slice(&seen[0].body).unwrap();

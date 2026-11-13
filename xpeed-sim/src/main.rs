@@ -22,6 +22,7 @@ mod config;
 mod connect;
 mod covers;
 mod dash;
+mod diagnostics;
 #[cfg(windows)]
 mod engine;
 mod game;
@@ -31,7 +32,6 @@ mod icon;
 mod installed;
 mod lapcut;
 mod lapfile;
-mod link;
 mod lmu;
 mod maps;
 mod migrate;
@@ -43,11 +43,13 @@ mod present;
 #[cfg(test)]
 mod rcgen;
 mod recorder;
+mod secret;
 #[cfg(windows)]
 mod shm;
 mod status;
 #[cfg(test)]
 mod stub;
+mod supervisor;
 mod text;
 mod tracks;
 #[cfg(windows)]
@@ -96,10 +98,6 @@ enum Command {
     Run,
     Panel,
     PanelDemo,
-    /// `xpeedsim://pair?...`, opened by Windows when the Xpeed site asks to connect this computer.
-    Link {
-        url: String,
-    },
     MakeIcon {
         file: PathBuf,
     },
@@ -140,13 +138,6 @@ fn parse(args: &[String]) -> Result<Command, String> {
             None => Ok(Command::PanelDemo),
             Some(extra) => Err(format!("unexpected argument {extra:?}")),
         },
-        Some("link") => {
-            let url = rest.next().ok_or("link needs an address")?;
-            match rest.next() {
-                None => Ok(Command::Link { url: url.to_owned() }),
-                Some(extra) => Err(format!("unexpected argument {extra:?}")),
-            }
-        }
         Some("make-icon") => {
             let file = rest.next().ok_or("make-icon needs a file name")?;
             match rest.next() {
@@ -571,6 +562,8 @@ fn moves_data(command: &Command) -> bool {
 }
 
 fn main() -> ExitCode {
+    // Every panic reaches the log first (the log opens later, for the commands that keep one).
+    supervisor::install_panic_hook();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = match parse(&args) {
         Ok(command) => command,
@@ -590,7 +583,7 @@ fn main() -> ExitCode {
     }
     // The program has no console of its own; a command typed in a terminal borrows that terminal's.
     #[cfg(windows)]
-    if !matches!(command, Command::Run | Command::Panel | Command::PanelDemo | Command::Link { .. }) {
+    if !matches!(command, Command::Run | Command::Panel | Command::PanelDemo) {
         win::attach_terminal();
     }
     match command {
@@ -606,10 +599,8 @@ fn main() -> ExitCode {
         }
         #[cfg(windows)]
         Command::PanelDemo => panel::demo(config::home_dir().map_or(text::Lang::En, |home| config::load_lang(&home))),
-        #[cfg(windows)]
-        Command::Link { url } => tray::pair_from_link(&url),
         #[cfg(not(windows))]
-        Command::Run | Command::Panel | Command::PanelDemo | Command::Link { .. } => {
+        Command::Run | Command::Panel | Command::PanelDemo => {
             eprintln!("The tray app needs Windows. `inspect` works everywhere.");
             ExitCode::from(2)
         }
@@ -657,12 +648,8 @@ mod tests {
         assert_eq!(parse(&args(&["panel"])), Ok(Command::Panel));
         assert_eq!(parse(&args(&["panel-demo"])), Ok(Command::PanelDemo));
         assert!(parse(&args(&["panel", "x"])).is_err());
-        assert_eq!(
-            parse(&args(&["link", "xpeedsim://pair?x=1"])),
-            Ok(Command::Link {
-                url: "xpeedsim://pair?x=1".into()
-            })
-        );
+        // The old `link` command (the xpeedsim: scheme) is gone.
+        assert!(parse(&args(&["link", "xpeedsim://pair?x=1"])).is_err());
         assert_eq!(
             parse(&args(&["make-icon", "a.ico"])),
             Ok(Command::MakeIcon { file: "a.ico".into() })
@@ -754,8 +741,6 @@ mod tests {
             &["upload"],
             &["upload", "a", "b"],
             &["run", "now"],
-            &["link"],
-            &["link", "a", "b"],
             &["make-icon"],
             &["dance"],
         ] {

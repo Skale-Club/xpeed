@@ -13,6 +13,7 @@ use crate::lmu::layout::LAYOUT_SIZE;
 use crate::lmu::reader::{LmuReader, Names, OpenError};
 use crate::recorder::Recorder;
 use crate::status::{Game, Notice, Shared};
+use crate::supervisor::{self, supervise, Ended, Policy};
 use crate::tracks::auto::{self, Folders, Seen};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
 
@@ -110,21 +111,50 @@ pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         // reading a game never waits for that.
         let (tracks, seen) = mpsc::channel();
         scope.spawn(move || {
-            auto::run(
-                out,
-                seen,
-                &Folders::installed,
-                &|| shared.quitting(),
-                &|| shared.wake_uploader(),
-                say,
-            );
+            watched(shared, supervisor::TRACKS, say, || {
+                auto::run(
+                    out,
+                    &seen,
+                    &Folders::installed,
+                    &|| shared.quitting(),
+                    &|| shared.wake_uploader(),
+                    say,
+                );
+            });
         });
         // The other games have a reader each, looked after by one loop of its own; Le Mans Ultimate has its own.
-        scope.spawn(move || run_games(READERS, out, shared, say, Some(&tracks), LOADING_GRACE));
-        let result = run_lmu(out, shared, say, stop_on_unsupported);
+        scope.spawn(move || {
+            watched(shared, supervisor::GAMES, say, || {
+                run_games(READERS, out, shared, say, Some(&tracks), LOADING_GRACE)
+            });
+        });
+        let mut result = Ok(());
+        let ended = watched(shared, supervisor::LMU, say, || {
+            result = run_lmu(out, shared, say, stop_on_unsupported);
+        });
+        if ended == Ended::GaveUp {
+            // The Le Mans Ultimate reader is out for good, but the other readers go on: the tray stays up until it is closed.
+            while !shared.quitting() {
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
         shared.quit();
         result
     })
+}
+
+/// Runs one of the long-lived workers under the supervisor: a panic is logged and the worker starts again after a wait;
+/// when it keeps panicking it is given up on and the panel shows it as failed.
+fn watched(shared: &Shared, id: &'static str, say: &(dyn Fn(String) + Sync), body: impl FnMut()) -> Ended {
+    let name = supervisor::title(id);
+    supervise(
+        name,
+        &Policy::default(),
+        &|| shared.quitting(),
+        &|line| say(line),
+        &|health| shared.set_worker(id, health),
+        body,
+    )
 }
 
 /// A panel tracker that keeps each track's map in `maps` (under the Xpeed Companion folder) and takes the built layout from

@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::util::{iso_utc, now_ms};
+use crate::util::{iso_utc, lock, now_ms};
 
 const LIMIT: u64 = 512 * 1024;
 static FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -14,23 +14,28 @@ static EARLY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// A line from before the log could be opened (the start-up migration). It is written when `init` runs.
 pub fn early(text: &str) {
-    EARLY.lock().unwrap().push(text.to_owned());
+    lock(&EARLY).push(text.to_owned());
 }
 
 pub fn init(path: PathBuf) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    *FILE.lock().unwrap() = Some(path);
-    let waiting = std::mem::take(&mut *EARLY.lock().unwrap());
+    *lock(&FILE) = Some(path);
+    let waiting = std::mem::take(&mut *lock(&EARLY));
     for text in waiting {
         line(&text);
     }
 }
 
+/// Whether the log file is open (lines written now go to it, not to the waiting list).
+pub fn ready() -> bool {
+    lock(&FILE).is_some()
+}
+
 pub fn line(text: &str) {
     let clean = text.replace(['\r', '\n'], " ");
-    let guard = FILE.lock().unwrap();
+    let guard = lock(&FILE);
     let Some(path) = guard.as_ref() else { return };
     if std::fs::metadata(path).is_ok_and(|m| m.len() > LIMIT) {
         let _ = std::fs::rename(path, path.with_extension("log.old"));
@@ -54,14 +59,18 @@ mod tests {
         init(path.clone());
         line("first");
         line("two\nlines");
+        // Other tests may log too while this one runs (the file is the whole process's): look at this test's lines only.
         let text = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 2);
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| l.ends_with("  first") || l.ends_with("  two lines"))
+            .collect();
+        assert_eq!(lines.len(), 2, "{text}");
         assert!(lines[0].ends_with("  first") && lines[0].starts_with("20"));
         assert!(lines[1].ends_with("  two lines"));
         std::fs::write(&path, vec![b'x'; (LIMIT + 1) as usize]).unwrap();
         line("after");
         assert!(path.with_extension("log.old").exists());
-        assert!(std::fs::read_to_string(&path).unwrap().trim_end().ends_with("  after"));
+        assert!(std::fs::read_to_string(&path).unwrap().contains("  after"));
     }
 }

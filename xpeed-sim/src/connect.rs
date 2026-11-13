@@ -78,6 +78,8 @@ pub enum Note {
     Cancelled,
     Expired,
     Failed(String),
+    /// The device key saved on this computer cannot be opened by this Windows user (a copied profile): connect again.
+    Reconnect,
 }
 
 /// Where the connection flow is.
@@ -85,8 +87,9 @@ pub enum Note {
 pub enum Phase {
     /// Nothing is going on (and nothing ended just now).
     Idle,
-    /// Waiting for the click on the page. `page` is the address of that page once the server made the request.
-    Waiting { page: Option<String> },
+    /// Waiting for the click on the page. `page` is the address of that page once the server made the request, and `code`
+    /// the 4 characters that page shows too (when the server sends one), for the person to compare.
+    Waiting { page: Option<String>, code: Option<String> },
     /// The last attempt ended without a connection, and why.
     Ended(Note),
 }
@@ -126,7 +129,7 @@ impl Flow {
     /// The page to open again while waiting.
     pub fn page(&self) -> Option<String> {
         match &self.lock().phase {
-            Phase::Waiting { page } => page.clone(),
+            Phase::Waiting { page, .. } => page.clone(),
             _ => None,
         }
     }
@@ -143,12 +146,21 @@ impl Flow {
     /// Starts an attempt: its number, or the page to open again when one is already waiting.
     fn begin(&self) -> Result<u64, Option<String>> {
         let mut inner = self.lock();
-        if let Phase::Waiting { page } = &inner.phase {
+        if let Phase::Waiting { page, .. } = &inner.phase {
             return Err(page.clone());
         }
         inner.generation += 1;
-        inner.phase = Phase::Waiting { page: None };
+        inner.phase = Phase::Waiting { page: None, code: None };
         Ok(inner.generation)
+    }
+
+    /// Says why this computer is not connected, from the start (the card shows the note until Connect is clicked). Only
+    /// when nothing is going on.
+    pub fn end_with(&self, note: Note) {
+        let mut inner = self.lock();
+        if inner.phase == Phase::Idle {
+            inner.phase = Phase::Ended(note);
+        }
     }
 
     /// Changes the state for attempt `generation`; false when that attempt is no longer the current one.
@@ -177,8 +189,8 @@ impl Default for Flow {
 pub enum Card {
     /// No account, with the reason the last attempt ended when it just did.
     NotConnected { note: Option<Note> },
-    /// A request is open: the person has to click Connect in the browser.
-    Waiting,
+    /// A request is open: the person has to click Connect in the browser, after checking that the page shows `code`.
+    Waiting { code: Option<String> },
     /// Connected, as this account when it is known (the card never says it is connected "as" the server).
     Connected { who: Option<String> },
 }
@@ -190,7 +202,7 @@ pub fn host_of(server: &str) -> &str {
 /// The card for this moment: whether the computer is connected, how the flow stands, and who it is connected as.
 pub fn card(connected: bool, phase: &Phase, account: Option<&str>) -> Card {
     match phase {
-        Phase::Waiting { .. } => Card::Waiting,
+        Phase::Waiting { code, .. } => Card::Waiting { code: code.clone() },
         _ if connected => Card::Connected {
             who: account.filter(|a| !a.is_empty()).map(str::to_owned),
         },
@@ -254,12 +266,19 @@ fn run(flow: &Flow, generation: u64, server: &str, config_path: Option<PathBuf>,
     };
     let agent = net::agent();
     let device_name = config::device_name();
-    let id = match net::link_start(&agent, server, &device_name, &net::sha256_hex(key.as_bytes())) {
-        Ok((id, _expires)) => id,
+    let start = match net::link_start(&agent, server, &device_name, &net::sha256_hex(key.as_bytes())) {
+        Ok(start) => start,
         Err(why) => return failed(why),
     };
+    let (id, code) = (start.id, start.verify_code);
     let page = format!("{server}{DEVICE_PAGE}/{id}");
-    if !flow.set(generation, Phase::Waiting { page: Some(page.clone()) }) {
+    if !flow.set(
+        generation,
+        Phase::Waiting {
+            page: Some(page.clone()),
+            code,
+        },
+    ) {
         return None;
     }
     (hooks.open)(&page);
@@ -452,15 +471,18 @@ mod tests {
         let flow = Flow::new();
         assert_eq!(card(false, &flow.phase(), None), Card::NotConnected { note: None });
         let generation = flow.begin().unwrap();
-        assert_eq!(card(false, &flow.phase(), None), Card::Waiting);
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting { code: None });
         // A second click only gets the page back (none yet while the server is being asked).
         assert_eq!(flow.begin(), Err(None));
         assert!(flow.set(
             generation,
             Phase::Waiting {
-                page: Some("https://xpeed.skale.club/companion/connect/x".into())
+                page: Some("https://xpeed.skale.club/companion/connect/x".into()),
+                code: Some("K7QX".into())
             }
         ));
+        // The card carries the code to compare with the page.
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting { code: Some("K7QX".into()) });
         assert_eq!(flow.begin(), Err(Some("https://xpeed.skale.club/companion/connect/x".into())));
         // Approved: the pairing exists and the flow is idle.
         assert!(flow.set(generation, Phase::Idle));
@@ -478,16 +500,58 @@ mod tests {
     fn waiting_then_expired_goes_back_to_not_connected_with_the_note() {
         let flow = Flow::new();
         let generation = flow.begin().unwrap();
-        assert_eq!(card(false, &flow.phase(), None), Card::Waiting);
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting { code: None });
         assert!(flow.set(generation, Phase::Ended(Note::Expired)));
         assert_eq!(card(false, &flow.phase(), None), Card::NotConnected { note: Some(Note::Expired) });
         // Connect again starts clean.
         assert!(flow.begin().is_ok());
-        assert_eq!(card(false, &flow.phase(), None), Card::Waiting);
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting { code: None });
         // An attempt that was cancelled cannot change the state of the next one.
         flow.cancel();
         let next = flow.begin().unwrap();
         assert!(!flow.set(next - 1, Phase::Ended(Note::Cancelled)));
-        assert_eq!(flow.phase(), Phase::Waiting { page: None });
+        assert_eq!(flow.phase(), Phase::Waiting { page: None, code: None });
+    }
+
+    #[test]
+    fn a_key_that_cannot_be_opened_shows_the_reconnect_note_until_connect_is_clicked() {
+        let flow = Flow::new();
+        flow.end_with(Note::Reconnect);
+        assert_eq!(
+            card(false, &flow.phase(), None),
+            Card::NotConnected {
+                note: Some(Note::Reconnect)
+            }
+        );
+        // It never covers a flow that is already going on.
+        let busy = Flow::new();
+        busy.begin().unwrap();
+        busy.end_with(Note::Reconnect);
+        assert_eq!(card(false, &busy.phase(), None), Card::Waiting { code: None });
+        // Connect starts clean.
+        assert!(flow.begin().is_ok());
+        assert_eq!(card(false, &flow.phase(), None), Card::Waiting { code: None });
+    }
+
+    #[test]
+    fn the_code_the_server_sends_reaches_the_waiting_card() {
+        for (reply, expected) in [
+            (r#"{"id":"abc","expiresAt":"x","verifyCode":"K7QX"}"#, Some("K7QX".to_owned())),
+            (r#"{"id":"abc","expiresAt":"x"}"#, None),
+        ] {
+            let stub = Stub::start(move |request: &Recorded| {
+                if request.path == "/api/sim/link" {
+                    Reply::new(201, reply)
+                } else {
+                    Reply::new(200, r#"{"status":"pending"}"#)
+                }
+            });
+            let (opened, connected) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+            let flow = Flow::new();
+            click(&flow, &stub.url, None, silent_hooks(&opened, &connected), quick());
+            wait_for("the page", || flow.page().is_some());
+            assert_eq!(card(false, &flow.phase(), None), Card::Waiting { code: expected });
+            flow.cancel();
+        }
     }
 }

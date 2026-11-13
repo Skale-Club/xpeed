@@ -25,7 +25,7 @@ POST /api/sim/pair
 Content-Type: application/json
 
 { "code": "ABCD2345",
-  "device": { "name": "MEU-PC", "platform": "windows", "app": "xpeed-sim", "version": "0.1.0" } }
+  "device": { "name": "MEU-PC", "platform": "windows", "app": "xpeed-companion", "version": "0.1.0" } }
 ```
 
 O Xpeed Sim tira traços e espaços e põe em maiúsculas antes de enviar. O nome do aparelho é o do computador, ou o que a pessoa passar em `--name`. Serve só para ela reconhecê-lo na lista de aparelhos do app.

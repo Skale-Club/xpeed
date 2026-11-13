@@ -224,7 +224,7 @@ fn label(seen: &Seen) -> String {
 /// anything more. `ready()` is called when a layout was put in the outbox (to wake the uploader).
 pub fn run(
     out: &Path,
-    seen: Receiver<Seen>,
+    seen: &Receiver<Seen>,
     folders: &dyn Fn() -> Folders,
     quitting: &dyn Fn() -> bool,
     ready: &dyn Fn(),
@@ -456,7 +456,7 @@ mod tests {
             ac: vec![tracks.clone()],
             sce: vec![],
         };
-        run(&out, rx, &folders, &|| false, &|| *woken.lock().unwrap() += 1, &|line| {
+        run(&out, &rx, &folders, &|| false, &|| *woken.lock().unwrap() += 1, &|line| {
             lines.lock().unwrap().push(line)
         });
         let lines = lines.into_inner().unwrap();
@@ -470,6 +470,6 @@ mod tests {
     #[test]
     fn the_thread_stops_when_told_to() {
         let (_tx, rx) = mpsc::channel::<Seen>();
-        run(Path::new("unused"), rx, &Folders::default, &|| true, &|| {}, &|_| {});
+        run(Path::new("unused"), &rx, &Folders::default, &|| true, &|| {}, &|_| {});
     }
 }

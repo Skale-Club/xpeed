@@ -68,7 +68,7 @@ use crate::dash::Live;
 use crate::present;
 use crate::status::{Activity, Cloud, Game, Notice, Shared, Snapshot};
 use crate::text::{text, Lang, Msg};
-use crate::util::{clock, now_ms};
+use crate::util::{clock, lock, now_ms};
 use crate::win;
 
 const CLASS: &str = "XpeedSimPanel";
@@ -147,6 +147,8 @@ pub enum Action {
     Cover(usize),
     /// Picks this language (its place in `Lang::ALL`) from the language list.
     Lang(usize),
+    /// Puts the support text (versions, games, connection, last log lines) on the clipboard.
+    CopyDiagnostics,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -199,6 +201,10 @@ pub struct View<'a> {
     pub carousel_step: std::cell::Cell<f32>,
     /// The language list under the language button is open.
     pub lang_open: bool,
+    /// The diagnostics were copied a moment ago: the Monitor tab says so for two seconds.
+    pub copied: bool,
+    /// The background parts that stopped for good, named (empty when none): the Monitor tab says so in red.
+    pub failed: &'a str,
     /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
     pub focus: Option<(&'static str, &'static str, Game)>,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
@@ -438,6 +444,8 @@ struct State {
     carousel_step: f32,
     /// The language list is open.
     lang_open: bool,
+    /// When the diagnostics were last copied (Unix ms; 0 for never).
+    copied_at: i64,
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
@@ -3407,7 +3415,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // ever drawn outside its card, whatever the window's size.
     let wanted: Vec<(Action, String, bool)> = match &view.card {
         Card::Connected { .. } => vec![(Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)],
-        Card::Waiting => vec![
+        Card::Waiting { .. } => vec![
             (Action::OpenConnectPage, text(view.lang, &Msg::ConnectOpenAgain), true),
             (Action::CancelConnect, text(view.lang, &Msg::ConnectCancel), false),
         ],
@@ -3423,7 +3431,13 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let lines = button_lines(&buttons.iter().map(|b| b.3).collect::<Vec<_>>(), col - 40.0);
     let line_count = lines.iter().map(|&(line, _)| line).max().map_or(0, |l| l + 1) as f32;
     let (button_h, button_gap) = (36.0, 10.0);
-    let account_need = 104.0 + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
+    // The code to compare with the connection page takes a line of its own, big, under the headline.
+    let code = match &view.card {
+        Card::Waiting { code } => code.as_deref(),
+        _ => None,
+    };
+    let code_h = if code.is_some() { 40.0 } else { 0.0 };
+    let account_need = 104.0 + code_h + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
     let games = view.games.len().max(1);
     let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need);
     let offset = view.games_scroll.clamp(0.0, max_scroll);
@@ -3505,10 +3519,13 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let host = connect::host_of(view.server);
     // The headline, its colour and the muted line under it, by what the card says.
     let (dot, headline, muted) = match &view.card {
-        Card::Waiting => (
+        Card::Waiting { code } => (
             AMBER,
             text(view.lang, &Msg::ConnectWaiting),
-            text(view.lang, &Msg::ConnectWaitingHint),
+            match code {
+                Some(code) => text(view.lang, &Msg::ConnectCodeHint(code.clone())),
+                None => text(view.lang, &Msg::ConnectWaitingHint),
+            },
         ),
         Card::Connected { who } => (
             cloud_color,
@@ -3526,6 +3543,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
                 Some(Note::Cancelled) => text(view.lang, &Msg::ConnectNoteCancelled),
                 Some(Note::Expired) => text(view.lang, &Msg::ConnectNoteExpired),
                 Some(Note::Failed(why)) => why.clone(),
+                Some(Note::Reconnect) => text(view.lang, &Msg::ConnectNoteReconnect),
                 None => host.to_owned(),
             },
         ),
@@ -3533,12 +3551,16 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), dot);
     let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
     g.text(&headline, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
-    let r = g.r(40.0, account_y + 70.0, col - 60.0, 20.0);
+    if let Some(code) = code {
+        let r = g.r(40.0, account_y + 68.0, col - 60.0, code_h);
+        g.text(code, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
+    }
+    let r = g.r(40.0, account_y + 70.0 + code_h, col - 60.0, 20.0);
     g.text(&muted, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
     // it refused this computer).
     for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
-        let by = account_y + 104.0 + line as f32 * (button_h + button_gap);
+        let by = account_y + 104.0 + code_h + line as f32 * (button_h + button_gap);
         if by + button_h > area_h - 12.0 {
             break;
         }
@@ -3623,9 +3645,34 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         g.text(line, r, 13.5, normal, Face::Ui, TEXT, DT_LEFT);
     }
 
+    // The footer: the button that copies the support text, then what is worth a word (copied, or a part that stopped), and
+    // the shortcuts at the right while there is room for them.
     g.place(s, body.left, body.top);
-    let r = g.r(0.0, h - 20.0, w, 20.0);
-    g.text(&text(view.lang, &Msg::PanelHint), r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+    let copy = text(view.lang, &Msg::DiagnosticsCopy);
+    let copy_w = g.width_of(&copy, 12.5, semi, Face::Ui) + 24.0;
+    let r = g.r(0.0, h - 24.0, copy_w, 24.0);
+    g.round(r, CORNER, CARD, Some(EDGE));
+    g.text(&copy, r, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
+    view.buttons.borrow_mut().push((Action::CopyDiagnostics, r));
+    let note_x = copy_w + 14.0;
+    let note = if !view.failed.is_empty() {
+        Some((text(view.lang, &Msg::WorkersFailed(view.failed.to_owned())), RED))
+    } else if view.copied {
+        Some((text(view.lang, &Msg::DiagnosticsCopied), MUTED))
+    } else {
+        None
+    };
+    let hint = text(view.lang, &Msg::PanelHint);
+    let hint_w = g.width_of(&hint, 12.0, normal, Face::Ui);
+    let note_w = note.as_ref().map_or(0.0, |(t, _)| g.width_of(t, 12.5, normal, Face::Ui));
+    if let Some((line, color)) = &note {
+        let r = g.r(note_x, h - 22.0, (w - note_x).max(0.0), 20.0);
+        g.text(line, r, 12.5, normal, Face::Ui, *color, DT_LEFT);
+    }
+    if note_x + note_w + hint_w + 24.0 <= w {
+        let r = g.r(0.0, h - 20.0, w, 20.0);
+        g.text(&hint, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+    }
 }
 
 /// Buttons of these widths in lines no wider than `room`, 10 apart: each one's line and its left edge in the line.
@@ -3780,7 +3827,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let snapshot = ctx.shared.snapshot();
     let live = ctx.shared.live();
     let games = game_rows(ctx, state.installed.as_ref());
-    let account = ctx.account.lock().unwrap().clone();
+    let account = lock(&ctx.account).clone();
     let recent_laps = ctx.shared.recent_laps();
     let activity: Vec<(String, String)> = ctx
         .shared
@@ -3797,6 +3844,13 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         .collect();
     let now = now_ms();
     state.carousel.tick(now);
+    let failed = ctx
+        .shared
+        .failed_workers()
+        .into_iter()
+        .map(crate::supervisor::title)
+        .collect::<Vec<_>>()
+        .join(", ");
     let view = View {
         lang: account.lang,
         tab: state.tab,
@@ -3825,6 +3879,8 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         scroll: Default::default(),
         carousel_step: Default::default(),
         lang_open: state.lang_open,
+        copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
+        failed: &failed,
         focus: focus_of(&ctx.shared.games()),
     };
     paint(memory, w, h, &view);
@@ -3884,12 +3940,41 @@ fn refresh_installed(state: &mut State) {
     }
 }
 
+/// How long the Monitor tab says "Copied" after the diagnostics were copied.
+const COPIED_FOR_MS: i64 = 2000;
+
+/// The support text for this moment, on the clipboard. The games are the ones the Monitor tab lists, with their state
+/// in English (the text is for support, whatever language the person uses).
+unsafe fn copy_diagnostics(hwnd: HWND, state: &mut State) -> bool {
+    let account = lock(&state.ctx.account).clone();
+    let games: Vec<(String, String)> = game_rows(&state.ctx, state.installed.as_ref())
+        .into_iter()
+        .map(|row| (row.title, state_text(Lang::En, &row.state)))
+        .collect();
+    let report = crate::diagnostics::collect(
+        &state.ctx.shared,
+        &games,
+        &account.server,
+        account.device.as_deref(),
+        account.label.as_deref(),
+    );
+    match win::copy_to_clipboard(hwnd, &report) {
+        Ok(()) => true,
+        Err(why) => {
+            crate::applog::line(&format!("could not copy the diagnostics: {why}"));
+            false
+        }
+    }
+}
+
 /// An activity as a message of the person's language.
 fn activity_message(event: Activity) -> Msg {
     match event {
         Activity::GameConnected(name) => Msg::ActivityGameConnected(name.to_owned()),
         Activity::GameClosed(name) => Msg::ActivityGameClosed(name.to_owned()),
         Activity::GameUnsupported(name) => Msg::ActivityGameUnsupported(name.to_owned()),
+        Activity::WorkerRestarting(id) => Msg::ActivityWorkerRestarting(crate::supervisor::title(id).to_owned()),
+        Activity::WorkerFailed(id) => Msg::ActivityWorkerFailed(crate::supervisor::title(id).to_owned()),
         Activity::Notice(Notice::LapSaved(label)) => Msg::NoticeLapSaved(label),
         Activity::Notice(Notice::LapsSent(n)) => Msg::NoticeLapsSent(n),
         Activity::Notice(Notice::Paired(name)) => Msg::NoticePaired(name),
@@ -3917,7 +4002,7 @@ unsafe fn carousel_click(hwnd: HWND, state: &mut State, x: i32, y: i32) {
 /// The person picked a language in the panel: shown at once here, and the tray (which keeps it in the settings and
 /// shows it in its menu) is told, so both always say the same.
 fn choose_lang(state: &mut State, lang: Lang) {
-    state.ctx.account.lock().unwrap().lang = lang;
+    lock(&state.ctx.account).lang = lang;
     crate::tray::set_lang_of_running(lang);
 }
 
@@ -4087,7 +4172,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                 state.press = Some((x, y, state.carousel.at(now_ms()), false));
                 SetCapture(hwnd);
             } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
-                let account = state.ctx.account.lock().unwrap().clone();
+                let account = lock(&state.ctx.account).clone();
                 match action {
                     Action::Connect => crate::tray::start_connect(&account.server),
                     Action::OpenConnectPage => match crate::connect::Flow::global().page() {
@@ -4096,6 +4181,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                     },
                     Action::CancelConnect => crate::connect::Flow::global().cancel(),
                     Action::OpenXpeed => win::open(&format!("{}{}", account.server, crate::connect::OPEN_PATH)),
+                    Action::CopyDiagnostics => {
+                        if copy_diagnostics(hwnd, state) {
+                            state.copied_at = now_ms();
+                        }
+                    }
                     Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
                     Action::Cover(i) => {
                         let steps = carousel_steps(state.carousel.target, i, state.covers.len());
@@ -4297,7 +4387,7 @@ unsafe fn fetch_brand_if_needed(hwnd: HWND, state: &mut State) {
     let car = live.car.clone();
     state.brand_requested = Some(car.clone());
     state.brand_inflight = true;
-    let mut server = state.ctx.account.lock().map(|a| a.server.clone()).unwrap_or_default();
+    let mut server = lock(&state.ctx.account).server.clone();
     if server.is_empty() {
         server = crate::config::DEFAULT_SERVER.to_owned();
     }
@@ -4358,6 +4448,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             press: None,
             carousel_step: 120.0,
             lang_open: false,
+            copied_at: 0,
         }));
         refresh_installed(&mut *state);
         // Only this window follows the screen's DPI; the thread goes back to how it was afterwards.
@@ -4416,7 +4507,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         );
         ShowWindow(hwnd, SW_SHOWNORMAL);
         SetForegroundWindow(hwnd);
-        let server = (*state).ctx.account.lock().map(|a| a.server.clone()).unwrap_or_default();
+        let server = lock(&(*state).ctx.account).server.clone();
         fetch_covers_once(hwnd, server);
         hwnd
     }
@@ -5152,6 +5243,8 @@ mod tests {
             scroll: Default::default(),
             carousel_step: Default::default(),
             lang_open: false,
+            copied: false,
+            failed: "",
             focus: None,
         }
     }
@@ -5183,6 +5276,68 @@ mod tests {
         save(&pixels, w, h, "panel-monitor-150.png");
         assert!(has_color(&pixels, CARD) > 100_000, "the cards fill most of the window");
         assert!(has_color(&pixels, RED) > 10, "the unsupported game has a red dot");
+    }
+
+    #[test]
+    fn the_monitor_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_stopped_part_is_in_red() {
+        let f = fixture();
+        let (w, h) = (1280, 800);
+        let buttons_of = |view: &View| {
+            let pixels = render(view, w, h);
+            (
+                pixels,
+                view.buttons.borrow().iter().map(|(action, r)| (*action, *r)).collect::<Vec<_>>(),
+            )
+        };
+        // Always there on the Monitor tab, inside the window, under the cards.
+        let plain = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+        let (before, buttons) = buttons_of(&plain);
+        let copy = buttons
+            .iter()
+            .find(|(a, _)| *a == Action::CopyDiagnostics)
+            .expect("the button is drawn")
+            .1;
+        assert!(
+            copy.left >= 0 && copy.right < w && copy.bottom <= h && copy.top >= h - 40,
+            "({}, {}, {}, {})",
+            copy.left,
+            copy.top,
+            copy.right,
+            copy.bottom
+        );
+        // "Copied" is drawn after a copy, and a part that stopped is said in red.
+        let mut copied = view(&f, None, Tab::Monitor, 1.0, Lang::Pt);
+        copied.copied = true;
+        let mut stopped = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+        stopped.failed = "uploader";
+        let (copied_pixels, _) = buttons_of(&copied);
+        let (stopped_pixels, _) = buttons_of(&stopped);
+        assert_ne!(copied_pixels, render(&view(&f, None, Tab::Monitor, 1.0, Lang::Pt), w, h));
+        assert!(
+            has_color(&stopped_pixels, RED) > has_color(&before, RED),
+            "a stopped part is in red"
+        );
+        // The waiting card with a code has a line of its own for it, so its buttons are lower, and still above the footer.
+        let mut without = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+        without.card = connect::Card::Waiting { code: None };
+        let mut with = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+        with.card = connect::Card::Waiting { code: Some("K7QX".into()) };
+        let (without_pixels, without_buttons) = buttons_of(&without);
+        let (with_pixels, with_buttons) = buttons_of(&with);
+        assert_ne!(with_pixels, without_pixels, "the code is drawn");
+        let open_again = |list: &[(Action, RECT)]| {
+            list.iter()
+                .find(|(a, _)| *a == Action::OpenConnectPage)
+                .map(|(_, r)| (r.top, r.bottom))
+        };
+        assert!(
+            open_again(&with_buttons) > open_again(&without_buttons),
+            "the code pushes the buttons down"
+        );
+        assert!(
+            open_again(&with_buttons).is_some_and(|(_, bottom)| bottom < h - 24),
+            "and they are above the footer"
+        );
     }
 
     #[test]
@@ -5524,7 +5679,7 @@ mod tests {
         save(&pixels, 1280, 800, "preview-monitor-covers.png");
         figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
         let mut waiting_card = view(&f, None, Tab::Monitor, 1.0, Lang::En);
-        waiting_card.card = connect::Card::Waiting;
+        waiting_card.card = connect::Card::Waiting { code: Some("K7QX".into()) };
         let pixels = render(&waiting_card, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-connecting.png");
         figures.push_str("<figure><figcaption>Monitor tab while the browser page waits for the click on Connect</figcaption><img data-src=\"preview-monitor-connecting.png\" width=\"1280\" height=\"800\"></figure>\n");
