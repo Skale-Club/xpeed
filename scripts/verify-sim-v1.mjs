@@ -114,7 +114,7 @@ try {
 
   /** One lap file. `speed` (m/s) and `fuel` (l) are three readings each; the rest of the header can be overridden. */
   const makeLap = ({ number = 1, timeMs = 1000, valid = true, startedAt = '2026-11-10T12:00:00.000Z', track = 'Test Track', car = 'Test Car', game = 'lmu',
-    carClass, trackLength = 20, sectorsMs, speed, fuel, ...header } = {}) => {
+    carClass, trackLength = 20, sectorsMs, speed, fuel, inLap, outLap, ...header } = {}) => {
     const channels = [{ id: 't', unit: 's' }, { id: 'dist', unit: 'm' }];
     const data = { t: new Float32Array([0, 0.5, 1]), dist: new Float32Array([0, 10, 20]) };
     if (speed) { channels.push({ id: 'speed', unit: 'm/s' }); data.speed = new Float32Array(speed); }
@@ -122,7 +122,7 @@ try {
     return gzipLap({
       header: {
         game, track: { name: track, lengthM: trackLength }, car: { name: car, ...(carClass ? { class: carClass } : {}) },
-        lap: { number, timeMs, valid, ...(sectorsMs ? { sectorsMs } : {}) }, startedAt, sampleRateHz: 2, sampleCount: 3, channels, ...header,
+        lap: { number, timeMs, valid, ...(sectorsMs ? { sectorsMs } : {}), ...(inLap !== undefined ? { inLap } : {}), ...(outLap !== undefined ? { outLap } : {}) }, startedAt, sampleRateHz: 2, sampleCount: 3, channels, ...header,
       },
       data,
     });
@@ -245,8 +245,8 @@ try {
     // The same Companion id on another car is another session: a session is one car on one track.
     const swap = await put(rig, { track: 'Companion Ring', car: 'Other Car', number: 5, startedAt: at(183), sessionId: 'sess-1' });
     assert.notEqual((await lapRow(swap)).session_id, l1.session_id);
-    // An unknown kind is read as unknown.
-    const odd = await put(rig, { track: 'Companion Ring', number: 6, startedAt: at(400), sessionId: 'sess-9', sessionKind: 'warmup' });
+    // A kind the Companion does not know is written as unknown (the lap file itself refuses any other word).
+    const odd = await put(rig, { track: 'Companion Ring', number: 6, startedAt: at(400), sessionId: 'sess-9', sessionKind: 'unknown' });
     assert.equal((await sessionOf((await lapRow(odd)).session_id)).kind, 'unknown');
   });
 
@@ -288,7 +288,7 @@ try {
     assert.deepEqual(row.sector_ms, [30000, 31000, 30234]);
     assert.equal(row.top_speed_kmh, 300.2, '83.4 m/s is 300.24 km/h, kept to 0.1');
     assert.equal(row.fuel_used_l, 0.8, 'first reading minus last, to 0.001');
-    assert.deepEqual([row.in_lap, row.out_lap, row.format_version, row.reduced], [false, true, 1, false]);
+    assert.deepEqual([row.in_lap, row.out_lap, row.format_version, row.reduced], [false, true, 2, false]);
     const track = (await direct.query('SELECT name, game, length_m FROM public.sim_track_catalog WHERE id = $1', [row.track_id])).rows[0];
     assert.deepEqual({ ...track }, { name: 'Summary Ring', game: 'lmu', length_m: 5412 });
     assert.deepEqual({ ...(await direct.query('SELECT name, class FROM public.sim_car_catalog WHERE id = $1', [row.car_id])).rows[0] }, { name: 'Summary Car', class: 'GT3' });
@@ -756,7 +756,7 @@ try {
     assert.deepEqual({ ...lap, id: undefined, createdAt: undefined, sessionId: undefined, car: { ...lap.car, id: undefined }, track: { ...lap.track, id: undefined } }, {
       id: undefined, game: 'lmu', track: { id: undefined, name: 'Fresh Ring' }, car: { id: undefined, name: 'Fresh Car' }, sessionId: undefined, lapNumber: 1, timeMs: 99_000, valid: true,
       startedAt: '2026-11-12T09:00:00.000Z', sectorsMs: null, topSpeedKmh: 252, fuelUsedL: null, inLap: null, outLap: null, sampleCount: 3, sizeBytes: lap.sizeBytes, reduced: false,
-      formatVersion: 1, createdAt: undefined, deviceName: 'Sim PC',
+      formatVersion: 2, createdAt: undefined, deviceName: 'Sim PC',
     });
     assert.match(lap.id, /^[0-9a-f-]{36}$/);
     assert.match(lap.createdAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);

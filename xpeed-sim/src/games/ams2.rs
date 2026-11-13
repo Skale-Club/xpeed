@@ -24,13 +24,34 @@
 //! * Units are the lap file's already: metres, seconds, metres per second, `mGear` -1 / 0 / 1.. (as the header says),
 //!   pedals 0..1, steering -1..1, `mFuelLevel` a fraction of `mFuelCapacity` litres.
 //!
+//! What version 2 of the lap file takes from Automobilista 2 (`ams2` only: the two Project CARS games are not asked for
+//! any of it), every offset proved against the real header by the offsets test:
+//!
+//! * `mSessionState` (12: 1 practice, 2 test, 3 qualify, 4 formation lap, 5 race, 6 time attack) is the session kind;
+//!   test and time attack count as practice, the formation lap as the race.
+//! * `mCurrentSector1Time` and `mCurrentSector2Time` (6752, 6756, seconds, "UNSET = -1") are the first two sectors, read
+//!   only when `mNumSectors` (6708) is 3, and each only once the car's own `mCurrentSector` (participant, 96; the header
+//!   says it counts from 0) says it has gone past that sector, so a time left over from the lap before is never taken for
+//!   this one. The third sector is the official lap time minus the two (see `Frame::sectors_ms`). Whether the two are
+//!   the sectors' own durations (as the header's "current sector time" reads) is not checked against a live game: a lap
+//!   whose first two do not leave a third is written without sectors.
+//! * `mAmbientTemperature` and `mTrackTemperature` (7292, 7296, Celsius) are the air and track temperature, and
+//!   `mRainDensity` (7300, 0..1) makes the weather "rain" above 0.05, else "dry" (the header has no cloud cover in a
+//!   unit, so there is no "overcast"). The header's unset values are 25 and 30 (and a memory nothing was written to
+//!   holds 0): either pair says nothing, and then there is no weather either.
+//! * `mLocalAcceleration` (6956, three floats; the header says "metres per second", it is an acceleration) divided by
+//!   9.80665 is `g_lat` (x) and `g_long` (z). The axes are taken as x to the right and z forward; not checked against a
+//!   live game.
+//! * `mTyreCompound[4][40]` (19388) is the compound, the first tyre with a name; it lies past Project CARS 2's struct,
+//!   so it is read from Automobilista 2's own, longer copy only.
+//!
 //! Never read: another process's memory. Only the game's own shared memory, read-only and copied out.
 
 use std::sync::atomic::{fence, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, SessionKind, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// The name the games give their memory.
@@ -88,6 +109,8 @@ const STRING_LENGTH: usize = 64;
 mod at {
     pub const VERSION: usize = 0;
     pub const GAME_STATE: usize = 8;
+    /// `unsigned int mSessionState`.
+    pub const SESSION_STATE: usize = 12;
     pub const VIEWED_PARTICIPANT: usize = 20;
     pub const NUM_PARTICIPANTS: usize = 24;
     pub const PARTICIPANTS: usize = 28;
@@ -95,6 +118,8 @@ mod at {
     pub const P_WORLD_POSITION: usize = 68;
     pub const P_CURRENT_LAP_DISTANCE: usize = 80;
     pub const P_LAPS_COMPLETED: usize = 88;
+    /// `int mCurrentSector`: the sector the car is in, counting from 0.
+    pub const P_CURRENT_SECTOR: usize = 96;
 
     pub const UNFILTERED_THROTTLE: usize = 6428;
     pub const UNFILTERED_BRAKE: usize = 6432;
@@ -105,9 +130,14 @@ mod at {
     pub const TRACK_LOCATION: usize = 6576;
     pub const TRACK_VARIATION: usize = 6640;
     pub const TRACK_LENGTH: usize = 6704;
+    /// `int mNumSectors`.
+    pub const NUM_SECTORS: usize = 6708;
     pub const LAP_INVALIDATED: usize = 6712;
     pub const LAST_LAP_TIME: usize = 6720;
     pub const CURRENT_TIME: usize = 6724;
+    /// `float mCurrentSector1Time` and `float mCurrentSector2Time`, seconds, unset -1.
+    pub const CURRENT_SECTOR_1_TIME: usize = 6752;
+    pub const CURRENT_SECTOR_2_TIME: usize = 6756;
     pub const HIGHEST_FLAG_COLOUR: usize = 6800;
     pub const PIT_MODE: usize = 6808;
     pub const CAR_FLAGS: usize = 6816;
@@ -118,6 +148,8 @@ mod at {
     pub const FUEL_LEVEL: usize = 6840;
     pub const FUEL_CAPACITY: usize = 6844;
     pub const SPEED: usize = 6848;
+    /// `float mLocalAcceleration[3]`.
+    pub const LOCAL_ACCELERATION: usize = 6956;
     pub const RPM: usize = 6852;
     pub const GEAR: usize = 6876;
     /// `int mNumGears`, right after `mGear`.
@@ -129,6 +161,10 @@ mod at {
     /// `float mAeroDamage`, 0..1, and `float mEngineDamage` right after it.
     pub const AERO_DAMAGE: usize = 7284;
     pub const ENGINE_DAMAGE: usize = 7288;
+    /// `float mAmbientTemperature`, `float mTrackTemperature` (Celsius) and `float mRainDensity` (0..1).
+    pub const AMBIENT_TEMPERATURE: usize = 7292;
+    pub const TRACK_TEMPERATURE: usize = 7296;
+    pub const RAIN_DENSITY: usize = 7300;
     pub const SEQUENCE_NUMBER: usize = 7320;
     /// `float mTyreTemp[4]`, Celsius (front left, front right, rear left, rear right).
     pub const TYRE_TEMP: usize = 7072;
@@ -140,6 +176,9 @@ mod at {
     pub const AIR_PRESSURE: usize = 7372;
     /// `float mBrakeBias`, 0..1, unset -1 (a Project CARS 2 addition).
     pub const BRAKE_BIAS: usize = 19_380;
+    /// `char mTyreCompound[4][40]`: Automobilista 2's copy only, with `TYRE_COMPOUND_LENGTH` bytes for each tyre.
+    pub const TYRE_COMPOUND: usize = 19_388;
+    pub const TYRE_COMPOUND_LENGTH: usize = 40;
     /// `unsigned int mDrsState`, `int mAntiLockSetting` and `int mTractionControlSetting`: Automobilista 2's own
     /// additions (version 10 on), unset -1 for the settings.
     pub const DRS_STATE: usize = 20_632;
@@ -413,7 +452,55 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
     frame.tyres = tyres_from(&page);
     frame.state = state_from(&page);
+    if kind.id == AMS2.id {
+        version_2_from(&mut frame, &page, me);
+    }
     Some(frame)
+}
+
+/// What version 2 of the lap file asks of Automobilista 2: the kind of session, the first two sectors, the G, the
+/// weather and the tyre compound (see the top of the file for each).
+fn version_2_from(frame: &mut Frame, page: &Page, me: usize) {
+    frame.session_kind = match page.u32_at(at::SESSION_STATE) {
+        1 | 2 | 6 => Some(SessionKind::Practice),
+        3 => Some(SessionKind::Qualifying),
+        4 | 5 => Some(SessionKind::Race),
+        _ => None,
+    };
+
+    // A sector's time is believed once the car is past that sector, and only on a track with three.
+    if page.i32_at(at::NUM_SECTORS) == 3 {
+        let sector = page.i32_at(me + at::P_CURRENT_SECTOR);
+        for (i, field) in [at::CURRENT_SECTOR_1_TIME, at::CURRENT_SECTOR_2_TIME].into_iter().enumerate() {
+            if sector > i as i32 {
+                frame.sectors_ms[i] = seconds(page.f32_at(field), false).map(|s| (s * 1000.0).round() as u32);
+            }
+        }
+    }
+
+    const G: f32 = 9.806_65;
+    let g = |v: f32| Some(v / G).filter(|g| g.is_finite() && g.abs() <= 12.0);
+    frame.g_lat = g(page.f32_at(at::LOCAL_ACCELERATION));
+    frame.g_long = g(page.f32_at(at::LOCAL_ACCELERATION + 8));
+
+    let (air, track) = (page.f32_at(at::AMBIENT_TEMPERATURE), page.f32_at(at::TRACK_TEMPERATURE));
+    let unset = (air == 0.0 && track == 0.0) || (air == 25.0 && track == 30.0);
+    if !unset {
+        let air = within(air, -60.0, 100.0);
+        let track = within(track, -60.0, 100.0);
+        frame.air_temp_c = air.is_finite().then_some(air);
+        frame.track_temp_c = track.is_finite().then_some(track);
+        let rain = within(page.f32_at(at::RAIN_DENSITY), 0.0, 1.0);
+        if rain.is_finite() && (frame.air_temp_c.is_some() || frame.track_temp_c.is_some()) {
+            frame.weather = Some(if rain > 0.05 { "rain" } else { "dry" }.into());
+        }
+    }
+
+    if page.0.len() >= at::TYRE_COMPOUND + 4 * at::TYRE_COMPOUND_LENGTH {
+        frame.tyre_compound = (0..4)
+            .map(|i| page.ascii_at(at::TYRE_COMPOUND + i * at::TYRE_COMPOUND_LENGTH, at::TYRE_COMPOUND_LENGTH))
+            .find(|name| !name.is_empty());
+    }
 }
 
 /// The dashboard lights, temperatures, electronics and damage. What the header gives as "unset" (0 for the
@@ -555,6 +642,10 @@ mod tests {
             self.0[at..at + STRING_LENGTH].fill(0);
             self.0[at..at + s.len()].copy_from_slice(s.as_bytes());
         }
+        fn text_n(&mut self, at: usize, len: usize, s: &str) {
+            self.0[at..at + len].fill(0);
+            self.0[at..at + s.len()].copy_from_slice(s.as_bytes());
+        }
         fn seq(&self) -> u32 {
             Page(&self.0).u32_at(at::SEQUENCE_NUMBER)
         }
@@ -604,6 +695,19 @@ mod tests {
             i.u32(at::DRS_STATE, DRS_INSTALLED | DRS_ZONE_RULES | DRS_AVAILABLE_NOW);
             i.i32(at::ANTI_LOCK_SETTING, 3);
             i.i32(at::TRACTION_CONTROL_SETTING, 2);
+            // Version 2: qualifying, on the third sector of three (the first two are done), a right-hand corner at
+            // 0.5 g, braking at 1 g, 18.5 C air and 24.25 C track with rain, on soft tyres.
+            i.u32(at::SESSION_STATE, 3);
+            i.i32(at::NUM_SECTORS, 3);
+            i.i32(at::PARTICIPANTS + at::P_CURRENT_SECTOR, 2);
+            i.f32(at::CURRENT_SECTOR_1_TIME, 31.25);
+            i.f32(at::CURRENT_SECTOR_2_TIME, 28.5);
+            i.f32(at::LOCAL_ACCELERATION, 4.903_325);
+            i.f32(at::LOCAL_ACCELERATION + 8, -9.806_65);
+            i.f32(at::AMBIENT_TEMPERATURE, 18.5);
+            i.f32(at::TRACK_TEMPERATURE, 24.25);
+            i.f32(at::RAIN_DENSITY, 0.5);
+            i.text_n(at::TYRE_COMPOUND, at::TYRE_COMPOUND_LENGTH, "Soft");
             i
         }
     }
@@ -680,6 +784,7 @@ mod tests {
         assert_eq!(offset_of(&p, "mWorldPosition"), at::P_WORLD_POSITION);
         assert_eq!(offset_of(&p, "mCurrentLapDistance"), at::P_CURRENT_LAP_DISTANCE);
         assert_eq!(offset_of(&p, "mLapsCompleted"), at::P_LAPS_COMPLETED);
+        assert_eq!(offset_of(&p, "mCurrentSector"), at::P_CURRENT_SECTOR);
 
         let (o, size) = layout(&[
             ("mVersion", F, 1),
@@ -884,6 +989,15 @@ mod tests {
             ("mTyreWear", at::TYRE_WEAR),
             ("mBrakeTempCelsius", at::BRAKE_TEMP),
             ("mAirPressure", at::AIR_PRESSURE),
+            ("mSessionState", at::SESSION_STATE),
+            ("mNumSectors", at::NUM_SECTORS),
+            ("mCurrentSector1Time", at::CURRENT_SECTOR_1_TIME),
+            ("mCurrentSector2Time", at::CURRENT_SECTOR_2_TIME),
+            ("mLocalAcceleration", at::LOCAL_ACCELERATION),
+            ("mAmbientTemperature", at::AMBIENT_TEMPERATURE),
+            ("mTrackTemperature", at::TRACK_TEMPERATURE),
+            ("mRainDensity", at::RAIN_DENSITY),
+            ("mTyreCompound", at::TYRE_COMPOUND),
         ] {
             assert_eq!(offset_of(&o, name), want, "{name}");
         }
@@ -891,9 +1005,138 @@ mod tests {
         assert_eq!(offset_of(&o, "mLastLapTimes"), 9200);
         assert_eq!(offset_of(&o, "mCarNames"), 11_056);
         assert_eq!(offset_of(&o, "mLaunchStage"), 20_696);
+        assert_eq!(offset_of(&o, "mCurrentSector3Time"), at::CURRENT_SECTOR_2_TIME + 4);
+        assert_eq!(offset_of(&o, "mTyreCompound") + 4 * at::TYRE_COMPOUND_LENGTH, 19_548);
+        const { assert!(at::TYRE_COMPOUND >= PCARS_READ, "past what a Project CARS reader copies") };
+        for end in [
+            at::SESSION_STATE + 4,
+            at::P_CURRENT_SECTOR + 4,
+            at::CURRENT_SECTOR_2_TIME + 4,
+            at::LOCAL_ACCELERATION + 12,
+            at::RAIN_DENSITY + 4,
+        ] {
+            assert!(end <= PCARS_READ, "{end}");
+        }
         // The game's memory is made `SIZE` bytes long; Windows rounds that to whole pages, and a page count that
         // still holds the struct is what `open_named` asks of the mapping.
         assert!(SIZE.div_ceil(4096) * 4096 >= SIZE);
+    }
+
+    fn ams2_frame(image: &Image) -> Frame {
+        frame_from(&image.0, 0.0).unwrap()
+    }
+
+    #[test]
+    fn the_session_states_map_to_the_kinds_of_session() {
+        for (state, want) in [
+            (0, None),
+            (1, Some(SessionKind::Practice)),
+            (2, Some(SessionKind::Practice)),
+            (3, Some(SessionKind::Qualifying)),
+            (4, Some(SessionKind::Race)),
+            (5, Some(SessionKind::Race)),
+            (6, Some(SessionKind::Practice)),
+            (7, None),
+            (99, None),
+        ] {
+            let mut image = Image::on_track();
+            image.u32(at::SESSION_STATE, state);
+            assert_eq!(ams2_frame(&image).session_kind, want, "state {state}");
+        }
+    }
+
+    #[test]
+    fn the_first_two_sectors_are_read_once_the_car_is_past_them_and_only_on_a_track_of_three() {
+        let mut image = Image::on_track();
+        for (sector, want) in [
+            (0, [None, None]),
+            (1, [Some(31_250), None]),
+            (2, [Some(31_250), Some(28_500)]),
+            (-1, [None, None]),
+        ] {
+            image.i32(at::PARTICIPANTS + at::P_CURRENT_SECTOR, sector);
+            assert_eq!(ams2_frame(&image).sectors_ms, want, "in sector {sector}");
+        }
+        // The header's unset (-1) and a time that is not one say nothing.
+        image.i32(at::PARTICIPANTS + at::P_CURRENT_SECTOR, 2);
+        image.f32(at::CURRENT_SECTOR_1_TIME, -1.0);
+        image.f32(at::CURRENT_SECTOR_2_TIME, f32::NAN);
+        assert_eq!(ams2_frame(&image).sectors_ms, [None, None]);
+        // Two sectors, or four: the third cannot be worked out as what is left of the lap.
+        let mut other = Image::on_track();
+        for sectors in [2, 4, -1, 0] {
+            other.i32(at::NUM_SECTORS, sectors);
+            assert_eq!(ams2_frame(&other).sectors_ms, [None, None], "{sectors} sectors");
+        }
+    }
+
+    #[test]
+    fn the_g_is_the_local_acceleration_in_g_and_a_wild_one_is_not_given() {
+        let mut image = Image::on_track();
+        image.f32(at::LOCAL_ACCELERATION, -9.806_65 * 2.0);
+        image.f32(at::LOCAL_ACCELERATION + 4, 9.8);
+        image.f32(at::LOCAL_ACCELERATION + 8, 19.6133);
+        let f = ams2_frame(&image);
+        assert_eq!((f.g_lat, f.g_long), (Some(-2.0), Some(2.0)));
+        image.f32(at::LOCAL_ACCELERATION, 5000.0);
+        image.f32(at::LOCAL_ACCELERATION + 8, f32::NAN);
+        let f = ams2_frame(&image);
+        assert_eq!((f.g_lat, f.g_long), (None, None));
+    }
+
+    #[test]
+    fn the_weather_says_rain_or_dry_and_the_headers_unset_values_say_nothing() {
+        let mut image = Image::on_track();
+        for (rain, want) in [(0.0, "dry"), (0.05, "dry"), (0.06, "rain"), (1.0, "rain")] {
+            image.f32(at::RAIN_DENSITY, rain);
+            assert_eq!(ams2_frame(&image).weather.as_deref(), Some(want), "rain {rain}");
+        }
+        // What the header calls unset (25 and 30), and what memory nobody wrote to holds (0 and 0): not given.
+        for (air, track) in [(25.0, 30.0), (0.0, 0.0)] {
+            image.f32(at::AMBIENT_TEMPERATURE, air);
+            image.f32(at::TRACK_TEMPERATURE, track);
+            let f = ams2_frame(&image);
+            assert_eq!((f.air_temp_c, f.track_temp_c, f.weather), (None, None, None), "{air} {track}");
+        }
+        // One of them 25 is a real reading.
+        image.f32(at::AMBIENT_TEMPERATURE, 25.0);
+        image.f32(at::TRACK_TEMPERATURE, 41.5);
+        let f = ams2_frame(&image);
+        assert_eq!((f.air_temp_c, f.track_temp_c), (Some(25.0), Some(41.5)));
+        // A temperature that is not one is dropped alone.
+        image.f32(at::AMBIENT_TEMPERATURE, f32::NAN);
+        let f = ams2_frame(&image);
+        assert_eq!((f.air_temp_c, f.track_temp_c), (None, Some(41.5)));
+    }
+
+    #[test]
+    fn the_compound_is_the_first_tyre_with_a_name_and_only_from_the_longer_copy() {
+        let mut image = Image::on_track();
+        image.text_n(at::TYRE_COMPOUND, at::TYRE_COMPOUND_LENGTH, "");
+        image.text_n(at::TYRE_COMPOUND + at::TYRE_COMPOUND_LENGTH, at::TYRE_COMPOUND_LENGTH, "Medium");
+        assert_eq!(ams2_frame(&image).tyre_compound.as_deref(), Some("Medium"));
+        image.text_n(at::TYRE_COMPOUND + at::TYRE_COMPOUND_LENGTH, at::TYRE_COMPOUND_LENGTH, "");
+        assert_eq!(ams2_frame(&image).tyre_compound, None, "no tyre has a name");
+        // A copy as short as Project CARS 2's struct has no compound at all.
+        let mut short = Frame::empty();
+        let image = Image::on_track();
+        version_2_from(&mut short, &Page(&image.0[..PCARS_READ]), at::PARTICIPANTS);
+        assert_eq!(short.tyre_compound, None);
+        assert_eq!(short.session_kind, Some(SessionKind::Qualifying));
+    }
+
+    #[test]
+    fn project_cars_gives_none_of_what_version_2_asks_of_automobilista_2() {
+        let mut image = Image::on_track();
+        image.u32(at::VERSION, 9);
+        let frame = frame_of(PCARS2, &image.0[..PCARS2_SIZE], 0.0).expect("a frame");
+        assert_eq!(frame.session_kind, None);
+        assert_eq!(frame.sectors_ms, [None, None]);
+        assert_eq!((frame.g_lat, frame.g_long), (None, None));
+        assert_eq!(
+            (frame.air_temp_c, frame.track_temp_c, frame.weather, frame.tyre_compound),
+            (None, None, None, None)
+        );
     }
 
     #[test]
@@ -968,6 +1211,14 @@ mod tests {
         want.track = "Interlagos".into();
         want.track_variant = Some("Grand Prix".into());
         want.track_length_m = Some(4309.0);
+        want.session_kind = Some(SessionKind::Qualifying);
+        want.sectors_ms = [Some(31_250), Some(28_500)];
+        want.g_lat = Some(4.903_325 / 9.806_65);
+        want.g_long = Some(-1.0);
+        want.air_temp_c = Some(18.5);
+        want.track_temp_c = Some(24.25);
+        want.weather = Some("rain".into());
+        want.tyre_compound = Some("Soft".into());
         want.state = CarState {
             pit_limiter: Some(true),
             abs_active: Some(true),
@@ -1500,9 +1751,30 @@ mod tests {
         assert_eq!(lap.track_length_m, Some(4309.0));
         assert_eq!(lap.sample_count(), 600);
         let ids: Vec<&str> = lap.channels.iter().map(|c| c.id.as_str()).collect();
+        // The 13 channels of version 1, then what version 2 adds that this game gives (the G, the damage, the wing and the aids).
         assert_eq!(
             ids,
-            ["t", "dist", "speed", "rpm", "gear", "throttle", "brake", "clutch", "steer", "x", "y", "z", "fuel"]
+            [
+                "t",
+                "dist",
+                "speed",
+                "rpm",
+                "gear",
+                "throttle",
+                "brake",
+                "clutch",
+                "steer",
+                "x",
+                "y",
+                "z",
+                "fuel",
+                "g_lat",
+                "g_long",
+                "damage_body",
+                "drs",
+                "tc_active",
+                "abs_active"
+            ]
         );
         assert_eq!(lap.channel("t").unwrap().values.last(), Some(&29.95));
         assert_eq!(lap.channel("speed").unwrap().values[0], 55.5);

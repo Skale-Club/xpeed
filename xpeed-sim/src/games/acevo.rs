@@ -1807,9 +1807,27 @@ mod tests {
         assert_eq!(lap.track_length_m, Some(5793.0));
         assert_eq!(lap.sample_count(), 1500);
         let ids: Vec<&str> = lap.channels.iter().map(|c| c.id.as_str()).collect();
+        // The 13 channels of version 1, then what version 2 adds that this game gives (the wing and the aids).
         assert_eq!(
             ids,
-            ["t", "dist", "speed", "rpm", "gear", "throttle", "brake", "clutch", "steer", "x", "y", "z", "fuel"]
+            [
+                "t",
+                "dist",
+                "speed",
+                "rpm",
+                "gear",
+                "throttle",
+                "brake",
+                "clutch",
+                "steer",
+                "x",
+                "y",
+                "z",
+                "fuel",
+                "drs",
+                "tc_active",
+                "abs_active"
+            ]
         );
         assert_eq!(lap.channel("t").unwrap().values.last(), Some(&29.98));
         assert_eq!(lap.channel("speed").unwrap().values[0], 50.0);

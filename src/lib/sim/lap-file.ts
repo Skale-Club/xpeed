@@ -8,8 +8,8 @@ import { REQUIRED_CHANNELS, standardUnit } from '@/lib/sim/channels';
  * Uncompressed layout, all numbers little-endian:
  *
  *    0   4 bytes   magic "XLAP"
- *    4   u16       format version (1)
- *    6   u16       flags (0 in version 1)
+ *    4   u16       format version (1 or 2; files are written as 2)
+ *    6   u16       flags (0 in versions 1 and 2)
  *    8   u32       header length in bytes, a multiple of 4
  *   12   N bytes   header: UTF-8 JSON, padded with spaces to N
  *   12+N           one column per channel, in the header's order,
@@ -20,7 +20,11 @@ import { REQUIRED_CHANNELS, standardUnit } from '@/lib/sim/channels';
  */
 
 export const LAP_MAGIC = 'XLAP';
-export const LAP_VERSION = 1;
+/** The versions this reader accepts. A newer one is refused: a reader never interprets a file from the future. */
+export const LAP_VERSIONS = [1, 2] as const;
+export type LapVersion = (typeof LAP_VERSIONS)[number];
+/** The version new files are written in. */
+export const LAP_VERSION: LapVersion = 2;
 const PREAMBLE_BYTES = 12;
 
 export const LAP_LIMITS = {
@@ -35,6 +39,11 @@ export const LAP_LIMITS = {
 
 const CHANNEL_ID = /^[a-z][a-z0-9_]{0,31}$/;
 const GAME_ID = /^[a-z][a-z0-9_]{0,31}$/;
+/** What a Companion makes up once per run of one game session: letters, digits, `_` and `-`. */
+const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+export const SESSION_KINDS = ['practice', 'qualifying', 'race', 'unknown'] as const;
+export type SessionKind = (typeof SESSION_KINDS)[number];
 
 export class LapFormatError extends Error {
   constructor(public readonly code: LapFormatCode, message: string) {
@@ -60,23 +69,29 @@ export interface LapHeader {
     /** False when the game voided the lap (cut track, pit lap...). */
     valid: boolean;
     sectorsMs?: number[];
+    /** Version 2. The lap ended in the pit lane. */
+    inLap?: boolean;
+    /** Version 2. The lap began in the pit lane. */
+    outLap?: boolean;
   };
-  /** The Companion's own id for the stretch of driving this lap belongs to; laps with the same id are one session. */
-  sessionId?: string;
-  /** practice, qualifying, race (anything else is read as unknown). */
-  sessionKind?: string;
-  weather?: string;
-  airTempC?: number;
-  trackTempC?: number;
-  tyreCompound?: string;
-  /** The lap that leaves the pits (outLap) or goes back into them (inLap). */
-  inLap?: boolean;
-  outLap?: boolean;
   /** When the lap started, ISO 8601 in UTC. */
   startedAt: string;
   /** How often Xpeed Companion sampled, in Hz. Informational: `t` is the truth. */
   sampleRateHz: number;
   sampleCount: number;
+  /**
+   * Version 2. Stable for one run of one game session: every lap of that session carries the same one, and a session
+   * the game starts again, or another track or car, gets another.
+   */
+  sessionId?: string;
+  sessionKind?: SessionKind;
+  /** Version 2. A short word for the weather ("dry", "rain"...); left out when the game says nothing about it. */
+  weather?: string;
+  /** Version 2. Degrees Celsius. */
+  airTempC?: number;
+  trackTempC?: number;
+  /** Version 2. The compound of the tyres on the car, as the game names it. */
+  tyreCompound?: string;
   channels: LapChannelInfo[];
 }
 
@@ -84,6 +99,8 @@ export interface LapFile {
   header: LapHeader;
   /** One column per channel id, each of `header.sampleCount` values; NaN marks a sample the game did not give. */
   data: Record<string, Float32Array>;
+  /** The version of the file this lap was read from. Left out, `packLap` writes the current one. */
+  version?: LapVersion;
 }
 
 // The columns are copied as raw bytes, which is little-endian only on a little-endian machine. All browsers
@@ -93,6 +110,9 @@ const HOST_IS_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] ===
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const isInt = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 const isText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length >= 1 && value.length <= max;
+/** A short word or two, with no control characters, which the screens show as they are. */
+const isLabel = (value: unknown, max: number): value is string => isText(value, max) && [...value].every((ch) => ch.charCodeAt(0) > 0x1f && ch.charCodeAt(0) !== 0x7f);
+const isTemperature = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= -100 && value <= 200;
 function fail(code: LapFormatCode, message: string): never {
   throw new LapFormatError(code, message);
 }
@@ -100,8 +120,7 @@ function fail(code: LapFormatCode, message: string): never {
 /** Checks an untrusted header (parsed JSON) and returns it typed, or throws a LapFormatError. */
 export function parseHeader(input: unknown): LapHeader {
   if (!isRecord(input)) return fail('bad_header', 'The header is not an object.');
-  const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels } = input;
-  const { sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, inLap, outLap } = input;
+  const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels, sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound } = input;
 
   if (typeof game !== 'string' || !GAME_ID.test(game)) fail('bad_header', 'game must be a lowercase id.');
   if (!isRecord(track) || !isText(track.name, 120)) return fail('bad_header', 'track.name is missing or too long.');
@@ -115,22 +134,20 @@ export function parseHeader(input: unknown): LapHeader {
   if (!isInt(lap.timeMs, 0, 86_400_000)) fail('bad_header', 'lap.timeMs must be milliseconds, up to 24 hours.');
   if (typeof lap.valid !== 'boolean') fail('bad_header', 'lap.valid must be true or false.');
   if (lap.sectorsMs !== undefined && !(Array.isArray(lap.sectorsMs) && lap.sectorsMs.length <= 8 && lap.sectorsMs.every((ms) => isInt(ms, 0, 86_400_000)))) fail('bad_header', 'lap.sectorsMs must be up to 8 whole milliseconds.');
-
-  // Optional session details: written by newer Companions, never required.
-  if (sessionId !== undefined && !isText(sessionId, 80)) fail('bad_header', 'sessionId must be 1 to 80 characters.');
-  if (sessionKind !== undefined && !isText(sessionKind, 20)) fail('bad_header', 'sessionKind is too long.');
-  if (weather !== undefined && !isText(weather, 40)) fail('bad_header', 'weather is too long.');
-  if (tyreCompound !== undefined && !isText(tyreCompound, 40)) fail('bad_header', 'tyreCompound is too long.');
-  for (const [name, value] of [['airTempC', airTempC], ['trackTempC', trackTempC]] as const) {
-    if (value !== undefined && !(typeof value === 'number' && Number.isFinite(value) && value >= -100 && value <= 200)) fail('bad_header', `${name} must be -100 to 200.`);
-  }
-  for (const [name, value] of [['inLap', inLap], ['outLap', outLap]] as const) {
-    if (value !== undefined && typeof value !== 'boolean') fail('bad_header', `${name} must be true or false.`);
-  }
+  if (lap.inLap !== undefined && typeof lap.inLap !== 'boolean') fail('bad_header', 'lap.inLap must be true or false.');
+  if (lap.outLap !== undefined && typeof lap.outLap !== 'boolean') fail('bad_header', 'lap.outLap must be true or false.');
 
   if (typeof startedAt !== 'string' || startedAt.length > 40 || Number.isNaN(Date.parse(startedAt))) fail('bad_header', 'startedAt must be an ISO 8601 date.');
   if (!(typeof sampleRateHz === 'number' && Number.isFinite(sampleRateHz) && sampleRateHz > 0 && sampleRateHz <= 1000)) fail('bad_header', 'sampleRateHz must be above 0 and at most 1000.');
   if (!isInt(sampleCount, 1, LAP_LIMITS.samples)) fail('bad_header', `sampleCount must be 1 to ${LAP_LIMITS.samples}.`);
+
+  // Version 2 fields. A version 1 file does not have them, and a reader of either version ignores what it does not know.
+  if (sessionId !== undefined && !(typeof sessionId === 'string' && SESSION_ID.test(sessionId))) fail('bad_header', 'sessionId must be 1 to 64 letters, digits, _ or -.');
+  if (sessionKind !== undefined && !(typeof sessionKind === 'string' && (SESSION_KINDS as readonly string[]).includes(sessionKind))) fail('bad_header', `sessionKind must be one of ${SESSION_KINDS.join(', ')}.`);
+  if (weather !== undefined && !isLabel(weather, 32)) fail('bad_header', 'weather must be a short text.');
+  if (airTempC !== undefined && !isTemperature(airTempC)) fail('bad_header', 'airTempC must be -100 to 200.');
+  if (trackTempC !== undefined && !isTemperature(trackTempC)) fail('bad_header', 'trackTempC must be -100 to 200.');
+  if (tyreCompound !== undefined && !isLabel(tyreCompound, 40)) fail('bad_header', 'tyreCompound must be a short text.');
 
   if (!Array.isArray(channels) || channels.length < REQUIRED_CHANNELS.length || channels.length > LAP_LIMITS.channels) {
     return fail('bad_channels', `A lap has ${REQUIRED_CHANNELS.length} to ${LAP_LIMITS.channels} channels.`);
@@ -154,18 +171,18 @@ export function parseHeader(input: unknown): LapHeader {
     lap: {
       number: lap.number as number, timeMs: lap.timeMs as number, valid: lap.valid as boolean,
       ...(lap.sectorsMs !== undefined ? { sectorsMs: lap.sectorsMs as number[] } : {}),
+      ...(lap.inLap !== undefined ? { inLap: lap.inLap as boolean } : {}),
+      ...(lap.outLap !== undefined ? { outLap: lap.outLap as boolean } : {}),
     },
+    startedAt: startedAt as string,
+    sampleRateHz: sampleRateHz as number,
+    sampleCount: sampleCount as number,
     ...(sessionId !== undefined ? { sessionId: sessionId as string } : {}),
-    ...(sessionKind !== undefined ? { sessionKind: sessionKind as string } : {}),
+    ...(sessionKind !== undefined ? { sessionKind: sessionKind as SessionKind } : {}),
     ...(weather !== undefined ? { weather: weather as string } : {}),
     ...(airTempC !== undefined ? { airTempC: airTempC as number } : {}),
     ...(trackTempC !== undefined ? { trackTempC: trackTempC as number } : {}),
     ...(tyreCompound !== undefined ? { tyreCompound: tyreCompound as string } : {}),
-    ...(inLap !== undefined ? { inLap: inLap as boolean } : {}),
-    ...(outLap !== undefined ? { outLap: outLap as boolean } : {}),
-    startedAt: startedAt as string,
-    sampleRateHz: sampleRateHz as number,
-    sampleCount: sampleCount as number,
     channels: parsedChannels,
   };
 }
@@ -176,20 +193,33 @@ function serializeHeader(header: LapHeader): string {
     game: header.game,
     track: { name: header.track.name, variant: header.track.variant, lengthM: header.track.lengthM },
     car: { name: header.car.name, class: header.car.class },
-    lap: { number: header.lap.number, timeMs: header.lap.timeMs, valid: header.lap.valid, sectorsMs: header.lap.sectorsMs },
-    sessionId: header.sessionId, sessionKind: header.sessionKind, weather: header.weather, airTempC: header.airTempC,
-    trackTempC: header.trackTempC, tyreCompound: header.tyreCompound, inLap: header.inLap, outLap: header.outLap,
+    lap: { number: header.lap.number, timeMs: header.lap.timeMs, valid: header.lap.valid, sectorsMs: header.lap.sectorsMs, inLap: header.lap.inLap, outLap: header.lap.outLap },
     startedAt: header.startedAt,
     sampleRateHz: header.sampleRateHz,
     sampleCount: header.sampleCount,
+    sessionId: header.sessionId,
+    sessionKind: header.sessionKind,
+    weather: header.weather,
+    airTempC: header.airTempC,
+    trackTempC: header.trackTempC,
+    tyreCompound: header.tyreCompound,
     channels: header.channels.map((channel) => ({ id: channel.id, unit: channel.unit })),
   });
+}
+
+function hasVersion2Fields(header: LapHeader): boolean {
+  return header.sessionId !== undefined || header.sessionKind !== undefined || header.weather !== undefined
+    || header.airTempC !== undefined || header.trackTempC !== undefined || header.tyreCompound !== undefined
+    || header.lap.inLap !== undefined || header.lap.outLap !== undefined;
 }
 
 /** Lays a lap out as bytes (not yet compressed). Throws a LapFormatError if the lap is not valid. */
 export function packLap(file: LapFile): Uint8Array {
   if (!HOST_IS_LITTLE_ENDIAN) return fail('unsupported', 'Lap files need a little-endian machine.');
+  const version = file.version ?? LAP_VERSION;
+  if (!(LAP_VERSIONS as readonly number[]).includes(version)) return fail('bad_version', `Cannot write lap file version ${version}.`);
   const header = parseHeader(JSON.parse(serializeHeader(file.header)));
+  if (version === 1 && hasVersion2Fields(header)) return fail('bad_header', 'A version 1 lap file has no session, weather, tyre compound or in and out lap fields.');
   for (const { id } of header.channels) {
     const column = file.data[id];
     if (!(column instanceof Float32Array) || column.length !== header.sampleCount) return fail('bad_data', `Channel ${id} must hold ${header.sampleCount} float32 values.`);
@@ -204,7 +234,7 @@ export function packLap(file: LapFile): Uint8Array {
 
   out.set(new TextEncoder().encode(LAP_MAGIC), 0);
   const view = new DataView(out.buffer);
-  view.setUint16(4, LAP_VERSION, true);
+  view.setUint16(4, version, true);
   view.setUint16(6, 0, true);
   view.setUint32(8, headerBytes, true);
   out.set(text, PREAMBLE_BYTES);
@@ -226,7 +256,8 @@ export function unpackLap(bytes: Uint8Array): LapFile {
   if (new TextDecoder().decode(bytes.subarray(0, 4)) !== LAP_MAGIC) return fail('bad_magic', 'Not a lap file.');
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint16(4, true) !== LAP_VERSION) return fail('bad_version', `Unsupported lap file version ${view.getUint16(4, true)}.`);
+  const version = view.getUint16(4, true);
+  if (!(LAP_VERSIONS as readonly number[]).includes(version)) return fail('bad_version', `Unsupported lap file version ${version}.`);
   if (view.getUint16(6, true) !== 0) return fail('bad_flags', 'Unknown flags.');
   const headerBytes = view.getUint32(8, true);
   if (headerBytes === 0 || headerBytes % 4 !== 0 || headerBytes > LAP_LIMITS.headerBytes || PREAMBLE_BYTES + headerBytes > bytes.length) {
@@ -255,7 +286,7 @@ export function unpackLap(bytes: Uint8Array): LapFile {
     data[id] = column;
     offset += columnBytes;
   }
-  return { header, data };
+  return { header, data, version: version as LapVersion };
 }
 
 async function readAll(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array> {

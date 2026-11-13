@@ -11,6 +11,22 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
+/// A new id for a game session: 32 lower-case hexadecimal characters, 16 random bytes from the operating system. Made
+/// once per run of one session (see `lapcut.rs`) and written into every lap of it as `sessionId`. Without the system's
+/// random numbers (they never fail in practice) it is made from the time and a counter, which is still not repeated
+/// inside one run of the program.
+pub fn new_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut bytes = [0u8; 16];
+    if crate::connect::fill_random(&mut bytes).is_err() {
+        let now = now_ms() as u64;
+        bytes[..8].copy_from_slice(&now.to_be_bytes());
+        bytes[8..].copy_from_slice(&COUNTER.fetch_add(1, Ordering::Relaxed).to_be_bytes());
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Days since 1970-01-01 to a civil date (proleptic Gregorian), after Howard Hinnant's algorithm.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -174,5 +190,14 @@ mod tests {
         assert_eq!(file_safe("  ../..\\x  "), "x");
         assert_eq!(file_safe("###"), "unknown");
         assert_eq!(file_safe(&"a".repeat(100)).len(), 40);
+    }
+
+    #[test]
+    fn a_session_id_is_32_hexadecimal_characters_and_is_not_repeated() {
+        let ids: std::collections::HashSet<String> = (0..2000).map(|_| new_session_id()).collect();
+        assert_eq!(ids.len(), 2000);
+        assert!(ids
+            .iter()
+            .all(|id| id.len() == 32 && id.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))));
     }
 }

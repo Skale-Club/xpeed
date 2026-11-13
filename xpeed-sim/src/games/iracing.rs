@@ -1052,6 +1052,7 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
             started_at: "2026-11-11T00:00:00.000Z".into(),
             sample_rate_hz: 60.0,
             channels: vec![channel("dist", dist), channel("x", x), channel("z", z)],
+            ..Lap::default()
         }
     }
 

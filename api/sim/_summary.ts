@@ -1,6 +1,6 @@
 // What the server reads out of a lap file to keep beside its row (the summary columns of sim_laps): sector times,
 // top speed, fuel used, in/out lap flags, and the session details the Companion put in the header.
-import { LAP_VERSION, type LapFile } from '../../src/lib/sim/lap-file';
+import { type LapFile } from '../../src/lib/sim/lap-file';
 
 export interface LapSummary {
   sectorMs: number[] | null;
@@ -41,9 +41,9 @@ export function summarizeLap(lap: LapFile): LapSummary {
     sectorMs: header.lap.sectorsMs && header.lap.sectorsMs.length > 0 ? header.lap.sectorsMs : null,
     topSpeedKmh: topSpeedKmh(data.speed),
     fuelUsedL: fuelUsedL(data.fuel),
-    inLap: header.inLap ?? null,
-    outLap: header.outLap ?? null,
-    formatVersion: LAP_VERSION,
+    inLap: header.lap.inLap ?? null,
+    outLap: header.lap.outLap ?? null,
+    formatVersion: lap.version ?? 1,
     session: {
       id: header.sessionId ?? null,
       kind: header.sessionKind ?? null,

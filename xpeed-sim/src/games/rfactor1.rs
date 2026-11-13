@@ -1180,9 +1180,25 @@ mod tests {
         assert_eq!(lap.track_length_m, Some(4309.0));
         assert_eq!(lap.sample_count(), 600);
         let ids: Vec<&str> = lap.channels.iter().map(|c| c.id.as_str()).collect();
+        // The 13 channels of version 1, then what version 2 adds that this game gives (the damage).
         assert_eq!(
             ids,
-            ["t", "dist", "speed", "rpm", "gear", "throttle", "brake", "clutch", "steer", "x", "y", "z", "fuel"]
+            [
+                "t",
+                "dist",
+                "speed",
+                "rpm",
+                "gear",
+                "throttle",
+                "brake",
+                "clutch",
+                "steer",
+                "x",
+                "y",
+                "z",
+                "fuel",
+                "damage_body"
+            ]
         );
         // The lap time is a difference of two session-clock floats around 530 s, good to about a microsecond here.
         assert!((lap.channel("t").unwrap().values.last().unwrap() - 29.95).abs() < 1e-4);

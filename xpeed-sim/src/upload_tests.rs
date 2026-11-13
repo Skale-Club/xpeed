@@ -37,6 +37,7 @@ fn lap(number: u32) -> Lap {
             channel("dist", "m", [0.0, 10.0, 20.0]),
             channel("speed", "m/s", [0.0, 10.0, 20.0]),
         ],
+        ..Lap::default()
     }
 }
 

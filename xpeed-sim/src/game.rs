@@ -7,6 +7,8 @@
 
 use std::time::Duration;
 
+pub use crate::lapfile::SessionKind;
+
 /// One tyre as the game tells it; `NaN` for what it does not give.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tyre {
@@ -145,6 +147,25 @@ pub struct Frame {
     pub track: String,
     pub track_variant: Option<String>,
     pub track_length_m: Option<f64>,
+    /// How long the first two sectors of the lap in progress took, in milliseconds, each once it is done (`None`
+    /// before that, or for a game that gives no sector times). The last sector is not here: the cutter takes it as
+    /// the official lap time minus these two, because a game that shows its third sector's time while it runs may
+    /// still hold the one of the lap before. A game with other than three sectors gives `None` for both.
+    pub sectors_ms: [Option<u32>; 2],
+    /// What kind of session this is, when the game says.
+    pub session_kind: Option<SessionKind>,
+    /// A short word for the weather ("dry", "rain"), when the game gives it.
+    pub weather: Option<String>,
+    /// Air and track temperature in °C, when the game gives them.
+    pub air_temp_c: Option<f32>,
+    pub track_temp_c: Option<f32>,
+    /// The compound of the tyres on the car, as the game names it.
+    pub tyre_compound: Option<String>,
+    /// The car's acceleration in g: sideways (positive toward the car's right: a right-hand corner is positive) and
+    /// along the car (positive forward: accelerating is positive, braking negative). `None` when the game gives none
+    /// (an `Option`, not `NaN`, so frames still compare equal in tests).
+    pub g_lat: Option<f32>,
+    pub g_long: Option<f32>,
 }
 
 impl Frame {
@@ -178,7 +199,46 @@ impl Frame {
             track: String::new(),
             track_variant: None,
             track_length_m: None,
+            sectors_ms: [None; 2],
+            session_kind: None,
+            weather: None,
+            air_temp_c: None,
+            track_temp_c: None,
+            tyre_compound: None,
+            g_lat: None,
+            g_long: None,
         }
+    }
+}
+
+/// The sector times of the lap in progress, for a game that tells only the sector the car is in and the time of the
+/// last sector it finished (Assetto Corsa): the time at each change of sector is kept for the first two sectors, and
+/// forgotten when the lap number changes.
+#[derive(Debug, Default)]
+pub struct SectorTracker {
+    lap: i32,
+    sector: Option<i32>,
+    done: [Option<u32>; 2],
+}
+
+impl SectorTracker {
+    /// One reading: the lap, the sector the car is in now (0 is the first) and the game's "last sector time" in
+    /// milliseconds. Returns the sectors done on this lap so far. A change of sector counts only when it goes up by
+    /// one (so a reading that jumps, a restart or a car put back on the track records nothing), and only a positive
+    /// time is believed.
+    pub fn update(&mut self, lap: i32, sector: i32, last_sector_ms: i32) -> [Option<u32>; 2] {
+        if lap != self.lap {
+            self.lap = lap;
+            self.sector = None;
+            self.done = [None; 2];
+        }
+        if let Some(before) = self.sector {
+            if sector == before + 1 && (0..2).contains(&before) && (1..=3_600_000).contains(&last_sector_ms) {
+                self.done[before as usize] = Some(last_sector_ms as u32);
+            }
+        }
+        self.sector = Some(sector);
+        self.done
     }
 }
 
@@ -222,6 +282,44 @@ mod tests {
         let frame = Frame::empty();
         assert!(!frame.driving && frame.lap_time_s.is_none() && frame.dist_m.is_none());
         assert!(frame.speed_ms.is_nan() && frame.x.is_nan());
+    }
+
+    #[test]
+    fn a_frame_gives_no_sectors_session_or_weather_until_a_game_says() {
+        let frame = Frame::empty();
+        assert_eq!(frame.sectors_ms, [None; 2]);
+        assert!(frame.session_kind.is_none() && frame.weather.is_none() && frame.tyre_compound.is_none());
+        assert!(frame.air_temp_c.is_none() && frame.track_temp_c.is_none());
+        assert!(frame.g_lat.is_none() && frame.g_long.is_none());
+    }
+
+    #[test]
+    fn keeps_the_time_of_each_sector_when_the_car_goes_into_the_next() {
+        let mut sectors = SectorTracker::default();
+        assert_eq!(sectors.update(1, 0, 0), [None, None]);
+        assert_eq!(sectors.update(1, 0, 0), [None, None]);
+        // Into sector 2: the last sector (the first) took 31.2 s.
+        assert_eq!(sectors.update(1, 1, 31_200), [Some(31_200), None]);
+        assert_eq!(sectors.update(1, 1, 31_200), [Some(31_200), None]);
+        assert_eq!(sectors.update(1, 2, 28_900), [Some(31_200), Some(28_900)]);
+        // Into the next lap: forgotten, and the wrap from sector 3 to sector 1 records nothing.
+        assert_eq!(sectors.update(2, 0, 30_000), [None, None]);
+        assert_eq!(sectors.update(2, 1, 30_500), [Some(30_500), None]);
+    }
+
+    #[test]
+    fn a_reading_that_jumps_or_has_no_time_records_no_sector() {
+        let mut sectors = SectorTracker::default();
+        sectors.update(3, 0, 0);
+        // Sector 0 straight to sector 2: the first one's time cannot be told from this.
+        assert_eq!(sectors.update(3, 2, 20_000), [None, None]);
+        let mut sectors = SectorTracker::default();
+        sectors.update(3, 0, 0);
+        assert_eq!(sectors.update(3, 1, 0), [None, None], "no time yet");
+        assert_eq!(sectors.update(3, 2, -1), [None, None]);
+        // The first reading of a lap is not a change of sector, whatever sector it shows (joined in the middle).
+        let mut joined = SectorTracker::default();
+        assert_eq!(joined.update(5, 2, 25_000), [None, None]);
     }
 
     #[test]

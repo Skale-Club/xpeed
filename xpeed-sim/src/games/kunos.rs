@@ -56,6 +56,24 @@
 //!   `trackConfiguration` (offset 524). Those offsets come from the Competizione document, whose header marks them
 //!   "not used in ACC" (so Assetto Corsa is the game that fills them); they are not checked against a live game.
 //!
+//! # What version 2 of the lap file takes from Assetto Corsa (`ac` only; Competizione and Rally give none of it)
+//!
+//! * `accG` (physics 44, 48, 52: sideways, up, along the car) becomes `g_lat` (x) and `g_long` (z). The sign is taken as
+//!   the game writes it (x positive to the right, z positive forward, as the game's own axes are); not checked against
+//!   a live game.
+//! * `airTemp` and `roadTemp` (physics 288 and 292, Celsius) become the air and track temperature; both zero is what an
+//!   unset page holds and says nothing. `brakeTemp[4]` (physics 348) fills the brake temperatures.
+//! * `session` (graphics 8: -1 unknown, 0 practice, 1 qualify, 2 race, 3 hotlap, 4 time attack, 5 drift, 6 drag) becomes
+//!   the session kind (hotlap and time attack count as practice, drift and drag as unknown) and `tyreCompound`
+//!   (graphics 176, 33 UTF-16 characters) the tyre compound.
+//! * Sectors: `currentSectorIndex` (graphics 164) and `lastSectorTime` (graphics 168, milliseconds) are read only when
+//!   the track has three sectors (`sectorCount`, static 400). The time at each change of sector gives the first two
+//!   (`SectorTracker`); the cutter takes the third from the official lap time. A `lastSectorTime` that was the running
+//!   total instead of the sector's own time would make the first two add up to nearly the lap, and the cutter drops
+//!   sectors that do not leave a third.
+//! * Not given: the weather (the page has none), the tread left (no documented unit), the tyres' pressure and core
+//!   temperature are the ones read already.
+//!
 //! # Not checked against a live game
 //!
 //! `steerAngle` is documented as -1..1 and is passed through (clamped, and dropped when it is far outside that).
@@ -64,7 +82,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, SectorTracker, SessionKind, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// How often the loop looks at the memory while it waits for a new reading (about 100 Hz).
@@ -90,6 +108,8 @@ mod layout {
     pub const PHYS_RPMS: usize = 20;
     pub const PHYS_STEER: usize = 24;
     pub const PHYS_SPEED_KMH: usize = 28;
+    /// `float accG[3]`: the car's acceleration in g, sideways (x), up (y) and along the car (z).
+    pub const PHYS_ACCEL_G: usize = 44;
     /// `float wheelsPressure[4]`, psi.
     pub const PHYS_WHEELS_PRESSURE: usize = 88;
     /// `float tyreCoreTemperature[4]`, °C.
@@ -107,6 +127,11 @@ mod layout {
     /// `int drsAvailable` and `int drsEnabled` (Assetto Corsa).
     pub const PHYS_DRS_AVAILABLE: usize = 340;
     pub const PHYS_DRS_ENABLED: usize = 344;
+    /// `float airTemp` and `float roadTemp`, Celsius.
+    pub const PHYS_AIR_TEMP: usize = 288;
+    pub const PHYS_ROAD_TEMP: usize = 292;
+    /// `float brakeTemp[4]`, Celsius, front left to rear right.
+    pub const PHYS_BRAKE_TEMP: usize = 348;
     /// `float brakeBias`: the front share of the braking, 0..1.
     pub const PHYS_BRAKE_BIAS: usize = 564;
     /// What is copied of Assetto Corsa's physics page: through `brakeBias`.
@@ -121,10 +146,17 @@ mod layout {
     // Graphics, shared prefix.
     pub const GFX_PACKET_ID: usize = 0;
     pub const GFX_STATUS: usize = 4;
+    /// `int session`: -1 unknown, 0 practice, 1 qualify, 2 race, 3 hotlap, 4 time attack, 5 drift, 6 drag.
+    pub const GFX_SESSION: usize = 8;
     pub const GFX_COMPLETED_LAPS: usize = 132;
     pub const GFX_I_CURRENT_TIME: usize = 140;
     pub const GFX_I_LAST_TIME: usize = 144;
     pub const GFX_IS_IN_PIT: usize = 160;
+    /// `int currentSectorIndex` (0 is the first sector) and `int lastSectorTime` (milliseconds).
+    pub const GFX_CURRENT_SECTOR_INDEX: usize = 164;
+    pub const GFX_LAST_SECTOR_TIME: usize = 168;
+    /// `wchar_t tyreCompound[33]`.
+    pub const GFX_TYRE_COMPOUND: usize = 176;
     /// Not read (see the module comment on distance); here for the layout test.
     #[cfg(test)]
     pub const GFX_NORMALIZED_POSITION: usize = 248;
@@ -152,6 +184,8 @@ mod layout {
     pub const STAT_SM_VERSION: usize = 0;
     pub const STAT_CAR_MODEL: usize = 68;
     pub const STAT_TRACK: usize = 134;
+    /// `int sectorCount` (Assetto Corsa's static page, after the three driver names).
+    pub const STAT_SECTOR_COUNT: usize = 400;
     /// The end of `track`: all that is read of Competizione and Rally.
     pub const STAT_PREFIX_LEN: usize = 200;
     // Static, Assetto Corsa only.
@@ -308,6 +342,8 @@ struct KunosSource {
     /// The two packet counters of the last reading handed out.
     last_ids: Option<(i32, i32)>,
     epoch: Instant,
+    /// The first two sectors of the lap being driven (Assetto Corsa).
+    sectors: SectorTracker,
 }
 
 impl KunosSource {
@@ -335,6 +371,7 @@ impl KunosSource {
             gone: false,
             last_ids: None,
             epoch: Instant::now(),
+            sectors: SectorTracker::default(),
         })
     }
 
@@ -371,7 +408,13 @@ impl KunosSource {
             return None;
         }
         self.last_ids = Some(ids);
-        Some(frame_from(self.family, &p, &g, &s, self.epoch.elapsed().as_secs_f64()))
+        let mut frame = frame_from(self.family, &p, &g, &s, self.epoch.elapsed().as_secs_f64());
+        if self.family == Family::Ac && frame.driving {
+            if let Some((sector, last_ms)) = sector_reading(&g, &s) {
+                frame.sectors_ms = self.sectors.update(frame.lap, sector, last_ms);
+            }
+        }
+        Some(frame)
     }
 }
 
@@ -424,6 +467,24 @@ fn within(v: f32, limit: f32) -> f32 {
         v
     } else {
         f32::NAN
+    }
+}
+
+/// Assetto Corsa's sector index and last sector time, for a track with three sectors (anything else gives none: the
+/// third sector is worked out from the lap time, which needs exactly three).
+fn sector_reading(g: &Page, s: &Page) -> Option<(i32, i32)> {
+    (s.i32_at(STAT_SECTOR_COUNT) == 3).then(|| (g.i32_at(GFX_CURRENT_SECTOR_INDEX), g.i32_at(GFX_LAST_SECTOR_TIME)))
+}
+
+/// The kind of session of Assetto Corsa's `session`: hotlap and time attack are timed laps with no one else, which
+/// is practice; drift and drag are not a kind this knows.
+fn session_kind_of(session: i32) -> Option<SessionKind> {
+    match session {
+        0 | 3 | 4 => Some(SessionKind::Practice),
+        1 => Some(SessionKind::Qualifying),
+        2 => Some(SessionKind::Race),
+        5 | 6 => Some(SessionKind::Unknown),
+        _ => None,
     }
 }
 
@@ -553,8 +614,18 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         let psi = p.f32_at(PHYS_WHEELS_PRESSURE + 4 * i);
         let core = p.f32_at(PHYS_TYRE_CORE_TEMPERATURE + 4 * i);
         Tyre {
-            // `brakeTemp[4]` lies past the 256 bytes of the physics page this reader copies: not given.
-            brake_c: f32::NAN,
+            // `brakeTemp[4]` is in the part of the page that Assetto Corsa's layout reaches (and Competizione's, which is
+            // not asked for here).
+            brake_c: if family == Family::Ac {
+                let c = p.f32_at(PHYS_BRAKE_TEMP + 4 * i);
+                if c.is_finite() && c > 0.0 && c <= 2000.0 {
+                    c
+                } else {
+                    f32::NAN
+                }
+            } else {
+                f32::NAN
+            },
             temp_c: if core.is_finite() && core != 0.0 && (-50.0..=400.0).contains(&core) {
                 core
             } else {
@@ -571,6 +642,19 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
     f.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
 
     f.state = state_from(family, p, g, s);
+    if family == Family::Ac {
+        let accel = |at: usize| Some(p.f32_at(at)).filter(|g| g.is_finite() && g.abs() <= 12.0);
+        f.g_lat = accel(PHYS_ACCEL_G);
+        f.g_long = accel(PHYS_ACCEL_G + 8);
+        // Both zero is what a page the game has not filled holds.
+        let (air, road) = (p.f32_at(PHYS_AIR_TEMP), p.f32_at(PHYS_ROAD_TEMP));
+        if !(air == 0.0 && road == 0.0) {
+            f.air_temp_c = Some(air).filter(|c| c.is_finite() && (-60.0..=100.0).contains(c));
+            f.track_temp_c = Some(road).filter(|c| c.is_finite() && (-60.0..=100.0).contains(c));
+        }
+        f.session_kind = session_kind_of(g.i32_at(GFX_SESSION));
+        f.tyre_compound = Some(g.utf16_at(GFX_TYRE_COMPOUND, 33)).filter(|c| !c.is_empty());
+    }
     f.car = s.utf16_at(STAT_CAR_MODEL, 33);
     f.track = s.utf16_at(STAT_TRACK, 33);
 
@@ -951,6 +1035,7 @@ mod tests {
             ("rpms", PHYS_RPMS),
             ("steerAngle", PHYS_STEER),
             ("speedKmh", PHYS_SPEED_KMH),
+            ("accG", PHYS_ACCEL_G),
             ("wheelsPressure", PHYS_WHEELS_PRESSURE),
             ("tyreCoreTemperature", PHYS_TYRE_CORE_TEMPERATURE),
         ] {
@@ -969,6 +1054,9 @@ mod tests {
         let all: Fields = Box::leak(all.into_boxed_slice());
         assert_eq!(offsets(all).1, 800, "Competizione's physics page");
         for (name, at) in [
+            ("airTemp", PHYS_AIR_TEMP),
+            ("roadTemp", PHYS_ROAD_TEMP),
+            ("brakeTemp", PHYS_BRAKE_TEMP),
             ("drsAvailable", PHYS_DRS_AVAILABLE),
             ("drsEnabled", PHYS_DRS_ENABLED),
             ("brakeBias", PHYS_BRAKE_BIAS),
@@ -989,10 +1077,14 @@ mod tests {
         for (name, at) in [
             ("packetId", GFX_PACKET_ID),
             ("status", GFX_STATUS),
+            ("session", GFX_SESSION),
             ("completedLaps", GFX_COMPLETED_LAPS),
             ("iCurrentTime", GFX_I_CURRENT_TIME),
             ("iLastTime", GFX_I_LAST_TIME),
             ("isInPit", GFX_IS_IN_PIT),
+            ("currentSectorIndex", GFX_CURRENT_SECTOR_INDEX),
+            ("lastSectorTime", GFX_LAST_SECTOR_TIME),
+            ("tyreCompound", GFX_TYRE_COMPOUND),
             ("normalizedCarPosition", GFX_NORMALIZED_POSITION),
         ] {
             assert_eq!(offset_of(GRAPHICS_AC, name), at, "AC {name}");
@@ -1026,6 +1118,8 @@ mod tests {
         assert_eq!(offset_of(STATIC, "track") + 33 * W, 200);
         const { assert!(STAT_PREFIX_LEN >= 200) };
         assert_eq!(offset_of(STATIC, "maxTurboBoost"), 452, "where sim_info.py's own struct ends");
+        assert_eq!(offset_of(STATIC, "sectorCount"), STAT_SECTOR_COUNT);
+        const { assert!(STAT_SECTOR_COUNT + 4 <= STAT_AC_LEN) };
         assert_eq!(offset_of(STATIC, "hasDRS"), STAT_AC_HAS_DRS);
         assert_eq!(offset_of(STATIC, "trackSplineLength"), STAT_AC_TRACK_SPLINE_LENGTH);
         assert_eq!(offset_of(STATIC, "trackConfiguration"), STAT_AC_TRACK_CONFIGURATION);
@@ -1371,6 +1465,129 @@ mod tests {
             (f.car.as_str(), f.track.as_str(), f.gear, f.rpm),
             ("ks_ferrari_f40", "monza", 2.0, 7200.0)
         );
+    }
+
+    #[test]
+    fn assetto_corsa_gives_the_g_the_temperatures_the_session_the_compound_and_the_brakes() {
+        let sim = Sim::live("1.7");
+        sim.phys.write(PHYS_ACCEL_G, &1.5f32.to_le_bytes());
+        sim.phys.write(PHYS_ACCEL_G + 4, &1.0f32.to_le_bytes());
+        sim.phys.write(PHYS_ACCEL_G + 8, &(-0.75f32).to_le_bytes());
+        sim.phys.write(PHYS_AIR_TEMP, &21.5f32.to_le_bytes());
+        sim.phys.write(PHYS_ROAD_TEMP, &33.0f32.to_le_bytes());
+        for (i, c) in [310.0f32, 320.0, 250.0, 260.0].into_iter().enumerate() {
+            sim.phys.write(PHYS_BRAKE_TEMP + 4 * i, &c.to_le_bytes());
+        }
+        sim.phys.write(PHYS_WHEELS_PRESSURE, &27.5f32.to_le_bytes());
+        sim.gfx_i32(GFX_SESSION, 1);
+        sim.gfx.write(GFX_TYRE_COMPOUND, &utf16("Soft (S)"));
+        let mut source = open_sim(&sim, processes(&["acs.exe"]));
+        let f = source.next(SOON).expect("a frame");
+        // x is sideways, z along the car; the vertical G is not kept.
+        assert_eq!((f.g_lat, f.g_long), (Some(1.5), Some(-0.75)));
+        assert_eq!((f.air_temp_c, f.track_temp_c), (Some(21.5), Some(33.0)));
+        assert_eq!(f.session_kind, Some(SessionKind::Qualifying));
+        assert_eq!(f.tyre_compound.as_deref(), Some("Soft (S)"));
+        assert_eq!(f.weather, None, "the pages have no weather");
+        let tyres = f.tyres.expect("tyres");
+        assert_eq!(tyres.map(|t| t.brake_c), [310.0, 320.0, 250.0, 260.0]);
+        assert!(approx(tyres[0].pressure_kpa, 27.5 * 6.894_757));
+        // The rest of the frame is what it was.
+        assert_eq!((f.lap, f.sectors_ms), (5, [None, None]));
+    }
+
+    #[test]
+    fn assetto_corsa_values_the_page_has_not_filled_are_not_given() {
+        let sim = Sim::live("1.7");
+        let mut source = open_sim(&sim, processes(&["acs.exe"]));
+        let f = source.next(SOON).expect("a frame");
+        assert_eq!((f.air_temp_c, f.track_temp_c), (None, None), "both zero: nothing set");
+        assert_eq!(f.tyre_compound, None);
+        assert_eq!(f.session_kind, Some(SessionKind::Practice), "session 0 is practice");
+        assert!(f.tyres.is_none() || f.tyres.unwrap().iter().all(|t| t.brake_c.is_nan()));
+        // A G that is not one (the page is garbled) is not given.
+        let mut sim = sim;
+        sim.phys.write(PHYS_ACCEL_G, &9999.0f32.to_le_bytes());
+        sim.phys.write(PHYS_ACCEL_G + 8, &f32::NAN.to_le_bytes());
+        sim.step();
+        let f = source.next(SOON).expect("a frame");
+        assert_eq!((f.g_lat, f.g_long), (None, None));
+    }
+
+    #[test]
+    fn the_session_numbers_map_to_the_kinds_of_session() {
+        for (n, want) in [
+            (-1, None),
+            (0, Some(SessionKind::Practice)),
+            (1, Some(SessionKind::Qualifying)),
+            (2, Some(SessionKind::Race)),
+            (3, Some(SessionKind::Practice)),
+            (4, Some(SessionKind::Practice)),
+            (5, Some(SessionKind::Unknown)),
+            (6, Some(SessionKind::Unknown)),
+            (7, None),
+        ] {
+            assert_eq!(session_kind_of(n), want, "session {n}");
+        }
+    }
+
+    #[test]
+    fn competizione_and_rally_give_none_of_what_version_2_asks_of_assetto_corsa() {
+        for (exe, version) in [("AC2-Win64-Shipping.exe", "1.8.12"), ("acr.exe", "")] {
+            let sim = Sim::live(version);
+            sim.phys.write(PHYS_ACCEL_G, &1.5f32.to_le_bytes());
+            sim.phys.write(PHYS_AIR_TEMP, &21.5f32.to_le_bytes());
+            sim.phys.write(PHYS_BRAKE_TEMP, &310.0f32.to_le_bytes());
+            sim.phys.write(PHYS_WHEELS_PRESSURE, &27.5f32.to_le_bytes());
+            sim.gfx_i32(GFX_SESSION, 2);
+            sim.gfx.write(GFX_TYRE_COMPOUND, &utf16("dry_compound"));
+            sim.stat.write(STAT_SECTOR_COUNT, &3i32.to_le_bytes());
+            let exes: &'static [&'static str] = Box::leak(vec![exe].into_boxed_slice());
+            let mut source = open_sim(&sim, processes(exes));
+            let f = source.next(SOON).expect("a frame");
+            assert_eq!((f.g_lat, f.g_long), (None, None), "{exe}");
+            assert_eq!(
+                (f.air_temp_c, f.track_temp_c, f.session_kind, f.tyre_compound.clone()),
+                (None, None, None, None),
+                "{exe}"
+            );
+            assert_eq!(f.sectors_ms, [None, None], "{exe}");
+            assert!(f.tyres.is_none_or(|t| t.iter().all(|t| t.brake_c.is_nan())), "{exe}");
+        }
+    }
+
+    #[test]
+    fn assetto_corsa_sector_times_are_kept_as_the_car_crosses_each_line() {
+        let mut sim = Sim::live("1.7");
+        sim.stat.write(STAT_SECTOR_COUNT, &3i32.to_le_bytes());
+        let mut source = open_sim(&sim, processes(&["acs.exe"]));
+        let mut next = |sim: &mut Sim, lap_done: i32, sector: i32, last_ms: i32| {
+            sim.gfx_i32(GFX_COMPLETED_LAPS, lap_done);
+            sim.gfx_i32(GFX_CURRENT_SECTOR_INDEX, sector);
+            sim.gfx_i32(GFX_LAST_SECTOR_TIME, last_ms);
+            sim.step();
+            source.next(SOON).expect("a frame").sectors_ms
+        };
+        // Lap 5 is the lap after four completed. The first reading is not a change of sector.
+        assert_eq!(next(&mut sim, 4, 0, 0), [None, None]);
+        assert_eq!(next(&mut sim, 4, 1, 31_200), [Some(31_200), None]);
+        assert_eq!(next(&mut sim, 4, 1, 31_200), [Some(31_200), None]);
+        assert_eq!(next(&mut sim, 4, 2, 28_900), [Some(31_200), Some(28_900)]);
+        // Lap 6: forgotten, and the wrap from the last sector records nothing.
+        assert_eq!(next(&mut sim, 5, 0, 30_000), [None, None]);
+        assert_eq!(next(&mut sim, 5, 1, 30_500), [Some(30_500), None]);
+    }
+
+    #[test]
+    fn a_track_that_has_not_three_sectors_gives_none() {
+        let mut sim = Sim::live("1.7");
+        sim.stat.write(STAT_SECTOR_COUNT, &2i32.to_le_bytes());
+        let mut source = open_sim(&sim, processes(&["acs.exe"]));
+        assert_eq!(source.next(SOON).unwrap().sectors_ms, [None, None]);
+        sim.gfx_i32(GFX_CURRENT_SECTOR_INDEX, 1);
+        sim.gfx_i32(GFX_LAST_SECTOR_TIME, 40_000);
+        sim.step();
+        assert_eq!(source.next(SOON).unwrap().sectors_ms, [None, None]);
     }
 
     #[test]

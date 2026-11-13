@@ -25,6 +25,7 @@ mod dash;
 mod diagnostics;
 #[cfg(windows)]
 mod engine;
+mod extra;
 mod game;
 #[cfg(windows)]
 mod games;
@@ -271,6 +272,36 @@ fn inspect(file: &Path) -> ExitCode {
     );
     if let Some(sectors) = &lap.sectors_ms {
         println!("sectors     {}", sectors.iter().map(|ms| clock(*ms)).collect::<Vec<_>>().join("  "));
+    }
+    if lap.in_lap == Some(true) || lap.out_lap == Some(true) {
+        let which = [(lap.out_lap, "out lap"), (lap.in_lap, "in lap")];
+        println!(
+            "pit laps    {}",
+            which
+                .iter()
+                .filter(|(on, _)| *on == Some(true))
+                .map(|(_, name)| *name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if let Some(id) = &lap.session_id {
+        println!(
+            "session     {id}{}",
+            lap.session_kind.map_or(String::new(), |k| format!(" ({})", k.as_str()))
+        );
+    }
+    let conditions: Vec<String> = [
+        lap.weather.clone(),
+        lap.air_temp_c.map(|c| format!("air {c} C")),
+        lap.track_temp_c.map(|c| format!("track {c} C")),
+        lap.tyre_compound.as_ref().map(|t| format!("tyres {t}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !conditions.is_empty() {
+        println!("conditions  {}", conditions.join(", "));
     }
     println!("started     {}", lap.started_at);
     println!("samples     {} at {} Hz", lap.sample_count(), lap.sample_rate_hz);

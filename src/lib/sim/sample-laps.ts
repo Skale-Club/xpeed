@@ -1,6 +1,9 @@
 import { STANDARD_CHANNELS, type StandardChannelId } from '@/lib/sim/channels';
 import type { LapFile } from '@/lib/sim/lap-file';
 
+/** The channels these sample laps carry: the ones of version 1 of the format. */
+type SampleChannelId = Extract<StandardChannelId, 't' | 'dist' | 'speed' | 'rpm' | 'gear' | 'throttle' | 'brake' | 'clutch' | 'steer' | 'x' | 'y' | 'z' | 'fuel'>;
+
 /**
  * Two laps on a made-up track, for trying the lap screens before there are laps recorded from a game.
  * The track is a closed curve; the speed along it follows the corners (a car can only turn so hard) and
@@ -110,7 +113,7 @@ function drive(track: Track, profile: Float64Array, lapNumber: number): LapFile 
     const f = s - base;
     return array[base % size] * (1 - f) + array[(base + 1) % size] * f;
   };
-  const columns: Record<StandardChannelId, number[]> = {
+  const columns: Record<SampleChannelId, number[]> = {
     t: [], dist: [], speed: [], rpm: [], gear: [], throttle: [], brake: [], clutch: [], steer: [], x: [], y: [], z: [], fuel: [],
   };
   const dt = 1 / SAMPLE_HZ;
@@ -150,7 +153,7 @@ function drive(track: Track, profile: Float64Array, lapNumber: number): LapFile 
   columns.x[columns.x.length - 1] = track.x[0];
   columns.z[columns.z.length - 1] = track.z[0];
 
-  const ids = Object.keys(columns) as StandardChannelId[];
+  const ids = Object.keys(columns) as SampleChannelId[];
   return {
     header: {
       game: 'sample',

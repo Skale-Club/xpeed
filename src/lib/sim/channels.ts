@@ -23,6 +23,31 @@ export const STANDARD_CHANNELS = {
   y: { unit: 'm', description: 'World position, up' },
   z: { unit: 'm', description: 'World position, north' },
   fuel: { unit: 'l', description: 'Fuel in the tank' },
+  // Added in format version 2. Each is present only when the game gives it (a column the game never gave is left
+  // out, not filled with zeros), so a lap from one game can have all of them and a lap from another none. A tyre or a
+  // wheel is named by its place: fl front left, fr front right, rl rear left, rr rear right.
+  tyre_temp_fl: { unit: '°C', description: 'Front left tyre temperature' },
+  tyre_temp_fr: { unit: '°C', description: 'Front right tyre temperature' },
+  tyre_temp_rl: { unit: '°C', description: 'Rear left tyre temperature' },
+  tyre_temp_rr: { unit: '°C', description: 'Rear right tyre temperature' },
+  tyre_press_fl: { unit: 'kPa', description: 'Front left tyre pressure' },
+  tyre_press_fr: { unit: 'kPa', description: 'Front right tyre pressure' },
+  tyre_press_rl: { unit: 'kPa', description: 'Rear left tyre pressure' },
+  tyre_press_rr: { unit: 'kPa', description: 'Rear right tyre pressure' },
+  tyre_wear_fl: { unit: 'ratio', description: 'Front left tyre tread left, 1 new to 0 gone' },
+  tyre_wear_fr: { unit: 'ratio', description: 'Front right tyre tread left, 1 new to 0 gone' },
+  tyre_wear_rl: { unit: 'ratio', description: 'Rear left tyre tread left, 1 new to 0 gone' },
+  tyre_wear_rr: { unit: 'ratio', description: 'Rear right tyre tread left, 1 new to 0 gone' },
+  brake_temp_fl: { unit: '°C', description: 'Front left brake temperature' },
+  brake_temp_fr: { unit: '°C', description: 'Front right brake temperature' },
+  brake_temp_rl: { unit: '°C', description: 'Rear left brake temperature' },
+  brake_temp_rr: { unit: '°C', description: 'Rear right brake temperature' },
+  g_lat: { unit: 'g', description: 'Lateral acceleration of the car, positive toward its right (a right-hand corner)' },
+  g_long: { unit: 'g', description: 'Longitudinal acceleration of the car, positive forward (accelerating)' },
+  damage_body: { unit: 'ratio', description: 'Bodywork damage, 0 none to 1 destroyed' },
+  drs: { unit: 'state', description: 'Rear wing (DRS): 0 not allowed, 1 allowed, 2 open' },
+  tc_active: { unit: 'flag', description: 'Traction control is acting: 0 or 1' },
+  abs_active: { unit: 'flag', description: 'ABS is acting: 0 or 1' },
 } as const;
 
 export type StandardChannelId = keyof typeof STANDARD_CHANNELS;
