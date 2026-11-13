@@ -55,6 +55,15 @@
       "virtualHint": "Sesiones, vueltas y comparaciones de tu simulador.",
       "lastOne": "Mantén al menos un modo activado."
     },
+    "offer": {
+      "virtualTitle": "Juegos de carreras está desactivado",
+      "virtualBody": "Esta página es parte de Juegos de carreras: sesiones y vueltas de tu simulador y la conexión con Xpeed Sim. Actívalo para continuar.",
+      "realTitle": "Coche real está desactivado",
+      "realBody": "Esta página es parte de Coche real: viajes, problemas, combustible y mantenimiento. Actívalo para continuar.",
+      "later": "Puedes desactivarlo de nuevo en Ajustes.",
+      "turnOn": "Activar",
+      "notNow": "Ahora no"
+    },
     "onboard": {
       "title": "¿Para qué quieres usar Xpeed?",
       "hint": "Puedes cambiarlo más tarde en Ajustes.",

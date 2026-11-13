@@ -55,6 +55,15 @@
       "virtualHint": "Sessões, voltas e comparações do seu simulador.",
       "lastOne": "Mantenha pelo menos um modo ligado."
     },
+    "offer": {
+      "virtualTitle": "Jogos de corrida está desligado",
+      "virtualBody": "Esta página faz parte de Jogos de corrida: sessões e voltas do seu simulador e a conexão com o Xpeed Sim. Ligue para continuar.",
+      "realTitle": "Carro real está desligado",
+      "realBody": "Esta página faz parte de Carro real: viagens, problemas, combustível e manutenção. Ligue para continuar.",
+      "later": "Você pode desligar de novo em Configurações.",
+      "turnOn": "Ligar",
+      "notNow": "Agora não"
+    },
     "onboard": {
       "title": "Para que você quer usar o Xpeed?",
       "hint": "Você pode mudar isso depois em Ajustes.",

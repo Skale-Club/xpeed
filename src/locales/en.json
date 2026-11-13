@@ -55,6 +55,15 @@
       "virtualHint": "Sessions, laps and comparisons from your simulator.",
       "lastOne": "Keep at least one mode on."
     },
+    "offer": {
+      "virtualTitle": "Racing games is off",
+      "virtualBody": "This page is part of Racing games: your simulator sessions, laps and the Xpeed Sim connection. Turn it on to continue.",
+      "realTitle": "Real car is off",
+      "realBody": "This page is part of Real car: trips, problems, fuel and maintenance. Turn it on to continue.",
+      "later": "You can turn it off again in Settings.",
+      "turnOn": "Turn it on",
+      "notNow": "Not now"
+    },
     "onboard": {
       "title": "What do you want to use Xpeed for?",
       "hint": "You can change this later in Settings.",
