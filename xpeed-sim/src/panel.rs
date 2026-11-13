@@ -1313,14 +1313,16 @@ fn delta_text(d: Option<f64>) -> String {
 }
 
 /// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
-/// reverse; the top gear is not known to every game, so there is always one above a forward gear.
-fn neighbour_gears(gear: f32) -> (Option<String>, Option<String>) {
+/// reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known; when it is not, there
+/// is always one above a forward gear.
+fn neighbour_gears(gear: f32, gears: Option<u8>) -> (Option<String>, Option<String>) {
     if !gear.is_finite() {
         return (None, None);
     }
     let g = gear.round() as i32;
     let below = (g > -1).then(|| gear_text((g - 1) as f32));
-    let above = Some(gear_text((g + 1) as f32));
+    let in_top_gear = g >= 1 && gears.is_some_and(|count| g >= i32::from(count));
+    let above = (!in_top_gear).then(|| gear_text((g + 1) as f32));
     (below, above)
 }
 
@@ -2127,7 +2129,7 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     }
     let r = g.r(152.0, 186.0, 296.0, 188.0);
     g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let (below, above) = neighbour_gears(live.gear);
+    let (below, above) = neighbour_gears(live.gear, live.gears);
     for (gear, x) in [(below, 184.0), (above, 376.0)] {
         if let Some(gear) = gear {
             let (gw, gh) = (40.0, 52.0);
@@ -2393,7 +2395,7 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     }
     let r = g.r(352.0, 172.0, 296.0, 188.0);
     g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let (below, above) = neighbour_gears(live.gear);
+    let (below, above) = neighbour_gears(live.gear, live.gears);
     for (gear, x) in [(below, 384.0), (above, 576.0)] {
         if let Some(gear) = gear {
             let (w, h) = (40.0, 52.0);
@@ -4362,11 +4364,36 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn shows_the_gears_either_side() {
-        assert_eq!(neighbour_gears(4.0), (Some("3".into()), Some("5".into())));
-        assert_eq!(neighbour_gears(1.0), (Some("N".into()), Some("2".into())));
-        assert_eq!(neighbour_gears(0.0), (Some("R".into()), Some("1".into())));
-        assert_eq!(neighbour_gears(-1.0), (None, Some("N".into())));
-        assert_eq!(neighbour_gears(f32::NAN), (None, None));
+        assert_eq!(neighbour_gears(4.0, None), (Some("3".into()), Some("5".into())));
+        assert_eq!(neighbour_gears(1.0, None), (Some("N".into()), Some("2".into())));
+        assert_eq!(neighbour_gears(0.0, None), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0, None), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN, None), (None, None));
+        assert_eq!(
+            neighbour_gears(6.0, None),
+            (Some("5".into()), Some("7".into())),
+            "unknown count: as before"
+        );
+    }
+
+    #[test]
+    fn the_top_gear_has_nothing_above_it_when_the_count_is_known() {
+        assert_eq!(
+            neighbour_gears(6.0, Some(6)),
+            (Some("5".into()), None),
+            "top gear of a 6-speed: no 7"
+        );
+        assert_eq!(neighbour_gears(5.0, Some(6)), (Some("4".into()), Some("6".into())));
+        assert_eq!(
+            neighbour_gears(7.0, Some(6)),
+            (Some("6".into()), None),
+            "past the count is still the top"
+        );
+        assert_eq!(neighbour_gears(1.0, Some(1)), (Some("N".into()), None), "a one-speed car");
+        // Neutral and reverse keep their neighbours whatever the count.
+        assert_eq!(neighbour_gears(0.0, Some(6)), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0, Some(6)), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN, Some(6)), (None, None));
     }
 
     #[test]

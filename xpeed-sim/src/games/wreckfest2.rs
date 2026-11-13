@@ -105,6 +105,8 @@ mod layout {
     // reserved 14.
     const DRIVELINE: usize = CAR + 8 + 52; // type u8, gear u8, gearMax u8, speed f32, reserved 17
     pub const GEAR_AT: usize = DRIVELINE + 1; // 0 = R, 1 = N, 2 = 1st ...
+    /// `gearMax`: "max forward gear AKA top gear, maxGear = 5 -> 5th is max" (TelemetryDataFormatPino.h).
+    pub const GEAR_MAX_AT: usize = DRIVELINE + 2;
     pub const DRIVELINE_SPEED_AT: usize = DRIVELINE + 3;
     const ENGINE: usize = DRIVELINE + 24; // flags u8, rpm s32, rpmMax, rpmRedline, rpmIdle, 6 x f32, reserved 15
     pub const RPM_AT: usize = ENGINE + 1;
@@ -201,6 +203,7 @@ struct Main {
     car_id: String,
     car_name: String,
     gear: u8,
+    gear_max: u8,
     driveline_speed: f32,
     rpm: i32,
     throttle: f32,
@@ -246,6 +249,7 @@ impl Main {
             car_id: p.ascii_at(CAR_ID_AT, CAR_ID_LEN),
             car_name: p.ascii_at(CAR_NAME_AT, CAR_NAME_LEN),
             gear: p.u8_at(GEAR_AT),
+            gear_max: p.u8_at(GEAR_MAX_AT),
             driveline_speed: p.f32_at(DRIVELINE_SPEED_AT),
             rpm: p.i32_at(RPM_AT),
             throttle: p.f32_at(THROTTLE_AT),
@@ -312,6 +316,8 @@ impl Main {
         f.rpm = if self.rpm >= 0 { self.rpm as f32 } else { f32::NAN };
         // 0 = reverse, 1 = neutral, 2 = first: the frame has -1, 0, 1.
         f.gear = if self.gear <= 20 { f32::from(self.gear) - 1.0 } else { f32::NAN };
+        // `gearMax` is the top forward gear, so it is also how many there are; 0 is unset.
+        f.gears = (1..=20).contains(&self.gear_max).then_some(self.gear_max);
         f.throttle = clamped(self.throttle, 0.0, 1.0);
         f.brake = clamped(self.brake, 0.0, 1.0);
         f.clutch = clamped(self.clutch, 0.0, 1.0);
@@ -798,6 +804,7 @@ mod tests {
         sector_count: u8,
         game_mode: u8,
         gear: u8,
+        gear_max: u8,
         speedo: f32,
         rpm: i32,
         throttle: f32,
@@ -829,6 +836,7 @@ mod tests {
                 sector_count: 3,
                 game_mode: 0,
                 gear: 3,
+                gear_max: 5,
                 speedo: 55.5,
                 rpm: 6543,
                 throttle: 0.75,
@@ -909,7 +917,7 @@ mod tests {
         // driveline
         w.u8(1);
         w.u8(s.gear);
-        w.u8(5);
+        w.u8(s.gear_max);
         w.f32(s.speedo);
         w.junk(17);
         // engine
@@ -1013,11 +1021,24 @@ mod tests {
         assert_eq!(f.speed_ms, 5.0, "the length of the velocity (3, 0, 4), not the speedometer's 55.5");
         assert_eq!(f.rpm, 6543.0);
         assert_eq!(f.gear, 2.0, "the header's 3 is second gear");
+        assert_eq!(f.gears, Some(5), "gearMax 5: fifth is the top gear");
         assert_eq!((f.throttle, f.brake, f.clutch, f.steer), (0.75, 0.25, 0.5, -0.5));
         assert_eq!((f.x, f.y, f.z), (101.5, 2.25, -303.75));
         assert!(f.fuel_l.is_nan());
         assert_eq!((f.car.as_str(), f.track.as_str()), ("Rocket", "Savolax Sandpit Reverse"));
         assert_eq!((f.car_class, f.track_variant, f.track_length_m), (None, None, Some(3000.0)));
+    }
+
+    #[test]
+    fn the_top_gear_of_the_header_is_the_gear_count_when_set() {
+        let gears = |m: u8| {
+            parse_frame(&Scene {
+                gear_max: m,
+                ..Scene::racing()
+            })
+            .gears
+        };
+        assert_eq!((gears(6), gears(0), gears(200)), (Some(6), None, None));
     }
 
     #[test]
