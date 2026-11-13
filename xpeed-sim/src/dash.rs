@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::game::{Frame, Tyre};
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
+use crate::maps::Store;
 
 /// Le Mans Ultimate's two streams as one `Frame`, for the panel only (its laps are cut by `recorder.rs`).
 ///
@@ -27,6 +28,9 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     frame.clutch = t.clutch as f32;
     frame.steer = t.steering as f32;
     frame.fuel_l = t.fuel_l as f32;
+    // The car's place in the world, for the track map; a reading that is not finite or absurd is not given.
+    let place = |v: f64| if v.is_finite() && v.abs() <= 1.0e7 { v as f32 } else { f32::NAN };
+    (frame.x, frame.y, frame.z) = (place(t.pos[0]), place(t.pos[1]), place(t.pos[2]));
     let tyres: [Tyre; 4] = std::array::from_fn(|i| {
         let w = &t.wheels[i];
         let kelvin = w.temperature_k.iter().sum::<f64>() / 3.0;
@@ -116,8 +120,12 @@ type Path = Vec<(f32, f32)>;
 /// Keeps what the delta needs: the lap being driven, and the best one so far.
 #[derive(Default)]
 pub struct Tracker {
-    /// Track and car the best lap belongs to; a change starts over.
-    key: Option<(String, String)>,
+    /// Track, car and layout the best lap belongs to; a change starts over.
+    key: Option<(String, String, Option<String>)>,
+    /// Where maps are kept between sessions; none in tests and the demo.
+    store: Option<Store>,
+    /// The map is the real layout the game's files gave: laps do not replace it.
+    map_is_layout: bool,
     lap: i32,
     current: Profile,
     /// Seen from the line: a lap joined midway has no delta and cannot become the best.
@@ -144,23 +152,40 @@ const MAP_MIN_POINTS: usize = 30;
 const FULL_LAP_SHARE: f64 = 0.9;
 
 impl Tracker {
+    /// A tracker that keeps each track's map on disk and starts from it (see `maps.rs`).
+    pub fn stored(store: Store) -> Tracker {
+        Tracker {
+            store: Some(store),
+            ..Tracker::default()
+        }
+    }
+
     pub fn on_frame(&mut self, game: &'static str, frame: &Frame, at_ms: i64) -> Live {
-        let key = (frame.track.clone(), frame.car.clone());
+        let key = (frame.track.clone(), frame.car.clone(), frame.track_variant.clone());
         if self.key.as_ref() != Some(&key) {
             *self = Tracker {
                 key: Some(key),
                 lap: frame.lap,
+                store: self.store.take(),
                 ..Tracker::default()
             };
+            // A track seen before has its map from the first frame (the real layout when there is one).
+            if let (Some(store), false) = (&self.store, frame.track.is_empty()) {
+                if let Some(path) = store.start(&frame.track, frame.track_variant.as_deref()) {
+                    self.map_is_layout = store.layout(&frame.track, frame.track_variant.as_deref()).is_some();
+                    self.map = Some(Arc::new(path));
+                }
+            }
         }
         if frame.lap != self.lap {
+            self.look_for_layout();
             // The lap ended: keep it until its official time shows (it can come a moment after the new lap starts),
             // with the official time that was showing while it was driven (the one before it).
             let done = std::mem::take(&mut self.current);
             let done_path = std::mem::take(&mut self.path);
             let full = self.current_from_line && is_full(&done, frame.track_length_m);
             if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
-                self.map = Some(Arc::new(done_path.clone()));
+                self.keep_map(done_path.clone());
             }
             self.finished = full.then_some((done, done_path, self.official));
             self.lap = frame.lap;
@@ -238,8 +263,31 @@ impl Tracker {
     fn offer_best(&mut self, time: f64, profile: Profile, path: Path) {
         if self.best.as_ref().is_none_or(|(best, _)| time < *best) {
             self.best = Some((time, profile));
-            if path.len() >= MAP_MIN_POINTS {
+            if path.len() >= MAP_MIN_POINTS && !self.map_is_layout {
+                self.keep_map(path);
+            }
+        }
+    }
+
+    /// Makes `path` the map and saves it for this track, so the next session starts with it.
+    fn keep_map(&mut self, path: Path) {
+        if let (Some(store), Some((track, _, variant))) = (&self.store, &self.key) {
+            if let Err(error) = store.save(track, variant.as_deref(), &path) {
+                crate::applog::line(&format!("Cannot keep the map of {track}: {error}"));
+            }
+        }
+        self.map = Some(Arc::new(path));
+    }
+
+    /// The layout is built a moment after the game says its track: take it once it is there.
+    fn look_for_layout(&mut self) {
+        if self.map_is_layout {
+            return;
+        }
+        if let (Some(store), Some((track, _, variant))) = (&self.store, &self.key) {
+            if let Some(path) = store.layout(track, variant.as_deref()) {
                 self.map = Some(Arc::new(path));
+                self.map_is_layout = true;
             }
         }
     }
@@ -463,6 +511,69 @@ mod tests {
             }; 4],
         );
         assert_eq!(tracker.on_frame("Test", &tyred, 0).tyres.unwrap()[2].temp_c, 85.0);
+    }
+
+    #[test]
+    fn a_le_mans_ultimate_frame_carries_the_car_position_for_the_map() {
+        let t = PlayerTelemetry {
+            pos: [120.5, 3.0, -840.25],
+            ..PlayerTelemetry::default()
+        };
+        let frame = lmu_frame(&t, None);
+        assert_eq!((frame.x, frame.y, frame.z), (120.5, 3.0, -840.25));
+        let mut tracker = Tracker::default();
+        assert_eq!(tracker.on_frame("Le Mans Ultimate", &frame, 0).pos, Some((120.5, -840.25)));
+        for bad in [f64::NAN, f64::INFINITY, 1.0e12] {
+            let t = PlayerTelemetry {
+                pos: [bad, 0.0, bad],
+                ..PlayerTelemetry::default()
+            };
+            let frame = lmu_frame(&t, None);
+            assert!(frame.x.is_nan() && frame.z.is_nan(), "{bad} is not a position");
+        }
+    }
+
+    #[test]
+    fn a_saved_map_is_offered_at_once_for_its_track_only() {
+        let dir = crate::config::scratch_dir("dash-maps");
+        let store = || Store {
+            maps: dir.join("maps"),
+            layouts: dir.join("tracks"),
+            game: "lmu",
+        };
+        let lap = |tracker: &mut Tracker, lap: i32, last: Option<f64>, radius: f32, track: &str| {
+            let mut out = Vec::new();
+            for i in 0..200 {
+                let mut frame = at(lap, i as f64 * 5.0, i as f64 * 0.1, last);
+                frame.track = track.into();
+                let a = i as f32 / 200.0 * std::f32::consts::TAU;
+                (frame.x, frame.z) = (radius * a.cos(), radius * a.sin());
+                out.push(tracker.on_frame("Test", &frame, 0));
+            }
+            out
+        };
+        let mut first = Tracker::stored(store());
+        let one = lap(&mut first, 1, None, 160.0, "Monza");
+        assert!(one[0].map.is_none(), "nothing saved yet");
+        lap(&mut first, 2, Some(20.0), 210.0, "Monza");
+        assert!(
+            store().load("Monza", None).is_some_and(|m| m.len() > 100),
+            "the first full lap was saved"
+        );
+        // Lap 2 (19 s) is the best lap once lap 3 shows its time: its path replaces the first, and the file follows.
+        lap(&mut first, 3, Some(19.0), 160.0, "Monza");
+        assert_eq!(store().load("Monza", None).unwrap()[0], (210.0, 0.0));
+
+        // A new session: the map is there from the first frame, on that track only.
+        let mut next = Tracker::stored(store());
+        let again = lap(&mut next, 1, None, 50.0, "Monza");
+        assert_eq!(again[0].map.as_ref().unwrap()[0], (210.0, 0.0));
+        let mut other = Tracker::stored(store());
+        assert!(lap(&mut other, 1, None, 50.0, "Spa")[0].map.is_none());
+        // Moving to another track on the same tracker drops the old track's map.
+        let mut moved = Tracker::stored(store());
+        lap(&mut moved, 1, None, 50.0, "Monza");
+        assert!(lap(&mut moved, 1, None, 50.0, "Spa")[0].map.is_none());
     }
 
     #[test]

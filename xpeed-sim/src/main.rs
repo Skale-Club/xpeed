@@ -31,6 +31,7 @@ mod lapcut;
 mod lapfile;
 mod link;
 mod lmu;
+mod maps;
 mod net;
 mod outbox;
 #[cfg(windows)]
