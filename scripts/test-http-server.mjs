@@ -23,7 +23,9 @@ test('container serves the SPA, API guards, OAuth metadata and bounded requests'
   // Track layouts: the routes under /api/sim/tracks/ reach the handler, and its body may be up to 33 MB (not 2 MB).
   assert.equal((await fetch(base+'/api/sim/tracks/00000000-0000-4000-8000-000000000000/file',{method:'OPTIONS'})).status,204);
   assert.notEqual((await fetch(base+'/api/sim/tracks',{method:'POST',headers:{'content-type':'application/gzip'},body:new Uint8Array(3*1024*1024)})).status,413);
-  assert.equal((await fetch(base+'/api/sim/tracks',{method:'POST',headers:{'content-type':'application/gzip'},body:new Uint8Array(33*1024*1024+1)})).status,413);
+  // An upload is authenticated before its body is read, so a stranger sending 33 MB gets 401, never a read of the body
+  // (the 413 for an oversized body from a known device is covered in scripts/verify-sim.mjs).
+  assert.equal((await fetch(base+'/api/sim/tracks',{method:'POST',headers:{'content-type':'application/gzip'},body:new Uint8Array(33*1024*1024+1)})).status,401);
   assert.match(health.headers.get('content-security-policy'),/accounts.google.com/);
  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
