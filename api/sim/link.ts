@@ -1,12 +1,15 @@
 // Connect Xpeed Companion to an account without a code (a device authorization flow). Contract:
-//   POST /api/sim/link                    the app starts a request with sha256 of its own device key (no auth)
-//   GET  /api/sim/link/<id>               the signed-in person reads it
+//   POST /api/sim/link                    the app starts a request with sha256 of its own device key (no auth): 201 {id, expiresAt, verifyCode}
+//   GET  /api/sim/link/<id>               the signed-in person reads it: {deviceName, deviceNameFromComputer: true, verifyCode, status, expiresAt}
 //   POST /api/sim/link/<id>/approve       the signed-in person connects the computer (creates the sim_devices row)
 //   POST /api/sim/link/<id>/cancel        the signed-in person says no
 //   POST /api/sim/link/<id>/poll          the app, with its device key as Bearer, asks how it stands
 // The key never travels and is never stored: only its hash is, and approving makes it a normal device.
+// verifyCode: 4 characters (see verifyCode in _shared.ts) that this page and the app both show, so a look-alike page that
+// somebody else's computer started cannot pass for the person's own. The computer's name is chosen by the computer and is
+// not checked, which is why the page says so.
 import { openBackend, type Backend } from '../_backend';
-import { bearer, browserHeaders, clientIp, reply, sha256Hex, tooMany } from './_shared';
+import { bearer, browserHeaders, clientIp, reply, sha256Hex, tooMany, verifyCode } from './_shared';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASH = /^[0-9a-f]{64}$/;
@@ -14,8 +17,8 @@ const HASH = /^[0-9a-f]{64}$/;
 type Answer = (body: unknown, status?: number, extra?: Record<string, string>) => Response;
 
 export default async function link(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders });
-  const answer: Answer = (body, status = 200, extra = {}) => reply(body, status, { ...browserHeaders, ...extra });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
+  const answer: Answer = (body, status = 200, extra = {}) => reply(body, status, { ...browserHeaders(req), ...extra });
   const parts = new URL(req.url).pathname.replace(/\/$/, '').split('/').slice(3); // after /api/sim
   if (parts[0] !== 'link' || parts.length > 3) return answer({ error: 'not_found' }, 404);
   const id = parts[1];
@@ -55,13 +58,16 @@ export default async function link(req: Request): Promise<Response> {
       if (req.method !== 'GET') return answer({ error: 'method_not_allowed' }, 405, { Allow: 'GET' });
       const read = await backend.service.rpc('sim_link_read', { p_id: lower });
       if (read.error) throw read.error;
-      const row = read.data as { device_name?: string; status?: string; expires_at?: string } | null;
+      const row = read.data as { device_name?: string; status?: string; expires_at?: string; token_hash?: string } | null;
       if (!row?.status) return answer({ error: 'not_found' }, 404);
-      return answer({ deviceName: row.device_name, status: row.status, expiresAt: row.expires_at });
+      return answer({
+        deviceName: row.device_name, deviceNameFromComputer: true, verifyCode: row.token_hash ? verifyCode(lower, row.token_hash) : '',
+        status: row.status, expiresAt: row.expires_at,
+      });
     }
     if (action === 'approve' || action === 'cancel') {
       if (req.method !== 'POST') return answer({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
-      return action === 'approve' ? await approve(backend, lower, userId, answer) : await cancel(backend, lower, answer);
+      return action === 'approve' ? await approve(backend, lower, userId, answer) : await cancel(backend, lower, userId, answer);
     }
     return answer({ error: 'not_found' }, 404);
   } catch (error) {
@@ -88,7 +94,7 @@ async function start(req: Request, answer: Answer): Promise<Response> {
     const made = await backend.service.rpc('sim_link_create', { p_name: name, p_token_hash: tokenHash });
     if (made.error) throw made.error;
     const row = made.data as { status?: string; id?: string; expires_at?: string } | null;
-    if (row?.status === 'ok' && row.id) return answer({ id: row.id, expiresAt: new Date(row.expires_at ?? Date.now() + 600_000).toISOString() }, 201);
+    if (row?.status === 'ok' && row.id) return answer({ id: row.id, expiresAt: new Date(row.expires_at ?? Date.now() + 600_000).toISOString(), verifyCode: verifyCode(row.id, tokenHash) }, 201);
     if (row?.status === 'exists') return answer({ error: 'invalid_request' }, 409);
     throw new Error('unexpected sim_link_create answer');
   } catch (error) {
@@ -110,8 +116,9 @@ async function approve(backend: Backend, id: string, userId: string, answer: Ans
   }
 }
 
-async function cancel(backend: Backend, id: string, answer: Answer): Promise<Response> {
-  const result = await backend.service.rpc('sim_link_cancel', { p_id: id });
+// Whoever is signed in may say no, but only while the request is pending; the one who did is kept, as approving keeps its person.
+async function cancel(backend: Backend, id: string, userId: string, answer: Answer): Promise<Response> {
+  const result = await backend.service.rpc('sim_link_cancel', { p_id: id, p_user_id: userId });
   if (result.error) throw result.error;
   const row = result.data as { status?: string } | null;
   if (row?.status === 'ok') return answer({ status: 'cancelled' });

@@ -64,6 +64,8 @@ O servidor **abre o arquivo com o leitor estrito** do formato (o mesmo do app) e
 | `404`, `405`, `501` | Este servidor ainda não recebe voltas. | Como acima, com a mensagem "este servidor não recebe voltas". |
 | `3xx` | Endereço mudou. | Como acima, com a mensagem de usar o endereço final. |
 
+Antes de ler o corpo, o servidor confere a chave (`401` sem corpo lido), o `content-length` (`413 {"error":"too_large"}`) e tem no máximo **4 envios de voltas e pistas ao mesmo tempo**: o quinto recebe `503 {"error":"busy","retryable":true}` com `Retry-After: 5`. Toda recusa de envio traz `"retryable": true|false` no JSON (os códigos `error` não mudam): `false` é definitivo, `true` pode tentar de novo depois. Todo `429` e `503` traz `Retry-After`.
+
 Limites do lado do servidor: **16 MiB** por arquivo (o Xpeed Sim já nem tenta enviar mais que isso), 60 envios por minuto por aparelho, **5.000 voltas por conta** (acima disso, `422`) e os limites do próprio formato. O arquivo fica no volume, no balde privado `sim-laps`, em `<conta>/<hash da identidade>.xlap.gz`.
 
 ## 2b. Envio do traçado de uma pista

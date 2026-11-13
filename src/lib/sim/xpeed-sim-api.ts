@@ -48,6 +48,10 @@ export const revokeDevice = (id: string) => call<{ revoked: boolean }>(`/api/sim
 export type LinkStatus = 'pending' | 'approved' | 'cancelled' | 'expired';
 export interface LinkRequest {
   deviceName: string;
+  /** The name is chosen by the computer that made the request and is not checked (always true from this server). */
+  deviceNameFromComputer?: boolean;
+  /** 4 characters Xpeed Companion shows too; the person compares them before connecting. Absent from an older server. */
+  verifyCode?: string;
   status: LinkStatus;
   expiresAt: string;
 }

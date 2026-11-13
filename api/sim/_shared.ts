@@ -2,6 +2,7 @@
 // management of their devices). Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md.
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import type { LapHeader } from '../../src/lib/sim/lap-file';
+import { corsHeaders } from '../../server/cors';
 
 export const MAX_LAP_BYTES = 16 * 1024 * 1024;
 /// Laps one account may keep on the server.
@@ -11,17 +12,29 @@ export const MAX_TRACK_BYTES = 32 * 1024 * 1024;
 /// Track layouts one account may keep on the server (one per game, track and layout).
 export const MAX_TRACKS_PER_ACCOUNT = 500;
 
-export const reply = (body: unknown, status = 200, extra: Record<string, string> = {}) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', ...extra },
-  });
+/** How long a client is told to wait when a refusal (429, 503) did not say: a rate limit resets within the minute, an outage may not. */
+const DEFAULT_RETRY_AFTER: Record<number, string> = { 429: '60', 503: '10' };
 
-/** Same headers on every answer to a browser of the app; Xpeed Companion is not a browser and ignores them. */
-export const browserHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+export const reply = (body: unknown, status = 200, extra: Record<string, string> = {}) => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', ...extra };
+  // Every 429 and 503 says when to come back, so a client never has to guess.
+  const retry = DEFAULT_RETRY_AFTER[status];
+  if (retry && !Object.keys(headers).some((name) => name.toLowerCase() === 'retry-after')) headers['Retry-After'] = retry;
+  return new Response(JSON.stringify(body), { status, headers });
+};
+
+/** A refusal of an upload from Xpeed Companion: `retryable` tells it whether sending the same file again can work. */
+export const refuse = (body: Record<string, unknown>, status: number, retryable: boolean, extra: Record<string, string> = {}) =>
+  reply({ ...body, retryable }, status, extra);
+
+/**
+ * Headers for every answer to a browser of the app. The origin is echoed only when the app's own allowlist
+ * (server/cors.ts) knows it, and the answer varies by Origin; Xpeed Companion is not a browser and ignores them.
+ */
+export const browserHeaders = (req: Request): Record<string, string> => {
+  let own: string[] = [];
+  try { if (process.env.PUBLIC_APP_URL) own = [new URL(process.env.PUBLIC_APP_URL).origin]; } catch { /* a bad address allows nothing extra */ }
+  return corsHeaders(req, 'GET, POST, DELETE, OPTIONS', own);
 };
 
 export const sha256Hex = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -37,8 +50,17 @@ export const readCode = (input: unknown): string | null => {
   return /^[A-Z0-9]{6,32}$/.test(code) ? code : null;
 };
 
+/**
+ * The 4 characters the connect page and Xpeed Companion both show, so the person can tell the request on screen is the one
+ * their computer made: the first four bytes of sha256(id + tokenHash), each mapped onto the code alphabet (256 is a
+ * multiple of 32, so every letter is equally likely). `id` is the request's uuid and `tokenHash` the sha256 hex of the
+ * device key, both lowercase. Nothing is stored: the server derives it again whenever it is asked.
+ */
+export const verifyCode = (id: string, tokenHash: string) =>
+  Array.from(createHash('sha256').update(id.toLowerCase() + tokenHash.toLowerCase()).digest().subarray(0, 4), (byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join('');
+
 export const newDeviceKey = () => `xpd_${randomBytes(32).toString('base64url')}`;
-export const bearer = (req: Request) => req.headers.get('authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? '';
+export const bearer = (req: { headers: Headers }) => req.headers.get('authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? '';
 
 /** game|track|car|startedAt|lapNumber|timeMs|sampleCount: the identity the app keeps laps under on the device. */
 export const lapIdentity = (h: LapHeader) =>

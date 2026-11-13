@@ -10,7 +10,8 @@
 import { createHash } from 'node:crypto';
 import { openBackend } from '../_backend';
 import { gunzipTrack, TrackFormatError, trackKey, type TrackFile } from '../../src/lib/sim/track-file';
-import { bearer, browserHeaders, MAX_TRACK_BYTES, MAX_TRACKS_PER_ACCOUNT, reply, sha256Hex, tooMany } from './_shared';
+import { bearer, browserHeaders, MAX_TRACK_BYTES, MAX_TRACKS_PER_ACCOUNT, refuse, reply, sha256Hex, tooMany } from './_shared';
+import { authenticateDevice, rememberedDevice } from './_upload';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUCKET = 'sim-tracks';
@@ -31,8 +32,8 @@ function route(pathname: string): { id?: string; file?: boolean } | null {
 }
 
 export default async function tracks(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders });
-  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders, ...extra });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
+  const answer = (body: unknown, status = 200, extra: Record<string, string> = {}) => reply(body, status, { ...browserHeaders(req), ...extra });
   const where = route(new URL(req.url).pathname);
   if (!where) return answer({ error: 'not_found' }, 404);
   if (!where.id) {
@@ -53,28 +54,27 @@ type Answer = (body: unknown, status?: number, extra?: Record<string, string>) =
 /** Xpeed Companion sends a layout. Not a browser: no CORS headers, like /api/sim/laps. */
 async function receive(req: Request): Promise<Response> {
   const backend = openBackend();
-  if (!backend) return reply({ error: 'unavailable' }, 503);
+  if (!backend) return refuse({ error: 'unavailable' }, 503, true);
   const key = bearer(req);
-  if (!key) return reply({ error: 'unauthorized' }, 401);
+  if (!key) return refuse({ error: 'unauthorized' }, 401, false);
   const declared = Number(req.headers.get('content-length') ?? '0');
-  if (declared > MAX_TRACK_BYTES) return reply({ error: 'too_large' }, 413);
+  if (declared > MAX_TRACK_BYTES) return refuse({ error: 'too_large' }, 413, false);
   const type = (req.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-  if (type !== 'application/gzip') return reply({ error: 'unsupported_media_type' }, 415);
+  if (type !== 'application/gzip') return refuse({ error: 'unsupported_media_type' }, 415, false);
 
   try {
-    const who = await backend.service.rpc('sim_authenticate_device', { p_token_hash: sha256Hex(key) });
-    if (who.error) throw who.error;
-    const device = who.data as { user_id?: string; device_id?: string } | null;
-    if (!device?.user_id || !device.device_id) return reply({ error: 'unauthorized' }, 401);
-    const { user_id: userId, device_id: deviceId } = device;
+    // The server checked the key before it read the body; asked again only when this handler is called on its own.
+    const device = rememberedDevice(req) ?? await authenticateDevice(backend, key);
+    if (!device) return refuse({ error: 'unauthorized' }, 401, false);
+    const { userId, deviceId } = device;
 
     // A computer sends a layout once per track (and again when the game's files change): a few a minute is plenty.
     const wait = tooMany(`track:${deviceId}`, 20, 60_000);
-    if (wait) return reply({ error: 'too_many_requests' }, 429, { 'Retry-After': String(wait) });
+    if (wait) return refuse({ error: 'too_many_requests' }, 429, true, { 'Retry-After': String(wait) });
 
     const bytes = new Uint8Array(await req.arrayBuffer());
-    if (bytes.length === 0) return reply({ error: 'empty_body' }, 400);
-    if (bytes.length > MAX_TRACK_BYTES) return reply({ error: 'too_large' }, 413);
+    if (bytes.length === 0) return refuse({ error: 'empty_body' }, 400, false);
+    if (bytes.length > MAX_TRACK_BYTES) return refuse({ error: 'too_large' }, 413, false);
 
     let track: TrackFile;
     try {
@@ -82,8 +82,8 @@ async function receive(req: Request): Promise<Response> {
       track = await gunzipTrack(bytes);
     } catch (error) {
       if (error instanceof TrackFormatError) {
-        if (error.code === 'too_large') return reply({ error: 'too_large', message: error.message.slice(0, 200) }, 413);
-        return reply({ error: 'bad_track', code: error.code, message: error.message.slice(0, 200) }, 422);
+        if (error.code === 'too_large') return refuse({ error: 'too_large', message: error.message.slice(0, 200) }, 413, false);
+        return refuse({ error: 'bad_track', code: error.code, message: error.message.slice(0, 200) }, 422, false);
       }
       throw error;
     }
@@ -111,7 +111,7 @@ async function receive(req: Request): Promise<Response> {
 
     const count = await backend.service.from('sim_tracks').select('id', { count: 'exact', head: true }).eq('user_id', userId);
     if (count.error) throw count.error;
-    if ((count.count ?? 0) >= MAX_TRACKS_PER_ACCOUNT) return reply({ error: 'too_many' }, 422);
+    if ((count.count ?? 0) >= MAX_TRACKS_PER_ACCOUNT) return refuse({ error: 'too_many' }, 422, false);
 
     const stored = await backend.service.storage.from(BUCKET).upload(path, bytes, { contentType: 'application/gzip', upsert: true });
     if (stored.error) throw stored.error;
@@ -126,7 +126,7 @@ async function receive(req: Request): Promise<Response> {
     return reply({ id: row.data.id, replaced: false }, 201);
   } catch (error) {
     failed('sim_track_failed', error);
-    return reply({ error: 'unavailable' }, 503);
+    return refuse({ error: 'unavailable' }, 503, true);
   }
 }
 
@@ -183,7 +183,7 @@ async function download(req: Request, id: string, answer: Answer): Promise<Respo
     const bytes = new Uint8Array(await file.data.arrayBuffer());
     return new Response(bytes, {
       status: 200,
-      headers: { ...browserHeaders, 'Content-Type': 'application/gzip', 'Content-Length': String(bytes.length), 'Cache-Control': 'private, no-store' },
+      headers: { ...browserHeaders(req), 'Content-Type': 'application/gzip', 'Content-Length': String(bytes.length), 'Cache-Control': 'private, no-store' },
     });
   } catch (error) {
     failed('sim_track_download_failed', error);
@@ -202,7 +202,7 @@ async function remove(req: Request, id: string, answer: Answer): Promise<Respons
     // The row is what the app sees; a file left behind by a failure here is overwritten if the track comes back.
     const removed = await who.backend.service.storage.from(BUCKET).remove(paths);
     if (removed.error) failed('sim_track_file_remove_failed', removed.error);
-    return new Response(null, { status: 204, headers: { ...browserHeaders, 'Cache-Control': 'private, no-store' } });
+    return new Response(null, { status: 204, headers: { ...browserHeaders(req), 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     failed('sim_track_delete_failed', error);
     return answer({ error: 'unavailable' }, 503);

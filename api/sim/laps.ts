@@ -8,7 +8,8 @@
 // An uploaded file is opened with the same strict reader the app uses; what that refuses is refused here.
 import { openBackend } from '../_backend';
 import { gunzipLap, LapFormatError, LAP_LIMITS, type LapFile } from '../../src/lib/sim/lap-file';
-import { bearer, browserHeaders, lapIdentity, MAX_LAP_BYTES, MAX_LAPS_PER_ACCOUNT, reply, sha256Hex, tooMany } from './_shared';
+import { bearer, browserHeaders, lapIdentity, MAX_LAP_BYTES, MAX_LAPS_PER_ACCOUNT, refuse, reply, sha256Hex, tooMany } from './_shared';
+import { authenticateDevice, rememberedDevice } from './_upload';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUCKET = 'sim-laps';
@@ -31,8 +32,8 @@ function route(pathname: string): { id?: string; file?: boolean } | null {
 type Answer = (body: unknown, status?: number, extra?: Record<string, string>) => Response;
 
 export default async function laps(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders });
-  const answer: Answer = (body, status = 200, extra = {}) => reply(body, status, { ...browserHeaders, ...extra });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: browserHeaders(req) });
+  const answer: Answer = (body, status = 200, extra = {}) => reply(body, status, { ...browserHeaders(req), ...extra });
   const where = route(new URL(req.url).pathname);
   if (!where) return answer({ error: 'not_found' }, 404);
   if (!where.id) {
@@ -51,32 +52,31 @@ export default async function laps(req: Request): Promise<Response> {
 /** Xpeed Companion sends a lap. Not a browser: no CORS headers. */
 async function receive(req: Request): Promise<Response> {
   const backend = openBackend();
-  if (!backend) return reply({ error: 'unavailable' }, 503);
+  if (!backend) return refuse({ error: 'unavailable' }, 503, true);
   const key = bearer(req);
-  if (!key) return reply({ error: 'unauthorized' }, 401);
+  if (!key) return refuse({ error: 'unauthorized' }, 401, false);
 
   const declared = Number(req.headers.get('content-length') ?? '0');
-  if (declared > MAX_LAP_BYTES) return reply({ error: 'lap file is too big' }, 413);
+  if (declared > MAX_LAP_BYTES) return refuse({ error: 'lap file is too big' }, 413, false);
 
   try {
-    const who = await backend.service.rpc('sim_authenticate_device', { p_token_hash: sha256Hex(key) });
-    if (who.error) throw who.error;
-    const device = who.data as { user_id?: string; device_id?: string } | null;
-    if (!device?.user_id || !device.device_id) return reply({ error: 'unauthorized' }, 401);
-    const { user_id: userId, device_id: deviceId } = device;
+    // The server checked the key before it read the body; asked again only when this handler is called on its own.
+    const device = rememberedDevice(req) ?? await authenticateDevice(backend, key);
+    if (!device) return refuse({ error: 'unauthorized' }, 401, false);
+    const { userId, deviceId } = device;
 
     const wait = tooMany(`lap:${deviceId}`, 60, 60_000);
-    if (wait) return reply({ error: 'too_many_requests' }, 429, { 'Retry-After': String(wait) });
+    if (wait) return refuse({ error: 'too_many_requests' }, 429, true, { 'Retry-After': String(wait) });
 
     const bytes = new Uint8Array(await req.arrayBuffer());
-    if (bytes.length === 0) return reply({ error: 'empty body' }, 400);
-    if (bytes.length > MAX_LAP_BYTES) return reply({ error: 'lap file is too big' }, 413);
+    if (bytes.length === 0) return refuse({ error: 'empty body' }, 400, false);
+    if (bytes.length > MAX_LAP_BYTES) return refuse({ error: 'lap file is too big' }, 413, false);
 
     let lap: LapFile;
     try {
       lap = await gunzipLap(bytes, { maxBytes: LAP_LIMITS.unpackedBytes });
     } catch (error) {
-      if (error instanceof LapFormatError) return reply({ error: `not a valid lap file: ${error.message}`.slice(0, 200) }, 422);
+      if (error instanceof LapFormatError) return refuse({ error: `not a valid lap file: ${error.message}`.slice(0, 200) }, 422, false);
       throw error;
     }
     const header = lap.header;
@@ -88,7 +88,7 @@ async function receive(req: Request): Promise<Response> {
 
     const count = await backend.service.from('sim_laps').select('id', { count: 'exact', head: true }).eq('user_id', userId);
     if (count.error) throw count.error;
-    if ((count.count ?? 0) >= MAX_LAPS_PER_ACCOUNT) return reply({ error: 'this account has reached the limit of laps kept on the server' }, 422);
+    if ((count.count ?? 0) >= MAX_LAPS_PER_ACCOUNT) return refuse({ error: 'this account has reached the limit of laps kept on the server' }, 422, false);
 
     // The name comes from the identity, never from the request: one lap, one file.
     const path = `${userId}/${sha256Hex(identity).slice(0, 40)}.xlap.gz`;
@@ -110,7 +110,7 @@ async function receive(req: Request): Promise<Response> {
     return reply({ id: row.data.id, duplicate: false }, 201);
   } catch (error) {
     failed('sim_lap_failed', error);
-    return reply({ error: 'unavailable' }, 503);
+    return refuse({ error: 'unavailable' }, 503, true);
   }
 }
 
@@ -171,7 +171,7 @@ async function download(req: Request, id: string, answer: Answer): Promise<Respo
     const bytes = new Uint8Array(await file.data.arrayBuffer());
     return new Response(bytes, {
       status: 200,
-      headers: { ...browserHeaders, 'Content-Type': 'application/gzip', 'Content-Length': String(bytes.length), 'Cache-Control': 'private, max-age=31536000, immutable' },
+      headers: { ...browserHeaders(req), 'Content-Type': 'application/gzip', 'Content-Length': String(bytes.length), 'Cache-Control': 'private, max-age=31536000, immutable' },
     });
   } catch (error) {
     failed('sim_lap_download_failed', error);
@@ -190,7 +190,7 @@ async function remove(req: Request, id: string, answer: Answer): Promise<Respons
     // The row is what the app sees; a file left behind by a failure here is overwritten if the lap comes back.
     const removed = await who.backend.service.storage.from(BUCKET).remove(paths);
     if (removed.error) failed('sim_lap_file_remove_failed', removed.error);
-    return new Response(null, { status: 204, headers: { ...browserHeaders, 'Cache-Control': 'private, no-store' } });
+    return new Response(null, { status: 204, headers: { ...browserHeaders(req), 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     failed('sim_lap_delete_failed', error);
     return answer({ error: 'unavailable' }, 503);

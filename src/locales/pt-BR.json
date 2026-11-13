@@ -247,6 +247,8 @@
       "title": "Conectar o Xpeed Companion?",
       "goesTo": "As voltas deste computador irão para {{account}}.",
       "onlyIf": "Só conecte se você acabou de clicar em Conectar no Xpeed Companion neste computador.",
+      "verify": "Confira se o código é o mesmo que aparece no Xpeed Companion no seu computador:",
+      "nameNotChecked": "O nome {{device}} é enviado pelo computador e não é verificado.",
       "connect": "Conectar",
       "doneTitle": "Conectado",
       "doneBody": "Volte ao Xpeed Companion, ele já sabe. Você pode fechar esta aba.",

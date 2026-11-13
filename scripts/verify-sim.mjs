@@ -7,10 +7,12 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { request as httpRequest } from 'node:http';
 import { build } from 'esbuild';
 import pg from 'pg';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { ensureIdentityProject, migrate } from '../db/migrate.mjs';
+import { edgeFunctions } from './esbuild-edge.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tools = pathToFileURL(resolve(root, 'node_modules/.xpeed-audit-tools/node_modules/@electric-sql/')).href + '/';
@@ -29,11 +31,11 @@ Object.assign(process.env, {
 
 await build({
   entryPoints: {
-    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', shared: 'api/sim/_shared.ts',
+    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', games: 'api/sim/games.ts', shared: 'api/sim/_shared.ts', upload: 'api/sim/_upload.ts', health: 'server/health.ts', webserver: 'server/index.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', dbroute: 'server/db-route.ts', account: 'server/account-route.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
-  external: ['pg', 'jose', '@supabase/supabase-js'], tsconfig: 'tsconfig.app.json', absWorkingDir: root, logLevel: 'error',
+  external: ['pg', 'jose', '@supabase/supabase-js'], tsconfig: 'tsconfig.app.json', absWorkingDir: root, logLevel: 'error', plugins: [edgeFunctions],
 });
 const load = (name) => import(pathToFileURL(resolve(temp, name)).href);
 const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).default;
@@ -41,8 +43,12 @@ const codes = (await load('codes.mjs')).default, devices = (await load('devices.
 const tracks = (await load('tracks.mjs')).default;
 const link = (await load('link.mjs')).default;
 const me = (await load('me.mjs')).default;
-const { forgetLimits } = await load('shared.mjs');
-const { getPool } = await load('serverdb.mjs');
+const games = (await load('games.mjs')).default;
+const { uploadsInFlight } = await load('upload.mjs');
+const { forgetDeepHealth } = await load('health.mjs');
+const { createXpeedServer } = await load('webserver.mjs');
+const { forgetLimits, reply: sharedReply } = await load('shared.mjs');
+const { getPool, closePool } = await load('serverdb.mjs');
 const { gzipLap } = await load('lapfile.mjs');
 const { useKeysForTesting } = await load('identity.mjs');
 const { createDbRoute } = await load('dbroute.mjs');
@@ -56,6 +62,7 @@ const server = new PGLiteSocketServer({ db, port, host: '127.0.0.1' });
 await server.start();
 // PGlite serves one connection at a time: the checks read the database through the app's own single-connection pool.
 const direct = { query: (...args) => getPool().query(...args), end: async () => {} };
+let webServer;
 
 try {
   const setup = new pg.Client({ connectionString: databaseUrl });
@@ -211,7 +218,8 @@ try {
     assert.equal((await pollLink(started.body.id, key)).body.status, 'pending');
     const read = await linkApi(`/${started.body.id}`, { bearer: A });
     assert.equal(read.status, 200);
-    assert.deepEqual({ ...read.body, expiresAt: undefined }, { deviceName: 'My Rig', status: 'pending', expiresAt: undefined });
+    assert.deepEqual({ ...read.body, expiresAt: undefined, verifyCode: undefined }, { deviceName: 'My Rig', deviceNameFromComputer: true, status: 'pending', expiresAt: undefined, verifyCode: undefined });
+    assert.equal(read.body.verifyCode, started.body.verifyCode);
     // No device exists yet: the key is not accepted for laps.
     assert.equal((await upload(key, await lapBytes(61))).status, 401);
     const approved = await linkApi(`/${started.body.id}/approve`, { method: 'POST', bearer: A });
@@ -326,6 +334,49 @@ try {
     assert.equal((await direct.query('SELECT device_name FROM public.sim_link_requests WHERE id = $1', [long.body.id])).rows[0].device_name.length, 60);
   });
 
+  await check('link: the start answer and the read carry the same 4-character verification code, derived from the id and the key hash', async () => {
+    const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    // The contract, written out independently of the server: sha256(id + tokenHash), first four bytes, each onto the alphabet.
+    const expected = (id, tokenHash) => Array.from(createHash('sha256').update(id + tokenHash).digest().subarray(0, 4), (byte) => ALPHABET[byte % 32]).join('');
+    const key = newKey();
+    const started = await startLink(key, 'Look Alike');
+    assert.equal(started.status, 201, JSON.stringify(started.body));
+    assert.equal(started.body.verifyCode.length, 4);
+    assert.match(started.body.verifyCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/);
+    assert.equal(started.body.verifyCode, expected(started.body.id, sha(key)));
+    const read = await linkApi(`/${started.body.id}`, { bearer: A });
+    assert.equal(read.body.verifyCode, started.body.verifyCode, 'the page shows what the app shows');
+    assert.equal(read.body.deviceNameFromComputer, true);
+    assert.equal(read.body.deviceName, 'Look Alike');
+    assert.equal((await direct.query('SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = $1 AND column_name ILIKE $2', ['sim_link_requests', '%verify%'])).rows[0].n, 0, 'nothing new is stored');
+    // Another request, another code (the same 4 characters twice in a row would be a 1 in a million chance).
+    const other = await startLink(newKey(), 'Look Alike', '10.4.4.4');
+    assert.notEqual(other.body.verifyCode, started.body.verifyCode);
+    const gone = await linkApi('/00000000-0000-4000-8000-000000000000', { bearer: A });
+    assert.equal(gone.body.verifyCode, undefined, 'an unknown request has no code to show');
+  });
+
+  await check('link: a cancel by another signed-in person works only while the request is pending, and the decider is kept', async () => {
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+    const pending = (await startLink(newKey(), 'Pending', '10.4.5.1')).body;
+    assert.equal((await linkApi(`/${pending.id}`, { bearer: A })).status, 200, 'A reads it');
+    const cancelled = await linkApi(`/${pending.id}/cancel`, { method: 'POST', bearer: B });
+    assert.equal(cancelled.status, 200, 'B cancels it before it is approved');
+    const row = (await direct.query('SELECT status, user_id FROM public.sim_link_requests WHERE id = $1', [pending.id])).rows[0];
+    assert.deepEqual({ ...row }, { status: 'cancelled', user_id: ids.B });
+
+    const key = newKey();
+    const decided = (await startLink(key, 'Decided', '10.4.5.2')).body;
+    assert.equal((await linkApi(`/${decided.id}/approve`, { method: 'POST', bearer: B })).status, 200);
+    const late = await linkApi(`/${decided.id}/cancel`, { method: 'POST', bearer: A });
+    assert.equal(late.status, 409, 'A cannot cancel what B approved');
+    assert.equal(late.body.error, 'already_decided');
+    const after = (await direct.query('SELECT status, user_id FROM public.sim_link_requests WHERE id = $1', [decided.id])).rows[0];
+    assert.deepEqual({ ...after }, { status: 'approved', user_id: ids.B });
+    assert.equal((await pollLink(decided.id, key)).body.status, 'approved');
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
   await check('link: reading, approving and cancelling need a signed-in person', async () => {
     const { body } = await startLink(newKey());
     for (const [path, method] of [[`/${body.id}`, 'GET'], [`/${body.id}/approve`, 'POST'], [`/${body.id}/cancel`, 'POST']]) {
@@ -338,7 +389,7 @@ try {
     assert.equal((await linkApi(`/${body.id}/approve`, { method: 'GET', bearer: A })).status, 405);
     const options = await linkApi(`/${body.id}/approve`, { method: 'OPTIONS' });
     assert.equal(options.status, 204);
-    assert.equal(options.headers.get('access-control-allow-origin'), '*');
+    assert.equal(options.headers.get('access-control-allow-origin'), null, 'no Origin, nothing to echo');
   });
 
   await check('link: starting and polling are rate limited', async () => {
@@ -655,7 +706,7 @@ try {
     const response = await tracks(new Request(`http://x/api/sim/tracks/${row.id}/file`, { headers: { authorization: `Bearer ${A}` } }));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'application/gzip');
-    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    assert.notEqual(response.headers.get('access-control-allow-origin'), '*');
     const body = new Uint8Array(await response.arrayBuffer());
     assert.deepEqual(body, new Uint8Array(readFileSync(resolve(filesRoot, 'sim-tracks', row.storage_path))));
     assert.equal(sha(Buffer.from(body)), row.sha256);
@@ -797,7 +848,233 @@ try {
     assert.equal((await call(laps, '/api/sim/laps', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call(laps, `/api/sim/laps/${row.id}`, { method: 'GET', bearer: A })).status, 405);
     assert.equal((await call(laps, `/api/sim/laps/${row.id}/file`, { method: 'DELETE', bearer: A })).status, 405);
-    assert.ok((await call(laps, '/api/sim/laps', { bearer: A })).headers.get('access-control-allow-origin'));
+    assert.equal((await call(laps, '/api/sim/laps', { bearer: A, headers: { origin: 'https://xpeed.test' } })).headers.get('access-control-allow-origin'), 'https://xpeed.test');
+  });
+
+  // ---- Phase 0 safety: what the real HTTP server does with an upload before it reads the body, CORS, deep health, retry hints.
+  webServer = createXpeedServer({ staticRoot: temp, origin: 'https://xpeed.test' });
+  const web = webServer;
+  await new Promise((done) => web.listen(0, '127.0.0.1', done));
+  const webPort = web.address().port;
+  const parseJson = (buffer) => { try { return JSON.parse(buffer.toString('utf8')); } catch { return null; } };
+  /** Starts an upload that declares `length` bytes and sends only the first 16: the rest is up to the caller. */
+  const startUpload = (path, key, length, { type = 'application/gzip' } = {}) => {
+    const req = httpRequest({
+      host: '127.0.0.1', port: webPort, method: 'POST', path,
+      headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), 'content-type': type, 'content-length': String(length) },
+    });
+    const response = new Promise((done, fail) => {
+      req.on('response', (res) => {
+        const parts = [];
+        res.on('data', (part) => parts.push(part));
+        res.on('end', () => done({ status: res.statusCode, headers: res.headers, body: parseJson(Buffer.concat(parts)) }));
+        res.on('error', fail);
+      });
+      req.on('error', fail);
+    });
+    req.write(Buffer.alloc(16));
+    return { req, response };
+  };
+  /** The answer, or a failure when it takes longer than `ms`: a server that waited for the body would not answer in time. */
+  const within = (promise, ms = 3000) => Promise.race([promise, new Promise((_, fail) => setTimeout(() => fail(new Error(`no answer within ${ms} ms`)), ms))]);
+  const get = async (path, init) => {
+    const r = await fetch(`http://127.0.0.1:${webPort}${path}`, init);
+    return { status: r.status, headers: r.headers, body: parseJson(Buffer.from(await r.arrayBuffer())) };
+  };
+  const postLap = async (key, bytes) => {
+    const r = await fetch(`http://127.0.0.1:${webPort}/api/sim/laps`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/gzip' }, body: bytes });
+    return { status: r.status, headers: r.headers, body: parseJson(Buffer.from(await r.arrayBuffer())) };
+  };
+
+  await check('an upload without a key is refused before the body is read', async () => {
+    // 20 MB are declared and 16 bytes sent: a server that waited for the body would hang until its timeout.
+    for (const path of ['/api/sim/laps', '/api/sim/tracks']) {
+      const started = Date.now();
+      const r = await within(startUpload(path, '', 20 * 1024 * 1024).response);
+      assert.equal(r.status, 401, path);
+      assert.deepEqual(r.body, { error: 'unauthorized', retryable: false });
+      assert.ok(Date.now() - started < 2000, `${path} was refused fast`);
+    }
+    // A key that is not a device key is refused the same way, and so is a person's own sign-in token.
+    for (const key of ['xpd_not_a_device', A]) {
+      const r = await within(startUpload('/api/sim/laps', key, 20 * 1024 * 1024).response);
+      assert.equal(r.status, 401);
+      assert.equal(r.body.error, 'unauthorized');
+    }
+    assert.equal(uploadsInFlight(), 0, 'a refusal takes no place');
+  });
+
+  await check('an oversized content-length gets 413 before the body is read', async () => {
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+    const { token: key } = await deviceFor(B);
+    for (const [path, length] of [['/api/sim/laps', 16 * 1024 * 1024 + 1], ['/api/sim/laps', 40 * 1024 * 1024], ['/api/sim/tracks', 32 * 1024 * 1024 + 1]]) {
+      const started = Date.now();
+      const r = await within(startUpload(path, key, length).response);
+      assert.equal(r.status, 413, `${path} ${length}`);
+      assert.deepEqual(r.body, { error: 'too_large', retryable: false });
+      assert.ok(Date.now() - started < 2000);
+    }
+    assert.equal(uploadsInFlight(), 0);
+    // The limit itself is fine: a real lap of a normal size goes through the same door.
+    assert.equal((await postLap(key, await lapBytes(70))).status, 201);
+  });
+
+  await check('at most 4 uploads are read at once: the fifth gets 503 busy with Retry-After, and works when the others finish', async () => {
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+    const { token: key } = await deviceFor(B);
+    const held = Array.from({ length: 4 }, () => startUpload('/api/sim/laps', key, 1000));
+    for (let i = 0; i < 100 && uploadsInFlight() < 4; i++) await new Promise((done) => setTimeout(done, 20));
+    assert.equal(uploadsInFlight(), 4, 'four places are taken');
+    const fifth = await within(postLap(key, await lapBytes(71)));
+    assert.equal(fifth.status, 503);
+    assert.deepEqual(fifth.body, { error: 'busy', retryable: true });
+    assert.equal(fifth.headers.get('retry-after'), '5');
+    // A track upload shares the same four places; a stranger cannot take one, and is not told "busy".
+    assert.equal((await within(startUpload('/api/sim/tracks', key, 1000).response)).status, 503);
+    assert.equal((await within(startUpload('/api/sim/laps', 'xpd_stranger', 1000).response)).status, 401);
+    // The others finish (garbage, so each is refused as not a lap file), the places come back and the fifth works.
+    for (const { req } of held) req.end(Buffer.alloc(984));
+    const answers = await within(Promise.all(held.map((h) => h.response)), 10_000);
+    for (const r of answers) { assert.equal(r.status, 422); assert.equal(r.body.retryable, false); }
+    assert.equal(uploadsInFlight(), 0, 'every place is free again');
+    const retried = await postLap(key, await lapBytes(71));
+    assert.equal(retried.status, 201, JSON.stringify(retried.body));
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
+  await check('a failed upload says whether it can be retried, and a handler called on its own still asks who the key belongs to', async () => {
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+    const { token: key } = await deviceFor(B);
+    const refused = await postLap(key, new TextEncoder().encode('definitely not a lap'));
+    assert.equal(refused.status, 422);
+    assert.equal(refused.body.retryable, false);
+    assert.match(refused.body.error, /not a valid lap file/, 'the error codes are as they were');
+    const empty = await fetch(`http://127.0.0.1:${webPort}/api/sim/laps`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/gzip' } });
+    assert.equal(empty.status, 400);
+    assert.equal((await empty.json()).retryable, false);
+    const track = await fetch(`http://127.0.0.1:${webPort}/api/sim/tracks`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'text/plain' }, body: 'x' });
+    assert.equal(track.status, 415);
+    assert.deepEqual(await track.json(), { error: 'unsupported_media_type', retryable: false });
+    const bad = await fetch(`http://127.0.0.1:${webPort}/api/sim/tracks`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/gzip' }, body: gzipSync('not a track') });
+    assert.equal(bad.status, 422);
+    const badBody = await bad.json();
+    assert.equal(badBody.error, 'bad_track');
+    assert.equal(badBody.retryable, false);
+    // Rate limited: retryable, with Retry-After.
+    let limited;
+    for (let i = 0; i < 61; i++) limited = await postLap(key, new TextEncoder().encode('x'));
+    assert.equal(limited.status, 429);
+    assert.equal(limited.body.retryable, true);
+    assert.ok(Number(limited.headers.get('retry-after')) >= 1);
+    // Called on its own, without the server in front, the handler still asks who the key belongs to.
+    forgetLimits();
+    assert.equal((await upload('xpd_unknown', await lapBytes(72))).status, 401);
+    assert.equal((await upload(key, await lapBytes(72))).status, 201);
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
+  await check('CORS: the allow-origin header is never *, an allowed origin is echoed, an unknown one gets none, and answers vary by Origin', async () => {
+    const handlers = [['codes', codes, '/api/sim/codes', 'POST'], ['devices', devices, '/api/sim/devices', 'GET'], ['laps', laps, '/api/sim/laps', 'GET'],
+      ['tracks', tracks, '/api/sim/tracks', 'GET'], ['link', link, '/api/sim/link', 'POST'], ['games', games, '/api/sim/games', 'GET']];
+    for (const [name, handler, path, method] of handlers) {
+      for (const verb of ['OPTIONS', method]) {
+        const own = await call(handler, path, { method: verb, headers: { origin: 'https://xpeed.test' } });
+        assert.equal(own.headers.get('access-control-allow-origin'), 'https://xpeed.test', `${name} ${verb} echoes the app's origin`);
+        assert.match(own.headers.get('vary') ?? '', /origin/i, `${name} ${verb} varies by Origin`);
+        const local = await call(handler, path, { method: verb, headers: { origin: 'http://localhost:5173' } });
+        assert.equal(local.headers.get('access-control-allow-origin'), 'http://localhost:5173', `${name} ${verb} lets local development in`);
+        for (const origin of ['https://evil.example', 'https://xpeed.test.evil.example', 'null', undefined]) {
+          const other = await call(handler, path, { method: verb, headers: origin ? { origin } : {} });
+          assert.equal(other.headers.get('access-control-allow-origin'), null, `${name} ${verb} ${origin}`);
+          assert.match(other.headers.get('vary') ?? '', /origin/i);
+        }
+      }
+    }
+    // Nothing answers * anywhere, whatever the outcome (an error, a success, a download).
+    const [lap] = (await call(laps, '/api/sim/laps', { bearer: A })).body.laps;
+    assert.ok(lap, 'the account has a lap to download');
+    const outcomes = [
+      await call(laps, '/api/sim/laps', { headers: { origin: 'https://xpeed.test' } }),
+      await call(laps, `/api/sim/laps/${lap.id}/file`, { bearer: A, headers: { origin: 'https://xpeed.test' } }),
+      await call(laps, `/api/sim/laps/${lap.id}`, { method: 'PUT', bearer: A, headers: { origin: 'https://evil.example' } }),
+    ];
+    for (const r of outcomes) assert.notEqual(r.headers.get('access-control-allow-origin'), '*');
+    assert.equal(outcomes[1].headers.get('access-control-allow-origin'), 'https://xpeed.test');
+  });
+
+  await check('GET /api/health/deep is 200 when the database and the storage answer, and 503 when either fails', async () => {
+    const storageDir = process.env.STORAGE_DIR, databaseUrl = process.env.DATABASE_URL;
+    try {
+      forgetDeepHealth();
+      const fine = await get('/api/health/deep');
+      assert.equal(fine.status, 200);
+      assert.deepEqual(fine.body, { ok: true, version: process.env.SOURCE_COMMIT ?? 'local' });
+      assert.equal(fine.headers.get('cache-control'), 'no-store');
+      assert.equal((await get('/api/health/deep', { method: 'POST' })).status, 405);
+
+      // The storage cannot be written: its folder is a place under a plain file.
+      const { writeFileSync } = await import('node:fs');
+      const blocker = resolve(temp, 'not-a-folder');
+      writeFileSync(blocker, 'x');
+      process.env.STORAGE_DIR = resolve(blocker, 'files');
+      forgetDeepHealth();
+      const noStorage = await get('/api/health/deep');
+      assert.equal(noStorage.status, 503);
+      assert.deepEqual(noStorage.body, { ok: false, database: 'ok', storage: 'down' });
+      assert.equal((await get('/api/health')).status, 200, 'the plain health check never fails on a blip');
+      process.env.STORAGE_DIR = storageDir;
+
+      // The database does not answer: a pool pointed at a port nobody listens on.
+      process.env.DATABASE_URL = 'postgres://postgres:postgres@127.0.0.1:1/postgres';
+      await closePool();
+      forgetDeepHealth();
+      const noDatabase = await get('/api/health/deep');
+      assert.equal(noDatabase.status, 503);
+      assert.deepEqual(noDatabase.body, { ok: false, database: 'down', storage: 'ok' });
+      const plain = await get('/api/health');
+      assert.equal(plain.status, 200, 'the plain health check still answers 200 and reports the database as down');
+      assert.equal(plain.body.database, 'down');
+    } finally {
+      process.env.STORAGE_DIR = storageDir;
+      process.env.DATABASE_URL = databaseUrl;
+      await closePool();
+      forgetDeepHealth();
+    }
+    const back = await get('/api/health/deep');
+    assert.equal(back.status, 200, JSON.stringify(back.body));
+  });
+
+  await check('every 429 and 503 from api/sim carries Retry-After', async () => {
+    assert.equal(sharedReply({}, 503).headers.get('retry-after'), '10');
+    assert.equal(sharedReply({}, 429).headers.get('retry-after'), '60');
+    assert.equal(sharedReply({}, 503, { 'Retry-After': '5' }).headers.get('retry-after'), '5', 'one that was given stays');
+    assert.equal(sharedReply({}, 429, { 'retry-after': '7' }).headers.get('retry-after'), '7');
+    assert.equal(sharedReply({}, 200).headers.get('retry-after'), null);
+    // The handlers' own "unavailable": the backend is not configured.
+    const backend = process.env.DATA_BACKEND;
+    delete process.env.DATA_BACKEND;
+    try {
+      const refusals = [
+        await call(codes, '/api/sim/codes', { method: 'POST', bearer: A }), await call(devices, '/api/sim/devices', { bearer: A }),
+        await call(laps, '/api/sim/laps', { bearer: A }), await upload('xpd_x', new Uint8Array(1)), await call(tracks, '/api/sim/tracks', { bearer: A }),
+        await call(tracks, '/api/sim/tracks', { method: 'POST', bearer: 'xpd_x', body: new Uint8Array(1), headers: { 'content-type': 'application/gzip' } }),
+        await call(link, '/api/sim/link', { method: 'POST', body: { device: { name: 'x' }, tokenHash: sha(newKey()) } }),
+        await call(link, '/api/sim/link/00000000-0000-4000-8000-000000000000', { bearer: A }),
+        await call(me, '/api/sim/me', { bearer: 'xpd_x' }), await pairWith('ABCD2345'), await call(games, '/api/sim/games'),
+      ];
+      for (const r of refusals) {
+        assert.equal(r.status, 503);
+        assert.ok(Number(r.headers.get('retry-after')) >= 1, 'a 503 says when to come back');
+      }
+    } finally {
+      process.env.DATA_BACKEND = backend;
+    }
+    // The 429s of the handlers (codes per hour, pairing guesses, uploads) say it too: see the checks above that read Retry-After.
+    let last;
+    for (let i = 0; i < 11; i++) last = await pairWith('ABCD2345', 'RIG', '10.5.5.5');
+    assert.equal(last.status, 429);
+    assert.ok(Number(last.headers.get('retry-after')) >= 1);
+    await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
   });
 
   // The real Xpeed Sim against these handlers, when its program is given (XPEED_SIM_EXE=...\xpeed-sim.exe): it pairs,
@@ -845,6 +1122,7 @@ try {
 
   console.log(`${checks.length} sim checks passed:\n- ${checks.join('\n- ')}`);
 } finally {
+  await new Promise((done) => (webServer ? (webServer.closeAllConnections?.(), webServer.close(done)) : done())).catch(() => {});
   await direct.end().catch(() => {});
   await server.stop().catch(() => {});
   await db.close().catch(() => {});

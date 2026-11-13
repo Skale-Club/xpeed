@@ -247,6 +247,8 @@
       "title": "¿Conectar Xpeed Companion?",
       "goesTo": "Las vueltas de este ordenador irán a {{account}}.",
       "onlyIf": "Conecta solo si acabas de hacer clic en Conectar en Xpeed Companion en este ordenador.",
+      "verify": "Comprueba que el código sea el mismo que aparece en Xpeed Companion en tu ordenador:",
+      "nameNotChecked": "El nombre {{device}} lo envía el ordenador y no se verifica.",
       "connect": "Conectar",
       "doneTitle": "Conectado",
       "doneBody": "Vuelve a Xpeed Companion, ya lo sabe. Puedes cerrar esta pestaña.",

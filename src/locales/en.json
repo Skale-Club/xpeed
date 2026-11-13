@@ -247,6 +247,8 @@
       "title": "Connect Xpeed Companion?",
       "goesTo": "Your laps from this computer will go to {{account}}.",
       "onlyIf": "Only connect if you just clicked Connect in Xpeed Companion on this computer.",
+      "verify": "Check that the code is the same one shown in Xpeed Companion on your computer:",
+      "nameNotChecked": "The name {{device}} is sent by the computer and is not checked.",
       "connect": "Connect",
       "doneTitle": "Connected",
       "doneBody": "Go back to Xpeed Companion, it already knows. You can close this tab.",

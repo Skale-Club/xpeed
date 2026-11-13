@@ -36,6 +36,8 @@ import { asService, databaseConfigured } from './db';
 import { createAccountRoute } from './account-route';
 import { createDbRoute } from './db-route';
 import { createStorageRoute, storageStatus } from './storage-route';
+import { deepHealth } from './health';
+import { admitUpload, rememberDevice, uploadLimit } from '../api/sim/_upload';
 import { functionNames, invokeFunction } from './functions';
 import { setFunctionRunner } from './functions/invoke-hook';
 
@@ -107,6 +109,15 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
         res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database,storage:await storageStatus()}));return;
       }
+      if(url.pathname==='/api/health/deep'){
+        if(!['GET','HEAD'].includes(req.method??'')){res.setHeader('Allow','GET, HEAD');res.writeHead(405).end();return;}
+        res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
+        // For an external uptime monitor: a 503 when the database or the files do not answer. /api/health stays as it is
+        // because the container's own health check must never restart it over a blip.
+        const {ok,database,storage}=await deepHealth();
+        res.statusCode=ok?200:503;
+        res.end(req.method==='HEAD'?undefined:JSON.stringify(ok?{ok:true,version:process.env.SOURCE_COMMIT??'local'}:{ok:false,database,storage}));return;
+      }
       const handler=url.pathname.startsWith('/api/storage/')?storageRoute:url.pathname.startsWith('/api/fn/')?functionRoute:url.pathname.startsWith('/api/sim/tracks/')?simTracks:url.pathname.startsWith('/api/sim/laps/')?simLaps:url.pathname.startsWith('/api/sim/games/')?simGames:url.pathname.startsWith('/api/sim/link/')?simLink:url.pathname.startsWith('/api/car-brands/')?carBrands:routes.get(url.pathname.replace(/\/$/,''));
       if(handler){
         const controller=new AbortController();
@@ -119,9 +130,23 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         const ip=trustProxy&&forwarded&&isIP(forwarded)?forwarded:req.socket.remoteAddress??'';
         headers.set('x-real-ip',ip);headers.set('x-forwarded-for',ip);
         headers.set('host',origin.host);headers.set('x-forwarded-proto',origin.protocol.slice(0,-1));
-        const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/tracks'?MAX_TRACK_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
-        const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
-        await sendResponse(req,res,await handler(request));return;
+        // A lap or track upload is authenticated, size-checked and given one of a few places before its body is read:
+        // the body is held in memory, so a stranger must not get that far.
+        const limit=uploadLimit(req.method,url.pathname);
+        let release:(()=>void)|undefined,device;
+        if(limit!==null){
+          const admission=await admitUpload(headers,limit);
+          if('refused' in admission){res.setHeader('Connection','close');await sendResponse(req,res,admission.refused);return;}
+          ({release,device}=admission);
+        }
+        let response: Response;
+        try {
+          const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/tracks'?MAX_TRACK_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
+          const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
+          if(device)rememberDevice(request,device);
+          response=await handler(request);
+        } finally { release?.(); }
+        await sendResponse(req,res,response);return;
       }
       if(url.pathname.startsWith('/api/')||url.pathname.startsWith('/.well-known/')){
         res.setHeader('Content-Type','application/json');res.writeHead(404).end('{"error":"not_found"}');return;
