@@ -72,6 +72,10 @@ pub const TI_BRAKE: usize = 396;
 pub const TI_STEERING: usize = 404;
 pub const TI_CLUTCH: usize = 412;
 pub const TI_FUEL: usize = 524;
+/// `unsigned char mMaxGears` (maximum forward gears): after `mFuel` (524), `mEngineMaxRPM` (532), four one-byte
+/// fields, `mDentSeverity[8]`, two doubles and a `TelemVect3` (to 592), `mEngineTorque`, `mCurrentSector` and
+/// `mSpeedLimiter`.
+pub const TI_MAX_GEARS: usize = 605;
 pub const TI_WHEEL: usize = 848;
 pub const TELEM_WHEEL_SIZE: usize = 260;
 pub const TW_BRAKE_TEMP: usize = 24;

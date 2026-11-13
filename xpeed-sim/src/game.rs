@@ -47,6 +47,8 @@ pub struct Frame {
     pub speed_ms: f32,
     pub rpm: f32,
     pub gear: f32,
+    /// How many forward gears the car has, when the game says. `None` when it does not.
+    pub gears: Option<u8>,
     pub throttle: f32,
     pub brake: f32,
     pub clutch: f32,
@@ -79,6 +81,7 @@ impl Frame {
             speed_ms: f32::NAN,
             rpm: f32::NAN,
             gear: f32::NAN,
+            gears: None,
             throttle: f32::NAN,
             brake: f32::NAN,
             clutch: f32::NAN,

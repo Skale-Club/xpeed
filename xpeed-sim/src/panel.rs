@@ -34,9 +34,10 @@ use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
     GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipFillEllipse, GdipFillPath,
-    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
-    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
-    LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
+    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenEndCap, GdipSetPenLineJoin, GdipSetPenStartCap,
+    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath,
+    InterpolationModeHighQualityBicubic, LineCapRound, LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
+    WrapModeTile,
 };
 use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -100,6 +101,7 @@ const BG_BOTTOM: COLORREF = rgb(0x08, 0x09, 0x0b);
 const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
 const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
 const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
+const WHITE: COLORREF = rgb(0xff, 0xff, 0xff);
 const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
 const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
 const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
@@ -744,47 +746,59 @@ impl Painter {
         }
     }
 
-    /// The track in a box (design units), scaled to fit without stretching: the path as a road, the start as a
-    /// white tick, the car as a yellow dot.
-    fn track_map(&self, x: f32, y: f32, w: f32, h: f32, path: &[(f32, f32)], car: Option<(f32, f32)>) {
-        let (min_x, max_x, min_z, max_z) = path.iter().fold(
-            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY),
-            |(a, b, c, d), &(px, pz)| (a.min(px), b.max(px), c.min(pz), d.max(pz)),
-        );
-        let span = (max_x - min_x).max(max_z - min_z);
-        if !span.is_finite() || span <= 0.0 {
-            return;
-        }
-        let pad = 14.0;
-        let fit = ((w - 2.0 * pad) / (max_x - min_x).max(1.0)).min((h - 2.0 * pad) / (max_z - min_z).max(1.0));
-        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
-        let to_px = |(px, pz): (f32, f32)| PointF {
-            X: self.ox as f32 + (x + w / 2.0 + (px - cx) * fit) * self.s,
-            Y: self.oy as f32 + (y + h / 2.0 + (pz - cz) * fit) * self.s,
+    /// The track in a box (design units): the path smoothed, turned so its long side follows the box's, and scaled to
+    /// fit with a margin, drawn as a dark ribbon with a lighter line on top. A whole lap is a closed shape with a
+    /// start/finish tick; a partial path is open, and is not drawn across a jump. The car is a yellow dot, placed
+    /// with the same transform.
+    fn track_map(&self, (x, y, w, h): (f32, f32, f32, f32), path: &[(f32, f32)], complete: bool, car: Option<(f32, f32)>) {
+        let key = MapKey {
+            at: path.as_ptr() as usize,
+            len: path.len(),
+            ends: path
+                .first()
+                .zip(path.last())
+                .map(|(a, b)| [a.0.to_bits(), a.1.to_bits(), b.0.to_bits(), b.1.to_bits()]),
+            frame: [x, y, w, h].map(f32::to_bits),
+            complete,
         };
-        let mut points: Vec<PointF> = path.iter().map(|&p| to_px(p)).collect();
-        if let Some(first) = points.first().copied() {
-            points.push(first);
-        }
-        let road = (9.0 * self.s).max(3.0);
-        let centre = (2.0 * self.s).max(1.0);
+        let prepared = MAP_CACHE.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            if kept.as_ref().is_none_or(|(k, _)| *k != key) {
+                *kept = prepare_map(path, complete, x + w / 2.0, y + h / 2.0, w, h).map(|p| (key, p));
+            }
+            kept.as_ref().map(|(_, p)| p.clone())
+        });
+        let Some(map) = prepared else {
+            return;
+        };
+        let to_px = |(px, py): (f32, f32)| PointF {
+            X: self.ox as f32 + px * self.s,
+            Y: self.oy as f32 + py * self.s,
+        };
+        let road = (11.0 * self.s).max(3.0);
+        let line = (2.5 * self.s).max(1.0);
         smooth(self.hdc, |graphics| unsafe {
-            for (width, color) in [(road, TRACK), (centre, mix(TRACK, TEXT, 0.35))] {
+            for (width, color) in [(road, TRACK), (line, mix(TRACK, TEXT, 0.5))] {
                 let mut pen = null_mut();
                 GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
                 GdipSetPenLineJoin(pen, LineJoinRound);
-                GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                GdipSetPenStartCap(pen, LineCapRound);
+                GdipSetPenEndCap(pen, LineCapRound);
+                for run in &map.runs {
+                    let points: Vec<PointF> = run.iter().map(|&p| to_px(p)).collect();
+                    GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                }
                 GdipDeletePen(pen);
             }
-            if let Some(start) = points.first() {
-                let mut brush = null_mut();
-                GdipCreateSolidFill(argb(TEXT), &mut brush);
-                let d = 6.0 * self.s;
-                GdipFillEllipse(graphics, brush.cast(), start.X - d / 2.0, start.Y - d / 2.0, d, d);
-                GdipDeleteBrush(brush.cast());
+            if let Some((a, b)) = map.start {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(TEXT), (2.5 * self.s).max(1.5), UnitPixel, &mut pen);
+                let (a, b) = (to_px(a), to_px(b));
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+                GdipDeletePen(pen);
             }
             if let Some(car) = car {
-                let at = to_px(car);
+                let at = to_px(map.fit.apply(car));
                 for (radius, color) in [(13.0, mix(BG, ACCENT, 0.3)), (7.0, ACCENT)] {
                     let mut brush = null_mut();
                     GdipCreateSolidFill(argb(color), &mut brush);
@@ -816,7 +830,66 @@ impl Painter {
     }
 }
 
+/// What a prepared map was made from: the map's data (its address, length and ends) and the box, so it is made again
+/// only when one of them changes.
+#[derive(Clone, PartialEq)]
+struct MapKey {
+    at: usize,
+    len: usize,
+    ends: Option<[u32; 4]>,
+    frame: [u32; 4],
+    complete: bool,
+}
+
+/// A map ready to draw, in design units: the runs to draw, the start mark, and how the world is laid in the box.
+#[derive(Clone)]
+struct PreparedMap {
+    runs: Vec<Vec<(f32, f32)>>,
+    start: Option<((f32, f32), (f32, f32))>,
+    fit: crate::maps::Fit,
+}
+
+/// Cuts the path at jumps, smooths it, fits it in the box (`cx`, `cy`, `w`, `h`) and finds the start mark of a whole
+/// lap. Done once per map and box, not at every redraw.
+fn prepare_map(path: &[(f32, f32)], complete: bool, cx: f32, cy: f32, w: f32, h: f32) -> Option<PreparedMap> {
+    let mut runs = crate::maps::split_at_gaps(path, crate::dash::MAP_JUMP_METRES);
+    if runs.is_empty() {
+        return None;
+    }
+    // A whole lap closes on itself (when it came with its first point repeated, that is dropped first).
+    let closed = complete && runs.len() == 1;
+    if closed && runs[0].len() > 3 && runs[0].first() == runs[0].last() {
+        runs[0].pop();
+    }
+    let mut runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| crate::maps::smooth(r, 3, closed)).collect();
+    if closed {
+        let first = runs[0][0];
+        runs[0].push(first);
+    }
+    let all: Vec<(f32, f32)> = runs.iter().flatten().copied().collect();
+    let fit = crate::maps::fit(&all, cx, cy, w, h, 18.0)?;
+    let runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| r.iter().map(|&p| fit.apply(p)).collect()).collect();
+    // The start/finish mark: a tick across the road at the first point, square to the way the lap leaves it.
+    let start = closed
+        .then(|| {
+            let run = &runs[0];
+            let (a, b) = (run[0], *run.get(3).unwrap_or(&run[run.len() - 1]));
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len = dx.hypot(dy);
+            (len > 0.0).then(|| {
+                (
+                    (a.0 - dy / len * 9.0, a.1 + dx / len * 9.0),
+                    (a.0 + dy / len * 9.0, a.1 - dx / len * 9.0),
+                )
+            })
+        })
+        .flatten();
+    Some(PreparedMap { runs, start, fit })
+}
+
 thread_local! {
+    /// The map as last prepared, for its box; one per thread (the window's, and each test's).
+    static MAP_CACHE: std::cell::RefCell<Option<(MapKey, PreparedMap)>> = const { std::cell::RefCell::new(None) };
     /// The background as last drawn, for the window's size; one per thread (the window's, and each test's).
     static BACKDROP: std::cell::RefCell<Option<Backdrop>> = const { std::cell::RefCell::new(None) };
 }
@@ -1034,6 +1107,55 @@ impl Painter {
         });
     }
 
+    /// A steering wheel glyph centred at (`cx`, `cy`) with the outer `radius` (design units), turned `degrees`
+    /// clockwise: a rim, a hub and three spokes (left, right, down) and a yellow mark at the top of the rim. With
+    /// `live` false (no steering value) it is drawn dim and without the mark.
+    fn steering_wheel(&self, cx: f32, cy: f32, radius: f32, degrees: f32, live: bool) {
+        let body = if live { mix(TRACK, TEXT, 0.55) } else { TRACK };
+        let to_px = |(x, y): (f32, f32)| PointF {
+            X: self.ox as f32 + x * self.s,
+            Y: self.oy as f32 + y * self.s,
+        };
+        smooth(self.hdc, |graphics| unsafe {
+            let pen_of = |color: COLORREF, width: f32| {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(color), (width * self.s).max(1.0), UnitPixel, &mut pen);
+                pen
+            };
+            // The rim, as a closed many-sided line.
+            let steps = 48;
+            let rim: Vec<PointF> = (0..=steps)
+                .map(|i| to_px(polar(cx, cy, radius - 2.0, i as f32 * 360.0 / steps as f32)))
+                .collect();
+            let pen = pen_of(body, 4.0);
+            GdipSetPenLineJoin(pen, LineJoinRound);
+            GdipDrawLines(graphics, pen, rim.as_ptr(), rim.len() as i32);
+            GdipDeletePen(pen);
+            // The spokes, from the hub to the rim.
+            let pen = pen_of(body, 3.5);
+            for turn in [-90.0, 90.0, 180.0] {
+                let (a, b) = (to_px((cx, cy)), to_px(polar(cx, cy, radius - 3.0, degrees + turn)));
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+            }
+            GdipDeletePen(pen);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(body), &mut brush);
+            let (d, c) = (radius * 0.44 * self.s, to_px((cx, cy)));
+            GdipFillEllipse(graphics, brush.cast(), c.X - d / 2.0, c.Y - d / 2.0, d, d);
+            GdipDeleteBrush(brush.cast());
+            // The mark at the top of the rim: the wheel's own twelve o'clock, so the turn is easy to read.
+            if live {
+                let pen = pen_of(ACCENT, 5.5);
+                let (a, b) = (
+                    to_px(polar(cx, cy, radius - 6.0, degrees)),
+                    to_px(polar(cx, cy, radius + 1.0, degrees)),
+                );
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+                GdipDeletePen(pen);
+            }
+        });
+    }
+
     /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
     /// `from` and `to` (shares of the bar's width), dark otherwise.
     #[allow(clippy::too_many_arguments)]
@@ -1171,6 +1293,27 @@ impl Painter {
         extent.cx as f32 / self.s
     }
 
+    /// The font size, from `size` down to `floor`, at which `s` fits in `room` design units; never above `size`.
+    fn fitted(&mut self, s: &str, room: f32, size: f32, floor: f32, weight: i32, face: Face) -> f32 {
+        let mut fit = fit_size(self.width_of(s, size, weight, face), size, room, floor);
+        // Glyph widths round to whole pixels, so one more look at the result, and a step down while it still runs out.
+        for _ in 0..3 {
+            if fit <= floor || self.width_of(s, fit, weight, face) <= room {
+                break;
+            }
+            fit = (fit * 0.95).max(floor);
+        }
+        fit
+    }
+
+    /// The mark of a lap that does not count: a red square with a white "!", `size` design units on a side.
+    fn invalid_mark(&self, x: f32, y: f32, size: f32) {
+        self.round(self.r(x, y, size, size), size * 0.22, RED, None);
+        let (bar, cx) = ((size * 0.14).max(1.0), x + size / 2.0);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), WHITE);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), WHITE);
+    }
+
     /// A tile: the card colour with its border.
     fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
         self.round(self.r(x, y, w, h), CORNER, color, Some(EDGE));
@@ -1241,14 +1384,16 @@ fn delta_text(d: Option<f64>) -> String {
 }
 
 /// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
-/// reverse; the top gear is not known to every game, so there is always one above a forward gear.
-fn neighbour_gears(gear: f32) -> (Option<String>, Option<String>) {
+/// reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known; when it is not, there
+/// is always one above a forward gear.
+fn neighbour_gears(gear: f32, gears: Option<u8>) -> (Option<String>, Option<String>) {
     if !gear.is_finite() {
         return (None, None);
     }
     let g = gear.round() as i32;
     let below = (g > -1).then(|| gear_text((g - 1) as f32));
-    let above = Some(gear_text((g + 1) as f32));
+    let in_top_gear = g >= 1 && gears.is_some_and(|count| g >= i32::from(count));
+    let above = (!in_top_gear).then(|| gear_text((g + 1) as f32));
     (below, above)
 }
 
@@ -1300,9 +1445,48 @@ fn lights_lit(share: f32) -> (usize, bool) {
     (lit.clamp(0.0, LIGHTS as f32) as usize, false)
 }
 
-/// Splits a saved lap's label (`Lap 3  1:47.918`) into its name and its time.
-fn lap_parts(label: &str) -> (&str, &str) {
-    label.split_once("  ").map_or((label, ""), |(name, time)| (name, time.trim()))
+/// A saved lap's label (`Lap 3  1:47.918`, or `Lap 5  3:27.250 (not valid)`) in its parts.
+#[derive(Debug, PartialEq)]
+struct LapLabel<'a> {
+    name: &'a str,
+    time: &'a str,
+    /// The label says the lap did not count.
+    invalid: bool,
+}
+
+/// Splits a saved lap's label into its name, its time and whether the lap was invalid.
+fn lap_parts(label: &str) -> LapLabel<'_> {
+    let (name, rest) = label.split_once("  ").unwrap_or((label, ""));
+    let rest = rest.trim();
+    match rest.strip_suffix(crate::engine::NOT_VALID_MARK.trim_start()) {
+        Some(time) => LapLabel {
+            name,
+            time: time.trim_end(),
+            invalid: true,
+        },
+        None => LapLabel {
+            name,
+            time: rest,
+            invalid: false,
+        },
+    }
+}
+
+/// The best time among the laps that counted, in seconds; an invalid lap is never the fastest.
+fn fastest_valid(laps: &[LapLabel]) -> Option<f64> {
+    laps.iter()
+        .filter(|l| !l.invalid)
+        .filter_map(|l| clock_seconds(l.time))
+        .reduce(f64::min)
+}
+
+/// The font size for a text measured `measured` wide at `size`, so that it fits in `room`: `size` itself when it
+/// already fits, smaller in proportion when it does not, and never below `floor`.
+fn fit_size(measured: f32, size: f32, room: f32, floor: f32) -> f32 {
+    if measured <= room || measured <= 0.0 {
+        return size;
+    }
+    (size * room / measured).max(floor.min(size))
 }
 
 /// The flags of the languages, in the order of `Lang::ALL`: Nucleo's flag icons (`assets/flags/*.svg`), drawn once
@@ -1881,15 +2065,8 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
     let r = g.r(0.0, top, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, 10.5, MUTED, DT_LEFT);
     let (y, h) = (top + 24.0, bottom - top - 24.0);
-    let laps: Vec<(&str, &str, Option<f64>)> = view
-        .recent_laps
-        .iter()
-        .map(|label| {
-            let (name, time) = lap_parts(label);
-            (name, time, clock_seconds(time))
-        })
-        .collect();
-    let fastest = laps.iter().filter_map(|l| l.2).fold(f64::INFINITY, f64::min);
+    let laps: Vec<LapLabel> = view.recent_laps.iter().map(|label| lap_parts(label)).collect();
+    let fastest = fastest_valid(&laps).unwrap_or(f64::INFINITY);
     // Six places, always: the last completed laps (up to five), the lap being driven, then empty places, so the row
     // keeps its shape from the first lap on.
     let (n, gap) = (6_usize, 12.0);
@@ -1904,26 +2081,44 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
                 time: &str,
                 time_color: COLORREF,
                 note: &str,
-                note_color: COLORREF| {
+                note_color: COLORREF,
+                invalid: bool| {
         let x = i as f32 * (card_w + gap);
         g.fill(g.r(x, y, card_w, h), CARD);
         g.fill(g.r(x, y, card_w, 3.0), edge);
         let r = g.r(x + 14.0, y + 14.0, card_w - 28.0, 16.0);
         g.caps(name, r, 10.5, name_color, DT_LEFT);
-        let r = g.r(x + 12.0, y + 40.0, card_w - 20.0, 40.0);
-        g.text(time, r, 30.0, semi, Face::Num, time_color, DT_LEFT);
+        if invalid {
+            g.invalid_mark(x + card_w - 14.0 - 16.0, y + 13.0, 16.0);
+        }
+        // The time never leaves its card: smaller when it is long.
+        let room = card_w - 24.0;
+        let size = g.fitted(time, room, 30.0, 14.0, semi, Face::Num);
+        let r = g.r(x + 12.0, y + 40.0, room + 4.0, 40.0);
+        g.text(time, r, size, semi, Face::Num, time_color, DT_LEFT);
         let r = g.r(x + 14.0, y + h - 36.0, card_w - 28.0, 20.0);
         g.text(note, r, 14.0, semi, Face::Num, note_color, DT_LEFT);
     };
-    for (i, (name, time, secs)) in shown.iter().enumerate() {
-        let is_fastest = secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
+    for (i, lap) in shown.iter().enumerate() {
+        let secs = clock_seconds(lap.time);
+        let is_fastest = !lap.invalid && secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
         let note = match secs {
+            _ if lap.invalid => text(view.lang, &Msg::PanelInvalid),
             _ if is_fastest => text(view.lang, &Msg::PanelFastest),
             Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
             _ => String::new(),
         };
-        let (edge, color) = if is_fastest { (PURPLE, PURPLE) } else { (EDGE, TEXT) };
-        card(g, i, edge, name, MUTED, time, color, &note, if is_fastest { PURPLE } else { MUTED });
+        let (edge, color) = match (lap.invalid, is_fastest) {
+            (true, _) => (RED, MUTED),
+            (_, true) => (PURPLE, PURPLE),
+            _ => (EDGE, TEXT),
+        };
+        let note_color = match (lap.invalid, is_fastest) {
+            (true, _) => RED,
+            (_, true) => PURPLE,
+            _ => MUTED,
+        };
+        card(g, i, edge, lap.name, MUTED, lap.time, color, &note, note_color, lap.invalid);
     }
     // The lap being driven, its time running and its delta to the best lap.
     let now = shown.len();
@@ -1943,6 +2138,7 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
         TEXT,
         &delta_text(live.delta_s),
         delta_color,
+        live.lap_valid == Some(false),
     );
     // The places still to fill.
     for i in now + 1..n {
@@ -1964,6 +2160,20 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
             DT_CENTER,
             22.0,
         );
+    }
+}
+
+/// The mark of a lap that will not count, ending at `right` (design units), with its word before it when `label`.
+fn invalid_flag(g: &mut Painter, view: &View, right: f32, y: f32, label: bool) {
+    let size = 22.0;
+    g.invalid_mark(right - size, y, size);
+    if label {
+        let word = text(view.lang, &Msg::PanelInvalid);
+        let room = 120.0;
+        let fit = g.fitted(&word, room, 15.0, 11.0, FW_SEMIBOLD as i32, Face::Ui);
+        let used = g.width_of(&word, fit, FW_SEMIBOLD as i32, Face::Ui);
+        let r = g.r(right - size - 8.0 - used, y, used + 2.0, size);
+        g.text(&word, r, fit, FW_SEMIBOLD as i32, Face::Ui, RED, DT_LEFT);
     }
 }
 
@@ -1994,15 +2204,13 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     let r = g.r(0.0, 72.0, 420.0, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     let r = g.r(w - 200.0, 46.0, 200.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        26.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
+    let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
+    g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
+    if live.lap_valid == Some(false) {
+        // No label here: the car's name takes the left of the line.
+        let at = w - g.width_of(&title, 26.0, semi, Face::Num) - 12.0;
+        invalid_flag(g, view, at, 49.0, false);
+    }
     let status = if live.in_pits {
         text(view.lang, &Msg::PanelPits)
     } else if !live.driving {
@@ -2055,7 +2263,7 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     }
     let r = g.r(152.0, 186.0, 296.0, 188.0);
     g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let (below, above) = neighbour_gears(live.gear);
+    let (below, above) = neighbour_gears(live.gear, live.gears);
     for (gear, x) in [(below, 184.0), (above, 376.0)] {
         if let Some(gear) = gear {
             let (gw, gh) = (40.0, 52.0);
@@ -2133,52 +2341,8 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     );
     g.fill(g.r(0.0, 712.0, w, 1.0), EDGE);
 
-    // The pedals on one bar from the centre, then the wheel.
-    let percent = |v: f32| {
-        if v.is_finite() {
-            format!("{:.0}%", v * 100.0)
-        } else {
-            "–".to_owned()
-        }
-    };
-    let label = |g: &mut Painter, name: &str, value: String, y: f32, right: bool| {
-        let (x, align) = if right { (w - 110.0, DT_RIGHT) } else { (0.0, DT_LEFT) };
-        let r = g.r(x, y, 110.0, 16.0);
-        g.caps(name, r, 10.5, MUTED, align);
-        let r = g.r(x, y + 15.0, 110.0, 28.0);
-        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
-    };
-    label(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 722.0, false);
-    label(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 722.0, true);
-    let (bx, bw, by, bh) = (120.0, 360.0, 736.0, 18.0);
-    let mid = bx + bw / 2.0;
-    let half = bw / 2.0 - 4.0;
-    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    g.blocks(bx, by, half, bh, 16, 1.0 - pedal(live.brake), 1.0, RED);
-    g.blocks(mid + 4.0, by, half, bh, 16, 0.0, pedal(live.throttle), GREEN);
-    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
-    let wheel = if live.steer.is_finite() {
-        let side = if live.steer < -0.005 {
-            "L "
-        } else if live.steer > 0.005 {
-            "R "
-        } else {
-            ""
-        };
-        format!("{side}{:.0}%", live.steer.abs() * 100.0)
-    } else {
-        "–".to_owned()
-    };
-    label(g, &text(view.lang, &Msg::PanelSteer), wheel, 770.0, false);
-    label(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 770.0, true);
-    let at = if live.steer.is_finite() {
-        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
-    } else {
-        f32::NAN
-    };
-    let reach = 1.0 / 32.0;
-    g.blocks(bx, 786.0, bw, 10.0, 32, at - reach, at + reach, ACCENT);
-    g.fill(g.r(mid - 1.0, 781.0, 2.0, 20.0), MUTED);
+    // The pedals and the wheel: a small panel in the middle of the strip.
+    pedals_panel(g, live, view, 0.0, 713.0, w, 103.0);
     g.fill(g.r(0.0, 816.0, w, 1.0), EDGE);
 
     // The track, then the car's four tyres (a compact schematic, with the room the track gave up).
@@ -2210,15 +2374,12 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     let r = g.r(0.0, 72.0, 640.0, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     let r = g.r(width - 360.0, 46.0, 360.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        26.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
+    let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
+    g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
+    if live.lap_valid == Some(false) {
+        let at = width - g.width_of(&title, 26.0, semi, Face::Num) - 12.0;
+        invalid_flag(g, view, at, 49.0, true);
+    }
     let status = if live.in_pits {
         text(view.lang, &Msg::PanelPits)
     } else if !live.driving {
@@ -2321,7 +2482,7 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     }
     let r = g.r(352.0, 172.0, 296.0, 188.0);
     g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let (below, above) = neighbour_gears(live.gear);
+    let (below, above) = neighbour_gears(live.gear, live.gears);
     for (gear, x) in [(below, 384.0), (above, 576.0)] {
         if let Some(gear) = gear {
             let (w, h) = (40.0, 52.0);
@@ -2341,57 +2502,67 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     let r = g.r(330.0, 402.0, 340.0, 14.0);
     g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
 
-    // Bottom: brake and throttle on one bar from the centre, then the wheel; clutch on the right.
+    // Bottom: a small panel with the pedals and the wheel.
     g.fill(g.r(0.0, 424.0, CANVAS_W, 1.0), EDGE);
-    let percent = |v: f32| {
-        if v.is_finite() {
-            format!("{:.0}%", v * 100.0)
-        } else {
-            "–".to_owned()
-        }
-    };
-    let side = |g: &mut Painter, label: &str, value: String, y: f32, align: u32| {
-        let x = if align == DT_RIGHT { 880.0 } else { 0.0 };
-        let r = g.r(x, y, 120.0, 16.0);
-        g.caps(label, r, 10.5, MUTED, align);
-        let r = g.r(x, y + 15.0, 120.0, 28.0);
-        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
-    };
-    side(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 432.0, DT_LEFT);
-    side(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 432.0, DT_RIGHT);
-    let (bx, bw, by, bh) = (140.0, 720.0, 444.0, 18.0);
-    let mid = bx + bw / 2.0;
-    // One bar of blocks: brake lights from the centre to the left, throttle from the centre to the right.
-    let half = bw / 2.0 - 4.0;
-    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    g.blocks(bx, by, half, bh, 24, 1.0 - pedal(live.brake), 1.0, RED);
-    g.blocks(mid + 4.0, by, half, bh, 24, 0.0, pedal(live.throttle), GREEN);
-    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
+    pedals_panel(g, live, view, 0.0, 425.0, CANVAS_W, 95.0);
+}
 
-    let wheel = if live.steer.is_finite() {
-        let side = if live.steer < -0.005 {
-            "L "
-        } else if live.steer > 0.005 {
-            "R "
-        } else {
-            ""
-        };
-        format!("{side}{:.0}%", live.steer.abs() * 100.0)
+/// The height of a pedal bar's fill, in the same units as `full`: `value` is 0..1; out of range is clamped and a
+/// value the game does not give (NaN) counts as released.
+fn pedal_fill(value: f32, full: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0) * full
     } else {
-        "–".to_owned()
-    };
-    side(g, &text(view.lang, &Msg::PanelSteer), wheel, 476.0, DT_LEFT);
-    side(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 476.0, DT_RIGHT);
-    let (ty, th) = (492.0, 10.0);
-    // The wheel: the block where the wheel points is lit (a block either side when it sits between two).
-    let at = if live.steer.is_finite() {
-        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
+        0.0
+    }
+}
+
+/// The one-letter tag under a pedal bar: the first letter of its (translated) name, in capitals.
+fn pedal_tag(name: &str) -> String {
+    name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default()
+}
+
+/// How far the steering wheel glyph is turned, in degrees clockwise, for a steering input of -1..1 (full left to
+/// full right): a quarter turn each way. No value (NaN) leaves it straight.
+fn wheel_angle(steer: f32) -> f32 {
+    if steer.is_finite() {
+        steer.clamp(-1.0, 1.0) * 90.0
     } else {
-        f32::NAN
-    };
-    let reach = 1.0 / 48.0;
-    g.blocks(bx, ty, bw, th, 48, at - reach, at + reach, ACCENT);
-    g.fill(g.r(mid - 1.0, ty - 5.0, 2.0, th + 10.0), MUTED);
+        0.0
+    }
+}
+
+/// The point at `radius` from the centre, `degrees` clockwise from straight up (screen axes, y down).
+fn polar(cx: f32, cy: f32, radius: f32, degrees: f32) -> (f32, f32) {
+    let a = degrees.to_radians();
+    (cx + radius * a.sin(), cy - radius * a.cos())
+}
+
+/// The pedals and the wheel as one small group, centred in the box: slim bars for the clutch (left out when the game
+/// gives no value), the brake and the throttle, each filling from the bottom with a letter under it, then the
+/// steering wheel turning with the input.
+fn pedals_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32) {
+    let (bar_w, gap, bar_h, label_h, wheel_r, wheel_gap) = (22.0, 14.0, 56.0, 14.0, 30.0, 44.0);
+    let mut bars = vec![(Msg::PanelBrake, live.brake, RED), (Msg::PanelThrottle, live.throttle, GREEN)];
+    if live.clutch.is_finite() {
+        bars.insert(0, (Msg::PanelClutch, live.clutch, BLUE));
+    }
+    let bars_w = bars.len() as f32 * bar_w + (bars.len() as f32 - 1.0) * gap;
+    let total = bars_w + wheel_gap + wheel_r * 2.0;
+    let left = x + (w - total) / 2.0;
+    let top = y + (h - (bar_h + 4.0 + label_h)) / 2.0;
+    for (i, (name, value, color)) in bars.iter().enumerate() {
+        let bx = left + i as f32 * (bar_w + gap);
+        g.fill(g.r(bx, top, bar_w, bar_h), TRACK);
+        let filled = pedal_fill(*value, bar_h);
+        if filled > 0.0 {
+            g.fill(g.r(bx, top + bar_h - filled, bar_w, filled), *color);
+        }
+        let r = g.r(bx - 8.0, top + bar_h + 4.0, bar_w + 16.0, label_h);
+        g.caps(&pedal_tag(&text(view.lang, name)), r, 10.0, MUTED, DT_CENTER);
+    }
+    let (cx, cy) = (left + bars_w + wheel_gap + wheel_r, top + bar_h / 2.0);
+    g.steering_wheel(cx, cy, wheel_r, wheel_angle(live.steer), live.steer.is_finite());
 }
 
 /// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
@@ -2420,7 +2591,7 @@ fn track_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
     let r = g.r(x, y, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
     match live.map.as_ref().filter(|m| m.len() >= 30) {
-        Some(map) => g.track_map(x, y + 22.0, w, h - 22.0, map, live.pos),
+        Some(map) => g.track_map((x, y + 22.0, w, h - 22.0), map, live.map_complete, live.pos),
         None => {
             g.fill(g.r(x, y + 22.0, w, h - 22.0), mix(BG, CARD, 0.5));
             let note = text(view.lang, &Msg::PanelMapSoon);
@@ -2775,11 +2946,24 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
             if i > 0 {
                 g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
             }
-            let (name, time) = lap_parts(label);
+            let lap = lap_parts(label);
             let r = g.r(right + 20.0, y, col / 2.0, lap_row);
-            g.text(name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            g.text(lap.name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            // The time stays in its half of the row (smaller when it is long), the mark of an invalid lap before it.
+            let room = col / 2.0 - 20.0 - if lap.invalid { 24.0 } else { 0.0 };
+            let size = g.fitted(lap.time, room, 18.0, 11.0, semi, Face::Num);
+            let color = match (lap.invalid, i) {
+                (true, _) => MUTED,
+                (_, 0) => ACCENT,
+                _ => TEXT,
+            };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
-            g.text(time, r, 18.0, semi, Face::Num, if i == 0 { ACCENT } else { TEXT }, DT_RIGHT);
+            g.text(lap.time, r, size, semi, Face::Num, color, DT_RIGHT);
+            if lap.invalid {
+                // The digits are set a little wider than the plain measure: leave room.
+                let used = g.width_of(lap.time, size, semi, Face::Num) * 1.18 + 8.0;
+                g.invalid_mark(right + col - 20.0 - used - 22.0, y + (lap_row - 16.0) / 2.0, 16.0);
+            }
         }
     }
 
@@ -3650,6 +3834,48 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pedal_bar_fills_with_its_value_and_never_past_the_bar() {
+        assert_eq!(pedal_fill(0.0, 50.0), 0.0);
+        assert_eq!(pedal_fill(0.5, 50.0), 25.0);
+        assert_eq!(pedal_fill(1.0, 50.0), 50.0);
+        assert_eq!(pedal_fill(1.7, 50.0), 50.0);
+        assert_eq!(pedal_fill(-0.3, 50.0), 0.0);
+    }
+
+    #[test]
+    fn a_pedal_without_a_value_counts_as_released() {
+        assert_eq!(pedal_fill(f32::NAN, 50.0), 0.0);
+        assert_eq!(pedal_fill(f32::INFINITY, 50.0), 0.0);
+    }
+
+    #[test]
+    fn a_pedal_tag_is_the_first_letter_in_capitals() {
+        assert_eq!(pedal_tag("Brake"), "B");
+        assert_eq!(pedal_tag("embreagem"), "E");
+        assert_eq!(pedal_tag(""), "");
+    }
+
+    #[test]
+    fn the_wheel_turns_a_quarter_each_way_and_stays_straight_without_a_value() {
+        assert_eq!(wheel_angle(0.0), 0.0);
+        assert_eq!(wheel_angle(1.0), 90.0);
+        assert_eq!(wheel_angle(-1.0), -90.0);
+        assert_eq!(wheel_angle(0.5), 45.0);
+        assert_eq!(wheel_angle(3.0), 90.0);
+        assert_eq!(wheel_angle(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn the_wheel_mark_moves_clockwise_from_the_top() {
+        let (x, y) = polar(100.0, 100.0, 10.0, 0.0);
+        assert!((x - 100.0).abs() < 1e-4 && (y - 90.0).abs() < 1e-4);
+        let (x, y) = polar(100.0, 100.0, 10.0, 90.0);
+        assert!((x - 110.0).abs() < 1e-4 && (y - 100.0).abs() < 1e-4);
+        let (x, _) = polar(100.0, 100.0, 10.0, -45.0);
+        assert!(x < 100.0);
+    }
+
     use super::*;
 
     #[test]
@@ -3887,6 +4113,7 @@ mod tests {
             .collect();
         live.pos = Some(track[160]);
         live.map = Some(std::sync::Arc::new(track));
+        live.map_complete = true;
         live.best_lap_s = Some(107.204);
         live.delta_s = Some(-0.27);
         live
@@ -3935,7 +4162,11 @@ mod tests {
                     state: Game::Unsupported,
                 },
             ],
-            laps: vec!["Lap 1  1:49.002".into(), "Lap 2  1:48.115".into(), "Lap 3  1:47.918".into()],
+            laps: vec![
+                "Lap 1  1:49.002".into(),
+                "Lap 2  1:48.115 (not valid)".into(),
+                "Lap 3  1:47.918".into(),
+            ],
             log: vec![
                 ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
                 ("21:45".into(), "Lap saved: Lap 2  1:48.115".into()),
@@ -4129,6 +4360,37 @@ mod tests {
     /// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
     /// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
     #[test]
+    fn a_whole_lap_closes_with_a_start_mark_and_a_partial_path_stays_open_and_breaks_at_jumps() {
+        let lap: Vec<(f32, f32)> = (0..200)
+            .map(|i| {
+                let a = i as f32 / 200.0 * std::f32::consts::TAU;
+                (300.0 * a.cos(), 100.0 * a.sin())
+            })
+            .collect();
+        let whole = prepare_map(&lap, true, 200.0, 100.0, 400.0, 200.0).unwrap();
+        assert_eq!(whole.runs.len(), 1);
+        assert_eq!(whole.runs[0].first(), whole.runs[0].last(), "a whole lap closes");
+        assert!(whole.start.is_some());
+        let partial = prepare_map(&lap[..150], false, 200.0, 100.0, 400.0, 200.0).unwrap();
+        assert_ne!(
+            partial.runs[0].first(),
+            partial.runs[0].last(),
+            "a partial path is not joined back to its start"
+        );
+        assert!(partial.start.is_none());
+        let mut jumped = lap[..100].to_vec();
+        jumped.extend(lap[..100].iter().map(|&(x, z)| (x + 2000.0, z)));
+        assert_eq!(prepare_map(&jumped, false, 200.0, 100.0, 400.0, 200.0).unwrap().runs.len(), 2);
+        // The car is placed with the map's own transform: the first point of the lap is the start mark's place.
+        let at = whole.fit.apply(lap[0]);
+        assert!(whole.runs[0].iter().any(|p| (p.0 - at.0).hypot(p.1 - at.1) < 8.0));
+        // Everything lies in the box, with its margin.
+        assert!(whole.runs[0]
+            .iter()
+            .all(|p| (0.0..=400.0).contains(&p.0) && (0.0..=200.0).contains(&p.1)));
+    }
+
+    #[test]
     fn writes_the_design_preview_page() {
         let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") else {
             return;
@@ -4137,6 +4399,7 @@ mod tests {
         let live = live_reading();
         let mut pits = live.clone();
         pits.in_pits = true;
+        pits.lap_valid = Some(false);
         pits.delta_s = Some(0.43);
         pits.throttle = 0.0;
         pits.brake = 0.8;
@@ -4464,8 +4727,39 @@ look(); setInterval(look, 1500);
         assert_eq!(lights_lit(0.98), (LIGHTS, true));
         assert_eq!(lights_lit(f32::NAN), (0, false));
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
-        assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
-        assert_eq!(lap_parts("odd"), ("odd", ""));
+    }
+
+    #[test]
+    fn a_lap_label_splits_into_name_time_and_the_invalid_flag() {
+        let part = |name, time, invalid| LapLabel { name, time, invalid };
+        assert_eq!(lap_parts("Lap 3  1:47.918"), part("Lap 3", "1:47.918", false));
+        assert_eq!(lap_parts("Lap 5  3:27.250 (not valid)"), part("Lap 5", "3:27.250", true));
+        assert_eq!(lap_parts("odd"), part("odd", "", false));
+        assert_eq!(lap_parts(""), part("", "", false));
+        assert_eq!(lap_parts("Lap 7  (not valid)"), part("Lap 7", "", true));
+        // The mark is only the label's tail, not part of its name.
+        assert_eq!(lap_parts("Lap (not valid)  1:00.000"), part("Lap (not valid)", "1:00.000", false));
+    }
+
+    #[test]
+    fn the_fastest_lap_is_never_an_invalid_one() {
+        let laps: Vec<_> = ["Lap 1  1:49.002", "Lap 2  1:40.000 (not valid)", "Lap 3  1:47.918"]
+            .into_iter()
+            .map(lap_parts)
+            .collect();
+        assert_eq!(fastest_valid(&laps), Some(107.918));
+        let only_invalid = [lap_parts("Lap 1  1:40.000 (not valid)")];
+        assert_eq!(fastest_valid(&only_invalid), None);
+        assert_eq!(fastest_valid(&[]), None);
+    }
+
+    #[test]
+    fn a_time_that_does_not_fit_gets_a_smaller_size_but_never_below_the_floor() {
+        assert_eq!(fit_size(80.0, 30.0, 100.0, 14.0), 30.0, "fits: unchanged");
+        assert_eq!(fit_size(200.0, 30.0, 100.0, 14.0), 15.0, "twice too wide: half the size");
+        assert_eq!(fit_size(1000.0, 30.0, 100.0, 14.0), 14.0, "far too wide: the floor");
+        assert_eq!(fit_size(1000.0, 10.0, 100.0, 14.0), 10.0, "a size under the floor is left alone");
+        assert_eq!(fit_size(0.0, 30.0, 100.0, 14.0), 30.0);
     }
 
     #[test]
@@ -4490,11 +4784,36 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn shows_the_gears_either_side() {
-        assert_eq!(neighbour_gears(4.0), (Some("3".into()), Some("5".into())));
-        assert_eq!(neighbour_gears(1.0), (Some("N".into()), Some("2".into())));
-        assert_eq!(neighbour_gears(0.0), (Some("R".into()), Some("1".into())));
-        assert_eq!(neighbour_gears(-1.0), (None, Some("N".into())));
-        assert_eq!(neighbour_gears(f32::NAN), (None, None));
+        assert_eq!(neighbour_gears(4.0, None), (Some("3".into()), Some("5".into())));
+        assert_eq!(neighbour_gears(1.0, None), (Some("N".into()), Some("2".into())));
+        assert_eq!(neighbour_gears(0.0, None), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0, None), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN, None), (None, None));
+        assert_eq!(
+            neighbour_gears(6.0, None),
+            (Some("5".into()), Some("7".into())),
+            "unknown count: as before"
+        );
+    }
+
+    #[test]
+    fn the_top_gear_has_nothing_above_it_when_the_count_is_known() {
+        assert_eq!(
+            neighbour_gears(6.0, Some(6)),
+            (Some("5".into()), None),
+            "top gear of a 6-speed: no 7"
+        );
+        assert_eq!(neighbour_gears(5.0, Some(6)), (Some("4".into()), Some("6".into())));
+        assert_eq!(
+            neighbour_gears(7.0, Some(6)),
+            (Some("6".into()), None),
+            "past the count is still the top"
+        );
+        assert_eq!(neighbour_gears(1.0, Some(1)), (Some("N".into()), None), "a one-speed car");
+        // Neutral and reverse keep their neighbours whatever the count.
+        assert_eq!(neighbour_gears(0.0, Some(6)), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0, Some(6)), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN, Some(6)), (None, None));
     }
 
     #[test]

@@ -106,6 +106,8 @@ mod gfx {
     pub const CURRENT_LAP_TIME_MS: usize = 188;
     pub const TOTAL_LAP_COUNT: usize = 2384;
     pub const LAST_LAPTIME_MS: usize = 2396;
+    /// `max_gears`: 16 bytes after `last_laptime_ms` (`best_laptime_ms`, `flag`, `global_flag`, then this).
+    pub const MAX_GEARS: usize = 2412;
     /// `session_state.lap_length_km` (`session_state` at 2476, the field 84 bytes in).
     pub const SESSION_LAP_LENGTH_KM: usize = 2560;
     /// `timing_state.is_invalid` (`timing_state` at 2732, the field 117 bytes in).
@@ -445,6 +447,9 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     // 0 = reverse, 1 = neutral, 2 = first.
     let gear = p.i32_at(phys::GEAR);
     f.gear = if (0..=15).contains(&gear) { (gear - 1) as f32 } else { f32::NAN };
+    // `max_gears` (graphics page): the forward gears.
+    let max_gears = g.i32_at(gfx::MAX_GEARS);
+    f.gears = (1..=15).contains(&max_gears).then_some(max_gears as u8);
     // Documented as -1..1; far outside that is not a steering value and is dropped, not pinned to the ends.
     let steer = p.f32_at(phys::STEER_ANGLE);
     f.steer = if steer.is_finite() && steer.abs() <= 1.5 {
@@ -1045,6 +1050,7 @@ mod tests {
                     ("current_lap_time_ms", gfx::CURRENT_LAP_TIME_MS),
                     ("total_lap_count", gfx::TOTAL_LAP_COUNT),
                     ("last_laptime_ms", gfx::LAST_LAPTIME_MS),
+                    ("max_gears", gfx::MAX_GEARS),
                     ("car_model", gfx::CAR_MODEL),
                     ("is_in_pit_box", gfx::IS_IN_PIT_BOX),
                     ("is_in_pit_lane", gfx::IS_IN_PIT_LANE),
@@ -1146,6 +1152,7 @@ mod tests {
             i.graphics.i32(gfx::CURRENT_LAP_TIME_MS, 63_250);
             i.graphics.i32(gfx::TOTAL_LAP_COUNT, 3);
             i.graphics.i32(gfx::LAST_LAPTIME_MS, 90_500);
+            i.graphics.i32(gfx::MAX_GEARS, 6);
             i.graphics.f32(gfx::SESSION_LAP_LENGTH_KM, 5.793);
             i.graphics.0[gfx::IS_VALID_LAP] = 1;
             i.graphics.text(gfx::CAR_MODEL, CAR_TEXT_LEN, "ks_porsche_911_gt3");
@@ -1229,6 +1236,7 @@ mod tests {
         want.speed_ms = 50.0; // 180 km/h
         want.rpm = 7250.0;
         want.gear = 3.0; // the game's 4 is third gear
+        want.gears = Some(6);
         want.throttle = 0.75;
         want.brake = 0.25;
         want.clutch = 0.5;

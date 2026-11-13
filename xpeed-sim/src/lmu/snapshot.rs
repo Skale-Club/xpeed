@@ -58,6 +58,8 @@ pub struct PlayerTelemetry {
     /// Velocity in meters per second, in the car's own axes.
     pub local_vel: [f64; 3],
     pub gear: i32,
+    /// `mMaxGears`: the car's forward gears (0 when the game leaves it unset).
+    pub max_gears: u8,
     pub rpm: f64,
     pub throttle: f64,
     pub brake: f64,
@@ -130,6 +132,7 @@ pub fn parse_telemetry(info: &[u8]) -> PlayerTelemetry {
         pos: vect3_at(info, TI_POS),
         local_vel: vect3_at(info, TI_LOCAL_VEL),
         gear: i32_at(info, TI_GEAR),
+        max_gears: info[TI_MAX_GEARS],
         rpm: f64_at(info, TI_ENGINE_RPM),
         throttle: f64_at(info, TI_THROTTLE),
         brake: f64_at(info, TI_BRAKE),
@@ -273,6 +276,7 @@ pub mod fake {
                 self.put_f64(base + TI_LOCAL_VEL + axis * 8, t.local_vel[axis]);
             }
             self.put_i32(base + TI_GEAR, t.gear);
+            self.put(base + TI_MAX_GEARS, &[t.max_gears]);
             self.put_f64(base + TI_ENGINE_RPM, t.rpm);
             self.put_f64(base + TI_THROTTLE, t.throttle);
             self.put_f64(base + TI_BRAKE, t.brake);
@@ -335,6 +339,7 @@ mod tests {
             pos: [10.0, 2.5, -30.0],
             local_vel: [0.0, 0.0, -80.0],
             gear: 5,
+            max_gears: 7,
             rpm: 7200.0,
             throttle: 1.0,
             brake: 0.0,

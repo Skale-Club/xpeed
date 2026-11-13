@@ -108,6 +108,8 @@ mod at {
     pub const CAR_SPEED: usize = 1392;
     pub const ENGINE_RPS: usize = 1396;
     pub const GEAR: usize = 1408;
+    /// `num_gears`, right after `gear`.
+    pub const NUM_GEARS: usize = GEAR + 4;
     pub const CAR_CG_LOCATION: usize = 1416;
     pub const FUEL_LEFT: usize = 1456;
     pub const THROTTLE_RAW: usize = 1504;
@@ -389,6 +391,9 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.rpm = rps * (60.0 / std::f32::consts::TAU);
     let gear = page.i32_at(at::GEAR);
     frame.gear = if (-1..=30).contains(&gear) { gear as f32 } else { f32::NAN };
+    // `num_gears`: the forward gears of the car.
+    let num_gears = page.i32_at(at::NUM_GEARS);
+    frame.gears = (1..=30).contains(&num_gears).then_some(num_gears as u8);
     // What the driver does with the pedals and the wheel, before any filtering the game applies.
     frame.throttle = pedal(page.f32_at(at::THROTTLE_RAW));
     frame.brake = pedal(page.f32_at(at::BRAKE_RAW));
@@ -477,6 +482,7 @@ mod tests {
             // 7500 rpm is 7500 turns of 2π radians a minute.
             i.f32(at::ENGINE_RPS, 7500.0 * std::f32::consts::TAU / 60.0);
             i.i32(at::GEAR, 4);
+            i.i32(at::NUM_GEARS, 6);
             i.f32(at::THROTTLE_RAW, 0.75);
             i.f32(at::BRAKE_RAW, 0.25);
             i.f32(at::CLUTCH_RAW, 0.5);
@@ -915,6 +921,7 @@ mod tests {
             ("car_speed", at::CAR_SPEED),
             ("engine_rps", at::ENGINE_RPS),
             ("gear", at::GEAR),
+            ("num_gears", at::NUM_GEARS),
             ("car_cg_location", at::CAR_CG_LOCATION),
             ("fuel_left", at::FUEL_LEFT),
             ("throttle_raw", at::THROTTLE_RAW),
@@ -955,6 +962,7 @@ mod tests {
         want.speed_ms = 55.5;
         want.rpm = frame.rpm;
         want.gear = 4.0;
+        want.gears = Some(6);
         want.throttle = 0.75;
         want.brake = 0.25;
         want.clutch = 0.5;
@@ -1096,6 +1104,15 @@ mod tests {
             let mut image = Image::on_track();
             image.i32(at::LAP_VALID_STATE, state);
             assert_eq!(frame_from(&image.0, 0.0).unwrap().lap_valid, valid, "lap_valid_state {state}");
+        }
+    }
+
+    #[test]
+    fn the_forward_gear_count_is_given_only_when_the_game_sets_it() {
+        for (num, want) in [(6, Some(6)), (1, Some(1)), (0, None), (-1, None), (31, None)] {
+            let mut image = Image::on_track();
+            image.i32(at::NUM_GEARS, num);
+            assert_eq!(frame_from(&image.0, 0.0).unwrap().gears, want, "num_gears {num}");
         }
     }
 
