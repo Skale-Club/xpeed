@@ -58,6 +58,9 @@ pub fn lap_file_name(lap: &lapfile::Lap) -> String {
     )
 }
 
+/// What a saved lap's label ends with when the lap did not count; the panel looks for it to draw the invalid mark.
+pub const NOT_VALID_MARK: &str = " (not valid)";
+
 /// Writes the lap next to its final name as `.part` and renames it, so a half-written file never looks like a lap.
 /// Returns `Lap 3  1:42.318` when it worked.
 pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<String> {
@@ -80,7 +83,7 @@ pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<Stri
                 "Lap {}  {}{}",
                 lap.lap_number,
                 clock(lap.time_ms),
-                if lap.valid { "" } else { " (not valid)" }
+                if lap.valid { "" } else { NOT_VALID_MARK }
             ))
         }
         Err(error) => {
