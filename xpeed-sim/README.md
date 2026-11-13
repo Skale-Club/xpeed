@@ -36,6 +36,10 @@ Para ver o painel sem jogo aberto, rode `xpeed-sim panel-demo`, que mostra uma p
 - **Onde ficam as coisas:** voltas em `Documentos\Xpeed Sim\Laps` (ou `XPEED_SIM_LAPS`); configuração e o registro (`sim.log`) em `%APPDATA%\Xpeed Companion` (ou `XPEED_SIM_HOME`). A chave do aparelho **nunca** é impressa nem vai para o registro.
 - **Uma cópia por vez:** abrir de novo não abre outra.
 
+## Versões
+
+Todo instalador que sai desta máquina leva uma versão nova (`version` no `Cargo.toml`): *patch* (0.2.1) para correções, *minor* (0.3.0) para recursos novos. O instalador usa essa versão no nome (`dist\xpeed-sim-setup-<versão>.exe`) e o programa a mostra no painel (`v0.2.0`) e nas propriedades do `.exe`. O carimbo da compilação (hash curto do commit, com `-dirty` se havia mudanças não commitadas) separa duas compilações da mesma versão: aparece no log ao iniciar e ao passar o mouse sobre a versão no painel. O `installer\build.ps1` imprime os dois e avisa em voz alta se o instalador dessa versão já existe, sinal de que a versão não foi subida.
+
 ## Compilar
 
 Precisa de um Rust recente (testado com a 1.99; o clippy do CI usa o estável mais novo) e do MSVC Build Tools.

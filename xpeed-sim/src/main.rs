@@ -39,6 +39,8 @@ mod outbox;
 #[cfg(windows)]
 mod panel;
 mod present;
+#[cfg(test)]
+mod rcgen;
 mod recorder;
 #[cfg(windows)]
 mod shm;

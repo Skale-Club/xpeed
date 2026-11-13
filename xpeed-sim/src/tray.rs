@@ -15,11 +15,11 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow,
-    DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
-    RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, CREATESTRUCTW,
-    GWLP_USERDATA, HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, TPM_BOTTOMALIGN,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NULL, WM_RBUTTONUP, WNDCLASSW,
-    WS_OVERLAPPED,
+    DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, LoadImageW, PostMessageW,
+    PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
+    CREATESTRUCTW, GWLP_USERDATA, HICON, ICONINFO, IMAGE_ICON, LR_SHARED, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG,
+    SM_CXICON, SM_CXSMICON, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE,
+    WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::config::{self, Config, DEFAULT_SERVER};
@@ -77,6 +77,33 @@ struct App {
 fn icon_for(light: Light) -> HICON {
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 64) as u32;
     icon_of(size, Some(light))
+}
+
+/// The program's own icon (no state dot), big and small, for a window's title bar and taskbar button. The caller
+/// destroys both.
+pub fn program_icons() -> [HICON; 2] {
+    [icon_of(32, None), icon_of(16, None)]
+}
+
+/// The icon embedded in the program (resource 1, the Xpeed mark) at the size Windows wants for a big or a small icon;
+/// the drawn icon when the program was built without resources. The embedded one is shared and must not be destroyed.
+pub fn class_icon(small: bool) -> HICON {
+    unsafe {
+        let size = GetSystemMetrics(if small { SM_CXSMICON } else { SM_CXICON }).clamp(16, 256);
+        let handle = LoadImageW(
+            GetModuleHandleW(null()),
+            std::ptr::without_provenance::<u16>(1),
+            IMAGE_ICON,
+            size,
+            size,
+            LR_SHARED,
+        );
+        if handle.is_null() {
+            icon_of(size as u32, None)
+        } else {
+            handle as HICON
+        }
+    }
 }
 
 fn icon_of(size: u32, light: Option<Light>) -> HICON {
@@ -422,7 +449,11 @@ pub fn run(open_panel: bool) -> ExitCode {
         return ExitCode::from(1);
     };
     applog::init(home.join("sim.log"));
-    applog::line(&format!("Xpeed Companion {} starting", env!("CARGO_PKG_VERSION")));
+    applog::line(&format!(
+        "Xpeed Companion {} ({}) starting",
+        env!("CARGO_PKG_VERSION"),
+        env!("XPEED_BUILD")
+    ));
 
     let config_path = home.join("config.json");
     let config = match config::load(&config_path) {
@@ -445,7 +476,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: instance,
-            hIcon: null_mut(),
+            hIcon: class_icon(false),
             hCursor: null_mut(),
             hbrBackground: null_mut(),
             lpszMenuName: null(),
@@ -469,7 +500,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             taskbar_created: RegisterWindowMessageW(win::wide("TaskbarCreated").as_ptr()),
             panel: null_mut(),
             account: Arc::new(Mutex::new(Account::default())),
-            panel_icons: [icon_of(32, None), icon_of(16, None)],
+            panel_icons: program_icons(),
         });
         app.sync_account();
         let app = Box::into_raw(app);
@@ -606,4 +637,20 @@ pub fn start_connect(server: &str) {
         std::sync::Arc::new(hooks),
         connect::Timing::default(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_programs_own_icons_are_made_for_the_big_and_the_small_slot() {
+        let icons = program_icons();
+        assert!(icons.iter().all(|i| !i.is_null()), "both icons exist");
+        for icon in icons {
+            unsafe {
+                DestroyIcon(icon);
+            }
+        }
+    }
 }
