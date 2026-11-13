@@ -73,7 +73,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{CarState, Drs, Flag, Frame, Source};
 use crate::shm::{Mapping, Page};
 
 /// Windows gives a shared memory whole pages.
@@ -103,9 +103,38 @@ mod phys {
 mod gfx {
     pub const PACKET_ID: usize = 0;
     pub const STATUS: usize = 4;
+    /// `bool tc_active`, `bool abs_active` ("actively intervening this frame") and `bool is_drs_available`.
+    pub const TC_ACTIVE: usize = 45;
+    pub const ABS_ACTIVE: usize = 46;
+    pub const IS_DRS_AVAILABLE: usize = 53;
+    /// `float handbrake_percent`: the handbrake's engagement, 0..1.
+    pub const HANDBRAKE: usize = 84;
+    /// `int8_t water_temperature_c` and `float oil_temperature_c`, Celsius.
+    pub const WATER_TEMPERATURE_C: usize = 116;
+    pub const OIL_TEMPERATURE_C: usize = 120;
     pub const CURRENT_LAP_TIME_MS: usize = 188;
+    /// `SMEvoInstrumentation instrumentation` (128 bytes): `int8_t main_light_stage` at its start and
+    /// `bool are_headlights_visible` 26 bytes in.
+    pub const INSTRUMENTATION: usize = 1488;
+    pub const HEADLIGHTS_VISIBLE: usize = INSTRUMENTATION + 26;
+    /// `SMEvoElectronics electronics` (128 bytes), then `electronics_min_limit` and `electronics_max_limit`.
+    pub const ELECTRONICS: usize = 1872;
+    pub const ELECTRONICS_MAX_LIMIT: usize = ELECTRONICS + 2 * 128;
+    /// Inside an `SMEvoElectronics`: `int8_t tc_level` (0 = off), `int8_t abs_level` (0 = off), `float brake_bias`
+    /// (the front ratio, 0.56 = 56 % front), `int8_t engine_map_level`, `bool is_drs_open`, `bool is_pitlimiter_on`.
+    pub const E_TC_LEVEL: usize = 0;
+    pub const E_ABS_LEVEL: usize = 2;
+    pub const E_BRAKE_BIAS: usize = 8;
+    pub const E_ENGINE_MAP_LEVEL: usize = 12;
+    pub const E_IS_DRS_OPEN: usize = 30;
+    pub const E_IS_PITLIMITER_ON: usize = 38;
+    /// `ACEVO_FLAG_TYPE flag` (shown to this driver) and `global_flag` (shown to all).
+    pub const FLAG: usize = 2404;
+    pub const GLOBAL_FLAG: usize = 2408;
     pub const TOTAL_LAP_COUNT: usize = 2384;
     pub const LAST_LAPTIME_MS: usize = 2396;
+    /// `max_gears`: 16 bytes after `last_laptime_ms` (`best_laptime_ms`, `flag`, `global_flag`, then this).
+    pub const MAX_GEARS: usize = 2412;
     /// `session_state.lap_length_km` (`session_state` at 2476, the field 84 bytes in).
     pub const SESSION_LAP_LENGTH_KM: usize = 2560;
     /// `timing_state.is_invalid` (`timing_state` at 2732, the field 117 bytes in).
@@ -380,6 +409,57 @@ fn flag(page: &Page, at: usize) -> Option<bool> {
     }
 }
 
+/// `ACEVO_FLAG_TYPE`: 0 none, 1 white, 2 green, 3 red, 4 blue, 5 yellow, 6 black, 7 black and white, 8 chequered,
+/// 9 orange circle (a mechanical problem), 10 red and yellow stripes. `Flag` has no red and no slippery-surface flag,
+/// and the black and white and the orange circle are shown as black.
+fn flag_of(v: i32) -> Option<Flag> {
+    match v {
+        1 => Some(Flag::White),
+        2 => Some(Flag::Green),
+        4 => Some(Flag::Blue),
+        5 => Some(Flag::Yellow),
+        6 | 7 | 9 => Some(Flag::Black),
+        8 => Some(Flag::Chequered),
+        _ => None,
+    }
+}
+
+/// The car's lights, temperatures and electronics from the graphics page. Damage is not read: the sources give the
+/// nine `car_damage` floats no range. A setting is given only for a car whose maximum for it is above 0 (a car
+/// without traction control has `tc_level` 0 and a maximum 0). No source has a gearbox or engine damage, the engine
+/// warning light or a DRS-less car's "off" (a car with no wing writes false for both DRS flags, so neither is told).
+fn state_from(g: &Page) -> CarState {
+    let mut state = CarState::UNKNOWN;
+    state.pit_limiter = flag(g, gfx::ELECTRONICS + gfx::E_IS_PITLIMITER_ON);
+    state.abs_active = flag(g, gfx::ABS_ACTIVE);
+    state.tc_active = flag(g, gfx::TC_ACTIVE);
+    state.headlights = flag(g, gfx::HEADLIGHTS_VISIBLE);
+    let handbrake = g.f32_at(gfx::HANDBRAKE);
+    state.handbrake = (0.0..=1.0).contains(&handbrake).then_some(handbrake > 0.0);
+    state.drs = if flag(g, gfx::ELECTRONICS + gfx::E_IS_DRS_OPEN) == Some(true) {
+        Some(Drs::Open)
+    } else if flag(g, gfx::IS_DRS_AVAILABLE) == Some(true) {
+        Some(Drs::Available)
+    } else {
+        None
+    };
+    // The flag shown to this driver; the one shown to all when there is none for this driver.
+    state.flag = flag_of(g.i32_at(gfx::FLAG)).or_else(|| flag_of(g.i32_at(gfx::GLOBAL_FLAG)));
+    let temp = |c: f32| (c.is_finite() && c > 0.0 && c <= 400.0).then_some(c);
+    state.water_c = temp(f32::from(g.u8_at(gfx::WATER_TEMPERATURE_C) as i8));
+    state.oil_c = temp(g.f32_at(gfx::OIL_TEMPERATURE_C));
+    let level = |at: usize| {
+        let (value, max) = (g.u8_at(gfx::ELECTRONICS + at) as i8, g.u8_at(gfx::ELECTRONICS_MAX_LIMIT + at) as i8);
+        (value >= 0 && max > 0).then_some(value as u8)
+    };
+    state.tc_level = level(gfx::E_TC_LEVEL);
+    state.abs_level = level(gfx::E_ABS_LEVEL);
+    state.engine_map = level(gfx::E_ENGINE_MAP_LEVEL);
+    let bias = g.f32_at(gfx::ELECTRONICS + gfx::E_BRAKE_BIAS);
+    state.brake_bias = (bias > 0.0 && bias < 1.0).then_some(bias);
+    state
+}
+
 /// The mean of the four tyres' world contact points; not given when one is not a number or all of them are zero.
 fn position(p: &Page) -> [f32; 3] {
     let mut sum = [0.0f32; 3];
@@ -445,6 +525,9 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     // 0 = reverse, 1 = neutral, 2 = first.
     let gear = p.i32_at(phys::GEAR);
     f.gear = if (0..=15).contains(&gear) { (gear - 1) as f32 } else { f32::NAN };
+    // `max_gears` (graphics page): the forward gears.
+    let max_gears = g.i32_at(gfx::MAX_GEARS);
+    f.gears = (1..=15).contains(&max_gears).then_some(max_gears as u8);
     // Documented as -1..1; far outside that is not a steering value and is dropped, not pinned to the ends.
     let steer = p.f32_at(phys::STEER_ANGLE);
     f.steer = if steer.is_finite() && steer.abs() <= 1.5 {
@@ -459,6 +542,7 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
         f32::NAN
     };
     [f.x, f.y, f.z] = position(p);
+    f.state = state_from(g);
 
     f.car = text(g, gfx::CAR_MODEL, CAR_TEXT_LEN);
     f.track = text(s, stat::TRACK, stat::TEXT_LEN);
@@ -1045,6 +1129,17 @@ mod tests {
                     ("current_lap_time_ms", gfx::CURRENT_LAP_TIME_MS),
                     ("total_lap_count", gfx::TOTAL_LAP_COUNT),
                     ("last_laptime_ms", gfx::LAST_LAPTIME_MS),
+                    ("max_gears", gfx::MAX_GEARS),
+                    ("tc_active", gfx::TC_ACTIVE),
+                    ("abs_active", gfx::ABS_ACTIVE),
+                    ("is_drs_available", gfx::IS_DRS_AVAILABLE),
+                    ("handbrake_percent", gfx::HANDBRAKE),
+                    ("water_temperature_c", gfx::WATER_TEMPERATURE_C),
+                    ("oil_temperature_c", gfx::OIL_TEMPERATURE_C),
+                    ("instrumentation", gfx::INSTRUMENTATION),
+                    ("electronics", gfx::ELECTRONICS),
+                    ("flag", gfx::FLAG),
+                    ("global_flag", gfx::GLOBAL_FLAG),
                     ("car_model", gfx::CAR_MODEL),
                     ("is_in_pit_box", gfx::IS_IN_PIT_BOX),
                     ("is_in_pit_lane", gfx::IS_IN_PIT_LANE),
@@ -1060,6 +1155,22 @@ mod tests {
                     g.offset("timing_state") + timing(pack, pads).offset("is_invalid"),
                     gfx::TIMING_IS_INVALID
                 );
+                // Inside the sub-structs, and the min / max copies that follow `electronics` (128 bytes each).
+                let (el, ins) = (electronics(pack), instrumentation(pack));
+                for (name, want) in [
+                    ("tc_level", gfx::E_TC_LEVEL),
+                    ("abs_level", gfx::E_ABS_LEVEL),
+                    ("brake_bias", gfx::E_BRAKE_BIAS),
+                    ("engine_map_level", gfx::E_ENGINE_MAP_LEVEL),
+                    ("is_drs_open", gfx::E_IS_DRS_OPEN),
+                    ("is_pitlimiter_on", gfx::E_IS_PITLIMITER_ON),
+                ] {
+                    assert_eq!(el.offset(name), want, "electronics {name}, pack {pack:?}");
+                }
+                assert_eq!(ins.offset("are_headlights_visible"), gfx::HEADLIGHTS_VISIBLE - gfx::INSTRUMENTATION);
+                assert_eq!(g.offset("electronics_max_limit"), gfx::ELECTRONICS_MAX_LIMIT);
+                assert_eq!(g.offset("total_lap_count"), g.offset("electronics_is_modifiable") + 128);
+                const { assert!(gfx::ELECTRONICS_MAX_LIMIT + gfx::E_IS_PITLIMITER_ON < gfx::READ_LEN) };
                 assert_eq!(gfx::READ_LEN, gfx::IS_VALID_LAP + 1);
                 // The same graphics page without `car_ids` (the header of acevo-shared-memory): shorter by 960 bytes less
                 // the alignment padding, and still one page: that is the "old layout" the page length gives away.
@@ -1146,8 +1257,24 @@ mod tests {
             i.graphics.i32(gfx::CURRENT_LAP_TIME_MS, 63_250);
             i.graphics.i32(gfx::TOTAL_LAP_COUNT, 3);
             i.graphics.i32(gfx::LAST_LAPTIME_MS, 90_500);
+            i.graphics.i32(gfx::MAX_GEARS, 6);
             i.graphics.f32(gfx::SESSION_LAP_LENGTH_KM, 5.793);
             i.graphics.0[gfx::IS_VALID_LAP] = 1;
+            // The car's state: limiter on, ABS acting, headlights on, a handbrake half up, the wing open, a green
+            // flag; water 85 and oil 101.5; TC 3 of 8, ABS 2 of 11, map 1 of 4, 56.25 % front brakes.
+            i.graphics.0[gfx::ELECTRONICS + gfx::E_IS_PITLIMITER_ON] = 1;
+            i.graphics.0[gfx::ABS_ACTIVE] = 1;
+            i.graphics.0[gfx::HEADLIGHTS_VISIBLE] = 1;
+            i.graphics.f32(gfx::HANDBRAKE, 0.5);
+            i.graphics.0[gfx::ELECTRONICS + gfx::E_IS_DRS_OPEN] = 1;
+            i.graphics.i32(gfx::FLAG, 2);
+            i.graphics.0[gfx::WATER_TEMPERATURE_C] = 85;
+            i.graphics.f32(gfx::OIL_TEMPERATURE_C, 101.5);
+            for (at, value, max) in [(gfx::E_TC_LEVEL, 3, 8), (gfx::E_ABS_LEVEL, 2, 11), (gfx::E_ENGINE_MAP_LEVEL, 1, 4)] {
+                i.graphics.0[gfx::ELECTRONICS + at] = value;
+                i.graphics.0[gfx::ELECTRONICS_MAX_LIMIT + at] = max;
+            }
+            i.graphics.f32(gfx::ELECTRONICS + gfx::E_BRAKE_BIAS, 0.5625);
             i.graphics.text(gfx::CAR_MODEL, CAR_TEXT_LEN, "ks_porsche_911_gt3");
             i.statics.text(stat::SM_VERSION, stat::VERSION_LEN, "1.0.0");
             i.statics.text(stat::AC_EVO_VERSION, stat::VERSION_LEN, "0.6.3");
@@ -1229,6 +1356,7 @@ mod tests {
         want.speed_ms = 50.0; // 180 km/h
         want.rpm = 7250.0;
         want.gear = 3.0; // the game's 4 is third gear
+        want.gears = Some(6);
         want.throttle = 0.75;
         want.brake = 0.25;
         want.clutch = 0.5;
@@ -1241,8 +1369,72 @@ mod tests {
         want.track = "monza".into();
         want.track_variant = Some("gp".into());
         want.track_length_m = Some(5793.0);
+        want.state = CarState {
+            pit_limiter: Some(true),
+            abs_active: Some(true),
+            tc_active: Some(false),
+            drs: Some(Drs::Open),
+            headlights: Some(true),
+            handbrake: Some(true),
+            engine_warning: None,
+            flag: Some(Flag::Green),
+            water_c: Some(85.0),
+            oil_c: Some(101.5),
+            tc_level: Some(3),
+            abs_level: Some(2),
+            engine_map: Some(1),
+            brake_bias: Some(0.5625),
+            damage_body: None,
+            damage_engine: None,
+            damage_gearbox: None,
+            damage_suspension: None,
+        };
         assert_eq!(frame, want);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_car_state_gives_a_setting_only_for_a_car_that_has_the_aid() {
+        let mut image = Image::on_track();
+        // The car has no traction control (maximum 0): a level of 0 says nothing.
+        image.graphics.0[gfx::ELECTRONICS + gfx::E_TC_LEVEL] = 0;
+        image.graphics.0[gfx::ELECTRONICS_MAX_LIMIT + gfx::E_TC_LEVEL] = 0;
+        // A garbled bias, a handbrake past 1 and a bool of 7 are not given.
+        image.graphics.f32(gfx::ELECTRONICS + gfx::E_BRAKE_BIAS, 1.5);
+        image.graphics.f32(gfx::HANDBRAKE, 3.0);
+        image.graphics.0[gfx::ABS_ACTIVE] = 7;
+        let state = image.frame().unwrap().state;
+        assert_eq!(
+            (state.tc_level, state.brake_bias, state.handbrake, state.abs_active),
+            (None, None, None, None)
+        );
+        assert_eq!(state.abs_level, Some(2));
+        // No flag for this driver: the one shown to all drivers counts; a red flag is not one `Flag` has.
+        image.graphics.i32(gfx::FLAG, 0);
+        image.graphics.i32(gfx::GLOBAL_FLAG, 5);
+        assert_eq!(image.frame().unwrap().state.flag, Some(Flag::Yellow));
+        for (n, want) in [
+            (0, None),
+            (1, Some(Flag::White)),
+            (2, Some(Flag::Green)),
+            (3, None),
+            (4, Some(Flag::Blue)),
+            (5, Some(Flag::Yellow)),
+            (6, Some(Flag::Black)),
+            (7, Some(Flag::Black)),
+            (8, Some(Flag::Chequered)),
+            (9, Some(Flag::Black)),
+            (10, None),
+            (11, None),
+        ] {
+            assert_eq!(flag_of(n), want, "flag {n}");
+        }
+        // The wing: open wins, then "allowed here"; neither says nothing.
+        image.graphics.0[gfx::ELECTRONICS + gfx::E_IS_DRS_OPEN] = 0;
+        image.graphics.0[gfx::IS_DRS_AVAILABLE] = 1;
+        assert_eq!(image.frame().unwrap().state.drs, Some(Drs::Available));
+        image.graphics.0[gfx::IS_DRS_AVAILABLE] = 0;
+        assert_eq!(image.frame().unwrap().state.drs, None);
     }
 
     #[test]

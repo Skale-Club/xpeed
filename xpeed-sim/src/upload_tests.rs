@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::{scratch_dir, Config};
 use crate::lapfile::{self, Channel, Lap};
-use crate::net::{self, SendError};
+use crate::net::{self, LinkStatus, SendError};
 use crate::outbox::{upload_pending, upload_tracks, Backoff, Observer, Report, Stop, TrackState, Uploader};
 use crate::status::Cloud;
 use crate::stub::{Recorded, Reply, Stub};
@@ -53,6 +53,7 @@ fn config_for(url: &str) -> Config {
         server: url.into(),
         token: "xpd_test".into(),
         device_name: "RIG".into(),
+        account: None,
     }
 }
 
@@ -571,4 +572,72 @@ fn the_worker_sends_the_laps_and_then_the_track_layouts() {
     uploader.wake();
     wait_until("the second layout", || stub.requests().len() == 3);
     drop(uploader);
+}
+
+#[test]
+fn starting_a_connection_sends_the_hash_of_the_key_and_never_the_key() {
+    let stub = Stub::start(|_| Reply::new(201, r#"{"id":"abc-123","expiresAt":"2026-11-13T12:10:00.000Z"}"#));
+    let key = crate::connect::new_key().unwrap();
+    let hash = net::sha256_hex(key.as_bytes());
+    let (id, expires) = net::link_start(&net::agent(), &stub.url, "RIG", &hash).unwrap();
+    assert_eq!((id.as_str(), expires.as_str()), ("abc-123", "2026-11-13T12:10:00.000Z"));
+    let seen = stub.requests();
+    assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/link"));
+    let body: serde_json::Value = serde_json::from_slice(&seen[0].body).unwrap();
+    assert_eq!(body["device"]["name"], "RIG");
+    assert_eq!(body["tokenHash"], hash);
+    assert_eq!(hash.len(), 64);
+    assert!(hash.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)));
+    let text = String::from_utf8(seen[0].body.clone()).unwrap();
+    assert!(!text.contains(&key), "the key never leaves the computer in the request");
+    assert!(!seen[0].headers.contains_key("authorization"));
+}
+
+#[test]
+fn starting_a_connection_explains_what_went_wrong() {
+    let agent = net::agent();
+    let refused = Stub::start(|_| Reply::new(409, r#"{"error":"invalid_request"}"#));
+    let why = net::link_start(&agent, &refused.url, "RIG", "00").unwrap_err();
+    assert!(why.contains("409") && why.contains("invalid_request"), "{why}");
+    let slow = Stub::start(|_| Reply::new(429, "").header("Retry-After", "30"));
+    assert!(net::link_start(&agent, &slow.url, "RIG", "00")
+        .unwrap_err()
+        .contains("too many attempts"));
+    let broken = Stub::start(|_| Reply::new(201, "{}"));
+    assert!(net::link_start(&agent, &broken.url, "RIG", "00").is_err());
+}
+
+#[test]
+fn polling_sends_the_key_as_bearer_and_reads_all_four_statuses() {
+    let stub = Stub::start(|request| {
+        let status = request.path.rsplit('/').nth(1).unwrap_or_default().to_owned();
+        match status.as_str() {
+            "pending-id" => Reply::new(200, r#"{"status":"pending"}"#),
+            "approved-id" => Reply::new(200, r#"{"status":"approved","account":"ana@example.com"}"#),
+            "cancelled-id" => Reply::new(200, r#"{"status":"cancelled"}"#),
+            "expired-id" => Reply::new(200, r#"{"status":"expired"}"#),
+            "limited-id" => Reply::new(429, ""),
+            _ => Reply::new(404, r#"{"error":"not_found"}"#),
+        }
+    });
+    let agent = net::agent();
+    let poll = |id: &str| net::link_poll(&agent, &stub.url, id, "xpd_the-key");
+    assert_eq!(poll("pending-id"), Ok(LinkStatus::Pending));
+    assert_eq!(
+        poll("approved-id"),
+        Ok(LinkStatus::Approved {
+            account: "ana@example.com".into()
+        })
+    );
+    assert_eq!(poll("cancelled-id"), Ok(LinkStatus::Cancelled));
+    assert_eq!(poll("expired-id"), Ok(LinkStatus::Expired));
+    assert!(poll("limited-id").unwrap_err().contains("too many attempts"));
+    assert!(poll("nobody").unwrap_err().contains("click Connect again"));
+    let seen = stub.requests();
+    assert_eq!(
+        (seen[0].method.as_str(), seen[0].path.as_str()),
+        ("POST", "/api/sim/link/pending-id/poll")
+    );
+    assert_eq!(seen[0].headers["authorization"], "Bearer xpd_the-key");
+    assert!(seen[0].body.is_empty());
 }

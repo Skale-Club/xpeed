@@ -64,7 +64,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// How often the loop looks at the memory while it waits for a new reading (about 100 Hz).
@@ -94,8 +94,29 @@ mod layout {
     pub const PHYS_WHEELS_PRESSURE: usize = 88;
     /// `float tyreCoreTemperature[4]`, °C.
     pub const PHYS_TYRE_CORE_TEMPERATURE: usize = 152;
+    /// `float drs` (0 or 1: the wing is open) and `float tc` (above 0 while traction control acts).
+    pub const PHYS_DRS: usize = 200;
+    pub const PHYS_TC: usize = 204;
+    /// `int pitLimiterOn` and `float abs` (above 0 while ABS acts).
+    pub const PHYS_PIT_LIMITER_ON: usize = 248;
+    pub const PHYS_ABS: usize = 252;
     /// The end of `abs`: the physics prefix shared by the three games.
     pub const PHYS_LEN: usize = 256;
+    // Physics past the prefix, from the `sim_info.py` that Assetto Corsa ships for its Competizione-style app
+    // (through `localVelocity`) and, past that, the Competizione header of the document named above.
+    /// `int drsAvailable` and `int drsEnabled` (Assetto Corsa).
+    pub const PHYS_DRS_AVAILABLE: usize = 340;
+    pub const PHYS_DRS_ENABLED: usize = 344;
+    /// `float brakeBias`: the front share of the braking, 0..1.
+    pub const PHYS_BRAKE_BIAS: usize = 564;
+    /// What is copied of Assetto Corsa's physics page: through `brakeBias`.
+    pub const PHYS_AC_LEN: usize = 564 + 4;
+    /// Competizione's `int tcinAction`, `int absinAction`, and `float waterTemp` (Celsius).
+    pub const PHYS_ACC_TC_IN_ACTION: usize = 672;
+    pub const PHYS_ACC_ABS_IN_ACTION: usize = 676;
+    pub const PHYS_ACC_WATER_TEMP: usize = 712;
+    /// What is copied of Competizione's physics page: through `waterTemp`.
+    pub const PHYS_ACC_LEN: usize = 712 + 4;
 
     // Graphics, shared prefix.
     pub const GFX_PACKET_ID: usize = 0;
@@ -111,13 +132,19 @@ mod layout {
     pub const GFX_PREFIX_LEN: usize = 252;
     // Graphics, Assetto Corsa only.
     pub const GFX_AC_CAR_COORDINATES: usize = 252;
-    pub const GFX_AC_LEN: usize = 264;
+    /// `flag` of Assetto Corsa's newer `sim_info.py` (after `carCoordinates` and `penaltyTime`), and the end of it.
+    pub const GFX_AC_FLAG: usize = 268;
+    pub const GFX_AC_LEN: usize = 268 + 4;
     // Graphics, Competizione only.
     pub const GFX_ACC_ACTIVE_CARS: usize = 252;
     pub const GFX_ACC_CAR_COORDINATES: usize = 256;
     pub const GFX_ACC_CAR_ID: usize = 976;
     pub const GFX_ACC_PLAYER_CAR_ID: usize = 1216;
+    /// `flag` (the document's `ACC_FLAG_TYPE`), and the driver's settings `TC` and `ABS` (levels, 0 = off).
+    pub const GFX_ACC_FLAG: usize = 1224;
     pub const GFX_ACC_IS_IN_PIT_LANE: usize = 1236;
+    pub const GFX_ACC_TC: usize = 1268;
+    pub const GFX_ACC_ABS: usize = 1280;
     pub const GFX_ACC_IS_VALID_LAP: usize = 1408;
     pub const GFX_ACC_LEN: usize = 1588;
 
@@ -128,6 +155,8 @@ mod layout {
     /// The end of `track`: all that is read of Competizione and Rally.
     pub const STAT_PREFIX_LEN: usize = 200;
     // Static, Assetto Corsa only.
+    /// `int hasDRS` of `sim_info.py`.
+    pub const STAT_AC_HAS_DRS: usize = 496;
     pub const STAT_AC_TRACK_SPLINE_LENGTH: usize = 520;
     pub const STAT_AC_TRACK_CONFIGURATION: usize = 524;
     pub const STAT_AC_LEN: usize = 556;
@@ -181,6 +210,15 @@ impl Family {
         }
     }
 
+    /// How much of the physics page is copied: the shared prefix, plus what the game's own header gives past it.
+    fn physics_len(self) -> usize {
+        match self {
+            Family::Ac => PHYS_AC_LEN,
+            Family::Acc => PHYS_ACC_LEN,
+            Family::Acr => PHYS_LEN,
+        }
+    }
+
     fn graphics_len(self) -> usize {
         match self {
             Family::Ac => GFX_AC_LEN,
@@ -217,7 +255,7 @@ fn detect(running: Option<&[String]>, sm_version: &str) -> Option<(Family, bool)
 
 /// Whether the three memories are big enough for the layout of `family`.
 fn pages_fit(family: Family, physics: usize, graphics: usize, statics: usize) -> bool {
-    physics >= PHYS_LEN && graphics >= family.graphics_len() && statics >= family.static_len()
+    physics >= family.physics_len() && graphics >= family.graphics_len() && statics >= family.static_len()
 }
 
 /// The names of the three shared memories (the tests use names of their own, never the game's).
@@ -324,7 +362,7 @@ impl KunosSource {
 
     fn read_frame(&mut self) -> Option<Frame> {
         let pages = self.pages.as_ref()?;
-        let physics = pages.physics.read(0, PHYS_LEN)?;
+        let physics = pages.physics.read(0, self.family.physics_len())?;
         let graphics = pages.graphics.read(0, self.family.graphics_len())?;
         let statics = pages.statics.read(0, self.family.static_len())?;
         let (p, g, s) = (Page(&physics), Page(&graphics), Page(&statics));
@@ -403,6 +441,75 @@ fn acc_player_position(g: &Page) -> Option<[f32; 3]> {
     Some([g.f32_at(at), g.f32_at(at + 4), g.f32_at(at + 8)])
 }
 
+/// The flag of `ACC_FLAG_TYPE` (the same numbers in Assetto Corsa's `AC_FLAG_TYPE`, which stops at 6): 0 none, 1 blue,
+/// 2 yellow, 3 black, 4 white, 5 chequered, 6 penalty (a black flag), 7 green (Competizione), 8 orange (Competizione,
+/// a mechanical failure: shown as black).
+fn flag_of(v: i32) -> Option<Flag> {
+    match v {
+        1 => Some(Flag::Blue),
+        2 => Some(Flag::Yellow),
+        3 | 6 | 8 => Some(Flag::Black),
+        4 => Some(Flag::White),
+        5 => Some(Flag::Chequered),
+        7 => Some(Flag::Green),
+        _ => None,
+    }
+}
+
+/// The car's lights and settings that the pages give. Damage is left out: `carDamage` (Assetto Corsa) and
+/// `suspensionDamage` (Competizione) have no documented unit, so nothing is normalised from them; neither game gives
+/// oil temperature, headlights (Competizione's `lightsStage` is not documented), the handbrake or an engine warning.
+/// Competizione's `EngineMap` is not given either: whether it counts from 0 or from 1 is not documented.
+fn state_from(family: Family, p: &Page, g: &Page, s: &Page) -> CarState {
+    let mut state = CarState::UNKNOWN;
+    // The whole family: `pitLimiterOn` is an int flag.
+    state.pit_limiter = match p.i32_at(PHYS_PIT_LIMITER_ON) {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    };
+    // `tc` and `abs` are floats that rise while the aid acts.
+    let acting = |at: usize| {
+        let v = p.f32_at(at);
+        v.is_finite().then_some(v > 0.0)
+    };
+    state.tc_active = acting(PHYS_TC);
+    state.abs_active = acting(PHYS_ABS);
+    let bias = p.f32_at(PHYS_BRAKE_BIAS);
+    match family {
+        Family::Ac => {
+            state.brake_bias = (bias > 0.0 && bias < 1.0).then_some(bias);
+            // The car has a wing only when the static page says so; then `drsEnabled` is open and
+            // `drsAvailable` the zone's permission.
+            if s.i32_at(STAT_AC_HAS_DRS) == 1 {
+                state.drs = Some(if p.i32_at(PHYS_DRS_ENABLED) != 0 || p.f32_at(PHYS_DRS) > 0.5 {
+                    Drs::Open
+                } else if p.i32_at(PHYS_DRS_AVAILABLE) != 0 {
+                    Drs::Available
+                } else {
+                    Drs::Off
+                });
+            }
+            state.flag = flag_of(g.i32_at(GFX_AC_FLAG));
+        }
+        Family::Acc => {
+            state.brake_bias = (bias > 0.0 && bias < 1.0).then_some(bias);
+            // Competizione has its own "in action" flags, which the `tc` and `abs` floats do not carry.
+            state.tc_active = Some(p.i32_at(PHYS_ACC_TC_IN_ACTION) != 0);
+            state.abs_active = Some(p.i32_at(PHYS_ACC_ABS_IN_ACTION) != 0);
+            let water = p.f32_at(PHYS_ACC_WATER_TEMP);
+            state.water_c = (water.is_finite() && water > 0.0 && water <= 400.0).then_some(water);
+            let level = |at: usize| u8::try_from(g.i32_at(at)).ok().filter(|v| *v <= 30);
+            state.tc_level = level(GFX_ACC_TC);
+            state.abs_level = level(GFX_ACC_ABS);
+            state.flag = flag_of(g.i32_at(GFX_ACC_FLAG));
+        }
+        // Rally: nothing past the shared prefix is known.
+        Family::Acr => {}
+    }
+    state
+}
+
 /// One reading of the three pages as a `Frame`. Never panics: a short or garbled page gives `NaN`, `None` or "not
 /// driving", not an error.
 fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Frame {
@@ -446,6 +553,8 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         let psi = p.f32_at(PHYS_WHEELS_PRESSURE + 4 * i);
         let core = p.f32_at(PHYS_TYRE_CORE_TEMPERATURE + 4 * i);
         Tyre {
+            // `brakeTemp[4]` lies past the 256 bytes of the physics page this reader copies: not given.
+            brake_c: f32::NAN,
             temp_c: if core.is_finite() && core != 0.0 && (-50.0..=400.0).contains(&core) {
                 core
             } else {
@@ -461,6 +570,7 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
     });
     f.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
 
+    f.state = state_from(family, p, g, s);
     f.car = s.utf16_at(STAT_CAR_MODEL, 33);
     f.track = s.utf16_at(STAT_TRACK, 33);
 
@@ -607,6 +717,67 @@ mod tests {
         ("abs", F, 1),
     ];
 
+    /// What follows `abs` in the physics page: `sim_info.py` of `apps/python/actv_competizione` (through
+    /// `localVelocity`) and Competizione's document (past it; the sum is the 800 bytes of its page).
+    const PHYSICS_EXTRA: Fields = &[
+        ("kersCharge", F, 1),
+        ("kersInput", F, 1),
+        ("autoShifterOn", F, 1),
+        ("rideHeight", F, 2),
+        ("turboBoost", F, 1),
+        ("ballast", F, 1),
+        ("airDensity", F, 1),
+        ("airTemp", F, 1),
+        ("roadTemp", F, 1),
+        ("localAngularVel", F, 3),
+        ("finalFF", F, 1),
+        ("performanceMeter", F, 1),
+        ("engineBrake", F, 1),
+        ("ersRecoveryLevel", F, 1),
+        ("ersPowerLevel", F, 1),
+        ("ersHeatCharging", F, 1),
+        ("ersIsCharging", F, 1),
+        ("kersCurrentKJ", F, 1),
+        ("drsAvailable", F, 1),
+        ("drsEnabled", F, 1),
+        ("brakeTemp", F, 4),
+        ("clutch", F, 1),
+        ("tyreTempI", F, 4),
+        ("tyreTempM", F, 4),
+        ("tyreTempO", F, 4),
+        ("isAIControlled", F, 1),
+        ("tyreContactPoint", F, 12),
+        ("tyreContactNormal", F, 12),
+        ("tyreContactHeading", F, 12),
+        ("brakeBias", F, 1),
+        ("localVelocity", F, 3),
+        ("P2PActivations", F, 1),
+        ("P2PStatus", F, 1),
+        ("currentMaxRpm", F, 1),
+        ("mz", F, 4),
+        ("fx", F, 4),
+        ("fy", F, 4),
+        ("slipRatio", F, 4),
+        ("slipAngle", F, 4),
+        ("tcinAction", F, 1),
+        ("absinAction", F, 1),
+        ("suspensionDamage", F, 4),
+        ("tyreTemp", F, 4),
+        ("waterTemp", F, 1),
+        ("brakePressure", F, 4),
+        ("frontBrakeCompound", F, 1),
+        ("rearBrakeCompound", F, 1),
+        ("padLife", F, 4),
+        ("discLife", F, 4),
+        ("ignitionOn", F, 1),
+        ("starterEngineOn", F, 1),
+        ("isEngineRunning", F, 1),
+        ("kerbVibration", F, 1),
+        ("slipVibrations", F, 1),
+        ("gVibrations", F, 1),
+        ("absVibrations", F, 1),
+    ];
+
     /// `SPageFileGraphic` of `sim_info.py` (Assetto Corsa).
     const GRAPHICS_AC: Fields = &[
         ("packetId", F, 1),
@@ -631,6 +802,9 @@ mod tests {
         ("replayTimeMultiplier", F, 1),
         ("normalizedCarPosition", F, 1),
         ("carCoordinates", F, 3),
+        // From the newer `sim_info.py` Assetto Corsa ships (`apps/python/actv_competizione`).
+        ("penaltyTime", F, 1),
+        ("flag", F, 1),
     ];
 
     /// `SPageFileGraphic` of the ACC Shared Memory Documentation v1.8.12 (Competizione).
@@ -782,6 +956,30 @@ mod tests {
         ] {
             assert_eq!(offset_of(PHYSICS, name), at, "{name}");
         }
+        for (name, at) in [
+            ("drs", PHYS_DRS),
+            ("tc", PHYS_TC),
+            ("pitLimiterOn", PHYS_PIT_LIMITER_ON),
+            ("abs", PHYS_ABS),
+        ] {
+            assert_eq!(offset_of(PHYSICS, name), at, "{name}");
+        }
+        // Past the prefix the fields continue from where `abs` ends.
+        let all: Vec<_> = PHYSICS.iter().chain(PHYSICS_EXTRA.iter()).copied().collect();
+        let all: Fields = Box::leak(all.into_boxed_slice());
+        assert_eq!(offsets(all).1, 800, "Competizione's physics page");
+        for (name, at) in [
+            ("drsAvailable", PHYS_DRS_AVAILABLE),
+            ("drsEnabled", PHYS_DRS_ENABLED),
+            ("brakeBias", PHYS_BRAKE_BIAS),
+            ("tcinAction", PHYS_ACC_TC_IN_ACTION),
+            ("absinAction", PHYS_ACC_ABS_IN_ACTION),
+            ("waterTemp", PHYS_ACC_WATER_TEMP),
+        ] {
+            assert_eq!(offset_of(all, name), at, "{name}");
+        }
+        assert_eq!(PHYS_AC_LEN, PHYS_BRAKE_BIAS + 4);
+        assert_eq!(PHYS_ACC_LEN, PHYS_ACC_WATER_TEMP + 4);
     }
 
     #[test]
@@ -802,11 +1000,15 @@ mod tests {
         }
         assert_eq!(offset_of(GRAPHICS_AC, "normalizedCarPosition") + 4, GFX_PREFIX_LEN);
         assert_eq!(offset_of(GRAPHICS_AC, "carCoordinates"), GFX_AC_CAR_COORDINATES);
+        assert_eq!(offset_of(GRAPHICS_AC, "flag"), GFX_AC_FLAG);
         for (name, at) in [
             ("activeCars", GFX_ACC_ACTIVE_CARS),
             ("carCoordinates", GFX_ACC_CAR_COORDINATES),
             ("carID", GFX_ACC_CAR_ID),
             ("playerCarID", GFX_ACC_PLAYER_CAR_ID),
+            ("flag", GFX_ACC_FLAG),
+            ("TC", GFX_ACC_TC),
+            ("ABS", GFX_ACC_ABS),
             ("isInPitLane", GFX_ACC_IS_IN_PIT_LANE),
             ("isValidLap", GFX_ACC_IS_VALID_LAP),
         ] {
@@ -824,6 +1026,7 @@ mod tests {
         assert_eq!(offset_of(STATIC, "track") + 33 * W, 200);
         const { assert!(STAT_PREFIX_LEN >= 200) };
         assert_eq!(offset_of(STATIC, "maxTurboBoost"), 452, "where sim_info.py's own struct ends");
+        assert_eq!(offset_of(STATIC, "hasDRS"), STAT_AC_HAS_DRS);
         assert_eq!(offset_of(STATIC, "trackSplineLength"), STAT_AC_TRACK_SPLINE_LENGTH);
         assert_eq!(offset_of(STATIC, "trackConfiguration"), STAT_AC_TRACK_CONFIGURATION);
         const { assert!(STAT_AC_TRACK_CONFIGURATION + 15 * W <= STAT_AC_LEN) };
@@ -995,14 +1198,22 @@ mod tests {
     #[test]
     fn pages_too_short_for_the_layout_are_refused() {
         assert!(pages_fit(Family::Acc, 800, 1588, 784));
-        assert!(pages_fit(Family::Ac, 256, 264, 556));
+        assert!(
+            !pages_fit(Family::Acc, 700, 1588, 784),
+            "Competizione's physics are read through waterTemp"
+        );
+        assert!(pages_fit(Family::Ac, 568, 272, 556));
         assert!(pages_fit(Family::Acr, 256, 252, 200));
         assert!(
             !pages_fit(Family::Acc, 800, 1000, 784),
             "Competizione's graphics page is 1588 bytes"
         );
-        assert!(!pages_fit(Family::Ac, 255, 264, 556));
-        assert!(!pages_fit(Family::Ac, 256, 100, 556));
+        assert!(!pages_fit(Family::Ac, 255, 272, 556));
+        assert!(
+            !pages_fit(Family::Ac, 256, 272, 556),
+            "Assetto Corsa's physics are read through brakeBias"
+        );
+        assert!(!pages_fit(Family::Ac, 568, 100, 556));
         assert!(!pages_fit(Family::Acr, 256, 252, 100));
         assert!(!pages_fit(Family::Acr, 0, 0, 0));
     }
@@ -1027,8 +1238,27 @@ mod tests {
         sim.gfx_f32(GFX_AC_CAR_COORDINATES + 8, -300.75);
         sim.stat.write(STAT_AC_TRACK_SPLINE_LENGTH, &5793.0f32.to_le_bytes());
         sim.stat.write(STAT_AC_TRACK_CONFIGURATION, &utf16("gp"));
+        // The car's state: limiter on, TC acting, ABS not, a wing the zone allows, a yellow flag, 62.5 % front brakes.
+        sim.phys.write(PHYS_PIT_LIMITER_ON, &1i32.to_le_bytes());
+        sim.phys.write(PHYS_TC, &0.5f32.to_le_bytes());
+        sim.phys.write(PHYS_BRAKE_BIAS, &0.625f32.to_le_bytes());
+        sim.phys.write(PHYS_DRS_AVAILABLE, &1i32.to_le_bytes());
+        sim.stat.write(STAT_AC_HAS_DRS, &1i32.to_le_bytes());
+        sim.gfx_i32(GFX_AC_FLAG, 2);
         let mut source = open_sim(&sim, processes(&["acs.exe"]));
         let f = source.next(SOON).expect("a frame");
+        assert_eq!(
+            f.state,
+            CarState {
+                pit_limiter: Some(true),
+                abs_active: Some(false),
+                tc_active: Some(true),
+                drs: Some(Drs::Available),
+                flag: Some(Flag::Yellow),
+                brake_bias: Some(0.625),
+                ..CarState::UNKNOWN
+            }
+        );
         assert!(f.driving && !f.in_pits);
         assert_eq!((f.lap, f.lap_time_s, f.last_lap_s), (5, Some(63.25), Some(91.5)));
         assert_eq!(f.lap_valid, None, "Assetto Corsa gives no verdict");
@@ -1057,8 +1287,29 @@ mod tests {
         }
         sim.gfx_i32(GFX_ACC_PLAYER_CAR_ID, 202);
         sim.gfx_i32(GFX_ACC_IS_VALID_LAP, 1);
+        // The car's state: TC acting, ABS not, water 88.5, TC level 5 and ABS level 3, a green flag, 56.25 % front.
+        sim.phys.write(PHYS_ACC_TC_IN_ACTION, &1i32.to_le_bytes());
+        sim.phys.write(PHYS_ACC_WATER_TEMP, &88.5f32.to_le_bytes());
+        sim.phys.write(PHYS_BRAKE_BIAS, &0.5625f32.to_le_bytes());
+        sim.gfx_i32(GFX_ACC_TC, 5);
+        sim.gfx_i32(GFX_ACC_ABS, 3);
+        sim.gfx_i32(GFX_ACC_FLAG, 7);
         let mut source = open_sim(&sim, processes(&["AC2-Win64-Shipping.exe"]));
         let f = source.next(SOON).expect("a frame");
+        assert_eq!(
+            f.state,
+            CarState {
+                pit_limiter: Some(false),
+                abs_active: Some(false),
+                tc_active: Some(true),
+                flag: Some(Flag::Green),
+                water_c: Some(88.5),
+                tc_level: Some(5),
+                abs_level: Some(3),
+                brake_bias: Some(0.5625),
+                ..CarState::UNKNOWN
+            }
+        );
         assert_eq!(
             (f.lap, f.lap_time_s, f.last_lap_s, f.lap_valid),
             (5, Some(63.25), Some(91.5), Some(true))
@@ -1095,6 +1346,11 @@ mod tests {
         sim.gfx_i32(GFX_ACC_IS_IN_PIT_LANE, 1);
         sim.stat.write(STAT_AC_TRACK_SPLINE_LENGTH, &5000.0f32.to_le_bytes());
         sim.stat.write(STAT_AC_TRACK_CONFIGURATION, &utf16("nope"));
+        // The same for the state: only the shared prefix (the limiter, the TC and ABS floats) counts.
+        sim.phys.write(PHYS_BRAKE_BIAS, &0.6f32.to_le_bytes());
+        sim.phys.write(PHYS_ACC_WATER_TEMP, &90.0f32.to_le_bytes());
+        sim.phys.write(PHYS_PIT_LIMITER_ON, &1i32.to_le_bytes());
+        sim.gfx_i32(GFX_ACC_FLAG, 2);
         sim.step();
         let mut source = open_sim(&sim, processes(&["acr.exe"]));
         let f = source.next(SOON).expect("a frame");
@@ -1103,9 +1359,55 @@ mod tests {
         assert_eq!((f.lap, f.lap_valid, f.track_variant, f.track_length_m), (5, None, None, None));
         assert!(f.x.is_nan() && f.y.is_nan() && f.z.is_nan());
         assert_eq!(
+            f.state,
+            CarState {
+                pit_limiter: Some(true),
+                abs_active: Some(false),
+                tc_active: Some(false),
+                ..CarState::UNKNOWN
+            }
+        );
+        assert_eq!(
             (f.car.as_str(), f.track.as_str(), f.gear, f.rpm),
             ("ks_ferrari_f40", "monza", 2.0, 7200.0)
         );
+    }
+
+    #[test]
+    fn the_flag_numbers_map_to_the_flags() {
+        for (n, want) in [
+            (0, None),
+            (1, Some(Flag::Blue)),
+            (2, Some(Flag::Yellow)),
+            (3, Some(Flag::Black)),
+            (4, Some(Flag::White)),
+            (5, Some(Flag::Chequered)),
+            (6, Some(Flag::Black)),
+            (7, Some(Flag::Green)),
+            (8, Some(Flag::Black)),
+            (9, None),
+            (-1, None),
+        ] {
+            assert_eq!(flag_of(n), want, "flag {n}");
+        }
+    }
+
+    #[test]
+    fn assetto_corsa_gives_a_wing_only_when_the_car_has_one() {
+        let sim = Sim::live("1.7");
+        let mut source = open_sim(&sim, processes(&["acs.exe"]));
+        assert_eq!(source.next(SOON).unwrap().state.drs, None, "no hasDRS");
+        sim.stat.write(STAT_AC_HAS_DRS, &1i32.to_le_bytes());
+        let mut sim = sim;
+        sim.step();
+        assert_eq!(source.next(SOON).unwrap().state.drs, Some(Drs::Off));
+        sim.phys.write(PHYS_DRS_ENABLED, &1i32.to_le_bytes());
+        sim.step();
+        assert_eq!(source.next(SOON).unwrap().state.drs, Some(Drs::Open));
+        // A bias past 1 is not one.
+        sim.phys.write(PHYS_BRAKE_BIAS, &1.5f32.to_le_bytes());
+        sim.step();
+        assert_eq!(source.next(SOON).unwrap().state.brake_bias, None);
     }
 
     #[test]

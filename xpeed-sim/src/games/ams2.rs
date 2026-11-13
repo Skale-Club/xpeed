@@ -30,7 +30,7 @@ use std::sync::atomic::{fence, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// The name the games give their memory.
@@ -66,9 +66,11 @@ const PCARS3: Kind = Kind {
     name: "Project CARS 3",
     ..PCARS2
 };
-/// The bytes of the struct this reader uses, through `mAirPressure` (the tyres' pressures, a version 8 field like
-/// `mSequenceNumber`).
-const PCARS_READ: usize = at::AIR_PRESSURE + 16;
+/// The bytes of the struct a Project CARS reader copies, through `mBrakeBias` (a version 8 field like
+/// `mSequenceNumber` and `mAirPressure`, and the last one of Project CARS 2 that is read). The fields after
+/// Project CARS 2's own struct (`mDrsState`, the ABS and TC settings) are Automobilista 2's and read only from its
+/// longer copy.
+const PCARS_READ: usize = at::BRAKE_BIAS + 4;
 /// Project CARS 2's whole struct (Automobilista 2's without its additions), for the record and the tests.
 #[cfg(test)]
 const PCARS2_SIZE: usize = 20_576;
@@ -106,20 +108,56 @@ mod at {
     pub const LAP_INVALIDATED: usize = 6712;
     pub const LAST_LAP_TIME: usize = 6720;
     pub const CURRENT_TIME: usize = 6724;
+    pub const HIGHEST_FLAG_COLOUR: usize = 6800;
     pub const PIT_MODE: usize = 6808;
+    pub const CAR_FLAGS: usize = 6816;
+    /// `float mOilTempCelsius`, Celsius, unset 0.
+    pub const OIL_TEMP: usize = 6820;
+    /// `float mWaterTempCelsius`, Celsius, unset 0.
+    pub const WATER_TEMP: usize = 6828;
     pub const FUEL_LEVEL: usize = 6840;
     pub const FUEL_CAPACITY: usize = 6844;
     pub const SPEED: usize = 6848;
     pub const RPM: usize = 6852;
     pub const GEAR: usize = 6876;
+    /// `int mNumGears`, right after `mGear`.
+    pub const NUM_GEARS: usize = GEAR + 4;
+    /// `bool mAntiLockActive`.
+    pub const ANTI_LOCK_ACTIVE: usize = 6888;
+    /// `float mSuspensionDamage[4]`, 0..1.
+    pub const SUSPENSION_DAMAGE: usize = 7168;
+    /// `float mAeroDamage`, 0..1, and `float mEngineDamage` right after it.
+    pub const AERO_DAMAGE: usize = 7284;
+    pub const ENGINE_DAMAGE: usize = 7288;
     pub const SEQUENCE_NUMBER: usize = 7320;
     /// `float mTyreTemp[4]`, Celsius (front left, front right, rear left, rear right).
     pub const TYRE_TEMP: usize = 7072;
     /// `float mTyreWear[4]`, 0..1.
     pub const TYRE_WEAR: usize = 7136;
+    /// `float mBrakeTempCelsius[4]`, Celsius, right after `mBrakeDamage` (7152) and `mSuspensionDamage` (7168).
+    pub const BRAKE_TEMP: usize = 7184;
     /// `float mAirPressure[4]`, PSI (a Project CARS 2 addition, version 8).
     pub const AIR_PRESSURE: usize = 7372;
+    /// `float mBrakeBias`, 0..1, unset -1 (a Project CARS 2 addition).
+    pub const BRAKE_BIAS: usize = 19_380;
+    /// `unsigned int mDrsState`, `int mAntiLockSetting` and `int mTractionControlSetting`: Automobilista 2's own
+    /// additions (version 10 on), unset -1 for the settings.
+    pub const DRS_STATE: usize = 20_632;
+    pub const ANTI_LOCK_SETTING: usize = 20_660;
+    pub const TRACTION_CONTROL_SETTING: usize = 20_664;
 }
+
+// (Type#9) car flags (`mCarFlags`).
+const CAR_HEADLIGHT: u32 = 1 << 0;
+const CAR_ENGINE_WARNING: u32 = 1 << 2;
+const CAR_SPEED_LIMITER: u32 = 1 << 3;
+const CAR_HANDBRAKE: u32 = 1 << 5;
+const CAR_TCS: u32 = 1 << 6;
+// (Type#14) DRS state flags (`mDrsState`).
+const DRS_INSTALLED: u32 = 1 << 0;
+const DRS_ZONE_RULES: u32 = 1 << 1;
+const DRS_AVAILABLE_NOW: u32 = 1 << 3;
+const DRS_ACTIVE: u32 = 1 << 4;
 
 // (Type#1) game states: only the first three of interest are named; `GAME_MAX` is the first value that is not one.
 const GAME_EXITED: u32 = 0;
@@ -348,6 +386,9 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.rpm = within(page.f32_at(at::RPM), 0.0, 100_000.0);
     let gear = page.i32_at(at::GEAR);
     frame.gear = if (-1..=30).contains(&gear) { gear as f32 } else { f32::NAN };
+    // `mNumGears` (range 0.., unset -1): the forward gears.
+    let num_gears = page.i32_at(at::NUM_GEARS);
+    frame.gears = (1..=30).contains(&num_gears).then_some(num_gears as u8);
     // What the driver does with the pedals and the wheel, before any filtering the game applies.
     frame.throttle = clamped(page.f32_at(at::UNFILTERED_THROTTLE), 0.0, 1.0);
     frame.brake = clamped(page.f32_at(at::UNFILTERED_BRAKE), 0.0, 1.0);
@@ -371,10 +412,91 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     let length = within(page.f32_at(at::TRACK_LENGTH), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
     frame.tyres = tyres_from(&page);
+    frame.state = state_from(&page);
     Some(frame)
 }
 
-/// The four tyres: temperature (Celsius), pressure (PSI to kPa) and tread left (1 - wear). The header's "unset" is 0
+/// The dashboard lights, temperatures, electronics and damage. What the header gives as "unset" (0 for the
+/// temperatures, -1 for the settings and the bias) is not given. The version 10 additions (`mDrsState`, the ABS and
+/// TC settings) lie past Project CARS 2's struct, so they are read only when the copy reaches them.
+fn state_from(page: &Page) -> CarState {
+    let flags = page.u32_at(at::CAR_FLAGS);
+    let has = |bit: u32| flags & bit != 0;
+    let temp = |at: usize| {
+        let c = page.f32_at(at);
+        (c != 0.0).then(|| within(c, -40.0, 400.0)).filter(|c| c.is_finite())
+    };
+    // Damage is 0..1 with no "unset" of its own (0 is none).
+    let damage = |at: usize| {
+        let d = page.f32_at(at);
+        d.is_finite().then(|| d.clamp(0.0, 1.0))
+    };
+    let longer = page.0.len() > at::TRACTION_CONTROL_SETTING + 4;
+    // A setting is given by Automobilista 2 only, and -1 is its "unset".
+    let setting = |at: usize| {
+        let v = page.i32_at(at);
+        (longer && (0..=255).contains(&v)).then_some(v as u8)
+    };
+    let drs = if longer {
+        let d = page.u32_at(at::DRS_STATE);
+        if d & DRS_INSTALLED == 0 {
+            None
+        } else if d & DRS_ACTIVE != 0 {
+            Some(Drs::Open)
+        } else if d & DRS_ZONE_RULES == 0 || d & DRS_AVAILABLE_NOW != 0 {
+            // F1-style zones: allowed only in the zone after the detection point. Without them the driver may
+            // open it whenever.
+            Some(Drs::Available)
+        } else {
+            Some(Drs::Off)
+        }
+    } else {
+        None
+    };
+    let worst_suspension = (0..4)
+        .map(|i| page.f32_at(at::SUSPENSION_DAMAGE + 4 * i))
+        .filter(|d| d.is_finite())
+        .fold(None, |worst: Option<f32>, d| Some(worst.map_or(d, |w| w.max(d))));
+    let bias = page.f32_at(at::BRAKE_BIAS);
+    CarState {
+        pit_limiter: Some(has(CAR_SPEED_LIMITER)),
+        abs_active: Some(page.u8_at(at::ANTI_LOCK_ACTIVE) != 0),
+        tc_active: Some(has(CAR_TCS)),
+        drs,
+        headlights: Some(has(CAR_HEADLIGHT)),
+        handbrake: Some(has(CAR_HANDBRAKE)),
+        engine_warning: Some(has(CAR_ENGINE_WARNING)),
+        flag: flag_of(page.u32_at(at::HIGHEST_FLAG_COLOUR)),
+        water_c: temp(at::WATER_TEMP),
+        oil_c: temp(at::OIL_TEMP),
+        tc_level: setting(at::TRACTION_CONTROL_SETTING),
+        abs_level: setting(at::ANTI_LOCK_SETTING),
+        engine_map: None,
+        // The header says only "0..1" (unset -1), not which axle: taken as the front share, the usual meaning.
+        brake_bias: (bias > 0.0 && bias <= 1.0).then_some(bias),
+        damage_body: damage(at::AERO_DAMAGE),
+        damage_engine: damage(at::ENGINE_DAMAGE),
+        // The header has no gearbox damage (its clutch wear is the clutch's).
+        damage_gearbox: None,
+        damage_suspension: worst_suspension.map(|d| d.clamp(0.0, 1.0)),
+    }
+}
+
+/// (Type#5) flag colours. No flag (0) and the red flag, which `Flag` has no value for, are not given.
+fn flag_of(colour: u32) -> Option<Flag> {
+    match colour {
+        1 => Some(Flag::Green),
+        2 => Some(Flag::Blue),
+        3 | 4 => Some(Flag::White),
+        6 | 7 => Some(Flag::Yellow),
+        // Black and white (unsportsmanlike conduct), black with the orange circle (mechanical failure), black.
+        8..=10 => Some(Flag::Black),
+        11 => Some(Flag::Chequered),
+        _ => None,
+    }
+}
+
+/// The four tyres: temperature (Celsius), pressure (PSI to kPa), tread left (1 - wear) and the brake's temperature (Celsius). The header's "unset" is 0
 /// for each, so a 0 says nothing; `None` when no tyre says anything.
 fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
     const KPA_PER_PSI: f32 = 6.894_757;
@@ -382,7 +504,9 @@ fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
         let temp = page.f32_at(at::TYRE_TEMP + 4 * i);
         let psi = page.f32_at(at::AIR_PRESSURE + 4 * i);
         let wear = page.f32_at(at::TYRE_WEAR + 4 * i);
+        let brake = page.f32_at(at::BRAKE_TEMP + 4 * i);
         Tyre {
+            brake_c: if brake != 0.0 { within(brake, -40.0, 2000.0) } else { f32::NAN },
             temp_c: if temp != 0.0 { within(temp, -40.0, 400.0) } else { f32::NAN },
             pressure_kpa: if psi > 0.0 {
                 within(psi, 0.0, 100.0) * KPA_PER_PSI
@@ -451,6 +575,7 @@ mod tests {
             i.f32(at::SPEED, 55.5);
             i.f32(at::RPM, 7250.0);
             i.i32(at::GEAR, 4);
+            i.i32(at::NUM_GEARS, 6);
             i.f32(at::UNFILTERED_THROTTLE, 0.75);
             i.f32(at::UNFILTERED_BRAKE, 0.25);
             i.f32(at::UNFILTERED_CLUTCH, 0.5);
@@ -464,6 +589,21 @@ mod tests {
             i.text(at::CAR_CLASS_NAME, "Formula Ultimate");
             i.text(at::TRACK_LOCATION, "Interlagos");
             i.text(at::TRACK_VARIATION, "Grand Prix");
+            // The car's state: headlights, pit limiter, handbrake and TC light on; yellow flag out.
+            i.u32(at::CAR_FLAGS, CAR_HEADLIGHT | CAR_SPEED_LIMITER | CAR_HANDBRAKE | CAR_TCS);
+            i.0[at::ANTI_LOCK_ACTIVE] = 1;
+            i.u32(at::HIGHEST_FLAG_COLOUR, 6);
+            i.f32(at::OIL_TEMP, 98.5);
+            i.f32(at::WATER_TEMP, 91.25);
+            i.f32(at::BRAKE_BIAS, 0.5625);
+            i.f32(at::AERO_DAMAGE, 0.25);
+            i.f32(at::ENGINE_DAMAGE, 0.125);
+            for (n, d) in [0.0f32, 0.5, 0.0625, 0.0].into_iter().enumerate() {
+                i.f32(at::SUSPENSION_DAMAGE + 4 * n, d);
+            }
+            i.u32(at::DRS_STATE, DRS_INSTALLED | DRS_ZONE_RULES | DRS_AVAILABLE_NOW);
+            i.i32(at::ANTI_LOCK_SETTING, 3);
+            i.i32(at::TRACTION_CONTROL_SETTING, 2);
             i
         }
     }
@@ -720,15 +860,29 @@ mod tests {
             ("mLapInvalidated", at::LAP_INVALIDATED),
             ("mLastLapTime", at::LAST_LAP_TIME),
             ("mCurrentTime", at::CURRENT_TIME),
+            ("mHighestFlagColour", at::HIGHEST_FLAG_COLOUR),
             ("mPitMode", at::PIT_MODE),
+            ("mCarFlags", at::CAR_FLAGS),
+            ("mOilTempCelsius", at::OIL_TEMP),
+            ("mWaterTempCelsius", at::WATER_TEMP),
+            ("mAntiLockActive", at::ANTI_LOCK_ACTIVE),
+            ("mSuspensionDamage", at::SUSPENSION_DAMAGE),
+            ("mAeroDamage", at::AERO_DAMAGE),
+            ("mEngineDamage", at::ENGINE_DAMAGE),
+            ("mBrakeBias", at::BRAKE_BIAS),
+            ("mDrsState", at::DRS_STATE),
+            ("mAntiLockSetting", at::ANTI_LOCK_SETTING),
+            ("mTractionControlSetting", at::TRACTION_CONTROL_SETTING),
             ("mFuelLevel", at::FUEL_LEVEL),
             ("mFuelCapacity", at::FUEL_CAPACITY),
             ("mSpeed", at::SPEED),
             ("mRpm", at::RPM),
             ("mGear", at::GEAR),
+            ("mNumGears", at::NUM_GEARS),
             ("mSequenceNumber", at::SEQUENCE_NUMBER),
             ("mTyreTemp", at::TYRE_TEMP),
             ("mTyreWear", at::TYRE_WEAR),
+            ("mBrakeTempCelsius", at::BRAKE_TEMP),
             ("mAirPressure", at::AIR_PRESSURE),
         ] {
             assert_eq!(offset_of(&o, name), want, "{name}");
@@ -757,6 +911,28 @@ mod tests {
         assert!((tyres[1].pressure_kpa - 172.368_93).abs() < 0.01, "25 psi");
         assert_eq!(tyres[2].left, 0.75, "a quarter worn");
         assert!(tyres[3].temp_c.is_nan() && tyres[3].pressure_kpa.is_finite());
+        assert!(
+            tyres.iter().all(|t| t.brake_c.is_nan()),
+            "the brakes were left at the header's unset 0"
+        );
+    }
+
+    #[test]
+    fn reads_the_brake_temperatures_in_celsius_and_a_brake_alone_is_a_tyre_that_is_known() {
+        // `mBrakeTempCelsius` sits right after `mSuspensionDamage` (7168), four floats on.
+        assert_eq!(at::BRAKE_TEMP, 7168 + 16);
+        let mut image = Image::on_track();
+        for (i, c) in [310.0f32, 305.5, 220.0, 0.0].into_iter().enumerate() {
+            image.f32(at::BRAKE_TEMP + 4 * i, c);
+        }
+        let tyres = frame_from(&image.0, 0.0)
+            .unwrap()
+            .tyres
+            .expect("brakes alone are something to show");
+        assert_eq!((tyres[0].brake_c, tyres[1].brake_c, tyres[2].brake_c), (310.0, 305.5, 220.0));
+        assert!(tyres[3].brake_c.is_nan(), "0 is the header's unset");
+        assert!(tyres[0].known() && tyres[0].temp_c.is_nan() && tyres[0].pressure_kpa.is_nan());
+        assert!(!tyres[3].known());
     }
 
     #[test]
@@ -778,6 +954,7 @@ mod tests {
         want.speed_ms = 55.5;
         want.rpm = 7250.0;
         want.gear = 4.0;
+        want.gears = Some(6);
         want.throttle = 0.75;
         want.brake = 0.25;
         want.clutch = 0.5;
@@ -791,8 +968,99 @@ mod tests {
         want.track = "Interlagos".into();
         want.track_variant = Some("Grand Prix".into());
         want.track_length_m = Some(4309.0);
+        want.state = CarState {
+            pit_limiter: Some(true),
+            abs_active: Some(true),
+            tc_active: Some(true),
+            drs: Some(Drs::Available),
+            headlights: Some(true),
+            handbrake: Some(true),
+            engine_warning: Some(false),
+            flag: Some(Flag::Yellow),
+            water_c: Some(91.25),
+            oil_c: Some(98.5),
+            tc_level: Some(2),
+            abs_level: Some(3),
+            engine_map: None,
+            brake_bias: Some(0.5625),
+            damage_body: Some(0.25),
+            damage_engine: Some(0.125),
+            damage_gearbox: None,
+            damage_suspension: Some(0.5),
+        };
         assert_eq!(frame, want);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_car_state_says_nothing_for_what_the_header_calls_unset() {
+        // An all-zero car: the flags are off (known), temperatures 0 are unset, the bias 0 is not a bias, the
+        // settings come from the longer memory as 0 (off) and DRS is not installed.
+        let state = frame_from(&Image::new().0, 0.0).unwrap().state;
+        assert_eq!(
+            (
+                state.pit_limiter,
+                state.abs_active,
+                state.tc_active,
+                state.headlights,
+                state.handbrake
+            ),
+            (Some(false), Some(false), Some(false), Some(false), Some(false))
+        );
+        assert_eq!(
+            (state.water_c, state.oil_c, state.brake_bias, state.drs, state.flag),
+            (None, None, None, None, None)
+        );
+        assert_eq!((state.tc_level, state.abs_level), (Some(0), Some(0)));
+        // -1 is the settings' own "unset" (not under the player's control).
+        let mut image = Image::new();
+        image.i32(at::ANTI_LOCK_SETTING, -1);
+        image.i32(at::TRACTION_CONTROL_SETTING, -1);
+        image.f32(at::BRAKE_BIAS, -1.0);
+        let state = frame_from(&image.0, 0.0).unwrap().state;
+        assert_eq!((state.tc_level, state.abs_level, state.brake_bias), (None, None, None));
+    }
+
+    #[test]
+    fn the_car_state_flags_drs_and_damage_map_as_the_header_says() {
+        let mut image = Image::new();
+        for (colour, want) in [
+            (0, None),
+            (1, Some(Flag::Green)),
+            (2, Some(Flag::Blue)),
+            (3, Some(Flag::White)),
+            (4, Some(Flag::White)),
+            (5, None), // red: `Flag` has none
+            (6, Some(Flag::Yellow)),
+            (7, Some(Flag::Yellow)),
+            (8, Some(Flag::Black)),
+            (9, Some(Flag::Black)),
+            (10, Some(Flag::Black)),
+            (11, Some(Flag::Chequered)),
+            (12, None),
+        ] {
+            image.u32(at::HIGHEST_FLAG_COLOUR, colour);
+            assert_eq!(frame_from(&image.0, 0.0).unwrap().state.flag, want, "flag {colour}");
+        }
+        for (bits, want) in [
+            (0, None),
+            (DRS_INSTALLED | DRS_ZONE_RULES, Some(Drs::Off)),
+            (DRS_INSTALLED | DRS_ZONE_RULES | DRS_AVAILABLE_NOW, Some(Drs::Available)),
+            (DRS_INSTALLED | DRS_ZONE_RULES | DRS_AVAILABLE_NOW | DRS_ACTIVE, Some(Drs::Open)),
+            (DRS_INSTALLED, Some(Drs::Available)),
+            (DRS_INSTALLED | DRS_ACTIVE, Some(Drs::Open)),
+        ] {
+            image.u32(at::DRS_STATE, bits);
+            assert_eq!(frame_from(&image.0, 0.0).unwrap().state.drs, want, "drs {bits:#b}");
+        }
+        // The engine warning is its own bit; the worst suspension is the one that counts; garbage is not given.
+        image.u32(at::CAR_FLAGS, CAR_ENGINE_WARNING);
+        image.f32(at::SUSPENSION_DAMAGE + 8, f32::NAN);
+        image.f32(at::SUSPENSION_DAMAGE + 12, 0.75);
+        image.f32(at::AERO_DAMAGE, f32::NAN);
+        let state = frame_from(&image.0, 0.0).unwrap().state;
+        assert_eq!((state.engine_warning, state.pit_limiter), (Some(true), Some(false)));
+        assert_eq!((state.damage_suspension, state.damage_body), (Some(0.75), None));
     }
 
     #[test]
@@ -935,6 +1203,15 @@ mod tests {
     }
 
     #[test]
+    fn the_forward_gear_count_is_given_only_when_the_game_sets_it() {
+        for (num, want) in [(6, Some(6)), (1, Some(1)), (30, Some(30)), (0, None), (-1, None), (31, None)] {
+            let mut image = Image::on_track();
+            image.i32(at::NUM_GEARS, num);
+            assert_eq!(frame_from(&image.0, 0.0).unwrap().gears, want, "mNumGears {num}");
+        }
+    }
+
+    #[test]
     fn gears_pedals_and_fuel_are_converted_and_garbage_is_not_given() {
         for (gear, want) in [(-1, -1.0), (0, 0.0), (1, 1.0), (7, 7.0)] {
             let mut image = Image::on_track();
@@ -1017,6 +1294,9 @@ mod tests {
         for end in [
             at::GEAR + 4,
             at::FUEL_CAPACITY + 4,
+            at::CAR_FLAGS + 4,
+            at::AERO_DAMAGE + 8,
+            at::BRAKE_BIAS + 4,
             at::TRACK_VARIATION + STRING_LENGTH,
             at::PARTICIPANTS + 64 * PARTICIPANT_SIZE,
         ] {
@@ -1034,6 +1314,10 @@ mod tests {
             let frame = reader.next(NOW).expect("a frame");
             assert_eq!(frame.speed_ms, 55.5);
             assert!(frame.track.contains("Interlagos"), "{}", frame.track);
+            // Project CARS 2 has the lights, temperatures, damage and bias, but not the version 10 additions.
+            assert_eq!(frame.state.pit_limiter, Some(true));
+            assert_eq!((frame.state.oil_c, frame.state.brake_bias), (Some(98.5), Some(0.5625)));
+            assert_eq!((frame.state.drs, frame.state.tc_level, frame.state.abs_level), (None, None, None));
         }
         // Too old (before mSequenceNumber), or Automobilista 2's own version: not Project CARS.
         for version in [7, VERSION] {

@@ -1,4 +1,4 @@
-# Xpeed Sim (Windows)
+# Xpeed Companion (Windows)
 
 Programa para Windows, em Rust, que lê a telemetria de um jogo de corrida e a leva para a sua conta Xpeed. Grava cada volta no **formato de arquivo de volta** do Xpeed ([FORMATO-DE-VOLTA.md](../docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md)) e, se estiver conectado, envia as voltas para a nuvem. O primeiro jogo é o **Le Mans Ultimate**; como ele expõe os dados está em [LMU-TELEMETRIA.md](../docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md).
 
@@ -8,11 +8,11 @@ Os outros jogos têm leitores em `src/games/` (Assetto Corsa e família, AC EVO,
 
 ## Como se usa
 
-Sem argumentos (menu Iniciar, ou ao ligar o Windows), o Xpeed Sim roda como um **ícone na bandeja**. A bolinha no canto do ícone mostra o estado: cinza (gravação pausada), âmbar (esperando o jogo), verde (conectado ou gravando), vermelho (precisa de atenção). O ícone é a marca verdadeira do Xpeed ([branding/README.md](../branding/README.md)).
+Sem argumentos (menu Iniciar, ou ao ligar o Windows), o Xpeed Companion roda como um **ícone na bandeja**. A bolinha no canto do ícone mostra o estado: cinza (gravação pausada), âmbar (esperando o jogo), verde (conectado ou gravando), vermelho (precisa de atenção). O ícone é a marca verdadeira do Xpeed ([branding/README.md](../branding/README.md)).
 
 Clicar no ícone abre o **painel**; o botão direito abre o menu. Menu do ícone: o estado do jogo e da conta, **Abrir o painel**, **Conectar à sua conta…**, **Abrir a pasta das voltas**, **Pausar/Retomar a gravação**, **Iniciar com o Windows**, **Idioma** e **Sair**. Um balão avisa cada volta gravada, um lote de voltas enviado de uma vez, a conexão e uma chave recusada.
 
-**Idioma:** o programa abre em **inglês** (decisão do dono, 12/11/2026: inglês primeiro). Português e espanhol aparecem só se a pessoa escolher em **Language**, no menu. A escolha fica gravada no arquivo `language`, em `%APPDATA%\Xpeed Sim`.
+**Idioma:** o programa abre em **inglês** (decisão do dono, 12/11/2026: inglês primeiro). Português e espanhol aparecem só se a pessoa escolher em **Language**, no menu. A escolha fica gravada no arquivo `language`, em `%APPDATA%\Xpeed Companion`.
 
 **O painel** (`src/panel.rs`) é uma janela com duas abas:
 
@@ -32,8 +32,8 @@ Em tela cheia, o dashboard cresce junto com a tela. O painel é desenhado com GD
 
 Para ver o painel sem jogo aberto, rode `xpeed-sim panel-demo`, que mostra uma pilotagem inventada sem gravar nem enviar nada. `xpeed-sim panel` abre o painel da cópia que já está rodando.
 
-- **Conectar:** no Xpeed (Virtual > Xpeed Sim) a pessoa pede um código e abre o link `xpeedsim://pair?server=…&code=…`. O Windows o entrega ao programa, que **pergunta**, nomeando o servidor, se deve conectar (a resposta padrão é Não). Pelo terminal também dá: `xpeed-sim pair --server https://… --code ABCD-2345`.
-- **Onde ficam as coisas:** voltas em `Documentos\Xpeed Sim\Laps` (ou `XPEED_SIM_LAPS`); configuração e o registro (`sim.log`) em `%APPDATA%\Xpeed Sim` (ou `XPEED_SIM_HOME`). A chave do aparelho **nunca** é impressa nem vai para o registro.
+- **Conectar:** no Xpeed (Virtual > Xpeed Companion) a pessoa pede um código e abre o link `xpeedsim://pair?server=…&code=…`. O Windows o entrega ao programa, que **pergunta**, nomeando o servidor, se deve conectar (a resposta padrão é Não). Pelo terminal também dá: `xpeed-sim pair --server https://… --code ABCD-2345`.
+- **Onde ficam as coisas:** voltas em `Documentos\Xpeed Sim\Laps` (ou `XPEED_SIM_LAPS`); configuração e o registro (`sim.log`) em `%APPDATA%\Xpeed Companion` (ou `XPEED_SIM_HOME`). A chave do aparelho **nunca** é impressa nem vai para o registro.
 - **Uma cópia por vez:** abrir de novo não abre outra.
 
 ## Compilar
@@ -65,14 +65,14 @@ xpeed-sim make-icon ARQUIVO      # escreve o ícone (a marca do Xpeed) em ARQUIV
 
 ## Envio para o Xpeed
 
-O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md). O servidor implementa isso em `api/sim/*`. O Xpeed Sim foi testado contra um servidor falso e também contra os handlers de verdade, com o programa de verdade (`pair`, `upload`, `status`, `unpair`). O que não foi testado: HTTPS de verdade (os testes usam `http://localhost`), e o `record --upload` com o jogo aberto. O código de pareamento vem de `POST /api/sim/codes`; a tela do app para pedi-lo ainda não existe.
+O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md). O servidor implementa isso em `api/sim/*`. O Xpeed Companion foi testado contra um servidor falso e também contra os handlers de verdade, com o programa de verdade (`pair`, `upload`, `status`, `unpair`). O que não foi testado: HTTPS de verdade (os testes usam `http://localhost`), e o `record --upload` com o jogo aberto. O código de pareamento vem de `POST /api/sim/codes`; a tela do app para pedi-lo ainda não existe.
 
 - **Parear uma vez:** no app, peça um código; no computador, `xpeed-sim pair --server https://… --code ABCD-2345`. O endereço precisa ser `https://` (só `localhost` aceita `http://`), para a chave do aparelho nunca viajar em texto aberto. A chave fica em `%APPDATA%\Xpeed Sim\config.json` (ou na pasta que `XPEED_SIM_HOME` indicar) e **nunca é impressa**.
 - **A pasta de voltas é a fila.** O que já foi enviado (ou recusado) fica anotado em `.xpeed-upload.json`, ao lado das voltas. Se a rede cair, o computador desligar ou o servidor estiver fora, as voltas continuam na pasta e a próxima execução segue de onde parou. Nenhum arquivo de volta é apagado, movido ou alterado.
 - **Gravar não espera o envio:** em `record --upload` o envio roda em outra linha de execução; a leitura do jogo não perde amostra por causa de uma rede lenta. Com falha passageira ele tenta de novo com espera crescente (30 s até 5 min), e a cada volta nova.
 - **Chave recusada ou revogada:** o envio para e avisa para parear de novo; a gravação continua e nada se perde.
 - **Só sai do computador o que é uma volta válida:** antes de enviar, o arquivo passa pelo leitor estrito do formato.
-- **Sem redirecionamento:** o Xpeed Sim não segue redirecionamentos, para a chave nunca ir para outro endereço.
+- **Sem redirecionamento:** o Xpeed Companion não segue redirecionamentos, para a chave nunca ir para outro endereço.
 
 ## Como validar com o jogo aberto (o próximo passo)
 
@@ -90,7 +90,7 @@ O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtu
 
 ## Como a volta é cortada
 
-Veja o comentário no topo de `src/recorder.rs`. Em resumo: a volta vai de uma troca do número de volta do jogo até a próxima; `t` vem do relógio da própria volta; `dist` é a integral da velocidade, reancorada em cada atualização de pontuação; a volta espera até 3 segundos pelo tempo oficial; volta em que o Xpeed Sim entrou no meio, com menos de 5 s ou menos de 50 amostras é descartada. **`valid` é um julgamento nosso** (tempo oficial confere com a telemetria e o carro não passou pelo box), não o veredito do jogo sobre pista cortada.
+Veja o comentário no topo de `src/recorder.rs`. Em resumo: a volta vai de uma troca do número de volta do jogo até a próxima; `t` vem do relógio da própria volta; `dist` é a integral da velocidade, reancorada em cada atualização de pontuação; a volta espera até 3 segundos pelo tempo oficial; volta em que o Xpeed Companion entrou no meio, com menos de 5 s ou menos de 50 amostras é descartada. **`valid` é um julgamento nosso** (tempo oficial confere com a telemetria e o carro não passou pelo box), não o veredito do jogo sobre pista cortada.
 
 ## Posições dos campos (`src/lmu/layout.rs`)
 

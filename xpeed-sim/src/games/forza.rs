@@ -6,7 +6,7 @@
 //! * Forza Motorsport (2023): **Settings > Gameplay & HUD**, under the "UDP Race Telemetry" header. Forza Motorsport 7:
 //!   the same options in its HUD settings.
 //!   * Data Out: **On**
-//!   * Data Out IP Address: **127.0.0.1** (the game and Xpeed Sim on the same PC; else the IP of this computer)
+//!   * Data Out IP Address: **127.0.0.1** (the game and Xpeed Companion on the same PC; else the IP of this computer)
 //!   * Data Out IP Port: **5301** (this reader listens on it, on every local address)
 //!   * Data Out Packet Format: **Dash** ("Car Dash"). "Sled" has no lap times, lap number or position: its packets
 //!     reach the panel (rpm, car) but never make a lap.
@@ -107,6 +107,7 @@ const D_LAP_NUMBER: usize = 68; // U16: laps completed
 const D_ACCEL: usize = 71; // U8 0..255
 const D_BRAKE: usize = 72; // U8 0..255
 const D_CLUTCH: usize = 73; // U8 0..255
+const D_HANDBRAKE: usize = 74; // U8 0..255
 const D_GEAR: usize = 75; // U8: 0 reverse, 1..10, 11 neutral
 const D_STEER: usize = 76; // S8 -127..127
 
@@ -316,6 +317,8 @@ impl Decoder {
         f.throttle = f32::from(p.u8_at(d + D_ACCEL)) / 255.0;
         f.brake = f32::from(p.u8_at(d + D_BRAKE)) / 255.0;
         f.clutch = f32::from(p.u8_at(d + D_CLUTCH)) / 255.0;
+        // The only light the packet gives: the handbrake input is above 0 (0..255).
+        f.state.handbrake = Some(p.u8_at(d + D_HANDBRAKE) > 0);
         f.steer = (f32::from(i8_at(&p, d + D_STEER)) / 127.0).clamp(-1.0, 1.0);
         f.gear = match p.u8_at(d + D_GEAR) {
             0 => -1.0,
@@ -335,6 +338,8 @@ impl Decoder {
             };
             let left = extras.map_or(f32::NAN, |e| 1.0 - within(p.f32_at(e + E_TIRE_WEAR + 4 * i), 0.0..=1.0));
             Tyre {
+                // Data Out has no brake temperature.
+                brake_c: f32::NAN,
                 temp_c,
                 pressure_kpa: f32::NAN,
                 left,
@@ -489,6 +494,7 @@ impl Source for ForzaSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::CarState;
     use crate::lapcut::LapCutter;
 
     // ---- the documented fields, in the order of Turn 10's pages, with their sizes in bytes ----
@@ -651,6 +657,7 @@ mod tests {
         assert_eq!(offset_of(DASH_FIELDS, "Accel"), D_ACCEL);
         assert_eq!(offset_of(DASH_FIELDS, "Brake"), D_BRAKE);
         assert_eq!(offset_of(DASH_FIELDS, "Clutch"), D_CLUTCH);
+        assert_eq!(offset_of(DASH_FIELDS, "HandBrake"), D_HANDBRAKE);
         assert_eq!(offset_of(DASH_FIELDS, "Gear"), D_GEAR);
         assert_eq!(offset_of(DASH_FIELDS, "Steer"), D_STEER);
 
@@ -849,6 +856,14 @@ mod tests {
         assert!(!f.in_pits);
         assert_eq!(f.lap_valid, None);
         assert!(f.fuel_l.is_nan(), "a fraction of an unknown tank is not litres");
+        // The packet's handbrake input (200 of 255) is the only part of the car's state it has.
+        assert_eq!(
+            f.state,
+            CarState {
+                handbrake: Some(true),
+                ..CarState::UNKNOWN
+            }
+        );
         assert_eq!(f.car, "Car #2352");
         let tyres = f.tyres.expect("tyre temperatures");
         for (tyre, c) in tyres.iter().zip([100.0, 90.0, 80.0, 70.0]) {
@@ -904,6 +919,7 @@ mod tests {
             assert_eq!(f.car, "Car #2352");
             assert!(f.lap_time_s.is_none() && f.last_lap_s.is_none() && f.dist_m.is_none());
             assert!(f.speed_ms.is_nan() && f.x.is_nan() && f.tyres.is_none());
+            assert_eq!(f.state, CarState::UNKNOWN, "a Sled packet has no handbrake");
         }
     }
 

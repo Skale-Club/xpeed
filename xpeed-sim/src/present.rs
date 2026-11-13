@@ -9,7 +9,7 @@ pub fn light_of(snapshot: &Snapshot) -> Light {
     match (&snapshot.cloud, &snapshot.game) {
         (Cloud::Refused, _) | (_, Game::Unsupported) => Light::Red,
         (_, Game::Paused) => Light::Grey,
-        (_, Game::Waiting | Game::Silent) => Light::Amber,
+        (_, Game::Waiting | Game::Silent | Game::Loading) => Light::Amber,
         (_, Game::Connected | Game::Recording(_)) => Light::Green,
     }
 }
@@ -33,6 +33,7 @@ pub fn game_line(lang: Lang, game: &Game) -> String {
             Game::Paused => Msg::GamePaused,
             Game::Unsupported => Msg::GameUnsupported,
             Game::Silent => Msg::GameSilent,
+            Game::Loading => Msg::GameLoading,
         },
     )
 }
@@ -72,7 +73,7 @@ pub fn notice_text(lang: Lang, notice: &Notice) -> (String, String) {
             Notice::Refused => Msg::NoticeRefused,
         },
     );
-    ("Xpeed Sim".to_owned(), body)
+    ("Xpeed Companion".to_owned(), body)
 }
 
 #[cfg(test)]
@@ -136,7 +137,7 @@ Connected as RIG"
     fn balloons_have_a_title_and_a_sentence_in_the_language() {
         assert_eq!(
             notice_text(Lang::En, &Notice::LapSaved("Lap 3  1:42.318".into())),
-            ("Xpeed Sim".into(), "Lap saved: Lap 3  1:42.318".into())
+            ("Xpeed Companion".into(), "Lap saved: Lap 3  1:42.318".into())
         );
         assert_eq!(notice_text(Lang::Es, &Notice::Paired("RIG".into())).1, "Conectado como RIG");
         assert!(notice_text(Lang::Pt, &Notice::NotPaired).1.contains("botão direito"));

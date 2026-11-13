@@ -21,6 +21,19 @@ const LMU_NAME: &str = "Le Mans Ultimate";
 /// The game's program (lower case), to tell "open, not sharing" from "not running" when its memory is missing.
 const LMU_PROGRAMS: &[&str] = &["le mans ultimate.exe"];
 
+/// How long a game whose program runs without sharing data is "loading" (splash screens, menus coming up) before it is
+/// called "open, no data": some games create their shared memory only once loaded.
+const LOADING_GRACE: Duration = Duration::from_secs(45);
+
+/// What a game that runs without sharing data is, given when it was first seen so.
+fn quiet_state(since: Instant, grace: Duration) -> Game {
+    if since.elapsed() < grace {
+        Game::Loading
+    } else {
+        Game::Silent
+    }
+}
+
 pub fn explain(error: &OpenError) -> String {
     match error {
         OpenError::NotRunning => {
@@ -45,6 +58,9 @@ pub fn lap_file_name(lap: &lapfile::Lap) -> String {
     )
 }
 
+/// What a saved lap's label ends with when the lap did not count; the panel looks for it to draw the invalid mark.
+pub const NOT_VALID_MARK: &str = " (not valid)";
+
 /// Writes the lap next to its final name as `.part` and renames it, so a half-written file never looks like a lap.
 /// Returns `Lap 3  1:42.318` when it worked.
 pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<String> {
@@ -67,7 +83,7 @@ pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<Stri
                 "Lap {}  {}{}",
                 lap.lap_number,
                 clock(lap.time_ms),
-                if lap.valid { "" } else { " (not valid)" }
+                if lap.valid { "" } else { NOT_VALID_MARK }
             ))
         }
         Err(error) => {
@@ -104,16 +120,37 @@ pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
             );
         });
         // The other games have a reader each, looked after by one loop of its own; Le Mans Ultimate has its own.
-        scope.spawn(move || run_games(READERS, out, shared, say, Some(&tracks)));
+        scope.spawn(move || run_games(READERS, out, shared, say, Some(&tracks), LOADING_GRACE));
         let result = run_lmu(out, shared, say, stop_on_unsupported);
         shared.quit();
         result
     })
 }
 
+/// A panel tracker that keeps each track's map in `maps` (under the Xpeed Companion folder) and takes the built layout from
+/// the outbox in `out`; with no Xpeed Companion folder the maps are just not kept.
+fn tracker_for(game: &'static str, out: &Path) -> crate::dash::Tracker {
+    match crate::maps::default_dir() {
+        Some(maps) => crate::dash::Tracker::stored(crate::maps::Store {
+            maps,
+            layouts: out.join(auto::TRACKS_DIR),
+            game,
+        }),
+        None => crate::dash::Tracker::default(),
+    }
+}
+
 /// Reads whichever of the other games is running, and writes its laps like Le Mans Ultimate's. Each track a game is
-/// driven on is told to `tracks` once (and again when it changes), for its layout to be built.
-pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), tracks: Option<&mpsc::Sender<Seen>>) {
+/// driven on is told to `tracks` once (and again when it changes), for its layout to be built. A game that runs without
+/// data is shown as loading for `grace`, then as open without data.
+pub fn run_games(
+    readers: &[Reader],
+    out: &Path,
+    shared: &Shared,
+    say: &(dyn Fn(String) + Sync),
+    tracks: Option<&mpsc::Sender<Seen>>,
+    grace: Duration,
+) {
     struct Live {
         family: &'static str,
         programs: &'static [&'static str],
@@ -130,6 +167,10 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
         quiet: bool,
         /// The game shown as open without data while no frame has come (it may differ from the source's own id).
         silent_as: Option<(&'static str, &'static str)>,
+        /// When this source was opened: a listening source is loading for the grace period after that.
+        opened_at: Instant,
+        /// The "open but shares no data yet" line was said for this source.
+        told_silent: bool,
     }
     let saved = |lap: &lapfile::Lap| {
         if let Some(label) = save(out, lap, say) {
@@ -144,6 +185,8 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
     let mut live: Vec<Live> = Vec::new();
     // Families let go while their game still ran: opened again without a word.
     let mut reopen_quietly: Vec<&'static str> = Vec::new();
+    // When each game's program was first seen running without data (cleared when it stops running or shares).
+    let mut first_seen: std::collections::HashMap<&'static str, Instant> = std::collections::HashMap::new();
     let mut last_look = Instant::now().checked_sub(Duration::from_secs(10)).unwrap_or_else(Instant::now);
     while !shared.quitting() {
         if shared.paused() {
@@ -175,9 +218,12 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                 if !reader.programs.is_empty() && !crate::win::any_running(&running, reader.programs) {
                     // Not running (any more): a game that was open without data goes back to waiting.
                     for (id, name, game) in shared.games() {
-                        if game == Game::Silent && reader.ids.contains(&id) {
+                        if matches!(game, Game::Silent | Game::Loading) && reader.ids.contains(&id) {
                             shared.set_game(id, name, Game::Waiting);
                         }
+                    }
+                    for id in reader.ids {
+                        first_seen.remove(id);
                     }
                     continue;
                 }
@@ -185,11 +231,17 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                 if opened.is_none() {
                     // Its program runs but there is no data: the panel names the game and tells how to switch it on.
                     if let Some((id, name)) = crate::games::running_game(&running, reader) {
+                        let since = *first_seen.entry(id).or_insert_with(Instant::now);
+                        let state = quiet_state(since, grace);
                         let told = shared.games().iter().any(|(i, _, g)| *i == id && *g == Game::Silent);
-                        if !told {
+                        if state == Game::Silent && !told {
                             say(format!("{name} is open but shares no data yet."));
                         }
-                        shared.set_game(id, name, Game::Silent);
+                        shared.set_game(id, name, state);
+                    }
+                } else {
+                    for id in reader.ids {
+                        first_seen.remove(id);
                     }
                 }
                 if let Some(source) = opened {
@@ -197,14 +249,24 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     reopen_quietly.retain(|f| *f != reader.family);
                     let listens = source.listens();
                     let mut silent_as = None;
+                    let mut state_silent = false;
+                    // A source opened again after a stop is not loading: its game has been running for a while.
+                    let opened_at = if quiet {
+                        Instant::now().checked_sub(grace).unwrap_or_else(Instant::now)
+                    } else {
+                        Instant::now()
+                    };
                     if listens {
-                        // Only a socket is open: the game may send nothing. Say so until the first packet.
+                        // Only a socket is open: the game may send nothing. It is loading for a while, then "no data",
+                        // until the first packet.
                         let (id, name) = crate::games::running_game(&running, reader).unwrap_or((source.game_id(), source.game_name()));
+                        let state = quiet_state(opened_at, grace);
                         let told = shared.games().iter().any(|(i, _, g)| *i == id && *g == Game::Silent);
-                        if !told && !quiet {
+                        if state == Game::Silent && !told && !quiet {
                             say(format!("{name} is open but shares no data yet."));
                         }
-                        shared.set_game(id, name, Game::Silent);
+                        state_silent = state == Game::Silent;
+                        shared.set_game(id, name, state);
                         silent_as = Some((id, name));
                     } else {
                         if !quiet {
@@ -212,10 +274,13 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                         }
                         shared.set_game(source.game_id(), source.game_name(), Game::Connected);
                     }
+                    let game_id = source.game_id();
                     live.push(Live {
                         heard: !listens,
                         quiet,
                         silent_as,
+                        opened_at,
+                        told_silent: state_silent,
                         family: reader.family,
                         programs: reader.programs,
                         cutter: LapCutter::new(source.game_id()),
@@ -223,7 +288,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                         last_frame: Instant::now(),
                         lap_shown: 0,
                         track_told: None,
-                        tracker: crate::dash::Tracker::default(),
+                        tracker: tracker_for(game_id, out),
                     });
                 }
             }
@@ -255,7 +320,7 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     shared.set_game(l.cutter.game(), l.source.game_name(), Game::Waiting);
                     say(format!("Now reading {}.", l.source.game_name()));
                     l.cutter = LapCutter::new(game);
-                    l.tracker = crate::dash::Tracker::default();
+                    l.tracker = tracker_for(game, out);
                     l.track_told = None;
                     l.lap_shown = 0;
                 }
@@ -287,13 +352,22 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
                     saved(&lap);
                 }
             } else if !l.heard {
-                // Open, nothing heard yet: stays "no data" for as long as its program runs (and after a pause).
+                // Open, nothing heard yet: loading for the grace period, then "no data" for as long as its program runs
+                // (and after a pause).
                 if let Some((id, name)) = l.silent_as {
-                    shared.set_game(id, name, Game::Silent);
+                    let state = quiet_state(l.opened_at, grace);
+                    if state == Game::Silent && !l.told_silent && !l.quiet {
+                        say(format!("{name} is open but shares no data yet."));
+                    }
+                    l.told_silent |= state == Game::Silent;
+                    shared.set_game(id, name, state);
                 }
             } else if l.last_frame.elapsed() > Duration::from_secs(10) {
-                // A door that stays open but says nothing (a game sending UDP, stopped or in a menu).
-                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+                // A door that stays open but says nothing for a while: the game is in a menu, paused, or between
+                // sessions (Automobilista 2 stops writing there). It is still open and connected, only not on track,
+                // so it stays Connected (the panel says "connected, get in the car"), never Waiting: Waiting is for a
+                // game that is not running, set when its program closes.
+                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Connected);
                 l.lap_shown = 0;
             }
         }
@@ -323,6 +397,26 @@ pub fn run_games(readers: &[Reader], out: &Path, shared: &Shared, say: &(dyn Fn(
     }
 }
 
+/// Waits of 200 ms without a frame that make a 10 s quiet period.
+const LMU_QUIET_WAITS: u32 = 50;
+
+/// What to do when Le Mans Ultimate has been quiet for a whole quiet period.
+#[derive(Debug, PartialEq, Eq)]
+enum QuietAction {
+    /// The program still runs (a menu, a pause): keep the same reader and stay connected.
+    KeepReading,
+    /// The program is gone: let the reader go and start over.
+    Reconnect,
+}
+
+fn lmu_quiet_action(program_running: bool) -> QuietAction {
+    if program_running {
+        QuietAction::KeepReading
+    } else {
+        QuietAction::Reconnect
+    }
+}
+
 fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
     say(format!("Writing laps to {}.", out.display()));
@@ -338,6 +432,8 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
     };
     let mut waiting = false;
     let mut told_silent = false;
+    // When the game's program was first seen running without its memory.
+    let mut loading_since: Option<Instant> = None;
     while !shared.quitting() {
         if shared.paused() {
             shared.set_game(LMU_ID, LMU_NAME, Game::Paused);
@@ -354,11 +450,18 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                 // No memory. With the game's program running, it is open and not sharing: the panel says how to switch
                 // that on. Without it, the game is simply not there.
                 let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
-                if running && !told_silent {
+                let state = if running {
+                    quiet_state(*loading_since.get_or_insert_with(Instant::now), LOADING_GRACE)
+                } else {
+                    loading_since = None;
+                    Game::Waiting
+                };
+                let silent = state == Game::Silent;
+                if silent && !told_silent {
                     say("Le Mans Ultimate is open but shares no data yet.".into());
                 }
-                told_silent = running;
-                shared.set_game(LMU_ID, LMU_NAME, if running { Game::Silent } else { Game::Waiting });
+                told_silent = silent;
+                shared.set_game(LMU_ID, LMU_NAME, state);
                 rest(shared, Duration::from_secs(2));
                 continue;
             }
@@ -375,7 +478,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         };
         if !reader.layout_matches() {
             let why = format!(
-                "The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update Xpeed Sim.",
+                "The game's shared memory is not the size this build knows ({} bytes, expected {}). Nothing is recorded; update Xpeed Companion.",
                 reader.mapped_bytes(),
                 LAYOUT_SIZE
             );
@@ -393,14 +496,32 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
         let mut recorder = Recorder::new();
         // The panel needs the distance and times of the scoring stream alongside each telemetry update.
-        let mut tracker = crate::dash::Tracker::default();
+        let mut tracker = tracker_for(LMU_ID, out);
         let mut last_scoring = None;
         let mut silent_waits = 0;
         let mut lap_shown = 0;
-        // Without a frame for 10 s (the game closed, or sits in a menu) start over from a clean connection.
-        while silent_waits < 50 && !shared.quitting() && !shared.paused() {
+        let mut gone = false;
+        // Without a frame for 10 s the game is either closed or sitting in a menu. The process list is looked at once
+        // per quiet period (never every 200 ms). A game that still runs stays connected on the same reader, quietly:
+        // Waiting is only for a game whose program closed, which starts over from a clean connection.
+        while !shared.quitting() && !shared.paused() {
             if !reader.wait_frame(200) {
                 silent_waits += 1;
+                if silent_waits >= LMU_QUIET_WAITS {
+                    let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
+                    match lmu_quiet_action(running) {
+                        QuietAction::KeepReading => {
+                            // Open but not on track: it may have been recording a lap.
+                            shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
+                            lap_shown = 0;
+                            silent_waits = 0;
+                        }
+                        QuietAction::Reconnect => {
+                            gone = true;
+                            break;
+                        }
+                    }
+                }
                 continue;
             }
             silent_waits = 0;
@@ -421,7 +542,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                 recorder.on_scoring(s).iter().for_each(saved);
             }
         }
-        if silent_waits >= 50 {
+        if gone {
             say("No data from the game for 10 s; reconnecting.".into());
             shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
         }
@@ -432,6 +553,14 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lmu_quiet_period_keeps_reading_while_the_game_runs() {
+        assert_eq!(lmu_quiet_action(true), QuietAction::KeepReading);
+        assert_eq!(lmu_quiet_action(false), QuietAction::Reconnect);
+        // 50 waits of 200 ms are the 10 s quiet period.
+        assert_eq!(LMU_QUIET_WAITS * 200, 10_000);
+    }
     use crate::lapfile::{Channel, Lap};
 
     fn lap(number: u32) -> Lap {
@@ -576,6 +705,7 @@ mod tests {
             open: open_listening,
         }];
         let said = std::sync::Mutex::new(Vec::<String>::new());
+        let grace = Duration::from_millis(600);
         let state = || shared.games().into_iter().find(|(id, _, _)| *id == "fakeudp").map(|(_, _, g)| g);
         let wait_for = |want: Game| {
             let started = Instant::now();
@@ -585,8 +715,17 @@ mod tests {
             state()
         };
         std::thread::scope(|scope| {
-            scope.spawn(|| run_games(&readers, &dir, &shared, &|line| said.lock().unwrap().push(line), None));
-            assert_eq!(wait_for(Game::Silent), Some(Game::Silent), "open, nothing heard yet");
+            scope.spawn(|| run_games(&readers, &dir, &shared, &|line| said.lock().unwrap().push(line), None, grace));
+            assert_eq!(wait_for(Game::Loading), Some(Game::Loading), "just opened: still loading");
+            assert!(
+                !said.lock().unwrap().iter().any(|l| l.ends_with("is open but shares no data yet.")),
+                "nothing is said while it loads"
+            );
+            assert_eq!(
+                wait_for(Game::Silent),
+                Some(Game::Silent),
+                "open, nothing heard after the grace period"
+            );
             std::thread::sleep(Duration::from_millis(300));
             assert_eq!(state(), Some(Game::Silent), "stays without data while nothing comes");
             assert!(
@@ -645,7 +784,7 @@ mod tests {
         let (tracks, seen) = mpsc::channel();
         std::thread::scope(|scope| {
             scope.spawn(|| {
-                run_games(&readers, &dir, &shared, &|_| {}, Some(&tracks));
+                run_games(&readers, &dir, &shared, &|_| {}, Some(&tracks), LOADING_GRACE);
                 finished.store(true, std::sync::atomic::Ordering::SeqCst);
             });
             // The loop ends when told to quit; give it time to read the script, and to see the game go away.

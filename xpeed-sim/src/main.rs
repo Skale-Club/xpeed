@@ -1,5 +1,5 @@
 #![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
-//! Xpeed Sim: reads racing-game telemetry on Windows and sends it to your Xpeed account.
+//! Xpeed Companion: reads racing-game telemetry on Windows and sends it to your Xpeed account.
 //!
 //! Started with no arguments (from the Start menu, or with Windows) it runs as a tray icon: it records every lap
 //! while Le Mans Ultimate runs and sends the laps to the account it is connected to. With arguments it is a command
@@ -18,6 +18,7 @@
 
 mod applog;
 mod config;
+mod connect;
 mod covers;
 mod dash;
 #[cfg(windows)]
@@ -31,6 +32,7 @@ mod lapcut;
 mod lapfile;
 mod link;
 mod lmu;
+mod maps;
 mod net;
 mod outbox;
 #[cfg(windows)]
@@ -58,9 +60,9 @@ use std::process::ExitCode;
 use crate::util::clock;
 
 const HELP: &str = "\
-Xpeed Sim: racing-game telemetry to your Xpeed account
+Xpeed Companion: racing-game telemetry to your Xpeed account
 
-With no arguments Xpeed Sim runs as a tray icon. Command line:
+With no arguments Xpeed Companion runs as a tray icon. Command line:
 
 USAGE:
     xpeed-sim run                    The tray app (the same as no arguments)
@@ -79,7 +81,7 @@ USAGE:
     xpeed-sim status                 Show whether this computer is paired
     xpeed-sim unpair                 Forget the pairing on this computer
     xpeed-sim upload DIR             Send the laps in DIR (and the track layouts in DIR\tracks) that were not sent yet
-    xpeed-sim make-icon FILE         Write the Xpeed Sim icon to FILE (.ico)
+    xpeed-sim make-icon FILE         Write the Xpeed Companion icon to FILE (.ico)
     xpeed-sim help
 
 For the game to share data, 'Enable external plugins' must be on (Settings > Gameplay) and the game must be running.
@@ -337,6 +339,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
             server: server.clone(),
             token,
             device_name,
+            account: None,
         },
     ) {
         Ok(()) => {
@@ -367,7 +370,7 @@ fn status_command() -> ExitCode {
 fn unpair_command() -> ExitCode {
     match config_path().and_then(|path| config::remove(&path)) {
         Ok(true) => {
-            println!("Forgot the pairing on this computer. To stop the server accepting this device, remove it in the app (Virtual > Xpeed Sim).");
+            println!("Forgot the pairing on this computer. To stop the server accepting this device, remove it in the app (Virtual > Xpeed Companion).");
             ExitCode::SUCCESS
         }
         Ok(false) => {
@@ -392,7 +395,7 @@ fn upload_command(dir: &Path) -> ExitCode {
         "Sent {}, already on the server {}, not sendable {}, still waiting {}.",
         report.sent, report.duplicates, report.rejected, report.left
     );
-    // Then the track layouts Xpeed Sim built while recording (the `tracks` folder inside the laps folder).
+    // Then the track layouts Xpeed Companion built while recording (the `tracks` folder inside the laps folder).
     let layouts_dir = dir.join(tracks::auto::TRACKS_DIR);
     if report.stopped.is_none() && layouts_dir.is_dir() {
         let layouts = outbox::upload_tracks(&layouts_dir, &config, &agent, &mut |line| println!("{line}"));

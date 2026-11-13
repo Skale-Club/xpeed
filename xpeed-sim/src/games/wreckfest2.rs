@@ -12,7 +12,7 @@
 //! { "udp": [ { "enabled": 1, "ip": "127.0.0.1", "port": "23123" } ], ... }
 //! ```
 //!
-//! So: set `"enabled": 1` (the game writes `0`), leave `"ip"` at `127.0.0.1` (the computer that runs Xpeed Sim) and
+//! So: set `"enabled": 1` (the game writes `0`), leave `"ip"` at `127.0.0.1` (the computer that runs Xpeed Companion) and
 //! `"port"` at `23123`, then restart the game. The game sends only while a race runs. Next to that file the game keeps
 //! a copy per computer (`config-<PC name>.json`); which of the two wins is not documented, so a person who sees no
 //! laps should check both. This reader listens on port `23123` on every local address.
@@ -50,7 +50,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{CarState, Flag, Frame, Source};
 use crate::shm::Page;
 
 /// The port the game's telemetry output is set to by default.
@@ -71,13 +71,13 @@ mod layout {
 
     // Packet::Main, in the order of the struct.
     pub const MAIN_LEN: usize = 1218;
-    const MARSHAL_FLAGS: usize = HEADER_LEN; // u16
+    pub const MARSHAL_FLAGS: usize = HEADER_LEN; // u16: MarshalFlags of the player
     const LEADERBOARD: usize = MARSHAL_FLAGS + 2; // Participant::Leaderboard, 32 bytes
     const TIMING: usize = LEADERBOARD + 32; // Participant::Timing, 32 bytes
     const TIMING_SECTORS: usize = TIMING + 32; // Participant::TimingSectors, 36 bytes
     const INFO: usize = TIMING_SECTORS + 36; // Participant::Info, 213 bytes
-    const DAMAGE: usize = INFO + 213; // Participant::Damage, 21 bytes
-    const CAR: usize = DAMAGE + 21; // Car::Full, 532 bytes
+    pub const DAMAGE: usize = INFO + 213; // Participant::Damage, 21 bytes: 56 parts of 3 bits
+    pub const CAR: usize = DAMAGE + 21; // Car::Full, 532 bytes
     const SESSION: usize = CAR + 532; // Session, 208 bytes
     pub const PLAYER_STATUS_AT: usize = SESSION + 208; // u16
     const INPUT_EXTENDED: usize = PLAYER_STATUS_AT + 2; // 20 bytes
@@ -103,15 +103,27 @@ mod layout {
 
     // Car::Full: assists 8, chassis 52, driveline 24, engine 56, input 20, orientation 34, velocity 36, tires 4 x 72,
     // reserved 14.
+    // Assists: flags u8 (bit 0 ABS active, bit 1 TCS active, bit 2 ESC active), gearbox u8, levelAbs, levelTcs,
+    // levelEsc u8 (0 off, 1 half, 2 full), reserved 3.
+    pub const ASSIST_FLAGS_AT: usize = CAR;
+    pub const LEVEL_ABS_AT: usize = CAR + 2;
+    pub const LEVEL_TCS_AT: usize = CAR + 3;
     const DRIVELINE: usize = CAR + 8 + 52; // type u8, gear u8, gearMax u8, speed f32, reserved 17
     pub const GEAR_AT: usize = DRIVELINE + 1; // 0 = R, 1 = N, 2 = 1st ...
+    /// `gearMax`: "max forward gear AKA top gear, maxGear = 5 -> 5th is max" (TelemetryDataFormatPino.h).
+    pub const GEAR_MAX_AT: usize = DRIVELINE + 2;
     pub const DRIVELINE_SPEED_AT: usize = DRIVELINE + 3;
     const ENGINE: usize = DRIVELINE + 24; // flags u8, rpm s32, rpmMax, rpmRedline, rpmIdle, 6 x f32, reserved 15
     pub const RPM_AT: usize = ENGINE + 1;
+    /// `EngineFlags` (bit 0 running, 1 starting, 2 misfiring) and `tempWater` (Kelvin): after flags, rpm, rpmMax,
+    /// rpmRedline, rpmIdle, torque, power and tempBlock.
+    pub const ENGINE_FLAGS_AT: usize = ENGINE;
+    pub const TEMP_WATER_AT: usize = ENGINE + 1 + 4 * 4 + 4 * 2 + 4;
     const INPUT: usize = ENGINE + 56; // throttle, brake, clutch, handbrake, steering: f32
     pub const THROTTLE_AT: usize = INPUT;
     pub const BRAKE_AT: usize = INPUT + 4;
     pub const CLUTCH_AT: usize = INPUT + 8;
+    pub const HANDBRAKE_AT: usize = INPUT + 12;
     pub const STEERING_AT: usize = INPUT + 16;
     const ORIENTATION: usize = INPUT + 20; // position xyz f32, quaternion xyzw f32, extents 3 x u16
     pub const POSITION_AT: usize = ORIENTATION;
@@ -129,6 +141,21 @@ mod layout {
     pub const LAPS_AT: usize = SESSION + 164;
     pub const SECTOR_COUNT_AT: usize = SESSION + 170;
     pub const GAME_MODE_AT: usize = SESSION + 179;
+
+    // MarshalFlags (the player's): bits.
+    pub const MARSHAL_GREEN: u16 = 1 << 0;
+    pub const MARSHAL_FINISH: u16 = 1 << 2;
+    pub const MARSHAL_DQ: u16 = 1 << 3;
+    pub const MARSHAL_MEATBALL: u16 = 1 << 4;
+    pub const MARSHAL_BLUE: u16 = 1 << 6;
+    pub const MARSHAL_WHITE: u16 = 1 << 7;
+    // Damage::Part indexes and States (0 ok .. 4 terminal).
+    pub const DAMAGE_BYTES: usize = 21;
+    pub const PART_ENGINE: usize = 0;
+    pub const PART_GEARBOX: usize = 1;
+    pub const PART_SUSPENSION: std::ops::RangeInclusive<usize> = 6..=9;
+    pub const PART_ARMOR: std::ops::RangeInclusive<usize> = 30..=35;
+    pub const STATE_TERMINAL: u8 = 4;
 
     // GameStatusFlags (Header::statusFlags).
     pub const GAME_PAUSED: u8 = 1 << 0;
@@ -201,6 +228,7 @@ struct Main {
     car_id: String,
     car_name: String,
     gear: u8,
+    gear_max: u8,
     driveline_speed: f32,
     rpm: i32,
     throttle: f32,
@@ -215,6 +243,25 @@ struct Main {
     laps: i16,
     sector_count: u8,
     game_mode: u8,
+    marshal_flags: u16,
+    assist_flags: u8,
+    level_abs: u8,
+    level_tcs: u8,
+    engine_flags: u8,
+    temp_water_k: f32,
+    handbrake: f32,
+    damage: [u8; layout::DAMAGE_BYTES],
+}
+
+/// The state (0 ok .. 4 terminal) of part `i` of the bit-packed damage: three bits each, as the header unpacks them.
+fn damage_state(packed: &[u8; layout::DAMAGE_BYTES], i: usize) -> u8 {
+    let bit = i * 3;
+    let (byte, offset) = (bit / 8, bit % 8);
+    let mut state = (packed[byte] >> offset) & 0b111;
+    if offset > 5 {
+        state |= (packed.get(byte + 1).copied().unwrap_or(0) << (8 - offset)) & 0b111;
+    }
+    state
 }
 
 impl Main {
@@ -246,6 +293,7 @@ impl Main {
             car_id: p.ascii_at(CAR_ID_AT, CAR_ID_LEN),
             car_name: p.ascii_at(CAR_NAME_AT, CAR_NAME_LEN),
             gear: p.u8_at(GEAR_AT),
+            gear_max: p.u8_at(GEAR_MAX_AT),
             driveline_speed: p.f32_at(DRIVELINE_SPEED_AT),
             rpm: p.i32_at(RPM_AT),
             throttle: p.f32_at(THROTTLE_AT),
@@ -260,6 +308,14 @@ impl Main {
             laps: p.i16_at(LAPS_AT),
             sector_count: p.u8_at(SECTOR_COUNT_AT),
             game_mode: p.u8_at(GAME_MODE_AT),
+            marshal_flags: u16_at(&p, MARSHAL_FLAGS),
+            assist_flags: p.u8_at(ASSIST_FLAGS_AT),
+            level_abs: p.u8_at(LEVEL_ABS_AT),
+            level_tcs: p.u8_at(LEVEL_TCS_AT),
+            engine_flags: p.u8_at(ENGINE_FLAGS_AT),
+            temp_water_k: p.f32_at(TEMP_WATER_AT),
+            handbrake: p.f32_at(HANDBRAKE_AT),
+            damage: std::array::from_fn(|i| p.u8_at(DAMAGE + i)),
         })
     }
 
@@ -288,6 +344,51 @@ impl Main {
             && self.player_status & PLAYER_PHYSICS_RUNNING != 0
     }
 
+    /// The aids, the handbrake, the flag, the coolant and the damage of the player's car. The header has no pit
+    /// limiter, headlights, oil temperature (only its pressure), brake bias or engine map.
+    fn state(&self) -> CarState {
+        use layout::*;
+        let mut state = CarState::UNKNOWN;
+        state.abs_active = Some(self.assist_flags & 1 != 0);
+        state.tc_active = Some(self.assist_flags & 2 != 0);
+        // The assist levels: 0 off, 1 half, 2 full.
+        state.abs_level = (self.level_abs <= 2).then_some(self.level_abs);
+        state.tc_level = (self.level_tcs <= 2).then_some(self.level_tcs);
+        state.handbrake = (0.0..=1.0).contains(&self.handbrake).then_some(self.handbrake > 0.0);
+        // The engine's own "misfiring" flag is the warning: the header has no warning light.
+        state.engine_warning = Some(self.engine_flags & (1 << 2) != 0);
+        // `tempWater` is in Kelvin; 0 is unset.
+        let celsius = self.temp_water_k - 273.15;
+        state.water_c = (self.temp_water_k.is_finite() && (0.0..=400.0).contains(&celsius)).then_some(celsius);
+        let m = self.marshal_flags;
+        state.flag = if m & (MARSHAL_DQ | MARSHAL_MEATBALL) != 0 {
+            Some(Flag::Black)
+        } else if m & MARSHAL_FINISH != 0 {
+            Some(Flag::Chequered)
+        } else if m & MARSHAL_BLUE != 0 {
+            Some(Flag::Blue)
+        } else if m & MARSHAL_WHITE != 0 {
+            Some(Flag::White)
+        } else if m & MARSHAL_GREEN != 0 {
+            Some(Flag::Green)
+        } else {
+            None
+        };
+        // Damage states are 0 (ok) to 4 (terminal); the worst of the parts of a group, as a share of terminal.
+        let worst = |parts: &mut dyn Iterator<Item = usize>| {
+            let states: Vec<u8> = parts.map(|i| damage_state(&self.damage, i)).collect();
+            states
+                .iter()
+                .all(|s| *s <= STATE_TERMINAL)
+                .then(|| f32::from(states.into_iter().max().unwrap_or(0)) / f32::from(STATE_TERMINAL))
+        };
+        state.damage_engine = worst(&mut (PART_ENGINE..=PART_ENGINE));
+        state.damage_gearbox = worst(&mut (PART_GEARBOX..=PART_GEARBOX));
+        state.damage_suspension = worst(&mut PART_SUSPENSION.clone());
+        state.damage_body = worst(&mut PART_ARMOR.clone());
+        state
+    }
+
     fn to_frame(&self, clock_s: f64) -> Frame {
         let lap_based = self.lap_based();
         // The TIMING data belongs to lap `lapTiming`; it is only this lap's when the two numbers agree.
@@ -312,10 +413,13 @@ impl Main {
         f.rpm = if self.rpm >= 0 { self.rpm as f32 } else { f32::NAN };
         // 0 = reverse, 1 = neutral, 2 = first: the frame has -1, 0, 1.
         f.gear = if self.gear <= 20 { f32::from(self.gear) - 1.0 } else { f32::NAN };
+        // `gearMax` is the top forward gear, so it is also how many there are; 0 is unset.
+        f.gears = (1..=20).contains(&self.gear_max).then_some(self.gear_max);
         f.throttle = clamped(self.throttle, 0.0, 1.0);
         f.brake = clamped(self.brake, 0.0, 1.0);
         f.clutch = clamped(self.clutch, 0.0, 1.0);
         f.steer = clamped(self.steering, -1.0, 1.0);
+        f.state = self.state();
         f.x = finite(self.position[0]);
         f.y = finite(self.position[1]);
         f.z = finite(self.position[2]);
@@ -725,6 +829,20 @@ mod tests {
         for (coded, derived, name) in checks {
             assert_eq!(coded, derived, "{name}");
         }
+        // The state's fields.
+        for (coded, derived, name) in [
+            (MARSHAL_FLAGS, at(&main_packet(), "marshalFlagsPlayer"), "marshalFlagsPlayer"),
+            (DAMAGE, at(&main_packet(), "participantPlayerDamage"), "damageStates"),
+            (ASSIST_FLAGS_AT, in_car("assists", &assists(), "flags"), "assists.flags"),
+            (LEVEL_ABS_AT, in_car("assists", &assists(), "levelAbs"), "levelAbs"),
+            (LEVEL_TCS_AT, in_car("assists", &assists(), "levelTcs"), "levelTcs"),
+            (ENGINE_FLAGS_AT, in_car("engine", &engine(), "flags"), "engine.flags"),
+            (TEMP_WATER_AT, in_car("engine", &engine(), "tempWater"), "tempWater"),
+            (HANDBRAKE_AT, in_car("input", &input(), "handbrake"), "handbrake"),
+        ] {
+            assert_eq!(coded, derived, "{name}");
+        }
+        assert_eq!(DAMAGE_BYTES, size(&damage()));
         // The text fields are as long as the header says.
         assert_eq!((CAR_ID_LEN, CAR_NAME_LEN, TRACK_ID_LEN, TRACK_NAME_LEN), (64, 96, 64, 96));
         // The other packets (ignored) have their sizes from the same table.
@@ -798,6 +916,7 @@ mod tests {
         sector_count: u8,
         game_mode: u8,
         gear: u8,
+        gear_max: u8,
         speedo: f32,
         rpm: i32,
         throttle: f32,
@@ -806,6 +925,25 @@ mod tests {
         steering: f32,
         position: [f32; 3],
         velocity: [f32; 3],
+        marshal_flags: u16,
+        assist_flags: u8,
+        engine_flags: u8,
+        /// The state of each of the 37 damage parts (0 ok .. 4 terminal), packed three bits each by `build_main`.
+        damage: [u8; 37],
+    }
+
+    /// The header's packing: `DAMAGE_BITS_PER_PART` = 3, the part `i` at bit `3 i`, little endian.
+    fn pack_damage(states: &[u8; 37]) -> [u8; 21] {
+        let mut out = [0u8; 21];
+        for (i, state) in states.iter().enumerate() {
+            let bit = i * 3;
+            let value = u16::from(*state & 0b111) << (bit % 8);
+            out[bit / 8] |= value as u8;
+            if bit % 8 > 5 {
+                out[bit / 8 + 1] |= (value >> 8) as u8;
+            }
+        }
+        out
     }
 
     impl Scene {
@@ -829,6 +967,7 @@ mod tests {
                 sector_count: 3,
                 game_mode: 0,
                 gear: 3,
+                gear_max: 5,
                 speedo: 55.5,
                 rpm: 6543,
                 throttle: 0.75,
@@ -837,6 +976,19 @@ mod tests {
                 steering: -0.5,
                 position: [101.5, 2.25, -303.75],
                 velocity: [3.0, 0.0, 4.0],
+                // The green and the blue flag, the ABS and TCS lights, a running engine.
+                marshal_flags: layout::MARSHAL_GREEN | layout::MARSHAL_BLUE,
+                assist_flags: 3,
+                engine_flags: 1,
+                // Engine 1, gearbox 2, suspensions 0 3 1 0, armour 0 0 2 0 4 1 (the rest of the parts untouched).
+                damage: {
+                    let mut d = [0u8; 37];
+                    d[0] = 1;
+                    d[1] = 2;
+                    d[6..10].copy_from_slice(&[0, 3, 1, 0]);
+                    d[30..36].copy_from_slice(&[0, 0, 2, 0, 4, 1]);
+                    d
+                },
             }
         }
     }
@@ -850,8 +1002,8 @@ mod tests {
         w.u8(s.game_status);
         w.i32(123_456);
         w.i32(65_432);
-        w.u16(0x0001); // marshalFlagsPlayer
-                       // Participant::Leaderboard
+        w.u16(s.marshal_flags); // marshalFlagsPlayer
+                                // Participant::Leaderboard
         w.u8(2); // status: racing
         w.u8(0);
         w.u16(s.lap_current);
@@ -890,9 +1042,9 @@ mod tests {
         w.u8(255);
         w.junk(15);
         // Participant::Damage
-        w.junk(21);
+        w.0.extend(pack_damage(&s.damage));
         // Car::Full: assists
-        for v in [1u8, 2, 1, 0, 2] {
+        for v in [s.assist_flags, 2, 1, 2, 2] {
             w.u8(v);
         }
         w.junk(3);
@@ -909,11 +1061,11 @@ mod tests {
         // driveline
         w.u8(1);
         w.u8(s.gear);
-        w.u8(5);
+        w.u8(s.gear_max);
         w.f32(s.speedo);
         w.junk(17);
         // engine
-        w.u8(1);
+        w.u8(s.engine_flags);
         w.i32(s.rpm);
         w.i32(7500);
         w.i32(7000);
@@ -1013,11 +1165,86 @@ mod tests {
         assert_eq!(f.speed_ms, 5.0, "the length of the velocity (3, 0, 4), not the speedometer's 55.5");
         assert_eq!(f.rpm, 6543.0);
         assert_eq!(f.gear, 2.0, "the header's 3 is second gear");
+        assert_eq!(f.gears, Some(5), "gearMax 5: fifth is the top gear");
         assert_eq!((f.throttle, f.brake, f.clutch, f.steer), (0.75, 0.25, 0.5, -0.5));
         assert_eq!((f.x, f.y, f.z), (101.5, 2.25, -303.75));
         assert!(f.fuel_l.is_nan());
         assert_eq!((f.car.as_str(), f.track.as_str()), ("Rocket", "Savolax Sandpit Reverse"));
         assert_eq!((f.car_class, f.track_variant, f.track_length_m), (None, None, Some(3000.0)));
+        // The car's state: 360 K of coolant (86.85 C), a 0.9 handbrake, ABS level 1 and TCS level 2, both acting.
+        let water = f.state.water_c.expect("the coolant");
+        assert!((water - 86.85).abs() < 0.001, "{water}");
+        assert_eq!(
+            CarState { water_c: None, ..f.state },
+            CarState {
+                abs_active: Some(true),
+                tc_active: Some(true),
+                handbrake: Some(true),
+                engine_warning: Some(false),
+                flag: Some(Flag::Blue),
+                abs_level: Some(1),
+                tc_level: Some(2),
+                damage_body: Some(1.0),        // an armour part is terminal (4 of 4)
+                damage_engine: Some(0.25),     // 1 of 4
+                damage_gearbox: Some(0.5),     // 2 of 4
+                damage_suspension: Some(0.75), // the worst of 0, 3, 1, 0
+                ..CarState::UNKNOWN
+            }
+        );
+    }
+
+    #[test]
+    fn the_packed_damage_the_flags_and_a_misfire_map_as_the_header_says() {
+        // Every part's three bits survive the packing, including the ones that straddle two bytes.
+        let states: [u8; 37] = std::array::from_fn(|i| (i % 5) as u8);
+        let packed = pack_damage(&states);
+        for (i, want) in states.iter().enumerate() {
+            assert_eq!(damage_state(&packed, i), *want, "part {i}");
+        }
+        for (flags, want) in [
+            (0u16, None),
+            (layout::MARSHAL_GREEN, Some(Flag::Green)),
+            (layout::MARSHAL_GREEN | layout::MARSHAL_WHITE, Some(Flag::White)),
+            (
+                layout::MARSHAL_GREEN | layout::MARSHAL_WHITE | layout::MARSHAL_BLUE,
+                Some(Flag::Blue),
+            ),
+            (layout::MARSHAL_BLUE | layout::MARSHAL_FINISH, Some(Flag::Chequered)),
+            (layout::MARSHAL_FINISH | layout::MARSHAL_MEATBALL, Some(Flag::Black)),
+            (layout::MARSHAL_DQ, Some(Flag::Black)),
+            (1 << 5, None), // the "close to DQ" warning is not a flag `Flag` has
+        ] {
+            let f = parse_frame(&Scene {
+                marshal_flags: flags,
+                ..Scene::racing()
+            });
+            assert_eq!(f.state.flag, want, "marshal flags {flags:#b}");
+        }
+        let f = parse_frame(&Scene {
+            engine_flags: 1 | 4,
+            assist_flags: 0,
+            damage: [7; 37],
+            ..Scene::racing()
+        });
+        assert_eq!(f.state.engine_warning, Some(true), "misfiring");
+        assert_eq!((f.state.abs_active, f.state.tc_active), (Some(false), Some(false)));
+        assert_eq!(
+            (f.state.damage_engine, f.state.damage_body),
+            (None, None),
+            "a state above 4 is not one"
+        );
+    }
+
+    #[test]
+    fn the_top_gear_of_the_header_is_the_gear_count_when_set() {
+        let gears = |m: u8| {
+            parse_frame(&Scene {
+                gear_max: m,
+                ..Scene::racing()
+            })
+            .gears
+        };
+        assert_eq!((gears(6), gears(0), gears(200)), (Some(6), None, None));
     }
 
     #[test]

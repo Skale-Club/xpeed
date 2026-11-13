@@ -1,4 +1,4 @@
-# Builds the Xpeed Sim installer: the release program, its icon (the real Xpeed mark, drawn by the program itself),
+# Builds the Xpeed Companion installer: the release program, its icon (the real Xpeed mark, drawn by the program itself),
 # then Inno Setup. Output: xpeed-sim\dist\xpeed-sim-setup-<version>.exe
 #
 #   pwsh xpeed-sim/installer/build.ps1
@@ -9,7 +9,7 @@ $here = $PSScriptRoot
 $crate = Split-Path $here -Parent
 
 $version = (Select-String -Path (Join-Path $crate 'Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-Write-Host "Xpeed Sim $version"
+Write-Host "Xpeed Companion $version"
 
 Push-Location $crate
 try {

@@ -1,4 +1,4 @@
-//! The Xpeed Sim window. It has two tabs:
+//! The Xpeed Companion window. It has two tabs:
 //!
 //! * **Dashboard:** speed, gear, revs, pedals, wheel, fuel, the lap time and the gap to the best lap, live, for
 //!   someone who wants a screen beside the game without SimHub.
@@ -34,9 +34,10 @@ use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
     GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipFillEllipse, GdipFillPath,
-    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
-    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
-    LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
+    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenEndCap, GdipSetPenLineJoin, GdipSetPenStartCap,
+    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath,
+    InterpolationModeHighQualityBicubic, LineCapRound, LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
+    WrapModeTile,
 };
 use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -62,6 +63,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{SetCursor, HTCLIENT, IDC_HAND, WM_SETCURSOR};
 use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED, WM_LBUTTONUP, WM_MOUSEWHEEL};
 
+use crate::connect::{self, Card, Note};
 use crate::dash::Live;
 use crate::present;
 use crate::status::{Activity, Cloud, Game, Notice, Shared, Snapshot};
@@ -75,8 +77,6 @@ const WM_MOUSELEAVE: u32 = 0x02a3;
 /// Covers fetched in the background have arrived: read them again.
 const WM_COVERS: u32 = 0x8000 + 20;
 const WM_MOUSEMOVE: u32 = 0x0200;
-/// Where, in the Xpeed app, a computer is connected (the same page the tray menu opens).
-const CONNECT_PATH: &str = "/sim/app";
 const TIMER: usize = 1;
 /// About 60 frames a second, so the carousel and the revs move smoothly.
 const FRAME_MS: u32 = 16;
@@ -100,12 +100,15 @@ const BG_BOTTOM: COLORREF = rgb(0x08, 0x09, 0x0b);
 const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
 const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
 const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
+const WHITE: COLORREF = rgb(0xff, 0xff, 0xff);
 const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
 const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
 const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
 const GREEN: COLORREF = rgb(0x2f, 0xd6, 0x7b);
 const RED: COLORREF = rgb(0xff, 0x4d, 0x4d);
 const BLUE: COLORREF = rgb(0x3d, 0x9b, 0xff);
+/// A calm steel blue for a cold tyre or a cold brake (the loud BLUE is for the clutch and the shift flash).
+const STEEL: COLORREF = rgb(0x6b, 0x95, 0xc2);
 const AMBER: COLORREF = rgb(0xff, 0xb0, 0x3b);
 const PURPLE: COLORREF = rgb(0xb5, 0x7c, 0xff);
 const GREY: COLORREF = rgb(0x5c, 0x61, 0x6b);
@@ -131,8 +134,12 @@ fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
 /// What a button on the panel does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Opens the Xpeed page where this computer is connected to an account.
+    /// Starts connecting this computer to an account (or, with a request already open, opens its page again).
     Connect,
+    /// Opens the page of the open connection request again.
+    OpenConnectPage,
+    /// Stops waiting for the click on that page.
+    CancelConnect,
     /// Opens Xpeed in the browser.
     OpenXpeed,
     /// Brings this cover of the waiting screen's carousel to the middle.
@@ -171,6 +178,8 @@ pub struct View<'a> {
     pub games: &'a [GameRow],
     pub device: Option<&'a str>,
     pub server: &'a str,
+    /// What the Account card shows (not connected, waiting for the browser, connected).
+    pub card: crate::connect::Card,
     pub recent_laps: &'a [String],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
     pub activity: &'a [(String, String)],
@@ -211,6 +220,8 @@ pub struct ScrollBar {
 pub struct Account {
     pub device: Option<String>,
     pub server: String,
+    /// Who the computer is connected as (the account's email or name), when known.
+    pub label: Option<String>,
     pub lang: Lang,
 }
 
@@ -226,7 +237,7 @@ pub struct Context {
     pub quit_on_close: bool,
 }
 
-/// A game for the waiting screen: its name, and its cover once Xpeed Sim has it from the Xpeed server (a small copy,
+/// A game for the waiting screen: its name, and its cover once Xpeed Companion has it from the Xpeed server (a small copy,
 /// made once).
 pub struct CoverArt {
     pub key: &'static str,
@@ -235,7 +246,7 @@ pub struct CoverArt {
 }
 
 impl CoverArt {
-    /// The covers of the games installed here (every game Xpeed Sim reads when none was found), from its covers
+    /// The covers of the games installed here (every game Xpeed Companion reads when none was found), from its covers
     /// folder, at about twice the size they are drawn.
     pub fn load(installed: Option<&HashSet<&'static str>>) -> Vec<CoverArt> {
         crate::covers::GAMES
@@ -744,47 +755,59 @@ impl Painter {
         }
     }
 
-    /// The track in a box (design units), scaled to fit without stretching: the path as a road, the start as a
-    /// white tick, the car as a yellow dot.
-    fn track_map(&self, x: f32, y: f32, w: f32, h: f32, path: &[(f32, f32)], car: Option<(f32, f32)>) {
-        let (min_x, max_x, min_z, max_z) = path.iter().fold(
-            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY),
-            |(a, b, c, d), &(px, pz)| (a.min(px), b.max(px), c.min(pz), d.max(pz)),
-        );
-        let span = (max_x - min_x).max(max_z - min_z);
-        if !span.is_finite() || span <= 0.0 {
-            return;
-        }
-        let pad = 14.0;
-        let fit = ((w - 2.0 * pad) / (max_x - min_x).max(1.0)).min((h - 2.0 * pad) / (max_z - min_z).max(1.0));
-        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
-        let to_px = |(px, pz): (f32, f32)| PointF {
-            X: self.ox as f32 + (x + w / 2.0 + (px - cx) * fit) * self.s,
-            Y: self.oy as f32 + (y + h / 2.0 + (pz - cz) * fit) * self.s,
+    /// The track in a box (design units): the path smoothed, turned so its long side follows the box's, and scaled to
+    /// fit with a margin, drawn as a dark ribbon with a lighter line on top. A whole lap is a closed shape with a
+    /// start/finish tick; a partial path is open, and is not drawn across a jump. The car is a yellow dot, placed
+    /// with the same transform.
+    fn track_map(&self, (x, y, w, h): (f32, f32, f32, f32), path: &[(f32, f32)], complete: bool, car: Option<(f32, f32)>) {
+        let key = MapKey {
+            at: path.as_ptr() as usize,
+            len: path.len(),
+            ends: path
+                .first()
+                .zip(path.last())
+                .map(|(a, b)| [a.0.to_bits(), a.1.to_bits(), b.0.to_bits(), b.1.to_bits()]),
+            frame: [x, y, w, h].map(f32::to_bits),
+            complete,
         };
-        let mut points: Vec<PointF> = path.iter().map(|&p| to_px(p)).collect();
-        if let Some(first) = points.first().copied() {
-            points.push(first);
-        }
-        let road = (9.0 * self.s).max(3.0);
-        let centre = (2.0 * self.s).max(1.0);
+        let prepared = MAP_CACHE.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            if kept.as_ref().is_none_or(|(k, _)| *k != key) {
+                *kept = prepare_map(path, complete, x + w / 2.0, y + h / 2.0, w, h).map(|p| (key, p));
+            }
+            kept.as_ref().map(|(_, p)| p.clone())
+        });
+        let Some(map) = prepared else {
+            return;
+        };
+        let to_px = |(px, py): (f32, f32)| PointF {
+            X: self.ox as f32 + px * self.s,
+            Y: self.oy as f32 + py * self.s,
+        };
+        let road = (11.0 * self.s).max(3.0);
+        let line = (2.5 * self.s).max(1.0);
         smooth(self.hdc, |graphics| unsafe {
-            for (width, color) in [(road, TRACK), (centre, mix(TRACK, TEXT, 0.35))] {
+            for (width, color) in [(road, TRACK), (line, mix(TRACK, TEXT, 0.5))] {
                 let mut pen = null_mut();
                 GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
                 GdipSetPenLineJoin(pen, LineJoinRound);
-                GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                GdipSetPenStartCap(pen, LineCapRound);
+                GdipSetPenEndCap(pen, LineCapRound);
+                for run in &map.runs {
+                    let points: Vec<PointF> = run.iter().map(|&p| to_px(p)).collect();
+                    GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                }
                 GdipDeletePen(pen);
             }
-            if let Some(start) = points.first() {
-                let mut brush = null_mut();
-                GdipCreateSolidFill(argb(TEXT), &mut brush);
-                let d = 6.0 * self.s;
-                GdipFillEllipse(graphics, brush.cast(), start.X - d / 2.0, start.Y - d / 2.0, d, d);
-                GdipDeleteBrush(brush.cast());
+            if let Some((a, b)) = map.start {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(TEXT), (2.5 * self.s).max(1.5), UnitPixel, &mut pen);
+                let (a, b) = (to_px(a), to_px(b));
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+                GdipDeletePen(pen);
             }
             if let Some(car) = car {
-                let at = to_px(car);
+                let at = to_px(map.fit.apply(car));
                 for (radius, color) in [(13.0, mix(BG, ACCENT, 0.3)), (7.0, ACCENT)] {
                     let mut brush = null_mut();
                     GdipCreateSolidFill(argb(color), &mut brush);
@@ -816,7 +839,66 @@ impl Painter {
     }
 }
 
+/// What a prepared map was made from: the map's data (its address, length and ends) and the box, so it is made again
+/// only when one of them changes.
+#[derive(Clone, PartialEq)]
+struct MapKey {
+    at: usize,
+    len: usize,
+    ends: Option<[u32; 4]>,
+    frame: [u32; 4],
+    complete: bool,
+}
+
+/// A map ready to draw, in design units: the runs to draw, the start mark, and how the world is laid in the box.
+#[derive(Clone)]
+struct PreparedMap {
+    runs: Vec<Vec<(f32, f32)>>,
+    start: Option<((f32, f32), (f32, f32))>,
+    fit: crate::maps::Fit,
+}
+
+/// Cuts the path at jumps, smooths it, fits it in the box (`cx`, `cy`, `w`, `h`) and finds the start mark of a whole
+/// lap. Done once per map and box, not at every redraw.
+fn prepare_map(path: &[(f32, f32)], complete: bool, cx: f32, cy: f32, w: f32, h: f32) -> Option<PreparedMap> {
+    let mut runs = crate::maps::split_at_gaps(path, crate::dash::MAP_JUMP_METRES);
+    if runs.is_empty() {
+        return None;
+    }
+    // A whole lap closes on itself (when it came with its first point repeated, that is dropped first).
+    let closed = complete && runs.len() == 1;
+    if closed && runs[0].len() > 3 && runs[0].first() == runs[0].last() {
+        runs[0].pop();
+    }
+    let mut runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| crate::maps::smooth(r, 3, closed)).collect();
+    if closed {
+        let first = runs[0][0];
+        runs[0].push(first);
+    }
+    let all: Vec<(f32, f32)> = runs.iter().flatten().copied().collect();
+    let fit = crate::maps::fit(&all, cx, cy, w, h, 18.0)?;
+    let runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| r.iter().map(|&p| fit.apply(p)).collect()).collect();
+    // The start/finish mark: a tick across the road at the first point, square to the way the lap leaves it.
+    let start = closed
+        .then(|| {
+            let run = &runs[0];
+            let (a, b) = (run[0], *run.get(3).unwrap_or(&run[run.len() - 1]));
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len = dx.hypot(dy);
+            (len > 0.0).then(|| {
+                (
+                    (a.0 - dy / len * 9.0, a.1 + dx / len * 9.0),
+                    (a.0 + dy / len * 9.0, a.1 - dx / len * 9.0),
+                )
+            })
+        })
+        .flatten();
+    Some(PreparedMap { runs, start, fit })
+}
+
 thread_local! {
+    /// The map as last prepared, for its box; one per thread (the window's, and each test's).
+    static MAP_CACHE: std::cell::RefCell<Option<(MapKey, PreparedMap)>> = const { std::cell::RefCell::new(None) };
     /// The background as last drawn, for the window's size; one per thread (the window's, and each test's).
     static BACKDROP: std::cell::RefCell<Option<Backdrop>> = const { std::cell::RefCell::new(None) };
 }
@@ -1034,6 +1116,169 @@ impl Painter {
         });
     }
 
+    /// A tall slim bar (a pedal): a rounded trough with the fill rising from the bottom to `value` (0..1; NaN counts
+    /// as released).
+    fn vertical_bar(&self, (x, y, w, h): Area, value: f32, color: COLORREF) {
+        self.round(self.r(x, y, w, h), w / 2.0, TRACK, None);
+        let filled = pedal_fill(value, h);
+        if filled >= 1.0 {
+            self.round(self.r(x, y + h - filled, w, filled), (w / 2.0).min(filled / 2.0), color, None);
+        }
+    }
+
+    /// The wheel as a slim bar: a trough with a tick at the centre and a yellow fill from the centre toward the side
+    /// the wheel is turned to (-1 full left .. 1 full right; none without a value).
+    fn steer_bar(&self, (x, y, w, h): Area, steer: f32) {
+        self.round(self.r(x, y, w, h), h / 2.0, TRACK, None);
+        let share = steer_share(steer);
+        let (half, len) = (w / 2.0, w / 2.0 * share.abs());
+        if len >= 1.0 {
+            let fx = if share > 0.0 { x + half } else { x + half - len };
+            self.round(self.r(fx, y, len, h), (h / 2.0).min(len / 2.0), ACCENT, None);
+        }
+        let tick = if steer.is_finite() { TEXT } else { MUTED };
+        self.fill(self.r(x + half - 1.0, y - 3.0, 2.0, h + 6.0), tick);
+    }
+
+    /// One light of the lights card, in a pill of `cell`: lit in its colour, off as a dim outline, or (DRS allowed, not
+    /// open) outlined in its colour. Headlights are a small lamp, the flag a swatch of its colour.
+    fn pill(&mut self, lang: Lang, pill: Pill, (x, y, w, h): Area) {
+        let color = pill_color(pill.kind);
+        let dim = mix(CARD, MUTED, 0.55);
+        let (fill, edge, ink) = match pill.glow {
+            Glow::On => (color, None, BG),
+            Glow::Ready => (CARD, Some(color), color),
+            Glow::Off => (CARD, Some(mix(CARD, MUTED, 0.3)), dim),
+        };
+        self.round(self.r(x, y, w, h), h / 2.0, fill, edge);
+        let r = self.r(x, y + 1.0, w, h - 1.0);
+        let label = match pill.kind {
+            PillKind::Pit => Some("PIT".to_owned()),
+            PillKind::Abs => Some("ABS".to_owned()),
+            PillKind::Tc => Some("TC".to_owned()),
+            PillKind::Drs => Some("DRS".to_owned()),
+            PillKind::Fuel => Some(text(lang, &Msg::PanelLightFuel)),
+            PillKind::Engine => Some(text(lang, &Msg::PanelLightEngine)),
+            PillKind::Handbrake => Some(text(lang, &Msg::PanelLightHandbrake)),
+            PillKind::Flag => None,
+            PillKind::Headlights => None,
+        };
+        match (pill.kind, label) {
+            (PillKind::Headlights, _) => self.headlamp(x + w / 2.0, y + h / 2.0, 11.0, ink),
+            (PillKind::Flag, _) => {
+                let sw = h - 8.0;
+                self.flag_swatch(x + 6.0, y + 4.0, sw, pill.flag);
+                let label = text(lang, &Msg::PanelFlag);
+                let r = self.r(x + 6.0 + sw + 4.0, y + 1.0, w - sw - 14.0, h - 1.0);
+                self.caps(&label, r, 8.5, mix(CARD, MUTED, 0.75), DT_LEFT);
+            }
+            (_, Some(label)) => self.caps(&label, r, 9.0, ink, DT_CENTER),
+            _ => {}
+        }
+    }
+
+    /// The flag's colour as a small square at (`x`, `y`): green, yellow, blue, white, black with a light edge, or
+    /// chequered.
+    fn flag_swatch(&self, x: f32, y: f32, size: f32, flag: Option<crate::game::Flag>) {
+        use crate::game::Flag;
+        let Some(flag) = flag else { return };
+        let radius = 1.5;
+        match flag {
+            Flag::Green => self.round(self.r(x, y, size, size), radius, GREEN, None),
+            Flag::Yellow => self.round(self.r(x, y, size, size), radius, ACCENT, None),
+            Flag::Blue => self.round(self.r(x, y, size, size), radius, BLUE, None),
+            Flag::White => self.round(self.r(x, y, size, size), radius, WHITE, None),
+            Flag::Black => self.round(self.r(x, y, size, size), radius, rgb(0x05, 0x05, 0x06), Some(MUTED)),
+            Flag::Chequered => {
+                self.round(self.r(x, y, size, size), radius, WHITE, None);
+                let q = size / 2.0;
+                self.fill(self.r(x, y, q, q), rgb(0x10, 0x10, 0x12));
+                self.fill(self.r(x + q, y + q, q, q), rgb(0x10, 0x10, 0x12));
+            }
+        }
+    }
+
+    /// A small headlamp glyph centred at (`cx`, `cy`), `size` design units across: a lamp with three rays.
+    fn headlamp(&self, cx: f32, cy: f32, size: f32, color: COLORREF) {
+        let to_px = |x: f32, y: f32| (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s);
+        smooth(self.hdc, |graphics| unsafe {
+            let (lx, ly) = to_px(cx - size * 0.5, cy - size * 0.36);
+            let (lw, lh) = (size * 0.5 * self.s, size * 0.72 * self.s);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(color), &mut brush);
+            GdipFillEllipse(graphics, brush.cast(), lx, ly, lw, lh);
+            GdipDeleteBrush(brush.cast());
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), (1.4 * self.s).max(1.0), UnitPixel, &mut pen);
+            GdipSetPenStartCap(pen, LineCapRound);
+            GdipSetPenEndCap(pen, LineCapRound);
+            for k in [-1.0_f32, 0.0, 1.0] {
+                let (ax, ay) = to_px(cx + size * 0.18, cy + k * size * 0.3);
+                let (bx, by) = to_px(cx + size * 0.5, cy + k * size * 0.42);
+                GdipDrawLine(graphics, pen, ax, ay, bx, by);
+            }
+            GdipDeletePen(pen);
+        });
+    }
+
+    /// A brake disc glyph centred at (`cx`, `cy`), `d` design units across: a disc with a hole and a hub.
+    fn brake_disc(&self, cx: f32, cy: f32, d: f32, color: COLORREF) {
+        let to_px = |x: f32, y: f32| (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s);
+        smooth(self.hdc, |graphics| unsafe {
+            for (size, c) in [(d, color), (d * 0.5, BG), (d * 0.2, color)] {
+                let (x, y) = to_px(cx - size / 2.0, cy - size / 2.0);
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(c), &mut brush);
+                GdipFillEllipse(graphics, brush.cast(), x, y, size * self.s, size * self.s);
+                GdipDeleteBrush(brush.cast());
+            }
+        });
+    }
+
+    /// The car's silhouette from above in `area`: a rounded body tapering to the nose, a cockpit opening, a wing at
+    /// each end, all in a colour barely lighter than the background.
+    fn car_body(&self, area: Area) {
+        let (x, y, w, h) = area;
+        if w < 4.0 || h < 4.0 {
+            return;
+        }
+        let body = mix(BG, MUTED, 0.14);
+        let points: Vec<PointF> = body_outline(area)
+            .into_iter()
+            .map(|(px, py)| PointF {
+                X: self.ox as f32 + px * self.s,
+                Y: self.oy as f32 + py * self.s,
+            })
+            .collect();
+        smooth(self.hdc, |graphics| unsafe {
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipClosePathFigure(path);
+            let mut brush = null_mut();
+            GdipCreateSolidFill(argb(body), &mut brush);
+            GdipFillPath(graphics, brush.cast(), path);
+            GdipDeleteBrush(brush.cast());
+            GdipDeletePath(path);
+        });
+        let cx = x + w / 2.0;
+        // The wings across the two ends, the cockpit in the middle.
+        let wing = mix(BG, MUTED, 0.22);
+        self.round(self.r(cx - w * 0.36, y, w * 0.72, (h * 0.03).max(3.0)), 1.5, wing, None);
+        self.round(
+            self.r(cx - w * 0.4, y + h - (h * 0.035).max(3.0), w * 0.8, (h * 0.035).max(3.0)),
+            1.5,
+            wing,
+            None,
+        );
+        self.round(
+            self.r(cx - w * 0.17, y + h * 0.38, w * 0.34, h * 0.24),
+            w * 0.15,
+            mix(BG, MUTED, 0.04),
+            None,
+        );
+    }
+
     /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
     /// `from` and `to` (shares of the bar's width), dark otherwise.
     #[allow(clippy::too_many_arguments)]
@@ -1171,6 +1416,27 @@ impl Painter {
         extent.cx as f32 / self.s
     }
 
+    /// The font size, from `size` down to `floor`, at which `s` fits in `room` design units; never above `size`.
+    fn fitted(&mut self, s: &str, room: f32, size: f32, floor: f32, weight: i32, face: Face) -> f32 {
+        let mut fit = fit_size(self.width_of(s, size, weight, face), size, room, floor);
+        // Glyph widths round to whole pixels, so one more look at the result, and a step down while it still runs out.
+        for _ in 0..3 {
+            if fit <= floor || self.width_of(s, fit, weight, face) <= room {
+                break;
+            }
+            fit = (fit * 0.95).max(floor);
+        }
+        fit
+    }
+
+    /// The mark of a lap that does not count: a red square with a white "!", `size` design units on a side.
+    fn invalid_mark(&self, x: f32, y: f32, size: f32) {
+        self.round(self.r(x, y, size, size), size * 0.22, RED, None);
+        let (bar, cx) = ((size * 0.14).max(1.0), x + size / 2.0);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), WHITE);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), WHITE);
+    }
+
     /// A tile: the card colour with its border.
     fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
         self.round(self.r(x, y, w, h), CORNER, color, Some(EDGE));
@@ -1241,14 +1507,16 @@ fn delta_text(d: Option<f64>) -> String {
 }
 
 /// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
-/// reverse; the top gear is not known to every game, so there is always one above a forward gear.
-fn neighbour_gears(gear: f32) -> (Option<String>, Option<String>) {
+/// reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known; when it is not, there
+/// is always one above a forward gear.
+fn neighbour_gears(gear: f32, gears: Option<u8>) -> (Option<String>, Option<String>) {
     if !gear.is_finite() {
         return (None, None);
     }
     let g = gear.round() as i32;
     let below = (g > -1).then(|| gear_text((g - 1) as f32));
-    let above = Some(gear_text((g + 1) as f32));
+    let in_top_gear = g >= 1 && gears.is_some_and(|count| g >= i32::from(count));
+    let above = (!in_top_gear).then(|| gear_text((g + 1) as f32));
     (below, above)
 }
 
@@ -1271,6 +1539,7 @@ fn state_text(lang: Lang, game: &Game) -> String {
             Game::Paused => Msg::StatePaused,
             Game::Unsupported => Msg::StateUnsupported,
             Game::Silent => Msg::StateSilent,
+            Game::Loading => Msg::StateLoading,
         },
     )
 }
@@ -1283,6 +1552,7 @@ fn state_color(game: &Game) -> COLORREF {
         Game::Paused => AMBER,
         Game::Unsupported => RED,
         Game::Silent => AMBER,
+        Game::Loading => MUTED,
     }
 }
 
@@ -1298,9 +1568,48 @@ fn lights_lit(share: f32) -> (usize, bool) {
     (lit.clamp(0.0, LIGHTS as f32) as usize, false)
 }
 
-/// Splits a saved lap's label (`Lap 3  1:47.918`) into its name and its time.
-fn lap_parts(label: &str) -> (&str, &str) {
-    label.split_once("  ").map_or((label, ""), |(name, time)| (name, time.trim()))
+/// A saved lap's label (`Lap 3  1:47.918`, or `Lap 5  3:27.250 (not valid)`) in its parts.
+#[derive(Debug, PartialEq)]
+struct LapLabel<'a> {
+    name: &'a str,
+    time: &'a str,
+    /// The label says the lap did not count.
+    invalid: bool,
+}
+
+/// Splits a saved lap's label into its name, its time and whether the lap was invalid.
+fn lap_parts(label: &str) -> LapLabel<'_> {
+    let (name, rest) = label.split_once("  ").unwrap_or((label, ""));
+    let rest = rest.trim();
+    match rest.strip_suffix(crate::engine::NOT_VALID_MARK.trim_start()) {
+        Some(time) => LapLabel {
+            name,
+            time: time.trim_end(),
+            invalid: true,
+        },
+        None => LapLabel {
+            name,
+            time: rest,
+            invalid: false,
+        },
+    }
+}
+
+/// The best time among the laps that counted, in seconds; an invalid lap is never the fastest.
+fn fastest_valid(laps: &[LapLabel]) -> Option<f64> {
+    laps.iter()
+        .filter(|l| !l.invalid)
+        .filter_map(|l| clock_seconds(l.time))
+        .reduce(f64::min)
+}
+
+/// The font size for a text measured `measured` wide at `size`, so that it fits in `room`: `size` itself when it
+/// already fits, smaller in proportion when it does not, and never below `floor`.
+fn fit_size(measured: f32, size: f32, room: f32, floor: f32) -> f32 {
+    if measured <= room || measured <= 0.0 {
+        return size;
+    }
+    (size * room / measured).max(floor.min(size))
 }
 
 /// The flags of the languages, in the order of `Lang::ALL`: Nucleo's flag icons (`assets/flags/*.svg`), drawn once
@@ -1551,7 +1860,7 @@ fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static st
         Game::Connected => 4,
         Game::Unsupported => 3,
         Game::Paused => 2,
-        Game::Silent => 1,
+        Game::Silent | Game::Loading => 1,
         Game::Waiting => 0,
     };
     games
@@ -1567,6 +1876,7 @@ fn focus_of(games: &[(&'static str, &'static str, Game)]) -> Option<(&'static st
 fn focus_words(view: &View, (id, name, game): (&'static str, &'static str, Game)) -> (String, String, Option<String>, bool) {
     let (title, line, note) = match game {
         Game::Silent => (Msg::FocusOpen(name.into()), Msg::Setup(id), Some(Msg::FocusAutoConnect)),
+        Game::Loading => (Msg::FocusOpen(name.into()), Msg::FocusLoading, None),
         Game::Unsupported => (Msg::FocusOpen(name.into()), Msg::FocusUnsupported, None),
         Game::Paused => (Msg::FocusConnected(name.into()), Msg::FocusPaused, None),
         _ => (Msg::FocusConnected(name.into()), Msg::FocusGetInCar, None),
@@ -1804,7 +2114,7 @@ const BAND_H: f32 = 188.0;
 const SQUARE_ROW_H: f32 = 310.0;
 /// The tall layout's canvas (about 9:16).
 const PORTRAIT_W: f32 = 600.0;
-const PORTRAIT_H: f32 = 1080.0;
+const PORTRAIT_H: f32 = 1210.0;
 
 impl Layout {
     fn size(self) -> (f32, f32) {
@@ -1867,7 +2177,7 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
             main_block(g, live, view, w);
             let (top, half) = (CANVAS_H + 22.0, (CANVAS_W - 20.0) / 2.0);
             track_panel(g, live, view, 0.0, top, half, h - top);
-            tyres_panel(g, live, view, half + 20.0, top, half, h - top, 2);
+            tyres_panel(g, live, view, half + 20.0, top, half, h - top);
         }
     }
 }
@@ -1878,15 +2188,8 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
     let r = g.r(0.0, top, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, 10.5, MUTED, DT_LEFT);
     let (y, h) = (top + 24.0, bottom - top - 24.0);
-    let laps: Vec<(&str, &str, Option<f64>)> = view
-        .recent_laps
-        .iter()
-        .map(|label| {
-            let (name, time) = lap_parts(label);
-            (name, time, clock_seconds(time))
-        })
-        .collect();
-    let fastest = laps.iter().filter_map(|l| l.2).fold(f64::INFINITY, f64::min);
+    let laps: Vec<LapLabel> = view.recent_laps.iter().map(|label| lap_parts(label)).collect();
+    let fastest = fastest_valid(&laps).unwrap_or(f64::INFINITY);
     // Six places, always: the last completed laps (up to five), the lap being driven, then empty places, so the row
     // keeps its shape from the first lap on.
     let (n, gap) = (6_usize, 12.0);
@@ -1901,26 +2204,44 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
                 time: &str,
                 time_color: COLORREF,
                 note: &str,
-                note_color: COLORREF| {
+                note_color: COLORREF,
+                invalid: bool| {
         let x = i as f32 * (card_w + gap);
         g.fill(g.r(x, y, card_w, h), CARD);
         g.fill(g.r(x, y, card_w, 3.0), edge);
         let r = g.r(x + 14.0, y + 14.0, card_w - 28.0, 16.0);
         g.caps(name, r, 10.5, name_color, DT_LEFT);
-        let r = g.r(x + 12.0, y + 40.0, card_w - 20.0, 40.0);
-        g.text(time, r, 30.0, semi, Face::Num, time_color, DT_LEFT);
+        if invalid {
+            g.invalid_mark(x + card_w - 14.0 - 16.0, y + 13.0, 16.0);
+        }
+        // The time never leaves its card: smaller when it is long.
+        let room = card_w - 24.0;
+        let size = g.fitted(time, room, 30.0, 14.0, semi, Face::Num);
+        let r = g.r(x + 12.0, y + 40.0, room + 4.0, 40.0);
+        g.text(time, r, size, semi, Face::Num, time_color, DT_LEFT);
         let r = g.r(x + 14.0, y + h - 36.0, card_w - 28.0, 20.0);
         g.text(note, r, 14.0, semi, Face::Num, note_color, DT_LEFT);
     };
-    for (i, (name, time, secs)) in shown.iter().enumerate() {
-        let is_fastest = secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
+    for (i, lap) in shown.iter().enumerate() {
+        let secs = clock_seconds(lap.time);
+        let is_fastest = !lap.invalid && secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
         let note = match secs {
+            _ if lap.invalid => text(view.lang, &Msg::PanelInvalid),
             _ if is_fastest => text(view.lang, &Msg::PanelFastest),
             Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
             _ => String::new(),
         };
-        let (edge, color) = if is_fastest { (PURPLE, PURPLE) } else { (EDGE, TEXT) };
-        card(g, i, edge, name, MUTED, time, color, &note, if is_fastest { PURPLE } else { MUTED });
+        let (edge, color) = match (lap.invalid, is_fastest) {
+            (true, _) => (RED, MUTED),
+            (_, true) => (PURPLE, PURPLE),
+            _ => (EDGE, TEXT),
+        };
+        let note_color = match (lap.invalid, is_fastest) {
+            (true, _) => RED,
+            (_, true) => PURPLE,
+            _ => MUTED,
+        };
+        card(g, i, edge, lap.name, MUTED, lap.time, color, &note, note_color, lap.invalid);
     }
     // The lap being driven, its time running and its delta to the best lap.
     let now = shown.len();
@@ -1940,6 +2261,7 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
         TEXT,
         &delta_text(live.delta_s),
         delta_color,
+        live.lap_valid == Some(false),
     );
     // The places still to fill.
     for i in now + 1..n {
@@ -1964,23 +2286,68 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
     }
 }
 
+/// The mark of a lap that will not count, ending at `right` (design units), with its word before it when `label`.
+fn invalid_flag(g: &mut Painter, view: &View, right: f32, y: f32, label: bool) {
+    let size = 22.0;
+    g.invalid_mark(right - size, y, size);
+    if label {
+        let word = text(view.lang, &Msg::PanelInvalid);
+        let room = 120.0;
+        let fit = g.fitted(&word, room, 15.0, 11.0, FW_SEMIBOLD as i32, Face::Ui);
+        let used = g.width_of(&word, fit, FW_SEMIBOLD as i32, Face::Ui);
+        let r = g.r(right - size - 8.0 - used, y, used + 2.0, size);
+        g.text(&word, r, fit, FW_SEMIBOLD as i32, Face::Ui, RED, DT_LEFT);
+    }
+}
+
 /// `1:47.918` as seconds.
 fn clock_seconds(text: &str) -> Option<f64> {
     let (minutes, seconds) = text.split_once(':')?;
     Some(minutes.trim().parse::<f64>().ok()? * 60.0 + seconds.trim().parse::<f64>().ok()?)
 }
 
-/// The tall layout (a phone held upright), on a 600 x 1080 canvas: the rev bar, the lap, the delta, the gear and the
-/// speed, the times and the car's numbers in two columns, the pedals and the wheel, then the track and the tyres.
+/// The tall layout (a phone held upright), on a 600 x 1210 canvas: the rev bar, the lap, the delta, the gear with the
+/// pedals either side and the wheel under the speed, the times and the fuel in two columns, the car strip (lights,
+/// engine and fuel, electronics and damage), then the track and the tyres side by side.
 fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
-    let (w, semi, normal) = (PORTRAIT_W, FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let w = PORTRAIT_W;
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
     let (lit, flash) = lights_lit(share);
     let blink_on = view.now_ms / 120 % 2 == 0;
     g.rev_bar(0.0, 0.0, w, 36.0, share, flash && blink_on);
     g.round(g.r(0.0, 37.0, w, 3.0), 1.5, CYAN, None);
+    title_line(g, live, view, w, 420.0, false);
+    g.fill(g.r(0.0, 95.0, w, 1.0), EDGE);
 
-    let r = g.r(0.0, 48.0, 400.0, 24.0);
+    let bottom = centre_block(g, live, view, w / 2.0, 100.0, 190.0, (lit, flash, blink_on));
+    g.fill(g.r(0.0, bottom + 14.0, w, 1.0), EDGE);
+
+    // The times on the left, fuel and lap progress on the right.
+    let top = bottom + 22.0;
+    side_stats(g, live, view, (0.0, w, top), 76.0, [34.0, 34.0, 34.0], 290.0);
+    let strip = top + 76.0 * 3.0 + 6.0;
+    g.fill(g.r(0.0, strip - 4.0, w, 1.0), EDGE);
+
+    // The car strip, stacked: the lights across, the engine and the electronics side by side under them.
+    let (lights_h, row_h, gap) = (80.0, 108.0, 10.0);
+    car_card(g, live, view, CarCard::Lights, (0.0, strip + 6.0, w, lights_h));
+    let row_y = strip + 6.0 + lights_h + gap;
+    let half = (w - gap) / 2.0;
+    car_card(g, live, view, CarCard::Engine, (0.0, row_y, half, row_h));
+    car_card(g, live, view, CarCard::Electronics, (half + gap, row_y, half, row_h));
+
+    // The track and the tyres side by side, a square each.
+    let low = row_y + row_h + 14.0;
+    let track_w = 250.0;
+    track_panel(g, live, view, 0.0, low, track_w, PORTRAIT_H - low);
+    tyres_panel(g, live, view, track_w + 14.0, low, w - track_w - 14.0, PORTRAIT_H - low);
+}
+
+/// The line over the dashboard: track and car on the left, the lap on the right (with the mark of a lap that will
+/// not count, and whether the car is in the pits). `left_w` is the room the left side has.
+fn title_line(g: &mut Painter, live: &Live, view: &View, width: f32, left_w: f32, labelled: bool) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let r = g.r(0.0, 48.0, left_w, 24.0);
     g.text(&live.track.to_uppercase(), r, 17.0, semi, Face::Num, TEXT, DT_LEFT);
     let car = [live.car.as_str(), live.game]
         .iter()
@@ -1988,18 +2355,15 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
         .cloned()
         .collect::<Vec<_>>()
         .join("  ·  ");
-    let r = g.r(0.0, 72.0, 420.0, 18.0);
+    let r = g.r(0.0, 72.0, left_w, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(w - 200.0, 46.0, 200.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        26.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
+    let r = g.r(width - 200.0, 46.0, 200.0, 28.0);
+    let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
+    g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
+    if live.lap_valid == Some(false) {
+        let at = width - g.width_of(&title, 26.0, semi, Face::Num) - 12.0;
+        invalid_flag(g, view, at, 49.0, labelled);
+    }
     let status = if live.in_pits {
         text(view.lang, &Msg::PanelPits)
     } else if !live.driving {
@@ -2007,186 +2371,110 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     } else {
         String::new()
     };
-    let r = g.r(w - 200.0, 72.0, 200.0, 18.0);
+    let r = g.r(width - 240.0, 72.0, 240.0, 18.0);
     g.caps(&status, r, 11.0, AMBER, DT_RIGHT);
-    g.fill(g.r(0.0, 95.0, w, 1.0), EDGE);
+}
 
-    // The delta, then the gear between its brackets, then the speed.
-    let delta_color = match live.delta_s {
-        Some(d) if d < 0.0 => GREEN,
-        Some(_) => RED,
-        None => MUTED,
-    };
-    let r = g.r(0.0, 106.0, w, 16.0);
-    g.caps(&text(view.lang, &Msg::PanelDelta), r, 10.5, MUTED, DT_CENTER);
-    let r = g.r(0.0, 120.0, w, 40.0);
-    g.text(&delta_text(live.delta_s), r, 38.0, semi, Face::Num, delta_color, DT_CENTER);
-    let (from, to) = match live.delta_s.filter(|d| d.is_finite()) {
-        Some(d) => {
-            let at = 0.5 + (d.clamp(-1.0, 1.0) as f32) / 2.0;
-            (at.min(0.5), at.max(0.5))
-        }
-        None => (f32::NAN, f32::NAN),
-    };
-    g.blocks(150.0, 164.0, 300.0, 9.0, 20, from, to, delta_color);
-    g.fill(g.r(w / 2.0 - 1.0, 160.0, 2.0, 17.0), TEXT);
-    let frame = match (flash, lit) {
-        (true, _) if blink_on => BLUE,
-        (true, _) => RED,
-        (false, n) if n >= LIGHTS - 2 => RED,
-        _ => MUTED,
-    };
-    let (fx, fy, fw, fh, arm, thick) = (160.0, 190.0, 280.0, 180.0, 26.0, 3.0);
-    for (cx, cy, dx, dy) in [
-        (fx, fy, 1.0, 1.0),
-        (fx + fw, fy, -1.0, 1.0),
-        (fx, fy + fh, 1.0, -1.0),
-        (fx + fw, fy + fh, -1.0, -1.0),
-    ] {
-        let x0 = if dx > 0.0 { cx } else { cx - arm };
-        let y0 = if dy > 0.0 { cy } else { cy - thick };
-        g.fill(g.r(x0, y0, arm, thick), frame);
-        let x1 = if dx > 0.0 { cx } else { cx - thick };
-        let y1 = if dy > 0.0 { cy } else { cy - arm };
-        g.fill(g.r(x1, y1, thick, arm), frame);
-    }
-    let r = g.r(152.0, 186.0, 296.0, 188.0);
-    g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let (below, above) = neighbour_gears(live.gear);
-    for (gear, x) in [(below, 184.0), (above, 376.0)] {
-        if let Some(gear) = gear {
-            let (gw, gh) = (40.0, 52.0);
-            let y = 186.0 + 94.0 - gh / 2.0;
-            g.fill(g.r(x, y, gw, gh), CARD);
-            let r = g.r(x, y, gw, gh);
-            g.text(&gear, r, 26.0, semi, Face::Num, MUTED, DT_CENTER);
-        }
-    }
-    let speed = if live.speed_ms.is_finite() {
-        format!("{:.0}", live.speed_ms * 3.6)
-    } else {
-        "–".to_owned()
-    };
-    let r = g.r(0.0, 378.0, w, 40.0);
-    g.text(&speed, r, 42.0, semi, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(0.0, 416.0, w, 14.0);
-    g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
-    g.fill(g.r(0.0, 440.0, w, 1.0), EDGE);
-
-    // The times on the left, the car's numbers on the right.
-    let fuel = if live.fuel_l.is_finite() {
-        format!("{:.1} L", live.fuel_l)
-    } else {
-        "–".to_owned()
-    };
-    let rpm = if live.rpm.is_finite() {
-        format!("{:.0}", live.rpm)
-    } else {
-        "–".to_owned()
-    };
+/// The lap's times in a column on the left (lap time, last, best) and fuel and lap progress on the right, in rows of
+/// `row_h` from `top`. `columns` is `(left edge, right edge, top)`; `sizes` the size of each row's figure; `room` the
+/// width a column has. Fuel is big, with the laps it lasts and its use per lap under it; the lap is a percentage
+/// with the distance and a bar, using the room of the two rows under the fuel.
+fn side_stats(g: &mut Painter, live: &Live, view: &View, columns: (f32, f32, f32), row_h: f32, sizes: [f32; 3], room: f32) {
+    let (left, right, top) = columns;
+    let semi = FW_SEMIBOLD as i32;
+    let lang = view.lang;
     let progress = match (live.dist_m, live.track_length_m) {
         (Some(d), Some(l)) if l > 0.0 => Some((d / l).clamp(0.0, 1.0) as f32),
         _ => None,
     };
     let lap_share = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
     let rows = [
-        (
-            (text(view.lang, &Msg::PanelLapTime), lap_clock(live.lap_time_s), TEXT),
-            (text(view.lang, &Msg::PanelFuel), fuel, TEXT),
-        ),
-        (
-            (text(view.lang, &Msg::PanelLastLap), lap_clock(live.last_lap_s), TEXT),
-            ("RPM".to_owned(), rpm, TEXT),
-        ),
-        (
-            (text(view.lang, &Msg::PanelBestLap), lap_clock(live.best_lap_s), PURPLE),
-            (text(view.lang, &Msg::PanelLapProgress), lap_share, TEXT),
-        ),
+        (text(lang, &Msg::PanelLapTime), lap_clock(live.lap_time_s), TEXT),
+        (text(lang, &Msg::PanelLastLap), lap_clock(live.last_lap_s), TEXT),
+        (text(lang, &Msg::PanelBestLap), lap_clock(live.best_lap_s), PURPLE),
     ];
-    for (i, ((l_label, l_value, l_color), (r_label, r_value, r_color))) in rows.iter().enumerate() {
-        let y = 450.0 + 88.0 * i as f32;
+    for (i, (label, value, color)) in rows.iter().enumerate() {
+        let y = top + row_h * i as f32;
         if i > 0 {
-            g.fill(g.r(0.0, y - 6.0, w, 1.0), EDGE);
+            g.fill(g.r(left, y, room, 1.0), EDGE);
         }
-        let size = if i == 0 { 40.0 } else { 34.0 };
-        let r = g.r(0.0, y, 290.0, 18.0);
-        g.caps(l_label, r, 11.0, MUTED, DT_LEFT);
-        let r = g.r(-2.0, y + 18.0, 300.0, 52.0);
-        g.text(l_value, r, size, semi, Face::Num, *l_color, DT_LEFT);
-        let r = g.r(w - 290.0, y, 290.0, 18.0);
-        g.caps(r_label, r, 11.0, MUTED, DT_RIGHT);
-        let r = g.r(w - 302.0, y + 18.0, 304.0, 52.0);
-        g.text(r_value, r, size, semi, Face::Num, *r_color, DT_RIGHT);
+        let r = g.r(left, y + 10.0, room, 18.0);
+        g.caps(label, r, 11.0, MUTED, DT_LEFT);
+        let r = g.r(left - 2.0, y + 28.0, room + 20.0, row_h - 34.0);
+        g.text(value, r, sizes[i], semi, Face::Num, *color, DT_LEFT);
     }
+    // Fuel: big, with what it lasts under it.
+    let fuel = if live.fuel_l.is_finite() {
+        format!("{:.1} L", live.fuel_l)
+    } else {
+        "–".to_owned()
+    };
+    let rx = right - room;
+    let r = g.r(rx, top + 10.0, room, 18.0);
+    g.caps(&text(lang, &Msg::PanelFuel), r, 11.0, MUTED, DT_RIGHT);
+    let r = g.r(rx - 22.0, top + 28.0, room + 24.0, row_h - 50.0);
+    g.text(&fuel, r, sizes[0], semi, Face::Num, TEXT, DT_RIGHT);
+    let sub = fuel_sub_line(live, lang);
+    if !sub.0.is_empty() {
+        let r = g.r(rx, top + row_h - 22.0, room, 16.0);
+        g.text(&sub.0, r, 12.5, FW_NORMAL as i32, Face::Ui, sub.1, DT_RIGHT);
+    }
+    // The lap: the share, the bar and the distance.
+    let y = top + row_h;
+    g.fill(g.r(rx, y, room, 1.0), EDGE);
+    let r = g.r(rx, y + 10.0, room, 18.0);
+    g.caps(&text(lang, &Msg::PanelLapProgress), r, 11.0, MUTED, DT_RIGHT);
+    let r = g.r(rx - 22.0, y + 28.0, room + 24.0, row_h - 30.0);
+    g.text(&lap_share, r, sizes[1] + 12.0, semi, Face::Num, TEXT, DT_RIGHT);
+    let bar_w = room.min(240.0);
     g.blocks(
-        w - 200.0,
-        450.0 + 88.0 * 2.0 + 72.0,
-        200.0,
-        8.0,
+        right - bar_w,
+        y + row_h + 2.0,
+        bar_w,
+        9.0,
         20,
         0.0,
         progress.unwrap_or(f32::NAN),
         ACCENT,
     );
-    g.fill(g.r(0.0, 712.0, w, 1.0), EDGE);
-
-    // The pedals on one bar from the centre, then the wheel.
-    let percent = |v: f32| {
-        if v.is_finite() {
-            format!("{:.0}%", v * 100.0)
-        } else {
-            "–".to_owned()
+    if let (Some(d), Some(l)) = (live.dist_m, live.track_length_m) {
+        if l > 0.0 {
+            let line = format!("{:.0} / {:.0} m", d.clamp(0.0, l), l);
+            let r = g.r(rx, y + row_h + 18.0, room, 16.0);
+            g.text(&line, r, 12.5, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
         }
-    };
-    let label = |g: &mut Painter, name: &str, value: String, y: f32, right: bool| {
-        let (x, align) = if right { (w - 110.0, DT_RIGHT) } else { (0.0, DT_LEFT) };
-        let r = g.r(x, y, 110.0, 16.0);
-        g.caps(name, r, 10.5, MUTED, align);
-        let r = g.r(x, y + 15.0, 110.0, 28.0);
-        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
-    };
-    label(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 722.0, false);
-    label(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 722.0, true);
-    let (bx, bw, by, bh) = (120.0, 360.0, 736.0, 18.0);
-    let mid = bx + bw / 2.0;
-    let half = bw / 2.0 - 4.0;
-    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    g.blocks(bx, by, half, bh, 16, 1.0 - pedal(live.brake), 1.0, RED);
-    g.blocks(mid + 4.0, by, half, bh, 16, 0.0, pedal(live.throttle), GREEN);
-    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
-    let wheel = if live.steer.is_finite() {
-        let side = if live.steer < -0.005 {
-            "L "
-        } else if live.steer > 0.005 {
-            "R "
-        } else {
-            ""
-        };
-        format!("{side}{:.0}%", live.steer.abs() * 100.0)
-    } else {
-        "–".to_owned()
-    };
-    label(g, &text(view.lang, &Msg::PanelSteer), wheel, 770.0, false);
-    label(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 770.0, true);
-    let at = if live.steer.is_finite() {
-        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
-    } else {
-        f32::NAN
-    };
-    let reach = 1.0 / 32.0;
-    g.blocks(bx, 786.0, bw, 10.0, 32, at - reach, at + reach, ACCENT);
-    g.fill(g.r(mid - 1.0, 781.0, 2.0, 20.0), MUTED);
-    g.fill(g.r(0.0, 816.0, w, 1.0), EDGE);
+    }
+}
 
-    // The track, then the four tyres in a row.
-    track_panel(g, live, view, 0.0, 826.0, w, 124.0);
-    tyres_panel(g, live, view, 0.0, 958.0, w, PORTRAIT_H - 958.0, 4);
+/// "13.3 laps · 2.9 L/lap" under the fuel, with only what is known, and its colour (amber under two laps of fuel, red
+/// under one).
+fn fuel_sub_line(live: &Live, lang: Lang) -> (String, COLORREF) {
+    let left = fuel_laps_left(live.fuel_l, live.fuel_per_lap_l);
+    let mut parts = Vec::new();
+    if let Some(n) = left {
+        parts.push(text(lang, &Msg::PanelFuelLaps(format!("{n:.1}"))));
+    }
+    if let Some(per) = live.fuel_per_lap_l.filter(|p| p.is_finite() && *p > 0.0) {
+        parts.push(text(lang, &Msg::PanelFuelPerLap(format!("{per:.1}"))));
+    }
+    let color = match left {
+        Some(n) if n < 1.0 => RED,
+        Some(n) if n < 2.0 => AMBER,
+        _ => MUTED,
+    };
+    (parts.join("  ·  "), color)
+}
+
+/// The laps of fuel left at the car's use per lap; nothing until the use per lap is known.
+fn fuel_laps_left(fuel_l: f32, per_lap_l: Option<f32>) -> Option<f32> {
+    let per = per_lap_l.filter(|p| p.is_finite() && *p > 0.0)?;
+    fuel_l.is_finite().then(|| fuel_l.max(0.0) / per)
 }
 
 /// The main dashboard on its 1000 x 520 canvas: rev bar (as wide as the whole layout, `width`), track and car, the
-/// lap's times, fuel, revs and lap progress, the delta, the gear and the speed, the pedals and the wheel.
+/// lap's times and the fuel on the sides, the delta, the gear between its pedals and the speed over the wheel in the
+/// middle, and the car strip along the bottom.
 fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
-    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     // The rev bar: a dome across the top, green to red as the revs climb, on a cyan line; it flashes blue at the
     // shift point.
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
@@ -2194,95 +2482,101 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     let blink_on = view.now_ms / 120 % 2 == 0;
     g.rev_bar(0.0, 0.0, width, 36.0, share, flash && blink_on);
     g.round(g.r(0.0, 37.0, width, 3.0), 1.5, CYAN, None);
-
-    // Where and what: track and car on the left, the lap on the right.
-    let r = g.r(0.0, 48.0, 640.0, 24.0);
-    g.text(&live.track.to_uppercase(), r, 17.0, semi, Face::Num, TEXT, DT_LEFT);
-    let car = [live.car.as_str(), live.game]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("  ·  ");
-    let r = g.r(0.0, 72.0, 640.0, 18.0);
-    g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
-    let r = g.r(width - 360.0, 46.0, 360.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        26.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
-    let status = if live.in_pits {
-        text(view.lang, &Msg::PanelPits)
-    } else if !live.driving {
-        text(view.lang, &Msg::PanelNotDriving)
-    } else {
-        String::new()
-    };
-    let r = g.r(width - 360.0, 72.0, 360.0, 18.0);
-    g.caps(&status, r, 11.0, AMBER, DT_RIGHT);
+    title_line(g, live, view, width, 640.0, true);
     g.fill(g.r(0.0, 95.0, width, 1.0), EDGE);
 
-    // Left column: the lap's times. Right column, mirrored: fuel, revs, lap progress.
-    let rows = [(100.0, 112.0, 54.0), (212.0, 96.0, 40.0), (308.0, 96.0, 40.0)];
-    let fuel = if live.fuel_l.is_finite() {
-        format!("{:.1} L", live.fuel_l)
-    } else {
-        "–".to_owned()
-    };
-    let rpm = if live.rpm.is_finite() {
-        format!("{:.0}", live.rpm)
-    } else {
-        "–".to_owned()
-    };
-    let progress = match (live.dist_m, live.track_length_m) {
-        (Some(d), Some(l)) if l > 0.0 => Some((d / l).clamp(0.0, 1.0) as f32),
-        _ => None,
-    };
-    let lap_share = progress.map_or_else(|| "–".to_owned(), |p| format!("{:.0}%", p * 100.0));
-    let left = [
-        (text(view.lang, &Msg::PanelLapTime), lap_clock(live.lap_time_s), TEXT),
-        (text(view.lang, &Msg::PanelLastLap), lap_clock(live.last_lap_s), TEXT),
-        (text(view.lang, &Msg::PanelBestLap), lap_clock(live.best_lap_s), PURPLE),
-    ];
-    let right = [
-        (text(view.lang, &Msg::PanelFuel), fuel, TEXT),
-        ("RPM".to_owned(), rpm, TEXT),
-        (text(view.lang, &Msg::PanelLapProgress), lap_share, TEXT),
-    ];
-    for (i, ((y, h, size), ((l_label, l_value, l_color), (r_label, r_value, r_color)))) in
-        rows.iter().zip(left.iter().zip(right.iter())).enumerate()
-    {
-        if i > 0 {
-            g.fill(g.r(0.0, *y, 300.0, 1.0), EDGE);
-            g.fill(g.r(700.0, *y, 300.0, 1.0), EDGE);
-        }
-        let r = g.r(0.0, y + 10.0, 300.0, 18.0);
-        g.caps(l_label, r, 11.0, MUTED, DT_LEFT);
-        let r = g.r(-2.0, y + 28.0, 320.0, h - 34.0);
-        g.text(l_value, r, *size, semi, Face::Num, *l_color, DT_LEFT);
-        let r = g.r(700.0, y + 10.0, 300.0, 18.0);
-        g.caps(r_label, r, 11.0, MUTED, DT_RIGHT);
-        let r = g.r(680.0, y + 28.0, 322.0, h - 34.0);
-        g.text(r_value, r, *size, semi, Face::Num, *r_color, DT_RIGHT);
-    }
-    g.blocks(760.0, 390.0, 240.0, 9.0, 20, 0.0, progress.unwrap_or(f32::NAN), ACCENT);
+    side_stats(g, live, view, (0.0, CANVAS_W, 100.0), 98.0, [52.0, 42.0, 42.0], MAIN_SIDE_W);
+    centre_block(g, live, view, CANVAS_W / 2.0, 100.0, 140.0, (lit, flash, blink_on));
 
-    // Centre: the delta to the best lap above the gear, the speed below it.
+    // The car strip along the bottom.
+    let strip = STRIP_TOP;
+    g.fill(g.r(0.0, strip - 5.0, CANVAS_W, 1.0), EDGE);
+    for (card, area) in strip_plan(0.0, strip, CANVAS_W, CANVAS_H - strip - 8.0) {
+        car_card(g, live, view, card, area);
+    }
+}
+
+/// The width of the left and right columns of the main block, and where its car strip starts.
+const MAIN_SIDE_W: f32 = 300.0;
+const STRIP_TOP: f32 = 400.0;
+
+/// The height of a pedal bar's fill, in the same units as `full`: `value` is 0..1; out of range is clamped and a
+/// value the game does not give (NaN) counts as released.
+fn pedal_fill(value: f32, full: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0) * full
+    } else {
+        0.0
+    }
+}
+
+/// The one-letter tag under a pedal bar: the first letter of its (translated) name, in capitals.
+fn pedal_tag(name: &str) -> String {
+    name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default()
+}
+
+/// How far the wheel is turned, -1 (full left) to 1 (full right); straight without a value.
+fn steer_share(steer: f32) -> f32 {
+    if steer.is_finite() {
+        steer.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// Where the middle of the dashboard puts its parts, from the centre line `cx` and the top of the delta.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Centre {
+    /// The gear's frame (the corner brackets).
+    frame: Area,
+    brake: Area,
+    throttle: Area,
+    clutch: Area,
+    /// The steering bar, under the speed.
+    steer: Area,
+    /// Where the speed and its unit go.
+    speed: Area,
+    unit: Area,
+    /// The first line under everything.
+    bottom: f32,
+}
+
+const FRAME_W: f32 = 280.0;
+
+fn centre_plan(cx: f32, top: f32, frame_h: f32) -> Centre {
+    let (fx, fy) = (cx - FRAME_W / 2.0, top + 72.0);
+    let (bar_w, clutch_w, gap) = (18.0, 10.0, 10.0);
+    let brake_x = fx - gap - bar_w;
+    let speed_y = fy + frame_h + 6.0;
+    Centre {
+        frame: (fx, fy, FRAME_W, frame_h),
+        brake: (brake_x, fy, bar_w, frame_h),
+        throttle: (fx + FRAME_W + gap, fy, bar_w, frame_h),
+        clutch: (brake_x - 7.0 - clutch_w, fy, clutch_w, frame_h),
+        steer: (fx, speed_y + 60.0, FRAME_W, 8.0),
+        speed: (cx - 120.0, speed_y, 240.0, 40.0),
+        unit: (cx - 120.0, speed_y + 38.0, 240.0, 14.0),
+        bottom: speed_y + 72.0,
+    }
+}
+
+/// The middle of the dashboard: the delta over the gear (its corner brackets turning red near the limit and flashing
+/// blue at the shift), the brake and the throttle as tall bars outside the brackets (the clutch beside the brake, when
+/// the game gives it), the speed under the gear and the wheel as a bar under the speed. Returns the line under all of
+/// it. `lights` is `(shift lights lit, flashing, blink phase)`.
+fn centre_block(g: &mut Painter, live: &Live, view: &View, cx: f32, top: f32, frame_h: f32, lights: (usize, bool, bool)) -> f32 {
+    let (lit, flash, blink_on) = lights;
+    let semi = FW_SEMIBOLD as i32;
+    let plan = centre_plan(cx, top, frame_h);
     let delta_color = match live.delta_s {
         Some(d) if d < 0.0 => GREEN,
         Some(_) => RED,
         None => MUTED,
     };
-    let r = g.r(330.0, 100.0, 340.0, 16.0);
+    let r = g.r(cx - 170.0, top, 340.0, 16.0);
     g.caps(&text(view.lang, &Msg::PanelDelta), r, 10.5, MUTED, DT_CENTER);
-    let r = g.r(330.0, 114.0, 340.0, 40.0);
+    let r = g.r(cx - 170.0, top + 14.0, 340.0, 40.0);
     g.text(&delta_text(live.delta_s), r, 38.0, semi, Face::Num, delta_color, DT_CENTER);
-    let bar = (350.0, 156.0, 300.0, 9.0);
     // Each block is a tenth of a second, faster to the left.
     let (from, to) = match live.delta_s.filter(|d| d.is_finite()) {
         Some(d) => {
@@ -2291,104 +2585,443 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
         }
         None => (f32::NAN, f32::NAN),
     };
-    g.blocks(bar.0, bar.1, bar.2, bar.3, 20, from, to, delta_color);
-    g.fill(g.r(bar.0 + bar.2 / 2.0 - 1.0, bar.1 - 4.0, 2.0, bar.3 + 8.0), TEXT);
+    g.blocks(cx - 150.0, top + 56.0, 300.0, 9.0, 20, from, to, delta_color);
+    g.fill(g.r(cx - 1.0, top + 52.0, 2.0, 17.0), TEXT);
 
-    // The gear between four square corner brackets that turn red near the limit and flash blue when it is time
-    // to shift.
     let frame = match (flash, lit) {
         (true, _) if blink_on => BLUE,
         (true, _) => RED,
         (false, n) if n >= LIGHTS - 2 => RED,
         _ => MUTED,
     };
-    let (fx, fy, fw, fh, arm, thick) = (360.0, 176.0, 280.0, 180.0, 26.0, 3.0);
-    for (cx, cy, dx, dy) in [
+    let (fx, fy, fw, fh) = plan.frame;
+    let (arm, thick) = (26.0, 3.0);
+    for (px, py, dx, dy) in [
         (fx, fy, 1.0, 1.0),
         (fx + fw, fy, -1.0, 1.0),
         (fx, fy + fh, 1.0, -1.0),
         (fx + fw, fy + fh, -1.0, -1.0),
     ] {
-        let x0 = if dx > 0.0 { cx } else { cx - arm };
-        let y0 = if dy > 0.0 { cy } else { cy - thick };
+        let x0 = if dx > 0.0 { px } else { px - arm };
+        let y0 = if dy > 0.0 { py } else { py - thick };
         g.fill(g.r(x0, y0, arm, thick), frame);
-        let x1 = if dx > 0.0 { cx } else { cx - thick };
-        let y1 = if dy > 0.0 { cy } else { cy - arm };
+        let x1 = if dx > 0.0 { px } else { px - thick };
+        let y1 = if dy > 0.0 { py } else { py - arm };
         g.fill(g.r(x1, y1, thick, arm), frame);
     }
-    let r = g.r(352.0, 172.0, 296.0, 188.0);
-    g.text(&gear_text(live.gear), r, 168.0, semi, Face::Num, ACCENT, DT_CENTER);
-    let (below, above) = neighbour_gears(live.gear);
-    for (gear, x) in [(below, 384.0), (above, 576.0)] {
+    let r = g.r(fx - 4.0, fy - 4.0, fw + 8.0, fh + 8.0);
+    g.text(&gear_text(live.gear), r, fh * 0.93, semi, Face::Num, ACCENT, DT_CENTER);
+    let (below, above) = neighbour_gears(live.gear, live.gears);
+    for (gear, x) in [(below, fx + 24.0), (above, fx + fw - 64.0)] {
         if let Some(gear) = gear {
             let (w, h) = (40.0, 52.0);
-            let y = 172.0 + 94.0 - h / 2.0;
+            let y = fy + fh / 2.0 - h / 2.0;
             g.fill(g.r(x, y, w, h), CARD);
             let r = g.r(x, y, w, h);
             g.text(&gear, r, 26.0, semi, Face::Num, MUTED, DT_CENTER);
         }
     }
+
+    // The pedals: tall slim bars with a letter under each.
+    let mut bars = vec![
+        (Msg::PanelBrake, live.brake, RED, plan.brake),
+        (Msg::PanelThrottle, live.throttle, GREEN, plan.throttle),
+    ];
+    if live.clutch.is_finite() {
+        bars.push((Msg::PanelClutch, live.clutch, BLUE, plan.clutch));
+    }
+    for (name, value, color, area) in &bars {
+        g.vertical_bar(*area, *value, *color);
+        let (bx, by, bw, bh) = *area;
+        let r = g.r(bx - 8.0, by + bh + 3.0, bw + 16.0, 14.0);
+        g.caps(&pedal_tag(&text(view.lang, name)), r, 9.0, MUTED, DT_CENTER);
+    }
+
     let speed = if live.speed_ms.is_finite() {
         format!("{:.0}", live.speed_ms * 3.6)
     } else {
         "–".to_owned()
     };
-    let r = g.r(330.0, 364.0, 340.0, 40.0);
+    let (sx, sy, sw, sh) = plan.speed;
+    let r = g.r(sx, sy, sw, sh);
     g.text(&speed, r, 42.0, semi, Face::Num, TEXT, DT_CENTER);
-    let r = g.r(330.0, 402.0, 340.0, 14.0);
+    let (ux, uy, uw, uh) = plan.unit;
+    let r = g.r(ux, uy, uw, uh);
     g.caps("km/h", r, 10.5, MUTED, DT_CENTER);
+    g.steer_bar(plan.steer, live.steer);
+    plan.bottom
+}
 
-    // Bottom: brake and throttle on one bar from the centre, then the wheel; clutch on the right.
-    g.fill(g.r(0.0, 424.0, CANVAS_W, 1.0), EDGE);
-    let percent = |v: f32| {
-        if v.is_finite() {
-            format!("{:.0}%", v * 100.0)
-        } else {
-            "–".to_owned()
+// The CAR strip: three cards in the lap-card look.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CarCard {
+    Lights,
+    Engine,
+    Electronics,
+}
+
+impl CarCard {
+    /// The narrowest a card reads well at, and the share of a row it takes.
+    fn min_w(self) -> f32 {
+        match self {
+            CarCard::Lights => 230.0,
+            CarCard::Engine => 190.0,
+            CarCard::Electronics => 290.0,
         }
-    };
-    let side = |g: &mut Painter, label: &str, value: String, y: f32, align: u32| {
-        let x = if align == DT_RIGHT { 880.0 } else { 0.0 };
-        let r = g.r(x, y, 120.0, 16.0);
-        g.caps(label, r, 10.5, MUTED, align);
-        let r = g.r(x, y + 15.0, 120.0, 28.0);
-        g.text(&value, r, 22.0, semi, Face::Num, TEXT, align);
-    };
-    side(g, &text(view.lang, &Msg::PanelBrake), percent(live.brake), 432.0, DT_LEFT);
-    side(g, &text(view.lang, &Msg::PanelThrottle), percent(live.throttle), 432.0, DT_RIGHT);
-    let (bx, bw, by, bh) = (140.0, 720.0, 444.0, 18.0);
-    let mid = bx + bw / 2.0;
-    // One bar of blocks: brake lights from the centre to the left, throttle from the centre to the right.
-    let half = bw / 2.0 - 4.0;
-    let pedal = |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    g.blocks(bx, by, half, bh, 24, 1.0 - pedal(live.brake), 1.0, RED);
-    g.blocks(mid + 4.0, by, half, bh, 24, 0.0, pedal(live.throttle), GREEN);
-    g.fill(g.r(mid - 1.0, by - 4.0, 2.0, bh + 8.0), TEXT);
+    }
 
-    let wheel = if live.steer.is_finite() {
-        let side = if live.steer < -0.005 {
-            "L "
-        } else if live.steer > 0.005 {
-            "R "
-        } else {
-            ""
+    fn weight(self) -> f32 {
+        match self {
+            CarCard::Lights => 1.0,
+            CarCard::Engine => 0.85,
+            CarCard::Electronics => 1.15,
+        }
+    }
+}
+
+/// The cards that fit a row of `w` x `h` at (`x`, `y`), left to right: lights, engine and fuel, electronics and
+/// damage. When there is not room for all of them, the engine goes first, then the electronics, never the lights.
+fn strip_plan(x: f32, y: f32, w: f32, h: f32) -> Vec<(CarCard, Area)> {
+    let gap = 12.0;
+    let sets: [&[CarCard]; 3] = [
+        &[CarCard::Lights, CarCard::Engine, CarCard::Electronics],
+        &[CarCard::Lights, CarCard::Electronics],
+        &[CarCard::Lights],
+    ];
+    for set in sets {
+        let room = w - gap * (set.len() as f32 - 1.0);
+        let total: f32 = set.iter().map(|c| c.weight()).sum();
+        let fits = set.iter().all(|c| room * c.weight() / total >= c.min_w());
+        if fits || set.len() == 1 {
+            let mut at = x;
+            return set
+                .iter()
+                .map(|&c| {
+                    let cw = room * c.weight() / total;
+                    let area = (at, y, cw, h);
+                    at += cw + gap;
+                    (c, area)
+                })
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// One card: its fill and top edge like a lap card, its title, then what it holds.
+fn car_card(g: &mut Painter, live: &Live, view: &View, card: CarCard, area: Area) {
+    let (x, y, w, h) = area;
+    g.fill(g.r(x, y, w, h), CARD);
+    g.fill(g.r(x, y, w, 3.0), EDGE);
+    let title = match card {
+        CarCard::Lights => Msg::PanelLights,
+        CarCard::Engine => Msg::PanelEngineFuel,
+        CarCard::Electronics => Msg::PanelElectronics,
+    };
+    let r = g.r(x + 14.0, y + 10.0, w - 28.0, 16.0);
+    g.caps(&text(view.lang, &title), r, 10.5, MUTED, DT_LEFT);
+    let inner = (x + 14.0, y + 32.0, w - 28.0, (h - 32.0 - 8.0).max(1.0));
+    match card {
+        CarCard::Lights => lights_card(g, live, view, inner),
+        CarCard::Engine => engine_card(g, live, view, inner),
+        CarCard::Electronics => electronics_card(g, live, view, inner),
+    }
+}
+
+/// A line in a card that has nothing to show.
+fn card_note(g: &mut Painter, msg: &Msg, view: &View, (x, y, w, h): Area) {
+    let note = text(view.lang, msg);
+    let r = g.r(x, y, w, h.min(24.0));
+    g.text(&note, r, 12.5, FW_NORMAL as i32, Face::Ui, MUTED, DT_LEFT);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PillKind {
+    Pit,
+    Abs,
+    Tc,
+    Drs,
+    Headlights,
+    Fuel,
+    Engine,
+    Handbrake,
+    Flag,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Glow {
+    Off,
+    On,
+    /// DRS allowed but not open: an outline in the light's colour.
+    Ready,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Pill {
+    kind: PillKind,
+    glow: Glow,
+    flag: Option<crate::game::Flag>,
+}
+
+fn pill_color(kind: PillKind) -> COLORREF {
+    match kind {
+        PillKind::Pit => ACCENT,
+        PillKind::Abs | PillKind::Tc | PillKind::Fuel => AMBER,
+        PillKind::Engine | PillKind::Handbrake => RED,
+        PillKind::Headlights | PillKind::Drs => GREEN,
+        PillKind::Flag => MUTED,
+    }
+}
+
+/// The lights the game gives, in their fixed order; a light it does not give is left out (never shown as off). FUEL
+/// is given whenever the laps of fuel left are known, and lit under two.
+fn light_pills(live: &Live) -> Vec<Pill> {
+    use crate::game::Drs;
+    let s = &live.state;
+    let lit = |on: bool| if on { Glow::On } else { Glow::Off };
+    let mut pills = Vec::new();
+    let mut add = |kind, glow, flag| pills.push(Pill { kind, glow, flag });
+    if let Some(on) = s.pit_limiter {
+        add(PillKind::Pit, lit(on), None);
+    }
+    if let Some(on) = s.abs_active {
+        add(PillKind::Abs, lit(on), None);
+    }
+    if let Some(on) = s.tc_active {
+        add(PillKind::Tc, lit(on), None);
+    }
+    if let Some(drs) = s.drs {
+        let glow = match drs {
+            Drs::Open => Glow::On,
+            Drs::Available => Glow::Ready,
+            Drs::Off => Glow::Off,
         };
-        format!("{side}{:.0}%", live.steer.abs() * 100.0)
+        add(PillKind::Drs, glow, None);
+    }
+    if let Some(on) = s.headlights {
+        add(PillKind::Headlights, lit(on), None);
+    }
+    if let Some(left) = fuel_laps_left(live.fuel_l, live.fuel_per_lap_l) {
+        add(PillKind::Fuel, lit(left < 2.0), None);
+    }
+    if let Some(on) = s.engine_warning {
+        add(PillKind::Engine, lit(on), None);
+    }
+    if let Some(on) = s.handbrake {
+        add(PillKind::Handbrake, lit(on), None);
+    }
+    if let Some(f) = s.flag {
+        add(PillKind::Flag, Glow::Off, Some(f));
+    }
+    pills
+}
+
+/// Where `n` pills go in a box: as many columns as the width allows (and no more than `n`), pills stretching a little
+/// to fill the row, wrapping to new rows.
+fn pill_cells((x, y, w, _h): Area, n: usize) -> Vec<Area> {
+    let (min_w, max_w, ph, gap) = (50.0, 66.0, 20.0, 6.0);
+    if n == 0 {
+        return Vec::new();
+    }
+    let cols = (((w + gap) / (min_w + gap)).floor() as usize).clamp(1, n);
+    let pw = ((w - gap * (cols as f32 - 1.0)) / cols as f32).min(max_w);
+    (0..n)
+        .map(|i| {
+            let (col, row) = (i % cols, i / cols);
+            (x + col as f32 * (pw + gap), y + row as f32 * (ph + gap), pw, ph)
+        })
+        .collect()
+}
+
+fn lights_card(g: &mut Painter, live: &Live, view: &View, inner: Area) {
+    let pills = light_pills(live);
+    if pills.is_empty() {
+        return card_note(g, &Msg::PanelNoLights, view, inner);
+    }
+    for (pill, cell) in pills.iter().zip(pill_cells(inner, pills.len())) {
+        g.pill(view.lang, *pill, cell);
+    }
+}
+
+/// A readout: a small caps label over a figure.
+struct Cell {
+    label: String,
+    value: String,
+    color: COLORREF,
+}
+
+/// Where `n` cells go in a box with `cols` columns: `(x, y, w, h)` each.
+fn cell_grid((x, y, w, h): Area, n: usize, cols: usize) -> Vec<Area> {
+    if n == 0 {
+        return Vec::new();
+    }
+    let cols = cols.clamp(1, n);
+    let rows = n.div_ceil(cols);
+    let (cw, rh) = (w / cols as f32, (h / rows as f32).min(44.0));
+    (0..n)
+        .map(|i| (x + (i % cols) as f32 * cw, y + (i / cols) as f32 * rh, cw, rh))
+        .collect()
+}
+
+fn draw_cells(g: &mut Painter, cells: &[Cell], area: Area, cols: usize) {
+    let semi = FW_SEMIBOLD as i32;
+    for (cell, (x, y, w, h)) in cells.iter().zip(cell_grid(area, cells.len(), cols)) {
+        let r = g.r(x, y, w - 4.0, 12.0);
+        g.caps(&cell.label, r, 9.0, MUTED, DT_LEFT);
+        let size = (h - 12.0).clamp(14.0, 20.0);
+        let r = g.r(x - 1.0, y + 12.0, w + 2.0, size + 4.0);
+        g.text(&cell.value, r, size, semi, Face::Num, cell.color, DT_LEFT);
+    }
+}
+
+/// The colour of a temperature that gets worse above `warm` and `hot`.
+fn heat_color(temp_c: f32, warm: f32, hot: f32) -> COLORREF {
+    if temp_c >= hot {
+        RED
+    } else if temp_c >= warm {
+        AMBER
     } else {
-        "–".to_owned()
-    };
-    side(g, &text(view.lang, &Msg::PanelSteer), wheel, 476.0, DT_LEFT);
-    side(g, &text(view.lang, &Msg::PanelClutch), percent(live.clutch), 476.0, DT_RIGHT);
-    let (ty, th) = (492.0, 10.0);
-    // The wheel: the block where the wheel points is lit (a block either side when it sits between two).
-    let at = if live.steer.is_finite() {
-        0.5 + live.steer.clamp(-1.0, 1.0) / 2.0
+        TEXT
+    }
+}
+
+/// The figures of the engine and fuel card, only those known.
+fn engine_cells(live: &Live, lang: Lang) -> Vec<Cell> {
+    let mut cells = Vec::new();
+    if let Some(t) = live.state.water_c.filter(|t| t.is_finite()) {
+        cells.push(Cell {
+            label: text(lang, &Msg::PanelWater),
+            value: format!("{t:.0} °C"),
+            color: heat_color(t, 105.0, 115.0),
+        });
+    }
+    if let Some(t) = live.state.oil_c.filter(|t| t.is_finite()) {
+        cells.push(Cell {
+            label: text(lang, &Msg::PanelOil),
+            value: format!("{t:.0} °C"),
+            color: heat_color(t, 130.0, 145.0),
+        });
+    }
+    if let Some(per) = live.fuel_per_lap_l.filter(|p| p.is_finite() && *p > 0.0) {
+        cells.push(Cell {
+            label: text(lang, &Msg::PanelPerLap),
+            value: format!("{per:.1} L"),
+            color: TEXT,
+        });
+    }
+    if let Some(n) = fuel_laps_left(live.fuel_l, live.fuel_per_lap_l) {
+        let color = if n < 1.0 {
+            RED
+        } else if n < 2.0 {
+            AMBER
+        } else {
+            TEXT
+        };
+        cells.push(Cell {
+            label: text(lang, &Msg::PanelLapsLeft),
+            value: format!("{n:.1}"),
+            color,
+        });
+    }
+    cells
+}
+
+fn engine_card(g: &mut Painter, live: &Live, view: &View, inner: Area) {
+    let cells = engine_cells(live, view.lang);
+    if cells.is_empty() {
+        return card_note(g, &Msg::PanelNoCarData, view, inner);
+    }
+    draw_cells(g, &cells, inner, 2);
+}
+
+/// The figures of the electronics half: TC, ABS and MAP levels and the brake bias, only those known.
+fn electronics_cells(live: &Live, lang: Lang) -> Vec<Cell> {
+    let level = |n: u8| if n == 0 { "OFF".to_owned() } else { n.to_string() };
+    let s = &live.state;
+    let mut cells = Vec::new();
+    for (label, value) in [
+        ("TC", s.tc_level.map(level)),
+        ("ABS", s.abs_level.map(level)),
+        ("MAP", s.engine_map.map(|n| n.to_string())),
+    ] {
+        if let Some(value) = value {
+            cells.push(Cell {
+                label: label.to_owned(),
+                value,
+                color: TEXT,
+            });
+        }
+    }
+    if let Some(bias) = s.brake_bias.filter(|b| b.is_finite()) {
+        cells.push(Cell {
+            label: text(lang, &Msg::PanelBias),
+            value: format!("{:.1} %", bias.clamp(0.0, 1.0) * 100.0),
+            color: TEXT,
+        });
+    }
+    cells
+}
+
+/// The damage bars the car has: name and share (0 = none .. 1 = destroyed), only those known.
+fn damage_bars(live: &Live, lang: Lang) -> Vec<(String, f32)> {
+    let s = &live.state;
+    [
+        (Msg::PanelDmgBody, s.damage_body),
+        (Msg::PanelDmgEngine, s.damage_engine),
+        (Msg::PanelDmgGearbox, s.damage_gearbox),
+        (Msg::PanelDmgSusp, s.damage_suspension),
+    ]
+    .into_iter()
+    .filter_map(|(msg, d)| d.filter(|d| d.is_finite()).map(|d| (text(lang, &msg), d.clamp(0.0, 1.0))))
+    .collect()
+}
+
+/// Damage's colour: green, through amber, to red.
+fn damage_color(share: f32) -> COLORREF {
+    let s = share.clamp(0.0, 1.0);
+    if s < 0.5 {
+        mix(GREEN, AMBER, s / 0.5)
     } else {
-        f32::NAN
-    };
-    let reach = 1.0 / 48.0;
-    g.blocks(bx, ty, bw, th, 48, at - reach, at + reach, ACCENT);
-    g.fill(g.r(mid - 1.0, ty - 5.0, 2.0, th + 10.0), MUTED);
+        mix(AMBER, RED, (s - 0.5) / 0.5)
+    }
+}
+
+/// Where the two halves of the electronics card go: the figures on the left, the damage bars on the right; a half
+/// with nothing to show gives its room to the other.
+fn electronics_split((x, y, w, h): Area, stats: bool, bars: bool) -> (Area, Area) {
+    match (stats, bars) {
+        (true, true) => {
+            let left = (w * 0.46).floor();
+            ((x, y, left, h), (x + left + 14.0, y, w - left - 14.0, h))
+        }
+        (true, false) => ((x, y, w, h), (x + w, y, 0.0, h)),
+        (false, true) => ((x, y, 0.0, h), (x, y, w, h)),
+        (false, false) => ((x, y, 0.0, h), (x, y, 0.0, h)),
+    }
+}
+
+fn electronics_card(g: &mut Painter, live: &Live, view: &View, inner: Area) {
+    let cells = electronics_cells(live, view.lang);
+    let bars = damage_bars(live, view.lang);
+    if cells.is_empty() && bars.is_empty() {
+        return card_note(g, &Msg::PanelNoCarData, view, inner);
+    }
+    let (stats_area, bars_area) = electronics_split(inner, !cells.is_empty(), !bars.is_empty());
+    draw_cells(g, &cells, stats_area, 2);
+    let (bx, by, bw, bh) = bars_area;
+    let row_h = (bh / 4.0).min(18.0);
+    for (i, (name, share)) in bars.iter().enumerate() {
+        let y = by + i as f32 * row_h;
+        let r = g.r(bx, y, 44.0, row_h);
+        g.caps(name, r, 8.0, MUTED, DT_LEFT);
+        let track = (bx + 48.0, y + row_h / 2.0 - 3.0, (bw - 48.0).max(1.0), 6.0);
+        g.round(g.r(track.0, track.1, track.2, track.3), 3.0, TRACK, None);
+        let color = damage_color(*share);
+        // Undamaged is an empty bar with a pip of green, so it still reads as healthy.
+        let len = (track.2 * share).max(5.0);
+        g.round(g.r(track.0, track.1, len, track.3), 3.0, color, None);
+    }
 }
 
 /// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
@@ -2396,7 +3029,7 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
 fn tyre_color(temp_c: f32) -> COLORREF {
     match temp_c {
         t if !t.is_finite() => MUTED,
-        t if t < 65.0 => BLUE,
+        t if t < 65.0 => STEEL,
         t if t < 95.0 => GREEN,
         t if t < 110.0 => AMBER,
         _ => RED,
@@ -2408,7 +3041,7 @@ fn side_column(g: &mut Painter, live: &Live, view: &View, bottom: f32) {
     let (x, w, top) = (CANVAS_W + 24.0, SIDE_W - 24.0, 106.0);
     let tyres_h = ((bottom - top) * 0.46).clamp(214.0, 330.0);
     track_panel(g, live, view, x, top, w, bottom - top - tyres_h - 14.0);
-    tyres_panel(g, live, view, x, bottom - tyres_h, w, tyres_h, 2);
+    tyres_panel(g, live, view, x, bottom - tyres_h, w, tyres_h);
 }
 
 /// The track map (the car's own path, with where it is now) in a box; until there is enough of a path, a word that
@@ -2417,7 +3050,7 @@ fn track_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
     let r = g.r(x, y, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
     match live.map.as_ref().filter(|m| m.len() >= 30) {
-        Some(map) => g.track_map(x, y + 22.0, w, h - 22.0, map, live.pos),
+        Some(map) => g.track_map((x, y + 22.0, w, h - 22.0), map, live.map_complete, live.pos),
         None => {
             g.fill(g.r(x, y + 22.0, w, h - 22.0), mix(BG, CARD, 0.5));
             let note = text(view.lang, &Msg::PanelMapSoon);
@@ -2437,10 +3070,11 @@ fn track_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
     }
 }
 
-/// The four tyres in `cols` columns (2: two rows of two; 4: one row); when the game says nothing about tyres, a word
-/// that it does not.
-#[allow(clippy::too_many_arguments)]
-fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32, cols: usize) {
+/// The four tyres around a quiet top view of the car: a rounded tyre at each corner, partly outside the body, its
+/// border and glow in its temperature's colour and its tread left filling it from the bottom. On the outer side the
+/// temperature and the pressure; above the front tyres and below the rear ones the brake's temperature with a disc
+/// in its colour. When the game says nothing about tyres, a word that it does not.
+fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32, h: f32) {
     let r = g.r(x, y, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelTyres), r, 10.5, MUTED, DT_LEFT);
     let Some(tyres) = live.tyres else {
@@ -2460,48 +3094,227 @@ fn tyres_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
         );
         return;
     };
-    let rows = 4_usize.div_ceil(cols.max(1));
-    let gap = 8.0;
-    let box_w = (w - gap * (cols as f32 - 1.0)) / cols as f32;
-    let box_h = (h - 22.0 - gap * (rows as f32 - 1.0)) / rows as f32;
-    for (i, (label, tyre)) in ["FL", "FR", "RL", "RR"].iter().zip(tyres.iter()).enumerate() {
-        let bx = x + (i % cols) as f32 * (box_w + gap);
-        let by = y + 22.0 + (i / cols) as f32 * (box_h + gap);
-        tyre_box(g, bx, by, box_w, box_h, label, tyre);
+    let brakes = tyres.iter().any(|t| t.brake_c.is_finite());
+    let plan = schematic(x, y + 22.0, w, h - 22.0, brakes);
+    // The car first, so the tyres sit on top of it.
+    g.car_body(plan.body);
+    for (i, tyre) in tyres.iter().enumerate() {
+        tyre_box(g, &plan, i, tyre);
     }
 }
 
-/// One tyre: its temperature, big, in its colour; the pressure; the tread left as blocks when the game gives it.
-fn tyre_box(g: &mut Painter, x: f32, y: f32, w: f32, h: f32, label: &str, tyre: &crate::game::Tyre) {
-    let color = tyre_color(tyre.temp_c);
-    g.fill(g.r(x, y, w, h), mix(BG, color, 0.13));
-    g.fill(g.r(x, y, w, 3.0), color);
-    let r = g.r(x + 12.0, y + 10.0, 40.0, 16.0);
-    g.caps(label, r, 10.5, MUTED, DT_LEFT);
-    let pressure = if tyre.pressure_kpa.is_finite() {
-        format!("{:.1} psi", tyre.pressure_kpa / 6.894_757)
-    } else {
-        String::new()
+/// A box in design units: `(x, y, width, height)`.
+type Area = (f32, f32, f32, f32);
+
+/// Where everything of the tyre schematic goes. Tyre order everywhere: front left, front right, rear left, rear right.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Schematic {
+    tyres: [Area; 4],
+    /// Beside each tyre, on its outer side: the temperature and the pressure. Left tyres' text is right-aligned (it
+    /// hugs the tyre), right tyres' text left-aligned.
+    readout: [Area; 4],
+    /// The brake temperature: above the front tyres, below the rear ones. Zero height when no brake is shown.
+    brake: [Area; 4],
+    /// The car's silhouette between the tyres.
+    body: Area,
+    /// The size of the big temperature.
+    temp_size: f32,
+}
+
+/// The brake row's height.
+const BRAKE_ROW: f32 = 18.0;
+
+/// The schematic for a box: the car in the middle, as large as the height allows, the readouts on its two sides.
+/// `brakes`: keep a row above and below for the brake temperatures.
+fn schematic(x: f32, y: f32, w: f32, h: f32, brakes: bool) -> Schematic {
+    let brake_h = if brakes { BRAKE_ROW } else { 0.0 };
+    let inner_h = (h - 2.0 * brake_h).max(1.0);
+    // A tyre is about twice as long as it is wide. Long enough to hold the temperature and the pressure.
+    let th = (inner_h * 0.32).clamp(33.0, 80.0).min(inner_h / 2.0 - 4.0).max(8.0);
+    let tw = (th * 0.55).clamp(8.0, 42.0);
+    // The distance between the two tyres of an axle: wide, but never so wide that the readouts lose their room.
+    let (readout_min, pad) = (80.0, 10.0);
+    let gap = (th * 1.15)
+        .clamp(30.0, 70.0)
+        .min((w - 2.0 * tw - 2.0 * (readout_min + pad)).max(14.0));
+    let cx = x + w / 2.0;
+    let (left_x, right_x) = (cx - gap / 2.0 - tw, cx + gap / 2.0);
+    let (front_y, rear_y) = (y + brake_h, y + h - brake_h - th);
+    // The temperature and the pressure take about 50 units of height at the biggest; the size follows the tyre.
+    let temp_size = ((th - 18.0) / 1.15).clamp(14.0, 30.0);
+    let block = temp_size * 1.15 + 16.0;
+    // The body reaches a little past the tyres at both ends and as far out as the middle of each tyre.
+    let half = gap / 2.0 + tw * 0.5;
+    let (body_top, body_bottom) = ((front_y - th * 0.15).max(y), (rear_y + th * 1.15).min(y + h));
+    let mut plan = Schematic {
+        tyres: [
+            (left_x, front_y, tw, th),
+            (right_x, front_y, tw, th),
+            (left_x, rear_y, tw, th),
+            (right_x, rear_y, tw, th),
+        ],
+        readout: [(0.0, 0.0, 0.0, 0.0); 4],
+        brake: [(0.0, 0.0, 0.0, 0.0); 4],
+        body: (cx - half, body_top, half * 2.0, body_bottom - body_top),
+        temp_size,
     };
-    let r = g.r(x, y + 8.0, w - 12.0, 20.0);
-    g.text(&pressure, r, 15.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_RIGHT);
-    let temp = if tyre.temp_c.is_finite() {
-        format!("{:.0}°", tyre.temp_c)
-    } else {
-        "–".to_owned()
-    };
-    let r = g.r(x + 12.0, y + 28.0, w - 24.0, h - 48.0);
-    g.text(&temp, r, 34.0, FW_SEMIBOLD as i32, Face::Num, color, DT_LEFT);
-    if tyre.left.is_finite() {
-        let wear = if tyre.left > 0.5 {
-            GREEN
-        } else if tyre.left > 0.25 {
-            AMBER
+    for i in 0..4 {
+        let (tx, ty, tw, th) = plan.tyres[i];
+        let rh = block;
+        let ry = (ty + th / 2.0 - rh / 2.0).max(y);
+        plan.readout[i] = if i.is_multiple_of(2) {
+            (x, ry, (tx - pad - x).max(0.0), rh)
         } else {
-            RED
+            (tx + tw + pad, ry, (x + w - tx - tw - pad).max(0.0), rh)
         };
-        g.blocks(x + 12.0, y + h - 16.0, w - 24.0, 6.0, 10, 0.0, tyre.left, wear);
+        if brakes {
+            let by = if i < 2 { y } else { y + h - brake_h };
+            plan.brake[i] = (tx + tw / 2.0 - 40.0, by, 80.0, brake_h);
+        }
     }
+    plan
+}
+
+/// The colour of a brake disc's temperature: steel blue cold, green working, amber hot, red over the limit.
+fn brake_color(temp_c: f32) -> COLORREF {
+    match temp_c {
+        t if !t.is_finite() => MUTED,
+        t if t < 150.0 => STEEL,
+        t if t < 450.0 => GREEN,
+        t if t < 700.0 => AMBER,
+        _ => RED,
+    }
+}
+
+/// One tyre of the schematic: a dark tyre with its border and a soft glow in its temperature's colour and its tread
+/// left as a muted fill from the bottom; the temperature big and the pressure under it on the outer side; the
+/// brake's temperature with its disc in its row.
+fn tyre_box(g: &mut Painter, plan: &Schematic, i: usize, tyre: &crate::game::Tyre) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let known = tyre.temp_c.is_finite();
+    let color = tyre_color(tyre.temp_c);
+    let (x, y, w, h) = plan.tyres[i];
+    let radius = (w * 0.3).min(9.0);
+    let edge = if known { color } else { mix(BG, MUTED, 0.35) };
+    // The glow: a few rings getting fainter outward.
+    if known {
+        for (grow, amount) in [(5.0, 0.07), (3.5, 0.12), (2.0, 0.2)] {
+            g.round(
+                g.r(x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow),
+                radius + grow,
+                mix(BG, color, amount),
+                None,
+            );
+        }
+    }
+    g.round(g.r(x, y, w, h), radius, edge, None);
+    let base = mix(BG, CARD, 0.55);
+    let border = 1.6;
+    g.round(
+        g.r(x + border, y + border, w - 2.0 * border, h - 2.0 * border),
+        radius - border,
+        base,
+        None,
+    );
+    // Tread left: the fill rises from the bottom, in the temperature's colour, muted.
+    if tyre.left.is_finite() {
+        let inset = 3.2;
+        let (fx, fw, full) = (x + inset, w - 2.0 * inset, h - 2.0 * inset);
+        let filled = full * tyre.left.clamp(0.0, 1.0);
+        if filled >= 1.0 {
+            let tint = if known { mix(base, color, 0.5) } else { mix(base, MUTED, 0.3) };
+            g.round(
+                g.r(fx, y + inset + full - filled, fw, filled),
+                (radius - inset).max(1.0).min(filled / 2.0),
+                tint,
+                None,
+            );
+        }
+    }
+    // The readout, centred on the tyre's height, on its outer side.
+    let (rx, _, rw, _) = plan.readout[i];
+    let right_aligned = i.is_multiple_of(2);
+    let size = plan.temp_size;
+    let block = size * 1.15 + 16.0;
+    let top = y + h / 2.0 - block / 2.0;
+    let temp = if known { format!("{:.0}°", tyre.temp_c) } else { "–".to_owned() };
+    let r = g.r(rx, top, rw, size * 1.15);
+    g.text(
+        &temp,
+        r,
+        size,
+        semi,
+        Face::Num,
+        color,
+        if right_aligned { DT_RIGHT } else { DT_LEFT },
+    );
+    if tyre.pressure_kpa.is_finite() {
+        let num = format!("{:.1}", tyre.pressure_kpa / 6.894_757);
+        let (num_w, psi_w) = (g.width_of(&num, 14.0, semi, Face::Num), g.width_of("psi", 10.0, normal, Face::Ui));
+        let ly = top + size * 1.15 + 1.0;
+        let (num_x, psi_x) = if right_aligned {
+            (rx + rw - psi_w - 4.0 - num_w, rx + rw - psi_w)
+        } else {
+            (rx, rx + num_w + 4.0)
+        };
+        let r = g.r(num_x - 1.0, ly, num_w + 2.0, 18.0);
+        g.text(&num, r, 14.0, semi, Face::Num, TEXT, DT_LEFT);
+        let r = g.r(psi_x, ly + 4.0, psi_w + 2.0, 14.0);
+        g.text("psi", r, 10.0, normal, Face::Ui, MUTED, DT_LEFT);
+    }
+    let (bx, by, bw, bh) = plan.brake[i];
+    if tyre.brake_c.is_finite() && bh > 0.0 {
+        let label = format!("{:.0} °C", tyre.brake_c);
+        let (disc, gap) = (11.0, 5.0);
+        let label_w = g.width_of(&label, 12.0, normal, Face::Num);
+        let left = bx + (bw - (disc + gap + label_w)) / 2.0;
+        g.brake_disc(left + disc / 2.0, by + bh / 2.0, disc, brake_color(tyre.brake_c));
+        let r = g.r(left + disc + gap, by, label_w + 4.0, bh);
+        g.text(&label, r, 12.0, normal, Face::Num, MUTED, DT_LEFT);
+    }
+}
+
+/// The car's outline seen from above, in a box: the half width at each distance from the nose, as a share of the
+/// box's half width. Control points `(distance 0..1, half width)`, joined smoothly.
+const BODY_PROFILE: [(f32, f32); 13] = [
+    (0.00, 0.10),
+    (0.03, 0.24),
+    (0.09, 0.38),
+    (0.17, 0.52),
+    (0.26, 0.74),
+    (0.36, 0.88),
+    (0.48, 0.84),
+    (0.60, 0.82),
+    (0.72, 0.90),
+    (0.85, 0.98),
+    (0.94, 0.96),
+    (0.98, 0.86),
+    (1.00, 0.55),
+];
+
+/// The silhouette's outline, going down the right side and back up the left, all inside the box.
+fn body_outline((x, y, w, h): Area) -> Vec<(f32, f32)> {
+    let half = w / 2.0;
+    let cx = x + half;
+    let steps = 48;
+    let side: Vec<(f32, f32)> = (0..=steps)
+        .map(|k| {
+            let t = k as f32 / steps as f32;
+            let at = BODY_PROFILE
+                .windows(2)
+                .find(|p| t <= p[1].0)
+                .unwrap_or(&BODY_PROFILE[BODY_PROFILE.len() - 2..]);
+            let (a, b) = (at[0], at[1]);
+            let u = ((t - a.0) / (b.0 - a.0)).clamp(0.0, 1.0);
+            // Eased between the two control points, so the outline has no corners.
+            let ease = (1.0 - (u * std::f32::consts::PI).cos()) / 2.0;
+            (y + t * h, (a.1 + (b.1 - a.1) * ease) * half)
+        })
+        .collect();
+    side.iter()
+        .map(|&(py, hw)| (cx + hw, py))
+        .chain(side.iter().rev().map(|&(py, hw)| (cx - hw, py)))
+        .collect()
 }
 
 fn monitor(g: &mut Painter, body: RECT, view: &View) {
@@ -2521,13 +3334,15 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // The account card always gets the height its content needs, and the games list takes what is left: its rows
     // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
     // ever drawn outside its card, whatever the window's size.
-    let paired = matches!(view.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_));
-    let first = if paired {
-        (Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)
-    } else {
-        (Action::Connect, text(view.lang, &Msg::MenuConnect), true)
+    let wanted: Vec<(Action, String, bool)> = match &view.card {
+        Card::Connected { .. } => vec![(Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)],
+        Card::Waiting => vec![
+            (Action::OpenConnectPage, text(view.lang, &Msg::ConnectOpenAgain), true),
+            (Action::CancelConnect, text(view.lang, &Msg::ConnectCancel), false),
+        ],
+        Card::NotConnected { .. } => vec![(Action::Connect, text(view.lang, &Msg::MenuConnect), true)],
     };
-    let buttons: Vec<(Action, String, bool, f32)> = [first]
+    let buttons: Vec<(Action, String, bool, f32)> = wanted
         .into_iter()
         .map(|(action, label, primary)| {
             let w = (g.width_of(&label, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0);
@@ -2616,12 +3431,39 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         Cloud::NotPaired => GREY,
         Cloud::Refused => RED,
     };
-    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), cloud_color);
+    let host = connect::host_of(view.server);
+    // The headline, its colour and the muted line under it, by what the card says.
+    let (dot, headline, muted) = match &view.card {
+        Card::Waiting => (
+            AMBER,
+            text(view.lang, &Msg::ConnectWaiting),
+            text(view.lang, &Msg::ConnectWaitingHint),
+        ),
+        Card::Connected { who } => (
+            cloud_color,
+            // Laps waiting to be sent matter more than who it is: say that when it is so.
+            match view.snapshot.cloud {
+                Cloud::Waiting(_) => present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
+                _ => text(view.lang, &Msg::ConnectedAs(who.clone())),
+            },
+            host.to_owned(),
+        ),
+        Card::NotConnected { note } => (
+            cloud_color,
+            present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
+            match note {
+                Some(Note::Cancelled) => text(view.lang, &Msg::ConnectNoteCancelled),
+                Some(Note::Expired) => text(view.lang, &Msg::ConnectNoteExpired),
+                Some(Note::Failed(why)) => why.clone(),
+                None => host.to_owned(),
+            },
+        ),
+    };
+    g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), dot);
     let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
-    let cloud = present::cloud_line(view.lang, &view.snapshot.cloud, view.device);
-    g.text(&cloud, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
+    g.text(&headline, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
     let r = g.r(40.0, account_y + 70.0, col - 60.0, 20.0);
-    g.text(view.server, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    g.text(&muted, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
     // it refused this computer).
     for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
@@ -2668,11 +3510,24 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
             if i > 0 {
                 g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
             }
-            let (name, time) = lap_parts(label);
+            let lap = lap_parts(label);
             let r = g.r(right + 20.0, y, col / 2.0, lap_row);
-            g.text(name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            g.text(lap.name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            // The time stays in its half of the row (smaller when it is long), the mark of an invalid lap before it.
+            let room = col / 2.0 - 20.0 - if lap.invalid { 24.0 } else { 0.0 };
+            let size = g.fitted(lap.time, room, 18.0, 11.0, semi, Face::Num);
+            let color = match (lap.invalid, i) {
+                (true, _) => MUTED,
+                (_, 0) => ACCENT,
+                _ => TEXT,
+            };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
-            g.text(time, r, 18.0, semi, Face::Num, if i == 0 { ACCENT } else { TEXT }, DT_RIGHT);
+            g.text(lap.time, r, size, semi, Face::Num, color, DT_RIGHT);
+            if lap.invalid {
+                // The digits are set a little wider than the plain measure: leave room.
+                let used = g.width_of(lap.time, size, semi, Face::Num) * 1.18 + 8.0;
+                g.invalid_mark(right + col - 20.0 - used - 22.0, y + (lap_row - 16.0) / 2.0, 16.0);
+            }
         }
     }
 
@@ -2777,7 +3632,7 @@ fn game_rows(ctx: &Context, installed: Option<&HashSet<&'static str>>) -> Vec<Ga
         Game::Connected => 3,
         Game::Unsupported => 3,
         Game::Paused => 2,
-        Game::Silent => 1,
+        Game::Silent | Game::Loading => 1,
         Game::Waiting => 0,
     };
     let state_of = |ids: &[&str]| {
@@ -2883,6 +3738,12 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         games: &games,
         device: account.device.as_deref(),
         server: &account.server,
+        card: crate::connect::card(
+            matches!(snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
+            &crate::connect::Flow::global().phase(),
+            account.label.as_deref(),
+            &account.server,
+        ),
         recent_laps: &recent_laps,
         activity: &activity,
         covers: &state.covers,
@@ -3156,7 +4017,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             } else if let Some(&(action, _)) = state.buttons.iter().find(|(_, r)| inside(r, x, y)) {
                 let account = state.ctx.account.lock().unwrap().clone();
                 match action {
-                    Action::Connect => win::open(&format!("{}{}", account.server, CONNECT_PATH)),
+                    Action::Connect => crate::tray::start_connect(&account.server),
+                    Action::OpenConnectPage => {
+                        if let Some(page) = crate::connect::Flow::global().page() {
+                            win::open(&page);
+                        }
+                    }
+                    Action::CancelConnect => crate::connect::Flow::global().cancel(),
                     Action::OpenXpeed => win::open(&format!("{}/sim", account.server)),
                     Action::Lang(i) => choose_lang(state, Lang::ALL[i]),
                     Action::Cover(i) => {
@@ -3377,7 +4244,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            win::wide("Xpeed Sim").as_ptr(),
+            win::wide("Xpeed Companion").as_ptr(),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -3520,6 +4387,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
         account: Arc::new(Mutex::new(Account {
             device: Some("DEMO".into()),
             server: "https://xpeed.skale.club".into(),
+            label: None,
             lang,
         })),
         readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
@@ -3543,6 +4411,258 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pedal_bar_fills_with_its_value_and_never_past_the_bar() {
+        assert_eq!(pedal_fill(0.0, 50.0), 0.0);
+        assert_eq!(pedal_fill(0.5, 50.0), 25.0);
+        assert_eq!(pedal_fill(1.0, 50.0), 50.0);
+        assert_eq!(pedal_fill(1.7, 50.0), 50.0);
+        assert_eq!(pedal_fill(-0.3, 50.0), 0.0);
+    }
+
+    #[test]
+    fn a_pedal_without_a_value_counts_as_released() {
+        assert_eq!(pedal_fill(f32::NAN, 50.0), 0.0);
+        assert_eq!(pedal_fill(f32::INFINITY, 50.0), 0.0);
+    }
+
+    #[test]
+    fn a_pedal_tag_is_the_first_letter_in_capitals() {
+        assert_eq!(pedal_tag("Brake"), "B");
+        assert_eq!(pedal_tag("embreagem"), "E");
+        assert_eq!(pedal_tag(""), "");
+    }
+
+    #[test]
+    fn the_wheel_bar_fills_toward_the_turn_and_stays_straight_without_a_value() {
+        assert_eq!(steer_share(0.0), 0.0);
+        assert_eq!(steer_share(0.5), 0.5);
+        assert_eq!(steer_share(-1.0), -1.0);
+        assert_eq!(steer_share(3.0), 1.0);
+        assert_eq!(steer_share(-3.0), -1.0);
+        assert_eq!(steer_share(f32::NAN), 0.0);
+    }
+
+    /// Whether a box lies between two vertical lines.
+    fn within_centre(a: Area, from: f32, to: f32) -> bool {
+        a.0 >= from && a.0 + a.2 <= to
+    }
+
+    #[test]
+    fn the_pedal_bars_and_the_wheel_bar_stay_in_the_centre_column_clear_of_the_side_columns() {
+        // The main block (used by the classic, ultrawide, wide and square layouts), then the portrait canvas.
+        for (name, cx, top, frame_h, from, to) in [
+            ("main", CANVAS_W / 2.0, 100.0, 140.0, MAIN_SIDE_W, CANVAS_W - MAIN_SIDE_W),
+            ("portrait", PORTRAIT_W / 2.0, 100.0, 190.0, 0.0, PORTRAIT_W),
+        ] {
+            let plan = centre_plan(cx, top, frame_h);
+            let (fx, fy, fw, fh) = plan.frame;
+            for (what, bar) in [
+                ("brake", plan.brake),
+                ("throttle", plan.throttle),
+                ("clutch", plan.clutch),
+                ("wheel", plan.steer),
+            ] {
+                assert!(within_centre(bar, from, to), "{name}: the {what} bar stays in the centre column");
+            }
+            // The pedals are as tall as the brackets, brake on the left and throttle on the right, outside the frame.
+            assert_eq!((plan.brake.1, plan.brake.3), (fy, fh));
+            assert_eq!((plan.throttle.1, plan.throttle.3), (fy, fh));
+            assert!(plan.brake.0 + plan.brake.2 <= fx, "{name}: the brake is left of the frame");
+            assert!(plan.throttle.0 >= fx + fw, "{name}: the throttle is right of the frame");
+            // The clutch sits on the outer side of the brake, apart from it, and is thinner.
+            assert!(
+                plan.clutch.0 + plan.clutch.2 < plan.brake.0 && plan.clutch.2 < plan.brake.2,
+                "{name}: clutch"
+            );
+            // The wheel bar is about the frame's width, under the speed and its unit, above the bottom line.
+            assert!((plan.steer.2 - fw).abs() < 1.0);
+            assert!(
+                plan.steer.1 >= plan.unit.1 + plan.unit.3 && plan.steer.1 + plan.steer.3 <= plan.bottom,
+                "{name}: wheel"
+            );
+            assert!(!overlap(plan.steer, plan.brake) && !overlap(plan.steer, plan.throttle));
+            // The letters under the pedals end above the wheel bar.
+            assert!(plan.brake.1 + plan.brake.3 + 17.0 <= plan.steer.1 + plan.steer.3);
+        }
+        // The main block's middle ends above its car strip.
+        assert!(centre_plan(CANVAS_W / 2.0, 100.0, 140.0).bottom < STRIP_TOP - 5.0);
+    }
+
+    #[test]
+    fn the_car_strip_cards_fit_their_row_and_the_least_important_go_first() {
+        let (row_y, row_h) = (STRIP_TOP, CANVAS_H - STRIP_TOP - 8.0);
+        let all = strip_plan(0.0, row_y, CANVAS_W, row_h);
+        let kinds: Vec<CarCard> = all.iter().map(|c| c.0).collect();
+        assert_eq!(
+            kinds,
+            [CarCard::Lights, CarCard::Engine, CarCard::Electronics],
+            "the main block has room for all three"
+        );
+        for (card, area) in &all {
+            assert!(inside_box(*area, 0.0, row_y, CANVAS_W, row_h), "{card:?} is inside its row");
+            assert!(area.2 >= card.min_w(), "{card:?} is wide enough to read");
+        }
+        for pair in all.windows(2) {
+            assert!(!overlap(pair[0].1, pair[1].1), "cards side by side, not over each other");
+            assert!(pair[1].1 .0 > pair[0].1 .0 + pair[0].1 .2, "with a gap");
+        }
+        // Less room: the engine and fuel card goes first, then electronics; the lights never.
+        let two: Vec<CarCard> = strip_plan(0.0, 0.0, 560.0, 100.0).iter().map(|c| c.0).collect();
+        assert_eq!(two, [CarCard::Lights, CarCard::Electronics]);
+        let one: Vec<CarCard> = strip_plan(0.0, 0.0, 300.0, 100.0).iter().map(|c| c.0).collect();
+        assert_eq!(one, [CarCard::Lights]);
+        let tiny: Vec<CarCard> = strip_plan(0.0, 0.0, 120.0, 100.0).iter().map(|c| c.0).collect();
+        assert_eq!(tiny, [CarCard::Lights], "the lights stay even where they are squeezed");
+        // The pills of the lights card stay inside it, in rows that do not overlap.
+        let (_, lights) = all[0];
+        let inner = (lights.0 + 14.0, lights.1 + 32.0, lights.2 - 28.0, lights.3 - 40.0);
+        for n in 1..=9 {
+            let cells = pill_cells(inner, n);
+            assert_eq!(cells.len(), n);
+            for (i, c) in cells.iter().enumerate() {
+                assert!(
+                    inside_box(*c, inner.0, inner.1, inner.2, inner.3),
+                    "pill {i} of {n} inside the card"
+                );
+                for d in &cells[i + 1..] {
+                    assert!(!overlap(*c, *d), "pills of {n} do not overlap");
+                }
+            }
+        }
+        // And the other two cards' figures stay inside theirs, however many are known.
+        let (_, engine) = all[1];
+        let inner = (engine.0 + 14.0, engine.1 + 32.0, engine.2 - 28.0, engine.3 - 40.0);
+        for n in 1..=4 {
+            for c in cell_grid(inner, n, 2) {
+                assert!(inside_box(c, inner.0, inner.1, inner.2, inner.3), "{n} figures in the engine card");
+            }
+        }
+        for (stats, bars) in [(true, true), (true, false), (false, true)] {
+            let (s, b) = electronics_split(inner, stats, bars);
+            assert!(!overlap(s, b));
+            assert!(inside_box(s, inner.0, inner.1, inner.2, inner.3) && inside_box(b, inner.0, inner.1, inner.2, inner.3));
+        }
+    }
+
+    #[test]
+    fn a_light_the_game_does_not_give_is_not_drawn() {
+        use crate::game::{CarState, Drs, Flag};
+        let mut live = live_reading();
+        live.fuel_per_lap_l = None;
+        live.state = CarState::UNKNOWN;
+        assert!(light_pills(&live).is_empty(), "nothing known, nothing drawn (not even as off)");
+        // Only what is given appears, in the fixed order, lit or off.
+        live.state.headlights = Some(false);
+        live.state.abs_active = Some(true);
+        live.state.drs = Some(Drs::Available);
+        live.state.flag = Some(Flag::Yellow);
+        let kinds: Vec<(PillKind, Glow)> = light_pills(&live).iter().map(|p| (p.kind, p.glow)).collect();
+        assert_eq!(
+            kinds,
+            [
+                (PillKind::Abs, Glow::On),
+                (PillKind::Drs, Glow::Ready),
+                (PillKind::Headlights, Glow::Off),
+                (PillKind::Flag, Glow::Off)
+            ]
+        );
+        for hidden in [PillKind::Pit, PillKind::Tc, PillKind::Fuel, PillKind::Engine, PillKind::Handbrake] {
+            assert!(light_pills(&live).iter().all(|p| p.kind != hidden), "{hidden:?} is not given");
+        }
+        live.state.drs = Some(Drs::Open);
+        assert_eq!(light_pills(&live)[1].glow, Glow::On, "DRS open is lit");
+        // The same in the picture: a light that is not given paints nothing, one that is lit paints its colour.
+        let f = fixture();
+        let none = {
+            let mut l = live_reading();
+            l.state = CarState::UNKNOWN;
+            l.fuel_per_lap_l = None;
+            l
+        };
+        let lit = {
+            let mut l = none.clone();
+            l.state.engine_warning = Some(true);
+            l.state.handbrake = Some(true);
+            l
+        };
+        let (w, h) = (1032, 602);
+        let plain = render(&view(&f, Some(&none), Tab::Dash, 1.0, Lang::En), w, h);
+        let drawn = render(&view(&f, Some(&lit), Tab::Dash, 1.0, Lang::En), w, h);
+        assert!(has_color(&drawn, RED) > has_color(&plain, RED) + 200, "ENG and HB light up in red");
+    }
+
+    #[test]
+    fn laps_of_fuel_left_are_computed_and_hidden_without_the_use_per_lap() {
+        assert_eq!(fuel_laps_left(30.0, Some(2.0)), Some(15.0));
+        assert_eq!(fuel_laps_left(0.0, Some(2.0)), Some(0.0));
+        assert_eq!(fuel_laps_left(-1.0, Some(2.0)), Some(0.0), "never below nothing");
+        assert_eq!(fuel_laps_left(30.0, None), None, "no use per lap, no laps");
+        assert_eq!(fuel_laps_left(30.0, Some(0.0)), None);
+        assert_eq!(fuel_laps_left(30.0, Some(f32::NAN)), None);
+        assert_eq!(fuel_laps_left(f32::NAN, Some(2.0)), None);
+        let mut live = live_reading();
+        live.fuel_l = 38.6;
+        live.fuel_per_lap_l = Some(2.9);
+        assert_eq!(fuel_sub_line(&live, Lang::En).0, "13.3 laps  ·  2.9 L/lap");
+        assert_eq!(fuel_sub_line(&live, Lang::Pt).0, "13.3 voltas  ·  2.9 L/volta");
+        live.fuel_per_lap_l = None;
+        assert_eq!(
+            fuel_sub_line(&live, Lang::En).0,
+            "",
+            "nothing under the fuel until the use per lap is known"
+        );
+        assert!(engine_cells(&live, Lang::En)
+            .iter()
+            .all(|c| c.label != text(Lang::En, &Msg::PanelLapsLeft)));
+        // The fuel light needs the laps too: under two laps it is lit.
+        assert!(light_pills(&live).iter().all(|p| p.kind != PillKind::Fuel));
+        live.fuel_per_lap_l = Some(2.9);
+        live.fuel_l = 4.0;
+        assert_eq!(
+            light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
+            Some(Glow::On)
+        );
+        live.fuel_l = 20.0;
+        assert_eq!(
+            light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
+            Some(Glow::Off)
+        );
+    }
+
+    #[test]
+    fn the_engine_and_electronics_cards_keep_only_what_is_known() {
+        use crate::game::CarState;
+        let mut live = live_reading();
+        live.state = CarState::UNKNOWN;
+        assert!(electronics_cells(&live, Lang::En).is_empty() && damage_bars(&live, Lang::En).is_empty());
+        live.state.water_c = Some(92.0);
+        live.fuel_per_lap_l = None;
+        let engine = engine_cells(&live, Lang::En);
+        assert_eq!(engine.len(), 1, "water alone: oil, use and laps are left out");
+        assert_eq!(engine[0].value, "92 °C");
+        live.state.tc_level = Some(0);
+        live.state.brake_bias = Some(0.56);
+        live.state.damage_gearbox = Some(0.4);
+        let cells = electronics_cells(&live, Lang::En);
+        assert_eq!(cells.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(), ["OFF", "56.0 %"]);
+        assert_eq!(damage_bars(&live, Lang::En), [("Gbx".to_owned(), 0.4)]);
+        assert_eq!(damage_color(0.0), GREEN);
+        assert_eq!(damage_color(0.5), AMBER);
+        assert_eq!(damage_color(1.0), RED);
+    }
+
+    #[test]
+    fn the_brake_disc_and_tyre_colours_follow_their_temperature() {
+        assert_eq!(brake_color(100.0), STEEL);
+        assert_eq!(brake_color(300.0), GREEN);
+        assert_eq!(brake_color(600.0), AMBER);
+        assert_eq!(brake_color(800.0), RED);
+        assert_eq!(brake_color(f32::NAN), MUTED);
+        assert_eq!(tyre_color(50.0), STEEL, "a cold tyre is a calm steel blue");
+        assert_eq!(tyre_color(80.0), GREEN);
+    }
+
     use super::*;
 
     #[test]
@@ -3576,6 +4696,34 @@ mod tests {
         ];
         assert_eq!(focus_of(&games), Some(("f1", "EA SPORTS F1 25", Game::Connected)));
         assert_eq!(focus_of(&games[..2]), Some(("ams2", "Automobilista 2", Game::Silent)));
+    }
+
+    #[test]
+    fn a_game_that_is_loading_ranks_like_one_open_without_data_and_says_to_wait() {
+        let loading = ("ams2", "Automobilista 2", Game::Loading);
+        assert_eq!(
+            focus_of(&[("ac", "Assetto Corsa", Game::Waiting), loading.clone()]),
+            Some(loading.clone())
+        );
+        let silent = ("lmu", "Le Mans Ultimate", Game::Silent);
+        // Same rank: the last of the two is the focus, whichever order (so neither beats the other).
+        assert_eq!(focus_of(&[loading.clone(), silent.clone()]), Some(silent.clone()));
+        assert_eq!(focus_of(&[silent.clone(), loading.clone()]), Some(loading.clone()));
+        let paused = ("ac", "Assetto Corsa", Game::Paused);
+        assert_eq!(focus_of(&[loading.clone(), paused.clone()]), Some(paused), "paused beats loading");
+        let f = fixture();
+        let view = view(&f, None, Tab::Dash, 1.0, Lang::En);
+        let (title, line, note, act) = focus_words(&view, loading);
+        assert_eq!(title, "Automobilista 2 is open");
+        assert_eq!(line, text(Lang::En, &Msg::FocusLoading));
+        assert!(line.starts_with("Loading"), "{line}");
+        assert_eq!(note, None, "no note while it loads");
+        assert!(!act, "muted, not the colour of something to do");
+        let (_, setup, _, act) = focus_words(&view, silent);
+        assert_ne!(setup, line);
+        assert!(act, "no data after the wait: there is something to do");
+        assert_eq!(state_text(Lang::En, &Game::Loading), "loading");
+        assert_eq!(state_color(&Game::Loading), MUTED);
     }
 
     #[test]
@@ -3737,6 +4885,7 @@ mod tests {
         frame.fuel_l = 38.6;
         frame.tyres = Some(
             [(84.0, 26.9, 0.91), (88.0, 27.2, 0.9), (97.0, 26.4, 0.86), (101.0, 26.6, 0.84)].map(|(t, psi, left)| crate::game::Tyre {
+                brake_c: t * 3.4,
                 temp_c: t,
                 pressure_kpa: psi * 6.894_757,
                 left,
@@ -3751,8 +4900,30 @@ mod tests {
             .collect();
         live.pos = Some(track[160]);
         live.map = Some(std::sync::Arc::new(track));
+        live.map_complete = true;
         live.best_lap_s = Some(107.204);
         live.delta_s = Some(-0.27);
+        live.fuel_per_lap_l = Some(2.9);
+        live.state = crate::game::CarState {
+            pit_limiter: Some(false),
+            abs_active: Some(true),
+            tc_active: Some(false),
+            drs: Some(crate::game::Drs::Available),
+            headlights: Some(true),
+            handbrake: Some(false),
+            engine_warning: Some(false),
+            flag: Some(crate::game::Flag::Yellow),
+            water_c: Some(92.0),
+            oil_c: Some(108.0),
+            tc_level: Some(3),
+            abs_level: Some(2),
+            engine_map: Some(1),
+            brake_bias: Some(0.56),
+            damage_body: Some(0.12),
+            damage_engine: Some(0.0),
+            damage_gearbox: Some(0.05),
+            damage_suspension: Some(0.4),
+        };
         live
     }
 
@@ -3799,7 +4970,11 @@ mod tests {
                     state: Game::Unsupported,
                 },
             ],
-            laps: vec!["Lap 1  1:49.002".into(), "Lap 2  1:48.115".into(), "Lap 3  1:47.918".into()],
+            laps: vec![
+                "Lap 1  1:49.002".into(),
+                "Lap 2  1:48.115 (not valid)".into(),
+                "Lap 3  1:47.918".into(),
+            ],
             log: vec![
                 ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
                 ("21:45".into(), "Lap saved: Lap 2  1:48.115".into()),
@@ -3823,6 +4998,12 @@ mod tests {
             games: &f.games,
             device: Some("RIG"),
             server: "https://xpeed.skale.club",
+            card: crate::connect::card(
+                matches!(f.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
+                &crate::connect::Phase::Idle,
+                Some("ana@example.com"),
+                "https://xpeed.skale.club",
+            ),
             recent_laps: &f.laps,
             activity: &f.log,
             covers: &[],
@@ -3882,9 +5063,173 @@ mod tests {
         );
     }
 
+    /// The boxes the tyre schematic gets in each layout that shows it (the area under the "Tyres" title).
+    const SCHEMATIC_BOXES: [(&str, f32, f32); 5] = [
+        ("side column, short", 312.0, 192.0),
+        ("side column, tall", 312.0, 255.0),
+        ("4:3 bottom row", 490.0, 266.0),
+        ("portrait", 336.0, 276.0),
+        ("narrow", 200.0, 120.0),
+    ];
+
+    fn inside_box(a: Area, x: f32, y: f32, w: f32, h: f32) -> bool {
+        let eps = 0.01;
+        a.0 >= x - eps && a.1 >= y - eps && a.0 + a.2 <= x + w + eps && a.1 + a.3 <= y + h + eps
+    }
+
+    fn overlap(a: Area, b: Area) -> bool {
+        a.2 > 0.0 && b.2 > 0.0 && a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+    }
+
+    #[test]
+    fn the_tyre_schematic_fits_its_box_in_every_layout_without_text_over_a_tyre() {
+        for brakes in [true, false] {
+            for (name, w, h) in SCHEMATIC_BOXES {
+                let (x, y) = (7.0, 11.0);
+                let plan = schematic(x, y, w, h, brakes);
+                for i in 0..4 {
+                    assert!(inside_box(plan.tyres[i], x, y, w, h), "{name}: tyre {i} is inside the box");
+                    assert!(inside_box(plan.readout[i], x, y, w, h), "{name}: readout {i} is inside the box");
+                    assert!(plan.tyres[i].2 < plan.tyres[i].3, "{name}: a tyre is longer than it is wide");
+                    assert!(!overlap(plan.readout[i], plan.tyres[i]), "{name}: readout {i} clear of its tyre");
+                    assert!(inside_box(plan.body, x, y, w, h), "{name}: the car's body is inside the box");
+                    for j in 0..4 {
+                        if i != j {
+                            assert!(!overlap(plan.tyres[i], plan.tyres[j]), "{name}: tyres {i} and {j} apart");
+                            assert!(!overlap(plan.readout[i], plan.tyres[j]), "{name}: readout {i} off tyre {j}");
+                        }
+                    }
+                    if brakes {
+                        assert!(inside_box(plan.brake[i], x, y, w, h), "{name}: brake row {i} inside");
+                        assert!(!overlap(plan.brake[i], plan.tyres[i]), "{name}: brake row {i} clear of the tyre");
+                        for j in 0..4 {
+                            assert!(!overlap(plan.brake[i], plan.readout[j]), "{name}: brake {i} clear of readout {j}");
+                        }
+                    } else {
+                        assert_eq!(plan.brake[i].3, 0.0, "{name}: no brake row without brake temperatures");
+                    }
+                }
+                // The readouts of a side have room for "100°" and "25.3 psi" (about 70 units), except in the
+                // narrowest box.
+                if w >= 300.0 {
+                    assert!(plan.readout[0].2 >= 70.0 && plan.readout[1].2 >= 70.0, "{name}: room for text");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_tyre_schematic_is_the_car_seen_from_above_with_brakes_at_its_ends() {
+        let (x, y, w, h) = (0.0, 0.0, 340.0, 240.0);
+        let plan = schematic(x, y, w, h, true);
+        let [fl, fr, rl, rr] = plan.tyres;
+        assert_eq!(fl.1, fr.1, "the fronts side by side, level");
+        assert_eq!(rl.1, rr.1, "the rears side by side, level");
+        assert!(fl.1 + fl.3 < rl.1, "front above rear, the body between");
+        // Symmetric around the middle.
+        let mid = w / 2.0;
+        assert!(((fl.0 + fl.2 / 2.0 + fr.0 + fr.2 / 2.0) / 2.0 - mid).abs() < 1e-3);
+        assert!(((fl.0 + fl.2) - (mid - (fr.0 - mid))).abs() < 1e-3);
+        assert!(
+            (plan.body.0 + plan.body.2 / 2.0 - mid).abs() < 1e-3,
+            "the body is on the centre line"
+        );
+        // Fronts' brake above the tyre, rears' below.
+        assert!(plan.brake[0].1 + plan.brake[0].3 <= fl.1 && plan.brake[1].1 + plan.brake[1].3 <= fr.1);
+        assert!(plan.brake[2].1 >= rl.1 + rl.3 && plan.brake[3].1 >= rr.1 + rr.3);
+        // The tyres sit partly outside the body: the inner edge of each is inside it, the outer edge beyond it.
+        let (bx, _, bw, _) = plan.body;
+        for t in plan.tyres {
+            let (inner, outer) = if t.0 < mid { (t.0 + t.2, t.0) } else { (t.0, t.0 + t.2) };
+            assert!(inner > bx && inner < bx + bw, "the inner edge of a tyre is over the body");
+            assert!(outer < bx || outer > bx + bw, "the outer edge of a tyre is outside the body");
+        }
+        // The body runs from the front tyres to the rear ones.
+        assert!(plan.body.1 <= fl.1 + fl.3 / 2.0 && plan.body.1 + plan.body.3 >= rl.1 + rl.3 / 2.0);
+        // Left tyres' readouts end before their tyre, right tyres' start after it.
+        assert!(plan.readout[0].0 + plan.readout[0].2 < fl.0);
+        assert!(plan.readout[1].0 > fr.0 + fr.2);
+        // The outline of the car stays inside the body's box and is the same on both sides.
+        let outline = body_outline(plan.body);
+        assert!(outline.iter().all(|&(px, py)| inside_box(
+            (px, py, 0.0, 0.0),
+            plan.body.0 - 0.01,
+            plan.body.1 - 0.01,
+            plan.body.2 + 0.02,
+            plan.body.3 + 0.02
+        )));
+        let n = outline.len() / 2;
+        for k in 0..n {
+            let (right, left) = (outline[k], outline[outline.len() - 1 - k]);
+            assert!((right.0 + left.0 - 2.0 * mid).abs() < 1e-3 && (right.1 - left.1).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn the_schematic_is_painted_for_every_shape_and_a_brake_only_tyre_gets_its_row() {
+        let f = fixture();
+        let mut live = live_reading();
+        let with_brakes = {
+            let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            render(&v, 1536, 864)
+        };
+        // A game that gives no brake temperatures: the rows are not kept and the picture still paints.
+        for t in live.tyres.as_mut().unwrap() {
+            t.brake_c = f32::NAN;
+        }
+        let without = {
+            let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            render(&v, 1536, 864)
+        };
+        assert_ne!(with_brakes, without);
+        // Brake temperatures alone (no tyre temperature, pressure or wear): still a schematic.
+        let tyre = crate::game::Tyre {
+            brake_c: 400.0,
+            temp_c: f32::NAN,
+            pressure_kpa: f32::NAN,
+            left: f32::NAN,
+        };
+        live.tyres = Some([tyre; 4]);
+        for (w, h) in [(1536, 864), (1024, 768), (540, 1080)] {
+            let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            assert!(!render(&v, w, h).is_empty());
+        }
+    }
+
     /// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
     /// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
     /// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
+    #[test]
+    fn a_whole_lap_closes_with_a_start_mark_and_a_partial_path_stays_open_and_breaks_at_jumps() {
+        let lap: Vec<(f32, f32)> = (0..200)
+            .map(|i| {
+                let a = i as f32 / 200.0 * std::f32::consts::TAU;
+                (300.0 * a.cos(), 100.0 * a.sin())
+            })
+            .collect();
+        let whole = prepare_map(&lap, true, 200.0, 100.0, 400.0, 200.0).unwrap();
+        assert_eq!(whole.runs.len(), 1);
+        assert_eq!(whole.runs[0].first(), whole.runs[0].last(), "a whole lap closes");
+        assert!(whole.start.is_some());
+        let partial = prepare_map(&lap[..150], false, 200.0, 100.0, 400.0, 200.0).unwrap();
+        assert_ne!(
+            partial.runs[0].first(),
+            partial.runs[0].last(),
+            "a partial path is not joined back to its start"
+        );
+        assert!(partial.start.is_none());
+        let mut jumped = lap[..100].to_vec();
+        jumped.extend(lap[..100].iter().map(|&(x, z)| (x + 2000.0, z)));
+        assert_eq!(prepare_map(&jumped, false, 200.0, 100.0, 400.0, 200.0).unwrap().runs.len(), 2);
+        // The car is placed with the map's own transform: the first point of the lap is the start mark's place.
+        let at = whole.fit.apply(lap[0]);
+        assert!(whole.runs[0].iter().any(|p| (p.0 - at.0).hypot(p.1 - at.1) < 8.0));
+        // Everything lies in the box, with its margin.
+        assert!(whole.runs[0]
+            .iter()
+            .all(|p| (0.0..=400.0).contains(&p.0) && (0.0..=200.0).contains(&p.1)));
+    }
+
     #[test]
     fn writes_the_design_preview_page() {
         let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") else {
@@ -3894,9 +5239,24 @@ mod tests {
         let live = live_reading();
         let mut pits = live.clone();
         pits.in_pits = true;
+        pits.lap_valid = Some(false);
         pits.delta_s = Some(0.43);
         pits.throttle = 0.0;
         pits.brake = 0.8;
+        pits.state.pit_limiter = Some(true);
+        pits.state.engine_warning = Some(true);
+        pits.state.handbrake = Some(true);
+        pits.state.drs = Some(crate::game::Drs::Open);
+        pits.state.flag = Some(crate::game::Flag::Chequered);
+        pits.state.water_c = Some(118.0);
+        pits.state.oil_c = Some(135.0);
+        pits.state.damage_body = Some(0.7);
+        pits.state.damage_engine = Some(0.9);
+        pits.fuel_l = 4.4;
+        let mut unknown = live.clone();
+        unknown.state = crate::game::CarState::UNKNOWN;
+        unknown.fuel_per_lap_l = None;
+        unknown.clutch = f32::NAN;
         let shots = [
             (
                 "preview-window.png",
@@ -3940,6 +5300,26 @@ mod tests {
                 1.0,
             ),
             (
+                "preview-4x3.png",
+                "4:3 window (1024 × 768)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                1024,
+                768,
+                1.0,
+            ),
+            (
+                "preview-phone.png",
+                "Phone held upright (540 × 1080)",
+                Some(&live),
+                Tab::Dash,
+                Lang::En,
+                540,
+                1080,
+                1.0,
+            ),
+            (
                 "preview-small.png",
                 "Smallest window (720 × 480)",
                 Some(&live),
@@ -3951,6 +5331,43 @@ mod tests {
             ),
         ];
         let mut figures = String::new();
+        for (file, caption, reading, w, h) in [
+            (
+                "preview-unknown-state.png",
+                "A game that gives no lights, temperatures or damage (1920 × 1080)",
+                &unknown,
+                1920,
+                1080,
+            ),
+            (
+                "preview-unknown-phone.png",
+                "The same on a phone held upright (430 × 900)",
+                &unknown,
+                430,
+                900,
+            ),
+            (
+                "preview-hot-phone.png",
+                "Everything lit, in the pits, low on fuel (430 × 900)",
+                &pits,
+                430,
+                900,
+            ),
+            (
+                "preview-classic.png",
+                "Classic, the smallest window that shows the whole dashboard (1032 × 602)",
+                &live,
+                1032,
+                602,
+            ),
+        ] {
+            let pixels = render(&view(&f, Some(reading), Tab::Dash, 1.0, Lang::En), w, h);
+            save(&pixels, w, h, file);
+            figures.push_str(&format!(
+                "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>
+"
+            ));
+        }
         let covers = CoverArt::load(None);
         let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
         let [_, _, _, full_button, _] = header_hits(960, 1.0);
@@ -3968,6 +5385,18 @@ mod tests {
         let pixels = render(&monitor_covers, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-covers.png");
         figures.push_str("<figure><figcaption>Monitor tab, with the covers from the Xpeed server</figcaption><img data-src=\"preview-monitor-covers.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut waiting_card = view(&f, None, Tab::Monitor, 1.0, Lang::En);
+        waiting_card.card = connect::Card::Waiting;
+        let pixels = render(&waiting_card, 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-connecting.png");
+        figures.push_str("<figure><figcaption>Monitor tab while the browser page waits for the click on Connect</figcaption><img data-src=\"preview-monitor-connecting.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut expired_card = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
+        expired_card.card = connect::Card::NotConnected {
+            note: Some(connect::Note::Expired),
+        };
+        let pixels = render(&expired_card, 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-expired.png");
+        figures.push_str("<figure><figcaption>Monitor tab after the request expired</figcaption><img data-src=\"preview-monitor-expired.png\" width=\"1280\" height=\"800\"></figure>\n");
         let mut open = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
         open.covers = &covers;
         open.lang_open = true;
@@ -4041,7 +5470,7 @@ mod tests {
         }
         let stamp = crate::util::now_ms().to_string();
         let page = format!(
-            r#"<!doctype html><html><head><meta charset="utf-8"><title>Xpeed Sim panel</title>
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>Xpeed Companion panel</title>
 <style>
 body {{ margin: 0; background: #050607; color: #c9ccd2; font: 14px "Segoe UI", sans-serif; }}
 header {{ position: sticky; top: 0; padding: 12px 24px; background: #0c0d0fee; border-bottom: 1px solid #25282e; display: flex; gap: 16px; align-items: baseline; z-index: 1; }}
@@ -4051,7 +5480,7 @@ figure {{ margin: 0; }}
 figcaption {{ margin-bottom: 8px; color: #7c828c; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }}
 img {{ display: block; max-width: 100%; height: auto; border: 1px solid #25282e; border-radius: 8px; }}
 </style></head><body>
-<header><b>Xpeed Sim panel</b><span>drawn by the program's own code · updates by itself</span><span id="when"></span></header>
+<header><b>Xpeed Companion panel</b><span>drawn by the program's own code · updates by itself</span><span id="when"></span></header>
 <main>
 {figures}</main>
 <script>
@@ -4201,8 +5630,39 @@ look(); setInterval(look, 1500);
         assert_eq!(lights_lit(0.98), (LIGHTS, true));
         assert_eq!(lights_lit(f32::NAN), (0, false));
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
-        assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
-        assert_eq!(lap_parts("odd"), ("odd", ""));
+    }
+
+    #[test]
+    fn a_lap_label_splits_into_name_time_and_the_invalid_flag() {
+        let part = |name, time, invalid| LapLabel { name, time, invalid };
+        assert_eq!(lap_parts("Lap 3  1:47.918"), part("Lap 3", "1:47.918", false));
+        assert_eq!(lap_parts("Lap 5  3:27.250 (not valid)"), part("Lap 5", "3:27.250", true));
+        assert_eq!(lap_parts("odd"), part("odd", "", false));
+        assert_eq!(lap_parts(""), part("", "", false));
+        assert_eq!(lap_parts("Lap 7  (not valid)"), part("Lap 7", "", true));
+        // The mark is only the label's tail, not part of its name.
+        assert_eq!(lap_parts("Lap (not valid)  1:00.000"), part("Lap (not valid)", "1:00.000", false));
+    }
+
+    #[test]
+    fn the_fastest_lap_is_never_an_invalid_one() {
+        let laps: Vec<_> = ["Lap 1  1:49.002", "Lap 2  1:40.000 (not valid)", "Lap 3  1:47.918"]
+            .into_iter()
+            .map(lap_parts)
+            .collect();
+        assert_eq!(fastest_valid(&laps), Some(107.918));
+        let only_invalid = [lap_parts("Lap 1  1:40.000 (not valid)")];
+        assert_eq!(fastest_valid(&only_invalid), None);
+        assert_eq!(fastest_valid(&[]), None);
+    }
+
+    #[test]
+    fn a_time_that_does_not_fit_gets_a_smaller_size_but_never_below_the_floor() {
+        assert_eq!(fit_size(80.0, 30.0, 100.0, 14.0), 30.0, "fits: unchanged");
+        assert_eq!(fit_size(200.0, 30.0, 100.0, 14.0), 15.0, "twice too wide: half the size");
+        assert_eq!(fit_size(1000.0, 30.0, 100.0, 14.0), 14.0, "far too wide: the floor");
+        assert_eq!(fit_size(1000.0, 10.0, 100.0, 14.0), 10.0, "a size under the floor is left alone");
+        assert_eq!(fit_size(0.0, 30.0, 100.0, 14.0), 30.0);
     }
 
     #[test]
@@ -4227,11 +5687,36 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn shows_the_gears_either_side() {
-        assert_eq!(neighbour_gears(4.0), (Some("3".into()), Some("5".into())));
-        assert_eq!(neighbour_gears(1.0), (Some("N".into()), Some("2".into())));
-        assert_eq!(neighbour_gears(0.0), (Some("R".into()), Some("1".into())));
-        assert_eq!(neighbour_gears(-1.0), (None, Some("N".into())));
-        assert_eq!(neighbour_gears(f32::NAN), (None, None));
+        assert_eq!(neighbour_gears(4.0, None), (Some("3".into()), Some("5".into())));
+        assert_eq!(neighbour_gears(1.0, None), (Some("N".into()), Some("2".into())));
+        assert_eq!(neighbour_gears(0.0, None), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0, None), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN, None), (None, None));
+        assert_eq!(
+            neighbour_gears(6.0, None),
+            (Some("5".into()), Some("7".into())),
+            "unknown count: as before"
+        );
+    }
+
+    #[test]
+    fn the_top_gear_has_nothing_above_it_when_the_count_is_known() {
+        assert_eq!(
+            neighbour_gears(6.0, Some(6)),
+            (Some("5".into()), None),
+            "top gear of a 6-speed: no 7"
+        );
+        assert_eq!(neighbour_gears(5.0, Some(6)), (Some("4".into()), Some("6".into())));
+        assert_eq!(
+            neighbour_gears(7.0, Some(6)),
+            (Some("6".into()), None),
+            "past the count is still the top"
+        );
+        assert_eq!(neighbour_gears(1.0, Some(1)), (Some("N".into()), None), "a one-speed car");
+        // Neutral and reverse keep their neighbours whatever the count.
+        assert_eq!(neighbour_gears(0.0, Some(6)), (Some("R".into()), Some("1".into())));
+        assert_eq!(neighbour_gears(-1.0, Some(6)), (None, Some("N".into())));
+        assert_eq!(neighbour_gears(f32::NAN, Some(6)), (None, None));
     }
 
     #[test]

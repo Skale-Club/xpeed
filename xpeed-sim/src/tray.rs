@@ -1,4 +1,4 @@
-//! Xpeed Sim as a program that lives in the notification area: an icon whose colour tells the state, a menu, balloons
+//! Xpeed Companion as a program that lives in the notification area: an icon whose colour tells the state, a menu, balloons
 //! for what matters, and the connection to the Xpeed account. Everything here runs on one thread (the Windows message
 //! loop); recording and sending run on their own threads and reach this one through `Shared`.
 
@@ -29,12 +29,10 @@ use crate::panel::{self, Account};
 use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
 use crate::text::{text, Lang, Msg};
-use crate::{applog, engine, link, net, win};
+use crate::{applog, connect, engine, link, net, win};
 
 const CLASS: &str = "XpeedSimTray";
 const INSTANCE_NAME: &str = "Local\\XpeedSimTray";
-/// Where, in the Xpeed app, a computer is connected.
-const CONNECT_PATH: &str = "/sim/app";
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_CHANGED: u32 = WM_APP + 2;
@@ -65,6 +63,8 @@ struct App {
     icons: [HICON; 4],
     server: String,
     device: Option<String>,
+    /// Who the computer is connected as, when the connection page said so.
+    account_label: Option<String>,
     taskbar_created: u32,
     /// The panel window, when it has been opened (it may have been closed since).
     panel: HWND,
@@ -190,6 +190,7 @@ impl App {
         *self.account.lock().unwrap() = Account {
             device: self.device.clone(),
             server: self.server.clone(),
+            label: self.account_label.clone(),
             lang: self.lang,
         };
     }
@@ -206,10 +207,6 @@ impl App {
         self.refresh();
     }
 
-    fn server_for_connect(&self) -> String {
-        format!("{}{}", self.server, CONNECT_PATH)
-    }
-
     /// Reads the pairing again (a link just changed it) and starts or stops sending to match.
     fn reload_pairing(&mut self) {
         match config::load(&self.config_path) {
@@ -217,12 +214,15 @@ impl App {
                 applog::line(&format!("paired with {} as {}", config.server, config.device_name));
                 self.server = config.server.clone();
                 self.device = Some(config.device_name.clone());
+                self.account_label = config.account.clone();
                 self.shared.update(|s| s.cloud = Cloud::Idle);
-                self.shared.notify(Notice::Paired(config.device_name.clone()));
+                self.shared
+                    .notify(Notice::Paired(config.account.clone().unwrap_or_else(|| config.device_name.clone())));
                 start_uploader(&self.shared, &self.laps_dir, config);
             }
             _ => {
                 self.device = None;
+                self.account_label = None;
                 self.shared.set_uploader(None);
                 self.shared.update(|s| s.cloud = Cloud::NotPaired);
             }
@@ -294,7 +294,7 @@ impl App {
     fn command(&mut self, id: usize) {
         match id {
             CMD_PANEL => self.open_panel(),
-            CMD_CONNECT => win::open(&self.server_for_connect()),
+            CMD_CONNECT => start_connect(&self.server),
             CMD_LAPS => {
                 let _ = std::fs::create_dir_all(&self.laps_dir);
                 win::open(&self.laps_dir.display().to_string());
@@ -392,7 +392,7 @@ fn find_running() -> HWND {
     unsafe { FindWindowW(win::wide(CLASS).as_ptr(), null()) }
 }
 
-/// Where laps are written when nobody chose a folder: `Documents\Xpeed Sim\Laps`.
+/// Where laps are written when nobody chose a folder: `Documents\Xpeed Companion\Laps`.
 pub fn laps_dir() -> PathBuf {
     config::default_laps_dir()
 }
@@ -418,11 +418,11 @@ pub fn run(open_panel: bool) -> ExitCode {
         return ExitCode::SUCCESS;
     };
     let Some(home) = config::home_dir() else {
-        win::tell_error("Xpeed Sim", "Cannot tell where to keep Xpeed Sim's files.");
+        win::tell_error("Xpeed Companion", "Cannot tell where to keep Xpeed Companion's files.");
         return ExitCode::from(1);
     };
     applog::init(home.join("sim.log"));
-    applog::line(&format!("Xpeed Sim {} starting", env!("CARGO_PKG_VERSION")));
+    applog::line(&format!("Xpeed Companion {} starting", env!("CARGO_PKG_VERSION")));
 
     let config_path = home.join("config.json");
     let config = match config::load(&config_path) {
@@ -465,6 +465,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             icons: LIGHTS.map(icon_for),
             server: config.as_ref().map_or_else(|| DEFAULT_SERVER.to_owned(), |c| c.server.clone()),
             device: config.as_ref().map(|c| c.device_name.clone()),
+            account_label: config.as_ref().and_then(|c| c.account.clone()),
             taskbar_created: RegisterWindowMessageW(win::wide("TaskbarCreated").as_ptr()),
             panel: null_mut(),
             account: Arc::new(Mutex::new(Account::default())),
@@ -475,7 +476,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            win::wide("Xpeed Sim").as_ptr(),
+            win::wide("Xpeed Companion").as_ptr(),
             WS_OVERLAPPED,
             0,
             0,
@@ -563,6 +564,7 @@ pub fn pair_from_link(url: &str) -> ExitCode {
             server: link.server,
             token,
             device_name: name,
+            account: None,
         },
     ) {
         return failed(why);
@@ -579,4 +581,29 @@ pub fn pair_from_link(url: &str) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// The person asked to connect this computer (the panel's button or the tray menu): the short way, with a page where
+/// they click Connect once. With a request already open this only opens its page again. When the server says yes the
+/// running copy of this program is told to read the new pairing (`WM_RELOAD`).
+pub fn start_connect(server: &str) {
+    let hooks = connect::Hooks {
+        open: Box::new(win::open),
+        connected: Box::new(|config| {
+            applog::line(&format!("connected to {} by the connection page", config.server));
+            let running = find_running();
+            if !running.is_null() {
+                unsafe {
+                    PostMessageW(running, WM_RELOAD, 0, 0);
+                }
+            }
+        }),
+    };
+    connect::click(
+        &connect::Flow::global(),
+        server,
+        config::default_path(),
+        std::sync::Arc::new(hooks),
+        connect::Timing::default(),
+    );
 }

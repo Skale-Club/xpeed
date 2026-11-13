@@ -1,4 +1,4 @@
-//! Where Xpeed Sim sends laps (server address and device key), kept in one small file in the user's profile.
+//! Where Xpeed Companion sends laps (server address and device key), kept in one small file in the user's profile.
 //!
 //! The device key is a secret: it is never printed, and the server it belongs to must be reached over HTTPS
 //! (plain HTTP is accepted only for the machine itself, for development).
@@ -15,6 +15,9 @@ pub struct Config {
     /// The device key the server issued when pairing.
     pub token: String,
     pub device_name: String,
+    /// Who the computer is connected as (the account's email or name), when the connection page said so. Pairings made
+    /// with a code do not have it.
+    pub account: Option<String>,
 }
 
 // A derived Debug would put the key in any log or test failure that prints a Config.
@@ -24,11 +27,12 @@ impl std::fmt::Debug for Config {
             .field("server", &self.server)
             .field("token", &"<hidden>")
             .field("device_name", &self.device_name)
+            .field("account", &self.account)
             .finish()
     }
 }
 
-/// The folder Xpeed Sim keeps its files in (configuration, log): `XPEED_SIM_HOME`, else `%APPDATA%\Xpeed Sim`
+/// The folder Xpeed Companion keeps its files in (configuration, log): `XPEED_SIM_HOME`, else `%APPDATA%\Xpeed Sim`
 /// (`$XDG_CONFIG_HOME/xpeed-sim` or `~/.config/xpeed-sim` elsewhere).
 pub fn home_dir() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("XPEED_SIM_HOME").filter(|p| !p.is_empty()) {
@@ -84,7 +88,7 @@ fn is_loopback(host: &str) -> bool {
     )
 }
 
-/// Checks a server address and returns it in the form Xpeed Sim keeps: no trailing slash.
+/// Checks a server address and returns it in the form Xpeed Companion keeps: no trailing slash.
 pub fn normalize_server(input: &str) -> Result<String, String> {
     let text = input.trim();
     let (scheme, rest) = text.split_once("://").ok_or("the server address must start with https://")?;
@@ -154,6 +158,7 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
         server,
         token,
         device_name: text_of("deviceName").unwrap_or_default(),
+        account: text_of("account"),
     }))
 }
 
@@ -162,12 +167,15 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
-    let body = serde_json::to_string_pretty(&json!({
+    let mut value = json!({
         "server": config.server,
         "token": config.token,
         "deviceName": config.device_name,
-    }))
-    .map_err(|e| e.to_string())?;
+    });
+    if let Some(account) = config.account.as_deref().filter(|a| !a.is_empty()) {
+        value["account"] = json!(account);
+    }
+    let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
     let partial = path.with_extension("json.part");
     std::fs::write(&partial, body + "\n").map_err(|e| format!("cannot write {}: {e}", partial.display()))?;
     std::fs::rename(&partial, path).map_err(|e| format!("cannot write {}: {e}", path.display()))
@@ -304,6 +312,7 @@ mod tests {
             server: "https://xpeed.skale.club".into(),
             token: "xpd_secret".into(),
             device_name: "RIG".into(),
+            account: Some("ana@example.com".into()),
         };
         assert_eq!(load(&path), Ok(None));
         save(&path, &config).unwrap();
@@ -314,11 +323,29 @@ mod tests {
     }
 
     #[test]
+    fn an_old_config_file_without_an_account_still_loads() {
+        let dir = scratch_dir("config-old");
+        let path = dir.join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"server":"https://xpeed.skale.club","token":"xpd_old","deviceName":"RIG"}"#,
+        )
+        .unwrap();
+        let config = load(&path).unwrap().unwrap();
+        assert_eq!((config.token.as_str(), config.device_name.as_str()), ("xpd_old", "RIG"));
+        assert_eq!(config.account, None);
+        // Saving it again adds no empty account.
+        save(&path, &config).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("account"));
+    }
+
+    #[test]
     fn never_shows_the_key_in_a_debug_print() {
         let config = Config {
             server: "https://x.example".into(),
             token: "xpd_secret".into(),
             device_name: String::new(),
+            account: None,
         };
         assert!(!format!("{config:?}").contains("xpd_secret"));
     }

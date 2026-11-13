@@ -1,4 +1,4 @@
-//! Where each field Xpeed Sim reads sits in the memory Le Mans Ultimate shares (`LMU_Data`).
+//! Where each field Xpeed Companion reads sits in the memory Le Mans Ultimate shares (`LMU_Data`).
 //!
 //! GENERATED: do not edit by hand. These are numbers only (sizes and byte offsets), produced by
 //! `tools/layout_check.cpp`, a small helper compiled against the headers the game installs in
@@ -6,7 +6,7 @@
 //! part of this repository: their licence does not allow redistributing them.
 //!
 //! Generated for LMU 1.4.2.0. If the game changes the layout, regenerate this file and check
-//! `LAYOUT_SIZE` against the size Xpeed Sim reports in `probe`.
+//! `LAYOUT_SIZE` against the size Xpeed Companion reports in `probe`.
 #![allow(dead_code)]
 
 pub const OBJECT_OUT_SIZE: usize = 324824;
@@ -48,6 +48,8 @@ pub const VS_VEHICLE_CLASS: usize = 200;
 pub const VS_LAP_START_ET: usize = 256;
 pub const VS_TIME_INTO_LAP: usize = 464;
 pub const VS_COUNT_LAP_FLAG: usize = 506;
+pub const VS_FLAG: usize = 504;
+pub const VS_UNDER_YELLOW: usize = 505;
 
 // Telemetry
 pub const TELEMETRY_ACTIVE_VEHICLES: usize = 128464;
@@ -72,9 +74,30 @@ pub const TI_BRAKE: usize = 396;
 pub const TI_STEERING: usize = 404;
 pub const TI_CLUTCH: usize = 412;
 pub const TI_FUEL: usize = 524;
+pub const TI_WATER_TEMP: usize = 364;
+pub const TI_OIL_TEMP: usize = 372;
+pub const TI_OVERHEATING: usize = 541;
+pub const TI_HEADLIGHTS: usize = 543;
+pub const TI_DENT_SEVERITY: usize = 544;
+pub const TI_MAX_GEARS: usize = 605;
+pub const TI_REAR_FLAP_ACTIVATED: usize = 617;
+pub const TI_REAR_FLAP_LEGAL_STATUS: usize = 618;
+pub const TI_REAR_BRAKE_BIAS: usize = 664;
+pub const TI_ABS_ACTIVE: usize = 746;
+pub const TI_TC_ACTIVE: usize = 747;
+pub const TI_SPEED_LIMITER_ACTIVE: usize = 748;
+pub const TI_TC: usize = 750;
+pub const TI_TC_MAX: usize = 751;
+pub const TI_ABS: usize = 756;
+pub const TI_ABS_MAX: usize = 757;
+pub const TI_MOTOR_MAP: usize = 758;
+pub const TI_MOTOR_MAP_MAX: usize = 759;
 pub const TI_WHEEL: usize = 848;
 pub const TELEM_WHEEL_SIZE: usize = 260;
+pub const TW_BRAKE_TEMP: usize = 24;
 pub const TW_PRESSURE: usize = 120;
 pub const TW_TEMPERATURE: usize = 128;
 pub const TW_WEAR: usize = 152;
 pub const TW_CARCASS_TEMPERATURE: usize = 204;
+pub const TW_FLAT: usize = 177;
+pub const TW_DETACHED: usize = 178;

@@ -77,7 +77,7 @@
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{CarState, Frame, Source};
 use crate::shm::{Mapping, Page};
 
 /// The name the plugin gives its memory (`RF_SHARED_MEMORY_NAME`).
@@ -105,7 +105,14 @@ mod at {
     pub const UNFILTERED_BRAKE: usize = 208;
     pub const UNFILTERED_STEERING: usize = 212;
     pub const UNFILTERED_CLUTCH: usize = 216;
+    /// `float engineWaterTemp` and `float engineOilTemp`, Celsius.
+    pub const ENGINE_WATER_TEMP: usize = 192;
+    pub const ENGINE_OIL_TEMP: usize = 196;
     pub const FUEL: usize = 224;
+    /// `bool overheating` (the overheating icon is shown) and `unsigned char dentSeverity[8]`: dents at eight places
+    /// around the car, 0 none, 1 some, 2 more.
+    pub const OVERHEATING: usize = 233;
+    pub const DENT_SEVERITY: usize = 235;
     pub const CURRENT_ET: usize = 535;
     pub const LAP_DIST: usize = 547;
     pub const NUM_VEHICLES: usize = 551;
@@ -141,7 +148,7 @@ const POLL: Duration = Duration::from_millis(10);
 /// scoring part alone moves twice a second while any session is loaded.
 const STALE: Duration = Duration::from_secs(30);
 
-/// The games of this engine Xpeed Sim knows: the program, then the game's id and name. Stock Car Extreme keeps the id
+/// The games of this engine Xpeed Companion knows: the program, then the game's id and name. Stock Car Extreme keeps the id
 /// `rfactor1` its laps were always written with.
 const GAMES: [(&str, &str, &str); 3] = [
     ("gsc.exe", "rfactor1", "Stock Car Extreme"),
@@ -366,12 +373,35 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.y = within(page.f32_at(at::POS + 4), -1.0e7, 1.0e7);
     frame.z = within(page.f32_at(at::POS + 8), -1.0e7, 1.0e7);
     frame.fuel_l = within(page.f32_at(at::FUEL), 0.0, 10_000.0);
+    frame.state = state_from(&page);
     // The header has no vehicle name: the class of the player's car is the only description of it.
     frame.car = page.ascii_at(me + at::V_VEHICLE_CLASS, CLASS_NAME_LENGTH);
     frame.track = page.ascii_at(at::TRACK_NAME, TRACK_NAME_LENGTH);
     let length = within(page.f32_at(at::LAP_DIST), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
     Some(frame)
+}
+
+/// The overheating light, the temperatures and the dents. The plugin exports no lights, flags, aids, brake bias or
+/// engine and gearbox damage, so those are not given.
+fn state_from(page: &Page) -> CarState {
+    let temp = |at: usize| {
+        let c = page.f32_at(at);
+        (c.is_finite() && c > 0.0 && c <= 400.0).then_some(c)
+    };
+    // Eight dents, each 0 none, 1 some, 2 more (more than 2 is not one): the sum over the worst case, all at 2.
+    let dents: u32 = (0..8).map(|i| u32::from(page.u8_at(at::DENT_SEVERITY + i).min(2))).sum();
+    CarState {
+        engine_warning: match page.u8_at(at::OVERHEATING) {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+        water_c: temp(at::ENGINE_WATER_TEMP),
+        oil_c: temp(at::ENGINE_OIL_TEMP),
+        damage_body: Some(dents as f32 / 16.0),
+        ..CarState::UNKNOWN
+    }
 }
 
 #[cfg(test)]
@@ -430,6 +460,13 @@ mod tests {
             i.f32(at::UNFILTERED_STEERING, -0.5);
             i.f32(at::FUEL, 42.5);
             i.f32(at::LAP_DIST, 4309.0);
+            // The car's state: overheating, water 92.5 and oil 110.25, dents 2 + 1 + 1 of a worst case of 16.
+            i.0[at::OVERHEATING] = 1;
+            i.f32(at::ENGINE_WATER_TEMP, 92.5);
+            i.f32(at::ENGINE_OIL_TEMP, 110.25);
+            i.0[at::DENT_SEVERITY + 1] = 2;
+            i.0[at::DENT_SEVERITY + 4] = 1;
+            i.0[at::DENT_SEVERITY + 7] = 1;
             // Cars around the player, which must not be mistaken for it.
             for (slot, dist, last) in [(0, 10.0, 80.0), (2, 20.0, 81.0)] {
                 let v = Image::vehicle(slot);
@@ -636,6 +673,10 @@ mod tests {
             ("unfilteredSteering", at::UNFILTERED_STEERING),
             ("unfilteredClutch", at::UNFILTERED_CLUTCH),
             ("fuel", at::FUEL),
+            ("engineWaterTemp", at::ENGINE_WATER_TEMP),
+            ("engineOilTemp", at::ENGINE_OIL_TEMP),
+            ("overheating", at::OVERHEATING),
+            ("dentSeverity", at::DENT_SEVERITY),
             ("currentET", at::CURRENT_ET),
             ("lapDist", at::LAP_DIST),
             ("numVehicles", at::NUM_VEHICLES),
@@ -685,8 +726,33 @@ mod tests {
         want.track = "Interlagos".into();
         want.track_variant = None;
         want.track_length_m = Some(4309.0);
+        want.state = CarState {
+            engine_warning: Some(true),
+            water_c: Some(92.5),
+            oil_c: Some(110.25),
+            damage_body: Some(0.25),
+            ..CarState::UNKNOWN
+        };
         assert_eq!(frame, want);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_car_state_says_nothing_for_a_temperature_of_zero_and_pins_a_wild_dent() {
+        let mut image = Image::on_track();
+        image.f32(at::ENGINE_WATER_TEMP, 0.0);
+        image.f32(at::ENGINE_OIL_TEMP, f32::NAN);
+        image.0[at::OVERHEATING] = 5;
+        for i in 0..8 {
+            image.0[at::DENT_SEVERITY + i] = 200;
+        }
+        let state = frame_from(&image.0, 0.0).unwrap().state;
+        assert_eq!((state.water_c, state.oil_c, state.engine_warning), (None, None, None));
+        assert_eq!(state.damage_body, Some(1.0), "a dent above 2 counts as 2");
+        assert_eq!(
+            (state.handbrake, state.flag, state.tc_level, state.damage_engine),
+            (None, None, None, None)
+        );
     }
 
     #[test]
