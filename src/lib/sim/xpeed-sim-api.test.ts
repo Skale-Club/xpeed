@@ -4,7 +4,7 @@ let token: string | null = 'google-token';
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => token }));
 vi.mock('@/lib/trips', () => ({ publicAppUrl: () => 'https://xpeed.test' }));
 
-import { XpeedSimApiError, listDevices, pairCommand, pairLink, requestPairingCode, revokeDevice } from './xpeed-sim-api';
+import { XpeedSimApiError, XpeedSimLinkError, approveLinkRequest, cancelLinkRequest, listDevices, readLinkRequest, revokeDevice } from './xpeed-sim-api';
 
 const answer = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const reasonOf = async (run: () => Promise<unknown>) => {
@@ -25,16 +25,6 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('the Xpeed Companion calls', () => {
-  it('asks for a pairing code with the signed-in token', async () => {
-    fetchMock.mockResolvedValue(answer(200, { code: 'ABCD-2345', expiresAt: '2026-11-10T12:10:00.000Z' }));
-    expect(await requestPairingCode()).toEqual({ code: 'ABCD-2345', expiresAt: '2026-11-10T12:10:00.000Z' });
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://xpeed.test/api/sim/codes');
-    expect(init.method).toBe('POST');
-    expect(init.headers.Authorization).toBe('Bearer google-token');
-    expect(init.cache).toBe('no-store');
-  });
-
   it('lists the devices, and an empty answer is an empty list', async () => {
     const device = { id: 'd1', name: 'RIG', created_at: 'x', last_seen_at: null, last_lap_at: null, revoked_at: null };
     fetchMock.mockResolvedValueOnce(answer(200, { devices: [device] })).mockResolvedValueOnce(answer(200, {}));
@@ -54,7 +44,7 @@ describe('the Xpeed Companion calls', () => {
   it('tells what went wrong in a few reasons', async () => {
     for (const [status, reason] of [[401, 'signin'], [429, 'too_many'], [404, 'not_found'], [500, 'unavailable'], [503, 'unavailable']] as const) {
       fetchMock.mockResolvedValueOnce(answer(status));
-      expect(await reasonOf(() => requestPairingCode())).toBe(reason);
+      expect(await reasonOf(() => listDevices())).toBe(reason);
     }
     fetchMock.mockRejectedValueOnce(new TypeError('network down'));
     expect(await reasonOf(() => listDevices())).toBe('unavailable');
@@ -64,15 +54,42 @@ describe('the Xpeed Companion calls', () => {
 
   it('does not call the server without a signed-in person', async () => {
     token = null;
-    expect(await reasonOf(() => requestPairingCode())).toBe('signin');
+    expect(await reasonOf(() => listDevices())).toBe('signin');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('writes the command to type, with this app’s address in it', () => {
-    expect(pairCommand('ABCD2345')).toBe('xpeed-sim pair --server https://xpeed.test --code ABCD2345');
+  it('reads, approves and cancels a connection request with the signed-in token', async () => {
+    fetchMock.mockResolvedValueOnce(answer(200, { deviceName: 'RIG', status: 'pending', expiresAt: '2026-11-13T12:10:00.000Z' }))
+      .mockResolvedValueOnce(answer(200, { status: 'approved', deviceId: 'd1' }))
+      .mockResolvedValueOnce(answer(200, { status: 'cancelled' }));
+    expect(await readLinkRequest('abc')).toEqual({ deviceName: 'RIG', status: 'pending', expiresAt: '2026-11-13T12:10:00.000Z' });
+    expect(await approveLinkRequest('abc')).toEqual({ status: 'approved', deviceId: 'd1' });
+    expect(await cancelLinkRequest('abc')).toEqual({ status: 'cancelled' });
+    const calls = fetchMock.mock.calls.map(([url, init]) => [url, init.method, init.headers.Authorization]);
+    expect(calls).toEqual([
+      ['https://xpeed.test/api/sim/link/abc', 'GET', 'Bearer google-token'],
+      ['https://xpeed.test/api/sim/link/abc/approve', 'POST', 'Bearer google-token'],
+      ['https://xpeed.test/api/sim/link/abc/cancel', 'POST', 'Bearer google-token'],
+    ]);
   });
 
-  it('writes the link that opens Xpeed Companion, with the address escaped', () => {
-    expect(pairLink('ABCD2345')).toBe('xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=ABCD2345');
+  it('tells why a connection request could not be approved', async () => {
+    const why = async (response: Response) => {
+      fetchMock.mockResolvedValueOnce(response);
+      try {
+        await approveLinkRequest('abc');
+      } catch (error) {
+        return error instanceof XpeedSimLinkError ? error.reason : 'other';
+      }
+      return 'no error';
+    };
+    expect(await why(answer(410, { error: 'expired' }))).toBe('expired');
+    expect(await why(answer(409, { error: 'device_limit' }))).toBe('device_limit');
+    expect(await why(answer(409, { error: 'already_decided' }))).toBe('already_decided');
+    expect(await why(answer(404, { error: 'not_found' }))).toBe('not_found');
+    expect(await why(answer(401))).toBe('signin');
+    expect(await why(answer(503))).toBe('unavailable');
+    token = null;
+    expect(await why(answer(200))).toBe('signin');
   });
 });

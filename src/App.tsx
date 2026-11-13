@@ -35,6 +35,7 @@ const IssuesPage = lazy(() => import("./pages/IssuesPage"));
 const SimPage = lazy(() => import("./pages/SimPage"));
 const SimComparePage = lazy(() => import("./pages/SimComparePage"));
 const SimAppPage = lazy(() => import("./pages/SimAppPage"));
+const SimConnectPage = lazy(() => import("./pages/SimConnectPage"));
 const SimSessionsPage = lazy(() => import("./pages/SimSessionsPage"));
 const SimTracksPage = lazy(() => import("./pages/SimTracksPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
@@ -134,6 +135,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
       </Route>
       {/* Shared by both modes. */}
+      <Route path="/sim/connect/:id" element={<SimConnectPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/settings" element={<SettingsPage />} />
