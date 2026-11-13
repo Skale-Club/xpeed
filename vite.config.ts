@@ -45,6 +45,7 @@ function dataApiForDev(mode: string): Plugin {
       mount("/api/db", async () => ((await server.ssrLoadModule("/server/db-route.ts")) as typeof import("./server/db-route")).createDbRoute());
       mount("/api/storage", async () => ((await server.ssrLoadModule("/server/storage-route.ts")) as typeof import("./server/storage-route")).createStorageRoute());
       mount("/api/car-brands", async () => (await server.ssrLoadModule("/api/car-brands.ts")).default as (request: Request) => Promise<Response>);
+      mount("/api/vehicle-visuals", async () => (await server.ssrLoadModule("/api/vehicle-visuals.ts")).default as (request: Request) => Promise<Response>);
     },
   };
 }
@@ -123,6 +124,8 @@ export default defineConfig(({ mode, command }) => {
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Model assets load only for the selected vehicle, not on every PWA install.
+        globIgnores: ['**/vehicle-visuals/**'],
         // The new worker must NOT take over by itself: swapping assets under a
         // running trip recording (or half-loaded lazy chunks) is how stale-bundle
         // errors happen. src/lib/pwa-update.ts sends SKIP_WAITING when it is safe.

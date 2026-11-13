@@ -21,6 +21,7 @@ import simDevices from '../api/sim/devices';
 import simTracks from '../api/sim/tracks';
 import simGames from '../api/sim/games';
 import carBrands from '../api/car-brands';
+import vehicleVisuals from '../api/vehicle-visuals';
 import manifest from '../api/brand/manifest';
 import authorizationServer from '../api/wellknown/oauth-authorization-server';
 import protectedResource from '../api/wellknown/oauth-protected-resource';
@@ -47,8 +48,9 @@ const routes = new Map<string,Handler>([
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
   ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],
   ['/api/car-brands',carBrands],
+  ['/api/vehicle-visuals',vehicleVisuals],
 ]);
-const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.txt':'text/plain; charset=utf-8','.woff2':'font/woff2','.wasm':'application/wasm','.webmanifest':'application/manifest+json'};
+const mime: Record<string,string> = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.ico':'image/x-icon','.txt':'text/plain; charset=utf-8','.woff2':'font/woff2','.wasm':'application/wasm','.glb':'model/gltf-binary','.webmanifest':'application/manifest+json'};
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 // Saving a trip sends its readings in batches and the original CSV: more than the other routes need.
 const MAX_DB_BODY_BYTES = 12 * 1024 * 1024;

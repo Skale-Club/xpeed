@@ -136,7 +136,7 @@ const Index = () => {
             </h2>
           </div>
           {/* The car itself, so it's clear at a glance whose car this is. */}
-          {selectedCar && <CarPicture car={selectedCar} className="w-32 shrink-0 sm:w-44" />}
+          {selectedCar && <CarPicture car={selectedCar} interactive cutoutOnly className="w-32 shrink-0 sm:w-64" />}
         </div>
 
         {sessionsFailed && (

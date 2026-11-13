@@ -1,0 +1,138 @@
+{
+  "repository": "https://github.com/pedrosoandre/carros",
+  "revision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+  "visuals": [
+    {
+      "key": "toyota-prius-2012",
+      "make": "Toyota",
+      "model": "Prius",
+      "modelAliases": [],
+      "yearFrom": 2012,
+      "yearTo": 2012,
+      "modelPath": "/vehicle-visuals/toyota-prius-2012.glb",
+      "posterPath": "/vehicle-visuals/toyota-prius-2012.png",
+      "sourceAsset": "https://raw.githubusercontent.com/pedrosoandre/carros/2d18dfd9db96bbf0d9cffa949deaf7f571388cbf/assets/toyota-prius.glb",
+      "sourceRevision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+      "sourceSha256": "9095a5576b159f1798167217950600c6775997521e2f0e8a6c40039612db32c2",
+      "modelSha256": "3880365b4040be87588fcac2028b246e5b2c526765b92e908d305c67a61540ef",
+      "modelBytes": 2010332,
+      "credit": {
+        "author": "Doz3",
+        "sourceUrl": "https://sketchfab.com/3d-models/toyota-prius-2012-04eaf6b288cc466785365b7d985e3b29",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "changes": "Upstream web optimization; Xpeed decoded mesh compression and resized textures to 512px; transparent poster rendered from this model."
+      }
+    },
+    {
+      "key": "honda-fit-2016",
+      "make": "Honda",
+      "model": "Fit",
+      "modelAliases": [],
+      "yearFrom": 2016,
+      "yearTo": 2016,
+      "modelPath": "/vehicle-visuals/honda-fit-2016.glb",
+      "posterPath": "/vehicle-visuals/honda-fit-2016.png",
+      "sourceAsset": "https://raw.githubusercontent.com/pedrosoandre/carros/2d18dfd9db96bbf0d9cffa949deaf7f571388cbf/assets/honda-fit.glb",
+      "sourceRevision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+      "sourceSha256": "48be0c8c1b794f2c733cfe6f77f4ad81071b045dac87d11e7e8ccd10548ae114",
+      "modelSha256": "691b53de11fd10f43e4b31f8f779a8cd244f5fa71c59e4473314c9b581c1f5af",
+      "modelBytes": 2022224,
+      "credit": {
+        "author": "Maroi Mister Let Me Think Official 3D Studio",
+        "sourceUrl": "https://sketchfab.com/3d-models/2016-honda-fit-dba-gk3-1acb615324254e53a04860e786ade136",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "changes": "Upstream web optimization; Xpeed decoded mesh compression and resized textures to 512px; transparent poster rendered from this model."
+      }
+    },
+    {
+      "key": "nissan-versa-2010",
+      "make": "Nissan",
+      "model": "Versa",
+      "modelAliases": [],
+      "yearFrom": 2010,
+      "yearTo": 2010,
+      "modelPath": "/vehicle-visuals/nissan-versa-2010.glb",
+      "posterPath": "/vehicle-visuals/nissan-versa-2010.png",
+      "sourceAsset": "https://raw.githubusercontent.com/pedrosoandre/carros/2d18dfd9db96bbf0d9cffa949deaf7f571388cbf/assets/nissan-versa.glb",
+      "sourceRevision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+      "sourceSha256": "72a9aa938271a913b68d2017b47cbe928c3bfec6741b430d74bb79eecccce50e",
+      "modelSha256": "bfac564027220c281e30898c625d6b822b4c7037aa85eb7bc4853e1537827287",
+      "modelBytes": 644624,
+      "credit": {
+        "author": "Velrifea",
+        "sourceUrl": "https://sketchfab.com/3d-models/free-nissan-versa-18-sl-2010-3745e5e9b3ef4bacb1a9476b5f15c2c6",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "changes": "Upstream web optimization; Xpeed decoded mesh compression and resized textures to 512px; transparent poster rendered from this model."
+      }
+    },
+    {
+      "key": "hyundai-santa-fe-2020",
+      "make": "Hyundai",
+      "model": "Santa Fe",
+      "modelAliases": [],
+      "yearFrom": 2020,
+      "yearTo": 2020,
+      "modelPath": "/vehicle-visuals/hyundai-santa-fe-2020.glb",
+      "posterPath": "/vehicle-visuals/hyundai-santa-fe-2020.png",
+      "sourceAsset": "https://raw.githubusercontent.com/pedrosoandre/carros/2d18dfd9db96bbf0d9cffa949deaf7f571388cbf/assets/hyundai-santa-fe.glb",
+      "sourceRevision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+      "sourceSha256": "ed98162ef9dcab32b93e866fb404ab94cbec2d56c742b8c4f343f00fbf9a7923",
+      "modelSha256": "1c52373849a1af165d4e027ea8550ec95381c980e8c580d5252be1bd6668001b",
+      "modelBytes": 272348,
+      "credit": {
+        "author": "asian3dmodel",
+        "sourceUrl": "https://sketchfab.com/3d-models/2020-hyundai-santafe-97dedc4d430b47b7b61333c052a45495",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "changes": "Upstream web optimization; Xpeed decoded mesh compression and resized textures to 512px; transparent poster rendered from this model."
+      }
+    },
+    {
+      "key": "kia-soul-2023",
+      "make": "Kia",
+      "model": "Soul",
+      "modelAliases": [],
+      "yearFrom": 2023,
+      "yearTo": 2023,
+      "modelPath": "/vehicle-visuals/kia-soul-2023.glb",
+      "posterPath": "/vehicle-visuals/kia-soul-2023.png",
+      "sourceAsset": "https://raw.githubusercontent.com/pedrosoandre/carros/2d18dfd9db96bbf0d9cffa949deaf7f571388cbf/assets/kia-soul.glb",
+      "sourceRevision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+      "sourceSha256": "0aa5f327488b61f42ceb25f7ca38999415a76e947dbfd059a15a0881e661b768",
+      "modelSha256": "3555d8a78195757f109097d88fbfcd9e9ecf60338875e03833c0577ee7f0dbcd",
+      "modelBytes": 426368,
+      "credit": {
+        "author": "slowpoly",
+        "sourceUrl": "https://sketchfab.com/3d-models/kia-soul-2023-a29232f2dcba4424a8d62e5bf1474bc1",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "changes": "Upstream web optimization; Xpeed decoded mesh compression and resized textures to 512px; transparent poster rendered from this model."
+      }
+    },
+    {
+      "key": "fiat-stilo-2001-2010",
+      "make": "Fiat",
+      "model": "Stilo",
+      "modelAliases": [],
+      "yearFrom": 2001,
+      "yearTo": 2010,
+      "modelPath": "/vehicle-visuals/fiat-stilo-2001-2010.glb",
+      "posterPath": "/vehicle-visuals/fiat-stilo-2001-2010.png",
+      "sourceAsset": "https://raw.githubusercontent.com/pedrosoandre/carros/2d18dfd9db96bbf0d9cffa949deaf7f571388cbf/assets/fiat-stilo.glb",
+      "sourceRevision": "2d18dfd9db96bbf0d9cffa949deaf7f571388cbf",
+      "sourceSha256": "c37746db37d6bc9afdc8ef55590461bb2261bf5b57a5955dab4ab6ea10ee4035",
+      "modelSha256": "a4f45cc30ca9a86762a58c7a0782a816f19e654ee4ffa961636b0d1475d0021e",
+      "modelBytes": 1081500,
+      "credit": {
+        "author": "Merc_TV",
+        "sourceUrl": "https://sketchfab.com/3d-models/fiat-stilo-2001-2010-4df3e95d810e426abe8c66dc4500531f",
+        "license": "CC BY 4.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+        "changes": "Upstream web optimization; Xpeed decoded mesh compression and resized textures to 512px; transparent poster rendered from this model."
+      }
+    }
+  ]
+}
