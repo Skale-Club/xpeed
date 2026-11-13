@@ -9,6 +9,7 @@ import { trackPath } from '@/lib/sim/analysis';
 import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { LapAnalysis, type LoadedLap } from './LapAnalysis';
 
+vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
 // The real charts need a layout engine; what matters here is which charts are drawn and with how many points.
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,

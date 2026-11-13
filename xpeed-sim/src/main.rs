@@ -17,6 +17,7 @@
 //! The first game is Le Mans Ultimate. See `docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md`.
 
 mod applog;
+mod brands;
 mod config;
 mod connect;
 mod covers;

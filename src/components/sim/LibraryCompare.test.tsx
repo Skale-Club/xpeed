@@ -11,6 +11,8 @@ import { makeSampleLaps } from '@/lib/sim/sample-laps';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { LibraryCompare } from './LibraryCompare';
 
+vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
+
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 // No account: layouts are looked for on the device only (the account sync has its own tests).
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => null }));

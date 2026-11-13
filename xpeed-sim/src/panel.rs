@@ -76,6 +76,7 @@ const CLASS: &str = "XpeedSimPanel";
 const WM_MOUSELEAVE: u32 = 0x02a3;
 /// Covers fetched in the background have arrived: read them again.
 const WM_COVERS: u32 = 0x8000 + 20;
+const WM_BRAND_DONE: u32 = 0x8000 + 21;
 const WM_MOUSEMOVE: u32 = 0x0200;
 const TIMER: usize = 1;
 /// About 60 frames a second, so the carousel and the revs move smoothly.
@@ -185,6 +186,7 @@ pub struct View<'a> {
     pub activity: &'a [(String, String)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
+    pub brands: &'a [BrandArt],
     /// Where the mouse is over the window (pixels), for the icon buttons' tooltips.
     pub mouse: Option<(i32, i32)>,
     /// The buttons drawn in this frame and where (pixels), for the clicks that follow.
@@ -243,6 +245,39 @@ pub struct CoverArt {
     pub key: &'static str,
     pub name: &'static str,
     image: *mut GpImage,
+}
+
+/// A cached make mark, loaded once and owned by the panel (never by its paint loop).
+pub struct BrandArt {
+    pub brand: crate::brands::Brand,
+    image: *mut GpImage,
+}
+impl BrandArt {
+    fn load() -> Vec<Self> {
+        let Some(dir) = crate::brands::folder() else { return Vec::new() };
+        let body = std::fs::read_to_string(dir.join("catalog.json")).unwrap_or_default();
+        crate::brands::listed(&body)
+            .into_iter()
+            .filter_map(|brand| {
+                let path = crate::brands::file_in(&dir, &brand.key)?;
+                let hash = std::fs::read_to_string(dir.join(format!("{}.sha256", brand.key))).ok()?;
+                if hash.trim() != brand.sha256 {
+                    return None;
+                }
+                let image = load_thumbnail(&path, 80, 48);
+                (!image.is_null()).then_some(Self { brand, image })
+            })
+            .collect()
+    }
+}
+impl Drop for BrandArt {
+    fn drop(&mut self) {
+        if !self.image.is_null() {
+            unsafe {
+                GdipDisposeImage(self.image);
+            }
+        }
+    }
 }
 
 impl CoverArt {
@@ -406,6 +441,10 @@ struct State {
     ctx: Context,
     /// The games' covers, read when the window opens.
     covers: Vec<CoverArt>,
+    brands: Vec<BrandArt>,
+    brand_requested: Option<String>,
+    brand_inflight: bool,
+    brand_retry_after: i64,
     /// The games installed here, read when the window opens and each time it comes to the front.
     installed: Option<HashSet<&'static str>>,
     tab: Tab,
@@ -2309,6 +2348,21 @@ fn clock_seconds(text: &str) -> Option<f64> {
 /// The tall layout (a phone held upright), on a 600 x 1210 canvas: the rev bar, the lap, the delta, the gear with the
 /// pedals either side and the wheel under the speed, the times and the fuel in two columns, the car strip (lights,
 /// engine and fuel, electronics and damage), then the track and the tyres side by side.
+fn brand_car_line(g: &mut Painter, car: &str, live: &Live, view: &View, width: f32) -> RECT {
+    let catalog: Vec<_> = view.brands.iter().map(|b| b.brand.clone()).collect();
+    let Some(brand) = crate::brands::match_brand(&live.car, &catalog) else {
+        return g.r(0.0, 72.0, width, 18.0);
+    };
+    if let Some(art) = view.brands.iter().find(|b| b.brand.key == brand.key) {
+        let tile = g.r(0.0, 70.0, 34.0, 20.0);
+        g.round(tile, 3.0, rgb(0xf5, 0xf5, 0xf5), None);
+        g.image(g.r(2.0, 71.0, 30.0, 18.0), art.image);
+        g.r(40.0, 72.0, width - 40.0, 18.0)
+    } else {
+        let _ = car;
+        g.r(0.0, 72.0, width, 18.0)
+    }
+}
 fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     let w = PORTRAIT_W;
     let share = if live.rpm_top > 0.0 { live.rpm / live.rpm_top } else { f32::NAN };
@@ -2355,7 +2409,7 @@ fn title_line(g: &mut Painter, live: &Live, view: &View, width: f32, left_w: f32
         .cloned()
         .collect::<Vec<_>>()
         .join("  ·  ");
-    let r = g.r(0.0, 72.0, left_w, 18.0);
+    let r = brand_car_line(g, &car, live, view, left_w);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     let r = g.r(width - 200.0, 46.0, 200.0, 28.0);
     let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
@@ -3747,6 +3801,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         recent_laps: &recent_laps,
         activity: &activity,
         covers: &state.covers,
+        brands: &state.brands,
         mouse: state.mouse,
         buttons: Default::default(),
         carousel: state.carousel.at(now),
@@ -3912,6 +3967,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             0
         }
         WM_TIMER => {
+            fetch_brand_if_needed(hwnd, state);
             InvalidateRect(hwnd, null(), 0);
             0
         }
@@ -4088,7 +4144,19 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_COVERS => {
             state.covers = CoverArt::load(state.installed.as_ref());
+            state.brands = BrandArt::load();
             InvalidateRect(hwnd, null(), 0);
+            0
+        }
+        WM_BRAND_DONE => {
+            state.brand_inflight = false;
+            if wparam == 0 {
+                state.brand_requested = None;
+                state.brand_retry_after = now_ms() + 30_000;
+            } else {
+                state.brands = BrandArt::load();
+                InvalidateRect(hwnd, null(), 0);
+            }
             0
         }
         WM_LBUTTONDBLCLK => {
@@ -4187,12 +4255,43 @@ fn fetch_covers_once(hwnd: HWND, server: String) {
         server
     };
     let target = hwnd as isize;
-    std::thread::spawn(move || match crate::covers::sync(&server) {
-        Some(0) => {}
-        Some(_) => unsafe {
-            PostMessageW(target as HWND, WM_COVERS, 0, 0);
-        },
-        None => STARTED.store(false, std::sync::atomic::Ordering::SeqCst),
+    std::thread::spawn(move || {
+        let covers = crate::covers::sync(&server);
+        let brands = crate::brands::sync(&server, None);
+        if covers.is_none() || brands.is_none() {
+            STARTED.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        if covers.unwrap_or(0) > 0 {
+            unsafe {
+                PostMessageW(target as HWND, WM_COVERS, 0, 0);
+            }
+        }
+    });
+}
+
+/// Fetch just the current make's image off the UI thread, once per car name change.
+unsafe fn fetch_brand_if_needed(hwnd: HWND, state: &mut State) {
+    let Some(live) = state.ctx.shared.live() else { return };
+    if live.car.is_empty()
+        || state.brand_inflight
+        || state.brand_requested.as_deref() == Some(&live.car)
+        || now_ms() < state.brand_retry_after
+    {
+        return;
+    }
+    let car = live.car.clone();
+    state.brand_requested = Some(car.clone());
+    state.brand_inflight = true;
+    let mut server = state.ctx.account.lock().map(|a| a.server.clone()).unwrap_or_default();
+    if server.is_empty() {
+        server = crate::config::DEFAULT_SERVER.to_owned();
+    }
+    let target = hwnd as isize;
+    std::thread::spawn(move || {
+        let result = crate::brands::sync(&server, Some(&car));
+        unsafe {
+            PostMessageW(target as HWND, WM_BRAND_DONE, usize::from(result.is_some()), 0);
+        }
     });
 }
 
@@ -4226,6 +4325,10 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             on_top: false,
             full: None,
             covers: Vec::new(),
+            brands: Vec::new(),
+            brand_requested: None,
+            brand_inflight: false,
+            brand_retry_after: 0,
             installed: None,
             buffer: None,
             mouse: None,
@@ -5007,6 +5110,7 @@ mod tests {
             recent_laps: &f.laps,
             activity: &f.log,
             covers: &[],
+            brands: &[],
             mouse: None,
             buttons: Default::default(),
             carousel: 0.0,

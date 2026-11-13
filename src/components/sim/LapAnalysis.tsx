@@ -18,6 +18,7 @@ import { makeSampleLaps } from '@/lib/sim/sample-laps';
 import { layoutGame, trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 import type { LibraryTrack } from '@/lib/sim/track-library';
 import { cn } from '@/lib/utils';
+import { SimCarIdentity } from './SimCarIdentity';
 
 export interface LoadedLap {
   id: string;
@@ -444,6 +445,7 @@ export function LapAnalysis({
                 <li key={entry.id} className="flex flex-wrap items-center gap-2 py-2">
                   <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
                     <p className="truncate text-sm font-medium">{describe(entry)}</p>
+                    <SimCarIdentity name={entry.lap.header.car.name} className="mt-1 text-xs text-muted-foreground" />
                     <p className="truncate text-xs text-muted-foreground">
                       {entry.name} · {entry.lap.header.lap.valid ? t('modes.compare.valid', 'valid') : t('modes.compare.notValid', 'not valid')}
                       {entry.sample ? ` · ${t('modes.compare.sampleTag', 'sample')}` : ''}

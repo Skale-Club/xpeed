@@ -15,6 +15,7 @@ import { compareUrl } from '@/lib/sim/compare-url';
 import { clearLibrary, removeLaps } from '@/lib/sim/library';
 import { groupSessions, type Session } from '@/lib/sim/sessions';
 import { cn } from '@/lib/utils';
+import { SimCarIdentity } from './SimCarIdentity';
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -209,7 +210,10 @@ export function SessionsList() {
             <CardContent className="space-y-3 p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h3 className="truncate text-sm font-semibold">{session.trackName} · {session.carName}</h3>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h3 className="truncate text-sm font-semibold">{session.trackName} ·</h3>{' '}
+                    <SimCarIdentity name={session.carName} className="text-sm font-semibold" />
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {when(session.startedAt)} · {t('modes.sessions.lapCount', 'Laps: {{count}}', { count: session.laps.length })}
                     {' '}({t('modes.sessions.validCount', '{{count}} valid', { count: session.validCount })})

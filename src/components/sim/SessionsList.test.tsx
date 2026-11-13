@@ -8,6 +8,7 @@ import { makeSampleLaps } from '@/lib/sim/sample-laps';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { vi } from 'vitest';
 import { SessionsList } from './SessionsList';
+vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
 
 let userId = 'ana';
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: userId } }) }));
