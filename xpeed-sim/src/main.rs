@@ -562,6 +562,14 @@ mod live {
     }
 }
 
+/// The commands that read or write the configuration or the laps, and so first move them from the old folders.
+fn moves_data(command: &Command) -> bool {
+    !matches!(
+        command,
+        Command::PanelDemo | Command::MakeIcon { .. } | Command::Probe { .. } | Command::Inspect { .. } | Command::TrackDump(_)
+    )
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = match parse(&args) {
@@ -572,9 +580,13 @@ fn main() -> ExitCode {
         }
     };
     // What the program kept under its old name moves to the new folders before anything reads the configuration. The log is
-    // not open yet (it lives in the folder that moves), so its lines wait for it.
-    for line in migrate::run() {
-        applog::early(&line);
+    // not open yet (it lives in the folder that moves), so its lines wait for it. Only commands that use those folders do
+    // it: a tool command (the installer's build making the icon, a probe, the demo panel) must never move a person's data,
+    // least of all when it runs inside another program's sandbox, where a move lands in that program's private copy.
+    if moves_data(&command) {
+        for line in migrate::run() {
+            applog::early(&line);
+        }
     }
     // The program has no console of its own; a command typed in a terminal borrows that terminal's.
     #[cfg(windows)]
@@ -749,5 +761,16 @@ mod tests {
         ] {
             assert!(parse(&args(bad)).is_err(), "{bad:?} should be refused");
         }
+    }
+    #[test]
+    fn only_commands_that_use_the_data_move_it_from_the_old_folders() {
+        assert!(moves_data(&Command::Run));
+        assert!(moves_data(&Command::Panel));
+        assert!(moves_data(&Command::Status));
+        assert!(moves_data(&Command::Unpair));
+        assert!(!moves_data(&Command::PanelDemo));
+        assert!(!moves_data(&Command::MakeIcon { file: "a.ico".into() }));
+        assert!(!moves_data(&Command::Probe { seconds: 5 }));
+        assert!(!moves_data(&Command::Inspect { file: "a.xlap.gz".into() }));
     }
 }
