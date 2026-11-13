@@ -101,6 +101,7 @@ const BG_BOTTOM: COLORREF = rgb(0x08, 0x09, 0x0b);
 const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
 const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
 const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
+const WHITE: COLORREF = rgb(0xff, 0xff, 0xff);
 const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
 const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
 const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
@@ -1243,6 +1244,27 @@ impl Painter {
         extent.cx as f32 / self.s
     }
 
+    /// The font size, from `size` down to `floor`, at which `s` fits in `room` design units; never above `size`.
+    fn fitted(&mut self, s: &str, room: f32, size: f32, floor: f32, weight: i32, face: Face) -> f32 {
+        let mut fit = fit_size(self.width_of(s, size, weight, face), size, room, floor);
+        // Glyph widths round to whole pixels, so one more look at the result, and a step down while it still runs out.
+        for _ in 0..3 {
+            if fit <= floor || self.width_of(s, fit, weight, face) <= room {
+                break;
+            }
+            fit = (fit * 0.95).max(floor);
+        }
+        fit
+    }
+
+    /// The mark of a lap that does not count: a red square with a white "!", `size` design units on a side.
+    fn invalid_mark(&self, x: f32, y: f32, size: f32) {
+        self.round(self.r(x, y, size, size), size * 0.22, RED, None);
+        let (bar, cx) = ((size * 0.14).max(1.0), x + size / 2.0);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), WHITE);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), WHITE);
+    }
+
     /// A tile: the card colour with its border.
     fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
         self.round(self.r(x, y, w, h), CORNER, color, Some(EDGE));
@@ -1374,9 +1396,48 @@ fn lights_lit(share: f32) -> (usize, bool) {
     (lit.clamp(0.0, LIGHTS as f32) as usize, false)
 }
 
-/// Splits a saved lap's label (`Lap 3  1:47.918`) into its name and its time.
-fn lap_parts(label: &str) -> (&str, &str) {
-    label.split_once("  ").map_or((label, ""), |(name, time)| (name, time.trim()))
+/// A saved lap's label (`Lap 3  1:47.918`, or `Lap 5  3:27.250 (not valid)`) in its parts.
+#[derive(Debug, PartialEq)]
+struct LapLabel<'a> {
+    name: &'a str,
+    time: &'a str,
+    /// The label says the lap did not count.
+    invalid: bool,
+}
+
+/// Splits a saved lap's label into its name, its time and whether the lap was invalid.
+fn lap_parts(label: &str) -> LapLabel<'_> {
+    let (name, rest) = label.split_once("  ").unwrap_or((label, ""));
+    let rest = rest.trim();
+    match rest.strip_suffix(crate::engine::NOT_VALID_MARK.trim_start()) {
+        Some(time) => LapLabel {
+            name,
+            time: time.trim_end(),
+            invalid: true,
+        },
+        None => LapLabel {
+            name,
+            time: rest,
+            invalid: false,
+        },
+    }
+}
+
+/// The best time among the laps that counted, in seconds; an invalid lap is never the fastest.
+fn fastest_valid(laps: &[LapLabel]) -> Option<f64> {
+    laps.iter()
+        .filter(|l| !l.invalid)
+        .filter_map(|l| clock_seconds(l.time))
+        .reduce(f64::min)
+}
+
+/// The font size for a text measured `measured` wide at `size`, so that it fits in `room`: `size` itself when it
+/// already fits, smaller in proportion when it does not, and never below `floor`.
+fn fit_size(measured: f32, size: f32, room: f32, floor: f32) -> f32 {
+    if measured <= room || measured <= 0.0 {
+        return size;
+    }
+    (size * room / measured).max(floor.min(size))
 }
 
 /// The flags of the languages, in the order of `Lang::ALL`: Nucleo's flag icons (`assets/flags/*.svg`), drawn once
@@ -1955,15 +2016,8 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
     let r = g.r(0.0, top, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, 10.5, MUTED, DT_LEFT);
     let (y, h) = (top + 24.0, bottom - top - 24.0);
-    let laps: Vec<(&str, &str, Option<f64>)> = view
-        .recent_laps
-        .iter()
-        .map(|label| {
-            let (name, time) = lap_parts(label);
-            (name, time, clock_seconds(time))
-        })
-        .collect();
-    let fastest = laps.iter().filter_map(|l| l.2).fold(f64::INFINITY, f64::min);
+    let laps: Vec<LapLabel> = view.recent_laps.iter().map(|label| lap_parts(label)).collect();
+    let fastest = fastest_valid(&laps).unwrap_or(f64::INFINITY);
     // Six places, always: the last completed laps (up to five), the lap being driven, then empty places, so the row
     // keeps its shape from the first lap on.
     let (n, gap) = (6_usize, 12.0);
@@ -1978,26 +2032,44 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
                 time: &str,
                 time_color: COLORREF,
                 note: &str,
-                note_color: COLORREF| {
+                note_color: COLORREF,
+                invalid: bool| {
         let x = i as f32 * (card_w + gap);
         g.fill(g.r(x, y, card_w, h), CARD);
         g.fill(g.r(x, y, card_w, 3.0), edge);
         let r = g.r(x + 14.0, y + 14.0, card_w - 28.0, 16.0);
         g.caps(name, r, 10.5, name_color, DT_LEFT);
-        let r = g.r(x + 12.0, y + 40.0, card_w - 20.0, 40.0);
-        g.text(time, r, 30.0, semi, Face::Num, time_color, DT_LEFT);
+        if invalid {
+            g.invalid_mark(x + card_w - 14.0 - 16.0, y + 13.0, 16.0);
+        }
+        // The time never leaves its card: smaller when it is long.
+        let room = card_w - 24.0;
+        let size = g.fitted(time, room, 30.0, 14.0, semi, Face::Num);
+        let r = g.r(x + 12.0, y + 40.0, room + 4.0, 40.0);
+        g.text(time, r, size, semi, Face::Num, time_color, DT_LEFT);
         let r = g.r(x + 14.0, y + h - 36.0, card_w - 28.0, 20.0);
         g.text(note, r, 14.0, semi, Face::Num, note_color, DT_LEFT);
     };
-    for (i, (name, time, secs)) in shown.iter().enumerate() {
-        let is_fastest = secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
+    for (i, lap) in shown.iter().enumerate() {
+        let secs = clock_seconds(lap.time);
+        let is_fastest = !lap.invalid && secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
         let note = match secs {
+            _ if lap.invalid => text(view.lang, &Msg::PanelInvalid),
             _ if is_fastest => text(view.lang, &Msg::PanelFastest),
             Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
             _ => String::new(),
         };
-        let (edge, color) = if is_fastest { (PURPLE, PURPLE) } else { (EDGE, TEXT) };
-        card(g, i, edge, name, MUTED, time, color, &note, if is_fastest { PURPLE } else { MUTED });
+        let (edge, color) = match (lap.invalid, is_fastest) {
+            (true, _) => (RED, MUTED),
+            (_, true) => (PURPLE, PURPLE),
+            _ => (EDGE, TEXT),
+        };
+        let note_color = match (lap.invalid, is_fastest) {
+            (true, _) => RED,
+            (_, true) => PURPLE,
+            _ => MUTED,
+        };
+        card(g, i, edge, lap.name, MUTED, lap.time, color, &note, note_color, lap.invalid);
     }
     // The lap being driven, its time running and its delta to the best lap.
     let now = shown.len();
@@ -2017,6 +2089,7 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
         TEXT,
         &delta_text(live.delta_s),
         delta_color,
+        live.lap_valid == Some(false),
     );
     // The places still to fill.
     for i in now + 1..n {
@@ -2038,6 +2111,20 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
             DT_CENTER,
             22.0,
         );
+    }
+}
+
+/// The mark of a lap that will not count, ending at `right` (design units), with its word before it when `label`.
+fn invalid_flag(g: &mut Painter, view: &View, right: f32, y: f32, label: bool) {
+    let size = 22.0;
+    g.invalid_mark(right - size, y, size);
+    if label {
+        let word = text(view.lang, &Msg::PanelInvalid);
+        let room = 120.0;
+        let fit = g.fitted(&word, room, 15.0, 11.0, FW_SEMIBOLD as i32, Face::Ui);
+        let used = g.width_of(&word, fit, FW_SEMIBOLD as i32, Face::Ui);
+        let r = g.r(right - size - 8.0 - used, y, used + 2.0, size);
+        g.text(&word, r, fit, FW_SEMIBOLD as i32, Face::Ui, RED, DT_LEFT);
     }
 }
 
@@ -2068,15 +2155,13 @@ fn portrait_block(g: &mut Painter, live: &Live, view: &View) {
     let r = g.r(0.0, 72.0, 420.0, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     let r = g.r(w - 200.0, 46.0, 200.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        26.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
+    let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
+    g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
+    if live.lap_valid == Some(false) {
+        // No label here: the car's name takes the left of the line.
+        let at = w - g.width_of(&title, 26.0, semi, Face::Num) - 12.0;
+        invalid_flag(g, view, at, 49.0, false);
+    }
     let status = if live.in_pits {
         text(view.lang, &Msg::PanelPits)
     } else if !live.driving {
@@ -2284,15 +2369,12 @@ fn main_block(g: &mut Painter, live: &Live, view: &View, width: f32) {
     let r = g.r(0.0, 72.0, 640.0, 18.0);
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     let r = g.r(width - 360.0, 46.0, 360.0, 28.0);
-    g.text(
-        &text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase(),
-        r,
-        26.0,
-        semi,
-        Face::Num,
-        ACCENT,
-        DT_RIGHT,
-    );
+    let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
+    g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
+    if live.lap_valid == Some(false) {
+        let at = width - g.width_of(&title, 26.0, semi, Face::Num) - 12.0;
+        invalid_flag(g, view, at, 49.0, true);
+    }
     let status = if live.in_pits {
         text(view.lang, &Msg::PanelPits)
     } else if !live.driving {
@@ -2745,11 +2827,24 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
             if i > 0 {
                 g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
             }
-            let (name, time) = lap_parts(label);
+            let lap = lap_parts(label);
             let r = g.r(right + 20.0, y, col / 2.0, lap_row);
-            g.text(name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            g.text(lap.name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            // The time stays in its half of the row (smaller when it is long), the mark of an invalid lap before it.
+            let room = col / 2.0 - 20.0 - if lap.invalid { 24.0 } else { 0.0 };
+            let size = g.fitted(lap.time, room, 18.0, 11.0, semi, Face::Num);
+            let color = match (lap.invalid, i) {
+                (true, _) => MUTED,
+                (_, 0) => ACCENT,
+                _ => TEXT,
+            };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
-            g.text(time, r, 18.0, semi, Face::Num, if i == 0 { ACCENT } else { TEXT }, DT_RIGHT);
+            g.text(lap.time, r, size, semi, Face::Num, color, DT_RIGHT);
+            if lap.invalid {
+                // The digits are set a little wider than the plain measure: leave room.
+                let used = g.width_of(lap.time, size, semi, Face::Num) * 1.18 + 8.0;
+                g.invalid_mark(right + col - 20.0 - used - 22.0, y + (lap_row - 16.0) / 2.0, 16.0);
+            }
         }
     }
 
@@ -3905,7 +4000,11 @@ mod tests {
                     state: Game::Unsupported,
                 },
             ],
-            laps: vec!["Lap 1  1:49.002".into(), "Lap 2  1:48.115".into(), "Lap 3  1:47.918".into()],
+            laps: vec![
+                "Lap 1  1:49.002".into(),
+                "Lap 2  1:48.115 (not valid)".into(),
+                "Lap 3  1:47.918".into(),
+            ],
             log: vec![
                 ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
                 ("21:45".into(), "Lap saved: Lap 2  1:48.115".into()),
@@ -4031,6 +4130,7 @@ mod tests {
         let live = live_reading();
         let mut pits = live.clone();
         pits.in_pits = true;
+        pits.lap_valid = Some(false);
         pits.delta_s = Some(0.43);
         pits.throttle = 0.0;
         pits.brake = 0.8;
@@ -4338,8 +4438,39 @@ look(); setInterval(look, 1500);
         assert_eq!(lights_lit(0.98), (LIGHTS, true));
         assert_eq!(lights_lit(f32::NAN), (0, false));
         assert_eq!(mix(rgb(0, 0, 0), rgb(200, 100, 50), 0.5), rgb(100, 50, 25));
-        assert_eq!(lap_parts("Lap 3  1:47.918"), ("Lap 3", "1:47.918"));
-        assert_eq!(lap_parts("odd"), ("odd", ""));
+    }
+
+    #[test]
+    fn a_lap_label_splits_into_name_time_and_the_invalid_flag() {
+        let part = |name, time, invalid| LapLabel { name, time, invalid };
+        assert_eq!(lap_parts("Lap 3  1:47.918"), part("Lap 3", "1:47.918", false));
+        assert_eq!(lap_parts("Lap 5  3:27.250 (not valid)"), part("Lap 5", "3:27.250", true));
+        assert_eq!(lap_parts("odd"), part("odd", "", false));
+        assert_eq!(lap_parts(""), part("", "", false));
+        assert_eq!(lap_parts("Lap 7  (not valid)"), part("Lap 7", "", true));
+        // The mark is only the label's tail, not part of its name.
+        assert_eq!(lap_parts("Lap (not valid)  1:00.000"), part("Lap (not valid)", "1:00.000", false));
+    }
+
+    #[test]
+    fn the_fastest_lap_is_never_an_invalid_one() {
+        let laps: Vec<_> = ["Lap 1  1:49.002", "Lap 2  1:40.000 (not valid)", "Lap 3  1:47.918"]
+            .into_iter()
+            .map(lap_parts)
+            .collect();
+        assert_eq!(fastest_valid(&laps), Some(107.918));
+        let only_invalid = [lap_parts("Lap 1  1:40.000 (not valid)")];
+        assert_eq!(fastest_valid(&only_invalid), None);
+        assert_eq!(fastest_valid(&[]), None);
+    }
+
+    #[test]
+    fn a_time_that_does_not_fit_gets_a_smaller_size_but_never_below_the_floor() {
+        assert_eq!(fit_size(80.0, 30.0, 100.0, 14.0), 30.0, "fits: unchanged");
+        assert_eq!(fit_size(200.0, 30.0, 100.0, 14.0), 15.0, "twice too wide: half the size");
+        assert_eq!(fit_size(1000.0, 30.0, 100.0, 14.0), 14.0, "far too wide: the floor");
+        assert_eq!(fit_size(1000.0, 10.0, 100.0, 14.0), 10.0, "a size under the floor is left alone");
+        assert_eq!(fit_size(0.0, 30.0, 100.0, 14.0), 30.0);
     }
 
     #[test]

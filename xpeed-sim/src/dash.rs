@@ -86,6 +86,8 @@ pub struct Live {
     pub in_pits: bool,
     pub lap: i32,
     pub lap_time_s: Option<f64>,
+    /// `Some(false)` when the game says the lap being driven will not count.
+    pub lap_valid: Option<bool>,
     pub last_lap_s: Option<f64>,
     /// The best complete lap seen in this run on this track with this car.
     pub best_lap_s: Option<f64>,
@@ -261,6 +263,7 @@ impl Tracker {
             in_pits: frame.in_pits,
             lap: frame.lap,
             lap_time_s: frame.lap_time_s,
+            lap_valid: frame.lap_valid,
             last_lap_s: frame.last_lap_s,
             best_lap_s: self.best.as_ref().map(|(t, _)| *t),
             delta_s,

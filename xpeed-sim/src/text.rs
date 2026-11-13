@@ -99,6 +99,7 @@ pub enum Msg {
     PanelRecentLaps,
     PanelNoLapsYet,
     PanelFastest,
+    PanelInvalid,
     PanelMapSoon,
     PanelNoTyres,
     /// The waiting screen when a game is open: `{name} is open` (no data yet) or `{name} connected`.
@@ -273,6 +274,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Tus vueltas aparecen aquí a medida que las completas."),
         ),
         PanelFastest => t(s("fastest"), s("mais rápida"), s("más rápida")),
+        PanelInvalid => t(s("invalid"), s("inválida"), s("inválida")),
         PanelMapSoon => t(
             s("The track draws itself as you drive."),
             s("A pista vai sendo desenhada enquanto você dirige."),
@@ -474,6 +476,7 @@ mod tests {
             Msg::PanelRecentLaps,
             Msg::PanelNoLapsYet,
             Msg::PanelFastest,
+            Msg::PanelInvalid,
             Msg::PanelMapSoon,
             Msg::PanelNoTyres,
             Msg::FocusOpen("Automobilista 2".into()),
