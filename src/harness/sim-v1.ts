@@ -1,13 +1,17 @@
 // Screen harness only: a fake of the racing data API (docs/platform/API-V1.md) with realistic data, served by vite.harness.config.ts
 // at /api/sim/v1/*. Several tracks and cars, 60 laps across six sessions (sectors, an out lap, an in lap and voided laps in each),
-// and a real lap file for every lap, so Sessions, the session page and Compare can be clicked through without a server.
+// and a real lap file for every lap, so Overview, Sessions, a session, the track and car pages and Compare can be clicked through without a server.
+// The laps are made-up laps with known corners (src/lib/sim/synthetic-lap.ts): each driver varies a little from lap to lap (a brake point,
+// the speed through a corner, when the throttle comes on), so the corner analysis has something to find. The layouts of Monza and Spa are
+// served as the ones "Xpeed Companion sent" (GET /api/sim/tracks).
 //
 //   HARNESS_NO_LAPS=1   an account with nothing in it (the empty states)
 //   HARNESS_API_DOWN=1  every call fails with 503 (the error state); /api/sim/v1/__fail?on=1 and ?on=0 switch it while the harness runs
-import { gzipLap } from '@/lib/sim/lap-file';
-import type { V1CarItem, V1Lap, V1Ref, V1Session, V1TrackItem } from '@/lib/sim/v1-client';
-import { makeLapFixtures } from '@/test/lap-fixture';
-import { fakeV1State, handleV1, type FakeV1State } from '@/test/v1-fake-server';
+import { gzipLap, type LapFile } from '@/lib/sim/lap-file';
+import { buildSyntheticLap, exampleCorners, scaleCorners, type SynthCorner } from '@/lib/sim/synthetic-lap';
+import type { V1Lap, V1Ref, V1Session } from '@/lib/sim/v1-client';
+import { gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
+import { buildCatalog, fakeV1State, handleV1, type FakeV1State } from '@/test/v1-fake-server';
 
 let seed = 20261113;
 const random = () => {
@@ -19,10 +23,8 @@ const id = (prefix: string, n: number) => `${prefix}-0000-4000-8000-${String(n).
 const track = (n: number, name: string): V1Ref => ({ id: id('00000001', n), name });
 const car = (n: number, name: string): V1Ref => ({ id: id('00000002', n), name });
 
-const TRACKS = { monza: track(1, 'Monza'), spa: track(2, 'Spa-Francorchamps'), bahrain: track(3, 'Bahrain International Circuit'), imola: track(4, 'Imola') };
+const TRACKS = { monza: track(1, 'Monza'), spa: track(2, 'Spa-Francorchamps'), bahrain: track(3, 'Bahrain International Circuit'), imola: track(4, 'Imola'), monzaAc: track(5, 'Monza') };
 const CARS = { ferrari: car(1, 'Ferrari 499P'), toyota: car(2, 'Toyota GR010'), porsche: car(3, 'Porsche 911 GT3 R'), ferrari488: car(4, 'Ferrari 488 GT3') };
-/** The lap file of a track is scaled to its length, so laps of the same track compare and laps of different tracks do not. */
-const LENGTH_SCALE: Record<string, number> = { Monza: 1.8, 'Spa-Francorchamps': 2.4, 'Bahrain International Circuit': 1.7, Imola: 1.2 };
 const LENGTH_M: Record<string, number> = { Monza: 5793, 'Spa-Francorchamps': 7004, 'Bahrain International Circuit': 5412, Imola: 4909 };
 
 interface Plan {
@@ -34,9 +36,33 @@ const PLANS: Plan[] = [
   { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'practice', startedAt: '2026-11-11T20:00:00.000Z', laps: 12, base: 100_900, weather: 'rain', air: 17, trackTemp: 19, origin: 'companion' },
   { game: 'lmu', track: TRACKS.spa, car: CARS.toyota, kind: 'qualifying', startedAt: '2026-11-10T15:00:00.000Z', laps: 8, base: 134_500, weather: 'dry', air: 21, trackTemp: 27, origin: 'companion' },
   { game: 'lmu', track: TRACKS.bahrain, car: CARS.ferrari, kind: 'practice', startedAt: '2026-11-08T09:30:00.000Z', laps: 10, base: 110_200, weather: null, air: null, trackTemp: null, origin: 'inferred' },
-  { game: 'ac', track: TRACKS.monza, car: CARS.porsche, kind: 'practice', startedAt: '2026-11-06T21:00:00.000Z', laps: 9, base: 105_600, weather: 'dry', air: 26, trackTemp: null, origin: 'companion' },
+  { game: 'ac', track: TRACKS.monzaAc, car: CARS.porsche, kind: 'practice', startedAt: '2026-11-06T21:00:00.000Z', laps: 9, base: 105_600, weather: 'dry', air: 26, trackTemp: null, origin: 'companion' },
   { game: 'ac', track: TRACKS.imola, car: CARS.ferrari488, kind: 'race', startedAt: '2026-11-03T19:00:00.000Z', laps: 7, base: 108_300, weather: 'cloudy', air: 15, trackTemp: 17, origin: 'companion' },
 ];
+
+/** The corners of a track: the example corners stretched to its length. */
+const cornersFor = (trackName: string): SynthCorner[] => scaleCorners(exampleCorners(), LENGTH_M[trackName] / 4200);
+
+/**
+ * A lap of this track, driven by someone who varies a little: the hairpin's brake point moves, the speed through the last corner
+ * and when the throttle comes on after the first one. `skill` (about -1 to 1) is how well the lap went.
+ */
+function driven(plan: Plan, lap: number, skill: number, rain: boolean): LapFile {
+  const corners = cornersFor(plan.track.name).map((corner, index) => {
+    if (index === 0) return { ...corner, pickupDist: corner.apexDist + 25 - skill * 8 + (random() - 0.5) * 8 };
+    if (index === 1) return { ...corner, brakeDist: corner.brakeDist - 14 * (random() - 0.2) + skill * 6, minSpeedKmh: corner.minSpeedKmh - (rain ? 4 : 0) };
+    if (index === 5) return { ...corner, minSpeedKmh: corner.minSpeedKmh + skill * 3 - (rain ? 6 : 0) + (random() - 0.5) * 4 };
+    return rain ? { ...corner, minSpeedKmh: Math.min(corner.minSpeedKmh - 3, corner.entrySpeedKmh - 5) } : corner;
+  });
+  return buildSyntheticLap({ lengthM: LENGTH_M[plan.track.name], corners, hz: 20, trackName: plan.track.name, car: plan.car.name, game: plan.game, lapNumber: lap }).lap;
+}
+
+/** The same lap through the pits: slower, as an out or in lap is. The clock and the sectors follow. */
+const slowedBy = (lap: LapFile, factor: number): LapFile => ({
+  ...lap,
+  header: { ...lap.header, lap: { ...lap.header.lap, timeMs: Math.round(lap.header.lap.timeMs * factor) } },
+  data: { ...lap.data, t: Float32Array.from(lap.data.t, (value) => value * factor) },
+});
 
 /** The state of the fake server, and the lap files, built once. */
 let built: Promise<FakeV1State> | null = null;
@@ -46,12 +72,11 @@ async function build(): Promise<FakeV1State> {
     devices: [{ id: 'dev-1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: new Date().toISOString(), lastLapAt: PLANS[0].startedAt }],
   });
   if (process.env.HARNESS_NO_LAPS === '1') return state;
-  const [slow, fast] = makeLapFixtures();
   let n = 0;
   for (const [index, plan] of PLANS.entries()) {
     const session: V1Session = {
       id: id('00000003', index + 1), game: plan.game, track: plan.track, car: plan.car, kind: plan.kind, origin: plan.origin, startedAt: plan.startedAt,
-      endedAt: new Date(Date.parse(plan.startedAt) + plan.laps * (plan.base + 8000)).toISOString(), weather: plan.weather, airTempC: plan.air, trackTempC: plan.trackTemp, lapCount: 0, bestLapMs: null,
+      endedAt: plan.startedAt, weather: plan.weather, airTempC: plan.air, trackTempC: plan.trackTemp, lapCount: 0, bestLapMs: null,
     };
     state.sessions.push(session);
     let clock = Date.parse(plan.startedAt);
@@ -60,29 +85,30 @@ async function build(): Promise<FakeV1State> {
       const out = lap === 1;
       const into = lap === plan.laps && plan.laps > 6;
       const voided = lap % 6 === 4;
-      // A spread of a second or so, quicker as the session goes on; the pit laps are slow.
-      const time = Math.round(plan.base + (out ? 17_000 : into ? 9_000 : 0) + random() * 1800 - lap * 22 + (plan.weather === 'rain' ? 4_000 : 0));
-      const s1 = Math.round(time * (0.28 + random() * 0.01));
-      const s2 = Math.round(time * (0.4 + random() * 0.01));
+      // A spread of a second or so, quicker as the session goes on (skill climbs from -1 towards 1); the pit laps are slow.
+      const skill = Math.max(-1, Math.min(1, (lap / plan.laps) * 2 - 1 + (random() - 0.5)));
+      let file = driven(plan, lap, skill, plan.weather === 'rain');
+      if (out) file = slowedBy(file, 1.17);
+      else if (into) file = slowedBy(file, 1.07);
+      const time = file.header.lap.timeMs;
+      const length = LENGTH_M[plan.track.name];
+      const at = (fraction: number) => Math.round(1000 * (file.data.t[file.data.dist.findIndex((d) => d >= fraction * length)] ?? 0));
+      const s1 = at(0.31);
+      const s2 = at(0.7) - s1;
       const sectors = plan.game === 'ac' && plan.track === TRACKS.imola ? null : [s1, s2, time - s1 - s2];
       const lapId = id('00000004', n);
       const startedAt = new Date(clock).toISOString();
       clock += time + 3000;
       state.laps.push({
         id: lapId, game: plan.game, track: plan.track, car: plan.car, sessionId: session.id, lapNumber: lap, timeMs: time, valid: !voided, startedAt, sectorsMs: sectors,
-        topSpeedKmh: 300 + Math.round(random() * 20), fuelUsedL: null, inLap: into ? true : null, outLap: out ? true : null, sampleCount: slow.header.sampleCount, sizeBytes: 180_000, reduced: false,
+        topSpeedKmh: Math.round(3.6 * Math.max(...file.data.speed)), fuelUsedL: null, inLap: into ? true : null, outLap: out ? true : null, sampleCount: file.header.sampleCount, sizeBytes: 180_000, reduced: false,
         formatVersion: 2, createdAt: new Date(clock).toISOString(), deviceName: 'Racing PC',
       } satisfies V1Lap);
-      // The lap file: the samples of one of the two fixture laps, with the header of this lap.
-      const source = lap % 2 ? slow : fast;
-      const scale = LENGTH_SCALE[plan.track.name];
       state.files.set(lapId, await gzipLap({
-        ...source,
+        ...file,
         header: {
-          ...source.header, game: plan.game, track: { name: plan.track.name, lengthM: LENGTH_M[plan.track.name] }, car: { name: plan.car.name },
-          lap: { number: lap, timeMs: time, valid: !voided, ...(sectors ? { sectorsMs: sectors } : {}), ...(out ? { outLap: true } : {}), ...(into ? { inLap: true } : {}) }, startedAt,
+          ...file.header, lap: { number: lap, timeMs: time, valid: !voided, ...(sectors ? { sectorsMs: sectors } : {}), ...(out ? { outLap: true } : {}), ...(into ? { inLap: true } : {}) }, startedAt,
         },
-        data: { ...source.data, dist: source.data.dist.map((d) => d * scale), x: source.data.x.map((v) => v * scale), z: source.data.z.map((v) => v * scale), t: source.data.t.map((t) => (t * time) / 1000 / source.data.t[source.data.t.length - 1]) },
       }));
     }
   }
@@ -92,27 +118,40 @@ async function build(): Promise<FakeV1State> {
     const valid = laps.filter((entry) => entry.valid);
     session.lapCount = laps.length;
     session.bestLapMs = valid.length ? Math.min(...valid.map((entry) => entry.timeMs)) : null;
+    session.endedAt = new Date(Math.max(...laps.map((entry) => Date.parse(entry.startedAt) + entry.timeMs))).toISOString();
   }
   state.requests.length = 0;
-  const catalog = <T extends { id: string }>(refOf: (lap: V1Lap) => V1Ref | null, make: (ref: V1Ref, laps: V1Lap[]) => T) =>
-    [...new Set(state.laps.map((lap) => refOf(lap)?.id))].flatMap((refId) => {
-      const laps = state.laps.filter((lap) => refOf(lap)?.id === refId);
-      return laps.length ? [make(refOf(laps[0])!, laps)] : [];
-    });
-  const best = (laps: V1Lap[]) => {
-    const valid = laps.filter((lap) => lap.valid);
-    return valid.length ? Math.min(...valid.map((lap) => lap.timeMs)) : null;
-  };
-  const last = (laps: V1Lap[]) => laps.map((lap) => lap.startedAt).sort().at(-1)!;
-  state.tracks = catalog<V1TrackItem>((lap) => lap.track, (ref, laps) => ({
-    id: ref.id, game: laps[0].game, name: ref.name, lengthM: LENGTH_M[ref.name] ?? null, lapCount: laps.length, validLapCount: laps.filter((lap) => lap.valid).length,
-    sessionCount: new Set(laps.map((lap) => lap.sessionId)).size, carCount: new Set(laps.map((lap) => lap.car?.id)).size, bestLapMs: best(laps), lastDrivenAt: last(laps),
-  }));
-  state.cars = catalog<V1CarItem>((lap) => lap.car, (ref, laps) => ({
-    id: ref.id, game: laps[0].game, name: ref.name, brand: null, class: null, lapCount: laps.length, validLapCount: laps.filter((lap) => lap.valid).length,
-    sessionCount: new Set(laps.map((lap) => lap.sessionId)).size, trackCount: new Set(laps.map((lap) => lap.track?.id)).size, bestLapMs: best(laps), lastDrivenAt: last(laps),
-  }));
+  buildCatalog(state, LENGTH_M);
   return state;
+}
+
+/** The layouts "Xpeed Companion sent": a road along the path of a clean lap of the track, with edges and the game's ideal line. */
+const LAYOUT_TRACKS = [{ id: 'harness-layout-monza', name: 'Monza' }, { id: 'harness-layout-spa', name: 'Spa-Francorchamps' }];
+const layouts = new Map<string, Promise<Uint8Array>>();
+
+function layoutBytes(spec: { id: string; name: string }): Promise<Uint8Array> {
+  let found = layouts.get(spec.id);
+  if (!found) {
+    const lap = buildSyntheticLap({ lengthM: LENGTH_M[spec.name], corners: cornersFor(spec.name), hz: 5, game: 'lmu' }).lap;
+    const points = Array.from(lap.data.x, (x, i) => [x, lap.data.z[i]] as [number, number]);
+    found = gzipBytes(packLayout(makeLayout({ game: 'lmu', name: spec.name, points, width: 7, closed: false, ideal: true, idealShift: 0.6 })));
+    layouts.set(spec.id, found);
+  }
+  return found;
+}
+
+/** Answers `/api/sim/tracks` (the account's layouts) and `/api/sim/tracks/<id>/file`. */
+export async function answerLayouts(method: string, path: string): Promise<HarnessAnswer | null> {
+  if (process.env.HARNESS_NO_LAPS === '1') return path === '/tracks' && method === 'GET' ? { status: 200, json: { tracks: [] } } : null;
+  if (path === '/tracks' && method === 'GET') {
+    const tracks = await Promise.all(LAYOUT_TRACKS.map(async (spec) => ({
+      id: spec.id, game: 'lmu', trackName: spec.name, variant: null, title: null, lengthM: LENGTH_M[spec.name], size: (await layoutBytes(spec)).length, updatedAt: '2026-11-01T00:00:00.000Z',
+    })));
+    return { status: 200, json: { tracks } };
+  }
+  const file = /^\/tracks\/([^/]+)\/file$/.exec(path);
+  const spec = file && LAYOUT_TRACKS.find((entry) => entry.id === decodeURIComponent(file[1]));
+  return spec && method === 'GET' ? { status: 200, bytes: await layoutBytes(spec) } : null;
 }
 
 export interface HarnessAnswer { status: number; json?: unknown; bytes?: Uint8Array }

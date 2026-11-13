@@ -183,7 +183,13 @@
       "removeTitle": "¿Quitar este trazado?",
       "removeText": "Se quita de este dispositivo y de tu cuenta. Las vueltas en este circuito se dibujarán sin él hasta que Xpeed Companion lo vuelva a enviar.",
       "fromAccount_one": "1 trazado enviado por Xpeed Companion se trajo de tu cuenta.",
-      "fromAccount_other": "{{count}} trazados enviados por Xpeed Companion se trajeron de tu cuenta."
+      "fromAccount_other": "{{count}} trazados enviados por Xpeed Companion se trajeron de tu cuenta.",
+      "layoutBadge": "Trazado",
+      "layoutTitle": "Xpeed Companion ha enviado el trazado de este circuito: la vuelta se dibuja sobre él",
+      "listIntro": "Los circuitos en los que has conducido. Abre uno para ver tu progreso en él y tu mejor vuelta con cada coche.",
+      "noMatch": "Ningún circuito de este juego todavía.",
+      "emptyAccount": "Aún no hay circuitos. Instala Xpeed Companion y conéctalo a tu cuenta: los circuitos en los que conduzcas aparecen aquí.",
+      "layoutsFold": "Trazados de circuito guardados en este dispositivo"
     },
     "sim": {
       "intro": "Xpeed Companion es la aplicación para Windows que lee tu juego de carreras y envía cada vuelta a tu cuenta.",
@@ -241,10 +247,15 @@
       "manage": "Gestionar Xpeed Companion",
       "recent": "Sesiones recientes",
       "allSessions": "Todas las sesiones",
-      "bestLaps": "Mejores vueltas",
+      "bestLaps": "Mejores marcas recientes",
       "noValid": "Aún no hay ninguna vuelta válida.",
       "compare": "Comparar",
-      "games": "Juegos jugados"
+      "games": "Juegos jugados",
+      "connected": "Conectado",
+      "analyze": "Analizar esta vuelta",
+      "workOn": "En qué trabajar",
+      "workOnLaps": "{{count}} vueltas analizadas",
+      "workOnOpen": "Abrir la sesión"
     },
     "cars": {
       "empty": "Aún no hay coches. Instala Xpeed Companion y conéctalo a tu cuenta: los coches que conduzcas aparecen aquí.",
@@ -323,6 +334,123 @@
       "night": "Noche",
       "snow": "Nieve",
       "fog": "Niebla"
+    },
+    "analysis": {
+      "insight": {
+        "brakeEarlier": "Pierdes {{seconds}} s en la curva {{corner}}: frenas {{distance}} antes que la referencia.",
+        "brakesLate": "Pierdes {{seconds}} s en la curva {{corner}}: frenas {{distance}} más tarde que la referencia, y eso te cuesta tiempo más adelante en la curva.",
+        "brakesLateSlower": "Pierdes {{seconds}} s en la curva {{corner}}: frenas {{distance}} más tarde, pero tu punto más lento es {{speed}} menor.",
+        "lowMinSpeed": "Pierdes {{seconds}} s en la curva {{corner}}: tu velocidad mínima es {{speed}} menor que la de la referencia.",
+        "latePickup": "Pierdes {{seconds}} s en la curva {{corner}}: vuelves al acelerador {{distance}} más tarde que la referencia.",
+        "line": "Pierdes {{seconds}} s en la curva {{corner}}: tu trazada queda a {{distance}} de la referencia en el vértice.",
+        "wrongGear": "Pierdes {{seconds}} s en la curva {{corner}}: usas una marcha distinta a la de la referencia en el vértice.",
+        "slowerExit": "Pierdes {{seconds}} s en la curva {{corner}}: tu velocidad de salida es {{speed}} menor que la de la referencia.",
+        "topSpeedLower": "Tu velocidad máxima en una recta es {{speed}} menor que la de la referencia, y eso te cuesta {{seconds}} s.",
+        "sectorGap": "Pierdes {{seconds}} s en el sector {{sector}}.",
+        "inconsistent": "La curva {{corner}} es donde más varías: su tiempo cambia unos {{seconds}} s de vuelta en vuelta.",
+        "inconsistentBrake": "La curva {{corner}} es donde más varías: su tiempo cambia unos {{seconds}} s de vuelta en vuelta, y tu punto de frenada unos {{distance}}.",
+        "cornerNoCause": "Pierdes {{seconds}} s en la curva {{corner}}. Nada de lo que podemos medir lo explica.",
+        "unknownCause": "Pierdes {{seconds}} s en la curva {{corner}}. No podemos saber por qué: falta un canal necesario en una de las vueltas.",
+        "unknownCauseBrake": "Pierdes {{seconds}} s en la curva {{corner}}. No podemos saber por qué: no hay datos de freno en una de las dos vueltas.",
+        "unknownCauseThrottle": "Pierdes {{seconds}} s en la curva {{corner}}. No podemos saber por qué: no hay datos de acelerador en una de las dos vueltas.",
+        "unknownCausePosition": "Pierdes {{seconds}} s en la curva {{corner}}. No podemos saber por qué: no hay datos de posición en una de las dos vueltas."
+      },
+      "session": {
+        "variable": "Donde más varías es la curva {{corner}}: su tiempo cambia unos {{seconds}} s de vuelta en vuelta.",
+        "variableBrake": "Donde más varías es la curva {{corner}}: su tiempo cambia unos {{seconds}} s de vuelta en vuelta, y tu punto de frenada unos {{distance}}.",
+        "gain": "Tu mejor vuelta ganó {{seconds}} s en la curva {{corner}} sobre tu vuelta media.",
+        "gainBrakeLater": "Tu mejor vuelta ganó {{seconds}} s en la curva {{corner}} sobre tu vuelta media: frenaste {{distance}} más tarde.",
+        "gainBrakeEarlier": "Tu mejor vuelta ganó {{seconds}} s en la curva {{corner}} sobre tu vuelta media: frenaste {{distance}} antes.",
+        "gainSpeed": "Tu mejor vuelta ganó {{seconds}} s en la curva {{corner}} sobre tu vuelta media: llevaste {{speed}} más por ella."
+      },
+      "whereTitle": "Dónde se fue el tiempo",
+      "working": "Calculando las curvas…",
+      "failed": "No se pudo calcular el análisis de curvas para estas vueltas.",
+      "whereNone": "Ninguna curva ni recta perdió el tiempo suficiente para informar. La vuelta es tan rápida como la referencia donde cuenta.",
+      "notComparableLength": "Estas vueltas difieren en más de un 3 % de longitud, así que sus curvas no se pueden emparejar.",
+      "notComparableChannels": "Estas vueltas no tienen los canales de tiempo y velocidad que necesita el análisis de curvas.",
+      "zoomTo": "Ampliar la curva {{corner}}",
+      "zoomedTo": "Ampliado en la curva {{corner}} ({{from}}–{{to}} {{unit}})",
+      "showWhole": "Mostrar la vuelta entera",
+      "cornersTitle": "Curva a curva",
+      "cornersHint": "Vuelta menos referencia. Toca una curva para ampliar los gráficos y el mapa en ella.",
+      "sortLoss": "Mayor pérdida primero",
+      "sortTrack": "En orden de pista",
+      "noCorners": "Ninguna curva se pudo emparejar en las dos vueltas.",
+      "col": {
+        "corner": "Curva",
+        "time": "Tiempo (s)",
+        "cause": "Por qué",
+        "entry": "Entrada ({{unit}})",
+        "min": "Mínima ({{unit}})",
+        "exit": "Salida ({{unit}})",
+        "brake": "Punto de frenada ({{unit}})",
+        "pickup": "Acelerador ({{unit}})"
+      },
+      "cause": {
+        "brakesEarly": "Frena pronto",
+        "brakesLate": "Frena tarde",
+        "lowMinSpeed": "Velocidad baja en la curva",
+        "latePickup": "Acelera tarde",
+        "slowExit": "Salida lenta",
+        "wrongGear": "Marcha distinta",
+        "line": "Trazada distinta",
+        "unknown": "No se puede saber",
+        "noneFound": "Sin causa clara"
+      },
+      "totals": "Totales",
+      "totalsLine": "Curvas {{corners}} s · rectas {{straights}} s · vuelta entera {{lap}} s",
+      "unmatchedTitle": "Encontradas en solo una de las dos vueltas",
+      "unmatchedLap": "Una curva en {{at}} {{unit}} (unos {{speed}} {{speedUnit}} en su punto más lento) está solo en la vuelta.",
+      "unmatchedReference": "Una curva en {{at}} {{unit}} (unos {{speed}} {{speedUnit}} en su punto más lento) está solo en la referencia.",
+      "sectorsTitle": "Sectores",
+      "sectorTotal": "Total",
+      "leftOnTable": "Dejado sobre la mesa",
+      "theoretical": "Mejor teórica de las dos vueltas (sus mejores sectores juntos)",
+      "tonePurple": "la mejor de las dos en ese sector",
+      "toneYellow": "más lenta que la otra vuelta",
+      "tab": {
+        "summary": "Resumen",
+        "corners": "Curvas",
+        "charts": "Gráficos",
+        "map": "Mapa"
+      }
+    },
+    "progress": {
+      "title": "Progreso",
+      "lapsTitle": "Vueltas por día",
+      "bestPerDay": "Mejor vuelta válida",
+      "lapsPerDay": "Vueltas"
+    },
+    "detail": {
+      "latestSessions": "Últimas sesiones",
+      "sessionsFailed": "No se pudieron cargar las sesiones.",
+      "noSessions": "Aún no hay sesiones.",
+      "validLaps": "Vueltas válidas",
+      "sessions": "Sesiones",
+      "cars": "Coches",
+      "car": "Coche",
+      "laps": "Vueltas",
+      "when": "Hecha el",
+      "lastDriven": "Última vez",
+      "tracks": "Circuitos",
+      "track": "Circuito"
+    },
+    "trackPage": {
+      "back": "Todos los circuitos",
+      "title": "Circuito",
+      "notFound": "Este circuito no está en el catálogo.",
+      "noLaps": "Aún no has conducido en este circuito.",
+      "bestPerCar": "Mejor vuelta con cada coche",
+      "layout": "Trazado y mejor vuelta",
+      "layoutHint": "La carretera entre sus bordes, con tu mejor vuelta válida en este circuito en amarillo."
+    },
+    "carPage": {
+      "back": "Todos los coches",
+      "title": "Coche",
+      "notFound": "Este coche no está en el catálogo.",
+      "noLaps": "Aún no has conducido este coche.",
+      "bestPerTrack": "Mejor vuelta en cada circuito"
     }
   },
   "refresh": {

@@ -16,12 +16,14 @@ interface Props {
   /** Metres from the game's ideal line at each point (+ = left of it), when the track's layout is known. */
   offset?: { lap: number[]; reference: number[] | null } | null;
   unit: DistanceUnit;
+  /** The stretch of the lap being looked at (meters from the start line); the whole lap when null. The channels given are already that stretch. */
+  range?: { fromM: number; toM: number } | null;
 }
 
 const AXIS = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' } as const;
 const finite = (value: number) => (Number.isFinite(value) ? value : null);
 
-function Chart({ title, data, unit, distance, series, height = 176, zero = false, digits = 0 }: {
+function Chart({ title, data, unit, distance, series, height = 176, zero = false, digits = 0, domain }: {
   title: string;
   data: Array<Record<string, number | null>>;
   unit: string;
@@ -31,6 +33,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
   height?: number;
   zero?: boolean;
   digits?: number;
+  domain: [number | string, number | string];
 }) {
   return (
     <Card className="bg-card border-border">
@@ -45,7 +48,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
             {/* syncId: the cursor moves on every chart at once, so one distance can be read across all of them. */}
             <LineChart data={data} syncId="sim-lap" margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="d" type="number" domain={[0, 'dataMax']} tick={AXIS} tickFormatter={(v: number) => String(Math.round(v))} minTickGap={32} />
+              <XAxis dataKey="d" type="number" domain={domain} allowDataOverflow tick={AXIS} tickFormatter={(v: number) => String(Math.round(v))} minTickGap={32} />
               <YAxis tick={AXIS} width={44} tickFormatter={(v: number) => v.toFixed(digits)} />
               <Tooltip
                 contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 }}
@@ -75,7 +78,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
 }
 
 /** Speed, pedals and the gap along the lap, one chart each, all by distance. */
-export function LapCharts({ grid, lap, reference, gap, offset, unit }: Props) {
+export function LapCharts({ grid, lap, reference, gap, offset, unit, range = null }: Props) {
   const { t } = useTranslation();
   const rows = useMemo(() => {
     const speed = (ms: number) => finite(speedIn(ms, unit));
@@ -98,16 +101,17 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit }: Props) {
   const other = { color: CHART_PALETTE.blue, name: t('modes.compare.reference', 'Reference'), dashed: true };
   const pair = (key: string) => [{ key, ...mine }, ...(reference ? [{ key: `${key}Ref`, ...other }] : [])];
   const distance = lengthLabel(unit);
+  const domain: [number | string, number | string] = range ? [Math.round(lengthIn(range.fromM, unit)), Math.round(lengthIn(range.toM, unit))] : [0, 'dataMax'];
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2" data-testid="lap-charts">
+    <div className="grid gap-3 lg:grid-cols-2" data-testid="lap-charts" data-range={range ? `${Math.round(range.fromM)}-${Math.round(range.toM)}` : undefined}>
       {gap && (
         <div className="lg:col-span-2">
           <Chart
             title={t('modes.compare.gapChart', 'Gap to the reference')}
             unit={t('modes.compare.seconds', 's')}
             distance={distance}
-            data={rows}
+            data={rows} domain={domain}
             series={[{ key: 'gap', color: CHART_PALETTE.amber, name: t('modes.compare.gapChart', 'Gap to the reference') }]}
             zero
             digits={2}
@@ -123,7 +127,7 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit }: Props) {
             title={t('modes.compare.offsetChart', 'Distance from the ideal line')}
             unit={distance}
             distance={distance}
-            data={rows}
+            data={rows} domain={domain}
             series={[
               { key: 'offset', ...mine },
               ...(offset.reference ? [{ key: 'offsetRef', ...other }] : []),
@@ -136,9 +140,9 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit }: Props) {
           </p>
         </div>
       )}
-      <Chart title={t('modes.compare.speed', 'Speed')} unit={speedLabel(unit)} distance={distance} data={rows} series={pair('speed')} />
-      <Chart title={t('modes.compare.throttle', 'Throttle')} unit="%" distance={distance} data={rows} series={pair('throttle')} />
-      <Chart title={t('modes.compare.brake', 'Brake')} unit="%" distance={distance} data={rows} series={pair('brake')} />
+      <Chart title={t('modes.compare.speed', 'Speed')} unit={speedLabel(unit)} distance={distance} data={rows} domain={domain} series={pair('speed')} />
+      <Chart title={t('modes.compare.throttle', 'Throttle')} unit="%" distance={distance} data={rows} domain={domain} series={pair('throttle')} />
+      <Chart title={t('modes.compare.brake', 'Brake')} unit="%" distance={distance} data={rows} domain={domain} series={pair('brake')} />
     </div>
   );
 }

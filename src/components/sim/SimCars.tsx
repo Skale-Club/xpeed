@@ -1,14 +1,20 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { useGames } from '@/lib/sim/games';
+import { carPath } from '@/lib/sim/routes';
 import { useCars, type V1CarItem } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from './SimCarIdentity';
 import { CompanionInvite, LoadMore, QueryGate } from './SimStates';
 import { useWhen } from './use-when';
 
-/** Virtual > Game cars: the cars driven, by game (the most recently driven first), with the best valid lap of each. Another task rebuilds this page. */
+/**
+ * Virtual > Game cars: the cars driven, by game (the most recently driven first), with the brand logo when it is known, the laps, the
+ * tracks, the best valid lap and when each was last driven, a page at a time. A car opens its own page.
+ */
 export function SimCars() {
   const { t } = useTranslation();
   const games = useGames();
@@ -31,10 +37,14 @@ export function SimCars() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {group.cars.map((car) => (
-                <Card key={car.id} className="bg-card border-border" data-testid="cars-car">
+                <Link key={car.id} to={carPath(car.id)} className="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="car-link">
+                <Card className="h-full bg-card border-border transition-colors hover:bg-muted/30" data-testid="cars-car">
                   <CardContent className="space-y-2 p-4">
-                    <div className="min-w-0 text-sm font-semibold">
-                      <SimCarIdentity name={car.name} />
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 text-sm font-semibold">
+                        <SimCarIdentity name={car.name} />
+                      </div>
+                      <ChevronRight className="hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" aria-hidden />
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {t('modes.sessions.lapCount', 'Laps: {{count}}', { count: car.lapCount })} · {t('modes.cars.trackCount', 'Tracks: {{count}}', { count: car.trackCount })}
@@ -46,6 +56,7 @@ export function SimCars() {
                     </p>
                   </CardContent>
                 </Card>
+                </Link>
               ))}
             </div>
           </section>

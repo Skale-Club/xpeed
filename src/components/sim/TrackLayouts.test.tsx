@@ -7,7 +7,7 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { listTracks } from '@/lib/sim/track-library';
 import type { AccountTrack } from '@/lib/sim/account-tracks';
-import { TracksList } from './TracksList';
+import { TrackLayouts } from './TrackLayouts';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
@@ -41,7 +41,7 @@ function serve(data: Account) {
   });
 }
 
-const renderList = () => render(<MemoryRouter><SettingsProvider><TracksList /></SettingsProvider></MemoryRouter>);
+const renderList = () => render(<MemoryRouter><SettingsProvider><TrackLayouts /></SettingsProvider></MemoryRouter>);
 
 let idb: FakeIdb;
 beforeEach(async () => {

@@ -158,3 +158,19 @@ Corner statistics need 3 or more laps.
 * Always show the totals (corners, straights, whole lap) next to the corner list so the numbers visibly add up.
 * Convert speeds for the unit of the user with `speedIn` from `analysis.ts`; everything here is m/s or km/h as named.
 * All of it runs in a few milliseconds per lap, so it is safe in the browser; use a worker only for very large sets.
+
+## In the app (Virtual screens)
+
+* **Off the render path.** The Compare screen and the Overview card "What to work on" ask `src/lib/sim/lap-study-client.ts`, which
+  runs `lap-study-core.ts` in a Web Worker (`lap-study.worker.ts`; only the channels the analysis reads are sent, about 13 ms to copy
+  one 500,000-sample lap, 70 ms to compare two). Without a worker (tests, a blocked worker) the same functions run on the page after the
+  first paint, so the answers are identical (`lap-study.test.ts`). The screens show a loading state until the answer arrives.
+* **Sentences.** `insight-text.ts` turns a finding into a translation key and values (`modes.analysis.insight.*` for a lap against a
+  reference, `modes.analysis.session.*` for a session); it never names a cause its number is missing for, and `unknownCause` says which
+  channel was missing (`CornerDelta.missing`). `corner-table.ts`, `sector-strip.ts` and `progress.ts` are the other pure helpers.
+* **Compare screen** (`LapAnalysis.tsx`): numbers, "Where the time went", the sector strip, the corner table (a row zooms the charts and
+  the map to that corner; "Show whole lap" goes back), then the charts, the map and the older lists. On a phone these are tabs
+  (Summary, Corners, Charts, Map) under a slim bar with the two laps.
+* **What to work on** (`use-work-on.ts`): of the latest 5 sessions, the newest with at least 3 valid laps (pit laps left out) is read
+  (its lap list, then the files of its 12 fastest laps), `sessionInsights` runs in the worker, and the two findings that are worth saying
+  (the most variable corner, the biggest gain of the best lap) are shown; otherwise the card is not shown.

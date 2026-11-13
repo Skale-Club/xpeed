@@ -42,6 +42,8 @@ const SimSessionPage = lazy(() => import("./pages/SimSessionPage"));
 const SimOverviewPage = lazy(() => import("./pages/SimOverviewPage"));
 const SimCarsPage = lazy(() => import("./pages/SimCarsPage"));
 const SimTracksPage = lazy(() => import("./pages/SimTracksPage"));
+const SimTrackPage = lazy(() => import("./pages/SimTrackPage"));
+const SimCarPage = lazy(() => import("./pages/SimCarPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -148,6 +150,9 @@ const router = createBrowserRouter(createRoutesFromElements(
         {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
         {/* One session: no menu entry of its own (Sessions stays highlighted). */}
         <Route path="/virtual/sessions/:id" element={<SimSessionPage />} />
+        {/* One track, one car: likewise (Tracks and Game cars stay highlighted). */}
+        <Route path="/virtual/tracks/:id" element={<SimTrackPage />} />
+        <Route path="/virtual/cars/:id" element={<SimCarPage />} />
       </Route>
       {/* Shared by both modes. */}
       <Route path="/companion/connect/:id" element={<SimConnectPage />} />

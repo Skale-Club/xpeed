@@ -183,7 +183,13 @@
       "removeTitle": "Remove this track layout?",
       "removeText": "It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Companion sends it again.",
       "fromAccount_one": "1 track layout sent by Xpeed Companion was added from your account.",
-      "fromAccount_other": "{{count}} track layouts sent by Xpeed Companion were added from your account."
+      "fromAccount_other": "{{count}} track layouts sent by Xpeed Companion were added from your account.",
+      "layoutBadge": "Layout",
+      "layoutTitle": "Xpeed Companion has sent the layout of this track: the lap is drawn on it",
+      "listIntro": "The tracks you have driven. Open one to see your progress on it and your best lap with each car.",
+      "noMatch": "No track of this game yet.",
+      "emptyAccount": "No tracks yet. Install Xpeed Companion and connect it to your account: the tracks you drive show up here.",
+      "layoutsFold": "Track layouts kept on this device"
     },
     "sim": {
       "intro": "Xpeed Companion is the Windows app that reads your racing game and sends each lap to your account.",
@@ -241,10 +247,15 @@
       "manage": "Manage Xpeed Companion",
       "recent": "Recent sessions",
       "allSessions": "All sessions",
-      "bestLaps": "Best laps",
+      "bestLaps": "Recent personal bests",
       "noValid": "No valid lap yet.",
       "compare": "Compare",
-      "games": "Games played"
+      "games": "Games played",
+      "connected": "Connected",
+      "analyze": "Analyze this lap",
+      "workOn": "What to work on",
+      "workOnLaps": "{{count}} laps analysed",
+      "workOnOpen": "Open the session"
     },
     "cars": {
       "empty": "No cars yet. Install Xpeed Companion and connect it to your account: the cars you drive show up here.",
@@ -323,6 +334,123 @@
       "night": "Night",
       "snow": "Snow",
       "fog": "Fog"
+    },
+    "analysis": {
+      "insight": {
+        "brakeEarlier": "You lose {{seconds}} s in corner {{corner}}: you brake {{distance}} earlier than the reference.",
+        "brakesLate": "You lose {{seconds}} s in corner {{corner}}: you brake {{distance}} later than the reference, and it costs you time later in the corner.",
+        "brakesLateSlower": "You lose {{seconds}} s in corner {{corner}}: you brake {{distance}} later, but your slowest point is {{speed}} lower.",
+        "lowMinSpeed": "You lose {{seconds}} s in corner {{corner}}: your minimum speed is {{speed}} lower than the reference.",
+        "latePickup": "You lose {{seconds}} s in corner {{corner}}: you get back on the throttle {{distance}} later than the reference.",
+        "line": "You lose {{seconds}} s in corner {{corner}}: your line is {{distance}} away from the reference at the apex.",
+        "wrongGear": "You lose {{seconds}} s in corner {{corner}}: you use a different gear at the apex than the reference.",
+        "slowerExit": "You lose {{seconds}} s in corner {{corner}}: your exit speed is {{speed}} lower than the reference.",
+        "topSpeedLower": "Your top speed on a straight is {{speed}} lower than the reference, and it costs you {{seconds}} s.",
+        "sectorGap": "You lose {{seconds}} s in sector {{sector}}.",
+        "inconsistent": "Corner {{corner}} is where you vary most: its time changes by about {{seconds}} s from lap to lap.",
+        "inconsistentBrake": "Corner {{corner}} is where you vary most: its time changes by about {{seconds}} s from lap to lap, and your brake point by about {{distance}}.",
+        "cornerNoCause": "You lose {{seconds}} s in corner {{corner}}. Nothing we can measure explains it.",
+        "unknownCause": "You lose {{seconds}} s in corner {{corner}}. We cannot tell why: a channel we need is missing from one of the laps.",
+        "unknownCauseBrake": "You lose {{seconds}} s in corner {{corner}}. We cannot tell why: no brake data in one of the two laps.",
+        "unknownCauseThrottle": "You lose {{seconds}} s in corner {{corner}}. We cannot tell why: no throttle data in one of the two laps.",
+        "unknownCausePosition": "You lose {{seconds}} s in corner {{corner}}. We cannot tell why: no position data in one of the two laps."
+      },
+      "session": {
+        "variable": "You vary most in corner {{corner}}: its time changes by about {{seconds}} s from lap to lap.",
+        "variableBrake": "You vary most in corner {{corner}}: its time changes by about {{seconds}} s from lap to lap, and your brake point by about {{distance}}.",
+        "gain": "Your best lap gained {{seconds}} s in corner {{corner}} over your average lap.",
+        "gainBrakeLater": "Your best lap gained {{seconds}} s in corner {{corner}} over your average lap: you braked {{distance}} later.",
+        "gainBrakeEarlier": "Your best lap gained {{seconds}} s in corner {{corner}} over your average lap: you braked {{distance}} earlier.",
+        "gainSpeed": "Your best lap gained {{seconds}} s in corner {{corner}} over your average lap: you carried {{speed}} more through it."
+      },
+      "whereTitle": "Where the time went",
+      "working": "Working out the corners…",
+      "failed": "The corner analysis could not be worked out for these laps.",
+      "whereNone": "No corner or straight lost enough time to report. The lap is as quick as the reference where it counts.",
+      "notComparableLength": "These laps differ in length by more than 3 %, so their corners cannot be matched.",
+      "notComparableChannels": "These laps do not have the time and speed channels the corner analysis needs.",
+      "zoomTo": "Zoom to corner {{corner}}",
+      "zoomedTo": "Zoomed to corner {{corner}} ({{from}}–{{to}} {{unit}})",
+      "showWhole": "Show whole lap",
+      "cornersTitle": "Corner by corner",
+      "cornersHint": "Lap minus reference. Tap a corner to zoom the charts and the map to it.",
+      "sortLoss": "Biggest loss first",
+      "sortTrack": "In track order",
+      "noCorners": "No corner could be matched on both laps.",
+      "col": {
+        "corner": "Corner",
+        "time": "Time (s)",
+        "cause": "Why",
+        "entry": "Entry ({{unit}})",
+        "min": "Minimum ({{unit}})",
+        "exit": "Exit ({{unit}})",
+        "brake": "Brake point ({{unit}})",
+        "pickup": "Throttle ({{unit}})"
+      },
+      "cause": {
+        "brakesEarly": "Brakes early",
+        "brakesLate": "Brakes late",
+        "lowMinSpeed": "Low corner speed",
+        "latePickup": "Late on throttle",
+        "slowExit": "Slow exit",
+        "wrongGear": "Different gear",
+        "line": "Different line",
+        "unknown": "Cannot tell",
+        "noneFound": "No clear cause"
+      },
+      "totals": "Totals",
+      "totalsLine": "Corners {{corners}} s · straights {{straights}} s · whole lap {{lap}} s",
+      "unmatchedTitle": "Found on only one of the two laps",
+      "unmatchedLap": "A corner at {{at}} {{unit}} (about {{speed}} {{speedUnit}} at its slowest) is only on the lap.",
+      "unmatchedReference": "A corner at {{at}} {{unit}} (about {{speed}} {{speedUnit}} at its slowest) is only on the reference.",
+      "sectorsTitle": "Sectors",
+      "sectorTotal": "Total",
+      "leftOnTable": "Left on the table",
+      "theoretical": "Theoretical best of the two laps (their best sectors put together)",
+      "tonePurple": "the better of the two in that sector",
+      "toneYellow": "slower than the other lap",
+      "tab": {
+        "summary": "Summary",
+        "corners": "Corners",
+        "charts": "Charts",
+        "map": "Map"
+      }
+    },
+    "progress": {
+      "title": "Progress",
+      "lapsTitle": "Laps per day",
+      "bestPerDay": "Best valid lap",
+      "lapsPerDay": "Laps"
+    },
+    "detail": {
+      "latestSessions": "Latest sessions",
+      "sessionsFailed": "The sessions could not be loaded.",
+      "noSessions": "No sessions yet.",
+      "validLaps": "Valid laps",
+      "sessions": "Sessions",
+      "cars": "Cars",
+      "car": "Car",
+      "laps": "Laps",
+      "when": "Set on",
+      "lastDriven": "Last driven",
+      "tracks": "Tracks",
+      "track": "Track"
+    },
+    "trackPage": {
+      "back": "All tracks",
+      "title": "Track",
+      "notFound": "This track is not in the catalog.",
+      "noLaps": "You have not driven this track yet.",
+      "bestPerCar": "Best lap with each car",
+      "layout": "Layout and best lap",
+      "layoutHint": "The road between its edges, with your best valid lap on this track in yellow."
+    },
+    "carPage": {
+      "back": "All cars",
+      "title": "Car",
+      "notFound": "This car is not in the catalog.",
+      "noLaps": "You have not driven this car yet.",
+      "bestPerTrack": "Best lap on each track"
     }
   },
   "refresh": {

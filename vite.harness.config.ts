@@ -39,11 +39,29 @@ export default defineConfig(async (env: ConfigEnv) => {
             return res.end(JSON.stringify({ error: 'harness_error', retryable: false, detail: String(error) }));
           }
         });
-        server.middlewares.use('/api/sim', (req, res, next) => {
+        server.middlewares.use('/api/sim', async (req, res, next) => {
           const path = (req.url ?? '/').split('?')[0];
           const empty = process.env.HARNESS_NO_LAPS === '1';
+          // The track layouts "Xpeed Companion sent" (the list and the files): see answerLayouts in src/harness/sim-v1.ts.
+          if (path === '/tracks' || path.startsWith('/tracks/')) {
+            try {
+              const mod = await server.ssrLoadModule('/src/harness/sim-v1.ts');
+              const answer = await mod.answerLayouts(req.method ?? 'GET', path);
+              if (answer) {
+                res.statusCode = answer.status;
+                if (answer.bytes) {
+                  res.setHeader('Content-Type', 'application/gzip');
+                  return res.end(Buffer.from(answer.bytes));
+                }
+                res.setHeader('Content-Type', 'application/json');
+                return res.end(JSON.stringify(answer.json));
+              }
+            } catch (error) {
+              res.statusCode = 500;
+              return res.end(String(error));
+            }
+          }
           res.setHeader('Content-Type', 'application/json');
-          if (path === '/tracks' && req.method === 'GET') return res.end(JSON.stringify({ tracks: [] }));
           if (path === '/devices' && req.method === 'GET') {
             return res.end(JSON.stringify({ devices: empty ? [] : [{ id: 'd1', name: 'Racing PC', created_at: '2026-11-01T00:00:00.000Z', last_seen_at: new Date().toISOString(), last_lap_at: null, revoked_at: null }] }));
           }
