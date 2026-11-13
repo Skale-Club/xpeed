@@ -10,7 +10,7 @@ import { MODE_HOME, type Mode } from '@/lib/modes';
 /**
  * Layout route for the screens of one mode. Someone who did not choose that
  * mode is not dropped somewhere else without a word: the screen says which mode
- * it belongs to and offers to turn it on (a link from Xpeed Sim lands on a
+ * it belongs to and offers to turn it on (a link from Xpeed Companion lands on a
  * Virtual screen, for example). Only a mode this build does not have sends the
  * person home. (The server refuses the Virtual API the same way once accounts
  * store the choice.)
@@ -39,7 +39,7 @@ function ModeOffer({ mode, home, onTurnOn }: { mode: Mode; home: string; onTurnO
           </h1>
           <p className="text-sm text-muted-foreground">
             {virtual
-              ? t('modes.offer.virtualBody', 'This page is part of Racing games: your simulator sessions, laps and the Xpeed Sim connection. Turn it on to continue.')
+              ? t('modes.offer.virtualBody', 'This page is part of Racing games: your simulator sessions, laps and the Xpeed Companion connection. Turn it on to continue.')
               : t('modes.offer.realBody', 'This page is part of Real car: trips, problems, fuel and maintenance. Turn it on to continue.')}
           </p>
           <p className="text-xs text-muted-foreground">{t('modes.offer.later', 'You can turn it off again in Settings.')}</p>

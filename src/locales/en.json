@@ -43,7 +43,7 @@
       "compare": "Compare laps",
       "tracks": "Tracks",
       "cars": "Game cars",
-      "xpeedSim": "Xpeed Sim"
+      "xpeedSim": "Xpeed Companion"
     },
     "placeholder": "This area is being built. Your sessions and laps will appear here.",
     "settings": {
@@ -57,7 +57,7 @@
     },
     "offer": {
       "virtualTitle": "Racing games is off",
-      "virtualBody": "This page is part of Racing games: your simulator sessions, laps and the Xpeed Sim connection. Turn it on to continue.",
+      "virtualBody": "This page is part of Racing games: your simulator sessions, laps and the Xpeed Companion connection. Turn it on to continue.",
       "realTitle": "Real car is off",
       "realBody": "This page is part of Real car: trips, problems, fuel and maintenance. Turn it on to continue.",
       "later": "You can turn it off again in Settings.",
@@ -74,11 +74,11 @@
       "bothTitle": "Both",
       "bothHint": "Your car and your simulator.",
       "simTitle": "Your simulator",
-      "simBody": "Xpeed Sim is the Windows app that reads your games. Install it on the computer where you play, then connect it in Virtual > Xpeed Sim.",
+      "simBody": "Xpeed Companion is the Windows app that reads your games. Install it on the computer where you play, then connect it in Virtual > Xpeed Companion.",
       "simFinish": "Go to Virtual"
     },
     "compare": {
-      "intro": "Open lap files written by Xpeed Sim to see them side by side.",
+      "intro": "Open lap files written by Xpeed Companion to see them side by side.",
       "private": "The files stay in your browser; nothing is uploaded.",
       "open": "Open lap files",
       "sample": "Try with sample laps",
@@ -152,7 +152,7 @@
       "add": "Add lap files",
       "addFolder": "Add a folder",
       "drop": "or drop lap files here",
-      "empty": "No laps yet. Add the lap files Xpeed Sim writes (or its whole output folder) and they show up here, grouped into sessions.",
+      "empty": "No laps yet. Add the lap files Xpeed Companion writes (or its whole output folder) and they show up here, grouped into sessions.",
       "unavailable": "This browser cannot keep laps on the device. You can still open lap files directly in Compare laps.",
       "failed": "Your laps could not be read from this device.",
       "retry": "Try again",
@@ -187,24 +187,24 @@
       "confirmRemove": "Remove"
     },
     "tracks": {
-      "intro": "The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Sim from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.",
-      "private": "Xpeed Sim sends them to your account by itself when you drive a track; a copy is kept on this device.",
+      "intro": "The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.",
+      "private": "Xpeed Companion sends them to your account by itself when you drive a track; a copy is kept on this device.",
       "open": "Add track layout files",
       "drop": "or drop .xtrk files here",
       "added_one": "1 track layout kept.",
       "added_other": "{{count}} track layouts kept.",
       "count_one": "1 track layout",
       "count_other": "{{count}} track layouts",
-      "empty": "No track layouts yet. Add the .xtrk files Xpeed Sim writes, or open one on the compare screen.",
+      "empty": "No track layouts yet. Add the .xtrk files Xpeed Companion writes, or open one on the compare screen.",
       "unavailable": "This browser cannot keep track layouts on the device.",
       "edges": "edges",
       "idealLine": "ideal line",
       "pitLane": "pit lane",
       "remove": "Remove",
       "removeTitle": "Remove this track layout?",
-      "removeText": "It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Sim sends it again or its file is added.",
-      "fromAccount_one": "1 track layout sent by Xpeed Sim was added from your account.",
-      "fromAccount_other": "{{count}} track layouts sent by Xpeed Sim were added from your account.",
+      "removeText": "It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Companion sends it again or its file is added.",
+      "fromAccount_one": "1 track layout sent by Xpeed Companion was added from your account.",
+      "fromAccount_other": "{{count}} track layouts sent by Xpeed Companion were added from your account.",
       "reasons": {
         "too_big": "it is too large to be a track layout",
         "not_a_track": "it is not a track layout file",
@@ -214,9 +214,9 @@
       }
     },
     "sim": {
-      "intro": "Xpeed Sim is the Windows app that reads your racing game and sends each lap to your account. Install it on the computer where you play and connect it once.",
+      "intro": "Xpeed Companion is the Windows app that reads your racing game and sends each lap to your account. Install it on the computer where you play and connect it once.",
       "connectTitle": "Connect a computer",
-      "connectBody": "Get a code, then open Xpeed Sim with the button below (or run the command on the Windows computer). The code works for 10 minutes and only once.",
+      "connectBody": "Get a code, then open Xpeed Companion with the button below (or run the command on the Windows computer). The code works for 10 minutes and only once.",
       "getCode": "Get a pairing code",
       "newCode": "Get a new code",
       "codeLabel": "Pairing code",
@@ -225,7 +225,7 @@
       "commandLabel": "Or run this on the Windows computer",
       "copy": "Copy",
       "copied": "Copied",
-      "install": "Xpeed Sim has to be installed on that computer first.",
+      "install": "Xpeed Companion has to be installed on that computer first.",
       "devicesTitle": "Your computers",
       "devicesEmpty": "No computer is connected yet.",
       "active": "Connected",
@@ -246,7 +246,7 @@
         "notFound": "That computer was not found. It may have been revoked already.",
         "unavailable": "The server could not be reached. Try again."
       },
-      "openApp": "Open Xpeed Sim"
+      "openApp": "Open Xpeed Companion"
     }
   },
   "refresh": {

@@ -1,6 +1,6 @@
 import type { TrackFile } from '@/lib/sim/track-file';
 
-/** Track layouts for tests: built here, and written byte by byte as the spec says (the real writer is in Xpeed Sim). */
+/** Track layouts for tests: built here, and written byte by byte as the spec says (the real writer is in Xpeed Companion). */
 
 export interface LayoutSpec {
   game?: string;

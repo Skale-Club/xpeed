@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('the Xpeed Sim calls', () => {
+describe('the Xpeed Companion calls', () => {
   it('asks for a pairing code with the signed-in token', async () => {
     fetchMock.mockResolvedValue(answer(200, { code: 'ABCD-2345', expiresAt: '2026-11-10T12:10:00.000Z' }));
     expect(await requestPairingCode()).toEqual({ code: 'ABCD-2345', expiresAt: '2026-11-10T12:10:00.000Z' });
@@ -72,7 +72,7 @@ describe('the Xpeed Sim calls', () => {
     expect(pairCommand('ABCD2345')).toBe('xpeed-sim pair --server https://xpeed.test --code ABCD2345');
   });
 
-  it('writes the link that opens Xpeed Sim, with the address escaped', () => {
+  it('writes the link that opens Xpeed Companion, with the address escaped', () => {
     expect(pairLink('ABCD2345')).toBe('xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=ABCD2345');
   });
 });

@@ -1,4 +1,4 @@
-// Shared by the api/sim/* handlers (the Windows app's (Xpeed Sim) pairing and lap upload, and the person's own
+// Shared by the api/sim/* handlers (the Windows app's (Xpeed Companion) pairing and lap upload, and the person's own
 // management of their devices). Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md.
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import type { LapHeader } from '../../src/lib/sim/lap-file';
@@ -17,7 +17,7 @@ export const reply = (body: unknown, status = 200, extra: Record<string, string>
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', ...extra },
   });
 
-/** Same headers on every answer to a browser of the app; Xpeed Sim is not a browser and ignores them. */
+/** Same headers on every answer to a browser of the app; Xpeed Companion is not a browser and ignores them. */
 export const browserHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type',

@@ -25,8 +25,8 @@ const reasonOf = (error: unknown): SimErrorReason => (error instanceof XpeedSimA
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
 /**
- * Virtual > Xpeed Sim: connect a Windows computer to the account with a pairing code, and see or revoke the
- * computers already connected. The program that reads the game is Xpeed Sim (xpeed-sim/ in the repository).
+ * Virtual > Xpeed Companion: connect a Windows computer to the account with a pairing code, and see or revoke the
+ * computers already connected. The program that reads the game is Xpeed Companion (xpeed-sim/ in the repository).
  */
 export function XpeedSimPanel() {
   const { t, i18n } = useTranslation();
@@ -83,7 +83,7 @@ export function XpeedSimPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {t('modes.sim.intro', 'Xpeed Sim is the Windows app that reads your racing game and sends each lap to your account. Connect a computer once with a pairing code.')}
+        {t('modes.sim.intro', 'Xpeed Companion is the Windows app that reads your racing game and sends each lap to your account. Connect a computer once with a pairing code.')}
       </p>
 
       {errorKey && (
@@ -116,11 +116,11 @@ export function XpeedSimPanel() {
                 </div>
               </div>
               <div>
-                {/* Windows hands this link to Xpeed Sim, which asks before it connects anything. */}
+                {/* Windows hands this link to Xpeed Companion, which asks before it connects anything. */}
                 <Button asChild>
                   <a href={link} data-testid="open-app">
                     <ExternalLink className="mr-2 h-4 w-4" />
-                    {t('modes.sim.openApp', 'Open Xpeed Sim')}
+                    {t('modes.sim.openApp', 'Open Xpeed Companion')}
                   </a>
                 </Button>
               </div>
@@ -143,7 +143,7 @@ export function XpeedSimPanel() {
             {code ? t('modes.sim.newCode', 'Get a new code') : t('modes.sim.getCode', 'Get a pairing code')}
           </Button>
           <p className="text-xs text-muted-foreground">
-            {t('modes.sim.install', 'Xpeed Sim has to be installed on that computer first.')}
+            {t('modes.sim.install', 'Xpeed Companion has to be installed on that computer first.')}
           </p>
         </CardContent>
       </Card>

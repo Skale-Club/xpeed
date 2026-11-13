@@ -91,7 +91,7 @@ function TrackRow({ entry, userId, unit, onRemove }: { entry: LibraryTrack; user
 }
 
 /**
- * Virtual > Tracks: the track layouts kept on this device (the real shape of each circuit, read by Xpeed Sim from the
+ * Virtual > Tracks: the track layouts kept on this device (the real shape of each circuit, read by Xpeed Companion from the
  * game's own files). A lap is drawn on the layout of its track on the compare screen.
  */
 export function TracksList() {
@@ -106,7 +106,7 @@ export function TracksList() {
   const [pending, setPending] = useState<LibraryTrack | null>(null);
   const [account, setAccount] = useState<SyncResult | null>(null);
 
-  // The layouts Xpeed Sim sent to the account are copied onto this device when the screen opens.
+  // The layouts Xpeed Companion sent to the account are copied onto this device when the screen opens.
   useEffect(() => {
     if (!library.userId) return;
     let live = true;
@@ -170,8 +170,8 @@ export function TracksList() {
       >
         <CardContent className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
-            {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Sim from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
-            {t('modes.tracks.private', 'Xpeed Sim sends them to your account by itself when you drive a track; a copy is kept on this device.')}
+            {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
+            {t('modes.tracks.private', 'Xpeed Companion sends them to your account by itself when you drive a track; a copy is kept on this device.')}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => input.current?.click()} disabled={busy || !library.userId}>
@@ -199,7 +199,7 @@ export function TracksList() {
 
       {account?.reached && account.copied > 0 && (
         <p role="status" className="text-sm" data-testid="tracks-from-account">
-          {t('modes.tracks.fromAccount', { count: account.copied, defaultValue: '{{count}} track layouts sent by Xpeed Sim were added from your account.', defaultValue_one: '1 track layout sent by Xpeed Sim was added from your account.' })}
+          {t('modes.tracks.fromAccount', { count: account.copied, defaultValue: '{{count}} track layouts sent by Xpeed Companion were added from your account.', defaultValue_one: '1 track layout sent by Xpeed Companion was added from your account.' })}
         </p>
       )}
       {added !== null && added > 0 && (
@@ -221,7 +221,7 @@ export function TracksList() {
         </p>
       ) : sorted.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="tracks-empty">
-          {t('modes.tracks.empty', 'No track layouts yet. Add the .xtrk files Xpeed Sim writes, or open one on the compare screen.')}
+          {t('modes.tracks.empty', 'No track layouts yet. Add the .xtrk files Xpeed Companion writes, or open one on the compare screen.')}
         </p>
       ) : (
         <Card className="bg-card border-border">
@@ -243,7 +243,7 @@ export function TracksList() {
         open={!!pending}
         onOpenChange={(open) => !open && setPending(null)}
         title={t('modes.tracks.removeTitle', 'Remove this track layout?')}
-        description={t('modes.tracks.removeText', 'It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Sim sends it again or its file is added.')}
+        description={t('modes.tracks.removeText', 'It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Companion sends it again or its file is added.')}
         confirmLabel={t('modes.tracks.remove', 'Remove')}
         onConfirm={() => {
           if (pending) void remove(pending).catch(() => undefined);

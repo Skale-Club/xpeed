@@ -48,11 +48,11 @@ describe('connecting a computer', () => {
     renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Get a pairing code' }));
     expect(await screen.findByTestId('pairing-code')).toHaveTextContent('ABCD-2345');
-    // The command carries the code without the dash, the way Xpeed Sim reads it.
+    // The command carries the code without the dash, the way Xpeed Companion reads it.
     expect(screen.getByTestId('pairing-command')).toHaveTextContent('xpeed-sim pair --server https://xpeed.test --code ABCD2345');
-    // The button opens Xpeed Sim with the code in the link.
+    // The button opens Xpeed Companion with the code in the link.
     expect(screen.getByTestId('open-app')).toHaveAttribute('href', 'xpeedsim://pair?server=https%3A%2F%2Fxpeed.test&code=ABCD2345');
-    expect(screen.getByTestId('open-app')).toHaveTextContent('Open Xpeed Sim');
+    expect(screen.getByTestId('open-app')).toHaveTextContent('Open Xpeed Companion');
     expect(screen.getByTestId('pairing-left')).toHaveTextContent(/Valid for (9|10):\d\d/);
     expect(screen.getByRole('button', { name: 'Get a new code' })).toBeEnabled();
   });

@@ -1,4 +1,4 @@
-// POST /api/sim/laps: Xpeed Sim sends one lap file (the .xlap.gz bytes, as on its disk).
+// POST /api/sim/laps: Xpeed Companion sends one lap file (the .xlap.gz bytes, as on its disk).
 // The file is opened with the same strict reader the app uses; what that refuses is refused here.
 import { openBackend } from '../_backend';
 import { gunzipLap, LapFormatError, LAP_LIMITS, type LapFile } from '../../src/lib/sim/lap-file';
