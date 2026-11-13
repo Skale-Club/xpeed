@@ -25,7 +25,31 @@ export default defineConfig(async (env: ConfigEnv) => {
           try {
             const url = new URL(req.url ?? '/', 'http://localhost');
             const mod = await server.ssrLoadModule('/src/harness/sim-v1.ts');
-            const answer = await mod.answerV1(req.method ?? 'GET', url.pathname, Object.fromEntries(url.searchParams));
+            let body: unknown;
+            if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE') {
+              let raw = '';
+              for await (const chunk of req) raw += chunk;
+              try { body = raw ? JSON.parse(raw) : undefined; } catch { body = raw; }
+            }
+            const answer = await mod.answerV1(req.method ?? 'GET', url.pathname, Object.fromEntries(url.searchParams), body);
+            res.statusCode = answer.status;
+            if (answer.bytes) {
+              res.setHeader('Content-Type', 'application/gzip');
+              return res.end(Buffer.from(answer.bytes));
+            }
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(answer.json === undefined ? undefined : JSON.stringify(answer.json));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ error: 'harness_error', retryable: false, detail: String(error) }));
+          }
+        });
+        // The social side's one public endpoint: a shared lap or session by its token (no sign-in). See src/harness/sim-social.ts.
+        server.middlewares.use('/api/sim/public/share', async (req, res) => {
+          try {
+            const mod = await server.ssrLoadModule('/src/harness/sim-v1.ts');
+            const answer = await mod.answerPublic((req.url ?? '/').split('?')[0]);
             res.statusCode = answer.status;
             if (answer.bytes) {
               res.setHeader('Content-Type', 'application/gzip');

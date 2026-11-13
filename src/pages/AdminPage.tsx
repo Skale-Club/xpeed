@@ -5,6 +5,7 @@ import { useAdminStatus } from '@/hooks/use-admin-status';
 import { PageLoader } from '@/components/PageLoader';
 import { useTranslation } from 'react-i18next';
 import AIProviderSection from '@/components/admin/AIProviderSection';
+import { RacingAdmin } from '@/components/social/RacingAdmin';
 
 export default function AdminPage() {
   const { t } = useTranslation();
@@ -38,6 +39,9 @@ export default function AdminPage() {
         </Alert>
 
         <AIProviderSection />
+
+        {/* Racing games: the reports to decide on, the lap inspector and the plausibility recheck. Admins only. */}
+        <RacingAdmin />
 
         {/* The logo has one source so the site, the icons and the Android app always match. */}
         <Alert>

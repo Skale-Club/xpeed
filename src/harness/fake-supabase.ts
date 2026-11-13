@@ -168,7 +168,8 @@ const rpcs: Record<string, (args: Row) => unknown> = {
     }
     return days;
   },
-  is_admin_user: () => false,
+  // VITE_HARNESS_ADMIN=true makes the harness driver an admin (the admin page, and the moderation answers of src/harness/sim-social.ts).
+  is_admin_user: () => import.meta.env.VITE_HARNESS_ADMIN === 'true',
   get_dashboard_stats: () => null,
   refresh_parameter_baselines: () => null,
   get_shared_report: () => {

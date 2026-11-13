@@ -4,14 +4,15 @@ import { NAV, TABS } from '@/lib/mode-nav';
 import { isActivePath } from '@/lib/modes';
 
 describe('the Virtual navigation', () => {
-  it('lists Overview, Sessions, Compare, Tracks, Cars and Companion, in that order', () => {
+  it('lists Overview, Sessions, Compare, Leaderboards, Friends, Tracks, Cars, Companion, Profile and Privacy, in that order', () => {
     expect(NAV.virtual.map((item) => item.to)).toEqual([
-      '/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/tracks', '/virtual/cars', '/virtual/companion',
+      '/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/leaderboards', '/virtual/friends', '/virtual/tracks',
+      '/virtual/cars', '/virtual/companion', '/virtual/profile', '/virtual/privacy',
     ]);
   });
 
-  it('keeps the three everyday places in the phone tab bar and the rest under "More"', () => {
-    expect(TABS.virtual.map((item) => item.to)).toEqual(['/virtual', '/virtual/sessions', '/virtual/compare']);
+  it('keeps the four everyday places in the phone tab bar and the rest under "More"', () => {
+    expect(TABS.virtual.map((item) => item.to)).toEqual(['/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/leaderboards']);
     const menu = NAV.virtual.map((item) => item.to);
     for (const tab of TABS.virtual) expect(menu).toContain(tab.to);
   });

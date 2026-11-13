@@ -40,7 +40,7 @@ export function MobileTabBar() {
       data-testid="mobile-tab-bar"
     >
       <div className="mx-auto flex h-16 max-w-md items-stretch">
-        {TABS[mode].map(({ to, i18nKey, icon: Icon }) => {
+        {TABS[mode].map(({ to, i18nKey, tabI18nKey, icon: Icon }) => {
           const active = isActive(to);
           const badge = to === '/issues' && problems.length > 0 ? problems.length : null;
           return (
@@ -53,7 +53,7 @@ export function MobileTabBar() {
                   </span>
                 )}
               </span>
-              <span className="mt-0.5">{t(i18nKey)}</span>
+              <span className="mt-0.5">{t(tabI18nKey ?? i18nKey)}</span>
               {indicator(active)}
             </Link>
           );

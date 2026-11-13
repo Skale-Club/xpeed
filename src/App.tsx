@@ -44,6 +44,12 @@ const SimCarsPage = lazy(() => import("./pages/SimCarsPage"));
 const SimTracksPage = lazy(() => import("./pages/SimTracksPage"));
 const SimTrackPage = lazy(() => import("./pages/SimTrackPage"));
 const SimCarPage = lazy(() => import("./pages/SimCarPage"));
+const SocialLeaderboardsPage = lazy(() => import("./pages/SocialLeaderboardsPage"));
+const SocialProfilePage = lazy(() => import("./pages/SocialProfilePage"));
+const SocialDriverPage = lazy(() => import("./pages/SocialDriverPage"));
+const SocialFriendsPage = lazy(() => import("./pages/SocialFriendsPage"));
+const SocialPrivacyPage = lazy(() => import("./pages/SocialPrivacyPage"));
+const SocialSharePage = lazy(() => import("./pages/SocialSharePage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -115,6 +121,10 @@ const SIM_SCREENS: Record<string, React.ReactElement> = {
   "/virtual/tracks": <SimTracksPage />,
   "/virtual/cars": <SimCarsPage />,
   "/virtual/companion": <SimAppPage />,
+  "/virtual/leaderboards": <SocialLeaderboardsPage />,
+  "/virtual/friends": <SocialFriendsPage />,
+  "/virtual/profile": <SocialProfilePage />,
+  "/virtual/privacy": <SocialPrivacyPage />,
 };
 
 const router = createBrowserRouter(createRoutesFromElements(
@@ -130,6 +140,8 @@ const router = createBrowserRouter(createRoutesFromElements(
     {/* The legal texts: public, no sign-in. */}
     <Route path="/privacy" element={<PublicLayout><PrivacyPage /></PublicLayout>} />
     <Route path="/terms" element={<PublicLayout><TermsPage /></PublicLayout>} />
+    {/* A shared lap or session: open to anybody with the link, signed in or not. */}
+    <Route path="/s/:token" element={<PublicLayout><SocialSharePage /></PublicLayout>} />
     <Route path="/reset-password" element={<Navigate to="/login?entrar" replace />} />
     {/* A new phone number gets an account at sign-in, so sign-up is the same page. */}
     <Route path="/signup" element={<Navigate to="/login?entrar" replace />} />
@@ -158,6 +170,8 @@ const router = createBrowserRouter(createRoutesFromElements(
         {/* One track, one car: likewise (Tracks and Game cars stay highlighted). */}
         <Route path="/virtual/tracks/:id" element={<SimTrackPage />} />
         <Route path="/virtual/cars/:id" element={<SimCarPage />} />
+        {/* A driver's page (reached from the leaderboards and the friends lists). */}
+        <Route path="/virtual/drivers/:handle" element={<SocialDriverPage />} />
       </Route>
       {/* Shared by both modes. */}
       <Route path="/companion/connect/:id" element={<SimConnectPage />} />

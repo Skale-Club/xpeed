@@ -148,7 +148,7 @@ const queryString = (params?: Params): string => {
   return pairs.length === 0 ? '' : `?${new URLSearchParams(pairs.map(([key, value]) => [key, String(value)])).toString()}`;
 };
 
-async function failure(response: Response): Promise<V1Error> {
+export async function failure(response: Response): Promise<V1Error> {
   let body: { error?: unknown; retryable?: unknown } | null = null;
   try {
     body = (await response.json()) as { error?: unknown; retryable?: unknown };
@@ -160,17 +160,35 @@ async function failure(response: Response): Promise<V1Error> {
   return new V1Error(response.status, code, retryable);
 }
 
-async function call(method: 'GET' | 'DELETE', path: string, params?: Params): Promise<Response> {
+type Method = 'GET' | 'DELETE' | 'POST' | 'PATCH';
+
+async function call(method: Method, path: string, params?: Params, body?: unknown): Promise<Response> {
   const token = await getAccessToken();
   if (!token) throw new V1Error(401, 'unauthorized', false);
   let response: Response;
   try {
-    response = await fetch(`${publicAppUrl()}${V1_BASE}${path}${queryString(params)}`, { method, cache: 'no-store', headers: { Authorization: `Bearer ${token}` } });
+    response = await fetch(`${publicAppUrl()}${V1_BASE}${path}${queryString(params)}`, {
+      method,
+      cache: 'no-store',
+      headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
   } catch {
     throw new V1Error(0, 'network', true);
   }
   if (!response.ok) throw await failure(response);
   return response;
+}
+
+/** POST, PATCH or DELETE a path of the API with an optional JSON body; the answer is the JSON (undefined for `204`). Throws a V1Error. */
+export async function v1Send<T = undefined>(method: 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  const response = await call(method, path, undefined, body);
+  if (response.status === 204) return undefined as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new V1Error(response.status, 'bad_response', false);
+  }
 }
 
 /** GET a path of the API as JSON. Throws a V1Error. */
@@ -226,7 +244,7 @@ export function invalidateAfterDelete(client: QueryClient, userId: string | null
 // ---------------------------------------------------------------------------------------------------------------- hooks
 
 /** One paged list: `items` is every page read so far, `fetchNextPage` (the "Load more" button) reads one more. */
-function usePaged<T>(
+export function usePaged<T>(
   key: readonly unknown[],
   path: string,
   list: string,
@@ -250,7 +268,7 @@ function usePaged<T>(
   return { ...result, items };
 }
 
-const useUserId = (): string | null => useAuth().user?.id ?? null;
+export const useUserId = (): string | null => useAuth().user?.id ?? null;
 
 /** The laps, newest first, a page at a time. */
 export function useLaps(filters: LapFilters = {}, options: { enabled?: boolean } = {}) {
