@@ -31,7 +31,7 @@ const { DiskStore, FileError, BUCKETS } = await load('files.mjs');
 const { S3Store, signV4, s3Url, EMPTY_SHA256 } = await load('s3.mjs');
 const { createStore, storageConfigured, storageDriver, s3ConfigFromEnv, assertStorageEnv } = await load('driver.mjs');
 const retention = await load('retention.mjs');
-const { enabledJobs, scheduleDaily } = await load('jobs.mjs');
+const { enabledJobs, scheduleDaily, runPlausibilityRecheck } = await load('jobs.mjs');
 const { deepHealth, forgetDeepHealth } = await load('health.mjs');
 const { gzipLap, gunzipLap } = await load('lapfile.mjs');
 
@@ -901,6 +901,81 @@ try {
       await new Promise((r) => setImmediate(r));
       assert.equal(JSON.parse(errors[0]).event, 'job_failed', 'a failing job is logged and does not throw into the process');
     } finally { console.error = originalError; }
+  });
+
+  await check('jobs: the plausibility recheck is on by default, off with PLAUSIBILITY_RECHECK=false, needs a database, and the list of enabled jobs is right in every combination', async () => {
+    const sweep = async () => ({ removed: 0 }), recheck = async () => ({ checked: 0, plausible: 0, implausible: 0, remaining: 0 });
+    const names = (env, shared) => enabledJobs(env, shared).map((j) => j.name);
+    const sharedOptions = [{}, { sweepOrphanLaps: sweep }, { recheckLaps: recheck }, { sweepOrphanLaps: sweep, recheckLaps: recheck }, { sweepOrphanLaps: 'x', recheckLaps: 'y' }];
+    let combinations = 0;
+    for (const database of [true, false]) for (const retention of [undefined, 'true', 'false']) for (const flag of [undefined, 'true', 'false', '']) for (const shared of sharedOptions) {
+      const env = { ...(database ? { DATABASE_URL: 'postgres://x' } : {}), ...(retention ? { RETENTION_ENABLED: retention } : {}), ...(flag !== undefined ? { PLAUSIBILITY_RECHECK: flag } : {}) };
+      const expected = [];
+      if (database && retention === 'true') expected.push('retention');
+      if (database && typeof shared.sweepOrphanLaps === 'function') expected.push('orphan_sweeper');
+      if (database && flag !== 'false' && typeof shared.recheckLaps === 'function') expected.push('plausibility_recheck');
+      assert.deepEqual(names(env, shared), expected, JSON.stringify({ env, shared: Object.keys(shared) }));
+      combinations++;
+    }
+    assert.equal(combinations, 120);
+    // The real defaults: with a database, the sweeper and the recheck run, and nothing else.
+    assert.deepEqual(names({ DATABASE_URL: 'postgres://x' }), ['orphan_sweeper', 'plausibility_recheck']);
+    assert.deepEqual(names({ DATABASE_URL: 'postgres://x', PLAUSIBILITY_RECHECK: 'false' }), ['orphan_sweeper']);
+    assert.deepEqual(names({ DATABASE_URL: 'postgres://x', RETENTION_ENABLED: 'true' }), ['retention', 'orphan_sweeper', 'plausibility_recheck']);
+    assert.deepEqual(names({}), []);
+
+    // The recheck first runs 1 to 5 minutes after start, the others keep their 0 to 3 hours; then every job runs daily.
+    const job = enabledJobs({ DATABASE_URL: 'postgres://x' }).find((j) => j.name === 'plausibility_recheck');
+    assert.deepEqual(job.firstRunMs, [60_000, 300_000]);
+    assert.equal(enabledJobs({ DATABASE_URL: 'postgres://x' }).find((j) => j.name === 'orphan_sweeper').firstRunMs, undefined);
+    const timers = [];
+    const setTimer = (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); return t; };
+    const [min, max] = job.firstRunMs;
+    assert.equal(scheduleDaily(job, { random: () => 0, minOffsetMs: min, maxOffsetMs: max, setTimer }).delay, 60_000);
+    assert.equal(scheduleDaily(job, { random: () => 0.5, minOffsetMs: min, maxOffsetMs: max, setTimer }).delay, 180_000);
+    const last = scheduleDaily(job, { random: () => 0.999999, minOffsetMs: min, maxOffsetMs: max, setTimer }).delay;
+    assert.ok(last >= 60_000 && last < 300_000, `delay ${last}`);
+    assert.equal(scheduleDaily({ name: 'x', run: async () => {} }, { random: () => 0, setTimer }).delay, 0, 'without a minimum the offset still starts at 0');
+
+    // The job runs recheckLaps in batches of 200 until none remains and logs one JSON line with the four counts.
+    const asked = [];
+    let left = 450;
+    const batches = async (_backend, limit) => {
+      asked.push(limit);
+      const checked = Math.min(limit, left);
+      left -= checked;
+      return { checked, plausible: checked - 1, implausible: 1, remaining: left };
+    };
+    const env = { DATABASE_URL: 'postgres://x', DATA_BACKEND: 'own' };
+    const real = enabledJobs(env, { recheckLaps: batches }).find((j) => j.name === 'plausibility_recheck');
+    const lines = [];
+    const log = console.log; console.log = (line) => lines.push(line);
+    try {
+      scheduleDaily(real, { random: () => 0, minOffsetMs: 0, maxOffsetMs: 1, setTimer });
+      timers.at(-1).fn();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+    } finally { console.log = log; }
+    assert.deepEqual(asked, [200, 200, 200], 'batches of 200 until the last one finds the end');
+    const line = JSON.parse(lines.find((l) => JSON.parse(l).job === 'plausibility_recheck'));
+    assert.deepEqual([line.event, line.checked, line.plausible, line.implausible, line.remaining], ['job_done', 450, 447, 3, 0]);
+    assert.equal(lines.filter((l) => JSON.parse(l).job === 'plausibility_recheck').length, 1, 'one line for the run');
+
+    // The budget: 3 minutes. Batches that take a minute each leave the rest for tomorrow; a stuck batch ends the run; runs never overlap.
+    let clock = 0, started = 0;
+    const slowBatches = await runPlausibilityRecheck({ recheck: async () => { started++; clock += 61_000; return { checked: 200, plausible: 200, implausible: 0, remaining: 5000 }; }, now: () => clock });
+    assert.equal(started, 3, 'a batch is not started after 3 minutes (the third ends at 183 s)');
+    assert.deepEqual(slowBatches, { checked: 600, plausible: 600, implausible: 0, remaining: 5000 });
+    let tries = 0;
+    await runPlausibilityRecheck({ recheck: async () => { tries++; return { checked: 0, plausible: 0, implausible: 0, remaining: 7 }; } });
+    assert.equal(tries, 1, 'no progress, no loop');
+    let release, overlapped = 0;
+    const first = runPlausibilityRecheck({ recheck: () => new Promise((done) => { release = () => done({ checked: 1, plausible: 1, implausible: 0, remaining: 0 }); }) });
+    assert.deepEqual(await runPlausibilityRecheck({ recheck: async () => { overlapped++; return { checked: 0, plausible: 0, implausible: 0, remaining: 0 }; } }), { skipped: true });
+    release();
+    await first;
+    assert.equal(overlapped, 0, 'a second run while one is going does not start');
+    assert.deepEqual(await runPlausibilityRecheck({ recheck: async () => ({ checked: 0, plausible: 0, implausible: 0, remaining: 0 }) }), { checked: 0, plausible: 0, implausible: 0, remaining: 0 }, 'and the next one does');
   });
 
   console.log(`\nverify-storage: ${checks.length} checks passed`);

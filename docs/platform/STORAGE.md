@@ -139,6 +139,12 @@ lap to the reducer. `scripts/verify-storage.mjs` runs the SQL on a real PostgreS
 (`list`, `listAll`) never show them and a sweeper that walks the listings cannot delete a copy in progress; a leftover
 of a crashed run is removed the next time that lap is processed.
 
+## Plausibility recheck
+
+`server/jobs.ts` also runs `plausibility_recheck` (on by default; `PLAUSIBILITY_RECHECK=false` turns it off): laps that arrived before the
+plausibility checks (`plausible IS NULL`) get their verdict from their files, 200 at a time, for at most 3 minutes a run; first run 1 to 5 minutes after
+start, then daily. One `job_done` line with `checked`, `plausible`, `implausible`, `remaining`. See `API-V1.md` (Plausibility).
+
 ## Tests
 
 `npm run test:storage` (`scripts/verify-storage.mjs`, in CI after `test:sim`): the S3 driver against an in-process fake

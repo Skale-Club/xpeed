@@ -21,7 +21,7 @@ Base path `/api/sim/v1/`. Phase 1 of the platform (`PHASE-1-DATA-MODEL.md`). Cod
 | 400 | `invalid_limit`, `invalid_cursor`, `invalid_game`, `invalid_track`, `invalid_car`, `invalid_session`, `invalid_valid` | the parameter named in the code is not valid |
 | 401 | `unauthorized` | not signed in |
 | 404 | `not_found` | no such path |
-| 404 | `lap_not_found`, `session_not_found`, `track_not_found`, `car_not_found` | no such item for this person |
+| 404 | `lap_not_found`, `session_not_found`, `track_not_found`, `car_not_found` | no such item for this person (also `GET /laps/<id>` and `DELETE /sessions/<id>`) |
 | 405 | `method_not_allowed` | wrong method (`Allow` says which) |
 | 503 | `unavailable` | the database or the files do not answer (`retryable: true`, `Retry-After`) |
 
@@ -35,14 +35,23 @@ formatVersion | null, createdAt, deviceName | null }`
 origin: "companion" | "inferred", startedAt, endedAt, weather | null, airTempC | null, trackTempC | null, lapCount, bestLapMs | null }`
 (`bestLapMs` is the fastest valid lap; a session is one car on one track.)
 
-**Personal best (pb)** `{ game, track: {id, name}, car: {id, name}, bestMs, lapId, achievedAt }`: the fastest valid lap of the
-person on that track with that car; `achievedAt` is when the lap was driven.
+**Personal best (pb)** `{ game, track: {id, name}, car: {id, name}, bestMs, lapId, achievedAt, bestSectorsMs: [int] | null,
+sectorLapIds: [uuid] | null }`: the fastest valid lap of the person on that track with that car; `achievedAt` is when the lap was driven.
+`bestSectorsMs[i]` is the best time of sector `i + 1` over the person's **valid and plausible** laps on that track and car that have the
+sector count most of those laps have (the majority count; the larger count wins a tie), and `sectorLapIds[i]` is the lap that holds it
+(the earlier lap on a tie). A lap with a sector of 0 ms or less is not used. Both are `null` when no such lap has sectors. Example:
+`"bestSectorsMs": [290, 380, 300], "sectorLapIds": ["<lap>", "<lap>", "<lap>"]`. They are computed by the database in the same
+statement that pages the bests (`sim_sector_bests`, index `sim_laps_sector_bests`), not per item.
 
 ## Endpoints
 
 ### `GET /laps?game&track&car&session&valid&cursor&limit`
 Laps, newest `startedAt` first. Filters: `game` (id such as `lmu`), `track` and `car` (catalog ids), `session` (session id),
 `valid` (`true`/`false`/`1`/`0`). They combine. Answer `{ laps: [Lap], nextCursor }`.
+
+### `GET /laps/<id>`
+One lap's metadata, the same **Lap** object as an item of the list (`404 lap_not_found` for an unknown id or another person's lap). Use it
+for a deep link that only has the lap id: it carries `track.id`, `car.id` and `sessionId`.
 
 ### `GET /laps/<id>/file`
 The stored lap file, exactly the gzip bytes the Companion sent (`application/gzip`,
@@ -58,6 +67,12 @@ Sessions, newest `startedAt` first. Answer `{ sessions: [Session], nextCursor }`
 ### `GET /sessions/<id>`
 `{ session: Session, laps: [Lap] }` with the laps in driving order (at most 2000).
 
+### `DELETE /sessions/<id>`
+Deletes every lap of the session (rows and stored files) and the session itself in one database transaction; the personal bests
+are recomputed from the laps that remain. Answer `200 { "deleted": <number of laps> }`. An unknown session, someone else's, or one that is
+already gone is `404 session_not_found` (so a repeat is safe: nothing else changes). A file that cannot be removed is picked up by the orphan
+sweeper. The overview cache of the person is dropped.
+
 ### `GET /tracks?game&cursor&limit` and `GET /cars?game&cursor&limit`
 The tracks (cars) the person has driven, most recently driven first.
 Track item: `{ id, game, name, lengthM | null, lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt }`.
@@ -71,7 +86,8 @@ Any track in the catalog (a track the person never drove has zero totals and emp
   totals: { lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt | null },
   progress: { bestPerDay: [{ day, bestMs, lapId, car: {id, name} }],   // fastest valid lap of each day, oldest first
               lapsPerDay: [{ day, laps, validLaps }] },                  // oldest first; the latest 1000 days with laps
-  bestPerCar: [{ car: {id, name, class | null}, lapCount, validLapCount, bestMs | null, lapId | null, achievedAt | null }] }  // fastest car first
+  bestPerCar: [{ car: {id, name, class | null}, lapCount, validLapCount, bestMs | null, lapId | null, achievedAt | null,
+                 bestSectorsMs: [int] | null, sectorLapIds: [uuid] | null }] }  // fastest car first; the two sector fields as in a pb
 ```
 
 ### `GET /cars/<id>`
@@ -83,7 +99,7 @@ Any track in the catalog (a track the person never drove has zero totals and emp
 ```
 
 ### `GET /pbs?game&track&car&cursor&limit`
-Personal bests, most recently achieved first. Answer `{ pbs: [pb], nextCursor }`.
+Personal bests, most recently achieved first. Answer `{ pbs: [pb], nextCursor }`. Each pb carries `bestSectorsMs` and `sectorLapIds` (see the object above).
 
 ### `GET /overview`
 One cheap call for the home page, cached for 10 seconds per person (an upload or a deletion by that person drops their entry):
@@ -225,7 +241,14 @@ Unknown, malformed, revoked and expired tokens, hidden laps and profiles, and la
 
 The server checks every lap file when it arrives, inside the same transaction as the ingest, and stores `sim_laps.plausible` and a small
 `plausibility` document `{ "v": 1, "failed": [{ "check", "detail": {...} }] }`. A lap that fails is **kept** (the upload is accepted) but never ranks.
-Laps that arrived before the check have `plausible = null` and rank nowhere until `POST /admin/recheck` reads their files.
+Laps that arrived before the check have `plausible = null` and rank nowhere until their files are read: the server does it by itself (job
+`plausibility_recheck`, below) and `POST /admin/recheck` does it on demand.
+
+**The `plausibility_recheck` job** (`server/jobs.ts`, on by default, `PLAUSIBILITY_RECHECK=false` turns it off; needs the database): the first run is
+1 to 5 minutes after the server starts (random, so instances do not start together), then every 24 hours. A run calls the recheck 200 laps at a time until
+nothing remains or 3 minutes are spent (checked before each batch), and logs one JSON line
+`{"event":"job_done","job":"plausibility_recheck","ms":...,"checked":..,"plausible":..,"implausible":..,"remaining":..}`. A batch that settles nothing ends the run, an
+unreadable file is marked `file_unreadable` (implausible) so it is never tried again, and a run never overlaps another.
 
 | Check | Fails when | Threshold |
 |---|---|---|

@@ -708,7 +708,7 @@ try {
     const noLap = await api('/laps/00000000-0000-4000-8000-000000000000', { method: 'DELETE' });
     assert.deepEqual([noLap.status, noLap.body], [404, { error: 'lap_not_found', retryable: false }]);
     for (const [path, method, allow] of [['/laps', 'POST', 'GET'], ['/laps', 'DELETE', 'GET'], ['/overview', 'PUT', 'GET'], ['/sessions', 'DELETE', 'GET'],
-      [`/laps/${lastLap}`, 'GET', 'DELETE'], [`/laps/${lastLap}/file`, 'DELETE', 'GET'], ['/tracks/00000000-0000-4000-8000-000000000000', 'POST', 'GET']]) {
+      [`/laps/${lastLap}`, 'PUT', 'GET, DELETE'], [`/sessions/${(await lapRow(lastLap)).session_id}`, 'PUT', 'GET, DELETE'], [`/laps/${lastLap}/file`, 'DELETE', 'GET'], ['/tracks/00000000-0000-4000-8000-000000000000', 'POST', 'GET']]) {
       const r = await api(path, { method });
       assert.equal(r.status, 405, `${method} ${path}`);
       assert.deepEqual(r.body, { error: 'method_not_allowed', retryable: false });
@@ -885,7 +885,7 @@ try {
     assert.equal(detail.bestPerCar.length, 2);
     for (const entry of detail.bestPerCar) {
       const rows = mine.filter((l) => l.car === entry.car.name);
-      assert.deepEqual(Object.keys(entry).sort(), ['achievedAt', 'bestMs', 'car', 'lapCount', 'lapId', 'validLapCount']);
+      assert.deepEqual(Object.keys(entry).sort(), ['achievedAt', 'bestMs', 'bestSectorsMs', 'car', 'lapCount', 'lapId', 'sectorLapIds', 'validLapCount']);
       assert.equal(entry.lapCount, rows.length);
       assert.equal(entry.validLapCount, rows.filter((l) => l.valid).length);
       assert.equal(entry.bestMs, Math.min(...rows.filter((l) => l.valid).map((l) => l.timeMs)));
@@ -922,7 +922,8 @@ try {
   await check('v1 pbs: one per track and car, newest first, filtered, and kept in step with the laps', async () => {
     const all = await allIds('/pbs', 'pbs');
     assert.equal(all.length, 5, 'Paging x 2 cars, Second x 2 cars, Fresh x 1');
-    assert.deepEqual(Object.keys(all[0]).sort(), ['achievedAt', 'bestMs', 'car', 'game', 'lapId', 'track']);
+    assert.deepEqual(Object.keys(all[0]).sort(), ['achievedAt', 'bestMs', 'bestSectorsMs', 'car', 'game', 'lapId', 'sectorLapIds', 'track']);
+    assert.ok(all.every((p) => p.bestSectorsMs === null && p.sectorLapIds === null), 'laps without sectors: both null');
     assert.deepEqual(all.map((p) => p.achievedAt), [...all.map((p) => p.achievedAt)].sort().reverse());
     for (const pb of all.filter((p) => p.track.name !== 'Fresh Ring')) {
       const rows = seed.filter((l) => l.track === pb.track.name && l.car === pb.car.name && l.valid);
@@ -1142,6 +1143,207 @@ try {
     const cList = await call(laps, '/api/sim/laps', { bearer: C });
     assert.ok(cList.body.laps.length >= SEED);
     assert.deepEqual(cList.body.laps.map((l) => l.startedAt), [...cList.body.laps.map((l) => l.startedAt)].sort().reverse());
+  });
+
+  // ================================================================== what the site needs: a session deleted at once, one lap, the best sectors
+
+  const siteRig = await deviceFor(B, 'SITE');
+  const fileOf = async (id) => resolve(filesRoot, 'sim-laps', (await lapRow(id)).storage_path);
+
+  await check('v1 session delete: removes every lap, file and the session of the person, fixes the personal bests, spares other sessions, and a repeat is 404', async () => {
+    const rig = siteRig;
+    const track = 'SesDel Ring', car = 'SesDel Car';
+    const one = await put(rig, { track, car, number: 1, timeMs: 90_000, startedAt: at(20_000) });
+    const two = await put(rig, { track, car, number: 2, timeMs: 85_000, startedAt: at(20_004) });
+    const three = await put(rig, { track, car, number: 3, timeMs: 95_000, startedAt: at(20_008) });
+    const later = await put(rig, { track, car, number: 4, timeMs: 87_000, startedAt: at(30_000) }); // another day: another session
+    const sessionId = (await lapRow(one)).session_id, otherSession = (await lapRow(later)).session_id;
+    assert.notEqual(sessionId, otherSession);
+    assert.deepEqual([(await lapRow(two)).session_id, (await lapRow(three)).session_id], [sessionId, sessionId]);
+    const paths = await Promise.all([one, two, three, later].map(fileOf));
+    assert.ok(paths.every((path) => existsSync(path)));
+    const owner = ids.B;
+    assert.equal((await bestOf(owner, 'lmu', track, car)).lap_id, two, 'the best is in the session about to go');
+    const before = await api('/overview', { bearer: B });
+    assert.ok(before.body.storage.lapCount >= 4);
+
+    const gone = await api(`/sessions/${sessionId}`, { method: 'DELETE', bearer: B });
+    assert.deepEqual([gone.status, gone.body], [200, { deleted: 3 }]);
+    assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_laps WHERE id = ANY($1)', [[one, two, three]])).rows[0].n, 0, 'the rows');
+    assert.deepEqual(paths.slice(0, 3).map((path) => existsSync(path)), [false, false, false], 'the files');
+    assert.ok(existsSync(paths[3]), 'the other session keeps its file');
+    assert.equal(await sessionOf(sessionId), undefined, 'the session');
+    assert.deepEqual([(await api(`/sessions/${sessionId}`, { bearer: B })).status, (await api(`/laps?session=${sessionId}`, { bearer: B })).body.laps.length], [404, 0]);
+    const best = await bestOf(owner, 'lmu', track, car);
+    assert.deepEqual([best.lap_id, best.best_ms], [later, 87_000], 'the personal best is the best of what remains');
+    const kept = await sessionOf(otherSession);
+    assert.deepEqual([kept.lap_count, kept.best_lap_ms], [1, 87_000]);
+    assert.equal((await api('/overview', { bearer: B })).body.storage.lapCount, before.body.storage.lapCount - 3, 'the overview cache was dropped');
+
+    // Repeating it is safe: nothing left to delete is not found, and nothing else changes.
+    const again = await api(`/sessions/${sessionId}`, { method: 'DELETE', bearer: B });
+    assert.deepEqual([again.status, again.body], [404, { error: 'session_not_found', retryable: false }]);
+    assert.ok(existsSync(paths[3]));
+    // The last session takes the personal best with it.
+    assert.deepEqual((await api(`/sessions/${otherSession}`, { method: 'DELETE', bearer: B })).body, { deleted: 1 });
+    assert.equal(await bestOf(owner, 'lmu', track, car), undefined);
+    assert.equal(existsSync(paths[3]), false);
+    // A session with no laps (a hand-made row) is deleted too, with 0 laps.
+    const empty = (await direct.query(
+      `INSERT INTO public.sim_sessions (user_id, game, track_id, car_id, started_at, ended_at, origin)
+       SELECT $1, 'lmu', t.id, c.id, now(), now(), 'inferred' FROM (SELECT id FROM public.sim_track_catalog LIMIT 1) t, (SELECT id FROM public.sim_car_catalog LIMIT 1) c RETURNING id`, [owner])).rows[0].id;
+    assert.deepEqual((await api(`/sessions/${empty}`, { method: 'DELETE', bearer: B })).body, { deleted: 0 });
+    assert.equal(await sessionOf(empty), undefined);
+  });
+
+  await check('v1 session delete: an unknown session, another person\'s session and a bad id are refused, and nothing of the other person is deleted', async () => {
+    const rig = siteRig;
+    const lap = await put(rig, { track: 'SesDel Ring 2', car: 'SesDel Car', number: 1, startedAt: at(40_000) });
+    const sessionId = (await lapRow(lap)).session_id;
+    const path = await fileOf(lap);
+    for (const bearer of [A, C, D]) {
+      const r = await api(`/sessions/${sessionId}`, { method: 'DELETE', bearer });
+      assert.deepEqual([r.status, r.body], [404, { error: 'session_not_found', retryable: false }]);
+    }
+    const unknown = await api('/sessions/00000000-0000-4000-8000-000000000000', { method: 'DELETE', bearer: B });
+    assert.deepEqual([unknown.status, unknown.body], [404, { error: 'session_not_found', retryable: false }]);
+    const bad = await api('/sessions/not-a-uuid', { method: 'DELETE', bearer: B });
+    assert.deepEqual([bad.status, bad.body], [404, { error: 'not_found', retryable: false }]);
+    const signedOut = await api(`/sessions/${sessionId}`, { method: 'DELETE', bearer: undefined });
+    assert.deepEqual([signedOut.status, signedOut.body], [401, { error: 'unauthorized', retryable: false }]);
+    assert.equal((await api(`/sessions/${sessionId}`, { method: 'DELETE', bearer: rig.token })).status, 401, 'a device key is not a sign-in');
+    assert.equal((await lapRow(lap)).session_id, sessionId, 'the lap is still in its session');
+    assert.ok(existsSync(path));
+    // The database function is for the server alone.
+    const client = await getPool().connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE authenticated');
+      await assert.rejects(client.query('SELECT public.sim_delete_session($1, $2)', [ids.B, sessionId]), /permission denied/);
+    } finally { await client.query('ROLLBACK').catch(() => {}); client.release(); }
+    assert.equal((await api(`/sessions/${sessionId}`, { method: 'DELETE', bearer: B })).status, 200);
+    assert.equal(existsSync(path), false);
+  });
+
+  await check('v1 lap metadata: GET /laps/<id> is the same object as a list item, and an unknown or another person\'s lap is 404 lap_not_found', async () => {
+    const rig = siteRig;
+    const id = await put(rig, { track: 'One Lap Ring', car: 'One Lap Car', carClass: 'GT3', number: 7, timeMs: 1000, startedAt: at(50_000), sectorsMs: [300, 400, 300], speed: [10, 20, 30], fuel: [50, 49, 48], inLap: false, outLap: true });
+    const one = await api(`/laps/${id}`, { bearer: B });
+    assert.equal(one.status, 200);
+    const listed = (await api(`/laps?track=${one.body.track.id}`, { bearer: B })).body.laps;
+    assert.deepEqual(one.body, listed.find((l) => l.id === id), 'the same object as the list item');
+    assert.deepEqual(Object.keys(one.body).sort(), ['car', 'createdAt', 'deviceName', 'formatVersion', 'fuelUsedL', 'game', 'id', 'inLap', 'lapNumber', 'outLap', 'reduced',
+      'sampleCount', 'sectorsMs', 'sessionId', 'sizeBytes', 'startedAt', 'timeMs', 'topSpeedKmh', 'track', 'valid']);
+    assert.deepEqual([one.body.game, one.body.track.name, one.body.car.name, one.body.lapNumber, one.body.timeMs, one.body.valid, one.body.sectorsMs, one.body.outLap, one.body.inLap, one.body.deviceName, one.body.reduced],
+      ['lmu', 'One Lap Ring', 'One Lap Car', 7, 1000, true, [300, 400, 300], true, false, 'SITE', false]);
+    assert.ok(one.body.track.id && one.body.car.id);
+    assert.equal(one.body.sessionId, (await lapRow(id)).session_id);
+    for (const bearer of [A, C, D]) {
+      const r = await api(`/laps/${id}`, { bearer });
+      assert.deepEqual([r.status, r.body], [404, { error: 'lap_not_found', retryable: false }]);
+    }
+    const unknown = await api('/laps/00000000-0000-4000-8000-000000000000', { bearer: B });
+    assert.deepEqual([unknown.status, unknown.body], [404, { error: 'lap_not_found', retryable: false }]);
+    const signedOut = await api(`/laps/${id}`, { bearer: undefined });
+    assert.deepEqual([signedOut.status, signedOut.body], [401, { error: 'unauthorized', retryable: false }]);
+    assert.equal((await api(`/laps/${id}`, { bearer: rig.token })).status, 401);
+    // The file route and the delete route are unchanged; once deleted the metadata is 404.
+    assert.equal((await api(`/laps/${id}/file`, { bearer: B })).status, 200);
+    assert.equal((await api(`/laps/${id}`, { method: 'DELETE', bearer: B })).status, 204);
+    assert.equal((await api(`/laps/${id}`, { bearer: B })).status, 404);
+  });
+
+  await check('v1 sector bests: per sector the minimum over valid and plausible laps, the majority sector count wins, null without sectors, and the lap ids point at the holders', async () => {
+    const rig = siteRig;
+    const track = 'Sector Ring';
+    // A lap time is the sum of its sectors (a plausible lap's sectors add up); the file's own clock is one second, so the sums stay within the tolerance by sitting near 1000.
+    const lap = (car, minute, sectorsMs, extra = {}) => put(rig, { track, car, number: minute, timeMs: 1000, startedAt: at(60_000 + minute), ...(sectorsMs ? { sectorsMs } : {}), ...extra });
+    // Car one: three laps with three sectors count; the rest is ignored or in the minority.
+    const l1 = await lap('Sector Car 1', 1, [300, 400, 300]);
+    const l2 = await lap('Sector Car 1', 2, [310, 380, 310]);
+    const l3 = await lap('Sector Car 1', 3, [290, 410, 300]);
+    await lap('Sector Car 1', 4, [100, 800, 100], { valid: false });          // invalid: ignored
+    await lap('Sector Car 1', 5, [200, 600, 200], { speed: [10, 200, 30] });   // implausible (a speed no car has): ignored
+    await lap('Sector Car 1', 6, [500, 500]);                                  // two sectors: the minority
+    await lap('Sector Car 1', 7, null);                                       // no sectors
+    assert.equal((await lapRow(l1)).plausible, true);
+    // Car two: valid and plausible laps, none with sectors.
+    const n1 = await lap('Sector Car 2', 10, null);
+    // Car three: the majority has fewer sectors than the minority (two laps with 2 sectors, one with 3).
+    const m1 = await lap('Sector Car 3', 20, [500, 500]);
+    const m2 = await lap('Sector Car 3', 21, [490, 510]);
+    await lap('Sector Car 3', 22, [300, 300, 400]);
+    // Car four: a lap with a zero sector is not used; the two others are.
+    await lap('Sector Car 4', 30, [0, 500, 500]);
+    const z1 = await lap('Sector Car 4', 31, [400, 300, 300]);
+    const z2 = await lap('Sector Car 4', 32, [410, 290, 300]);
+
+    const trackId = (await direct.query("SELECT id FROM public.sim_track_catalog WHERE game = 'lmu' AND name = 'Sector Ring'")).rows[0].id;
+    const pbs = (await api(`/pbs?track=${trackId}`, { bearer: B })).body.pbs;
+    const byCar = Object.fromEntries(pbs.map((p) => [p.car.name, p]));
+    assert.deepEqual(Object.keys(byCar).sort(), ['Sector Car 1', 'Sector Car 2', 'Sector Car 3', 'Sector Car 4']);
+    assert.deepEqual([byCar['Sector Car 1'].bestSectorsMs, byCar['Sector Car 1'].sectorLapIds], [[290, 380, 300], [l3, l2, l1]], 'a tie (300) goes to the earlier lap');
+    assert.deepEqual([byCar['Sector Car 2'].bestSectorsMs, byCar['Sector Car 2'].sectorLapIds], [null, null], 'no sectors: null');
+    assert.equal(byCar['Sector Car 2'].lapId, n1);
+    assert.deepEqual([byCar['Sector Car 3'].bestSectorsMs, byCar['Sector Car 3'].sectorLapIds], [[490, 500], [m2, m1]], 'the sector count most laps have wins, not the largest');
+    assert.deepEqual([byCar['Sector Car 4'].bestSectorsMs, byCar['Sector Car 4'].sectorLapIds], [[400, 290, 300], [z1, z2, z1]]);
+    // The track's best per car carries the same two fields.
+    const detail = (await api(`/tracks/${trackId}`, { bearer: B })).body.bestPerCar;
+    assert.equal(detail.length, 4);
+    for (const entry of detail) {
+      const pb = byCar[entry.car.name];
+      assert.deepEqual([entry.bestSectorsMs, entry.sectorLapIds], [pb.bestSectorsMs, pb.sectorLapIds], entry.car.name);
+    }
+    // The holders are real laps of this person with those very sector times.
+    for (const pb of pbs.filter((p) => p.bestSectorsMs)) {
+      for (let i = 0; i < pb.bestSectorsMs.length; i++) {
+        const holder = await api(`/laps/${pb.sectorLapIds[i]}`, { bearer: B });
+        assert.equal(holder.body.sectorsMs[i], pb.bestSectorsMs[i], `${pb.car.name} sector ${i + 1}`);
+        assert.ok(holder.body.valid);
+      }
+    }
+    // Only the person's own laps count: another person sees none of these.
+    assert.deepEqual((await api(`/pbs?track=${trackId}`, { bearer: D })).body.pbs, []);
+    // Deleting the lap that holds a sector hands it to the next best.
+    assert.equal((await api(`/laps/${l3}`, { method: 'DELETE', bearer: B })).status, 204);
+    const afterDelete = (await api(`/pbs?track=${trackId}&car=${byCar['Sector Car 1'].car.id}`, { bearer: B })).body.pbs[0];
+    assert.deepEqual([afterDelete.bestSectorsMs, afterDelete.sectorLapIds], [[300, 380, 300], [l1, l2, l1]]);
+  });
+
+  await check('v1 sector bests: a page of personal bests is one database statement, however many pairs it holds', async () => {
+    const rig = siteRig;
+    for (let i = 0; i < 12; i++) await put(rig, { track: `OneQuery Ring ${i % 4}`, car: `OneQuery Car ${i % 3}`, number: i, timeMs: 1000, startedAt: at(70_000 + i), sectorsMs: [300 + i, 400, 300 - i] });
+    const pool = getPool();
+    const original = pool.connect.bind(pool);
+    const statements = [];
+    pool.connect = async (...args) => {
+      const client = await original(...args);
+      if (!client.__counted) {
+        const query = client.query.bind(client);
+        client.query = (text, ...rest) => { statements.push(typeof text === 'string' ? text : text?.text ?? ''); return query(text, ...rest); };
+        client.__counted = true;
+      }
+      return client;
+    };
+    try {
+      const data = () => statements.filter((text) => !/^(BEGIN|COMMIT|ROLLBACK|SET LOCAL)|set_config|current_app_user_id/i.test(text.trim()));
+      const page = await api('/pbs?limit=100', { bearer: B });
+      assert.equal(page.status, 200);
+      const pairs = page.body.pbs.filter((p) => p.track.name.startsWith('OneQuery'));
+      assert.equal(pairs.length, 12, 'twelve pairs on the page');
+      assert.ok(pairs.every((p) => p.bestSectorsMs?.length === 3));
+      assert.equal(data().length, 1, `one data statement for the whole page, got: ${data().join(' | ')}`);
+      assert.match(data()[0], /sim_v1_pbs/);
+      statements.length = 0;
+      const detail = await api(`/tracks/${pairs[0].track.id}`, { bearer: B });
+      assert.equal(detail.status, 200);
+      assert.equal(data().length, 1, 'and one for a track with all its cars');
+      assert.match(data()[0], /sim_v1_track/);
+    } finally { pool.connect = original; }
+    // The index that serves the query exists and is partial on the laps that count.
+    const index = (await direct.query("SELECT indexdef FROM pg_indexes WHERE indexname = 'sim_laps_sector_bests'")).rows[0].indexdef;
+    assert.match(index, /user_id, track_id, car_id/);
+    assert.match(index, /plausible IS TRUE/);
   });
 
   console.log(`${checks.length} sim v1 checks passed:\n- ${checks.join('\n- ')}`);
