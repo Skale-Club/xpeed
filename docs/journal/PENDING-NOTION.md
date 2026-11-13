@@ -173,3 +173,47 @@ Two Sonnet subagents ran in parallel against one contract that Opus wrote, model
 
 ### Next
 None required.
+
+---
+
+## 2026-11-13 — Guard every destructive script, uptime alert, disk alarm script
+
+- **Type:** Infra · **Area:** Infra & Deploy · **Status:** Done (not pushed)
+- **Agent:** Claude Code · **Model:** Opus 5.5 orchestrating, Sonnet 5.5 executing
+- **Repo / Branch:** Skale-Club/xpeed / worktree-agent-a7500c074e17fe9ad
+- **Commits / PR:** see the branch tip
+- **Tests:** vitest run; node scripts/verify-db-foundation.mjs (20 checks, 7 new for the guard); the uptime probe logic run against a stubbed curl (5 scenarios); disk-alarm.sh only `bash -n`
+- **Decision:** XPD-D-7 · Proposed (production is refused by default; overriding needs a flag plus the typed host)
+- **Summary:** One shared guard (db/guard-destructive.mjs) now sits in front of cutover-copy, the dev sync and recreate-admin: production hosts are refused, cutover-copy is a dry run by default. Added an every-5-minutes uptime workflow and a disk alarm script (not installed).
+
+### Context
+On 2026-11-10 `scripts/cutover-copy.mjs` was run against the live production database by mistake. It emptied the tables and replaced the volume files, and data written since 2026-11-04 was lost.
+
+### What changed
+- `db/guard-destructive.mjs`: `guardDestructive` (before connecting: refuse production hosts; override needs `--i-know-this-is-production` plus the typed host in a terminal) and `confirmDestructive` (before the destructive step: shows host, database, tables or folders with counts; target name typed back unless `--yes`, never skipped for production).
+- Production hosts: built-in list (Coolify database and container, server, `xpeed-files` volume, the cutover tunnel `127.0.0.1:55432`, xpeed.skale.club, xpeed.app) plus `XPEED_PROD_HOSTS`, which can only add.
+- `cutover-copy.mjs`: dry run by default, `--apply` is real; checks the real database identity from the Coolify API because the SSH tunnel always looks like localhost.
+- `db/sync.mjs` / `dev-sync.mjs`: `assertSafeTarget` and `pullAnonymized` refuse production hosts with no override, and print the tables about to be replaced.
+- `recreate-admin.ts` (deletes and recreates an auth user): guarded and confirmed.
+- `.env.example`: `PROD_DATABASE_URL` commented out, documented read-only and optional; `XPEED_PROD_HOSTS` documented.
+- `.github/workflows/uptime.yml`: every 5 minutes, deep health with fallback to `/api/health`, 3 tries 20 s apart, "Site down" issue opened or commented (at most hourly), "Recovered" and close; address from repository variable `XPEED_PUBLIC_URL`; no secret.
+- `docs/operations/alerts.md`, `ops/disk-alarm.sh` (written, not installed, nothing run on any server).
+
+### How it was built
+Judged each script in scripts/ and db/. Guarded: cutover-copy, dev-sync/db sync, recreate-admin. Left alone on purpose: db/migrate.mjs and db-migrate.mjs (additive, and the server runs them at boot), apply-migration.ts (create if not exists), configure-*.mjs (create or tighten private buckets), import-*.mjs (regenerate local files and a seed), supabase-keepalive (heartbeat row).
+
+### Decisions and why
+- The variable adds to the built-in list instead of replacing it, so a typo can never make production look safe.
+- The dev sync has no production override at all; it only ever writes to development.
+- dev-sync prints the plan but does not ask a question: it runs inside `npm run dev` and its target is already restricted to Supabase or local.
+
+### Tests and evidence
+`node scripts/verify-db-foundation.mjs` passes (20 checks). New: refuses the production host, tunnel, volume and XPEED_PROD_HOSTS entries; accepts local and development hosts; refuses without the flag even with `--yes`; refuses with the flag but no terminal; a wrong typed host is refused; confirm shows host, database and counts and wants the name unless `--yes`; the dev sync refuses production with no override.
+
+### Not done / risks
+- No script was run against any database or server. The workflow and `disk-alarm.sh` were not run on GitHub or the server.
+- The built-in host list comes from docs and the cutover script; if the production database host ever changes, update it or set `XPEED_PROD_HOSTS`.
+- Still missing: error tracking, the disk alarm on the server, a backup of the files volume.
+
+### Next
+Merge, set the repository variable `XPEED_PUBLIC_URL` when the domain changes, and decide when to install the disk alarm.

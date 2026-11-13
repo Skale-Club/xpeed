@@ -12,6 +12,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { listMigrations, migrate, versionOf, ensureIdentityProject } from '../db/migrate.mjs';
 import { assertSafeTarget, pullAnonymized } from '../db/sync.mjs';
 import { scrubJson } from '../db/anonymize.mjs';
+import { GuardError, PRODUCTION_FLAG, confirmDestructive, findProductionMatch, guardDestructive, productionHosts } from '../db/guard-destructive.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tools = pathToFileURL(resolve(root, 'node_modules/.xpeed-audit-tools/node_modules/@electric-sql/')).href + '/';
@@ -233,6 +234,83 @@ try {
     assertSafeTarget('postgres://u:p@db.drqmrddxlrlbqnydumjm.supabase.co:5432/postgres', prodUrl, {});
     assertSafeTarget('postgres://u:p@localhost:5432/x', prodUrl, {});
     assertSafeTarget('postgres://u:p@db.other:5432/other', prodUrl, { DEV_SYNC_ALLOW_TARGET: 'db.other:5432' });
+  });
+  // The destructive-script guard (db/guard-destructive.mjs). Pure: no database, no terminal, no network.
+  const PROD_URL = 'postgres://u:p@rutjxwshngfntydynnba9tmm:5432/postgres';
+  const quiet = () => {};
+  const asking = (answer) => { const calls = []; return { calls, ask: async (q) => { calls.push(q); return answer; } }; };
+  await check('guard: refuses the production host, the tunnel to it, its volume and anything in XPEED_PROD_HOSTS', async () => {
+    for (const target of [PROD_URL, 'postgres://u:p@xpeed-db:5432/x', 'postgres://u:p@127.0.0.1:55432/postgres', 'postgres://u:p@localhost:55432/postgres',
+      'ssh://root@188.245.112.3', '/var/lib/docker/volumes/zcofe6duhppnyg7a7l7gadxe-xpeed-files/_data', 'postgres://u:p@db.rutjxwshngfntydynnba9tmm:5432/x']) {
+      await assert.rejects(guardDestructive({ target, action: 'wipe', argv: [], env: {}, isTTY: true, say: quiet }), (e) => e instanceof GuardError && /REFUSED/.test(e.message) && /production/i.test(e.message) && /almost never right/.test(e.message), target);
+    }
+    const env = { XPEED_PROD_HOSTS: ' DB.Prod.Example , other.example:6543 ' };
+    assert.ok(productionHosts(env).includes('db.prod.example'));
+    assert.ok(productionHosts(env).includes('rutjxwshngfntydynnba9tmm'), 'the variable adds to the built-in list, it never replaces it');
+    await assert.rejects(guardDestructive({ target: 'postgres://u:p@db.prod.example/x', action: 'wipe', argv: [], env, isTTY: true, say: quiet }), /REFUSED/);
+    await assert.rejects(guardDestructive({ target: 'postgres://u:p@other.example:6543/x', action: 'wipe', argv: [], env, isTTY: true, say: quiet }), /REFUSED/);
+    assert.equal(findProductionMatch('postgres://u:p@other.example:5432/x', env), null, 'host:port entries match that port only');
+    // One of several targets is enough.
+    await assert.rejects(guardDestructive({ targets: ['postgres://u:p@localhost:5432/x', PROD_URL], action: 'wipe', argv: [], env: {}, isTTY: true, say: quiet }), /REFUSED/);
+  });
+  await check('guard: accepts a local or development host', async () => {
+    for (const target of ['postgres://u:p@localhost:5432/x', 'postgres://u:p@127.0.0.1:54401/postgres', 'postgres://u:p@[::1]:5432/x', 'postgres://u:p@db.drqmrddxlrlbqnydumjm.supabase.co:5432/postgres', '/tmp/rehearsal-files']) {
+      assert.deepEqual(await guardDestructive({ target, action: 'wipe', argv: [], env: {}, isTTY: false, say: quiet }), { production: false, host: null }, target);
+    }
+    await assert.rejects(guardDestructive({ action: 'wipe', argv: [], env: {}, say: quiet }), /no target/);
+  });
+  await check('guard: production is refused without --i-know-this-is-production, even with --yes', async () => {
+    const t = asking('rutjxwshngfntydynnba9tmm:5432');
+    await assert.rejects(guardDestructive({ target: PROD_URL, action: 'wipe', argv: ['--yes', '--apply'], env: {}, isTTY: true, ask: t.ask, say: quiet }), (e) => e.message.includes(PRODUCTION_FLAG));
+    assert.equal(t.calls.length, 0, 'no question is asked when the flag is missing');
+  });
+  await check('guard: production with the flag is refused when there is no terminal', async () => {
+    const t = asking('rutjxwshngfntydynnba9tmm:5432');
+    await assert.rejects(guardDestructive({ target: PROD_URL, action: 'wipe', argv: [PRODUCTION_FLAG, '--yes'], env: {}, isTTY: false, ask: t.ask, say: quiet }), /no interactive terminal/);
+    assert.equal(t.calls.length, 0);
+  });
+  await check('guard: a wrong typed host is refused, the exact typed host goes ahead', async () => {
+    for (const wrong of ['', 'yes', 'xpeed-db', 'RUTJXWSHNGFNTYDYNNBA9TMM:5432', 'rutjxwshngfntydynnba9tmm']) {
+      await assert.rejects(guardDestructive({ target: PROD_URL, action: 'wipe', argv: [PRODUCTION_FLAG], env: {}, isTTY: true, ask: asking(wrong).ask, say: quiet }), /not the target host/, `typed "${wrong}"`);
+    }
+    const lines = [];
+    const right = asking('rutjxwshngfntydynnba9tmm:5432');
+    const result = await guardDestructive({ target: PROD_URL, action: 'wipe', argv: [PRODUCTION_FLAG], env: {}, isTTY: true, ask: right.ask, say: (m) => lines.push(m) });
+    assert.deepEqual(result, { production: true, host: 'rutjxwshngfntydynnba9tmm:5432' });
+    assert.equal(right.calls.length, 1);
+    assert.ok(lines.join('\n').includes('almost never right'));
+  });
+  await check('guard: confirmDestructive shows host, database and counts, and wants the target name typed back unless --yes', async () => {
+    const dev = 'postgres://u:p@db.dev.example:5432/xpeed_dev';
+    const lines = [];
+    const say = (m) => lines.push(m);
+    const plan = ['table sessions: 120 rows, all emptied'];
+    // --yes: no question for a development target.
+    const none = asking('');
+    await confirmDestructive({ target: dev, action: 'wipe', plan, argv: ['--yes'], isTTY: false, ask: none.ask, say });
+    assert.equal(none.calls.length, 0);
+    const shown = lines.join('\n');
+    assert.ok(shown.includes('db.dev.example:5432') && shown.includes('xpeed_dev') && shown.includes('sessions: 120 rows'));
+    assert.doesNotMatch(shown, /u:p|postgres:\/\//, 'credentials and the raw URL are never printed');
+    // No --yes: the target name must be typed back.
+    await confirmDestructive({ target: dev, action: 'wipe', plan, argv: [], isTTY: true, ask: asking('db.dev.example:5432').ask, say });
+    await assert.rejects(confirmDestructive({ target: dev, action: 'wipe', plan, argv: [], isTTY: true, ask: asking('yes').ask, say }), /not the target/);
+    await assert.rejects(confirmDestructive({ target: dev, action: 'wipe', plan, argv: [], isTTY: false, ask: none.ask, say }), /no interactive terminal/);
+    // Production never skips the question, --yes or not.
+    const again = asking('nope');
+    await assert.rejects(confirmDestructive({ target: PROD_URL, action: 'wipe', plan, production: true, argv: ['--yes'], isTTY: true, ask: again.ask, say }), /not the target/);
+    assert.equal(again.calls.length, 1);
+  });
+  await check('guard: the development sync refuses production hosts, with no override, even called directly', async () => {
+    const devUrl = 'postgres://u:p@db.drqmrddxlrlbqnydumjm.supabase.co:5432/postgres';
+    assert.throws(() => assertSafeTarget(PROD_URL, devUrl, { DEV_SYNC_ALLOW_TARGET: 'rutjxwshngfntydynnba9tmm:5432' }), /production host/);
+    assert.throws(() => assertSafeTarget('postgres://u:p@127.0.0.1:55432/postgres', undefined, {}), /production host/);
+    assert.throws(() => assertSafeTarget('postgres://u:p@db.prod.example/x', undefined, { XPEED_PROD_HOSTS: 'db.prod.example' }), /production host/);
+    assert.throws(() => assertSafeTarget('postgres://u:p@db.prod.example/x', undefined, { XPEED_PROD_HOSTS: 'db.prod.example', DEV_SYNC_ALLOW_TARGET: 'db.prod.example' }), /production host/);
+    // pullAnonymized checks the connected client too, before a single query runs.
+    const never = { query: async () => { throw new Error('must not query'); } };
+    await assert.rejects(pullAnonymized(never, { host: 'xpeed-db', port: 5432, database: 'postgres', query: never.query }), /production host/);
+    await assert.rejects(pullAnonymized(never, { host: '127.0.0.1', port: 55432, database: 'postgres', query: never.query }), /production host/);
   });
   await check('sensitive JSON keys are removed at any depth', () => {
     assert.deepEqual(scrubJson([{ lat: 1, ok: 2, deep: { 'GPS Longitude': 3, user_email: 'x', rpm: 4 } }]), [{ ok: 2, deep: { rpm: 4 } }]);
