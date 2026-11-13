@@ -11,6 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +22,7 @@ use crate::config::Config;
 use crate::lapfile;
 use crate::net::{self, SendError, Sent, MAX_TRACK_UPLOAD_BYTES, MAX_UPLOAD_BYTES};
 use crate::status::Cloud;
+use crate::supervisor::{self, supervise, Health, Policy};
 use crate::tracks::{self, auto};
 
 const STATE_FILE: &str = ".xpeed-upload.json";
@@ -104,6 +106,13 @@ fn lap_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         .collect();
     found.sort();
     Ok(found.into_iter().map(|(_, name, path)| (name, path)).collect())
+}
+
+/// How many laps in `dir` have not been sent to `server` (nor refused by it). Only looks; nothing is changed.
+#[cfg(any(windows, test))]
+pub fn count_pending_laps(dir: &Path, server: &str) -> usize {
+    let state = State::load(dir, server);
+    lap_files(dir).map_or(0, |files| files.iter().filter(|(name, _)| !state.done(name)).count())
 }
 
 /// What the server would refuse anyway, found here so that a file that is not a lap never leaves the computer.
@@ -413,6 +422,8 @@ pub struct Observer {
     pub say: Arc<dyn Fn(String) + Send + Sync>,
     pub cloud: Arc<dyn Fn(Cloud) + Send + Sync>,
     pub sent: Arc<dyn Fn(u32) + Send + Sync>,
+    /// How the thread itself stands (it is restarted when it panics, and given up on when it keeps panicking).
+    pub worker: Arc<dyn Fn(Health) + Send + Sync>,
 }
 
 impl Observer {
@@ -422,6 +433,7 @@ impl Observer {
             say: Arc::new(|line| println!("{line}")),
             cloud: Arc::new(|_| {}),
             sent: Arc::new(|_| {}),
+            worker: Arc::new(|_| {}),
         }
     }
 
@@ -431,6 +443,7 @@ impl Observer {
             say: Arc::new(|_| {}),
             cloud: Arc::new(|_| {}),
             sent: Arc::new(|_| {}),
+            worker: Arc::new(|_| {}),
         }
     }
 }
@@ -440,73 +453,94 @@ enum Message {
     Stop,
 }
 
-/// Sends laps from a thread of its own, so that a slow network never makes the recorder miss a sample.
+/// Sends laps from a thread of its own, so that a slow network never makes the recorder miss a sample. The thread is
+/// supervised: if it panics it is started again (see `supervisor`), and given up on when it keeps panicking.
 pub struct Uploader {
     tx: mpsc::Sender<Message>,
+    /// Set when the uploader is dropped, so the supervisor does not start the thread's loop again.
+    stop: Arc<AtomicBool>,
+}
+
+/// The loop of the uploader's thread, from a fresh start: look at the folders, send what is pending, then wait for a new
+/// lap or the next try. It returns when told to stop (or when the server refuses the key).
+fn upload_loop(dir: &Path, config: &Config, backoff: Backoff, observer: &Observer, rx: &mpsc::Receiver<Message>) {
+    let agent = net::agent();
+    let mut delay = backoff.base;
+    loop {
+        let mut report = upload_pending(dir, config, &agent, &mut |line| (observer.say)(line));
+        if report.sent + report.duplicates > 0 {
+            (observer.sent)(report.sent + report.duplicates);
+        }
+        let laps_left = report.left;
+        // Laps first: they are what the person is waiting for. Layouts go when the laps could.
+        if report.stopped.is_none() {
+            let layouts = upload_tracks(&dir.join(auto::TRACKS_DIR), config, &agent, &mut |line| (observer.say)(line));
+            report.left += layouts.left;
+            report.stopped = layouts.stopped;
+        }
+        let wait = match report.stopped {
+            Some(Stop::Unauthorized) => {
+                (observer.say)(
+                    "The server no longer accepts this computer's key. Pair again; laps are still saved here and will be sent after that."
+                        .into(),
+                );
+                (observer.cloud)(Cloud::Refused);
+                return;
+            }
+            Some(Stop::Later { reason, after }) => {
+                let wait = after.unwrap_or(delay).max(backoff.base);
+                delay = (delay * 2).min(backoff.max);
+                let layouts = report.left - laps_left;
+                (observer.say)(format!(
+                    "Could not send now: {reason}. {laps_left} lap(s){} waiting; trying again in {} s.",
+                    if layouts > 0 {
+                        format!(" and {layouts} track layout(s)")
+                    } else {
+                        String::new()
+                    },
+                    wait.as_secs().max(1)
+                ));
+                (observer.cloud)(Cloud::Waiting(report.left));
+                Some(wait)
+            }
+            None => {
+                delay = backoff.base;
+                (observer.cloud)(if report.left > 0 {
+                    Cloud::Waiting(report.left)
+                } else {
+                    Cloud::Idle
+                });
+                // Nothing left to send: sleep until the recorder saves another lap.
+                (report.left > 0).then_some(backoff.base)
+            }
+        };
+        let message = match wait {
+            Some(wait) => rx.recv_timeout(wait),
+            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        match message {
+            Ok(Message::Wake) | Err(RecvTimeoutError::Timeout) => {}
+            Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+        }
+    }
 }
 
 impl Uploader {
     pub fn start(dir: PathBuf, config: Config, backoff: Backoff, observer: Observer) -> Uploader {
         let (tx, rx) = mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopped = stop.clone();
         std::thread::spawn(move || {
-            let agent = net::agent();
-            let mut delay = backoff.base;
-            loop {
-                let mut report = upload_pending(&dir, &config, &agent, &mut |line| (observer.say)(line));
-                if report.sent + report.duplicates > 0 {
-                    (observer.sent)(report.sent + report.duplicates);
-                }
-                let laps_left = report.left;
-                // Laps first: they are what the person is waiting for. Layouts go when the laps could.
-                if report.stopped.is_none() {
-                    let layouts = upload_tracks(&dir.join(auto::TRACKS_DIR), &config, &agent, &mut |line| (observer.say)(line));
-                    report.left += layouts.left;
-                    report.stopped = layouts.stopped;
-                }
-                let wait = match report.stopped {
-                    Some(Stop::Unauthorized) => {
-                        (observer.say)("The server no longer accepts this computer's key. Pair again; laps are still saved here and will be sent after that.".into());
-                        (observer.cloud)(Cloud::Refused);
-                        return;
-                    }
-                    Some(Stop::Later { reason, after }) => {
-                        let wait = after.unwrap_or(delay).max(backoff.base);
-                        delay = (delay * 2).min(backoff.max);
-                        let layouts = report.left - laps_left;
-                        (observer.say)(format!(
-                            "Could not send now: {reason}. {laps_left} lap(s){} waiting; trying again in {} s.",
-                            if layouts > 0 {
-                                format!(" and {layouts} track layout(s)")
-                            } else {
-                                String::new()
-                            },
-                            wait.as_secs().max(1)
-                        ));
-                        (observer.cloud)(Cloud::Waiting(report.left));
-                        Some(wait)
-                    }
-                    None => {
-                        delay = backoff.base;
-                        (observer.cloud)(if report.left > 0 {
-                            Cloud::Waiting(report.left)
-                        } else {
-                            Cloud::Idle
-                        });
-                        // Nothing left to send: sleep until the recorder saves another lap.
-                        (report.left > 0).then_some(backoff.base)
-                    }
-                };
-                let message = match wait {
-                    Some(wait) => rx.recv_timeout(wait),
-                    None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
-                };
-                match message {
-                    Ok(Message::Wake) | Err(RecvTimeoutError::Timeout) => {}
-                    Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                }
-            }
+            supervise(
+                supervisor::title(supervisor::UPLOADER),
+                &Policy::default(),
+                &|| stopped.load(Ordering::SeqCst),
+                &|line| (observer.say)(line),
+                &|health| (observer.worker)(health),
+                || upload_loop(&dir, &config, backoff, &observer, &rx),
+            );
         });
-        Uploader { tx }
+        Uploader { tx, stop }
     }
 
     /// A new lap (or track layout) was saved: look at the folders now.
@@ -519,6 +553,7 @@ impl Uploader {
 /// hold up the end of the program, and nothing is lost, because the laps stay in the folder.
 impl Drop for Uploader {
     fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
         let _ = self.tx.send(Message::Stop);
     }
 }
@@ -532,6 +567,23 @@ mod tests {
         assert!(check_file(b"hello", 1024).unwrap_err().contains("not a valid lap file"));
         assert!(check_file(&[0u8; 2048], 1024).unwrap_err().contains("the server takes up to"));
         assert!(check_file(&[], 1024).is_err());
+    }
+
+    #[test]
+    fn counts_the_laps_that_still_have_to_go() {
+        let dir = crate::config::scratch_dir("count-pending");
+        let server = "https://a.example";
+        assert_eq!(count_pending_laps(&dir.join("missing"), server), 0);
+        for name in ["a.xlap.gz", "b.xlap.gz", "c.xlap.gz", "d.xlap.gz.part", "notes.txt"] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        assert_eq!(count_pending_laps(&dir, server), 3, "a .part file and other files are not laps");
+        let mut state = State::load(&dir, server);
+        state.sent.insert("a.xlap.gz".into());
+        state.rejected.insert("b.xlap.gz".into(), "bad".into());
+        state.save(&dir).unwrap();
+        assert_eq!(count_pending_laps(&dir, server), 1);
+        assert_eq!(count_pending_laps(&dir, ""), 3, "without a server nothing counts as sent");
     }
 
     #[test]

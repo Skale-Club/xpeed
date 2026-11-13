@@ -6,20 +6,22 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, ERROR_SUCCESS, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetLastError, GlobalFree, ERROR_ALREADY_EXISTS, ERROR_SUCCESS, HANDLE, HWND, INVALID_HANDLE_VALUE,
+};
 use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
 use windows_sys::Win32::System::Console::{
     AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
 };
+use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
-    KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+    HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
 };
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_TOPMOST, MB_YESNO, SW_SHOWNORMAL,
-};
+use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK, MB_TOPMOST, SW_SHOWNORMAL};
 
 /// UTF-16, with the zero Windows wants at the end.
 pub fn wide(text: &str) -> Vec<u16> {
@@ -31,18 +33,6 @@ pub fn fill<const N: usize>(buffer: &mut [u16; N], text: &str) {
     buffer.fill(0);
     for (slot, unit) in buffer.iter_mut().take(N - 1).zip(text.encode_utf16()) {
         *slot = unit;
-    }
-}
-
-pub fn ask_yes_no(title: &str, text: &str) -> bool {
-    // The "no" button is the default: pressing Enter never connects anything.
-    unsafe {
-        MessageBoxW(
-            null_mut(),
-            wide(text).as_ptr(),
-            wide(title).as_ptr(),
-            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_TOPMOST,
-        ) == IDYES
     }
 }
 
@@ -251,6 +241,88 @@ pub fn running_programs() -> Vec<String> {
 /// Whether any of `wanted` (lower case) is among the running programs.
 pub fn any_running(running: &[String], wanted: &[&str]) -> bool {
     wanted.iter().any(|w| running.iter().any(|r| r == w))
+}
+
+/// The Windows version in words (`Windows 11 Home 24H2 (build 26100.2605)`), from the registry's version keys. Only reads.
+pub fn windows_version() -> String {
+    const KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+    let text = |name: &str| {
+        machine_value(KEY, name).filter(|(kind, _)| *kind == REG_SZ).map(|(_, bytes)| {
+            let units: Vec<u16> = bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .take_while(|&u| u != 0)
+                .collect();
+            String::from_utf16_lossy(&units)
+        })
+    };
+    let ubr = machine_value(KEY, "UBR")
+        .filter(|(kind, bytes)| *kind == REG_DWORD && bytes.len() == 4)
+        .map(|(_, bytes)| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+    crate::diagnostics::windows_name(
+        text("ProductName").as_deref(),
+        text("DisplayVersion").as_deref(),
+        text("CurrentBuildNumber").as_deref(),
+        ubr,
+    )
+}
+
+/// A value under `HKEY_LOCAL_MACHINE\key` as its type and bytes; `None` when it is not there.
+fn machine_value(key: &str, name: &str) -> Option<(u32, Vec<u8>)> {
+    unsafe {
+        let mut handle: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_LOCAL_MACHINE, wide(key).as_ptr(), 0, KEY_READ, &mut handle) != ERROR_SUCCESS {
+            return None;
+        }
+        let name = wide(name);
+        let (mut kind, mut size) = (0u32, 0u32);
+        let mut found = None;
+        if RegQueryValueExW(handle, name.as_ptr(), null(), &mut kind, null_mut(), &mut size) == ERROR_SUCCESS && size > 0 && size < 4096 {
+            let mut bytes = vec![0u8; size as usize];
+            if RegQueryValueExW(handle, name.as_ptr(), null(), &mut kind, bytes.as_mut_ptr(), &mut size) == ERROR_SUCCESS {
+                bytes.truncate(size as usize);
+                found = Some((kind, bytes));
+            }
+        }
+        RegCloseKey(handle);
+        found
+    }
+}
+
+/// Puts `text` on the clipboard as Unicode text.
+pub fn copy_to_clipboard(owner: HWND, text: &str) -> Result<(), String> {
+    /// `CF_UNICODETEXT`.
+    const UNICODE_TEXT: u32 = 13;
+    unsafe {
+        if OpenClipboard(owner) == 0 {
+            return Err("the clipboard is in use by another program".into());
+        }
+        let result = (|| {
+            EmptyClipboard();
+            let units = wide(text);
+            let memory = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2);
+            if memory.is_null() {
+                return Err("no memory for the clipboard".to_owned());
+            }
+            let place = GlobalLock(memory).cast::<u16>();
+            if place.is_null() {
+                GlobalFree(memory);
+                return Err("no memory for the clipboard".to_owned());
+            }
+            std::ptr::copy_nonoverlapping(units.as_ptr(), place, units.len());
+            GlobalUnlock(memory);
+            // After this the clipboard owns the memory.
+            if SetClipboardData(UNICODE_TEXT, memory as HANDLE).is_null() {
+                GlobalFree(memory);
+                return Err("the clipboard did not take the text".to_owned());
+            }
+            Ok(())
+        })();
+        CloseClipboard();
+        result
+    }
 }
 
 #[cfg(test)]

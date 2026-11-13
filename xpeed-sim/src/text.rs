@@ -62,6 +62,18 @@ pub enum Msg {
     ConnectedPlain,
     ConnectNoteCancelled,
     ConnectNoteExpired,
+    /// The key saved on this computer cannot be opened by this Windows user: connect again.
+    ConnectNoteReconnect,
+    /// Under the waiting headline: the code the connection page shows, to compare.
+    ConnectCodeHint(String),
+    /// The Monitor tab's button that copies the support text.
+    DiagnosticsCopy,
+    DiagnosticsCopied,
+    /// A background part (named in English) hit an error and starts again / was given up on.
+    ActivityWorkerRestarting(String),
+    ActivityWorkerFailed(String),
+    /// The parts (named in English, joined) that stopped for good.
+    WorkersFailed(String),
     MenuOpenLaps,
     MenuPause,
     MenuResume,
@@ -72,10 +84,6 @@ pub enum Msg {
     NoticePaired(String),
     NoticeNotPaired,
     NoticeRefused,
-    AskPairTitle,
-    AskPair(String),
-    PairFailedTitle,
-    PairFailed(String),
     MenuPanel,
     MenuLanguage,
     PanelTabDash,
@@ -240,6 +248,33 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Demorou demais. Clique em Conectar de novo."),
             s("Tardó demasiado. Haz clic en Conectar otra vez."),
         ),
+        ConnectNoteReconnect => t(
+            s("Reconnect this computer."),
+            s("Reconecte este computador."),
+            s("Vuelve a conectar este ordenador."),
+        ),
+        ConnectCodeHint(code) => t(
+            format!("The page should show the code {code}"),
+            format!("A página deve mostrar o código {code}"),
+            format!("La página debe mostrar el código {code}"),
+        ),
+        DiagnosticsCopy => t(s("Copy diagnostics"), s("Copiar diagnóstico"), s("Copiar diagnóstico")),
+        DiagnosticsCopied => t(s("Copied"), s("Copiado"), s("Copiado")),
+        ActivityWorkerRestarting(name) => t(
+            format!("A background part ({name}) hit an error and is starting again"),
+            format!("Uma parte em segundo plano ({name}) deu erro e está reiniciando"),
+            format!("Una parte en segundo plano ({name}) tuvo un error y se reinicia"),
+        ),
+        ActivityWorkerFailed(name) => t(
+            format!("A background part ({name}) stopped after repeated errors"),
+            format!("Uma parte em segundo plano ({name}) parou após erros repetidos"),
+            format!("Una parte en segundo plano ({name}) se detuvo tras errores repetidos"),
+        ),
+        WorkersFailed(names) => t(
+            format!("Stopped after errors: {names}. Restart Xpeed Companion."),
+            format!("Parou após erros: {names}. Reinicie o Xpeed Companion."),
+            format!("Se detuvo tras errores: {names}. Reinicia Xpeed Companion."),
+        ),
         MenuOpenLaps => t(
             s("Open the laps folder"),
             s("Abrir a pasta das voltas"),
@@ -274,20 +309,6 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Conecte de novo para enviar suas voltas. Elas continuam salvas aqui."),
             s("Vuelve a conectar para enviar tus vueltas. Siguen guardadas aquí."),
         ),
-        AskPairTitle => t(
-            s("Connect this computer?"),
-            s("Conectar este computador?"),
-            s("¿Conectar este ordenador?"),
-        ),
-        AskPair(host) => t(
-            format!(
-                "Connect this computer to your Xpeed account at {host}?\n\nOnly say yes if you just asked for this in the Xpeed website."
-            ),
-            format!("Conectar este computador à sua conta Xpeed em {host}?\n\nSó diga sim se você acabou de pedir isso no site do Xpeed."),
-            format!("¿Conectar este ordenador a tu cuenta Xpeed en {host}?\n\nDi que sí solo si acabas de pedirlo en el sitio de Xpeed."),
-        ),
-        PairFailedTitle => t(s("Could not connect"), s("Não foi possível conectar"), s("No se pudo conectar")),
-        PairFailed(why) => t(why.clone(), why.clone(), why.clone()),
         MenuPanel => t(s("Open the panel"), s("Abrir o painel"), s("Abrir el panel")),
         MenuLanguage => t(s("Language"), s("Idioma"), s("Idioma")),
         PanelTabDash => t(s("Dashboard"), s("Painel"), s("Panel")),
@@ -533,10 +554,13 @@ mod tests {
             Msg::NoticePaired("RIG".into()),
             Msg::NoticeNotPaired,
             Msg::NoticeRefused,
-            Msg::AskPairTitle,
-            Msg::AskPair("xpeed.skale.club".into()),
-            Msg::PairFailedTitle,
-            Msg::PairFailed("boom".into()),
+            Msg::ConnectNoteReconnect,
+            Msg::ConnectCodeHint("K7QX".into()),
+            Msg::DiagnosticsCopy,
+            Msg::DiagnosticsCopied,
+            Msg::ActivityWorkerRestarting("uploader".into()),
+            Msg::ActivityWorkerFailed("uploader".into()),
+            Msg::WorkersFailed("uploader".into()),
             Msg::MenuPanel,
             Msg::MenuLanguage,
             Msg::PanelTabDash,
@@ -627,9 +651,9 @@ mod tests {
                 assert!(!text(lang, msg).trim().is_empty());
             }
         }
-        // The question names the server, so a link cannot hide where it connects.
+        // The hint names the code to compare with the page.
         for lang in [Lang::En, Lang::Pt, Lang::Es] {
-            assert!(text(lang, &Msg::AskPair("xpeed.skale.club".into())).contains("xpeed.skale.club"));
+            assert!(text(lang, &Msg::ConnectCodeHint("K7QX".into())).contains("K7QX"));
         }
     }
 

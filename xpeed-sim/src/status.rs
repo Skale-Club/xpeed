@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::dash::Live;
 use crate::outbox::Uploader;
+use crate::supervisor::Health;
+use crate::util::lock;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Game {
@@ -66,6 +68,10 @@ pub enum Activity {
     GameClosed(&'static str),
     /// This build cannot read the version of the game that is running.
     GameUnsupported(&'static str),
+    /// A background part panicked and is being started again.
+    WorkerRestarting(&'static str),
+    /// A background part panicked too often and was given up on.
+    WorkerFailed(&'static str),
     Notice(Notice),
 }
 
@@ -91,6 +97,8 @@ pub struct Shared {
     recent_laps: Mutex<VecDeque<String>>,
     /// What happened in this run worth telling the person, with the Unix time in ms, newest last.
     activity: Mutex<VecDeque<(i64, Activity)>>,
+    /// How each long-lived worker thread stands, by worker id (`supervisor`).
+    workers: Mutex<BTreeMap<&'static str, Health>>,
     paused: AtomicBool,
     quit: AtomicBool,
 }
@@ -112,19 +120,20 @@ impl Shared {
             live: Mutex::new(None),
             recent_laps: Mutex::new(VecDeque::new()),
             activity: Mutex::new(VecDeque::new()),
+            workers: Mutex::new(BTreeMap::new()),
             paused: AtomicBool::new(false),
             quit: AtomicBool::new(false),
         })
     }
 
     pub fn snapshot(&self) -> Snapshot {
-        self.snapshot.lock().unwrap().clone()
+        lock(&self.snapshot).clone()
     }
 
     /// Changes the snapshot and tells whoever listens (the tray icon) only if something actually changed.
     pub fn update(&self, change: impl FnOnce(&mut Snapshot)) {
         let changed = {
-            let mut snapshot = self.snapshot.lock().unwrap();
+            let mut snapshot = lock(&self.snapshot);
             let before = snapshot.clone();
             change(&mut snapshot);
             *snapshot != before
@@ -138,7 +147,7 @@ impl Shared {
     /// (recording beats connected beats a game this build cannot read beats paused beats waiting).
     pub fn set_game(&self, id: &'static str, name: &'static str, state: Game) {
         let (game, title) = {
-            let mut games = self.games.lock().unwrap();
+            let mut games = lock(&self.games);
             let was = games.insert(id, (name, state.clone())).map_or(Game::Waiting, |(_, g)| g);
             // A game coming, going, or a version this build cannot read is worth a line in the activity list.
             let on = |g: &Game| matches!(g, Game::Connected | Game::Recording(_) | Game::Paused);
@@ -174,30 +183,30 @@ impl Shared {
     }
 
     pub fn set_on_change(&self, callback: impl Fn() + Send + Sync + 'static) {
-        *self.on_change.lock().unwrap() = Some(Box::new(callback));
+        *lock(&self.on_change) = Some(Box::new(callback));
     }
 
     fn changed(&self) {
-        if let Some(callback) = self.on_change.lock().unwrap().as_ref() {
+        if let Some(callback) = lock(&self.on_change).as_ref() {
             callback();
         }
     }
 
     pub fn notify(&self, notice: Notice) {
         if let Notice::LapSaved(label) = &notice {
-            let mut recent = self.recent_laps.lock().unwrap();
+            let mut recent = lock(&self.recent_laps);
             recent.push_back(label.clone());
             while recent.len() > RECENT_LAPS {
                 recent.pop_front();
             }
         }
         self.remember(Activity::Notice(notice.clone()));
-        self.notices.lock().unwrap().push_back(notice);
+        lock(&self.notices).push_back(notice);
         self.changed();
     }
 
     fn remember(&self, event: Activity) {
-        let mut activity = self.activity.lock().unwrap();
+        let mut activity = lock(&self.activity);
         activity.push_back((crate::util::now_ms(), event));
         while activity.len() > ACTIVITY {
             activity.pop_front();
@@ -206,32 +215,59 @@ impl Shared {
 
     /// What happened in this run worth telling the person, with the Unix time in ms, newest last.
     pub fn activity(&self) -> Vec<(i64, Activity)> {
-        self.activity.lock().unwrap().iter().cloned().collect()
+        lock(&self.activity).iter().cloned().collect()
     }
 
     pub fn take_notices(&self) -> Vec<Notice> {
-        self.notices.lock().unwrap().drain(..).collect()
+        lock(&self.notices).drain(..).collect()
     }
 
     /// The labels of the last laps saved in this run, newest last.
     pub fn recent_laps(&self) -> Vec<String> {
-        self.recent_laps.lock().unwrap().iter().cloned().collect()
+        lock(&self.recent_laps).iter().cloned().collect()
     }
 
     /// What every reader that has reported says: `(id, name, state)`, by id.
     pub fn games(&self) -> Vec<(&'static str, &'static str, Game)> {
-        self.games
-            .lock()
-            .unwrap()
+        lock(&self.games)
             .iter()
             .map(|(id, (name, game))| (*id, *name, game.clone()))
             .collect()
     }
 
+    /// One of the long-lived worker threads (see `supervisor`) reports how it stands. A restart or a failure is a line in
+    /// the activity list; the panel shows a worker that failed until the program is restarted.
+    pub fn set_worker(&self, id: &'static str, health: Health) {
+        let was = lock(&self.workers).insert(id, health);
+        if was == Some(health) || (was.is_none() && health == Health::Running) {
+            return;
+        }
+        match health {
+            Health::Restarting => self.remember(Activity::WorkerRestarting(id)),
+            Health::Failed => self.remember(Activity::WorkerFailed(id)),
+            Health::Running => {}
+        }
+        self.changed();
+    }
+
+    /// The workers that were given up on, by id.
+    pub fn failed_workers(&self) -> Vec<&'static str> {
+        lock(&self.workers)
+            .iter()
+            .filter(|(_, health)| **health == Health::Failed)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// How every worker that has reported stands, by id.
+    pub fn workers(&self) -> Vec<(&'static str, Health)> {
+        lock(&self.workers).iter().map(|(id, health)| (*id, *health)).collect()
+    }
+
     /// A new reading of a car. It replaces the one shown when it is being driven, comes from the same game, or the
     /// one shown is older than two seconds (so a second game sitting in its menu does not hide the one being driven).
     pub fn offer_live(&self, live: Live) {
-        let mut shown = self.live.lock().unwrap();
+        let mut shown = lock(&self.live);
         let replace = shown
             .as_ref()
             .is_none_or(|old| live.driving || old.game == live.game || live.at_ms - old.at_ms > 2000);
@@ -241,7 +277,7 @@ impl Shared {
     }
 
     pub fn live(&self) -> Option<Live> {
-        self.live.lock().unwrap().clone()
+        lock(&self.live).clone()
     }
 
     pub fn paused(&self) -> bool {
@@ -259,11 +295,11 @@ impl Shared {
 
     /// Puts the thread that sends laps in place (or takes it away); the old one is told to finish.
     pub fn set_uploader(&self, uploader: Option<Uploader>) {
-        *self.uploader.lock().unwrap() = uploader;
+        *lock(&self.uploader) = uploader;
     }
     /// A lap or a track layout was saved: let the uploader look at the folders.
     pub fn wake_uploader(&self) {
-        if let Some(uploader) = self.uploader.lock().unwrap().as_ref() {
+        if let Some(uploader) = lock(&self.uploader).as_ref() {
             uploader.wake();
         }
     }
@@ -336,6 +372,44 @@ mod tests {
         assert_eq!(shared.snapshot().game, Game::Recording(3));
         shared.set_game("lmu", "Le Mans Ultimate", Game::Waiting);
         assert_eq!((shared.snapshot().game, shared.snapshot().title), (Game::Waiting, None));
+    }
+
+    #[test]
+    fn a_worker_that_failed_is_marked_and_a_restart_is_news() {
+        let shared = Shared::new(true);
+        shared.set_worker("uploader", Health::Running);
+        shared.set_worker("uploader", Health::Restarting);
+        shared.set_worker("uploader", Health::Restarting);
+        shared.set_worker("uploader", Health::Running);
+        assert!(shared.failed_workers().is_empty());
+        shared.set_worker("tracks", Health::Running);
+        shared.set_worker("tracks", Health::Failed);
+        assert_eq!(shared.failed_workers(), ["tracks"]);
+        assert_eq!(shared.workers(), [("tracks", Health::Failed), ("uploader", Health::Running)]);
+        let events: Vec<Activity> = shared.activity().into_iter().map(|(_, a)| a).collect();
+        assert_eq!(events, [Activity::WorkerRestarting("uploader"), Activity::WorkerFailed("tracks")]);
+        // A new uploader (after connecting again) clears the mark.
+        shared.set_worker("tracks", Health::Running);
+        assert!(shared.failed_workers().is_empty());
+    }
+
+    #[test]
+    fn a_panic_while_the_status_is_locked_does_not_take_the_status_down() {
+        let shared = Shared::new(true);
+        let other = shared.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = other.snapshot.lock().unwrap();
+            let _also = other.games.lock().unwrap();
+            panic!("poisoning on purpose");
+        })
+        .join();
+        assert!(shared.snapshot.lock().is_err() && shared.games.lock().is_err(), "both are poisoned");
+        // Everything still reads and writes.
+        shared.update(|s| s.laps_saved = 3);
+        shared.set_game("lmu", "Le Mans Ultimate", Game::Recording(2));
+        assert_eq!(shared.snapshot().laps_saved, 3);
+        assert_eq!(shared.snapshot().game, Game::Recording(2));
+        assert_eq!(shared.games(), [("lmu", "Le Mans Ultimate", Game::Recording(2))]);
     }
 
     #[test]

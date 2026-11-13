@@ -1,11 +1,14 @@
 //! Where Xpeed Companion sends laps (server address and device key), kept in one small file in the user's profile.
 //!
-//! The device key is a secret: it is never printed, and the server it belongs to must be reached over HTTPS
+//! The device key is a secret: it is never printed, it sits in the file protected by Windows (DPAPI, `tokenProtected`), and
+//! the server it belongs to must be reached over HTTPS
 //! (plain HTTP is accepted only for the machine itself, for development).
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
+
+use crate::secret;
 
 /// What `pair` stores and `upload` / `record --upload` read.
 #[derive(Clone, PartialEq)]
@@ -190,48 +193,165 @@ pub fn normalize_code(input: &str) -> Result<String, String> {
     }
 }
 
-pub fn load(path: &Path) -> Result<Option<Config>, String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
-    };
-    let broken = || format!("{} is not a valid configuration; pair again", path.display());
-    let value: Value = serde_json::from_str(&text).map_err(|_| broken())?;
+/// Why a configuration could not be read.
+#[derive(Debug, PartialEq)]
+pub enum LoadError {
+    /// The file cannot be read, or is not a valid configuration.
+    Invalid(String),
+    /// The device key in the file is protected by Windows and this Windows user cannot open it (a profile copied to another
+    /// user or PC). The file is left exactly as it was: the person reconnects this computer, which replaces it.
+    KeyUnreadable(String),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::Invalid(why) | LoadError::KeyUnreadable(why) => f.write_str(why),
+        }
+    }
+}
+
+/// The text of a configuration file as a `Config`, and whether its key was in plain text (an old file, to be migrated).
+fn parse(text: &str, path: &Path) -> Result<(Config, bool), LoadError> {
+    let broken = || LoadError::Invalid(format!("{} is not a valid configuration; pair again", path.display()));
+    let value: Value = serde_json::from_str(text).map_err(|_| broken())?;
     let text_of = |key: &str| value.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-    let (Some(server), Some(token)) = (text_of("server"), text_of("token")) else {
+    let Some(server) = text_of("server") else {
         return Err(broken());
     };
     // The stored address is checked again: the file can be edited by hand.
-    let server = normalize_server(&server).map_err(|why| format!("{}: {why}", path.display()))?;
-    Ok(Some(Config {
+    let server = normalize_server(&server).map_err(|why| LoadError::Invalid(format!("{}: {why}", path.display())))?;
+    let unreadable = |why: &str| {
+        LoadError::KeyUnreadable(format!(
+            "the device key in {} cannot be opened by this Windows user ({why}); the file was left as it is. Reconnect this computer.",
+            path.display()
+        ))
+    };
+    let (token, plain) = match value.get(PROTECTED_KEY) {
+        // A protected key wins; if it cannot be opened the plain one (there should be none) is not used instead.
+        Some(protected) => {
+            let blob = protected
+                .as_str()
+                .and_then(crate::util::base64_decode)
+                .ok_or_else(|| unreadable("the stored value is damaged"))?;
+            let bytes = secret::unprotect(&blob).map_err(|why| unreadable(&why))?;
+            let token = String::from_utf8(bytes).ok().filter(|t| !t.is_empty());
+            (token.ok_or_else(|| unreadable("the stored value is empty"))?, false)
+        }
+        None => (text_of("token").ok_or_else(broken)?, true),
+    };
+    let config = Config {
         server,
         token,
         device_name: text_of("deviceName").unwrap_or_default(),
         account: text_of("account"),
-    }))
+    };
+    Ok((config, plain))
 }
 
-/// Writes the file next to its final name and renames it, so a half-written configuration never exists.
-pub fn save(path: &Path, config: &Config) -> Result<(), String> {
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+/// Reads the pairing. A file from before the key was protected (a plain `token`) still loads, and is then rewritten with
+/// the protected form, but only once that form has been written and read back to the same key (`migrate`).
+pub fn load_checked(path: &Path) -> Result<Option<Config>, LoadError> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(LoadError::Invalid(format!("cannot read {}: {error}", path.display()))),
+    };
+    let (config, plain) = parse(&text, path)?;
+    if plain {
+        migrate(path, &text, &config);
     }
+    Ok(Some(config))
+}
+
+pub fn load(path: &Path) -> Result<Option<Config>, String> {
+    load_checked(path).map_err(|error| error.to_string())
+}
+
+/// The file's field for the protected device key (base64 of the DPAPI bytes). `token` is only in files from before.
+const PROTECTED_KEY: &str = "tokenProtected";
+
+fn render(config: &Config, key_field: (&str, String)) -> String {
     let mut value = json!({
         "server": config.server,
-        "token": config.token,
         "deviceName": config.device_name,
     });
+    value[key_field.0] = json!(key_field.1);
     if let Some(account) = config.account.as_deref().filter(|a| !a.is_empty()) {
         value["account"] = json!(account);
     }
-    let body = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+    serde_json::to_string_pretty(&value).unwrap_or_default() + "\n"
+}
+
+/// The device key protected by Windows as base64, after checking that it opens back to the same key.
+fn protected_key(config: &Config) -> Result<String, String> {
+    let blob = secret::protect(config.token.as_bytes())?;
+    if secret::unprotect(&blob).ok().as_deref() != Some(config.token.as_bytes()) {
+        return Err("the protected device key did not open back to the same key".into());
+    }
+    Ok(crate::util::base64_encode(&blob))
+}
+
+/// The file's text with the key protected by Windows.
+fn protected_body(config: &Config) -> Result<String, String> {
+    Ok(render(config, (PROTECTED_KEY, protected_key(config)?)))
+}
+
+/// An old file's own text with only the key changed: `token` out, `tokenProtected` in. Every other field is kept as it
+/// was, including ones this version does not know.
+fn migrated_body(original: &str, config: &Config) -> Result<String, String> {
+    let mut value: Value = serde_json::from_str(original).map_err(|e| e.to_string())?;
+    let fields = value.as_object_mut().ok_or("the configuration is not an object")?;
+    fields.remove("token");
+    fields.insert(PROTECTED_KEY.into(), json!(protected_key(config)?));
+    Ok(serde_json::to_string_pretty(&value).map_err(|e| e.to_string())? + "\n")
+}
+
+/// Writes the file next to its final name (`.part`) and renames it, so a half-written configuration never exists. With
+/// `verify`, the `.part` is first read back and must give that device key; otherwise it is thrown away and the file that
+/// was there stays untouched.
+fn write_body(path: &Path, body: &str, verify: Option<&str>) -> Result<(), String> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    }
     let partial = path.with_extension("json.part");
-    std::fs::write(&partial, body + "\n").map_err(|e| format!("cannot write {}: {e}", partial.display()))?;
+    std::fs::write(&partial, body).map_err(|e| format!("cannot write {}: {e}", partial.display()))?;
+    if let Some(token) = verify {
+        let read_back = std::fs::read_to_string(&partial)
+            .map_err(|e| e.to_string())
+            .and_then(|text| parse(&text, &partial).map_err(|e| e.to_string()));
+        if !matches!(&read_back, Ok((config, _)) if config.token == token) {
+            let _ = std::fs::remove_file(&partial);
+            return Err(format!(
+                "the protected copy of {} did not read back to the same key",
+                path.display()
+            ));
+        }
+    }
     std::fs::rename(&partial, path).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
-/// Records who the paired computer is connected as, keeping the key, server and device name as they are. Only the
+/// Rewrites an old file (plain `token`) with the key protected. Nothing changes unless the protected form was written and
+/// read back to the same key; any failure leaves the old file as it was, still working.
+fn migrate(path: &Path, original: &str, config: &Config) {
+    match migrated_body(original, config).and_then(|body| write_body(path, &body, Some(&config.token))) {
+        Ok(()) => crate::applog::line("the device key is now protected by Windows in the configuration file"),
+        Err(why) => crate::applog::line(&format!("the device key stays as it was in the configuration file: {why}")),
+    }
+}
+
+/// Saves the pairing, with the device key protected by Windows (a plain `token` only where Windows cannot protect it).
+pub fn save(path: &Path, config: &Config) -> Result<(), String> {
+    match protected_body(config) {
+        Ok(body) => write_body(path, &body, Some(&config.token)),
+        Err(why) => {
+            crate::applog::line(&format!("the device key is saved without Windows protection: {why}"));
+            write_body(path, &render(config, ("token", config.token.clone())), None)
+        }
+    }
+}
+
+// Records who the paired computer is connected as, keeping the key, server and device name as they are. Only the
 /// pairing that holds `token` is touched (a newer pairing made meanwhile is left alone). Returns whether the file changed.
 pub fn update_account(path: &Path, token: &str, account: &str) -> Result<bool, String> {
     let account = account.trim();
@@ -435,6 +555,127 @@ mod tests {
         // Saving it again adds no empty account.
         save(&path, &config).unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("account"));
+    }
+
+    fn sample() -> Config {
+        Config {
+            server: "https://xpeed.skale.club".into(),
+            token: "xpd_secret_key_0123456789".into(),
+            device_name: "RIG".into(),
+            account: Some("ana@example.com".into()),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_new_file_holds_the_key_protected_and_never_in_the_clear() {
+        let path = scratch_dir("protected-new").join("config.json");
+        save(&path, &sample()).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"tokenProtected\""), "{text}");
+        assert!(!text.contains("xpd_secret_key"), "the key is not in the file: {text}");
+        assert!(!text.contains("\"token\""), "no plain token field: {text}");
+        // A protected file loads, with the same key and the other fields as they were.
+        assert_eq!(load_checked(&path), Ok(Some(sample())));
+        assert!(!path.with_extension("json.part").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_old_file_with_a_plain_key_loads_and_is_rewritten_protected() {
+        let path = scratch_dir("protected-migrate").join("config.json");
+        std::fs::write(
+            &path,
+            r#"{"server":"https://xpeed.skale.club","token":"xpd_old_plain_key","deviceName":"RIG","account":"ana@example.com"}"#,
+        )
+        .unwrap();
+        let config = load_checked(&path).unwrap().unwrap();
+        assert_eq!(config.token, "xpd_old_plain_key");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("tokenProtected") && !text.contains("xpd_old_plain_key"),
+            "migrated: {text}"
+        );
+        assert!(!path.with_extension("json.part").exists());
+        // The migrated file gives back the very same pairing, and loading it again changes nothing.
+        assert_eq!(load_checked(&path), Ok(Some(config.clone())));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+        assert_eq!(
+            (config.server.as_str(), config.device_name.as_str()),
+            ("https://xpeed.skale.club", "RIG")
+        );
+        assert_eq!(config.account.as_deref(), Some("ana@example.com"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_protected_value_that_cannot_be_opened_means_not_connected_and_the_file_stays_as_it_is() {
+        let dir = scratch_dir("protected-corrupt");
+        let path = dir.join("config.json");
+        let other_entropy = crate::util::base64_encode(&secret::protect_with(b"xpd_key", b"someone else").unwrap());
+        for damaged in [
+            "\"AAAA\"".to_owned(),               // base64, but not what Windows wrote
+            "\"!!! not base64 !!!\"".to_owned(), // not base64
+            "\"\"".to_owned(),                   // empty
+            "5".to_owned(),                      // not even text
+            format!("\"{other_entropy}\""),      // protected by something else
+        ] {
+            let body = format!(r#"{{"server":"https://xpeed.skale.club","tokenProtected":{damaged},"deviceName":"RIG"}}"#);
+            std::fs::write(&path, &body).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let loaded = load_checked(&path);
+            assert!(matches!(loaded, Err(LoadError::KeyUnreadable(_))), "{damaged}: {loaded:?}");
+            let message = load(&path).unwrap_err();
+            assert!(
+                message.contains("Reconnect this computer") && !message.contains(&other_entropy),
+                "{message}"
+            );
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "{damaged}: the file is byte for byte the same"
+            );
+            assert!(!path.with_extension("json.part").exists());
+            // A plain `token` beside a protected value that cannot be opened is not used instead.
+            let both = format!(r#"{{"server":"https://xpeed.skale.club","token":"xpd_plain","tokenProtected":{damaged}}}"#);
+            std::fs::write(&path, &both).unwrap();
+            assert!(matches!(load_checked(&path), Err(LoadError::KeyUnreadable(_))));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), both);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn saving_the_account_keeps_the_key_protected() {
+        let path = scratch_dir("protected-account").join("config.json");
+        let mut config = sample();
+        config.account = None;
+        save(&path, &config).unwrap();
+        assert!(update_account(&path, &config.token, "bob@example.com").unwrap());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("tokenProtected") && !text.contains("xpd_secret_key") && !text.contains("\"token\""),
+            "{text}"
+        );
+        let saved = load(&path).unwrap().unwrap();
+        assert_eq!(
+            (saved.token.as_str(), saved.account.as_deref()),
+            (config.token.as_str(), Some("bob@example.com"))
+        );
+    }
+
+    #[test]
+    fn a_copy_that_does_not_read_back_to_the_same_key_is_thrown_away_and_the_file_is_untouched() {
+        let path = scratch_dir("protected-verify").join("config.json");
+        let old = r#"{"server":"https://xpeed.skale.club","token":"xpd_a","deviceName":"RIG"}"#;
+        std::fs::write(&path, old).unwrap();
+        let other = render(&sample(), ("token", "xpd_b".into()));
+        assert!(write_body(&path, &other, Some("xpd_a")).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        assert!(!path.with_extension("json.part").exists(), "the unverified copy is removed");
+        // The same copy, read back to the key that was meant, is accepted.
+        assert!(write_body(&path, &other, Some("xpd_b")).is_ok());
+        assert_eq!(load(&path).unwrap().unwrap().token, "xpd_b");
     }
 
     #[test]

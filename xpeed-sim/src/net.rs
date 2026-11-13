@@ -41,7 +41,7 @@ pub fn agent() -> ureq::Agent {
         .max_redirects(0)
         .timeout_connect(Some(Duration::from_secs(10)))
         .timeout_global(Some(Duration::from_secs(120)))
-        .user_agent(concat!("xpeed-sim/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("xpeed-companion/", env!("CARGO_PKG_VERSION")))
         .build();
     ureq::Agent::new_with_config(config)
 }
@@ -149,7 +149,7 @@ fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what
 pub fn pair(agent: &ureq::Agent, server: &str, code: &str, device_name: &str) -> Result<String, String> {
     let body = json!({
         "code": code,
-        "device": { "name": device_name, "platform": std::env::consts::OS, "app": "xpeed-sim", "version": env!("CARGO_PKG_VERSION") },
+        "device": { "name": device_name, "platform": std::env::consts::OS, "app": "xpeed-companion", "version": env!("CARGO_PKG_VERSION") },
     });
     let response = agent
         .post(format!("{server}/api/sim/pair"))
@@ -182,10 +182,43 @@ pub enum LinkStatus {
     Expired,
 }
 
+/// What the server answers to a connection request.
+#[derive(Debug, PartialEq)]
+pub struct LinkStart {
+    pub id: String,
+    pub expires_at: String,
+    /// The 4 characters the connection page shows too, for the person to compare (older servers do not send it).
+    pub verify_code: Option<String>,
+}
+
+/// The server's `201 {"id","expiresAt","verifyCode"}`. `verifyCode` is optional: a missing, empty or odd one is no code.
+fn parse_link_start(body: &str) -> Result<LinkStart, String> {
+    let value = serde_json::from_str::<Value>(body).ok();
+    let text_of = |key: &str| {
+        value
+            .as_ref()
+            .and_then(|v| v.get(key))
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
+    };
+    let verify_code = text_of("verifyCode")
+        .map(|code| code.trim().to_owned())
+        .filter(|code| (1..=8).contains(&code.chars().count()) && code.chars().all(|c| c.is_ascii_alphanumeric()));
+    match (text_of("id"), text_of("expiresAt")) {
+        (Some(id), Some(expires_at)) => Ok(LinkStart {
+            id,
+            expires_at,
+            verify_code,
+        }),
+        _ => Err("the server started the connection but sent no request id".into()),
+    }
+}
+
 /// Asks the server for a connection request for this computer. Only the hash of the device key goes: the key
-/// itself never leaves the computer until it is used as a normal device key. Returns the request's id and when it
-/// expires.
-pub fn link_start(agent: &ureq::Agent, server: &str, device_name: &str, token_hash: &str) -> Result<(String, String), String> {
+/// itself never leaves the computer until it is used as a normal device key. Returns the request's id, when it
+/// expires and the code to compare with the page.
+pub fn link_start(agent: &ureq::Agent, server: &str, device_name: &str, token_hash: &str) -> Result<LinkStart, String> {
     let body = json!({ "device": { "name": device_name }, "tokenHash": token_hash });
     let response = agent
         .post(format!("{server}/api/sim/link"))
@@ -194,21 +227,7 @@ pub fn link_start(agent: &ureq::Agent, server: &str, device_name: &str, token_ha
         .map_err(|error| network_problem(&error))?;
     let reply = read_reply(response);
     match reply.status {
-        201 => {
-            let value = serde_json::from_str::<Value>(&reply.body).ok();
-            let text_of = |key: &str| {
-                value
-                    .as_ref()
-                    .and_then(|v| v.get(key))
-                    .and_then(Value::as_str)
-                    .filter(|t| !t.is_empty())
-                    .map(str::to_owned)
-            };
-            match (text_of("id"), text_of("expiresAt")) {
-                (Some(id), Some(expires)) => Ok((id, expires)),
-                _ => Err("the server started the connection but sent no request id".into()),
-            }
-        }
+        201 => parse_link_start(&reply.body),
         429 => Err("too many attempts; wait a little and try again".into()),
         300..=399 => Err("the server moved; use its final address".into()),
         status if status < 500 => Err(explain(&reply, "the server refused the connection request")),
@@ -336,6 +355,42 @@ pub fn sha256_hex(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_connection_request_with_and_without_the_verification_code() {
+        let with = parse_link_start(r#"{"id":"abc-123","expiresAt":"2026-11-13T12:10:00.000Z","verifyCode":"K7QX"}"#).unwrap();
+        assert_eq!(
+            with,
+            LinkStart {
+                id: "abc-123".into(),
+                expires_at: "2026-11-13T12:10:00.000Z".into(),
+                verify_code: Some("K7QX".into())
+            }
+        );
+        // An older server sends none.
+        let without = parse_link_start(r#"{"id":"abc-123","expiresAt":"x"}"#).unwrap();
+        assert_eq!((without.id.as_str(), without.verify_code), ("abc-123", None));
+        // A code that is empty, too long or not plain letters and digits is ignored, never shown.
+        for odd in [r#""""#, r#""K7QXK7QXK""#, r#""K7 Q""#, r#""<b>""#, "7", "null"] {
+            let body = format!(r#"{{"id":"a","expiresAt":"x","verifyCode":{odd}}}"#);
+            assert_eq!(parse_link_start(&body).unwrap().verify_code, None, "{odd}");
+        }
+        assert!(parse_link_start(r#"{"expiresAt":"x","verifyCode":"K7QX"}"#).is_err());
+        assert!(parse_link_start("not json").is_err());
+    }
+
+    #[test]
+    fn calls_itself_xpeed_companion() {
+        use crate::stub::{Recorded, Reply, Stub};
+        let stub = Stub::start(|_: &Recorded| Reply::new(200, r#"{"token":"xpd_x"}"#));
+        let agent = agent();
+        pair(&agent, &stub.url, "ABCD2345", "RIG").unwrap();
+        let seen = stub.requests();
+        let agent_name = seen[0].headers.get("user-agent").cloned().unwrap_or_default();
+        assert_eq!(agent_name, format!("xpeed-companion/{}", env!("CARGO_PKG_VERSION")));
+        let sent: Value = serde_json::from_slice(&seen[0].body).unwrap();
+        assert_eq!(sent["device"]["app"], "xpeed-companion");
+    }
 
     #[test]
     fn hashes_like_sha256() {
