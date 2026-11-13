@@ -6,7 +6,7 @@
 //! * Forza Motorsport (2023): **Settings > Gameplay & HUD**, under the "UDP Race Telemetry" header. Forza Motorsport 7:
 //!   the same options in its HUD settings.
 //!   * Data Out: **On**
-//!   * Data Out IP Address: **127.0.0.1** (the game and Xpeed Sim on the same PC; else the IP of this computer)
+//!   * Data Out IP Address: **127.0.0.1** (the game and Xpeed Companion on the same PC; else the IP of this computer)
 //!   * Data Out IP Port: **5301** (this reader listens on it, on every local address)
 //!   * Data Out Packet Format: **Dash** ("Car Dash"). "Sled" has no lap times, lap number or position: its packets
 //!     reach the panel (rpm, car) but never make a lap.

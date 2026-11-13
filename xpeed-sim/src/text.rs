@@ -211,7 +211,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         MenuPause => t(s("Pause recording"), s("Pausar a gravação"), s("Pausar la grabación")),
         MenuResume => t(s("Resume recording"), s("Retomar a gravação"), s("Reanudar la grabación")),
         MenuAutostart => t(s("Start with Windows"), s("Iniciar com o Windows"), s("Iniciar con Windows")),
-        MenuQuit => t(s("Quit Xpeed Sim"), s("Sair do Xpeed Sim"), s("Salir de Xpeed Sim")),
+        MenuQuit => t(s("Quit Xpeed Companion"), s("Sair do Xpeed Companion"), s("Salir de Xpeed Companion")),
         NoticeLapSaved(label) => t(
             format!("Lap saved: {label}"),
             format!("Volta gravada: {label}"),
@@ -351,14 +351,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Esta versión del juego aún no se puede leer."),
         ),
         FocusAutoConnect => t(
-            s("Xpeed Sim connects by itself as soon as the data arrives."),
-            s("O Xpeed Sim conecta sozinho assim que os dados chegarem."),
-            s("Xpeed Sim se conecta solo en cuanto lleguen los datos."),
+            s("Xpeed Companion connects by itself as soon as the data arrives."),
+            s("O Xpeed Companion conecta sozinho assim que os dados chegarem."),
+            s("Xpeed Companion se conecta solo en cuanto lleguen los datos."),
         ),
         FocusLoading => t(
-            s("Loading… Xpeed Sim connects as soon as the game is ready."),
-            s("Carregando… o Xpeed Sim conecta assim que o jogo estiver pronto."),
-            s("Cargando… Xpeed Sim se conecta en cuanto el juego esté listo."),
+            s("Loading… Xpeed Companion connects as soon as the game is ready."),
+            s("Carregando… o Xpeed Companion conecta assim que o jogo estiver pronto."),
+            s("Cargando… Xpeed Companion se conecta en cuanto el juego esté listo."),
         ),
         Setup(id) => match *id {
             // Automobilista 2's own menu (seen in the game, 2026-11-12): System > Use Shared Memory, Yes or No.
@@ -424,14 +424,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             format!("{name}: esta versión aún no se puede leer"),
         ),
         PanelNoLaps => t(
-            s("No lap saved since Xpeed Sim started."),
-            s("Nenhuma volta gravada desde que o Xpeed Sim abriu."),
-            s("Ninguna vuelta guardada desde que se abrió Xpeed Sim."),
+            s("No lap saved since Xpeed Companion started."),
+            s("Nenhuma volta gravada desde que o Xpeed Companion abriu."),
+            s("Ninguna vuelta guardada desde que se abrió Xpeed Companion."),
         ),
         PanelLapsCount(n) => t(
-            format!("{n} lap(s) saved since Xpeed Sim started"),
-            format!("{n} volta(s) gravada(s) desde que o Xpeed Sim abriu"),
-            format!("{n} vuelta(s) guardada(s) desde que se abrió Xpeed Sim"),
+            format!("{n} lap(s) saved since Xpeed Companion started"),
+            format!("{n} volta(s) gravada(s) desde que o Xpeed Companion abriu"),
+            format!("{n} vuelta(s) guardada(s) desde que se abrió Xpeed Companion"),
         ),
         PanelHint => t(
             s("Keys: 1 dashboard · 2 monitor · F11 full screen · T always on top"),

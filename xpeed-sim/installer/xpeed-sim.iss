@@ -1,12 +1,15 @@
-; Installer of Xpeed Sim (Inno Setup 6). Built by installer\build.ps1, which also writes the icon this script needs.
+; Installer of Xpeed Companion (Inno Setup 6). Built by installer\build.ps1, which also writes the icon this script needs.
 ; Installs for the current person only (no administrator), in %LOCALAPPDATA%\Programs\Xpeed Sim.
 ; What it sets up besides the files: the Start menu entry, the xpeedsim: link the Xpeed site opens to connect this
-; computer, and (a choice, on by default) starting Xpeed Sim with Windows.
+; computer, and (a choice, on by default) starting Xpeed Companion with Windows.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#define AppName "Xpeed Sim"
+#define AppName "Xpeed Companion"
+; The folder name and the autostart value name keep the product's old name, so an upgrade lands in the same folder
+; and does not leave a second autostart entry. Display names use AppName.
+#define AppDirName "Xpeed Sim"
 #define AppExe "xpeed-sim.exe"
 
 [Setup]
@@ -18,7 +21,7 @@ AppVerName={#AppName} {#AppVersion}
 AppPublisher=Xpeed
 AppPublisherURL=https://xpeed.skale.club
 AppSupportURL=https://xpeed.skale.club
-DefaultDirName={autopf}\{#AppName}
+DefaultDirName={autopf}\{#AppDirName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -54,18 +57,23 @@ Source: "xpeed-sim.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; The licence of Chakra Petch, the font the panel's numbers are drawn in (carried inside the program).
 Source: "..\assets\fonts\OFL.txt"; DestDir: "{app}"; DestName: "ChakraPetch-OFL.txt"; Flags: ignoreversion
 
+[InstallDelete]
+; Shortcuts of the old name, so an upgrade leaves exactly one Start menu entry.
+Type: files; Name: "{autoprograms}\Xpeed Sim.lnk"
+Type: files; Name: "{autodesktop}\Xpeed Sim.lnk"
+
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "run"; IconFilename: "{app}\xpeed-sim.ico"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Parameters: "run"; IconFilename: "{app}\xpeed-sim.ico"; Tasks: desktopicon
 
 [Registry]
 ; The link the Xpeed site opens to connect this computer. Windows hands it to `xpeed-sim.exe link "<link>"`, which asks first.
-Root: HKCU; Subkey: "Software\Classes\xpeedsim"; ValueType: string; ValueName: ""; ValueData: "URL:Xpeed Sim"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\xpeedsim"; ValueType: string; ValueName: ""; ValueData: "URL:Xpeed Companion"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\xpeedsim"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\xpeedsim\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\xpeed-sim.ico"
 Root: HKCU; Subkey: "Software\Classes\xpeedsim\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" link ""%1"""
-; Start with Windows, under the same name the program's own menu switch uses.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"" run"; Tasks: autostart; Flags: uninsdeletevalue
+; Start with Windows, under the same (old, kept on purpose) value name the program's own menu switch uses (win.rs RUN_NAME).
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppDirName}"; ValueData: """{app}\{#AppExe}"" run"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "run"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

@@ -1,7 +1,7 @@
 //! The track map the panel draws, kept between sessions: the path the car drove on a track is saved when it becomes
 //! the map, and read back the next time the car is on that track, so the map is there from the first frame.
 //!
-//! For the games whose layouts Xpeed Sim builds (Assetto Corsa, Stock Car Extreme) the built layout's centre line is
+//! For the games whose layouts Xpeed Companion builds (Assetto Corsa, Stock Car Extreme) the built layout's centre line is
 //! the real track, so it is used instead when its copy is in the layouts outbox (`<laps folder>/tracks/`, which the
 //! uploader never empties).
 //!
@@ -108,7 +108,7 @@ fn decode(bytes: &[u8]) -> Option<Path2> {
     path.iter().all(|p| p.0.is_finite() && p.1.is_finite()).then_some(path)
 }
 
-/// The folder maps are kept in: `maps` under where Xpeed Sim keeps its files.
+/// The folder maps are kept in: `maps` under where Xpeed Companion keeps its files.
 pub fn default_dir() -> Option<PathBuf> {
     crate::config::home_dir().map(|home| home.join("maps"))
 }

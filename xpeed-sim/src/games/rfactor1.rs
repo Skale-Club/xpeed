@@ -148,7 +148,7 @@ const POLL: Duration = Duration::from_millis(10);
 /// scoring part alone moves twice a second while any session is loaded.
 const STALE: Duration = Duration::from_secs(30);
 
-/// The games of this engine Xpeed Sim knows: the program, then the game's id and name. Stock Car Extreme keeps the id
+/// The games of this engine Xpeed Companion knows: the program, then the game's id and name. Stock Car Extreme keeps the id
 /// `rfactor1` its laps were always written with.
 const GAMES: [(&str, &str, &str); 3] = [
     ("gsc.exe", "rfactor1", "Stock Car Extreme"),

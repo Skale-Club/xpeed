@@ -1,12 +1,12 @@
 //! Game covers for the panel. They come only from Xpeed's own server (its database, through `GET /api/sim/games`
-//! and `GET /api/sim/games/<key>/cover`), never from a store or another site, and are kept in Xpeed Sim's folder
+//! and `GET /api/sim/games/<key>/cover`), never from a store or another site, and are kept in Xpeed Companion's folder
 //! (`covers\<key>.jpg`, with the server's hash of it in `covers\<key>.sha256`) so the panel has them offline. A cover
 //! is fetched again only when the server's hash changes. A game with no cover yet is drawn as a designed card.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// The games Xpeed Sim reads, in the order the waiting screen shows them: the game's key (the id Xpeed Sim writes
+/// The games Xpeed Companion reads, in the order the waiting screen shows them: the game's key (the id Xpeed Companion writes
 /// in its laps, and the key of its row on the server) and its name.
 pub const GAMES: &[(&str, &str)] = &[
     ("lmu", "Le Mans Ultimate"),
@@ -36,12 +36,12 @@ pub const GAMES: &[(&str, &str)] = &[
 /// The largest cover accepted from the server (they are about 50 KB).
 const MAX_COVER_BYTES: u64 = 1024 * 1024;
 
-/// Where Xpeed Sim keeps the covers.
+/// Where Xpeed Companion keeps the covers.
 pub fn folder() -> Option<PathBuf> {
     crate::config::home_dir().map(|home| home.join("covers"))
 }
 
-/// A game's cover in Xpeed Sim's folder, if it was fetched.
+/// A game's cover in Xpeed Companion's folder, if it was fetched.
 pub fn file(key: &str) -> Option<PathBuf> {
     folder().and_then(|dir| file_in(&dir, key))
 }

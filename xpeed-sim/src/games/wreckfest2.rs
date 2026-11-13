@@ -12,7 +12,7 @@
 //! { "udp": [ { "enabled": 1, "ip": "127.0.0.1", "port": "23123" } ], ... }
 //! ```
 //!
-//! So: set `"enabled": 1` (the game writes `0`), leave `"ip"` at `127.0.0.1` (the computer that runs Xpeed Sim) and
+//! So: set `"enabled": 1` (the game writes `0`), leave `"ip"` at `127.0.0.1` (the computer that runs Xpeed Companion) and
 //! `"port"` at `23123`, then restart the game. The game sends only while a race runs. Next to that file the game keeps
 //! a copy per computer (`config-<PC name>.json`); which of the two wins is not documented, so a person who sees no
 //! laps should check both. This reader listens on port `23123` on every local address.

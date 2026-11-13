@@ -1,4 +1,4 @@
-//! Xpeed Sim as a program that lives in the notification area: an icon whose colour tells the state, a menu, balloons
+//! Xpeed Companion as a program that lives in the notification area: an icon whose colour tells the state, a menu, balloons
 //! for what matters, and the connection to the Xpeed account. Everything here runs on one thread (the Windows message
 //! loop); recording and sending run on their own threads and reach this one through `Shared`.
 
@@ -392,7 +392,7 @@ fn find_running() -> HWND {
     unsafe { FindWindowW(win::wide(CLASS).as_ptr(), null()) }
 }
 
-/// Where laps are written when nobody chose a folder: `Documents\Xpeed Sim\Laps`.
+/// Where laps are written when nobody chose a folder: `Documents\Xpeed Companion\Laps`.
 pub fn laps_dir() -> PathBuf {
     config::default_laps_dir()
 }
@@ -418,11 +418,11 @@ pub fn run(open_panel: bool) -> ExitCode {
         return ExitCode::SUCCESS;
     };
     let Some(home) = config::home_dir() else {
-        win::tell_error("Xpeed Sim", "Cannot tell where to keep Xpeed Sim's files.");
+        win::tell_error("Xpeed Companion", "Cannot tell where to keep Xpeed Companion's files.");
         return ExitCode::from(1);
     };
     applog::init(home.join("sim.log"));
-    applog::line(&format!("Xpeed Sim {} starting", env!("CARGO_PKG_VERSION")));
+    applog::line(&format!("Xpeed Companion {} starting", env!("CARGO_PKG_VERSION")));
 
     let config_path = home.join("config.json");
     let config = match config::load(&config_path) {
@@ -475,7 +475,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            win::wide("Xpeed Sim").as_ptr(),
+            win::wide("Xpeed Companion").as_ptr(),
             WS_OVERLAPPED,
             0,
             0,

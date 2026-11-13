@@ -1,4 +1,4 @@
-//! The Xpeed Sim window. It has two tabs:
+//! The Xpeed Companion window. It has two tabs:
 //!
 //! * **Dashboard:** speed, gear, revs, pedals, wheel, fuel, the lap time and the gap to the best lap, live, for
 //!   someone who wants a screen beside the game without SimHub.
@@ -230,7 +230,7 @@ pub struct Context {
     pub quit_on_close: bool,
 }
 
-/// A game for the waiting screen: its name, and its cover once Xpeed Sim has it from the Xpeed server (a small copy,
+/// A game for the waiting screen: its name, and its cover once Xpeed Companion has it from the Xpeed server (a small copy,
 /// made once).
 pub struct CoverArt {
     pub key: &'static str,
@@ -239,7 +239,7 @@ pub struct CoverArt {
 }
 
 impl CoverArt {
-    /// The covers of the games installed here (every game Xpeed Sim reads when none was found), from its covers
+    /// The covers of the games installed here (every game Xpeed Companion reads when none was found), from its covers
     /// folder, at about twice the size they are drawn.
     pub fn load(installed: Option<&HashSet<&'static str>>) -> Vec<CoverArt> {
         crate::covers::GAMES
@@ -4196,7 +4196,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            win::wide("Xpeed Sim").as_ptr(),
+            win::wide("Xpeed Companion").as_ptr(),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -5403,7 +5403,7 @@ mod tests {
         }
         let stamp = crate::util::now_ms().to_string();
         let page = format!(
-            r#"<!doctype html><html><head><meta charset="utf-8"><title>Xpeed Sim panel</title>
+            r#"<!doctype html><html><head><meta charset="utf-8"><title>Xpeed Companion panel</title>
 <style>
 body {{ margin: 0; background: #050607; color: #c9ccd2; font: 14px "Segoe UI", sans-serif; }}
 header {{ position: sticky; top: 0; padding: 12px 24px; background: #0c0d0fee; border-bottom: 1px solid #25282e; display: flex; gap: 16px; align-items: baseline; z-index: 1; }}
@@ -5413,7 +5413,7 @@ figure {{ margin: 0; }}
 figcaption {{ margin-bottom: 8px; color: #7c828c; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }}
 img {{ display: block; max-width: 100%; height: auto; border: 1px solid #25282e; border-radius: 8px; }}
 </style></head><body>
-<header><b>Xpeed Sim panel</b><span>drawn by the program's own code · updates by itself</span><span id="when"></span></header>
+<header><b>Xpeed Companion panel</b><span>drawn by the program's own code · updates by itself</span><span id="when"></span></header>
 <main>
 {figures}</main>
 <script>

@@ -1,4 +1,4 @@
-//! What every game other than Le Mans Ultimate gives Xpeed Sim, in one shape.
+//! What every game other than Le Mans Ultimate gives Xpeed Companion, in one shape.
 //!
 //! Each game has its own door (shared memory, UDP) and its own units. A `Source` opens one of them and turns what it
 //! reads into `Frame`s with the units of the lap file (metres, seconds, metres per second, 0..1 pedals), so the lap

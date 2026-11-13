@@ -73,7 +73,7 @@ pub fn notice_text(lang: Lang, notice: &Notice) -> (String, String) {
             Notice::Refused => Msg::NoticeRefused,
         },
     );
-    ("Xpeed Sim".to_owned(), body)
+    ("Xpeed Companion".to_owned(), body)
 }
 
 #[cfg(test)]
@@ -137,7 +137,7 @@ Connected as RIG"
     fn balloons_have_a_title_and_a_sentence_in_the_language() {
         assert_eq!(
             notice_text(Lang::En, &Notice::LapSaved("Lap 3  1:42.318".into())),
-            ("Xpeed Sim".into(), "Lap saved: Lap 3  1:42.318".into())
+            ("Xpeed Companion".into(), "Lap saved: Lap 3  1:42.318".into())
         );
         assert_eq!(notice_text(Lang::Es, &Notice::Paired("RIG".into())).1, "Conectado como RIG");
         assert!(notice_text(Lang::Pt, &Notice::NotPaired).1.contains("botão direito"));

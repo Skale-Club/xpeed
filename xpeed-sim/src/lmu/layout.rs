@@ -1,4 +1,4 @@
-//! Where each field Xpeed Sim reads sits in the memory Le Mans Ultimate shares (`LMU_Data`).
+//! Where each field Xpeed Companion reads sits in the memory Le Mans Ultimate shares (`LMU_Data`).
 //!
 //! GENERATED: do not edit by hand. These are numbers only (sizes and byte offsets), produced by
 //! `tools/layout_check.cpp`, a small helper compiled against the headers the game installs in
@@ -6,7 +6,7 @@
 //! part of this repository: their licence does not allow redistributing them.
 //!
 //! Generated for LMU 1.4.2.0. If the game changes the layout, regenerate this file and check
-//! `LAYOUT_SIZE` against the size Xpeed Sim reports in `probe`.
+//! `LAYOUT_SIZE` against the size Xpeed Companion reports in `probe`.
 #![allow(dead_code)]
 
 pub const OBJECT_OUT_SIZE: usize = 324824;

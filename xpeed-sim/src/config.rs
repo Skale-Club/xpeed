@@ -1,4 +1,4 @@
-//! Where Xpeed Sim sends laps (server address and device key), kept in one small file in the user's profile.
+//! Where Xpeed Companion sends laps (server address and device key), kept in one small file in the user's profile.
 //!
 //! The device key is a secret: it is never printed, and the server it belongs to must be reached over HTTPS
 //! (plain HTTP is accepted only for the machine itself, for development).
@@ -28,7 +28,7 @@ impl std::fmt::Debug for Config {
     }
 }
 
-/// The folder Xpeed Sim keeps its files in (configuration, log): `XPEED_SIM_HOME`, else `%APPDATA%\Xpeed Sim`
+/// The folder Xpeed Companion keeps its files in (configuration, log): `XPEED_SIM_HOME`, else `%APPDATA%\Xpeed Sim`
 /// (`$XDG_CONFIG_HOME/xpeed-sim` or `~/.config/xpeed-sim` elsewhere).
 pub fn home_dir() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("XPEED_SIM_HOME").filter(|p| !p.is_empty()) {
@@ -84,7 +84,7 @@ fn is_loopback(host: &str) -> bool {
     )
 }
 
-/// Checks a server address and returns it in the form Xpeed Sim keeps: no trailing slash.
+/// Checks a server address and returns it in the form Xpeed Companion keeps: no trailing slash.
 pub fn normalize_server(input: &str) -> Result<String, String> {
     let text = input.trim();
     let (scheme, rest) = text.split_once("://").ok_or("the server address must start with https://")?;
