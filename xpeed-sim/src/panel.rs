@@ -149,6 +149,8 @@ pub enum Action {
     Lang(usize),
     /// Puts the support text (versions, games, connection, last log lines) on the clipboard.
     CopyDiagnostics,
+    /// Installs the new version that is waiting (never while a game is running: the tray decides).
+    UpdateNow,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,6 +207,8 @@ pub struct View<'a> {
     pub copied: bool,
     /// The background parts that stopped for good, named (empty when none): the Monitor tab says so in red.
     pub failed: &'a str,
+    /// A new version of Xpeed Companion that is waiting, downloading or not there: the Monitor tab shows a card for it.
+    pub update: &'a crate::update::UpdateState,
     /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
     pub focus: Option<(&'static str, &'static str, Game)>,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
@@ -3438,8 +3442,12 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
     };
     let code_h = if code.is_some() { 40.0 } else { 0.0 };
     let account_need = 104.0 + code_h + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
+    // A new version waiting gets a card of its own between the games and the account.
+    let update = present::update_line(view.lang, view.update);
+    let update_h = 82.0;
+    let update_need = if update.is_some() { update_h + gap } else { 0.0 };
     let games = view.games.len().max(1);
-    let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need);
+    let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need - update_need);
     let offset = view.games_scroll.clamp(0.0, max_scroll);
     let scrolling = max_scroll > 0.0;
 
@@ -3505,8 +3513,39 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }));
     }
 
+    // A new version: what it is and, when it can be, the button that installs it. Red when it is required.
+    if let Some(line) = &update {
+        let uy = games_h + gap;
+        g.tile(0.0, uy, col, update_h, CARD);
+        g.label(&text(view.lang, &Msg::PanelUpdate), 20.0, uy + 16.0, col - 40.0);
+        let button_text = text(view.lang, &Msg::UpdateNow);
+        let button_w = if line.button {
+            (g.width_of(&button_text, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0)
+        } else {
+            0.0
+        };
+        g.fill(g.r(20.0, uy + 54.0, 10.0, 10.0), if line.required { RED } else { ACCENT });
+        let room = (col - 60.0 - if line.button { button_w + 14.0 } else { 0.0 }).max(40.0);
+        let r = g.r(40.0, uy + 44.0, room, 30.0);
+        g.text(
+            &line.headline,
+            r,
+            14.5,
+            semi,
+            Face::Ui,
+            if line.required { RED } else { TEXT },
+            DT_LEFT,
+        );
+        if line.button {
+            let r = g.r(col - 20.0 - button_w, uy + 34.0, button_w, 36.0);
+            g.round(r, CORNER, ACCENT, None);
+            g.text(&button_text, r, 13.5, semi, Face::Ui, BG, DT_CENTER);
+            view.buttons.borrow_mut().push((Action::UpdateNow, r));
+        }
+    }
+
     // Account: the state in words, where it connects, and what can be done about it.
-    let account_y = games_h + gap;
+    let account_y = games_h + gap + update_need;
     let account_h = area_h - account_y;
     g.tile(0.0, account_y, col, account_h, CARD);
     g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
@@ -3851,6 +3890,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         .map(crate::supervisor::title)
         .collect::<Vec<_>>()
         .join(", ");
+    let update = ctx.shared.update_state();
     let view = View {
         lang: account.lang,
         tab: state.tab,
@@ -3881,6 +3921,7 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         lang_open: state.lang_open,
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
         failed: &failed,
+        update: &update,
         focus: focus_of(&ctx.shared.games()),
     };
     paint(memory, w, h, &view);
@@ -3980,6 +4021,9 @@ fn activity_message(event: Activity) -> Msg {
         Activity::Notice(Notice::Paired(name)) => Msg::NoticePaired(name),
         Activity::Notice(Notice::NotPaired) => Msg::CloudNotPaired,
         Activity::Notice(Notice::Refused) => Msg::NoticeRefused,
+        Activity::Notice(Notice::Updated(version)) => Msg::NoticeUpdated(version),
+        Activity::Notice(Notice::UpdateBlocked(version)) => Msg::NoticeUpdateBlocked(version),
+        Activity::Notice(Notice::UpToDate(version)) => Msg::NoticeUpToDate(version),
     }
 }
 
@@ -4181,6 +4225,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
                     },
                     Action::CancelConnect => crate::connect::Flow::global().cancel(),
                     Action::OpenXpeed => win::open(&format!("{}{}", account.server, crate::connect::OPEN_PATH)),
+                    Action::UpdateNow => {
+                        crate::tray::update_now_of_running();
+                    }
                     Action::CopyDiagnostics => {
                         if copy_diagnostics(hwnd, state) {
                             state.copied_at = now_ms();
@@ -5161,6 +5208,7 @@ mod tests {
         games: Vec<GameRow>,
         laps: Vec<String>,
         log: Vec<(String, String)>,
+        update: crate::update::UpdateState,
     }
 
     fn fixture() -> Fixture {
@@ -5211,6 +5259,7 @@ mod tests {
                 ("21:41".into(), "Assetto Corsa connected".into()),
                 ("21:40".into(), "Connected as RIG".into()),
             ],
+            update: crate::update::UpdateState::Nothing,
         }
     }
 
@@ -5245,6 +5294,7 @@ mod tests {
             lang_open: false,
             copied: false,
             failed: "",
+            update: &f.update,
             focus: None,
         }
     }
@@ -5276,6 +5326,77 @@ mod tests {
         save(&pixels, w, h, "panel-monitor-150.png");
         assert!(has_color(&pixels, CARD) > 100_000, "the cards fill most of the window");
         assert!(has_color(&pixels, RED) > 10, "the unsupported game has a red dot");
+    }
+
+    #[test]
+    fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it() {
+        use crate::update::UpdateState;
+        let mut f = fixture();
+        let plain = render(&view(&f, None, Tab::Monitor, 1.0, Lang::En), 1280, 800);
+        let with = |f: &Fixture, lang: Lang, w: i32, h: i32| {
+            let v = view(f, None, Tab::Monitor, 1.0, lang);
+            let pixels = render(&v, w, h);
+            let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
+            (pixels, buttons)
+        };
+        // Nothing waiting: no card, no button.
+        assert!(!with(&f, Lang::En, 1280, 800).1.iter().any(|(a, _)| *a == Action::UpdateNow));
+        // Available: the button is drawn, inside the window, clear of the other buttons, and the account card still fits.
+        f.update = UpdateState::Available {
+            version: "0.6.0".into(),
+            required: false,
+            held: false,
+        };
+        for (w, h) in [(1280, 800), (1024, 640), (720, 480), (430, 900)] {
+            let (pixels, buttons) = with(&f, Lang::En, w, h);
+            if (w, h) == (1280, 800) {
+                save(&pixels, w, h, "panel-monitor-update.png");
+            }
+            let update = buttons
+                .iter()
+                .find(|(a, _)| *a == Action::UpdateNow)
+                .unwrap_or_else(|| panic!("{w}x{h}: the button is drawn"))
+                .1;
+            assert!(
+                update.left >= 0 && update.top >= 0 && update.right <= w && update.bottom <= h,
+                "{w}x{h}: inside the window"
+            );
+            for (action, r) in &buttons {
+                if *action != Action::UpdateNow {
+                    let apart = r.right <= update.left || r.left >= update.right || r.bottom <= update.top || r.top >= update.bottom;
+                    assert!(apart, "{w}x{h}: {action:?} does not touch the update button");
+                }
+            }
+        }
+        // Required: the same button, and red where it was not.
+        let available_red = has_color(&with(&f, Lang::En, 1280, 800).0, RED);
+        f.update = UpdateState::Available {
+            version: "0.6.0".into(),
+            required: true,
+            held: false,
+        };
+        let (required, buttons) = with(&f, Lang::Pt, 1280, 800);
+        save(&required, 1280, 800, "panel-monitor-update-required.png");
+        assert!(buttons.iter().any(|(a, _)| *a == Action::UpdateNow));
+        assert!(has_color(&required, RED) > available_red + 100, "a required update is shown in red");
+        assert!(
+            has_color(&plain, RED) < has_color(&required, RED),
+            "and the same screen without an update has less red"
+        );
+        // Downloading, or waiting for a game to close: told, with no button to press.
+        for state in [
+            UpdateState::Downloading { version: "0.6.0".into() },
+            UpdateState::Available {
+                version: "0.6.0".into(),
+                required: false,
+                held: true,
+            },
+        ] {
+            f.update = state;
+            let (pixels, buttons) = with(&f, Lang::Es, 1280, 800);
+            assert!(!buttons.iter().any(|(a, _)| *a == Action::UpdateNow), "{:?}", f.update);
+            assert!(has_color(&pixels, CARD) > 100_000);
+        }
     }
 
     #[test]
@@ -5683,6 +5804,27 @@ mod tests {
         let pixels = render(&waiting_card, 1280, 800);
         save(&pixels, 1280, 800, "preview-monitor-connecting.png");
         figures.push_str("<figure><figcaption>Monitor tab while the browser page waits for the click on Connect</figcaption><img data-src=\"preview-monitor-connecting.png\" width=\"1280\" height=\"800\"></figure>\n");
+        let mut waiting_update = fixture();
+        waiting_update.update = crate::update::UpdateState::Available {
+            version: "0.6.0".into(),
+            required: false,
+            held: false,
+        };
+        let pixels = render(&view(&waiting_update, None, Tab::Monitor, 1.0, Lang::En), 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-update.png");
+        figures.push_str("<figure><figcaption>Monitor tab with an update waiting: Update available: 0.6.0 · Update now</figcaption><img data-src=\"preview-monitor-update.png\" width=\"1280\" height=\"800\"></figure>\n");
+        waiting_update.update = crate::update::UpdateState::Available {
+            version: "0.6.0".into(),
+            required: true,
+            held: false,
+        };
+        let pixels = render(&view(&waiting_update, None, Tab::Monitor, 1.0, Lang::Pt), 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-update-required.png");
+        figures.push_str("<figure><figcaption>Monitor tab, an update that is required (Portuguese)</figcaption><img data-src=\"preview-monitor-update-required.png\" width=\"1280\" height=\"800\"></figure>\n");
+        waiting_update.update = crate::update::UpdateState::Downloading { version: "0.6.0".into() };
+        let pixels = render(&view(&waiting_update, None, Tab::Monitor, 1.0, Lang::En), 1280, 800);
+        save(&pixels, 1280, 800, "preview-monitor-update-downloading.png");
+        figures.push_str("<figure><figcaption>Monitor tab while the update downloads</figcaption><img data-src=\"preview-monitor-update-downloading.png\" width=\"1280\" height=\"800\"></figure>\n");
         let mut expired_card = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
         expired_card.card = connect::Card::NotConnected {
             note: Some(connect::Note::Expired),

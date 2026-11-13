@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
@@ -30,6 +31,7 @@ use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
 use crate::supervisor;
 use crate::text::{text, Lang, Msg};
+use crate::update::{self, DownloadError, Hold, Plan, Trigger, UpdateState, Updater, Version, Wake};
 use crate::util::lock;
 use crate::{applog, connect, engine, net, win};
 
@@ -45,6 +47,12 @@ const WM_OPEN_PANEL: u32 = WM_APP + 4;
 const WM_SET_LANG: u32 = WM_APP + 5;
 /// The server said who the computer is connected as and it was saved: show it.
 const WM_ACCOUNT: u32 = WM_APP + 6;
+/// A new version was found, or something changed that may let a waiting update start (a game closed).
+const WM_UPDATE: u32 = WM_APP + 7;
+/// The person asked for the update that is waiting ("Update now", from the panel).
+const WM_UPDATE_NOW: u32 = WM_APP + 8;
+/// The installer of the new version was downloaded and checked.
+const WM_UPDATE_READY: u32 = WM_APP + 9;
 
 const CMD_CONNECT: usize = 1;
 const CMD_LAPS: usize = 2;
@@ -52,6 +60,9 @@ const CMD_PAUSE: usize = 3;
 const CMD_AUTOSTART: usize = 4;
 const CMD_QUIT: usize = 5;
 const CMD_PANEL: usize = 6;
+const CMD_UPDATE_NOW: usize = 7;
+const CMD_CHECK_UPDATES: usize = 8;
+const CMD_AUTO_UPDATE: usize = 9;
 /// The languages of the menu, in the order of `Lang::ALL`, from this id up.
 const CMD_LANG: usize = 20;
 
@@ -76,6 +87,58 @@ struct App {
     account: Arc<Mutex<Account>>,
     /// The program's own icon (no state dot), big and small, for the panel's title bar and taskbar button.
     panel_icons: [HICON; 2],
+    /// The new version that is waiting, and the person's choice about installing it by itself.
+    updater: Arc<Updater>,
+    /// Asks the checker to look now ("Check for updates").
+    wake: Arc<Wake>,
+    /// The installer that was downloaded and checked, and the version it is.
+    install: Arc<Mutex<Option<(PathBuf, Version)>>>,
+    /// The program is closing to let that installer run: `run` starts it once everything has been closed.
+    installing: bool,
+}
+
+/// Whether a supported game is running: a reader says so, or its program is in the list of running programs (which is
+/// looked at now, so a game that started a moment ago and is not read yet counts).
+fn game_running(shared: &Shared) -> bool {
+    if shared.games().iter().any(|(_, _, game)| *game != Game::Waiting) {
+        return true;
+    }
+    let running = win::running_programs();
+    crate::games::PROGRAMS
+        .iter()
+        .any(|(program, _, _)| running.iter().any(|r| r == program))
+        || win::any_running(&running, engine::LMU_PROGRAMS)
+}
+
+/// Whether the panel is showing a lap in progress: a car is being driven and its readings are fresh.
+fn lap_in_progress(shared: &Shared) -> bool {
+    shared
+        .live()
+        .is_some_and(|live| live.driving && crate::util::now_ms() - live.at_ms <= 3000)
+}
+
+/// Starts the program again as it was (the update could not start).
+fn start_again() {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Err(error) = std::process::Command::new(exe).arg("run").spawn() {
+            applog::line(&format!("could not start again: {error}"));
+        }
+    }
+}
+
+/// The last step of an update, after everything was closed: note which version it is for, free the name of the running
+/// copy (the installer waits for it to go), start the installer and let this program end. If the installer cannot be
+/// started, the program starts again as it was.
+fn hand_over_to_installer(home: &Path, only_copy: win::Instance, installer: &Path, version: &Version) {
+    if let Err(why) = update::write_marker(home, version) {
+        applog::line(&why);
+    }
+    drop(only_copy);
+    applog::line(&format!("starting the installer of version {version}"));
+    if let Err(why) = update::launch_installer(installer) {
+        applog::line(&why);
+        start_again();
+    }
 }
 
 fn icon_for(light: Light) -> HICON {
@@ -260,11 +323,97 @@ impl App {
         self.refresh();
     }
 
+    /// Looks at the update that is waiting (when there is one) and starts it if it may start now, then shows how it
+    /// stands. `Trigger::Person` is "Update now"; `Trigger::Automatic` is the program's own look, after a check and each
+    /// time something changed (a game closed).
+    fn update_tick(&mut self, trigger: Trigger) {
+        if self.updater.state() != UpdateState::Nothing {
+            // The process list is only read when something is waiting.
+            match self
+                .updater
+                .plan(trigger, game_running(&self.shared), lap_in_progress(&self.shared), Instant::now())
+            {
+                Plan::Install(offer) => self.start_download(offer),
+                Plan::Wait(Hold::GameRunning) if trigger == Trigger::Person => {
+                    if let UpdateState::Available { version, .. } = self.updater.state() {
+                        self.shared.notify(Notice::UpdateBlocked(version));
+                    }
+                }
+                Plan::Wait(_) | Plan::Nothing => {}
+            }
+        }
+        self.shared.set_update(self.updater.state());
+    }
+
+    /// Downloads and checks the installer on a thread of its own; the window is told when it is ready.
+    fn start_download(&mut self, offer: update::Offer) {
+        let Some(busy) = self.updater.begin() else { return };
+        applog::line(&format!("downloading the update to version {}", offer.version));
+        let (updater, shared, install, dir) = (
+            self.updater.clone(),
+            self.shared.clone(),
+            self.install.clone(),
+            update::download_dir(),
+        );
+        let target = self.hwnd as isize;
+        std::thread::spawn(move || {
+            let quitting = || shared.quitting();
+            let result = update::download(&update::download_agent(), &offer, &dir, &quitting)
+                .and_then(|path| update::verify_or_delete(&path, offer.size, &offer.sha256).map(|()| path));
+            let message = match result {
+                Ok(path) => {
+                    applog::line(&format!("the update to version {} was downloaded and checked", offer.version));
+                    *lock(&install) = Some((path, offer.version));
+                    WM_UPDATE_READY
+                }
+                Err(DownloadError::Quit) => WM_UPDATE,
+                Err(why) => {
+                    applog::line(&format!("the update to version {} was not downloaded: {why}", offer.version));
+                    updater.failed(Instant::now());
+                    WM_UPDATE
+                }
+            };
+            drop(busy);
+            unsafe {
+                PostMessageW(target as HWND, message, 0, 0);
+            }
+        });
+    }
+
+    /// The installer is downloaded and checked. Last look: if a game started meanwhile, it waits (the file is kept, and
+    /// goes when the game has closed). Otherwise the program closes, and `run` starts the installer.
+    fn update_ready(&mut self) {
+        let Some((_, version)) = lock(&self.install).clone() else { return };
+        if version <= Version::running() || game_running(&self.shared) {
+            *lock(&self.install) = None;
+            self.update_tick(Trigger::Automatic);
+            return;
+        }
+        applog::line(&format!("closing to install version {version}"));
+        self.installing = true;
+        unsafe {
+            DestroyWindow(self.hwnd);
+        }
+    }
+
+    /// "Update automatically" was switched: kept in the configuration file (with no pairing it lasts until the program
+    /// closes), and a waiting update may start right away.
+    fn set_auto_update(&mut self, on: bool) {
+        self.updater.set_automatic(on);
+        match config::set_auto_update(&self.config_path, on) {
+            Ok(true) => {}
+            Ok(false) => applog::line("update automatically: no pairing to keep the choice in; it lasts until the program closes"),
+            Err(why) => applog::line(&why),
+        }
+        self.update_tick(Trigger::Automatic);
+    }
+
     /// Reads the pairing again (a link just changed it) and starts or stops sending to match.
     fn reload_pairing(&mut self) {
         match config::load(&self.config_path) {
             Ok(Some(config)) => {
                 applog::line(&format!("paired with {} as {}", config.server, config.device_name));
+                self.updater.set_automatic(config.auto_update);
                 self.server = config.server.clone();
                 self.device = Some(config.device_name.clone());
                 self.account_label = config.account.clone();
@@ -303,6 +452,11 @@ impl App {
             if let Some(last) = &snapshot.last_lap {
                 line(MF_STRING | MF_GRAYED, 0, win::wide(last));
             }
+            // A new version, when one is waiting: "Update available: 0.6.0 · Update now" (grayed while it downloads or
+            // waits for a game to close).
+            if let Some((label, clickable)) = present::update_menu_line(self.lang, &self.shared.update_state()) {
+                line(MF_STRING | if clickable { 0 } else { MF_GRAYED }, CMD_UPDATE_NOW, win::wide(&label));
+            }
             line(MF_SEPARATOR, 0, vec![0]);
             line(MF_STRING, CMD_PANEL, say(Msg::MenuPanel));
             if snapshot.cloud == Cloud::NotPaired || snapshot.cloud == Cloud::Refused {
@@ -316,6 +470,12 @@ impl App {
             );
             let on = win::autostart_enabled(win::RUN_KEY, win::RUN_NAME);
             line(MF_STRING | if on { MF_CHECKED } else { 0 }, CMD_AUTOSTART, say(Msg::MenuAutostart));
+            line(MF_STRING, CMD_CHECK_UPDATES, say(Msg::MenuCheckUpdates));
+            line(
+                MF_STRING | if self.updater.automatic() { MF_CHECKED } else { 0 },
+                CMD_AUTO_UPDATE,
+                say(Msg::MenuAutoUpdate),
+            );
             // The language: English unless the person picks another here (each shown in its own words).
             let languages = CreatePopupMenu();
             for (i, lang) in Lang::ALL.into_iter().enumerate() {
@@ -368,6 +528,12 @@ impl App {
                     applog::line(&why);
                 }
             }
+            CMD_UPDATE_NOW => self.update_tick(Trigger::Person),
+            CMD_CHECK_UPDATES => self.wake.trigger(),
+            CMD_AUTO_UPDATE => {
+                let on = !self.updater.automatic();
+                self.set_auto_update(on);
+            }
             id if (CMD_LANG..CMD_LANG + Lang::ALL.len()).contains(&id) => self.set_lang(Lang::ALL[id - CMD_LANG]),
             CMD_QUIT => unsafe {
                 DestroyWindow(self.hwnd);
@@ -411,6 +577,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_CHANGED => {
             app.refresh();
+            // A game that closed may let a waiting update start.
+            app.update_tick(Trigger::Automatic);
+            0
+        }
+        WM_UPDATE => {
+            app.update_tick(Trigger::Automatic);
+            0
+        }
+        WM_UPDATE_NOW => {
+            app.update_tick(Trigger::Person);
+            0
+        }
+        WM_UPDATE_READY => {
+            app.update_ready();
             0
         }
         WM_RELOAD => {
@@ -468,6 +648,12 @@ pub fn set_lang_of_running(lang: Lang) -> bool {
     !running.is_null() && unsafe { PostMessageW(running, WM_SET_LANG, index, 0) } != 0
 }
 
+/// Tells the tray of this program that the person asked for the update that is waiting. False when there is none.
+pub fn update_now_of_running() -> bool {
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_UPDATE_NOW, 0, 0) } != 0
+}
+
 /// Asks the copy that is running to open its panel. False when none is running.
 pub fn open_panel_of_running() -> bool {
     let running = find_running();
@@ -476,7 +662,7 @@ pub fn open_panel_of_running() -> bool {
 
 /// Runs the tray app until the person quits it, with the panel open from the start when `open_panel` is set.
 pub fn run(open_panel: bool) -> ExitCode {
-    let Some(_only_copy) = win::single_instance(INSTANCE_NAME) else {
+    let Some(only_copy) = win::single_instance(INSTANCE_NAME) else {
         return ExitCode::SUCCESS;
     };
     let Some(home) = config::home_dir() else {
@@ -520,6 +706,13 @@ pub fn run(open_panel: bool) -> ExitCode {
     let lang = config::load_lang(&home);
     let laps_dir = laps_dir();
     let shared = Shared::new(config.is_some());
+    // What an update before this start left behind: said once, and its installer files removed.
+    let after_update = update::after_update(&home, &Version::running());
+    update::clean_dir(&update::download_dir());
+    let (updater, wake) = (
+        Updater::new(Version::running(), config.as_ref().is_none_or(|c| c.auto_update)),
+        Arc::new(Wake::new()),
+    );
 
     unsafe {
         let instance = GetModuleHandleW(null());
@@ -555,6 +748,10 @@ pub fn run(open_panel: bool) -> ExitCode {
             panel: null_mut(),
             account: Arc::new(Mutex::new(Account::default())),
             panel_icons: program_icons(),
+            updater: updater.clone(),
+            wake: wake.clone(),
+            install: Arc::new(Mutex::new(None)),
+            installing: false,
         });
         app.sync_account();
         let app = Box::into_raw(app);
@@ -596,6 +793,21 @@ pub fn run(open_panel: bool) -> ExitCode {
         } else {
             shared.notify(Notice::NotPaired);
         }
+        match after_update {
+            update::AfterUpdate::Updated(version) => {
+                applog::line(&format!("updated to version {version}"));
+                // Last, so that it is the balloon shown (Windows shows the newest).
+                shared.notify(Notice::Updated(version));
+            }
+            update::AfterUpdate::NotCompleted(version) => {
+                applog::line(&format!(
+                    "the update to version {version} did not complete; still on {}",
+                    Version::running()
+                ));
+            }
+            update::AfterUpdate::Nothing => {}
+        }
+        start_update_checker(&shared, &updater, &wake, hwnd, (*app).config_path.clone());
         let recorder = {
             let (shared, dir) = (shared.clone(), laps_dir.clone());
             std::thread::spawn(move || {
@@ -611,13 +823,55 @@ pub fn run(open_panel: bool) -> ExitCode {
             DispatchMessageW(&message);
         }
 
+        // An update was downloaded, checked and agreed to: the installer starts once everything below is closed.
+        let install = if (*app).installing { lock(&(*app).install).take() } else { None };
         applog::line("quitting");
         shared.quit();
         let _ = recorder.join();
         shared.set_uploader(None);
         drop(Box::from_raw(app));
+        if let Some((installer, version)) = install {
+            hand_over_to_installer(&home, only_copy, &installer, &version);
+        }
     }
     ExitCode::SUCCESS
+}
+
+/// The thread that looks for a new version: after 30 s, then every 6 hours, or when asked. Looked after by the supervisor
+/// like the other workers. A failed check is one line in the log; an answer is kept and the window is told to look.
+fn start_update_checker(shared: &Arc<Shared>, updater: &Arc<Updater>, wake: &Arc<Wake>, hwnd: HWND, config_path: PathBuf) {
+    let (shared, updater, wake, target) = (shared.clone(), updater.clone(), wake.clone(), hwnd as isize);
+    std::thread::spawn(move || {
+        let agent = net::agent();
+        let running = Version::running();
+        supervisor::supervise(
+            supervisor::title(supervisor::UPDATER),
+            &supervisor::Policy::default(),
+            &|| shared.quitting(),
+            &|line| applog::line(&line),
+            &|health| shared.set_worker(supervisor::UPDATER, health),
+            || {
+                update::check_loop(&update::CheckLoop {
+                    first: update::FIRST_CHECK_AFTER,
+                    every: update::CHECK_EVERY,
+                    wake: &wake,
+                    quitting: &|| shared.quitting(),
+                    fetch: &|| update::check(&agent, &update::server_to_ask(Some(&config_path))),
+                    found: &|offer, forced| {
+                        if update::status(running, &offer) == update::Status::UpToDate && forced {
+                            shared.notify(Notice::UpToDate(running.to_string()));
+                        }
+                        applog::line(&format!("update check: version {} is out, this is {running}", offer.version));
+                        updater.offer_found(offer);
+                        unsafe {
+                            PostMessageW(target as HWND, WM_UPDATE, 0, 0);
+                        }
+                    },
+                    say: &|line| applog::line(&line),
+                });
+            },
+        );
+    });
 }
 
 /// The person asked to connect this computer (the panel's button or the tray menu): the short way, with a page where

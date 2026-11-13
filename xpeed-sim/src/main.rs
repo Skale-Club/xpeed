@@ -55,6 +55,7 @@ mod text;
 mod tracks;
 #[cfg(windows)]
 mod tray;
+mod update;
 #[cfg(test)]
 mod upload_tests;
 mod util;
@@ -366,6 +367,8 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
             token,
             device_name,
             account: None,
+            // Pairing again keeps the person's choice about updates.
+            auto_update: config::auto_update_of(&path),
         },
     ) {
         Ok(()) => {
