@@ -150,7 +150,7 @@ export class S3Store implements FileStore {
         accessKeyId: this.config.accessKeyId, secretAccessKey: this.config.secretAccessKey, region: this.config.region, date: this.now(),
       });
       try {
-        const response = await this.http(url, { method, headers, body: init.body as BodyInit | undefined, signal: AbortSignal.timeout(init.timeoutMs ?? this.timeoutMs) });
+        const response = await this.http(url, { method, headers, body: init.body as unknown as RequestInit['body'], signal: AbortSignal.timeout(init.timeoutMs ?? this.timeoutMs) });
         if (RETRY_STATUS.has(response.status) && attempt < attempts - 1) { await response.body?.cancel().catch(() => undefined); continue; }
         return response;
       } catch (error) {
