@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -9,6 +10,8 @@ import { ModesCard } from '@/components/ModesCard';
 import { MODES_KEY } from '@/lib/modes';
 
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+// The app frame needs every provider; the gate's own behaviour is what is tested here.
+vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div data-testid="app-layout">{children}</div> }));
 
 const choose = (modes: string[]) => localStorage.setItem(`${MODES_KEY}:u1`, JSON.stringify(modes));
 const stored = () => JSON.parse(localStorage.getItem(`${MODES_KEY}:u1`) ?? 'null');
@@ -101,6 +104,7 @@ describe('the mode gates', () => {
     renderApp('/sim');
     expect(screen.queryByText('Virtual home')).not.toBeInTheDocument();
     expect(screen.getByTestId('mode-offer')).toBeInTheDocument();
+    expect(screen.getByTestId('app-layout')).toContainElement(screen.getByTestId('mode-offer'));
     expect(screen.getByText('Racing games is off')).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent('/sim');
 

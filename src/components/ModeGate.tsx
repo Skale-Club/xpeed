@@ -1,6 +1,7 @@
 import { Car, Gamepad } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, Outlet } from 'react-router-dom';
+import AppLayout from '@/components/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useModes } from '@/contexts/ModesContext';
@@ -26,7 +27,9 @@ function ModeOffer({ mode, home, onTurnOn }: { mode: Mode; home: string; onTurnO
   const { t } = useTranslation();
   const virtual = mode === 'virtual';
   const Icon = virtual ? Gamepad : Car;
+  // Inside the app's own frame (menu, header), like every other screen.
   return (
+    <AppLayout>
     <div className="flex justify-center px-4 py-10" data-testid="mode-offer">
       <Card className="bg-card border-border w-full max-w-md">
         <CardContent className="p-6 space-y-4 text-center">
@@ -49,5 +52,6 @@ function ModeOffer({ mode, home, onTurnOn }: { mode: Mode; home: string; onTurnO
         </CardContent>
       </Card>
     </div>
+    </AppLayout>
   );
 }
