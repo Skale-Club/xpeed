@@ -152,7 +152,7 @@
       "add": "Añadir archivos de vuelta",
       "addFolder": "Añadir una carpeta",
       "drop": "o suelta archivos de vuelta aquí",
-      "empty": "Aún no hay vueltas. Añade los archivos de vuelta que graba Xpeed Companion (o toda su carpeta de salida) y aparecerán aquí, agrupadas en sesiones.",
+      "empty": "Aún no hay vueltas. Conecta Xpeed Companion y conduce: tus vueltas aparecen aquí, agrupadas en sesiones.",
       "unavailable": "Este navegador no puede guardar vueltas en el dispositivo. Aún puedes abrir archivos directamente en Comparar vueltas.",
       "failed": "No se pudieron leer tus vueltas de este dispositivo.",
       "retry": "Reintentar",
@@ -181,10 +181,13 @@
       "removeAll": "Quitar todo",
       "storage": "Guardadas solo en este dispositivo ({{size}}). Borrar los datos del navegador las elimina.",
       "confirmAllTitle": "¿Quitar todas tus vueltas?",
-      "confirmAllBody": "Se quitan todas las vueltas guardadas en este dispositivo. Los archivos que añadiste siguen donde están.",
+      "confirmAllBody": "Se eliminan todas las vueltas guardadas en este dispositivo y todas las vueltas de tu cuenta. Los archivos que añadiste siguen donde están.",
       "confirmSessionTitle": "¿Quitar esta sesión?",
-      "confirmSessionBody": "Se quitan {{count}} vueltas de este dispositivo. Los archivos que añadiste siguen donde están.",
-      "confirmRemove": "Quitar"
+      "confirmSessionBody": "Se eliminan {{count}} vueltas de este dispositivo y de tu cuenta. Los archivos que añadiste siguen donde están.",
+      "confirmRemove": "Quitar",
+      "sources": "Las vueltas que Xpeed Companion envía a tu cuenta aparecen solas. Los archivos de vuelta que añades aquí se quedan en tu navegador.",
+      "emptyLink": "Conectar Xpeed Companion",
+      "inAccount": "En tu cuenta"
     },
     "tracks": {
       "intro": "La forma real de cada circuito: el asfalto entre sus bordes, la línea ideal del juego y el pit lane, leídos por Xpeed Companion de los archivos del propio juego (Assetto Corsa y Stock Car Extreme). Tus vueltas se dibujan sobre ellos en la pantalla de comparar.",
@@ -257,6 +260,27 @@
       "deviceLimit": "Ya tienes 10 ordenadores conectados. Revoca uno aquí e inténtalo de nuevo.",
       "signin": "Inicia sesión de nuevo para conectar este ordenador.",
       "unavailable": "No se pudo contactar con el servidor. Inténtalo de nuevo."
+    },
+    "overview": {
+      "connectBody": "Conecta Xpeed Companion en el ordenador en el que corres y tus vueltas llegan aquí solas.",
+      "connect": "Conectar Xpeed Companion",
+      "lastSeen": "visto {{when}}",
+      "lastLap": "Última vuelta recibida",
+      "noLapYet": "Aún no se ha recibido ninguna vuelta. Da una vuelta con un juego abierto.",
+      "manage": "Gestionar Xpeed Companion",
+      "recent": "Sesiones recientes",
+      "allSessions": "Todas las sesiones",
+      "bestLaps": "Mejores vueltas",
+      "noValid": "Aún no hay ninguna vuelta válida.",
+      "compare": "Comparar",
+      "games": "Juegos jugados"
+    },
+    "cars": {
+      "empty": "Aún no hay coches. Conecta Xpeed Companion y conduce: los coches que conduzcas aparecen aquí.",
+      "trackCount": "Circuitos: {{count}}",
+      "lastDriven": "Última vez {{when}}",
+      "track": "Circuito",
+      "bestLap": "Mejor vuelta válida"
     }
   },
   "refresh": {

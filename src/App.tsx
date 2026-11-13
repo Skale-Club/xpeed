@@ -38,6 +38,8 @@ const SimComparePage = lazy(() => import("./pages/SimComparePage"));
 const SimAppPage = lazy(() => import("./pages/SimAppPage"));
 const SimConnectPage = lazy(() => import("./pages/SimConnectPage"));
 const SimSessionsPage = lazy(() => import("./pages/SimSessionsPage"));
+const SimOverviewPage = lazy(() => import("./pages/SimOverviewPage"));
+const SimCarsPage = lazy(() => import("./pages/SimCarsPage"));
 const SimTracksPage = lazy(() => import("./pages/SimTracksPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
@@ -101,9 +103,11 @@ const AppProviders = () => (
 
 // The Virtual screens that exist; the others are placeholders until they are built.
 const SIM_SCREENS: Record<string, React.ReactElement> = {
+  "/virtual": <SimOverviewPage />,
   "/virtual/sessions": <SimSessionsPage />,
   "/virtual/compare": <SimComparePage />,
   "/virtual/tracks": <SimTracksPage />,
+  "/virtual/cars": <SimCarsPage />,
   "/virtual/companion": <SimAppPage />,
 };
 

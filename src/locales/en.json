@@ -152,7 +152,7 @@
       "add": "Add lap files",
       "addFolder": "Add a folder",
       "drop": "or drop lap files here",
-      "empty": "No laps yet. Add the lap files Xpeed Companion writes (or its whole output folder) and they show up here, grouped into sessions.",
+      "empty": "No laps yet. Connect Xpeed Companion and drive: your laps show up here, grouped into sessions.",
       "unavailable": "This browser cannot keep laps on the device. You can still open lap files directly in Compare laps.",
       "failed": "Your laps could not be read from this device.",
       "retry": "Try again",
@@ -181,10 +181,13 @@
       "removeAll": "Remove everything",
       "storage": "Kept on this device only ({{size}}). Clearing your browser data removes them.",
       "confirmAllTitle": "Remove all your laps?",
-      "confirmAllBody": "Every lap kept on this device is removed. The files you added stay wherever they are.",
+      "confirmAllBody": "Every lap kept on this device is removed, and so is every lap in your account. The files you added stay wherever they are.",
       "confirmSessionTitle": "Remove this session?",
-      "confirmSessionBody": "{{count}} laps are removed from this device. The files you added stay wherever they are.",
-      "confirmRemove": "Remove"
+      "confirmSessionBody": "{{count}} laps are removed from this device and from your account. The files you added stay wherever they are.",
+      "confirmRemove": "Remove",
+      "sources": "Laps Xpeed Companion sends to your account appear by themselves. Lap files you add here stay in your browser.",
+      "emptyLink": "Connect Xpeed Companion",
+      "inAccount": "In your account"
     },
     "tracks": {
       "intro": "The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.",
@@ -257,6 +260,27 @@
       "deviceLimit": "You already have 10 computers connected. Revoke one in Xpeed Companion, then try again.",
       "signin": "Sign in again to connect this computer.",
       "unavailable": "The server could not be reached. Try again."
+    },
+    "overview": {
+      "connectBody": "Connect Xpeed Companion on the computer you race on, and your laps arrive here by themselves.",
+      "connect": "Connect Xpeed Companion",
+      "lastSeen": "seen {{when}}",
+      "lastLap": "Last lap received",
+      "noLapYet": "No lap received yet. Drive a lap with a game open.",
+      "manage": "Manage Xpeed Companion",
+      "recent": "Recent sessions",
+      "allSessions": "All sessions",
+      "bestLaps": "Best laps",
+      "noValid": "No valid lap yet.",
+      "compare": "Compare",
+      "games": "Games played"
+    },
+    "cars": {
+      "empty": "No cars yet. Connect Xpeed Companion and drive: the cars you drive show up here.",
+      "trackCount": "Tracks: {{count}}",
+      "lastDriven": "Last driven {{when}}",
+      "track": "Track",
+      "bestLap": "Best valid lap"
     }
   },
   "refresh": {

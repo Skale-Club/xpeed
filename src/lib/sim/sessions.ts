@@ -9,7 +9,7 @@ import type { LibraryLap } from '@/lib/sim/library';
 /** A break longer than this between the end of a lap and the start of the next one starts a new session. */
 export const SESSION_GAP_MS = 30 * 60 * 1000;
 
-export interface Session {
+export interface Session<T extends LibraryLap = LibraryLap> {
   /** The first lap's identity, so a session keeps its id as laps are added after it. */
   id: string;
   game: string;
@@ -20,10 +20,10 @@ export interface Session {
   startedAt: number;
   endedAt: number;
   /** In the order they were driven. */
-  laps: LibraryLap[];
+  laps: T[];
   validCount: number;
   /** The quickest valid lap, if any. */
-  best: LibraryLap | null;
+  best: T | null;
 }
 
 const startOf = (lap: LibraryLap) => {
@@ -34,7 +34,7 @@ const endOf = (lap: LibraryLap) => startOf(lap) + lap.summary.timeMs;
 const sameDriving = (a: LibraryLap, b: LibraryLap) =>
   a.summary.game === b.summary.game && a.summary.trackName === b.summary.trackName && a.summary.carName === b.summary.carName;
 
-export function groupSessions(laps: readonly LibraryLap[]): Session[] {
+export function groupSessions<T extends LibraryLap>(laps: readonly T[]): Session<T>[] {
   const ordered = [...laps].sort((a, b) =>
     a.summary.game.localeCompare(b.summary.game) ||
     a.summary.trackName.localeCompare(b.summary.trackName) ||
@@ -43,7 +43,7 @@ export function groupSessions(laps: readonly LibraryLap[]): Session[] {
     a.summary.lapNumber - b.summary.lapNumber,
   );
 
-  const groups: LibraryLap[][] = [];
+  const groups: T[][] = [];
   for (const lap of ordered) {
     const current = groups[groups.length - 1];
     const previous = current?.[current.length - 1];
@@ -52,7 +52,7 @@ export function groupSessions(laps: readonly LibraryLap[]): Session[] {
   }
 
   return groups
-    .map((group): Session => {
+    .map((group): Session<T> => {
       const first = group[0];
       const timed = group.filter((lap) => lap.summary.valid && lap.summary.timeMs > 0);
       return {
@@ -65,7 +65,7 @@ export function groupSessions(laps: readonly LibraryLap[]): Session[] {
         endedAt: Math.max(...group.map(endOf)),
         laps: group,
         validCount: timed.length,
-        best: timed.reduce<LibraryLap | null>((best, lap) => (best === null || lap.summary.timeMs < best.summary.timeMs ? lap : best), null),
+        best: timed.reduce<T | null>((best, lap) => (best === null || lap.summary.timeMs < best.summary.timeMs ? lap : best), null),
       };
     })
     .sort((a, b) => b.startedAt - a.startedAt);
