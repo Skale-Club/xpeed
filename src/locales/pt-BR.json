@@ -152,7 +152,7 @@
       "add": "Adicionar arquivos de volta",
       "addFolder": "Adicionar uma pasta",
       "drop": "ou solte arquivos de volta aqui",
-      "empty": "Nenhuma volta ainda. Adicione os arquivos de volta que o Xpeed Companion grava (ou a pasta inteira de saída) e eles aparecem aqui, agrupados em sessões.",
+      "empty": "Nenhuma volta ainda. Conecte o Xpeed Companion e dirija: suas voltas aparecem aqui, agrupadas em sessões.",
       "unavailable": "Este navegador não consegue guardar voltas no aparelho. Você ainda pode abrir arquivos direto em Comparar voltas.",
       "failed": "Não foi possível ler as suas voltas deste aparelho.",
       "retry": "Tentar de novo",
@@ -181,10 +181,13 @@
       "removeAll": "Remover tudo",
       "storage": "Guardadas só neste aparelho ({{size}}). Limpar os dados do navegador as remove.",
       "confirmAllTitle": "Remover todas as suas voltas?",
-      "confirmAllBody": "Todas as voltas guardadas neste aparelho serão removidas. Os arquivos que você adicionou continuam onde estão.",
+      "confirmAllBody": "Todas as voltas guardadas neste dispositivo são removidas, e todas as voltas da sua conta também. Os arquivos que você adicionou continuam onde estão.",
       "confirmSessionTitle": "Remover esta sessão?",
-      "confirmSessionBody": "{{count}} voltas serão removidas deste aparelho. Os arquivos que você adicionou continuam onde estão.",
-      "confirmRemove": "Remover"
+      "confirmSessionBody": "{{count}} voltas são removidas deste dispositivo e da sua conta. Os arquivos que você adicionou continuam onde estão.",
+      "confirmRemove": "Remover",
+      "sources": "As voltas que o Xpeed Companion envia para a sua conta aparecem sozinhas. Os arquivos de volta que você adiciona aqui ficam no seu navegador.",
+      "emptyLink": "Conectar o Xpeed Companion",
+      "inAccount": "Na sua conta"
     },
     "tracks": {
       "intro": "O formato real de cada circuito: o asfalto entre as bordas, a linha ideal do jogo e o pit lane, lidos pelo Xpeed Companion dos arquivos do próprio jogo (Assetto Corsa e Stock Car Extreme). Suas voltas são desenhadas em cima deles na tela de comparar.",
@@ -257,6 +260,27 @@
       "deviceLimit": "Você já tem 10 computadores conectados. Revogue um aqui e tente de novo.",
       "signin": "Entre de novo para conectar este computador.",
       "unavailable": "Não foi possível falar com o servidor. Tente de novo."
+    },
+    "overview": {
+      "connectBody": "Conecte o Xpeed Companion no computador em que você corre, e suas voltas chegam aqui sozinhas.",
+      "connect": "Conectar o Xpeed Companion",
+      "lastSeen": "visto {{when}}",
+      "lastLap": "Última volta recebida",
+      "noLapYet": "Nenhuma volta recebida ainda. Dê uma volta com um jogo aberto.",
+      "manage": "Gerenciar o Xpeed Companion",
+      "recent": "Sessões recentes",
+      "allSessions": "Todas as sessões",
+      "bestLaps": "Melhores voltas",
+      "noValid": "Nenhuma volta válida ainda.",
+      "compare": "Comparar",
+      "games": "Jogos jogados"
+    },
+    "cars": {
+      "empty": "Nenhum carro ainda. Conecte o Xpeed Companion e dirija: os carros que você dirigir aparecem aqui.",
+      "trackCount": "Pistas: {{count}}",
+      "lastDriven": "Dirigido por último {{when}}",
+      "track": "Pista",
+      "bestLap": "Melhor volta válida"
     }
   },
   "refresh": {

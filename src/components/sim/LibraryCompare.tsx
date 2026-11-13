@@ -5,12 +5,14 @@ import { Loader2 } from 'lucide-react';
 import { LapAnalysis, type LoadedLap } from '@/components/sim/LapAnalysis';
 import { useAuth } from '@/contexts/AuthContext';
 import { loadLap } from '@/lib/sim/library';
+import { libraryKey, listAccountLaps, openLap, type AccountLap } from '@/lib/sim/account-laps';
 import { addTrackFile, findTrack, linkTrack, listTracks } from '@/lib/sim/track-library';
 import { syncAccountTracks } from '@/lib/sim/account-tracks';
 
 /**
  * The compare screen, starting from laps kept on this device when the address names them
- * (`?a=<lap>&b=<reference>`, as the sessions list does), and from nothing otherwise.
+ * (`?a=<lap>&b=<reference>`, as the sessions list does), and from nothing otherwise. A lap is named by its library key or by
+ * its identity; one not on the device is downloaded from the account and kept.
  */
 export function LibraryCompare() {
   const { t } = useTranslation();
@@ -53,10 +55,13 @@ export function LibraryCompare() {
     if (ids.length === 0 || !userId) return;
     let live = true;
     const label = t('modes.compare.fromSessions', 'From your sessions');
+    // The account's list is read only if a lap is not on the device, and once for all the laps asked for.
+    let listed: Promise<AccountLap[] | null> | null = null;
+    const account = () => (listed ??= listAccountLaps());
     Promise.all(
       ids.map(async (id): Promise<LoadedLap | null> => {
         try {
-          const lap = await loadLap(userId, id);
+          const lap = (await loadLap(userId, libraryKey(userId, id))) ?? (await openLap(userId, id, await account()));
           return lap ? { id, name: label, lap } : null;
         } catch {
           return null;

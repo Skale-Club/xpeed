@@ -1,13 +1,14 @@
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeftRight, ChevronDown, ChevronRight, FolderOpen, Loader2, Trash2, Upload } from 'lucide-react';
+import { ArrowLeftRight, ChevronDown, Cloud, ChevronRight, FolderOpen, Loader2, Trash2, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useSettings } from '@/contexts/SettingsContext';
-import { useLapLibrary } from '@/hooks/use-lap-library';
+import { useSimLaps } from '@/hooks/use-sim-laps';
+import { deleteAccountLap, useRefreshAccountLaps, type LapEntry } from '@/lib/sim/account-laps';
 import { useGames } from '@/lib/sim/games';
 import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { importLapFiles, type ImportFailure, type ImportResult } from '@/lib/sim/import-laps';
@@ -22,7 +23,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type Pending = { kind: 'session'; session: Session } | { kind: 'all' } | null;
+type Pending = { kind: 'session'; session: Session<LapEntry> } | { kind: 'all' } | null;
 
 /**
  * Virtual > Sessions: the laps kept on this device, grouped into sessions (one car, one track, no long break).
@@ -33,9 +34,10 @@ export function SessionsList() {
   const games = useGames();
   const { t, i18n } = useTranslation();
   const { timezone } = useSettings();
-  const library = useLapLibrary();
+  const { laps, library, settled } = useSimLaps();
+  const refreshAccount = useRefreshAccountLaps();
   const navigate = useNavigate();
-  const sessions = useMemo(() => groupSessions(library.laps), [library.laps]);
+  const sessions = useMemo(() => groupSessions(laps), [laps]);
   const totalBytes = useMemo(() => library.laps.reduce((sum, lap) => sum + lap.size, 0), [library.laps]);
 
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -88,8 +90,12 @@ export function SessionsList() {
     const what = pending;
     setPending(null);
     if (!what || !library.userId) return;
+    const gone = what.kind === 'all' ? laps : what.session.laps;
     if (what.kind === 'all') await clearLibrary(library.userId);
-    else await removeLaps(library.userId, what.session.laps.map((lap) => lap.id));
+    else await removeLaps(library.userId, gone.filter((lap) => lap.onDevice).map((lap) => lap.id));
+    // A lap the account holds is forgotten there too, or it would come back at the next refresh.
+    await Promise.all(gone.filter((lap) => lap.serverId).map((lap) => deleteAccountLap(lap.serverId!)));
+    if (gone.some((lap) => lap.serverId)) await refreshAccount();
     setPicked([]);
   };
 
@@ -108,7 +114,7 @@ export function SessionsList() {
         <CardContent className="space-y-3 p-4">
           <p className="text-sm text-muted-foreground">
             {t('modes.sessions.intro', 'Your laps, grouped into sessions: the same car on the same track without a long break.')}{' '}
-            {t('modes.compare.private', 'The files stay in your browser; nothing is uploaded.')}
+            {t('modes.sessions.sources', 'Laps Xpeed Companion sends to your account appear by themselves. Lap files you add here stay in your browser.')}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => files.current?.click()} disabled={!library.userId || library.status === 'unavailable' || progress !== null}>
@@ -117,7 +123,7 @@ export function SessionsList() {
             <Button variant="outline" onClick={() => folder.current?.click()} disabled={!library.userId || library.status === 'unavailable' || progress !== null}>
               <FolderOpen className="mr-2 h-4 w-4" /> {t('modes.sessions.addFolder', 'Add a folder')}
             </Button>
-            {library.laps.length > 0 && (
+            {laps.length > 0 && (
               <Button variant="ghost" onClick={() => setPending({ kind: 'all' })}>
                 <Trash2 className="mr-2 h-4 w-4" /> {t('modes.sessions.removeAll', 'Remove everything')}
               </Button>
@@ -196,9 +202,10 @@ export function SessionsList() {
           <Button size="sm" variant="outline" onClick={() => void library.refresh()}>{t('modes.sessions.retry', 'Try again')}</Button>
         </p>
       )}
-      {library.status === 'ready' && sessions.length === 0 && (
+      {settled && library.status === 'ready' && sessions.length === 0 && (
         <p className="text-sm text-muted-foreground" data-testid="sessions-empty">
-          {t('modes.sessions.empty', 'No laps yet. Add the lap files Xpeed Companion writes (or its whole output folder) and they show up here, grouped into sessions.')}
+          {t('modes.sessions.empty', 'No laps yet. Connect Xpeed Companion and drive: your laps show up here, grouped into sessions.')}{' '}
+          <Link to="/virtual/companion" className="underline">{t('modes.sessions.emptyLink', 'Connect Xpeed Companion')}</Link>
         </p>
       )}
 
@@ -218,6 +225,7 @@ export function SessionsList() {
                     {when(session.startedAt)} · {t('modes.sessions.lapCount', 'Laps: {{count}}', { count: session.laps.length })}
                     {' '}({t('modes.sessions.validCount', '{{count}} valid', { count: session.validCount })})
                     {best ? ` · ${t('modes.sessions.best', 'Best: {{time}}', { time: formatLapTime(best.summary.timeMs) })}` : ''}
+                    {session.laps.some((lap) => lap.onServer) && <Cloud className="ml-1.5 inline h-3.5 w-3.5" aria-label={t('modes.sessions.inAccount', 'In your account')} />}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -335,8 +343,8 @@ export function SessionsList() {
         title={pending?.kind === 'all' ? t('modes.sessions.confirmAllTitle', 'Remove all your laps?') : t('modes.sessions.confirmSessionTitle', 'Remove this session?')}
         description={
           pending?.kind === 'all'
-            ? t('modes.sessions.confirmAllBody', 'Every lap kept on this device is removed. The files you added stay wherever they are.')
-            : t('modes.sessions.confirmSessionBody', '{{count}} laps are removed from this device. The files you added stay wherever they are.', {
+            ? t('modes.sessions.confirmAllBody', 'Every lap kept on this device is removed, and so is every lap in your account. The files you added stay wherever they are.')
+            : t('modes.sessions.confirmSessionBody', '{{count}} laps are removed from this device and from your account. The files you added stay wherever they are.', {
                 count: pending?.kind === 'session' ? pending.session.laps.length : 0,
               })
         }
