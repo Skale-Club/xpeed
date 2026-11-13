@@ -1632,9 +1632,26 @@ mod tests {
         assert_eq!(lap1.track_length_m, Some(2000.0));
         assert_eq!(lap1.sample_count(), 130);
         let ids: Vec<&str> = lap1.channels.iter().map(|c| c.id.as_str()).collect();
+        // This game gives no fuel; version 2 adds the damage and the aids' lights.
         assert_eq!(
             ids,
-            ["t", "dist", "speed", "rpm", "gear", "throttle", "brake", "clutch", "steer", "x", "y", "z"]
+            [
+                "t",
+                "dist",
+                "speed",
+                "rpm",
+                "gear",
+                "throttle",
+                "brake",
+                "clutch",
+                "steer",
+                "x",
+                "y",
+                "z",
+                "damage_body",
+                "tc_active",
+                "abs_active"
+            ]
         );
         let dist = lap1.channel("dist").unwrap();
         assert_eq!(dist.values[0], 2000.0 / 131.0, "metres along the lap from lapProgress x the length");

@@ -62,10 +62,14 @@ background job (`reduced = true`); the summary columns keep the full-detail numb
 
 ## Lap format v2 (Companion 0.5)
 
-Header adds: `sessionId`, `sessionKind`, `weather`, `airTempC`, `trackTempC`, `tyreCompound`, `inLap`, `outLap`,
-`sectorsMs` for every game that publishes them. Channels add: tyre temperature, pressure and wear (4 each), brake
-temperature (4), lateral and longitudinal G, damage, DRS, TC and ABS events. The reader accepts v1 and v2; the writer
-writes v2. Golden vectors for both are kept in the tests.
+Header adds: top level `sessionId`, `sessionKind`, `weather`, `airTempC`, `trackTempC`, `tyreCompound`, and inside `lap`
+`inLap`, `outLap` (next to the `sectorsMs` that was already there), for every game that publishes them. Channels add
+(ids are lower case with underscores, because a channel id must match `^[a-z][a-z0-9_]{0,31}$`): `tyre_temp_*` (°C),
+`tyre_press_*` (kPa), `tyre_wear_*` (ratio, tread left), `brake_temp_*` (°C) with `fl fr rl rr`, `g_lat`, `g_long` (g),
+`damage_body` (ratio), `drs` (0 not allowed, 1 allowed, 2 open), `tc_active`, `abs_active` (0 or 1). The reader accepts
+v1 and v2; the writer writes v2. Golden vectors for both are kept in the tests. The full spec, with how each game fills
+it and how the session id and the in and out laps are decided, is
+`docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md`.
 
 ## Site
 

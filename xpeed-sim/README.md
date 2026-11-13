@@ -98,6 +98,15 @@ O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtu
 
 Veja o comentário no topo de `src/recorder.rs`. Em resumo: a volta vai de uma troca do número de volta do jogo até a próxima; `t` vem do relógio da própria volta; `dist` é a integral da velocidade, reancorada em cada atualização de pontuação; a volta espera até 3 segundos pelo tempo oficial; volta em que o Xpeed Companion entrou no meio, com menos de 5 s ou menos de 50 amostras é descartada. **`valid` é um julgamento nosso** (tempo oficial confere com a telemetria e o carro não passou pelo box), não o veredito do jogo sobre pista cortada.
 
+## Formato de volta, versão 2 (Companion 0.5)
+
+O Companion 0.5 grava a **versão 2** do arquivo de volta (o leitor do app aceita as versões 1 e 2, então as voltas antigas e as já enviadas continuam valendo). O que a versão 2 acrescenta, e como cada jogo preenche, está em [FORMATO-DE-VOLTA.md](../docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md):
+
+- **Cabeçalho:** `sessionId` (um por sessão do jogo, criado quando o leitor abre o jogo e de novo quando a pista, o carro ou o tipo de sessão muda, ou a sessão é reiniciada), `sessionKind`, `weather`, `airTempC`, `trackTempC`, `tyreCompound`, `lap.inLap`, `lap.outLap` e `lap.sectorsMs`.
+- **Canais:** `tyre_temp_*`, `tyre_press_*`, `tyre_wear_*`, `brake_temp_*` (fl, fr, rl, rr), `g_lat`, `g_long`, `damage_body`, `drs`, `tc_active`, `abs_active`. Só entram no arquivo quando o jogo dá o valor.
+- **Assetto Corsa e Automobilista 2** são os dois jogos que dão tudo isso que o jogo tem (sessão, setores, temperaturas, composto, G; o clima só no Automobilista 2). Os outros jogos dão o id da sessão, as voltas de entrada e saída e os canais que o `Frame` deles já tinha. Os campos novos do `Frame` (`sectors_ms`, `session_kind`, `weather`, `air_temp_c`, `track_temp_c`, `tyre_compound`, `g_lat`, `g_long`) ficam vazios onde o jogo não os dá.
+- **Ainda não conferido com o jogo aberto:** o sinal do G (eixos do jogo: x para a direita, z para a frente) e se o tempo de setor dos dois jogos é o do próprio setor. Uma volta cujos dois primeiros setores não deixam um terceiro é gravada sem setores.
+
 ## Posições dos campos (`src/lmu/layout.rs`)
 
 Arquivo **gerado**, só com números (tamanhos e posições em bytes). Vem de um programa em C++ (`tools/layout_check.cpp`) compilado contra os cabeçalhos que o próprio jogo instala. **Os cabeçalhos não ficam no repositório**: a licença deles não permite redistribuir. Depois de uma atualização do jogo, ou quando o `probe` disser DIFFERENT:

@@ -613,6 +613,7 @@ mod tests {
             started_at: "2026-11-10T12:34:56.789Z".into(),
             sample_rate_hz: 2.0,
             channels: vec![channel("t", "s"), channel("dist", "m")],
+            ..Lap::default()
         }
     }
 
@@ -849,6 +850,9 @@ mod tests {
         let bytes = std::fs::read(dir.join(&written[0])).unwrap();
         let lap = lapfile::gunzip(&bytes, lapfile::MAX_UNPACKED).unwrap();
         assert_eq!((lap.game.as_str(), lap.time_ms, lap.valid), ("fake", 30_000, true));
+        // Version 2: the lap carries the id of the session it was driven in, and says it is neither an out nor an in lap.
+        assert_eq!(lap.session_id.as_deref().map(str::len), Some(32));
+        assert_eq!((lap.out_lap, lap.in_lap), (Some(false), Some(false)));
     }
 
     #[test]

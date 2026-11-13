@@ -34,7 +34,7 @@ pub fn new_key() -> Result<String, String> {
 }
 
 #[cfg(windows)]
-fn fill_random(bytes: &mut [u8]) -> Result<(), String> {
+pub(crate) fn fill_random(bytes: &mut [u8]) -> Result<(), String> {
     use windows_sys::Win32::Security::Cryptography::{BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG};
     let status = unsafe {
         BCryptGenRandom(
@@ -52,7 +52,7 @@ fn fill_random(bytes: &mut [u8]) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn fill_random(bytes: &mut [u8]) -> Result<(), String> {
+pub(crate) fn fill_random(bytes: &mut [u8]) -> Result<(), String> {
     use std::io::Read;
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(bytes))

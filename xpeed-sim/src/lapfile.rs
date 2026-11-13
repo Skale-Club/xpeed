@@ -1,11 +1,15 @@
 //! Lap files: one lap of one car, every channel sampled at the same moments.
 //!
 //! The same byte layout the app reads (`docs/telemetria-virtual-2026-11-10/FORMATO-DE-VOLTA.md`,
-//! `src/lib/sim/lap-file.ts`). The test `writes_the_golden_lap_byte_for_byte` checks this writer
-//! against the 396-byte vector in that spec, so the two programs cannot drift apart unnoticed.
+//! `src/lib/sim/lap-file.ts`). The tests `writes_the_golden_lap_byte_for_byte` and
+//! `writes_the_golden_version_2_lap_byte_for_byte` check this writer against the 396-byte (version 1) and
+//! 648-byte (version 2) vectors in that spec, so the two programs cannot drift apart unnoticed.
 //!
 //! Uncompressed layout, little-endian: `XLAP`, u16 version, u16 flags, u32 header length (a
 //! multiple of 4), the JSON header padded with spaces, then one float32 column per channel.
+//!
+//! The writer writes version 2 (the session, the weather, the tyres, in and out lap, and more channels); the reader
+//! reads versions 1 and 2.
 
 use std::fmt;
 use std::io::{Read, Write};
@@ -15,7 +19,10 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 pub const MAGIC: &[u8; 4] = b"XLAP";
-pub const VERSION: u16 = 1;
+/// The version new files are written in.
+pub const VERSION: u16 = 2;
+/// The versions `unpack` reads.
+const VERSIONS: [u16; 2] = [1, 2];
 const PREAMBLE: usize = 12;
 pub const MAX_SAMPLES: usize = 500_000;
 pub const MAX_CHANNELS: usize = 128;
@@ -37,7 +44,61 @@ pub const STANDARD_UNITS: &[(&str, &str)] = &[
     ("y", "m"),
     ("z", "m"),
     ("fuel", "l"),
+    // Version 2. Each is in a file only when the game gives it. The wheels are named fl, fr, rl, rr: front left,
+    // front right, rear left, rear right.
+    ("tyre_temp_fl", "\u{b0}C"),
+    ("tyre_temp_fr", "\u{b0}C"),
+    ("tyre_temp_rl", "\u{b0}C"),
+    ("tyre_temp_rr", "\u{b0}C"),
+    ("tyre_press_fl", "kPa"),
+    ("tyre_press_fr", "kPa"),
+    ("tyre_press_rl", "kPa"),
+    ("tyre_press_rr", "kPa"),
+    ("tyre_wear_fl", "ratio"),
+    ("tyre_wear_fr", "ratio"),
+    ("tyre_wear_rl", "ratio"),
+    ("tyre_wear_rr", "ratio"),
+    ("brake_temp_fl", "\u{b0}C"),
+    ("brake_temp_fr", "\u{b0}C"),
+    ("brake_temp_rl", "\u{b0}C"),
+    ("brake_temp_rr", "\u{b0}C"),
+    ("g_lat", "g"),
+    ("g_long", "g"),
+    ("damage_body", "ratio"),
+    ("drs", "state"),
+    ("tc_active", "flag"),
+    ("abs_active", "flag"),
 ];
+
+/// What kind of session the lap was driven in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionKind {
+    Practice,
+    Qualifying,
+    Race,
+    Unknown,
+}
+
+impl SessionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SessionKind::Practice => "practice",
+            SessionKind::Qualifying => "qualifying",
+            SessionKind::Race => "race",
+            SessionKind::Unknown => "unknown",
+        }
+    }
+
+    fn parse(text: &str) -> Option<SessionKind> {
+        match text {
+            "practice" => Some(SessionKind::Practice),
+            "qualifying" => Some(SessionKind::Qualifying),
+            "race" => Some(SessionKind::Race),
+            "unknown" => Some(SessionKind::Unknown),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Channel {
@@ -46,7 +107,7 @@ pub struct Channel {
     pub values: Vec<f32>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Lap {
     pub game: String,
     pub track_name: String,
@@ -61,6 +122,17 @@ pub struct Lap {
     /// ISO 8601, UTC.
     pub started_at: String,
     pub sample_rate_hz: f64,
+    /// Version 2: stable for one run of one game session (every lap of it carries the same one).
+    pub session_id: Option<String>,
+    pub session_kind: Option<SessionKind>,
+    /// Version 2: a short word ("dry", "rain"); `None` when the game says nothing about the weather.
+    pub weather: Option<String>,
+    pub air_temp_c: Option<f64>,
+    pub track_temp_c: Option<f64>,
+    pub tyre_compound: Option<String>,
+    /// Version 2: the lap began in the pit lane (`out_lap`) or ended in it (`in_lap`).
+    pub in_lap: Option<bool>,
+    pub out_lap: Option<bool>,
     pub channels: Vec<Channel>,
 }
 
@@ -126,8 +198,22 @@ fn is_id(text: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// The header with the keys in the one fixed order writers use, so equal laps give equal bytes.
-fn header_json(lap: &Lap, sample_count: usize) -> String {
+/// A short word or two with no control characters (what the app's reader calls a label); lengths count the way JavaScript does.
+fn is_label(text: &str, max: usize) -> bool {
+    !text.is_empty() && text.encode_utf16().count() <= max && text.chars().all(|c| c as u32 > 0x1f && c as u32 != 0x7f)
+}
+
+fn is_session_id(text: &str) -> bool {
+    (1..=64).contains(&text.len()) && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+fn is_temperature(value: f64) -> bool {
+    value.is_finite() && (-100.0..=200.0).contains(&value)
+}
+
+/// The header with the keys in the one fixed order writers use, so equal laps give equal bytes. Version 1 leaves out
+/// what only version 2 has.
+fn header_json(lap: &Lap, sample_count: usize, version: u16) -> String {
     let mut track = format!("\"name\":{}", string(&lap.track_name));
     if let Some(variant) = &lap.track_variant {
         track.push_str(&format!(",\"variant\":{}", string(variant)));
@@ -144,13 +230,42 @@ fn header_json(lap: &Lap, sample_count: usize) -> String {
         let list: Vec<String> = sectors.iter().map(|ms| ms.to_string()).collect();
         lap_json.push_str(&format!(",\"sectorsMs\":[{}]", list.join(",")));
     }
+    if version >= 2 {
+        if let Some(in_lap) = lap.in_lap {
+            lap_json.push_str(&format!(",\"inLap\":{in_lap}"));
+        }
+        if let Some(out_lap) = lap.out_lap {
+            lap_json.push_str(&format!(",\"outLap\":{out_lap}"));
+        }
+    }
+    let mut session = String::new();
+    if version >= 2 {
+        if let Some(id) = &lap.session_id {
+            session.push_str(&format!(",\"sessionId\":{}", string(id)));
+        }
+        if let Some(kind) = lap.session_kind {
+            session.push_str(&format!(",\"sessionKind\":{}", string(kind.as_str())));
+        }
+        if let Some(weather) = &lap.weather {
+            session.push_str(&format!(",\"weather\":{}", string(weather)));
+        }
+        if let Some(air) = lap.air_temp_c {
+            session.push_str(&format!(",\"airTempC\":{}", number(air)));
+        }
+        if let Some(track) = lap.track_temp_c {
+            session.push_str(&format!(",\"trackTempC\":{}", number(track)));
+        }
+        if let Some(compound) = &lap.tyre_compound {
+            session.push_str(&format!(",\"tyreCompound\":{}", string(compound)));
+        }
+    }
     let channels: Vec<String> = lap
         .channels
         .iter()
         .map(|c| format!("{{\"id\":{},\"unit\":{}}}", string(&c.id), string(&c.unit)))
         .collect();
     format!(
-        "{{\"game\":{},\"track\":{{{}}},\"car\":{{{}}},\"lap\":{{{}}},\"startedAt\":{},\"sampleRateHz\":{},\"sampleCount\":{},\"channels\":[{}]}}",
+        "{{\"game\":{},\"track\":{{{}}},\"car\":{{{}}},\"lap\":{{{}}},\"startedAt\":{},\"sampleRateHz\":{},\"sampleCount\":{}{},\"channels\":[{}]}}",
         string(&lap.game),
         track,
         car,
@@ -158,12 +273,22 @@ fn header_json(lap: &Lap, sample_count: usize) -> String {
         string(&lap.started_at),
         number(lap.sample_rate_hz),
         sample_count,
+        session,
         channels.join(",")
     )
 }
 
-/// Lays a lap out as bytes (not yet compressed). Refuses a lap the app would refuse.
+/// Lays a lap out as bytes (not yet compressed), in the current version. Refuses a lap the app would refuse.
 pub fn pack(lap: &Lap) -> Result<Vec<u8>, LapError> {
+    pack_as(lap, VERSION)
+}
+
+/// `pack` in a given version: 1 writes the first version of the format (what Companion 0.4 wrote), which has none of
+/// the version 2 header fields (they are left out); 2 is the current one.
+pub fn pack_as(lap: &Lap, version: u16) -> Result<Vec<u8>, LapError> {
+    if !VERSIONS.contains(&version) {
+        return err(format!("cannot write lap file version {version}"));
+    }
     let samples = lap.sample_count();
     if samples == 0 || samples > MAX_SAMPLES {
         return err(format!("a lap has 1 to {MAX_SAMPLES} samples, not {samples}"));
@@ -204,15 +329,29 @@ pub fn pack(lap: &Lap) -> Result<Vec<u8>, LapError> {
     if lap.track_name.is_empty() || lap.car_name.is_empty() {
         return err("the track and car names are required");
     }
+    if version >= 2 {
+        if lap.session_id.as_deref().is_some_and(|id| !is_session_id(id)) {
+            return err("the session id must be 1 to 64 letters, digits, _ or -");
+        }
+        if lap.weather.as_deref().is_some_and(|text| !is_label(text, 32)) {
+            return err("the weather must be a short text");
+        }
+        if lap.tyre_compound.as_deref().is_some_and(|text| !is_label(text, 40)) {
+            return err("the tyre compound must be a short text");
+        }
+        if lap.air_temp_c.into_iter().chain(lap.track_temp_c).any(|t| !is_temperature(t)) {
+            return err("the temperatures must be -100 to 200");
+        }
+    }
 
-    let text = header_json(lap, samples);
+    let text = header_json(lap, samples, version);
     let header_bytes = text.len().div_ceil(4) * 4;
     if header_bytes > MAX_HEADER {
         return err("the header is too large");
     }
     let mut out = Vec::with_capacity(PREAMBLE + header_bytes + lap.channels.len() * samples * 4);
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&VERSION.to_le_bytes());
+    out.extend_from_slice(&version.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes());
     out.extend_from_slice(&(header_bytes as u32).to_le_bytes());
     out.extend_from_slice(text.as_bytes());
@@ -252,7 +391,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
     if &bytes[0..4] != MAGIC {
         return err("not a lap file");
     }
-    if u16_at(bytes, 4) != VERSION {
+    if !VERSIONS.contains(&u16_at(bytes, 4)) {
         return err(format!("unsupported lap file version {}", u16_at(bytes, 4)));
     }
     if u16_at(bytes, 6) != 0 {
@@ -305,6 +444,14 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
             .map(|items| items.iter().filter_map(|v| v.as_u64().map(|n| n as u32)).collect()),
         started_at: text(&header["startedAt"]).unwrap_or_default(),
         sample_rate_hz: header["sampleRateHz"].as_f64().unwrap_or(0.0),
+        session_id: text(&header["sessionId"]),
+        session_kind: header["sessionKind"].as_str().and_then(SessionKind::parse),
+        weather: text(&header["weather"]),
+        air_temp_c: header["airTempC"].as_f64(),
+        track_temp_c: header["trackTempC"].as_f64(),
+        tyre_compound: text(&header["tyreCompound"]),
+        in_lap: header["lap"]["inLap"].as_bool(),
+        out_lap: header["lap"]["outLap"].as_bool(),
         channels,
     })
 }
@@ -329,8 +476,49 @@ mod tests {
     use super::*;
 
     /// The same bytes the app's tests hold in `src/lib/sim/lap-file.test.ts` and the spec shows,
-    /// laid out by a separate script. If this writer and the spec disagree, this test fails.
+    /// laid out by a separate script (`docs/telemetria-virtual-2026-11-10/golden-lap.mjs`). If this writer and the
+    /// spec disagree, this test fails. This one is the lap of version 1.
     const GOLDEN_HEX: &str = "584c4150010000005c0100007b2267616d65223a226c6d75222c22747261636b223a7b226e616d65223a225465737420547261636b222c2276617269616e74223a224750222c226c656e6774684d223a32307d2c22636172223a7b226e616d65223a225465737420436172222c22636c617373223a224859504552434152227d2c226c6170223a7b226e756d626572223a312c2274696d654d73223a313030302c2276616c6964223a747275652c22736563746f72734d73223a5b3430302c3630305d7d2c22737461727465644174223a22323032362d31312d31305431323a30303a30302e3030305a222c2273616d706c6552617465487a223a322c2273616d706c65436f756e74223a332c226368616e6e656c73223a5b7b226964223a2274222c22756e6974223a2273227d2c7b226964223a2264697374222c22756e6974223a226d227d2c7b226964223a227370656564222c22756e6974223a226d2f73227d5d7d202020000000000000003f0000803f00000000000020410000a04100000000000020410000a041";
+
+    /// The lap of version 2 of the spec: 648 bytes.
+    const GOLDEN_V2_HEX: &str = "584c415002000000400200007b2267616d65223a226163222c22747261636b223a7b226e616d65223a225465737420547261636b222c2276617269616e74223a224750222c226c656e6774684d223a32307d2c22636172223a7b226e616d65223a225465737420436172222c22636c617373223a22475433227d2c226c6170223a7b226e756d626572223a322c2274696d654d73223a313030302c2276616c6964223a747275652c22736563746f72734d73223a5b3430302c3330302c3330305d2c22696e4c6170223a66616c73652c226f75744c6170223a747275657d2c22737461727465644174223a22323032362d31312d31305431323a30303a30302e3030305a222c2273616d706c6552617465487a223a322c2273616d706c65436f756e74223a332c2273657373696f6e4964223a226131623263336434653566363037313832393361346235633664376538663930222c2273657373696f6e4b696e64223a227072616374696365222c2277656174686572223a227261696e222c2261697254656d7043223a31382e352c22747261636b54656d7043223a32322c2274797265436f6d706f756e64223a22536f6674222c226368616e6e656c73223a5b7b226964223a2274222c22756e6974223a2273227d2c7b226964223a2264697374222c22756e6974223a226d227d2c7b226964223a227370656564222c22756e6974223a226d2f73227d2c7b226964223a22747972655f74656d705f666c222c22756e6974223a22c2b043227d2c7b226964223a22675f6c6174222c22756e6974223a2267227d5d7d20000000000000003f0000803f00000000000020410000a04100000000000020410000a0410000a0420000c07f0000a442000000000000003f000080bf";
+
+    fn golden_v2_lap() -> Lap {
+        let channel = |id: &str, unit: &str, values: [f32; 3]| Channel {
+            id: id.into(),
+            unit: unit.into(),
+            values: values.to_vec(),
+        };
+        Lap {
+            game: "ac".into(),
+            track_name: "Test Track".into(),
+            track_variant: Some("GP".into()),
+            track_length_m: Some(20.0),
+            car_name: "Test Car".into(),
+            car_class: Some("GT3".into()),
+            lap_number: 2,
+            time_ms: 1000,
+            valid: true,
+            sectors_ms: Some(vec![400, 300, 300]),
+            started_at: "2026-11-10T12:00:00.000Z".into(),
+            sample_rate_hz: 2.0,
+            session_id: Some("a1b2c3d4e5f60718293a4b5c6d7e8f90".into()),
+            session_kind: Some(SessionKind::Practice),
+            weather: Some("rain".into()),
+            air_temp_c: Some(18.5),
+            track_temp_c: Some(22.0),
+            tyre_compound: Some("Soft".into()),
+            in_lap: Some(false),
+            out_lap: Some(true),
+            channels: vec![
+                channel("t", "s", [0.0, 0.5, 1.0]),
+                channel("dist", "m", [0.0, 10.0, 20.0]),
+                channel("speed", "m/s", [0.0, 10.0, 20.0]),
+                channel("tyre_temp_fl", "\u{b0}C", [80.0, f32::NAN, 82.0]),
+                channel("g_lat", "g", [0.0, 0.5, -1.0]),
+            ],
+        }
+    }
 
     fn golden_lap() -> Lap {
         let channel = |id: &str, unit: &str, values: [f32; 3]| Channel {
@@ -356,6 +544,7 @@ mod tests {
                 channel("dist", "m", [0.0, 10.0, 20.0]),
                 channel("speed", "m/s", [0.0, 10.0, 20.0]),
             ],
+            ..Lap::default()
         }
     }
 
@@ -371,9 +560,260 @@ mod tests {
 
     #[test]
     fn writes_the_golden_lap_byte_for_byte() {
-        let bytes = pack(&golden_lap()).unwrap();
+        // The first version of the format, as Companion 0.4 wrote it.
+        let bytes = pack_as(&golden_lap(), 1).unwrap();
         assert_eq!(bytes.len(), 396);
         assert_eq!(hex(&bytes), GOLDEN_HEX);
+    }
+
+    #[test]
+    fn writes_the_golden_version_2_lap_byte_for_byte() {
+        let bytes = pack(&golden_v2_lap()).unwrap();
+        assert_eq!(bytes.len(), 648);
+        assert_eq!(hex(&bytes), GOLDEN_V2_HEX);
+        assert_eq!(&bytes[4..6], &2u16.to_le_bytes(), "new files are version 2");
+    }
+
+    #[test]
+    fn reads_the_golden_version_2_bytes_back_into_the_same_lap() {
+        let back = unpack(&from_hex(GOLDEN_V2_HEX)).unwrap();
+        let want = golden_v2_lap();
+        // NaN is not equal to itself: compare the columns by their bits.
+        let bits = |lap: &Lap| -> Vec<Vec<u32>> {
+            lap.channels
+                .iter()
+                .map(|c| c.values.iter().map(|v| v.to_bits()).collect())
+                .collect()
+        };
+        assert_eq!(bits(&back), bits(&want));
+        assert_eq!(
+            (back.session_id, back.session_kind, back.weather, back.air_temp_c, back.track_temp_c),
+            (want.session_id, want.session_kind, want.weather, want.air_temp_c, want.track_temp_c)
+        );
+        assert_eq!(
+            (back.tyre_compound.as_deref(), back.in_lap, back.out_lap),
+            (Some("Soft"), Some(false), Some(true))
+        );
+        assert_eq!(back.channels[3].unit, "\u{b0}C");
+    }
+
+    #[test]
+    fn a_version_1_file_written_by_older_code_still_reads() {
+        let back = unpack(&from_hex(GOLDEN_HEX)).unwrap();
+        assert_eq!(back, golden_lap());
+        assert!(back.session_id.is_none() && back.in_lap.is_none() && back.weather.is_none());
+        // And the same lap, read and written again as version 1, gives the same bytes.
+        assert_eq!(hex(&pack_as(&back, 1).unwrap()), GOLDEN_HEX);
+        // Through gzip as well.
+        let mut zipped = Vec::new();
+        let mut encoder = GzEncoder::new(&mut zipped, Compression::default());
+        encoder.write_all(&from_hex(GOLDEN_HEX)).unwrap();
+        encoder.finish().unwrap();
+        assert_eq!(gunzip(&zipped, MAX_UNPACKED).unwrap(), golden_lap());
+    }
+
+    #[test]
+    fn version_1_leaves_out_the_version_2_fields() {
+        let bytes = pack_as(&golden_v2_lap(), 1).unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        for key in [
+            "sessionId",
+            "sessionKind",
+            "weather",
+            "airTempC",
+            "trackTempC",
+            "tyreCompound",
+            "inLap",
+            "outLap",
+        ] {
+            assert!(!text.contains(key), "{key}");
+        }
+        assert!(pack_as(&golden_v2_lap(), 3).is_err());
+        assert!(pack_as(&golden_v2_lap(), 0).is_err());
+    }
+
+    #[test]
+    fn a_version_2_lap_round_trips_through_a_reader_written_here() {
+        let mut lap = golden_v2_lap();
+        // No NaN here, so the whole lap compares equal.
+        lap.channels[3].values = vec![80.0, 81.0, 82.0];
+        lap.session_kind = Some(SessionKind::Qualifying);
+        assert_eq!(unpack(&pack(&lap).unwrap()).unwrap(), lap);
+        assert_eq!(gunzip(&gzip(&lap).unwrap(), MAX_UNPACKED).unwrap(), lap);
+        for kind in [
+            SessionKind::Practice,
+            SessionKind::Qualifying,
+            SessionKind::Race,
+            SessionKind::Unknown,
+        ] {
+            let mut other = lap.clone();
+            other.session_kind = Some(kind);
+            assert_eq!(unpack(&pack(&other).unwrap()).unwrap().session_kind, Some(kind));
+        }
+    }
+
+    /// A reader written for this test alone: it shares nothing with `unpack` but `serde_json`. It reads a file the way
+    /// the spec says, strictly, and gives back the header as JSON and the columns as bits.
+    fn independent_reader(bytes: &[u8]) -> (serde_json::Value, Vec<(String, String, Vec<u32>)>) {
+        assert_eq!(&bytes[0..4], b"XLAP");
+        let version = u16::from_le_bytes([bytes[4], bytes[5]]);
+        assert!(version == 1 || version == 2, "version {version}");
+        assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 0);
+        let header_len = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+        assert_eq!(header_len % 4, 0);
+        let header_text = std::str::from_utf8(&bytes[12..12 + header_len]).expect("UTF-8");
+        let header: serde_json::Value = serde_json::from_str(header_text).expect("JSON");
+        let samples = header["sampleCount"].as_u64().unwrap() as usize;
+        let channels = header["channels"].as_array().unwrap();
+        assert_eq!(bytes.len(), 12 + header_len + channels.len() * samples * 4, "no byte more or less");
+        let mut at = 12 + header_len;
+        let mut columns = Vec::new();
+        for channel in channels {
+            let bits = (0..samples)
+                .map(|i| u32::from_le_bytes(bytes[at + 4 * i..at + 4 * i + 4].try_into().unwrap()))
+                .collect();
+            columns.push((
+                channel["id"].as_str().unwrap().to_owned(),
+                channel["unit"].as_str().unwrap().to_owned(),
+                bits,
+            ));
+            at += samples * 4;
+        }
+        (header, columns)
+    }
+
+    #[test]
+    fn a_version_2_file_round_trips_through_a_reader_written_for_the_test() {
+        let lap = golden_v2_lap();
+        let bytes = pack(&lap).unwrap();
+        let (header, columns) = independent_reader(&bytes);
+        assert_eq!(header["game"], "ac");
+        assert_eq!(header["lap"]["inLap"], false);
+        assert_eq!(header["lap"]["outLap"], true);
+        assert_eq!(header["lap"]["sectorsMs"], serde_json::json!([400, 300, 300]));
+        assert_eq!(header["sessionId"], "a1b2c3d4e5f60718293a4b5c6d7e8f90");
+        assert_eq!(header["sessionKind"], "practice");
+        assert_eq!(header["weather"], "rain");
+        assert_eq!(header["airTempC"], 18.5);
+        assert_eq!(header["trackTempC"], 22);
+        assert_eq!(header["tyreCompound"], "Soft");
+        assert_eq!(columns.len(), lap.channels.len());
+        for ((id, unit, bits), want) in columns.iter().zip(&lap.channels) {
+            assert_eq!((id, unit), (&want.id, &want.unit));
+            assert_eq!(bits, &want.values.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), "{id}");
+        }
+        // The same file as the old writer would have made it: version 1, no version 2 key.
+        let (old_header, _) = independent_reader(&pack_as(&lap, 1).unwrap());
+        assert!(old_header.get("sessionId").is_none() && old_header["lap"].get("inLap").is_none());
+    }
+
+    #[test]
+    fn leaves_out_the_version_2_fields_that_are_not_given() {
+        let mut lap = golden_v2_lap();
+        lap.session_id = None;
+        lap.session_kind = None;
+        lap.weather = None;
+        lap.air_temp_c = None;
+        lap.track_temp_c = None;
+        lap.tyre_compound = None;
+        lap.in_lap = None;
+        lap.out_lap = None;
+        let text = String::from_utf8_lossy(&pack(&lap).unwrap()).to_string();
+        for key in [
+            "sessionId",
+            "sessionKind",
+            "weather",
+            "airTempC",
+            "trackTempC",
+            "tyreCompound",
+            "inLap",
+            "outLap",
+        ] {
+            assert!(!text.contains(key), "{key}");
+        }
+    }
+
+    #[test]
+    fn refuses_version_2_fields_the_app_would_refuse() {
+        let bad: [fn(&mut Lap); 8] = [
+            |l| l.session_id = Some(String::new()),
+            |l| l.session_id = Some("has a space".into()),
+            |l| l.session_id = Some("a".repeat(65)),
+            |l| l.weather = Some("rain\nsnow".into()),
+            |l| l.weather = Some("w".repeat(33)),
+            |l| l.tyre_compound = Some("c".repeat(41)),
+            |l| l.air_temp_c = Some(201.0),
+            |l| l.track_temp_c = Some(f64::NAN),
+        ];
+        for (i, damage) in bad.iter().enumerate() {
+            let mut lap = golden_v2_lap();
+            damage(&mut lap);
+            assert!(pack(&lap).is_err(), "case {i}");
+        }
+        let mut edge = golden_v2_lap();
+        edge.session_id = Some("S".repeat(64));
+        edge.weather = Some("w".repeat(32));
+        edge.tyre_compound = Some("c".repeat(40));
+        edge.air_temp_c = Some(-100.0);
+        edge.track_temp_c = Some(200.0);
+        assert!(pack(&edge).is_ok());
+    }
+
+    #[test]
+    fn the_version_2_channels_are_standard_with_one_unit_each() {
+        let units: std::collections::HashMap<_, _> = STANDARD_UNITS.iter().copied().collect();
+        assert_eq!(STANDARD_UNITS.len(), 13 + 22);
+        for wheel in ["fl", "fr", "rl", "rr"] {
+            assert_eq!(units[format!("tyre_temp_{wheel}").as_str()], "\u{b0}C");
+            assert_eq!(units[format!("tyre_press_{wheel}").as_str()], "kPa");
+            assert_eq!(units[format!("tyre_wear_{wheel}").as_str()], "ratio");
+            assert_eq!(units[format!("brake_temp_{wheel}").as_str()], "\u{b0}C");
+        }
+        for (id, unit) in [
+            ("g_lat", "g"),
+            ("g_long", "g"),
+            ("damage_body", "ratio"),
+            ("drs", "state"),
+            ("tc_active", "flag"),
+            ("abs_active", "flag"),
+        ] {
+            assert_eq!(units[id], unit, "{id}");
+        }
+        // Every one is a valid channel id, so a reader that does not know it still takes it as a game's own channel.
+        assert!(STANDARD_UNITS.iter().all(|(id, _)| is_id(id)));
+        // A standard channel in the wrong unit is refused, as the app does.
+        let mut wrong = golden_v2_lap();
+        wrong.channels[3].unit = "C".into();
+        assert!(pack(&wrong).unwrap_err().0.contains("tyre_temp_fl"));
+    }
+
+    #[test]
+    fn a_lap_with_every_channel_stays_inside_the_channel_limit() {
+        let mut lap = golden_lap();
+        for (id, unit) in STANDARD_UNITS.iter().skip(3) {
+            lap.channels.push(Channel {
+                id: (*id).into(),
+                unit: (*unit).into(),
+                values: vec![1.0, 2.0, 3.0],
+            });
+        }
+        assert_eq!(lap.channels.len(), 35);
+        assert_eq!(unpack(&pack(&lap).unwrap()).unwrap(), lap);
+        // The count limits did not move: 128 is the most, and one more is refused.
+        while lap.channels.len() < MAX_CHANNELS {
+            lap.channels.push(Channel {
+                id: format!("extra_{}", lap.channels.len()),
+                unit: "x".into(),
+                values: vec![0.0; 3],
+            });
+        }
+        assert!(pack(&lap).is_ok());
+        lap.channels.push(Channel {
+            id: "one_too_many".into(),
+            unit: "x".into(),
+            values: vec![0.0; 3],
+        });
+        assert!(pack(&lap).is_err());
     }
 
     #[test]
@@ -456,7 +896,9 @@ mod tests {
         magic[0] = b'Y';
         assert!(unpack(&magic).is_err());
         let mut version = good.clone();
-        version[4] = 2;
+        version[4] = 3;
+        assert!(unpack(&version).unwrap_err().0.contains("version 3"));
+        version[4] = 0;
         assert!(unpack(&version).is_err());
         assert!(unpack(&good[..good.len() - 4]).is_err());
         let mut extra = good.clone();

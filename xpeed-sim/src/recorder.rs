@@ -16,10 +16,18 @@
 //! duration, and the car must not have been in the pits during the lap. It is NOT the game's own
 //! "lap counts" verdict (track limits are not visible in the data we read); see
 //! `docs/telemetria-virtual-2026-11-10/LMU-TELEMETRIA.md`.
+//!
+//! Version 2 of the lap file adds, here as in `lapcut.rs`: the session id (made when the first lap starts, and again
+//! when the track or the car changes, the game's session number changes or its clock goes back: a restart; a lap that
+//! finishes after the next begins keeps its own), the out lap and in lap (the lap began, or ended, with the player in
+//! the pits, as scoring says), and the channels of `extra.rs` (tyres, brakes, G is not given by this reader, damage,
+//! DRS, traction control and ABS). Weather, temperatures, the kind of session and the tyre compound are not written
+//! for this game yet.
 
+use crate::extra::Extras;
 use crate::lapfile::{Channel, Lap, STANDARD_UNITS};
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame, VehicleScoring};
-use crate::util::iso_utc;
+use crate::util::{iso_utc, new_session_id};
 
 pub const MIN_SAMPLES: usize = 50;
 pub const MIN_LAP_SECONDS: f64 = 5.0;
@@ -51,6 +59,11 @@ struct Columns {
 
 struct LapInProgress {
     number: i32,
+    /// The id of the game session this lap was driven in.
+    session: String,
+    started_in_pits: bool,
+    last_in_pits: bool,
+    extras: Extras,
     lap_start_et: f64,
     first_t: f64,
     first_wall_ms: i64,
@@ -82,6 +95,10 @@ pub struct Recorder {
     car_class: Option<String>,
     track: String,
     car: String,
+    /// The id the laps of the session being driven carry; `None` until a lap starts, and after a session ends.
+    session: Option<String>,
+    /// The game's own number of the session (practice, qualifying, race...), to see it change.
+    game_session: Option<i32>,
 }
 
 fn ms(seconds: f64) -> u32 {
@@ -104,6 +121,15 @@ impl Recorder {
             self.car_class = Some(player.vehicle_class.clone());
         }
         self.in_pits = player.in_pits;
+        // Another session of the game (practice, then qualifying): the lap in progress belongs to the one that ended.
+        if self.game_session.is_some_and(|before| before != frame.session.session) {
+            self.session = None;
+            self.current = None;
+        }
+        self.game_session = Some(frame.session.session);
+        if let Some(current) = &mut self.current {
+            current.last_in_pits = player.in_pits;
+        }
         if self.current.is_some() {
             if player.in_pits {
                 if let Some(current) = &mut self.current {
@@ -146,6 +172,7 @@ impl Recorder {
         if changed || et + 1.0 < self.last_et_seen {
             self.current = None;
             self.closed = None;
+            self.session = None;
         }
         self.track = t.track_name.clone();
         self.car = t.vehicle_name.clone();
@@ -177,8 +204,13 @@ impl Recorder {
 
         if self.current.is_none() {
             let into_lap = et - t.lap_start_et;
+            let session = self.session.get_or_insert_with(new_session_id).clone();
             self.current = Some(LapInProgress {
                 number: t.lap_number,
+                session,
+                started_in_pits: self.in_pits,
+                last_in_pits: self.in_pits,
+                extras: Extras::default(),
                 lap_start_et: t.lap_start_et,
                 first_t: into_lap,
                 first_wall_ms: wall_ms,
@@ -215,6 +247,8 @@ impl Recorder {
         columns.y.push(t.pos[1] as f32);
         columns.z.push(t.pos[2] as f32);
         columns.fuel.push(t.fuel_l as f32);
+        // Tyres, brakes, damage, DRS, traction control and ABS, as the dashboard reads them.
+        current.extras.push(&crate::dash::lmu_frame(t, None));
         done
     }
 
@@ -248,6 +282,7 @@ impl Recorder {
         let started_ms = current.first_wall_ms - (current.first_t * 1000.0) as i64;
 
         let columns = current.columns;
+        let extras = current.extras;
         let values = [
             columns.t,
             columns.dist,
@@ -263,7 +298,9 @@ impl Recorder {
             columns.z,
             columns.fuel,
         ];
-        let channels = STANDARD_UNITS
+        // The 13 channels of version 1 (the first 13 of `STANDARD_UNITS`, which is what zipping with 13 columns takes),
+        // then the ones of version 2 that the game gave.
+        let mut channels: Vec<Channel> = STANDARD_UNITS
             .iter()
             .zip(values)
             .map(|((id, unit), values)| Channel {
@@ -272,6 +309,7 @@ impl Recorder {
                 values,
             })
             .collect();
+        channels.extend(extras.into_channels());
 
         Some(Lap {
             game: "lmu".into(),
@@ -286,7 +324,11 @@ impl Recorder {
             sectors_ms,
             started_at: iso_utc(started_ms),
             sample_rate_hz,
+            session_id: Some(current.session),
+            in_lap: Some(current.last_in_pits),
+            out_lap: Some(current.started_in_pits),
             channels,
+            ..Lap::default()
         })
     }
 }
@@ -563,5 +605,170 @@ mod tests {
         done.extend(rec.on_telemetry(&frame(103.0, 2, 103.0, SPEED), 0));
         done.extend(rec.on_scoring(&scoring(103.0, 0.0, 103.0, 3.0, false)));
         assert!(done.is_empty());
+    }
+
+    // ---- version 2: the session, the pit laps and the extra channels -------------------------------------------
+
+    /// Drives `seconds` of lap `lap` at 100 Hz from `from`, with a scoring update every 0.2 s that says the car is in
+    /// the pits when `in_pits(seconds into the lap)` does.
+    fn drive_pits(rec: &mut Recorder, from: f64, seconds: f64, lap: i32, lap_start: f64, in_pits: impl Fn(f64) -> bool) -> Vec<Lap> {
+        let mut done = Vec::new();
+        for i in 0..(seconds * 100.0).round() as i32 {
+            let et = from + f64::from(i) * 0.01;
+            done.extend(rec.on_telemetry(&frame(et, lap, lap_start, SPEED), 1_700_000_000_000 + (et * 1000.0) as i64));
+            if i % 20 == 0 {
+                let dist = ((et - lap_start) * SPEED).clamp(0.0, LENGTH - 1.0);
+                done.extend(rec.on_scoring(&scoring(et, dist, lap_start, 0.0, in_pits(et - lap_start))));
+            }
+        }
+        done
+    }
+
+    #[test]
+    fn every_lap_of_a_session_carries_one_session_id_and_a_restart_makes_a_new_one() {
+        let mut rec = Recorder::new();
+        let first = lap_then_confirmation(&mut rec, 100.0, 1, false, 60.0).remove(0);
+        let second = lap_then_confirmation(&mut rec, 160.0, 2, false, 60.0).remove(0);
+        let id = first.session_id.clone().expect("a session id");
+        assert_eq!(id.len(), 32);
+        assert_eq!(second.session_id.as_deref(), Some(id.as_str()), "the same session");
+        // The player restarts the session: the game's clock is back at 10.
+        let after = lap_then_confirmation(&mut rec, 10.0, 1, false, 60.0).remove(0);
+        assert_ne!(after.session_id, Some(id));
+        // The strict reader takes it.
+        assert!(crate::lapfile::gunzip(&crate::lapfile::gzip(&after).unwrap(), crate::lapfile::MAX_UNPACKED).is_ok());
+    }
+
+    #[test]
+    fn a_new_track_or_car_or_a_new_session_of_the_game_makes_a_new_session_id() {
+        let mut rec = Recorder::new();
+        lap_then_confirmation(&mut rec, 100.0, 1, false, 60.0);
+        let id = rec.session.clone().expect("a session");
+        // The game moves to its next session (practice, then qualifying): scoring says so.
+        let mut next = scoring(161.0, 10.0, 160.0, 0.0, false);
+        next.session.session = 5;
+        rec.on_scoring(&next);
+        assert!(
+            rec.session.is_none() && rec.current.is_none(),
+            "what was being driven belongs to the old session"
+        );
+        rec.on_telemetry(&frame(161.0, 2, 160.0, SPEED), 0);
+        let qualifying = rec.session.clone().expect("a new session");
+        assert_ne!(qualifying, id);
+        // Another track.
+        let mut elsewhere = frame(162.0, 2, 160.0, SPEED);
+        elsewhere.track_name = "Another Ring".into();
+        rec.on_telemetry(&elsewhere, 0);
+        assert_ne!(rec.session.clone().unwrap(), qualifying);
+    }
+
+    #[test]
+    fn an_out_lap_starts_in_the_pits_and_an_in_lap_ends_in_them() {
+        let mut rec = Recorder::new();
+        // Lap 1: the car sits in the pits for the first 2 s. Lap 2: never. Lap 3: in the pits for the last 2 s.
+        // Scoring has said the car is in the pits before the lap begins.
+        rec.on_scoring(&scoring(100.0, 0.0, 100.0, 0.0, true));
+        let mut laps = drive_pits(&mut rec, 100.0, 60.0, 1, 100.0, |t| t < 2.0);
+        laps.extend(drive_pits(&mut rec, 160.0, 60.0, 2, 160.0, |_| false));
+        laps.extend(drive_pits(&mut rec, 220.0, 60.0, 3, 220.0, |t| t >= 58.0));
+        laps.extend(rec.on_telemetry(&frame(280.0, 4, 280.0, SPEED), 0));
+        laps.extend(rec.on_scoring(&scoring(280.0, 0.0, 280.0, 60.0, false)));
+        assert_eq!(laps.len(), 3, "{}", laps.len());
+        assert_eq!((laps[0].out_lap, laps[0].in_lap), (Some(true), Some(false)));
+        assert_eq!((laps[1].out_lap, laps[1].in_lap), (Some(false), Some(false)));
+        assert_eq!((laps[2].out_lap, laps[2].in_lap), (Some(false), Some(true)));
+        assert!(!laps[0].valid && !laps[2].valid, "through the pits: not valid");
+    }
+
+    fn wheel(brake: f64, kpa: f64, kelvin: f64, wear: f64) -> crate::lmu::snapshot::Wheel {
+        crate::lmu::snapshot::Wheel {
+            brake_temp_c: brake,
+            pressure_kpa: kpa,
+            temperature_k: [kelvin; 3],
+            wear,
+        }
+    }
+
+    #[test]
+    fn the_new_channels_are_in_the_lap_when_the_game_gives_the_values_and_absent_when_it_does_not() {
+        // Nothing about the tyres, the brakes or the wing; the dents and the aids' lights are always given.
+        let mut rec = Recorder::new();
+        let bare = lap_then_confirmation(&mut rec, 100.0, 1, false, 60.0).remove(0);
+        let ids: Vec<&str> = bare.channels.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "t",
+                "dist",
+                "speed",
+                "rpm",
+                "gear",
+                "throttle",
+                "brake",
+                "clutch",
+                "steer",
+                "x",
+                "y",
+                "z",
+                "fuel",
+                "damage_body",
+                "tc_active",
+                "abs_active"
+            ]
+        );
+        assert!(bare.channel("damage_body").unwrap().values.iter().all(|v| *v == 0.0));
+        // With the four wheels, the rear wing and a dent.
+        let mut rec = Recorder::new();
+        let mut laps = Vec::new();
+        for i in 0..6000 {
+            let et = 100.0 + f64::from(i) * 0.01;
+            let mut t = frame(et, 1, 100.0, SPEED);
+            t.wheels = [
+                wheel(400.0, 180.0, 350.0, 0.9),
+                wheel(410.0, 181.0, 351.0, 0.8),
+                wheel(300.0, 190.0, 352.0, 0.7),
+                wheel(310.0, 191.0, 353.0, 0.6),
+            ];
+            t.rear_flap_activated = i >= 3000;
+            t.rear_flap_legal = 2;
+            t.dents[0] = 2;
+            t.abs_active = i % 2 == 0;
+            laps.extend(rec.on_telemetry(&t, 0));
+            if i % 20 == 0 {
+                laps.extend(rec.on_scoring(&scoring(et, ((et - 100.0) * SPEED).min(LENGTH - 1.0), 100.0, 0.0, false)));
+            }
+        }
+        laps.extend(rec.on_telemetry(&frame(160.0, 2, 160.0, SPEED), 0));
+        laps.extend(rec.on_scoring(&scoring(160.0, 0.0, 160.0, 60.0, false)));
+        let lap = &laps[0];
+        let col = |id: &str| lap.channel(id).unwrap_or_else(|| panic!("no {id}"));
+        assert_eq!(col("brake_temp_fl").values[0], 400.0);
+        assert_eq!(col("brake_temp_rr").values[0], 310.0);
+        assert_eq!((col("tyre_press_fr").values[0], col("tyre_press_fr").unit.as_str()), (181.0, "kPa"));
+        assert!((col("tyre_temp_fl").values[0] - 76.85).abs() < 0.01, "350 K in Celsius");
+        assert_eq!(col("tyre_wear_rl").values[0], 0.7);
+        assert_eq!((col("drs").values[0], col("drs").values[4000]), (1.0, 2.0), "allowed, then open");
+        assert_eq!(col("damage_body").values[0], 2.0 / 16.0);
+        assert_eq!((col("abs_active").values[0], col("abs_active").values[1]), (1.0, 0.0));
+        assert!(lap.channels.iter().all(|c| c.values.len() == lap.sample_count()));
+        assert!(lap.channel("g_lat").is_none(), "this reader has no G: absent, not zero");
+        // The strict reader takes the lap.
+        assert!(crate::lapfile::gunzip(&crate::lapfile::gzip(lap).unwrap(), crate::lapfile::MAX_UNPACKED).is_ok());
+    }
+
+    #[test]
+    fn weather_temperatures_session_kind_and_compound_are_not_written_for_this_game_yet() {
+        let mut rec = Recorder::new();
+        let lap = lap_then_confirmation(&mut rec, 100.0, 1, false, 60.0).remove(0);
+        assert_eq!(
+            (
+                lap.session_kind,
+                lap.weather.clone(),
+                lap.air_temp_c,
+                lap.track_temp_c,
+                lap.tyre_compound.clone()
+            ),
+            (None, None, None, None, None)
+        );
     }
 }
