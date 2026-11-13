@@ -58,6 +58,8 @@ pub enum Msg {
     ConnectOpenAgain,
     ConnectCancel,
     ConnectedAs(String),
+    /// Connected, with the account not known yet.
+    ConnectedPlain,
     ConnectNoteCancelled,
     ConnectNoteExpired,
     MenuOpenLaps,
@@ -222,6 +224,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         ),
         ConnectOpenAgain => t(s("Open the page again"), s("Abrir a página de novo"), s("Abrir la página otra vez")),
         ConnectCancel => t(s("Cancel"), s("Cancelar"), s("Cancelar")),
+        ConnectedPlain => t(s("Connected"), s("Conectado"), s("Conectado")),
         ConnectedAs(who) => t(
             format!("Connected as {who}"),
             format!("Conectado como {who}"),
@@ -517,6 +520,7 @@ mod tests {
             Msg::ConnectOpenAgain,
             Msg::ConnectCancel,
             Msg::ConnectedAs("ana@example.com".into()),
+            Msg::ConnectedPlain,
             Msg::ConnectNoteCancelled,
             Msg::ConnectNoteExpired,
             Msg::MenuOpenLaps,

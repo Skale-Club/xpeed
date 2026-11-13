@@ -2927,6 +2927,14 @@ fn cell_grid((x, y, w, h): Area, n: usize, cols: usize) -> Vec<Area> {
         .collect()
 }
 
+/// The Account card's headline when connected: who, or just "Connected" while the account is not known (never the host).
+fn connected_line(lang: Lang, who: Option<&str>) -> String {
+    match who {
+        Some(who) => text(lang, &Msg::ConnectedAs(who.to_owned())),
+        None => text(lang, &Msg::ConnectedPlain),
+    }
+}
+
 fn draw_cells(g: &mut Painter, cells: &[Cell], area: Area, cols: usize) {
     let semi = FW_SEMIBOLD as i32;
     for (cell, (x, y, w, h)) in cells.iter().zip(cell_grid(area, cells.len(), cols)) {
@@ -3507,7 +3515,7 @@ fn monitor(g: &mut Painter, body: RECT, view: &View) {
             // Laps waiting to be sent matter more than who it is: say that when it is so.
             match view.snapshot.cloud {
                 Cloud::Waiting(_) => present::cloud_line(view.lang, &view.snapshot.cloud, view.device),
-                _ => text(view.lang, &Msg::ConnectedAs(who.clone())),
+                _ => connected_line(view.lang, who.as_deref()),
             },
             host.to_owned(),
         ),
@@ -3805,7 +3813,6 @@ unsafe fn paint_window(hwnd: HWND, state: &mut State) {
             matches!(snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
             &crate::connect::Flow::global().phase(),
             account.label.as_deref(),
-            &account.server,
         ),
         recent_laps: &recent_laps,
         activity: &activity,
@@ -4531,6 +4538,18 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn the_account_card_says_connected_when_the_account_is_unknown_never_the_host() {
+        use crate::connect::{card, Card, Phase};
+        let unknown = card(true, &Phase::Idle, None);
+        assert_eq!(unknown, Card::Connected { who: None });
+        let Card::Connected { who } = unknown else { unreachable!() };
+        assert_eq!(connected_line(Lang::En, who.as_deref()), "Connected");
+        assert_eq!(connected_line(Lang::Pt, who.as_deref()), "Conectado");
+        assert_eq!(connected_line(Lang::Es, who.as_deref()), "Conectado");
+        assert_eq!(connected_line(Lang::En, Some("ana@example.com")), "Connected as ana@example.com");
+    }
+
+    #[test]
     fn a_pedal_bar_fills_with_its_value_and_never_past_the_bar() {
         assert_eq!(pedal_fill(0.0, 50.0), 0.0);
         assert_eq!(pedal_fill(0.5, 50.0), 25.0);
@@ -5121,7 +5140,6 @@ mod tests {
                 matches!(f.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
                 &crate::connect::Phase::Idle,
                 Some("ana@example.com"),
-                "https://xpeed.skale.club",
             ),
             recent_laps: &f.laps,
             activity: &f.log,

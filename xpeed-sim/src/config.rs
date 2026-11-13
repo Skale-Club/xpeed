@@ -231,6 +231,24 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
     std::fs::rename(&partial, path).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
+/// Records who the paired computer is connected as, keeping the key, server and device name as they are. Only the
+/// pairing that holds `token` is touched (a newer pairing made meanwhile is left alone). Returns whether the file changed.
+pub fn update_account(path: &Path, token: &str, account: &str) -> Result<bool, String> {
+    let account = account.trim();
+    if account.is_empty() {
+        return Ok(false);
+    }
+    let Some(mut config) = load(path)? else {
+        return Ok(false);
+    };
+    if config.token != token || config.account.as_deref() == Some(account) {
+        return Ok(false);
+    }
+    config.account = Some(account.to_owned());
+    save(path, &config)?;
+    Ok(true)
+}
+
 /// The language the person picked in the tray menu, kept in `language` next to the pairing. English when there is
 /// no choice yet (or the file cannot be read).
 pub fn load_lang(home: &Path) -> crate::text::Lang {
@@ -270,6 +288,33 @@ pub fn scratch_dir(name: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn saving_the_account_keeps_the_token_server_and_device_name() {
+        let path = scratch_dir("update-account").join("config.json");
+        let config = Config {
+            server: "https://xpeed.skale.club".into(),
+            token: "xpd_key".into(),
+            device_name: "RIG".into(),
+            account: None,
+        };
+        save(&path, &config).unwrap();
+        assert!(update_account(&path, "xpd_key", " ana@example.com ").unwrap());
+        let saved = load(&path).unwrap().unwrap();
+        assert_eq!(saved.account.as_deref(), Some("ana@example.com"));
+        assert_eq!(
+            (saved.server.as_str(), saved.token.as_str(), saved.device_name.as_str()),
+            ("https://xpeed.skale.club", "xpd_key", "RIG")
+        );
+        // The same account again changes nothing; a changed email replaces it.
+        assert!(!update_account(&path, "xpd_key", "ana@example.com").unwrap());
+        assert!(update_account(&path, "xpd_key", "ana@new.example").unwrap());
+        assert_eq!(load(&path).unwrap().unwrap().account.as_deref(), Some("ana@new.example"));
+        // An empty answer, or another pairing's key, leaves the file alone.
+        assert!(!update_account(&path, "xpd_key", "").unwrap());
+        assert!(!update_account(&path, "xpd_other", "bob@example.com").unwrap());
+        assert_eq!(load(&path).unwrap().unwrap().account.as_deref(), Some("ana@new.example"));
+    }
+
     use super::*;
 
     #[test]

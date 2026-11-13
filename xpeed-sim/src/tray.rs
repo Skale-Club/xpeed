@@ -41,6 +41,8 @@ const WM_RELOAD: u32 = WM_APP + 3;
 const WM_OPEN_PANEL: u32 = WM_APP + 4;
 /// The panel picked a language (`wparam`: its place in `Lang::ALL`).
 const WM_SET_LANG: u32 = WM_APP + 5;
+/// The server said who the computer is connected as and it was saved: show it.
+const WM_ACCOUNT: u32 = WM_APP + 6;
 
 const CMD_CONNECT: usize = 1;
 const CMD_LAPS: usize = 2;
@@ -152,6 +154,27 @@ fn start_uploader(shared: &Arc<Shared>, dir: &Path, config: Config) {
     shared.set_uploader(Some(Uploader::start(dir.to_path_buf(), config, Backoff::default(), observer)));
 }
 
+/// Asks the server who this computer is connected as (a pairing made the old way never saved it, and an email may have
+/// changed), saves the answer and tells the tray. Off the tray's thread; any failure leaves things as they are.
+fn refresh_account(hwnd: HWND, config_path: &Path, config: &Config) {
+    let (target, path, server, token) = (
+        hwnd as isize,
+        config_path.to_path_buf(),
+        config.server.clone(),
+        config.token.clone(),
+    );
+    std::thread::spawn(move || match net::whoami(&net::agent(), &server, &token) {
+        Ok(account) => match config::update_account(&path, &token, &account) {
+            Ok(true) => unsafe {
+                PostMessageW(target as HWND, WM_ACCOUNT, 0, 0);
+            },
+            Ok(false) => {}
+            Err(why) => applog::line(&why),
+        },
+        Err(why) => applog::line(&format!("could not ask the account: {why}")),
+    });
+}
+
 impl App {
     fn nid(&self, flags: u32) -> NOTIFYICONDATAW {
         let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
@@ -245,6 +268,7 @@ impl App {
                 self.shared.update(|s| s.cloud = Cloud::Idle);
                 self.shared
                     .notify(Notice::Paired(config.account.clone().unwrap_or_else(|| config.device_name.clone())));
+                refresh_account(self.hwnd, &self.config_path, &config);
                 start_uploader(&self.shared, &self.laps_dir, config);
             }
             _ => {
@@ -388,6 +412,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_RELOAD => {
             app.reload_pairing();
+            0
+        }
+        WM_ACCOUNT => {
+            if let Ok(Some(config)) = config::load(&app.config_path) {
+                app.account_label = config.account;
+                app.sync_account();
+                app.refresh();
+            }
             0
         }
         WM_OPEN_PANEL => {
@@ -549,6 +581,7 @@ pub fn run(open_panel: bool) -> ExitCode {
 
         if let Some(config) = config {
             applog::line(&format!("paired with {} as {}", config.server, config.device_name));
+            refresh_account(hwnd, &(*app).config_path, &config);
             start_uploader(&shared, &laps_dir, config);
         } else {
             shared.notify(Notice::NotPaired);
