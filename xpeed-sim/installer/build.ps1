@@ -9,7 +9,19 @@ $here = $PSScriptRoot
 $crate = Split-Path $here -Parent
 
 $version = (Select-String -Path (Join-Path $crate 'Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
-Write-Host "Xpeed Companion $version"
+$build = 'unknown'
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    $hash = (& git -C $crate rev-parse --short HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $hash) {
+        $build = "$hash".Trim()
+        if (& git -C $crate status --porcelain 2>$null) { $build += '-dirty' }
+    }
+}
+Write-Host "Xpeed Companion $version (build $build)"
+$previous = Join-Path $crate "dist\xpeed-sim-setup-$version.exe"
+if (Test-Path $previous) {
+    Write-Warning "!!! $previous already exists: version $version was already built. Bump 'version' in Cargo.toml (patch for fixes, minor for features) before this installer goes to anyone. !!!"
+}
 
 Push-Location $crate
 try {
@@ -37,4 +49,4 @@ if (-not $iscc) { throw 'Inno Setup 6 (ISCC.exe) was not found' }
 
 & $iscc "/DAppVersion=$version" (Join-Path $here 'xpeed-sim.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
-Write-Host "Done: $(Join-Path $crate "dist\xpeed-sim-setup-$version.exe")"
+Write-Host "Done: $(Join-Path $crate "dist\xpeed-sim-setup-$version.exe") (version $version, build $build)"

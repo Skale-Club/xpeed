@@ -48,12 +48,12 @@ use windows_sys::Win32::UI::HiDpi::{
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowLongPtrW, IsWindow, KillTimer,
-    LoadCursorW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HWND_NOTOPMOST, HWND_TOPMOST, ICON_BIG, ICON_SMALL, IDC_ARROW,
-    MINMAXINFO, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE, WM_CREATE, WM_DESTROY,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_NCCREATE, WM_PAINT, WM_SETICON, WM_TIMER, WNDCLASSW,
-    WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyWindow, DispatchMessageW, GetClientRect, GetMessageW, GetWindowLongPtrW, IsWindow,
+    KillTimer, LoadCursorW, PostQuitMessage, RegisterClassExW, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
+    SetWindowPos, ShowWindow, TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HWND_NOTOPMOST, HWND_TOPMOST, ICON_BIG,
+    ICON_SMALL, IDC_ARROW, MINMAXINFO, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_RESTORE, SW_SHOWNORMAL, WM_CLOSE,
+    WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_NCCREATE, WM_PAINT, WM_SETICON,
+    WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, IsIconic, PostMessageW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -448,6 +448,14 @@ fn header_hits(width: i32, scale: f32) -> [RECT; 5] {
         nth(1),
         nth(0),
     ]
+}
+
+/// Where the version text sits in the header (pixels), or `None` when the window is too narrow to show it.
+fn version_hit(width: i32, scale: f32) -> Option<RECT> {
+    let p = |v: f32| (v * scale).round() as i32;
+    let [_, mon, lang, _, _] = header_hits(width, scale);
+    let right = lang.left - p(14.0);
+    (right - p(60.0) > mon.right + p(12.0)).then(|| rect(right - p(120.0), lang.top, right, lang.bottom))
 }
 
 /// GDI+ is started once for the process; shapes are drawn with it (smooth edges) when it starts, with plain GDI
@@ -1738,7 +1746,10 @@ fn lang_list(g: &mut Painter, width: i32, view: &View) {
 fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let Some((mx, my)) = view.mouse else { return };
     let [_, _, lang, full, top] = header_hits(width, view.scale);
-    let (r, label) = if inside(&lang, mx, my) {
+    let version = version_hit(width, view.scale).filter(|v| inside(v, mx, my));
+    let (r, label) = if let Some(v) = version {
+        (v, format!("Build {}", env!("XPEED_BUILD")))
+    } else if inside(&lang, mx, my) {
         (lang, text(view.lang, &Msg::MenuLanguage))
     } else if inside(&full, mx, my) {
         (
@@ -1803,9 +1814,7 @@ fn header(g: &mut Painter, width: i32, view: &View) {
     pin_icon(g, top, pin_ink);
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
-    let right = lang.left - g.px(14.0);
-    if right - g.px(60.0) > mon.right + g.px(12.0) {
-        let r = rect(right - g.px(120.0), lang.top, right, lang.bottom);
+    if let Some(r) = version_hit(width, view.scale) {
         g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
     }
 }
@@ -4206,20 +4215,23 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         }
         let instance = GetModuleHandleW(null());
         let class = win::wide(CLASS);
-        let window_class = WNDCLASSW {
+        // The class carries the program's embedded icon, so the window has it before any WM_SETICON.
+        let window_class = WNDCLASSEXW {
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             style: CS_DBLCLKS,
             lpfnWndProc: Some(window_proc),
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: instance,
-            hIcon: null_mut(),
+            hIcon: crate::tray::class_icon(false),
             hCursor: LoadCursorW(null_mut(), IDC_ARROW),
             hbrBackground: null_mut(),
             lpszMenuName: null(),
             lpszClassName: class.as_ptr(),
+            hIconSm: crate::tray::class_icon(true),
         };
         // Registering twice fails harmlessly (the class from the first time is used).
-        RegisterClassW(&window_class);
+        RegisterClassExW(&window_class);
         let state = Box::into_raw(Box::new(State {
             ctx: ctx(),
             tab: Tab::Dash,
@@ -4382,6 +4394,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
             }
         })
     };
+    let [icon_big, icon_small] = crate::tray::program_icons();
     let hwnd = show(null_mut(), || Context {
         shared: shared.clone(),
         account: Arc::new(Mutex::new(Account {
@@ -4391,8 +4404,8 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
             lang,
         })),
         readers: crate::games::READERS.iter().map(|r| (r.title.to_owned(), r.ids.to_vec())).collect(),
-        icon_big: null_mut(),
-        icon_small: null_mut(),
+        icon_big,
+        icon_small,
         quit_on_close: true,
     });
     if !hwnd.is_null() {
@@ -4403,6 +4416,10 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
                 DispatchMessageW(&message);
             }
         }
+    }
+    unsafe {
+        DestroyIcon(icon_big);
+        DestroyIcon(icon_small);
     }
     shared.quit();
     let _ = feeder.join();
