@@ -34,9 +34,10 @@ use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
     GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipFillEllipse, GdipFillPath,
-    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
-    GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic,
-    LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel, WrapModeTile,
+    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenEndCap, GdipSetPenLineJoin, GdipSetPenStartCap,
+    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath,
+    InterpolationModeHighQualityBicubic, LineCapRound, LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
+    WrapModeTile,
 };
 use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -744,47 +745,59 @@ impl Painter {
         }
     }
 
-    /// The track in a box (design units), scaled to fit without stretching: the path as a road, the start as a
-    /// white tick, the car as a yellow dot.
-    fn track_map(&self, x: f32, y: f32, w: f32, h: f32, path: &[(f32, f32)], car: Option<(f32, f32)>) {
-        let (min_x, max_x, min_z, max_z) = path.iter().fold(
-            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY),
-            |(a, b, c, d), &(px, pz)| (a.min(px), b.max(px), c.min(pz), d.max(pz)),
-        );
-        let span = (max_x - min_x).max(max_z - min_z);
-        if !span.is_finite() || span <= 0.0 {
-            return;
-        }
-        let pad = 14.0;
-        let fit = ((w - 2.0 * pad) / (max_x - min_x).max(1.0)).min((h - 2.0 * pad) / (max_z - min_z).max(1.0));
-        let (cx, cz) = ((min_x + max_x) / 2.0, (min_z + max_z) / 2.0);
-        let to_px = |(px, pz): (f32, f32)| PointF {
-            X: self.ox as f32 + (x + w / 2.0 + (px - cx) * fit) * self.s,
-            Y: self.oy as f32 + (y + h / 2.0 + (pz - cz) * fit) * self.s,
+    /// The track in a box (design units): the path smoothed, turned so its long side follows the box's, and scaled to
+    /// fit with a margin, drawn as a dark ribbon with a lighter line on top. A whole lap is a closed shape with a
+    /// start/finish tick; a partial path is open, and is not drawn across a jump. The car is a yellow dot, placed
+    /// with the same transform.
+    fn track_map(&self, (x, y, w, h): (f32, f32, f32, f32), path: &[(f32, f32)], complete: bool, car: Option<(f32, f32)>) {
+        let key = MapKey {
+            at: path.as_ptr() as usize,
+            len: path.len(),
+            ends: path
+                .first()
+                .zip(path.last())
+                .map(|(a, b)| [a.0.to_bits(), a.1.to_bits(), b.0.to_bits(), b.1.to_bits()]),
+            frame: [x, y, w, h].map(f32::to_bits),
+            complete,
         };
-        let mut points: Vec<PointF> = path.iter().map(|&p| to_px(p)).collect();
-        if let Some(first) = points.first().copied() {
-            points.push(first);
-        }
-        let road = (9.0 * self.s).max(3.0);
-        let centre = (2.0 * self.s).max(1.0);
+        let prepared = MAP_CACHE.with(|cell| {
+            let mut kept = cell.borrow_mut();
+            if kept.as_ref().is_none_or(|(k, _)| *k != key) {
+                *kept = prepare_map(path, complete, x + w / 2.0, y + h / 2.0, w, h).map(|p| (key, p));
+            }
+            kept.as_ref().map(|(_, p)| p.clone())
+        });
+        let Some(map) = prepared else {
+            return;
+        };
+        let to_px = |(px, py): (f32, f32)| PointF {
+            X: self.ox as f32 + px * self.s,
+            Y: self.oy as f32 + py * self.s,
+        };
+        let road = (11.0 * self.s).max(3.0);
+        let line = (2.5 * self.s).max(1.0);
         smooth(self.hdc, |graphics| unsafe {
-            for (width, color) in [(road, TRACK), (centre, mix(TRACK, TEXT, 0.35))] {
+            for (width, color) in [(road, TRACK), (line, mix(TRACK, TEXT, 0.5))] {
                 let mut pen = null_mut();
                 GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
                 GdipSetPenLineJoin(pen, LineJoinRound);
-                GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                GdipSetPenStartCap(pen, LineCapRound);
+                GdipSetPenEndCap(pen, LineCapRound);
+                for run in &map.runs {
+                    let points: Vec<PointF> = run.iter().map(|&p| to_px(p)).collect();
+                    GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
+                }
                 GdipDeletePen(pen);
             }
-            if let Some(start) = points.first() {
-                let mut brush = null_mut();
-                GdipCreateSolidFill(argb(TEXT), &mut brush);
-                let d = 6.0 * self.s;
-                GdipFillEllipse(graphics, brush.cast(), start.X - d / 2.0, start.Y - d / 2.0, d, d);
-                GdipDeleteBrush(brush.cast());
+            if let Some((a, b)) = map.start {
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(TEXT), (2.5 * self.s).max(1.5), UnitPixel, &mut pen);
+                let (a, b) = (to_px(a), to_px(b));
+                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
+                GdipDeletePen(pen);
             }
             if let Some(car) = car {
-                let at = to_px(car);
+                let at = to_px(map.fit.apply(car));
                 for (radius, color) in [(13.0, mix(BG, ACCENT, 0.3)), (7.0, ACCENT)] {
                     let mut brush = null_mut();
                     GdipCreateSolidFill(argb(color), &mut brush);
@@ -816,7 +829,66 @@ impl Painter {
     }
 }
 
+/// What a prepared map was made from: the map's data (its address, length and ends) and the box, so it is made again
+/// only when one of them changes.
+#[derive(Clone, PartialEq)]
+struct MapKey {
+    at: usize,
+    len: usize,
+    ends: Option<[u32; 4]>,
+    frame: [u32; 4],
+    complete: bool,
+}
+
+/// A map ready to draw, in design units: the runs to draw, the start mark, and how the world is laid in the box.
+#[derive(Clone)]
+struct PreparedMap {
+    runs: Vec<Vec<(f32, f32)>>,
+    start: Option<((f32, f32), (f32, f32))>,
+    fit: crate::maps::Fit,
+}
+
+/// Cuts the path at jumps, smooths it, fits it in the box (`cx`, `cy`, `w`, `h`) and finds the start mark of a whole
+/// lap. Done once per map and box, not at every redraw.
+fn prepare_map(path: &[(f32, f32)], complete: bool, cx: f32, cy: f32, w: f32, h: f32) -> Option<PreparedMap> {
+    let mut runs = crate::maps::split_at_gaps(path, crate::dash::MAP_JUMP_METRES);
+    if runs.is_empty() {
+        return None;
+    }
+    // A whole lap closes on itself (when it came with its first point repeated, that is dropped first).
+    let closed = complete && runs.len() == 1;
+    if closed && runs[0].len() > 3 && runs[0].first() == runs[0].last() {
+        runs[0].pop();
+    }
+    let mut runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| crate::maps::smooth(r, 3, closed)).collect();
+    if closed {
+        let first = runs[0][0];
+        runs[0].push(first);
+    }
+    let all: Vec<(f32, f32)> = runs.iter().flatten().copied().collect();
+    let fit = crate::maps::fit(&all, cx, cy, w, h, 18.0)?;
+    let runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| r.iter().map(|&p| fit.apply(p)).collect()).collect();
+    // The start/finish mark: a tick across the road at the first point, square to the way the lap leaves it.
+    let start = closed
+        .then(|| {
+            let run = &runs[0];
+            let (a, b) = (run[0], *run.get(3).unwrap_or(&run[run.len() - 1]));
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let len = dx.hypot(dy);
+            (len > 0.0).then(|| {
+                (
+                    (a.0 - dy / len * 9.0, a.1 + dx / len * 9.0),
+                    (a.0 + dy / len * 9.0, a.1 - dx / len * 9.0),
+                )
+            })
+        })
+        .flatten();
+    Some(PreparedMap { runs, start, fit })
+}
+
 thread_local! {
+    /// The map as last prepared, for its box; one per thread (the window's, and each test's).
+    static MAP_CACHE: std::cell::RefCell<Option<(MapKey, PreparedMap)>> = const { std::cell::RefCell::new(None) };
     /// The background as last drawn, for the window's size; one per thread (the window's, and each test's).
     static BACKDROP: std::cell::RefCell<Option<Backdrop>> = const { std::cell::RefCell::new(None) };
 }
@@ -2420,7 +2492,7 @@ fn track_panel(g: &mut Painter, live: &Live, view: &View, x: f32, y: f32, w: f32
     let r = g.r(x, y, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelTrack), r, 10.5, MUTED, DT_LEFT);
     match live.map.as_ref().filter(|m| m.len() >= 30) {
-        Some(map) => g.track_map(x, y + 22.0, w, h - 22.0, map, live.pos),
+        Some(map) => g.track_map((x, y + 22.0, w, h - 22.0), map, live.map_complete, live.pos),
         None => {
             g.fill(g.r(x, y + 22.0, w, h - 22.0), mix(BG, CARD, 0.5));
             let note = text(view.lang, &Msg::PanelMapSoon);
@@ -3782,6 +3854,7 @@ mod tests {
             .collect();
         live.pos = Some(track[160]);
         live.map = Some(std::sync::Arc::new(track));
+        live.map_complete = true;
         live.best_lap_s = Some(107.204);
         live.delta_s = Some(-0.27);
         live
@@ -3916,6 +3989,37 @@ mod tests {
     /// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
     /// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
     /// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
+    #[test]
+    fn a_whole_lap_closes_with_a_start_mark_and_a_partial_path_stays_open_and_breaks_at_jumps() {
+        let lap: Vec<(f32, f32)> = (0..200)
+            .map(|i| {
+                let a = i as f32 / 200.0 * std::f32::consts::TAU;
+                (300.0 * a.cos(), 100.0 * a.sin())
+            })
+            .collect();
+        let whole = prepare_map(&lap, true, 200.0, 100.0, 400.0, 200.0).unwrap();
+        assert_eq!(whole.runs.len(), 1);
+        assert_eq!(whole.runs[0].first(), whole.runs[0].last(), "a whole lap closes");
+        assert!(whole.start.is_some());
+        let partial = prepare_map(&lap[..150], false, 200.0, 100.0, 400.0, 200.0).unwrap();
+        assert_ne!(
+            partial.runs[0].first(),
+            partial.runs[0].last(),
+            "a partial path is not joined back to its start"
+        );
+        assert!(partial.start.is_none());
+        let mut jumped = lap[..100].to_vec();
+        jumped.extend(lap[..100].iter().map(|&(x, z)| (x + 2000.0, z)));
+        assert_eq!(prepare_map(&jumped, false, 200.0, 100.0, 400.0, 200.0).unwrap().runs.len(), 2);
+        // The car is placed with the map's own transform: the first point of the lap is the start mark's place.
+        let at = whole.fit.apply(lap[0]);
+        assert!(whole.runs[0].iter().any(|p| (p.0 - at.0).hypot(p.1 - at.1) < 8.0));
+        // Everything lies in the box, with its margin.
+        assert!(whole.runs[0]
+            .iter()
+            .all(|p| (0.0..=400.0).contains(&p.0) && (0.0..=200.0).contains(&p.1)));
+    }
+
     #[test]
     fn writes_the_design_preview_page() {
         let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") else {

@@ -124,6 +124,19 @@ pub fn run(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
     })
 }
 
+/// A panel tracker that keeps each track's map in `maps` (under the Xpeed Sim folder) and takes the built layout from
+/// the outbox in `out`; with no Xpeed Sim folder the maps are just not kept.
+fn tracker_for(game: &'static str, out: &Path) -> crate::dash::Tracker {
+    match crate::maps::default_dir() {
+        Some(maps) => crate::dash::Tracker::stored(crate::maps::Store {
+            maps,
+            layouts: out.join(auto::TRACKS_DIR),
+            game,
+        }),
+        None => crate::dash::Tracker::default(),
+    }
+}
+
 /// Reads whichever of the other games is running, and writes its laps like Le Mans Ultimate's. Each track a game is
 /// driven on is told to `tracks` once (and again when it changes), for its layout to be built. A game that runs without
 /// data is shown as loading for `grace`, then as open without data.
@@ -258,6 +271,7 @@ pub fn run_games(
                         }
                         shared.set_game(source.game_id(), source.game_name(), Game::Connected);
                     }
+                    let game_id = source.game_id();
                     live.push(Live {
                         heard: !listens,
                         quiet,
@@ -271,7 +285,7 @@ pub fn run_games(
                         last_frame: Instant::now(),
                         lap_shown: 0,
                         track_told: None,
-                        tracker: crate::dash::Tracker::default(),
+                        tracker: tracker_for(game_id, out),
                     });
                 }
             }
@@ -303,7 +317,7 @@ pub fn run_games(
                     shared.set_game(l.cutter.game(), l.source.game_name(), Game::Waiting);
                     say(format!("Now reading {}.", l.source.game_name()));
                     l.cutter = LapCutter::new(game);
-                    l.tracker = crate::dash::Tracker::default();
+                    l.tracker = tracker_for(game, out);
                     l.track_told = None;
                     l.lap_shown = 0;
                 }
@@ -479,7 +493,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
         let mut recorder = Recorder::new();
         // The panel needs the distance and times of the scoring stream alongside each telemetry update.
-        let mut tracker = crate::dash::Tracker::default();
+        let mut tracker = tracker_for(LMU_ID, out);
         let mut last_scoring = None;
         let mut silent_waits = 0;
         let mut lap_shown = 0;
