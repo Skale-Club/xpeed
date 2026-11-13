@@ -75,9 +75,68 @@ must not be skipped; the script's `-MinVersion`); `signed` is true when CI signe
 
 Server code: `api/companion/`. Checks: `npm run test:companion-release`.
 
-## How the Companion will use it for updates
+## How the Companion updates itself
 
-The program asks `GET /api/companion/latest` (on start and once a day). If `version` is newer than its own, it offers the
-update; if its own version is older than `minVersion`, it says the update is required. It downloads `downloadUrl`,
-compares the file's SHA-256 with `sha256` (and `size`), and only then runs the installer. Because `downloadUrl` is a stable
-path on the site, the program never needs to know where the files are stored. (The program side is built separately.)
+From version 0.6.0 the program updates itself. Code: `xpeed-sim/src/update.rs` (the rules), `src/tray.rs` (the flow),
+`installer/xpeed-sim.iss` (the installer's side). Because `downloadUrl` is a stable path on the site, the program never needs
+to know where the files are stored.
+
+### The flow
+
+1. **Check.** 30 seconds after it starts, and every 6 hours after that (or when the person picks "Check for updates" in the
+   tray menu), a background thread, looked after by the supervisor like the other workers, asks
+   `GET <server>/api/companion/latest`. `<server>` is the paired server, or `https://xpeed.skale.club` when the computer is
+   not paired (`config::DEFAULT_SERVER`, the one place to change when the domain becomes xpeed.app; the pairing's saved
+   server always wins). A failure (no network, a status that is not 200, an answer that does not pass the checks below) is
+   one line in `companion.log`; the next try is at the next interval. Nothing is shown and no dialog opens.
+2. **Trust nothing.** The answer must be at most 64 KB; every field present; `version` and `minVersion` exactly `a.b.c`
+   (and `minVersion` not above `version`); `build` and `releasedAt` short text; `sha256` 64 lower-case hex digits; `size` a
+   whole number from 1 byte to 200 MB; `signed` true or false; `downloadUrl` an HTTPS address on the same host and port as the
+   server it came from. A version that is not newer than the running one (the same, or older) is ignored: no downgrade, never
+   the same version twice. If the running version is older than `minVersion` the update is **required**: it is shown in red,
+   and still waits for the games to close.
+3. **When it installs.** "Update automatically" (tray menu, on by default) lets the program start by itself, only when no
+   supported game is running and no car is being driven on the panel. "Update now" (tray menu or the Monitor tab's button)
+   is the person's word and ignores the toggle and the lap view, but not a running game: it then shows a balloon
+   ("Close your game to update to 0.6.0. Nothing is lost.") and the update waits. A waiting automatic update is looked at
+   again each time something changes (a game closing), so it goes when the game has closed. A game counts as running when
+   a reader says so or its program is in the list of running processes (checked again at the last moment, after the
+   download). The choice is kept in `config.json` as the optional field `"autoUpdate": false`; a file without the field,
+   or with a value that is not true or false, means on. With no pairing there is no file to keep it in, and the choice lasts
+   until the program closes.
+4. **Download.** To `%TEMP%\Xpeed Companion update\xpeed-companion-setup-<version>.exe.part`, HTTPS only, with a size cap,
+   never sending the device key or cookies. The file name is made by the program (the version is checked), never taken from
+   the server. The size and SHA-256 of the bytes are checked against the answer; they are renamed to `.exe` only if both
+   match, and the file is checked once more before it runs. A mismatch deletes the file and logs it; the program's own
+   attempts then wait 30 minutes (the person's "Update now" does not wait).
+5. **Install.** The program closes (tray, readers and uploader stopped, so no lap is lost: laps are files in the laps folder
+   and the pairing is `config.json`, neither of which the installer touches), frees its single-copy name, and starts
+   `<installer> /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /UPDATE=1`, detached.
+   Before it, it writes `updating` (the target version) next to `config.json`.
+6. **The installer** (same `AppId`, same folder, so it upgrades in place) waits up to 20 s for the old copy's name to be
+   free (`InitializeSetup`), replaces the files, and starts the new version (a `[Run]` line that only a `/UPDATE=1` setup
+   takes). If the installer stops or is refused, `DeinitializeSetup` starts the installed program again, so an update that
+   did not happen never leaves the tray empty. If the installer cannot be started at all, the program starts itself again.
+7. **After.** The new version reads `updating`: if it matches the running version, one balloon says "Xpeed Companion was
+   updated to 0.6.0"; if not, the log says the update did not complete. Leftover installers in the download folder are
+   removed.
+
+### The allowlist
+
+A download goes to the server's own origin (scheme, host, port) or, over HTTPS on port 443, to `github.com`,
+`objects.githubusercontent.com` and `release-assets.githubusercontent.com` (where GitHub keeps a release's files; the site's
+`/api/companion/download` redirects there). Every address is checked before it is asked, at most 3 redirects are followed,
+relative redirects only on the same origin, and anything else (another host, a look-alike like `github.com.evil.example`, a
+user name in the address, another port, plain HTTP, no scheme) is refused. Plain HTTP is accepted only when the server itself
+is `localhost`, `127.0.0.1` or `[::1]` (development).
+
+### What an old Companion must do
+
+Versions before 0.6.0 do not check or update. **Install 0.6.0 once by hand** (the `/companion` page's download); from then on
+updates are automatic. The 0.6.0 installer upgrades the old one in place (same `AppId`).
+
+### What it does not do
+
+It does not verify a signature of the installer (`signed` in `latest.json` is read but not required: signing is optional, see
+[SIGNING.md](SIGNING.md)). The SHA-256 comes from the same server, so it protects against a corrupted or swapped file on
+GitHub, not against a compromised Xpeed server. It never updates while a game runs, not even a required update.

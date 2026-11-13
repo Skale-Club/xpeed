@@ -86,6 +86,20 @@ pub enum Msg {
     NoticeRefused,
     MenuPanel,
     MenuLanguage,
+    MenuCheckUpdates,
+    MenuAutoUpdate,
+    /// The button that installs the new version, and the card it is on.
+    UpdateNow,
+    PanelUpdate,
+    /// The new version, as the person is told of it (the number already written).
+    UpdateAvailable(String),
+    UpdateRequired(String),
+    UpdateDownloading,
+    /// The update waits for the games to close.
+    UpdateHeld(String),
+    NoticeUpdated(String),
+    NoticeUpdateBlocked(String),
+    NoticeUpToDate(String),
     PanelTabDash,
     PanelTabMonitor,
     PanelOnTop,
@@ -311,6 +325,53 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         ),
         MenuPanel => t(s("Open the panel"), s("Abrir o painel"), s("Abrir el panel")),
         MenuLanguage => t(s("Language"), s("Idioma"), s("Idioma")),
+        MenuCheckUpdates => t(
+            s("Check for updates"),
+            s("Verificar atualizações"),
+            s("Buscar actualizaciones"),
+        ),
+        MenuAutoUpdate => t(
+            s("Update automatically"),
+            s("Atualizar automaticamente"),
+            s("Actualizar automáticamente"),
+        ),
+        UpdateNow => t(s("Update now"), s("Atualizar agora"), s("Actualizar ahora")),
+        PanelUpdate => t(s("Update"), s("Atualização"), s("Actualización")),
+        UpdateAvailable(version) => t(
+            format!("Update available: {version}"),
+            format!("Atualização disponível: {version}"),
+            format!("Actualización disponible: {version}"),
+        ),
+        UpdateRequired(version) => t(
+            format!("Update required: {version}"),
+            format!("Atualização necessária: {version}"),
+            format!("Actualización necesaria: {version}"),
+        ),
+        UpdateDownloading => t(
+            s("Downloading the update…"),
+            s("Baixando a atualização…"),
+            s("Descargando la actualización…"),
+        ),
+        UpdateHeld(version) => t(
+            format!("Update {version} installs when no game is running"),
+            format!("A atualização {version} é instalada quando nenhum jogo estiver aberto"),
+            format!("La actualización {version} se instala cuando no haya ningún juego abierto"),
+        ),
+        NoticeUpdated(version) => t(
+            format!("Xpeed Companion was updated to {version}"),
+            format!("O Xpeed Companion foi atualizado para {version}"),
+            format!("Xpeed Companion se actualizó a {version}"),
+        ),
+        NoticeUpdateBlocked(version) => t(
+            format!("Close your game to update to {version}. Nothing is lost."),
+            format!("Feche o jogo para atualizar para {version}. Nada é perdido."),
+            format!("Cierra el juego para actualizar a {version}. No se pierde nada."),
+        ),
+        NoticeUpToDate(version) => t(
+            format!("Xpeed Companion is up to date ({version})"),
+            format!("O Xpeed Companion está atualizado ({version})"),
+            format!("Xpeed Companion está al día ({version})"),
+        ),
         PanelTabDash => t(s("Dashboard"), s("Painel"), s("Panel")),
         PanelTabMonitor => t(s("Monitor"), s("Monitor"), s("Monitor")),
         PanelOnTop => t(s("Always on top"), s("Sempre por cima"), s("Siempre encima")),
@@ -563,6 +624,17 @@ mod tests {
             Msg::WorkersFailed("uploader".into()),
             Msg::MenuPanel,
             Msg::MenuLanguage,
+            Msg::MenuCheckUpdates,
+            Msg::MenuAutoUpdate,
+            Msg::UpdateNow,
+            Msg::PanelUpdate,
+            Msg::UpdateAvailable("0.6.0".into()),
+            Msg::UpdateRequired("0.6.0".into()),
+            Msg::UpdateDownloading,
+            Msg::UpdateHeld("0.6.0".into()),
+            Msg::NoticeUpdated("0.6.0".into()),
+            Msg::NoticeUpdateBlocked("0.6.0".into()),
+            Msg::NoticeUpToDate("0.6.0".into()),
             Msg::PanelTabDash,
             Msg::PanelTabMonitor,
             Msg::PanelOnTop,
@@ -651,6 +723,23 @@ mod tests {
                 assert!(!text(lang, msg).trim().is_empty());
             }
         }
+        // The update lines name the version.
+        for lang in [Lang::En, Lang::Pt, Lang::Es] {
+            for msg in [
+                Msg::UpdateAvailable("0.6.0".into()),
+                Msg::UpdateRequired("0.6.0".into()),
+                Msg::UpdateHeld("0.6.0".into()),
+                Msg::NoticeUpdated("0.6.0".into()),
+                Msg::NoticeUpdateBlocked("0.6.0".into()),
+                Msg::NoticeUpToDate("0.6.0".into()),
+            ] {
+                assert!(text(lang, &msg).contains("0.6.0"));
+            }
+        }
+        assert_eq!(
+            text(Lang::En, &Msg::NoticeUpdated("0.6.0".into())),
+            "Xpeed Companion was updated to 0.6.0"
+        );
         // The hint names the code to compare with the page.
         for lang in [Lang::En, Lang::Pt, Lang::Es] {
             assert!(text(lang, &Msg::ConnectCodeHint("K7QX".into())).contains("K7QX"));

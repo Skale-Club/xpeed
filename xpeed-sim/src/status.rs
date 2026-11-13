@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::dash::Live;
 use crate::outbox::Uploader;
 use crate::supervisor::Health;
+use crate::update::UpdateState;
 use crate::util::lock;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +59,12 @@ pub enum Notice {
     Paired(String),
     NotPaired,
     Refused,
+    /// Xpeed Companion was updated to this version (said once, by the first start after the update).
+    Updated(String),
+    /// "Update now" was asked while a game is running: it waits (this version) until no game is.
+    UpdateBlocked(String),
+    /// A check the person asked for found nothing newer (this is the version running).
+    UpToDate(String),
 }
 
 /// Something the person would want to know happened, for the panel's activity list (put in their language there).
@@ -99,6 +106,8 @@ pub struct Shared {
     activity: Mutex<VecDeque<(i64, Activity)>>,
     /// How each long-lived worker thread stands, by worker id (`supervisor`).
     workers: Mutex<BTreeMap<&'static str, Health>>,
+    /// What the person is told about a new version (the Monitor tab and the tray menu show it).
+    update: Mutex<UpdateState>,
     paused: AtomicBool,
     quit: AtomicBool,
 }
@@ -121,6 +130,7 @@ impl Shared {
             recent_laps: Mutex::new(VecDeque::new()),
             activity: Mutex::new(VecDeque::new()),
             workers: Mutex::new(BTreeMap::new()),
+            update: Mutex::new(UpdateState::Nothing),
             paused: AtomicBool::new(false),
             quit: AtomicBool::new(false),
         })
@@ -280,6 +290,24 @@ impl Shared {
         lock(&self.live).clone()
     }
 
+    /// What the person is told about a new version.
+    pub fn update_state(&self) -> UpdateState {
+        lock(&self.update).clone()
+    }
+
+    /// A new version is waiting, downloading or no longer there; the listener (the tray icon) hears of a change only.
+    pub fn set_update(&self, state: UpdateState) {
+        let changed = {
+            let mut shown = lock(&self.update);
+            let changed = *shown != state;
+            *shown = state;
+            changed
+        };
+        if changed {
+            self.changed();
+        }
+    }
+
     pub fn paused(&self) -> bool {
         self.paused.load(Ordering::SeqCst)
     }
@@ -348,6 +376,30 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(shared.snapshot().game, Game::Recording(3));
         shared.update(|s| s.laps_saved += 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn keeps_what_the_person_is_told_about_a_new_version_and_wakes_the_listener_on_a_change_only() {
+        let shared = Shared::new(true);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        shared.set_on_change(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        assert_eq!(shared.update_state(), UpdateState::Nothing);
+        shared.set_update(UpdateState::Nothing);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let available = UpdateState::Available {
+            version: "0.6.0".into(),
+            required: false,
+            held: false,
+        };
+        shared.set_update(available.clone());
+        shared.set_update(available.clone());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(shared.update_state(), available);
+        shared.set_update(UpdateState::Downloading { version: "0.6.0".into() });
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 

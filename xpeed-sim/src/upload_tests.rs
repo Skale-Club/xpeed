@@ -55,6 +55,7 @@ fn config_for(url: &str) -> Config {
         token: "xpd_test".into(),
         device_name: "RIG".into(),
         account: None,
+        auto_update: true,
     }
 }
 

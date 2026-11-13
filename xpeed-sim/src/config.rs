@@ -21,6 +21,9 @@ pub struct Config {
     /// Who the computer is connected as (the account's email or name), when the connection page said so. Pairings made
     /// with a code do not have it.
     pub account: Option<String>,
+    /// Whether Xpeed Companion installs a newer version by itself (when no game is running). On unless the file says
+    /// `"autoUpdate": false`: an old file without the field, or with a value that is not true or false, means on.
+    pub auto_update: bool,
 }
 
 // A derived Debug would put the key in any log or test failure that prints a Config.
@@ -31,6 +34,7 @@ impl std::fmt::Debug for Config {
             .field("token", &"<hidden>")
             .field("device_name", &self.device_name)
             .field("account", &self.account)
+            .field("auto_update", &self.auto_update)
             .finish()
     }
 }
@@ -245,6 +249,8 @@ fn parse(text: &str, path: &Path) -> Result<(Config, bool), LoadError> {
         token,
         device_name: text_of("deviceName").unwrap_or_default(),
         account: text_of("account"),
+        // Only an explicit `false` turns it off.
+        auto_update: value.get(AUTO_UPDATE_KEY).and_then(Value::as_bool).unwrap_or(true),
     };
     Ok((config, plain))
 }
@@ -270,6 +276,8 @@ pub fn load(path: &Path) -> Result<Option<Config>, String> {
 
 /// The file's field for the protected device key (base64 of the DPAPI bytes). `token` is only in files from before.
 const PROTECTED_KEY: &str = "tokenProtected";
+/// The file's optional field for "Update automatically".
+const AUTO_UPDATE_KEY: &str = "autoUpdate";
 
 fn render(config: &Config, key_field: (&str, String)) -> String {
     let mut value = json!({
@@ -279,6 +287,10 @@ fn render(config: &Config, key_field: (&str, String)) -> String {
     value[key_field.0] = json!(key_field.1);
     if let Some(account) = config.account.as_deref().filter(|a| !a.is_empty()) {
         value["account"] = json!(account);
+    }
+    // Written only when it is off, so a file that never changed the setting looks as it always did.
+    if !config.auto_update {
+        value[AUTO_UPDATE_KEY] = json!(false);
     }
     serde_json::to_string_pretty(&value).unwrap_or_default() + "\n"
 }
@@ -369,6 +381,26 @@ pub fn update_account(path: &Path, token: &str, account: &str) -> Result<bool, S
     Ok(true)
 }
 
+/// Whether "Update automatically" is on for the pairing in `path`: on when there is no file, no such field, or a value
+/// that is not true or false (and when the file cannot be read: the person's choice is never guessed to be off).
+pub fn auto_update_of(path: &Path) -> bool {
+    load(path).ok().flatten().is_none_or(|config| config.auto_update)
+}
+
+/// Remembers the choice "Update automatically" in the configuration file, keeping everything else in it (the key stays
+/// protected). Returns whether it was written: with no pairing there is no file to keep it in, and the choice then only
+/// lasts until the program is closed.
+pub fn set_auto_update(path: &Path, on: bool) -> Result<bool, String> {
+    let Some(mut config) = load(path)? else {
+        return Ok(false);
+    };
+    if config.auto_update != on {
+        config.auto_update = on;
+        save(path, &config)?;
+    }
+    Ok(true)
+}
+
 /// The language the person picked in the tray menu, kept in `language` next to the pairing. English when there is
 /// no choice yet (or the file cannot be read).
 pub fn load_lang(home: &Path) -> crate::text::Lang {
@@ -416,6 +448,7 @@ mod tests {
             token: "xpd_key".into(),
             device_name: "RIG".into(),
             account: None,
+            auto_update: true,
         };
         save(&path, &config).unwrap();
         assert!(update_account(&path, "xpd_key", " ana@example.com ").unwrap());
@@ -531,6 +564,7 @@ mod tests {
             token: "xpd_secret".into(),
             device_name: "RIG".into(),
             account: Some("ana@example.com".into()),
+            auto_update: true,
         };
         assert_eq!(load(&path), Ok(None));
         save(&path, &config).unwrap();
@@ -538,6 +572,63 @@ mod tests {
         assert!(!path.with_extension("json.part").exists(), "no half-written file is left");
         assert_eq!(remove(&path), Ok(true));
         assert_eq!(remove(&path), Ok(false));
+    }
+
+    #[test]
+    fn an_old_config_without_the_update_field_loads_as_automatic() {
+        let dir = scratch_dir("config-auto-update");
+        let path = dir.join("config.json");
+        let old = r#"{"server":"https://xpeed.skale.club","token":"xpd_old","deviceName":"RIG"}"#;
+        std::fs::write(&path, old).unwrap();
+        let config = load(&path).unwrap().unwrap();
+        assert!(config.auto_update, "no field means on");
+        assert!(auto_update_of(&path));
+        // Saving it again does not add the field: the file looks as it always did.
+        save(&path, &config).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("autoUpdate"));
+        // A value that is not true or false means on too.
+        for odd in ["\"no\"", "0", "null", "[]", "\"false\""] {
+            let body = format!(r#"{{"server":"https://xpeed.skale.club","token":"xpd_old","autoUpdate":{odd}}}"#);
+            std::fs::write(&path, body).unwrap();
+            assert!(load(&path).unwrap().unwrap().auto_update, "{odd}");
+        }
+        // Only an explicit false turns it off.
+        std::fs::write(
+            &path,
+            r#"{"server":"https://xpeed.skale.club","token":"xpd_old","autoUpdate":false}"#,
+        )
+        .unwrap();
+        assert!(!load(&path).unwrap().unwrap().auto_update);
+        assert!(!auto_update_of(&path));
+        // No file at all, or one that cannot be read: on.
+        assert!(auto_update_of(&dir.join("missing.json")));
+        std::fs::write(&path, "not json").unwrap();
+        assert!(auto_update_of(&path));
+    }
+
+    #[test]
+    fn the_choice_about_updates_is_kept_with_the_pairing_and_survives_saving_it_again() {
+        let path = scratch_dir("config-auto-update-kept").join("config.json");
+        // With no pairing there is no file to keep it in.
+        assert_eq!(set_auto_update(&path, false), Ok(false));
+        assert!(!path.exists());
+        save(&path, &sample()).unwrap();
+        assert_eq!(set_auto_update(&path, false), Ok(true));
+        assert!(!load(&path).unwrap().unwrap().auto_update);
+        // Another change to the file (the account) keeps it, and so does the key.
+        assert!(update_account(&path, &sample().token, "bob@example.com").unwrap());
+        let saved = load(&path).unwrap().unwrap();
+        assert!(!saved.auto_update);
+        assert_eq!(
+            (saved.token.as_str(), saved.account.as_deref()),
+            (sample().token.as_str(), Some("bob@example.com"))
+        );
+        assert_eq!(set_auto_update(&path, true), Ok(true));
+        assert!(load(&path).unwrap().unwrap().auto_update);
+        assert!(
+            !std::fs::read_to_string(&path).unwrap().contains("autoUpdate"),
+            "on is the absence of the field"
+        );
     }
 
     #[test]
@@ -563,6 +654,7 @@ mod tests {
             token: "xpd_secret_key_0123456789".into(),
             device_name: "RIG".into(),
             account: Some("ana@example.com".into()),
+            auto_update: true,
         }
     }
 
@@ -685,6 +777,7 @@ mod tests {
             token: "xpd_secret".into(),
             device_name: String::new(),
             account: None,
+            auto_update: true,
         };
         assert!(!format!("{config:?}").contains("xpd_secret"));
     }

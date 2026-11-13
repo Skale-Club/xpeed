@@ -4,6 +4,7 @@
 use crate::icon::Light;
 use crate::status::{Cloud, Game, Notice, Snapshot};
 use crate::text::{text, Lang, Msg};
+use crate::update::UpdateState;
 
 pub fn light_of(snapshot: &Snapshot) -> Light {
     match (&snapshot.cloud, &snapshot.game) {
@@ -71,9 +72,57 @@ pub fn notice_text(lang: Lang, notice: &Notice) -> (String, String) {
             Notice::Paired(name) => Msg::NoticePaired(name.clone()),
             Notice::NotPaired => Msg::NoticeNotPaired,
             Notice::Refused => Msg::NoticeRefused,
+            Notice::Updated(version) => Msg::NoticeUpdated(version.clone()),
+            Notice::UpdateBlocked(version) => Msg::NoticeUpdateBlocked(version.clone()),
+            Notice::UpToDate(version) => Msg::NoticeUpToDate(version.clone()),
         },
     );
     ("Xpeed Companion".to_owned(), body)
+}
+
+/// What the Monitor tab and the tray menu say about a new version.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpdateLine {
+    /// `Update available: 0.6.0`, `Downloading the update…`...
+    pub headline: String,
+    /// The running version is older than the server's minimum: shown more prominently.
+    pub required: bool,
+    /// "Update now" can be clicked (not while it downloads, nor while it waits for a game to close).
+    pub button: bool,
+}
+
+pub fn update_line(lang: Lang, state: &UpdateState) -> Option<UpdateLine> {
+    let (msg, required, button) = match state {
+        UpdateState::Nothing => return None,
+        UpdateState::Downloading { .. } => (Msg::UpdateDownloading, false, false),
+        UpdateState::Available {
+            version,
+            held: true,
+            required,
+        } => (Msg::UpdateHeld(version.clone()), *required, false),
+        UpdateState::Available {
+            version,
+            required: true,
+            held: false,
+        } => (Msg::UpdateRequired(version.clone()), true, true),
+        UpdateState::Available { version, .. } => (Msg::UpdateAvailable(version.clone()), false, true),
+    };
+    Some(UpdateLine {
+        headline: text(lang, &msg),
+        required,
+        button,
+    })
+}
+
+/// The tray menu's line: `Update available: 0.6.0 · Update now` (clickable), or the plain headline (grayed).
+pub fn update_menu_line(lang: Lang, state: &UpdateState) -> Option<(String, bool)> {
+    update_line(lang, state).map(|line| {
+        if line.button {
+            (format!("{} · {}", line.headline, text(lang, &Msg::UpdateNow)), true)
+        } else {
+            (line.headline, false)
+        }
+    })
 }
 
 #[cfg(test)]
@@ -131,6 +180,63 @@ Connected as RIG"
         let tip = tooltip(Lang::En, &snapshot(Game::Waiting, Cloud::Idle), Some(&"N".repeat(200)));
         assert_eq!(tip.encode_utf16().count(), 127);
         assert!(tip.ends_with('…'));
+    }
+
+    #[test]
+    fn says_what_an_update_waiting_means_in_each_language() {
+        let available = UpdateState::Available {
+            version: "0.6.0".into(),
+            required: false,
+            held: false,
+        };
+        let line = update_line(Lang::En, &available).unwrap();
+        assert_eq!(
+            (line.headline.as_str(), line.required, line.button),
+            ("Update available: 0.6.0", false, true)
+        );
+        assert_eq!(
+            update_menu_line(Lang::En, &available),
+            Some(("Update available: 0.6.0 · Update now".into(), true))
+        );
+        assert_eq!(
+            update_menu_line(Lang::Pt, &available),
+            Some(("Atualização disponível: 0.6.0 · Atualizar agora".into(), true))
+        );
+        assert_eq!(
+            update_menu_line(Lang::Es, &available),
+            Some(("Actualización disponible: 0.6.0 · Actualizar ahora".into(), true))
+        );
+        // Required: more prominent, and the same button.
+        let required = UpdateState::Available {
+            version: "0.6.0".into(),
+            required: true,
+            held: false,
+        };
+        let line = update_line(Lang::En, &required).unwrap();
+        assert_eq!(
+            (line.headline.as_str(), line.required, line.button),
+            ("Update required: 0.6.0", true, true)
+        );
+        // Waiting for the game to close: no button. Downloading: the words of the spec, no button, and then nothing.
+        let held = UpdateState::Available {
+            version: "0.6.0".into(),
+            required: false,
+            held: true,
+        };
+        let line = update_line(Lang::En, &held).unwrap();
+        assert!(!line.button && line.headline.contains("0.6.0") && line.headline.contains("no game"));
+        assert_eq!(update_menu_line(Lang::En, &held).map(|(_, clickable)| clickable), Some(false));
+        let downloading = UpdateState::Downloading { version: "0.6.0".into() };
+        assert_eq!(
+            update_menu_line(Lang::En, &downloading),
+            Some(("Downloading the update…".into(), false))
+        );
+        assert_eq!(update_line(Lang::En, &UpdateState::Nothing), None);
+        // The balloon after an update.
+        assert_eq!(
+            notice_text(Lang::En, &Notice::Updated("0.6.0".into())),
+            ("Xpeed Companion".into(), "Xpeed Companion was updated to 0.6.0".into())
+        );
     }
 
     #[test]

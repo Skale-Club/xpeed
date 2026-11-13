@@ -20,7 +20,7 @@ use crate::util::{clock, file_safe, iso_utc, now_ms};
 const LMU_ID: &str = "lmu";
 const LMU_NAME: &str = "Le Mans Ultimate";
 /// The game's program (lower case), to tell "open, not sharing" from "not running" when its memory is missing.
-const LMU_PROGRAMS: &[&str] = &["le mans ultimate.exe"];
+pub const LMU_PROGRAMS: &[&str] = &["le mans ultimate.exe"];
 
 /// How long a game whose program runs without sharing data is "loading" (splash screens, menus coming up) before it is
 /// called "open, no data": some games create their shared memory only once loaded.

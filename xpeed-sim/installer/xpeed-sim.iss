@@ -39,6 +39,9 @@ WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
 ; A running copy is asked to close (it holds the mutex below) and the new one is started after the install.
+; With the mutex set, a silent setup (/VERYSILENT /SUPPRESSMSGBOXES) stops if a copy is still running. So when the program
+; updates itself (it starts this setup with /UPDATE=1, see IsSelfUpdate below) it closes first, frees the mutex before it starts
+; the setup, and InitializeSetup waits a moment for it to be gone.
 AppMutex=XpeedSimTray
 CloseApplications=yes
 RestartApplications=no
@@ -82,12 +85,56 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "run"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; After the program updated itself (/UPDATE=1, a silent setup) the new version starts by itself: nobody is at the keyboard to
+; tick "Launch". A normal install, silent or not, never takes this line, and it is a plain start (a second copy would find the
+; first one running and leave).
+Filename: "{app}\{#AppExe}"; Parameters: "run"; Flags: nowait skipifdoesntexist; Check: IsSelfUpdate
 
 [UninstallRun]
 ; Make sure it is not running while its files are removed. (Laps, the log and the connection are left alone.)
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden; RunOnceId: "StopXpeedCompanion"
 
 [Code]
+// True when Xpeed Companion started this setup to update itself: /UPDATE=1 on the command line (with /VERYSILENT and the rest).
+function IsSelfUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
+
+// A self-update starts this setup from the program, which frees its mutex first and then ends; wait (at most 20 s) until
+// it is gone, so the setup never stops at "the program is running" and never replaces a file that is in use.
+function InitializeSetup: Boolean;
+var
+  Waited: Integer;
+begin
+  Result := True;
+  if IsSelfUpdate then
+  begin
+    Waited := 0;
+    while CheckForMutexes('XpeedSimTray') and (Waited < 20000) do
+    begin
+      Sleep(250);
+      Waited := Waited + 250;
+    end;
+  end;
+end;
+
+// The program closed itself to be updated, so if the setup ends and nothing is running (the setup stopped, or was refused),
+// the program that was installed starts again: an update that did not happen must not leave the tray empty. After a good
+// update the [Run] line above has started it already and this does nothing.
+procedure DeinitializeSetup;
+var
+  ResultCode: Integer;
+  Exe: String;
+begin
+  if IsSelfUpdate and not CheckForMutexes('XpeedSimTray') then
+  begin
+    Exe := ExpandConstant('{localappdata}\Programs\{#AppName}\{#AppExe}');
+    if FileExists(Exe) then
+      Exec(Exe, 'run', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
+end;
+
 // True when the old start-up entry is there: the person had the program starting with Windows.
 function OldStartupEntryExists: Boolean;
 begin

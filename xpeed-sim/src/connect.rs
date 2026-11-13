@@ -302,6 +302,8 @@ fn run(flow: &Flow, generation: u64, server: &str, config_path: Option<PathBuf>,
                     token: key,
                     device_name,
                     account: Some(account).filter(|a| !a.is_empty()),
+                    // Connecting again keeps the person's choice about updates.
+                    auto_update: config_path.as_deref().is_none_or(config::auto_update_of),
                 };
                 if let Some(path) = &config_path {
                     if let Err(why) = config::save(path, &config) {

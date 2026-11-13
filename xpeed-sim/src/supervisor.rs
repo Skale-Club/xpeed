@@ -47,6 +47,7 @@ pub const GAMES: &str = "games";
 pub const LMU: &str = "lmu";
 pub const TRACKS: &str = "tracks";
 pub const UPLOADER: &str = "uploader";
+pub const UPDATER: &str = "updater";
 
 /// What a worker is called in a sentence (the log, the panel, the diagnostics).
 pub fn title(id: &str) -> &'static str {
@@ -55,6 +56,7 @@ pub fn title(id: &str) -> &'static str {
         LMU => "Le Mans Ultimate reader",
         TRACKS => "track builder",
         UPLOADER => "uploader",
+        UPDATER => "update checker",
         _ => "background task",
     }
 }
