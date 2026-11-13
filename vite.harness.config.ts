@@ -17,27 +17,33 @@ export default defineConfig(async (env: ConfigEnv) => {
         // Local screen tests only. This ledger and the fake AI never contact production.
         const cars = new Map<string, FuelEntry[]>();
         const intents = new Map<string, FuelEntry>();
-        // Synthetic Virtual data (the laps Xpeed Companion would have sent), so Overview, Sessions and Game cars have something to show.
-        // Start the harness with HARNESS_NO_LAPS=1 to see the empty states instead.
+        // Synthetic Virtual data (what Xpeed Companion would have sent), so Overview, Sessions, a session, Compare and Game cars have something
+        // to show: the racing data API (docs/platform/API-V1.md) is faked in src/harness/sim-v1.ts, which is loaded through Vite so it can use the
+        // app's own code and aliases. Start the harness with HARNESS_NO_LAPS=1 to see the empty states, HARNESS_API_DOWN=1 for the error state
+        // (GET /api/sim/v1/__fail?on=1 and ?on=0 switch the outage on and off while it runs, to see "showing saved data").
+        server.middlewares.use('/api/sim/v1', async (req, res) => {
+          try {
+            const url = new URL(req.url ?? '/', 'http://localhost');
+            const mod = await server.ssrLoadModule('/src/harness/sim-v1.ts');
+            const answer = await mod.answerV1(req.method ?? 'GET', url.pathname, Object.fromEntries(url.searchParams));
+            res.statusCode = answer.status;
+            if (answer.bytes) {
+              res.setHeader('Content-Type', 'application/gzip');
+              return res.end(Buffer.from(answer.bytes));
+            }
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(answer.json === undefined ? undefined : JSON.stringify(answer.json));
+          } catch (error) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ error: 'harness_error', retryable: false, detail: String(error) }));
+          }
+        });
         server.middlewares.use('/api/sim', (req, res, next) => {
           const path = (req.url ?? '/').split('?')[0];
           const empty = process.env.HARNESS_NO_LAPS === '1';
           res.setHeader('Content-Type', 'application/json');
-          if (path === '/laps' && req.method === 'GET') {
-            const lap = (n: number, game: string, track: string, car: string, timeMs: number, startedAt: string, valid = true) => ({
-              id: `harness-${n}`, game, track, car, lapNumber: n, timeMs, valid, startedAt, sampleCount: 1000 + n, sizeBytes: 250_000,
-              createdAt: new Date(Date.parse(startedAt) + timeMs + 5000).toISOString(), deviceName: 'Racing PC',
-            });
-            return res.end(JSON.stringify({ laps: empty ? [] : [
-              lap(1, 'ac', 'Monza', 'Ferrari 499P', 101_250, '2026-11-12T18:00:00.000Z'),
-              lap(2, 'ac', 'Monza', 'Ferrari 499P', 99_480, '2026-11-12T18:03:00.000Z'),
-              lap(3, 'ac', 'Monza', 'Ferrari 499P', 92_000, '2026-11-12T18:06:00.000Z', false),
-              lap(4, 'ac', 'Spa-Francorchamps', 'Ferrari 499P', 141_300, '2026-11-12T19:30:00.000Z'),
-              lap(5, 'lmu', 'Bahrain', 'Toyota GR010', 110_900, '2026-11-11T15:00:00.000Z'),
-              lap(6, 'lmu', 'Bahrain', 'Toyota GR010', 109_720, '2026-11-11T15:03:00.000Z'),
-              lap(7, 'ac', 'Monza', 'Porsche 911 GT3 R', 105_000, '2026-11-08T12:00:00.000Z'),
-            ] }));
-          }
+          if (path === '/tracks' && req.method === 'GET') return res.end(JSON.stringify({ tracks: [] }));
           if (path === '/devices' && req.method === 'GET') {
             return res.end(JSON.stringify({ devices: empty ? [] : [{ id: 'd1', name: 'Racing PC', created_at: '2026-11-01T00:00:00.000Z', last_seen_at: new Date().toISOString(), last_lap_at: null, revoked_at: null }] }));
           }

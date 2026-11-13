@@ -1,356 +1,148 @@
-import { useMemo, useRef, useState, type DragEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeftRight, ChevronDown, Cloud, ChevronRight, FolderOpen, Loader2, Trash2, Upload } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useSettings } from '@/contexts/SettingsContext';
-import { useSimLaps } from '@/hooks/use-sim-laps';
-import { deleteAccountLap, useRefreshAccountLaps, type LapEntry } from '@/lib/sim/account-laps';
+import { Button } from '@/components/ui/button';
 import { useGames } from '@/lib/sim/games';
-import { formatGap, formatLapTime } from '@/lib/sim/analysis';
-import { importLapFiles, type ImportFailure, type ImportResult } from '@/lib/sim/import-laps';
-import { compareUrl } from '@/lib/sim/compare-url';
-import { clearLibrary, removeLaps } from '@/lib/sim/library';
-import { groupSessions, type Session } from '@/lib/sim/sessions';
-import { cn } from '@/lib/utils';
+import { formatLapTime } from '@/lib/sim/analysis';
+import { sessionPath } from '@/lib/sim/routes';
+import { useCars, useOverview, useSessions, useTracks, type V1Session } from '@/lib/sim/v1-client';
+import { FilterSelect } from './FilterSelect';
+import { useReadAllPages } from './use-read-all-pages';
+import { GameBadge, KindBadge } from './session-bits';
+import { useConditions, useOrigin } from './use-session-text';
+import { CompanionInvite, LoadMore, QueryGate } from './SimStates';
 import { SimCarIdentity } from './SimCarIdentity';
+import { useWhen } from './use-when';
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/** One session, as a card that opens its page. Nothing here needs a lap file. */
+export function SessionCard({ session }: { session: V1Session }) {
+  const { t } = useTranslation();
+  const when = useWhen();
+  const conditions = useConditions();
+  const origin = useOrigin();
+  const weather = conditions(session);
+  return (
+    <Link to={sessionPath(session.id)} className="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-link">
+      <Card className="bg-card border-border transition-colors hover:bg-muted/30" data-testid="session">
+        <CardContent className="space-y-2 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold">{session.track.name}</h3>
+              <SimCarIdentity name={session.car.name} className="text-sm text-muted-foreground" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <KindBadge kind={session.kind} />
+              <GameBadge game={session.game} />
+              <ChevronRight className="hidden h-4 w-4 text-muted-foreground sm:block" aria-hidden />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {when(Date.parse(session.startedAt))}
+            {weather ? ` · ${weather}` : ''}
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
+            <span>{t('modes.sessions.lapCount', 'Laps: {{count}}', { count: session.lapCount })}</span>
+            <span data-testid="session-best">
+              <span className="text-xs text-muted-foreground">{t('modes.sessions.bestLabel', 'Best valid lap')}: </span>
+              <span className="font-mono tabular-nums">{session.bestLapMs !== null ? formatLapTime(session.bestLapMs) : '–'}</span>
+            </span>
+            <span className="text-xs text-muted-foreground" data-testid="session-origin">{origin(session.origin)}</span>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
 }
 
-type Pending = { kind: 'session'; session: Session<LapEntry> } | { kind: 'all' } | null;
-
 /**
- * Virtual > Sessions: the laps kept on this device, grouped into sessions (one car, one track, no long break).
- * Laps come from lap files added by hand (or a whole folder: the one Xpeed Companion writes into); nothing is
- * uploaded, and each account sees only its own.
+ * Virtual > Sessions: the sessions on the account (Xpeed Companion groups the laps by what the game says), newest first, a page
+ * at a time, filtered by game, track and car. The list never opens a lap file.
  */
 export function SessionsList() {
+  const { t } = useTranslation();
   const games = useGames();
-  const { t, i18n } = useTranslation();
-  const { timezone } = useSettings();
-  const { laps, library, settled } = useSimLaps();
-  const refreshAccount = useRefreshAccountLaps();
-  const navigate = useNavigate();
-  const sessions = useMemo(() => groupSessions(laps), [laps]);
-  const totalBytes = useMemo(() => library.laps.reduce((sum, lap) => sum + lap.size, 0), [library.laps]);
+  const [params, setParams] = useSearchParams();
+  const game = params.get('game') ?? '';
+  const track = params.get('track') ?? '';
+  const car = params.get('car') ?? '';
+  const filtered = !!(game || track || car);
 
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [report, setReport] = useState<ImportResult | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [picked, setPicked] = useState<string[]>([]);
-  const [pending, setPending] = useState<Pending>(null);
-  const files = useRef<HTMLInputElement>(null);
-  const folder = useRef<HTMLInputElement>(null);
+  const overview = useOverview();
+  const tracks = useTracks(game ? { game } : {});
+  const cars = useCars(game ? { game } : {});
+  useReadAllPages(tracks);
+  useReadAllPages(cars);
+  const sessions = useSessions({ game: game || undefined, track: track || undefined, car: car || undefined });
 
-  const when = (ms: number) => {
-    try {
-      return new Intl.DateTimeFormat(i18n.resolvedLanguage || 'en', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone }).format(ms);
-    } catch {
-      return new Date(ms).toISOString();
+  const setFilter = (key: 'game' | 'track' | 'car', value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    // A track or a car belongs to one game: another game starts those over.
+    if (key === 'game') {
+      next.delete('track');
+      next.delete('car');
     }
+    setParams(next, { replace: true });
   };
 
-  const run = async (list: File[], fromFolder: boolean) => {
-    if (!library.userId || list.length === 0) return;
-    setReport(null);
-    setProgress({ done: 0, total: list.length });
-    try {
-      setReport(await importLapFiles(library.userId, list, { fromFolder, onProgress: (done, total) => setProgress({ done, total }) }));
-    } finally {
-      setProgress(null);
-    }
-  };
-  const onDrop = (event: DragEvent) => {
-    event.preventDefault();
-    setDragging(false);
-    void run(Array.from(event.dataTransfer.files), false);
-  };
-
-  const togglePicked = (id: string) =>
-    setPicked((current) => (current.includes(id) ? current.filter((other) => other !== id) : [...current.slice(-1), id]));
-
-  const reasonText = (reason: ImportFailure) =>
-    ({
-      too_big: t('modes.compare.reasons.too_big', 'it is too large to be a lap'),
-      not_a_lap: t('modes.compare.reasons.not_a_lap', 'it is not a lap file'),
-      unreadable: t('modes.compare.reasons.unreadable', 'it could not be read'),
-      full: t('modes.sessions.reasons.full', 'there is no room left on this device'),
-      unavailable: t('modes.sessions.reasons.unavailable', 'this browser cannot keep laps on the device'),
-      failed: t('modes.sessions.reasons.failed', 'it could not be kept'),
-    })[reason];
-
-  const confirmRemoval = async () => {
-    const what = pending;
-    setPending(null);
-    if (!what || !library.userId) return;
-    const gone = what.kind === 'all' ? laps : what.session.laps;
-    if (what.kind === 'all') await clearLibrary(library.userId);
-    else await removeLaps(library.userId, gone.filter((lap) => lap.onDevice).map((lap) => lap.id));
-    // A lap the account holds is forgotten there too, or it would come back at the next refresh.
-    await Promise.all(gone.filter((lap) => lap.serverId).map((lap) => deleteAccountLap(lap.serverId!)));
-    if (gone.some((lap) => lap.serverId)) await refreshAccount();
-    setPicked([]);
-  };
+  const named = (item: { name: string; game: string }) => (game ? item.name : `${item.name} · ${games.name(item.game)}`);
 
   return (
     <div className="space-y-4" data-testid="sessions">
-      <Card
-        className={cn('bg-card border-border border-dashed transition-colors', dragging && 'border-primary bg-primary/5')}
-        onDragOver={(event: DragEvent) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        data-testid="sessions-dropzone"
-      >
-        <CardContent className="space-y-3 p-4">
-          <p className="text-sm text-muted-foreground">
-            {t('modes.sessions.intro', 'Your laps, grouped into sessions: the same car on the same track without a long break.')}{' '}
-            {t('modes.sessions.sources', 'Laps Xpeed Companion sends to your account appear by themselves. Lap files you add here stay in your browser.')}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => files.current?.click()} disabled={!library.userId || library.status === 'unavailable' || progress !== null}>
-              <Upload className="mr-2 h-4 w-4" /> {t('modes.sessions.add', 'Add lap files')}
-            </Button>
-            <Button variant="outline" onClick={() => folder.current?.click()} disabled={!library.userId || library.status === 'unavailable' || progress !== null}>
-              <FolderOpen className="mr-2 h-4 w-4" /> {t('modes.sessions.addFolder', 'Add a folder')}
-            </Button>
-            {laps.length > 0 && (
-              <Button variant="ghost" onClick={() => setPending({ kind: 'all' })}>
-                <Trash2 className="mr-2 h-4 w-4" /> {t('modes.sessions.removeAll', 'Remove everything')}
+      <p className="text-sm text-muted-foreground">{t('modes.sessions.intro', 'Your sessions: the laps Xpeed Companion sent, grouped by car and track as the game ran them.')}</p>
+
+      <div className="grid gap-3 sm:grid-cols-3" data-testid="session-filters">
+        <FilterSelect
+          label={t('modes.sessions.filterGame', 'Game')}
+          allLabel={t('modes.sessions.all', 'All')}
+          value={game}
+          onChange={(value) => setFilter('game', value)}
+          options={(overview.data?.lapsPerGame ?? []).map((entry) => ({ value: entry.game, label: games.name(entry.game) }))}
+          testId="filter-game"
+        />
+        <FilterSelect
+          label={t('modes.sessions.filterTrack', 'Track')}
+          allLabel={t('modes.sessions.all', 'All')}
+          value={track}
+          onChange={(value) => setFilter('track', value)}
+          options={tracks.items.map((item) => ({ value: item.id, label: named(item) }))}
+          testId="filter-track"
+        />
+        <FilterSelect
+          label={t('modes.sessions.filterCar', 'Car')}
+          allLabel={t('modes.sessions.all', 'All')}
+          value={car}
+          onChange={(value) => setFilter('car', value)}
+          options={cars.items.map((item) => ({ value: item.id, label: named(item) }))}
+          testId="filter-car"
+        />
+      </div>
+
+      <QueryGate
+        query={sessions}
+        empty={sessions.items.length === 0}
+        emptyNode={
+          filtered ? (
+            <div className="space-y-2 rounded-lg border border-dashed border-border p-4" data-testid="sessions-no-match">
+              <p className="text-sm text-muted-foreground">{t('modes.sessions.noMatch', 'No session matches these filters.')}</p>
+              <Button size="sm" variant="outline" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
+                {t('modes.sessions.clearFilters', 'Clear the filters')}
               </Button>
-            )}
-            <span className="text-xs text-muted-foreground">{t('modes.sessions.drop', 'or drop lap files here')}</span>
-          </div>
-          <input
-            ref={files}
-            type="file"
-            multiple
-            accept=".gz,.xlap,application/gzip,application/x-gzip,application/octet-stream"
-            className="sr-only"
-            tabIndex={-1}
-            aria-label={t('modes.sessions.add', 'Add lap files')}
-            data-testid="sessions-files"
-            onChange={(event) => {
-              void run(Array.from(event.target.files ?? []), false);
-              event.target.value = '';
-            }}
-          />
-          <input
-            ref={folder}
-            type="file"
-            multiple
-            // Not in the standard, but every current browser takes it: it hands over the files of a whole folder.
-            {...({ webkitdirectory: '' } as object)}
-            className="sr-only"
-            tabIndex={-1}
-            aria-label={t('modes.sessions.addFolder', 'Add a folder')}
-            data-testid="sessions-folder"
-            onChange={(event) => {
-              void run(Array.from(event.target.files ?? []), true);
-              event.target.value = '';
-            }}
-          />
-          {progress && (
-            <p className="flex items-center gap-2 text-sm" role="status">
-              <Loader2 className="h-4 w-4 animate-spin" /> {t('modes.sessions.importing', 'Adding laps… {{done}} of {{total}}', progress)}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {report && (
-        <div role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="import-report">
-          <p>
-            {t('modes.sessions.result', 'Added {{added}}, already there {{duplicates}}, other files skipped {{ignored}}.', {
-              added: report.added,
-              duplicates: report.duplicates,
-              ignored: report.ignored,
-            })}
-          </p>
-          {report.failed.map((failure) => (
-            <p key={failure.name} role="alert" className="text-destructive">
-              {t('modes.compare.readError', '{{name}}: {{reason}}', { name: failure.name, reason: reasonText(failure.reason) })}
-            </p>
-          ))}
-          {report.stopped && <p className="text-destructive">{t('modes.sessions.stopped', 'Stopped: nothing more could be kept.')}</p>}
-        </div>
-      )}
-
-      {library.status === 'loading' && (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading', 'Loading…')}
-        </p>
-      )}
-      {library.status === 'unavailable' && (
-        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          {t('modes.sessions.unavailable', 'This browser cannot keep laps on the device. You can still open lap files directly in Compare laps.')}{' '}
-          <Link to="/virtual/compare" className="underline">{t('modes.nav.compare', 'Compare laps')}</Link>
-        </p>
-      )}
-      {library.status === 'failed' && (
-        <p role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          {t('modes.sessions.failed', 'Your laps could not be read from this device.')}
-          <Button size="sm" variant="outline" onClick={() => void library.refresh()}>{t('modes.sessions.retry', 'Try again')}</Button>
-        </p>
-      )}
-      {settled && library.status === 'ready' && sessions.length === 0 && (
-        <p className="text-sm text-muted-foreground" data-testid="sessions-empty">
-          {t('modes.sessions.empty', 'No laps yet. Connect Xpeed Companion and drive: your laps show up here, grouped into sessions.')}{' '}
-          <Link to="/virtual/companion" className="underline">{t('modes.sessions.emptyLink', 'Connect Xpeed Companion')}</Link>
-        </p>
-      )}
-
-      {sessions.map((session, index) => {
-        const expanded = open[session.id] ?? index === 0;
-        const best = session.best;
-        return (
-          <Card key={session.id} className="bg-card border-border" data-testid="session">
-            <CardContent className="space-y-3 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <h3 className="truncate text-sm font-semibold">{session.trackName} ·</h3>{' '}
-                    <SimCarIdentity name={session.carName} className="text-sm font-semibold" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {when(session.startedAt)} · {t('modes.sessions.lapCount', 'Laps: {{count}}', { count: session.laps.length })}
-                    {' '}({t('modes.sessions.validCount', '{{count}} valid', { count: session.validCount })})
-                    {best ? ` · ${t('modes.sessions.best', 'Best: {{time}}', { time: formatLapTime(best.summary.timeMs) })}` : ''}
-                    {session.laps.some((lap) => lap.onServer) && <Cloud className="ml-1.5 inline h-3.5 w-3.5" aria-label={t('modes.sessions.inAccount', 'In your account')} />}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {session.carClass && <Badge variant="secondary">{session.carClass}</Badge>}
-                  <Badge variant="outline" className="gap-1.5">
-                    {games.cover(session.game) && <img src={games.cover(session.game)!} alt="" className="h-4 w-4 rounded-sm object-cover" loading="lazy" />}
-                    {games.name(session.game)}
-                  </Badge>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8"
-                    aria-label={t('modes.sessions.removeSession', 'Remove session')}
-                    title={t('modes.sessions.removeSession', 'Remove session')}
-                    onClick={() => setPending({ kind: 'session', session })}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <Button
-                size="sm"
-                variant="ghost"
-                className="-ml-2 h-7 px-2"
-                aria-expanded={expanded}
-                onClick={() => setOpen((current) => ({ ...current, [session.id]: !expanded }))}
-              >
-                {expanded ? <ChevronDown className="mr-1 h-4 w-4" /> : <ChevronRight className="mr-1 h-4 w-4" />}
-                {expanded ? t('modes.sessions.hide', 'Hide laps') : t('modes.sessions.show', 'Show laps')}
-              </Button>
-
-              {expanded && (
-                <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs sm:text-sm">
-                      <thead>
-                        <tr className="text-left text-xs text-muted-foreground">
-                          <th className="w-8" />
-                          <th scope="col" className="pr-2 sm:pr-3 font-normal">{t('modes.compare.lap', 'Lap')}</th>
-                          <th scope="col" className="pr-2 sm:pr-3 text-right font-normal">{t('modes.sessions.time', 'Time')}</th>
-                          <th scope="col" className="whitespace-nowrap pr-2 sm:pr-3 text-right font-normal">{t('modes.sessions.gap', 'Gap to best')}</th>
-                          <th scope="col" className="pr-2 sm:pr-3 font-normal">{t('modes.sessions.status', 'Status')}</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {session.laps.map((lap) => {
-                          const isBest = best?.id === lap.id;
-                          return (
-                            <tr key={lap.id} className={cn('border-t border-border', isBest && 'bg-primary/5')} data-testid="session-lap">
-                              <td className="py-1.5">
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 accent-[hsl(var(--primary))]"
-                                  checked={picked.includes(lap.id)}
-                                  onChange={() => togglePicked(lap.id)}
-                                  aria-label={t('modes.sessions.select', 'Select lap {{lap}} to compare', { lap: lap.summary.lapNumber })}
-                                />
-                              </td>
-                              <td className="whitespace-nowrap py-1.5 pr-2 sm:pr-3">{lap.summary.lapNumber}</td>
-                              <td className="whitespace-nowrap py-1.5 pr-2 sm:pr-3 text-right font-mono tabular-nums">{formatLapTime(lap.summary.timeMs)}</td>
-                              <td className="whitespace-nowrap py-1.5 pr-2 sm:pr-3 text-right font-mono tabular-nums text-muted-foreground">
-                                {best && !isBest && lap.summary.valid ? `${formatGap((lap.summary.timeMs - best.summary.timeMs) / 1000)} s` : '–'}
-                              </td>
-                              <td className="whitespace-nowrap py-1.5 pr-2 sm:pr-3 text-xs">
-                                {isBest ? t('modes.sessions.isBest', 'Best lap') : lap.summary.valid ? t('modes.compare.valid', 'valid') : t('modes.compare.notValid', 'not valid')}
-                              </td>
-                              <td className="py-1.5 text-right">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={!best || isBest}
-                                  aria-label={t('modes.sessions.vsBest', 'Compare with best')}
-                                  title={t('modes.sessions.vsBest', 'Compare with best')}
-                                  onClick={() => best && navigate(compareUrl(lap.id, best.id))}
-                                >
-                                  {/* A phone has no room for the words: the icon says it, and the name is still read out. */}
-                                  <ArrowLeftRight className="h-4 w-4 sm:mr-2" />
-                                  <span className="hidden sm:inline">{t('modes.sessions.vsBest', 'Compare with best')}</span>
-                                </Button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      size="sm"
-                      disabled={picked.length !== 2}
-                      onClick={() => navigate(compareUrl(picked[0], picked[1]))}
-                    >
-                      {t('modes.sessions.compareTwo', 'Compare the two selected')}
-                    </Button>
-                    {picked.length !== 2 && <span className="text-xs text-muted-foreground">{t('modes.sessions.pickTwo', 'Pick two laps to compare them.')}</span>}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
-
-      {library.laps.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {t('modes.sessions.storage', 'Kept on this device only ({{size}}). Clearing your browser data removes them.', { size: formatBytes(totalBytes) })}
-        </p>
-      )}
-
-      <ConfirmDialog
-        open={pending !== null}
-        onOpenChange={(next) => !next && setPending(null)}
-        title={pending?.kind === 'all' ? t('modes.sessions.confirmAllTitle', 'Remove all your laps?') : t('modes.sessions.confirmSessionTitle', 'Remove this session?')}
-        description={
-          pending?.kind === 'all'
-            ? t('modes.sessions.confirmAllBody', 'Every lap kept on this device is removed, and so is every lap in your account. The files you added stay wherever they are.')
-            : t('modes.sessions.confirmSessionBody', '{{count}} laps are removed from this device and from your account. The files you added stay wherever they are.', {
-                count: pending?.kind === 'session' ? pending.session.laps.length : 0,
-              })
+            </div>
+          ) : (
+            <CompanionInvite testId="sessions-empty" />
+          )
         }
-        confirmLabel={t('modes.sessions.confirmRemove', 'Remove')}
-        onConfirm={() => void confirmRemoval()}
-      />
+      >
+        <div className="space-y-3">
+          {sessions.items.map((session) => (
+            <SessionCard key={session.id} session={session} />
+          ))}
+        </div>
+        <LoadMore hasNextPage={!!sessions.hasNextPage} isFetchingNextPage={sessions.isFetchingNextPage} onClick={() => void sessions.fetchNextPage()} />
+      </QueryGate>
     </div>
   );
 }

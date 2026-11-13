@@ -76,10 +76,15 @@ export function resampleLap(lap: LapFile, ids: readonly string[], grid: number[]
 
 /** Whether two laps can be compared: the same game and track, and the same length within 3%. */
 export function comparable(a: LapFile, b: LapFile): boolean {
-  if (a.header.game !== b.header.game) return false;
-  if (a.header.track.name.trim().toLowerCase() !== b.header.track.name.trim().toLowerCase()) return false;
+  return incomparableReason(a, b) === null;
+}
+
+/** Why two laps cannot be compared (a different game, a different track, or lengths too far apart to be the same track), or null when they can. */
+export function incomparableReason(a: LapFile, b: LapFile): 'game' | 'track' | 'length' | null {
+  if (a.header.game !== b.header.game) return 'game';
+  if (a.header.track.name.trim().toLowerCase() !== b.header.track.name.trim().toLowerCase()) return 'track';
   const [la, lb] = [lapLength(a), lapLength(b)];
-  return la > 0 && lb > 0 && Math.abs(la - lb) / Math.max(la, lb) <= 0.03;
+  return la > 0 && lb > 0 && Math.abs(la - lb) / Math.max(la, lb) <= 0.03 ? null : 'length';
 }
 
 /** The gap at each point: positive means lap A took longer to get there than the reference B (A is behind). */

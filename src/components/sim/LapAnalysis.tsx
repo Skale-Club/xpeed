@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FolderOpen, MapPin, Sparkles, Trash2, X } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LapCharts } from '@/components/sim/LapCharts';
@@ -8,26 +8,21 @@ import { TrackMap, type MapFocus } from '@/components/sim/TrackMap';
 import { offLineStretches, offsetsFromLine, type OffLineStretch } from '@/lib/sim/line-offset';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
-  comparable, distanceGrid, formatGap, formatLapTime, gapSeries, lapLength, lapStats, lengthIn, lengthLabel, resampleLap, speedIn,
+  distanceGrid, formatGap, formatLapTime, gapSeries, incomparableReason, lapLength, lapStats, lengthIn, lengthLabel, resampleLap, speedIn,
   speedLabel, timeChanges, trackPath, type DistanceUnit,
 } from '@/lib/sim/analysis';
 import type { LapFile } from '@/lib/sim/lap-file';
-import { LapReadError, readLapFile } from '@/lib/sim/read-lap-file';
-import { readTrackFile } from '@/lib/sim/read-track-file';
-import { makeSampleLaps } from '@/lib/sim/sample-laps';
-import { layoutGame, trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
+import { layoutGame, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 import type { LibraryTrack } from '@/lib/sim/track-library';
 import { cn } from '@/lib/utils';
 import { SimCarIdentity } from './SimCarIdentity';
 
+/** A lap whose samples are loaded, by the id the server gave it. */
 export interface LoadedLap {
   id: string;
-  name: string;
   lap: LapFile;
-  sample?: boolean;
 }
 
-const MAX_LAPS = 12;
 /** Half the lap further than this from the ideal line: the lap is not on that layout. */
 const OFF_LAYOUT_M = 25;
 
@@ -96,7 +91,7 @@ function NoLayout({ game, track, listKept, onPick }: { game: string; track: stri
   const name = (entry: LibraryTrack) => [entry.summary.title ?? entry.summary.trackName, entry.summary.variant].filter(Boolean).join(' · ');
   return (
     <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="no-layout">
-      <p>{t('modes.compare.noLayout', 'No track layout is kept on this device for “{{track}}”. Open its .xtrk file here.', { track })}</p>
+      <p>{t('modes.compare.noLayout', 'Xpeed Companion has not sent the track layout of “{{track}}” yet. It is sent by itself the next time you drive the track.', { track })}</p>
       {onPick && options.length > 0 && (
         <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {t('modes.compare.useKeptLayout', 'Or use a layout you kept (the game may name the track differently):')}
@@ -162,22 +157,21 @@ function OffLine({ items, unit, onShow }: { items: OffLineStretch[]; unit: Dista
 }
 
 /**
- * Looking at laps in the browser: open lap files written by Xpeed Companion (or the sample laps), pick one as the
- * lap and one as the reference, and read the gap between them along the track. The files are read here and go
- * nowhere else: no account, no server.
+ * One lap looked at closely, and optionally against a reference: the numbers, the gap along the track, speed and pedals, where
+ * time is lost and gained, and the lap on the map. The laps are already loaded (the Compare screen downloads them from the
+ * account); two laps that cannot be compared are refused with the reason, and the lap alone is still shown.
  */
 export function LapAnalysis({
-  initialLaps,
+  lap: a,
+  reference: b,
   findLayout,
-  onLayoutFile,
   listKeptLayouts,
   linkLayout,
 }: {
-  initialLaps?: LoadedLap[];
-  /** Looks for the layout of the track of a lap among the ones kept on this device (a track layout opened here wins over it). */
+  lap: LoadedLap;
+  reference?: LoadedLap | null;
+  /** Looks for the layout of the track of a lap among the ones Xpeed Companion sent (kept on this device). */
   findLayout?: (game: string, trackName: string, variant?: string | null) => Promise<TrackFile | null>;
-  /** Called with each track layout file that is opened here, so it can be kept. */
-  onLayoutFile?: (file: File, layout: TrackFile) => void;
   /** The layouts kept on this device, to choose one by hand when none has the lap's track name. */
   listKeptLayouts?: () => Promise<LibraryTrack[]>;
   /** Ties the lap's track name to a kept layout; gives that layout back. */
@@ -185,112 +179,13 @@ export function LapAnalysis({
 }) {
   const { t } = useTranslation();
   const { distanceUnit } = useSettings();
-  const [laps, setLaps] = useState<LoadedLap[]>(initialLaps ?? []);
-  const [aId, setAId] = useState<string | null>(initialLaps?.[0]?.id ?? null);
-  const [bId, setBId] = useState<string | null>(initialLaps?.[1]?.id ?? null);
-  const [problems, setProblems] = useState<string[]>([]);
-  const [opened, setOpened] = useState<TrackFile[]>([]);
   const [kept, setKept] = useState<{ key: string; layout: TrackFile | null } | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  const nextId = useRef(1);
 
-  const addFiles = async (files: File[]) => {
-    const room = Math.max(0, MAX_LAPS - laps.length);
-    const bad: string[] = [];
-    if (files.length > room) bad.push(t('modes.compare.tooMany', 'Only {{count}} laps can be open at once.', { count: MAX_LAPS }));
-    const added: LoadedLap[] = [];
-    const layouts: TrackFile[] = [];
-    // Track layouts are not counted against the laps that fit, so they are tried whatever the room.
-    for (const file of files) {
-      if (added.length >= room && !/\.xtrk(\.gz)?$/i.test(file.name)) continue;
-      try {
-        if (added.length >= room) throw new LapReadError('not_a_lap', 'No room for another lap.');
-        added.push({ id: `file-${nextId.current++}`, name: file.name, lap: await readLapFile(file) });
-      } catch (error) {
-        const reason = error instanceof LapReadError ? error.reason : 'unreadable';
-        if (reason === 'not_a_lap') {
-          try {
-            const layout = await readTrackFile(file);
-            layouts.push(layout);
-            onLayoutFile?.(file as File, layout);
-            continue;
-          } catch {
-            // Not a track layout either: it is reported below.
-          }
-        }
-        const text = {
-          too_big: t('modes.compare.reasons.too_big', 'it is too large to be a lap'),
-          not_a_lap: t('modes.compare.reasons.not_a_lap_or_track', 'it is neither a lap nor a track layout file'),
-          unreadable: t('modes.compare.reasons.unreadable', 'it could not be read'),
-        }[reason];
-        bad.push(t('modes.compare.readError', '{{name}}: {{reason}}', { name: file.name, reason: text }));
-      }
-    }
-    setProblems(bad);
-    setNotice(null);
-    if (layouts.length > 0) {
-      setOpened((current) => [...current.filter((c) => !layouts.some((l) => trackKey(l) === trackKey(c))), ...layouts]);
-      setNotice(t('modes.compare.layoutAdded', 'Track layout opened: {{tracks}}.', { tracks: layouts.map((l) => l.header.track.title ?? l.header.track.name).join(', ') }));
-    }
-    if (added.length === 0) return;
-    setLaps((current) => [...current, ...added]);
-    const first = aId ?? added[0].id;
-    setAId(first);
-    if (!bId) setBId(added.find((entry) => entry.id !== first)?.id ?? null);
-  };
-
-  const addSamples = () => {
-    if (laps.some((entry) => entry.sample)) return;
-    const [mine, best] = makeSampleLaps();
-    setLaps((current) => [
-      ...current,
-      { id: 'sample-mine', name: t('modes.compare.sampleMine', 'Sample: my lap'), lap: mine, sample: true },
-      { id: 'sample-best', name: t('modes.compare.sampleBest', 'Sample: best lap'), lap: best, sample: true },
-    ]);
-    setAId('sample-mine');
-    setBId('sample-best');
-    setProblems([]);
-  };
-
-  const chooseLap = (id: string) => {
-    if (id === aId || (id === bId && !aId)) return;
-    if (id === bId) setBId(aId);
-    setAId(id);
-  };
-  const chooseReference = (id: string) => {
-    if (id === bId || (id === aId && !bId)) return;
-    if (id === aId) setAId(bId);
-    setBId(id);
-  };
-  const remove = (id: string) => {
-    setLaps((current) => current.filter((entry) => entry.id !== id));
-    if (id === aId) {
-      setAId(bId);
-      setBId(null);
-    } else if (id === bId) setBId(null);
-  };
-  const clear = () => {
-    setLaps([]);
-    setAId(null);
-    setBId(null);
-    setProblems([]);
-  };
-  const onDrop = (event: DragEvent) => {
-    event.preventDefault();
-    setDragging(false);
-    void addFiles(Array.from(event.dataTransfer.files));
-  };
-
-  const a = laps.find((entry) => entry.id === aId) ?? null;
-  const b = laps.find((entry) => entry.id === bId) ?? null;
-
-  // The layout of the track of the lap being looked at: one opened here, else one kept on this device.
-  const wanted = a ? { game: layoutGame(a.lap.header.game), name: a.lap.header.track.name, variant: a.lap.header.track.variant ?? null } : null;
-  const wantedKey = wanted ? trackKeyOf(wanted.game, wanted.name, wanted.variant) : null;
+  // The layout of the track of the lap being looked at, from the ones Xpeed Companion sent.
+  const wanted = { game: layoutGame(a.lap.header.game), name: a.lap.header.track.name, variant: a.lap.header.track.variant ?? null };
+  const wantedKey = trackKeyOf(wanted.game, wanted.name, wanted.variant);
   useEffect(() => {
-    if (!wanted || !wantedKey || !findLayout) return;
+    if (!findLayout) return;
     let live = true;
     findLayout(wanted.game, wanted.name, wanted.variant).then(
       (layout) => live && setKept({ key: wantedKey, layout }),
@@ -301,12 +196,12 @@ export function LapAnalysis({
     };
     // `wanted` is rebuilt every render; `wantedKey` says when it really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantedKey, findLayout, opened]);
-  const layout = (wantedKey && opened.find((entry) => trackKey(entry) === wantedKey)) || (kept && kept.key === wantedKey ? kept.layout : null) || null;
+  }, [wantedKey, findLayout]);
+  const layout = (kept && kept.key === wantedKey ? kept.layout : null) || null;
 
+  const refusal = b ? incomparableReason(a.lap, b.lap) : null;
   const analysis = useMemo(() => {
-    if (!a) return null;
-    const same = !!b && comparable(a.lap, b.lap);
+    const same = !!b && refusal === null;
     const grid = distanceGrid(same && b ? Math.min(lapLength(a.lap), lapLength(b.lap)) : lapLength(a.lap));
     const ids = ['t', 'speed', 'throttle', 'brake', 'x', 'z'];
     const lap = resampleLap(a.lap, ids, grid);
@@ -325,11 +220,11 @@ export function LapAnalysis({
       pathA: trackPath(a.lap, 6000),
       pathB: same && b ? trackPath(b.lap, 6000) : null,
     };
-  }, [a, b]);
+  }, [a, b, refusal]);
 
   // The lap against the game's ideal line, when the layout has one.
   const lineStudy = useMemo(() => {
-    if (!analysis || !layout?.fast) return null;
+    if (!layout?.fast) return null;
     const line = { x: layout.fast.x, z: layout.fast.z, closed: layout.header.closed };
     const lap = offsetsFromLine(line, analysis.lap.x, analysis.lap.z);
     const known = lap.filter(Number.isFinite).map(Math.abs).sort((p, q) => p - q);
@@ -344,7 +239,6 @@ export function LapAnalysis({
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const mapCard = useRef<HTMLDivElement>(null);
   const showOnMap = (atM: number) => {
-    if (!analysis) return;
     const step = analysis.grid.length > 1 ? analysis.grid[1] - analysis.grid[0] : 1;
     const i = Math.min(analysis.grid.length - 1, Math.max(0, Math.round(atM / step)));
     const [x, z] = [analysis.lap.x[i], analysis.lap.z[i]];
@@ -352,14 +246,10 @@ export function LapAnalysis({
     setFocus((current) => ({ x, z, key: (current?.key ?? 0) + 1 }));
     mapCard.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   };
-  const canShow = !!analysis?.pathA && analysis.lap.x.some(Number.isFinite);
+  const canShow = !!analysis.pathA && analysis.lap.x.some(Number.isFinite);
 
   const unit = distanceUnit as DistanceUnit;
-  const describe = (entry: LoadedLap) => {
-    const { track, car, lap } = entry.lap.header;
-    return `${track.name} · ${car.name} · ${t('modes.compare.lapN', 'Lap {{n}}', { n: lap.number })} · ${formatLapTime(lap.timeMs)}`;
-  };
-  const finalGap = a && b ? (a.lap.header.lap.timeMs - b.lap.header.lap.timeMs) / 1000 : null;
+  const finalGap = b ? (a.lap.header.lap.timeMs - b.lap.header.lap.timeMs) / 1000 : null;
 
   const metric = (label: string, mine: string, other: string | null, diff: string | null) => (
     <tr key={label} className="border-t border-border">
@@ -375,106 +265,16 @@ export function LapAnalysis({
 
   return (
     <div className="space-y-4" data-testid="lap-analysis">
-      <Card
-        className={cn('bg-card border-border border-dashed transition-colors', dragging && 'border-primary bg-primary/5')}
-        onDragOver={(event: DragEvent) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        data-testid="lap-dropzone"
-      >
-        <CardContent className="space-y-3 p-4">
-          <p className="text-sm text-muted-foreground">
-            {t('modes.compare.intro', 'Open lap files written by Xpeed Companion to see them side by side.')} {t('modes.compare.private', 'The files stay in your browser; nothing is uploaded.')}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => input.current?.click()}>
-              <FolderOpen className="mr-2 h-4 w-4" /> {t('modes.compare.open', 'Open lap files')}
-            </Button>
-            <Button variant="outline" onClick={addSamples} disabled={laps.some((entry) => entry.sample)}>
-              <Sparkles className="mr-2 h-4 w-4" /> {t('modes.compare.sample', 'Try with sample laps')}
-            </Button>
-            {laps.length > 0 && (
-              <Button variant="ghost" onClick={clear}>
-                <Trash2 className="mr-2 h-4 w-4" /> {t('modes.compare.clear', 'Remove all')}
-              </Button>
-            )}
-            <span className="text-xs text-muted-foreground">{t('modes.compare.drop', 'or drop .xlap.gz files here')}</span>
-          </div>
-          <input
-            ref={input}
-            type="file"
-            multiple
-            accept=".gz,.xlap,.xtrk,application/gzip,application/x-gzip,application/octet-stream"
-            className="sr-only"
-            tabIndex={-1}
-            aria-label={t('modes.compare.open', 'Open lap files')}
-            data-testid="lap-input"
-            onChange={(event) => {
-              void addFiles(Array.from(event.target.files ?? []));
-              event.target.value = '';
-            }}
-          />
-        </CardContent>
-      </Card>
-
-      {notice && (
-        <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="layout-notice">
-          {notice}
-        </p>
-      )}
-
-      {problems.length > 0 && (
-        <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          {problems.map((problem) => <p key={problem}>{problem}</p>)}
-        </div>
-      )}
-
-      {laps.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('modes.compare.empty', 'Open one or two lap files to see them here.')}</p>
-      ) : (
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm font-semibold">{t('modes.compare.loaded', 'Laps')}</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-3">
-            <ul className="divide-y divide-border" data-testid="lap-list">
-              {laps.map((entry) => (
-                <li key={entry.id} className="flex flex-wrap items-center gap-2 py-2">
-                  <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
-                    <p className="truncate text-sm font-medium">{describe(entry)}</p>
-                    <SimCarIdentity name={entry.lap.header.car.name} className="mt-1 text-xs text-muted-foreground" />
-                    <p className="truncate text-xs text-muted-foreground">
-                      {entry.name} · {entry.lap.header.lap.valid ? t('modes.compare.valid', 'valid') : t('modes.compare.notValid', 'not valid')}
-                      {entry.sample ? ` · ${t('modes.compare.sampleTag', 'sample')}` : ''}
-                    </p>
-                  </div>
-                  <Button size="sm" variant={entry.id === aId ? 'default' : 'outline'} aria-pressed={entry.id === aId} onClick={() => chooseLap(entry.id)}>
-                    {t('modes.compare.lap', 'Lap')}
-                  </Button>
-                  <Button size="sm" variant={entry.id === bId ? 'default' : 'outline'} aria-pressed={entry.id === bId} onClick={() => chooseReference(entry.id)}>
-                    {t('modes.compare.reference', 'Reference')}
-                  </Button>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`${t('modes.compare.remove', 'Remove')} ${entry.name}`} onClick={() => remove(entry.id)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      {a && analysis && (
         <>
-          {b && !analysis.same && (
+          {refusal && (
             <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="different-tracks">
-              {t('modes.compare.differentTracks', 'These laps are from different tracks, or have different lengths, so they cannot be compared.')}
+              {{
+                game: t('modes.compare.refused.game', 'These laps are from different games, so they cannot be compared. Only the lap is shown.'),
+                track: t('modes.compare.refused.track', 'These laps are from different tracks, so they cannot be compared. Only the lap is shown.'),
+                length: t('modes.compare.refused.length', 'These laps have different lengths (more than 3 % apart), so they are not the same layout and cannot be compared. Only the lap is shown.'),
+              }[refusal]}
             </p>
           )}
-          {!b && laps.length > 1 && <p className="text-sm text-muted-foreground">{t('modes.compare.pickReference', 'Pick a second lap as the reference to compare.')}</p>}
 
           <Card className="bg-card border-border">
             <CardHeader className="pb-1">
@@ -572,7 +372,7 @@ export function LapAnalysis({
                 <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
                   {layout
                     ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
-                    : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Open the track’s layout file (.xtrk) to draw the road, its edges and the ideal line under it.')}
+                    : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Once Xpeed Companion has sent the track’s layout, the road, its edges and the ideal line are drawn under it.')}
                 </p>
                 {!layout && wanted && wantedKey && findLayout && kept?.key === wantedKey && (
                   <NoLayout
@@ -597,7 +397,6 @@ export function LapAnalysis({
             </Card>
           )}
         </>
-      )}
     </div>
   );
 }

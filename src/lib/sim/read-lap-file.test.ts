@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { gzipLap, packLap } from './lap-file';
 import { LapReadError, MAX_FILE_BYTES, readLapFile } from './read-lap-file';
-import { makeSampleLaps } from './sample-laps';
+import { makeLapFixtures } from '@/test/lap-fixture';
 
-const [lap] = makeSampleLaps();
+const [lap] = makeLapFixtures();
 
 async function reasonOf(file: Blob): Promise<string> {
   try {

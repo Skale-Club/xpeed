@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { SessionsList } from '@/components/sim/SessionsList';
 
-/** Virtual > Sessions: the laps kept on this device, grouped into sessions. */
+/** Virtual > Sessions: the sessions on the account. */
 export default function SimSessionsPage() {
   const { t } = useTranslation();
   return (

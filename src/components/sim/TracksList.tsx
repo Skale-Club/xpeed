@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, FolderOpen, Loader2, Minus, Trash2 } from 'lucide-react';
+import { Check, Loader2, Minus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,8 +10,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useTrackLibrary } from '@/hooks/use-track-library';
 import { useGames } from '@/lib/sim/games';
 import { lengthIn, type DistanceUnit } from '@/lib/sim/analysis';
-import { TrackReadError } from '@/lib/sim/read-track-file';
-import { TrackLibraryError, addTrackFile, loadTrack, removeTracks, type LibraryTrack } from '@/lib/sim/track-library';
+import { loadTrack, removeTracks, type LibraryTrack } from '@/lib/sim/track-library';
 import { deleteAccountTrack, syncAccountTracks, type SyncResult } from '@/lib/sim/account-tracks';
 import type { TrackFile } from '@/lib/sim/track-file';
 import { cn } from '@/lib/utils';
@@ -98,11 +98,6 @@ export function TracksList() {
   const { t } = useTranslation();
   const { distanceUnit } = useSettings();
   const library = useTrackLibrary();
-  const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [problems, setProblems] = useState<string[]>([]);
-  const [added, setAdded] = useState<number | null>(null);
-  const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState<LibraryTrack | null>(null);
   const [account, setAccount] = useState<SyncResult | null>(null);
 
@@ -125,94 +120,20 @@ export function TracksList() {
     await removeTracks(library.userId, [entry.id]);
   };
 
-  const addFiles = async (files: File[]) => {
-    if (!library.userId || files.length === 0) return;
-    setBusy(true);
-    setProblems([]);
-    setAdded(null);
-    const bad: string[] = [];
-    let count = 0;
-    for (const file of files) {
-      try {
-        await addTrackFile(library.userId, file);
-        count++;
-      } catch (error) {
-        const reason =
-          error instanceof TrackReadError
-            ? { too_big: t('modes.tracks.reasons.too_big', 'it is too large to be a track layout'), not_a_track: t('modes.tracks.reasons.not_a_track', 'it is not a track layout file'), unreadable: t('modes.tracks.reasons.unreadable', 'it could not be read') }[error.reason]
-            : error instanceof TrackLibraryError && error.code === 'full'
-              ? t('modes.tracks.reasons.full', 'there is no room left on this device')
-              : t('modes.tracks.reasons.failed', 'it could not be kept');
-        bad.push(t('modes.compare.readError', '{{name}}: {{reason}}', { name: file.name, reason }));
-      }
-    }
-    setBusy(false);
-    setProblems(bad);
-    setAdded(count);
-  };
-
   const sorted = [...library.tracks].sort((p, q) => (p.summary.title ?? p.summary.trackName).localeCompare(q.summary.title ?? q.summary.trackName));
 
   return (
     <div className="space-y-4" data-testid="tracks-list">
-      <Card
-        className={cn('bg-card border-border border-dashed transition-colors', dragging && 'border-primary bg-primary/5')}
-        onDragOver={(event: DragEvent) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event: DragEvent) => {
-          event.preventDefault();
-          setDragging(false);
-          void addFiles(Array.from(event.dataTransfer.files));
-        }}
-      >
-        <CardContent className="space-y-3 p-4">
-          <p className="text-sm text-muted-foreground">
-            {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
-            {t('modes.tracks.private', 'Xpeed Companion sends them to your account by itself when you drive a track; a copy is kept on this device.')}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => input.current?.click()} disabled={busy || !library.userId}>
-              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderOpen className="mr-2 h-4 w-4" />}
-              {t('modes.tracks.open', 'Add track layout files')}
-            </Button>
-            <span className="text-xs text-muted-foreground">{t('modes.tracks.drop', 'or drop .xtrk files here')}</span>
-          </div>
-          <input
-            ref={input}
-            type="file"
-            multiple
-            accept=".xtrk,.gz,application/gzip,application/octet-stream"
-            className="sr-only"
-            tabIndex={-1}
-            aria-label={t('modes.tracks.open', 'Add track layout files')}
-            data-testid="track-input"
-            onChange={(event) => {
-              void addFiles(Array.from(event.target.files ?? []));
-              event.target.value = '';
-            }}
-          />
-        </CardContent>
-      </Card>
+      <p className="text-sm text-muted-foreground">
+        {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
+        {t('modes.tracks.private', 'Xpeed Companion sends them to your account by itself when you drive a track; a copy is kept on this device.')}
+      </p>
 
       {account?.reached && account.copied > 0 && (
         <p role="status" className="text-sm" data-testid="tracks-from-account">
           {t('modes.tracks.fromAccount', { count: account.copied, defaultValue: '{{count}} track layouts sent by Xpeed Companion were added from your account.', defaultValue_one: '1 track layout sent by Xpeed Companion was added from your account.' })}
         </p>
       )}
-      {added !== null && added > 0 && (
-        <p role="status" className="text-sm" data-testid="tracks-added">
-          {t('modes.tracks.added', { count: added, defaultValue: '{{count}} track layouts kept.', defaultValue_one: '1 track layout kept.' })}
-        </p>
-      )}
-      {problems.length > 0 && (
-        <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
-          {problems.map((problem) => <p key={problem}>{problem}</p>)}
-        </div>
-      )}
-
       {library.status === 'unavailable' ? (
         <p className="text-sm text-muted-foreground">{t('modes.tracks.unavailable', 'This browser cannot keep track layouts on the device.')}</p>
       ) : library.status === 'loading' ? (
@@ -221,7 +142,8 @@ export function TracksList() {
         </p>
       ) : sorted.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="tracks-empty">
-          {t('modes.tracks.empty', 'No track layouts yet. Add the .xtrk files Xpeed Companion writes, or open one on the compare screen.')}
+          {t('modes.tracks.empty', 'No track layouts yet. Xpeed Companion sends one by itself when you drive a track.')}{' '}
+          <Link to="/virtual/companion" className="underline">{t('modes.sessions.emptyLink', 'Connect Xpeed Companion')}</Link>
         </p>
       ) : (
         <Card className="bg-card border-border">

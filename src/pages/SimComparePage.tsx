@@ -1,9 +1,9 @@
 import { ArrowLeftRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
-import { LibraryCompare } from '@/components/sim/LibraryCompare';
+import { CompareScreen } from '@/components/sim/CompareScreen';
 
-/** Virtual > Compare laps: lap files opened in the browser, side by side. */
+/** Virtual > Compare laps: laps from the account, side by side. */
 export default function SimComparePage() {
   const { t } = useTranslation();
   return (
@@ -13,7 +13,7 @@ export default function SimComparePage() {
           <ArrowLeftRight className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('modes.nav.compare', 'Compare laps')}</h2>
         </div>
-        <LibraryCompare />
+        <CompareScreen />
       </div>
     </AppLayout>
   );

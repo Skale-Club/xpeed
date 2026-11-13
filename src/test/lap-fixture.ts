@@ -1,3 +1,4 @@
+// Test and screen-harness fixtures: two laps on a made-up track. Not part of the app.
 import { STANDARD_CHANNELS, type StandardChannelId } from '@/lib/sim/channels';
 import type { LapFile } from '@/lib/sim/lap-file';
 
@@ -170,7 +171,7 @@ function drive(track: Track, profile: Float64Array, lapNumber: number): LapFile 
 }
 
 /** `[mine, best]`: a lap that loses a little time in the tightest corner, and the lap it is measured against. */
-export function makeSampleLaps(): LapFile[] {
+export function makeLapFixtures(): LapFile[] {
   const track = buildTrack();
   return [drive(track, speedProfile(track, true), 7), drive(track, speedProfile(track, false), 5)];
 }
