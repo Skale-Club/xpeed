@@ -12,7 +12,7 @@ export function GameCover({ game, className, testId }: { game: string; className
   const cover = games.cover(game);
   return (
     <span
-      className={cn('inline-block aspect-[2/3] shrink-0 overflow-hidden rounded-md border border-border bg-muted align-middle', className)}
+      className={cn('inline-block aspect-[2/3] shrink-0 self-start overflow-hidden rounded-md border border-border bg-muted align-middle', className)}
       aria-hidden="true"
       data-testid={testId}
     >

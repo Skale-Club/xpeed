@@ -75,7 +75,7 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
       <Link to={sessionPath(session.id)} className="group block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-link">
         <Card className="border-border bg-card transition-colors group-hover:bg-muted/30" data-testid="session">
           <div className="flex gap-3 p-3 sm:p-4">
-            <GameCover game={session.game} className="w-10 sm:w-12" testId="session-cover" />
+            <GameCover game={session.game} className="w-16 sm:w-20" testId="session-cover" />
             <div className="min-w-0 flex-1 space-y-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">

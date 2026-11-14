@@ -21,6 +21,8 @@ describe('the cover of a game', () => {
     open(<GameCover game="nogame" className="w-12" testId="cover" />);
     const box = screen.getByTestId('cover');
     expect(box).toHaveClass('aspect-[2/3]', 'w-12');
+    // In a flex row the box must not be stretched to the height of its neighbours (that would crop the picture): it keeps its own ratio.
+    expect(box).toHaveClass('self-start');
     // Never a square: no fixed height and no h-/w- pair of the same size.
     expect(box.className).not.toMatch(/\bh-\d/);
   });
