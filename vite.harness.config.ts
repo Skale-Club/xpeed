@@ -63,6 +63,11 @@ export default defineConfig(async (env: ConfigEnv) => {
             return res.end(JSON.stringify({ error: 'harness_error', retryable: false, detail: String(error) }));
           }
         });
+        // The newest Xpeed Companion (what GET /api/companion/latest says), for the Companion screen's download card.
+        server.middlewares.use('/api/companion/latest', (_req, res) => {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ version: '0.6.2', build: 'abc1234', downloadUrl: '/api/companion/download', sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', size: 3_458_048, releasedAt: '2026-11-12T15:30:00.000Z', minVersion: '0.6.0', signed: false }));
+        });
         server.middlewares.use('/api/sim', async (req, res, next) => {
           const path = (req.url ?? '/').split('?')[0];
           const empty = process.env.HARNESS_NO_LAPS === '1';
@@ -87,7 +92,14 @@ export default defineConfig(async (env: ConfigEnv) => {
           }
           res.setHeader('Content-Type', 'application/json');
           if (path === '/devices' && req.method === 'GET') {
-            return res.end(JSON.stringify({ devices: empty ? [] : [{ id: 'd1', name: 'Racing PC', created_at: '2026-11-01T00:00:00.000Z', last_seen_at: new Date().toISOString(), last_lap_at: null, revoked_at: null }] }));
+            const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+            // One computer heard from a minute ago, one two days ago, one never, one revoked: every state of the Companion screen.
+            return res.end(JSON.stringify({ devices: empty ? [] : [
+              { id: 'd1', name: 'Racing PC', created_at: '2026-11-01T00:00:00.000Z', last_seen_at: ago(1), last_lap_at: ago(35), revoked_at: null },
+              { id: 'd2', name: 'LAPTOP-RIG', created_at: '2026-11-05T00:00:00.000Z', last_seen_at: ago(60 * 48), last_lap_at: ago(60 * 50), revoked_at: null },
+              { id: 'd3', name: 'NEW-PC', created_at: '2026-11-12T00:00:00.000Z', last_seen_at: null, last_lap_at: null, revoked_at: null },
+              { id: 'd4', name: 'OLD-PC', created_at: '2026-10-20T00:00:00.000Z', last_seen_at: '2026-10-25T00:00:00.000Z', last_lap_at: null, revoked_at: '2026-11-02T00:00:00.000Z' },
+            ] }));
           }
           return next();
         });

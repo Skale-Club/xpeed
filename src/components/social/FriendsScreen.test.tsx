@@ -4,6 +4,7 @@ import i18n from '@/lib/i18n';
 import { renderSocial, callsTo } from '@/test/social-render';
 import { driver, fakeSocialState, type FakeSocialState } from '@/test/social-fake-server';
 import { whereNow } from '@/test/sim-render';
+import { v1Lap } from '@/test/v1-fake-server';
 import { FriendsScreen } from './FriendsScreen';
 
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
@@ -212,5 +213,121 @@ describe('the friends screen', () => {
     tab('requests');
     expect(await screen.findByTestId('empty-incoming')).toBeInTheDocument();
     expect(await screen.findByTestId('empty-outgoing')).toBeInTheDocument();
+  });
+});
+
+describe('the friends as cards, with their latest activity', () => {
+  const monza = { id: '00000001-0000-4000-8000-000000000001', name: 'Monza' };
+  const spa = { id: '00000001-0000-4000-8000-000000000002', name: 'Spa-Francorchamps' };
+  const ferrari = { id: '00000002-0000-4000-8000-000000000001', name: 'Ferrari 499P' };
+  const lap = (n: number, track: { id: string; name: string }, timeMs: number, achievedAt: string) => ({
+    lapId: `10000000-0000-4000-8000-00000000000${n}`, game: 'lmu', track, car: ferrari, timeMs, achievedAt,
+  });
+  const withLaps = () => {
+    const state = seeded();
+    state.drivers = state.drivers.map((entry) => {
+      if (entry.handle === 'pal_one') return { ...entry, bestLaps: [lap(1, spa, 134_000, '2026-11-01T12:00:00.000Z'), lap(2, monza, 99_500, '2026-11-09T12:00:00.000Z')] };
+      if (entry.handle === 'pal_two') return { ...entry, bestLaps: [lap(3, spa, 135_000, '2026-11-08T12:00:00.000Z')] };
+      return entry;
+    });
+    return state;
+  };
+
+  it('shows each friend as a card with the initials, since when and their newest personal best', async () => {
+    await open(withLaps());
+    const cards = screen.getAllByTestId('friend-row');
+    expect(within(cards[0]).getByTestId('avatar')).toHaveTextContent('PO');
+    expect(cards[0]).toHaveTextContent(/Since .*2026/);
+    const activity = await within(cards[0]).findByTestId('friend-activity');
+    expect(activity).toHaveTextContent('Monza');
+    expect(within(activity).getByTestId('friend-activity-time')).toHaveTextContent('1:39.500');
+    expect(activity).not.toHaveTextContent('Spa-Francorchamps');
+  });
+
+  it('offers the friends board only for a track and car you both drove', async () => {
+    const state = withLaps();
+    state.v1.laps = [v1Lap({ track: monza, car: ferrari, timeMs: 99_900 })]; // you drove Monza with the Ferrari, not Spa
+    await open(state);
+    const cards = screen.getAllByTestId('friend-row');
+    const shortcut = await within(cards[0]).findByTestId('friend-board-shortcut');
+    expect(shortcut).toHaveAttribute('href', `/virtual/leaderboards?track=${monza.id}&car=${ferrari.id}&game=lmu&scope=friends`);
+    await within(cards[1]).findByTestId('friend-activity');
+    expect(within(cards[1]).queryByTestId('friend-board-shortcut')).not.toBeInTheDocument();
+  });
+
+  it('shows no activity line for a friend with no best lap, and never blocks the card on it', async () => {
+    await open(seeded());
+    expect(within(screen.getAllByTestId('friend-row')[0]).getByRole('link', { name: 'Profile' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryAllByTestId('friend-activity-loading')).toHaveLength(0));
+    expect(screen.queryByTestId('friend-activity')).not.toBeInTheDocument();
+  });
+
+  it('reads the driver pages of the first twelve friends only, to stay within the rate limit', async () => {
+    const state = fakeSocialState();
+    state.drivers = Array.from({ length: 15 }, (_, i) => driver({ handle: `pal_${String(i).padStart(2, '0')}`, displayName: `Pal ${i}`, relation: 'friend' }));
+    state.friendRows = state.drivers.map((entry) => row(entry.handle, 'accepted', entry.displayName ?? null));
+    await open(state);
+    await waitFor(() => expect(screen.getAllByTestId('friend-row')).toHaveLength(15));
+    await waitFor(() => expect(screen.queryAllByTestId('friend-activity-loading')).toHaveLength(0));
+    expect(state.requests.filter((request) => request.method === 'GET' && request.path.startsWith('/profiles/'))).toHaveLength(12);
+  });
+});
+
+describe('adding by handle, checked as you type', () => {
+  const type = (value: string) => fireEvent.change(screen.getByTestId('friend-handle'), { target: { value } });
+
+  it('says what is wrong with a handle while it is typed, and keeps the button off', async () => {
+    await open();
+    expect(screen.getByTestId('friend-handle-help')).toHaveTextContent('Ask for a friendship');
+    type('ab');
+    expect(screen.getByTestId('friend-handle-help')).toHaveTextContent('A handle has at least 3 characters.');
+    expect(screen.getByTestId('friend-handle')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByTestId('friend-add')).toBeDisabled();
+    type('has space');
+    expect(screen.getByTestId('friend-handle-help')).toHaveTextContent('Only the letters a to z, the digits 0 to 9 and _ are allowed.');
+    type('a'.repeat(25));
+    expect(screen.getByTestId('friend-handle-help')).toHaveTextContent('A handle has at most 24 characters.');
+    expect(screen.getByTestId('friend-add')).toBeDisabled();
+  });
+
+  it('says a good handle can be sent, accepts a leading @ and capitals, and sends nothing for a bad one on Enter', async () => {
+    const state = seeded();
+    await open(state);
+    type('@New_Pal');
+    expect(screen.getByTestId('friend-handle-help')).toHaveTextContent('This handle can be sent.');
+    expect(screen.getByTestId('friend-handle-help')).toHaveAttribute('data-valid', 'true');
+    expect(screen.getByTestId('friend-add')).toBeEnabled();
+    type('no!');
+    fireEvent.submit(screen.getByTestId('friend-handle').closest('form')!);
+    expect(callsTo(state, 'POST', '/friends/requests')).toHaveLength(0);
+  });
+
+  it('says it in Spanish', async () => {
+    await i18n.changeLanguage('es-ES');
+    await open();
+    type('x');
+    expect(screen.getByTestId('friend-handle-help')).toHaveTextContent('Un identificador tiene al menos 3 caracteres.');
+  });
+});
+
+describe('the requests inbox', () => {
+  it('has a clear Accept and Decline for each request, and a count that matches', async () => {
+    await open(seeded(), '/virtual/friends?tab=requests');
+    const incoming = await screen.findByTestId('list-incoming');
+    expect(within(incoming).getByRole('button', { name: /Accept/ })).toBeEnabled();
+    expect(within(incoming).getByRole('button', { name: /Decline/ })).toBeEnabled();
+    expect(within(incoming).getByTestId('avatar')).toHaveTextContent('A');
+    expect(screen.getByRole('heading', { name: 'Asked to be your friend' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Waiting for their answer' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('requests-count')).toHaveTextContent('1'));
+  });
+
+  it('blocks from a request only after a confirmation', async () => {
+    const state = seeded();
+    await open(state, '/virtual/friends?tab=requests');
+    fireEvent.click(within(await screen.findByTestId('list-incoming')).getByRole('button', { name: 'Block @asker' }));
+    expect(callsTo(state, 'POST', '/friends/asker/block')).toHaveLength(0);
+    await confirmDialog('Block');
+    await waitFor(() => expect(callsTo(state, 'POST', '/friends/asker/block')).toHaveLength(1));
   });
 });

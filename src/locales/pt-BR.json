@@ -24,7 +24,13 @@
       "noLaps": "Ainda não há melhores voltas para mostrar.",
       "board": "Classificação",
       "hint": "Aqui está só o que este piloto escolheu mostrar. Nunca um e-mail, um telefone ou um nome real.",
-      "title": "Piloto"
+      "title": "Piloto",
+      "tracks": "Pistas",
+      "cars": "Carros",
+      "inBestLaps": "nas melhores voltas abaixo",
+      "visibleTo": "Quem pode ver esta página: {{who}}",
+      "change": "Alterar",
+      "bestLapsHint": "As marcas pessoais mais recentes que contam nas classificações."
     },
     "friends": {
       "removeTitle": "Remover este amigo?",
@@ -54,7 +60,13 @@
       "noOutgoing": "Você não tem pedidos em espera.",
       "blockedHint": "Quem você bloqueou não pode ver nem encontrar você, e você não vê a pessoa. Ela não é avisada.",
       "noBlocked": "Você não bloqueou ninguém.",
-      "unblock": "Desbloquear"
+      "unblock": "Desbloquear",
+      "latest": "Última marca pessoal",
+      "bothDrove": "Vocês dois correram aqui: veja a classificação de amigos",
+      "handleShort": "Um identificador tem no mínimo 3 caracteres.",
+      "handleLong": "Um identificador tem no máximo 24 caracteres.",
+      "handleCharacters": "Só são permitidas as letras de a a z, os dígitos de 0 a 9 e _.",
+      "handleOk": "Este identificador pode ser enviado."
     },
     "settings": {
       "dataLink": "Baixar ou apagar meus dados de corrida"
@@ -67,7 +79,6 @@
       "notListedFriends": "Você não aparece aqui porque não tem uma volta válida nesta pista com este carro.",
       "notListedHelp": "Só contam voltas válidas que passam nas verificações. As classificações públicas também pedem um perfil público.",
       "profileLink": "Mudar quem pode ver você",
-      "place": "Você é o {{place}} de {{total}}",
       "around": "Os pilotos ao seu redor",
       "nothingDriven": "Dê uma volta primeiro: as classificações mostram as pistas e os carros que você já correu.",
       "drivenGroup": "Que você correu",
@@ -85,7 +96,30 @@
       "driver": "Piloto",
       "time": "Tempo",
       "gap": "Diferença",
-      "date": "Data"
+      "date": "Data",
+      "mapLabel": "Mapa de {{track}}",
+      "podium": "Pódio",
+      "podiumLabel": "Os três pilotos mais rápidos",
+      "leader": "Líder",
+      "spreadLabel": "O pelotão: mais rápido {{fastest}}, você {{you}}, mais lento exibido {{slowest}}",
+      "sentenceLeaderLead": "Você é o {{place}} de {{total}}, {{lead}} s à frente do próximo piloto.",
+      "sentenceLeader": "Você é o {{place}} de {{total}}.",
+      "sentencePodium": "Você é o {{place}} de {{total}}, no pódio e a {{leader}} s do líder.",
+      "sentenceField": "Você é o {{place}} de {{total}}, a {{podium}} s do pódio e a {{leader}} s do líder.",
+      "sentenceNoPodium": "Você é o {{place}} de {{total}}, a {{leader}} s do líder.",
+      "yourPosition": "Sua posição",
+      "yourBest": "Seu melhor",
+      "statDrivers": "Pilotos",
+      "statFastest": "Mais rápido",
+      "trackPage": "Página da pista",
+      "copyLink": "Copiar link desta classificação",
+      "linkCopied": "Link copiado",
+      "copyFailed": "Não foi possível copiar. Copie o endereço da barra do navegador.",
+      "choose": "Escolha uma classificação",
+      "searchTrack": "Buscar uma pista",
+      "searchCar": "Buscar um carro",
+      "noMatch": "Nada corresponde ao que você digitou.",
+      "keepTyping": "Há mais resultados: continue digitando para filtrar a lista."
     },
     "visibility": {
       "label": "Quem pode ver seu perfil",
@@ -94,7 +128,14 @@
       "friends": "Só amigos",
       "friendsBody": "Só seus amigos podem abrir sua página, e você só aparece nas classificações de amigos. Ninguém mais encontra você, nem pelo identificador.",
       "private": "Privado",
-      "privateBody": "Ninguém abre sua página nem encontra você, e você não aparece em nenhuma classificação. Suas voltas continuam suas. Um link que você compartilha ainda mostra a volta, mas sem o seu nome."
+      "privateBody": "Ninguém abre sua página nem encontra você, e você não aparece em nenhuma classificação. Suas voltas continuam suas. Um link que você compartilha ainda mostra a volta, mas sem o seu nome.",
+      "showsHeading": "Quem vê o quê com esta escolha",
+      "showsPublicBoard": "Classificações públicas",
+      "showsFriendsBoard": "Classificações de amigos",
+      "showsPage": "Sua página de piloto",
+      "showsFindable": "Encontrado pelo identificador",
+      "yes": "mostrado",
+      "no": "não mostrado"
     },
     "profile": {
       "saved": "Salvo",
@@ -110,7 +151,12 @@
       "visibility": "Quem pode ver seu perfil",
       "privacyLink": "Privacidade e seus dados",
       "save": "Salvar",
-      "viewPage": "Sua página: {{handle}}"
+      "viewPage": "Sua página: {{handle}}",
+      "identityHint": "É assim que os outros pilotos veem você ao lado dos seus tempos.",
+      "preview": "Prévia",
+      "handleChecked": "O formato está certo. Se está livre, é verificado quando você salvar.",
+      "pips": "{{left}} de {{max}} trocas de identificador restantes",
+      "visibilityHint": "Vale na hora, em todo lugar. Suas voltas continuam suas, qualquer que seja a escolha."
     },
     "privacy": {
       "profileLink": "Identificador, nome e links compartilhados",
@@ -130,7 +176,11 @@
       "toOverview": "Voltar ao Painel",
       "read": "Leia como seus dados são tratados:",
       "policy": "Política de privacidade",
-      "terms": "Termos de uso"
+      "terms": "Termos de uso",
+      "downloadHint": "Uma cópia do que o Xpeed Virtual guarda sobre você, quando quiser.",
+      "dangerTitle": "Zona de perigo",
+      "dangerHint": "O que você faz aqui não pode ser desfeito.",
+      "visibilityHint": "Salvo assim que você escolhe. Suas voltas continuam suas, seja qual for a escolha."
     },
     "share": {
       "mine": "Meus links compartilhados",
@@ -165,7 +215,15 @@
       "active": "Links ativos",
       "button": "Compartilhar",
       "sessionButton": "Compartilhar sessão",
-      "lapButton": "Compartilhar volta"
+      "lapButton": "Compartilhar volta",
+      "statusActive": "Ativo",
+      "revokedOn": "Revogado em {{when}}",
+      "expiredOn": "Expirou em {{when}}",
+      "liveCount": "Links ativos: {{count}}",
+      "showEnded": "Mostrar links expirados e revogados ({{count}})",
+      "noCopy": "O endereço de um link só aparece quando você o cria, então não dá para copiá-lo de novo. Se perdeu um, revogue-o e crie outro.",
+      "revokeTitle": "Revogar este link?",
+      "revokeBody": "Quem tem o link deixa de ver a volta ou a sessão na hora. Isso não pode ser desfeito: para compartilhar de novo, crie um link novo."
     },
     "public": {
       "sectors": "Setores",
@@ -2506,6 +2564,36 @@
           "Estes termos seguem a lei do país onde o operador do serviço está estabelecido."
         ]
       }
+    }
+  },
+  "communityDash": {
+    "companion": {
+      "online": "Online",
+      "offline": "Offline",
+      "heardHelp": "Online significa que o servidor recebeu sinal do computador nos últimos 10 minutos.",
+      "summary": "Computadores: {{count}} · online agora: {{online}}",
+      "lastLapTitle": "Última volta recebida",
+      "lapDetail": "{{track}} · {{car}} · {{time}}",
+      "revokedTitle": "Computadores revogados: {{count}}",
+      "connectAnother": "Para conectar outro computador, abra o Xpeed Companion nele e clique em Conectar à sua conta.",
+      "stepDrive": "Abra um jogo e dê uma volta. Ela aparece na sua conta sozinha.",
+      "stepDone": "feito",
+      "stepTodo": "a fazer",
+      "gameLaps": "{{laps}} voltas · última vez {{when}}",
+      "gameNone": "Ainda sem voltas",
+      "downloadTitle": "Xpeed Companion para Windows",
+      "releasedOn": "Lançado em {{date}}",
+      "versionUnavailable": "Não foi possível ler a versão mais recente. O download continua funcionando.",
+      "copySha": "Copiar checksum",
+      "shaCopied": "Checksum copiado",
+      "howTitle": "Como funciona",
+      "how1Title": "Lê o seu jogo",
+      "how1Text": "O Xpeed Companion acompanha a telemetria que o seu jogo de corrida publica enquanto você dirige.",
+      "how2Title": "Envia cada volta",
+      "how2Text": "Cada volta terminada vai para a sua conta por HTTPS, junto com o traçado da pista.",
+      "how3Title": "Você vê aqui",
+      "how3Text": "As voltas aparecem em Painel, Sessões, Comparar e nas classificações.",
+      "copyFailed": "Não deu para copiar. Selecione o checksum e copie."
     }
   }
 }

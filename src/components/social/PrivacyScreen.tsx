@@ -14,12 +14,12 @@ import { clearCache } from '@/lib/sim/library';
 import {
   DELETE_SENTENCE, EXPORT_FILE_NAME, deleteMyRacingData, exportMyData, useMyProfile, useUpdateProfile, type DeletedSummary, type Visibility,
 } from '@/lib/sim/social-client';
-import { ErrorLine, VisibilityPicker } from './social-bits';
+import { ErrorLine, SettingsSection, VisibilityPicker } from './social-bits';
 import { downloadBlob } from './social-utils';
 import { useErrorText } from './use-error-text';
 
-/** `withDataLink`: Settings shows the option and points to the page with the data download and delete. */
-export function VisibilitySection({ withDataLink = false }: { withDataLink?: boolean }) {
+/** The three choices of who can see the profile, saved the moment one is picked, with what went wrong or "Saved" under them. */
+function VisibilityControl({ withDataLink = false }: { withDataLink?: boolean }) {
   const { t } = useTranslation();
   const errorText = useErrorText();
   const query = useMyProfile();
@@ -35,32 +35,40 @@ export function VisibilitySection({ withDataLink = false }: { withDataLink?: boo
     }
   };
   return (
+    <QueryGate query={query} empty={false} skeleton={<Skeleton className="h-40 w-full rounded-lg" />}>
+      {query.data && (
+        <div className="space-y-2">
+          <VisibilityPicker value={query.data.visibility} onChange={(value) => void choose(value)} disabled={update.isPending} name="privacy-visibility" />
+          {update.isError && <ErrorLine testId="visibility-error">{errorText(update.error)}</ErrorLine>}
+          {saved && !update.isPending && (
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground" role="status" data-testid="visibility-saved">
+              <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden /> {t('social.profile.saved', 'Saved')}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            <Link to="/virtual/profile" className="underline">{t('social.privacy.profileLink', 'Handle, name and shared links')}</Link>
+          </p>
+          {withDataLink && (
+            <p className="text-xs text-muted-foreground">
+              <Link to="/virtual/privacy" className="underline">{t('social.settings.dataLink', 'Download or delete my racing data')}</Link>
+            </p>
+          )}
+        </div>
+      )}
+    </QueryGate>
+  );
+}
+
+/** `withDataLink`: Settings shows the option and points to the page with the data download and delete. */
+export function VisibilitySection({ withDataLink = false }: { withDataLink?: boolean }) {
+  const { t } = useTranslation();
+  return (
     <Card className="bg-card border-border" data-testid="privacy-visibility">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-semibold">{t('social.visibility.label', 'Who can see your profile')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        <QueryGate query={query} empty={false} skeleton={<Skeleton className="h-40 w-full rounded-lg" />}>
-          {query.data && (
-            <>
-              <VisibilityPicker value={query.data.visibility} onChange={(value) => void choose(value)} disabled={update.isPending} name="privacy-visibility" />
-              {update.isError && <ErrorLine testId="visibility-error">{errorText(update.error)}</ErrorLine>}
-              {saved && !update.isPending && (
-                <p className="flex items-center gap-1.5 text-sm text-muted-foreground" role="status" data-testid="visibility-saved">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden /> {t('social.profile.saved', 'Saved')}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                <Link to="/virtual/profile" className="underline">{t('social.privacy.profileLink', 'Handle, name and shared links')}</Link>
-              </p>
-              {withDataLink && (
-                <p className="text-xs text-muted-foreground">
-                  <Link to="/virtual/privacy" className="underline">{t('social.settings.dataLink', 'Download or delete my racing data')}</Link>
-                </p>
-              )}
-            </>
-          )}
-        </QueryGate>
+        <VisibilityControl withDataLink={withDataLink} />
       </CardContent>
     </Card>
   );
@@ -83,11 +91,12 @@ function DownloadSection() {
     }
   };
   return (
-    <Card className="bg-card border-border" data-testid="privacy-download">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">{t('social.privacy.downloadTitle', 'Download my data')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <SettingsSection
+      testId="privacy-download"
+      title={t('social.privacy.downloadTitle', 'Download my data')}
+      description={t('social.privacy.downloadHint', 'A copy of what Xpeed Virtual holds about you, whenever you want it.')}
+    >
+      <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           {t('social.privacy.downloadBody', 'One file with your profile, friends (by handle), sessions, laps, personal bests, paired computers, share links and the reports you made. It has no e-mail, no keys and nothing of other people. The lap files themselves are not in it.')}
         </p>
@@ -99,8 +108,8 @@ function DownloadSection() {
           {state === 'done' && <span className="text-sm text-muted-foreground" role="status" data-testid="export-done">{t('social.privacy.downloaded', 'Your file was saved as {{name}}.', { name: EXPORT_FILE_NAME })}</span>}
         </div>
         {error !== null && <ErrorLine testId="export-error">{errorText(error)}</ErrorLine>}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -145,18 +154,21 @@ function DeleteSection({ onDeleted }: { onDeleted: (summary: DeletedSummary) => 
   };
 
   return (
-    <Card className="border-destructive/40 bg-card" data-testid="privacy-delete">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">{t('social.privacy.deleteTitle', 'Delete my racing data')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <SettingsSection
+      danger
+      testId="privacy-delete"
+      title={t('social.privacy.dangerTitle', 'Danger zone')}
+      description={t('social.privacy.dangerHint', 'What you do here cannot be undone.')}
+    >
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold">{t('social.privacy.deleteTitle', 'Delete my racing data')}</h4>
         <p className="text-sm text-muted-foreground">
           {t('social.privacy.deleteBody', 'Erases everything you have in Xpeed Virtual: your laps and their files, sessions, personal bests, track layouts, share links, friends, reports, your handle and profile, and your paired computers. Your Xpeed account stays, and so does everything in Real car. This cannot be undone.')}
         </p>
         <Button variant="destructive" onClick={() => setOpen(true)} data-testid="delete-open">
           <Trash2 className="mr-2 h-4 w-4" /> {t('social.privacy.deleteButton', 'Delete my racing data…')}
         </Button>
-      </CardContent>
+      </div>
 
       <Dialog open={open} onOpenChange={close}>
         <DialogContent data-testid="delete-dialog">
@@ -199,7 +211,7 @@ function DeleteSection({ onDeleted }: { onDeleted: (summary: DeletedSummary) => 
           </form>
         </DialogContent>
       </Dialog>
-    </Card>
+    </SettingsSection>
   );
 }
 
@@ -225,17 +237,23 @@ function DeletedPage({ summary }: { summary: DeletedSummary }) {
 }
 
 /**
- * Virtual > Privacy: who can see the profile (the same choice as in the profile settings, saved at once), Download my data (one JSON
- * file, saved through the person's own click), Delete my racing data (the person types the exact sentence; the account stays), and
- * the privacy policy and terms.
+ * Virtual > Privacy, as a settings page: who can see the profile (the same choice as in the profile settings, saved at once, each with what it
+ * shows), Download my data (one JSON file, saved through the person's own click), a danger zone with Delete my racing data (the person types the
+ * exact sentence; the account stays), and the privacy policy and terms.
  */
 export function PrivacyScreen() {
   const { t } = useTranslation();
   const [deleted, setDeleted] = useState<DeletedSummary | null>(null);
   if (deleted) return <DeletedPage summary={deleted} />;
   return (
-    <div className="space-y-4" data-testid="privacy-screen">
-      <VisibilitySection />
+    <div className="space-y-8" data-testid="privacy-screen">
+      <SettingsSection
+        testId="privacy-visibility"
+        title={t('social.visibility.label', 'Who can see your profile')}
+        description={t('social.privacy.visibilityHint', 'Saved the moment you choose. Your laps stay yours whatever you pick.')}
+      >
+        <VisibilityControl />
+      </SettingsSection>
       <DownloadSection />
       <DeleteSection onDeleted={setDeleted} />
       <p className="text-sm text-muted-foreground" data-testid="privacy-links">

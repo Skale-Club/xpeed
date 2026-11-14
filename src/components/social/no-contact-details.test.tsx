@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import { renderSocial } from '@/test/social-render';
 import { boardKey, driver, fakeSocialState, ranked, type FakeSocialState } from '@/test/social-fake-server';
-import { ref, v1Session } from '@/test/v1-fake-server';
+import { ref, v1Lap, v1Session } from '@/test/v1-fake-server';
 import type { AdminReport } from '@/lib/sim/social-client';
 import { DriverPage } from './DriverPage';
 import { FriendsScreen } from './FriendsScreen';
@@ -14,6 +14,7 @@ import { ProfileSettings } from './ProfileSettings';
 import { PrivacyScreen } from './PrivacyScreen';
 import { PublicSharePage } from './PublicShare';
 import { RacingAdmin } from './RacingAdmin';
+import { XpeedSimPanel } from '@/components/sim/XpeedSimPanel';
 
 // The server never sends an e-mail, a phone number or the account's real name (docs/platform/API-V1.md). These tests do not believe it:
 // every answer below is stuffed with such strings, in fields the screens do not use and in fields they do (a display name), and no
@@ -27,6 +28,13 @@ vi.mock('recharts', () => ({
 }));
 vi.mock('@/hooks/use-admin-status', () => ({ useAdminStatus: () => ({ isAdmin: true, loading: false }) }));
 vi.mock('@/lib/sim/library', () => ({ clearCache: async () => undefined }));
+// The computers of the account, with the fields the screens must not read stuffed in (the account's e-mail, a phone, the real name).
+vi.mock('@/lib/sim/xpeed-sim-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/sim/xpeed-sim-api')>()),
+  listDevices: async () => [
+    { id: 'd1', name: 'RIG', created_at: '2026-11-01T10:00:00.000Z', last_seen_at: new Date().toISOString(), last_lap_at: null, revoked_at: null, email: 'ana.owner@example.com', phone: '+55 11 98765-4321', accountName: 'Ana Real Surname' },
+  ],
+}));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana', email: 'ana.owner@example.com', phone: '5511987654321', user_metadata: { full_name: 'Ana Real Surname' } } }) }));
 
@@ -147,6 +155,25 @@ describe('no screen shows an e-mail, a phone number or the account\'s real name'
     await screen.findByTestId('list-blocked');
     expectNoLeaks();
     expect(screen.getByTestId('list-blocked').textContent).toContain('@real_name');
+  });
+
+  it('the friend cards with their latest personal best, and the shortcut to the friends board', async () => {
+    const state = seeded();
+    state.v1.laps = [v1Lap({ track: monza, car: ferrari, timeMs: 99_000 })];
+    renderSocial(<FriendsScreen />, { state, route: '/virtual/friends' });
+    await screen.findByTestId('list-accepted');
+    await screen.findByTestId('friend-activity');
+    await screen.findByTestId('friend-board-shortcut');
+    expectNoLeaks();
+    expect(screen.getByTestId('friend-activity-time')).toHaveTextContent('1:39.000');
+  });
+
+  it('the Xpeed Companion screen: the computers, the games and the download', async () => {
+    renderSocial(<XpeedSimPanel />, { state: seeded(), route: '/virtual/companion' });
+    await screen.findByTestId('device');
+    await screen.findAllByTestId('game-row');
+    expectNoLeaks();
+    expect(screen.getByTestId('device-name')).toHaveTextContent('RIG');
   });
 
   it('the profile settings, with the share links', async () => {

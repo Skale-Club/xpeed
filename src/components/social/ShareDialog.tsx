@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { Check, Copy, Link2, Loader2, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,42 +11,12 @@ import { compareUrl } from '@/lib/sim/compare-url';
 import { sessionPath } from '@/lib/sim/routes';
 import { useCreateShare, useRevokeShare, useShares, type CreatedShare, type Share } from '@/lib/sim/social-client';
 import { ErrorLine, PlainSelect } from './social-bits';
-import { shareUrl } from './social-utils';
+import { aboutShare, copyText, shareUrl } from './social-utils';
 import { useErrorText } from './use-error-text';
 
 export type ShareTarget = { lapId: string } | { sessionId: string };
 
 const matches = (share: Share, target: ShareTarget) => ('lapId' in target ? share.lapId === target.lapId : share.sessionId === target.sessionId);
-
-/** Puts text on the clipboard; falls back to selecting an input for browsers without the async API. Resolves to whether it worked. */
-async function copyText(text: string, field: HTMLTextAreaElement | null): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* fall through */
-  }
-  try {
-    field?.select();
-    return document.execCommand('copy');
-  } catch {
-    return false;
-  }
-}
-
-/** What a link is about, in one line: the track and car with the lap time, or with the kind and the laps of the session; null when the server did not say. */
-function aboutShare(share: Share, t: TFunction): string | null {
-  if (!share.trackName || !share.carName) return null;
-  const values = { track: share.trackName, car: share.carName };
-  if (share.kind === 'lap') return typeof share.lapMs === 'number' ? t('social.share.aboutLap', '{{track}} · {{car}} · {{time}}', { ...values, time: formatLapTime(share.lapMs) }) : null;
-  if (typeof share.lapCount !== 'number') return null;
-  const kind = share.sessionKind && share.sessionKind !== 'unknown' ? t(`modes.sessions.kind.${share.sessionKind}`, share.sessionKind) : null;
-  return kind
-    ? t('social.share.aboutSession', '{{track}} · {{car}} · {{kind}} · {{count}} laps', { ...values, kind, count: share.lapCount })
-    : t('social.share.aboutSessionPlain', '{{track}} · {{car}} · {{count}} laps', { ...values, count: share.lapCount });
-}
 
 /** The list of live links to this lap or session, each with a Revoke button. The token is never here: the server gave it once. */
 export function ActiveLinks({ target, onlyActive = true }: { target?: ShareTarget; onlyActive?: boolean }) {
