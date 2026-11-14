@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BETA_GAMES, CERTIFIED_GAMES, ONLINE_WINDOW_MS, checklistOf, deviceActivity, deviceState, gameRows, isOnline, parseVersion, splitDevices, updateAvailable } from '@/lib/sim/companion';
+import { BETA_GAMES, CERTIFIED_GAMES, ONLINE_WINDOW_MS, deviceActivity, deviceState, gameRows, isOnline, parseVersion, splitDevices, updateAvailable } from '@/lib/sim/companion';
 import { BUILT_IN_GAME_NAMES } from '@/lib/sim/games';
 import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
 
@@ -117,17 +117,5 @@ describe('the games', () => {
   it('is the same list with no numbers when the account cannot be read', () => {
     expect(gameRows(undefined).map((row) => row.game)).toEqual([...CERTIFIED_GAMES, ...BETA_GAMES]);
     expect(gameRows(null).every((row) => row.laps === 0)).toBe(true);
-  });
-});
-
-describe('the connection checklist', () => {
-  it('moves from nothing, to a computer connected and online, to laps arriving', () => {
-    expect(checklistOf([], false, NOW)).toEqual({ connected: 'todo', online: 'todo', laps: 'todo' });
-    expect(checklistOf([device({ last_seen_at: minutesAgo(90) })], false, NOW)).toEqual({ connected: 'done', online: 'todo', laps: 'todo' });
-    expect(checklistOf([device()], true, NOW)).toEqual({ connected: 'done', online: 'done', laps: 'done' });
-  });
-
-  it('does not count a revoked computer as connected', () => {
-    expect(checklistOf([device({ revoked_at: '2026-11-10T00:00:00.000Z' })], false, NOW).connected).toBe('todo');
   });
 });

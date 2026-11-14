@@ -92,23 +92,3 @@ export function gameRows(lapsPerGame: ReadonlyArray<{ game: string; laps: number
   const extra = [...known.keys()].filter((game) => !listed.has(game)).sort();
   return [...CERTIFIED_GAMES.map((game) => row(game, 'certified')), ...BETA_GAMES.map((game) => row(game, 'beta')), ...extra.map((game) => row(game, 'beta'))];
 }
-
-export type StepState = 'done' | 'todo';
-export interface ChecklistState {
-  /** A computer is connected to the account. */
-  connected: StepState;
-  /** A connected computer was heard from lately. */
-  online: StepState;
-  /** The account has laps from Xpeed Companion. */
-  laps: StepState;
-}
-
-/** Where the person is on the way from "nothing" to "laps arriving". The laps count as done only with a lap known to the account. */
-export function checklistOf(devices: readonly SimDevice[], hasLaps: boolean, now = Date.now()): ChecklistState {
-  const live = devices.filter((device) => !device.revoked_at);
-  return {
-    connected: live.length > 0 ? 'done' : 'todo',
-    online: live.some((device) => deviceState(device, now) === 'online') ? 'done' : 'todo',
-    laps: hasLaps ? 'done' : 'todo',
-  };
-}

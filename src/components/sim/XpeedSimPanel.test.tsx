@@ -25,7 +25,7 @@ const device = (over: Partial<SimDevice> = {}): SimDevice => ({
   last_lap_at: minutesAgo(30), revoked_at: null, ...over,
 });
 
-const release = { version: '0.5.0', build: 'abc1234', downloadUrl: 'https://xpeed.test/api/companion/download', sha256: 'a'.repeat(64), size: 3145728, releasedAt: '2026-11-13T12:00:00Z', minVersion: '0.4.0', signed: false };
+const release = { version: '0.7.0', build: 'abc1234', downloadUrl: 'https://xpeed.test/api/companion/download', sha256: 'a'.repeat(64), size: 3_458_048, releasedAt: '2026-11-13T12:00:00Z', minVersion: '0.6.0', signed: false };
 
 /** The racing data API (for the games and the last lap) and the release endpoint, answered from memory. */
 function stubFetch(options: { v1?: FakeV1State; release?: object | null; v1Down?: boolean } = {}) {
@@ -47,6 +47,9 @@ const renderPanel = () =>
     </QueryClientProvider>,
   );
 
+const startDetails = () => screen.getByTestId('companion-start-details') as HTMLDetailsElement;
+const byName = (cards: HTMLElement[], name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!;
+
 beforeEach(async () => {
   api.list.mockReset().mockResolvedValue([]);
   api.revoke.mockReset().mockResolvedValue({ revoked: true });
@@ -58,13 +61,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('connecting a computer', () => {
-  it('explains how to connect, and offers no code, command or link to copy', async () => {
+describe('getting started', () => {
+  it('is ONE card with three numbered steps: install, open and connect, drive a lap', async () => {
     renderPanel();
     const steps = await screen.findByTestId('how-to-connect');
-    expect(steps).toHaveTextContent('Install Xpeed Companion on the PC where you play.');
-    expect(steps).toHaveTextContent('Open it and click Connect to your account.');
-    expect(screen.getByText('How to connect')).toBeInTheDocument();
+    expect(screen.getAllByTestId('companion-start')).toHaveLength(1);
+    expect(screen.getByText('Get started')).toBeInTheDocument();
+    expect([...steps.children].map((step) => step.getAttribute('data-testid'))).toEqual(['step-install', 'step-connect', 'step-drive']);
+    expect([...steps.children].map((step) => step.querySelector('span')?.textContent)).toEqual(['1', '2', '3']);
+    expect(screen.getByTestId('step-install')).toHaveTextContent('Install Xpeed Companion on the PC where you play.');
+    expect(screen.getByTestId('step-connect')).toHaveTextContent('Open it and click Connect to your account. Your browser asks you once to confirm.');
+    expect(screen.getByTestId('step-drive')).toHaveTextContent('Start a game and drive a lap.');
+    // The old second copy of the story is gone.
+    expect(screen.queryByTestId('companion-how')).not.toBeInTheDocument();
+    expect(screen.queryByText('How it works')).not.toBeInTheDocument();
+  });
+
+  it('offers no code, command or link to copy', async () => {
+    renderPanel();
+    await screen.findByTestId('how-to-connect');
     expect(screen.queryByRole('button', { name: /pairing code/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /new code/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId('pairing')).not.toBeInTheDocument();
@@ -73,33 +88,114 @@ describe('connecting a computer', () => {
     expect(document.querySelector('a[href^="xpeedsim"]')).toBeNull();
   });
 
-  it('ticks the steps as the person gets on: nothing connected, then a computer, then laps', async () => {
+  it('is open when no computer is connected', async () => {
     renderPanel();
     await screen.findByTestId('devices-empty');
-    expect(['step-install', 'step-connect', 'step-drive'].map((id) => screen.getByTestId(id).getAttribute('data-state'))).toEqual(['todo', 'todo', 'todo']);
-    cleanup();
+    await waitFor(() => expect(startDetails().open).toBe(true));
+  });
+
+  it('is open when the list of computers cannot be read (nothing is known to be connected)', async () => {
+    api.list.mockRejectedValue(new XpeedSimApiError('unavailable'));
+    renderPanel();
+    await screen.findByTestId('devices-retry');
+    await waitFor(() => expect(startDetails().open).toBe(true));
+  });
+
+  it('is folded away when a computer is connected, so a returning person sees their computers first, and is one click from opening', async () => {
     api.list.mockResolvedValue([device()]);
     renderPanel();
     await screen.findByTestId('device');
-    expect(['step-connect', 'step-drive'].map((id) => screen.getByTestId(id).getAttribute('data-state'))).toEqual(['done', 'done']); // it sent a lap
+    expect(startDetails().open).toBe(false);
+    expect(startDetails()).toHaveTextContent('Get started'); // the summary is still there to click
+    fireEvent.click(startDetails().querySelector('summary')!);
+    startDetails().open = true; // jsdom does not toggle a details on click
+    expect(startDetails().open).toBe(true);
   });
 
-  it('tells the story in three parts: it reads your game, it sends each lap, you see it here', async () => {
+  it('counts only computers that can still send laps: a person with only a disconnected computer sees the steps open', async () => {
+    api.list.mockResolvedValue([device({ revoked_at: '2026-11-05T10:00:00.000Z' })]);
     renderPanel();
-    const how = await screen.findByTestId('companion-how');
-    expect(how).toHaveTextContent('It reads your game');
-    expect(how).toHaveTextContent('It sends each lap');
-    expect(how).toHaveTextContent('You see it here');
+    await screen.findByTestId('devices-revoked');
+    await waitFor(() => expect(startDetails().open).toBe(true));
   });
 });
 
-describe('the computers already connected', () => {
-  it('says so when there are none', async () => {
+describe('the download', () => {
+  it('is ONE yellow button to /api/companion/download, with the version and the size beside it', async () => {
     renderPanel();
-    expect(await screen.findByTestId('devices-empty')).toHaveTextContent('No computer is connected yet.');
+    const button = await screen.findByTestId('companion-download-button');
+    expect(button).toHaveAttribute('href', '/api/companion/download');
+    expect(button).toHaveTextContent('Download for Windows');
+    await waitFor(() => expect(screen.getByTestId('companion-download-meta')).toHaveTextContent(/^Version 0\.7\.0 · 3\.3 MB$/));
   });
 
-  it('shows each computer as a card: Online or Offline by when it was last seen, and when it last sent a lap', async () => {
+  it('is not repeated: no second link to it, no link to the public page, no "latest" tag in the steps', async () => {
+    api.list.mockResolvedValue([device()]);
+    renderPanel();
+    await screen.findByTestId('companion-download-button');
+    await screen.findByTestId('companion-download-meta');
+    expect(document.querySelectorAll('a[href="/api/companion/download"]')).toHaveLength(1);
+    expect(document.querySelectorAll('a[href$="/download"], a[href="/companion"]')).toHaveLength(1);
+    expect(screen.queryByTestId('companion-page-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('companion-latest')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('companion-download-card')).not.toBeInTheDocument();
+    expect(screen.queryByText('Download it here')).not.toBeInTheDocument();
+    expect(screen.queryByText(/latest: /)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Version 0\.7\.0/).filter((node) => node.closest('[data-testid="companion-download"]'))).toHaveLength(1);
+  });
+
+  it('shows no "Released" date', async () => {
+    renderPanel();
+    await screen.findByTestId('companion-download-meta');
+    await waitFor(() => expect(screen.getByTestId('companion-download-meta')).toHaveTextContent('Version 0.7.0'));
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/Released/);
+    expect(screen.getByTestId('companion-download-meta').textContent).not.toMatch(/2026/);
+  });
+
+  it('keeps the button, and says so gently, when the version cannot be read', async () => {
+    stubFetch({ release: null });
+    renderPanel();
+    expect(await screen.findByTestId('companion-download-unavailable')).toHaveTextContent('The download still works.');
+    expect(screen.getByTestId('companion-download-button')).toHaveAttribute('href', '/api/companion/download');
+    expect(screen.queryByTestId('companion-smartscreen')).not.toBeInTheDocument();
+  });
+
+  it('warns, in one short calm note, about the unknown publisher only while the installer is not signed', async () => {
+    renderPanel();
+    const note = await screen.findByTestId('companion-smartscreen');
+    expect(note).toHaveTextContent('Windows may say the publisher is unknown. Click More info, then Run anyway.');
+    expect(note.textContent!.length).toBeLessThan(110);
+    expect(note).not.toHaveTextContent(/checksum/i);
+    cleanup();
+    stubFetch({ release: { ...release, signed: true } });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('companion-download-meta')).toHaveTextContent('Version 0.7.0'));
+    expect(screen.queryByTestId('companion-smartscreen')).not.toBeInTheDocument();
+  });
+
+  it('never shows a checksum, even when the release says one: no hash, no copy button, no PowerShell text, no "check the file" fold', async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByTestId('companion-download-meta')).toHaveTextContent('Version 0.7.0'));
+    const panel = screen.getByTestId('companion-panel');
+    expect(release.sha256).toHaveLength(64); // /api/companion/latest does carry it
+    expect(panel.innerHTML).not.toContain(release.sha256);
+    expect(panel.textContent).not.toMatch(/SHA-?256|checksum|Get-FileHash|PowerShell|Check the file/i);
+    expect(screen.queryByRole('button', { name: /checksum/i })).not.toBeInTheDocument();
+    expect(panel.querySelector('code')).toBeNull();
+    expect(screen.queryByTestId('companion-sha')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('companion-sha-value')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('companion-sha-copy')).not.toBeInTheDocument();
+  });
+});
+
+describe('your computers', () => {
+  it('says so when there are none, with no footnotes', async () => {
+    renderPanel();
+    expect(await screen.findByTestId('devices-empty')).toHaveTextContent('No computer is connected yet.');
+    expect(screen.queryByTestId('devices-hint')).not.toBeInTheDocument();
+  });
+
+  it('shows each computer as a compact card: Online or Offline by when it was last seen, Disconnected when it was disconnected', async () => {
     api.list.mockResolvedValue([
       device(),
       device({ id: 'd2', name: 'LAPTOP', last_seen_at: minutesAgo(60 * 48), last_lap_at: minutesAgo(60 * 49) }),
@@ -109,22 +205,37 @@ describe('the computers already connected', () => {
     renderPanel();
     const cards = await screen.findAllByTestId('device');
     expect(cards).toHaveLength(4);
-    const byName = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!;
-    expect(within(byName('RIG')).getByTestId('device-state')).toHaveTextContent('Online');
-    expect(byName('RIG')).toHaveAttribute('data-state', 'online');
-    expect(byName('RIG')).toHaveTextContent(/Last lap sent/);
-    expect(within(byName('LAPTOP')).getByTestId('device-state')).toHaveTextContent('Offline');
-    expect(byName('LAPTOP')).toHaveTextContent(/Last seen .*2 days ago/);
-    expect(within(byName('NEW PC')).getByTestId('device-state')).toHaveTextContent('Offline');
-    expect(byName('NEW PC')).toHaveTextContent('Never seen');
-    expect(byName('NEW PC')).toHaveTextContent('No laps sent yet');
-    expect(within(byName('OLD PC')).getByTestId('device-state')).toHaveTextContent('Revoked');
-    // Only a live computer can be revoked.
-    expect(within(byName('RIG')).getByRole('button', { name: /Revoke/ })).toBeInTheDocument();
-    expect(within(byName('OLD PC')).queryByRole('button', { name: /Revoke/ })).not.toBeInTheDocument();
+    expect(within(byName(cards, 'RIG')).getByTestId('device-state')).toHaveTextContent('Online');
+    expect(byName(cards, 'RIG')).toHaveAttribute('data-state', 'online');
+    expect(within(byName(cards, 'LAPTOP')).getByTestId('device-state')).toHaveTextContent('Offline');
+    expect(byName(cards, 'LAPTOP')).toHaveTextContent(/Last seen .*2 days ago/);
+    expect(within(byName(cards, 'NEW PC')).getByTestId('device-state')).toHaveTextContent('Offline');
+    expect(byName(cards, 'NEW PC')).toHaveTextContent('Never seen');
+    expect(byName(cards, 'NEW PC')).toHaveTextContent('No laps sent yet');
+    expect(within(byName(cards, 'OLD PC')).getByTestId('device-state')).toHaveTextContent('Disconnected');
+    // Only a computer that can still send laps can be disconnected.
+    expect(within(byName(cards, 'RIG')).getByRole('button', { name: /Disconnect/ })).toBeInTheDocument();
+    expect(within(byName(cards, 'OLD PC')).queryByRole('button', { name: /Disconnect/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Revoke/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/Revoke/);
   });
 
-  it('calls a computer online for three minutes after the server heard from it, and says so in the help line', async () => {
+  it('keeps ONE of each fact: no "Connected <date>" next to "Last seen", and one last-lap line (not three)', async () => {
+    api.list.mockResolvedValue([device(), device({ id: 'd2', name: 'LAPTOP', last_seen_at: minutesAgo(60 * 48) })]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    for (const card of cards) {
+      expect(within(card).queryByTestId('device-paired')).not.toBeInTheDocument();
+      expect(card.textContent).not.toMatch(/Connected 1 Nov|Connected Nov/);
+      expect(within(card).getAllByTestId('device-last-lap')).toHaveLength(1);
+      expect(card.textContent).not.toMatch(/Last lap sent|Last lap received/);
+    }
+    // Last seen is said once, and only for a computer that is not online (an online one is, by definition, just seen).
+    expect(within(byName(cards, 'RIG')).queryByTestId('device-seen')).not.toBeInTheDocument();
+    expect(within(byName(cards, 'LAPTOP')).getAllByTestId('device-seen')).toHaveLength(1);
+  });
+
+  it('calls a computer online for three minutes after the server heard from it, with no footnote about it', async () => {
     api.list.mockResolvedValue([
       device({ id: 'd1', name: 'JUST NOW', last_seen_at: minutesAgo(0.5) }),
       device({ id: 'd2', name: 'TWO MIN', last_seen_at: minutesAgo(2) }),
@@ -133,15 +244,13 @@ describe('the computers already connected', () => {
     ]);
     renderPanel();
     const cards = await screen.findAllByTestId('device');
-    const stateOf = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!.getAttribute('data-state');
+    const stateOf = (name: string) => byName(cards, name).getAttribute('data-state');
     expect(['JUST NOW', 'TWO MIN', 'FIVE MIN', 'TEN MIN'].map(stateOf)).toEqual(['online', 'online', 'offline', 'offline']);
-    expect(screen.getByTestId('devices-summary')).toHaveTextContent('Computers: 4 · online now: 2');
-    const card = screen.getByTestId('companion-devices');
-    expect(card).toHaveTextContent('Online means the server heard from the computer in the last 3 minutes.');
-    expect(card).not.toHaveTextContent('in the last 10 minutes');
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/Online means|in the last 3 minutes|in the last 10 minutes/);
+    expect(screen.queryByTestId('devices-summary')).not.toBeInTheDocument();
   });
 
-  it('puts the computers that are online first, and the revoked ones in a fold of their own', async () => {
+  it('puts the computers that are online first, and the disconnected ones in a fold of their own', async () => {
     api.list.mockResolvedValue([
       device({ id: 'd2', name: 'LAPTOP', last_seen_at: minutesAgo(60 * 48) }),
       device({ id: 'd1', name: 'RIG' }),
@@ -151,39 +260,49 @@ describe('the computers already connected', () => {
     await screen.findAllByTestId('device');
     const live = within(screen.getByTestId('device-list')).getAllByTestId('device-name').map((node) => node.textContent);
     expect(live).toEqual(['RIG', 'LAPTOP']);
-    expect(within(screen.getByTestId('devices-revoked')).getByTestId('device-name')).toHaveTextContent('OLD PC');
-    expect(screen.getByTestId('devices-revoked')).toHaveTextContent('Revoked computers: 1');
-    expect(screen.getByTestId('devices-summary')).toHaveTextContent('Computers: 2 · online now: 1');
+    const fold = screen.getByTestId('devices-revoked') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(within(fold).getByTestId('device-name')).toHaveTextContent('OLD PC');
+    expect(fold).toHaveTextContent('Disconnected computers: 1');
   });
 
-  it('shows the version of Xpeed Companion on a computer, and what it is doing while it is online: connected to a game, waiting for one, or paused', async () => {
+  it('has one muted line, at most, about adding another computer (and the limit of 10), and no other footnote', async () => {
+    api.list.mockResolvedValue([device()]);
+    renderPanel();
+    await screen.findByTestId('device');
+    const hint = screen.getByTestId('devices-hint');
+    expect(hint).toHaveTextContent('To add another computer (up to 10), open Xpeed Companion on it and click Connect to your account.');
+    expect(screen.queryByText('You can connect up to 10 computers.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('companion-devices').querySelectorAll('p.text-xs')).toHaveLength(1);
+  });
+
+  it('shows the version on a computer, and what it is doing while it is online: connected to a game, waiting for one, or paused', async () => {
     api.list.mockResolvedValue([
-      device({ id: 'd1', name: 'DRIVING', companion_version: '0.5.0', last_state: 'connected', last_game: 'ams2', last_state_at: minutesAgo(12) }),
-      device({ id: 'd2', name: 'WAITING', companion_version: '0.5.0', last_state: 'waiting', last_game: null }),
-      device({ id: 'd3', name: 'PAUSED', companion_version: '0.5.0', last_state: 'idle', last_game: null }),
-      device({ id: 'd4', name: 'UNKNOWN GAME', companion_version: '0.5.0', last_state: 'connected', last_game: 'newgame' }),
+      device({ id: 'd1', name: 'DRIVING', companion_version: '0.7.0', last_state: 'connected', last_game: 'ams2', last_state_at: minutesAgo(12) }),
+      device({ id: 'd2', name: 'WAITING', companion_version: '0.7.0', last_state: 'waiting', last_game: null }),
+      device({ id: 'd3', name: 'PAUSED', companion_version: '0.7.0', last_state: 'idle', last_game: null }),
+      device({ id: 'd4', name: 'UNKNOWN GAME', companion_version: '0.7.0', last_state: 'connected', last_game: 'newgame' }),
     ]);
     renderPanel();
     const cards = await screen.findAllByTestId('device');
-    const byName = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!;
-    expect(within(byName('DRIVING')).getByTestId('device-activity')).toHaveTextContent('Connected to Automobilista 2');
-    expect(within(byName('DRIVING')).getByTestId('device-activity')).toHaveAttribute('data-activity', 'connected');
-    expect(within(byName('WAITING')).getByTestId('device-activity')).toHaveTextContent('Waiting for a game');
-    expect(within(byName('PAUSED')).getByTestId('device-activity')).toHaveTextContent('Reading paused');
-    expect(within(byName('UNKNOWN GAME')).getByTestId('device-activity')).toHaveTextContent(/^Connected to NEWGAME$/);
-    for (const name of ['DRIVING', 'WAITING', 'PAUSED']) expect(within(byName(name)).getByTestId('device-version')).toHaveTextContent('Xpeed Companion 0.5.0');
+    expect(within(byName(cards, 'DRIVING')).getByTestId('device-activity')).toHaveTextContent('Connected to Automobilista 2');
+    expect(within(byName(cards, 'DRIVING')).getByTestId('device-activity')).toHaveAttribute('data-activity', 'connected');
+    expect(within(byName(cards, 'WAITING')).getByTestId('device-activity')).toHaveTextContent('Waiting for a game');
+    expect(within(byName(cards, 'PAUSED')).getByTestId('device-activity')).toHaveTextContent('Reading paused');
+    expect(within(byName(cards, 'UNKNOWN GAME')).getByTestId('device-activity')).toHaveTextContent(/^Connected to NEWGAME$/);
+    for (const name of ['DRIVING', 'WAITING', 'PAUSED']) expect(within(byName(cards, name)).getByTestId('device-version')).toHaveTextContent('Version 0.7.0');
   });
 
   it('shows no state for a computer that is not online (what it said is old), but still its version', async () => {
     api.list.mockResolvedValue([
-      device({ id: 'd1', name: 'SWITCHED OFF', last_seen_at: minutesAgo(30), companion_version: '0.5.0', last_state: 'connected', last_game: 'ac' }),
-      device({ id: 'd2', name: 'GONE', revoked_at: '2026-11-05T10:00:00.000Z', companion_version: '0.4.0', last_state: 'connected', last_game: 'ac' }),
+      device({ id: 'd1', name: 'SWITCHED OFF', last_seen_at: minutesAgo(30), companion_version: '0.7.0', last_state: 'connected', last_game: 'ac' }),
+      device({ id: 'd2', name: 'GONE', revoked_at: '2026-11-05T10:00:00.000Z', companion_version: '0.6.0', last_state: 'connected', last_game: 'ac' }),
     ]);
     renderPanel();
     const cards = await screen.findAllByTestId('device');
     expect(cards.some((card) => card.querySelector('[data-testid="device-activity"]'))).toBe(false);
-    expect(within(cards.find((card) => card.textContent?.includes('SWITCHED OFF'))!).getByTestId('device-version')).toHaveTextContent('0.5.0');
-    expect(within(cards.find((card) => card.textContent?.includes('SWITCHED OFF'))!).getByTestId('device-state')).toHaveTextContent('Offline');
+    expect(within(byName(cards, 'SWITCHED OFF')).getByTestId('device-version')).toHaveTextContent('0.7.0');
+    expect(within(byName(cards, 'SWITCHED OFF')).getByTestId('device-state')).toHaveTextContent('Offline');
   });
 
   it('shows neither version nor state for a computer an older server or Xpeed Companion knows nothing about, and decides online by when it was seen', async () => {
@@ -200,22 +319,21 @@ describe('the computers already connected', () => {
   });
 
   it('hints, gently, that an update is available when the computer runs an older Xpeed Companion than the newest, and not otherwise', async () => {
-    // The newest, in these tests, is 0.5.0.
+    // The newest, in these tests, is 0.7.0.
     api.list.mockResolvedValue([
-      device({ id: 'd1', name: 'OLDER', companion_version: '0.4.2' }),
-      device({ id: 'd2', name: 'CURRENT', companion_version: '0.5.0' }),
-      device({ id: 'd3', name: 'NEWER', companion_version: '0.6.0' }),
+      device({ id: 'd1', name: 'OLDER', companion_version: '0.6.2' }),
+      device({ id: 'd2', name: 'CURRENT', companion_version: '0.7.0' }),
+      device({ id: 'd3', name: 'NEWER', companion_version: '0.8.0' }),
       device({ id: 'd4', name: 'ODD', companion_version: 'dev-build' as never }),
       device({ id: 'd5', name: 'REVOKED', revoked_at: '2026-11-05T10:00:00.000Z', companion_version: '0.3.0' }),
     ]);
     renderPanel();
     const cards = await screen.findAllByTestId('device');
-    const byName = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!;
-    await waitFor(() => expect(within(byName('OLDER')).getByTestId('device-update')).toHaveTextContent('Update available: 0.5.0. It installs by itself when no game is running.'));
-    for (const name of ['CURRENT', 'NEWER', 'ODD', 'REVOKED']) expect(within(byName(name)).queryByTestId('device-update'), name).not.toBeInTheDocument();
+    await waitFor(() => expect(within(byName(cards, 'OLDER')).getByTestId('device-update')).toHaveTextContent('Update available: 0.7.0. It installs by itself when no game is running.'));
+    for (const name of ['CURRENT', 'NEWER', 'ODD', 'REVOKED']) expect(within(byName(cards, name)).queryByTestId('device-update'), name).not.toBeInTheDocument();
     // A hint, not an alarm: no button, no alert role.
-    expect(within(byName('OLDER')).getByTestId('device-update').getAttribute('role')).toBeNull();
-    expect(within(byName('OLDER')).queryByRole('button', { name: /update/i })).not.toBeInTheDocument();
+    expect(within(byName(cards, 'OLDER')).getByTestId('device-update').getAttribute('role')).toBeNull();
+    expect(within(byName(cards, 'OLDER')).queryByRole('button', { name: /update/i })).not.toBeInTheDocument();
   });
 
   it('gives no update hint when the newest version cannot be read', async () => {
@@ -228,33 +346,33 @@ describe('the computers already connected', () => {
     expect(within(card).queryByTestId('device-update')).not.toBeInTheDocument();
   });
 
-  it('shows the last lap received on the card of the computer that sent it', async () => {
+  it('says the last lap in ONE line on the card of the computer that sent it: the lap and when it arrived', async () => {
     const state = fakeV1State({ laps: [v1Lap({ track: ref('Monza'), car: ref('Ferrari 499P'), timeMs: 99_432, deviceName: 'RIG' })] });
     stubFetch({ v1: state });
     api.list.mockResolvedValue([device(), device({ id: 'd2', name: 'LAPTOP' })]);
     renderPanel();
-    const rig = (await screen.findAllByTestId('device')).find((card) => card.textContent?.includes('RIG'))!;
-    expect(await within(rig).findByTestId('device-lap-detail')).toHaveTextContent('Monza · Ferrari 499P · 1:39.432');
-    const laptop = screen.getAllByTestId('device').find((card) => card.textContent?.includes('LAPTOP'))!;
-    expect(within(laptop).queryByTestId('device-lap-detail')).not.toBeInTheDocument();
+    const cards = await screen.findAllByTestId('device');
+    await waitFor(() => expect(within(byName(cards, 'RIG')).getByTestId('device-last-lap')).toHaveTextContent('Last lap: Monza · Ferrari 499P · 1:39.432 · 30 minutes ago'));
+    // Another computer has no lap to name, but still says when its last lap arrived, in the same single line.
+    expect(within(byName(cards, 'LAPTOP')).getByTestId('device-last-lap')).toHaveTextContent(/^Last lap: 30 minutes ago$/);
   });
 
-  it('revokes one after asking, and reads the list again', async () => {
+  it('disconnects one after asking, and reads the list again', async () => {
     api.list.mockResolvedValueOnce([device()]).mockResolvedValue([device({ revoked_at: '2026-11-10T11:00:00.000Z' })]);
     renderPanel();
-    fireEvent.click(within(await screen.findByTestId('device')).getByRole('button', { name: /Revoke/ }));
+    fireEvent.click(within(await screen.findByTestId('device')).getByRole('button', { name: /Disconnect/ }));
     const dialog = await screen.findByRole('alertdialog');
-    expect(dialog).toHaveTextContent('Revoke RIG?');
+    expect(dialog).toHaveTextContent('Disconnect RIG?');
     expect(api.revoke).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
     await waitFor(() => expect(api.revoke).toHaveBeenCalledWith('d1'));
-    await waitFor(() => expect(screen.getByTestId('device-state')).toHaveTextContent('Revoked'));
+    await waitFor(() => expect(screen.getByTestId('device-state')).toHaveTextContent('Disconnected'));
   });
 
   it('keeps the computer when the question is answered with cancel', async () => {
     api.list.mockResolvedValue([device()]);
     renderPanel();
-    fireEvent.click(within(await screen.findByTestId('device')).getByRole('button', { name: /Revoke/ }));
+    fireEvent.click(within(await screen.findByTestId('device')).getByRole('button', { name: /Disconnect/ }));
     fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(api.revoke).not.toHaveBeenCalled();
@@ -278,7 +396,7 @@ describe('the computers already connected', () => {
 });
 
 describe('the games Xpeed Companion supports', () => {
-  it('lists the certified games first (Assetto Corsa, Automobilista 2), then the beta ones', async () => {
+  it('lists the certified games first (Assetto Corsa, Automobilista 2), then the beta ones, a line each', async () => {
     renderPanel();
     const rows = await screen.findAllByTestId('game-row');
     const certified = within(screen.getByTestId('games-certified')).getAllByTestId('game-row').map((row) => row.getAttribute('data-game'));
@@ -292,18 +410,27 @@ describe('the games Xpeed Companion supports', () => {
     expect(screen.getByTestId('games-beta')).toHaveTextContent('Beta');
   });
 
-  it('says for each game how many laps the account has and when it was last driven, or that it has none', async () => {
+  it('explains Beta in one sentence', async () => {
+    renderPanel();
+    await screen.findAllByTestId('game-row');
+    const note = screen.getByTestId('games-beta').querySelector('p')!;
+    expect(note).toHaveTextContent('Beta games are supported but not fully checked yet, so some data may be missing.');
+    expect(note.textContent!.match(/[.!?]/g)).toHaveLength(1);
+    expect(screen.getByTestId('games-certified').querySelector('p')).toBeNull();
+  });
+
+  it('says for each game how many laps the account has, or that it has none, with the right plural', async () => {
     const state = fakeV1State({ laps: [v1Lap({ game: 'ac', startedAt: minutesAgo(60 * 24 * 3) }), v1Lap({ game: 'ac', startedAt: minutesAgo(60 * 24 * 4) }), v1Lap({ game: 'lmu' })] });
     stubFetch({ v1: state });
     renderPanel();
     await waitFor(() => expect(document.querySelector('[data-game="ac"]')).toHaveAttribute('data-laps', '2'));
-    const ac = document.querySelector('[data-game="ac"]') as HTMLElement;
-    expect(within(ac).getByTestId('game-status')).toHaveTextContent(/2 laps · last driven .*3 days ago/);
-    expect(within(document.querySelector('[data-game="ams2"]') as HTMLElement).getByTestId('game-status')).toHaveTextContent('No laps yet');
+    const status = (game: string) => within(document.querySelector(`[data-game="${game}"]`) as HTMLElement).getByTestId('game-status');
+    expect(status('ac')).toHaveTextContent(/^2 laps$/);
+    expect(status('ams2')).toHaveTextContent('No laps yet');
     // One lap is "1 lap", not "1 laps".
-    const lmu = within(document.querySelector('[data-game="lmu"]') as HTMLElement).getByTestId('game-status');
-    expect(lmu).toHaveTextContent(/^1 lap · last driven/);
-    expect(lmu).not.toHaveTextContent('1 laps');
+    expect(status('lmu')).toHaveTextContent(/^1 lap$/);
+    expect(status('lmu')).not.toHaveTextContent('1 laps');
+    expect(status('ac')).not.toHaveTextContent('last driven');
   });
 
   it('adds a game the account has laps in that is not on the list, as beta, and keeps the list when the numbers cannot be read', async () => {
@@ -319,62 +446,39 @@ describe('the games Xpeed Companion supports', () => {
   });
 });
 
-describe('the download step', () => {
-  it('links step 1 to the public Companion page and shows the latest version', async () => {
-    renderPanel();
-    const steps = await screen.findByTestId('how-to-connect');
-    expect(within(steps).getByTestId('companion-page-link')).toHaveAttribute('href', '/companion');
-    expect(await within(steps).findByTestId('companion-latest')).toHaveTextContent('latest: 0.5.0');
-    expect(steps).toHaveTextContent('Install Xpeed Companion on the PC where you play.');
-  });
-
-  it('keeps the link when the version cannot be read', async () => {
-    stubFetch({ release: null });
-    renderPanel();
-    const steps = await screen.findByTestId('how-to-connect');
-    expect(within(steps).getByTestId('companion-page-link')).toHaveAttribute('href', '/companion');
-    expect(within(steps).queryByTestId('companion-latest')).not.toBeInTheDocument();
-    expect(await screen.findByTestId('companion-download-unavailable')).toBeInTheDocument();
-    expect(screen.getByTestId('companion-download-button')).toHaveAttribute('href', '/api/companion/download');
-  });
-
-  it('has a download card with the version, the size, the day and the SHA-256, and a warning while the installer is not signed', async () => {
-    renderPanel();
-    const card = await screen.findByTestId('companion-download-card');
-    await waitFor(() => expect(within(card).getByTestId('companion-download-meta')).toHaveTextContent('Version 0.5.0 · 3.0 MB · Released'));
-    expect(within(card).getByTestId('companion-download-meta')).toHaveTextContent(/2026/);
-    expect(within(card).getByTestId('companion-sha-value')).toHaveTextContent('a'.repeat(64));
-    expect(within(card).getByTestId('companion-smartscreen')).toBeInTheDocument();
-    expect(within(card).getByTestId('companion-download-button')).toHaveAttribute('href', '/api/companion/download');
-  });
-
-  it('copies the checksum, and has no warning for a signed installer', async () => {
-    const writeText = vi.fn(async () => undefined);
-    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
-    stubFetch({ release: { ...release, signed: true } });
-    renderPanel();
-    fireEvent.click(await screen.findByTestId('companion-sha-copy'));
-    await waitFor(() => expect(screen.getByTestId('companion-sha-copy')).toHaveTextContent('Checksum copied'));
-    expect(writeText).toHaveBeenCalledWith('a'.repeat(64));
-    expect(screen.queryByTestId('companion-smartscreen')).not.toBeInTheDocument();
-  });
-});
-
 describe('the Companion screen is translated', () => {
-  it('speaks Portuguese: the states, the games and the story', async () => {
+  it('speaks Portuguese: the steps, the state, Disconnect, the games and the notes', async () => {
     await i18n.changeLanguage('pt-BR');
-    api.list.mockResolvedValue([device()]);
+    api.list.mockResolvedValue([device({ last_seen_at: minutesAgo(60 * 48) }), device({ id: 'd2', name: 'OLD', revoked_at: '2026-11-05T10:00:00.000Z' })]);
+    stubFetch({ v1: fakeV1State({ laps: [v1Lap({ game: 'ac' }), v1Lap({ game: 'ac' }), v1Lap({ game: 'lmu' })] }) });
     renderPanel();
-    expect(await screen.findByTestId('device-state')).toHaveTextContent('Online');
-    expect(screen.getByTestId('companion-how')).toHaveTextContent('Lê o seu jogo');
+    const card = byName(await screen.findAllByTestId('device'), 'RIG');
+    expect(within(card).getByTestId('device-state')).toHaveTextContent('Offline');
+    expect(within(card).getByRole('button', { name: /^Desconectar/ })).toBeInTheDocument();
+    expect(screen.getByTestId('devices-revoked')).toHaveTextContent('Computadores desconectados: 1');
+    expect(screen.getByText('Primeiros passos')).toBeInTheDocument();
+    expect(screen.getByTestId('step-connect')).toHaveTextContent('O navegador pede uma única confirmação.');
     expect(screen.getByTestId('games-certified')).toHaveTextContent('Certificados');
+    await waitFor(() => expect(document.querySelector('[data-game="ac"] [data-testid="game-status"]')).toHaveTextContent(/^2 voltas$/));
+    expect(document.querySelector('[data-game="lmu"] [data-testid="game-status"]')).toHaveTextContent(/^1 volta$/);
+    expect(screen.getByTestId('games-beta')).toHaveTextContent('Os jogos beta são compatíveis');
+    expect(await screen.findByTestId('companion-smartscreen')).toHaveTextContent('Mais informações');
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/checksum|SHA-256/i);
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/Revog/);
   });
 
   it('speaks Spanish', async () => {
     await i18n.changeLanguage('es-ES');
     api.list.mockResolvedValue([device({ last_seen_at: minutesAgo(60 * 48) })]);
+    stubFetch({ v1: fakeV1State({ laps: [v1Lap({ game: 'ac' }), v1Lap({ game: 'ac' }), v1Lap({ game: 'lmu' })] }) });
     renderPanel();
-    expect(await screen.findByTestId('device-state')).toHaveTextContent('Sin conexión');
-    expect(screen.getByTestId('companion-how')).toHaveTextContent('Lee tu juego');
+    const card = await screen.findByTestId('device');
+    expect(within(card).getByTestId('device-state')).toHaveTextContent('Sin conexión');
+    expect(within(card).getByRole('button', { name: /^Desconectar/ })).toBeInTheDocument();
+    expect(screen.getByText('Primeros pasos')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('[data-game="ac"] [data-testid="game-status"]')).toHaveTextContent(/^2 vueltas$/));
+    expect(document.querySelector('[data-game="lmu"] [data-testid="game-status"]')).toHaveTextContent(/^1 vuelta$/);
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/checksum|SHA-256/i);
+    expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/Revoc/);
   });
 });

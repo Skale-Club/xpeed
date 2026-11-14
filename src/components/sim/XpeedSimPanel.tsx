@@ -1,17 +1,16 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, ChevronRight, Circle, Gamepad2, LayoutDashboard, Monitor, RefreshCw, Send } from 'lucide-react';
+import { AlertCircle, ChevronRight, Monitor, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompanionRelease } from '@/lib/companion-release';
-import { checklistOf, deviceState, splitDevices, type StepState } from '@/lib/sim/companion';
+import { splitDevices } from '@/lib/sim/companion';
 import { useOverview } from '@/lib/sim/v1-client';
 import { XpeedSimApiError, listDevices, revokeDevice, type SimDevice, type SimErrorReason } from '@/lib/sim/xpeed-sim-api';
-import { cn } from '@/lib/utils';
 import { useNow } from './use-now';
 import { CompanionDownload } from './CompanionDownload';
 import { DeviceCard } from './CompanionDevices';
@@ -20,52 +19,26 @@ import { CompanionGames } from './CompanionGames';
 const ERROR_TEXT: Record<SimErrorReason, [key: string, fallback: string]> = {
   signin: ['modes.sim.errors.signin', 'Sign in again to manage your computers.'],
   too_many: ['modes.sim.errors.tooMany', 'Too many requests. Wait a moment and try again.'],
-  not_found: ['modes.sim.errors.notFound', 'That computer was not found. It may have been revoked already.'],
+  not_found: ['modes.sim.errors.notFound', 'That computer was not found. It may have been disconnected already.'],
   unavailable: ['modes.sim.errors.unavailable', 'The server could not be reached. Try again.'],
 };
 const reasonOf = (error: unknown): SimErrorReason => (error instanceof XpeedSimApiError ? error.reason : 'unavailable');
 
-/** A step of the checklist: a tick when it is done, an empty circle when it is not; said in words for a screen reader too. */
-function Step({ state, children, testId }: { state: StepState; children: ReactNode; testId: string }) {
-  const { t } = useTranslation();
+/** A numbered step of "Get started". */
+function Step({ n, testId, children }: { n: number; testId: string; children: ReactNode }) {
   return (
-    <li className="flex items-start gap-2.5" data-testid={testId} data-state={state}>
-      {state === 'done' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
-      <span className="sr-only">{state === 'done' ? t('communityDash.companion.stepDone', 'done') : t('communityDash.companion.stepTodo', 'to do')}: </span>
-      <span className="min-w-0">{children}</span>
+    <li className="flex items-start gap-3" data-testid={testId}>
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary" aria-hidden="true">{n}</span>
+      <div className="min-w-0 flex-1 space-y-2 pt-0.5 text-sm">{children}</div>
     </li>
   );
 }
 
-/** The three-part story in one strip: it reads your game, it sends each lap, you see it here. */
-function HowItWorks() {
-  const { t } = useTranslation();
-  const parts = [
-    { icon: Gamepad2, title: t('communityDash.companion.how1Title', 'It reads your game'), text: t('communityDash.companion.how1Text', 'Xpeed Companion watches the telemetry your racing game publishes while you drive.') },
-    { icon: Send, title: t('communityDash.companion.how2Title', 'It sends each lap'), text: t('communityDash.companion.how2Text', 'Every finished lap goes to your account over HTTPS, with the layout of the track.') },
-    { icon: LayoutDashboard, title: t('communityDash.companion.how3Title', 'You see it here'), text: t('communityDash.companion.how3Text', 'Laps appear in Overview, Sessions, Compare and the leaderboards.') },
-  ];
-  return (
-    <Card className="bg-card p-4" data-testid="companion-how">
-      <h3 className="mb-3 text-sm font-semibold">{t('communityDash.companion.howTitle', 'How it works')}</h3>
-      <ol className="grid gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr] md:items-start">
-        {parts.flatMap((part, index) => [
-          <li key={part.title} className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><part.icon className="h-5 w-5" aria-hidden="true" /></span>
-            <span className="min-w-0"><span className="block text-sm font-medium">{part.title}</span><span className="block text-xs text-muted-foreground">{part.text}</span></span>
-          </li>,
-          index < parts.length - 1 ? <li key={`${part.title}-arrow`} className="hidden self-center text-muted-foreground md:block" aria-hidden="true"><ChevronRight className="h-5 w-5" /></li> : null,
-        ])}
-      </ol>
-    </Card>
-  );
-}
-
 /**
- * Virtual > Xpeed Companion: the computers connected (a card each: Online or Offline, when it was seen and sent a lap, Revoke after a question),
- * a checklist of how to connect, the games Xpeed Companion supports (certified first) with what the account holds in each, the newest installer
- * with its version and checksum, and how it all works. Connecting itself happens in the app: it opens /companion/connect/<id> (SimConnectPage),
- * where the person approves.
+ * Virtual > Xpeed Companion (reached from Settings): what a person who races needs, in three blocks. "Get started": download, open and connect,
+ * drive a lap (folded away once a computer is connected). "Your computers": a compact card each (Online or Offline, what it is doing, its last lap,
+ * Disconnect after a question). "Games": the ones Xpeed Companion supports, certified first, with the laps the account holds. Connecting itself
+ * happens in the app: it opens /companion/connect/<id> (SimConnectPage), where the person approves.
  */
 export function XpeedSimPanel() {
   const { t } = useTranslation();
@@ -87,10 +60,9 @@ export function XpeedSimPanel() {
   const errorKey = revoke.error ?? devices.error;
   const list = devices.data ?? [];
   const { live, revoked } = splitDevices(list, now);
-  const online = live.filter((device) => deviceState(device, now) === 'online').length;
   const lastLap = overview.data?.companion.lastLap ?? null;
-  const hasLaps = (overview.data?.lapsPerGame.length ?? 0) > 0 || list.some((device) => !!device.last_lap_at);
-  const checklist = checklistOf(list, hasLaps, now);
+  // A returning person sees their computers first: the steps fold away once one is connected (they stay one click away).
+  const showSteps = !devices.isLoading && live.length === 0;
   const card = (device: SimDevice, withRevoke: boolean) => (
     <DeviceCard
       key={device.id}
@@ -120,78 +92,65 @@ export function XpeedSimPanel() {
         </div>
       )}
 
-      <HowItWorks />
+      <Card className="bg-card" data-testid="companion-start">
+        <details className="group" open={showSteps} data-testid="companion-start-details">
+          <summary className="flex cursor-pointer list-none items-center gap-2 p-4 font-semibold [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {t('communityDash.companion.getStarted', 'Get started')}
+          </summary>
+          <ol className="space-y-4 px-4 pb-4" data-testid="how-to-connect">
+            <Step n={1} testId="step-install">
+              <p>{t('modes.sim.howInstall', 'Install Xpeed Companion on the PC where you play.')}</p>
+              <CompanionDownload />
+            </Step>
+            <Step n={2} testId="step-connect"><p>{t('modes.sim.howOpen', 'Open it and click Connect to your account. Your browser asks you once to confirm.')}</p></Step>
+            <Step n={3} testId="step-drive"><p>{t('communityDash.companion.stepDrive', 'Start a game and drive a lap. It shows up in your account by itself.')}</p></Step>
+          </ol>
+        </details>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-12">
-        <div className="min-w-0 space-y-4 lg:col-span-8">
-          <Card className="space-y-4 bg-card p-4" data-testid="companion-devices">
-            <div className="space-y-1">
-              <h3 className="font-semibold">{t('modes.sim.devicesTitle', 'Your computers')}</h3>
-              {!devices.isLoading && !devices.isError && list.length > 0 && (
-                <p className="text-sm text-muted-foreground" data-testid="devices-summary">
-                  {t('communityDash.companion.summary', 'Computers: {{count}} · online now: {{online}}', { count: live.length, online })}
-                </p>
-              )}
+        <Card className="min-w-0 space-y-3 bg-card p-4 lg:col-span-8" data-testid="companion-devices">
+          <h3 className="font-semibold">{t('modes.sim.devicesTitle', 'Your computers')}</h3>
+          {devices.isLoading && (
+            <div className="grid gap-3 sm:grid-cols-2" role="status" aria-label={t('common.loading', 'Loading…')} data-testid="devices-loading">
+              <Skeleton className="h-28 rounded-xl" /><Skeleton className="h-28 rounded-xl" />
             </div>
-            {devices.isLoading && (
-              <div className="grid gap-3 sm:grid-cols-2" role="status" aria-label={t('common.loading', 'Loading…')} data-testid="devices-loading">
-                <Skeleton className="h-36 rounded-xl" /><Skeleton className="h-36 rounded-xl" />
-              </div>
-            )}
-            {!devices.isLoading && !devices.isError && list.length === 0 && (
-              <div className="flex items-start gap-3 rounded-lg border border-dashed border-border p-4">
-                <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <p className="text-sm text-muted-foreground" data-testid="devices-empty">{t('modes.sim.devicesEmpty', 'No computer is connected yet.')}</p>
-              </div>
-            )}
-            {list.length > 0 && (
-              <ul className="grid gap-3 sm:grid-cols-2" data-testid="device-list">{live.map((device) => card(device, true))}</ul>
-            )}
-            {revoked.length > 0 && (
-              <details className="group rounded-lg border border-border" data-testid="devices-revoked">
-                <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
-                  <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
-                  {t('communityDash.companion.revokedTitle', 'Revoked computers: {{count}}', { count: revoked.length })}
-                </summary>
-                <ul className="grid gap-3 p-3 pt-1 sm:grid-cols-2" data-testid="device-list-revoked">{revoked.map((device) => card(device, false))}</ul>
-              </details>
-            )}
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <p>{t('communityDash.companion.heardHelp', 'Online means the server heard from the computer in the last 10 minutes.')}</p>
-              <p>{t('communityDash.companion.connectAnother', 'To connect another computer, open Xpeed Companion on it and click Connect to your account.')}</p>
-              <p>{t('modes.sim.limit', 'You can connect up to 10 computers.')}</p>
+          )}
+          {!devices.isLoading && !devices.isError && list.length === 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-dashed border-border p-4">
+              <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm text-muted-foreground" data-testid="devices-empty">{t('modes.sim.devicesEmpty', 'No computer is connected yet.')}</p>
             </div>
-          </Card>
+          )}
+          {live.length > 0 && (
+            <ul className="grid gap-3 sm:grid-cols-2" data-testid="device-list">{live.map((device) => card(device, true))}</ul>
+          )}
+          {revoked.length > 0 && (
+            <details className="group rounded-lg border border-border" data-testid="devices-revoked">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+                {t('communityDash.companion.revokedTitle', 'Disconnected computers: {{count}}', { count: revoked.length })}
+              </summary>
+              <ul className="grid gap-3 p-3 pt-1 sm:grid-cols-2" data-testid="device-list-revoked">{revoked.map((device) => card(device, false))}</ul>
+            </details>
+          )}
+          {list.length > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="devices-hint">{t('communityDash.companion.connectAnother', 'To add another computer (up to 10), open Xpeed Companion on it and click Connect to your account.')}</p>
+          )}
+        </Card>
 
+        <div className="min-w-0 lg:col-span-4">
           <CompanionGames overview={overview.data} loading={overview.isPending} />
-        </div>
-
-        <div className={cn('min-w-0 space-y-4 lg:col-span-4', !devices.isLoading && list.length === 0 && 'order-first lg:order-none')}>
-          <Card className="space-y-3 bg-card p-4" data-testid="companion-checklist">
-            <h3 className="font-semibold">{t('modes.sim.howTitle', 'How to connect')}</h3>
-            <ol className="space-y-2.5 text-sm" data-testid="how-to-connect">
-              <Step state={checklist.connected} testId="step-install">
-                {t('modes.sim.howInstall', 'Install Xpeed Companion on the PC where you play.')}{' '}
-                <a href="/companion" className="font-medium text-primary underline underline-offset-2" data-testid="companion-page-link">
-                  {t('companionSite.getIt', 'Download it here')}
-                </a>
-                {release.data && <span className="text-muted-foreground" data-testid="companion-latest"> ({t('companionSite.latest', 'latest: {{version}}', { version: release.data.version })})</span>}
-              </Step>
-              <Step state={checklist.connected} testId="step-connect">{t('modes.sim.howOpen', 'Open it and click Connect to your account.')}</Step>
-              <Step state={checklist.laps} testId="step-drive">{t('communityDash.companion.stepDrive', 'Start a game and drive a lap. It shows up in your account by itself.')}</Step>
-            </ol>
-            <p className="text-xs text-muted-foreground">{t('modes.sim.howAfter', 'Your browser opens and asks you once to confirm. There is nothing to copy or type.')}</p>
-          </Card>
-          <CompanionDownload />
         </div>
       </div>
 
       <ConfirmDialog
         open={pending !== null}
         onOpenChange={(next) => !next && setPending(null)}
-        title={t('modes.sim.confirmTitle', 'Revoke {{name}}?', { name: pending?.name ?? '' })}
+        title={t('modes.sim.confirmTitle', 'Disconnect {{name}}?', { name: pending?.name ?? '' })}
         description={t('modes.sim.confirmBody', 'This computer can no longer send laps. Laps it already sent stay in your account. You can connect it again from Xpeed Companion.')}
-        confirmLabel={t('modes.sim.confirmRevoke', 'Revoke')}
+        confirmLabel={t('modes.sim.confirmRevoke', 'Disconnect')}
         onConfirm={() => {
           if (pending) revoke.mutate(pending.id);
           setPending(null);
