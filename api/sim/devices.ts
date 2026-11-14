@@ -20,7 +20,7 @@ export default async function devices(req: Request): Promise<Response> {
     if (req.method === 'GET') {
       // As the person: row level security decides, and the key hash is not a column they may read.
       const db = await backend.asUser(token);
-      const list = await db.from('sim_devices').select('id,name,created_at,last_seen_at,last_lap_at,revoked_at').order('created_at', { ascending: false });
+      const list = await db.from('sim_devices').select('id,name,created_at,last_seen_at,last_lap_at,revoked_at,companion_version,last_state,last_game,last_state_at').order('created_at', { ascending: false });
       if (list.error) throw list.error;
       return answer({ devices: list.data });
     }

@@ -26,6 +26,10 @@ test('container serves the SPA, API guards, OAuth metadata and bounded requests'
   // An upload is authenticated before its body is read, so a stranger sending 33 MB gets 401, never a read of the body
   // (the 413 for an oversized body from a known device is covered in scripts/verify-sim.mjs).
   assert.equal((await fetch(base+'/api/sim/tracks',{method:'POST',headers:{'content-type':'application/gzip'},body:new Uint8Array(33*1024*1024+1)})).status,401);
+  // The heartbeat of Xpeed Companion: a stranger is 401 before anything is read, a body over 4 KB is cut off while it is read, only POST.
+  assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',body:'{}'})).status,401);
+  assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',headers:{authorization:'Bearer xpd_x'},body:'x'.repeat(5000)})).status,413);
+  assert.equal((await fetch(base+'/api/sim/heartbeat')).status,405);
   assert.match(health.headers.get('content-security-policy'),/accounts.google.com/);
  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });

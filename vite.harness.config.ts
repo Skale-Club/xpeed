@@ -66,7 +66,7 @@ export default defineConfig(async (env: ConfigEnv) => {
         // The newest Xpeed Companion (what GET /api/companion/latest says), for the Companion screen's download card.
         server.middlewares.use('/api/companion/latest', (_req, res) => {
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ version: '0.6.2', build: 'abc1234', downloadUrl: '/api/companion/download', sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', size: 3_458_048, releasedAt: '2026-11-12T15:30:00.000Z', minVersion: '0.6.0', signed: false }));
+          res.end(JSON.stringify({ version: '0.7.0', build: 'abc1234', downloadUrl: '/api/companion/download', sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', size: 3_458_048, releasedAt: '2026-11-12T15:30:00.000Z', minVersion: '0.6.0', signed: false }));
         });
         server.middlewares.use('/api/sim', async (req, res, next) => {
           const path = (req.url ?? '/').split('?')[0];
@@ -93,12 +93,17 @@ export default defineConfig(async (env: ConfigEnv) => {
           res.setHeader('Content-Type', 'application/json');
           if (path === '/devices' && req.method === 'GET') {
             const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
-            // One computer heard from a minute ago, one two days ago, one never, one revoked: every state of the Companion screen.
+            // Every state of the Companion screen: heard from a minute ago and connected to a game (0.7.0, the newest), heard from now and waiting for a
+            // game with an older Xpeed Companion (the update hint), heard from now with reading paused, heard from two days ago, never heard from, revoked,
+            // and one that is online but whose Companion predates the heartbeat (no version, no state: an older Companion or server).
             return res.end(JSON.stringify({ devices: empty ? [] : [
-              { id: 'd1', name: 'Racing PC', created_at: '2026-11-01T00:00:00.000Z', last_seen_at: ago(1), last_lap_at: ago(35), revoked_at: null },
-              { id: 'd2', name: 'LAPTOP-RIG', created_at: '2026-11-05T00:00:00.000Z', last_seen_at: ago(60 * 48), last_lap_at: ago(60 * 50), revoked_at: null },
-              { id: 'd3', name: 'NEW-PC', created_at: '2026-11-12T00:00:00.000Z', last_seen_at: null, last_lap_at: null, revoked_at: null },
-              { id: 'd4', name: 'OLD-PC', created_at: '2026-10-20T00:00:00.000Z', last_seen_at: '2026-10-25T00:00:00.000Z', last_lap_at: null, revoked_at: '2026-11-02T00:00:00.000Z' },
+              { id: 'd1', name: 'Racing PC', created_at: '2026-11-01T00:00:00.000Z', last_seen_at: ago(1), last_lap_at: ago(35), revoked_at: null, companion_version: '0.7.0', last_state: 'connected', last_game: 'ams2', last_state_at: ago(12) },
+              { id: 'd5', name: 'LIVING-ROOM-PC', created_at: '2026-11-08T00:00:00.000Z', last_seen_at: ago(0.5), last_lap_at: ago(60 * 5), revoked_at: null, companion_version: '0.6.2', last_state: 'waiting', last_game: null, last_state_at: ago(90) },
+              { id: 'd6', name: 'STUDY-PC', created_at: '2026-11-09T00:00:00.000Z', last_seen_at: ago(2), last_lap_at: null, revoked_at: null, companion_version: '0.7.0', last_state: 'idle', last_game: null, last_state_at: ago(8) },
+              { id: 'd7', name: 'OLD-COMPANION-PC', created_at: '2026-11-06T00:00:00.000Z', last_seen_at: ago(2), last_lap_at: ago(2), revoked_at: null },
+              { id: 'd2', name: 'LAPTOP-RIG', created_at: '2026-11-05T00:00:00.000Z', last_seen_at: ago(60 * 48), last_lap_at: ago(60 * 50), revoked_at: null, companion_version: '0.6.0', last_state: 'connected', last_game: 'ac', last_state_at: ago(60 * 49) },
+              { id: 'd3', name: 'NEW-PC', created_at: '2026-11-12T00:00:00.000Z', last_seen_at: null, last_lap_at: null, revoked_at: null, companion_version: null, last_state: null, last_game: null, last_state_at: null },
+              { id: 'd4', name: 'OLD-PC', created_at: '2026-10-20T00:00:00.000Z', last_seen_at: '2026-10-25T00:00:00.000Z', last_lap_at: null, revoked_at: '2026-11-02T00:00:00.000Z', companion_version: '0.5.0', last_state: 'waiting', last_game: null, last_state_at: '2026-10-25T00:00:00.000Z' },
             ] }));
           }
           return next();

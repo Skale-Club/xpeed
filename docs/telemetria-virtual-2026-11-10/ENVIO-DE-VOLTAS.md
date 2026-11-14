@@ -105,6 +105,33 @@ Cada pista é tentada **uma vez por execução** do programa, numa linha de exec
 
 **A fila dos traçados** é a pasta `tracks` dentro da pasta de voltas. O arquivo novo é escrito ali (como `.part` e depois renomeado) só quando os bytes mudaram. O registro `tracks/.xpeed-tracks.json` guarda, por arquivo, a `trackKey` e um hash dos bytes do que já foi enviado ou recusado (com o endereço do servidor, como o das voltas). Assim cada traçado vai **uma vez**, e de novo só se o arquivo mudar (por exemplo, um mod atualizou a pista). Antes de enviar, o Xpeed Sim abre o arquivo com o seu leitor estrito. Os traçados vão depois das voltas, no mesmo ciclo, com as mesmas regras (só HTTPS, sem redirecionamento, as mesmas esperas). `xpeed-sim upload DIR` também manda os de `DIR\tracks`.
 
+## 2c. Sinal de vida (a partir do Xpeed Companion 0.7.0)
+
+Até a 0.6 o servidor só ouvia o computador quando ele mandava uma volta ou um traçado, e o site mostrava "Offline" para um computador ligado que não terminava uma volta havia horas. Agora o Xpeed Companion avisa que está rodando.
+
+```
+POST /api/sim/heartbeat
+Authorization: Bearer xpd_…
+Content-Type: application/json
+
+{ "version": "0.7.0", "state": "idle" | "waiting" | "connected", "game": "ams2" | null, "pendingLaps": 0 }
+```
+
+- **Os quatro campos são todos:** nada pessoal (sem nome do computador, caminhos, conta nem voltas). `version` é a do programa (`0.7.0`, com etiqueta curta opcional: `0.8.0-beta.1`); `state` é `waiting` (rodando, esperando um jogo), `connected` (um jogo está mandando dados) ou `idle` (a pessoa pausou a leitura); `game` é o id do jogo (`ac`, `ams2`, `lmu`…, o mesmo `game` do arquivo de volta) enquanto `connected`, senão `null` (o campo é obrigatório, mas pode ser `null`); `pendingLaps` é quantas voltas esperam envio (inteiro >= 0, e acima de 1.000.000 vale 1.000.000; o servidor confere e não guarda). Um campo desconhecido é ignorado.
+- **Quando vai:** ao abrir, depois **a cada 60 s**, e **na hora** em que o estado ou o jogo muda (um jogo conectou ou fechou, a leitura foi pausada ou retomada), com no mínimo 5 s entre dois. Só com o computador pareado. É um pedido de poucas dezenas de bytes: pode ir com um jogo aberto, e roda em uma linha de execução própria, que nunca atrasa a leitura.
+- **O que o servidor faz** (uma chamada ao banco): confere a chave, conta 30 por minuto por aparelho (no banco, como o limite das voltas), e grava `last_seen_at = now()`, `companion_version`, `last_state`, `last_game` e `last_state_at` (a hora em que o estado ou o jogo **mudou**: "conectado desde"). `GET /api/sim/devices` e `companion.devices[]` da visão geral (API v1) passam a trazer `companion_version`/`version`, `last_state`/`state`, `last_game`/`game` e `last_state_at`/`stateAt`, nulos até o primeiro sinal. O site chama de **Online** o computador ouvido nos últimos **3 minutos**.
+
+| Resposta | Significado | O que o Xpeed Companion faz |
+| --- | --- | --- |
+| `200` `{ "ok": true }` | Anotado. | Segue. |
+| `401`, `403` | Chave recusada ou revogada. | Para de mandar sinal (o envio de voltas avisa a pessoa). |
+| `400`, `413` | Corpo recusado (`invalid_json`, `invalid_request`, `invalid_version`, `invalid_state`, `invalid_game`, `invalid_pending_laps`, `too_large`: mais de 2 KB). Nunca acontece com o programa de verdade. | Tenta de novo bem devagar (5 min). |
+| `429` (com `Retry-After`) | Mais de 30 no minuto. | Espera o que o servidor pediu. |
+| `404`, `405`, `501` | Servidor antigo, sem este caminho. | Pergunta de novo a cada 5 min; o site decide "online" só por `last_seen_at`. |
+| `5xx`, rede fora do ar, tempo esgotado (15 s) | Problema passageiro. | Tenta de novo com espera crescente (30 s, 1 min, 2 min … até 5 min), sem barulho: o `companion.log` ganha **uma** linha quando a falha começa e uma quando o servidor volta a ouvir, nunca uma por minuto. |
+
+Toda recusa traz `{ "error": "…", "retryable": true|false }` como as do envio de voltas. Não há CORS (não é um navegador).
+
 ## 3. O que o Xpeed Sim guarda e o que ele nunca faz
 
 - **A pasta de voltas é a fila.** Uma volta só é pendente se estiver na pasta e não constar em `.xpeed-upload.json`, ao lado dela, que lista o que já foi enviado ou recusado (com o endereço do servidor; se a pessoa parear com outro servidor, a lista de enviadas recomeça). Se o computador desligar no meio, a próxima execução continua de onde parou. Nenhum arquivo de volta é apagado, movido nem alterado pelo envio.

@@ -35,12 +35,22 @@ pub enum Sent {
 
 /// One agent for every call: no redirects (the key must never follow one), bounded waits, the TLS of the system.
 pub fn agent() -> ureq::Agent {
+    agent_with(Duration::from_secs(120))
+}
+
+/// The agent of the heartbeat: the same rules, but a request of a few dozen bytes that the server has not answered in
+/// 15 s is not going to be answered, and the next try is a minute away anyway.
+pub fn heartbeat_agent() -> ureq::Agent {
+    agent_with(Duration::from_secs(15))
+}
+
+fn agent_with(global: Duration) -> ureq::Agent {
     let config = ureq::Agent::config_builder()
         .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
         .http_status_as_error(false)
         .max_redirects(0)
         .timeout_connect(Some(Duration::from_secs(10)))
-        .timeout_global(Some(Duration::from_secs(120)))
+        .timeout_global(Some(global))
         .user_agent(concat!("xpeed-companion/", env!("CARGO_PKG_VERSION")))
         .build();
     ureq::Agent::new_with_config(config)
@@ -140,6 +150,40 @@ fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what
         }),
         _ => Err(SendError::Later {
             reason: explain(&reply, &format!("the server could not take the {one}")),
+            after: reply.after,
+        }),
+    }
+}
+
+/// Says to the server that this computer is running (`POST /api/sim/heartbeat`, contract in `ENVIO-DE-VOLTAS.md`, section 2c).
+/// `body` is the JSON from `heartbeat::payload`. Judged by the status alone, like a lap: a refused key stops the heartbeat, a
+/// server that does not know the route (an older one) or is busy is a later try, and anything else the server finds wrong
+/// with it is reported as a refusal (the caller treats that as a later try too: a heartbeat is never worth giving up on).
+pub fn send_heartbeat(agent: &ureq::Agent, config: &Config, body: &str) -> Result<(), SendError> {
+    let response = agent
+        .post(format!("{}/api/sim/heartbeat", config.server))
+        .header("Authorization", format!("Bearer {}", config.token))
+        .content_type("application/json")
+        .send(body)
+        .map_err(|error| SendError::Later {
+            reason: network_problem(&error),
+            after: None,
+        })?;
+    let reply = read_reply(response);
+    match reply.status {
+        200..=299 => Ok(()),
+        401 | 403 => Err(SendError::Unauthorized),
+        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused the heartbeat"))),
+        404 | 405 | 501 => Err(SendError::Later {
+            reason: "this server does not take heartbeats yet".into(),
+            after: Some(Duration::from_secs(300)),
+        }),
+        300..=399 => Err(SendError::Later {
+            reason: "the server moved; pair again with its final address".into(),
+            after: None,
+        }),
+        _ => Err(SendError::Later {
+            reason: explain(&reply, "the server could not take the heartbeat"),
             after: reply.after,
         }),
     }

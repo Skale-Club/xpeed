@@ -147,7 +147,11 @@ export interface V1Overview {
   latestPersonalBests: V1Pb[];
   lapsPerGame: Array<{ game: string; laps: number; validLaps: number; sessions: number; lastDrivenAt: string }>;
   companion: {
-    devices: Array<{ id: string; name: string; pairedAt: string; lastSeenAt: string | null; lastLapAt: string | null }>;
+    devices: Array<{
+      id: string; name: string; pairedAt: string; lastSeenAt: string | null; lastLapAt: string | null;
+      /** What the last heartbeat said (Xpeed Companion 0.7): absent from an older server, null until the first heartbeat. */
+      version?: string | null; state?: 'idle' | 'waiting' | 'connected' | null; game?: string | null; stateAt?: string | null;
+    }>;
     lastLap: V1Lap | null;
   };
   storage: { lapCount: number; usedBytes: number; limitBytes: number };

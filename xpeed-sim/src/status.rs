@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::dash::Live;
+use crate::heartbeat::{self, Heartbeat, View};
 use crate::outbox::Uploader;
 use crate::supervisor::Health;
 use crate::update::UpdateState;
@@ -98,6 +99,10 @@ pub struct Shared {
     notices: Mutex<VecDeque<Notice>>,
     on_change: Mutex<Option<OnChange>>,
     uploader: Mutex<Option<Uploader>>,
+    /// The thread that tells the server this computer is running, and what the heartbeat last said it was doing (so that it is woken
+    /// only when that changes).
+    heartbeat: Mutex<Option<Heartbeat>>,
+    heartbeat_view: Mutex<View>,
     /// The latest reading of the car, for the panel. Not a change worth waking the tray for.
     live: Mutex<Option<Live>>,
     /// The labels of the last laps saved in this run, newest last.
@@ -126,6 +131,8 @@ impl Shared {
             notices: Mutex::new(VecDeque::new()),
             on_change: Mutex::new(None),
             uploader: Mutex::new(None),
+            heartbeat: Mutex::new(None),
+            heartbeat_view: Mutex::new(View::WAITING),
             live: Mutex::new(None),
             recent_laps: Mutex::new(VecDeque::new()),
             activity: Mutex::new(VecDeque::new()),
@@ -190,6 +197,28 @@ impl Shared {
             s.game = game;
             s.title = title;
         });
+        self.view_changed();
+    }
+
+    /// What the heartbeat says about the program now: waiting, connected to a game (which), or paused by the person.
+    pub fn heartbeat_view(&self) -> View {
+        heartbeat::view_of(lock(&self.games).iter().map(|(id, (_, game))| (id, game)), self.paused())
+    }
+
+    /// Wakes the heartbeat when what it would say has changed since it last looked (a game connected or went away, reading was paused).
+    fn view_changed(&self) {
+        let now = self.heartbeat_view();
+        let changed = {
+            let mut seen = lock(&self.heartbeat_view);
+            let changed = *seen != now;
+            *seen = now;
+            changed
+        };
+        if changed {
+            if let Some(heartbeat) = lock(&self.heartbeat).as_ref() {
+                heartbeat.wake();
+            }
+        }
     }
 
     pub fn set_on_change(&self, callback: impl Fn() + Send + Sync + 'static) {
@@ -313,6 +342,7 @@ impl Shared {
     }
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::SeqCst);
+        self.view_changed();
     }
     pub fn quitting(&self) -> bool {
         self.quit.load(Ordering::SeqCst)
@@ -324,6 +354,10 @@ impl Shared {
     /// Puts the thread that sends laps in place (or takes it away); the old one is told to finish.
     pub fn set_uploader(&self, uploader: Option<Uploader>) {
         *lock(&self.uploader) = uploader;
+    }
+    /// Puts the heartbeat thread in place (or takes it away); the old one is told to finish.
+    pub fn set_heartbeat(&self, heartbeat: Option<Heartbeat>) {
+        *lock(&self.heartbeat) = heartbeat;
     }
     /// A lap or a track layout was saved: let the uploader look at the folders.
     pub fn wake_uploader(&self) {

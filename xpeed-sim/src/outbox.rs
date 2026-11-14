@@ -109,7 +109,6 @@ fn lap_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
 }
 
 /// How many laps in `dir` have not been sent to `server` (nor refused by it). Only looks; nothing is changed.
-#[cfg(any(windows, test))]
 pub fn count_pending_laps(dir: &Path, server: &str) -> usize {
     let state = State::load(dir, server);
     lap_files(dir).map_or(0, |files| files.iter().filter(|(name, _)| !state.done(name)).count())

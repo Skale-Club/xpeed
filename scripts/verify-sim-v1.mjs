@@ -30,7 +30,7 @@ Object.assign(process.env, {
 await build({
   entryPoints: {
     pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', tracks: 'api/sim/tracks.ts',
-    me: 'api/sim/me.ts', v1: 'api/sim/v1.ts', sweep: 'api/sim/_sweep.ts', summary: 'api/sim/_summary.ts', v1cache: 'api/sim/_v1cache.ts', stats: 'api/sim/_stats.ts',
+    me: 'api/sim/me.ts', heartbeat: 'api/sim/heartbeat.ts', v1: 'api/sim/v1.ts', sweep: 'api/sim/_sweep.ts', summary: 'api/sim/_summary.ts', v1cache: 'api/sim/_v1cache.ts', stats: 'api/sim/_stats.ts',
     shared: 'api/sim/_shared.ts', webserver: 'server/index.ts', lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts',
     identity: 'server/identity.ts', account: 'server/account-route.ts', retention: 'server/retention.ts',
   },
@@ -40,7 +40,7 @@ await build({
 const load = (name, query = '') => import(pathToFileURL(resolve(temp, name)).href + query);
 const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).default;
 const codes = (await load('codes.mjs')).default, devices = (await load('devices.mjs')).default;
-const me = (await load('me.mjs')).default, v1 = (await load('v1.mjs')).default;
+const me = (await load('me.mjs')).default, v1 = (await load('v1.mjs')).default, heartbeat = (await load('heartbeat.mjs')).default;
 const { sweepOrphanLaps } = await load('sweep.mjs');
 const { topSpeedKmh, fuelUsedL } = await load('summary.mjs');
 const { cachedOverview, rememberOverview, forgetAllOverviews, forgetOverview, OVERVIEW_TTL_MS, cachedStats, rememberStats, STATS_TTL_MS } = await load('v1cache.mjs');
@@ -975,7 +975,7 @@ try {
     const r = (await api('/overview')).body;
     const names = r.companion.devices.map((d) => d.name);
     assert.ok(names.includes('Sim PC') && names.includes('Sim PC 2'));
-    assert.deepEqual(Object.keys(r.companion.devices[0]).sort(), ['id', 'lastLapAt', 'lastSeenAt', 'name', 'pairedAt']);
+    assert.deepEqual(Object.keys(r.companion.devices[0]).sort(), ['game', 'id', 'lastLapAt', 'lastSeenAt', 'name', 'pairedAt', 'state', 'stateAt', 'version']);
     const rig = r.companion.devices.find((d) => d.name === 'Sim PC');
     assert.ok(rig.lastSeenAt && rig.lastLapAt, 'the device has been seen and sent a lap');
     assert.equal(r.companion.lastLap.game, 'lmu');
@@ -1020,6 +1020,231 @@ try {
     assert.deepEqual(cachedOverview('x', 1_000 + 9_999), { n: 1 });
     assert.equal(cachedOverview('x', 1_000 + 10_000), undefined, 'expired after 10 seconds');
     assert.equal(cachedOverview('y', 1_000), undefined);
+  });
+
+  // ================================================================== Companion heartbeat (POST /api/sim/heartbeat)
+
+  const beat = (key, body, extra = {}) => call(heartbeat, '/api/sim/heartbeat', { method: 'POST', bearer: key, body, ...extra });
+  const GOOD = { version: '0.7.0', state: 'waiting', game: null, pendingLaps: 0 };
+  const deviceRow = async (id) => (await direct.query('SELECT * FROM public.sim_devices WHERE id = $1', [id])).rows[0];
+  const ageMs = (date) => Date.now() - date.getTime();
+  // A person may have ten computers: the ones these checks pair are removed when each check ends.
+  const hbCheck = (name, test) => check(name, async () => {
+    try { await test(); } finally { await direct.query("DELETE FROM public.sim_devices WHERE name LIKE 'HB %'"); }
+  });
+
+  await hbCheck('heartbeat: a device key sends it; last_seen_at, the version, the state and the game are recorded, and last_state_at moves only when the state or the game changes', async () => {
+    const rig = await deviceFor(C, 'HB PC');
+    const fresh = await deviceRow(rig.deviceId);
+    assert.deepEqual([fresh.last_seen_at, fresh.companion_version, fresh.last_state, fresh.last_game, fresh.last_state_at], [null, null, null, null, null], 'nothing before the first one');
+    const first = await beat(rig.token, GOOD);
+    assert.deepEqual([first.status, first.body], [200, { ok: true }]);
+    assert.equal(first.headers.get('cache-control'), 'private, no-store');
+    let row = await deviceRow(rig.deviceId);
+    assert.deepEqual([row.companion_version, row.last_state, row.last_game], ['0.7.0', 'waiting', null]);
+    assert.ok(ageMs(row.last_seen_at) < 10_000 && ageMs(row.last_state_at) < 10_000, 'seen now, in this state since now');
+    assert.equal(row.last_lap_at, null, 'a heartbeat is not a lap');
+    // The same thing again an hour later: seen again, still in the same state since an hour ago.
+    await direct.query("UPDATE public.sim_devices SET last_seen_at = now() - interval '1 hour', last_state_at = now() - interval '1 hour' WHERE id = $1", [rig.deviceId]);
+    assert.equal((await beat(rig.token, { ...GOOD, pendingLaps: 7 })).status, 200);
+    row = await deviceRow(rig.deviceId);
+    assert.ok(ageMs(row.last_seen_at) < 10_000, 'last_seen_at moved');
+    assert.ok(ageMs(row.last_state_at) > 3_500_000, 'last_state_at did not: the state did not change');
+    // A game connects: the state and the game change, the "since" moves, a newer version is kept.
+    assert.equal((await beat(rig.token, { version: '0.7.1', state: 'connected', game: 'ams2', pendingLaps: 2 })).status, 200);
+    row = await deviceRow(rig.deviceId);
+    assert.deepEqual([row.companion_version, row.last_state, row.last_game], ['0.7.1', 'connected', 'ams2']);
+    assert.ok(ageMs(row.last_state_at) < 10_000, 'connected since now');
+    // Another game in the same state is a change too; so is going back to idle with no game.
+    await direct.query("UPDATE public.sim_devices SET last_state_at = now() - interval '1 hour' WHERE id = $1", [rig.deviceId]);
+    assert.equal((await beat(rig.token, { version: '0.7.1', state: 'connected', game: 'ac', pendingLaps: 0 })).status, 200);
+    assert.ok(ageMs((await deviceRow(rig.deviceId)).last_state_at) < 10_000, 'another game moves it');
+    assert.equal((await beat(rig.token, { version: '0.7.1', state: 'idle', game: null, pendingLaps: 0 })).status, 200);
+    row = await deviceRow(rig.deviceId);
+    assert.deepEqual([row.last_state, row.last_game], ['idle', null]);
+    // A field this server does not know is ignored, and a version with a tag is fine.
+    assert.equal((await beat(rig.token, { ...GOOD, version: '0.8.0-beta.1', hostname: 'PC-OF-SOMEONE', future: { a: 1 } })).status, 200);
+    assert.equal((await deviceRow(rig.deviceId)).companion_version, '0.8.0-beta.1');
+    // A lap upload still moves last_seen_at and leaves what the heartbeat said alone.
+    await direct.query("UPDATE public.sim_devices SET last_seen_at = now() - interval '1 hour' WHERE id = $1", [rig.deviceId]);
+    await put(rig, { track: 'Heartbeat Ring', car: 'Car One', number: 1, startedAt: '2026-11-24T10:00:00.000Z' });
+    row = await deviceRow(rig.deviceId);
+    assert.ok(ageMs(row.last_seen_at) < 10_000 && row.last_lap_at, 'the upload path is unchanged');
+    assert.deepEqual([row.companion_version, row.last_state], ['0.8.0-beta.1', 'waiting'], 'the last heartbeat is still the last heartbeat');
+  });
+
+  await hbCheck('heartbeat: the overview and the device list show what the computer reported, with every old key kept, and a state change shows at once', async () => {
+    const rig = await deviceFor(C, 'HB PC 2');
+    const find = async () => (await api('/overview')).body.companion.devices.find((d) => d.name === 'HB PC 2');
+    const silent = await find();
+    assert.deepEqual(silent, { id: rig.deviceId, name: 'HB PC 2', pairedAt: silent.pairedAt, lastSeenAt: null, lastLapAt: null, version: null, state: null, game: null, stateAt: null }, 'before a heartbeat: the keys are there, empty');
+    assert.equal((await beat(rig.token, GOOD)).status, 200);
+    const waiting = await find(); // cached for 10 seconds from here
+    assert.deepEqual([waiting.version, waiting.state, waiting.game], ['0.7.0', 'waiting', null]);
+    assert.match(waiting.lastSeenAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    assert.match(waiting.stateAt, /Z$/);
+    assert.equal(waiting.lastLapAt, null);
+    assert.equal((await beat(rig.token, { version: '0.7.0', state: 'connected', game: 'ams2', pendingLaps: 0 })).status, 200);
+    const connected = await find();
+    assert.deepEqual([connected.state, connected.game], ['connected', 'ams2'], 'a change drops the cache: the next read has it');
+    assert.deepEqual(Object.keys(connected).sort(), ['game', 'id', 'lastLapAt', 'lastSeenAt', 'name', 'pairedAt', 'state', 'stateAt', 'version']);
+    // The list the site reads for the cards has the same facts (column names), and never the key hash.
+    const listed = (await call(devices, '/api/sim/devices', { bearer: C })).body.devices.find((d) => d.id === rig.deviceId);
+    assert.deepEqual([listed.companion_version, listed.last_state, listed.last_game], ['0.7.0', 'connected', 'ams2']);
+    assert.ok(listed.last_seen_at && listed.last_state_at);
+    assert.ok(!('token_hash' in listed));
+  });
+
+  await hbCheck('heartbeat: strict about the four fields (one error shape, nothing written), and ignores the rest', async () => {
+    const rig = await deviceFor(C, 'HB PC 3');
+    const before = JSON.stringify(await deviceRow(rig.deviceId));
+    const bad = [
+      ['{not json', 'invalid_json'], ['', 'invalid_json'], ['[]', 'invalid_request'], ['null', 'invalid_request'], ['"text"', 'invalid_request'], ['7', 'invalid_request'],
+      [{ ...GOOD, version: undefined }, 'invalid_version'], [{ ...GOOD, version: '' }, 'invalid_version'], [{ ...GOOD, version: '0.7' }, 'invalid_version'],
+      [{ ...GOOD, version: 'v0.7.0' }, 'invalid_version'], [{ ...GOOD, version: '0.7.0 ' }, 'invalid_version'], [{ ...GOOD, version: '0.7.0-' + 'x'.repeat(20) }, 'invalid_version'],
+      [{ ...GOOD, version: 7 }, 'invalid_version'], [{ ...GOOD, version: '<b>0.7.0' }, 'invalid_version'],
+      [{ ...GOOD, state: undefined }, 'invalid_state'], [{ ...GOOD, state: 'sleeping' }, 'invalid_state'], [{ ...GOOD, state: 'Connected' }, 'invalid_state'], [{ ...GOOD, state: null }, 'invalid_state'],
+      [{ ...GOOD, game: undefined }, 'invalid_game'], [{ ...GOOD, game: 'AMS2' }, 'invalid_game'], [{ ...GOOD, game: 'ams 2' }, 'invalid_game'], [{ ...GOOD, game: '' }, 'invalid_game'],
+      [{ ...GOOD, game: 'a'.repeat(33) }, 'invalid_game'], [{ ...GOOD, game: 5 }, 'invalid_game'], [{ ...GOOD, game: '../x' }, 'invalid_game'],
+      [{ ...GOOD, pendingLaps: undefined }, 'invalid_pending_laps'], [{ ...GOOD, pendingLaps: -1 }, 'invalid_pending_laps'], [{ ...GOOD, pendingLaps: 1.5 }, 'invalid_pending_laps'],
+      [{ ...GOOD, pendingLaps: '3' }, 'invalid_pending_laps'], [{ ...GOOD, pendingLaps: null }, 'invalid_pending_laps'],
+    ];
+    for (const [body, error] of bad) {
+      const r = await beat(rig.token, typeof body === 'string' ? body : JSON.stringify(body));
+      assert.deepEqual([r.status, r.body], [400, { error, retryable: false }], JSON.stringify(body));
+    }
+    assert.equal(JSON.stringify(await deviceRow(rig.deviceId)), before, 'a refused heartbeat writes nothing');
+    // Too big to be one.
+    const big = await beat(rig.token, JSON.stringify({ ...GOOD, padding: 'x'.repeat(3000) }));
+    assert.deepEqual([big.status, big.body], [413, { error: 'too_large', retryable: false }]);
+    // A huge count is capped, not refused; zero and a big real number are fine.
+    for (const pendingLaps of [0, 12_345, 9_000_000_000]) assert.equal((await beat(rig.token, { ...GOOD, pendingLaps })).status, 200, String(pendingLaps));
+    // Only POST.
+    const wrong = await call(heartbeat, '/api/sim/heartbeat', { method: 'GET', bearer: rig.token });
+    assert.equal(wrong.status, 405);
+    assert.equal(wrong.headers.get('allow'), 'POST');
+    assert.equal((await call(heartbeat, '/api/sim/heartbeat', { method: 'PUT', bearer: rig.token, body: GOOD })).status, 405);
+  });
+
+  await hbCheck('heartbeat: a missing, unknown, revoked or person token is 401, and a revoked computer is not marked as seen', async () => {
+    const rig = await deviceFor(C, 'HB PC 4');
+    for (const key of ['', 'xpd_unknown', C]) {
+      const r = await beat(key, GOOD);
+      assert.deepEqual([r.status, r.body], [401, { error: 'unauthorized', retryable: false }], `key ${key.slice(0, 8) || '(none)'}`);
+    }
+    assert.equal((await beat(rig.token, GOOD)).status, 200);
+    await direct.query("UPDATE public.sim_devices SET revoked_at = now(), last_seen_at = now() - interval '1 hour' WHERE id = $1", [rig.deviceId]);
+    const before = JSON.stringify(await deviceRow(rig.deviceId));
+    const refused = await beat(rig.token, { version: '0.9.0', state: 'connected', game: 'ac', pendingLaps: 0 });
+    assert.deepEqual([refused.status, refused.body], [401, { error: 'unauthorized', retryable: false }], 'revoked: like an upload');
+    assert.equal(JSON.stringify(await deviceRow(rig.deviceId)), before, 'nothing changed on a revoked computer');
+    assert.equal((await upload(rig.token, await makeLap({ track: 'Revoked Ring', number: 1 }))).status, 401, 'and the upload agrees');
+    forgetAllOverviews();
+    assert.ok(!(await api('/overview')).body.companion.devices.some((d) => d.name === 'HB PC 4'), 'a revoked computer is not listed');
+  });
+
+  await hbCheck('heartbeat: 30 a minute per device, counted in the database; a refused one moves nothing; other devices and the lap limit are not affected', async () => {
+    const rig = await deviceFor(C, 'HB PC 5'), other = await deviceFor(C, 'HB PC 6');
+    let last;
+    for (let i = 0; i < 30; i++) {
+      last = await beat(rig.token, GOOD);
+      assert.equal(last.status, 200, `heartbeat ${i + 1}`);
+    }
+    await direct.query("UPDATE public.sim_devices SET last_seen_at = now() - interval '1 hour' WHERE id = $1", [rig.deviceId]);
+    const before = JSON.stringify(await deviceRow(rig.deviceId));
+    last = await beat(rig.token, { version: '0.9.9', state: 'connected', game: 'lmu', pendingLaps: 1 });
+    assert.deepEqual([last.status, last.body], [429, { error: 'too_many_requests', retryable: true }]);
+    assert.ok(Number(last.headers.get('retry-after')) >= 1 && Number(last.headers.get('retry-after')) <= 60);
+    assert.equal(JSON.stringify(await deviceRow(rig.deviceId)), before, 'a flood does not move last_seen_at or anything else');
+    assert.equal((await direct.query('SELECT hits FROM public.sim_rate WHERE key = $1', [`hb:${rig.deviceId}`])).rows[0].hits, 31, 'the counter is a row, apart from the laps\'');
+    forgetLimits(); // a restart: the database still remembers
+    assert.equal((await beat(rig.token, GOOD)).status, 429);
+    const second = (await load('heartbeat.mjs', '?instance=2')).default;
+    assert.equal((await call(second, '/api/sim/heartbeat', { method: 'POST', bearer: rig.token, body: GOOD })).status, 429, 'another instance agrees');
+    assert.equal((await beat(other.token, GOOD)).status, 200, 'another computer is not held back');
+    assert.ok((await put(rig, { track: 'Rate Heartbeat Ring', car: 'Car One', number: 1, startedAt: '2026-11-24T11:00:00.000Z' }), 'a lap still goes: the counters are separate'));
+    await direct.query("UPDATE public.sim_rate SET window_start = window_start - interval '2 minutes' WHERE key = $1", [`hb:${rig.deviceId}`]);
+    assert.equal((await beat(rig.token, GOOD)).status, 200, 'a new minute, a new count');
+  });
+
+  await hbCheck('heartbeat: only the device\'s own row moves, nobody else\'s computer is touched, and no e-mail, phone number or account id is in any answer', async () => {
+    const mine = await deviceFor(C, 'HB MINE'), theirs = await deviceFor(D, 'HB THEIRS');
+    assert.equal((await beat(theirs.token, { version: '0.6.2', state: 'connected', game: 'ac', pendingLaps: 0 })).status, 200);
+    const theirsBefore = JSON.stringify(await deviceRow(theirs.deviceId));
+    const mineBefore = JSON.stringify(await deviceRow(mine.deviceId));
+    const r = await beat(mine.token, { version: '0.7.0', state: 'idle', game: null, pendingLaps: 4 });
+    assert.deepEqual([r.status, r.body], [200, { ok: true }], 'the answer is just ok');
+    assert.equal(JSON.stringify(await deviceRow(theirs.deviceId)), theirsBefore, 'the other person\'s computer did not change');
+    assert.notEqual(JSON.stringify(await deviceRow(mine.deviceId)), mineBefore);
+    // Each person's overview lists their own computers only.
+    forgetAllOverviews();
+    const own = (await api('/overview', { bearer: D })).body;
+    assert.ok(own.companion.devices.some((d) => d.name === 'HB THEIRS' && d.state === 'connected' && d.game === 'ac'));
+    assert.ok(!own.companion.devices.some((d) => d.name === 'HB MINE'));
+    const text = JSON.stringify([(await api('/overview')).body.companion, own.companion, (await call(devices, '/api/sim/devices', { bearer: C })).body, r.body]);
+    assert.ok(!/@|\+1555|uid-[cd]/.test(text), 'no e-mail, phone number or sign-in id');
+    for (const id of [ids.C, ids.D]) assert.ok(!text.includes(id), 'no account id');
+    // Another person cannot read the heartbeat columns of this computer through the list.
+    assert.ok(!(await call(devices, '/api/sim/devices', { bearer: A })).body.devices.some((d) => d.id === mine.deviceId));
+  });
+
+  await hbCheck('heartbeat: one database statement, and the migration is idempotent with the right grants', async () => {
+    const rig = await deviceFor(C, 'HB COST');
+    const pool = getPool();
+    const original = pool.connect.bind(pool);
+    const statements = [];
+    pool.connect = async (...args) => {
+      const client = await original(...args);
+      if (!client.__hbCounted) {
+        const query = client.query.bind(client);
+        client.query = (text, ...rest) => { statements.push(typeof text === 'string' ? text : text?.text ?? ''); return query(text, ...rest); };
+        client.__hbCounted = true;
+      }
+      return client;
+    };
+    try {
+      assert.equal((await beat(rig.token, GOOD)).status, 200);
+      const data = statements.filter((text) => !/^(BEGIN|COMMIT|ROLLBACK|SET LOCAL)|set_config|current_app_user_id/i.test(text.trim()));
+      assert.equal(data.length, 1, `one data statement, got: ${data.join(' | ')}`);
+      assert.match(data[0], /sim_device_heartbeat/);
+    } finally { pool.connect = original; }
+    const file = listMigrations(MIGRATIONS_DIR).find((name) => name.startsWith('20261113200000'));
+    assert.ok(file && file > '20261113194500', 'the migration comes after the last one');
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
+    const answers = async () => JSON.stringify((await api('/overview')).body.companion.devices.map((d) => [d.name, d.version, d.state, d.game]));
+    forgetAllOverviews();
+    const answered = await answers();
+    await direct.query(sql);
+    await direct.query(sql);
+    forgetAllOverviews();
+    assert.equal(await answers(), answered, 'applied again it changes no answer');
+    const grants = async (role) => (await direct.query("SELECT has_function_privilege($1, p.oid, 'EXECUTE') AS ok FROM pg_proc p WHERE p.proname = 'sim_device_heartbeat' AND p.pronamespace = 'public'::regnamespace", [role])).rows[0].ok;
+    assert.deepEqual([await grants('anon'), await grants('authenticated'), await grants('service_role')], [false, false, true], 'only the server runs it');
+    const columns = (await direct.query("SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'sim_devices' AND column_name IN ('companion_version', 'last_state', 'last_game', 'last_state_at') ORDER BY 1")).rows;
+    assert.deepEqual(columns.map((c) => [c.column_name, c.is_nullable]), [['companion_version', 'YES'], ['last_game', 'YES'], ['last_state', 'YES'], ['last_state_at', 'YES']], 'four new nullable columns');
+    const readable = async (column) => (await direct.query("SELECT has_column_privilege('authenticated', 'public.sim_devices', $1, 'SELECT') AS ok", [column])).rows[0].ok;
+    assert.deepEqual([await readable('companion_version'), await readable('last_state'), await readable('last_game'), await readable('last_state_at'), await readable('token_hash')], [true, true, true, true, false]);
+    const rules = (await direct.query("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'public.sim_devices'::regclass AND contype = 'c'")).rows.map((r) => r.def).join(' ');
+    assert.match(rules, /last_state.*idle.*waiting.*connected/, 'the table itself refuses a state that is not one of the three');
+  });
+
+  await hbCheck('heartbeat: through the real server, a stranger gets 401, a body over 4 KB is cut off, and a good one is 200', async () => {
+    webServer = createXpeedServer({ staticRoot: temp, origin: 'https://xpeed.test' });
+    await new Promise((done) => webServer.listen(0, '127.0.0.1', done));
+    const base = `http://127.0.0.1:${webServer.address().port}`;
+    const rig = await deviceFor(C, 'HB SERVER');
+    const send = (body, key = rig.token, headers = {}) => fetch(`${base}/api/sim/heartbeat`, { method: 'POST', headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), 'content-type': 'application/json', ...headers }, body });
+    const ok = await send(JSON.stringify(GOOD));
+    assert.deepEqual([ok.status, await ok.json()], [200, { ok: true }]);
+    const stranger = await send(JSON.stringify(GOOD), '');
+    assert.deepEqual([stranger.status, await stranger.json()], [401, { error: 'unauthorized', retryable: false }]);
+    assert.equal((await send(JSON.stringify(GOOD), 'xpd_unknown')).status, 401);
+    const big = await send('x'.repeat(5000));
+    assert.equal(big.status, 413, 'a body over 4 KB is refused while it is read');
+    assert.equal((await fetch(`${base}/api/sim/heartbeat`)).status, 405);
+    assert.equal(ok.headers.get('access-control-allow-origin'), null, 'not a browser: no CORS headers');
+    await new Promise((done) => (webServer.closeAllConnections?.(), webServer.close(done)));
+    webServer = undefined;
   });
 
   await check('v1 isolation: nobody reads, lists, downloads or deletes another person\'s laps, sessions or progress', async () => {

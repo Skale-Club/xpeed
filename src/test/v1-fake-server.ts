@@ -28,6 +28,17 @@ export function v1Session(extra: Partial<V1Session> = {}): V1Session {
   };
 }
 
+/**
+ * A computer of the overview's Companion status, with what its last heartbeat said (Xpeed Companion 0.7). The heartbeat fields are there and
+ * null until `extra` says otherwise; an older server leaves them out altogether, which a test builds as a plain object without them.
+ */
+export function v1Device(extra: Partial<V1Overview['companion']['devices'][number]> = {}): V1Overview['companion']['devices'][number] {
+  return {
+    id: uuid(), name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: null, lastLapAt: null,
+    version: null, state: null, game: null, stateAt: null, ...extra,
+  };
+}
+
 export interface FakeV1State {
   laps: V1Lap[];
   sessions: V1Session[];

@@ -5,8 +5,11 @@ import { Download, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatLapTime } from '@/lib/sim/analysis';
+import { isOnline } from '@/lib/sim/companion';
 import { STATS_RANGES, type StatsRange, type V1Overview } from '@/lib/sim/v1-client';
+import { cn } from '@/lib/utils';
 import { useAge } from '../use-age';
+import { useNow } from '../use-now';
 
 /** The period of the dashboard: five buttons that are one choice (a radio group: arrows move between them, Tab goes past). */
 export function RangeSelect({ value, onChange, busy }: { value: StatsRange; onChange: (range: StatsRange) => void; busy?: boolean }) {
@@ -80,14 +83,19 @@ export function CompanionBanner() {
   );
 }
 
-/** With a computer paired: one slim chip, "Connected", the computer and the last lap received, linking to the Companion screen. */
+/**
+ * With a computer paired: one slim chip, "Online" when the server heard from one of them in the last 3 minutes (the heartbeat of a running Xpeed
+ * Companion) and "Offline" when not, the computer and the last lap received, linking to the Companion screen.
+ */
 export function CompanionChip({ overview }: { overview: V1Overview }) {
   const { t } = useTranslation();
   const age = useAge();
+  const now = useNow();
   const devices = overview.companion.devices;
   const lastLap = overview.companion.lastLap;
   const newest = [...devices].sort((p, q) => Date.parse(q.lastSeenAt ?? q.pairedAt) - Date.parse(p.lastSeenAt ?? p.pairedAt))[0];
   if (!newest) return null;
+  const online = devices.some((device) => isOnline(device.lastSeenAt, now));
   return (
     <Link
       to="/virtual/companion"
@@ -95,9 +103,9 @@ export function CompanionChip({ overview }: { overview: V1Overview }) {
       className="flex w-fit max-w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-testid="overview-companion"
     >
-      <span className="flex shrink-0 items-center gap-1.5 font-medium" data-testid="overview-connected">
-        <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
-        {t('modes.overview.connected', 'Connected')}
+      <span className="flex shrink-0 items-center gap-1.5 font-medium" data-testid="overview-connected" data-state={online ? 'online' : 'offline'}>
+        <span className={cn('h-2 w-2 rounded-full', online ? 'bg-success' : 'bg-muted-foreground/50')} aria-hidden="true" />
+        {online ? t('communityDash.companion.online', 'Online') : t('communityDash.companion.offline', 'Offline')}
       </span>
       <Monitor className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <span className="shrink-0 font-medium" data-testid="overview-device">{newest.name}{devices.length > 1 ? ` +${devices.length - 1}` : ''}</span>

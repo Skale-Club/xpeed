@@ -479,7 +479,7 @@ try {
     assert.equal(own.status, 200);
     assert.ok(own.body.devices.length >= 3);
     for (const d of own.body.devices) {
-      assert.deepEqual(Object.keys(d).sort(), ['created_at', 'id', 'last_lap_at', 'last_seen_at', 'name', 'revoked_at']);
+      assert.deepEqual(Object.keys(d).sort(), ['companion_version', 'created_at', 'id', 'last_game', 'last_lap_at', 'last_seen_at', 'last_state', 'last_state_at', 'name', 'revoked_at']);
     }
     const theirs = await call(devices, '/api/sim/devices', { bearer: B });
     assert.ok(theirs.body.devices.every((d) => !own.body.devices.some((o) => o.id === d.id)));

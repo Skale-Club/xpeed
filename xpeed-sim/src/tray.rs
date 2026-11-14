@@ -24,6 +24,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::config::{self, Config, DEFAULT_SERVER};
+use crate::heartbeat;
 use crate::icon::{self, Light};
 use crate::outbox::{Backoff, Observer, Uploader};
 use crate::panel::{self, Account};
@@ -218,6 +219,22 @@ fn start_uploader(shared: &Arc<Shared>, dir: &Path, config: Config) {
         worker: Arc::new(move |health| for_worker.set_worker(supervisor::UPLOADER, health)),
     };
     shared.set_uploader(Some(Uploader::start(dir.to_path_buf(), config, Backoff::default(), observer)));
+}
+
+/// Starts the thread that tells the server this computer is running (once a minute, and when a game connects or goes away). An
+/// unpaired computer starts none. The lines it says are for the log only.
+fn start_heartbeat(shared: &Arc<Shared>, dir: &Path, config: Config) {
+    let for_worker = shared.clone();
+    let hooks = heartbeat::Hooks {
+        say: Arc::new(|line| applog::line(&line)),
+        worker: Arc::new(move |health| for_worker.set_worker(supervisor::HEARTBEAT, health)),
+    };
+    shared.set_heartbeat(heartbeat::Heartbeat::start_if_paired(
+        Some(config),
+        dir.to_path_buf(),
+        shared.clone(),
+        hooks,
+    ));
 }
 
 /// Asks the server who this computer is connected as (a pairing made the old way never saved it, and an email may have
@@ -421,12 +438,14 @@ impl App {
                 self.shared
                     .notify(Notice::Paired(config.account.clone().unwrap_or_else(|| config.device_name.clone())));
                 refresh_account(self.hwnd, &self.config_path, &config);
+                start_heartbeat(&self.shared, &self.laps_dir, config.clone());
                 start_uploader(&self.shared, &self.laps_dir, config);
             }
             _ => {
                 self.device = None;
                 self.account_label = None;
                 self.shared.set_uploader(None);
+                self.shared.set_heartbeat(None);
                 self.shared.update(|s| s.cloud = Cloud::NotPaired);
             }
         }
@@ -789,6 +808,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         if let Some(config) = config {
             applog::line(&format!("paired with {} as {}", config.server, config.device_name));
             refresh_account(hwnd, &(*app).config_path, &config);
+            start_heartbeat(&shared, &laps_dir, config.clone());
             start_uploader(&shared, &laps_dir, config);
         } else {
             shared.notify(Notice::NotPaired);
@@ -829,6 +849,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         shared.quit();
         let _ = recorder.join();
         shared.set_uploader(None);
+        shared.set_heartbeat(None);
         drop(Box::from_raw(app));
         if let Some((installer, version)) = install {
             hand_over_to_installer(&home, only_copy, &installer, &version);

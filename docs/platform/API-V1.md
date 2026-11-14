@@ -144,7 +144,8 @@ One cheap call for the home page, cached for 10 seconds per person (an upload or
 { latestSessions: [Session]          // the 5 latest
   latestPersonalBests: [pb]          // the 5 most recently achieved (with previousBestMs and improvedByMs, as in /pbs)
   lapsPerGame: [{ game, laps, validLaps, sessions, lastDrivenAt }]   // most played first
-  companion: { devices: [{ id, name, pairedAt, lastSeenAt | null, lastLapAt | null }],   // paired computers, revoked ones left out
+  companion: { devices: [{ id, name, pairedAt, lastSeenAt | null, lastLapAt | null,      // paired computers, revoked ones left out
+                           version | null, state | null, game | null, stateAt | null }],  // what the last heartbeat said (below); null before the first one
                lastLap: Lap | null }                                                     // the lap received most recently
   storage: { lapCount, usedBytes, limitBytes } }                      // limitBytes: 20 GB
 ```
@@ -195,6 +196,18 @@ once whole, and the row, catalog, session and personal best are one database tra
 account would pass 20 GB of lap files (measured from `sim_laps.size_bytes`; the old 5000-lap cap is gone), `429` when one device
 sends more than 60 laps a minute (counted in the database, so restarts and several instances share it).
 The unversioned `GET /api/sim/laps` stays for the current site.
+
+### Heartbeat: `POST /api/sim/heartbeat` (device key)
+Xpeed Companion 0.7.0 says it is running: on start, every 60 s, and at once when a game connects or goes away (at most one per 5 s).
+Body `{ "version": "0.7.0", "state": "idle" | "waiting" | "connected", "game": "ams2" | null, "pendingLaps": 0 }`: four fields, strict
+(`version` is `0.7.0` or `0.7.0-beta.1`; `game` is a lowercase id, required but may be `null`; `pendingLaps` is an integer >= 0, capped at 1,000,000,
+checked and not kept); other fields are ignored; the body is at most 2 KB. It is one database call (`sim_device_heartbeat`, migration
+`20261113200000_sim_heartbeat.sql`): it finds the device, counts the hit (30 a minute per device, in the database), and writes `last_seen_at = now()`,
+`companion_version`, `last_state`, `last_game` and `last_state_at` (when the state or the game last *changed*). Answers `200 {"ok":true}`;
+`401 unauthorized` for a missing, unknown or revoked key (nothing is written), `400 invalid_json | invalid_request | invalid_version | invalid_state |
+invalid_game | invalid_pending_laps`, `413 too_large`, `429 too_many_requests` (`Retry-After`), `503 unavailable`; every refusal is `{ error, retryable }`.
+A change of state or game drops the person's overview cache, so it shows at once. The site treats a computer as online when `lastSeenAt` is within
+3 minutes. `GET /api/sim/devices` lists the same facts as `companion_version`, `last_state`, `last_game`, `last_state_at`. Checks: `npm run test:sim-v1`.
 
 # Social side (profiles, friends, shares, leaderboards, reports, privacy rights)
 

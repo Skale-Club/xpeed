@@ -29,6 +29,7 @@ mod extra;
 mod game;
 #[cfg(windows)]
 mod games;
+mod heartbeat;
 mod icon;
 mod installed;
 mod lapcut;
@@ -445,6 +446,7 @@ fn upload_command(dir: &Path) -> ExitCode {
 
 #[cfg(windows)]
 mod live {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -570,6 +572,16 @@ mod live {
                 "Sending laps to {} as {:?}; laps that cannot go now stay here and go later.",
                 config.server, config.device_name
             );
+            let hooks = heartbeat::Hooks {
+                say: Arc::new(|line| println!("{line}")),
+                worker: Arc::new(|_| {}),
+            };
+            shared.set_heartbeat(heartbeat::Heartbeat::start_if_paired(
+                Some(config.clone()),
+                out.to_path_buf(),
+                shared.clone(),
+                hooks,
+            ));
             shared.set_uploader(Some(Uploader::start(
                 out.to_path_buf(),
                 config,

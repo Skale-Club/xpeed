@@ -1,10 +1,11 @@
 import { useTranslation } from 'react-i18next';
-import { Monitor, Unplug } from 'lucide-react';
+import { Gamepad2, Monitor, Pause, Unplug } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { formatLapTime } from '@/lib/sim/analysis';
-import { deviceState, type DeviceState } from '@/lib/sim/companion';
+import { deviceActivity, deviceState, updateAvailable, type DeviceState } from '@/lib/sim/companion';
+import { useGames } from '@/lib/sim/games';
 import type { V1Lap } from '@/lib/sim/v1-client';
 import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
 import { cn } from '@/lib/utils';
@@ -27,14 +28,24 @@ export function StateBadge({ state }: { state: DeviceState }) {
 }
 
 /**
- * One computer as a card: its name, Online or Offline (by when the server last heard from it), when it was connected, when it was last seen,
- * when it last sent a lap (and which, when it is the lap received most recently) and Revoke. A revoked computer has no button: it is history.
+ * One computer as a card: its name, Online or Offline (by when the server last heard from it), what it is doing now (connected to a game, waiting
+ * for one, reading paused) while it is online, the version of Xpeed Companion on it (with a gentle hint when a newer one is out), when it was
+ * connected, when it was last seen, when it last sent a lap (and which, when it is the lap received most recently) and Revoke. A revoked computer
+ * has no button: it is history. What the heartbeat says is shown only when the server gave it: an older server or Companion shows none of it.
  */
-export function DeviceCard({ device, lastLap, onRevoke, busy }: { device: SimDevice; lastLap: V1Lap | null; onRevoke?: () => void; busy?: boolean }) {
+export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: { device: SimDevice; lastLap: V1Lap | null; onRevoke?: () => void; busy?: boolean; latestVersion?: string | null }) {
   const { t } = useTranslation();
+  const games = useGames();
   const when = useWhen('short');
   const age = useAge();
   const state = deviceState(device);
+  const activity = deviceActivity(device);
+  const activityText = !activity ? null
+    : activity.kind === 'connected' ? (activity.game ? t('communityDash.companion.connectedTo', 'Connected to {{game}}', { game: games.name(activity.game) }) : t('communityDash.companion.connectedGame', 'Connected to a game'))
+    : activity.kind === 'waiting' ? t('communityDash.companion.waitingGame', 'Waiting for a game')
+    : t('communityDash.companion.readingPaused', 'Reading paused');
+  const version = device.companion_version || null;
+  const outdated = !device.revoked_at && updateAvailable(version, latestVersion);
   const ago = (iso: string) => age(Date.parse(iso));
   const detail = lastLap
     ? t('communityDash.companion.lapDetail', '{{track}} · {{car}} · {{time}}', { track: lastLap.track?.name ?? '–', car: lastLap.car?.name ?? '–', time: formatLapTime(lastLap.timeMs) })
@@ -49,7 +60,15 @@ export function DeviceCard({ device, lastLap, onRevoke, busy }: { device: SimDev
           </p>
           <StateBadge state={state} />
         </div>
+        {activity && activityText && (
+          <p className="flex items-center gap-1.5 text-sm font-medium" data-testid="device-activity" data-activity={activity.kind}>
+            {activity.kind === 'idle' ? <Pause className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Gamepad2 className={cn('h-4 w-4 shrink-0', activity.kind === 'connected' ? 'text-success' : 'text-muted-foreground')} aria-hidden="true" />}
+            <span className="min-w-0 truncate">{activityText}</span>
+          </p>
+        )}
         <div className="grid gap-1 text-xs text-muted-foreground">
+          {version && <p data-testid="device-version">{t('communityDash.companion.companionVersion', 'Xpeed Companion {{version}}', { version })}</p>}
+          {outdated && latestVersion && <p data-testid="device-update">{t('communityDash.companion.updateAvailable', 'Update available: {{version}}. It installs by itself when no game is running.', { version: latestVersion })}</p>}
           <p data-testid="device-paired">{t('modes.sim.pairedOn', 'Connected {{date}}', { date: when(Date.parse(device.created_at)) })}</p>
           <p data-testid="device-seen" title={device.last_seen_at ? when(Date.parse(device.last_seen_at)) : undefined}>
             {device.last_seen_at ? t('modes.sim.lastSeen', 'Last seen {{date}}', { date: ago(device.last_seen_at) }) : t('modes.sim.neverSeen', 'Never seen')}

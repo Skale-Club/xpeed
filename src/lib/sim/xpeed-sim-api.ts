@@ -10,6 +10,14 @@ export interface SimDevice {
   last_seen_at: string | null;
   last_lap_at: string | null;
   revoked_at: string | null;
+  // What the computer said in its last heartbeat (Xpeed Companion 0.7 and a server that has the endpoint). Absent or null from an older
+  // server, and null until the first heartbeat: the page then shows no version and no state.
+  companion_version?: string | null;
+  last_state?: 'idle' | 'waiting' | 'connected' | null;
+  /** The game's id (`ams2`...) while connected. */
+  last_game?: string | null;
+  /** When the state or the game last changed. */
+  last_state_at?: string | null;
 }
 
 export type SimErrorReason = 'signin' | 'too_many' | 'not_found' | 'unavailable';

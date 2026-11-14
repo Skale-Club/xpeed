@@ -100,7 +100,8 @@ let built: Promise<FakeV1State> | null = null;
 
 async function build(): Promise<FakeV1State> {
   const state = fakeV1State({
-    devices: [{ id: 'dev-1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: new Date().toISOString(), lastLapAt: PLANS[0].startedAt }],
+    // Heard from just now, running Xpeed Companion 0.7 with Automobilista 2 connected (what its heartbeat says).
+    devices: [{ id: 'dev-1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: new Date().toISOString(), lastLapAt: PLANS[0].startedAt, version: '0.7.0', state: 'connected', game: 'ams2', stateAt: new Date(Date.now() - 12 * 60_000).toISOString() }],
   });
   if (process.env.HARNESS_NO_LAPS === '1') return state;
   let n = 0;

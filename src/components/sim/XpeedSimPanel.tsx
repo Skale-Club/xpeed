@@ -12,6 +12,7 @@ import { checklistOf, deviceState, splitDevices, type StepState } from '@/lib/si
 import { useOverview } from '@/lib/sim/v1-client';
 import { XpeedSimApiError, listDevices, revokeDevice, type SimDevice, type SimErrorReason } from '@/lib/sim/xpeed-sim-api';
 import { cn } from '@/lib/utils';
+import { useNow } from './use-now';
 import { CompanionDownload } from './CompanionDownload';
 import { DeviceCard } from './CompanionDevices';
 import { CompanionGames } from './CompanionGames';
@@ -73,7 +74,9 @@ export function XpeedSimPanel() {
   const devicesKey = ['sim-devices', user?.id ?? null];
 
   const release = useCompanionRelease();
-  const devices = useQuery({ queryKey: devicesKey, queryFn: listDevices, enabled: Boolean(user), retry: false });
+  // The server hears from a running computer every minute: read the list again every 30 s while the page is open, and let "Online" lapse on its own.
+  const devices = useQuery({ queryKey: devicesKey, queryFn: listDevices, enabled: Boolean(user), retry: false, refetchInterval: 30_000 });
+  const now = useNow();
   const overview = useOverview();
   const [pending, setPending] = useState<SimDevice | null>(null);
   const revoke = useMutation({
@@ -83,17 +86,18 @@ export function XpeedSimPanel() {
 
   const errorKey = revoke.error ?? devices.error;
   const list = devices.data ?? [];
-  const { live, revoked } = splitDevices(list);
-  const online = live.filter((device) => deviceState(device) === 'online').length;
+  const { live, revoked } = splitDevices(list, now);
+  const online = live.filter((device) => deviceState(device, now) === 'online').length;
   const lastLap = overview.data?.companion.lastLap ?? null;
   const hasLaps = (overview.data?.lapsPerGame.length ?? 0) > 0 || list.some((device) => !!device.last_lap_at);
-  const checklist = checklistOf(list, hasLaps);
+  const checklist = checklistOf(list, hasLaps, now);
   const card = (device: SimDevice, withRevoke: boolean) => (
     <DeviceCard
       key={device.id}
       device={device}
       lastLap={lastLap && lastLap.deviceName === device.name && !device.revoked_at ? lastLap : null}
       busy={revoke.isPending}
+      latestVersion={release.data?.version}
       onRevoke={withRevoke ? () => setPending(device) : undefined}
     />
   );

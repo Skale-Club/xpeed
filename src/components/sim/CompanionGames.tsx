@@ -25,7 +25,7 @@ function GameItem({ row, known }: { row: GameRow; known: boolean }) {
             {received ? <Check className="h-3 w-3 shrink-0 text-success" aria-hidden="true" /> : <Circle className="h-3 w-3 shrink-0" aria-hidden="true" />}
             <span className="truncate">
               {received && row.lastDrivenAt
-                ? t('communityDash.companion.gameLaps', '{{laps}} laps · last driven {{when}}', { laps: new Intl.NumberFormat(i18n.resolvedLanguage || 'en').format(row.laps), when: age(Date.parse(row.lastDrivenAt)) })
+                ? t('communityDash.companion.gameLaps', { count: row.laps, laps: new Intl.NumberFormat(i18n.resolvedLanguage || 'en').format(row.laps), when: age(Date.parse(row.lastDrivenAt)), defaultValue_one: '{{laps}} lap · last driven {{when}}', defaultValue_other: '{{laps}} laps · last driven {{when}}' })
                 : t('communityDash.companion.gameNone', 'No laps yet')}
             </span>
           </p>

@@ -2,11 +2,12 @@
 import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
 
 /**
- * A computer counts as online when the server heard from it this recently (`last_seen_at` moves each time the computer makes an authenticated
- * call: a lap, a track layout, a check). Xpeed Companion sleeps between laps, so the window is generous; offline means "not heard from lately",
- * not "switched off".
+ * A computer counts as online when the server heard from it this recently. Xpeed Companion 0.7 sends a heartbeat every minute while it runs (and a
+ * lap or a track layout moves `last_seen_at` too), so three minutes is three missed beats and a little more: a computer that was switched off
+ * shows as offline soon, and one with a slow minute does not flicker. An older Companion sends no heartbeat, so it is online only for a few
+ * minutes after a lap; the site cannot tell more than the server heard.
  */
-export const ONLINE_WINDOW_MS = 10 * 60_000;
+export const ONLINE_WINDOW_MS = 3 * 60_000;
 
 export type DeviceState = 'online' | 'offline' | 'never' | 'revoked';
 
@@ -16,6 +17,42 @@ export function deviceState(device: Pick<SimDevice, 'last_seen_at' | 'revoked_at
   const seen = device.last_seen_at ? Date.parse(device.last_seen_at) : Number.NaN;
   if (!Number.isFinite(seen)) return 'never';
   return now - seen <= ONLINE_WINDOW_MS ? 'online' : 'offline';
+}
+
+/** Whether the server heard from a computer in the last `ONLINE_WINDOW_MS` (the Overview reads it from the overview's own device object). */
+export function isOnline(lastSeenAt: string | null | undefined, now = Date.now()): boolean {
+  return deviceState({ last_seen_at: lastSeenAt ?? null, revoked_at: null }, now) === 'online';
+}
+
+/** What a running computer said it is doing in its last heartbeat. */
+export type DeviceActivity = { kind: 'connected'; game: string | null } | { kind: 'waiting' } | { kind: 'idle' };
+
+/**
+ * What an online computer is doing, or null when it is not online (what it said is old then), said nothing (an older Xpeed Companion or server
+ * sends no state) or said something this page does not know. A game connection with no game id is still a connection.
+ */
+export function deviceActivity(device: Pick<SimDevice, 'last_seen_at' | 'revoked_at' | 'last_state' | 'last_game'>, now = Date.now()): DeviceActivity | null {
+  if (deviceState(device, now) !== 'online') return null;
+  switch (device.last_state) {
+    case 'connected': return { kind: 'connected', game: typeof device.last_game === 'string' && device.last_game !== '' ? device.last_game : null };
+    case 'waiting': return { kind: 'waiting' };
+    case 'idle': return { kind: 'idle' };
+    default: return null;
+  }
+}
+
+/** `0.7.0` (or `0.7.0-beta.1`, the tag ignored) as three numbers; null when it is not a version. */
+export function parseVersion(text: string | null | undefined): [number, number, number] | null {
+  const match = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})(?:-[0-9A-Za-z.]{1,16})?$/.exec((text ?? '').trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+/** Whether a Companion at `version` is older than the newest one (`latest`). Unreadable on either side means no hint: never a false alarm. */
+export function updateAvailable(version: string | null | undefined, latest: string | null | undefined): boolean {
+  const [have, newest] = [parseVersion(version), parseVersion(latest)];
+  if (!have || !newest) return false;
+  for (let i = 0; i < 3; i++) if (have[i] !== newest[i]) return have[i] < newest[i];
+  return false;
 }
 
 /** The computers that can still send laps (online first, then the one heard from most recently, then never seen), then the revoked ones, newest connection first. */

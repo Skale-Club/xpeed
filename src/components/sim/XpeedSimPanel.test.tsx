@@ -124,6 +124,23 @@ describe('the computers already connected', () => {
     expect(within(byName('OLD PC')).queryByRole('button', { name: /Revoke/ })).not.toBeInTheDocument();
   });
 
+  it('calls a computer online for three minutes after the server heard from it, and says so in the help line', async () => {
+    api.list.mockResolvedValue([
+      device({ id: 'd1', name: 'JUST NOW', last_seen_at: minutesAgo(0.5) }),
+      device({ id: 'd2', name: 'TWO MIN', last_seen_at: minutesAgo(2) }),
+      device({ id: 'd3', name: 'FIVE MIN', last_seen_at: minutesAgo(5) }),
+      device({ id: 'd4', name: 'TEN MIN', last_seen_at: minutesAgo(10) }),
+    ]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    const stateOf = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!.getAttribute('data-state');
+    expect(['JUST NOW', 'TWO MIN', 'FIVE MIN', 'TEN MIN'].map(stateOf)).toEqual(['online', 'online', 'offline', 'offline']);
+    expect(screen.getByTestId('devices-summary')).toHaveTextContent('Computers: 4 · online now: 2');
+    const card = screen.getByTestId('companion-devices');
+    expect(card).toHaveTextContent('Online means the server heard from the computer in the last 3 minutes.');
+    expect(card).not.toHaveTextContent('in the last 10 minutes');
+  });
+
   it('puts the computers that are online first, and the revoked ones in a fold of their own', async () => {
     api.list.mockResolvedValue([
       device({ id: 'd2', name: 'LAPTOP', last_seen_at: minutesAgo(60 * 48) }),
@@ -137,6 +154,78 @@ describe('the computers already connected', () => {
     expect(within(screen.getByTestId('devices-revoked')).getByTestId('device-name')).toHaveTextContent('OLD PC');
     expect(screen.getByTestId('devices-revoked')).toHaveTextContent('Revoked computers: 1');
     expect(screen.getByTestId('devices-summary')).toHaveTextContent('Computers: 2 · online now: 1');
+  });
+
+  it('shows the version of Xpeed Companion on a computer, and what it is doing while it is online: connected to a game, waiting for one, or paused', async () => {
+    api.list.mockResolvedValue([
+      device({ id: 'd1', name: 'DRIVING', companion_version: '0.5.0', last_state: 'connected', last_game: 'ams2', last_state_at: minutesAgo(12) }),
+      device({ id: 'd2', name: 'WAITING', companion_version: '0.5.0', last_state: 'waiting', last_game: null }),
+      device({ id: 'd3', name: 'PAUSED', companion_version: '0.5.0', last_state: 'idle', last_game: null }),
+      device({ id: 'd4', name: 'UNKNOWN GAME', companion_version: '0.5.0', last_state: 'connected', last_game: 'newgame' }),
+    ]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    const byName = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!;
+    expect(within(byName('DRIVING')).getByTestId('device-activity')).toHaveTextContent('Connected to Automobilista 2');
+    expect(within(byName('DRIVING')).getByTestId('device-activity')).toHaveAttribute('data-activity', 'connected');
+    expect(within(byName('WAITING')).getByTestId('device-activity')).toHaveTextContent('Waiting for a game');
+    expect(within(byName('PAUSED')).getByTestId('device-activity')).toHaveTextContent('Reading paused');
+    expect(within(byName('UNKNOWN GAME')).getByTestId('device-activity')).toHaveTextContent(/^Connected to NEWGAME$/);
+    for (const name of ['DRIVING', 'WAITING', 'PAUSED']) expect(within(byName(name)).getByTestId('device-version')).toHaveTextContent('Xpeed Companion 0.5.0');
+  });
+
+  it('shows no state for a computer that is not online (what it said is old), but still its version', async () => {
+    api.list.mockResolvedValue([
+      device({ id: 'd1', name: 'SWITCHED OFF', last_seen_at: minutesAgo(30), companion_version: '0.5.0', last_state: 'connected', last_game: 'ac' }),
+      device({ id: 'd2', name: 'GONE', revoked_at: '2026-11-05T10:00:00.000Z', companion_version: '0.4.0', last_state: 'connected', last_game: 'ac' }),
+    ]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    expect(cards.some((card) => card.querySelector('[data-testid="device-activity"]'))).toBe(false);
+    expect(within(cards.find((card) => card.textContent?.includes('SWITCHED OFF'))!).getByTestId('device-version')).toHaveTextContent('0.5.0');
+    expect(within(cards.find((card) => card.textContent?.includes('SWITCHED OFF'))!).getByTestId('device-state')).toHaveTextContent('Offline');
+  });
+
+  it('shows neither version nor state for a computer an older server or Xpeed Companion knows nothing about, and decides online by when it was seen', async () => {
+    api.list.mockResolvedValue([device({ id: 'd1', name: 'OLD' }), device({ id: 'd2', name: 'NULLS', companion_version: null, last_state: null, last_game: null, last_state_at: null })]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      expect(within(card).getByTestId('device-state')).toHaveTextContent('Online');
+      expect(within(card).queryByTestId('device-version')).not.toBeInTheDocument();
+      expect(within(card).queryByTestId('device-activity')).not.toBeInTheDocument();
+      expect(within(card).queryByTestId('device-update')).not.toBeInTheDocument();
+    }
+  });
+
+  it('hints, gently, that an update is available when the computer runs an older Xpeed Companion than the newest, and not otherwise', async () => {
+    // The newest, in these tests, is 0.5.0.
+    api.list.mockResolvedValue([
+      device({ id: 'd1', name: 'OLDER', companion_version: '0.4.2' }),
+      device({ id: 'd2', name: 'CURRENT', companion_version: '0.5.0' }),
+      device({ id: 'd3', name: 'NEWER', companion_version: '0.6.0' }),
+      device({ id: 'd4', name: 'ODD', companion_version: 'dev-build' as never }),
+      device({ id: 'd5', name: 'REVOKED', revoked_at: '2026-11-05T10:00:00.000Z', companion_version: '0.3.0' }),
+    ]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    const byName = (name: string) => cards.find((card) => within(card).getByTestId('device-name').textContent === name)!;
+    await waitFor(() => expect(within(byName('OLDER')).getByTestId('device-update')).toHaveTextContent('Update available: 0.5.0. It installs by itself when no game is running.'));
+    for (const name of ['CURRENT', 'NEWER', 'ODD', 'REVOKED']) expect(within(byName(name)).queryByTestId('device-update'), name).not.toBeInTheDocument();
+    // A hint, not an alarm: no button, no alert role.
+    expect(within(byName('OLDER')).getByTestId('device-update').getAttribute('role')).toBeNull();
+    expect(within(byName('OLDER')).queryByRole('button', { name: /update/i })).not.toBeInTheDocument();
+  });
+
+  it('gives no update hint when the newest version cannot be read', async () => {
+    stubFetch({ release: null });
+    api.list.mockResolvedValue([device({ companion_version: '0.1.0' })]);
+    renderPanel();
+    const card = await screen.findByTestId('device');
+    expect(within(card).getByTestId('device-version')).toHaveTextContent('0.1.0');
+    await screen.findByTestId('companion-download-unavailable');
+    expect(within(card).queryByTestId('device-update')).not.toBeInTheDocument();
   });
 
   it('shows the last lap received on the card of the computer that sent it', async () => {
@@ -211,7 +300,10 @@ describe('the games Xpeed Companion supports', () => {
     const ac = document.querySelector('[data-game="ac"]') as HTMLElement;
     expect(within(ac).getByTestId('game-status')).toHaveTextContent(/2 laps · last driven .*3 days ago/);
     expect(within(document.querySelector('[data-game="ams2"]') as HTMLElement).getByTestId('game-status')).toHaveTextContent('No laps yet');
-    expect(within(document.querySelector('[data-game="lmu"]') as HTMLElement).getByTestId('game-status')).toHaveTextContent('1 laps');
+    // One lap is "1 lap", not "1 laps".
+    const lmu = within(document.querySelector('[data-game="lmu"]') as HTMLElement).getByTestId('game-status');
+    expect(lmu).toHaveTextContent(/^1 lap · last driven/);
+    expect(lmu).not.toHaveTextContent('1 laps');
   });
 
   it('adds a game the account has laps in that is not on the list, as beta, and keeps the list when the numbers cannot be read', async () => {
