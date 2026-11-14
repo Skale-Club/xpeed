@@ -847,10 +847,10 @@ try {
     const list = await allIds('/tracks', 'tracks');
     assert.deepEqual(list.map((t) => `${t.game}|${t.name}`).sort(), ['acc|Second Ring', 'lmu|Fresh Ring', 'lmu|Paging Ring']);
     const paging = list.find((t) => t.name === 'Paging Ring');
-    assert.deepEqual(Object.keys(paging).sort(), ['bestLapMs', 'carCount', 'game', 'id', 'lapCount', 'lastDrivenAt', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
+    assert.deepEqual(Object.keys(paging).sort(), ['bestLapMs', 'carCount', 'game', 'hasLayout', 'id', 'lapCount', 'lastDrivenAt', 'layoutId', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
     const mine = seed.filter((l) => l.track === 'Paging Ring');
     assert.deepEqual({ ...paging, id: undefined, lengthM: undefined, lastDrivenAt: undefined }, {
-      id: undefined, game: 'lmu', name: 'Paging Ring', lengthM: undefined, lapCount: 125, validLapCount: mine.filter((l) => l.valid).length, sessionCount: 20, carCount: 2,
+      id: undefined, game: 'lmu', name: 'Paging Ring', lengthM: undefined, hasLayout: false, layoutId: null, lapCount: 125, validLapCount: mine.filter((l) => l.valid).length, sessionCount: 20, carCount: 2,
       bestLapMs: Math.min(...mine.filter((l) => l.valid).map((l) => l.timeMs)), lastDrivenAt: undefined,
     });
     assert.equal(paging.lastDrivenAt, mine.at(-1).startedAt);
@@ -862,7 +862,7 @@ try {
 
     const detail = (await api(`/tracks/${paging.id}`)).body;
     assert.deepEqual(Object.keys(detail).sort(), ['bestPerCar', 'progress', 'totals', 'track']);
-    assert.deepEqual(detail.track, { id: paging.id, game: 'lmu', name: 'Paging Ring', lengthM: detail.track.lengthM });
+    assert.deepEqual(detail.track, { id: paging.id, game: 'lmu', name: 'Paging Ring', lengthM: detail.track.lengthM, hasLayout: false, layoutId: null });
     assert.deepEqual(detail.totals, { lapCount: 125, validLapCount: mine.filter((l) => l.valid).length, sessionCount: 20, carCount: 2, bestLapMs: paging.bestLapMs, lastDrivenAt: paging.lastDrivenAt });
     // Laps per day: ten days, 12 or 13 laps of this track a day.
     assert.deepEqual(Object.keys(detail.progress).sort(), ['bestPerDay', 'lapsPerDay']);
@@ -912,6 +912,7 @@ try {
     assert.deepEqual((await allIds('/cars', 'cars', 5, '&game=acc')).map((c) => c.name).sort(), ['Car One', 'Car Two']);
     const carDetail = (await api(`/cars/${two.id}`)).body;
     assert.deepEqual(Object.keys(carDetail).sort(), ['bestPerTrack', 'car', 'progress', 'totals']);
+    assert.deepEqual(Object.keys(carDetail.progress).sort(), ['bestPerDay', 'lapsPerDay']);
     assert.deepEqual(carDetail.car, { id: two.id, game: 'lmu', name: 'Car Two', brand: null, class: null });
     assert.equal(carDetail.totals.lapCount, twoLaps.length);
     assert.equal(carDetail.bestPerTrack.length, 1);
@@ -923,7 +924,7 @@ try {
   await check('v1 pbs: one per track and car, newest first, filtered, and kept in step with the laps', async () => {
     const all = await allIds('/pbs', 'pbs');
     assert.equal(all.length, 5, 'Paging x 2 cars, Second x 2 cars, Fresh x 1');
-    assert.deepEqual(Object.keys(all[0]).sort(), ['achievedAt', 'bestMs', 'bestSectorsMs', 'car', 'game', 'lapId', 'sectorLapIds', 'track']);
+    assert.deepEqual(Object.keys(all[0]).sort(), ['achievedAt', 'bestMs', 'bestSectorsMs', 'car', 'game', 'improvedByMs', 'lapId', 'previousBestMs', 'sectorLapIds', 'track']);
     assert.ok(all.every((p) => p.bestSectorsMs === null && p.sectorLapIds === null), 'laps without sectors: both null');
     assert.deepEqual(all.map((p) => p.achievedAt), [...all.map((p) => p.achievedAt)].sort().reverse());
     for (const pb of all.filter((p) => p.track.name !== 'Fresh Ring')) {
@@ -958,7 +959,7 @@ try {
     assert.deepEqual(r.body.latestSessions.map((s) => s.startedAt), [...r.body.latestSessions.map((s) => s.startedAt)].sort().reverse());
     assert.deepEqual(r.body.latestSessions.map((s) => s.id), (await api('/sessions?limit=5')).body.sessions.map((s) => s.id), 'the same five as the list');
     assert.equal(r.body.latestPersonalBests.length, 5);
-    assert.deepEqual(Object.keys(r.body.latestPersonalBests[0]).sort(), ['achievedAt', 'bestMs', 'car', 'game', 'lapId', 'track']);
+    assert.deepEqual(Object.keys(r.body.latestPersonalBests[0]).sort(), ['achievedAt', 'bestMs', 'car', 'game', 'improvedByMs', 'lapId', 'previousBestMs', 'track']);
     assert.deepEqual(r.body.latestPersonalBests.map((p) => p.lapId), (await api('/pbs?limit=5')).body.pbs.map((p) => p.lapId), 'the same five as the list');
     const games = Object.fromEntries(r.body.lapsPerGame.map((g) => [g.game, g]));
     assert.deepEqual(Object.keys(games).sort(), ['acc', 'lmu']);
@@ -1347,12 +1348,251 @@ try {
     assert.match(index, /plausible IS TRUE/);
   });
 
+  // ================================================================== the gaps the Virtual screens reported
+
+  // A person of their own, so what these checks upload does not move the numbers of the checks above.
+  const gapToken = await token('uid-gaps', { phone_number: '+15550000020' });
+  assert.equal((await accounts(new Request('http://x/api/account', { method: 'POST', headers: { authorization: `Bearer ${gapToken}` } }))).status, 200);
+  const gapId = (await direct.query("SELECT id FROM public.app_accounts WHERE phone = '+15550000020'")).rows[0].id;
+  const gapRig = await deviceFor(gapToken, 'GAPS');
+  const G = (path, opts = {}) => api(path, { bearer: gapToken, ...opts });
+  const gapPut = (spec) => put(gapRig, { game: 'lmu', ...spec });
+  const DAY = '2026-12-';
+
+  await check('v1 previous best: pbs and the overview say which best a personal best replaced and by how much (null for the first, ties and invalid laps)', async () => {
+    const pb = async (track) => (await G('/pbs?limit=100')).body.pbs.find((p) => p.track.name === track);
+    const overviewPb = async (track) => { forgetAllOverviews(); return (await G('/overview')).body.latestPersonalBests.find((p) => p.track.name === track); };
+    // A pair with several laps: the best after each upload names the best before it.
+    await gapPut({ track: 'Gap Ring', car: 'Gap Car', number: 1, timeMs: 100_000, startedAt: `${DAY}01T10:00:00.000Z` });
+    const first = await pb('Gap Ring');
+    assert.deepEqual([first.bestMs, first.previousBestMs, first.improvedByMs], [100_000, null, null], 'the first valid lap replaced nothing');
+    const b = await gapPut({ track: 'Gap Ring', car: 'Gap Car', number: 2, timeMs: 99_000, startedAt: `${DAY}01T10:10:00.000Z` });
+    let now = await pb('Gap Ring');
+    assert.deepEqual([now.lapId, now.bestMs, now.previousBestMs, now.improvedByMs], [b, 99_000, 100_000, 1000]);
+    await gapPut({ track: 'Gap Ring', car: 'Gap Car', number: 3, timeMs: 98_000, valid: false, startedAt: `${DAY}01T10:20:00.000Z` });
+    now = await pb('Gap Ring');
+    assert.deepEqual([now.lapId, now.bestMs, now.previousBestMs, now.improvedByMs], [b, 99_000, 100_000, 1000], 'an invalid lap changes nothing');
+    const d = await gapPut({ track: 'Gap Ring', car: 'Gap Car', number: 4, timeMs: 98_500, startedAt: `${DAY}01T10:30:00.000Z` });
+    now = await pb('Gap Ring');
+    assert.deepEqual([now.lapId, now.bestMs, now.previousBestMs, now.improvedByMs], [d, 98_500, 99_000, 500], 'the invalid 98.0 does not count as the previous best');
+    const viaOverview = await overviewPb('Gap Ring');
+    assert.deepEqual([viaOverview.lapId, viaOverview.previousBestMs, viaOverview.improvedByMs], [d, 99_000, 500], 'the overview carries the same two fields');
+    // The best is derived from the laps that remain: deleting the lap puts the earlier best back, with its own previous best.
+    assert.equal((await G(`/laps/${d}`, { method: 'DELETE' })).status, 204);
+    now = await pb('Gap Ring');
+    assert.deepEqual([now.lapId, now.previousBestMs, now.improvedByMs], [b, 100_000, 1000]);
+    // A lap that arrives late but started earlier is a previous best by when it was driven, not by when it arrived.
+    await gapPut({ track: 'Gap Ring', car: 'Gap Car', number: 5, timeMs: 99_500, startedAt: `${DAY}01T09:00:00.000Z` });
+    now = await pb('Gap Ring');
+    assert.deepEqual([now.lapId, now.previousBestMs, now.improvedByMs], [b, 99_500, 500]);
+    // An earlier lap as fast as the best: the best was not an improvement on anything.
+    await gapPut({ track: 'Gap Ring', car: 'Gap Car', number: 6, timeMs: 99_000, startedAt: `${DAY}01T08:00:00.000Z` });
+    now = await pb('Gap Ring');
+    assert.deepEqual([now.lapId, now.bestMs, now.previousBestMs, now.improvedByMs], [b, 99_000, null, null], 'a tie replaces nothing');
+    // An invalid lap before the first valid one is not a previous best.
+    await gapPut({ track: 'Late Ring', car: 'Gap Car', number: 1, timeMs: 90_000, valid: false, startedAt: `${DAY}02T10:00:00.000Z` });
+    await gapPut({ track: 'Late Ring', car: 'Gap Car', number: 2, timeMs: 95_000, startedAt: `${DAY}02T10:05:00.000Z` });
+    const late = await pb('Late Ring');
+    assert.deepEqual([late.bestMs, late.previousBestMs, late.improvedByMs], [95_000, null, null]);
+    // The list of pbs and the overview agree for every pair, and the numbers add up for everybody.
+    forgetAllOverviews();
+    const listed = (await G('/pbs?limit=100')).body.pbs, shown = (await G('/overview')).body.latestPersonalBests;
+    for (const item of shown) {
+      const same = listed.find((p) => p.lapId === item.lapId);
+      assert.deepEqual([item.previousBestMs, item.improvedByMs], [same.previousBestMs, same.improvedByMs]);
+    }
+    for (const p of (await api('/pbs?limit=100')).body.pbs) {
+      assert.equal(p.improvedByMs === null, p.previousBestMs === null);
+      if (p.previousBestMs !== null) assert.equal(p.improvedByMs, p.previousBestMs - p.bestMs);
+    }
+    assert.ok((await api('/pbs?limit=100')).body.pbs.some((p) => p.previousBestMs !== null), 'the seeded person has improvements too');
+  });
+
+  await check('v1 track layout flag: hasLayout and layoutId come from the layouts the person\'s Companion sent, matched by game and name like the site does', async () => {
+    const layout = async (user, game, trackName, { variant = null, title = null, at: updated = '2026-12-05T10:00:00.000Z' } = {}) => (await direct.query(
+      `INSERT INTO public.sim_tracks (user_id, track_key, game, track_name, variant, title, length_m, size_bytes, sha256, storage_path, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 5000, 100, 'x', $7, $8) RETURNING id`,
+      [user, `${game}|${trackName}|${variant ?? ''}|${updated}`.toLowerCase(), game, trackName, variant, title, `${user}/${trackName}.xtrk.gz`, updated])).rows[0].id;
+    const tracks = async (who = gapToken) => Object.fromEntries((await api('/tracks?limit=100', { bearer: who })).body.tracks.map((t) => [t.name, t]));
+    await gapPut({ track: 'Circuit de Spa-Francorchamps', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:00:00.000Z` });
+    await gapPut({ track: 'Sebring Long', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:10:00.000Z` });
+    await gapPut({ track: 'LE MANS full', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:20:00.000Z` });
+    await gapPut({ track: 'Imola', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:30:00.000Z` });
+    await gapPut({ track: 'Old Ring', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:40:00.000Z`, game: 'rfactor1' });
+    await gapPut({ track: 'Only Hers', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:50:00.000Z` });
+    await gapPut({ track: 'No Layout Here', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T11:00:00.000Z` });
+    let list = await tracks();
+    for (const name of ['Circuit de Spa-Francorchamps', 'Sebring Long', 'LE MANS full', 'Imola', 'Old Ring', 'Only Hers', 'No Layout Here']) {
+      assert.deepEqual([list[name].hasLayout, list[name].layoutId], [false, null], `${name}: nothing was sent yet`);
+    }
+    const spa = await layout(gapId, 'lmu', 'circuit de spa francorchamps');
+    const sebring = await layout(gapId, 'lmu', 'Sebring', { variant: 'Long' });
+    const mans = await layout(gapId, 'lmu', 'Circuit de la Sarthe', { title: 'Le Mans  Full!' });
+    await layout(gapId, 'acc', 'Imola');                                  // another game: not this track
+    const old = await layout(gapId, 'sce', 'Old Ring');                   // rFactor 1 layouts are filed under sce
+    // Somebody else's layout of a track this person drove does not count for them, and theirs does not for anybody else.
+    const her = await layout(ids.B, 'lmu', 'Only Hers');
+    list = await tracks();
+    assert.deepEqual([list['Circuit de Spa-Francorchamps'].hasLayout, list['Circuit de Spa-Francorchamps'].layoutId], [true, spa], 'case, accents and punctuation do not count');
+    assert.deepEqual([list['Sebring Long'].hasLayout, list['Sebring Long'].layoutId], [true, sebring], 'the track name with the layout variant');
+    assert.deepEqual([list['LE MANS full'].hasLayout, list['LE MANS full'].layoutId], [true, mans], 'the layout title');
+    assert.deepEqual([list.Imola.hasLayout, list.Imola.layoutId], [false, null], 'a layout of another game is not a match');
+    assert.deepEqual([list['Old Ring'].hasLayout, list['Old Ring'].layoutId], [true, old], 'rfactor1 laps match layouts filed under sce');
+    assert.deepEqual([list['Only Hers'].hasLayout, list['Only Hers'].layoutId], [false, null], 'another person\'s layout never counts');
+    assert.equal(list['No Layout Here'].hasLayout, false);
+    // The detail says the same, and also for a catalog track the person never drove.
+    const detail = (await G(`/tracks/${list['Sebring Long'].id}`)).body;
+    assert.deepEqual([detail.track.hasLayout, detail.track.layoutId], [true, sebring]);
+    assert.equal((await G(`/tracks/${list.Imola.id}`)).body.track.hasLayout, false);
+    const hersId = (await direct.query("SELECT id FROM public.sim_track_catalog WHERE game = 'lmu' AND name = 'Only Hers'")).rows[0].id;
+    const hers = (await api(`/tracks/${hersId}`, { bearer: B })).body;
+    assert.deepEqual([hers.totals.lapCount, hers.track.hasLayout, hers.track.layoutId], [0, true, her], 'a layout for a track the person never drove still shows');
+    assert.equal((await G(`/tracks/${hersId}`)).body.track.hasLayout, false, 'and is theirs only');
+    // The newest layout wins when two match, and deleting it falls back to the other.
+    const newer = await layout(gapId, 'lmu', 'Spa Francorchamps Circuit', { title: 'Circuit de Spa-Francorchamps', at: '2026-12-06T10:00:00.000Z' });
+    assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, newer);
+    await direct.query('DELETE FROM public.sim_tracks WHERE id = $1', [newer]);
+    assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, spa);
+    await direct.query('DELETE FROM public.sim_tracks WHERE id = $1', [spa]);
+    const gone = (await tracks())['Circuit de Spa-Francorchamps'];
+    assert.deepEqual([gone.hasLayout, gone.layoutId], [false, null], 'a deleted layout is gone at once');
+    assert.deepEqual(Object.keys(gone).sort(), ['bestLapMs', 'carCount', 'game', 'hasLayout', 'id', 'lapCount', 'lastDrivenAt', 'layoutId', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
+  });
+
+  await check('v1 car detail: bestPerDay is the fastest valid lap of each day on each track, oldest day first, never another person\'s', async () => {
+    const lap = (rig, track, number, timeMs, day, hour, extra = {}) => put(rig, { track, car: 'Chart Car', number, timeMs, startedAt: `${DAY}${day}T${hour}:00:00.000Z`, ...extra });
+    await lap(gapRig, 'Chart Ring B', 1, 120_000, '10', '10');
+    const a1 = await lap(gapRig, 'Chart Ring A', 1, 91_000, '10', '11');
+    const a2 = await lap(gapRig, 'Chart Ring A', 2, 90_000, '10', '12');
+    await lap(gapRig, 'Chart Ring A', 3, 89_000, '10', '13', { valid: false });
+    const a3 = await lap(gapRig, 'Chart Ring A', 4, 88_000, '11', '10');
+    await lap(rigC, 'Chart Ring A', 1, 80_000, '10', '10');            // somebody else's, faster
+    const car = (await G('/cars?limit=100')).body.cars.find((c) => c.name === 'Chart Car');
+    const detail = (await G(`/cars/${car.id}`)).body;
+    assert.deepEqual(Object.keys(detail.progress).sort(), ['bestPerDay', 'lapsPerDay']);
+    const days = detail.progress.bestPerDay;
+    assert.deepEqual(days.map((d) => [d.day, d.track.name, d.bestMs]), [['2026-12-10', 'Chart Ring A', 90_000], ['2026-12-10', 'Chart Ring B', 120_000], ['2026-12-11', 'Chart Ring A', 88_000]]);
+    assert.deepEqual(days.map((d) => Object.keys(d).sort()), days.map(() => ['bestMs', 'day', 'lapId', 'track']));
+    assert.equal(days[0].lapId, a2);
+    assert.notEqual(days[0].lapId, a1);
+    assert.equal(days[2].lapId, a3);
+    assert.match(days[0].track.id, /^[0-9a-f-]{36}$/);
+    assert.equal(detail.progress.lapsPerDay.length, 2, 'the laps per day are as before');
+    // The other person sees their own lap only, and a car never driven is empty.
+    const cCar = (await api('/cars?limit=100')).body.cars.find((c) => c.name === 'Chart Car');
+    assert.deepEqual((await api(`/cars/${cCar.id}`)).body.progress.bestPerDay.map((d) => d.bestMs), [80_000]);
+    const unseen = (await api(`/cars/${(await direct.query("SELECT id FROM public.sim_car_catalog WHERE name = 'Layout Car'")).rows[0].id}`)).body;
+    assert.deepEqual([unseen.totals.lapCount, unseen.progress.bestPerDay], [0, []]);
+  });
+
+  await check('v1 session insights: the best lap, consistency and best sectors come from the stored lap metadata, with no lap file read', async () => {
+    const lap = (car, number, minute, timeMs, sectorsMs, extra = {}) => gapPut({ track: 'Insight Ring', car, number, timeMs, startedAt: new Date(Date.parse(`${DAY}12T10:00:00.000Z`) + minute * MIN).toISOString(), ...(sectorsMs ? { sectorsMs } : {}), ...extra });
+    const l1 = await lap('Insight Car', 1, 0, 90_000, [30_000, 40_000, 20_000]);
+    const l2 = await lap('Insight Car', 2, 3, 91_000, [29_000, 42_000, 20_000]);
+    const l3 = await lap('Insight Car', 3, 6, 92_000, [31_000, 40_000, 21_000]);
+    await lap('Insight Car', 4, 9, 95_000, [28_000, 45_000, 22_000], { valid: false });   // invalid: ignored
+    const slow = await lap('Insight Car', 5, 12, 120_000, [30_000, 60_000, 30_000]);      // 33 % off the best: counts for sectors, not for the averages
+    await lap('Insight Car', 6, 15, 85_000, [28_000, 38_000, 19_000], { outLap: true });    // an out lap: ignored
+    const sessionId = (await lapRow(l1)).session_id;
+    assert.equal((await lapRow(l3)).session_id, sessionId);
+    assert.equal((await lapRow(slow)).session_id, sessionId);
+    const before = await G(`/sessions/${sessionId}/insights`);
+    assert.equal(before.status, 200, JSON.stringify(before.body));
+    // The stored files are gone: the answer is the same, because they are not read.
+    await direct.query("UPDATE public.sim_laps SET storage_path = 'missing/' || id WHERE session_id = $1", [sessionId]);
+    const r = await G(`/sessions/${sessionId}/insights`);
+    assert.deepEqual(r.body, before.body, 'no file is read');
+    assert.deepEqual(r.body, {
+      sessionId, source: 'metadata', lapsUsed: 4, lapsConsidered: 3,
+      summary: {
+        bestLapMs: 90_000, bestLapId: l1, averageMs: 91_000, consistencyMs: 1000,
+        sectors: { count: 3, bestMs: [29_000, 40_000, 20_000], bestLapIds: [l2, l1, l1], gainMs: [1000, 0, 0], theoreticalBestMs: 89_000, theoreticalGainMs: 1000, spreadMs: [1000, 1155, 577], widest: { sector: 2, stdDevMs: 1155 } },
+      },
+      findings: [{ kind: 'sectorGain', sector: 1, gainMs: 1000, lapId: l2 }, { kind: 'sectorSpread', sector: 2, stdDevMs: 1155, laps: 3 }],
+    });
+    // No sectors: the consistency alone is worth saying, once the laps vary enough.
+    for (const [n, ms] of [[1, 90_000], [2, 91_500], [3, 92_000], [4, 90_500]]) await lap('Plain Car', n, 40 + n * 3, ms, null);
+    const plainSession = (await lapRow(await lap('Plain Car', 5, 60, 93_000, null))).session_id;
+    const plain = (await G(`/sessions/${plainSession}/insights`)).body;
+    assert.equal(plain.summary.sectors, null);
+    assert.deepEqual([plain.lapsUsed, plain.summary.bestLapMs, plain.summary.averageMs, plain.summary.consistencyMs], [5, 90_000, 91_400, 1194]);
+    assert.deepEqual(plain.findings, [{ kind: 'consistency', stdDevMs: 1194, laps: 5 }]);
+    // Too few laps: the summary is there, the findings and the consistency are not.
+    await lap('Short Car', 1, 80, 100_000, [32_000, 33_000, 35_000]);
+    const shortSession = (await lapRow(await lap('Short Car', 2, 83, 99_000, [33_000, 32_000, 34_000]))).session_id;
+    const short = (await G(`/sessions/${shortSession}/insights`)).body;
+    assert.deepEqual([short.lapsUsed, short.summary.bestLapMs, short.summary.consistencyMs, short.findings], [2, 99_000, null, []]);
+    assert.deepEqual([short.summary.sectors.bestMs, short.summary.sectors.theoreticalGainMs, short.summary.sectors.spreadMs, short.summary.sectors.widest], [[32_000, 32_000, 34_000], 1000, null, null]);
+    // A session with no valid lap has no best.
+    const none = (await lapRow(await lap('Invalid Car', 1, 100, 100_000, null, { valid: false }))).session_id;
+    const empty = (await G(`/sessions/${none}/insights`)).body;
+    assert.deepEqual([empty.lapsUsed, empty.summary.bestLapMs, empty.summary.averageMs, empty.findings], [0, null, null, []]);
+  });
+
+  await check('the gaps migration is idempotent: applied again it changes no answer, and the new functions and the index are only the server\'s or the caller\'s to run', async () => {
+    const file = listMigrations(MIGRATIONS_DIR).find((name) => name.startsWith('20261113190000'));
+    assert.ok(file, 'the migration exists');
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
+    const answers = async () => JSON.stringify([(await G('/pbs?limit=100')).body, (await G('/tracks?limit=100')).body, (await G(`/cars/${(await G('/cars?limit=100')).body.cars[0].id}`)).body]);
+    const before = await answers();
+    await direct.query(sql);
+    await direct.query(sql);
+    assert.equal(await answers(), before);
+    const grants = async (name, role) => (await direct.query('SELECT has_function_privilege($1, p.oid, \'EXECUTE\') AS ok FROM pg_proc p WHERE p.proname = $2 AND p.pronamespace = \'public\'::regnamespace', [role, name])).rows[0].ok;
+    for (const name of ['sim_leaderboard_catalog', 'sim_share_list', 'sim_friend_request_count']) {
+      assert.deepEqual([await grants(name, 'anon'), await grants(name, 'authenticated'), await grants(name, 'service_role')], [false, false, true], name);
+    }
+    for (const name of ['sim_previous_best', 'sim_layout_id']) assert.deepEqual([await grants(name, 'anon'), await grants(name, 'authenticated')], [false, true], name);
+    assert.ok((await direct.query("SELECT 1 FROM pg_indexes WHERE indexname = 'sim_laps_previous_best' AND indexdef LIKE '%valid AND (time_ms > 0)%'")).rowCount === 1, 'the partial index on the laps that can have been a best');
+  });
+
+  await check('v1 session insights: only the owner, one error shape, GET only, and the cost is one database statement', async () => {
+    const mine = (await direct.query("SELECT s.id FROM public.sim_sessions s JOIN public.sim_car_catalog c ON c.id = s.car_id WHERE s.user_id = $1 AND c.name = 'Insight Car'", [gapId])).rows[0].id;
+    const theirs = await api(`/sessions/${mine}/insights`);
+    assert.deepEqual([theirs.status, theirs.body], [404, { error: 'session_not_found', retryable: false }], 'another person\'s session');
+    const unknown = await G('/sessions/00000000-0000-4000-8000-000000000000/insights');
+    assert.deepEqual([unknown.status, unknown.body], [404, { error: 'session_not_found', retryable: false }]);
+    const bad = await G('/sessions/not-a-uuid/insights');
+    assert.deepEqual([bad.status, bad.body], [404, { error: 'not_found', retryable: false }]);
+    assert.equal((await G(`/sessions/${mine}/insights/extra`)).status, 404);
+    for (const bearer of [undefined, 'not-a-token', gapRig.token]) {
+      const r = await G(`/sessions/${mine}/insights`, { bearer });
+      assert.deepEqual([r.status, r.body], [401, { error: 'unauthorized', retryable: false }], String(bearer));
+    }
+    for (const method of ['POST', 'DELETE', 'PUT']) {
+      const r = await G(`/sessions/${mine}/insights`, { method });
+      assert.equal(r.status, 405, method);
+      assert.equal(r.headers.get('allow'), 'GET');
+    }
+    assert.equal((await G(`/sessions/${mine}`)).status, 200, 'a DELETE of the insights path deleted nothing');
+    // One statement for the whole analysis.
+    // (The pool has one connection that earlier checks may have wrapped already: wrap it again for this check and take it off after.)
+    const pool = getPool(), original = pool.connect.bind(pool), statements = [], unwrap = [], mark = Symbol('counted');
+    pool.connect = async (...args) => {
+      const client = await original(...args);
+      if (!client[mark]) {
+        const previous = client.query;
+        client.query = (text, ...rest) => { statements.push(typeof text === 'string' ? text : text?.text ?? ''); return previous.call(client, text, ...rest); };
+        client[mark] = true;
+        unwrap.push(() => { client.query = previous; delete client[mark]; });
+      }
+      return client;
+    };
+    try {
+      const r = await G(`/sessions/${mine}/insights`);
+      assert.equal(r.status, 200);
+      const data = statements.filter((text) => !/^(BEGIN|COMMIT|ROLLBACK|SET LOCAL)|set_config|current_app_user_id/i.test(text.trim()));
+      assert.equal(data.length, 1, `got: ${data.join(' | ')}`);
+      assert.match(data[0], /sim_v1_session/);
+    } finally { pool.connect = original; for (const undo of unwrap.reverse()) undo(); }
+  });
+
   // ================================================================== the Overview dashboard: GET /v1/stats
 
-  const DAY = 86_400_000;
-  const today00 = Math.floor(Date.now() / DAY) * DAY;
+  const DAY_MS = 86_400_000;
+  const today00 = Math.floor(Date.now() / DAY_MS) * DAY_MS;
   /** A moment on the UTC day `n` days ago (0 = today), at hh:mm UTC. */
-  const onDay = (n, hh = 10, mm = 0) => new Date(today00 - n * DAY + hh * 3_600_000 + mm * MIN).toISOString();
+  const onDay = (n, hh = 10, mm = 0) => new Date(today00 - n * DAY_MS + hh * 3_600_000 + mm * MIN).toISOString();
   const dayName = (n) => onDay(n).slice(0, 10);
   const newPerson = async (sub, phone) => {
     const bearer = await token(sub, { phone_number: phone });
@@ -1517,15 +1757,16 @@ try {
     assert.ok(w.pairs.every((p) => p.laps === 4));
   });
 
-  await check('v1 stats: consistency lists the last 8 sessions of the range, oldest first, with the spread of the clean laps (null under 3) and the clean share', async () => {
+  await check('v1 stats: consistency lists the latest 8 sessions of the person whatever the range, oldest first, with the spread of the clean laps (null under 3) and the clean share', async () => {
     const r = await body('?range=30d');
-    assert.deepEqual(r.consistency.map((s) => [s.validLaps, s.spreadMs, s.cleanShare]), [[5, 153, 0.5], [2, null, 1], [2, null, 1], [1, null, 1], [1, null, 1]]);
+    // E has 12 sessions: the latest 8 are day 100, 40, 35, 10, 5 to 4, the two of day 3 and today's. The range does not change them.
+    assert.deepEqual(r.consistency.map((s) => [s.validLaps, s.spreadMs, s.cleanShare]), [[1, null, 1], [2, null, 1], [1, null, 0.5], [5, 153, 0.5], [2, null, 1], [2, null, 1], [1, null, 1], [1, null, 1]]);
+    for (const range of ['7d', '90d', '1y', 'all']) assert.deepEqual((await body(`?range=${range}`)).consistency, r.consistency, range);
     assert.deepEqual(r.consistency.map((s) => s.startedAt), [...r.consistency.map((s) => s.startedAt)].sort());
     assert.ok(r.consistency.every((s) => /^[0-9a-f-]{36}$/.test(s.sessionId)));
-    assert.equal(r.consistency.length, r.totals.sessions);
     // The spread leaves out the out lap, the in lap and the invalid lap: the sample deviation of 100,100, 100,300 and 100,400 ms.
     const mean = (100_100 + 100_300 + 100_400) / 3;
-    assert.equal(r.consistency[0].spreadMs, Math.round(Math.sqrt(([100_100, 100_300, 100_400].reduce((total, ms) => total + (ms - mean) ** 2, 0)) / 2)));
+    assert.equal(r.consistency[3].spreadMs, Math.round(Math.sqrt(([100_100, 100_300, 100_400].reduce((total, ms) => total + (ms - mean) ** 2, 0)) / 2)));
     // Exactly 3 clean laps is enough; 2 clean laps among 3 is not.
     const spread = await newPerson('uid-stats-spread', '+15550000026');
     const ring = { track: 'S Ring', car: 'S Car' };
@@ -1534,12 +1775,12 @@ try {
       { n: 8, mm: 0, ms: 100_000, ...ring }, { n: 8, mm: 3, ms: 100_200, ...ring }, { n: 8, mm: 6, ms: 100_400, inLap: true, ...ring },
     ]);
     assert.deepEqual((await body('?range=30d', spread)).consistency.map((x) => [x.spreadMs, x.validLaps, x.cleanShare]), [[200, 3, 1], [null, 3, 0.667]]);
-    // Only the latest 8 sessions, and none outside the range.
+    // Only the latest 8 sessions, in any range.
     const lots = await newPerson('uid-stats-lots', '+15550000027');
     await statsLaps(lots, 'stats-lots', Array.from({ length: 10 }, (_, i) => ({ n: 25 - i * 2, ms: 100_000 + i, track: 'Lots Ring', car: 'Lots Car' })));
     const sessions = (await body('?range=30d', lots)).consistency;
     assert.deepEqual([sessions.length, sessions[0].startedAt.slice(0, 10), sessions[7].startedAt.slice(0, 10)], [8, dayName(21), dayName(7)]);
-    assert.equal((await body('?range=7d', lots)).consistency.length, 0);
+    assert.deepEqual((await body('?range=7d', lots)).consistency, sessions, 'a week with no session of its own still has the trend');
   });
 
   await check('v1 stats: a longer range; "all" starts at the first lap, shows every day with laps and has no previous period', async () => {

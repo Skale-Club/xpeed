@@ -1,4 +1,4 @@
-import type { StatsRange, V1CarDetail, V1CarItem, V1Improvement, V1Lap, V1Overview, V1Pb, V1Ref, V1Session, V1SpreadSession, V1Stats, V1StatsDay, V1StatsPair, V1StatsTotals, V1TrackDetail, V1TrackItem } from '@/lib/sim/v1-client';
+import type { StatsRange, V1CarDetail, V1CarItem, V1Improvement, V1Lap, V1Overview, V1Pb, V1Ref, V1Session, V1SessionInsights, V1SpreadSession, V1Stats, V1StatsDay, V1StatsPair, V1StatsTotals, V1TrackDetail, V1TrackItem } from '@/lib/sim/v1-client';
 
 // A fake of the racing data API (docs/platform/API-V1.md) for tests and the screen harness: the same paths, filters, cursor paging,
 // error shape and delete behaviour (a deleted lap leaves its session's counters, its personal best and the overview consistent).
@@ -36,6 +36,8 @@ export interface FakeV1State {
   devices: V1Overview['companion']['devices'];
   /** Lap files by lap id (gzip bytes), for `GET /laps/<id>/file`. */
   files: Map<string, Uint8Array>;
+  /** What `GET /sessions/<id>/insights` answers, by session id; a session not in it is a 404 (a server that predates the endpoint). */
+  insights: Map<string, V1SessionInsights>;
   /** Every call the server answered, in order. */
   requests: Array<{ method: string; path: string; params: Record<string, string> }>;
   /** Makes every call fail with this status and error (an outage: 503 unavailable, retryable). */
@@ -49,7 +51,7 @@ export interface FakeV1State {
 }
 
 export function fakeV1State(partial: Partial<FakeV1State> = {}): FakeV1State {
-  return { laps: [], sessions: [], tracks: [], cars: [], devices: [], files: new Map(), requests: [], failing: null, failingPath: null, delayMs: 0, now: null, ...partial };
+  return { laps: [], sessions: [], tracks: [], cars: [], devices: [], files: new Map(), insights: new Map(), requests: [], failing: null, failingPath: null, delayMs: 0, now: null, ...partial };
 }
 
 /** The track and car catalogs the person has driven, worked out from the laps in `state` (as the server keeps them), most recently driven first. */
@@ -99,7 +101,13 @@ export const personalBests = (laps: readonly V1Lap[]): V1Pb[] => {
     if (!held || lap.timeMs < held.timeMs) best.set(key, lap);
   }
   return [...best.values()]
-    .map((lap) => ({ game: lap.game, track: lap.track!, car: lap.car!, bestMs: lap.timeMs, lapId: lap.id, achievedAt: lap.startedAt }))
+    .map((lap): V1Pb => {
+      // The best valid lap driven before this one, when it was slower (what this best replaced).
+      const earlier = laps.filter((other) => other.valid && other.timeMs > 0 && other.track?.id === lap.track!.id && other.car?.id === lap.car!.id && other.startedAt < lap.startedAt);
+      const previous = earlier.length > 0 ? Math.min(...earlier.map((other) => other.timeMs)) : null;
+      const replaced = previous !== null && previous > lap.timeMs ? previous : null;
+      return { game: lap.game, track: lap.track!, car: lap.car!, bestMs: lap.timeMs, lapId: lap.id, achievedAt: lap.startedAt, previousBestMs: replaced, improvedByMs: replaced === null ? null : replaced - lap.timeMs };
+    })
     .sort((p, q) => Date.parse(q.achievedAt) - Date.parse(p.achievedAt));
 };
 
@@ -167,6 +175,11 @@ export function carDetail(state: FakeV1State, id: string): V1CarDetail | null {
       trackCount: tracks.size, bestLapMs: fastest(laps)?.timeMs ?? null, lastDrivenAt: lastDriven(laps),
     },
     progress: {
+      bestPerDay: days.flatMap((d) =>
+        [...tracks.values()].flatMap((ofTrack) => {
+          const best = fastest(ofTrack.filter((lap) => day(lap) === d));
+          return best && best.track ? [{ day: d, bestMs: best.timeMs, lapId: best.id, track: best.track }] : [];
+        })),
       lapsPerDay: days.map((d) => {
         const ofDay = laps.filter((lap) => day(lap) === d);
         return { day: d, laps: ofDay.length, validLaps: ofDay.filter((lap) => lap.valid).length };
@@ -289,10 +302,10 @@ export function computeStats(state: FakeV1State, range: StatsRange, now: Date = 
     games.set(lap.game, entry);
   }
 
-  // The latest 8 sessions of the range, oldest first: the spread (sample deviation) of the clean laps, null under 3 of them.
+  // The person's latest 8 sessions (the range does not matter), oldest first: the spread (sample deviation) of the clean laps, null under 3 of them.
   const sessionStats: Array<V1SpreadSession & { at: number }> = [];
   for (const session of state.sessions) {
-    const laps = current.filter((lap) => lap.sessionId === session.id);
+    const laps = lapsAll.filter((lap) => lap.sessionId === session.id && time(lap) < to);
     if (laps.length === 0) continue;
     const clean = laps.filter((lap) => isValid(lap) && lap.inLap !== true && lap.outLap !== true);
     let spreadMs: number | null = null;
@@ -358,6 +371,10 @@ export function handleV1(state: FakeV1State, method: string, path: string, param
       return page(laps, params, 'laps');
     }
     case 'sessions': {
+      if (id && tail === 'insights') {
+        const found = state.insights.get(id);
+        return found ? { status: 200, json: found } : fail(404, 'not_found');
+      }
       if (id) {
         const session = state.sessions.find((entry) => entry.id === id);
         if (!session) return fail(404, 'session_not_found');

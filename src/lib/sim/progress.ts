@@ -1,4 +1,4 @@
-import type { V1CarDetail, V1TrackDetail } from '@/lib/sim/v1-client';
+import type { V1CarDetail, V1Ref, V1TrackDetail } from '@/lib/sim/v1-client';
 
 /**
  * The progress charts of the track and car pages, as rows: one per day, with the best valid lap of the day (when there was
@@ -9,7 +9,7 @@ export interface ProgressRow {
   day: string;
   /** Midnight UTC of the day, ms: the x of a time axis. */
   at: number;
-  /** The fastest valid lap of the day in seconds; null on a day with no valid lap (or, for a car, always: the API gives none). */
+  /** The fastest valid lap of the day in seconds; null on a day with no valid lap (for a car: none on the chosen track). */
   bestS: number | null;
   /** The lap's id, to open it. */
   lapId: string | null;
@@ -37,11 +37,25 @@ export function trackProgress(progress: V1TrackDetail['progress']): ProgressRow[
   return [...rows.values()].sort((p, q) => p.at - q.at);
 }
 
-/** Laps per day for a car (the API gives no daily best for a car). */
-export function carProgress(progress: V1CarDetail['progress']): ProgressRow[] {
+/**
+ * Laps per day for a car and, with a track, the fastest valid lap of each day on that track as the line (laps on different tracks
+ * cannot be compared, so a car's line is always about one track). A day with only laps on other tracks has bars and no point.
+ */
+export function carProgress(progress: V1CarDetail['progress'], trackId: string | null = null): ProgressRow[] {
+  const best = new Map((progress.bestPerDay ?? []).filter((entry) => entry.track.id === trackId).map((entry) => [entry.day, entry]));
   return progress.lapsPerDay
-    .map((entry) => ({ day: entry.day, at: dayStart(entry.day), bestS: null, lapId: null, car: null, laps: entry.laps, validLaps: entry.validLaps }))
+    .map((entry) => {
+      const fastest = best.get(entry.day);
+      return { day: entry.day, at: dayStart(entry.day), bestS: fastest ? fastest.bestMs / 1000 : null, lapId: fastest?.lapId ?? null, car: null, laps: entry.laps, validLaps: entry.validLaps };
+    })
     .sort((p, q) => p.at - q.at);
+}
+
+/** The tracks a car has a daily best on, the one with the most days first (the one worth drawing), then by name. */
+export function carProgressTracks(progress: V1CarDetail['progress']): V1Ref[] {
+  const days = new Map<string, { track: V1Ref; days: number }>();
+  for (const entry of progress.bestPerDay ?? []) days.set(entry.track.id, { track: entry.track, days: (days.get(entry.track.id)?.days ?? 0) + 1 });
+  return [...days.values()].sort((p, q) => q.days - p.days || p.track.name.localeCompare(q.track.name)).map((entry) => entry.track);
 }
 
 /** The y range of the best-lap line: a little below the fastest and above the slowest day, so small gains show. */

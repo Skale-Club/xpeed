@@ -85,7 +85,14 @@ export function BestsPanel({ bests }: { bests: V1Overview['latestPersonalBests']
                   <p className="truncate text-xs text-muted-foreground">{pb.car.name} · {games.name(pb.game)} · {day(Date.parse(pb.achievedAt))}</p>
                 </div>
                 <span className="flex shrink-0 items-center gap-1">
-                  <span className="font-mono text-sm tabular-nums" data-testid="overview-best-time">{formatLapTime(pb.bestMs)}</span>
+                  <span className="flex flex-col items-end">
+                    <span className="font-mono text-sm tabular-nums" data-testid="overview-best-time">{formatLapTime(pb.bestMs)}</span>
+                    {typeof pb.improvedByMs === 'number' && pb.improvedByMs > 0 && (
+                      <span className="text-xs text-success" data-testid="overview-best-gain">
+                        {t('modes.overview.improvedBy', '{{seconds}} s faster than your previous best', { seconds: (pb.improvedByMs / 1000).toFixed(3) })}
+                      </span>
+                    )}
+                  </span>
                   <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 </span>
               </Link>

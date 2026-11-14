@@ -111,7 +111,8 @@ export function PlainSelect({ label, value, onChange, options, disabled, testId 
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+  /** An option with a `group` goes under that heading (the groups keep the order they first appear in). */
+  options: Array<{ value: string; label: string; group?: string }>;
   disabled?: boolean;
   testId?: string;
 }) {
@@ -126,10 +127,19 @@ export function PlainSelect({ label, value, onChange, options, disabled, testId 
         data-testid={testId}
       >
         {value && !options.some((option) => option.value === value) && <option value={value}>{value}</option>}
-        {options.map((option) => (
+        {options.filter((option) => !option.group).map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
+        ))}
+        {[...new Set(options.flatMap((option) => (option.group ? [option.group] : [])))].map((group) => (
+          <optgroup key={group} label={group}>
+            {options.filter((option) => option.group === group).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </label>

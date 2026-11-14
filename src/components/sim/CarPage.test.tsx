@@ -79,12 +79,25 @@ describe('the car page', () => {
     expect(within(rows[0]).getByTestId('best-track-analyze')).toHaveAttribute('href', `/virtual/compare?a=${bestMonza.id}`);
   });
 
-  it('draws the laps of each day as bars (the API gives no daily best for a car)', async () => {
+  it('draws the laps of each day as bars and the best valid lap of each day on one track as a line (the API gives it per day and track)', async () => {
     openCar(ferrari.id);
     const chart = await screen.findByTestId('chart');
-    const rows = JSON.parse(chart.getAttribute('data-rows') as string) as Array<{ day: string; bestS: number | null; laps: number }>;
-    expect(rows.map((row) => [row.day, row.laps, row.bestS])).toEqual([['2026-11-10', 3, null], ['2026-11-12', 2, null]]);
-    expect(within(chart).getAllByTestId('series').map((series) => series.getAttribute('data-key'))).toEqual(['laps']);
+    const rows = () => JSON.parse(screen.getByTestId('chart').getAttribute('data-rows') as string) as Array<{ day: string; bestS: number | null; laps: number }>;
+    // Both tracks have one day: the first by name (Monza) is drawn, and the day with laps on the other track only has a bar.
+    expect(rows().map((row) => [row.day, row.laps, row.bestS])).toEqual([['2026-11-10', 3, 99], ['2026-11-12', 2, null]]);
+    expect(within(chart).getAllByTestId('series').map((series) => series.getAttribute('data-key'))).toEqual(['laps', 'bestS']);
+    // The track is chosen from a list of the tracks the car has a daily best on.
+    const pick = screen.getByTestId('car-progress-track') as HTMLSelectElement;
+    expect([...pick.options].map((option) => option.textContent)).toEqual(['Monza', 'Spa-Francorchamps']);
+    fireEvent.change(pick, { target: { value: spa.id } });
+    await waitFor(() => expect(rows().map((row) => row.bestS)).toEqual([null, 134]));
+  });
+
+  it('has no track to choose for a car with a best lap on one track only', async () => {
+    openCar(toyota.id);
+    await screen.findByTestId('chart');
+    expect(screen.queryByTestId('car-progress-track')).not.toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId('chart').getAttribute('data-rows') as string).map((row: { bestS: number | null }) => row.bestS)).toEqual([100]);
   });
 
   it('lists the latest sessions with this car only, newest first', async () => {

@@ -166,6 +166,26 @@ describe('the profile settings', () => {
     expect(callsTo(state, 'DELETE', '/shares/20000000-0000-4000-8000-000000000001')).toHaveLength(1);
   });
 
+  it('says what each link is about: the track, the car and the lap time, or the kind and the laps of the session', async () => {
+    const state = fakeSocialState();
+    state.shares = [
+      { id: '20000000-0000-4000-8000-000000000001', kind: 'lap', lapId: 'l1', sessionId: null, createdAt: '2026-11-12T10:00:00.000Z', expiresAt: null, revokedAt: null, active: true,
+        trackName: 'Monza', carName: 'Ferrari 499P', lapMs: 99_123, sessionKind: null, lapCount: null },
+      { id: '20000000-0000-4000-8000-000000000002', kind: 'session', lapId: null, sessionId: 's1', createdAt: '2026-11-11T10:00:00.000Z', expiresAt: null, revokedAt: null, active: true,
+        trackName: 'Spa-Francorchamps', carName: 'Toyota GR010', lapMs: null, sessionKind: 'race', lapCount: 12 },
+      { id: '20000000-0000-4000-8000-000000000003', kind: 'session', lapId: null, sessionId: 's2', createdAt: '2026-11-10T10:00:00.000Z', expiresAt: null, revokedAt: null, active: true,
+        trackName: 'Imola', carName: 'BMW M Hybrid V8', lapMs: null, sessionKind: 'unknown', lapCount: 1 },
+      // A server that does not say: the row is as it was.
+      { id: '20000000-0000-4000-8000-000000000004', kind: 'lap', lapId: 'l4', sessionId: null, createdAt: '2026-11-09T10:00:00.000Z', expiresAt: null, revokedAt: null, active: true },
+    ];
+    await open(state);
+    const section = await screen.findByTestId('my-shared-links');
+    await waitFor(() => expect(within(section).getAllByTestId('share-row')).toHaveLength(4));
+    const about = within(section).getAllByTestId('share-about').map((line) => line.textContent);
+    expect(about).toEqual(['Monza · Ferrari 499P · 1:39.123', 'Spa-Francorchamps · Toyota GR010 · Race · 12 laps', 'Imola · BMW M Hybrid V8 · 1 laps']);
+    expect(within(within(section).getAllByTestId('share-row')[3]).queryByTestId('share-about')).not.toBeInTheDocument();
+  });
+
   it('is translated', async () => {
     await i18n.changeLanguage('es-ES');
     await open();

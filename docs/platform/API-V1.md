@@ -35,8 +35,13 @@ formatVersion | null, createdAt, deviceName | null }`
 origin: "companion" | "inferred", startedAt, endedAt, weather | null, airTempC | null, trackTempC | null, lapCount, bestLapMs | null }`
 (`bestLapMs` is the fastest valid lap; a session is one car on one track.)
 
-**Personal best (pb)** `{ game, track: {id, name}, car: {id, name}, bestMs, lapId, achievedAt, bestSectorsMs: [int] | null,
-sectorLapIds: [uuid] | null }`: the fastest valid lap of the person on that track with that car; `achievedAt` is when the lap was driven.
+**Personal best (pb)** `{ game, track: {id, name}, car: {id, name}, bestMs, lapId, achievedAt, previousBestMs: int | null, improvedByMs: int | null,
+bestSectorsMs: [int] | null, sectorLapIds: [uuid] | null }`: the fastest valid lap of the person on that track with that car; `achievedAt` is when the lap was driven.
+`previousBestMs` is the best the lap replaced: the fastest valid lap of the same track and car that was **driven before it** (by start time, not by when
+it arrived), when that was slower than `bestMs`, and `improvedByMs` is the difference (`previousBestMs - bestMs`, always positive). Both are `null` for the
+first valid lap on that track and car, and when an earlier lap was exactly as fast (a tie replaced nothing); an invalid lap is never a previous best.
+They follow the laps that remain (deleting the best puts the earlier best back, with its own previous best) and come from the database in the same statement
+that pages the bests (`sim_previous_best`, index `sim_laps_previous_best`), also in the items of `overview.latestPersonalBests`.
 `bestSectorsMs[i]` is the best time of sector `i + 1` over the person's **valid and plausible** laps on that track and car that have the
 sector count most of those laps have (the majority count; the larger count wins a tie), and `sectorLapIds[i]` is the lap that holds it
 (the earlier lap on a tie). A lap with a sector of 0 ms or less is not used. Both are `null` when no such lap has sectors. Example:
@@ -67,6 +72,30 @@ Sessions, newest `startedAt` first. Answer `{ sessions: [Session], nextCursor }`
 ### `GET /sessions/<id>`
 `{ session: Session, laps: [Lap] }` with the laps in driving order (at most 2000).
 
+### `GET /sessions/<id>/insights`
+The most useful findings of a session, worked out from the **stored lap metadata** (times, validity, in and out laps, sector times): one database call
+(`sim_v1_session`), no lap file is read, so it is cheap enough for a home page. The corner analysis (brake points, speeds) needs the files and stays the site's job
+(`src/lib/sim/use-work-on.ts` asks this first and reads the files only when this has nothing to say). `404 session_not_found` for an unknown session or
+another person's; `GET` only. Code: `api/sim/_insights.ts`.
+```
+{ sessionId, source: "metadata",
+  lapsUsed,            // valid, timed laps that were not in or out laps
+  lapsConsidered,      // of those, the ones within 7 % of the best: what the averages are taken over
+  summary: { bestLapMs | null, bestLapId | null, averageMs | null,
+             consistencyMs | null,       // sample standard deviation of the considered laps; null with fewer than 3
+             sectors: null | { count,     // null when no usable lap has sectors; the majority sector count wins (the larger on a tie)
+                               bestMs: [int], bestLapIds: [uuid],      // the fastest time of each sector over the usable laps with that count, and who holds it
+                               gainMs: [int],                         // the best lap's sector minus the best of that sector
+                               theoreticalBestMs, theoreticalGainMs,  // the best lap with every sector at its best, and how much faster that is
+                               spreadMs: [int] | null,                // standard deviation of each sector over the considered laps; null with fewer than 3
+                               widest: { sector, stdDevMs } | null } },  // the sector that varies most (1-based)
+  findings: [ { kind: "sectorGain", sector, gainMs, lapId }              // the sector where the best lap loses most to the best of that sector (at least 50 ms)
+            | { kind: "sectorSpread", sector, stdDevMs, laps }           // the sector that varies most (at least 100 ms, and not the sector of the finding above)
+            | { kind: "consistency", stdDevMs, laps } ] }                // the laps vary (at least 150 ms)
+```
+`findings` holds at most **two**, in that order of priority, and is empty when the session has fewer than 3 usable laps or nothing reaches its threshold. Times
+are milliseconds (rounded), sectors count from 1. A lap with a sector of 0 ms or less has no sectors for this purpose.
+
 ### `DELETE /sessions/<id>`
 Deletes every lap of the session (rows and stored files) and the session itself in one database transaction; the personal bests
 are recomputed from the laps that remain. Answer `200 { "deleted": <number of laps> }`. An unknown session, someone else's, or one that is
@@ -75,14 +104,18 @@ sweeper. The overview cache of the person is dropped.
 
 ### `GET /tracks?game&cursor&limit` and `GET /cars?game&cursor&limit`
 The tracks (cars) the person has driven, most recently driven first.
-Track item: `{ id, game, name, lengthM | null, lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt }`.
+Track item: `{ id, game, name, lengthM | null, lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt, hasLayout: boolean,
+layoutId: uuid | null }`. `hasLayout` is true when the person's Xpeed Companion has sent a track layout (`/api/sim/tracks`) for that track, and `layoutId` is that
+layout (`GET /api/sim/tracks/<id>/file`; the newest when several match). The match is made by the database, by game and name like the site does
+(`sim_layout_id`, `src/lib/sim/track-layout-match.ts`): same game (`rfactor1` laps match layouts filed under `sce`) and the track's name equal, ignoring case,
+accents and punctuation, to the layout's track name, its track name with the layout variant, or its title. Only the person's own layouts count.
 Car item: `{ id, game, name, brand | null, class | null, lapCount, validLapCount, sessionCount, trackCount, bestLapMs | null, lastDrivenAt }`.
 Answers `{ tracks: [...], nextCursor }` and `{ cars: [...], nextCursor }`.
 
 ### `GET /tracks/<id>`
 Any track in the catalog (a track the person never drove has zero totals and empty lists):
 ```
-{ track: { id, game, name, lengthM | null },
+{ track: { id, game, name, lengthM | null, hasLayout: boolean, layoutId: uuid | null },   // the two layout fields as in a track item
   totals: { lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt | null },
   progress: { bestPerDay: [{ day, bestMs, lapId, car: {id, name} }],   // fastest valid lap of each day, oldest first
               lapsPerDay: [{ day, laps, validLaps }] },                  // oldest first; the latest 1000 days with laps
@@ -94,9 +127,13 @@ Any track in the catalog (a track the person never drove has zero totals and emp
 ```
 { car: { id, game, name, brand | null, class | null },
   totals: { lapCount, validLapCount, sessionCount, trackCount, bestLapMs | null, lastDrivenAt | null },
-  progress: { lapsPerDay: [{ day, laps, validLaps }] },
+  progress: { bestPerDay: [{ day, bestMs, lapId, track: {id, name} }],   // fastest valid lap of each day on each track, oldest day first (the latest 1000)
+              lapsPerDay: [{ day, laps, validLaps }] },
   bestPerTrack: [{ track: {id, name}, lapCount, validLapCount, bestMs | null, lapId | null, achievedAt | null }] }  // by track name
 ```
+
+`bestPerDay` has one entry per day **and track**: lap times of different tracks cannot be compared, so a chart of a car's progress draws the line of one
+track (filter the entries by `track.id`).
 
 ### `GET /pbs?game&track&car&cursor&limit`
 Personal bests, most recently achieved first. Answer `{ pbs: [pb], nextCursor }`. Each pb carries `bestSectorsMs` and `sectorLapIds` (see the object above).
@@ -105,7 +142,7 @@ Personal bests, most recently achieved first. Answer `{ pbs: [pb], nextCursor }`
 One cheap call for the home page, cached for 10 seconds per person (an upload or a deletion by that person drops their entry):
 ```
 { latestSessions: [Session]          // the 5 latest
-  latestPersonalBests: [pb]          // the 5 most recently achieved
+  latestPersonalBests: [pb]          // the 5 most recently achieved (with previousBestMs and improvedByMs, as in /pbs)
   lapsPerGame: [{ game, laps, validLaps, sessions, lastDrivenAt }]   // most played first
   companion: { devices: [{ id, name, pairedAt, lastSeenAt | null, lastLapAt | null }],   // paired computers, revoked ones left out
                lastLap: Lap | null }                                                     // the lap received most recently
@@ -145,8 +182,8 @@ whatever their state (a hidden lap too, as in the person's own laps and sessions
   the running best. `lapId` opens the lap analysis.
 - `pairs`: the 4 track and car pairs with most laps in the range (ties by names), with the fastest valid lap of each day, oldest first (`[]` when no lap of the pair
   was valid). `breakdown.tracks` and `breakdown.cars` are the top 6 by laps in the range, `games` all of them.
-- `consistency`: the latest 8 sessions that have laps in the range, **oldest first**. `spreadMs` is the sample standard deviation of the session's valid laps that are
-  not in or out laps (null under 3 of them); `cleanShare` is those clean laps over all the session's laps in the range (0 to 1, 3 decimals); `validLaps` counts the valid laps.
+- `consistency`: the person's latest 8 sessions, **whatever the range** (a trend, so a week with one session still has something to show), **oldest first**. `spreadMs` is the sample standard deviation of the session's valid laps that are
+  not in or out laps (null under 3 of them); `cleanShare` is those clean laps over all the session's laps in the range (0 to 1, 3 decimals); `validLaps` counts the valid laps (all of a session's laps count, not only those inside the range).
 - Nothing in the answer is an e-mail, a phone number, an account id, a device or a file path; other people's laps never enter.
 
 ## Upload side (unchanged contract, new behavior)
@@ -183,7 +220,7 @@ Extra errors (all `{ "error", "retryable" }`):
 | 429 | `too_many_requests`, `handle_change_limit` | a rate limit or the 3 handle changes in 30 days (`Retry-After`, `retryable: true`) |
 
 Rate limits (counted in the database, per person unless noted): profile changes 60 per 10 minutes; profile page lookups 120 a minute;
-friend requests 30 an hour; new share links 30 an hour; reports 10 an hour; exports 5 an hour; deleting data 3 an hour; the public share
+friend requests 30 an hour; new share links 30 an hour; reports 10 an hour; leaderboard catalog reads 60 a minute; exports 5 an hour; deleting data 3 an hour; the public share
 endpoints 120 reads a minute **per address**.
 
 ## Visibility rules
@@ -236,6 +273,8 @@ hidden one, a block and a handle nobody has are the same answer).
 
 - `GET /friends?status&limit&cursor`: `status` is `accepted` (default), `incoming`, `outgoing` or `blocked` (the people you blocked). Newest
   first. `{ friends: [Friend], nextCursor }`.
+- `GET /friends/requests/count`: `{ "incoming": <number> }`, how many people asked you to be friends and still wait: the people `GET /friends?status=incoming`
+  would list (a hidden profile is not counted). One cheap call for a badge; asking does not create the profile; `GET` only (`405` otherwise).
 - `POST /friends/requests` `{ "handle": "..." }`: `201 { friend }` (status `outgoing`), or `200 { friend }` with status `accepted` when that
   person had already asked you. `404 handle_not_found` for an unknown, hidden or private handle and for a person who blocked you;
   `400 invalid_target` for yourself; `409 already_friends`, `already_requested`, `blocked` (you blocked them); `422 friend_limit` (200),
@@ -256,7 +295,9 @@ hidden one, a block and a handle nobody has are the same answer).
   not a hidden lap): `201 { share, token, path }`. `token` is 43 URL-safe characters (32 random bytes), **shown only here**: the database
   keeps its sha256. `path` is `/api/sim/public/share/<token>`; the page that people open is the site's to design. `422 share_limit` at 100 live links.
 - `GET /shares?limit&cursor`: your links, newest first, revoked and expired ones included (`active: false`); never the token.
-  `{ shares: [Share], nextCursor }`.
+  `{ shares: [Share + about], nextCursor }`, where each item also says what the link is about, with `null` where it does not apply:
+  `trackName`, `carName` (the catalog's names), `lapMs` (a lap link: its time), `sessionKind` (`practice | qualifying | race | unknown`) and `lapCount` (a session link).
+  `POST /shares` answers the plain **Share**.
 - `DELETE /shares/<id>`: revokes it (`204`, also when it was already revoked); at once for everybody. `404 share_not_found` for someone else's.
 - Deleting the lap or the session deletes its links.
 
@@ -317,6 +358,20 @@ and their accepted friends who are not private or hidden. `lapId` is the lap tha
 ```
 The two drivers above and the two below by position. `me` is `null` (reason `not_listed`) when the caller is not on that board: no valid plausible
 lap, a profile that is not `public` (for `scope=public`) or hidden.
+
+### `GET /leaderboards/catalog?kind&game&track&car&limit&cursor`
+The tracks (or cars) that have at least one lap on the public board, so a person can open a board for one they never drove. `kind` is `track` (default) or
+`car`; `game` narrows to one game; `car` narrows the tracks to those that car has public laps on and `track` narrows the cars to those with public laps on that
+track. A lap counts only when it is what the public board counts: valid, plausible, not hidden, of a profile that is public and not hidden, and not of anybody who is
+blocked either way with the caller. Alphabetical by name, then id; cursor paging, `limit` up to 100. Limited to 60 reads a minute per person.
+```
+{ kind: "track" | "car",
+  items: [{ id, game, name, lapCount, lengthM | null }                      // a track
+        | { id, game, name, lapCount, brand | null, class | null }],        // a car
+  nextCursor }
+```
+`lapCount` is the number of such laps (not drivers; not the caller's own private ones). It is the only thing said about anybody. `400 invalid_kind`, `invalid_game`,
+`invalid_track`, `invalid_car`, `invalid_limit`, `invalid_cursor`; `429 too_many_requests`. Use the `id`s with `GET /leaderboard`.
 
 ## Reports
 

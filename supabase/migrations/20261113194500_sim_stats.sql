@@ -87,15 +87,17 @@ BEGIN
     SELECT b.track_id, b.car_id, b.d, min(b.time_ms) AS best
     FROM base b JOIN pairs p ON p.track_id = b.track_id AND p.car_id = b.car_id
     WHERE b.win = 'cur' AND b.ok GROUP BY b.track_id, b.car_id, b.d
+  ), latest AS (
+    -- Consistency is a trend: the person's latest 8 sessions, whatever the range (a week with one session still has a trend to show).
+    SELECT s.id, s.started_at FROM public.sim_sessions s WHERE s.user_id = v_user AND s.started_at < p_to ORDER BY s.started_at DESC, s.id DESC LIMIT 8
   ), sess AS (
     SELECT s.id, s.started_at,
-           count(*) FILTER (WHERE b.ok) AS valid,
-           count(*) FILTER (WHERE b.ok AND b.in_lap IS NOT TRUE AND b.out_lap IS NOT TRUE) AS clean,
+           count(*) FILTER (WHERE l.valid AND l.time_ms > 0) AS valid,
+           count(*) FILTER (WHERE l.valid AND l.time_ms > 0 AND l.in_lap IS NOT TRUE AND l.out_lap IS NOT TRUE) AS clean,
            count(*) AS laps,
-           stddev_samp(b.time_ms) FILTER (WHERE b.ok AND b.in_lap IS NOT TRUE AND b.out_lap IS NOT TRUE) AS spread
-    FROM public.sim_sessions s JOIN base b ON b.session_id = s.id
-    WHERE s.user_id = v_user AND b.win = 'cur'
-    GROUP BY s.id, s.started_at ORDER BY s.started_at DESC, s.id DESC LIMIT 8
+           stddev_samp(l.time_ms) FILTER (WHERE l.valid AND l.time_ms > 0 AND l.in_lap IS NOT TRUE AND l.out_lap IS NOT TRUE) AS spread
+    FROM latest s JOIN public.sim_laps l ON l.session_id = s.id AND l.user_id = v_user
+    GROUP BY s.id, s.started_at
   )
   SELECT jsonb_build_object(
     'range', jsonb_build_object('from', to_char((v_from AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD'), 'to', to_char(v_today, 'YYYY-MM-DD'),

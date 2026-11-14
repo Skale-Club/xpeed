@@ -6,6 +6,7 @@ import { gzipLap } from '@/lib/sim/lap-file';
 import { buildSyntheticLap, exampleCorners } from '@/lib/sim/synthetic-lap';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { renderSim } from '@/test/sim-render';
+import type { V1SessionInsights } from '@/lib/sim/v1-client';
 import { fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
 import { SimOverview } from './SimOverview';
 
@@ -75,13 +76,16 @@ describe('the Overview cards', () => {
     expect(screen.getByTestId('overview-last-lap')).toHaveTextContent('last lap 1:39.000 · Monza · Ferrari 499P');
     expect(screen.getByTestId('overview-companion')).toHaveAttribute('href', '/virtual/companion');
 
-    // Personal bests: the time, and a link to the lap analysis.
+    // Personal bests: the time, a link to the lap analysis and, when the lap beat an earlier best, by how much.
     await screen.findByTestId('overview-best');
     const bests = screen.getAllByTestId('overview-best-lap');
     expect(bests).toHaveLength(2);
     const monzaBest = bests.find((item) => item.textContent?.includes('Monza'))!;
     expect(within(monzaBest).getByTestId('overview-best-time')).toHaveTextContent('1:39.000');
     expect(within(monzaBest).getByRole('link')).toHaveAttribute('href', `/virtual/compare?a=${fast.id}`);
+    expect(within(monzaBest).getByTestId('overview-best-gain')).toHaveTextContent('2.000 s faster than your previous best');
+    const spaBest = bests.find((item) => item.textContent?.includes('Spa'))!;
+    expect(within(spaBest).queryByTestId('overview-best-gain')).not.toBeInTheDocument();
 
     // Latest sessions, with the badges of the Sessions page, in a table.
     const sessions = screen.getAllByTestId('overview-session');
@@ -181,7 +185,8 @@ describe('what to work on', () => {
     const mine = state.laps.filter((lap) => lap.sessionId === session.id).map((lap) => `/laps/${lap.id}/file`);
     expect(files.sort()).toEqual(mine.sort());
     // The overview, the dashboard's numbers and the session are read; no list of laps is.
-    expect(state.requests.map((request) => request.path).filter((path) => !path.endsWith('/file')).sort()).toEqual(['/overview', `/sessions/${session.id}`, '/stats'].sort());
+    // (The server is asked first: this one has no insights endpoint, so it answers 404 and the files are read.)
+    expect(state.requests.map((request) => request.path).filter((path) => !path.endsWith('/file')).sort()).toEqual(['/overview', `/sessions/${session.id}/insights`, `/sessions/${session.id}`, '/stats'].sort());
   });
 
   it('shows a skeleton while it is being worked out', async () => {
@@ -249,5 +254,75 @@ describe('what to work on', () => {
     expect(card).toHaveTextContent('No que trabalhar');
     expect(within(card).getAllByTestId('work-on-finding')[0]).toHaveTextContent(/curva \d/);
     fireEvent.click(within(card).getByTestId('work-on-open'));
+  });
+});
+
+/** What the server says of a session from its stored lap metadata (`GET /sessions/<id>/insights`). */
+const serverInsights = (sessionId: string, extra: Partial<V1SessionInsights> = {}): V1SessionInsights => ({
+  sessionId, source: 'metadata', lapsUsed: 5, lapsConsidered: 5,
+  summary: { bestLapMs: 90_000, bestLapId: null, averageMs: 91_000, consistencyMs: 1000, sectors: null },
+  findings: [{ kind: 'sectorGain', sector: 2, gainMs: 412, lapId: 'lap-x' }, { kind: 'consistency', stdDevMs: 640, laps: 5 }],
+  ...extra,
+});
+
+describe('what to work on, from the server', () => {
+  it('uses the findings the server worked out from the lap metadata, and reads no lap file at all', async () => {
+    const state = fakeV1State();
+    const session = await sessionWithLaps(state, 5);
+    state.insights.set(session.id, serverInsights(session.id));
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    const card = await screen.findByTestId('work-on');
+    await waitFor(() => expect(within(card).getAllByTestId('work-on-finding')).toHaveLength(2));
+    const findings = within(card).getAllByTestId('work-on-finding');
+    expect(findings.map((finding) => finding.getAttribute('data-kind'))).toEqual(['sectorGain', 'consistency']);
+    expect(findings[0]).toHaveTextContent('Your best lap loses most in sector 2: it is 0.41 s slower than your best time there in this session.');
+    expect(findings[1]).toHaveTextContent('Your laps vary by about 0.64 s from one to the next (5 laps).');
+    expect(within(card).getByTestId('work-on-session')).toHaveTextContent('5 laps analysed');
+    expect(within(card).getByTestId('work-on-open')).toHaveAttribute('href', `/virtual/sessions/${session.id}`);
+    // Nothing but the overview, the dashboard's numbers and the one answer: no session detail, no lap file.
+    expect(state.requests.map((request) => request.path).sort()).toEqual(['/overview', `/sessions/${session.id}/insights`, '/stats'].sort());
+  });
+
+  it('says them in the language of the person', async () => {
+    await i18n.changeLanguage('es-ES');
+    const state = fakeV1State();
+    const session = await sessionWithLaps(state, 5);
+    state.insights.set(session.id, serverInsights(session.id, { findings: [{ kind: 'sectorSpread', sector: 3, stdDevMs: 280, laps: 5 }] }));
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    const card = await screen.findByTestId('work-on');
+    await waitFor(() => expect(within(card).getAllByTestId('work-on-finding')).toHaveLength(1));
+    expect(within(card).getByTestId('work-on-finding')).toHaveTextContent('Donde más varías es el sector 3: su tiempo cambia unos 0.28 s de vuelta en vuelta.');
+  });
+
+  it('falls back to the lap files when the server has nothing to say about the session', async () => {
+    const state = fakeV1State();
+    const session = await sessionWithLaps(state, 5);
+    state.insights.set(session.id, serverInsights(session.id, { findings: [] }));
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    await waitFor(() => expect(screen.getAllByTestId('work-on-finding').length).toBeGreaterThan(0));
+    expect(lapFileRequests(state)).toHaveLength(5);
+    expect(screen.getAllByTestId('work-on-finding')[0].getAttribute('data-kind')).toMatch(/variable|bestVsAverage/);
+  });
+
+  it('falls back to the lap files when the answer is not one it understands', async () => {
+    const state = fakeV1State();
+    const session = await sessionWithLaps(state, 5);
+    state.insights.set(session.id, { sessionId: session.id, source: 'files', lapsUsed: 5, findings: [] } as unknown as V1SessionInsights);
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    await waitFor(() => expect(screen.getAllByTestId('work-on-finding').length).toBeGreaterThan(0));
+    expect(lapFileRequests(state)).toHaveLength(5);
+  });
+
+  it('skips a session the server says has fewer than 3 usable laps and looks further back, newest first', async () => {
+    const state = fakeV1State();
+    const newer = await sessionWithLaps(state, 4);
+    const older = await sessionWithLaps(state, 5, 0, { startedAt: '2026-11-05T18:00:00.000Z', track: spa });
+    state.insights.set(newer.id, serverInsights(newer.id, { lapsUsed: 2, findings: [] }));
+    state.insights.set(older.id, serverInsights(older.id));
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    const card = await screen.findByTestId('work-on');
+    await waitFor(() => expect(within(card).getByTestId('work-on-open')).toHaveAttribute('href', `/virtual/sessions/${older.id}`));
+    expect(within(card).getByTestId('work-on-session')).toHaveTextContent('Spa-Francorchamps');
+    expect(lapFileRequests(state)).toHaveLength(0);
   });
 });

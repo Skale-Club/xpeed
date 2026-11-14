@@ -276,6 +276,16 @@ describe('consistency', () => {
     expect(screen.getByTestId('consistency-chart')).toHaveAttribute('role', 'img');
   });
 
+  it('is a trend of the latest sessions whatever the period: 7 days still shows it', async () => {
+    const view = await dashboard();
+    const before = screen.getByTestId('consistency-sentence').textContent;
+    fireEvent.click(screen.getByTestId('range-7d'));
+    await waitFor(() => expect(statsRequests(view.state).some((request) => request.params.range === '7d')).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('overview-dashboard')).not.toHaveAttribute('aria-busy'));
+    expect(screen.getByTestId('consistency-sentence').textContent).toBe(before);
+    expect(screen.queryByTestId('consistency-empty')).not.toBeInTheDocument();
+  });
+
   it('says it needs 3 clean laps when no session has a spread yet', async () => {
     const state = fakeV1State({ now: NOW, devices: dashboardState().devices });
     addSession(state, { track: MONZA, car: FERRARI, startedAt: '2026-11-10T19:00:00.000Z', times: [101_000, 100_500] });
@@ -448,7 +458,8 @@ describe('the states', () => {
     expect(screen.getByTestId('improvements-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('progress-pair')).not.toBeInTheDocument();
     expect(within(screen.getByTestId('overview-where')).getAllByText('Nothing in this period.')).toHaveLength(3);
-    expect(screen.getByTestId('consistency-empty')).toBeInTheDocument();
+    // Consistency is a trend of the latest sessions, whatever the period: it is still there.
+    expect(screen.getByTestId('consistency-sentence')).toHaveTextContent(/^Your spread is \d\.\d\d s/);
     expect(screen.getAllByTestId('overview-session')).toHaveLength(1);
     expect(screen.getByTestId('overview').textContent).not.toMatch(/NaN|Infinity|undefined/);
     // A longer period finds them.

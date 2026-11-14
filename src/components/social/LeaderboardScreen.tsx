@@ -12,7 +12,7 @@ import { useWhen } from '@/components/sim/use-when';
 import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { useGames } from '@/lib/sim/games';
-import { leaderboardPath, useLeaderboard, useLeaderboardMe, type BoardQuery, type LeaderboardEntry, type Scope } from '@/lib/sim/social-client';
+import { leaderboardPath, useLeaderboard, useLeaderboardCatalog, useLeaderboardMe, type BoardQuery, type CatalogEntry, type LeaderboardEntry, type Scope } from '@/lib/sim/social-client';
 import { useCars, useOverview, useTracks } from '@/lib/sim/v1-client';
 import { cn } from '@/lib/utils';
 import { ReportButton } from './ReportDialog';
@@ -20,6 +20,18 @@ import { DriverName, PlainSelect } from './social-bits';
 import { ordinal } from './social-utils';
 
 const SCOPES: readonly Scope[] = ['public', 'friends'];
+/** The catalog is read whole (up to this many pages of 50) so the picker lists every track and car that has public laps. */
+const CATALOG_PAGES = 8;
+
+/** Reads the rest of a catalog by itself: the picker is a plain list, so it needs all of it, not a "Load more". */
+function useWholeCatalog(query: { kind: 'track' | 'car'; game: string | null }, enabled: boolean) {
+  const catalog = useLeaderboardCatalog(query, { enabled });
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, data } = catalog;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage && (data?.pages.length ?? 0) < CATALOG_PAGES) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, data]);
+  return catalog;
+}
 
 /** The gap to the leader in seconds, as the rest of the app writes it (`+0.123`). */
 const gapText = (gapMs: number) => (gapMs <= 0 ? '' : formatGap(gapMs / 1000));
@@ -138,22 +150,43 @@ export function LeaderboardScreen() {
   const urlCar = params.get('car');
   const urlGame = params.get('game');
 
-  // The pair you drove last, else the track and the car you drove last; an address that names them wins.
+  // The tracks and cars with public laps, whether or not you drove them (the ones you drove come first in the pickers).
+  const catalogGame = urlGame ?? latest?.game ?? tracks.items[0]?.game ?? null;
+  // (Asked once the game is known, so it is one read for the game and not one for every game first.)
+  const gameKnown = !tracks.isPending && !overview.isPending;
+  const trackCatalog = useWholeCatalog({ kind: 'track', game: catalogGame }, gameKnown);
+  const carCatalog = useWholeCatalog({ kind: 'car', game: catalogGame }, gameKnown);
+
+  // The pair you drove last, else the track and the car you drove last, else the first track and car with public laps; an address that names them wins.
   const defaults = useMemo(() => {
-    const track = tracks.items.find((entry) => entry.id === latest?.track.id) ?? tracks.items[0] ?? null;
-    const car = cars.items.find((entry) => entry.id === latest?.car.id) ?? cars.items.find((entry) => entry.game === track?.game) ?? cars.items[0] ?? null;
+    const track = tracks.items.find((entry) => entry.id === latest?.track.id) ?? tracks.items[0] ?? trackCatalog.items[0] ?? null;
+    const car = cars.items.find((entry) => entry.id === latest?.car.id) ?? cars.items.find((entry) => entry.game === track?.game) ?? cars.items[0]
+      ?? carCatalog.items.find((entry) => entry.game === track?.game) ?? carCatalog.items[0] ?? null;
     return { track: track?.id ?? null, car: car?.id ?? null };
-  }, [tracks.items, cars.items, latest]);
+  }, [tracks.items, cars.items, trackCatalog.items, carCatalog.items, latest]);
   const track = urlTrack ?? defaults.track;
   const car = urlCar ?? defaults.car;
-  const game = urlGame ?? tracks.items.find((entry) => entry.id === track)?.game ?? cars.items.find((entry) => entry.id === car)?.game ?? null;
+  const game = urlGame ?? [...tracks.items, ...trackCatalog.items].find((entry) => entry.id === track)?.game ?? [...cars.items, ...carCatalog.items].find((entry) => entry.id === car)?.game ?? null;
 
   const query: BoardQuery = { track, car, scope, game };
   const board = useLeaderboard(query);
 
-  const gameIds = useMemo(() => [...new Set([...tracks.items, ...cars.items].map((entry) => entry.game))], [tracks.items, cars.items]);
-  const trackOptions = tracks.items.filter((entry) => !game || entry.game === game).map((entry) => ({ value: entry.id, label: entry.name }));
-  const carOptions = cars.items.filter((entry) => !game || entry.game === game).map((entry) => ({ value: entry.id, label: entry.name }));
+  const gameIds = useMemo(
+    () => [...new Set([...tracks.items, ...cars.items, ...trackCatalog.items, ...carCatalog.items].map((entry) => entry.game))],
+    [tracks.items, cars.items, trackCatalog.items, carCatalog.items],
+  );
+  // What you drove first, then the others that have public laps (a heading tells them apart once there are both).
+  const optionsOf = (driven: readonly { id: string; name: string; game: string }[], others: readonly CatalogEntry[]) => {
+    const mine = driven.filter((entry) => !game || entry.game === game);
+    const rest = others.filter((entry) => (!game || entry.game === game) && !driven.some((own) => own.id === entry.id));
+    const grouped = mine.length > 0 && rest.length > 0;
+    return [
+      ...mine.map((entry) => ({ value: entry.id, label: entry.name, ...(grouped ? { group: t('social.leaderboard.drivenGroup', 'Driven by you') } : {}) })),
+      ...rest.map((entry) => ({ value: entry.id, label: entry.name, ...(grouped ? { group: t('social.leaderboard.otherGroup', 'With public laps') } : {}) })),
+    ];
+  };
+  const trackOptions = optionsOf(tracks.items, trackCatalog.items);
+  const carOptions = optionsOf(cars.items, carCatalog.items);
 
   // Keep the address in step with what is on screen: choosing writes it, the defaults are written once they are known.
   const write = (next: { track?: string | null; car?: string | null; scope?: Scope; game?: string | null }) => {
@@ -168,13 +201,15 @@ export function LeaderboardScreen() {
   }, [defaults.track, defaults.car]);
 
   const pickGame = (next: string) => {
-    const nextTrack = tracks.items.find((entry) => entry.game === next);
-    const nextCar = cars.items.find((entry) => entry.game === next);
+    const nextTrack = tracks.items.find((entry) => entry.game === next) ?? trackCatalog.items.find((entry) => entry.game === next);
+    const nextCar = cars.items.find((entry) => entry.game === next) ?? carCatalog.items.find((entry) => entry.game === next);
     write({ game: next, track: nextTrack?.id ?? null, car: nextCar?.id ?? null });
   };
 
-  const loadingChoices = tracks.isPending || cars.isPending;
-  const nothingDriven = !loadingChoices && !tracks.isError && !cars.isError && (tracks.items.length === 0 || cars.items.length === 0) && !(urlTrack && urlCar);
+  const drivenNothing = tracks.items.length === 0 || cars.items.length === 0;
+  const catalogNothing = trackCatalog.items.length === 0 || carCatalog.items.length === 0;
+  const loadingChoices = tracks.isPending || cars.isPending || (drivenNothing && (trackCatalog.isPending || carCatalog.isPending));
+  const nothingDriven = !loadingChoices && !tracks.isError && !cars.isError && drivenNothing && catalogNothing && !(urlTrack && urlCar);
   const empty = board.entries.length === 0;
 
   return (

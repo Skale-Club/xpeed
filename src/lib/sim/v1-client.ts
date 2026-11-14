@@ -74,6 +74,10 @@ export interface V1Pb {
   bestMs: number;
   lapId: string;
   achievedAt: string;
+  /** The best this lap replaced (the best valid lap before it was driven); null for the first, or when nothing slower came before. */
+  previousBestMs: number | null;
+  /** How much faster than that, in ms (`previousBestMs - bestMs`); null with it. */
+  improvedByMs: number | null;
 }
 
 export interface V1TrackItem {
@@ -87,6 +91,9 @@ export interface V1TrackItem {
   carCount: number;
   bestLapMs: number | null;
   lastDrivenAt: string;
+  /** Whether Xpeed Companion sent a layout (the shape of the circuit) for this track, and its id. Absent from a server that predates it. */
+  hasLayout?: boolean;
+  layoutId?: string | null;
 }
 
 export interface V1CarItem {
@@ -106,7 +113,7 @@ export interface V1CarItem {
 export interface V1DayCount { day: string; laps: number; validLaps: number }
 
 export interface V1TrackDetail {
-  track: { id: string; game: string; name: string; lengthM: number | null };
+  track: { id: string; game: string; name: string; lengthM: number | null; hasLayout?: boolean; layoutId?: string | null };
   totals: { lapCount: number; validLapCount: number; sessionCount: number; carCount: number; bestLapMs: number | null; lastDrivenAt: string | null };
   progress: { bestPerDay: Array<{ day: string; bestMs: number; lapId: string; car: V1Ref }>; lapsPerDay: V1DayCount[] };
   bestPerCar: Array<{ car: V1Ref & { class: string | null }; lapCount: number; validLapCount: number; bestMs: number | null; lapId: string | null; achievedAt: string | null }>;
@@ -115,8 +122,24 @@ export interface V1TrackDetail {
 export interface V1CarDetail {
   car: { id: string; game: string; name: string; brand: string | null; class: string | null };
   totals: { lapCount: number; validLapCount: number; sessionCount: number; trackCount: number; bestLapMs: number | null; lastDrivenAt: string | null };
-  progress: { lapsPerDay: V1DayCount[] };
+  /** `bestPerDay`: the fastest valid lap of each day on each track (lap times of different tracks cannot be compared), oldest day first. */
+  progress: { bestPerDay: Array<{ day: string; bestMs: number; lapId: string; track: V1Ref }>; lapsPerDay: V1DayCount[] };
   bestPerTrack: Array<{ track: V1Ref; lapCount: number; validLapCount: number; bestMs: number | null; lapId: string | null; achievedAt: string | null }>;
+}
+
+/** One thing worth working on, from `GET /sessions/<id>/insights` (worked out from the stored lap metadata, no lap file). */
+export type V1InsightFinding =
+  | { kind: 'sectorGain'; sector: number; gainMs: number; lapId: string }
+  | { kind: 'sectorSpread'; sector: number; stdDevMs: number; laps: number }
+  | { kind: 'consistency'; stdDevMs: number; laps: number };
+
+export interface V1SessionInsights {
+  sessionId: string;
+  source: 'metadata';
+  lapsUsed: number;
+  lapsConsidered: number;
+  summary: { bestLapMs: number | null; bestLapId: string | null; averageMs: number | null; consistencyMs: number | null; sectors: unknown };
+  findings: V1InsightFinding[];
 }
 
 export interface V1Overview {

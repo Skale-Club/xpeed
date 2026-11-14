@@ -11,7 +11,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { LoadMore, QueryGate } from '@/components/sim/SimStates';
 import { useWhen } from '@/components/sim/use-when';
 import {
-  driverPath, leaderboardPath, useAcceptFriend, useBlockDriver, useDeclineFriend, useFriends, useRemoveFriend, useSendFriendRequest, type Friend, type FriendStatus,
+  driverPath, leaderboardPath, useAcceptFriend, useBlockDriver, useDeclineFriend, useFriendRequestCount, useFriends, useRemoveFriend, useSendFriendRequest, type Friend, type FriendStatus,
 } from '@/lib/sim/social-client';
 import { DriverName, ErrorLine } from './social-bits';
 import { atHandle } from './social-utils';
@@ -58,7 +58,7 @@ export function FriendsScreen() {
   const errorText = useErrorText();
   const [params, setParams] = useSearchParams();
   const tab: TabId = (TABS as readonly string[]).includes(params.get('tab') ?? '') ? (params.get('tab') as TabId) : 'friends';
-  const incoming = useFriends('incoming');
+  const waiting = useFriendRequestCount();
 
   const send = useSendFriendRequest();
   const accept = useAcceptFriend();
@@ -91,7 +91,7 @@ export function FriendsScreen() {
     }
   };
 
-  const incomingCount = incoming.items.length;
+  const incomingCount = waiting.data ?? 0;
 
   return (
     <div className="space-y-4" data-testid="friends-screen">

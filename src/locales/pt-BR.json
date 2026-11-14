@@ -70,6 +70,8 @@
       "place": "Você é o {{place}} de {{total}}",
       "around": "Os pilotos ao seu redor",
       "nothingDriven": "Dê uma volta primeiro: as classificações mostram as pistas e os carros que você já correu.",
+      "drivenGroup": "Que você correu",
+      "otherGroup": "Com voltas públicas",
       "game": "Jogo",
       "track": "Pista",
       "car": "Carro",
@@ -136,6 +138,9 @@
       "none": "Nenhum link ainda.",
       "kindLap": "Link de volta",
       "kindSession": "Link de sessão",
+      "aboutLap": "{{track}} · {{car}} · {{time}}",
+      "aboutSession": "{{track}} · {{car}} · {{kind}} · {{count}} voltas",
+      "aboutSessionPlain": "{{track}} · {{car}} · {{count}} voltas",
       "created": "Criado {{when}}",
       "revoked": "Revogado",
       "expires": "Para de funcionar {{when}}",
@@ -543,6 +548,7 @@
       "analyze": "Analisar esta volta",
       "workOn": "No que trabalhar",
       "workOnLaps": "{{count}} voltas analisadas",
+      "improvedBy": "{{seconds}} s mais rápido que o seu melhor anterior",
       "workOnOpen": "Abrir a sessão",
       "dash": {
         "rangeLabel": "Período",
@@ -728,6 +734,9 @@
         "variable": "Você varia mais na curva {{corner}}: o tempo nela muda cerca de {{seconds}} s de volta para volta.",
         "variableBrake": "Você varia mais na curva {{corner}}: o tempo nela muda cerca de {{seconds}} s de volta para volta, e o ponto de frenagem cerca de {{distance}}.",
         "gain": "Sua melhor volta ganhou {{seconds}} s na curva {{corner}} sobre a sua volta média.",
+        "sectorGain": "Sua melhor volta perde mais no setor {{sector}}: ela é {{seconds}} s mais lenta que o seu melhor tempo nele nesta sessão.",
+        "sectorSpread": "Você varia mais no setor {{sector}}: o tempo nele muda cerca de {{seconds}} s de volta para volta.",
+        "consistency": "Suas voltas variam cerca de {{seconds}} s de uma para a outra ({{laps}} voltas).",
         "gainBrakeLater": "Sua melhor volta ganhou {{seconds}} s na curva {{corner}} sobre a sua volta média: você freou {{distance}} mais tarde.",
         "gainBrakeEarlier": "Sua melhor volta ganhou {{seconds}} s na curva {{corner}} sobre a sua volta média: você freou {{distance}} mais cedo.",
         "gainSpeed": "Sua melhor volta ganhou {{seconds}} s na curva {{corner}} sobre a sua volta média: você levou {{speed}} a mais por ela."
@@ -819,7 +828,8 @@
       "title": "Carro",
       "notFound": "Este carro não está no catálogo.",
       "noLaps": "Você ainda não andou com este carro.",
-      "bestPerTrack": "Melhor volta em cada pista"
+      "bestPerTrack": "Melhor volta em cada pista",
+      "progressTrack": "Melhor volta em"
     }
   },
   "refresh": {
