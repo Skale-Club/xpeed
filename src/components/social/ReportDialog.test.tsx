@@ -91,7 +91,7 @@ describe('the report dialog', () => {
     expect(await screen.findByTestId('report-error')).toHaveTextContent('This cannot be reported');
     state.failing = { status: 503, error: 'unavailable', retryable: true };
     fireEvent.click(within(dialogOf()).getByTestId('report-send'));
-    await waitFor(() => expect(screen.getByTestId('report-error')).toHaveTextContent('The server is not answering'));
+    await waitFor(() => expect(screen.getByTestId('report-error')).toHaveTextContent('Something went wrong on our side'));
   });
 
   it('opens from the Report button, starts empty each time and closes with Cancel', async () => {

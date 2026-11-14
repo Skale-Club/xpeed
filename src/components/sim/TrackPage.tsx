@@ -46,7 +46,7 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
       <Panel title={t('modes.trackPage.layout', 'Layout and best lap')} testId="track-no-layout" className="h-full">
         <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border p-4 text-center">
           <MapIcon className="h-8 w-8 text-muted-foreground/60" aria-hidden="true" />
-          <p className="max-w-xs text-sm text-muted-foreground">{t('garageDash.noLayout', 'Xpeed Companion has not sent the layout of this track yet. When it does, the shape of the track and your best lap on it show here.')}</p>
+          <p className="max-w-xs text-sm text-muted-foreground">{t('garageDash.noLayout', 'The track map will appear here after you drive this track.')}</p>
         </div>
       </Panel>
     );

@@ -52,7 +52,7 @@ function TrackCard({ track, layout, unit, today }: { track: V1TrackItem; layout:
               <div className="flex flex-wrap items-center gap-1.5">
                 <GameBadge game={track.game} />
                 {layout && (
-                  <Badge variant="secondary" className="gap-1" data-testid="track-layout-badge" title={t('modes.tracks.layoutTitle', 'Xpeed Companion has sent the layout of this track: the lap is drawn on it')}>
+                  <Badge variant="secondary" className="gap-1" data-testid="track-layout-badge" title={t('modes.tracks.layoutTitle', 'The track map is available: the lap is drawn on it')}>
                     <MapIcon className="h-3 w-3" aria-hidden="true" /> {t('modes.tracks.layoutBadge', 'Layout')}
                   </Badge>
                 )}

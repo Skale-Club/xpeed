@@ -51,7 +51,7 @@ export function SessionKpiTiles({ kpis, pb, bestThreeMs }: { kpis: SessionKpis; 
         label={t('sessionsDash.session.kpiSpread', 'Consistency')}
         value={<span data-testid="spread">{kpis.spreadMs !== null ? `±${(kpis.spreadMs / 1000).toFixed(3)} s` : '–'}</span>}
         mono
-        hint={t('modes.session.consistencyHint', 'Laps through the pits (out and in laps) are left out of the spread and of the clean-lap share; the spread is the standard deviation of the valid laps.')}
+        hint={t('modes.session.consistencyHint', 'How much your valid laps differ from each other. Smaller is steadier. Laps through the pits are left out.')}
         sub={kpis.spreadMs !== null ? t('sessionsDash.session.spreadSub', 'spread of the valid laps') : t('sessionsDash.session.spreadNone', 'needs 2 valid laps')}
       />
       <StatTile

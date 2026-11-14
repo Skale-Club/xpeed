@@ -50,7 +50,7 @@ export function ProgressChart({ rows, testId = 'progress-chart', controls, title
               <span className="text-muted-foreground"> · {format.day(best.day, 'long')}</span>
             </p>
           ) : totalLaps > 0 ? (
-            <Quiet testId={`${testId}-no-valid`}>{t('garageDash.noValidDay', 'No valid lap yet: the game has not counted any of these laps, so there is no best-lap line.')}</Quiet>
+            <Quiet testId={`${testId}-no-valid`}>{t('garageDash.noValidDay', 'No valid lap yet, so there is no best-lap line.')}</Quiet>
           ) : null}
         </div>
       ) : (
@@ -90,7 +90,7 @@ export function ProgressChart({ rows, testId = 'progress-chart', controls, title
             )}
             <li className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm opacity-60" style={{ background: CHART_PALETTE.blue }} aria-hidden="true" />{t('modes.progress.lapsPerDay', 'Laps')}</li>
           </ul>
-          {!showBest && <Quiet testId={`${testId}-no-valid`}>{t('garageDash.noValidDay', 'No valid lap yet: the game has not counted any of these laps, so there is no best-lap line.')}</Quiet>}
+          {!showBest && <Quiet testId={`${testId}-no-valid`}>{t('garageDash.noValidDay', 'No valid lap yet, so there is no best-lap line.')}</Quiet>}
         </>
       )}
       {note}

@@ -17,8 +17,8 @@ export function WhyNotComparable({ reason }: { reason: 'length' | 'channels' | '
   return (
     <p className="text-sm text-muted-foreground" data-testid="where-unavailable">
       {reason === 'length'
-        ? t('modes.analysis.notComparableLength', 'These laps differ in length by more than 3 %, so their corners cannot be matched.')
-        : t('modes.analysis.notComparableChannels', 'These laps do not have the time and speed channels the corner analysis needs.')}
+        ? t('modes.analysis.notComparableLength', 'These laps are not on the same track layout, so their corners cannot be compared.')
+        : t('modes.analysis.notComparableChannels', 'These laps cannot be compared corner by corner.')}
     </p>
   );
 }

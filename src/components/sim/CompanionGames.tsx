@@ -36,7 +36,6 @@ function Tier({ tier, rows, known }: { tier: GameTier; rows: GameRow[]; known: b
   return (
     <div className="space-y-1" data-testid={`games-${tier}`}>
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{certified ? t('companionSite.certified', 'Certified') : t('companionSite.beta', 'Beta')}</h4>
-      {!certified && <p className="text-xs text-muted-foreground">{t('communityDash.companion.betaNote', 'Beta games are supported but not fully checked yet, so some data may be missing.')}</p>}
       <ul className="divide-y divide-border">{rows.map((row) => <GameItem key={row.game} row={row} known={known} />)}</ul>
     </div>
   );

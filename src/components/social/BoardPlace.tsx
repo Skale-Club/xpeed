@@ -78,7 +78,7 @@ function NotListed({ scope }: { scope: Scope }) {
             : t('social.leaderboard.notListedFriends', 'You are not listed here because you have no valid lap on this track and car.')}
         </p>
         <p className="text-xs text-muted-foreground">
-          {t('social.leaderboard.notListedHelp', 'Only valid laps that pass the checks count. Public boards also need a public profile.')}{' '}
+          {t('social.leaderboard.notListedHelp', 'Only valid laps count. Public boards also need a public profile.')}{' '}
           <Link to="/virtual/profile" className="underline">{t('social.leaderboard.profileLink', 'Change who can see you')}</Link>
         </p>
       </div>

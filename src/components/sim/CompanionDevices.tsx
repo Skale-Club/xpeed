@@ -78,7 +78,7 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
         {(version || outdated) && (
           <div className="grid gap-0.5 text-xs text-muted-foreground">
             {version && <p data-testid="device-version">{t('companionSite.version', 'Version {{version}}', { version })}</p>}
-            {outdated && latestVersion && <p data-testid="device-update">{t('communityDash.companion.updateAvailable', 'Update available: {{version}}. It installs by itself when no game is running.', { version: latestVersion })}</p>}
+            {outdated && latestVersion && <p data-testid="device-update">{t('communityDash.companion.updateAvailable', 'Update available: {{version}}. It installs by itself.', { version: latestVersion })}</p>}
           </div>
         )}
         {onRevoke && !device.revoked_at && (

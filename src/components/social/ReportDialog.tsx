@@ -63,7 +63,7 @@ export function ReportDialog({ open, onOpenChange, targets }: { open: boolean; o
         <DialogHeader>
           <DialogTitle>{t('social.report.title', 'Report')}</DialogTitle>
           <DialogDescription>
-            {t('social.report.body', 'Tell us what is wrong. A moderator looks at every report. The person is not told who reported them.')}
+            {t('social.report.body', 'Tell us what is wrong. We review every report, and the person is not told who reported them.')}
           </DialogDescription>
         </DialogHeader>
 

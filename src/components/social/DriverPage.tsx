@@ -251,7 +251,7 @@ export function DriverPage() {
                 )}
               </section>
               {!driver.isMe && (
-                <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><UserX className="h-3.5 w-3.5" aria-hidden /> {t('social.driver.hint', 'Only what this driver chose to show is here. Never an e-mail, a phone number or a real name.')}</p>
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><UserX className="h-3.5 w-3.5" aria-hidden /> {t('social.driver.hint', 'Only what this driver chose to show.')}</p>
               )}
             </>
           )}

@@ -98,7 +98,7 @@ function DownloadSection() {
     >
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          {t('social.privacy.downloadBody', 'One file with your profile, friends (by handle), sessions, laps, personal bests, paired computers, share links and the reports you made. It has no e-mail, no keys and nothing of other people. The lap files themselves are not in it.')}
+          {t('social.privacy.downloadBody', 'A file with your racing data: profile, friends, sessions, laps, personal bests and share links.')}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={() => void run()} disabled={state === 'working'} data-testid="export-button">
@@ -163,7 +163,7 @@ function DeleteSection({ onDeleted }: { onDeleted: (summary: DeletedSummary) => 
       <div className="space-y-3">
         <h4 className="text-sm font-semibold">{t('social.privacy.deleteTitle', 'Delete my racing data')}</h4>
         <p className="text-sm text-muted-foreground">
-          {t('social.privacy.deleteBody', 'Erases everything you have in Xpeed Virtual: your laps and their files, sessions, personal bests, track layouts, share links, friends, reports, your handle and profile, and your paired computers. Your Xpeed account stays, and so does everything in Real car. This cannot be undone.')}
+          {t('social.privacy.deleteBody', 'Erases everything you have in Xpeed Virtual: laps, sessions, personal bests, track maps, share links, friends, your handle and profile, and your connected computers. Your Xpeed account and Real car data stay. This cannot be undone.')}
         </p>
         <Button variant="destructive" onClick={() => setOpen(true)} data-testid="delete-open">
           <Trash2 className="mr-2 h-4 w-4" /> {t('social.privacy.deleteButton', 'Delete my racing data…')}
@@ -175,7 +175,7 @@ function DeleteSection({ onDeleted }: { onDeleted: (summary: DeletedSummary) => 
           <DialogHeader>
             <DialogTitle>{t('social.privacy.confirmTitle', 'Delete all your racing data?')}</DialogTitle>
             <DialogDescription>
-              {t('social.privacy.confirmBody', 'Your laps, sessions, friends, share links, handle and profile are erased for good, and the files of your laps are removed. Your account stays. Paired computers stop working until you pair them again. Download your data first if you want a copy.')}
+              {t('social.privacy.confirmBody', 'Your laps, sessions, friends, share links, handle and profile are erased for good. Your account stays. Connected computers stop sending laps until you connect them again. Download your data first if you want a copy.')}
             </DialogDescription>
           </DialogHeader>
           <form

@@ -52,7 +52,7 @@ export default function CompanionPage() {
   const faq = [
     { q: t('companionSite.faqSentQ', 'What is sent?'), a: t('companionSite.faqSentA', 'Your laps (lap time, car, track and the readings of each lap), the track layouts, and the name of your computer so you can recognise it in your account. Nothing else is read from your PC.') },
     { q: t('companionSite.faqDisconnectQ', 'How do I disconnect?'), a: t('companionSite.faqDisconnectA', 'In Xpeed, open Virtual > Xpeed Companion and click Revoke next to the computer. It can no longer send laps; laps already sent stay in your account. To pause recording, use the icon in the tray.') },
-    { q: t('companionSite.faqFilesQ', 'Where are the files kept?'), a: t('companionSite.faqFilesA', 'Laps are saved in Documents\\Xpeed Companion\\Laps. Settings and the log are in %APPDATA%\\Xpeed Companion. The key that connects your PC to your account is protected by Windows and never shown.') },
+    { q: t('companionSite.faqFilesQ', 'Where are the files kept?'), a: t('companionSite.faqFilesA', 'Your laps are saved in Documents\\Xpeed Companion\\Laps.') },
     { q: t('companionSite.faqRemoveQ', 'How do I remove it?'), a: t('companionSite.faqRemoveA', 'Windows Settings > Apps > Installed apps > Xpeed Companion > Uninstall. Then revoke the computer in your account. Your lap files in Documents are not deleted.') },
   ];
 
@@ -77,7 +77,7 @@ export default function CompanionPage() {
           <div className="mx-auto max-w-5xl space-y-6 px-4 py-12 sm:py-16">
             <h1 className="text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">{t('companionSite.title', 'Xpeed Companion')}</h1>
             <p className="max-w-2xl text-lg text-muted-foreground">
-              {t('companionSite.intro', 'Xpeed Companion is a small Windows app that reads the telemetry of your racing game while you drive. Every lap goes to your Xpeed account, where you can see it, compare it and get faster.')}
+              {t('companionSite.intro', 'Xpeed Companion is a small Windows app that sends every lap of your racing game to your Xpeed account, where you can see it, compare it and get faster.')}
             </p>
 
             <div className="max-w-xl space-y-3 rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
@@ -90,24 +90,12 @@ export default function CompanionPage() {
               <p className="text-sm text-muted-foreground" data-testid="companion-meta">
                 {meta || t('companionSite.noVersion', 'Windows 10 or 11. Free.')}
               </p>
-              {release && (
-                <details className="group text-sm" data-testid="companion-checksum">
-                  <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-primary [&::-webkit-details-marker]:hidden">
-                    <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                    {t('companionSite.showChecksum', 'Show checksum')}
-                  </summary>
-                  <div className="mt-2 space-y-1">
-                    <p className="text-muted-foreground">{t('companionSite.checksumHelp', 'SHA-256 of the installer. In PowerShell, Get-FileHash on the downloaded file must give the same value.')}</p>
-                    <code className="block select-all break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs">{release.sha256}</code>
-                  </div>
-                </details>
-              )}
             </div>
 
             {release && !release.signed && (
               <div role="note" className="flex max-w-xl items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm" data-testid="companion-smartscreen">
                 <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <p>{t('companionSite.smartscreen', 'If Windows warns about an unknown publisher: click More info, then Run anyway. The checksum above lets you verify that the file is the one we published.')}</p>
+                <p>{t('companionSite.smartscreen', 'Windows may say the publisher is unknown. Click More info, then Run anyway.')}</p>
               </div>
             )}
           </div>
@@ -133,12 +121,12 @@ export default function CompanionPage() {
             <h2 className="text-2xl font-bold">{t('companionSite.gamesTitle', 'Games')}</h2>
             <div className="space-y-2">
               <h3 className="flex items-center gap-2 font-semibold"><ShieldCheck className="h-5 w-5 text-primary" />{t('companionSite.certified', 'Certified')}</h3>
-              <p className="text-sm text-muted-foreground">{t('companionSite.certifiedText', 'Tested with the real game: laps, track map and inputs are checked.')}</p>
+              <p className="text-sm text-muted-foreground">{t('companionSite.certifiedText', 'Fully supported.')}</p>
               <ul className="flex flex-wrap gap-2" data-testid="companion-certified">{CERTIFIED.map((game) => <Chip key={game} tone="certified">{game}</Chip>)}</ul>
             </div>
             <div className="space-y-2">
               <h3 className="flex items-center gap-2 font-semibold"><Flag className="h-5 w-5 text-muted-foreground" />{t('companionSite.beta', 'Beta')}</h3>
-              <p className="text-sm text-muted-foreground">{t('companionSite.betaText', 'Supported, but still being checked with the real game. Some data may be missing.')}</p>
+              <p className="text-sm text-muted-foreground">{t('companionSite.betaText', 'Early support: some data may be missing.')}</p>
               <ul className="flex flex-wrap gap-2" data-testid="companion-beta">{BETA.map((game) => <Chip key={game} tone="beta">{game}</Chip>)}</ul>
             </div>
           </div>
@@ -158,7 +146,7 @@ export default function CompanionPage() {
                 </details>
               ))}
             </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">{t('companionSite.privacy', 'Privacy: Xpeed Companion reads only the telemetry your racing game publishes and sends laps only to your own Xpeed account, over HTTPS.')}</p>
+            <p className="max-w-3xl text-sm text-muted-foreground">{t('companionSite.privacy', 'Privacy: Xpeed Companion reads only the data your racing game publishes and sends laps only to your own Xpeed account.')}</p>
           </div>
         </section>
       </main>

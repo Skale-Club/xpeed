@@ -292,7 +292,7 @@ describe('the layout of the track', () => {
   it('says what will appear, and reads no lap file, when the track has no layout', async () => {
     flag(null);
     const { asked } = openTrack(monza.id);
-    expect(await screen.findByTestId('track-no-layout')).toHaveTextContent('has not sent the layout of this track yet');
+    expect(await screen.findByTestId('track-no-layout')).toHaveTextContent('will appear here after you drive this track');
     await screen.findByTestId('best-per-car');
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(state.requests.filter((request) => request.path.endsWith('/file'))).toHaveLength(0);

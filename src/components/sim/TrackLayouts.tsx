@@ -125,15 +125,9 @@ export function TrackLayouts() {
   return (
     <div className="space-y-4" data-testid="track-layouts">
       <p className="text-sm text-muted-foreground">
-        {t('modes.tracks.intro', 'The real shape of each circuit: the road between its edges, the game’s ideal line and the pit lane, read by Xpeed Companion from the game’s own files (Assetto Corsa and Stock Car Extreme). Your laps are drawn on them on the compare screen.')}{' '}
-        {t('modes.tracks.private', 'Xpeed Companion sends them to your account by itself when you drive a track; a copy is kept on this device.')}
+        {t('modes.tracks.intro', 'The tracks you have driven, with your laps drawn on their map.')}
       </p>
 
-      {account?.reached && account.copied > 0 && (
-        <p role="status" className="text-sm" data-testid="tracks-from-account">
-          {t('modes.tracks.fromAccount', { count: account.copied, defaultValue: '{{count}} track layouts sent by Xpeed Companion were added from your account.', defaultValue_one: '1 track layout sent by Xpeed Companion was added from your account.' })}
-        </p>
-      )}
       {library.status === 'unavailable' ? (
         <p className="text-sm text-muted-foreground">{t('modes.tracks.unavailable', 'This browser cannot keep track layouts on the device.')}</p>
       ) : library.status === 'loading' ? (
@@ -142,7 +136,7 @@ export function TrackLayouts() {
         </p>
       ) : sorted.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="tracks-empty">
-          {t('modes.tracks.empty', 'No track layouts yet. Xpeed Companion sends one by itself when you drive a track.')}{' '}
+          {t('modes.tracks.empty', 'No track maps yet. They arrive by themselves when you drive a track.')}{' '}
           <Link to="/virtual/companion" className="underline">{t('modes.sessions.emptyLink', 'Connect Xpeed Companion')}</Link>
         </p>
       ) : (
@@ -165,7 +159,7 @@ export function TrackLayouts() {
         open={!!pending}
         onOpenChange={(open) => !open && setPending(null)}
         title={t('modes.tracks.removeTitle', 'Remove this track layout?')}
-        description={t('modes.tracks.removeText', 'It is removed from this device and from your account. Laps on this track will be drawn without it until Xpeed Companion sends it again or its file is added.')}
+        description={t('modes.tracks.removeText', 'The map is removed. Laps on this track are drawn without it until Xpeed Companion sends it again.')}
         confirmLabel={t('modes.tracks.remove', 'Remove')}
         onConfirm={() => {
           if (pending) void remove(pending).catch(() => undefined);

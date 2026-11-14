@@ -91,33 +91,33 @@ const CASES: Array<{ name: string; insight: Insight; missing?: Array<'brake' | '
   },
   {
     name: 'a loss that nothing measured explains', insight: corner('none', { confidence: undefined }),
-    en: 'You lose 0.21 s in corner 4. Nothing we can measure explains it.',
-    pt: 'Você perde 0.21 s na curva 4. Nada do que conseguimos medir explica isso.',
-    es: 'Pierdes 0.21 s en la curva 4. Nada de lo que podemos medir lo explica.',
+    en: 'You lose 0.21 s in corner 4.',
+    pt: 'Você perde 0.21 s na curva 4.',
+    es: 'Pierdes 0.21 s en la curva 4.',
   },
   {
     name: 'unknownCause without brake data', insight: corner('unknownCause', { confidence: undefined }), missing: ['brake'],
-    en: 'You lose 0.21 s in corner 4. We cannot tell why: no brake data in one of the two laps.',
-    pt: 'Você perde 0.21 s na curva 4. Não dá para saber por quê: não há dados de freio em uma das duas voltas.',
-    es: 'Pierdes 0.21 s en la curva 4. No podemos saber por qué: no hay datos de freno en una de las dos vueltas.',
+    en: 'You lose 0.21 s in corner 4.',
+    pt: 'Você perde 0.21 s na curva 4.',
+    es: 'Pierdes 0.21 s en la curva 4.',
   },
   {
     name: 'unknownCause without throttle data', insight: corner('unknownCause', { confidence: undefined }), missing: ['throttle'],
-    en: 'You lose 0.21 s in corner 4. We cannot tell why: no throttle data in one of the two laps.',
-    pt: 'Você perde 0.21 s na curva 4. Não dá para saber por quê: não há dados de acelerador em uma das duas voltas.',
-    es: 'Pierdes 0.21 s en la curva 4. No podemos saber por qué: no hay datos de acelerador en una de las dos vueltas.',
+    en: 'You lose 0.21 s in corner 4.',
+    pt: 'Você perde 0.21 s na curva 4.',
+    es: 'Pierdes 0.21 s en la curva 4.',
   },
   {
     name: 'unknownCause without position data', insight: corner('unknownCause', { confidence: undefined }), missing: ['position'],
-    en: 'You lose 0.21 s in corner 4. We cannot tell why: no position data in one of the two laps.',
-    pt: 'Você perde 0.21 s na curva 4. Não dá para saber por quê: não há dados de posição em uma das duas voltas.',
-    es: 'Pierdes 0.21 s en la curva 4. No podemos saber por qué: no hay datos de posición en una de las dos vueltas.',
+    en: 'You lose 0.21 s in corner 4.',
+    pt: 'Você perde 0.21 s na curva 4.',
+    es: 'Pierdes 0.21 s en la curva 4.',
   },
   {
     name: 'unknownCause with the missing channel not known', insight: corner('unknownCause', { confidence: undefined }),
-    en: 'You lose 0.21 s in corner 4. We cannot tell why: a channel we need is missing from one of the laps.',
-    pt: 'Você perde 0.21 s na curva 4. Não dá para saber por quê: falta um canal necessário em uma das voltas.',
-    es: 'Pierdes 0.21 s en la curva 4. No podemos saber por qué: falta un canal necesario en una de las vueltas.',
+    en: 'You lose 0.21 s in corner 4.',
+    pt: 'Você perde 0.21 s na curva 4.',
+    es: 'Pierdes 0.21 s en la curva 4.',
   },
 ];
 
@@ -180,13 +180,13 @@ describe('the sentences for real laps', () => {
     expect(sentence).toMatch(/^You lose 0\.\d\d s in corner 2: you brake 1\d m earlier than the reference\.$/);
   });
 
-  it('says it cannot tell why, and names the brake, when the lap has no brake data', async () => {
+  it('says only what was lost, without explaining the missing brake data, when the lap has no brake data', async () => {
     const channels = ['t', 'dist', 'speed', 'x', 'z', 'gear'] as Parameters<typeof buildSyntheticLap>[0]['channels'];
     // A slower corner on a lap with no pedals: time is lost, and nothing can say why.
     const study = buildSyntheticLap({ lengthM: 4200, corners: exampleCorners().map((c, i) => (i === 1 ? { ...c, brakeDist: 880, minSpeedKmh: 70 } : c)), hz: 20, channels }).lap;
     const found = lapInsights(study, reference).find((item) => item.cause === 'unknownCause');
     expect(found).toBeDefined();
-    expect(await say(insightText(found!, { missing: ['brake'] }), 'en')).toMatch(/We cannot tell why: no brake data in one of the two laps\.$/);
+    expect(await say(insightText(found!, { missing: ['brake'] }), 'en')).toMatch(/^You lose [\d.]+ s in corner \d+\.$/);
   });
 });
 

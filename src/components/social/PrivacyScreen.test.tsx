@@ -100,7 +100,7 @@ describe('the privacy screen: delete my racing data', () => {
     expect(dialog).toHaveTextContent('Your account stays');
     expect(dialog).toHaveTextContent('erased for good');
     expect(screen.getByTestId('delete-sentence')).toHaveTextContent(SENTENCE);
-    expect(screen.getByTestId('privacy-delete')).toHaveTextContent('Your Xpeed account stays');
+    expect(screen.getByTestId('privacy-delete')).toHaveTextContent('Your Xpeed account and Real car data stay');
   });
 
   it('keeps the confirm button off until the sentence matches exactly', async () => {
@@ -169,7 +169,7 @@ describe('the privacy screen: delete my racing data', () => {
     typeSentence(SENTENCE);
     state.failing = { status: 503, error: 'unavailable', retryable: true };
     fireEvent.click(screen.getByTestId('delete-confirm'));
-    expect(await screen.findByTestId('delete-error')).toHaveTextContent('The server is not answering right now.');
+    expect(await screen.findByTestId('delete-error')).toHaveTextContent('Something went wrong on our side.');
     expect(screen.queryByTestId('delete-success')).not.toBeInTheDocument();
     expect(client.getQueryData(['sim-v1', 'ana', 'overview'])).toEqual({ keep: true });
     expect(library.cleared).toEqual([]);
@@ -190,7 +190,7 @@ describe('the privacy screen: delete my racing data', () => {
   it('is translated, and still wants the sentence in English', async () => {
     await i18n.changeLanguage('pt-BR');
     await openDelete();
-    expect(screen.getByTestId('delete-dialog')).toHaveTextContent('Sua conta continua');
+    expect(screen.getByTestId('delete-dialog')).toHaveTextContent('Sua conta fica');
     expect(screen.getByTestId('delete-dialog')).toHaveTextContent('em inglês');
     expect(screen.getByTestId('delete-sentence')).toHaveTextContent(SENTENCE);
   });

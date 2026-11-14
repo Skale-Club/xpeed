@@ -51,7 +51,7 @@ export function ErrorPanel({ error, onRetry, retrying }: { error: unknown; onRet
     <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm" data-testid="sim-error">
       <p className="flex items-center gap-2 font-medium">
         <CloudOff className="h-4 w-4 shrink-0" />
-        {signedOut ? t('modes.states.signedOut', 'You are signed out. Sign in again to see your laps.') : t('modes.states.failed', 'Your laps could not be loaded. The server or your connection is not answering.')}
+        {signedOut ? t('modes.states.signedOut', 'You are signed out. Sign in again to see your laps.') : t('modes.states.failed', 'Your laps could not be loaded. Try again in a moment.')}
       </p>
       {signedOut ? (
         <Button asChild size="sm">
@@ -76,7 +76,7 @@ export function StaleBadge({ updatedAt, onRetry, retrying }: { updatedAt: number
       <Badge variant="secondary" className="gap-1">
         <CloudOff className="h-3 w-3" /> {t('modes.states.stale', 'Showing saved data')}
       </Badge>
-      <span className="text-muted-foreground">{t('modes.states.staleAge', 'Last updated {{when}}. The server is not answering.', { when: age(updatedAt) })}</span>
+      <span className="text-muted-foreground">{t('modes.states.staleAge', 'Last updated {{when}}. Could not refresh.', { when: age(updatedAt) })}</span>
       <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onRetry} disabled={retrying}>
         {retrying ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
         {t('modes.states.retry', 'Try again')}

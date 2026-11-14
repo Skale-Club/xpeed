@@ -27,7 +27,7 @@ export function SessionsSummaryStrip({ summary, showBest, more }: { summary: Ses
         testId="sum-time"
         label={t('sessionsDash.summary.time', 'Session time')}
         value={`${formatDuration(summary.timeMs, format.lang)}${plus}`}
-        hint={t('sessionsDash.summary.timeHint', 'The sessions from their start to their end, as Xpeed Companion saw them.')}
+        hint={t('sessionsDash.summary.timeHint', 'Time driven in these sessions.')}
       />
       {showBest ? (
         <StatTile

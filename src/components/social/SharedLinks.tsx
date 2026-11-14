@@ -115,13 +115,12 @@ export function SharedLinks() {
       )}
       {revoke.isError && <ErrorLine>{errorText(revoke.error)}</ErrorLine>}
       <LoadMore hasNextPage={!!shares.hasNextPage} isFetchingNextPage={shares.isFetchingNextPage} onClick={() => void shares.fetchNextPage()} />
-      <p className="text-xs text-muted-foreground">{t('social.share.noCopy', 'The address of a link is shown only when you make it, so it cannot be copied again. If you lost one, revoke it and make a new one.')}</p>
 
       <ConfirmDialog
         open={pending !== null}
         onOpenChange={(open) => !open && setPending(null)}
         title={t('social.share.revokeTitle', 'Revoke this link?')}
-        description={t('social.share.revokeBody', 'Anyone who has it stops seeing the lap or session at once. This cannot be undone: to share it again you make a new link.')}
+        description={t('social.share.revokeBody', 'The link stops working at once. To share it again you make a new one.')}
         confirmLabel={t('social.share.revoke', 'Revoke')}
         onConfirm={() => {
           if (pending) revoke.mutate(pending.id);

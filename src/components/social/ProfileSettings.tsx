@@ -161,7 +161,7 @@ export function ProfileSettings() {
                     {t('social.profile.handleHelp', '3 to 24 characters: a to z, 0 to 9 and _. Friends find you by it.')}
                   </p>
                   <p id="profile-handle-live" className={cn('text-xs', liveProblem ? 'text-destructive' : 'text-muted-foreground')} role={liveProblem ? 'alert' : undefined} data-testid="handle-live">
-                    {liveProblem ?? (handleChanged ? t('social.profile.handleChecked', 'The format is fine. Whether it is free is checked when you save.') : '')}
+                    {liveProblem ?? (handleChanged ? t('social.profile.handleChecked', 'Looks good.') : '')}
                   </p>
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-testid="handle-changes">
                     <ChangePips left={left} />
@@ -190,7 +190,7 @@ export function ProfileSettings() {
                     data-testid="profile-name"
                   />
                   <p id="profile-name-help" className="flex justify-between gap-2 text-xs text-muted-foreground">
-                    <span>{t('social.profile.displayNameHelp', 'Shown next to your handle. Use a nickname: your sign-in name and your e-mail are never shown to anyone.')}</span>
+                    <span>{t('social.profile.displayNameHelp', 'Shown next to your handle. A nickname works well.')}</span>
                     <span className="shrink-0 tabular-nums" aria-hidden="true">{displayName.length}/{DISPLAY_NAME_MAX}</span>
                   </p>
                   {fieldError('displayName') && <ErrorLine testId="error-displayName">{fieldError('displayName')}</ErrorLine>}
@@ -224,7 +224,7 @@ export function ProfileSettings() {
             <SettingsSection
               testId="my-shared-links"
               title={t('social.share.mine', 'My shared links')}
-              description={t('social.share.mineBody', 'Links to laps and sessions you shared. Anyone who has one can see that lap or session. Revoke a link to stop it working at once.')}
+              description={t('social.share.mineBody', 'Links you shared. Anyone with a link can see that lap or session. Revoke a link to stop it.')}
             >
               <SharedLinks />
             </SettingsSection>

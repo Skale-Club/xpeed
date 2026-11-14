@@ -59,7 +59,7 @@ describe('the tracks screen', () => {
     serve(await account());
     renderList();
     const empty = await screen.findByTestId('tracks-empty');
-    expect(empty).toHaveTextContent(/No track layouts yet/);
+    expect(empty).toHaveTextContent(/No track maps yet/);
     expect(within(empty).getByRole('link', { name: 'Connect Xpeed Companion' })).toHaveAttribute('href', '/virtual/companion');
   });
 
@@ -67,7 +67,8 @@ describe('the tracks screen', () => {
     serve(await account({ id: 't1', name: 'Monza' }, { id: 't2', name: 'Spa', ideal: false }));
     renderList();
     await waitFor(() => expect(screen.getAllByTestId('track-row')).toHaveLength(2));
-    expect(screen.getByTestId('tracks-from-account')).toHaveTextContent('2 track layouts sent by Xpeed Companion were added from your account.');
+    // How many maps came from the account is bookkeeping: nothing about it is said.
+    expect(screen.queryByTestId('tracks-from-account')).not.toBeInTheDocument();
     const [monza, spa] = screen.getAllByTestId('track-row');
     expect(monza).toHaveTextContent('Monza');
     expect(spa).toHaveTextContent('Spa');

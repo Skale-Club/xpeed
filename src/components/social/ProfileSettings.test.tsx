@@ -147,7 +147,7 @@ describe('the profile settings', () => {
     type('profile-name', 'New');
     state.failing = { status: 503, error: 'unavailable', retryable: true };
     fireEvent.click(screen.getByTestId('profile-save'));
-    expect(await screen.findByTestId('profile-error')).toHaveTextContent('The server is not answering right now.');
+    expect(await screen.findByTestId('profile-error')).toHaveTextContent('Something went wrong on our side.');
     expect(screen.getByTestId('profile-save')).toBeEnabled();
   });
 
@@ -235,7 +235,7 @@ describe('the profile page as a settings page', () => {
     type('profile-handle', 'a'.repeat(25));
     expect(screen.getByTestId('handle-live')).toHaveTextContent('A handle has at most 24 characters.');
     type('profile-handle', 'new_handle');
-    expect(screen.getByTestId('handle-live')).toHaveTextContent('Whether it is free is checked when you save.');
+    expect(screen.getByTestId('handle-live')).toHaveTextContent('Looks good.');
     expect(screen.getByTestId('profile-save')).toBeEnabled();
   });
 
@@ -275,7 +275,8 @@ describe('the profile page as a settings page', () => {
     expect(cards[2]).toHaveTextContent(/Revoked .*2026/);
     // Only a live link can be revoked.
     expect(within(cards[1]).queryByTestId('share-revoke')).not.toBeInTheDocument();
-    expect(section).toHaveTextContent('cannot be copied again');
+    // The one-time address is said once, in the dialog that shows it: not repeated under the list.
+    expect(section).not.toHaveTextContent('cannot be copied again');
   });
 
   it('keeps a link when the question is answered with Cancel', async () => {

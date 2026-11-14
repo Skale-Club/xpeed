@@ -285,11 +285,11 @@ describe('consistency', () => {
     expect(screen.queryByTestId('consistency-empty')).not.toBeInTheDocument();
   });
 
-  it('says it needs 3 clean laps when no session has a spread yet', async () => {
+  it('asks for 3 clean laps in a session when none has a spread yet', async () => {
     const state = fakeV1State({ now: NOW, devices: dashboardState().devices });
     addSession(state, { track: MONZA, car: FERRARI, startedAt: '2026-11-10T19:00:00.000Z', times: [101_000, 100_500] });
     await dashboard(state);
-    expect(screen.getByTestId('consistency-empty')).toHaveTextContent('Not enough clean laps yet');
+    expect(screen.getByTestId('consistency-empty')).toHaveTextContent('Drive at least 3 clean laps in a session');
     expect(screen.queryByTestId('consistency-sentence')).not.toBeInTheDocument();
   });
 });

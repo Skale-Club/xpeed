@@ -7,9 +7,9 @@ export function useErrorText(): (error: unknown) => string {
   return (error) => {
     const texts: Record<SocialErrorKey, string> = {
       generic: t('social.errors.generic', 'That did not work. Try again in a moment.'),
-      offline: t('social.errors.offline', 'The server could not be reached. Check your connection and try again.'),
+      offline: t('social.errors.offline', 'Could not connect. Check your connection and try again.'),
       signedOut: t('social.errors.signedOut', 'You are signed out. Sign in again to continue.'),
-      unavailable: t('social.errors.unavailable', 'The server is not answering right now. Try again in a moment.'),
+      unavailable: t('social.errors.unavailable', 'Something went wrong on our side. Try again in a moment.'),
       invalid_handle: t('social.errors.invalid_handle', 'A handle has 3 to 24 letters, digits or underscores (a to z, 0 to 9, _).'),
       reserved_handle: t('social.errors.reserved_handle', 'This handle is reserved. Choose another one.'),
       handle_taken: t('social.errors.handle_taken', 'This handle is taken. Choose another one.'),

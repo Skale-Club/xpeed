@@ -266,12 +266,12 @@ describe('your computers', () => {
     expect(fold).toHaveTextContent('Disconnected computers: 1');
   });
 
-  it('has one muted line, at most, about adding another computer (and the limit of 10), and no other footnote', async () => {
+  it('has one muted line, at most, about adding another computer, and no other footnote', async () => {
     api.list.mockResolvedValue([device()]);
     renderPanel();
     await screen.findByTestId('device');
     const hint = screen.getByTestId('devices-hint');
-    expect(hint).toHaveTextContent('To add another computer (up to 10), open Xpeed Companion on it and click Connect to your account.');
+    expect(hint).toHaveTextContent('To add another computer, open Xpeed Companion on it and click Connect.');
     expect(screen.queryByText('You can connect up to 10 computers.')).not.toBeInTheDocument();
     expect(screen.getByTestId('companion-devices').querySelectorAll('p.text-xs')).toHaveLength(1);
   });
@@ -329,7 +329,7 @@ describe('your computers', () => {
     ]);
     renderPanel();
     const cards = await screen.findAllByTestId('device');
-    await waitFor(() => expect(within(byName(cards, 'OLDER')).getByTestId('device-update')).toHaveTextContent('Update available: 0.7.0. It installs by itself when no game is running.'));
+    await waitFor(() => expect(within(byName(cards, 'OLDER')).getByTestId('device-update')).toHaveTextContent('Update available: 0.7.0. It installs by itself.'));
     for (const name of ['CURRENT', 'NEWER', 'ODD', 'REVOKED']) expect(within(byName(cards, name)).queryByTestId('device-update'), name).not.toBeInTheDocument();
     // A hint, not an alarm: no button, no alert role.
     expect(within(byName(cards, 'OLDER')).getByTestId('device-update').getAttribute('role')).toBeNull();
@@ -381,7 +381,7 @@ describe('your computers', () => {
   it('says when the list cannot be read, with a retry, and not "no computer is connected"', async () => {
     api.list.mockRejectedValueOnce(new XpeedSimApiError('unavailable')).mockResolvedValue([device()]);
     renderPanel();
-    expect(await screen.findByRole('alert')).toHaveTextContent('The server could not be reached');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not connect');
     expect(screen.queryByTestId('devices-empty')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('devices-retry'));
     expect(await screen.findByTestId('device')).toBeInTheDocument();
@@ -410,12 +410,11 @@ describe('the games Xpeed Companion supports', () => {
     expect(screen.getByTestId('games-beta')).toHaveTextContent('Beta');
   });
 
-  it('explains Beta in one sentence', async () => {
+  it('labels Beta with one word and explains nothing about it', async () => {
     renderPanel();
     await screen.findAllByTestId('game-row');
-    const note = screen.getByTestId('games-beta').querySelector('p')!;
-    expect(note).toHaveTextContent('Beta games are supported but not fully checked yet, so some data may be missing.');
-    expect(note.textContent!.match(/[.!?]/g)).toHaveLength(1);
+    expect(screen.getByTestId('games-beta').querySelector('p')).toBeNull();
+    expect(screen.getByTestId('games-beta').textContent).not.toMatch(/checked|supported but|missing/i);
     expect(screen.getByTestId('games-certified').querySelector('p')).toBeNull();
   });
 
@@ -461,7 +460,8 @@ describe('the Companion screen is translated', () => {
     expect(screen.getByTestId('games-certified')).toHaveTextContent('Certificados');
     await waitFor(() => expect(document.querySelector('[data-game="ac"] [data-testid="game-status"]')).toHaveTextContent(/^2 voltas$/));
     expect(document.querySelector('[data-game="lmu"] [data-testid="game-status"]')).toHaveTextContent(/^1 volta$/);
-    expect(screen.getByTestId('games-beta')).toHaveTextContent('Os jogos beta são compatíveis');
+    expect(screen.getByTestId('games-beta')).toHaveTextContent('Beta');
+    expect(screen.getByTestId('games-beta').textContent).not.toMatch(/compatíveis|conferidos/);
     expect(await screen.findByTestId('companion-smartscreen')).toHaveTextContent('Mais informações');
     expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/checksum|SHA-256/i);
     expect(screen.getByTestId('companion-panel').textContent).not.toMatch(/Revog/);

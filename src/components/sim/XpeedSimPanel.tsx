@@ -136,7 +136,7 @@ export function XpeedSimPanel() {
             </details>
           )}
           {list.length > 0 && (
-            <p className="text-xs text-muted-foreground" data-testid="devices-hint">{t('communityDash.companion.connectAnother', 'To add another computer (up to 10), open Xpeed Companion on it and click Connect to your account.')}</p>
+            <p className="text-xs text-muted-foreground" data-testid="devices-hint">{t('communityDash.companion.connectAnother', 'To add another computer, open Xpeed Companion on it and click Connect.')}</p>
           )}
         </Card>
 

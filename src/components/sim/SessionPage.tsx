@@ -155,8 +155,8 @@ export function SessionPage() {
         title={pending?.kind === 'lap' ? t('modes.session.confirmLapTitle', 'Delete this lap?') : t('modes.session.confirmTitle', 'Delete this session?')}
         description={
           pending?.kind === 'lap'
-            ? t('modes.session.confirmLapBody', 'Lap {{lap}} is deleted from your account, with its file. This cannot be undone.', { lap: pending.lap.lapNumber })
-            : t('modes.session.confirmBody', 'The {{count}} laps of this session are deleted from your account, with their files. This cannot be undone.', { count: laps.length })
+            ? t('modes.session.confirmLapBody', 'Lap {{lap}} is deleted from your account. This cannot be undone.', { lap: pending.lap.lapNumber })
+            : t('modes.session.confirmBody', 'The {{count}} laps of this session are deleted from your account. This cannot be undone.', { count: laps.length })
         }
         confirmLabel={t('modes.session.confirmDelete', 'Delete')}
         onConfirm={() => void confirm()}

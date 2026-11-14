@@ -14,7 +14,7 @@ export default function SimSessionsPage() {
             <Timer className="h-5 w-5 text-primary" aria-hidden="true" />
             {t('modes.nav.sessions', 'Sessions')}
           </h2>
-          <p className="text-sm text-muted-foreground">{t('modes.sessions.intro', 'Your sessions: the laps Xpeed Companion sent, grouped by car and track as the game ran them.')}</p>
+          <p className="text-sm text-muted-foreground">{t('modes.sessions.intro', 'Your sessions, with the laps Xpeed Companion sent.')}</p>
         </div>
         <SessionsList />
       </div>

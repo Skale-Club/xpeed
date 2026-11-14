@@ -35,7 +35,7 @@ describe('the public Companion page', () => {
   it('says what it is and points the big button at the stable download link, before and after the version loads', async () => {
     open();
     expect(screen.getByRole('heading', { level: 1, name: 'Xpeed Companion' })).toBeInTheDocument();
-    expect(screen.getByText(/small Windows app that reads the telemetry of your racing game/)).toBeInTheDocument();
+    expect(screen.getByText(/small Windows app that sends every lap of your racing game/)).toBeInTheDocument();
     const button = screen.getByRole('link', { name: 'Download for Windows' });
     expect(button).toHaveAttribute('href', '/api/companion/download');
     await screen.findByText(/Version 0\.5\.0/);
@@ -43,21 +43,19 @@ describe('the public Companion page', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/companion/latest', expect.anything());
   });
 
-  it('shows the version, size and date from /api/companion/latest, and the checksum behind "Show checksum"', async () => {
+  it('shows the version, size and date from /api/companion/latest, and never a checksum', async () => {
     open();
     await screen.findByText(/Version 0\.5\.0/);
     expect(screen.getByTestId('companion-meta')).toHaveTextContent('Version 0.5.0 · 3.0 MB · Nov 13, 2026');
-    const checksum = screen.getByTestId('companion-checksum');
-    expect(within(checksum).getByText('Show checksum')).toBeInTheDocument();
-    expect(checksum).toHaveTextContent('f'.repeat(64));
-    expect(checksum).not.toHaveAttribute('open');
+    expect(screen.queryByTestId('companion-checksum')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/checksum|SHA-?256|f{64}/i);
   });
 
   it('shows the Windows SmartScreen note while the build is unsigned', async () => {
     open();
     const note = await screen.findByTestId('companion-smartscreen');
     expect(note).toHaveTextContent('More info, then Run anyway');
-    expect(note).toHaveTextContent('checksum above');
+    expect(note).not.toHaveTextContent(/checksum/i);
   });
 
   it('hides the SmartScreen note once the build is signed', async () => {
@@ -108,7 +106,7 @@ describe('the public Companion page', () => {
     for (const question of ['What is sent?', 'How do I disconnect?', 'Where are the files kept?', 'How do I remove it?']) {
       expect(screen.getByText(question)).toBeInTheDocument();
     }
-    expect(screen.getByText(/Privacy: Xpeed Companion reads only the telemetry/)).toBeInTheDocument();
+    expect(screen.getByText(/Privacy: Xpeed Companion reads only the data/)).toBeInTheDocument();
   });
 
   it('never shows the old internal name, in any language', async () => {

@@ -33,7 +33,7 @@ export function ConsistencyPanel({ stats }: { stats: V1Stats }) {
       {sentence ? (
         <p className="text-sm" data-testid="consistency-sentence" data-key={sentence.key}>{t(sentence.key, sentence.values)}</p>
       ) : (
-        <Quiet testId="consistency-empty">{t('modes.overview.dash.consistencyEmpty', 'Not enough clean laps yet. A session needs at least 3 valid laps that are not in or out laps.')}</Quiet>
+        <Quiet testId="consistency-empty">{t('modes.overview.dash.consistencyEmpty', 'Drive at least 3 clean laps in a session to see this.')}</Quiet>
       )}
       {share !== null && (
         <p className="text-xs text-muted-foreground" data-testid="consistency-clean">{t('modes.overview.dash.cleanShare', 'Clean laps: {{percent}}%', { percent: share })}</p>

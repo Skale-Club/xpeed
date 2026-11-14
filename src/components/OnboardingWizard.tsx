@@ -69,7 +69,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
 
   const modeOptions: { key: ModeChoice; icon: typeof Car; title: string; hint: string }[] = [
     { key: 'real', icon: Car, title: t('modes.onboard.realTitle', 'My real car'), hint: t('modes.onboard.realHint', 'Read the car with a Bluetooth adapter.') },
-    { key: 'virtual', icon: Gamepad, title: t('modes.onboard.virtualTitle', 'Racing games'), hint: t('modes.onboard.virtualHint', 'Telemetry from your simulator, on the PC.') },
+    { key: 'virtual', icon: Gamepad, title: t('modes.onboard.virtualTitle', 'Racing games'), hint: t('modes.onboard.virtualHint', 'Laps from your racing games.') },
     { key: 'both', icon: Layers, title: t('modes.onboard.bothTitle', 'Both'), hint: t('modes.onboard.bothHint', 'Your car and your simulator.') },
   ];
 

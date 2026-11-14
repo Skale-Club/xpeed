@@ -106,7 +106,7 @@ describe('the track layout', () => {
     renderAnalysis(mine, null, { findLayout });
     await waitFor(() => expect(findLayout).toHaveBeenCalled());
     expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
-    expect(screen.getByTestId('map-hint')).toHaveTextContent(/Xpeed Companion/);
+    expect(screen.getByTestId('map-hint')).toHaveTextContent(/Solid: the lap/);
     expect(screen.getByTestId('map-hint')).not.toHaveTextContent(/\.xtrk/);
   });
 
@@ -152,7 +152,7 @@ describe('the track layout', () => {
     ];
     const linkLayout = vi.fn(async () => layoutOfSample());
     renderAnalysis(mine, null, { findLayout: async () => null, listKeptLayouts: async () => kept, linkLayout });
-    await waitFor(() => expect(screen.getByTestId('no-layout')).toHaveTextContent(`Xpeed Companion has not sent the track layout of “${sample.name}” yet`));
+    await waitFor(() => expect(screen.getByTestId('no-layout')).toHaveTextContent(`The map of “${sample.name}” will appear after you drive this track`));
     const select = await screen.findByTestId('pick-layout');
     // Only the layouts of the lap's game are offered.
     expect(select).toHaveTextContent('Choose a layout');
@@ -183,6 +183,6 @@ describe('laps that cannot be compared', () => {
   it('refuses laps whose lengths are too far apart to be the same layout', () => {
     const short: LapFile = { ...best, data: { ...best.data, dist: best.data.dist.map((d) => d * 0.5) } };
     renderAnalysis(mine, short);
-    expect(screen.getByTestId('different-tracks')).toHaveTextContent(/different lengths/);
+    expect(screen.getByTestId('different-tracks')).toHaveTextContent(/not on the same track layout/);
   });
 });

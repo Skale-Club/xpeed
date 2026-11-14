@@ -103,7 +103,7 @@ function NoLayout({ game, track, listKept, onPick }: { game: string; track: stri
   const name = (entry: LibraryTrack) => [entry.summary.title ?? entry.summary.trackName, entry.summary.variant].filter(Boolean).join(' · ');
   return (
     <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="no-layout">
-      <p>{t('modes.compare.noLayout', 'Xpeed Companion has not sent the track layout of “{{track}}” yet. It is sent by itself the next time you drive the track.', { track })}</p>
+      <p>{t('modes.compare.noLayout', 'The map of “{{track}}” will appear after you drive this track.', { track })}</p>
       {onPick && options.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span id={pickLabelId}>{t('modes.compare.useKeptLayout', 'Or use a layout you kept (the game may name the track differently):')}</span>
@@ -156,7 +156,7 @@ function OffLine({ items, unit, onShow }: { items: OffLineStretch[]; unit: Dista
           </ul>
         )}
         <p className="mt-2 text-xs text-muted-foreground">
-          {t('modes.compare.offLineHint', 'Stretches of 30 m or more at least 1.5 m from the ideal line. With a reference, the time is what the lap lost (+) or gained (−) over the stretch.')}
+          {t('modes.compare.offLineHint', 'Where you left the ideal line, and what it cost (+) or gained (−).')}
         </p>
       </CardContent>
     </Card>
@@ -341,7 +341,7 @@ export function LapAnalysis({
       {{
         game: t('modes.compare.refused.game', 'These laps are from different games, so they cannot be compared. Only the lap is shown.'),
         track: t('modes.compare.refused.track', 'These laps are from different tracks, so they cannot be compared. Only the lap is shown.'),
-        length: t('modes.compare.refused.length', 'These laps have different lengths (more than 3 % apart), so they are not the same layout and cannot be compared. Only the lap is shown.'),
+        length: t('modes.compare.refused.length', 'These laps are not on the same track layout, so they cannot be compared. Only the lap is shown.'),
       }[refusal]}
     </p>
   );
@@ -430,7 +430,7 @@ export function LapAnalysis({
 
   const layoutNote = lineStudy?.mismatch && (
     <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="layout-mismatch">
-      {t('modes.compare.layoutMismatch', 'This lap does not sit on the track layout: most of it is more than 25 m from the ideal line. The layout may be of another version of the track, so the distance from the ideal line is not shown.')}
+      {t('modes.compare.layoutMismatch', 'This lap does not match the track map, so the ideal line is not shown.')}
     </p>
   );
 
@@ -469,7 +469,7 @@ export function LapAnalysis({
         <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
           {layout
             ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
-            : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start. Once Xpeed Companion has sent the track’s layout, the road, its edges and the ideal line are drawn under it.')}
+            : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start.')}
         </p>
         {!layout && wanted && wantedKey && findLayout && kept?.key === wantedKey && (
           <NoLayout

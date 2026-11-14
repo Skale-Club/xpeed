@@ -254,7 +254,7 @@ describe('Recheck laps', () => {
     await screen.findByTestId('admin-report-list');
     state.failing = { status: 503, error: 'unavailable', retryable: true };
     fireEvent.click(screen.getByTestId('recheck-run'));
-    expect(await screen.findByTestId('recheck-error')).toHaveTextContent('The server is not answering right now.');
+    expect(await screen.findByTestId('recheck-error')).toHaveTextContent('Something went wrong on our side.');
     expect(screen.getByTestId('recheck-run')).toBeEnabled();
   });
 });
