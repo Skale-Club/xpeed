@@ -195,3 +195,59 @@ describe('the privacy screen: delete my racing data', () => {
     expect(screen.getByTestId('delete-sentence')).toHaveTextContent(SENTENCE);
   });
 });
+
+describe('the privacy page as a settings page', () => {
+  it('has a block for who can see you, one for your data and a danger zone for the deletion, apart from each other', async () => {
+    await open();
+    const visibility = screen.getByTestId('privacy-visibility');
+    const download = screen.getByTestId('privacy-download');
+    const danger = screen.getByTestId('privacy-delete');
+    expect(within(visibility).getByTestId('visibility-picker')).toBeInTheDocument();
+    expect(within(download).getByTestId('export-button')).toBeInTheDocument();
+    expect(within(danger).getByRole('heading', { name: 'Danger zone' })).toBeInTheDocument();
+    expect(within(danger).getByTestId('delete-open')).toBeInTheDocument();
+    // The download is not in the danger zone, and the deletion is not next to the download.
+    expect(within(danger).queryByTestId('export-button')).not.toBeInTheDocument();
+    expect(within(download).queryByTestId('delete-open')).not.toBeInTheDocument();
+    expect(danger).toHaveTextContent('cannot be undone');
+  });
+
+  it('shows under each choice what it lets others see, so the choice can be made knowing what it does', async () => {
+    await open();
+    const rows = (option: string) => [...screen.getByTestId(`visibility-shows-${option}`).querySelectorAll('li')].map((row) => `${row.textContent?.replace(/\s+/g, ' ').trim()}`);
+    expect(rows('private')).toEqual(['Public leaderboards: not shown', 'Friends leaderboards: not shown', 'Your driver page: not shown', 'Found by your handle: not shown']);
+    expect(rows('friends')[0]).toBe('Public leaderboards: not shown');
+    expect(rows('friends')[1]).toBe('Friends leaderboards: shown');
+    expect(rows('public').every((text) => text.endsWith(': shown'))).toBe(true);
+  });
+
+  it('keeps the deletion behind the dialog and the exact sentence on this layout too', async () => {
+    const state = fakeSocialState();
+    await open(state);
+    fireEvent.click(screen.getByTestId('delete-open'));
+    const dialog = await screen.findByTestId('delete-dialog');
+    expect(screen.getByTestId('delete-confirm')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('delete-input'), { target: { value: SENTENCE } });
+    expect(screen.getByTestId('delete-confirm')).toBeEnabled();
+    expect(callsTo(state, 'DELETE', '/me/data')).toHaveLength(0);
+    expect(dialog).toHaveTextContent('Your account stays');
+  });
+
+  it('exports VisibilitySection for Settings: the same choice, saved at once, with the link to the data page', async () => {
+    const { VisibilitySection } = await import('./PrivacyScreen');
+    const state = fakeSocialState();
+    renderSocial(<VisibilitySection withDataLink />, { state, route: '/settings' });
+    await screen.findByTestId('visibility-picker');
+    expect(screen.getByRole('link', { name: 'Download or delete my racing data' })).toHaveAttribute('href', '/virtual/privacy');
+    fireEvent.click(screen.getByTestId('visibility-friends'));
+    await screen.findByTestId('visibility-saved');
+    expect(callsTo(state, 'PATCH', '/profile')[0].body).toEqual({ visibility: 'friends' });
+  });
+
+  it('says it in Portuguese: the danger zone and the preview rows', async () => {
+    await i18n.changeLanguage('pt-BR');
+    await open();
+    expect(screen.getByTestId('privacy-delete')).toHaveTextContent('Zona de perigo');
+    expect(screen.getByTestId('visibility-shows-private')).toHaveTextContent('não mostrado');
+  });
+});

@@ -175,3 +175,72 @@ describe('the driver page', () => {
     expect(screen.getByTestId('action-add')).toHaveTextContent('Adicionar amigo');
   });
 });
+
+describe('the driver page as a profile', () => {
+  const spaLap = {
+    lapId: '10000000-0000-4000-8000-000000000002', game: 'ac', track: { id: '00000001-0000-4000-8000-000000000002', name: 'Spa-Francorchamps' },
+    car: { id: '00000002-0000-4000-8000-000000000002', name: 'Toyota GR010' }, timeMs: 134_500, achievedAt: '2026-11-08T12:00:00.000Z',
+  };
+
+  it('has a header with the avatar in initials, the name, the handle, when they joined and the relation with its actions', async () => {
+    await openDriver(fakeSocialState({ drivers: [rival({ relation: 'friend' })] }), 'rival_one');
+    const header = screen.getByTestId('driver-header');
+    expect(within(header).getByTestId('avatar')).toHaveTextContent('RO');
+    expect(within(header).getByTestId('driver-name')).toHaveTextContent('Rival One');
+    expect(within(header).getByTestId('driver-handle')).toHaveTextContent('@rival_one');
+    expect(header).toHaveTextContent(/Joined .*2026/);
+    expect(within(header).getByTestId('relation-friends')).toBeInTheDocument();
+    for (const id of ['action-remove', 'action-block', 'report-button']) expect(within(header).getByTestId(id)).toBeInTheDocument();
+  });
+
+  it('has four tiles: personal bests, games, and the tracks and cars of the best laps shown', async () => {
+    await openDriver(fakeSocialState({ drivers: [rival({ bestLaps: [bestLap, spaLap] })] }), 'rival_one');
+    expect(screen.getByTestId('driver-pbs')).toHaveTextContent('7');
+    expect(screen.getByTestId('driver-games-count')).toHaveTextContent('2');
+    expect(screen.getByTestId('driver-tracks-count')).toHaveTextContent('2');
+    expect(screen.getByTestId('driver-cars-count')).toHaveTextContent('2');
+    expect(screen.getByTestId('driver-tiles')).toHaveTextContent('in the best laps below');
+  });
+
+  it('shows the best laps as cards, each with the time and links to its leaderboard and its track page', async () => {
+    await openDriver(fakeSocialState({ drivers: [rival({ bestLaps: [bestLap, spaLap] })] }), 'rival_one');
+    const cards = screen.getAllByTestId('driver-best-lap');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[1]).getByTestId('driver-lap-time')).toHaveTextContent('2:14.500');
+    expect(within(cards[1]).getByTestId('driver-track-link')).toHaveAttribute('href', `/virtual/tracks/${spaLap.track.id}`);
+    expect(within(cards[1]).getByRole('link', { name: 'Leaderboard' })).toHaveAttribute('href', `/virtual/leaderboards?track=${spaLap.track.id}&car=${spaLap.car.id}&game=ac`);
+    expect(within(cards[1]).getByRole('link', { name: `Track page: ${spaLap.track.name}` })).toHaveAttribute('href', `/virtual/tracks/${spaLap.track.id}`);
+    expect(cards[1]).toHaveTextContent('Assetto Corsa');
+  });
+
+  it('says there are no best laps yet, with zero tracks and cars', async () => {
+    await openDriver(fakeSocialState({ drivers: [rival({ bestLaps: [], personalBestsCount: 0, gamesPlayed: [] })] }), 'rival_one');
+    expect(screen.getByTestId('driver-no-laps')).toBeInTheDocument();
+    expect(screen.getByTestId('driver-tracks-count')).toHaveTextContent('0');
+    expect(screen.getByTestId('driver-games')).toHaveTextContent('–');
+  });
+
+  it('on your own page says who can see it, and links to the privacy page', async () => {
+    const state = fakeSocialState();
+    state.me = { ...state.me, visibility: 'friends' };
+    await openDriver(state, 'lap_fan');
+    const line = screen.getByTestId('driver-visibility');
+    expect(line).toHaveTextContent('Who can see this page: Friends only');
+    expect(within(line).getByRole('link', { name: 'Change' })).toHaveAttribute('href', '/virtual/privacy');
+  });
+
+  it('never shows an e-mail, a phone number or a real name, only the handle and the display name', async () => {
+    await openDriver(fakeSocialState({ drivers: [rival({ displayName: 'someone@mail.test' })] }), 'rival_one');
+    expect(screen.queryByTestId('driver-name')).not.toBeInTheDocument();
+    expect(screen.getByTestId('driver-handle').textContent).toBe('@rival_one');
+    expect(screen.getByTestId('avatar')).toHaveTextContent('RI');
+    expect(document.body.textContent).not.toMatch(/someone@mail\.test/);
+  });
+
+  it('is translated: the tiles and the card links', async () => {
+    await i18n.changeLanguage('pt-BR');
+    await openDriver(fakeSocialState({ drivers: [rival()] }), 'rival_one');
+    expect(screen.getByTestId('driver-tiles')).toHaveTextContent('Pistas');
+    expect(within(screen.getByTestId('driver-best-lap')).getByRole('link', { name: 'Classificação' })).toBeInTheDocument();
+  });
+});

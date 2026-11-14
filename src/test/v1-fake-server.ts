@@ -126,6 +126,16 @@ const day = (lap: V1Lap) => lap.startedAt.slice(0, 10);
 const fastest = (laps: V1Lap[]) => laps.filter((lap) => lap.valid && lap.timeMs > 0).sort((p, q) => p.timeMs - q.timeMs)[0] ?? null;
 const lastDriven = (laps: V1Lap[]) => laps.map((lap) => lap.startedAt).sort().at(-1) ?? null;
 
+/** The fastest time in each sector over the valid laps that have them (and the lap that set it), as `bestSectorsMs` and `sectorLapIds` of a personal best; null with none. */
+function bestSectors(laps: V1Lap[]): { bestSectorsMs: number[] | null; sectorLapIds: string[] | null } {
+  const withSectors = laps.filter((lap) => lap.valid && lap.timeMs > 0 && lap.sectorsMs && lap.sectorsMs.length > 0);
+  if (withSectors.length === 0) return { bestSectorsMs: null, sectorLapIds: null };
+  const count = withSectors[0].sectorsMs!.length;
+  const same = withSectors.filter((lap) => lap.sectorsMs!.length === count);
+  const winners = Array.from({ length: count }, (_, i) => same.reduce((top, lap) => (lap.sectorsMs![i] < top.sectorsMs![i] ? lap : top)));
+  return { bestSectorsMs: winners.map((lap, i) => lap.sectorsMs![i]), sectorLapIds: winners.map((lap) => lap.id) };
+}
+
 /** What `GET /tracks/<id>` says: the totals, the best valid lap of each day, laps per day and the best lap of each car. */
 export function trackDetail(state: FakeV1State, id: string): V1TrackDetail | null {
   const item = state.tracks.find((track) => track.id === id);
@@ -135,7 +145,7 @@ export function trackDetail(state: FakeV1State, id: string): V1TrackDetail | nul
   const cars = new Map<string, V1Lap[]>();
   for (const lap of laps) if (lap.car) cars.set(lap.car.id, [...(cars.get(lap.car.id) ?? []), lap]);
   return {
-    track: { id: item.id, game: item.game, name: item.name, lengthM: item.lengthM },
+    track: { id: item.id, game: item.game, name: item.name, lengthM: item.lengthM, ...(item.hasLayout === undefined ? {} : { hasLayout: item.hasLayout, layoutId: item.layoutId ?? null }) },
     totals: {
       lapCount: laps.length, validLapCount: laps.filter((lap) => lap.valid).length, sessionCount: new Set(laps.map((lap) => lap.sessionId)).size,
       carCount: cars.size, bestLapMs: fastest(laps)?.timeMs ?? null, lastDrivenAt: lastDriven(laps),
@@ -154,7 +164,7 @@ export function trackDetail(state: FakeV1State, id: string): V1TrackDetail | nul
       .map((ofCar) => {
         const best = fastest(ofCar);
         const car = state.cars.find((entry) => entry.id === ofCar[0].car!.id);
-        return { car: { id: ofCar[0].car!.id, name: ofCar[0].car!.name, class: car?.class ?? null }, lapCount: ofCar.length, validLapCount: ofCar.filter((lap) => lap.valid).length, bestMs: best?.timeMs ?? null, lapId: best?.id ?? null, achievedAt: best?.startedAt ?? null };
+        return { car: { id: ofCar[0].car!.id, name: ofCar[0].car!.name, class: car?.class ?? null }, lapCount: ofCar.length, validLapCount: ofCar.filter((lap) => lap.valid).length, bestMs: best?.timeMs ?? null, lapId: best?.id ?? null, achievedAt: best?.startedAt ?? null, ...bestSectors(ofCar) };
       })
       .sort((p, q) => (p.bestMs ?? Infinity) - (q.bestMs ?? Infinity)),
   };

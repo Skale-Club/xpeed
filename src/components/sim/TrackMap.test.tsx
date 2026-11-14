@@ -18,6 +18,14 @@ describe('the track map', () => {
     expect(screen.queryByTestId('track-layout')).not.toBeInTheDocument();
   });
 
+  it('is 16 rem tall unless the page makes it taller (a track page gives the map more room)', () => {
+    const { rerender } = render(<TrackMap lap={lap} />);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bh-64\b/);
+    rerender(<TrackMap lap={lap} className="h-96" />);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bh-96\b/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).not.toMatch(/\bh-64\b/);
+  });
+
   it('keeps z down: nothing is mirrored', () => {
     const { container } = render(<TrackMap lap={lap} />);
     const line = container.querySelector('polyline')!.getAttribute('points')!.split(' ').map((p) => p.split(',').map(Number));
