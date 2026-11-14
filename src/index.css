@@ -99,6 +99,43 @@
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
+
+  /*
+   * Scrollbars: one thin, rounded, quiet style for the whole app (page, menu, tables, dialogs, charts' lists).
+   * The app has one palette, dark; `color-scheme: dark` also makes the browser's own controls and the rest of
+   * the scrollbar (arrows, corner) dark instead of the light system bar.
+   */
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  /* Browsers without the standard properties (older Safari) get the same look through the WebKit pieces. */
+  @supports not (scrollbar-color: auto) {
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background-color: hsl(var(--muted-foreground) / 0.35);
+      border-radius: 9999px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: hsl(var(--muted-foreground) / 0.6);
+    }
+    ::-webkit-scrollbar-button {
+      display: none;
+    }
+  }
 }
 
 @layer components {
