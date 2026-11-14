@@ -8,7 +8,7 @@ import { TrackPage } from '@/components/sim/TrackPage';
 export default function SimTrackPage() {
   return (
     <AppLayout>
-      <div className="max-w-7xl">
+      <div>
         <TrackPage />
       </div>
     </AppLayout>

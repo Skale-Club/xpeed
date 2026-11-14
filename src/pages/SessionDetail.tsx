@@ -180,7 +180,7 @@ export default function SessionDetail() {
 
   return (
     <AppLayout refreshDisabled={attachmentDraft}>
-      <div className="max-w-3xl space-y-5">
+      <div className="space-y-5">
         <div className="flex items-start gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label={t('tripDetail.back', 'Back')}>
             <ArrowLeft className="w-4 h-4" />

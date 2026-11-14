@@ -151,7 +151,7 @@ export default function ScannerPage() {
 
   return (
     <AppLayout>
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         <div>
           <h2 className="text-xl font-bold">{t('scanner.title', 'OBD2 Scanner')}</h2>
           {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}

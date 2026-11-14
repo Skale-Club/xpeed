@@ -39,7 +39,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
         </header>
         <AppUpdateBanner />
 
-        <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">
+        <main className="w-full flex-1 p-4 sm:p-6">
           {/* Phones: the Real | Virtual switch (the sidebar has it on larger screens). Nothing shows with one mode. */}
           <ModeSwitch className="mb-4 md:hidden" />
           {children}

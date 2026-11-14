@@ -5,7 +5,7 @@ import { SimOverview } from '@/components/sim/SimOverview';
 export default function SimOverviewPage() {
   return (
     <AppLayout>
-      <div className="max-w-7xl">
+      <div>
         <SimOverview />
       </div>
     </AppLayout>

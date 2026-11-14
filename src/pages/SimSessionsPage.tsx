@@ -8,7 +8,7 @@ export default function SimSessionsPage() {
   const { t } = useTranslation();
   return (
     <AppLayout>
-      <div className="max-w-6xl space-y-4">
+      <div className="space-y-4">
         <div className="space-y-1">
           <h2 className="flex items-center gap-2 text-xl font-bold">
             <Timer className="h-5 w-5 text-primary" aria-hidden="true" />

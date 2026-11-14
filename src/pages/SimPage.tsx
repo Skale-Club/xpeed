@@ -18,7 +18,7 @@ export default function SimPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-4 max-w-2xl">
+      <div className="space-y-4">
         <div className="flex items-center gap-2">
           <Icon className="w-5 h-5 text-primary" />
           <h2 className="text-xl font-bold">{t(entry.i18nKey)}</h2>

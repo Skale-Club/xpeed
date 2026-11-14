@@ -8,7 +8,7 @@ import { CarPage } from '@/components/sim/CarPage';
 export default function SimCarPage() {
   return (
     <AppLayout>
-      <div className="max-w-7xl">
+      <div>
         <CarPage />
       </div>
     </AppLayout>

@@ -8,7 +8,7 @@ export default function SimCarsPage() {
   const { t } = useTranslation();
   return (
     <AppLayout>
-      <div className="max-w-7xl space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center gap-2">
           <CarFront className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('modes.nav.cars', 'Game cars')}</h2>

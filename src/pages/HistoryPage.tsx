@@ -194,7 +194,7 @@ function CarHistory() {
 
   return (
     <AppLayout>
-      <Tabs value={view} onValueChange={changeView} className="max-w-3xl">
+      <Tabs value={view} onValueChange={changeView}>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>

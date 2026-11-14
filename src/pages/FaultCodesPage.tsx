@@ -77,7 +77,7 @@ export default function FaultCodesPage() {
   const codes = result ? [...new Set([...result.readout.stored, ...result.readout.pending, ...result.readout.permanent])] : [];
   const complete = !!result && (result.readout.complete ?? (result.readout.checked && !!result.readout.modules?.length));
   const mismatch = !!(selectedCar?.vin && obd.vin && selectedCar.vin !== obd.vin);
-  return <AppLayout refreshDisabled={busy}><div className="max-w-3xl space-y-4">
+  return <AppLayout refreshDisabled={busy}><div className="space-y-4">
     <h2 className="text-xl font-bold">{t('codes.title', 'Read car fault codes')}</h2>
     {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
     <p className="text-sm text-muted-foreground">{t('codes.hint', 'Connect the adapter and switch on the ignition. This reads codes without clearing anything in the car.')}</p>

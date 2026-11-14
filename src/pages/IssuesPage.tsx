@@ -123,7 +123,7 @@ function CarIssues() {
 
   return (
     <AppLayout>
-      <div className="max-w-3xl space-y-5">
+      <div className="space-y-5">
         <div>
           <h2 className="text-xl font-bold">{t('problems.title', 'Problems')}</h2>
           <p className="text-sm text-muted-foreground">{selectedCar.name}</p>

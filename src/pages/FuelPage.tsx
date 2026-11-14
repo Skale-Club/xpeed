@@ -64,7 +64,7 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
     finally { setRemoving(false); }
   };
   const lastPage = Math.max(1, Math.ceil(fills.length / 5)), shownPage = Math.min(page, lastPage);
-  return <AppLayout refreshDisabled={editor !== null || removing}><div className="mx-auto max-w-2xl space-y-5">
+  return <AppLayout refreshDisabled={editor !== null || removing}><div className="space-y-5">
     <div><h2 className="flex items-center gap-2 text-xl font-bold"><Fuel className="h-5 w-5 text-primary" />{t('fuel.title', 'Fuel')}</h2><p className="mt-1 text-sm text-muted-foreground">{name}</p></div>
     {ledger.isPending && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t('fuel.loading', 'Loading fuel records…')}</p>}
     {(ledger.isError || history.isError) && <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-4"><p className="text-sm">{t('fuel.simple.loadFailed', 'Some fuel information could not be loaded.')}</p><Button size="sm" variant="outline" onClick={() => { void ledger.refetch(); void history.refetch(); }}>{t('common.retry', 'Try again')}</Button></div>}
