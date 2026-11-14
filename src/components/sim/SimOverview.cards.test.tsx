@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import i18n from '@/lib/i18n';
@@ -11,6 +12,13 @@ import { SimOverview } from './SimOverview';
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span>{name}</span> }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
+// The real charts need a layout engine; the numbers they are given are tested with the dashboard.
+vi.mock('recharts', () => ({
+  ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  BarChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
+  LineChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
+  Bar: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
+}));
 
 const monza = ref('Monza');
 const spa = ref('Spa-Francorchamps');
@@ -50,8 +58,8 @@ async function sessionWithLaps(state: FakeV1State, count: number, voided = 0, ex
 const lapFileRequests = (state: FakeV1State) => state.requests.filter((request) => request.path.endsWith('/file'));
 
 describe('the Overview cards', () => {
-  it('shows the Companion line, the personal bests, the latest sessions with their badges and the games with their lap counts', async () => {
-    const state = fakeV1State({ devices: [{ id: 'd1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-13T09:00:00.000Z', lastLapAt: null }] });
+  it('shows the Companion chip, the personal bests, the latest sessions with their badges and the games with their lap counts', async () => {
+    const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z', devices: [{ id: 'd1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-13T09:00:00.000Z', lastLapAt: null }] });
     const race = v1Session({ track: monza, car: ferrari, kind: 'race', lapCount: 2, bestLapMs: 99_000, startedAt: '2026-11-12T10:00:00.000Z' });
     const practice = v1Session({ track: spa, car: ferrari, kind: 'practice', game: 'ac', lapCount: 1, bestLapMs: 135_000, startedAt: '2026-11-11T10:00:00.000Z' });
     state.sessions.push(race, practice);
@@ -61,20 +69,21 @@ describe('the Overview cards', () => {
     state.laps.push(fast, slow, other);
     renderSim(<SimOverview />, { state, route: '/virtual' });
 
-    // The Companion line: the computer, when it was seen, the last lap received.
+    // The Companion chip: the computer and the last lap received, in one slim line that opens the Companion screen.
     expect(await screen.findByTestId('overview-device')).toHaveTextContent('Racing PC');
     expect(screen.getByTestId('overview-connected')).toBeInTheDocument();
-    expect(screen.getByTestId('overview-last-lap')).toHaveTextContent('Last lap received');
+    expect(screen.getByTestId('overview-last-lap')).toHaveTextContent('last lap 1:39.000 · Monza · Ferrari 499P');
+    expect(screen.getByTestId('overview-companion')).toHaveAttribute('href', '/virtual/companion');
 
-    // Personal bests: the time, and a link to the lap analysis. (The API gives no previous best, so no "faster by" is shown.)
+    // Personal bests: the time, and a link to the lap analysis.
+    await screen.findByTestId('overview-best');
     const bests = screen.getAllByTestId('overview-best-lap');
     expect(bests).toHaveLength(2);
     const monzaBest = bests.find((item) => item.textContent?.includes('Monza'))!;
     expect(within(monzaBest).getByTestId('overview-best-time')).toHaveTextContent('1:39.000');
     expect(within(monzaBest).getByRole('link')).toHaveAttribute('href', `/virtual/compare?a=${fast.id}`);
-    expect(monzaBest.textContent).not.toMatch(/faster|slower|[+-]0\.\d\d\d/);
 
-    // Latest sessions, with the badges of the Sessions page.
+    // Latest sessions, with the badges of the Sessions page, in a table.
     const sessions = screen.getAllByTestId('overview-session');
     expect(sessions).toHaveLength(2);
     expect(within(sessions[0]).getByTestId('session-kind')).toHaveTextContent('Race');
@@ -83,15 +92,16 @@ describe('the Overview cards', () => {
     expect(within(sessions[1]).getByTestId('session-game')).toHaveTextContent('Assetto Corsa');
     expect(within(sessions[0]).getByRole('link')).toHaveAttribute('href', `/virtual/sessions/${race.id}`);
 
-    // The games, with their laps.
-    const games = screen.getAllByTestId('overview-game');
-    expect(games[0]).toHaveTextContent('Le Mans Ultimate');
-    expect(games[0]).toHaveTextContent('Laps: 2');
-    expect(games[1]).toHaveTextContent('Laps: 1');
+    // The games, with their laps, inside "Where you drive".
+    const games = await screen.findAllByTestId('where-row');
+    const lmu = games.find((row) => row.textContent?.includes('Le Mans Ultimate'))!;
+    const ac = games.find((row) => row.textContent?.includes('Assetto Corsa'))!;
+    expect(within(lmu).getByTestId('where-count')).toHaveTextContent('2');
+    expect(within(ac).getByTestId('where-count')).toHaveTextContent('1');
   });
 
   it('shows at most five personal bests and five sessions', async () => {
-    const state = fakeV1State();
+    const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z' });
     for (let i = 0; i < 7; i++) {
       const track = ref(`Track ${i}`);
       const session = v1Session({ track, car: ferrari, lapCount: 1, bestLapMs: 100_000 + i, startedAt: `2026-11-0${i + 1}T10:00:00.000Z` });
@@ -106,9 +116,9 @@ describe('the Overview cards', () => {
 
   it('says to get Xpeed Companion, with the download link, when no computer is connected', async () => {
     renderSim(<SimOverview />, { state: fakeV1State(), route: '/virtual' });
-    const card = await screen.findByTestId('overview-companion');
-    expect(within(card).getByTestId('overview-download')).toHaveAttribute('href', '/companion');
-    expect(within(card).getByRole('link', { name: 'Connect Xpeed Companion' })).toHaveAttribute('href', '/virtual/companion');
+    const banner = await screen.findByTestId('overview-companion');
+    expect(within(banner).getByTestId('overview-download')).toHaveAttribute('href', '/companion');
+    expect(within(banner).getByRole('link', { name: 'Connect Xpeed Companion' })).toHaveAttribute('href', '/virtual/companion');
     expect(screen.queryByTestId('work-on')).not.toBeInTheDocument();
   });
 
@@ -148,6 +158,18 @@ describe('what to work on', () => {
     expect(within(card).getByTestId('work-on-session')).toHaveTextContent('6 laps analysed');
   });
 
+  it('sits in the right column beside Progress, above Consistency, not in the full-width flow', async () => {
+    const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z' });
+    await sessionWithLaps(state, 6);
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    const card = await screen.findByTestId('work-on');
+    const column = card.parentElement!;
+    expect(column.className).toMatch(/lg:col-span-4/);
+    expect(within(column).getByTestId('overview-consistency')).toBeInTheDocument();
+    expect(column.previousElementSibling?.className).toMatch(/lg:col-span-8/);
+    expect(within(column.previousElementSibling as HTMLElement).getByTestId('overview-progress')).toBeInTheDocument();
+  });
+
   it('reads the lap files of that one session only, and nothing for the other cards', async () => {
     const state = fakeV1State();
     const session = await sessionWithLaps(state, 5);
@@ -158,8 +180,8 @@ describe('what to work on', () => {
     expect(files).toHaveLength(5);
     const mine = state.laps.filter((lap) => lap.sessionId === session.id).map((lap) => `/laps/${lap.id}/file`);
     expect(files.sort()).toEqual(mine.sort());
-    // The overview and the session are read; no list of laps is.
-    expect(state.requests.map((request) => request.path).filter((path) => !path.endsWith('/file'))).toEqual(['/overview', `/sessions/${session.id}`]);
+    // The overview, the dashboard's numbers and the session are read; no list of laps is.
+    expect(state.requests.map((request) => request.path).filter((path) => !path.endsWith('/file')).sort()).toEqual(['/overview', `/sessions/${session.id}`, '/stats'].sort());
   });
 
   it('shows a skeleton while it is being worked out', async () => {

@@ -1,11 +1,14 @@
 // Screen harness only: a fake of the racing data API (docs/platform/API-V1.md) with realistic data, served by vite.harness.config.ts
-// at /api/sim/v1/*. Several tracks and cars, 60 laps across six sessions (sectors, an out lap, an in lap and voided laps in each),
-// and a real lap file for every lap, so Overview, Sessions, a session, the track and car pages and Compare can be clicked through without a server.
+// at /api/sim/v1/*. Several tracks and cars, 60 laps across six sessions in the last ten days (sectors, an out lap, an in lap and voided laps in
+// each) and, behind them, about twenty shorter sessions over the last seven months (a driver who gets faster, with gaps and streaks), so the
+// Overview dashboard has shape at every period. A real lap file for every lap, so Overview, Sessions, a session, the track and car pages and
+// Compare can be clicked through without a server. Days are counted back from the real clock, so the data never ages out of "the last 30 days".
 // The laps are made-up laps with known corners (src/lib/sim/synthetic-lap.ts): each driver varies a little from lap to lap (a brake point,
 // the speed through a corner, when the throttle comes on), so the corner analysis has something to find. The layouts of Monza and Spa are
 // served as the ones "Xpeed Companion sent" (GET /api/sim/tracks).
 //
 //   HARNESS_NO_LAPS=1   an account with nothing in it (the empty states)
+//   HARNESS_ONE_LAP=1   an account with one lap, flagged not valid by the game (an out lap): the dashboard's "few data" state
 //   HARNESS_API_DOWN=1  every call fails with 503 (the error state); /api/sim/v1/__fail?on=1 and ?on=0 switch it while the harness runs
 import { gzipLap, type LapFile } from '@/lib/sim/lap-file';
 import { buildSyntheticLap, exampleCorners, scaleCorners, type SynthCorner } from '@/lib/sim/synthetic-lap';
@@ -25,22 +28,47 @@ const id = (prefix: string, n: number) => `${prefix}-0000-4000-8000-${String(n).
 const track = (n: number, name: string): V1Ref => ({ id: id('00000001', n), name });
 const car = (n: number, name: string): V1Ref => ({ id: id('00000002', n), name });
 
-const TRACKS = { monza: track(1, 'Monza'), spa: track(2, 'Spa-Francorchamps'), bahrain: track(3, 'Bahrain International Circuit'), imola: track(4, 'Imola'), monzaAc: track(5, 'Monza') };
-const CARS = { ferrari: car(1, 'Ferrari 499P'), toyota: car(2, 'Toyota GR010'), porsche: car(3, 'Porsche 911 GT3 R'), ferrari488: car(4, 'Ferrari 488 GT3') };
-const LENGTH_M: Record<string, number> = { Monza: 5793, 'Spa-Francorchamps': 7004, 'Bahrain International Circuit': 5412, Imola: 4909 };
+const TRACKS = { monza: track(1, 'Monza'), spa: track(2, 'Spa-Francorchamps'), bahrain: track(3, 'Bahrain International Circuit'), imola: track(4, 'Imola'), monzaAc: track(5, 'Monza'), interlagos: track(6, 'Interlagos') };
+const CARS = { ferrari: car(1, 'Ferrari 499P'), toyota: car(2, 'Toyota GR010'), porsche: car(3, 'Porsche 911 GT3 R'), ferrari488: car(4, 'Ferrari 488 GT3'), ginetta: car(5, 'Ginetta G40') };
+const LENGTH_M: Record<string, number> = { Monza: 5793, 'Spa-Francorchamps': 7004, 'Bahrain International Circuit': 5412, Imola: 4909, Interlagos: 4309 };
+
+// Days are counted back from the real clock (UTC midnight), so "the last 30 days" is always full.
+const DAY_MS = 86_400_000;
+const midnight = Math.floor(Date.now() / DAY_MS) * DAY_MS;
+const ago = (days: number, hour: number, minute = 0) => new Date(midnight - days * DAY_MS + hour * 3_600_000 + minute * 60_000).toISOString();
 
 interface Plan {
   game: string; track: V1Ref; car: V1Ref; kind: V1Session['kind']; startedAt: string; laps: number; base: number; weather: string | null; air: number | null; trackTemp: number | null;
   origin: V1Session['origin'];
 }
-const PLANS: Plan[] = [
-  { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'race', startedAt: '2026-11-12T18:00:00.000Z', laps: 14, base: 99_800, weather: 'dry', air: 24, trackTemp: 31, origin: 'companion' },
-  { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'practice', startedAt: '2026-11-11T20:00:00.000Z', laps: 12, base: 100_900, weather: 'rain', air: 17, trackTemp: 19, origin: 'companion' },
-  { game: 'lmu', track: TRACKS.spa, car: CARS.toyota, kind: 'qualifying', startedAt: '2026-11-10T15:00:00.000Z', laps: 8, base: 134_500, weather: 'dry', air: 21, trackTemp: 27, origin: 'companion' },
-  { game: 'lmu', track: TRACKS.bahrain, car: CARS.ferrari, kind: 'practice', startedAt: '2026-11-08T09:30:00.000Z', laps: 10, base: 110_200, weather: null, air: null, trackTemp: null, origin: 'inferred' },
-  { game: 'ac', track: TRACKS.monzaAc, car: CARS.porsche, kind: 'practice', startedAt: '2026-11-06T21:00:00.000Z', laps: 9, base: 105_600, weather: 'dry', air: 26, trackTemp: null, origin: 'companion' },
-  { game: 'ac', track: TRACKS.imola, car: CARS.ferrari488, kind: 'race', startedAt: '2026-11-03T19:00:00.000Z', laps: 7, base: 108_300, weather: 'cloudy', air: 15, trackTemp: 17, origin: 'companion' },
+const RECENT: Plan[] = [
+  { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'race', startedAt: ago(1, 18), laps: 14, base: 99_800, weather: 'dry', air: 24, trackTemp: 31, origin: 'companion' },
+  { game: 'lmu', track: TRACKS.monza, car: CARS.ferrari, kind: 'practice', startedAt: ago(2, 20), laps: 12, base: 100_900, weather: 'rain', air: 17, trackTemp: 19, origin: 'companion' },
+  { game: 'lmu', track: TRACKS.spa, car: CARS.toyota, kind: 'qualifying', startedAt: ago(3, 15), laps: 8, base: 134_500, weather: 'dry', air: 21, trackTemp: 27, origin: 'companion' },
+  { game: 'lmu', track: TRACKS.bahrain, car: CARS.ferrari, kind: 'practice', startedAt: ago(5, 9, 30), laps: 10, base: 110_200, weather: null, air: null, trackTemp: null, origin: 'inferred' },
+  { game: 'ac', track: TRACKS.monzaAc, car: CARS.porsche, kind: 'practice', startedAt: ago(7, 21), laps: 9, base: 105_600, weather: 'dry', air: 26, trackTemp: null, origin: 'companion' },
+  { game: 'ac', track: TRACKS.imola, car: CARS.ferrari488, kind: 'race', startedAt: ago(10, 19), laps: 7, base: 108_300, weather: 'cloudy', air: 15, trackTemp: 17, origin: 'companion' },
 ];
+
+/** The months before: shorter sessions of a driver who keeps getting faster on Monza, Spa and Imola, with weeks off and weeks of driving every night. */
+const history = (rows: Array<[days: number, game: string, track: V1Ref, car: V1Ref, kind: V1Session['kind'], laps: number, base: number]>): Plan[] =>
+  rows.map(([days, game, trackRef, carRef, kind, laps, base], i) => ({ game, track: trackRef, car: carRef, kind, startedAt: ago(days, 17 + (i % 5), (i * 7) % 50), laps, base, weather: i % 3 === 0 ? 'dry' : null, air: null, trackTemp: null, origin: 'companion' as const }));
+const HISTORY: Plan[] = history([
+  [12, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 7, 101_100], [13, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 6, 101_300], [14, 'lmu', TRACKS.spa, CARS.toyota, 'practice', 6, 135_400],
+  [16, 'lmu', TRACKS.bahrain, CARS.ferrari, 'qualifying', 5, 111_300], [19, 'ac', TRACKS.imola, CARS.ferrari488, 'practice', 6, 109_100], [21, 'ac', TRACKS.monzaAc, CARS.porsche, 'practice', 5, 107_200],
+  [24, 'lmu', TRACKS.monza, CARS.ferrari, 'race', 8, 101_800], [25, 'lmu', TRACKS.spa, CARS.toyota, 'practice', 5, 135_900], [29, 'lmu', TRACKS.bahrain, CARS.ferrari, 'practice', 6, 112_600],
+  [33, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 7, 102_300], [38, 'ac', TRACKS.imola, CARS.ferrari488, 'race', 6, 110_400], [41, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 6, 102_900],
+  [44, 'lmu', TRACKS.spa, CARS.toyota, 'qualifying', 5, 136_800], [52, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 6, 103_500], [58, 'ac', TRACKS.monzaAc, CARS.porsche, 'practice', 5, 108_100],
+  [62, 'lmu', TRACKS.spa, CARS.toyota, 'practice', 5, 138_200], [66, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 6, 104_100], [80, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 5, 105_000],
+  [96, 'lmu', TRACKS.bahrain, CARS.ferrari, 'practice', 5, 114_000], [118, 'ac', TRACKS.imola, CARS.ferrari488, 'practice', 6, 112_500], [141, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 6, 106_400],
+  [163, 'lmu', TRACKS.spa, CARS.toyota, 'practice', 5, 141_000], [201, 'lmu', TRACKS.monza, CARS.ferrari, 'practice', 6, 107_800],
+]);
+/** HARNESS_ONE_LAP=1: the one lap an account can have at first, flagged not valid by the game (an out lap): its time is 2:33.7 once the out lap's slowness is in. */
+const ONE_LAP: Plan[] = [
+  { game: 'lmu', track: TRACKS.interlagos, car: CARS.ginetta, kind: 'practice', startedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), laps: 1, base: 131_400, weather: null, air: null, trackTemp: null, origin: 'companion' },
+];
+const ONE = process.env.HARNESS_ONE_LAP === '1';
+const PLANS: Plan[] = ONE ? ONE_LAP : [...RECENT, ...HISTORY];
 
 /** The corners of a track: the example corners stretched to its length. */
 const cornersFor = (trackName: string): SynthCorner[] => scaleCorners(exampleCorners(), LENGTH_M[trackName] / 4200);
@@ -49,14 +77,14 @@ const cornersFor = (trackName: string): SynthCorner[] => scaleCorners(exampleCor
  * A lap of this track, driven by someone who varies a little: the hairpin's brake point moves, the speed through the last corner
  * and when the throttle comes on after the first one. `skill` (about -1 to 1) is how well the lap went.
  */
-function driven(plan: Plan, lap: number, skill: number, rain: boolean): LapFile {
+function driven(plan: Plan, lap: number, skill: number, rain: boolean, hz = 20): LapFile {
   const corners = cornersFor(plan.track.name).map((corner, index) => {
     if (index === 0) return { ...corner, pickupDist: corner.apexDist + 25 - skill * 8 + (random() - 0.5) * 8 };
     if (index === 1) return { ...corner, brakeDist: corner.brakeDist - 14 * (random() - 0.2) + skill * 6, minSpeedKmh: corner.minSpeedKmh - (rain ? 4 : 0) };
     if (index === 5) return { ...corner, minSpeedKmh: corner.minSpeedKmh + skill * 3 - (rain ? 6 : 0) + (random() - 0.5) * 4 };
     return rain ? { ...corner, minSpeedKmh: Math.min(corner.minSpeedKmh - 3, corner.entrySpeedKmh - 5) } : corner;
   });
-  return buildSyntheticLap({ lengthM: LENGTH_M[plan.track.name], corners, hz: 20, trackName: plan.track.name, car: plan.car.name, game: plan.game, lapNumber: lap }).lap;
+  return buildSyntheticLap({ lengthM: LENGTH_M[plan.track.name], corners, hz, trackName: plan.track.name, car: plan.car.name, game: plan.game, lapNumber: lap }).lap;
 }
 
 /** The same lap through the pits: slower, as an out or in lap is. The clock and the sectors follow. */
@@ -86,10 +114,12 @@ async function build(): Promise<FakeV1State> {
       n++;
       const out = lap === 1;
       const into = lap === plan.laps && plan.laps > 6;
-      const voided = lap % 6 === 4;
+      const voided = ONE || lap % 6 === 4;
       // A spread of a second or so, quicker as the session goes on (skill climbs from -1 towards 1); the pit laps are slow.
       const skill = Math.max(-1, Math.min(1, (lap / plan.laps) * 2 - 1 + (random() - 0.5)));
-      let file = driven(plan, lap, skill, plan.weather === 'rain');
+      let file = driven(plan, lap, skill, plan.weather === 'rain', index < RECENT.length && !ONE ? 20 : 8);
+      // The clock follows the plan: the plan's base time, a little quicker as the session goes on, a little noise, so progress over the weeks shows.
+      file = slowedBy(file, (plan.base - skill * 350 + (random() - 0.5) * 400) / file.header.lap.timeMs);
       if (out) file = slowedBy(file, 1.17);
       else if (into) file = slowedBy(file, 1.07);
       const time = file.header.lap.timeMs;

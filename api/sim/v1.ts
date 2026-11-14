@@ -4,7 +4,7 @@
 //   GET    /v1/laps?game&track&car&session&valid&cursor&limit     GET /v1/laps/<id>   GET /v1/laps/<id>/file   DELETE /v1/laps/<id>
 //   GET    /v1/sessions?game&track&car&cursor&limit               GET /v1/sessions/<id>      DELETE /v1/sessions/<id>
 //   GET    /v1/tracks?game&cursor&limit        GET /v1/tracks/<id>       GET /v1/cars?...        GET /v1/cars/<id>
-//   GET    /v1/pbs?game&track&car&cursor&limit                    GET /v1/overview
+//   GET    /v1/pbs?game&track&car&cursor&limit                    GET /v1/overview     GET /v1/stats?range (api/sim/_stats.ts)
 //   profiles, friends, shares, leaderboards, reports, admin, me/export, me/data: api/sim/_social.ts
 //
 // The queries are database functions (sim_v1_*) that run as the signed-in person, so row level security keeps everyone to their
@@ -15,6 +15,7 @@ import { download, remove, removeSession, type Answer } from './laps';
 import { cachedOverview, rememberOverview } from './_v1cache';
 import { call, decodeCursor, DEFAULT_LIMIT, failed, gameParam, Invalid, limitParam, MAX_LIMIT, paged, UUID, uuidParam, type Item } from './_v1util';
 import { handleSocial, isSocialPath } from './_social';
+import { statsFor } from './_stats';
 
 export { DEFAULT_LIMIT, MAX_LIMIT };
 
@@ -26,8 +27,8 @@ function validParam(params: URLSearchParams): boolean | null {
   throw new Invalid('invalid_valid');
 }
 
-type Resource = 'laps' | 'sessions' | 'tracks' | 'cars' | 'pbs' | 'overview';
-const LISTS = new Set<string>(['laps', 'sessions', 'tracks', 'cars', 'pbs', 'overview']);
+type Resource = 'laps' | 'sessions' | 'tracks' | 'cars' | 'pbs' | 'overview' | 'stats';
+const LISTS = new Set<string>(['laps', 'sessions', 'tracks', 'cars', 'pbs', 'overview', 'stats']);
 const WITH_ID = new Set<string>(['laps', 'sessions', 'tracks', 'cars']);
 
 /** `<resource>`, `<resource>/<id>` or `laps/<id>/file`, and the methods each takes; null for any other path. */
@@ -125,6 +126,7 @@ export default async function v1(req: Request): Promise<Response> {
         const { items, nextCursor } = paged(rows, limit);
         return send({ pbs: items, nextCursor });
       }
+      case 'stats': return send(await statsFor(db, userId, params));
       default: {
         // overview: cheap, and cached for 10 seconds per person (an upload or a deletion drops their entry).
         let body = cachedOverview(userId);

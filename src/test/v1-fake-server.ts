@@ -1,4 +1,4 @@
-import type { V1CarDetail, V1CarItem, V1Lap, V1Overview, V1Pb, V1Ref, V1Session, V1TrackDetail, V1TrackItem } from '@/lib/sim/v1-client';
+import type { StatsRange, V1CarDetail, V1CarItem, V1Improvement, V1Lap, V1Overview, V1Pb, V1Ref, V1Session, V1SpreadSession, V1Stats, V1StatsDay, V1StatsPair, V1StatsTotals, V1TrackDetail, V1TrackItem } from '@/lib/sim/v1-client';
 
 // A fake of the racing data API (docs/platform/API-V1.md) for tests and the screen harness: the same paths, filters, cursor paging,
 // error shape and delete behaviour (a deleted lap leaves its session's counters, its personal best and the overview consistent).
@@ -40,12 +40,16 @@ export interface FakeV1State {
   requests: Array<{ method: string; path: string; params: Record<string, string> }>;
   /** Makes every call fail with this status and error (an outage: 503 unavailable, retryable). */
   failing: { status: number; error: string; retryable: boolean } | null;
+  /** With `failing` set: only the paths that start with this fail (`/stats` while the rest answers); every path when null. */
+  failingPath: string | null;
   /** A pause before answering (ms), to look at loading states. */
   delayMs: number;
+  /** The moment the dashboard counts back from (ISO); the real clock when null. Tests freeze it so the days they build stay in range. */
+  now: string | null;
 }
 
 export function fakeV1State(partial: Partial<FakeV1State> = {}): FakeV1State {
-  return { laps: [], sessions: [], tracks: [], cars: [], devices: [], files: new Map(), requests: [], failing: null, delayMs: 0, ...partial };
+  return { laps: [], sessions: [], tracks: [], cars: [], devices: [], files: new Map(), requests: [], failing: null, failingPath: null, delayMs: 0, now: null, ...partial };
 }
 
 /** The track and car catalogs the person has driven, worked out from the laps in `state` (as the server keeps them), most recently driven first. */
@@ -177,12 +181,154 @@ export function carDetail(state: FakeV1State, id: string): V1CarDetail | null {
   };
 }
 
+// ---------------------------------------------------------------------------------------------------------------- the dashboard
+
+const DAY_MS = 86_400_000;
+const utcDay = (iso: string) => iso.slice(0, 10);
+const dayFrom = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+const zeroTotals = (): V1StatsTotals => ({ laps: 0, validLaps: 0, sessions: 0, timeMs: 0, distanceM: 0, personalBests: 0, tracks: 0, cars: 0, games: 0 });
+
+/**
+ * What `GET /stats?range=` says, worked out from the laps in `state` the way the server's database function does (api/sim/_stats.ts,
+ * supabase/migrations/20261113194500_sim_stats.sql): UTC days ending today, the period of the same length before it, personal-best
+ * improvements against the running best of each track and car, the 4 most driven pairs, the breakdown and the spread of the latest sessions.
+ */
+export function computeStats(state: FakeV1State, range: StatsRange, now: Date = new Date()): V1Stats {
+  const to = Math.floor(now.getTime() / DAY_MS) * DAY_MS + DAY_MS;
+  const time = (lap: V1Lap) => Date.parse(lap.startedAt);
+  const lapsAll = [...state.laps].sort((p, q) => time(p) - time(q) || p.id.localeCompare(q.id));
+  const length = { '7d': 7, '30d': 30, '90d': 90, '1y': 365, all: 0 }[range] * DAY_MS;
+  const first = lapsAll.find((lap) => time(lap) < to);
+  const from = range === 'all' ? (first ? Math.floor(time(first) / DAY_MS) * DAY_MS : to - DAY_MS) : to - length;
+  const prevFrom = range === 'all' ? null : from - length;
+  const heatFrom = range === '7d' || range === '30d' ? null : to - 365 * DAY_MS;
+  const inWindow = (lap: V1Lap, start: number, end: number) => time(lap) >= start && time(lap) < end;
+  const lengthOf = (lap: V1Lap) => state.tracks.find((track) => track.id === lap.track?.id)?.lengthM ?? 0;
+  const ids = (laps: V1Lap[], pick: (lap: V1Lap) => string | null | undefined) => new Set(laps.map(pick).filter(Boolean)).size;
+  const isValid = (lap: V1Lap) => lap.valid && lap.timeMs > 0;
+  const distance = (laps: V1Lap[]) => Math.round(laps.filter((lap) => lap.timeMs > 0).reduce((total, lap) => total + lengthOf(lap), 0));
+
+  // Personal-best improvements over the whole history: a valid lap that beats the running best of its track and car.
+  const running = new Map<string, number>();
+  const improvementsAll: Array<V1Improvement & { at: number }> = [];
+  for (const lap of lapsAll) {
+    if (!isValid(lap) || !lap.track || !lap.car || time(lap) >= to) continue;
+    const key = `${lap.track.id}|${lap.car.id}`;
+    const before = running.get(key) ?? null;
+    if (before === null || lap.timeMs < before) {
+      improvementsAll.push({
+        lapId: lap.id, trackId: lap.track.id, trackName: lap.track.name, carId: lap.car.id, carName: lap.car.name, game: lap.game, timeMs: lap.timeMs,
+        previousBestMs: before, savedMs: before === null ? null : before - lap.timeMs, achievedAt: lap.startedAt, at: time(lap),
+      });
+      running.set(key, lap.timeMs);
+    }
+  }
+  const improvementsIn = (start: number, end: number) => improvementsAll.filter((item) => item.at >= start && item.at < end);
+
+  const totalsOf = (laps: V1Lap[], start: number, end: number): V1StatsTotals => ({
+    laps: laps.length,
+    validLaps: laps.filter(isValid).length,
+    sessions: ids(laps, (lap) => lap.sessionId),
+    timeMs: laps.reduce((total, lap) => total + Math.max(0, lap.timeMs), 0),
+    distanceM: distance(laps),
+    personalBests: improvementsIn(start, end).length,
+    tracks: ids(laps, (lap) => lap.track?.id),
+    cars: ids(laps, (lap) => lap.car?.id),
+    games: ids(laps, (lap) => lap.game),
+  });
+  const current = lapsAll.filter((lap) => inWindow(lap, from, to));
+  const previousLaps = prevFrom === null ? [] : lapsAll.filter((lap) => inWindow(lap, prevFrom, from));
+
+  const days = new Map<string, V1Lap[]>();
+  for (const lap of current) days.set(utcDay(lap.startedAt), [...(days.get(utcDay(lap.startedAt)) ?? []), lap]);
+  const perDay: V1StatsDay[] = [...days.entries()].sort(([p], [q]) => p.localeCompare(q)).map(([day, laps]) => ({
+    day, laps: laps.length, validLaps: laps.filter(isValid).length, timeMs: laps.reduce((total, lap) => total + Math.max(0, lap.timeMs), 0), distanceM: distance(laps),
+    sessions: ids(laps, (lap) => lap.sessionId), personalBests: improvementsIn(from, to).filter((item) => utcDay(item.achievedAt) === day).length,
+    tracks: ids(laps, (lap) => lap.track?.id), cars: ids(laps, (lap) => lap.car?.id),
+  }));
+
+  // Streaks over the whole history: the current one ends today or yesterday.
+  const everyDay = [...new Set(lapsAll.filter((lap) => time(lap) < to).map((lap) => utcDay(lap.startedAt)))].sort();
+  let best = 0;
+  let run = 0;
+  let currentRun = 0;
+  everyDay.forEach((day, i) => {
+    run = i > 0 && Date.parse(`${day}T00:00:00Z`) - Date.parse(`${everyDay[i - 1]}T00:00:00Z`) === DAY_MS ? run + 1 : 1;
+    best = Math.max(best, run);
+    if (Date.parse(`${day}T00:00:00Z`) >= to - 2 * DAY_MS) currentRun = run;
+  });
+  const bestDay = perDay.reduce<{ day: string; laps: number } | null>((top, entry) => (!top || entry.laps > top.laps || (entry.laps === top.laps && entry.day > top.day) ? { day: entry.day, laps: entry.laps } : top), null);
+
+  const pairLaps = new Map<string, V1Lap[]>();
+  for (const lap of current) if (lap.track && lap.car) pairLaps.set(`${lap.track.id}|${lap.car.id}`, [...(pairLaps.get(`${lap.track.id}|${lap.car.id}`) ?? []), lap]);
+  const pairs: V1StatsPair[] = [...pairLaps.values()]
+    .sort((p, q) => q.length - p.length || p[0].track!.name.localeCompare(q[0].track!.name) || p[0].car!.name.localeCompare(q[0].car!.name))
+    .slice(0, 4)
+    .map((laps) => {
+      const byDay = new Map<string, number>();
+      for (const lap of laps) if (isValid(lap)) byDay.set(utcDay(lap.startedAt), Math.min(byDay.get(utcDay(lap.startedAt)) ?? Infinity, lap.timeMs));
+      return {
+        trackId: laps[0].track!.id, trackName: laps[0].track!.name, carId: laps[0].car!.id, carName: laps[0].car!.name, game: laps[0].game, laps: laps.length,
+        bestPerDay: [...byDay.entries()].sort(([p], [q]) => p.localeCompare(q)).map(([day, bestMs]) => ({ day, bestMs })),
+      };
+    });
+
+  const top = (pick: (lap: V1Lap) => V1Ref | null) => {
+    const groups = new Map<string, { ref: V1Ref; game: string; laps: number }>();
+    for (const lap of current) {
+      const ref = pick(lap);
+      if (ref) groups.set(ref.id, { ref, game: lap.game, laps: (groups.get(ref.id)?.laps ?? 0) + 1 });
+    }
+    return [...groups.values()].sort((p, q) => q.laps - p.laps || p.ref.name.localeCompare(q.ref.name)).slice(0, 6).map((entry) => ({ id: entry.ref.id, name: entry.ref.name, game: entry.game, laps: entry.laps }));
+  };
+  const games = new Map<string, { game: string; laps: number; validLaps: number }>();
+  for (const lap of current) {
+    const entry = games.get(lap.game) ?? { game: lap.game, laps: 0, validLaps: 0 };
+    entry.laps++;
+    if (isValid(lap)) entry.validLaps++;
+    games.set(lap.game, entry);
+  }
+
+  // The latest 8 sessions of the range, oldest first: the spread (sample deviation) of the clean laps, null under 3 of them.
+  const sessionStats: Array<V1SpreadSession & { at: number }> = [];
+  for (const session of state.sessions) {
+    const laps = current.filter((lap) => lap.sessionId === session.id);
+    if (laps.length === 0) continue;
+    const clean = laps.filter((lap) => isValid(lap) && lap.inLap !== true && lap.outLap !== true);
+    let spreadMs: number | null = null;
+    if (clean.length >= 3) {
+      const mean = clean.reduce((total, lap) => total + lap.timeMs, 0) / clean.length;
+      spreadMs = Math.round(Math.sqrt(clean.reduce((total, lap) => total + (lap.timeMs - mean) ** 2, 0) / (clean.length - 1)));
+    }
+    sessionStats.push({ sessionId: session.id, startedAt: session.startedAt, validLaps: laps.filter(isValid).length, spreadMs, cleanShare: Math.round((clean.length / laps.length) * 1000) / 1000, at: Date.parse(session.startedAt) });
+  }
+  const consistency: V1SpreadSession[] = sessionStats.sort((p, q) => q.at - p.at).slice(0, 8).reverse().map((entry) => ({ sessionId: entry.sessionId, startedAt: entry.startedAt, validLaps: entry.validLaps, spreadMs: entry.spreadMs, cleanShare: entry.cleanShare }));
+
+  const heat = new Map<string, number>();
+  if (heatFrom !== null) for (const lap of lapsAll) if (inWindow(lap, heatFrom, to)) heat.set(utcDay(lap.startedAt), (heat.get(utcDay(lap.startedAt)) ?? 0) + 1);
+  return {
+    range: { key: range, from: dayFrom(from), to: dayFrom(to - DAY_MS), days: Math.round((to - from) / DAY_MS) },
+    totals: totalsOf(current, from, to),
+    previous: prevFrom === null ? zeroTotals() : totalsOf(previousLaps, prevFrom, from),
+    perDay,
+    heatmapDays: heatFrom === null ? null : [...heat.entries()].sort(([p], [q]) => p.localeCompare(q)).map(([day, laps]) => ({ day, laps })),
+    streak: { current: currentRun, best, bestDay },
+    improvements: improvementsIn(from, to).sort((p, q) => q.at - p.at).slice(0, 10).map((item) => ({
+      lapId: item.lapId, trackId: item.trackId, trackName: item.trackName, carId: item.carId, carName: item.carName, game: item.game, timeMs: item.timeMs,
+      previousBestMs: item.previousBestMs, savedMs: item.savedMs, achievedAt: item.achievedAt,
+    })),
+    pairs,
+    breakdown: { games: [...games.values()].sort((p, q) => q.laps - p.laps || p.game.localeCompare(q.game)), tracks: top((lap) => lap.track), cars: top((lap) => lap.car) },
+    consistency,
+  };
+}
+
 const byNewest = <T extends { startedAt: string }>(items: T[]) => [...items].sort((p, q) => Date.parse(q.startedAt) - Date.parse(p.startedAt));
 
 /** Answers one call of the API. `path` is what comes after `/api/sim/v1`. */
 export function handleV1(state: FakeV1State, method: string, path: string, params: Record<string, string>): FakeResponse {
   state.requests.push({ method, path, params });
-  if (state.failing) return fail(state.failing.status, state.failing.error, state.failing.retryable);
+  if (state.failing && (state.failingPath === null || path.startsWith(state.failingPath))) return fail(state.failing.status, state.failing.error, state.failing.retryable);
 
   const parts = path.split('/').filter(Boolean);
   const [head, id, tail] = parts;
@@ -242,6 +388,11 @@ export function handleV1(state: FakeV1State, method: string, path: string, param
         (pb) => (!params.game || pb.game === params.game) && (!params.track || pb.track.id === params.track) && (!params.car || pb.car.id === params.car),
       );
       return page(pbs, params, 'pbs');
+    }
+    case 'stats': {
+      const range = params.range ?? '30d';
+      if (!['7d', '30d', '90d', '1y', 'all'].includes(range)) return fail(400, 'invalid_range');
+      return { status: 200, json: computeStats(state, range as StatsRange, state.now ? new Date(state.now) : new Date()) };
     }
     case 'overview': {
       const games = new Map<string, { game: string; laps: number; validLaps: number; sessions: number; lastDrivenAt: string }>();

@@ -1384,7 +1384,8 @@ try {
       assert.equal(legacy.bests.length, 2);
 
       const applied = await migrate(client);
-      assert.deepEqual(applied.applied.filter((name) => name.startsWith('20261113')).map((name) => name.slice(0, 14)), ['20261113170000', '20261113180000']);
+      // The upgrade starts with the social migration and the site's; later additive migrations (the dashboard's 20261113194500 ...) may follow.
+      assert.deepEqual(applied.applied.filter((name) => name.startsWith('20261113')).map((name) => name.slice(0, 14)).slice(0, 2), ['20261113170000', '20261113180000']);
       assert.deepEqual(await snapshot(), legacy, 'every row, session and personal best is as it was');
       const columns = (await client.query('SELECT plausible, plausibility, hidden FROM public.sim_laps ORDER BY identity')).rows;
       assert.deepEqual(columns.map((c) => [c.plausible, c.plausibility, c.hidden]), [[null, null, false], [null, null, false], [null, null, false]], 'old laps: no verdict yet, not hidden');

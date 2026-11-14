@@ -18,7 +18,7 @@ Base path `/api/sim/v1/`. Phase 1 of the platform (`PHASE-1-DATA-MODEL.md`). Cod
 
 | Status | `error` | When |
 |---|---|---|
-| 400 | `invalid_limit`, `invalid_cursor`, `invalid_game`, `invalid_track`, `invalid_car`, `invalid_session`, `invalid_valid` | the parameter named in the code is not valid |
+| 400 | `invalid_limit`, `invalid_cursor`, `invalid_game`, `invalid_track`, `invalid_car`, `invalid_session`, `invalid_valid`, `invalid_range` | the parameter named in the code is not valid |
 | 401 | `unauthorized` | not signed in |
 | 404 | `not_found` | no such path |
 | 404 | `lap_not_found`, `session_not_found`, `track_not_found`, `car_not_found` | no such item for this person (also `GET /laps/<id>` and `DELETE /sessions/<id>`) |
@@ -111,6 +111,43 @@ One cheap call for the home page, cached for 10 seconds per person (an upload or
                lastLap: Lap | null }                                                     // the lap received most recently
   storage: { lapCount, usedBytes, limitBytes } }                      // limitBytes: 20 GB
 ```
+
+### `GET /stats?range=7d|30d|90d|1y|all`
+What the Overview dashboard shows, in one call, for the signed-in person (code: `api/sim/_stats.ts`; the numbers come from the database function
+`sim_v1_stats`, migration `20261113194500_sim_stats.sql`; no lap file is read). `range` is `30d` when absent or empty; any other value that is not one of the five is
+`400 invalid_range`. Cached for 20 seconds per person and range; an upload or a deletion by that person drops it (with the overview's).
+
+A range is whole **UTC days ending today** (today included): `7d` is 7 days, `30d` 30, `90d` 90, `1y` 365, `all` starts at the person's first lap. The **previous
+period** is the same number of days just before it (zeros for `all`, which has nothing before). A lap belongs to a day by its `startedAt` in UTC. Laps count
+whatever their state (a hidden lap too, as in the person's own laps and sessions); "valid" means `valid` and a time above 0, as in the overview.
+```
+{ range: { key, from: "YYYY-MM-DD", to: "YYYY-MM-DD" (today), days },
+  totals:   { laps, validLaps, sessions, timeMs, distanceM, personalBests, tracks, cars, games },
+  previous: { same fields, for the period before },
+  perDay: [{ day, laps, validLaps, timeMs, distanceM, sessions, personalBests, tracks, cars }],   // only days that have laps, oldest first
+  heatmapDays: [{ day, laps }] | null,          // every day with laps in the last 365 days; null for 7d and 30d
+  streak: { current, best, bestDay: { day, laps } | null },
+  improvements: [{ lapId, trackId, trackName, carId, carName, game, timeMs, previousBestMs | null, savedMs | null, achievedAt }],
+  pairs: [{ trackId, trackName, carId, carName, game, laps, bestPerDay: [{ day, bestMs }] }],
+  breakdown: { games: [{ game, laps, validLaps }], tracks: [{ id, name, game, laps }], cars: [{ id, name, game, laps }] },
+  consistency: [{ sessionId, startedAt, validLaps, spreadMs | null, cleanShare }] }
+```
+- `totals.timeMs` is the sum of the lap times (laps with a time above 0). `distanceM` is the track length from the catalog times the laps driven (a track whose
+  length is not known counts nothing), so it is an estimate: an out or invalid lap is a lap driven. `sessions` are the distinct sessions of the laps in the range.
+  `personalBests` is how many valid laps in the range beat the best the person had before them on that track and car (see `improvements`).
+- `perDay` also carries the per-day `sessions`, `personalBests`, `tracks` and `cars` (distinct counts) for the sparklines. The sum of each field over the days is the total
+  (`sessions`, `tracks` and `cars` are counted over the whole range in `totals`, so they can be lower than that sum).
+- `streak`: `current` is the run of consecutive UTC days with laps that ends **today or yesterday** (0 when the last lap is older), `best` the longest run ever; both
+  look at the person's whole history, not only the range. `bestDay` is the day of the range with the most laps (the latest of equal days), null with no laps.
+- `improvements`: the latest 10 personal-best improvements **in the range**, newest first. Every valid lap with a track and a car is compared with the fastest valid lap
+  before it on that pair (by `startedAt`, then id, over the whole history, in one window function): a lap that is faster is an improvement, `previousBestMs` is that
+  earlier best and `savedMs` the difference; the first valid lap on a pair is an improvement with both `null`. A lap that is not valid never is one and never sets
+  the running best. `lapId` opens the lap analysis.
+- `pairs`: the 4 track and car pairs with most laps in the range (ties by names), with the fastest valid lap of each day, oldest first (`[]` when no lap of the pair
+  was valid). `breakdown.tracks` and `breakdown.cars` are the top 6 by laps in the range, `games` all of them.
+- `consistency`: the latest 8 sessions that have laps in the range, **oldest first**. `spreadMs` is the sample standard deviation of the session's valid laps that are
+  not in or out laps (null under 3 of them); `cleanShare` is those clean laps over all the session's laps in the range (0 to 1, 3 decimals); `validLaps` counts the valid laps.
+- Nothing in the answer is an e-mail, a phone number, an account id, a device or a file path; other people's laps never enter.
 
 ## Upload side (unchanged contract, new behavior)
 

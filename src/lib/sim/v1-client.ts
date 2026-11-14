@@ -130,6 +130,90 @@ export interface V1Overview {
   storage: { lapCount: number; usedBytes: number; limitBytes: number };
 }
 
+/** The periods the dashboard reads (`GET /stats?range=`): the last 7, 30, 90 days, 12 months, or everything. */
+export type StatsRange = '7d' | '30d' | '90d' | '1y' | 'all';
+export const STATS_RANGES: readonly StatsRange[] = ['7d', '30d', '90d', '1y', 'all'];
+
+export interface V1StatsTotals {
+  laps: number;
+  validLaps: number;
+  sessions: number;
+  /** The sum of the lap times, in ms. */
+  timeMs: number;
+  /** The track length times the laps driven, in meters (a track whose length is not known counts nothing). */
+  distanceM: number;
+  personalBests: number;
+  tracks: number;
+  cars: number;
+  games: number;
+}
+
+export interface V1StatsDay {
+  day: string;
+  laps: number;
+  validLaps: number;
+  timeMs: number;
+  distanceM: number;
+  sessions: number;
+  personalBests: number;
+  tracks: number;
+  cars: number;
+}
+
+export interface V1Improvement {
+  lapId: string;
+  trackId: string;
+  trackName: string;
+  carId: string;
+  carName: string;
+  game: string;
+  timeMs: number;
+  /** The best the person had before this lap on this track and car; null for the first valid lap there. */
+  previousBestMs: number | null;
+  savedMs: number | null;
+  achievedAt: string;
+}
+
+export interface V1StatsPair {
+  trackId: string;
+  trackName: string;
+  carId: string;
+  carName: string;
+  game: string;
+  laps: number;
+  bestPerDay: Array<{ day: string; bestMs: number }>;
+}
+
+export interface V1SpreadSession {
+  sessionId: string;
+  startedAt: string;
+  validLaps: number;
+  /** The standard deviation of the valid laps that are not in or out laps, in ms; null under 3 of them. */
+  spreadMs: number | null;
+  /** The share of the session's laps that are valid and not in or out laps, 0 to 1. */
+  cleanShare: number;
+}
+
+export interface V1Stats {
+  range: { key: StatsRange; from: string; to: string; days: number };
+  totals: V1StatsTotals;
+  /** The period of the same length just before the range (zeros for "all"). */
+  previous: V1StatsTotals;
+  /** Only the days that have laps, oldest first. */
+  perDay: V1StatsDay[];
+  /** Laps per day over the last 12 months (ranges of 90 days and more); null for a shorter range. */
+  heatmapDays: Array<{ day: string; laps: number }> | null;
+  streak: { current: number; best: number; bestDay: { day: string; laps: number } | null };
+  improvements: V1Improvement[];
+  pairs: V1StatsPair[];
+  breakdown: {
+    games: Array<{ game: string; laps: number; validLaps: number }>;
+    tracks: Array<{ id: string; name: string; game: string; laps: number }>;
+    cars: Array<{ id: string; name: string; game: string; laps: number }>;
+  };
+  consistency: V1SpreadSession[];
+}
+
 export interface LapFilters { game?: string; track?: string; car?: string; session?: string; valid?: boolean }
 export interface SessionFilters { game?: string; track?: string; car?: string }
 export interface CatalogFilters { game?: string }
@@ -217,7 +301,7 @@ export const lapFilePath = (lapId: string) => `${lapPath(lapId)}/file`;
 // ---------------------------------------------------------------------------------------------------------------- keys
 
 /** How long what was read stays fresh (ms). A list is read again when the window gets focus once it is older than this. */
-export const STALE = { list: 15_000, detail: 30_000, overview: 10_000, catalog: 60_000 } as const;
+export const STALE = { list: 15_000, detail: 30_000, overview: 10_000, stats: 20_000, catalog: 60_000 } as const;
 /** How often what is on screen is read again while a Virtual page is open. */
 export const REFRESH_MS = 60_000;
 
@@ -234,6 +318,7 @@ export const v1Keys = {
   car: (userId: string | null, id: string | null) => ['sim-v1', userId, 'car', id] as const,
   pbs: (userId: string | null, filters: PbFilters) => ['sim-v1', userId, 'pbs', filters] as const,
   overview: (userId: string | null) => ['sim-v1', userId, 'overview'] as const,
+  stats: (userId: string | null, range: StatsRange) => ['sim-v1', userId, 'stats', range] as const,
 };
 
 /** After laps or a session are deleted: everything derived from them (lists, counters, personal bests, overview) is read again. */
@@ -345,6 +430,24 @@ export function useOverview() {
     queryFn: () => v1Get<V1Overview>('/overview'),
     enabled: !!userId,
     staleTime: STALE.overview,
+    refetchOnWindowFocus: true,
+    refetchInterval: REFRESH_MS,
+  });
+}
+
+/**
+ * The dashboard's numbers for a range, read again every 60 s while the page is open. Changing the range keeps the old numbers on screen
+ * (`isPlaceholderData`) until the new ones arrive, so the page does not collapse into a skeleton at every click.
+ */
+export function useStats(range: StatsRange, options: { enabled?: boolean } = {}) {
+  const userId = useUserId();
+  return useQuery({
+    queryKey: v1Keys.stats(userId, range),
+    queryFn: () => v1Get<V1Stats>('/stats', { range }),
+    enabled: !!userId && (options.enabled ?? true),
+    staleTime: STALE.stats,
+    // The old range's numbers stay up while the new ones load, but never another account's.
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === userId ? previous : undefined),
     refetchOnWindowFocus: true,
     refetchInterval: REFRESH_MS,
   });

@@ -30,7 +30,7 @@ Object.assign(process.env, {
 await build({
   entryPoints: {
     pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', tracks: 'api/sim/tracks.ts',
-    me: 'api/sim/me.ts', v1: 'api/sim/v1.ts', sweep: 'api/sim/_sweep.ts', summary: 'api/sim/_summary.ts', v1cache: 'api/sim/_v1cache.ts',
+    me: 'api/sim/me.ts', v1: 'api/sim/v1.ts', sweep: 'api/sim/_sweep.ts', summary: 'api/sim/_summary.ts', v1cache: 'api/sim/_v1cache.ts', stats: 'api/sim/_stats.ts',
     shared: 'api/sim/_shared.ts', webserver: 'server/index.ts', lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts',
     identity: 'server/identity.ts', account: 'server/account-route.ts', retention: 'server/retention.ts',
   },
@@ -43,7 +43,8 @@ const codes = (await load('codes.mjs')).default, devices = (await load('devices.
 const me = (await load('me.mjs')).default, v1 = (await load('v1.mjs')).default;
 const { sweepOrphanLaps } = await load('sweep.mjs');
 const { topSpeedKmh, fuelUsedL } = await load('summary.mjs');
-const { cachedOverview, rememberOverview, forgetAllOverviews, OVERVIEW_TTL_MS } = await load('v1cache.mjs');
+const { cachedOverview, rememberOverview, forgetAllOverviews, forgetOverview, OVERVIEW_TTL_MS, cachedStats, rememberStats, STATS_TTL_MS } = await load('v1cache.mjs');
+const { rangeParam, windowsFor, RANGES } = await load('stats.mjs');
 const { createXpeedServer } = await load('webserver.mjs');
 const { forgetLimits, MAX_ACCOUNT_BYTES } = await load('shared.mjs');
 const { getPool } = await load('serverdb.mjs');
@@ -1344,6 +1345,305 @@ try {
     const index = (await direct.query("SELECT indexdef FROM pg_indexes WHERE indexname = 'sim_laps_sector_bests'")).rows[0].indexdef;
     assert.match(index, /user_id, track_id, car_id/);
     assert.match(index, /plausible IS TRUE/);
+  });
+
+  // ================================================================== the Overview dashboard: GET /v1/stats
+
+  const DAY = 86_400_000;
+  const today00 = Math.floor(Date.now() / DAY) * DAY;
+  /** A moment on the UTC day `n` days ago (0 = today), at hh:mm UTC. */
+  const onDay = (n, hh = 10, mm = 0) => new Date(today00 - n * DAY + hh * 3_600_000 + mm * MIN).toISOString();
+  const dayName = (n) => onDay(n).slice(0, 10);
+  const newPerson = async (sub, phone) => {
+    const bearer = await token(sub, { phone_number: phone });
+    const r = await accounts(new Request('http://x/api/account', { method: 'POST', headers: { authorization: `Bearer ${bearer}` } }));
+    assert.equal(r.status, 200);
+    return { bearer, id: (await r.json()).id };
+  };
+  /** Laps written straight into the table (the database links the track, car and session and keeps the personal bests): { n: days ago, hh, mm, ms, valid, inLap, outLap, game, track, car }. */
+  const statsLaps = async (person, tag, rows) => direct.query(`INSERT INTO public.sim_laps (user_id, identity, game, track_name, car_name, lap_number, time_ms, valid, started_at, sample_count, size_bytes, storage_path, in_lap, out_lap)
+    SELECT $1::uuid, $3 || '|' || x.i, x.game, x.track, x.car, x.i, x.ms, x.valid, x.at::timestamptz, 3, 1000, $3 || '/' || x.i, x.in_lap, x.out_lap
+    FROM jsonb_to_recordset($2::jsonb) AS x(i int, game text, track text, car text, ms int, valid boolean, at text, in_lap boolean, out_lap boolean)`,
+  [person.id, JSON.stringify(rows.map((r, i) => ({ i, game: r.game ?? 'lmu', track: r.track ?? 'Stats Ring', car: r.car ?? 'Stats Car', ms: r.ms, valid: r.valid ?? true, at: onDay(r.n, r.hh ?? 10, r.mm ?? 0), in_lap: r.inLap ?? null, out_lap: r.outLap ?? null }))), tag]);
+  const E = await newPerson('uid-stats-e', '+15550000020');
+  const F = await newPerson('uid-stats-f', '+15550000021');
+  const P2 = { game: 'ac', track: 'Second Stats Ring', car: 'Stats Car B' };
+  await statsLaps(E, 'stats-e', [
+    // Older than both periods: five days in a row (the longest streak), each a new best.
+    ...[[104, 110_000], [103, 109_000], [102, 108_000], [101, 107_000], [100, 106_000]].map(([n, ms]) => ({ n, ms })),
+    // The previous 30 days (days 30 to 59): a first and a better lap on day 40, a better one on day 35, and an invalid lap that must not count.
+    { n: 40, mm: 0, ms: 101_000 }, { n: 40, mm: 3, ms: 100_500 }, { n: 35, mm: 0, ms: 100_200 }, { n: 35, mm: 3, ms: 90_000, valid: false },
+    // This period. Day 10: an out lap, three clean laps, an invalid one and an in lap, all in one session.
+    { n: 10, mm: 0, ms: 120_000, outLap: true }, { n: 10, mm: 3, ms: 100_100 }, { n: 10, mm: 6, ms: 100_300 }, { n: 10, mm: 9, ms: 100_400 },
+    { n: 10, mm: 12, ms: 99_000, valid: false }, { n: 10, mm: 15, ms: 110_000, inLap: true },
+    // Either side of a UTC midnight: two minutes apart, two days, one session.
+    { n: 5, hh: 23, mm: 59, ms: 101_000 }, { n: 4, hh: 0, mm: 1, ms: 101_500 },
+    // Day 3: two laps that beat the best, and the first valid lap of another game's track and car.
+    { n: 3, mm: 0, ms: 99_500 }, { n: 3, mm: 3, ms: 99_800 }, { n: 3, hh: 11, ms: 130_000, ...P2 },
+    // Today: a better lap on that second pair.
+    { n: 0, hh: 9, ms: 129_000, ...P2 },
+  ]);
+  await direct.query("UPDATE public.sim_track_catalog SET length_m = 5000 WHERE name = 'Stats Ring' AND game = 'lmu'");
+  await direct.query("UPDATE public.sim_track_catalog SET length_m = 4000 WHERE name = 'Second Stats Ring' AND game = 'ac'");
+  // F drives three days in a row ending yesterday, on a track of their own.
+  await statsLaps(F, 'stats-f', [3, 2, 1].map((n) => ({ n, ms: 90_000 + n * 1000, track: 'F Only Ring', car: 'F Only Car' })));
+  const stats = (query = '', who = E) => api(`/stats${query}`, { bearer: who.bearer });
+  const body = async (query = '', who = E) => { const r = await stats(query, who); assert.equal(r.status, 200, JSON.stringify(r.body)); return r.body; };
+  const sum = (items, key) => items.reduce((total, item) => total + item[key], 0);
+  const ZERO = { laps: 0, validLaps: 0, sessions: 0, timeMs: 0, distanceM: 0, personalBests: 0, tracks: 0, cars: 0, games: 0 };
+
+  await check('v1 stats: the range is 7d, 30d, 90d, 1y or all (30d when absent), anything else is 400 invalid_range, and the windows are whole UTC days ending today', async () => {
+    assert.deepEqual(RANGES, ['7d', '30d', '90d', '1y', 'all']);
+    for (const [query, key] of [['', '30d'], ['?range=', '30d'], ['?range=7d', '7d'], ['?range=30d', '30d'], ['?range=90d', '90d'], ['?range=1y', '1y'], ['?range=all', 'all']]) {
+      assert.equal((await body(query)).range.key, key, query);
+    }
+    for (const bad of ['2d', '30', '30D', 'week', '7d%20', 'all,7d', '%00']) {
+      const r = await stats(`?range=${bad}`);
+      assert.deepEqual([r.status, r.body], [400, { error: 'invalid_range', retryable: false }], bad);
+    }
+    assert.equal((await stats('?range=7d&range=bad')).status, 200, 'the first value is the one read');
+    assert.equal(rangeParam(new URLSearchParams('range=1y')), '1y');
+    assert.throws(() => rangeParam(new URLSearchParams('range=x')), (e) => e.code === 'invalid_range');
+    const now = new Date('2026-11-13T15:30:00.000Z');
+    assert.deepEqual(windowsFor('7d', now), { from: '2026-11-07T00:00:00.000Z', to: '2026-11-14T00:00:00.000Z', prevFrom: '2026-10-31T00:00:00.000Z', heatFrom: null });
+    assert.deepEqual(windowsFor('30d', now), { from: '2026-10-15T00:00:00.000Z', to: '2026-11-14T00:00:00.000Z', prevFrom: '2026-09-15T00:00:00.000Z', heatFrom: null });
+    assert.equal(windowsFor('90d', now).heatFrom, '2025-11-14T00:00:00.000Z', 'the heatmap goes back 12 months from 90 days up');
+    assert.equal(windowsFor('1y', now).from, '2025-11-14T00:00:00.000Z');
+    assert.deepEqual(windowsFor('all', now), { from: null, to: '2026-11-14T00:00:00.000Z', prevFrom: null, heatFrom: '2025-11-14T00:00:00.000Z' });
+    assert.equal(windowsFor('7d', new Date('2026-11-13T23:59:59.999Z')).to, '2026-11-14T00:00:00.000Z');
+    assert.equal(windowsFor('7d', new Date('2026-11-14T00:00:00.000Z')).to, '2026-11-15T00:00:00.000Z', 'at midnight it is already the next day');
+    assert.deepEqual((await body('?range=30d')).range, { key: '30d', from: dayName(29), to: dayName(0), days: 30 });
+    assert.deepEqual((await body('?range=7d')).range, { key: '7d', from: dayName(6), to: dayName(0), days: 7 });
+  });
+
+  await check('v1 stats: totals of the range (laps, valid laps, sessions, time driven, distance, personal bests, tracks, cars, games) and of the period before it', async () => {
+    const r = await body('?range=30d');
+    assert.deepEqual(r.totals, { laps: 12, validLaps: 11, sessions: 5, timeMs: 1_290_600, distanceM: 58_000, personalBests: 4, tracks: 2, cars: 2, games: 2 });
+    // The period before: days 30 to 59. The invalid lap counts as a lap and as driving time, not as a valid lap or a best.
+    assert.deepEqual(r.previous, { laps: 4, validLaps: 3, sessions: 2, timeMs: 391_700, distanceM: 20_000, personalBests: 3, tracks: 1, cars: 1, games: 1 });
+    // The five old days are in neither of those periods, but are the period before a 90-day range.
+    assert.equal((await body('?range=90d')).previous.laps, 5);
+  });
+
+  await check('v1 stats: perDay has one entry per UTC day with laps, and a lap just before and just after midnight UTC fall on two days', async () => {
+    const r = await body('?range=30d');
+    assert.deepEqual(r.perDay.map((d) => [d.day, d.laps, d.validLaps]), [
+      [dayName(10), 6, 5], [dayName(5), 1, 1], [dayName(4), 1, 1], [dayName(3), 3, 3], [dayName(0), 1, 1],
+    ]);
+    assert.deepEqual(r.perDay[0], { day: dayName(10), laps: 6, validLaps: 5, timeMs: 629_800, distanceM: 30_000, sessions: 1, personalBests: 1, tracks: 1, cars: 1 });
+    assert.deepEqual(r.perDay[3], { day: dayName(3), laps: 3, validLaps: 3, timeMs: 329_300, distanceM: 14_000, sessions: 2, personalBests: 2, tracks: 2, cars: 2 });
+    assert.equal(sum(r.perDay, 'laps'), r.totals.laps);
+    assert.equal(sum(r.perDay, 'timeMs'), r.totals.timeMs);
+    assert.equal(sum(r.perDay, 'distanceM'), r.totals.distanceM);
+    assert.equal(sum(r.perDay, 'personalBests'), r.totals.personalBests);
+    assert.equal(r.heatmapDays, null, 'no heatmap for a range under 90 days');
+    // A week: days outside it are not listed; the week before it is days 7 to 13 (day 10: six laps).
+    const week = await body('?range=7d');
+    assert.deepEqual(week.perDay.map((d) => d.day), [dayName(5), dayName(4), dayName(3), dayName(0)]);
+    assert.deepEqual([week.totals.laps, week.previous.laps], [6, 6]);
+    // The 12-month heatmap: every day with laps in the last 365 days, oldest first.
+    const year = await body('?range=90d');
+    assert.equal(year.heatmapDays.length, 12);
+    assert.deepEqual(year.heatmapDays.slice(0, 2), [{ day: dayName(104), laps: 1 }, { day: dayName(103), laps: 1 }]);
+    assert.deepEqual(year.heatmapDays.at(-1), { day: dayName(0), laps: 1 });
+    assert.deepEqual(year.heatmapDays.find((d) => d.day === dayName(10)), { day: dayName(10), laps: 6 });
+    assert.ok(year.heatmapDays.every((d, i, all) => i === 0 || all[i - 1].day < d.day));
+    assert.ok(Array.isArray((await body('?range=1y')).heatmapDays) && Array.isArray((await body('?range=all')).heatmapDays));
+  });
+
+  await check('v1 stats: the streak counts consecutive days with laps (the current one ends today or yesterday), the longest ever, and the best day of the range', async () => {
+    assert.deepEqual((await body('?range=30d')).streak, { current: 1, best: 5, bestDay: { day: dayName(10), laps: 6 } });
+    // The longest streak is not limited to the range, the best day is.
+    assert.deepEqual((await body('?range=7d')).streak, { current: 1, best: 5, bestDay: { day: dayName(3), laps: 3 } });
+    // Three days in a row that end yesterday are a streak of three; of equal days the latest is the best day.
+    assert.deepEqual((await body('?range=30d', F)).streak, { current: 3, best: 3, bestDay: { day: dayName(1), laps: 1 } });
+    assert.equal((await body('?range=7d', F)).streak.current, 3);
+    const idle = await newPerson('uid-stats-idle', '+15550000022');
+    assert.deepEqual((await body('?range=30d', idle)).streak, { current: 0, best: 0, bestDay: null });
+    // A person whose last lap was two days ago has no current streak.
+    const g = await newPerson('uid-stats-g', '+15550000023');
+    await statsLaps(g, 'stats-g', [{ n: 2, ms: 90_000, track: 'G Ring', car: 'G Car' }, { n: 3, ms: 91_000, track: 'G Ring', car: 'G Car' }]);
+    assert.deepEqual((await body('?range=30d', g)).streak, { current: 0, best: 2, bestDay: { day: dayName(2), laps: 1 } });
+  });
+
+  await check('v1 stats: improvements are the valid laps that beat the running best of their track and car, newest first, with what they saved; the first lap has no previous best; invalid laps never count', async () => {
+    const r = await body('?range=30d');
+    assert.deepEqual(r.improvements.map((i) => [i.timeMs, i.previousBestMs, i.savedMs, i.trackName, i.carName, i.game]), [
+      [129_000, 130_000, 1_000, 'Second Stats Ring', 'Stats Car B', 'ac'],
+      [130_000, null, null, 'Second Stats Ring', 'Stats Car B', 'ac'],
+      [99_500, 100_100, 600, 'Stats Ring', 'Stats Car', 'lmu'],
+      [100_100, 100_200, 100, 'Stats Ring', 'Stats Car', 'lmu'],
+    ]);
+    assert.deepEqual(Object.keys(r.improvements[0]).sort(), ['achievedAt', 'carId', 'carName', 'game', 'lapId', 'previousBestMs', 'savedMs', 'timeMs', 'trackId', 'trackName']);
+    assert.equal(r.improvements.length, r.totals.personalBests);
+    for (const item of r.improvements) {
+      const lap = (await api(`/laps/${item.lapId}`, { bearer: E.bearer })).body;
+      assert.equal(lap.timeMs, item.timeMs);
+      assert.ok(lap.valid, 'only valid laps');
+      assert.equal(lap.track.id, item.trackId);
+      assert.equal(item.achievedAt, lap.startedAt);
+    }
+    // The 99,000 ms lap of day 10 was invalid and faster than everything: it is not an improvement. The out lap and the in lap beat nothing.
+    assert.ok(!r.improvements.some((i) => [99_000, 120_000, 110_000, 90_000].includes(i.timeMs)));
+    // Judged against the whole history: the day-40 lap beat the 106,000 ms best of the old days.
+    const day40 = (await body('?range=90d')).improvements.find((i) => i.timeMs === 101_000);
+    assert.deepEqual([day40.previousBestMs, day40.savedMs], [106_000, 5_000]);
+    // At most 10, the latest ones; the count of the totals is of all of them.
+    const many = await newPerson('uid-stats-many', '+15550000024');
+    await statsLaps(many, 'stats-many', Array.from({ length: 14 }, (_, i) => ({ n: 20 - i, ms: 100_000 - i * 100, track: 'Many Ring', car: 'Many Car' })));
+    const answer = await body('?range=30d', many);
+    assert.equal(answer.improvements.length, 10);
+    assert.deepEqual([answer.improvements[0].timeMs, answer.improvements[9].timeMs, answer.improvements[0].previousBestMs], [98_700, 99_600, 98_800]);
+    assert.equal(answer.totals.personalBests, 14);
+  });
+
+  await check('v1 stats: pairs are the 4 most driven tracks and cars with the best valid lap of each day; breakdown has laps per game and the top 6 tracks and cars', async () => {
+    const r = await body('?range=30d');
+    assert.deepEqual(r.pairs.map((p) => [p.trackName, p.carName, p.game, p.laps]), [['Stats Ring', 'Stats Car', 'lmu', 10], ['Second Stats Ring', 'Stats Car B', 'ac', 2]]);
+    assert.deepEqual(r.pairs[0].bestPerDay, [
+      { day: dayName(10), bestMs: 100_100 }, { day: dayName(5), bestMs: 101_000 }, { day: dayName(4), bestMs: 101_500 }, { day: dayName(3), bestMs: 99_500 },
+    ]);
+    assert.deepEqual(r.pairs[1].bestPerDay, [{ day: dayName(3), bestMs: 130_000 }, { day: dayName(0), bestMs: 129_000 }]);
+    assert.ok(r.pairs[0].trackId && r.pairs[0].carId);
+    assert.deepEqual(r.breakdown.games, [{ game: 'lmu', laps: 10, validLaps: 9 }, { game: 'ac', laps: 2, validLaps: 2 }]);
+    assert.deepEqual(r.breakdown.tracks.map((t) => [t.name, t.game, t.laps]), [['Stats Ring', 'lmu', 10], ['Second Stats Ring', 'ac', 2]]);
+    assert.deepEqual(r.breakdown.cars.map((c) => [c.name, c.laps]), [['Stats Car', 10], ['Stats Car B', 2]]);
+    assert.equal(sum(r.breakdown.games, 'laps'), r.totals.laps);
+    // Seven pairs: the cards are capped at 4 pairs and the lists at 6 rows, the totals count all seven.
+    const wide = await newPerson('uid-stats-wide', '+15550000025');
+    await statsLaps(wide, 'stats-wide', Array.from({ length: 28 }, (_, i) => ({ n: 1 + (i % 4), mm: i, ms: 90_000 + i, track: `Wide Ring ${i % 7}`, car: `Wide Car ${i % 7}` })));
+    const w = await body('?range=30d', wide);
+    assert.deepEqual([w.pairs.length, w.breakdown.tracks.length, w.breakdown.cars.length, w.totals.tracks], [4, 6, 6, 7]);
+    assert.ok(w.pairs.every((p) => p.laps === 4));
+  });
+
+  await check('v1 stats: consistency lists the last 8 sessions of the range, oldest first, with the spread of the clean laps (null under 3) and the clean share', async () => {
+    const r = await body('?range=30d');
+    assert.deepEqual(r.consistency.map((s) => [s.validLaps, s.spreadMs, s.cleanShare]), [[5, 153, 0.5], [2, null, 1], [2, null, 1], [1, null, 1], [1, null, 1]]);
+    assert.deepEqual(r.consistency.map((s) => s.startedAt), [...r.consistency.map((s) => s.startedAt)].sort());
+    assert.ok(r.consistency.every((s) => /^[0-9a-f-]{36}$/.test(s.sessionId)));
+    assert.equal(r.consistency.length, r.totals.sessions);
+    // The spread leaves out the out lap, the in lap and the invalid lap: the sample deviation of 100,100, 100,300 and 100,400 ms.
+    const mean = (100_100 + 100_300 + 100_400) / 3;
+    assert.equal(r.consistency[0].spreadMs, Math.round(Math.sqrt(([100_100, 100_300, 100_400].reduce((total, ms) => total + (ms - mean) ** 2, 0)) / 2)));
+    // Exactly 3 clean laps is enough; 2 clean laps among 3 is not.
+    const spread = await newPerson('uid-stats-spread', '+15550000026');
+    const ring = { track: 'S Ring', car: 'S Car' };
+    await statsLaps(spread, 'stats-spread', [
+      { n: 9, mm: 0, ms: 100_000, ...ring }, { n: 9, mm: 3, ms: 100_200, ...ring }, { n: 9, mm: 6, ms: 100_400, ...ring },
+      { n: 8, mm: 0, ms: 100_000, ...ring }, { n: 8, mm: 3, ms: 100_200, ...ring }, { n: 8, mm: 6, ms: 100_400, inLap: true, ...ring },
+    ]);
+    assert.deepEqual((await body('?range=30d', spread)).consistency.map((x) => [x.spreadMs, x.validLaps, x.cleanShare]), [[200, 3, 1], [null, 3, 0.667]]);
+    // Only the latest 8 sessions, and none outside the range.
+    const lots = await newPerson('uid-stats-lots', '+15550000027');
+    await statsLaps(lots, 'stats-lots', Array.from({ length: 10 }, (_, i) => ({ n: 25 - i * 2, ms: 100_000 + i, track: 'Lots Ring', car: 'Lots Car' })));
+    const sessions = (await body('?range=30d', lots)).consistency;
+    assert.deepEqual([sessions.length, sessions[0].startedAt.slice(0, 10), sessions[7].startedAt.slice(0, 10)], [8, dayName(21), dayName(7)]);
+    assert.equal((await body('?range=7d', lots)).consistency.length, 0);
+  });
+
+  await check('v1 stats: a longer range; "all" starts at the first lap, shows every day with laps and has no previous period', async () => {
+    const all = await body('?range=all');
+    assert.deepEqual(all.range, { key: 'all', from: dayName(104), to: dayName(0), days: 105 });
+    assert.equal(all.totals.laps, 21);
+    assert.deepEqual(all.previous, ZERO);
+    assert.equal(all.perDay.length, 12, 'one entry per day with laps, not one per calendar day');
+    assert.equal(all.streak.best, 5);
+    const year = await body('?range=1y');
+    assert.deepEqual(year.range, { key: '1y', from: dayName(364), to: dayName(0), days: 365 });
+    assert.deepEqual([year.totals.laps, year.previous.laps], [21, 0]);
+    const empty = await body('?range=30d', await newPerson('uid-stats-empty', '+15550000028'));
+    assert.deepEqual(empty.totals, ZERO);
+    assert.deepEqual([empty.perDay, empty.improvements, empty.pairs, empty.consistency, empty.breakdown], [[], [], [], [], { games: [], tracks: [], cars: [] }]);
+    const emptyAll = await body('?range=all', await newPerson('uid-stats-empty2', '+15550000029'));
+    assert.deepEqual([emptyAll.range.days, emptyAll.totals.laps, emptyAll.perDay], [1, 0, []]);
+  });
+
+  await check('v1 stats: one invalid out lap is one lap, no valid lap, no best and no spread, and nothing in any answer is NaN or infinite', async () => {
+    const one = await newPerson('uid-stats-one', '+15550000030');
+    await statsLaps(one, 'stats-one', [{ n: 1, ms: 154_252, valid: false, outLap: true, track: 'Interlagos', car: 'Ginetta G40' }]);
+    for (const range of ['7d', '30d', '90d', '1y', 'all']) {
+      const r = await body(`?range=${range}`, one);
+      assert.equal(r.totals.laps, 1, range);
+      assert.deepEqual([r.totals.validLaps, r.totals.personalBests, r.totals.sessions, r.totals.timeMs], [0, 0, 1, 154_252]);
+      assert.deepEqual([r.improvements, r.streak.current, r.streak.bestDay], [[], 1, { day: dayName(1), laps: 1 }]);
+      assert.deepEqual(r.pairs.map((p) => [p.laps, p.bestPerDay]), [[1, []]]);
+      assert.deepEqual(r.consistency.map((c) => [c.validLaps, c.spreadMs, c.cleanShare]), [[0, null, 0]]);
+      assert.ok(!/NaN|Infinity/.test(JSON.stringify(r)));
+    }
+  });
+
+  await check('v1 stats: only the person\'s own laps count, nothing of another person leaks, and no e-mail, phone number or account id is in an answer', async () => {
+    const e = await body('?range=all');
+    const f = await body('?range=all', F);
+    assert.equal(e.totals.laps, 21);
+    assert.equal(f.totals.laps, 3);
+    assert.ok(!JSON.stringify(e).includes('F Only'), 'E sees nothing of F');
+    assert.ok(!JSON.stringify(f).includes('Stats Ring'), 'F sees nothing of E');
+    assert.ok(!JSON.stringify(e).includes('Paging Ring'), 'nor of C, who has hundreds of laps');
+    assert.deepEqual(f.pairs.map((p) => p.trackName), ['F Only Ring']);
+    assert.deepEqual(f.improvements.map((i) => i.timeMs), [91_000, 92_000, 93_000]);
+    for (const [who, answer] of [[E, e], [F, f]]) {
+      const text = JSON.stringify(answer);
+      assert.ok(!/@|\+1555|uid-|phone|email|mail/i.test(text), 'no e-mail or phone');
+      assert.ok(!text.includes(who.id), 'no account id');
+      assert.ok(!['userId', 'user_id', 'email', 'phone', 'deviceName', 'storagePath'].some((key) => text.includes(`"${key}"`)));
+    }
+    // The device key is not a sign-in, and a missing or bad token is 401, as everywhere in v1.
+    for (const bearer of [undefined, 'not-a-token', rigC.token]) {
+      const r = await api('/stats', { bearer });
+      assert.deepEqual([r.status, r.body], [401, { error: 'unauthorized', retryable: false }], String(bearer));
+    }
+    assert.equal((await api('/stats', { method: 'POST', bearer: E.bearer })).status, 405);
+    assert.equal((await api('/stats/extra', { bearer: E.bearer })).status, 404);
+  });
+
+  await check('v1 stats: one database statement for a whole answer, no lap file read, cached per person and range for 20 seconds and dropped by an upload or a deletion', async () => {
+    forgetAllOverviews();
+    const pool = getPool();
+    const original = pool.connect.bind(pool);
+    const statements = [];
+    pool.connect = async (...args) => {
+      const client = await original(...args);
+      if (!client.__statsCounted) {
+        const query = client.query.bind(client);
+        client.query = (text, ...rest) => { statements.push(typeof text === 'string' ? text : text?.text ?? ''); return query(text, ...rest); };
+        client.__statsCounted = true;
+      }
+      return client;
+    };
+    try {
+      const data = () => statements.filter((text) => !/^(BEGIN|COMMIT|ROLLBACK|SET LOCAL)|set_config|current_app_user_id/i.test(text.trim()));
+      const first = await body('?range=30d');
+      assert.equal(data().length, 1, `one data statement, got: ${data().join(' | ')}`);
+      assert.match(data()[0], /sim_v1_stats/);
+      statements.length = 0;
+      assert.deepEqual(await body('?range=30d'), first);
+      assert.equal(data().length, 0, 'the second read is served from the cache');
+      await body('?range=7d');
+      assert.equal(data().length, 1, 'another range is its own entry');
+    } finally { pool.connect = original; }
+    // A lap written behind the API's back is not seen; an upload drops the person's entries, and so does a deletion.
+    const count = async () => (await body('?range=30d')).totals.laps;
+    const base = await count();
+    await statsLaps(E, 'stats-cache', [{ n: 0, hh: 8, ms: 150_000 }]);
+    assert.equal(await count(), base, 'not seen for 20 seconds');
+    const rig = await deviceFor(E.bearer, 'STATS PC');
+    const uploaded = await put(rig, { track: 'Stats Ring', car: 'Stats Car', number: 9001, timeMs: 140_000, startedAt: onDay(0, 9, 30) });
+    assert.equal(await count(), base + 2, 'an upload drops the entries: both laps show');
+    await statsLaps(E, 'stats-cache2', [{ n: 0, hh: 8, mm: 30, ms: 150_500 }]);
+    assert.equal(await count(), base + 2);
+    assert.equal((await api(`/laps/${uploaded}`, { method: 'DELETE', bearer: E.bearer })).status, 204);
+    assert.equal(await count(), base + 2, 'a deletion drops them too: the uploaded lap is gone and the other one shows (+1 -1 +1)');
+    assert.equal(STATS_TTL_MS, 20_000);
+    forgetAllOverviews();
+    rememberStats('x', '30d', { n: 1 }, 1_000);
+    assert.deepEqual(cachedStats('x', '30d', 1_000 + 19_999), { n: 1 });
+    assert.equal(cachedStats('x', '30d', 1_000 + 20_000), undefined, 'expired after 20 seconds');
+    assert.equal(cachedStats('x', '7d', 1_000), undefined, 'per range');
+    assert.equal(cachedStats('y', '30d', 1_000), undefined, 'per person');
+    forgetOverview('x');
+    assert.equal(cachedStats('x', '30d', 1_001), undefined, 'dropped with the overview');
   });
 
   console.log(`${checks.length} sim v1 checks passed:\n- ${checks.join('\n- ')}`);
