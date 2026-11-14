@@ -27,7 +27,7 @@ export function FilterSelect({ label, value, onChange, options, allLabel, disabl
         emptyLabel={allLabel}
         disabled={disabled}
         data-testid={testId}
-        className="min-w-[8.5rem] flex-1 basis-[8.5rem] sm:max-w-[16rem]"
+        className="w-full min-w-[8.5rem] sm:w-32 sm:flex-none"
       />
     );
   }
