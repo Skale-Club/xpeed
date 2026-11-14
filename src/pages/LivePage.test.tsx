@@ -8,6 +8,7 @@ import ScannerPage from './ScannerPage';
 import { ObdScannerProvider } from '@/contexts/ObdScannerContext';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { installFakeBluetooth } from '@/test/fake-obd';
+import { chooseOption } from '@/test/select';
 import { PID_PRESETS } from '@/lib/obd/presets';
 
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
@@ -103,8 +104,8 @@ describe('LivePage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Open timeline: Engine RPM' })[0]);
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('img', { name: 'Engine RPM chart' })).toHaveClass('h-64');
-    fireEvent.change(within(dialog).getByLabelText('Timeline period'), { target: { value: '1800000' } });
-    expect(within(dialog).getByLabelText('Timeline period')).toHaveValue('1800000');
+    chooseOption(within(dialog).getByLabelText('Timeline period'), '30 min');
+    expect(within(dialog).getByLabelText('Timeline period')).toHaveTextContent('30 min');
     expect(fake.requestDevice).toHaveBeenCalledTimes(1);
   });
   it('asks to connect when no adapter is linked', () => {
@@ -166,8 +167,8 @@ describe('LivePage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /customize/i }));
     const sheet = await screen.findByRole('dialog');
-    fireEvent.change(within(sheet).getByLabelText('Widget type'), { target: { value: 'gauge' } });
-    fireEvent.change(within(sheet).getByLabelText('Parameter'), { target: { value: 'Battery voltage (V)' } });
+    chooseOption(within(sheet).getByLabelText('Widget type'), 'Gauge');
+    chooseOption(within(sheet).getByLabelText('Parameter'), /Battery voltage/);
     fireEvent.click(within(sheet).getByRole('button', { name: /^add$/i }));
     await waitFor(() => expect(gauge('Battery voltage')).toBeInTheDocument());
 

@@ -7,6 +7,7 @@ import { renderGarage } from '@/test/garage-render';
 import { whereNow } from '@/test/sim-render';
 import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { buildCatalog, fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, selectOptions, waitForOptions } from '@/test/select';
 import type { V1TrackItem } from '@/lib/sim/v1-client';
 import { TracksList } from './TracksList';
 
@@ -193,8 +194,8 @@ describe('the list of tracks', () => {
     state.laps.push(v1Lap({ game: 'ac', track: ref('Imola', 'ac-track'), car: ref('Ferrari 488 GT3'), timeMs: 108_000 }));
     open();
     await waitFor(() => expect(screen.getAllByTestId('track')).toHaveLength(3));
-    await waitFor(() => expect((screen.getByTestId('filter-game') as HTMLSelectElement).options.length).toBeGreaterThan(2));
-    fireEvent.change(screen.getByTestId('filter-game'), { target: { value: 'ac' } });
+    await waitForOptions(() => screen.getByTestId('filter-game'), (labels) => labels.length > 2);
+    chooseOption(screen.getByTestId('filter-game'), 'Assetto Corsa');
     await waitFor(() => expect(screen.getAllByTestId('track')).toHaveLength(1));
     expect(screen.getByTestId('track')).toHaveTextContent('Imola');
     expect(state.requests.filter((request) => request.path === '/tracks').at(-1)?.params.game).toBe('ac');
@@ -229,14 +230,14 @@ describe('the list of tracks', () => {
     state.tracks.push(item({ id: 'big', name: 'Imola', lapCount: 90, validLapCount: 80, lastDrivenAt: '2026-11-01T00:00:00.000Z' }), item({ id: 'ab', name: 'Albert Park', lastDrivenAt: '2026-11-03T00:00:00.000Z' }));
     open();
     await waitFor(() => expect(names()).toEqual(['Monza', 'Spa-Francorchamps', 'Albert Park', 'Imola']));
-    const sort = screen.getByTestId('sort-select') as HTMLSelectElement;
-    expect([...sort.options].map((option) => option.textContent)).toEqual(['Recently driven', 'Most driven', 'Name (A to Z)']);
-    fireEvent.change(sort, { target: { value: 'most' } });
+    const sort = screen.getByTestId('sort-select');
+    expect(selectOptions(sort)).toEqual(['Recently driven', 'Most driven', 'Name (A to Z)']);
+    chooseOption(sort, 'Most driven');
     await waitFor(() => expect(names()).toEqual(['Imola', 'Monza', 'Spa-Francorchamps', 'Albert Park']));
     expect(whereNow(screen.getByTestId('where')).searchParams.get('sort')).toBe('most');
-    fireEvent.change(sort, { target: { value: 'az' } });
+    chooseOption(sort, 'Name (A to Z)');
     await waitFor(() => expect(names()).toEqual(['Albert Park', 'Imola', 'Monza', 'Spa-Francorchamps']));
-    fireEvent.change(sort, { target: { value: 'recent' } });
+    chooseOption(sort, 'Recently driven');
     await waitFor(() => expect(names()).toEqual(['Monza', 'Spa-Francorchamps', 'Albert Park', 'Imola']));
     expect(whereNow(screen.getByTestId('where')).searchParams.has('sort')).toBe(false);
   });

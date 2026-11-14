@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import HistoryPage from './HistoryPage';
+import { chooseOption } from '@/test/select';
 
 const obd = vi.hoisted(() => ({ recording: null as null | { active: boolean; startedAt: Date; manual: boolean }, recordingCarId: 'car-1', status: 'live', lastTrip: null as null | { sessionId: string }, savingTrip: false }));
 vi.mock('@/contexts/ObdScannerContext', () => ({ useObd: () => obd }));
@@ -152,7 +153,7 @@ describe('HistoryPage calendar and paging', () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);
     expect(await screen.findAllByTestId('trip-row')).toHaveLength(20);
     expect(await screen.findByText('Journey 299')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Page' }), { target: { value: '15' } });
+    chooseOption(screen.getByRole('combobox', { name: 'Page' }), '15 / 15');
     await waitFor(() => expect(screen.getByText('Journey 0')).toBeInTheDocument());
     expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
     await waitFor(() => expect(db.getFlagsForSessions).toHaveBeenCalledTimes(2));

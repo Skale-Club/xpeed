@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LapCharts } from '@/components/sim/LapCharts';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -86,6 +87,8 @@ const stretchLabel = (t: Translate, item: { fromM: number; toM: number }, unit: 
 function NoLayout({ game, track, listKept, onPick }: { game: string; track: string; listKept?: () => Promise<LibraryTrack[]>; onPick?: (id: string) => void }) {
   const { t } = useTranslation();
   const [options, setOptions] = useState<LibraryTrack[]>([]);
+  const [picked, setPicked] = useState('');
+  const pickLabelId = useId();
   useEffect(() => {
     if (!listKept) return;
     let live = true;
@@ -102,24 +105,19 @@ function NoLayout({ game, track, listKept, onPick }: { game: string; track: stri
     <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="no-layout">
       <p>{t('modes.compare.noLayout', 'Xpeed Companion has not sent the track layout of “{{track}}” yet. It is sent by itself the next time you drive the track.', { track })}</p>
       {onPick && options.length > 0 && (
-        <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          {t('modes.compare.useKeptLayout', 'Or use a layout you kept (the game may name the track differently):')}
-          <select
-            className="h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground"
-            defaultValue=""
-            onChange={(event) => event.target.value && onPick(event.target.value)}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span id={pickLabelId}>{t('modes.compare.useKeptLayout', 'Or use a layout you kept (the game may name the track differently):')}</span>
+          <OptionSelect
+            size="sm"
+            className="w-auto max-w-full text-sm"
+            aria-labelledby={pickLabelId}
+            value={picked}
+            onChange={(value) => { if (!value) return; setPicked(value); onPick(value); }}
+            placeholder={t('modes.compare.pickLayout', 'Choose a layout')}
+            options={options.map((entry) => ({ value: entry.id, label: name(entry) }))}
             data-testid="pick-layout"
-          >
-            <option value="" disabled>
-              {t('modes.compare.pickLayout', 'Choose a layout')}
-            </option>
-            {options.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {name(entry)}
-              </option>
-            ))}
-          </select>
-        </label>
+          />
+        </div>
       )}
     </div>
   );

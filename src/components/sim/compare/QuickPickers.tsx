@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Award, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/ui/option-select';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { bestLapOf } from '@/lib/sim/session-stats';
 import { useLapMeta } from '@/lib/sim/use-lap-meta';
@@ -78,20 +79,16 @@ export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: stri
         </Button>
       )}
       {otherCars.length > 0 && (
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="sr-only">{t('sessionsDash.compare.quickOtherCar', 'Another car')}</span>
-          <select
-            className="h-8 max-w-[14rem] rounded-md border border-border bg-background px-2 text-sm text-foreground"
-            value={otherChosen}
-            onChange={(event) => event.target.value && onChoose(event.target.value)}
-            data-testid="quick-other-car"
-          >
-            <option value="">{t('sessionsDash.compare.quickOtherCar', 'Another car')}…</option>
-            {otherCars.map((entry) => (
-              <option key={entry.lapId} value={entry.lapId}>{`${entry.car.name} · ${formatLapTime(entry.bestMs)}`}</option>
-            ))}
-          </select>
-        </label>
+        <OptionSelect
+          size="sm"
+          className="max-w-[14rem] text-sm"
+          aria-label={t('sessionsDash.compare.quickOtherCar', 'Another car')}
+          value={otherChosen}
+          onChange={(value) => value && onChoose(value)}
+          emptyLabel={`${t('sessionsDash.compare.quickOtherCar', 'Another car')}…`}
+          options={otherCars.map((entry) => ({ value: entry.lapId, label: `${entry.car.name} · ${formatLapTime(entry.bestMs)}` }))}
+          data-testid="quick-other-car"
+        />
       )}
     </div>
   );

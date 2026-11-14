@@ -7,6 +7,7 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { makeLapFixtures } from '@/test/lap-fixture';
 import { renderSim, whereNow } from '@/test/sim-render';
 import { fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, selectOptions } from '@/test/select';
 import { CompareScreen } from './CompareScreen';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
@@ -121,8 +122,8 @@ describe('the quick references', () => {
   it('chooses the best lap of another car on this track from a list', async () => {
     open(`/virtual/compare?a=${bestLap.id}`);
     const select = await screen.findByTestId('quick-other-car');
-    expect(within(select).getAllByRole('option').map((option) => option.textContent)).toEqual([expect.stringMatching(/^Another car/), expect.stringMatching(/^Other Car · 0:\d\d\.\d{3}$/)]);
-    fireEvent.change(select, { target: { value: carLap.id } });
+    expect(selectOptions(select)).toEqual([expect.stringMatching(/^Another car/), expect.stringMatching(/^Other Car · 0:\d\d\.\d{3}$/)]);
+    chooseOption(select, /^Other Car/);
     await waitFor(() => expect(search().get('b')).toBe(carLap.id));
     await gapReady();
     expect(screen.getByTestId('slot-reference')).toHaveTextContent('Lap 2');

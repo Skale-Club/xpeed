@@ -19,7 +19,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, t
     refs.current[next]?.focus();
   };
   return (
-    <div role="radiogroup" aria-label={label} className="flex w-full rounded-lg border border-border bg-muted/40 p-0.5 sm:inline-flex sm:w-auto" data-testid={testId}>
+    <div role="radiogroup" aria-label={label} className="flex h-8 w-full items-center rounded-lg border border-border bg-muted/40 p-0.5 sm:inline-flex sm:w-auto" data-testid={testId}>
       {options.map((option, index) => {
         const selected = option.value === value;
         return (
@@ -33,7 +33,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, t
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => move(event, index)}
             data-testid={optionTestId?.(option.value)}
-            className={`min-h-8 flex-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none ${
+            className={`h-7 flex-1 whitespace-nowrap rounded-md px-1.5 text-xs sm:px-2.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none ${
               selected ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
           >

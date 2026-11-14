@@ -6,6 +6,7 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { makeLapFixtures } from '@/test/lap-fixture';
 import { renderSim, whereNow } from '@/test/sim-render';
 import { fakeV1State, ref, v1Lap, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, waitForOptions } from '@/test/select';
 import { CompareScreen } from './CompareScreen';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
@@ -181,10 +182,10 @@ describe('finding a lap', () => {
     const { container } = open('/virtual/compare');
     const picker = await screen.findByTestId('lap-picker');
     // One game: nothing to choose.
-    await waitFor(() => expect(within(picker).getByTestId('picker-game')).toHaveValue('sample'));
+    await waitFor(() => expect(within(picker).getByTestId('picker-game')).toHaveTextContent('SAMPLE'));
     expect(within(picker).getByTestId('picker-hint')).toHaveTextContent('Now choose a track');
-    await waitFor(() => expect(within(picker).getAllByRole('option', { name: 'Sample Ring' }).length).toBe(1));
-    fireEvent.change(within(picker).getByTestId('picker-track'), { target: { value: track.id } });
+    await waitForOptions(() => within(picker).getByTestId('picker-track'), (labels) => labels.filter((label) => label === 'Sample Ring').length === 1);
+    chooseOption(within(picker).getByTestId('picker-track'), 'Sample Ring');
 
     const list = await within(picker).findByTestId('picker-laps');
     expect(within(list).getAllByTestId('picker-lap').map((button) => button.getAttribute('data-lap-id'))).toEqual([myLap.id, bestLap.id]); // newest first
@@ -192,7 +193,7 @@ describe('finding a lap', () => {
     const lapsRequest = state.requests.find((request) => request.path === '/laps')!;
     expect(lapsRequest.params).toMatchObject({ game: 'sample', track: track.id });
 
-    fireEvent.change(within(picker).getByTestId('picker-car'), { target: { value: car.id } });
+    chooseOption(within(picker).getByTestId('picker-car'), 'Sample Car');
     await waitFor(() => expect(state.requests.some((request) => request.path === '/laps' && request.params.car === car.id)).toBe(true));
 
     fireEvent.click(await within(picker).findByRole('button', { name: /Lap 7/ }));

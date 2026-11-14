@@ -41,7 +41,7 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
       <button
         type="button"
         onClick={clear}
-        className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-muted/40 px-2 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={t('sessionsDash.filters.removeFilter', 'Remove the filter: {{filter}}', { filter: text })}
         data-testid={`chip-${id}`}
       >
@@ -53,46 +53,36 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
   const named = (list: Option[], value: string) => list.find((option) => option.value === value)?.label ?? value;
 
   return (
-    <section className="space-y-3 rounded-lg border border-border bg-card p-3 sm:p-4" aria-label={t('sessionsDash.filters.title', 'Filters')} data-testid="session-filters">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <FilterSelect label={t('modes.sessions.filterGame', 'Game')} allLabel={all} value={filters.game} onChange={(value) => onChange('game', value)} options={gameOptions} testId="filter-game" />
-        <FilterSelect label={t('modes.sessions.filterTrack', 'Track')} allLabel={all} value={filters.track} onChange={(value) => onChange('track', value)} options={trackOptions} testId="filter-track" />
-        <FilterSelect label={t('modes.sessions.filterCar', 'Car')} allLabel={all} value={filters.car} onChange={(value) => onChange('car', value)} options={carOptions} testId="filter-car" />
-      </div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">{t('sessionsDash.filters.kind', 'Kind of session')}</p>
-            <Segmented
-              label={t('sessionsDash.filters.kind', 'Kind of session')}
-              value={filters.kind}
-              onChange={(value) => onChange('kind', value)}
-              options={[{ value: '', label: all }, ...SESSION_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] }))]}
-              testId="filter-kind"
-              optionTestId={(value) => `kind-${value || 'all'}`}
-            />
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">{t('sessionsDash.filters.period', 'Period')}</p>
-            <Segmented
-              label={t('sessionsDash.filters.period', 'Period')}
-              value={filters.period}
-              onChange={(value) => onChange('period', value)}
-              options={[{ value: '', label: t('sessionsDash.filters.anyTime', 'Any time') }, ...SESSION_PERIODS.map((period) => ({ value: period, label: periodLabels[period] }))]}
-              testId="filter-period"
-              optionTestId={(value) => `period-${value || 'all'}`}
-            />
-          </div>
-        </div>
-        <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
+    <section className="rounded-lg border border-border bg-card p-2" aria-label={t('sessionsDash.filters.title', 'Filters')} data-testid="session-filters">
+      {/* One compact row that wraps on a small screen: the three drop-downs (label inside), the two segmented controls, and the switch on the right. */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="filter-toolbar">
+        <FilterSelect inline label={t('modes.sessions.filterGame', 'Game')} allLabel={all} value={filters.game} onChange={(value) => onChange('game', value)} options={gameOptions} testId="filter-game" />
+        <FilterSelect inline label={t('modes.sessions.filterTrack', 'Track')} allLabel={all} value={filters.track} onChange={(value) => onChange('track', value)} options={trackOptions} testId="filter-track" />
+        <FilterSelect inline label={t('modes.sessions.filterCar', 'Car')} allLabel={all} value={filters.car} onChange={(value) => onChange('car', value)} options={carOptions} testId="filter-car" />
+        <Segmented
+          label={t('sessionsDash.filters.kind', 'Kind of session')}
+          value={filters.kind}
+          onChange={(value) => onChange('kind', value)}
+          options={[{ value: '', label: all }, ...SESSION_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] }))]}
+          testId="filter-kind"
+          optionTestId={(value) => `kind-${value || 'all'}`}
+        />
+        <Segmented
+          label={t('sessionsDash.filters.period', 'Period')}
+          value={filters.period}
+          onChange={(value) => onChange('period', value)}
+          options={[{ value: '', label: t('sessionsDash.filters.anyTime', 'Any time') }, ...SESSION_PERIODS.map((period) => ({ value: period, label: periodLabels[period] }))]}
+          testId="filter-period"
+          optionTestId={(value) => `period-${value || 'all'}`}
+        />
+        <label className="flex h-8 cursor-pointer items-center gap-2 text-xs sm:ml-auto" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
           <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={t('sessionsDash.filters.validOnly', 'Valid laps only')} />
           {t('sessionsDash.filters.validOnly', 'Valid laps only')}
         </label>
       </div>
 
       {count > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3" data-testid="active-filters">
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2" data-testid="active-filters">
           <span className="text-xs text-muted-foreground">{t('sessionsDash.filters.active', 'Filtering by')}</span>
           <ul className="flex flex-wrap items-center gap-2">
             {filters.game && chip('game', games.name(filters.game), () => onChange('game', ''))}
@@ -102,7 +92,7 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
             {filters.period && chip('period', periodLabels[filters.period], () => onChange('period', ''))}
             {filters.validOnly && chip('valid', t('sessionsDash.filters.validOnly', 'Valid laps only'), () => onChange('validOnly', false))}
           </ul>
-          <Button type="button" size="sm" variant="ghost" className="ml-auto h-7 px-2 text-xs" onClick={onClear} data-testid="clear-filters">
+          <Button type="button" size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs" onClick={onClear} data-testid="clear-filters">
             {t('modes.sessions.clearFilters', 'Clear the filters')}
           </Button>
         </div>

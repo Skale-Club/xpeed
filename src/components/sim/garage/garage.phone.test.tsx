@@ -128,7 +128,7 @@ describe('the track page on a phone', () => {
     buildCatalog(state, { Monza: 5793 });
     open();
     const select = await screen.findByTestId('track-progress-car');
-    expect(classes(select.closest('div')!)).toMatch(/max-w-\[50%\]/);
+    expect(classes(select.closest('[class*="max-w-"]')!)).toMatch(/max-w-\[50%\]/);
   });
 });
 

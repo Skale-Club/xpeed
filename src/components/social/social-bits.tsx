@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { Card } from '@/components/ui/card';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Check, EyeOff, Globe, Users, X } from 'lucide-react';
@@ -163,7 +164,7 @@ export function ErrorLine({ children, id, testId }: { children: ReactNode; id?: 
   );
 }
 
-/** A labelled native drop-down, the same on every phone. */
+/** A labelled drop-down (the app's Radix select, the same on every screen). */
 export function PlainSelect({ label, value, onChange, options, disabled, testId }: {
   label: string;
   value: string;
@@ -173,32 +174,11 @@ export function PlainSelect({ label, value, onChange, options, disabled, testId 
   disabled?: boolean;
   testId?: string;
 }) {
+  const id = useId();
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
-      {label}
-      <select
-        className="h-9 w-full min-w-0 rounded-md border border-border bg-background px-2 text-sm text-foreground disabled:opacity-50"
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        data-testid={testId}
-      >
-        {value && !options.some((option) => option.value === value) && <option value={value}>{value}</option>}
-        {options.filter((option) => !option.group).map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-        {[...new Set(options.flatMap((option) => (option.group ? [option.group] : [])))].map((group) => (
-          <optgroup key={group} label={group}>
-            {options.filter((option) => option.group === group).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    </label>
+    <div className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+      <label htmlFor={id}>{label}</label>
+      <OptionSelect id={id} size="sm" className="h-9 w-full min-w-0 text-sm" value={value} onChange={onChange} options={options} disabled={disabled} data-testid={testId} />
+    </div>
   );
 }

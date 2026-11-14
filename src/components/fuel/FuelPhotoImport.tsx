@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OptionSelect } from "@/components/ui/option-select";
 import {
   type FuelReceipt,
   prepareReceiptImage,
@@ -306,20 +307,14 @@ export function FuelPhotoImport(
                 <Label htmlFor="receipt-currency">
                   {t("fuel.currency", "Currency")}
                 </Label>
-                <select
+                <OptionSelect
                   id="receipt-currency"
-                  className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  className="h-11 rounded-xl"
                   value={review.currency}
-                  onChange={(e) =>
-                    setReview({ ...review, currency: e.target.value })}
-                >
-                  <option value="">
-                    {t("fuel.photo.confirmCurrency", "Confirm currency")}
-                  </option>
-                  {["USD", "BRL", "EUR"].map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
+                  onChange={(value) => setReview({ ...review, currency: value })}
+                  emptyLabel={t("fuel.photo.confirmCurrency", "Confirm currency")}
+                  options={["USD", "BRL", "EUR"].map((v) => ({ value: v, label: v }))}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="receipt-quantity">
@@ -337,20 +332,14 @@ export function FuelPhotoImport(
                 <Label htmlFor="receipt-unit">
                   {t("fuel.photo.unit", "Unit on the photo")}
                 </Label>
-                <select
+                <OptionSelect
                   id="receipt-unit"
-                  className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  className="h-11 rounded-xl"
                   value={review.unit}
-                  onChange={(e) =>
-                    setReview({ ...review, unit: e.target.value })}
-                >
-                  <option value="">
-                    {t("fuel.photo.confirmUnit", "Confirm unit")}
-                  </option>
-                  {["L", "US gal", "imperial gal"].map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
+                  onChange={(value) => setReview({ ...review, unit: value })}
+                  emptyLabel={t("fuel.photo.confirmUnit", "Confirm unit")}
+                  options={["L", "US gal", "imperial gal"].map((v) => ({ value: v, label: v }))}
+                />
               </div>
               <Button
                 type="button"
