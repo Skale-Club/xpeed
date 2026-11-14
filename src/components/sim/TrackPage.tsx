@@ -234,8 +234,9 @@ export function TrackPage() {
                           note={filtered && laps.capped ? <Quiet>{t('garageDash.chartFromLatest', 'Built from your latest {{count}} laps.', { count: MAX_LAP_PAGES * 50 })}</Quiet> : undefined}
                           controls={
                             board.length > 1 ? (
-                              <div className="w-44 max-w-[50%]">
+                              <div className="w-48 max-w-[55%]">
                                 <PlainSelect
+                                  className="w-full sm:w-full"
                                   label={t('modes.detail.car', 'Car')}
                                   value={filtered ? carFilter : ''}
                                   onChange={setCarFilter}

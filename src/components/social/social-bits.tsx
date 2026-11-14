@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import { Card } from '@/components/ui/card';
+import { FILTER_CELL } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -164,8 +165,12 @@ export function ErrorLine({ children, id, testId }: { children: ReactNode; id?: 
   );
 }
 
-/** A labelled drop-down (the app's Radix select, the same on every screen). */
-export function PlainSelect({ label, value, onChange, options, disabled, testId }: {
+/**
+ * A labelled drop-down (the app's Radix select, the same on every screen). The usual one is compact, like the drop-downs of every filter bar: small
+ * (h-8, text-xs) with its name inside on the left and the value on the right. `stacked` is the one for a form (a dialog's field next to a regular
+ * button): the name above, a regular-height control. `className` sets the width on a wide screen.
+ */
+export function PlainSelect({ label, value, onChange, options, disabled, testId, className, stacked }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -173,12 +178,17 @@ export function PlainSelect({ label, value, onChange, options, disabled, testId 
   options: Array<{ value: string; label: string; group?: string }>;
   disabled?: boolean;
   testId?: string;
+  className?: string;
+  stacked?: boolean;
 }) {
   const id = useId();
-  return (
-    <div className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
-      <label htmlFor={id}>{label}</label>
-      <OptionSelect id={id} size="sm" className="h-9 w-full min-w-0 text-sm" value={value} onChange={onChange} options={options} disabled={disabled} data-testid={testId} />
-    </div>
-  );
+  if (stacked) {
+    return (
+      <div className={cn('flex min-w-0 flex-col gap-1 text-xs text-muted-foreground', className)}>
+        <label htmlFor={id}>{label}</label>
+        <OptionSelect id={id} className="w-full min-w-0 text-sm" value={value} onChange={onChange} options={options} disabled={disabled} data-testid={testId} />
+      </div>
+    );
+  }
+  return <OptionSelect size="sm" label={label} className={cn(FILTER_CELL, 'sm:w-40', className)} value={value} onChange={onChange} options={options} disabled={disabled} data-testid={testId} />;
 }

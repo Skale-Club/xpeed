@@ -167,6 +167,8 @@ describe('LivePage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /customize/i }));
     const sheet = await screen.findByRole('dialog');
+    // The two drop-downs of "Add widget" are compact, like every toolbar drop-down.
+    for (const name of ['Widget type', 'Parameter']) expect(within(sheet).getByLabelText(name)).toHaveClass('h-8', 'text-xs');
     chooseOption(within(sheet).getByLabelText('Widget type'), 'Gauge');
     chooseOption(within(sheet).getByLabelText('Parameter'), /Battery voltage/);
     fireEvent.click(within(sheet).getByRole('button', { name: /^add$/i }));

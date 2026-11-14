@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronRight, Map as MapIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PlainSelect } from '@/components/social/social-bits';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -183,10 +184,8 @@ export function TracksList() {
     <div className="space-y-4" data-testid="tracks-list">
       <p className="text-sm text-muted-foreground">{t('modes.tracks.listIntro', 'The tracks you have driven. Open one to see your progress on it and your best lap with each car.')}</p>
       {(tracks.isPending || tracks.items.length > 0 || game !== '' || narrowed) && (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="search" aria-label={t('garageDash.filters', 'Filter the tracks')}>
-        <div className="sm:col-span-2 lg:col-span-1">
-          <SearchField label={t('garageDash.search', 'Search by name')} value={search} onChange={(value) => setParam('q', value)} placeholder={t('garageDash.searchTracks', 'Monza, Spa...')} testId="filter-search" />
-        </div>
+      <FilterBar role="search" aria-label={t('garageDash.filters', 'Filter the tracks')} data-testid="tracks-toolbar">
+        <SearchField label={t('garageDash.search', 'Search by name')} value={search} onChange={(value) => setParam('q', value)} placeholder={t('garageDash.searchTracks', 'Monza, Spa...')} testId="filter-search" />
         <FilterSelect
           label={t('modes.sessions.filterGame', 'Game')}
           allLabel={t('modes.sessions.all', 'All')}
@@ -200,14 +199,13 @@ export function TracksList() {
           value={sort}
           onChange={(value) => setParam('sort', value === 'recent' ? '' : value)}
           options={SORT_LABELS(t)}
+          className="sm:w-56"
           testId="sort-select"
         />
-        <div className="flex flex-col justify-end">
-          <ToggleChip pressed={layoutOnly} onChange={(on) => setParam('layout', on ? '1' : '')} testId="filter-layout">
-            <MapIcon className="h-4 w-4" aria-hidden="true" /> {t('garageDash.hasLayout', 'Has a layout')}
-          </ToggleChip>
-        </div>
-      </div>
+        <ToggleChip pressed={layoutOnly} onChange={(on) => setParam('layout', on ? '1' : '')} testId="filter-layout">
+          <MapIcon aria-hidden="true" /> {t('garageDash.hasLayout', 'Has a layout')}
+        </ToggleChip>
+      </FilterBar>
       )}
       <QueryGate
         query={tracks}

@@ -51,17 +51,21 @@ const baseColumns = (element: Element) => (classes(element).split(/\s+/).find((n
 const hiddenOnPhone = (cell: Element) => /(^|\s)hidden(\s|$)/.test(classes(cell)) && /(sm|md|lg):table-cell/.test(classes(cell));
 
 describe('the lists on a phone', () => {
-  it('stacks the filters and the cards in one column, the tiles two across, and lets the page never be wider than the screen', async () => {
+  it('wraps the filters (the search box on its own row, the drop-downs two to a row), stacks the cards in one column, the tiles two across, and lets the page never be wider than the screen', async () => {
     renderGarage(<TracksList />, { state, route: '/virtual/tracks' });
     await screen.findAllByTestId('track');
-    expect(baseColumns(screen.getByRole('search'))).toBeNull(); // one column; sm: and lg: add more
-    expect(classes(screen.getByRole('search'))).toMatch(/sm:grid-cols-2/);
+    expect(baseColumns(screen.getByRole('search'))).toBeNull(); // a wrapping row, not a grid
+    expect(classes(screen.getByRole('search'))).toMatch(/(^|\s)flex-wrap(\s|$)/);
+    // On a phone the search box takes its own row and each drop-down is half a row; a wider screen gives each a fixed width.
+    expect(classes(screen.getByTestId('filter-search').parentElement!)).toMatch(/basis-full/);
+    expect(classes(screen.getByTestId('filter-game'))).toMatch(/basis-\[calc\(50%-0\.25rem\)\]/);
     expect(baseColumns(screen.getByTestId('tracks-summary'))).toBe('grid-cols-2');
     expect(baseColumns(screen.getByTestId('tracks-grid'))).toBeNull();
     expect(classes(screen.getByTestId('tracks-grid'))).toMatch(/md:grid-cols-2/);
-    // The search box and the drop-downs take the full width of their column and may shrink (min-w-0) instead of pushing the page wider.
+    // The search box and the drop-downs may shrink (min-w-0) instead of pushing the page wider.
     expect(classes(screen.getByTestId('filter-search'))).toMatch(/w-full/);
-    expect(classes(screen.getByTestId('filter-game'))).toMatch(/w-full/);
+    expect(classes(screen.getByTestId('filter-search').parentElement!)).toMatch(/min-w-0/);
+    expect(classes(screen.getByTestId('filter-game'))).toMatch(/min-w-0/);
     for (const element of document.querySelectorAll('[class*="min-w-["]')) expect(classes(element)).not.toMatch(/min-w-\[(\d{3,})px\]/);
   });
 
@@ -128,7 +132,7 @@ describe('the track page on a phone', () => {
     buildCatalog(state, { Monza: 5793 });
     open();
     const select = await screen.findByTestId('track-progress-car');
-    expect(classes(select.closest('[class*="max-w-"]')!)).toMatch(/max-w-\[50%\]/);
+    expect(classes(select.closest('[class*="max-w-"]')!)).toMatch(/max-w-\[55%\]/);
   });
 });
 

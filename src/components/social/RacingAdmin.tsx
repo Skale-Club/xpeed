@@ -271,22 +271,21 @@ function RacingAdminBody() {
 
       <Card className="bg-card border-border" data-testid="admin-reports">
         <CardHeader className="pb-2">
-          <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold"><ShieldAlert className="h-4 w-4" aria-hidden /> {t('social.admin.reports', 'Reports')}</CardTitle>
-            <div className="w-40">
-              <PlainSelect
-                label={t('social.admin.show', 'Show')}
-                value={status}
-                onChange={(value) => setStatus(value as AdminReportFilter)}
-                options={[
-                  { value: 'open', label: t('social.admin.open', 'Open') },
-                  { value: 'dismissed', label: t('social.admin.dismissed', 'Dismissed') },
-                  { value: 'actioned', label: t('social.admin.actioned', 'Actioned') },
-                  { value: 'all', label: t('social.admin.all', 'All') },
-                ]}
-                testId="admin-status"
-              />
-            </div>
+            <PlainSelect
+              label={t('social.admin.show', 'Show')}
+              value={status}
+              onChange={(value) => setStatus(value as AdminReportFilter)}
+              options={[
+                { value: 'open', label: t('social.admin.open', 'Open') },
+                { value: 'dismissed', label: t('social.admin.dismissed', 'Dismissed') },
+                { value: 'actioned', label: t('social.admin.actioned', 'Actioned') },
+                { value: 'all', label: t('social.admin.all', 'All') },
+              ]}
+              className="sm:w-44"
+              testId="admin-status"
+            />
           </div>
         </CardHeader>
         <CardContent className="p-0">

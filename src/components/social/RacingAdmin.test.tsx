@@ -114,6 +114,11 @@ describe('the reports', () => {
     const state = seeded();
     renderSocial(<RacingAdmin />, { state });
     await screen.findByTestId('admin-report-list');
+    // The status filter is a compact drop-down with its name inside it.
+    const status = screen.getByRole('combobox', { name: 'Show' });
+    expect(status).toBe(screen.getByTestId('admin-status'));
+    expect(status).toHaveClass('h-8', 'text-xs');
+    expect(status).toHaveTextContent(/^ShowOpen$/);
     chooseOption(screen.getByTestId('admin-status'), 'All');
     await waitFor(() => expect(reportCards()).toHaveLength(3));
     expect(callsTo(state, 'GET', '/admin/reports').some((call) => call.params.status === 'all')).toBe(true);

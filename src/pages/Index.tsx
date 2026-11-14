@@ -185,8 +185,8 @@ const Index = () => {
             {showTechnical && (
               <div className="space-y-6 mt-4">
                 <Select value={dateRange} onValueChange={setDateRange}>
-                  <SelectTrigger className="w-[170px] bg-card border-border h-10 text-xs" aria-label={t('home.range.label', 'Period')}>
-                    <Calendar className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                  <SelectTrigger className="h-8 w-[170px] justify-start gap-1.5 rounded-lg border-border bg-card py-0 pl-2.5 pr-2 text-xs focus-visible:ring-1 focus-visible:ring-offset-0 [&>span]:flex-1" aria-label={t('home.range.label', 'Period')}>
+                    <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

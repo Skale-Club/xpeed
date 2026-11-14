@@ -473,6 +473,9 @@ describe('the states', () => {
     expect(screen.queryByTestId('overview-empty')).not.toBeInTheDocument();
     expect(screen.queryByTestId('overview-companion')).not.toBeInTheDocument();
     expect(screen.getByTestId('range-select')).toBeInTheDocument();
+    // The period picker is a small control (h-8) like the toolbars of the other screens.
+    expect(screen.getByTestId('range-select')).toHaveClass('h-8');
+    expect(screen.getByTestId('range-30d')).toHaveClass('text-xs');
   });
 
   it('asks to sign in again when the sign-in no longer works (401)', async () => {

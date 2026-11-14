@@ -323,7 +323,7 @@ describe('the list of tracks', () => {
     await i18n.changeLanguage('pt-BR');
     open();
     await screen.findAllByTestId('track');
-    expect(screen.getByText('Buscar pelo nome')).toBeInTheDocument();
+    expect(screen.getByLabelText('Buscar pelo nome')).toBeInTheDocument();
     expect(screen.getByText('Com traçado')).toBeInTheDocument();
     expect(screen.getByText('Pilotados recentemente')).toBeInTheDocument();
     expect(screen.getByText('Mais pilotado')).toBeInTheDocument();
@@ -331,7 +331,32 @@ describe('the list of tracks', () => {
     await i18n.changeLanguage('es-ES');
     open();
     await screen.findAllByTestId('track');
-    expect(screen.getByText('Buscar por nombre')).toBeInTheDocument();
+    expect(screen.getByLabelText('Buscar por nombre')).toBeInTheDocument();
     expect(screen.getByText('Con trazado')).toBeInTheDocument();
+  });
+});
+
+describe('the toolbar of the list of tracks', () => {
+  it('is one wrapping row of compact controls (search, game, sort, "has a layout") with no card around it', async () => {
+    open();
+    await screen.findAllByTestId('track');
+    const bar = screen.getByTestId('tracks-toolbar');
+    expect(bar).toBe(screen.getByRole('search', { name: 'Filter the tracks' }));
+    expect(bar).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    for (const chrome of ['border', 'bg-card', 'p-3', 'p-4', 'grid']) expect(bar).not.toHaveClass(chrome);
+    const parts = [...bar.children].map((child) => child.getAttribute('data-testid') ?? child.querySelector('[data-testid]')?.getAttribute('data-testid'));
+    expect(parts).toEqual(['filter-search', 'filter-game', 'sort-select', 'filter-layout']);
+  });
+
+  it('makes every control small (h-8, text-xs) with its name inside it, and has no caption above any of them', async () => {
+    open();
+    await screen.findAllByTestId('track');
+    for (const id of ['filter-game', 'sort-select', 'filter-search', 'filter-layout']) expect(screen.getByTestId(id)).toHaveClass('h-8', 'text-xs');
+    expect(screen.getByRole('combobox', { name: 'Game' })).toHaveTextContent(/^GameAll$/);
+    expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveTextContent(/^Sort byRecently driven$/);
+    // The search box has the magnifier inside it and is named without a visible caption.
+    const search = screen.getByRole('searchbox', { name: 'Search by name' });
+    expect(search.previousElementSibling?.tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId('tracks-toolbar').querySelector('label')).toBeNull();
   });
 });

@@ -201,9 +201,9 @@ function CarHistory() {
             <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
             {selectedCar && <p className="truncate text-sm text-muted-foreground" title={selectedCar.name}>{selectedCar.name}</p>}
           </div>
-          <TabsList aria-label={t('history.viewLabel', 'Trip view')} className="h-11 shrink-0 gap-1 rounded-xl border border-border bg-card p-1">
-            <TabsTrigger value="list" className="h-9 rounded-lg px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground sm:text-sm">{t('history.listView', 'List')}</TabsTrigger>
-            <TabsTrigger value="calendar" className="h-9 rounded-lg px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground sm:text-sm">{t('history.calendarView', 'Calendar')}</TabsTrigger>
+          <TabsList aria-label={t('history.viewLabel', 'Trip view')} className="h-9 shrink-0 gap-0.5 rounded-lg border border-border bg-card p-0.5">
+            <TabsTrigger value="list" className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t('history.listView', 'List')}</TabsTrigger>
+            <TabsTrigger value="calendar" className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t('history.calendarView', 'Calendar')}</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value={view} className="mt-4 space-y-4">
@@ -299,7 +299,7 @@ function CarHistory() {
         )}
         {total > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
-          <div className="flex items-center gap-2 text-sm"><label htmlFor="history-page">{t('history.page', 'Page')}</label><OptionSelect id="history-page" size="sm" className="w-auto min-w-[5.5rem] text-sm" value={String(page)} onChange={(value) => goPage(Number(value))} options={Array.from({ length: pages }, (_, index) => ({ value: String(index + 1), label: `${index + 1} / ${pages}` }))} /></div>
+          <OptionSelect size="sm" label={t('history.page', 'Page')} className="w-auto min-w-[8rem]" value={String(page)} onChange={(value) => goPage(Number(value))} options={Array.from({ length: pages }, (_, index) => ({ value: String(index + 1), label: `${index + 1} / ${pages}` }))} />
           <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
         </nav>}
         </TabsContent>

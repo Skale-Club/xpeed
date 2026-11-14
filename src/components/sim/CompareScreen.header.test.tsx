@@ -122,6 +122,10 @@ describe('the quick references', () => {
   it('chooses the best lap of another car on this track from a list', async () => {
     open(`/virtual/compare?a=${bestLap.id}`);
     const select = await screen.findByTestId('quick-other-car');
+    // The row of quick references is a plain wrapping row of small controls: the buttons and the drop-down are all h-8 / text-xs.
+    const row = screen.getByTestId('quick-pickers');
+    expect(row).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    for (const control of [screen.getByTestId('quick-mine'), select]) expect(control).toHaveClass('h-8', 'text-xs');
     expect(selectOptions(select)).toEqual([expect.stringMatching(/^Another car/), expect.stringMatching(/^Other Car · 0:\d\d\.\d{3}$/)]);
     chooseOption(select, /^Other Car/);
     await waitFor(() => expect(search().get('b')).toBe(carLap.id));

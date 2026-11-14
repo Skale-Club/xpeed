@@ -217,3 +217,16 @@ describe('finding a lap', () => {
     expect(screen.queryByText(/sample laps|Open lap files|drop/i)).not.toBeInTheDocument();
   });
 });
+
+describe('the lap picker of the compare screen', () => {
+  it('has its game, track and car as one wrapping row of compact drop-downs with the name inside each', async () => {
+    open('/virtual/compare');
+    const picker = await screen.findByTestId('lap-picker');
+    const bar = within(picker).getByTestId('picker-filters');
+    expect(bar).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    for (const chrome of ['grid', 'border', 'bg-card']) expect(bar).not.toHaveClass(chrome);
+    for (const id of ['picker-game', 'picker-track', 'picker-car']) expect(within(bar).getByTestId(id)).toHaveClass('h-8', 'text-xs');
+    expect(within(bar).getByRole('combobox', { name: 'Track' })).toHaveTextContent(/^Track/);
+    expect(bar.querySelector('label')).toBeNull();
+  });
+});

@@ -1,11 +1,13 @@
-import { useId } from 'react';
 import { OptionSelect } from '@/components/ui/option-select';
+import { FILTER_CELL } from '@/components/ui/filter-bar';
+import { cn } from '@/lib/utils';
 
 /**
- * A labelled drop-down with an "all" first entry (the app's Radix select, so it looks the same everywhere). By default the label is above it;
- * `inline` puts the label inside the control, on the left, for a compact toolbar.
+ * A drop-down of a filter toolbar, with an "all" first entry (the app's Radix select, so it looks the same everywhere). It is always the compact one:
+ * small (h-8, text-xs), the name inside the control on the left and the value on the right, so a bar of them is one row. `className` sets the width
+ * on a wide screen (a phone gets two to a row).
  */
-export function FilterSelect({ label, value, onChange, options, allLabel, disabled, testId, inline }: {
+export function FilterSelect({ label, value, onChange, options, allLabel, disabled, testId, className }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -13,28 +15,19 @@ export function FilterSelect({ label, value, onChange, options, allLabel, disabl
   allLabel: string;
   disabled?: boolean;
   testId?: string;
-  inline?: boolean;
+  className?: string;
 }) {
-  const id = useId();
-  if (inline) {
-    return (
-      <OptionSelect
-        size="sm"
-        label={label}
-        value={value}
-        onChange={onChange}
-        options={options}
-        emptyLabel={allLabel}
-        disabled={disabled}
-        data-testid={testId}
-        className="w-full min-w-[8.5rem] sm:w-32 sm:flex-none"
-      />
-    );
-  }
   return (
-    <div className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
-      <label htmlFor={id}>{label}</label>
-      <OptionSelect id={id} size="sm" className="h-9 w-full min-w-0 text-sm" value={value} onChange={onChange} options={options} emptyLabel={allLabel} disabled={disabled} data-testid={testId} />
-    </div>
+    <OptionSelect
+      size="sm"
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options}
+      emptyLabel={allLabel}
+      disabled={disabled}
+      data-testid={testId}
+      className={cn(FILTER_CELL, 'sm:w-32', className)}
+    />
   );
 }

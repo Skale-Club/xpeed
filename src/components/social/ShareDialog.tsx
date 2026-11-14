@@ -164,6 +164,7 @@ export function ShareDialog({ open, onOpenChange, target, title }: { open: boole
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-44">
               <PlainSelect
+                stacked
                 label={t('social.share.expiry', 'The link works')}
                 value={expiry}
                 onChange={(value) => setExpiry(value as 'never' | '7' | '30')}

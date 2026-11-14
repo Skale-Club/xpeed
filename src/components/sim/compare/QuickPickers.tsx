@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Award, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { bestLapOf } from '@/lib/sim/session-stats';
@@ -45,14 +46,14 @@ export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: stri
   if (!pb && !previousBest && otherCars.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('sessionsDash.compare.quickLabel', 'Quick references')} data-testid="quick-pickers">
+    <FilterBar role="group" aria-label={t('sessionsDash.compare.quickLabel', 'Quick references')} data-testid="quick-pickers">
       <span className="text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.quickTitle', 'Compare with')}</span>
       {pb && (
         <Button
           type="button"
           size="sm"
           variant={mineChosen ? 'default' : 'outline'}
-          className="h-8"
+          className="h-8 text-xs"
           disabled={pb.lapId === lapId}
           aria-pressed={mineChosen}
           onClick={() => onChoose(pb.lapId)}
@@ -68,7 +69,7 @@ export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: stri
           type="button"
           size="sm"
           variant={previousChosen ? 'default' : 'outline'}
-          className="h-8"
+          className="h-8 text-xs"
           aria-pressed={previousChosen}
           onClick={() => onChoose(previousBest.id)}
           data-testid="quick-previous"
@@ -81,7 +82,7 @@ export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: stri
       {otherCars.length > 0 && (
         <OptionSelect
           size="sm"
-          className="max-w-[14rem] text-sm"
+          className="w-full min-w-0 sm:w-56"
           aria-label={t('sessionsDash.compare.quickOtherCar', 'Another car')}
           value={otherChosen}
           onChange={(value) => value && onChoose(value)}
@@ -90,6 +91,6 @@ export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: stri
           data-testid="quick-other-car"
         />
       )}
-    </div>
+    </FilterBar>
   );
 }

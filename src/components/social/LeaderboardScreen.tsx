@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadMore, QueryGate } from '@/components/sim/SimStates';
@@ -155,13 +156,14 @@ export function LeaderboardScreen() {
           myMs={me.data?.me?.timeMs ?? null}
           scopeTabs={scopeTabs}
         >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="board-pickers">
+          <FilterBar data-testid="board-pickers">
             {gameIds.length > 1 && (
               <PlainSelect
                 label={t('social.leaderboard.game', 'Game')}
                 value={game ?? ''}
                 onChange={pickGame}
                 options={gameIds.map((id) => ({ value: id, label: games.name(id) }))}
+                className="sm:w-52"
                 testId="board-game"
               />
             )}
@@ -173,6 +175,7 @@ export function LeaderboardScreen() {
               placeholder={t('social.leaderboard.searchTrack', 'Search a track')}
               emptyText={t('social.leaderboard.noMatch', 'Nothing matches what you typed.')}
               moreText={t('social.leaderboard.keepTyping', 'More than this match: keep typing to narrow the list.')}
+              className="sm:min-w-[14rem] sm:flex-1"
               testId="board-track"
             />
             <SearchCombobox
@@ -183,9 +186,10 @@ export function LeaderboardScreen() {
               placeholder={t('social.leaderboard.searchCar', 'Search a car')}
               emptyText={t('social.leaderboard.noMatch', 'Nothing matches what you typed.')}
               moreText={t('social.leaderboard.keepTyping', 'More than this match: keep typing to narrow the list.')}
+              className="sm:min-w-[14rem] sm:flex-1"
               testId="board-car"
             />
-          </div>
+          </FilterBar>
         </BoardHero>
 
         {track && car && (

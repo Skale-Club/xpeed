@@ -101,3 +101,23 @@ describe('the controls of a list', () => {
     expect(onClear).toHaveBeenCalled();
   });
 });
+
+describe('the compact controls of a list toolbar', () => {
+  it('has a search box that is small, has the magnifier inside it, takes a row on a phone and has no caption above', () => {
+    const { container } = render(<SearchField label="Search by name" value="" onChange={() => {}} placeholder="Monza" testId="q" />);
+    const input = screen.getByTestId('q');
+    expect(input).toHaveClass('h-8', 'text-xs', 'focus-visible:ring-1');
+    expect(input).not.toHaveClass('h-9');
+    expect(input).toHaveAccessibleName('Search by name');
+    expect(input.previousElementSibling?.tagName.toLowerCase()).toBe('svg');
+    expect(container.querySelector('label')).toBeNull();
+    expect(container.firstElementChild).toHaveClass('basis-full', 'sm:flex-none', 'sm:w-52', 'min-w-0');
+  });
+
+  it('has a toggle that is the size of the drop-downs next to it (h-8, text-xs), with a thin focus ring, and sits two to a row on a phone', () => {
+    render(<ToggleChip pressed={false} onChange={() => {}} testId="t">Has a layout</ToggleChip>);
+    const toggle = screen.getByTestId('t');
+    expect(toggle).toHaveClass('h-8', 'text-xs', 'focus-visible:ring-1', 'min-w-0', 'flex-1', 'sm:flex-none');
+    expect(toggle).not.toHaveClass('h-9');
+  });
+});

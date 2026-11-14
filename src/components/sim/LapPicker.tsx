@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Award } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { useGames } from '@/lib/sim/games';
 import { useCars, useLaps, useOverview, usePbs, useTracks, type V1Lap } from '@/lib/sim/v1-client';
@@ -56,7 +57,7 @@ export function LapPicker({ onPick, start, exclude = [] }: { onPick: (lap: V1Lap
 
   return (
     <div className="space-y-3" data-testid="lap-picker">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <FilterBar data-testid="picker-filters">
         <FilterSelect
           label={t('modes.sessions.filterGame', 'Game')}
           allLabel={t('modes.picker.chooseGame', 'Choose a game')}
@@ -67,6 +68,7 @@ export function LapPicker({ onPick, start, exclude = [] }: { onPick: (lap: V1Lap
             setCar('');
           }}
           options={gameOptions.map((entry) => ({ value: entry.game, label: games.name(entry.game) }))}
+          className="sm:w-44"
           testId="picker-game"
         />
         <FilterSelect
@@ -76,6 +78,7 @@ export function LapPicker({ onPick, start, exclude = [] }: { onPick: (lap: V1Lap
           onChange={setTrack}
           options={tracks.items.map((item) => ({ value: item.id, label: item.name }))}
           disabled={!game}
+          className="sm:w-44"
           testId="picker-track"
         />
         <FilterSelect
@@ -85,9 +88,10 @@ export function LapPicker({ onPick, start, exclude = [] }: { onPick: (lap: V1Lap
           onChange={setCar}
           options={cars.items.map((item) => ({ value: item.id, label: item.name }))}
           disabled={!track}
+          className="sm:w-44"
           testId="picker-car"
         />
-      </div>
+      </FilterBar>
 
       {!game || !track ? (
         overview.isSuccess && gameOptions.length === 0 ? (

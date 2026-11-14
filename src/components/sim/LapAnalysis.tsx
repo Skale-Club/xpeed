@@ -109,7 +109,7 @@ function NoLayout({ game, track, listKept, onPick }: { game: string; track: stri
           <span id={pickLabelId}>{t('modes.compare.useKeptLayout', 'Or use a layout you kept (the game may name the track differently):')}</span>
           <OptionSelect
             size="sm"
-            className="w-auto max-w-full text-sm"
+            className="w-auto max-w-full"
             aria-labelledby={pickLabelId}
             value={picked}
             onChange={(value) => { if (!value) return; setPicked(value); onPick(value); }}
