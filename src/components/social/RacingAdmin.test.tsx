@@ -5,6 +5,7 @@ import i18n from '@/lib/i18n';
 import AdminPage from '@/pages/AdminPage';
 import { renderSocial, callsTo } from '@/test/social-render';
 import { fakeSocialState, type FakeSocialState } from '@/test/social-fake-server';
+import { chooseOption } from '@/test/select';
 import type { AdminLap, AdminReport } from '@/lib/sim/social-client';
 import { RacingAdmin } from './RacingAdmin';
 
@@ -113,10 +114,10 @@ describe('the reports', () => {
     const state = seeded();
     renderSocial(<RacingAdmin />, { state });
     await screen.findByTestId('admin-report-list');
-    fireEvent.change(screen.getByTestId('admin-status'), { target: { value: 'all' } });
+    chooseOption(screen.getByTestId('admin-status'), 'All');
     await waitFor(() => expect(reportCards()).toHaveLength(3));
     expect(callsTo(state, 'GET', '/admin/reports').some((call) => call.params.status === 'all')).toBe(true);
-    fireEvent.change(screen.getByTestId('admin-status'), { target: { value: 'actioned' } });
+    chooseOption(screen.getByTestId('admin-status'), 'Actioned');
     expect(await screen.findByTestId('admin-no-reports')).toBeInTheDocument();
   });
 
@@ -152,7 +153,7 @@ describe('the reports', () => {
     const state = seeded();
     state.reports = [{ ...profileReport('30000000-0000-4000-8000-000000000005'), status: 'actioned', target: { handle: 'rude_one', displayName: 'Rude One', visibility: 'public', hidden: true } }];
     renderSocial(<RacingAdmin />, { state });
-    fireEvent.change(await screen.findByTestId('admin-status'), { target: { value: 'actioned' } });
+    chooseOption(await screen.findByTestId('admin-status'), 'Actioned');
     fireEvent.click(await screen.findByTestId('report-unhide'));
     await waitFor(() => expect(callsTo(state, 'POST', '/admin/reports/30000000-0000-4000-8000-000000000005')).toHaveLength(1));
     expect(callsTo(state, 'POST', '/admin/reports/30000000-0000-4000-8000-000000000005')[0].body).toEqual({ action: 'unhide' });

@@ -7,6 +7,7 @@ import type { LapFile } from '@/lib/sim/lap-file';
 import { makeLapFixtures } from '@/test/lap-fixture';
 import { trackPath } from '@/lib/sim/analysis';
 import { circle, makeLayout } from '@/test/track-fixture';
+import { chooseOption, selectOptions } from '@/test/select';
 import { LapAnalysis, type LoadedLap } from './LapAnalysis';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
@@ -154,8 +155,9 @@ describe('the track layout', () => {
     await waitFor(() => expect(screen.getByTestId('no-layout')).toHaveTextContent(`Xpeed Companion has not sent the track layout of “${sample.name}” yet`));
     const select = await screen.findByTestId('pick-layout');
     // Only the layouts of the lap's game are offered.
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Choose a layout', 'Other Ring']);
-    fireEvent.change(select, { target: { value: 'u|sample|other ring|' } });
+    expect(select).toHaveTextContent('Choose a layout');
+    expect(selectOptions(select)).toEqual(['Other Ring']);
+    chooseOption(select, 'Other Ring');
     await waitFor(() => expect(screen.getByTestId('track-layout')).toBeInTheDocument());
     expect(linkLayout).toHaveBeenCalledWith(sample.game, sample.name, null, 'u|sample|other ring|');
     expect(screen.queryByTestId('no-layout')).not.toBeInTheDocument();

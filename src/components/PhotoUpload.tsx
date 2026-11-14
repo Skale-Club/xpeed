@@ -179,7 +179,7 @@ export default function PhotoUpload({ sessionId, onDraftChange }: PhotoUploadPro
           <label className="block min-w-0 space-y-1.5 text-sm">
             <span>{t('photos.typeLabel', 'What the attachment shows')}</span>
             <Select value={photoType} onValueChange={(v) => setPhotoType(v as PhotoType)}>
-              <SelectTrigger className="h-auto min-h-11 text-sm [&>span]:line-clamp-none [&>span]:whitespace-normal [&>span]:text-left" aria-label={t('photos.typeLabel', 'What the photo shows')}>
+              <SelectTrigger className="h-auto min-h-11 text-sm [&>span]:overflow-visible [&>span]:whitespace-normal [&>span]:text-clip [&>span]:text-left" aria-label={t('photos.typeLabel', 'What the photo shows')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

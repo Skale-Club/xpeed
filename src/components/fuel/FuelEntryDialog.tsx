@@ -8,6 +8,7 @@ import { Dialog, DialogPortal, DialogOverlay, DialogDescription, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { OptionSelect } from '@/components/ui/option-select';
 import { saveFuelEntry } from '@/lib/fuel-api';
 import { US_GALLON, validateFuelEntry, type FuelEntry } from '@/lib/fuel-ledger';
 import { KM_PER_MILE } from '@/lib/vehicle-care';
@@ -109,7 +110,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
           <details className="border-b border-border/60 pb-3"><summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="h-4 w-4" />{t('fuel.simple.editDetails', 'Date & other options')}<ChevronDown className="ml-auto h-4 w-4" /></summary>
             <div className="space-y-4 pb-2 pt-4">
               <div className="space-y-2"><Label htmlFor="fuel-date">{t('fuel.simple.date', 'Date and time')}</Label><Input id="fuel-date" type="datetime-local" disabled={busy} value={draft.at} onChange={event => setDraft(d => ({ ...d, ...manual(), at: event.target.value }))} /></div>
-              <div className="space-y-2"><Label htmlFor="fuel-currency">{t('fuel.currency', 'Currency')}</Label><select id="fuel-currency" className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" value={draft.currency} disabled={busy} onChange={event => setDraft(d => ({ ...d, ...manual(), currency: event.target.value as FuelEntry['currency'] }))}>{['USD', 'BRL', 'EUR'].map(value => <option key={value}>{value}</option>)}</select></div>
+              <div className="space-y-2"><Label htmlFor="fuel-currency">{t('fuel.currency', 'Currency')}</Label><OptionSelect id="fuel-currency" className="h-11 rounded-xl" value={draft.currency} disabled={busy} onChange={value => setDraft(d => ({ ...d, ...manual(), currency: value as FuelEntry['currency'] }))} options={['USD', 'BRL', 'EUR'].map(value => ({ value, label: value }))} /></div>
               {fill && <><div className="space-y-2"><Label htmlFor="fuel-odometer">{t('fuel.odometer', 'Odometer (optional)')} ({distanceUnit})</Label><Input id="fuel-odometer" type="number" inputMode="decimal" min="0" step="any" disabled={busy} value={draft.odometer} onChange={event => setDraft(d => ({ ...d, odometer: event.target.value }))} /></div>
                 <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy} checked={draft.fullTank} onChange={event => setDraft(d => ({ ...d, fullTank: event.target.checked }))} />{t('fuel.simple.fullTank', 'I filled the tank completely')}</label></>}
               <div className="space-y-2"><Label htmlFor="fuel-note">{t('fuel.note', 'Station or note (optional)')}</Label><Input id="fuel-note" maxLength={1000} disabled={busy} value={draft.note} onChange={event => setDraft(d => ({ ...d, note: event.target.value }))} /></div>
@@ -117,7 +118,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
           </details>
           {!fill && <details><summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-sm text-muted-foreground">{t('fuel.simple.average', 'Use a U.S. average instead')}<ChevronDown className="h-4 w-4" /></summary><div className="mt-3 space-y-3">
             <p className="text-xs text-muted-foreground">{t('fuel.simple.averageHint', 'Optional weekly average for regular gasoline. Review the price and date before saving.')}</p>
-            <select aria-label={t('fuel.region', 'Price region')} className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" disabled={busy} value={region} onChange={event => setRegion(event.target.value)}>{Object.entries(REGIONS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+            <OptionSelect aria-label={t('fuel.region', 'Price region')} className="h-11 rounded-xl" disabled={busy} value={region} onChange={setRegion} options={Object.entries(REGIONS).map(([key, label]) => ({ value: key, label }))} />
             <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void lookup()}>{lookingUp && <Loader2 className="h-4 w-4 animate-spin" />}{t('fuel.lookup', 'Look up regional average')}</Button>
           </div></details>}
           {draft.source === 'regional' && <p className="text-xs text-muted-foreground">{draft.region} · {draft.at.slice(0, 10)} · <a href={draft.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline">EIA</a> · {t('fuel.estimatedLabel', 'estimated')}</p>}

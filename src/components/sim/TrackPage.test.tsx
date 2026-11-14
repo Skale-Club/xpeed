@@ -11,6 +11,7 @@ import { makeLapFixtures } from '@/test/lap-fixture';
 import { whereNow } from '@/test/sim-render';
 import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { buildCatalog, fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, selectOptions } from '@/test/select';
 import { TrackPage } from './TrackPage';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span>{name}</span> }));
@@ -124,11 +125,11 @@ describe('the track page', () => {
     const rows = () => JSON.parse(screen.getByTestId('chart').getAttribute('data-rows') as string) as Array<{ day: string; bestS: number | null; laps: number }>;
     await screen.findByTestId('chart');
     expect(rows().map((row) => row.day)).toEqual(['2026-11-10', '2026-11-12', '2026-11-13']);
-    const pick = screen.getByTestId('track-progress-car') as HTMLSelectElement;
-    expect([...pick.options].map((option) => option.textContent)).toEqual(['All cars', 'Ferrari 499P', 'Toyota GR010']);
-    fireEvent.change(pick, { target: { value: toyota.id } });
+    const pick = screen.getByTestId('track-progress-car');
+    expect(selectOptions(pick)).toEqual(['All cars', 'Ferrari 499P', 'Toyota GR010']);
+    chooseOption(pick, 'Toyota GR010');
     await waitFor(() => expect(rows().map((row) => [row.day, row.bestS, row.laps])).toEqual([['2026-11-12', 100.5, 2], ['2026-11-13', 101.5, 1]]));
-    fireEvent.change(pick, { target: { value: '' } });
+    chooseOption(pick, 'All cars');
     await waitFor(() => expect(rows()).toHaveLength(3));
   });
 

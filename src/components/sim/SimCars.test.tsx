@@ -5,6 +5,7 @@ import type { V1CarItem } from '@/lib/sim/v1-client';
 import { renderGarage } from '@/test/garage-render';
 import { whereNow } from '@/test/sim-render';
 import { buildCatalog, fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, selectOptions, waitForOptions } from '@/test/select';
 import { SimCars } from './SimCars';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span>{name}</span> }));
@@ -99,8 +100,8 @@ describe('the list of cars', () => {
   it('filters by game', async () => {
     open();
     await waitFor(() => expect(screen.getAllByTestId('cars-car')).toHaveLength(3));
-    await waitFor(() => expect((screen.getByTestId('filter-game') as HTMLSelectElement).options.length).toBeGreaterThan(2));
-    fireEvent.change(screen.getByTestId('filter-game'), { target: { value: 'ac' } });
+    await waitForOptions(() => screen.getByTestId('filter-game'), (labels) => labels.length > 2);
+    chooseOption(screen.getByTestId('filter-game'), 'Assetto Corsa');
     await waitFor(() => expect(screen.getAllByTestId('cars-car')).toHaveLength(1));
     expect(screen.getByTestId('cars-car')).toHaveTextContent('Porsche 911 GT3 R');
     expect(state.requests.filter((request) => request.path === '/cars').at(-1)?.params.game).toBe('ac');
@@ -110,9 +111,9 @@ describe('the list of cars', () => {
   it('filters by class, offering the classes the cars have', async () => {
     open();
     await waitFor(() => expect(screen.getAllByTestId('cars-car')).toHaveLength(3));
-    const pick = screen.getByTestId('filter-class') as HTMLSelectElement;
-    expect([...pick.options].map((option) => option.textContent)).toEqual(['All', 'GT3', 'Hypercar']);
-    fireEvent.change(pick, { target: { value: 'Hypercar' } });
+    const pick = screen.getByTestId('filter-class');
+    expect(selectOptions(pick)).toEqual(['All', 'GT3', 'Hypercar']);
+    chooseOption(pick, 'Hypercar');
     await waitFor(() => expect(screen.getAllByTestId('cars-car')).toHaveLength(2));
     expect(screen.queryByText('Porsche 911 GT3 R')).not.toBeInTheDocument();
     expect(whereNow(screen.getByTestId('where')).searchParams.get('class')).toBe('Hypercar');
@@ -144,14 +145,14 @@ describe('the list of cars', () => {
     await waitFor(() => expect(screen.getAllByTestId('cars-car')).toHaveLength(4));
     const order = () => screen.getAllByTestId('cars-car').map((card) => ['Alpine A424', 'Ferrari 499P', 'Porsche 911 GT3 R', 'Toyota GR010'].find((name) => card.textContent?.includes(name)));
     expect(order()).toEqual(['Ferrari 499P', 'Porsche 911 GT3 R', 'Toyota GR010', 'Alpine A424']); // by last driven
-    const sort = screen.getByTestId('sort-select') as HTMLSelectElement;
-    expect([...sort.options].map((option) => option.textContent)).toEqual(['Recently driven', 'Most driven', 'Name (A to Z)']);
-    fireEvent.change(sort, { target: { value: 'az' } });
+    const sort = screen.getByTestId('sort-select');
+    expect(selectOptions(sort)).toEqual(['Recently driven', 'Most driven', 'Name (A to Z)']);
+    chooseOption(sort, 'Name (A to Z)');
     await waitFor(() => expect(order()).toEqual(['Alpine A424', 'Ferrari 499P', 'Porsche 911 GT3 R', 'Toyota GR010']));
-    fireEvent.change(sort, { target: { value: 'most' } });
+    chooseOption(sort, 'Most driven');
     await waitFor(() => expect(order()).toEqual(['Alpine A424', 'Ferrari 499P', 'Porsche 911 GT3 R', 'Toyota GR010']));
     expect(whereNow(screen.getByTestId('where')).searchParams.get('sort')).toBe('most');
-    fireEvent.change(sort, { target: { value: 'recent' } });
+    chooseOption(sort, 'Recently driven');
     await waitFor(() => expect(order()).toEqual(['Ferrari 499P', 'Porsche 911 GT3 R', 'Toyota GR010', 'Alpine A424']));
     expect(whereNow(screen.getByTestId('where')).searchParams.has('sort')).toBe(false);
   });

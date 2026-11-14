@@ -6,6 +6,7 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { renderSocial, callsTo } from '@/test/social-render';
 import { fakeSocialState, type FakeSocialState } from '@/test/social-fake-server';
 import { ref, v1Lap, v1Session } from '@/test/v1-fake-server';
+import { chooseOption } from '@/test/select';
 import { SessionPage } from '@/components/sim/SessionPage';
 import { ShareButton, ShareDialog } from './ShareDialog';
 
@@ -68,7 +69,7 @@ describe('the share dialog', () => {
     const state = seeded();
     renderSocial(<Harness />, { state });
     const dialog = await openDialog();
-    fireEvent.change(within(dialog).getByTestId('share-expiry'), { target: { value: '7' } });
+    chooseOption(within(dialog).getByTestId('share-expiry'), 'For 7 days');
     fireEvent.click(within(dialog).getByTestId('share-create'));
     await within(dialog).findByTestId('share-url');
     expect(callsTo(state, 'POST', '/shares')[0].body).toEqual({ lapId: LAP_ID, expiresInDays: 7 });

@@ -6,6 +6,7 @@ import i18n from '@/lib/i18n';
 import { renderGarage } from '@/test/garage-render';
 import { whereNow } from '@/test/sim-render';
 import { buildCatalog, fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, selectOptions } from '@/test/select';
 import { CarPage } from './CarPage';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span>{name}</span> }));
@@ -147,9 +148,9 @@ describe('the car page', () => {
     expect(screen.getByTestId('car-progress-chart')).toHaveAttribute('aria-label', 'Laps per day: 6 laps on 2 days.');
     expect(screen.getByText('Progress on Monza')).toBeInTheDocument();
     // The track is chosen from a list of the tracks the car has a daily best on.
-    const pick = screen.getByTestId('car-progress-track') as HTMLSelectElement;
-    expect([...pick.options].map((option) => option.textContent)).toEqual(['Monza', 'Spa-Francorchamps']);
-    fireEvent.change(pick, { target: { value: spa.id } });
+    const pick = screen.getByTestId('car-progress-track');
+    expect(selectOptions(pick)).toEqual(['Monza', 'Spa-Francorchamps']);
+    chooseOption(pick, 'Spa-Francorchamps');
     await waitFor(() => expect(rows().map((row) => row.bestS)).toEqual([null, 134]));
     expect(screen.getByText('Progress on Spa-Francorchamps')).toBeInTheDocument();
   });

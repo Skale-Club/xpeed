@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -228,14 +229,13 @@ function MaintenanceScreen() {
                   <Label htmlFor="m-cost">{t('maint.costLabel', 'Cost')}</Label>
                   <div className="flex gap-2">
                     <Input id="m-cost" type="number" inputMode="decimal" min="0" step="0.01" placeholder="80" value={cost} onChange={e => setCost(e.target.value)} className="min-w-0 flex-1" />
-                    <select
+                    <OptionSelect
                       aria-label={t('maint.currencyLabel', 'Currency')}
-                      className="h-10 rounded-md border border-input bg-background px-2 text-sm"
+                      className="w-auto min-w-[5.5rem]"
                       value={currency}
-                      onChange={e => setPickedCurrency(e.target.value)}
-                    >
-                      {CURRENCIES.map(code => <option key={code} value={code}>{code}</option>)}
-                    </select>
+                      onChange={setPickedCurrency}
+                      options={CURRENCIES.map(code => ({ value: code, label: code }))}
+                    />
                   </div>
                 </div>
                 <div className="space-y-1.5">

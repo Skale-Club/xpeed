@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import i18n from '@/lib/i18n';
 import { renderSim, whereNow } from '@/test/sim-render';
 import { fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
+import { chooseOption, waitForOptions } from '@/test/select';
 import type { V1CarItem, V1TrackItem } from '@/lib/sim/v1-client';
 import { SessionsList } from './SessionsList';
 
@@ -103,25 +104,25 @@ describe('the filters', () => {
     const { state } = renderSim(<SessionsList />, { state: seeded() });
     await screen.findAllByTestId('session');
     // The games come from the overview.
-    await waitFor(() => expect(within(screen.getByTestId('filter-game')).getAllByRole('option').length).toBeGreaterThan(1));
+    await waitForOptions(() => screen.getByTestId('filter-game'), (labels) => labels.length > 1);
 
-    fireEvent.change(screen.getByTestId('filter-game'), { target: { value: 'lmu' } });
+    chooseOption(screen.getByTestId('filter-game'), 'Le Mans Ultimate');
     await waitFor(() => expect(state.requests.some((request) => request.path === '/sessions' && request.params.game === 'lmu')).toBe(true));
     expect(whereNow(screen.getByTestId('where')).searchParams.get('game')).toBe('lmu');
     await waitFor(() => expect(screen.getAllByTestId('session')).toHaveLength(1));
     // The track and car lists are those of the game.
-    await waitFor(() => expect(within(screen.getByTestId('filter-track')).getAllByRole('option').map((option) => option.textContent)).toEqual(['All', 'Monza']));
+    await waitForOptions(() => screen.getByTestId('filter-track'), (labels) => labels.join('|') === 'All|Monza');
 
-    fireEvent.change(screen.getByTestId('filter-track'), { target: { value: monza.id } });
+    chooseOption(screen.getByTestId('filter-track'), 'Monza');
     await waitFor(() => expect(state.requests.some((request) => request.path === '/sessions' && request.params.track === monza.id && request.params.game === 'lmu')).toBe(true));
-    await waitFor(() => expect(within(screen.getByTestId('filter-car')).getAllByRole('option').length).toBe(2));
-    fireEvent.change(screen.getByTestId('filter-car'), { target: { value: ferrari.id } });
+    await waitForOptions(() => screen.getByTestId('filter-car'), (labels) => labels.length === 2);
+    chooseOption(screen.getByTestId('filter-car'), 'Ferrari 499P');
     await waitFor(() => expect(state.requests.some((request) => request.path === '/sessions' && request.params.car === ferrari.id)).toBe(true));
     const address = whereNow(screen.getByTestId('where')).searchParams;
     expect([address.get('game'), address.get('track'), address.get('car')]).toEqual(['lmu', monza.id, ferrari.id]);
 
     // Another game starts the track and the car over.
-    fireEvent.change(screen.getByTestId('filter-game'), { target: { value: 'ac' } });
+    chooseOption(screen.getByTestId('filter-game'), 'Assetto Corsa');
     await waitFor(() => expect(whereNow(screen.getByTestId('where')).searchParams.get('track')).toBeNull());
     expect(whereNow(screen.getByTestId('where')).searchParams.get('car')).toBeNull();
   });

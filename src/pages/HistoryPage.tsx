@@ -7,6 +7,7 @@ import AppLayout from '@/components/AppLayout';
 import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/ui/option-select';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -298,7 +299,7 @@ function CarHistory() {
         )}
         {total > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
-          <label className="flex items-center gap-2 text-sm">{t('history.page', 'Page')}<select className="rounded border border-border bg-background p-2" value={page} onChange={(event) => goPage(Number(event.target.value))}>{Array.from({ length: pages }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} / {pages}</option>)}</select></label>
+          <div className="flex items-center gap-2 text-sm"><label htmlFor="history-page">{t('history.page', 'Page')}</label><OptionSelect id="history-page" size="sm" className="w-auto min-w-[5.5rem] text-sm" value={String(page)} onChange={(value) => goPage(Number(value))} options={Array.from({ length: pages }, (_, index) => ({ value: String(index + 1), label: `${index + 1} / ${pages}` }))} /></div>
           <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
         </nav>}
         </TabsContent>

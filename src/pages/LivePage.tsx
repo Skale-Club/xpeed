@@ -14,6 +14,7 @@ import {
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { OptionSelect } from '@/components/ui/option-select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { rememberedAdapterName } from '@/lib/obd/elm327';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -276,9 +277,7 @@ export default function LivePage() {
             <DialogTitle>{expanded && (byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded)}</DialogTitle>
             <DialogDescription>{t('live.timelineHint', 'Live history from this connection, up to 30 minutes. Missing readings remain gaps.')}</DialogDescription>
           </DialogHeader>
-          <select className="rounded-md border border-border bg-background p-2 text-sm" aria-label={t('live.timelinePeriod', 'Timeline period')} value={timelineMs} onChange={(event) => setTimelineMs(Number(event.target.value))}>
-            {[1, 5, 15, 30].map((minutes) => <option key={minutes} value={minutes * 60_000}>{minutes} min</option>)}
-          </select>
+          <OptionSelect className="w-auto min-w-[7rem] self-start text-sm" aria-label={t('live.timelinePeriod', 'Timeline period')} value={String(timelineMs)} onChange={(value) => setTimelineMs(Number(value))} options={[1, 5, 15, 30].map((minutes) => ({ value: String(minutes * 60_000), label: `${minutes} min` }))} />
           {expanded && <ChartWidget large label={byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded} unit={sensorUnit(expanded)} now={chartNow} windowMs={timelineMs}
             points={[...history.map((point) => ({ at: point.at, v: sensorValue(expanded, point.values[expanded]) })), ...(!fresh ? [{at: chartNow, v: null}] : [])]}
             min={sensorValue(expanded, byHeader.get(expanded)?.min ?? 0) ?? 0} max={sensorValue(expanded, byHeader.get(expanded)?.def?.pid === 0x0c ? 6000 : byHeader.get(expanded)?.max) ?? undefined} />}
@@ -306,7 +305,7 @@ function LayoutEditor({ widgets, available, byHeader, hasBlocks, onChange }: {
     const ch = byHeader.get(header);
     return ch ? channelLabel(ch, t) : header.replace(/ \([^)]*\)$/, '');
   };
-  const selectClass = 'h-10 rounded-md border border-input bg-background px-2 text-sm';
+  const selectClass = 'w-auto min-w-[7rem]';
 
   const add = () => {
     if (kind === 'blocks') onChange([...widgets, { id: newWidgetId(), kind }]);
@@ -341,16 +340,9 @@ function LayoutEditor({ widgets, available, byHeader, hasBlocks, onChange }: {
       <div className="space-y-2 rounded-md border border-border p-2">
         <p className="text-xs font-medium">{t('live.addWidget', 'Add widget')}</p>
         <div className="flex flex-wrap gap-2">
-          <select aria-label={t('live.widgetType', 'Widget type')} className={selectClass} value={kind} onChange={(e) => setKind(e.target.value as WidgetKind)}>
-            {(['gauge', 'chart', 'value', ...(hasBlocks ? ['blocks'] : [])] as WidgetKind[]).map((k) => (
-              <option key={k} value={k}>{kindLabel(k)}</option>
-            ))}
-          </select>
+          <OptionSelect aria-label={t('live.widgetType', 'Widget type')} className={selectClass} value={kind} onChange={(value) => setKind(value as WidgetKind)} options={(['gauge', 'chart', 'value', ...(hasBlocks ? ['blocks'] : [])] as WidgetKind[]).map((k) => ({ value: k, label: kindLabel(k) }))} />
           {kind !== 'blocks' && (
-            <select aria-label={t('live.widgetChannel', 'Parameter')} className={`${selectClass} flex-1 min-w-0`} value={channel} onChange={(e) => setChannel(e.target.value)}>
-              <option value="">{t('live.pickChannel', 'Choose a parameter…')}</option>
-              {available.map((h) => <option key={h} value={h}>{nameOf(h)}</option>)}
-            </select>
+            <OptionSelect aria-label={t('live.widgetChannel', 'Parameter')} className={`${selectClass} min-w-[10rem] flex-1`} value={channel} onChange={setChannel} emptyLabel={t('live.pickChannel', 'Choose a parameter…')} options={available.map((h) => ({ value: h, label: nameOf(h) }))} />
           )}
           <Button variant="outline" onClick={add} disabled={kind !== 'blocks' && !channel}>
             <Plus className="w-3.5 h-3.5 mr-1" />
