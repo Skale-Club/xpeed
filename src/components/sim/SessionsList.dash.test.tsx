@@ -4,6 +4,7 @@ import i18n from '@/lib/i18n';
 import { renderSim, whereNow } from '@/test/sim-render';
 import { fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
 import type { V1CarItem, V1TrackItem } from '@/lib/sim/v1-client';
+import { chooseOption } from '@/test/select';
 import { SessionsList } from './SessionsList';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
@@ -236,16 +237,16 @@ describe('the filters in the address', () => {
     const { state } = seeded();
     renderSim(<SessionsList />, { state, route: '/virtual/sessions?game=lmu' });
     await screen.findAllByTestId('session');
-    fireEvent.click(screen.getByTestId('kind-race'));
+    chooseOption(screen.getByTestId('filter-kind'), 'Race');
     expect(search().get('kind')).toBe('race');
     expect(search().get('game')).toBe('lmu'); // the others are kept
-    fireEvent.click(screen.getByTestId('period-30d'));
+    chooseOption(screen.getByTestId('filter-period'), '30 days');
     expect(search().get('period')).toBe('30d');
     fireEvent.click(screen.getByTestId('filter-valid'));
     expect(search().get('valid')).toBe('1');
-    fireEvent.click(screen.getByTestId('kind-all'));
+    chooseOption(screen.getByTestId('filter-kind'), 'All');
     expect(search().get('kind')).toBeNull();
-    fireEvent.click(screen.getByTestId('period-all'));
+    chooseOption(screen.getByTestId('filter-period'), 'Any time');
     expect(search().get('period')).toBeNull();
     fireEvent.click(screen.getByTestId('filter-valid'));
     expect(search().get('valid')).toBeNull();
@@ -256,21 +257,18 @@ describe('the filters in the address', () => {
     renderSim(<SessionsList />, { state, route: '/virtual/sessions?kind=race' });
     await waitFor(() => expect(sessionsShown()).toHaveLength(1));
     expect(sessionsShown()[0].closest('a')).toHaveAttribute('href', `/virtual/sessions/${fast.id}`);
-    expect(screen.getByTestId('kind-race')).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('kind-all')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('filter-kind')).toHaveTextContent('Race');
     expect(within(screen.getByTestId('active-filters')).getByTestId('chip-kind')).toHaveTextContent('Race');
     expect(screen.getByTestId('sum-sessions-value')).toHaveTextContent('1');
   });
 
-  it('move between the choices of a group with the arrow keys', async () => {
+  it('pick the type in the drop-down: the choice is shown on the control and kept in the address', async () => {
     const { state } = seeded();
     renderSim(<SessionsList />, { state });
     await screen.findAllByTestId('session');
-    fireEvent.keyDown(screen.getByTestId('kind-all'), { key: 'ArrowRight' });
+    chooseOption(screen.getByTestId('filter-kind'), 'Practice');
     expect(search().get('kind')).toBe('practice');
-    expect(screen.getByTestId('kind-practice')).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByTestId('kind-practice')).toHaveAttribute('tabindex', '0');
-    expect(screen.getByTestId('kind-all')).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByTestId('filter-kind')).toHaveTextContent('Practice');
   });
 
   it('keeps only the sessions of the period, counted back from now', async () => {
@@ -283,11 +281,11 @@ describe('the filters in the address', () => {
     });
     renderSim(<SessionsList />, { state, route: '/virtual/sessions?period=7d' });
     await waitFor(() => expect(sessionsShown()).toHaveLength(1));
-    fireEvent.click(screen.getByTestId('period-30d'));
+    chooseOption(screen.getByTestId('filter-period'), '30 days');
     await waitFor(() => expect(sessionsShown()).toHaveLength(2));
-    fireEvent.click(screen.getByTestId('period-90d'));
+    chooseOption(screen.getByTestId('filter-period'), '90 days');
     await waitFor(() => expect(sessionsShown()).toHaveLength(2));
-    fireEvent.click(screen.getByTestId('period-1y'));
+    chooseOption(screen.getByTestId('filter-period'), '12 months');
     await waitFor(() => expect(sessionsShown()).toHaveLength(3));
   });
 

@@ -5,7 +5,6 @@ import { Switch } from '@/components/ui/switch';
 import { useGames } from '@/lib/sim/games';
 import { SESSION_KINDS, SESSION_PERIODS, activeFilterCount, type FilterKey, type KindFilter, type SessionFilters, type SessionPeriod } from '@/lib/sim/sessions-view';
 import { FilterSelect } from '../FilterSelect';
-import { Segmented } from './Segmented';
 
 interface Option { value: string; label: string }
 
@@ -53,27 +52,29 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
   const named = (list: Option[], value: string) => list.find((option) => option.value === value)?.label ?? value;
 
   return (
-    <section className="rounded-lg border border-border bg-card p-2" aria-label={t('sessionsDash.filters.title', 'Filters')} data-testid="session-filters">
-      {/* One compact row that wraps on a small screen: the three drop-downs (label inside), the two segmented controls, and the switch on the right. */}
+    <section aria-label={t('sessionsDash.filters.title', 'Filters')} data-testid="session-filters">
+      {/* One row of five small drop-downs (the label inside each) and the switch on the right; it wraps only on a narrow screen. */}
       <div className="flex flex-wrap items-center gap-2" data-testid="filter-toolbar">
         <FilterSelect inline label={t('modes.sessions.filterGame', 'Game')} allLabel={all} value={filters.game} onChange={(value) => onChange('game', value)} options={gameOptions} testId="filter-game" />
         <FilterSelect inline label={t('modes.sessions.filterTrack', 'Track')} allLabel={all} value={filters.track} onChange={(value) => onChange('track', value)} options={trackOptions} testId="filter-track" />
         <FilterSelect inline label={t('modes.sessions.filterCar', 'Car')} allLabel={all} value={filters.car} onChange={(value) => onChange('car', value)} options={carOptions} testId="filter-car" />
-        <Segmented
-          label={t('sessionsDash.filters.kind', 'Kind of session')}
+        <FilterSelect
+          inline
+          label={t('sessionsDash.filters.kindShort', 'Type')}
+          allLabel={all}
           value={filters.kind}
           onChange={(value) => onChange('kind', value)}
-          options={[{ value: '', label: all }, ...SESSION_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] }))]}
+          options={SESSION_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] }))}
           testId="filter-kind"
-          optionTestId={(value) => `kind-${value || 'all'}`}
         />
-        <Segmented
+        <FilterSelect
+          inline
           label={t('sessionsDash.filters.period', 'Period')}
+          allLabel={t('sessionsDash.filters.anyTime', 'Any time')}
           value={filters.period}
           onChange={(value) => onChange('period', value)}
-          options={[{ value: '', label: t('sessionsDash.filters.anyTime', 'Any time') }, ...SESSION_PERIODS.map((period) => ({ value: period, label: periodLabels[period] }))]}
+          options={SESSION_PERIODS.map((period) => ({ value: period, label: periodLabels[period] }))}
           testId="filter-period"
-          optionTestId={(value) => `period-${value || 'all'}`}
         />
         <label className="flex h-8 cursor-pointer items-center gap-2 text-xs sm:ml-auto" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
           <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={t('sessionsDash.filters.validOnly', 'Valid laps only')} />

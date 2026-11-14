@@ -2687,6 +2687,7 @@
       "active": "Filtrando por",
       "anyTime": "Cualquier fecha",
       "kind": "Tipo de sesión",
+      "kindShort": "Tipo",
       "period": "Período",
       "removeFilter": "Quitar el filtro: {{filter}}",
       "title": "Filtros",

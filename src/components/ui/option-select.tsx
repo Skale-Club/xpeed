@@ -96,7 +96,7 @@ export function OptionSelect({
         aria-labelledby={ariaLabelledBy}
         data-testid={testId}
         className={cn(
-          size === 'sm' ? 'h-8 gap-1.5 rounded-lg py-0 pl-2.5 pr-2 text-xs' : 'h-10 py-0',
+          size === 'sm' ? 'h-8 gap-1.5 rounded-lg py-0 pl-2.5 pr-2 text-xs focus-visible:ring-1 focus-visible:ring-offset-0' : 'h-10 py-0',
           'min-w-0',
           // Radix ignores a className on SelectValue, so the value (the last span) is styled from here: it takes the room that is left, on the right.
           label && '[&>span:last-of-type]:flex-1 [&>span:last-of-type]:text-right [&>span:last-of-type]:text-foreground',

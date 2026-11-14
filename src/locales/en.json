@@ -2687,6 +2687,7 @@
       "active": "Filtering by",
       "anyTime": "Any time",
       "kind": "Kind of session",
+      "kindShort": "Type",
       "period": "Period",
       "removeFilter": "Remove the filter: {{filter}}",
       "title": "Filters",
