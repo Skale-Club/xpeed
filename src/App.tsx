@@ -172,7 +172,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path="/virtual/cars/:id" element={<SimCarPage />} />
         {/* A driver's page (reached from the leaderboards and the friends lists). */}
         <Route path="/virtual/drivers/:handle" element={<SocialDriverPage />} />
-        {/* Profile and Privacy have no menu entry (they are linked from Settings, the leaderboards and the driver page), so their routes are named here. */}
+        {/* Profile and Privacy are reached from Settings, not from the menu: they need routes of their own. */}
         <Route path="/virtual/profile" element={<SocialProfilePage />} />
         <Route path="/virtual/privacy" element={<SocialPrivacyPage />} />
       </Route>

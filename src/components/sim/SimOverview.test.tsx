@@ -523,7 +523,7 @@ describe('language', () => {
 });
 
 describe('Game cars', () => {
-  it('lists the cars by game with their best valid lap', async () => {
+  it('lists the cars, each with its game, its laps and its best valid lap', async () => {
     const state = fakeV1State({
       cars: [
         { id: FERRARI.id, game: 'lmu', name: FERRARI.name, brand: null, class: null, lapCount: 8, validLapCount: 6, sessionCount: 2, trackCount: 3, bestLapMs: 99_000, lastDrivenAt: '2026-11-12T10:00:00.000Z' },
@@ -531,13 +531,16 @@ describe('Game cars', () => {
       ],
     });
     renderSim(<SimCars />, { state, route: '/virtual/cars' });
-    await waitFor(() => expect(screen.getAllByTestId('cars-game')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('cars-car')).toHaveLength(2));
     const [lmu, ac] = screen.getAllByTestId('cars-car');
     expect(lmu).toHaveTextContent('Ferrari 499P');
-    expect(lmu).toHaveTextContent('Laps: 8');
-    expect(lmu).toHaveTextContent('1:39.000');
+    expect(lmu).toHaveTextContent('Le Mans Ultimate');
+    expect(lmu).toHaveTextContent('75% valid');
+    expect(within(lmu).getByTestId('car-laps')).toHaveTextContent('8');
+    // The fake holds no laps, so each card's detail is a 404: the card then says the best lap of the list item itself.
+    await waitFor(() => expect(lmu).toHaveTextContent('1:39.000'));
     expect(ac).toHaveTextContent('Porsche 911 GT3 R');
-    expect(ac).toHaveTextContent('–');
+    await waitFor(() => expect(ac).toHaveTextContent('–'));
   });
 
   it('invites to connect Xpeed Companion when there are no cars', async () => {
