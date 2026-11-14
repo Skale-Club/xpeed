@@ -1,9 +1,9 @@
 import { memo, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Award, ChevronRight, Gamepad2 } from 'lucide-react';
+import { Award, ChevronRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { useGames } from '@/lib/sim/games';
+import { GameCover } from '../GameCover';
 import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { sessionPath } from '@/lib/sim/routes';
 import { consistency } from '@/lib/sim/session-stats';
@@ -20,17 +20,6 @@ import { useTimeOfDay } from './use-time-of-day';
 import { useSessionPreview } from './use-session-preview';
 
 const SPARK = { width: 104, height: 30 } as const;
-
-/** The cover of the game, or a controller icon until it loads (and for a game without one). */
-function GameCover({ game }: { game: string }) {
-  const games = useGames();
-  const cover = games.cover(game);
-  return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted sm:h-12 sm:w-12" aria-hidden="true" data-testid="session-cover">
-      {cover ? <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" /> : <Gamepad2 className="h-5 w-5 text-muted-foreground" />}
-    </span>
-  );
-}
 
 function Metric({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
   return (
@@ -86,7 +75,7 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
       <Link to={sessionPath(session.id)} className="group block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="session-link">
         <Card className="border-border bg-card transition-colors group-hover:bg-muted/30" data-testid="session">
           <div className="flex gap-3 p-3 sm:p-4">
-            <GameCover game={session.game} />
+            <GameCover game={session.game} className="w-10 sm:w-12" testId="session-cover" />
             <div className="min-w-0 flex-1 space-y-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">

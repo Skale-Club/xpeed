@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { useGames } from '@/lib/sim/games';
+import { GameCover } from './GameCover';
 import type { SessionKind } from '@/lib/sim/v1-client';
 
 /** The kind of a session as a small badge: practice, qualifying or race (nothing for one the game did not say). */
@@ -14,10 +15,9 @@ export function KindBadge({ kind }: { kind: SessionKind }) {
 /** The game: its cover and its name. */
 export function GameBadge({ game }: { game: string }) {
   const games = useGames();
-  const cover = games.cover(game);
   return (
     <Badge variant="outline" className="gap-1.5" data-testid="session-game">
-      {cover && <img src={cover} alt="" className="h-4 w-4 rounded-sm object-cover" loading="lazy" />}
+      <GameCover game={game} className="w-3 rounded-[3px] border-0" />
       {games.name(game)}
     </Badge>
   );

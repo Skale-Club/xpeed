@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { useGames } from '@/lib/sim/games';
+import { GameCover } from '../GameCover';
 import { carPath, trackPath } from '@/lib/sim/routes';
 import type { V1Stats } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
@@ -68,7 +69,7 @@ export function WherePanel({ stats }: { stats: V1Stats }) {
                 laps: entry.laps,
                 label: (
                   <span className="flex min-w-0 items-center gap-2" data-testid="overview-game">
-                    {games.cover(entry.game) && <img src={games.cover(entry.game)!} alt="" className="h-5 w-5 shrink-0 rounded object-cover" loading="lazy" />}
+                    <GameCover game={entry.game} className="w-4 rounded" />
                     <span className="truncate">{games.name(entry.game)}</span>
                   </span>
                 ),

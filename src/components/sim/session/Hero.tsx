@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, Clock, Cloud, Flag, Gamepad2, Radio, Thermometer, Trash2 } from 'lucide-react';
+import { CalendarDays, Clock, Cloud, Flag, Radio, Thermometer, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ShareButton } from '@/components/social/ShareDialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useGames } from '@/lib/sim/games';
+import { GameCover } from '../GameCover';
 import { formatDuration } from '@/lib/sim/dashboard';
 import { carPath, trackPath } from '@/lib/sim/routes';
 import type { V1Session } from '@/lib/sim/v1-client';
@@ -49,9 +50,7 @@ export function SessionHero({ session, lapCount, shareLabel, onDelete, deleting 
   return (
     <Card className="border-border bg-card" data-testid="session-header">
       <div className="flex gap-3 p-4 sm:gap-4 sm:p-5">
-        <span className="hidden h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted sm:flex" aria-hidden="true" data-testid="session-cover">
-          {cover ? <img src={cover} alt="" className="h-full w-full object-cover" /> : <Gamepad2 className="h-7 w-7 text-muted-foreground" />}
-        </span>
+        <GameCover game={session.game} className="hidden w-14 sm:inline-block" testId="session-cover" />
         <div className="min-w-0 flex-1 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 space-y-1.5">

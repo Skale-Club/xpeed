@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next';
-import { Gamepad2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { gameRows, type GameRow, type GameTier } from '@/lib/sim/companion';
 import { useGames } from '@/lib/sim/games';
+import { GameCover } from './GameCover';
 import type { V1Overview } from '@/lib/sim/v1-client';
 import { cn } from '@/lib/utils';
 
@@ -11,11 +11,10 @@ import { cn } from '@/lib/utils';
 function GameItem({ row, known }: { row: GameRow; known: boolean }) {
   const { t, i18n } = useTranslation();
   const games = useGames();
-  const cover = games.cover(row.game);
   const received = row.laps > 0;
   return (
     <li className="flex items-center gap-2.5 py-1.5" data-testid="game-row" data-game={row.game} data-tier={row.tier} data-laps={row.laps}>
-      {cover ? <img src={cover} alt="" className="h-7 w-7 shrink-0 rounded object-cover" loading="lazy" /> : <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground"><Gamepad2 className="h-4 w-4" aria-hidden="true" /></span>}
+      <GameCover game={row.game} className="w-6 rounded" />
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{games.name(row.game)}</span>
       {known && (
         <span className={cn('flex shrink-0 items-center gap-1.5 text-xs', received ? 'text-foreground' : 'text-muted-foreground')} data-testid="game-status">
