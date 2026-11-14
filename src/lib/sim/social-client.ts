@@ -62,6 +62,12 @@ export interface Share {
   expiresAt: string | null;
   revokedAt: string | null;
   active: boolean;
+  /** What the link is about, in the list only (`GET /shares`): the track and car of the lap or session, the lap's time or the session's kind and laps. */
+  trackName?: string | null;
+  carName?: string | null;
+  lapMs?: number | null;
+  sessionKind?: 'practice' | 'qualifying' | 'race' | 'unknown' | null;
+  lapCount?: number | null;
 }
 
 export interface CreatedShare { share: Share; token: string; path: string }
@@ -114,6 +120,20 @@ export interface LeaderboardMe extends LeaderboardMeta {
   reason: null | 'not_listed';
   neighbours: { above: LeaderboardEntry[]; below: LeaderboardEntry[] };
 }
+
+/** A track or a car that has at least one lap on the public boards (`GET /leaderboards/catalog`). */
+export interface CatalogEntry {
+  id: string;
+  game: string;
+  name: string;
+  /** The public laps on the boards that count it (valid, plausible, visible). */
+  lapCount: number;
+  lengthM?: number | null;
+  brand?: string | null;
+  class?: string | null;
+}
+export type CatalogKind = 'track' | 'car';
+export interface CatalogQuery { kind: CatalogKind; game?: string | null; track?: string | null; car?: string | null }
 
 export type ReportReason = 'cheating' | 'offensive_name' | 'impersonation' | 'spam' | 'other';
 export const REPORT_REASONS: readonly ReportReason[] = ['cheating', 'offensive_name', 'impersonation', 'spam', 'other'];
@@ -237,6 +257,8 @@ export const socialKeys = {
   shares: (userId: string | null) => ['sim-v1', userId, 'social', 'shares'] as const,
   board: (userId: string | null, query: BoardQuery) => ['sim-v1', userId, 'social', 'board', query] as const,
   boardMe: (userId: string | null, query: BoardQuery) => ['sim-v1', userId, 'social', 'board-me', query] as const,
+  catalog: (userId: string | null, query: CatalogQuery) => ['sim-v1', userId, 'social', 'catalog', query] as const,
+  requestCount: (userId: string | null) => ['sim-v1', userId, 'social', 'friends', 'request-count'] as const,
   adminReports: (userId: string | null, status: AdminReportFilter) => ['sim-v1', userId, 'social', 'admin-reports', status] as const,
   adminLap: (userId: string | null, id: string | null) => ['sim-v1', userId, 'social', 'admin-lap', id] as const,
   /** Public: no account, so no user id. */
@@ -291,6 +313,18 @@ export function useDriver(handle: string | null) {
 export function useFriends(status: FriendStatus) {
   const userId = useUserId();
   return usePaged<Friend>(socialKeys.friends(userId, status), '/friends', 'friends', { status }, { enabled: !!userId, staleTime: STALE.list });
+}
+
+/** How many people asked the person to be friends and still wait (one cheap call; the list of them is `useFriends('incoming')`). */
+export function useFriendRequestCount() {
+  const userId = useUserId();
+  return useQuery({
+    queryKey: socialKeys.requestCount(userId),
+    queryFn: async () => (await v1Get<{ incoming: number }>('/friends/requests/count')).incoming,
+    enabled: !!userId,
+    staleTime: STALE.list,
+    refetchOnWindowFocus: true,
+  });
 }
 
 /** What a friendship action refreshes: the lists, the driver pages, and the friends boards. */
@@ -428,6 +462,17 @@ export function useLeaderboard(query: BoardQuery) {
   });
   const entries = result.data?.pages.flatMap((page) => page.entries) ?? [];
   return { ...result, entries, meta: result.data?.pages[0]?.meta ?? null };
+}
+
+/**
+ * The tracks or the cars that have public laps, to open a board for one the person never drove; alphabetical, a page at a time.
+ * `track` narrows the cars to those with public laps on it, `car` the tracks to those the car has public laps on.
+ */
+export function useLeaderboardCatalog(query: CatalogQuery, options: { enabled?: boolean } = {}) {
+  const userId = useUserId();
+  return usePaged<CatalogEntry>(socialKeys.catalog(userId, query), '/leaderboards/catalog', 'items', { ...query }, {
+    enabled: !!userId && (options.enabled ?? true), staleTime: STALE.catalog,
+  });
 }
 
 /** Where the person stands on a board: their row, how many are on it, and two neighbours each side. */

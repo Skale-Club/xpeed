@@ -202,3 +202,74 @@ describe('the leaderboard screen', () => {
     expect(screen.queryByTestId('board-empty')).not.toBeInTheDocument();
   });
 });
+
+describe('the leaderboard catalog in the pickers', () => {
+  const imola = ref('Imola');
+  const bmw = ref('BMW M Hybrid V8');
+  const entry = (r: { id: string; name: string }, lapCount = 40, game = 'lmu') => ({ id: r.id, game, name: r.name, lapCount });
+
+  it('lists the tracks and cars you drove first, then the others that have public laps, under their own headings', async () => {
+    const state = seeded();
+    state.catalog = { tracks: [entry(imola), entry(monza), entry(spa)], cars: [entry(bmw), entry(ferrari), entry(toyota)] };
+    await open(state);
+    await waitFor(() => expect(within(screen.getByTestId('board-track')).getAllByRole('option')).toHaveLength(3));
+    const track = screen.getByTestId('board-track') as HTMLSelectElement;
+    // Driven: Monza, Spa (in the order of the driven list); not driven: Imola.
+    expect([...track.querySelectorAll('optgroup')].map((group) => [group.label, [...group.querySelectorAll('option')].map((option) => option.textContent)])).toEqual([
+      ['Driven by you', ['Monza', 'Spa-Francorchamps']], ['With public laps', ['Imola']],
+    ]);
+    const car = screen.getByTestId('board-car') as HTMLSelectElement;
+    expect([...car.querySelectorAll('optgroup')].map((group) => [...group.querySelectorAll('option')].map((option) => option.textContent))).toEqual([
+      ['Ferrari 499P', 'Toyota GR010'], ['BMW M Hybrid V8'],
+    ]);
+    // The catalog was asked for the game of the latest session, tracks and cars separately.
+    expect(callsTo(state, 'GET', '/leaderboards/catalog').map((call) => [call.params.kind, call.params.game]).sort()).toEqual([['car', 'lmu'], ['track', 'lmu']]);
+  });
+
+  it('opens the board of a track nobody on this account drove, and writes it in the address', async () => {
+    const state = seeded();
+    state.catalog = { tracks: [entry(imola), entry(monza), entry(spa)], cars: [entry(ferrari)] };
+    state.boards.set(boardKey(imola.id, ferrari.id, 'public'), { entries: ranked([{ handle: 'imola_ace', displayName: 'Imola Ace', timeMs: 91_000 }]), game: 'lmu', track: { ...imola, lengthM: null }, car: { ...ferrari, class: null } });
+    await open(state);
+    await waitFor(() => expect(within(screen.getByTestId('board-track')).getAllByRole('option')).toHaveLength(3));
+    fireEvent.change(screen.getByTestId('board-track'), { target: { value: imola.id } });
+    await waitFor(() => expect(screen.getByTestId('leaderboards')).toHaveTextContent('Imola Ace'));
+    expect(whereNow(screen.getByTestId('where')).searchParams.get('track')).toBe(imola.id);
+  });
+
+  it('has no headings when there is nothing but the tracks you drove, and never lists one twice', async () => {
+    const state = seeded();
+    state.catalog = { tracks: [entry(monza), entry(spa)], cars: [entry(ferrari), entry(toyota)] };
+    await open(state);
+    await waitFor(() => expect(callsTo(state, 'GET', '/leaderboards/catalog')).toHaveLength(2));
+    expect(screen.getByTestId('board-track').querySelectorAll('optgroup')).toHaveLength(0);
+    expect(within(screen.getByTestId('board-track')).getAllByRole('option').map((option) => option.textContent)).toEqual(['Monza', 'Spa-Francorchamps']);
+  });
+
+  it('reads a long catalog page by page until it is whole', async () => {
+    const state = seeded();
+    state.catalog = { tracks: Array.from({ length: 120 }, (_, i) => entry({ id: `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`, name: `Extra ${String(i).padStart(3, '0')}` })), cars: [] };
+    await open(state);
+    await waitFor(() => expect(within(screen.getByTestId('board-track')).getAllByRole('option')).toHaveLength(122));
+    expect(callsTo(state, 'GET', '/leaderboards/catalog').filter((call) => call.params.kind === 'track')).toHaveLength(3);
+  });
+
+  it('lets a driver with nothing driven open a board from the catalog instead of inviting them to drive', async () => {
+    const state = fakeSocialState();
+    state.catalog = { tracks: [entry(imola)], cars: [entry(bmw)] };
+    state.boards.set(boardKey(imola.id, bmw.id, 'public'), { entries: ranked([{ handle: 'imola_ace', displayName: 'Imola Ace', timeMs: 91_000 }]), game: 'lmu', track: { ...imola, lengthM: null }, car: { ...bmw, class: null } });
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    await screen.findByTestId('board-table');
+    expect(screen.queryByTestId('board-nothing-driven')).not.toBeInTheDocument();
+    expect(screen.getByTestId('board-track')).toHaveValue(imola.id);
+    expect(screen.getByTestId('board-car')).toHaveValue(bmw.id);
+    expect(screen.getByTestId('leaderboards')).toHaveTextContent('Imola Ace');
+  });
+
+  it('still invites a driver with nothing driven when no board has public laps either', async () => {
+    const state = fakeSocialState();
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    expect(await screen.findByTestId('board-nothing-driven')).toBeInTheDocument();
+    expect(callsTo(state, 'GET', '/leaderboards/catalog').length).toBeGreaterThan(0);
+  });
+});

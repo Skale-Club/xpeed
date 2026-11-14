@@ -66,7 +66,8 @@ export function TracksList() {
   const game = params.get('game') ?? '';
   const overview = useOverview();
   const tracks = useTracks(game ? { game } : {});
-  const layouts = useAccountLayouts();
+  // The server says it (`hasLayout`); only a server that predates it makes the page read the layouts and match them itself.
+  const layouts = useAccountLayouts(tracks.items.some((track) => track.hasLayout === undefined));
 
   const setGame = (value: string) => {
     const next = new URLSearchParams(params);
@@ -102,7 +103,7 @@ export function TracksList() {
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             {tracks.items.map((track) => (
-              <TrackCard key={track.id} track={track} layout={!!layouts && hasSyncedLayout(layouts, track)} unit={distanceUnit as DistanceUnit} />
+              <TrackCard key={track.id} track={track} layout={track.hasLayout ?? (!!layouts && hasSyncedLayout(layouts, track))} unit={distanceUnit as DistanceUnit} />
             ))}
           </div>
           <LoadMore hasNextPage={!!tracks.hasNextPage} isFetchingNextPage={tracks.isFetchingNextPage} onClick={() => void tracks.fetchNextPage()} />

@@ -225,6 +225,24 @@ describe('the sentences about a whole session', () => {
       es: 'Tu mejor vuelta ganó 0.19 s en la curva 2 sobre tu vuelta media: llevaste 4 km/h más por ella.',
     },
     {
+      name: 'the server\'s sector with the most to gain', finding: { kind: 'sectorGain', sector: 2, seconds: 0.412 },
+      en: 'Your best lap loses most in sector 2: it is 0.41 s slower than your best time there in this session.',
+      pt: 'Sua melhor volta perde mais no setor 2: ela é 0.41 s mais lenta que o seu melhor tempo nele nesta sessão.',
+      es: 'Tu mejor vuelta pierde más en el sector 2: es 0.41 s más lenta que tu mejor tiempo en él en esta sesión.',
+    },
+    {
+      name: 'the server\'s sector that varies most', finding: { kind: 'sectorSpread', sector: 3, seconds: 0.28 },
+      en: 'You vary most in sector 3: its time changes by about 0.28 s from lap to lap.',
+      pt: 'Você varia mais no setor 3: o tempo nele muda cerca de 0.28 s de volta para volta.',
+      es: 'Donde más varías es el sector 3: su tiempo cambia unos 0.28 s de vuelta en vuelta.',
+    },
+    {
+      name: 'the server\'s consistency of the laps', finding: { kind: 'consistency', seconds: 0.64, laps: 6 },
+      en: 'Your laps vary by about 0.64 s from one to the next (6 laps).',
+      pt: 'Suas voltas variam cerca de 0.64 s de uma para a outra (6 voltas).',
+      es: 'Tus vueltas varían unos 0.64 s de una a otra (6 vueltas).',
+    },
+    {
       name: 'the best lap gained, no cause that is big enough to name', finding: { kind: 'bestVsAverage', gain: gain() },
       en: 'Your best lap gained 0.19 s in corner 2 over your average lap.',
       pt: 'Sua melhor volta ganhou 0.19 s na curva 2 sobre a sua volta média.',

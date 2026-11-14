@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { LineChart } from 'lucide-react';
@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { useGames } from '@/lib/sim/games';
-import { carProgress } from '@/lib/sim/progress';
+import { PlainSelect } from '@/components/social/social-bits';
+import { carProgress, carProgressTracks } from '@/lib/sim/progress';
 import { trackPath } from '@/lib/sim/routes';
 import { V1Error, useCar } from '@/lib/sim/v1-client';
 import { BackLink, LatestSessions, Stat } from './DetailBits';
@@ -28,7 +29,11 @@ export function CarPage() {
   const when = useWhen('date');
   const query = useCar(id);
   const detail = query.data ?? null;
-  const rows = useMemo(() => (detail ? carProgress(detail.progress) : []), [detail]);
+  // The line of the chart is the best lap of each day on one track: the one with the most days, unless another is picked.
+  const progressTracks = useMemo(() => (detail ? carProgressTracks(detail.progress) : []), [detail]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const progressTrack = progressTracks.find((track) => track.id === picked)?.id ?? progressTracks[0]?.id ?? null;
+  const rows = useMemo(() => (detail ? carProgress(detail.progress, progressTrack) : []), [detail, progressTrack]);
   const notFound = query.error instanceof V1Error && query.error.code === 'car_not_found';
 
   return (
@@ -109,7 +114,20 @@ export function CarPage() {
               {rows.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground" data-testid="car-no-laps">{t('modes.carPage.noLaps', 'You have not driven this car yet.')}</p>
               ) : (
-                <ProgressChart rows={rows} testId="car-progress" />
+                <div className="space-y-2">
+                  {progressTracks.length > 1 && (
+                    <div className="max-w-xs">
+                      <PlainSelect
+                        label={t('modes.carPage.progressTrack', 'Best lap on')}
+                        value={progressTrack ?? ''}
+                        onChange={setPicked}
+                        options={progressTracks.map((track) => ({ value: track.id, label: track.name }))}
+                        testId="car-progress-track"
+                      />
+                    </div>
+                  )}
+                  <ProgressChart rows={rows} testId="car-progress" />
+                </div>
               )}
 
               <LatestSessions filters={{ car: id }} listTo={`/virtual/sessions?car=${encodeURIComponent(id)}`} hide="car" />

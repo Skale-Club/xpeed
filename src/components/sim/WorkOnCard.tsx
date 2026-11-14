@@ -14,9 +14,10 @@ import { SimCarIdentity } from './SimCarIdentity';
 import { useWhen } from './use-when';
 
 /**
- * "What to work on": the two biggest findings of the most recent session that has at least 3 valid laps (the corner the driving
- * varies most in, and where the best lap beat the average lap), with a button into that session. It is worked out from the lap files
- * of that one session after the page is shown; a skeleton stands in for it, and when it cannot be worked out (no session with enough
+ * "What to work on": the two biggest findings of the most recent session that has at least 3 valid laps, with a button into that
+ * session. The server says them first from the stored lap metadata (the sector that costs most, the sector that varies most, how much
+ * the laps vary: no file is read); when it cannot, they are worked out from the lap files of that one session (the corner the driving
+ * varies most in, and where the best lap beat the average lap) after the page is shown; a skeleton stands in for it, and when it cannot be worked out (no session with enough
  * laps, a file that will not come down, nothing worth saying) the card is not shown at all.
  */
 export function WorkOnCard({ sessions }: { sessions: readonly V1Session[] }) {

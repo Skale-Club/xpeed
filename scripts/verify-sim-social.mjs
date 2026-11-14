@@ -1312,7 +1312,8 @@ try {
       "UPDATE public.sim_profiles SET visibility = 'public'", "DELETE FROM public.sim_shares", `SELECT public.sim_profile_page('${ids.B}', 'x')`,
       `SELECT public.sim_leaderboard('${ids.B}', '${ids.B}', '${ids.B}', 'public')`, `SELECT public.sim_export_me('${ids.B}')`, `SELECT public.sim_delete_my_data('${ids.B}')`,
       `SELECT public.sim_admin_reports('all')`, `SELECT public.sim_share_view('x')`, `SELECT public.sim_set_plausibility('${ids.B}', true, '{}')`,
-      `SELECT public.sim_friend_request('${ids.B}', 'x')`, `SELECT public.sim_ensure_profile('${ids.B}')`]) {
+      `SELECT public.sim_friend_request('${ids.B}', 'x')`, `SELECT public.sim_ensure_profile('${ids.B}')`,
+      `SELECT public.sim_leaderboard_catalog('${ids.B}', 'track')`, `SELECT public.sim_share_list('${ids.B}')`, `SELECT public.sim_friend_request_count('${ids.B}')`]) {
       await assert.rejects(asPerson('uid-a', sql), /permission denied|row-level security/, sql);
     }
     // The new columns of the laps are the owner's own like the rest of the row.
@@ -1355,6 +1356,166 @@ try {
     webServer = undefined;
   });
 
+  // ================================================================== the gaps the Virtual screens reported
+
+  await check('leaderboard catalog: the tracks and cars that have a public, valid, plausible, visible lap, by name with their lap counts, and nothing private', async () => {
+    const cat = (who, extra = '') => api[who](`/leaderboards/catalog?${extra}`);
+    const ours = (r) => r.body.items.filter((item) => item.name.startsWith('Cat '));
+    const summary = (r) => ours(r).map((item) => [item.name, item.game, item.lapCount]);
+    await put('A', { track: 'Cat Ring 1', car: 'Cat Car X', timeMs: 90_000 });
+    await put('A', { track: 'Cat Ring 1', car: 'Cat Car X', timeMs: 91_000 });
+    await put('A', { track: 'Cat Ring 1', car: 'Cat Car Y', timeMs: 92_000 });
+    await put('B', { track: 'Cat Ring 2', car: 'Cat Car X', timeMs: 90_500 });
+    await put('C', { track: 'Cat Ring 3', car: 'Cat Car Z', timeMs: 95_000 });                    // C is private below
+    await put('D', { track: 'Cat Ring 4', car: 'Cat Car X', timeMs: 95_000, speed: 200 });        // implausible
+    await put('A', { track: 'Cat Ring 5', car: 'Cat Car X', timeMs: 95_000, valid: false });      // not valid
+    const hidden = await put('A', { track: 'Cat Ring 6', car: 'Cat Car X', timeMs: 95_000 });     // hidden by a moderator below
+    await put('A', { track: 'Cat Ring 7', car: 'Cat Car W', timeMs: 95_000, game: 'acc' });
+    await setVisibility('C', 'private');
+    await direct.query('UPDATE public.sim_laps SET hidden = true WHERE id = $1', [hidden]);
+    assert.equal((await lapRow(await put('D', { track: 'Cat Ring 4', car: 'Cat Car X', timeMs: 96_000, speed: 200 }))).plausible, false);
+
+    // Tracks (the default) and cars, alphabetical, with the number of listed laps. Private, implausible, invalid and hidden laps do not count.
+    const tracks = await cat('A');
+    assert.equal(tracks.status, 200, JSON.stringify(tracks.body));
+    assert.deepEqual(Object.keys(tracks.body).sort(), ['items', 'kind', 'nextCursor']);
+    assert.equal(tracks.body.kind, 'track');
+    assert.deepEqual(summary(tracks), [['Cat Ring 1', 'lmu', 3], ['Cat Ring 2', 'lmu', 1], ['Cat Ring 7', 'acc', 1]]);
+    assert.deepEqual(Object.keys(tracks.body.items[0]).sort(), ['game', 'id', 'lapCount', 'lengthM', 'name']);
+    const names = tracks.body.items.map((item) => item.name);
+    assert.deepEqual(names, [...names].sort(), 'by name');
+    assert.deepEqual(summary(await cat('C')), summary(tracks), 'a private driver sees the same public catalog (their own laps are not on it)');
+    const cars = await cat('A', 'kind=car');
+    assert.equal(cars.body.kind, 'car');
+    assert.deepEqual(summary(cars), [['Cat Car W', 'acc', 1], ['Cat Car X', 'lmu', 3], ['Cat Car Y', 'lmu', 1]]);
+    assert.deepEqual(Object.keys(cars.body.items[0]).sort(), ['brand', 'class', 'game', 'id', 'lapCount', 'name']);
+    // Filters: the game, and the other side of the pair.
+    assert.deepEqual(summary(await cat('A', 'game=acc')), [['Cat Ring 7', 'acc', 1]]);
+    const x = ours(cars).find((item) => item.name === 'Cat Car X'), ring1 = ours(tracks).find((item) => item.name === 'Cat Ring 1');
+    assert.deepEqual(summary(await cat('A', `car=${x.id}`)), [['Cat Ring 1', 'lmu', 2], ['Cat Ring 2', 'lmu', 1]], 'the tracks the car has public laps on');
+    assert.deepEqual(summary(await cat('A', `kind=car&track=${ring1.id}`)), [['Cat Car X', 'lmu', 2], ['Cat Car Y', 'lmu', 1]], 'the cars with public laps on the track');
+    assert.deepEqual((await cat('A', `kind=car&track=${ring1.id}&game=acc`)).body.items, [], 'no car of another game');
+    // It follows the profile and the blocks at once.
+    await setVisibility('C', 'public');
+    assert.deepEqual(summary(await cat('A')).map(([name]) => name), ['Cat Ring 1', 'Cat Ring 2', 'Cat Ring 3', 'Cat Ring 7']);
+    await setVisibility('C', 'friends');
+    assert.deepEqual(summary(await cat('A')).map(([name]) => name), ['Cat Ring 1', 'Cat Ring 2', 'Cat Ring 7'], 'friends-only is not public');
+    assert.equal((await api.A(`/friends/${(await profileOf('B')).handle}/block`, { method: 'POST' })).status, 200);
+    assert.deepEqual(summary(await cat('A')), [['Cat Ring 1', 'lmu', 3], ['Cat Ring 7', 'acc', 1]], 'a person the viewer blocked is not counted');
+    assert.deepEqual(summary(await cat('A', 'kind=car')).find(([name]) => name === 'Cat Car X'), ['Cat Car X', 'lmu', 2]);
+    assert.deepEqual(summary(await cat('B')), [['Cat Ring 2', 'lmu', 1]], 'nor is the person who blocked the viewer: B sees only their own');
+    assert.deepEqual(summary(await cat('D')).map(([name]) => name), ['Cat Ring 1', 'Cat Ring 2', 'Cat Ring 7'], 'somebody else is not affected');
+    await direct.query('UPDATE public.sim_profiles SET hidden = true WHERE user_id = $1', [ids.A]);
+    assert.deepEqual(summary(await cat('D')).map(([name]) => name), ['Cat Ring 2'], 'a hidden profile takes its laps off the catalog');
+    await direct.query('UPDATE public.sim_profiles SET hidden = false WHERE user_id = $1', [ids.A]);
+
+    // Cursor paging: two at a time, every item once, in the same order as one big page.
+    const whole = (await cat('D', 'limit=100')).body;
+    assert.equal(whole.nextCursor, null);
+    assert.ok(whole.items.length >= 4);
+    const walked = []; let cursor = null, pages = 0;
+    do {
+      const r = await cat('D', `limit=5${cursor ? `&cursor=${cursor}` : ''}`);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.ok(r.body.items.length <= 5);
+      if (r.body.nextCursor) assert.match(r.body.nextCursor, /^[A-Za-z0-9_-]+$/);
+      walked.push(...r.body.items); cursor = r.body.nextCursor; pages++;
+    } while (cursor && pages < 100);
+    assert.deepEqual(walked.map((item) => item.id), whole.items.map((item) => item.id));
+    assert.equal(new Set(walked.map((item) => item.id)).size, walked.length, 'none twice');
+    assert.ok(pages > 1);
+    assert.equal((await cat('D', 'limit=1000')).body.items.length, whole.items.length, 'a big limit is read as 100');
+
+    // Errors, like everywhere else.
+    problem(await cat('A', 'kind=lap'), 400, 'invalid_kind');
+    problem(await cat('A', 'game=Not A Game'), 400, 'invalid_game');
+    problem(await cat('A', 'track=zzz'), 400, 'invalid_track');
+    problem(await cat('A', 'car=zzz'), 400, 'invalid_car');
+    problem(await cat('A', 'limit=0'), 400, 'invalid_limit');
+    problem(await cat('A', 'cursor=%%%'), 400, 'invalid_cursor');
+    problem(await cat('A', `cursor=${Buffer.from(JSON.stringify(['x', 'not-a-uuid'])).toString('base64url')}`), 400, 'invalid_cursor');
+    problem(await call(v1, '/api/sim/v1/leaderboards/catalog'), 401, 'unauthorized');
+    problem(await api.A('/leaderboards/catalog', { method: 'POST' }), 405, 'method_not_allowed');
+    assert.equal((await api.A('/leaderboards/catalog', { method: 'POST' })).headers.get('allow'), 'GET');
+    problem(await api.A('/leaderboards'), 404, 'not_found');
+    problem(await api.A('/leaderboards/other'), 404, 'not_found');
+    // It counts every public lap, so it is limited per person: 60 a minute.
+    let last;
+    for (let i = 0; i < 61; i++) last = await cat('C', 'limit=1');
+    problem(last, 429, 'too_many_requests');
+    assert.ok(Number(last.headers.get('retry-after')) >= 1);
+    assert.equal((await cat('D', 'limit=1')).status, 200, 'the limit is per person');
+  });
+
+  await check('shares: each link in the list says what it is about (track, car and lap time for a lap; track, car, kind and laps for a session)', async () => {
+    const first = await put('A', { track: 'Shareable Ring', car: 'Shareable Car', timeMs: 88_888, number: 1 });
+    await put('A', { track: 'Shareable Ring', car: 'Shareable Car', timeMs: 90_000, number: 2 });
+    const sessionId = (await lapRow(first)).session_id;
+    await direct.query("UPDATE public.sim_sessions SET kind = 'race' WHERE id = $1", [sessionId]);
+    const lapLink = await api.A('/shares', { method: 'POST', body: { lapId: first } });
+    const sessionLink = await api.A('/shares', { method: 'POST', body: { sessionId, expiresInDays: 30 } });
+    assert.deepEqual([lapLink.status, sessionLink.status], [201, 201]);
+    assert.deepEqual(Object.keys(lapLink.body.share).sort(), ['active', 'createdAt', 'expiresAt', 'id', 'kind', 'lapId', 'revokedAt', 'sessionId'], 'creating one answers as before');
+    const list = (await api.A('/shares')).body.shares;
+    const byId = Object.fromEntries(list.map((share) => [share.id, share]));
+    const lap = byId[lapLink.body.share.id], session = byId[sessionLink.body.share.id];
+    const KEYS = ['active', 'carName', 'createdAt', 'expiresAt', 'id', 'kind', 'lapCount', 'lapId', 'lapMs', 'revokedAt', 'sessionId', 'sessionKind', 'trackName'];
+    assert.deepEqual(Object.keys(lap).sort(), KEYS);
+    assert.deepEqual(Object.keys(session).sort(), KEYS);
+    assert.deepEqual([lap.kind, lap.trackName, lap.carName, lap.lapMs, lap.sessionKind, lap.lapCount], ['lap', 'Shareable Ring', 'Shareable Car', 88_888, null, null]);
+    assert.deepEqual([session.kind, session.trackName, session.carName, session.lapMs, session.sessionKind, session.lapCount], ['session', 'Shareable Ring', 'Shareable Car', null, 'race', 2]);
+    // The names are the catalog's: a revoked link still says what it was.
+    assert.equal((await api.A(`/shares/${lapLink.body.share.id}`, { method: 'DELETE' })).status, 204);
+    const revoked = (await api.A('/shares')).body.shares.find((share) => share.id === lapLink.body.share.id);
+    assert.deepEqual([revoked.active, revoked.trackName, revoked.lapMs], [false, 'Shareable Ring', 88_888]);
+    // A session with more laps says so, and deleting the lap takes its link away.
+    await put('A', { track: 'Shareable Ring', car: 'Shareable Car', timeMs: 91_000, number: 3 });
+    assert.equal((await api.A('/shares')).body.shares.find((share) => share.id === sessionLink.body.share.id).lapCount, 3);
+    // Only the owner's links, and paging still works with the new fields.
+    assert.deepEqual((await api.B('/shares')).body.shares, []);
+    const many = await Promise.all([1, 2, 3].map(() => api.A('/shares', { method: 'POST', body: { sessionId } })));
+    assert.ok(many.every((r) => r.status === 201));
+    const walked = await listAll('A', '/shares', 'shares');
+    assert.equal(new Set(walked.map((share) => share.id)).size, walked.length);
+    assert.ok(walked.every((share) => share.trackName === 'Shareable Ring' && !('_k' in share) && !('_i' in share)));
+    assert.equal((await api.A('/shares?limit=2')).body.shares.length, 2);
+  });
+
+  await check('friend requests: GET /friends/requests/count says how many people wait for an answer, the same people the incoming list shows', async () => {
+    const handle = async (who) => (await profileOf(who)).handle;
+    const count = async (who) => (await api[who]('/friends/requests/count'));
+    const ha = await handle('A');
+    assert.deepEqual([(await count('A')).status, (await count('A')).body], [200, { incoming: 0 }]);
+    for (const who of ['C', 'D', 'E']) assert.equal((await api[who]('/friends/requests', { method: 'POST', body: { handle: ha } })).status, 201);
+    assert.deepEqual((await count('A')).body, { incoming: 3 });
+    assert.deepEqual((await count('C')).body, { incoming: 0 }, 'a request sent is not a request waiting');
+    assert.equal((await api.A('/friends?status=incoming')).body.friends.length, 3, 'the same people the list shows');
+    // Answering one, either way, takes it off the count.
+    assert.equal((await api.A(`/friends/requests/${await handle('C')}/accept`, { method: 'POST' })).status, 200);
+    assert.deepEqual((await count('A')).body, { incoming: 2 });
+    assert.equal((await api.A(`/friends/requests/${await handle('D')}/decline`, { method: 'POST' })).status, 204);
+    assert.deepEqual((await count('A')).body, { incoming: 1 });
+    // A hidden profile is not on the list, so it is not counted; a block removes the request.
+    await direct.query('UPDATE public.sim_profiles SET hidden = true WHERE user_id = $1', [ids.E]);
+    assert.deepEqual([(await count('A')).body.incoming, (await api.A('/friends?status=incoming')).body.friends.length], [0, 0]);
+    await direct.query('UPDATE public.sim_profiles SET hidden = false WHERE user_id = $1', [ids.E]);
+    assert.deepEqual((await count('A')).body, { incoming: 1 });
+    assert.equal((await api.A(`/friends/${await handle('E')}/block`, { method: 'POST' })).status, 200);
+    assert.deepEqual((await count('A')).body, { incoming: 0 });
+    // A person who has no profile yet has nothing waiting, and asking does not make one.
+    const quiet = await token('uid-no-profile', { phone_number: '+15550000077' });
+    assert.equal((await accounts(new Request('http://x/api/account', { method: 'POST', headers: { authorization: `Bearer ${quiet}` } }))).status, 200);
+    const fresh = await call(v1, '/api/sim/v1/friends/requests/count', { bearer: quiet });
+    assert.deepEqual([fresh.status, fresh.body], [200, { incoming: 0 }]);
+    assert.equal((await direct.query("SELECT count(*)::int AS n FROM public.sim_profiles p JOIN public.app_accounts a ON a.id = p.user_id WHERE a.phone = '+15550000077'")).rows[0].n, 0);
+    // Errors, and the neighbours of the path are as they were.
+    problem(await call(v1, '/api/sim/v1/friends/requests/count'), 401, 'unauthorized');
+    problem(await api.A('/friends/requests/count', { method: 'POST' }), 405, 'method_not_allowed');
+    assert.equal((await api.A('/friends/requests/count', { method: 'POST' })).headers.get('allow'), 'GET');
+    problem(await api.A('/friends/requests/count/accept', { method: 'POST' }), 404, 'request_not_found');
+    problem(await api.A('/friends/requests/count/extra/more', { method: 'POST' }), 404, 'not_found');
+  });
+
   await check('upgrade: a database at the previous schema with laps in it keeps every row, and then ingests, ranks and erases', async () => {
     const upgradeUrl = `postgres://postgres:postgres@127.0.0.1:${upgradePort}/postgres`;
     const before = mkdtempSync(resolve(temp, 'migrations-before-'));
@@ -1384,7 +1545,7 @@ try {
       assert.equal(legacy.bests.length, 2);
 
       const applied = await migrate(client);
-      assert.deepEqual(applied.applied.filter((name) => name.startsWith('20261113')).map((name) => name.slice(0, 14)), ['20261113170000', '20261113180000']);
+      assert.deepEqual(applied.applied.filter((name) => name.startsWith('20261113')).map((name) => name.slice(0, 14)), ['20261113170000', '20261113180000', '20261113190000']);
       assert.deepEqual(await snapshot(), legacy, 'every row, session and personal best is as it was');
       const columns = (await client.query('SELECT plausible, plausibility, hidden FROM public.sim_laps ORDER BY identity')).rows;
       assert.deepEqual(columns.map((c) => [c.plausible, c.plausibility, c.hidden]), [[null, null, false], [null, null, false], [null, null, false]], 'old laps: no verdict yet, not hidden');

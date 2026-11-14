@@ -3,9 +3,10 @@
 //   GET/PATCH /v1/profile                         the person's own profile (created on first use), handle / displayName / visibility
 //   GET       /v1/profiles/<handle>               another driver's page, as their visibility allows
 //   GET       /v1/friends?status                  POST /v1/friends/requests {handle}      POST /v1/friends/requests/<handle>/accept|decline
+//   GET       /v1/friends/requests/count          how many people asked the person to be friends and still wait
 //   DELETE    /v1/friends/<handle>                POST /v1/friends/<handle>/block
 //   GET/POST  /v1/shares                          DELETE /v1/shares/<id>                  (the public side: api/sim/public.ts)
-//   GET       /v1/leaderboard?track&car&scope     GET /v1/leaderboard/me?track&car&scope
+//   GET       /v1/leaderboard?track&car&scope     GET /v1/leaderboard/me?track&car&scope      GET /v1/leaderboards/catalog?game&kind&track&car
 //   POST      /v1/reports                         GET /v1/admin/reports   POST /v1/admin/reports/<id>   GET /v1/admin/laps/<id>   POST /v1/admin/recheck
 //   GET       /v1/me/export                       DELETE /v1/me/data {"confirm":"delete my racing data"}
 //
@@ -23,7 +24,7 @@ export type Problem = (error: string, status: number, extra?: Record<string, str
 /** A 204: no body, with the app's CORS headers and never cached. */
 export type Empty = () => Response;
 
-const FIRST = new Set(['profile', 'profiles', 'friends', 'shares', 'leaderboard', 'reports', 'admin', 'me']);
+const FIRST = new Set(['profile', 'profiles', 'friends', 'shares', 'leaderboard', 'leaderboards', 'reports', 'admin', 'me']);
 export const isSocialPath = (parts: string[]) => FIRST.has(parts[0]);
 
 // ---------------------------------------------------------------- the rules for a handle and a name
@@ -40,6 +41,7 @@ export const VISIBILITIES = ['public', 'friends', 'private'] as const;
 export const REPORT_REASONS = ['cheating', 'offensive_name', 'impersonation', 'spam', 'other'] as const;
 export const DELETE_CONFIRMATION = 'delete my racing data';
 const SCOPES = ['public', 'friends'] as const;
+const CATALOG_KINDS = ['track', 'car'] as const;
 const FRIEND_STATUSES = ['accepted', 'incoming', 'outgoing', 'blocked'] as const;
 const REPORT_STATUSES = ['open', 'dismissed', 'actioned', 'all'] as const;
 const FORMAT_OR_CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
@@ -117,6 +119,7 @@ function match(parts: string[]): Matched | null {
       if (parts.length === 1) return { name: 'friends', methods: ['GET'] };
       if (b === 'requests') {
         if (parts.length === 2) return { name: 'friendRequest', methods: ['POST'] };
+        if (parts.length === 3 && c === 'count') return { name: 'friendRequestCount', methods: ['GET'] };
         if (parts.length === 4 && (d === 'accept' || d === 'decline')) return { name: d === 'accept' ? 'friendAccept' : 'friendDecline', methods: ['POST'], handle: readHandle(c, true) };
         return null;
       }
@@ -131,6 +134,7 @@ function match(parts: string[]): Matched | null {
       if (parts.length === 1) return { name: 'leaderboard', methods: ['GET'] };
       if (parts.length === 2 && b === 'me') return { name: 'leaderboardMe', methods: ['GET'] };
       return null;
+    case 'leaderboards': return parts.length === 2 && b === 'catalog' ? { name: 'leaderboardCatalog', methods: ['GET'] } : null;
     case 'reports': return parts.length === 1 ? { name: 'report', methods: ['POST'] } : null;
     case 'admin':
       if (b === 'reports' && parts.length === 2) return { name: 'adminReports', methods: ['GET'] };
@@ -204,6 +208,10 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
         const rows = await call<Item[]>(backend.service, 'sim_friend_list', { p_viewer: userId, p_status: status, p_after_t: after?.t ?? null, p_after_id: after?.id ?? null, p_limit: limit + 1 });
         const { items, nextCursor } = paged(rows, limit);
         return send({ friends: items, nextCursor });
+      }
+      case 'friendRequestCount': {
+        const incoming = await call<number>(backend.service, 'sim_friend_request_count', { p_viewer: userId });
+        return send({ incoming });
       }
       case 'friendRequest': {
         const body = await readBody(req);
@@ -309,6 +317,23 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
         const nextCursor = rows.length > limit && last?._t && last._i && typeof last._ms === 'number'
           ? Buffer.from(JSON.stringify([last._ms, last._t, last._i])).toString('base64url') : null;
         return send({ ...header, entries: kept.map(({ _ms, _t, _i, ...entry }) => entry), nextCursor });
+      }
+
+      // ------------------------------------------------------------ the leaderboard catalog
+      case 'leaderboardCatalog': {
+        const kind = oneOf(params.get('kind'), CATALOG_KINDS, 'track', 'invalid_kind');
+        const game = gameParam(params), trackId = uuidParam(params, 'track'), carId = uuidParam(params, 'car');
+        const limit = limitParam(params), after = decodeCatalogCursor(params.get('cursor'));
+        // It counts the laps of every public driver: a few a second per person is plenty for a picker.
+        const slow = await throttle(backend, `catalog:${userId}`, 60, 60);
+        if (slow > 0) return wait(slow);
+        const rows = await call<Item[]>(backend.service, 'sim_leaderboard_catalog', {
+          p_viewer: userId, p_kind: kind, p_game: game, p_track: trackId, p_car: carId, p_after_name: after?.name ?? null, p_after_id: after?.id ?? null, p_limit: limit + 1,
+        });
+        const kept = rows.slice(0, limit);
+        const last = kept[kept.length - 1] as { _n?: string; _i?: string } | undefined;
+        const nextCursor = rows.length > limit && typeof last?._n === 'string' && last._i ? Buffer.from(JSON.stringify([last._n, last._i])).toString('base64url') : null;
+        return send({ kind, items: kept.map(({ _n, _i, ...item }) => item), nextCursor });
       }
 
       // ------------------------------------------------------------ reports
@@ -443,6 +468,17 @@ function decodeBoardCursor(raw: string | null): { ms: number; t: string; id: str
     if (Array.isArray(parsed) && parsed.length === 3 && Number.isInteger(parsed[0]) && parsed[0] > 0 && parsed[0] < 2 ** 31
       && typeof parsed[1] === 'string' && CURSOR_TIME.test(parsed[1]) && typeof parsed[2] === 'string' && UUID.test(parsed[2])) {
       return { ms: parsed[0], t: parsed[1], id: parsed[2].toLowerCase() };
+    }
+  } catch { /* falls through */ }
+  throw new Invalid('invalid_cursor');
+}
+
+function decodeCatalogCursor(raw: string | null): { name: string; id: string } | null {
+  if (raw === null || raw === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'string' && parsed[0].length >= 1 && parsed[0].length <= 120 && typeof parsed[1] === 'string' && UUID.test(parsed[1])) {
+      return { name: parsed[0], id: parsed[1].toLowerCase() };
     }
   } catch { /* falls through */ }
   throw new Invalid('invalid_cursor');

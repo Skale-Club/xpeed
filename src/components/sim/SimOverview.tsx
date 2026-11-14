@@ -117,7 +117,14 @@ export function SimOverview() {
                               <p className="text-xs text-muted-foreground">{games.name(pb.game)} · {day(Date.parse(pb.achievedAt))}</p>
                             </div>
                             <span className="flex shrink-0 items-center gap-1">
-                              <span className="font-mono text-sm tabular-nums" data-testid="overview-best-time">{formatLapTime(pb.bestMs)}</span>
+                              <span className="flex flex-col items-end">
+                                <span className="font-mono text-sm tabular-nums" data-testid="overview-best-time">{formatLapTime(pb.bestMs)}</span>
+                                {typeof pb.improvedByMs === 'number' && pb.improvedByMs > 0 && (
+                                  <span className="text-xs text-emerald-600 dark:text-emerald-400" data-testid="overview-best-gain">
+                                    {t('modes.overview.improvedBy', '{{seconds}} s faster than your previous best', { seconds: (pb.improvedByMs / 1000).toFixed(3) })}
+                                  </span>
+                                )}
+                              </span>
                               <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
                             </span>
                           </Link>
