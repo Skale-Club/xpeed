@@ -72,6 +72,9 @@ export default {
         },
       },
       borderRadius: {
+        // One tighter scale for the whole app: cards 12px, buttons and inputs 10px, small controls 8px and below.
+        "2xl": "calc(var(--radius) + 4px)",
+        xl: "calc(var(--radius) + 2px)",
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",

@@ -43,7 +43,7 @@
     --primary-foreground: 225 10% 8%;
     --ring: 54 88% 67%;
 
-    --radius: 0.875rem;
+    --radius: 0.5rem;
 
     /* Semantic tokens — unchanged by branding */
     --destructive: 0 75% 60%;
