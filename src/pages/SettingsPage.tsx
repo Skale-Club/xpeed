@@ -15,6 +15,8 @@ import { AndroidAppDownload, IosAddToHome, IphoneNoBluetooth } from '@/component
 import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
 import { ModesCard } from '@/components/ModesCard';
+import { VisibilitySection } from '@/components/social/PrivacyScreen';
+import { useModes } from '@/contexts/ModesContext';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -60,6 +62,7 @@ function InstallSection() {
 
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
+  const { mode } = useModes();
   const [integrationsOpen, setIntegrationsOpen] = useState(false);
   const { volumeUnit, consumptionUnit, currency, temperatureUnit, distanceUnit, timezone, advancedTools, savePreferences } = useSettings();
   const currentLang = currentLanguage(i18n.resolvedLanguage).code;
@@ -174,6 +177,13 @@ export default function SettingsPage() {
 
         {/* Real | Virtual: shown only while Virtual exists; each switch applies at once. */}
         <ModesCard />
+
+        {/* Virtual: who can see the racing profile is one option here; handle, name and data live on their own pages. */}
+        {mode === 'virtual' && (
+          <div data-testid="settings-racing-profile">
+            <VisibilitySection withDataLink />
+          </div>
+        )}
 
         <InstallSection />
 

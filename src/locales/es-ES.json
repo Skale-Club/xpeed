@@ -56,11 +56,8 @@
       "noBlocked": "No has bloqueado a nadie.",
       "unblock": "Desbloquear"
     },
-    "notice": {
-      "label": "Tu perfil de carreras",
-      "body": "Tu perfil de carreras es público por defecto. Elige quién puede verlo.",
-      "choose": "Elegir quién puede verlo",
-      "dismiss": "Descartar"
+    "settings": {
+      "dataLink": "Descargar o borrar mis datos de carreras"
     },
     "leaderboard": {
       "you": "Tú",

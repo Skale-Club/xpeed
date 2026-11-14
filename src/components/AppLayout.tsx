@@ -16,7 +16,6 @@ import { HeaderControls } from '@/components/header/HeaderControls';
 import { ModeSwitch } from '@/components/ModeSwitch';
 import { useModes } from '@/contexts/ModesContext';
 import { MODE_HOME } from '@/lib/modes';
-import { FirstRunNotice } from '@/components/social/FirstRunNotice';
 
 export default function AppLayout({ children, refreshDisabled = false }: { children: React.ReactNode; refreshDisabled?: boolean }) {
   const { t } = useTranslation();
@@ -43,8 +42,6 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6">
           {/* Phones: the Real | Virtual switch (the sidebar has it on larger screens). Nothing shows with one mode. */}
           <ModeSwitch className="mb-4 md:hidden" />
-          {/* Virtual: the one-time "your racing profile is public by default" notice. */}
-          {mode === 'virtual' && <FirstRunNotice />}
           {children}
         </main>
 

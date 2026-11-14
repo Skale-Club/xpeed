@@ -4,10 +4,10 @@ import { NAV, TABS } from '@/lib/mode-nav';
 import { isActivePath } from '@/lib/modes';
 
 describe('the Virtual navigation', () => {
-  it('lists Overview, Sessions, Compare, Leaderboards, Friends, Tracks, Cars, Companion, Profile and Privacy, in that order', () => {
+  it('lists Overview, Sessions, Compare, Leaderboards, Friends, Tracks, Cars and Companion, in that order', () => {
     expect(NAV.virtual.map((item) => item.to)).toEqual([
       '/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/leaderboards', '/virtual/friends', '/virtual/tracks',
-      '/virtual/cars', '/virtual/companion', '/virtual/profile', '/virtual/privacy',
+      '/virtual/cars', '/virtual/companion',
     ]);
   });
 

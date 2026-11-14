@@ -1,6 +1,6 @@
 import {
   Activity, AlertTriangle, ArrowLeftRight, Bluetooth, Car, CarFront, Flag, Fuel, Gauge, HeartPulse,
-  History, LayoutDashboard, Radio, ScanSearch, Settings, ShieldCheck, Timer, Trophy, UserRound, Users, Wrench, type LucideIcon,
+  History, LayoutDashboard, Radio, ScanSearch, Settings, Timer, Trophy, Users, Wrench, type LucideIcon,
 } from 'lucide-react';
 import type { Mode } from '@/lib/modes';
 
@@ -37,8 +37,6 @@ export const NAV: Record<Mode, NavEntry[]> = {
     { to: '/virtual/tracks', i18nKey: 'modes.nav.tracks', icon: Flag },
     { to: '/virtual/cars', i18nKey: 'modes.nav.cars', icon: CarFront },
     { to: '/virtual/companion', i18nKey: 'modes.nav.xpeedSim', icon: Radio },
-    { to: '/virtual/profile', i18nKey: 'social.nav.profile', icon: UserRound },
-    { to: '/virtual/privacy', i18nKey: 'social.nav.privacy', icon: ShieldCheck },
   ],
 };
 

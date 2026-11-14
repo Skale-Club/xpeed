@@ -56,11 +56,8 @@
       "noBlocked": "You have not blocked anyone.",
       "unblock": "Unblock"
     },
-    "notice": {
-      "label": "Your racing profile",
-      "body": "Your racing profile is public by default. Choose who can see it.",
-      "choose": "Choose who can see it",
-      "dismiss": "Dismiss"
+    "settings": {
+      "dataLink": "Download or delete my racing data"
     },
     "leaderboard": {
       "you": "You",

@@ -56,11 +56,8 @@
       "noBlocked": "Você não bloqueou ninguém.",
       "unblock": "Desbloquear"
     },
-    "notice": {
-      "label": "Seu perfil de corrida",
-      "body": "Seu perfil de corrida é público por padrão. Escolha quem pode vê-lo.",
-      "choose": "Escolher quem pode ver",
-      "dismiss": "Dispensar"
+    "settings": {
+      "dataLink": "Baixar ou apagar meus dados de corrida"
     },
     "leaderboard": {
       "you": "Você",

@@ -18,7 +18,8 @@ import { ErrorLine, VisibilityPicker } from './social-bits';
 import { downloadBlob } from './social-utils';
 import { useErrorText } from './use-error-text';
 
-function VisibilitySection() {
+/** `withDataLink`: Settings shows the option and points to the page with the data download and delete. */
+export function VisibilitySection({ withDataLink = false }: { withDataLink?: boolean }) {
   const { t } = useTranslation();
   const errorText = useErrorText();
   const query = useMyProfile();
@@ -52,6 +53,11 @@ function VisibilitySection() {
               <p className="text-xs text-muted-foreground">
                 <Link to="/virtual/profile" className="underline">{t('social.privacy.profileLink', 'Handle, name and shared links')}</Link>
               </p>
+              {withDataLink && (
+                <p className="text-xs text-muted-foreground">
+                  <Link to="/virtual/privacy" className="underline">{t('social.settings.dataLink', 'Download or delete my racing data')}</Link>
+                </p>
+              )}
             </>
           )}
         </QueryGate>
