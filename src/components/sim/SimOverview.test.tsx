@@ -45,7 +45,7 @@ async function dashboard(state = dashboardState()) {
 }
 
 describe('the Overview header', () => {
-  it('has the title, the period (30 days by default) and a slim chip with the computer and the last lap, linking to the Companion screen', async () => {
+  it('has the title and the period (30 days by default), and no Companion chip of its own (that lives in the header of the app)', async () => {
     // The computer was heard from at 11:00 UTC; at 11:01 it is online.
     vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-13T11:01:00.000Z') });
     await dashboard();
@@ -54,41 +54,12 @@ describe('the Overview header', () => {
     const options = within(group).getAllByRole('radio');
     expect(options.map((option) => option.textContent)).toEqual(['7 days', '30 days', '90 days', '12 months', 'All']);
     expect(within(group).getByRole('radio', { name: '30 days' })).toHaveAttribute('aria-checked', 'true');
-    const chip = screen.getByTestId('overview-companion');
-    expect(chip).toHaveAttribute('href', '/virtual/companion');
-    expect(within(chip).getByTestId('overview-connected')).toHaveTextContent('Online');
-    expect(within(chip).getByTestId('overview-connected')).toHaveAttribute('data-state', 'online');
-    expect(within(chip).getByTestId('overview-device')).toHaveTextContent('Racing PC');
-    expect(within(chip).getByTestId('overview-last-lap')).toHaveTextContent(/last lap 1:48\.000 · Monza · Ferrari 499P · \S+/);
-    // Slim: no card of its own and no separate "Last lap received" block.
+    expect(screen.queryByTestId('overview-connected')).not.toBeInTheDocument();
+    // No card of its own and no separate "Last lap received" block.
     expect(screen.queryByText('Last lap received')).not.toBeInTheDocument();
   });
 
-  it('says Offline on the chip when the server has not heard from any computer for more than three minutes, and Online when one was heard from in the last three', async () => {
-    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-13T11:10:00.000Z') });
-    const state = dashboardState();
-    await dashboard(state);
-    expect(within(screen.getByTestId('overview-companion')).getByTestId('overview-connected')).toHaveTextContent('Offline');
-    expect(screen.getByTestId('overview-connected')).toHaveAttribute('data-state', 'offline');
-    cleanup();
-    // Two computers: one that was heard from a minute ago is enough.
-    const two = dashboardState();
-    two.devices = [...two.devices, v1Device({ name: 'Laptop', pairedAt: '2026-10-01T00:00:00.000Z', lastSeenAt: '2026-11-13T11:09:00.000Z', version: '0.7.0', state: 'waiting' })];
-    await dashboard(two);
-    expect(screen.getByTestId('overview-connected')).toHaveTextContent('Online');
-    expect(screen.getByTestId('overview-device')).toHaveTextContent('Laptop +1');
-  });
-
-  it('decides the chip by when the computer was last seen alone, so an older server that sends no state still works', async () => {
-    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-11-13T11:01:00.000Z') });
-    const state = dashboardState();
-    // The devices of an older server carry no version, state, game or stateAt at all (not even null).
-    expect(Object.keys(state.devices[0]).sort()).toEqual(['id', 'lastLapAt', 'lastSeenAt', 'name', 'pairedAt']);
-    await dashboard(state);
-    expect(screen.getByTestId('overview-connected')).toHaveTextContent('Online');
-  });
-
-  it('shows a compact "Get Xpeed Companion / Connect" banner instead of the chip when no computer is paired', async () => {
+  it('shows a compact "Get Xpeed Companion / Connect" banner when no computer is paired', async () => {
     const state = dashboardState();
     state.devices = [];
     await dashboard(state);
@@ -431,11 +402,11 @@ describe('the states', () => {
     expect(statsRequests(view.state)).toHaveLength(0);
   });
 
-  it('with a paired computer and no laps yet: the chip says so, and the same panel explains what will appear', async () => {
+  it('with a paired computer and no laps yet: no invitation to connect, and the panel explains what will appear', async () => {
     const state = fakeV1State({ now: NOW, devices: dashboardState().devices });
     renderSim(<SimOverview />, { state, route: '/virtual' });
     await screen.findByTestId('overview-empty');
-    expect(screen.getByTestId('overview-last-lap')).toHaveTextContent('No lap received yet');
+    expect(screen.queryByTestId('overview-companion')).not.toBeInTheDocument();
     expect(screen.queryByTestId('overview-download')).not.toBeInTheDocument();
   });
 
@@ -458,7 +429,6 @@ describe('the states', () => {
     expect(screen.getByTestId('consistency-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('consistency-chart')).not.toBeInTheDocument();
     expect(within(screen.getByTestId('where-tracks')).getAllByTestId('where-row')).toHaveLength(1);
-    expect(screen.getByTestId('overview-companion')).toHaveTextContent(/last lap 2:34\.252 · Interlagos · Ginetta G40/);
     expect(screen.getByTestId('overview-best')).toHaveTextContent('No valid lap yet.');
     for (const range of ['7d', '90d', '1y', 'all'] as const) {
       fireEvent.click(screen.getByTestId(`range-${range}`));
@@ -520,8 +490,8 @@ describe('the states', () => {
     renderSim(<SimOverview />, { state, route: '/virtual' });
     const panel = await screen.findByTestId('sim-error');
     expect(within(panel).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
-    // The header, with the Companion chip, is still there.
-    expect(screen.getByTestId('overview-companion')).toBeInTheDocument();
+    // The header, with the period, is still there.
+    expect(screen.getByTestId('range-select')).toBeInTheDocument();
     state.failing = null;
     fireEvent.click(within(panel).getByRole('button', { name: 'Try again' }));
     await screen.findByTestId('overview-dashboard');

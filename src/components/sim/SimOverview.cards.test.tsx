@@ -59,7 +59,7 @@ async function sessionWithLaps(state: FakeV1State, count: number, voided = 0, ex
 const lapFileRequests = (state: FakeV1State) => state.requests.filter((request) => request.path.endsWith('/file'));
 
 describe('the Overview cards', () => {
-  it('shows the Companion chip, the personal bests, the latest sessions with their badges and the games with their lap counts', async () => {
+  it('shows the personal bests, the latest sessions with their badges and the games with their lap counts', async () => {
     const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z', devices: [{ id: 'd1', name: 'Racing PC', pairedAt: '2026-11-01T00:00:00.000Z', lastSeenAt: '2026-11-13T09:00:00.000Z', lastLapAt: null }] });
     const race = v1Session({ track: monza, car: ferrari, kind: 'race', lapCount: 2, bestLapMs: 99_000, startedAt: '2026-11-12T10:00:00.000Z' });
     const practice = v1Session({ track: spa, car: ferrari, kind: 'practice', game: 'ac', lapCount: 1, bestLapMs: 135_000, startedAt: '2026-11-11T10:00:00.000Z' });
@@ -69,12 +69,6 @@ describe('the Overview cards', () => {
     const other = v1Lap({ track: spa, car: ferrari, game: 'ac', sessionId: practice.id, timeMs: 135_000, startedAt: '2026-11-11T10:00:00.000Z' });
     state.laps.push(fast, slow, other);
     renderSim(<SimOverview />, { state, route: '/virtual' });
-
-    // The Companion chip: the computer and the last lap received, in one slim line that opens the Companion screen.
-    expect(await screen.findByTestId('overview-device')).toHaveTextContent('Racing PC');
-    expect(screen.getByTestId('overview-connected')).toBeInTheDocument();
-    expect(screen.getByTestId('overview-last-lap')).toHaveTextContent('last lap 1:39.000 · Monza · Ferrari 499P');
-    expect(screen.getByTestId('overview-companion')).toHaveAttribute('href', '/virtual/companion');
 
     // Personal bests: the time, a link to the lap analysis and, when the lap beat an earlier best, by how much.
     await screen.findByTestId('overview-best');

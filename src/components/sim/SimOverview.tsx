@@ -7,7 +7,7 @@ import { QueryGate } from './SimStates';
 import { WorkOnCard } from './WorkOnCard';
 import { ActivityPanel } from './overview/Activity';
 import { ConsistencyPanel } from './overview/Consistency';
-import { CompanionBanner, CompanionChip, CompanionStatusSkeleton, RangeSelect } from './overview/Header';
+import { CompanionBanner, RangeSelect } from './overview/Header';
 import { KpiTiles } from './overview/KpiTiles';
 import { BestsPanel, SessionsPanel } from './overview/Latest';
 import { ProgressPanel } from './overview/Progress';
@@ -67,7 +67,6 @@ export function SimOverview() {
             <RangeSelect value={range} onChange={choose} busy={statsQuery.isFetching && statsQuery.isPlaceholderData} />
           </div>
         </div>
-        {overview ? (paired ? <CompanionChip overview={overview} /> : null) : query.isPending ? <CompanionStatusSkeleton /> : null}
       </header>
 
       <QueryGate query={query} empty={false} skeleton={<DashboardSkeleton />}>

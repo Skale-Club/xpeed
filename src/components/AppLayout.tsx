@@ -14,6 +14,7 @@ import { PullToRefresh } from '@/components/PullToRefresh';
 import { usePageRefresh } from '@/contexts/PageRefreshContext';
 import { HeaderControls } from '@/components/header/HeaderControls';
 import { ModeSwitch } from '@/components/ModeSwitch';
+import { CompanionStatus } from '@/components/sim/CompanionStatus';
 import { useModes } from '@/contexts/ModesContext';
 import { MODE_HOME } from '@/lib/modes';
 
@@ -36,6 +37,8 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
           <SidebarTrigger className="hidden md:inline-flex" />
           {/* The car's connection and notifications belong to the Real mode. */}
           {mode === 'real' && <HeaderControls />}
+          {/* Virtual: whether the Windows app is online, as one quiet dot and a name. */}
+          {mode === 'virtual' && <CompanionStatus />}
         </header>
         <AppUpdateBanner />
 
