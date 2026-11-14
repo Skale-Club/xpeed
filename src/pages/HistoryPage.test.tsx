@@ -153,7 +153,12 @@ describe('HistoryPage calendar and paging', () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);
     expect(await screen.findAllByTestId('trip-row')).toHaveLength(20);
     expect(await screen.findByText('Journey 299')).toBeInTheDocument();
-    chooseOption(screen.getByRole('combobox', { name: 'Page' }), '15 / 15');
+    // The page picker is a compact drop-down with its name inside it (no caption beside it).
+    const picker = screen.getByRole('combobox', { name: 'Page' });
+    expect(picker).toHaveClass('h-8', 'text-xs');
+    expect(picker).toHaveTextContent(/^Page1 \/ 15$/);
+    expect(screen.getByRole('navigation', { name: 'Trip pages' }).querySelector('label')).toBeNull();
+    chooseOption(picker, '15 / 15');
     await waitFor(() => expect(screen.getByText('Journey 0')).toBeInTheDocument());
     expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
     await waitFor(() => expect(db.getFlagsForSessions).toHaveBeenCalledTimes(2));

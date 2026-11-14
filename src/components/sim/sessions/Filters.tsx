@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { Switch } from '@/components/ui/switch';
 import { useGames } from '@/lib/sim/games';
 import { SESSION_KINDS, SESSION_PERIODS, activeFilterCount, type FilterKey, type KindFilter, type SessionFilters, type SessionPeriod } from '@/lib/sim/sessions-view';
@@ -54,12 +55,11 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
   return (
     <section aria-label={t('sessionsDash.filters.title', 'Filters')} data-testid="session-filters">
       {/* One row of five small drop-downs (the label inside each) and the switch on the right; it wraps only on a narrow screen. */}
-      <div className="flex flex-wrap items-center gap-2" data-testid="filter-toolbar">
-        <FilterSelect inline label={t('modes.sessions.filterGame', 'Game')} allLabel={all} value={filters.game} onChange={(value) => onChange('game', value)} options={gameOptions} testId="filter-game" />
-        <FilterSelect inline label={t('modes.sessions.filterTrack', 'Track')} allLabel={all} value={filters.track} onChange={(value) => onChange('track', value)} options={trackOptions} testId="filter-track" />
-        <FilterSelect inline label={t('modes.sessions.filterCar', 'Car')} allLabel={all} value={filters.car} onChange={(value) => onChange('car', value)} options={carOptions} testId="filter-car" />
+      <FilterBar data-testid="filter-toolbar">
+        <FilterSelect label={t('modes.sessions.filterGame', 'Game')} allLabel={all} value={filters.game} onChange={(value) => onChange('game', value)} options={gameOptions} testId="filter-game" />
+        <FilterSelect label={t('modes.sessions.filterTrack', 'Track')} allLabel={all} value={filters.track} onChange={(value) => onChange('track', value)} options={trackOptions} testId="filter-track" />
+        <FilterSelect label={t('modes.sessions.filterCar', 'Car')} allLabel={all} value={filters.car} onChange={(value) => onChange('car', value)} options={carOptions} testId="filter-car" />
         <FilterSelect
-          inline
           label={t('sessionsDash.filters.kindShort', 'Type')}
           allLabel={all}
           value={filters.kind}
@@ -68,7 +68,6 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
           testId="filter-kind"
         />
         <FilterSelect
-          inline
           label={t('sessionsDash.filters.period', 'Period')}
           allLabel={t('sessionsDash.filters.anyTime', 'Any time')}
           value={filters.period}
@@ -80,7 +79,7 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
           <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={t('sessionsDash.filters.validOnly', 'Valid laps only')} />
           {t('sessionsDash.filters.validOnly', 'Valid laps only')}
         </label>
-      </div>
+      </FilterBar>
 
       {count > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2" data-testid="active-filters">

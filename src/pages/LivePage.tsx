@@ -277,7 +277,7 @@ export default function LivePage() {
             <DialogTitle>{expanded && (byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded)}</DialogTitle>
             <DialogDescription>{t('live.timelineHint', 'Live history from this connection, up to 30 minutes. Missing readings remain gaps.')}</DialogDescription>
           </DialogHeader>
-          <OptionSelect className="w-auto min-w-[7rem] self-start text-sm" aria-label={t('live.timelinePeriod', 'Timeline period')} value={String(timelineMs)} onChange={(value) => setTimelineMs(Number(value))} options={[1, 5, 15, 30].map((minutes) => ({ value: String(minutes * 60_000), label: `${minutes} min` }))} />
+          <OptionSelect size="sm" className="w-auto min-w-[7rem] self-start" aria-label={t('live.timelinePeriod', 'Timeline period')} value={String(timelineMs)} onChange={(value) => setTimelineMs(Number(value))} options={[1, 5, 15, 30].map((minutes) => ({ value: String(minutes * 60_000), label: `${minutes} min` }))} />
           {expanded && <ChartWidget large label={byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded} unit={sensorUnit(expanded)} now={chartNow} windowMs={timelineMs}
             points={[...history.map((point) => ({ at: point.at, v: sensorValue(expanded, point.values[expanded]) })), ...(!fresh ? [{at: chartNow, v: null}] : [])]}
             min={sensorValue(expanded, byHeader.get(expanded)?.min ?? 0) ?? 0} max={sensorValue(expanded, byHeader.get(expanded)?.def?.pid === 0x0c ? 6000 : byHeader.get(expanded)?.max) ?? undefined} />}
@@ -340,11 +340,11 @@ function LayoutEditor({ widgets, available, byHeader, hasBlocks, onChange }: {
       <div className="space-y-2 rounded-md border border-border p-2">
         <p className="text-xs font-medium">{t('live.addWidget', 'Add widget')}</p>
         <div className="flex flex-wrap gap-2">
-          <OptionSelect aria-label={t('live.widgetType', 'Widget type')} className={selectClass} value={kind} onChange={(value) => setKind(value as WidgetKind)} options={(['gauge', 'chart', 'value', ...(hasBlocks ? ['blocks'] : [])] as WidgetKind[]).map((k) => ({ value: k, label: kindLabel(k) }))} />
+          <OptionSelect size="sm" aria-label={t('live.widgetType', 'Widget type')} className={selectClass} value={kind} onChange={(value) => setKind(value as WidgetKind)} options={(['gauge', 'chart', 'value', ...(hasBlocks ? ['blocks'] : [])] as WidgetKind[]).map((k) => ({ value: k, label: kindLabel(k) }))} />
           {kind !== 'blocks' && (
-            <OptionSelect aria-label={t('live.widgetChannel', 'Parameter')} className={`${selectClass} min-w-[10rem] flex-1`} value={channel} onChange={setChannel} emptyLabel={t('live.pickChannel', 'Choose a parameter…')} options={available.map((h) => ({ value: h, label: nameOf(h) }))} />
+            <OptionSelect size="sm" aria-label={t('live.widgetChannel', 'Parameter')} className={`${selectClass} min-w-[10rem] flex-1`} value={channel} onChange={setChannel} emptyLabel={t('live.pickChannel', 'Choose a parameter…')} options={available.map((h) => ({ value: h, label: nameOf(h) }))} />
           )}
-          <Button variant="outline" onClick={add} disabled={kind !== 'blocks' && !channel}>
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={add} disabled={kind !== 'blocks' && !channel}>
             <Plus className="w-3.5 h-3.5 mr-1" />
             {t('live.add', 'Add')}
           </Button>

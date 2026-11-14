@@ -69,7 +69,12 @@ describe('the share dialog', () => {
     const state = seeded();
     renderSocial(<Harness />, { state });
     const dialog = await openDialog();
-    chooseOption(within(dialog).getByTestId('share-expiry'), 'For 7 days');
+    // The expiry is a field of a form next to a regular button: the name stays above a regular-height control.
+    const expiry = within(dialog).getByTestId('share-expiry');
+    expect(expiry).toHaveClass('h-10');
+    expect(expiry).not.toHaveClass('h-8');
+    expect(dialog.querySelector(`label[for="${expiry.id}"]`)).toHaveTextContent('The link works');
+    chooseOption(expiry, 'For 7 days');
     fireEvent.click(within(dialog).getByTestId('share-create'));
     await within(dialog).findByTestId('share-url');
     expect(callsTo(state, 'POST', '/shares')[0].body).toEqual({ lapId: LAP_ID, expiresInDays: 7 });

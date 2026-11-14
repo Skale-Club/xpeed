@@ -477,3 +477,17 @@ describe('the searchable track and car pickers', () => {
     expect(callsTo(state, 'GET', '/leaderboard')[0].params).toMatchObject({ track: spa.id, car: toyota.id, game: 'lmu', scope: 'friends' });
   });
 });
+
+describe('the pickers of the leaderboard screen', () => {
+  it('are one wrapping row of compact controls with the name inside each, and no caption above', async () => {
+    await open(seeded());
+    const bar = screen.getByTestId('board-pickers');
+    expect(bar).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    for (const chrome of ['grid', 'border', 'bg-card']) expect(bar).not.toHaveClass(chrome);
+    const track = screen.getByRole('combobox', { name: 'Track' });
+    const car = screen.getByRole('combobox', { name: 'Car' });
+    for (const box of [track, car]) expect(box.parentElement).toHaveClass('h-8', 'text-xs');
+    expect(track.parentElement).toHaveTextContent(/^Track/);
+    expect(bar.querySelector('label')).toBeNull();
+  });
+});

@@ -3,9 +3,11 @@
 import { useMemo, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { FILTER_CELL, FILTER_WIDE_CELL } from '@/components/ui/filter-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { timeSparkPath } from '@/lib/sim/garage';
 import type { TrackFile } from '@/lib/sim/track-file';
+import { cn } from '@/lib/utils';
 
 /**
  * One number of a page: a label, the value, a line under it and, when the page has one, something small (a trend, a sparkline). While the number
@@ -81,38 +83,42 @@ export function TrackShape({ layout, className = '', testId = 'track-shape', str
   );
 }
 
-/** A search box for the header of a list: a native search input, labelled, with the usual glass. */
-export function SearchField({ label, value, onChange, placeholder, testId }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; testId?: string }) {
+/**
+ * A search box for the bar over a list: small (h-8, text-xs) like the drop-downs next to it, the magnifier inside it and no caption above (the label
+ * is its accessible name). A whole row on a phone, a fixed width on a wide screen; `className` changes that width.
+ */
+export function SearchField({ label, value, onChange, placeholder, testId, className }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; testId?: string; className?: string }) {
   return (
-    <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
-      {label}
-      <span className="relative block">
-        <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4" aria-hidden="true" />
-        <input
-          type="search"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          autoComplete="off"
-          className="h-9 w-full min-w-0 rounded-md border border-border bg-background pl-8 pr-2 text-sm text-foreground placeholder:text-muted-foreground/70"
-          data-testid={testId}
-        />
-      </span>
-    </label>
+    <span className={cn(FILTER_WIDE_CELL, 'relative block sm:w-52', className)}>
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+      <input
+        type="search"
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className="h-8 w-full min-w-0 rounded-lg border border-input bg-background/60 py-0 pl-8 pr-2 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        data-testid={testId}
+      />
+    </span>
   );
 }
 
-/** An on/off filter as a button (`aria-pressed`), the height of the drop-downs next to it. */
-export function ToggleChip({ pressed, onChange, children, testId }: { pressed: boolean; onChange: (pressed: boolean) => void; children: ReactNode; testId?: string }) {
+/** An on/off filter as a button (`aria-pressed`), the size of the drop-downs next to it (h-8, text-xs). */
+export function ToggleChip({ pressed, onChange, children, testId, className }: { pressed: boolean; onChange: (pressed: boolean) => void; children: ReactNode; testId?: string; className?: string }) {
   return (
     <button
       type="button"
       aria-pressed={pressed}
       onClick={() => onChange(!pressed)}
       data-testid={testId}
-      className={`inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        pressed ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-background text-muted-foreground hover:text-foreground'
-      }`}
+      className={cn(
+        FILTER_CELL,
+        'inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&>svg]:h-3.5 [&>svg]:w-3.5',
+        pressed ? 'border-primary bg-primary/10 text-foreground' : 'border-input bg-background/60 text-muted-foreground hover:text-foreground',
+        className,
+      )}
     >
       {children}
     </button>

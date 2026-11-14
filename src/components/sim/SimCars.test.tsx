@@ -218,7 +218,7 @@ describe('the list of cars', () => {
     await i18n.changeLanguage('pt-BR');
     open();
     await screen.findAllByTestId('cars-car');
-    expect(screen.getByText('Buscar pelo nome')).toBeInTheDocument();
+    expect(screen.getByLabelText('Buscar pelo nome')).toBeInTheDocument();
     expect(screen.getByText('Classe')).toBeInTheDocument();
     expect(screen.getByText('Mais pilotado')).toBeInTheDocument();
     cleanup();
@@ -227,5 +227,28 @@ describe('the list of cars', () => {
     await screen.findAllByTestId('cars-car');
     expect(screen.getByText('Clase')).toBeInTheDocument();
     expect(screen.getByText('Más conducido')).toBeInTheDocument();
+  });
+});
+
+describe('the toolbar of the list of cars', () => {
+  it('is one wrapping row of compact controls (search, game, class, sort) with no card around it', async () => {
+    open();
+    await screen.findAllByTestId('cars-car');
+    const bar = screen.getByTestId('cars-toolbar');
+    expect(bar).toBe(screen.getByRole('search', { name: 'Filter the cars' }));
+    expect(bar).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
+    for (const chrome of ['border', 'bg-card', 'p-3', 'p-4', 'grid']) expect(bar).not.toHaveClass(chrome);
+    const parts = [...bar.children].map((child) => child.getAttribute('data-testid') ?? child.querySelector('[data-testid]')?.getAttribute('data-testid'));
+    expect(parts).toEqual(['filter-search', 'filter-game', 'filter-class', 'sort-select']);
+  });
+
+  it('makes every control small (h-8, text-xs) with its name inside it, and has no caption above any of them', async () => {
+    open();
+    await screen.findAllByTestId('cars-car');
+    for (const id of ['filter-game', 'filter-class', 'sort-select', 'filter-search']) expect(screen.getByTestId(id)).toHaveClass('h-8', 'text-xs');
+    expect(screen.getByRole('combobox', { name: 'Class' })).toHaveTextContent(/^ClassAll$/);
+    expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveTextContent(/^Sort byRecently driven$/);
+    expect(screen.getByRole('searchbox', { name: 'Search by name' }).previousElementSibling?.tagName.toLowerCase()).toBe('svg');
+    expect(screen.getByTestId('cars-toolbar').querySelector('label')).toBeNull();
   });
 });

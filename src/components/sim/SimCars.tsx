@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { FilterBar } from '@/components/ui/filter-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PlainSelect } from '@/components/social/social-bits';
 import { CHART_PALETTE } from '@/lib/chart-palette';
@@ -163,10 +164,8 @@ export function SimCars() {
     <div className="space-y-4" data-testid="cars">
       <p className="text-sm text-muted-foreground">{t('garageDash.carsIntro', 'The cars you have driven. Open one to see your best lap on each track and how you improve with it.')}</p>
       {(query.isPending || query.items.length > 0 || game !== '' || narrowed) && (
-      <div className={`grid gap-3 sm:grid-cols-2 ${classes.length > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`} role="search" aria-label={t('garageDash.filtersCars', 'Filter the cars')}>
-        <div className="sm:col-span-2 lg:col-span-1">
-          <SearchField label={t('garageDash.search', 'Search by name')} value={search} onChange={(value) => setParam('q', value)} placeholder={t('garageDash.searchCars', 'Ferrari, GT3...')} testId="filter-search" />
-        </div>
+      <FilterBar role="search" aria-label={t('garageDash.filtersCars', 'Filter the cars')} data-testid="cars-toolbar">
+        <SearchField label={t('garageDash.search', 'Search by name')} value={search} onChange={(value) => setParam('q', value)} placeholder={t('garageDash.searchCars', 'Ferrari, GT3...')} testId="filter-search" />
         <FilterSelect
           label={t('modes.sessions.filterGame', 'Game')}
           allLabel={t('modes.sessions.all', 'All')}
@@ -187,9 +186,10 @@ export function SimCars() {
             { value: 'most', label: t('garageDash.sortMost', 'Most driven') },
             { value: 'az', label: t('garageDash.sortAz', 'Name (A to Z)') },
           ]}
+          className="sm:w-56"
           testId="sort-select"
         />
-      </div>
+      </FilterBar>
       )}
       <QueryGate
         query={query}

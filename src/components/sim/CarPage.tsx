@@ -114,8 +114,9 @@ export function CarPage() {
                         title={progressName ? t('garageDash.progressOn', 'Progress on {{track}}', { track: progressName }) : undefined}
                         controls={
                           progressTracks.length > 1 ? (
-                            <div className="w-48 max-w-[55%]">
+                            <div className="w-56 max-w-[60%]">
                               <PlainSelect
+                                className="w-full sm:w-full"
                                 label={t('modes.carPage.progressTrack', 'Best lap on')}
                                 value={progressTrack ?? ''}
                                 onChange={setPicked}

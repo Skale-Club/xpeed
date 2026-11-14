@@ -29,7 +29,7 @@ export function RangeSelect({ value, onChange, busy }: { value: StatsRange; onCh
       role="radiogroup"
       aria-label={t('modes.overview.dash.rangeLabel', 'Period')}
       aria-busy={busy || undefined}
-      className="flex w-full rounded-lg border border-border bg-muted/40 p-0.5 sm:inline-flex sm:w-auto"
+      className="flex h-8 w-full rounded-lg border border-border bg-muted/40 p-0.5 sm:inline-flex sm:w-auto"
       data-testid="range-select"
     >
       {STATS_RANGES.map((range, index) => {
@@ -45,7 +45,7 @@ export function RangeSelect({ value, onChange, busy }: { value: StatsRange; onCh
             onClick={() => onChange(range)}
             onKeyDown={(event) => move(event, index)}
             data-testid={`range-${range}`}
-            className={`flex-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none ${
+            className={`flex-1 whitespace-nowrap rounded-md px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:flex-none ${
               selected ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
           >

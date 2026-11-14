@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
+import { FILTER_CELL } from '@/components/ui/filter-bar';
 import { cn } from '@/lib/utils';
 import { COMBO_LIMIT, filterOptions } from './social-utils';
 
@@ -12,9 +13,10 @@ export interface ComboOption {
 
 /**
  * A drop-down you can search: type to narrow the list, arrows to move, Enter to choose, Escape to close. A text field with the combobox
- * pattern (`role="combobox"`, a listbox of options), so a screen reader says what it is and which option is active.
+ * pattern (`role="combobox"`, a listbox of options), so a screen reader says what it is and which option is active. It looks like the other
+ * drop-downs of a filter bar: small (h-8, text-xs), its name inside the control on the left, the value (or what is being typed) after it.
  */
-export function SearchCombobox({ label, value, onChange, options, placeholder, emptyText, moreText, testId, disabled }: {
+export function SearchCombobox({ label, value, onChange, options, placeholder, emptyText, moreText, testId, disabled, className }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -27,6 +29,8 @@ export function SearchCombobox({ label, value, onChange, options, placeholder, e
   moreText: string;
   testId?: string;
   disabled?: boolean;
+  /** The width on a wide screen (a phone gets two to a row, or the whole row). */
+  className?: string;
 }) {
   const id = useId();
   const listId = `${id}-list`;
@@ -132,13 +136,18 @@ export function SearchCombobox({ label, value, onChange, options, placeholder, e
   return (
     <div
       ref={wrapper}
-      className="relative flex min-w-0 flex-col gap-1 text-xs text-muted-foreground"
+      className={cn(FILTER_CELL, 'relative sm:w-56', className)}
       onBlur={(event) => {
         if (!wrapper.current?.contains(event.relatedTarget as Node | null)) close();
       }}
     >
-      <span id={labelId}>{label}</span>
-      <div className="relative">
+      <div
+        className={cn(
+          'flex h-8 items-center gap-1.5 rounded-lg border border-input bg-background/60 pl-2.5 pr-2 text-xs transition-colors focus-within:ring-1 focus-within:ring-ring',
+          disabled && 'cursor-not-allowed opacity-50',
+        )}
+      >
+        <span id={labelId} className="shrink-0 text-muted-foreground">{label}</span>
         <input
           ref={input}
           type="text"
@@ -161,17 +170,17 @@ export function SearchCombobox({ label, value, onChange, options, placeholder, e
           onFocus={openList}
           onClick={openList}
           onKeyDown={onKeyDown}
-          className="h-9 w-full min-w-0 rounded-md border border-border bg-background py-1 pl-2 pr-8 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className={cn('h-full min-w-0 flex-1 bg-transparent py-0 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed', open ? 'text-left' : 'truncate text-right')}
           data-testid={testId}
           data-value={value}
         />
-        <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+        <ChevronsUpDown className="pointer-events-none h-4 w-4 shrink-0 text-muted-foreground opacity-60" aria-hidden="true" />
         {open && (
           <ul
             id={listId}
             role="listbox"
             aria-labelledby={labelId}
-            className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+            className="absolute left-0 top-full z-30 mt-1 max-h-64 min-w-full w-max max-w-[min(26rem,calc(100vw-2rem))] overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
             data-testid={testId ? `${testId}-list` : undefined}
           >
             {ordered.length === 0 && <li role="presentation" className="px-2 py-2 text-sm text-muted-foreground" data-testid={testId ? `${testId}-empty` : undefined}>{emptyText}</li>}
