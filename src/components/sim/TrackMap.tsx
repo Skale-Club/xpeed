@@ -75,7 +75,9 @@ export interface MapFocus {
  *
  * Zoom: buttons, double click, pinch, or + and - on the keyboard; zoomed in, it is dragged (or moved with the arrows).
  */
-export function TrackMap({ lap, reference, layout, focus, highlight }: {
+export function TrackMap({ lap, reference, layout, focus, highlight, className }: {
+  /** Extra classes for the picture (a taller one on a page that makes the map its hero); the height of a lap analysis is the default. */
+  className?: string;
   lap: TrackPath;
   reference?: TrackPath | null;
   layout?: TrackFile | null;
@@ -218,6 +220,7 @@ export function TrackMap({ lap, reference, layout, focus, highlight }: {
           'h-64 w-full rounded-md text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring',
           // Zoomed in, a finger drags the map; on the whole track it still scrolls the page, and a pinch zooms the map.
           k > 1 ? 'cursor-grab touch-none active:cursor-grabbing' : 'touch-pan-x touch-pan-y',
+          className,
         )}
         role="img"
         tabIndex={0}

@@ -12,7 +12,7 @@ export default function SimTracksPage() {
   const [open, setOpen] = useState(false);
   return (
     <AppLayout>
-      <div className="max-w-5xl space-y-4">
+      <div className="max-w-7xl space-y-4">
         <div className="flex items-center gap-2">
           <Flag className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('modes.nav.tracks', 'Tracks')}</h2>
