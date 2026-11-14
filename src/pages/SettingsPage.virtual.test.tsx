@@ -10,6 +10,7 @@ vi.mock('@/contexts/ModesContext', () => ({ useModes: () => ({ mode: modes.mode 
 vi.mock('@/components/social/PrivacyScreen', () => ({
   VisibilitySection: ({ withDataLink }: { withDataLink?: boolean }) => <div data-testid="visibility-option">{withDataLink ? 'with data link' : 'plain'}</div>,
 }));
+vi.mock('@/components/sim/CompanionSettingsCard', () => ({ CompanionSettingsCard: () => <div data-testid="settings-companion" /> }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/McpTokensSection', () => ({ default: () => null }));
 vi.mock('@/components/InstallApp', () => ({ AndroidAppDownload: () => null, IosAddToHome: () => null, IphoneNoBluetooth: () => null }));
@@ -22,10 +23,12 @@ it('offers who can see the racing profile as one option in Settings, in Virtual 
   open();
   expect(screen.getByTestId('settings-racing-profile')).toBeInTheDocument();
   expect(screen.getByTestId('visibility-option')).toHaveTextContent('with data link');
+  expect(screen.getByTestId('settings-companion')).toBeInTheDocument();
 });
 
 it('does not show the racing profile option in Real mode', () => {
   modes.mode = 'real';
   open();
   expect(screen.queryByTestId('settings-racing-profile')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('settings-companion')).not.toBeInTheDocument();
 });

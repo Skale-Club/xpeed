@@ -173,6 +173,8 @@ const router = createBrowserRouter(createRoutesFromElements(
         {/* A driver's page (reached from the leaderboards and the friends lists). */}
         <Route path="/virtual/drivers/:handle" element={<SocialDriverPage />} />
         {/* Profile and Privacy are reached from Settings, not from the menu: they need routes of their own. */}
+        {/* The Companion page: reached from Settings (and from the links that invite to connect), not from the menu. */}
+        <Route path="/virtual/companion" element={<SimAppPage />} />
         <Route path="/virtual/profile" element={<SocialProfilePage />} />
         <Route path="/virtual/privacy" element={<SocialPrivacyPage />} />
       </Route>

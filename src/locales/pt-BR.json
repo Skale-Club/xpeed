@@ -2654,6 +2654,9 @@
     "companion": {
       "online": "Online",
       "offline": "Offline",
+      "settingsSummary_one": "{{count}} computador conectado · {{online}} online agora",
+      "settingsSummary_other": "{{count}} computadores conectados · {{online}} online agora",
+      "settingsManage": "Gerenciar computadores e jogos",
       "heardHelp": "Online significa que o servidor recebeu sinal do computador nos últimos 3 minutos.",
       "summary": "Computadores: {{count}} · online agora: {{online}}",
       "lastLapTitle": "Última volta recebida",

@@ -2654,6 +2654,9 @@
     "companion": {
       "online": "Online",
       "offline": "Offline",
+      "settingsSummary_one": "{{count}} computer connected · {{online}} online now",
+      "settingsSummary_other": "{{count}} computers connected · {{online}} online now",
+      "settingsManage": "Manage computers and games",
       "heardHelp": "Online means the server heard from the computer in the last 3 minutes.",
       "summary": "Computers: {{count}} · online now: {{online}}",
       "lastLapTitle": "Last lap received",

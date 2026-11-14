@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { useSettings } from '@/contexts/SettingsContext';
 import { ModesCard } from '@/components/ModesCard';
 import { VisibilitySection } from '@/components/social/PrivacyScreen';
+import { CompanionSettingsCard } from '@/components/sim/CompanionSettingsCard';
 import { useModes } from '@/contexts/ModesContext';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -179,6 +180,8 @@ export default function SettingsPage() {
         <ModesCard />
 
         {/* Virtual: who can see the racing profile is one option here; handle, name and data live on their own pages. */}
+        {mode === 'virtual' && <CompanionSettingsCard />}
+
         {mode === 'virtual' && (
           <div data-testid="settings-racing-profile">
             <VisibilitySection withDataLink />

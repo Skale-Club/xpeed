@@ -2654,6 +2654,9 @@
     "companion": {
       "online": "En línea",
       "offline": "Sin conexión",
+      "settingsSummary_one": "{{count}} ordenador conectado · {{online}} en línea ahora",
+      "settingsSummary_other": "{{count}} ordenadores conectados · {{online}} en línea ahora",
+      "settingsManage": "Gestionar ordenadores y juegos",
       "heardHelp": "En línea significa que el servidor supo del equipo en los últimos 3 minutos.",
       "summary": "Equipos: {{count}} · en línea ahora: {{online}}",
       "lastLapTitle": "Última vuelta recibida",
