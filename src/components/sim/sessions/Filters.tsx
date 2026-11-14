@@ -74,6 +74,7 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
           onChange={(value) => onChange('period', value)}
           options={SESSION_PERIODS.map((period) => ({ value: period, label: periodLabels[period] }))}
           testId="filter-period"
+          className="sm:w-40"
         />
         <label className="flex h-8 cursor-pointer items-center gap-2 text-xs sm:ml-auto" title={t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}>
           <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={t('sessionsDash.filters.validOnly', 'Valid laps only')} />
