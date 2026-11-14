@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import { gzipLap, type LapFile } from '@/lib/sim/lap-file';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
@@ -10,11 +9,7 @@ import { fakeV1State, ref, v1Lap, type FakeV1State } from '@/test/v1-fake-server
 import { CompareScreen } from './CompareScreen';
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
-vi.mock('recharts', () => ({
-  ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  LineChart: ({ data, children }: { data: unknown[]; children: ReactNode }) => <figure data-testid="chart" data-points={data.length}>{children}</figure>,
-  Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null, ReferenceLine: () => null,
-}));
+vi.mock('recharts', async () => (await import('@/test/recharts-mock')).rechartsMock);
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 
@@ -53,6 +48,8 @@ afterEach(() => {
 });
 
 const open = (route: string) => renderSim(<CompareScreen />, { state, route });
+/** The header shows a dash until both laps are down; this waits for the gap itself. */
+const gapReady = () => waitFor(() => expect(screen.getByTestId('final-gap')).not.toHaveTextContent('–'));
 const search = () => whereNow(screen.getByTestId('where')).searchParams;
 
 describe('the reference', () => {
@@ -80,14 +77,15 @@ describe('the reference', () => {
   it('is nothing when the lap is the personal best itself, and says so', async () => {
     open(`/virtual/compare?a=${bestLap.id}`);
     await waitFor(() => expect(screen.getByTestId('slot-reference')).toHaveTextContent('This is your personal best'));
-    expect(screen.queryByTestId('final-gap')).not.toBeInTheDocument();
+    expect(screen.getByTestId('final-gap')).toHaveTextContent('–');
+    expect(screen.getByTestId('delta-words')).toHaveTextContent('This is your best: choose a reference.');
     expect(screen.getByTestId('lap-numbers')).toBeInTheDocument(); // the lap is still looked at
     expect(screen.getByTestId('slot-lap')).toHaveTextContent('Personal best');
   });
 
   it('can be changed with the picker, which starts on the same track and car, and then the address names it', async () => {
     open(`/virtual/compare?a=${myLap.id}`);
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
     fireEvent.click(within(screen.getByTestId('slot-reference')).getByRole('button', { name: 'Change' }));
     const picker = await screen.findByTestId('lap-picker');
     await waitFor(() => expect(within(picker).getAllByTestId('picker-lap').length).toBeGreaterThan(0));
@@ -105,12 +103,12 @@ describe('the reference', () => {
     await waitFor(() => expect(screen.getByTestId('different-tracks')).toBeInTheDocument());
     fireEvent.click(await within(screen.getByTestId('slot-reference')).findByRole('button', { name: 'Use my personal best as the reference' }));
     await waitFor(() => expect(search().get('b')).toBeNull());
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
   });
 
   it('swaps the lap and the reference', async () => {
     open(`/virtual/compare?a=${myLap.id}`);
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
     fireEvent.click(screen.getByRole('button', { name: 'Swap the lap and the reference' }));
     await waitFor(() => expect(search().get('a')).toBe(bestLap.id));
     expect(search().get('b')).toBe(myLap.id);
@@ -122,7 +120,8 @@ describe('laps that cannot be compared', () => {
   it('is refused with the reason, and the lap alone is still looked at', async () => {
     open(`/virtual/compare?a=${myLap.id}&b=${otherLap.id}`);
     expect(await screen.findByTestId('different-tracks')).toHaveTextContent('different tracks');
-    expect(screen.queryByTestId('final-gap')).not.toBeInTheDocument();
+    expect(screen.getByTestId('final-gap')).toHaveTextContent('–');
+    expect(screen.getByTestId('delta-words')).toHaveTextContent('These laps cannot be compared.');
     expect(screen.queryByTestId('time-changes')).not.toBeInTheDocument();
     expect(screen.getByTestId('lap-numbers')).toBeInTheDocument();
   });
@@ -133,7 +132,7 @@ describe('downloading', () => {
     state.delayMs = 30;
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
     expect(await screen.findAllByTestId('lap-downloading')).toHaveLength(2);
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
     expect(screen.queryByTestId('lap-downloading')).not.toBeInTheDocument();
   });
 
@@ -149,7 +148,7 @@ describe('downloading', () => {
     await waitFor(() => expect(screen.getByTestId('lap-numbers')).toBeInTheDocument());
     expect(within(screen.getByTestId('slot-lap')).queryByTestId('lap-failed')).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByTestId('slot-reference')).getByRole('button', { name: 'Try again' }));
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
   });
 
   it('says a lap is no longer in the account, without offering a retry that cannot help', async () => {
@@ -169,10 +168,10 @@ describe('downloading', () => {
 
   it('downloads a lap once: coming back to it is read from the device', async () => {
     const first = open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
     first.unmount();
     open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument());
+    await gapReady();
     expect(fileRequests()).toHaveLength(2);
   });
 });
@@ -198,7 +197,7 @@ describe('finding a lap', () => {
 
     fireEvent.click(await within(picker).findByRole('button', { name: /Lap 7/ }));
     await waitFor(() => expect(search().get('a')).toBe(myLap.id));
-    await waitFor(() => expect(screen.getByTestId('final-gap')).toBeInTheDocument()); // and its reference is the personal best
+    await gapReady(); // and its reference is the personal best
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 

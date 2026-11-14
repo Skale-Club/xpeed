@@ -80,6 +80,8 @@ export const inDrivingOrder = (laps: readonly V1Lap[]): V1Lap[] =>
 export type LapKind = 'best' | 'valid' | 'invalid';
 /** One point of the lap chart. */
 export interface ChartRow {
+  /** The lap's id on the server, so a bar can open its analysis. */
+  id: string;
   lap: number;
   seconds: number;
   kind: LapKind;
@@ -92,6 +94,7 @@ export function chartRows(laps: readonly V1Lap[], bestId: string | null): ChartR
   return laps
     .filter((lap) => lap.timeMs > 0)
     .map((lap) => ({
+      id: lap.id,
       lap: lap.lapNumber,
       seconds: lap.timeMs / 1000,
       kind: lap.id === bestId ? 'best' : lap.valid ? 'valid' : 'invalid',

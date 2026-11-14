@@ -361,7 +361,10 @@ export function handleV1(state: FakeV1State, method: string, path: string, param
         const bytes = state.files.get(id);
         return bytes ? { status: 200, bytes } : fail(404, 'lap_not_found');
       }
-      if (id) return fail(404, 'not_found');
+      if (id) {
+        const lap = state.laps.find((entry) => entry.id === id);
+        return lap ? { status: 200, json: lap } : fail(404, 'lap_not_found');
+      }
       const valid = params.valid === undefined ? undefined : ['true', '1'].includes(params.valid);
       const laps = byNewest(state.laps).filter(
         (lap) =>

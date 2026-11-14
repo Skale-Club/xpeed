@@ -15,6 +15,7 @@ import { buildSyntheticLap, exampleCorners, scaleCorners, type SynthCorner } fro
 import type { V1CarItem, V1Lap, V1Ref, V1Session, V1TrackItem } from '@/lib/sim/v1-client';
 import { gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
 import { buildCatalog, fakeV1State, handleV1, type FakeV1State } from '@/test/v1-fake-server';
+import { buildInsights } from '@/test/v1-insights';
 import { handleSocial, handlePublic, type FakeSocialState } from '@/test/social-fake-server';
 import { buildSocial } from './sim-social';
 
@@ -151,6 +152,7 @@ async function build(): Promise<FakeV1State> {
     session.lapCount = laps.length;
     session.bestLapMs = valid.length ? Math.min(...valid.map((entry) => entry.timeMs)) : null;
     session.endedAt = new Date(Math.max(...laps.map((entry) => Date.parse(entry.startedAt) + entry.timeMs))).toISOString();
+    state.insights.set(session.id, buildInsights(session.id, laps));
   }
   state.requests.length = 0;
   buildCatalog(state, LENGTH_M);

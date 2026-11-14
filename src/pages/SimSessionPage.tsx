@@ -8,7 +8,7 @@ export default function SimSessionPage() {
   const { t } = useTranslation();
   return (
     <AppLayout>
-      <div className="max-w-5xl space-y-4">
+      <div className="max-w-6xl space-y-4">
         <div className="flex items-center gap-2">
           <Timer className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('modes.session.title', 'Session')}</h2>

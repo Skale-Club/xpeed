@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
-import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { renderSocial, callsTo } from '@/test/social-render';
@@ -11,11 +10,7 @@ import { SessionPage } from '@/components/sim/SessionPage';
 import { ShareButton, ShareDialog } from './ShareDialog';
 
 vi.mock('@/components/sim/SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
-vi.mock('recharts', () => ({
-  ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  LineChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
-  Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null, ReferenceLine: () => null,
-}));
+vi.mock('recharts', async () => (await import('@/test/recharts-mock')).rechartsMock);
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 

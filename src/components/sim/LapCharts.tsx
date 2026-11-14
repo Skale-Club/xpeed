@@ -35,6 +35,20 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
   digits?: number;
   domain: [number | string, number | string];
 }) {
+  const { t } = useTranslation();
+  // What the chart says, in words, for a screen reader: where each line goes from and to.
+  const summary = useMemo(
+    () =>
+      series
+        .flatMap((line) => {
+          const values = data.map((row) => row[line.key]).filter((value): value is number => typeof value === 'number');
+          return values.length === 0
+            ? []
+            : [t('sessionsDash.compare.chartRange', '{{name}}: from {{low}} to {{high}}', { name: line.name, low: Math.min(...values).toFixed(digits), high: Math.max(...values).toFixed(digits) })];
+        })
+        .join('; '),
+    [series, data, digits, t],
+  );
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-1">
@@ -43,7 +57,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
         </CardTitle>
       </CardHeader>
       <CardContent className="pb-3">
-        <div style={{ height }} aria-label={title} role="img">
+        <div style={{ height }} aria-label={summary ? `${title} (${unit}). ${summary}` : title} role="img">
           <ResponsiveContainer width="100%" height="100%">
             {/* syncId: the cursor moves on every chart at once, so one distance can be read across all of them. */}
             <LineChart data={data} syncId="sim-lap" margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>

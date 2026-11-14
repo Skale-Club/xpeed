@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import i18n from '@/lib/i18n';
 import { gzipLap } from '@/lib/sim/lap-file';
 import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
@@ -11,11 +10,7 @@ import { CompareScreen } from './CompareScreen';
 
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => true }));
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span>{name}</span> }));
-vi.mock('recharts', () => ({
-  ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  LineChart: ({ data, children }: { data: unknown[]; children: ReactNode }) => <figure data-testid="chart" data-points={data.length}>{children}</figure>,
-  Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null, ReferenceLine: () => null,
-}));
+vi.mock('recharts', async () => (await import('@/test/recharts-mock')).rechartsMock);
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
 
@@ -55,6 +50,20 @@ describe('the Compare screen on a phone', () => {
     expect(screen.queryByTestId('lap-charts')).not.toBeInTheDocument();
     // The full selector (the slots, the swap, the picker) is folded away until "Change" is pressed.
     expect(screen.queryByTestId('compare-slots')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('delta-block')).not.toBeInTheDocument();
+  });
+
+  it('keeps the gap in the slim bar, coloured, and in the numbers (the big header is folded away)', async () => {
+    renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
+    const delta = await screen.findByTestId('sticky-delta');
+    expect(delta).toHaveTextContent(/^\+0\.3\d\d s$/); // lap 7 is slower than lap 5
+    expect(delta.className).toMatch(/destructive/);
+    // Only one gap is written at a time: the numbers carry it while the header is folded away.
+    expect(await screen.findByTestId('final-gap')).toHaveTextContent(/^\+0\.3\d\d s$/);
+    expect(screen.getAllByTestId('final-gap')).toHaveLength(1);
+    fireEvent.click(screen.getByTestId('sticky-change'));
+    expect(screen.getByTestId('delta-block')).toBeInTheDocument();
+    expect(screen.getAllByTestId('final-gap')).toHaveLength(1);
   });
 
   it('opens the full selector with Change, and folds it again', async () => {

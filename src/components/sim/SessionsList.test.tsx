@@ -52,8 +52,8 @@ describe('the list', () => {
     expect(race.getByTestId('sim-car-identity')).toHaveTextContent('Ferrari 499P');
     expect(race.getByTestId('session-game')).toHaveTextContent('Le Mans Ultimate');
     expect(race.getByTestId('session-kind')).toHaveTextContent('Race');
-    expect(cards[0]).toHaveTextContent('Rain · air 18 °C · track 22 °C');
-    expect(cards[0]).toHaveTextContent('Laps: 12');
+    expect(race.getByTestId('session-conditions')).toHaveTextContent('Rain · air 18 °C · track 22 °C');
+    expect(race.getByTestId('session-lap-count')).toHaveTextContent('12');
     expect(race.getByTestId('session-best')).toHaveTextContent('1:39.480');
     expect(race.getByTestId('session-origin')).toHaveTextContent('From Xpeed Companion');
 
@@ -62,19 +62,19 @@ describe('the list', () => {
     expect(practice.getByTestId('session-kind')).toHaveTextContent('Practice');
     expect(practice.getByTestId('session-best')).toHaveTextContent('–'); // no valid lap
     expect(practice.getByTestId('session-origin')).toHaveTextContent('Grouped by Xpeed');
-    expect(cards[1]).not.toHaveTextContent('air');
+    expect(practice.queryByTestId('session-conditions')).not.toBeInTheDocument();
 
     // A session is a link to its page.
     expect(screen.getAllByTestId('session-link')[0]).toHaveAttribute('href', `/virtual/sessions/${state.sessions[0].id}`);
-    // Only the lists were read: no lap file, not even the laps.
-    expect(state.requests.some((request) => request.path.includes('/file') || request.path === '/laps')).toBe(false);
+    // Only the lists were read: no lap file, not even the laps of a session (a row reads them only when it is about to be seen).
+    expect(state.requests.some((request) => request.path.includes('/file') || request.path === '/laps' || /^\/sessions\/[^/]+$/.test(request.path))).toBe(false);
   });
 
   it('shows the temperatures in Fahrenheit when that is the unit chosen', async () => {
     localStorage.setItem('settings_temperatureUnit', 'F');
     renderSim(<SessionsList />, { state: seeded() });
     expect(await screen.findAllByTestId('session')).toHaveLength(2);
-    expect(screen.getAllByTestId('session')[0]).toHaveTextContent('air 64 °F · track 72 °F');
+    expect(screen.getAllByTestId('session-conditions')[0]).toHaveTextContent('air 64 °F · track 72 °F');
   });
 
   it('pages with a "Load more" button, a page at a time', async () => {
@@ -130,7 +130,7 @@ describe('the filters', () => {
     const { state } = renderSim(<SessionsList />, { state: seeded(), route: `/virtual/sessions?game=lmu&track=${spa.id}` });
     expect(await screen.findByTestId('sessions-no-match')).toHaveTextContent('No session matches these filters.');
     expect(state.requests.find((request) => request.path === '/sessions')!.params).toMatchObject({ game: 'lmu', track: spa.id });
-    fireEvent.click(screen.getByRole('button', { name: 'Clear the filters' }));
+    fireEvent.click(within(screen.getByTestId('sessions-no-match')).getByRole('button', { name: 'Clear the filters' }));
     await waitFor(() => expect(screen.getAllByTestId('session')).toHaveLength(2));
   });
 });

@@ -177,9 +177,12 @@ export function LapAnalysis({
   listKeptLayouts,
   linkLayout,
   phone,
+  showFinalGap = true,
 }: {
   /** Show the phone layout (tabs) whatever the screen; left out, it follows the width of the screen. */
   phone?: boolean;
+  /** Write the gap at the finish at the top of the numbers. The Compare screen shows it big in its own header and turns this off while that header is on screen. */
+  showFinalGap?: boolean;
   lap: LoadedLap;
   reference?: LoadedLap | null;
   /** Looks for the layout of the track of a lap among the ones Xpeed Companion sent (kept on this device). */
@@ -351,7 +354,7 @@ export function LapAnalysis({
         <CardTitle className="text-sm font-semibold">{t('modes.compare.summary', 'Numbers')}</CardTitle>
       </CardHeader>
       <CardContent className="pb-3">
-        {finalGap !== null && analysis.same && (
+        {showFinalGap && finalGap !== null && analysis.same && (
           <p className="mb-2 text-sm">
             {t('modes.compare.finalGap', 'Gap at the finish')}:{' '}
             <span className={cn('font-mono text-lg font-semibold tabular-nums', finalGap > 0.0005 ? 'text-destructive' : finalGap < -0.0005 ? 'text-green-500' : '')} data-testid="final-gap">
@@ -497,16 +500,25 @@ export function LapAnalysis({
     return (
       <div className="space-y-4" data-testid="lap-analysis">
         {refusalNote}
-        {numbersCard}
-        {whereCard}
+        {/* What the comparison says: the numbers, and where the time went; then the sectors and the corners, then the curves, then the track and the stretches. */}
+        <div className={cn('grid gap-4', whereCard && 'lg:grid-cols-12')}>
+          <div className={cn('min-w-0', whereCard && 'lg:col-span-6')}>{numbersCard}</div>
+          {whereCard && <div className="min-w-0 lg:col-span-6">{whereCard}</div>}
+        </div>
         {stripCard}
         {cornersCard}
         {zoomBar}
         {layoutNote}
         {charts}
-        {changesCard}
-        {offLine}
-        {mapNode}
+        <div className={cn('grid gap-4', mapNode && (changesCard || offLine) && 'lg:grid-cols-12')}>
+          {mapNode && <div className={cn('min-w-0', (changesCard || offLine) && 'lg:col-span-7')}>{mapNode}</div>}
+          {(changesCard || offLine) && (
+            <div className={cn('min-w-0 space-y-4', mapNode && 'lg:col-span-5')}>
+              {changesCard}
+              {offLine}
+            </div>
+          )}
+        </div>
       </div>
     );
   }

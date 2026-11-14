@@ -8,10 +8,13 @@ export default function SimSessionsPage() {
   const { t } = useTranslation();
   return (
     <AppLayout>
-      <div className="max-w-5xl space-y-4">
-        <div className="flex items-center gap-2">
-          <Timer className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold">{t('modes.nav.sessions', 'Sessions')}</h2>
+      <div className="max-w-6xl space-y-4">
+        <div className="space-y-1">
+          <h2 className="flex items-center gap-2 text-xl font-bold">
+            <Timer className="h-5 w-5 text-primary" aria-hidden="true" />
+            {t('modes.nav.sessions', 'Sessions')}
+          </h2>
+          <p className="text-sm text-muted-foreground">{t('modes.sessions.intro', 'Your sessions: the laps Xpeed Companion sent, grouped by car and track as the game ran them.')}</p>
         </div>
         <SessionsList />
       </div>

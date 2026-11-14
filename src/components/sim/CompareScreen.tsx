@@ -1,112 +1,37 @@
-import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeftRight, Award, Loader2, RefreshCw, X } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { LapAnalysis } from '@/components/sim/LapAnalysis';
+import { useAuth } from '@/contexts/AuthContext';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { formatLapTime } from '@/lib/sim/analysis';
+import { formatGap, formatLapTime, incomparableReason } from '@/lib/sim/analysis';
 import { compareParams } from '@/lib/sim/compare-url';
-import { LapReadError } from '@/lib/sim/read-lap-file';
-import type { LapFile } from '@/lib/sim/lap-file';
+import { forget, loadSaved, remember, setPinned, type SavedComparison } from '@/lib/sim/compare-recent';
 import { useLayoutFinder } from '@/lib/sim/use-track-layouts';
 import { useLapFile } from '@/lib/sim/use-lap-file';
-import { V1Error, isSignedOut, usePbs, type V1Lap } from '@/lib/sim/v1-client';
+import { usePbs, type V1Lap } from '@/lib/sim/v1-client';
+import { cn } from '@/lib/utils';
+import { DeltaBlock } from './compare/DeltaBlock';
+import { deltaTone } from './compare/delta-tone';
+import { describeLap } from './compare/describe-lap';
+import { LapPanel } from './compare/LapPanel';
+import { QuickPickers } from './compare/QuickPickers';
+import { SavedChips } from './compare/SavedChips';
 import { LapPicker, type PickerStart } from './LapPicker';
 import { useReadAllPages } from './use-read-all-pages';
-import { SimCarIdentity } from './SimCarIdentity';
-
-const describe = (lap: LapFile) => {
-  const { track, car, lap: info } = lap.header;
-  return { track: track.name, car: car.name, number: info.number, timeMs: info.timeMs, valid: info.valid };
-};
-
-/** One of the two laps of the comparison: what it is, and what it is doing (downloading, failed, loaded). */
-function LapSlot({ label, testId, hint, file, lapId, onChange, onClear, clearLabel, badge, hideChange }: {
-  label: string;
-  testId: string;
-  hint?: string;
-  file: ReturnType<typeof useLapFile>;
-  lapId: string | null;
-  onChange: () => void;
-  onClear?: () => void;
-  clearLabel?: string;
-  badge?: string;
-  /** The picker is already open for this lap: no button to open it. */
-  hideChange?: boolean;
-}) {
-  const { t } = useTranslation();
-  const error = file.error;
-  const info = file.data ? describe(file.data) : null;
-  const why = !error
-    ? null
-    : isSignedOut(error)
-      ? t('modes.states.signedOut', 'You are signed out. Sign in again to see your laps.')
-      : error instanceof V1Error && error.status === 404
-        ? t('modes.compare.gone', 'This lap is no longer in your account.')
-        : error instanceof LapReadError
-          ? t('modes.compare.badFile', 'The file of this lap is not a valid lap file.')
-          : t('modes.compare.downloadFailed', 'The lap could not be downloaded. Check your connection and try again.');
-  const gone = error instanceof V1Error && error.status === 404;
-  return (
-    <li className="flex flex-wrap items-center gap-2 py-2" data-testid={testId}>
-      <span className="w-20 shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-      <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
-        {!lapId ? (
-          <p className="text-sm text-muted-foreground">{hint}</p>
-        ) : file.isPending ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status" data-testid="lap-downloading">
-            <Loader2 className="h-4 w-4 animate-spin" /> {t('modes.compare.downloading', 'Downloading the lap…')}
-          </p>
-        ) : why ? (
-          <p role="alert" className="text-sm text-destructive" data-testid="lap-failed">
-            {why}
-          </p>
-        ) : info ? (
-          <>
-            <p className="truncate text-sm font-medium">
-              {info.track} · {t('modes.compare.lapN', 'Lap {{n}}', { n: info.number })} · <span className="font-mono tabular-nums">{formatLapTime(info.timeMs)}</span>
-            </p>
-            <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-              <SimCarIdentity name={info.car} className="text-xs" />
-              <span>{info.valid ? t('modes.compare.valid', 'valid') : t('modes.compare.notValid', 'not valid')}</span>
-              {badge && <Badge variant="secondary" className="gap-1"><Award className="h-3 w-3" />{badge}</Badge>}
-            </div>
-          </>
-        ) : null}
-      </div>
-      {lapId && error && !gone && !(error instanceof LapReadError) && !isSignedOut(error) && (
-        <Button size="sm" variant="outline" onClick={() => void file.refetch()} disabled={file.isFetching}>
-          <RefreshCw className="mr-2 h-4 w-4" /> {t('modes.states.retry', 'Try again')}
-        </Button>
-      )}
-      {isSignedOut(error) && (
-        <Button asChild size="sm"><Link to="/login">{t('modes.states.signIn', 'Sign in')}</Link></Button>
-      )}
-      {!hideChange && (
-        <Button size="sm" variant="outline" onClick={onChange}>
-          {lapId ? t('modes.compare.change', 'Change') : t('modes.compare.choose', 'Choose a lap')}
-        </Button>
-      )}
-      {onClear && lapId && (
-        <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={clearLabel} title={clearLabel} onClick={onClear}>
-          <X className="h-4 w-4" />
-        </Button>
-      )}
-    </li>
-  );
-}
 
 /**
- * Virtual > Compare laps. The laps come from the account only: a link names them by their ids (`?a=<lap>&b=<reference>`), or they
- * are found with the picker (game, track, car, lap). A lap with no reference is measured against the personal best of the same
- * track and car; the reference can be changed. Laps are downloaded once and kept on the device as a cache.
+ * Virtual > Compare laps. The laps come from the account only: a link names them by their ids (`?a=<lap>&b=<reference>`), or they are found with the picker
+ * (game, track, car, lap). A lap with no reference is measured against the personal best of the same track and car; the reference can be changed, picked
+ * from three quick choices (my best, the previous session's best, another car) or found with the picker. The header shows the two laps with the gap between
+ * them big and coloured, and a swap button; under it, the comparisons made lately and the ones saved, as chips. Laps are downloaded once and kept on the device as a cache.
  */
 export function CompareScreen() {
   const { t } = useTranslation();
   const mobile = useIsMobile();
+  const userId = useAuth().user?.id ?? null;
   const [editing, setEditing] = useState(false);
   const [params, setParams] = useSearchParams();
   const { a: aId, b: bParam } = compareParams(params);
@@ -154,10 +79,34 @@ export function CompareScreen() {
   const usingDefault = !bParam && !!defaultRef;
   const isPb = !!aId && !!pb && pb.lapId === aId;
 
+  const aInfo = aFile.data ? describeLap(aFile.data) : null;
+  const bInfo = bFile.data && bId ? describeLap(bFile.data) : null;
+  const refusal = aFile.data && bFile.data && bId ? incomparableReason(aFile.data, bFile.data) : null;
+  const delta = aInfo && bInfo && !refusal ? (aInfo.timeMs - bInfo.timeMs) / 1000 : null;
+  const deltaNote = refusal ? t('sessionsDash.compare.noDeltaRefused', 'These laps cannot be compared.') : isPb ? t('sessionsDash.compare.noDeltaPb', 'This is your best: choose a reference.') : undefined;
+
+  // The comparisons made lately and the saved ones: what is on screen is kept once both laps are there.
+  const [saved, setSaved] = useState<SavedComparison[]>(() => loadSaved(userId));
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
+  const lastKept = useRef('');
+  useEffect(() => {
+    setSaved(loadSaved(userId));
+    lastKept.current = '';
+  }, [userId]);
+  const ready = !!aId && !!aInfo && (bId ? !!bInfo : !aHeader || !pbs.isPending);
+  useEffect(() => {
+    if (!ready || !aId || !aInfo) return;
+    const key = `${aId}|${bParam ?? ''}|${bInfo ? 'b' : ''}`;
+    if (lastKept.current === key) return;
+    lastKept.current = key;
+    setSaved(remember(userId, savedRef.current, { a: aId, b: bParam, info: { track: aInfo.track, aLap: aInfo.number, aMs: aInfo.timeMs, bLap: bInfo?.number ?? null, bMs: bInfo?.timeMs ?? null } }));
+    // `aInfo` and `bInfo` are rebuilt every render; the key above says when what is on screen really changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, aId, bParam, userId, aInfo?.number, bInfo?.number]);
+
   // On a phone the two laps stay in view as a slim bar while the page scrolls; "Change" opens the full selector.
   const slim = mobile && !!aId && !!aFile.data;
-  const aInfo = aFile.data ? describe(aFile.data) : null;
-  const bInfo = bFile.data && bId ? describe(bFile.data) : null;
   const slimBar = slim && aInfo && (
     <div className="sticky top-14 z-30 -mx-4 flex h-14 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur" data-testid="sticky-laps">
       <div className="min-w-0 flex-1 text-xs leading-tight">
@@ -172,6 +121,11 @@ export function CompareScreen() {
               : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
         </p>
       </div>
+      {delta !== null && (
+        <span className={cn('shrink-0 font-mono text-sm font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-green-500')} data-testid="sticky-delta">
+          {formatGap(delta)} s
+        </span>
+      )}
       <Button size="sm" variant="outline" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="sticky-change">
         {t('modes.compare.change', 'Change')}
       </Button>
@@ -187,6 +141,7 @@ export function CompareScreen() {
         findLayout={findLayout}
         listKeptLayouts={listKeptLayouts}
         linkLayout={linkLayout}
+        showFinalGap={slim && !editing && picking === null}
       />
     ) : null;
 
@@ -194,40 +149,61 @@ export function CompareScreen() {
     <div className="space-y-4" data-testid="compare">
       {slimBar}
       {(!slim || editing || picking !== null) && (
-      <Card className="bg-card border-border">
-        <CardContent className="space-y-3 p-4">
-          <p className="text-sm text-muted-foreground">
-            {t('modes.compare.intro', 'Pick a lap from your account to look at it closely, and compare it with another one. A lap on its own is measured against your personal best on the same track and car.')}
-          </p>
-          <ul className="divide-y divide-border" data-testid="compare-slots">
-            <LapSlot label={t('modes.compare.lap', 'Lap')} testId="slot-lap" hint={t('modes.compare.noLap', 'No lap chosen yet.')} file={aFile} lapId={aId} onChange={() => setPicking(picking === 'a' ? null : 'a')} hideChange={!aId} badge={isPb ? t('modes.session.pb', 'Personal best') : undefined} />
-            {aId && (
-              <LapSlot
-                label={t('modes.compare.reference', 'Reference')}
-                testId="slot-reference"
-                hint={isPb ? t('modes.compare.isPb', 'This is your personal best on this track and car, so there is nothing to compare it with. Choose a reference to compare it with.') : pbs.isPending && !!aHeader ? t('modes.compare.lookingForPb', 'Looking for your personal best…') : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
-                file={bFile}
-                lapId={bId}
-                onChange={() => setPicking(picking === 'b' ? null : 'b')}
-                onClear={bParam ? () => go({ b: null }) : undefined}
-                clearLabel={defaultRef ? t('modes.compare.useMyBest', 'Use my personal best as the reference') : t('modes.compare.removeReference', 'Remove the reference')}
-                badge={usingDefault ? t('modes.compare.myBest', 'My personal best (default)') : undefined}
-              />
+        <Card className="border-border bg-card">
+          <CardContent className="space-y-4 p-4">
+            {!aId && (
+              <p className="text-sm text-muted-foreground">
+                {t('modes.compare.intro', 'Pick a lap from your account to look at it closely, and compare it with another one. A lap on its own is measured against your personal best on the same track and car.')}
+              </p>
             )}
-          </ul>
-          {aId && bId && (
-            <Button size="sm" variant="ghost" onClick={swap}>
-              <ArrowLeftRight className="mr-2 h-4 w-4" /> {t('modes.compare.swap', 'Swap the lap and the reference')}
-            </Button>
-          )}
-          {showPicker && (
-            <div className="space-y-2 border-t border-border pt-3">
-              <p className="text-sm font-medium">{picking === 'b' ? t('modes.compare.pickReference', 'Choose the reference lap') : t('modes.compare.pickLap', 'Choose a lap')}</p>
-              <LapPicker onPick={pick} start={picking === 'b' ? start : undefined} exclude={picking === 'b' && aId ? [aId] : []} />
+
+            <div className={cn('grid gap-3', aId && 'md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]')} data-testid="compare-slots">
+              <LapPanel
+                side="lap"
+                label={t('modes.compare.lap', 'Lap')}
+                testId="slot-lap"
+                hint={t('modes.compare.noLap', 'No lap chosen yet.')}
+                file={aFile}
+                lapId={aId}
+                onChange={() => setPicking(picking === 'a' ? null : 'a')}
+                hideChange={!aId}
+                badge={isPb ? t('modes.session.pb', 'Personal best') : undefined}
+              />
+              {aId && <DeltaBlock seconds={delta} note={deltaNote} canSwap={!!bId} onSwap={swap} />}
+              {aId && (
+                <LapPanel
+                  side="reference"
+                  label={t('modes.compare.reference', 'Reference')}
+                  testId="slot-reference"
+                  hint={isPb ? t('modes.compare.isPb', 'This is your personal best on this track and car, so there is nothing to compare it with. Choose a reference to compare it with.') : pbs.isPending && !!aHeader ? t('modes.compare.lookingForPb', 'Looking for your personal best…') : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
+                  file={bFile}
+                  lapId={bId}
+                  onChange={() => setPicking(picking === 'b' ? null : 'b')}
+                  onClear={bParam ? () => go({ b: null }) : undefined}
+                  clearLabel={defaultRef ? t('modes.compare.useMyBest', 'Use my personal best as the reference') : t('modes.compare.removeReference', 'Remove the reference')}
+                  badge={usingDefault ? t('modes.compare.myBest', 'My personal best (default)') : undefined}
+                />
+              )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {aId && aFile.data && <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />}
+
+            <SavedChips
+              items={saved}
+              a={aId}
+              b={bParam}
+              onPin={(item, pinned) => setSaved(setPinned(userId, saved, item, pinned))}
+              onForget={(item) => setSaved(forget(userId, saved, item))}
+            />
+
+            {showPicker && (
+              <div className="space-y-2 border-t border-border pt-3">
+                <p className="text-sm font-medium">{picking === 'b' ? t('modes.compare.pickReference', 'Choose the reference lap') : t('modes.compare.pickLap', 'Choose a lap')}</p>
+                <LapPicker onPick={pick} start={picking === 'b' ? start : undefined} exclude={picking === 'b' && aId ? [aId] : []} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {analysis}
