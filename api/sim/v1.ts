@@ -2,7 +2,7 @@
 // filterable, one error shape everywhere: { "error": "<code>", "retryable": <bool> }. Contract: docs/platform/API-V1.md.
 //
 //   GET    /v1/laps?game&track&car&session&valid&cursor&limit     GET /v1/laps/<id>   GET /v1/laps/<id>/file   DELETE /v1/laps/<id>
-//   GET    /v1/sessions?game&track&car&cursor&limit               GET /v1/sessions/<id>      DELETE /v1/sessions/<id>
+//   GET    /v1/sessions?game&track&car&cursor&limit               GET /v1/sessions/<id>      DELETE /v1/sessions/<id>      GET /v1/sessions/<id>/insights
 //   GET    /v1/tracks?game&cursor&limit        GET /v1/tracks/<id>       GET /v1/cars?...        GET /v1/cars/<id>
 //   GET    /v1/pbs?game&track&car&cursor&limit                    GET /v1/overview
 //   profiles, friends, shares, leaderboards, reports, admin, me/export, me/data: api/sim/_social.ts
@@ -15,6 +15,7 @@ import { download, remove, removeSession, type Answer } from './laps';
 import { cachedOverview, rememberOverview } from './_v1cache';
 import { call, decodeCursor, DEFAULT_LIMIT, failed, gameParam, Invalid, limitParam, MAX_LIMIT, paged, UUID, uuidParam, type Item } from './_v1util';
 import { handleSocial, isSocialPath } from './_social';
+import { insightsFromLaps, type InsightLap } from './_insights';
 
 export { DEFAULT_LIMIT, MAX_LIMIT };
 
@@ -31,13 +32,14 @@ const LISTS = new Set<string>(['laps', 'sessions', 'tracks', 'cars', 'pbs', 'ove
 const WITH_ID = new Set<string>(['laps', 'sessions', 'tracks', 'cars']);
 
 /** `<resource>`, `<resource>/<id>` or `laps/<id>/file`, and the methods each takes; null for any other path. */
-function route(parts: string[]): { resource: Resource; id?: string; file?: boolean; methods: string[] } | null {
+function route(parts: string[]): { resource: Resource; id?: string; file?: boolean; insights?: boolean; methods: string[] } | null {
   const [resource, id, tail] = parts;
   if (parts.length === 1 && LISTS.has(resource)) return { resource: resource as Resource, methods: ['GET'] };
   if (parts.length >= 2 && !WITH_ID.has(resource)) return null;
   if (parts.length >= 2 && !UUID.test(id)) return null;
   if (parts.length === 2) return { resource: resource as Resource, id: id.toLowerCase(), methods: resource === 'laps' ? ['GET', 'DELETE'] : resource === 'sessions' ? ['GET', 'DELETE'] : ['GET'] };
   if (parts.length === 3 && resource === 'laps' && tail === 'file') return { resource: 'laps', id: id.toLowerCase(), file: true, methods: ['GET'] };
+  if (parts.length === 3 && resource === 'sessions' && tail === 'insights') return { resource: 'sessions', id: id.toLowerCase(), insights: true, methods: ['GET'] };
   return null;
 }
 
@@ -70,7 +72,7 @@ export default async function v1(req: Request): Promise<Response> {
       // The same file download and deletion as /api/sim/laps/<id>/file and DELETE /api/sim/laps/<id>.
       return where.file ? await download(req, lower, shared) : await remove(req, lower, shared);
     }
-    if (resource === 'sessions' && lower !== undefined && req.method === 'DELETE') return await removeSession(req, lower, shared);
+    if (resource === 'sessions' && lower !== undefined && req.method === 'DELETE' && !where.insights) return await removeSession(req, lower, shared);
     const userId = await backend.userId(token);
     if (!userId) return problem('unauthorized', 401);
     // As the person: the functions below run with their rights, so row level security decides what they see.
@@ -92,6 +94,11 @@ export default async function v1(req: Request): Promise<Response> {
         return send({ laps: items, nextCursor });
       }
       case 'sessions': {
+        if (where.insights && lower !== undefined) {
+          // Worked out from the stored lap metadata of the session: no lap file is read.
+          const found = await call<{ session: unknown; laps: InsightLap[] } | null>(db, 'sim_v1_session', { p_id: lower });
+          return found ? send(insightsFromLaps(lower, found.laps)) : problem('session_not_found', 404);
+        }
         if (lower !== undefined) {
           const found = await call<{ session: unknown; laps: unknown[] } | null>(db, 'sim_v1_session', { p_id: lower });
           return found ? send(found) : problem('session_not_found', 404);

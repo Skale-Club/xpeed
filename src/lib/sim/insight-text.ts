@@ -84,7 +84,11 @@ export function insightText(insight: Insight, options: InsightTextOptions = {}):
 /** One thing worth working on after a session, from `sessionInsights`: where the driving varies most, or where the best lap beat the average. */
 export type SessionFinding =
   | { kind: 'variable'; spread: CornerSpread }
-  | { kind: 'bestVsAverage'; gain: BestVsAverage };
+  | { kind: 'bestVsAverage'; gain: BestVsAverage }
+  // The three the server works out from the stored lap metadata (`GET /sessions/<id>/insights`), with no lap file: in seconds.
+  | { kind: 'sectorGain'; sector: number; seconds: number }
+  | { kind: 'sectorSpread'; sector: number; seconds: number }
+  | { kind: 'consistency'; seconds: number; laps: number };
 
 /** Differences smaller than these are noise at the rate laps are sampled, so they are not mentioned. */
 const MIN_BRAKE_M = 3;
@@ -93,6 +97,8 @@ const MIN_SPEED_KMH = 1.5;
 export function sessionFindingText(finding: SessionFinding, options: { unit?: DistanceUnit } = {}): InsightText {
   const unit = options.unit ?? 'km';
   const name = (suffix: string) => `modes.analysis.session.${suffix}`;
+  if (finding.kind === 'sectorGain' || finding.kind === 'sectorSpread') return { key: name(finding.kind), values: { sector: finding.sector, seconds: seconds(finding.seconds) } };
+  if (finding.kind === 'consistency') return { key: name('consistency'), values: { seconds: seconds(finding.seconds), laps: finding.laps } };
   if (finding.kind === 'variable') {
     const { spread } = finding;
     const values = { corner: spread.corner, seconds: seconds(spread.timeStdS), laps: spread.laps };

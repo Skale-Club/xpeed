@@ -1,5 +1,5 @@
 import type {
-  AdminLap, AdminReport, DeletedSummary, DriverPage, Friend, FriendStatus, LeaderboardEntry, MyProfile, PublicShare, Relation, Share, Visibility,
+  AdminLap, AdminReport, CatalogEntry, DeletedSummary, DriverPage, Friend, FriendStatus, LeaderboardEntry, MyProfile, PublicShare, Relation, Share, Visibility,
 } from '@/lib/sim/social-client';
 import { fakeV1State, handleV1, type FakeResponse, type FakeV1State } from '@/test/v1-fake-server';
 
@@ -40,6 +40,8 @@ export interface FakeSocialState {
   publicFiles: Map<string, Uint8Array>;
   /** Boards by `track|car|scope`. */
   boards: Map<string, FakeBoard>;
+  /** The tracks and cars that have public laps (`GET /leaderboards/catalog`). */
+  catalog: { tracks: CatalogEntry[]; cars: CatalogEntry[] };
   reports: AdminReport[];
   adminLaps: Map<string, AdminLap>;
   admin: boolean;
@@ -61,7 +63,7 @@ export function fakeSocialState(partial: Partial<FakeSocialState> = {}): FakeSoc
     v1: partial.v1 ?? fakeV1State(),
     me: { handle: 'lap_fan', displayName: 'Lap Fan', visibility: 'public', createdAt: '2026-10-01T10:00:00.000Z', handleChangesLeft: 3, handleChangesResetAt: null },
     drivers: [], friendRows: [], shares: [], publicTokens: new Map(), shareable: { laps: new Map(), sessions: new Map() }, publicFiles: new Map(),
-    boards: new Map(), reports: [], adminLaps: new Map(), admin: false, recheckRemaining: 0, reported: new Set(), deleted: null, requests: [],
+    boards: new Map(), catalog: { tracks: [], cars: [] }, reports: [], adminLaps: new Map(), admin: false, recheckRemaining: 0, reported: new Set(), deleted: null, requests: [],
     failing: null, delayMs: 0, tokenCounter: 0, ...partial,
   };
 }
@@ -125,7 +127,7 @@ function setRelation(state: FakeSocialState, handle: string, relation: FakeDrive
   return state.friendRows.find((row) => row.handle === handle) ?? null;
 }
 
-const SHARE_HEADS = new Set(['profile', 'profiles', 'friends', 'shares', 'leaderboard', 'reports', 'admin', 'me']);
+const SHARE_HEADS = new Set(['profile', 'profiles', 'friends', 'shares', 'leaderboard', 'leaderboards', 'reports', 'admin', 'me']);
 
 /** Answers one call of the social side; `path` is what comes after `/api/sim/v1`. Anything else goes to the read side. */
 export function handleSocial(state: FakeSocialState, method: string, path: string, params: Record<string, string>, body: unknown): FakeResponse {
@@ -189,6 +191,10 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
         const status = (params.status ?? 'accepted') as FriendStatus;
         if (!['accepted', 'incoming', 'outgoing', 'blocked'].includes(status)) return fail(400, 'invalid_status');
         return page(state.friendRows.filter((row) => row.status === status), params, 'friends');
+      }
+      if (a === 'requests' && b === 'count' && !c) {
+        if (method !== 'GET') return fail(405, 'method_not_allowed');
+        return { status: 200, json: { incoming: state.friendRows.filter((row) => row.status === 'incoming').length } };
       }
       if (a === 'requests' && method === 'POST' && !b) {
         if (!isObject(body) || typeof body.handle !== 'string') return fail(400, 'invalid_request');
@@ -286,6 +292,15 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
       if (start < 0) return fail(400, 'invalid_cursor');
       const limit = Math.min(limitRaw, 100);
       return { status: 200, json: { ...meta, entries: entries.slice(start, start + limit), nextCursor: start + limit < entries.length ? encode(start + limit) : null } };
+    }
+    case 'leaderboards': {
+      if (a !== 'catalog' || b) return fail(404, 'not_found');
+      if (method !== 'GET') return fail(405, 'method_not_allowed');
+      const kind = params.kind ?? 'track';
+      if (kind !== 'track' && kind !== 'car') return fail(400, 'invalid_kind');
+      const listed = (kind === 'track' ? state.catalog.tracks : state.catalog.cars).filter((entry) => !params.game || entry.game === params.game);
+      const answer = page([...listed].sort((p, q) => p.name.localeCompare(q.name)), params, 'items');
+      return answer.json ? { ...answer, json: { kind, ...(answer.json as object) } } : answer;
     }
     case 'reports': {
       if (method !== 'POST' || a) return fail(404, 'not_found');

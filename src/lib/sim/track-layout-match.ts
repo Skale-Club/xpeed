@@ -21,12 +21,12 @@ export function hasSyncedLayout(layouts: readonly AccountTrack[], track: { game:
 }
 
 /** The layouts the account holds (a cheap list, no file); null while unknown or when the server cannot say (the badge is then not shown). */
-export function useAccountLayouts(): AccountTrack[] | null {
+export function useAccountLayouts(enabled = true): AccountTrack[] | null {
   const userId = useAuth().user?.id ?? null;
   const query = useQuery({
     queryKey: ['sim-account-layouts', userId],
     queryFn: async () => (await listAccountTracks()) ?? [],
-    enabled: !!userId,
+    enabled: !!userId && enabled,
     staleTime: 5 * 60_000,
     retry: false,
     refetchOnWindowFocus: false,

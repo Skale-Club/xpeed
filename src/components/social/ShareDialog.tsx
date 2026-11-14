@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Check, Copy, Link2, Loader2, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LoadMore } from '@/components/sim/SimStates';
 import { useWhen } from '@/components/sim/use-when';
+import { formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { sessionPath } from '@/lib/sim/routes';
 import { useCreateShare, useRevokeShare, useShares, type CreatedShare, type Share } from '@/lib/sim/social-client';
@@ -35,6 +37,18 @@ async function copyText(text: string, field: HTMLTextAreaElement | null): Promis
   }
 }
 
+/** What a link is about, in one line: the track and car with the lap time, or with the kind and the laps of the session; null when the server did not say. */
+function aboutShare(share: Share, t: TFunction): string | null {
+  if (!share.trackName || !share.carName) return null;
+  const values = { track: share.trackName, car: share.carName };
+  if (share.kind === 'lap') return typeof share.lapMs === 'number' ? t('social.share.aboutLap', '{{track}} · {{car}} · {{time}}', { ...values, time: formatLapTime(share.lapMs) }) : null;
+  if (typeof share.lapCount !== 'number') return null;
+  const kind = share.sessionKind && share.sessionKind !== 'unknown' ? t(`modes.sessions.kind.${share.sessionKind}`, share.sessionKind) : null;
+  return kind
+    ? t('social.share.aboutSession', '{{track}} · {{car}} · {{kind}} · {{count}} laps', { ...values, kind, count: share.lapCount })
+    : t('social.share.aboutSessionPlain', '{{track}} · {{car}} · {{count}} laps', { ...values, count: share.lapCount });
+}
+
 /** The list of live links to this lap or session, each with a Revoke button. The token is never here: the server gave it once. */
 export function ActiveLinks({ target, onlyActive = true }: { target?: ShareTarget; onlyActive?: boolean }) {
   const { t } = useTranslation();
@@ -61,6 +75,7 @@ export function ActiveLinks({ target, onlyActive = true }: { target?: ShareTarge
                 <Link2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
                 {share.kind === 'lap' ? t('social.share.kindLap', 'Lap link') : t('social.share.kindSession', 'Session link')}
               </p>
+              {!target && aboutShare(share, t) && <p className="truncate text-xs" data-testid="share-about">{aboutShare(share, t)}</p>}
               <p className="text-xs text-muted-foreground">
                 {t('social.share.created', 'Made {{when}}', { when: when(Date.parse(share.createdAt)) })}
                 {' · '}

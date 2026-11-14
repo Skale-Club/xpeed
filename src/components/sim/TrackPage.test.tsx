@@ -165,6 +165,21 @@ describe('the list of tracks', () => {
     expect(within(cards[1]).queryByTestId('track-layout-badge')).not.toBeInTheDocument();
   });
 
+  it('takes the layout badge from the hasLayout flag of the server, and then reads no layout list nor matches names itself', async () => {
+    const monzaItem = state.tracks.find((track) => track.id === monza.id)!;
+    const spaItem = state.tracks.find((track) => track.id === spa.id)!;
+    Object.assign(monzaItem, { hasLayout: false, layoutId: null });
+    Object.assign(spaItem, { hasLayout: true, layoutId: '30000000-0000-4000-8000-000000000001' });
+    // The account list would say the opposite (it holds a Monza layout): the server's flag wins, and the list is not even asked for.
+    renderSim(<TracksList />, { state, route: '/virtual/tracks', accountTracks: [layout('monza')] });
+    const cards = await screen.findAllByTestId('track');
+    expect(cards[0]).toHaveTextContent('Monza');
+    expect(within(cards[0]).queryByTestId('track-layout-badge')).not.toBeInTheDocument();
+    expect(within(cards[1]).getByTestId('track-layout-badge')).toHaveTextContent('Layout');
+    const asked = (globalThis.fetch as unknown as { mock: { calls: Array<[RequestInfo | URL]> } }).mock.calls.map(([input]) => new URL(String(input), 'http://localhost').pathname);
+    expect(asked).not.toContain('/api/sim/tracks');
+  });
+
   it('filters by game', async () => {
     state.tracks.push({ id: 'ac-track', game: 'ac', name: 'Imola', lengthM: 4909, lapCount: 1, validLapCount: 1, sessionCount: 1, carCount: 1, bestLapMs: 108_000, lastDrivenAt: '2026-11-01T00:00:00.000Z' });
     state.laps.push(v1Lap({ game: 'ac', track: ref('Imola', 'ac-track'), car: ref('Ferrari 488 GT3'), timeMs: 108_000 }));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestRange, carProgress, trackProgress } from '@/lib/sim/progress';
+import { bestRange, carProgress, carProgressTracks, trackProgress } from '@/lib/sim/progress';
 
 const monza = { id: 'c1', name: 'Ferrari 499P' };
 const progress = {
@@ -58,8 +58,31 @@ describe('the progress of a track', () => {
 });
 
 describe('the progress of a car', () => {
-  it('is laps per day, oldest first, with no best lap (the API gives none)', () => {
-    const rows = carProgress({ lapsPerDay: [{ day: '2026-11-09', laps: 3, validLaps: 2 }, { day: '2026-11-03', laps: 7, validLaps: 5 }] });
-    expect(rows.map((row) => [row.day, row.laps, row.bestS])).toEqual([['2026-11-03', 7, null], ['2026-11-09', 3, null]]);
+  const spa = { id: 't1', name: 'Spa-Francorchamps' };
+  const imola = { id: 't2', name: 'Imola' };
+  const days = [{ day: '2026-11-09', laps: 3, validLaps: 2 }, { day: '2026-11-03', laps: 7, validLaps: 5 }, { day: '2026-11-05', laps: 2, validLaps: 2 }];
+  const bestPerDay = [
+    { day: '2026-11-03', bestMs: 140_000, lapId: 'a', track: spa }, { day: '2026-11-03', bestMs: 95_000, lapId: 'b', track: imola },
+    { day: '2026-11-05', bestMs: 94_500, lapId: 'c', track: imola }, { day: '2026-11-09', bestMs: 139_000, lapId: 'd', track: spa },
+  ];
+
+  it('is laps per day, oldest first, with no best lap when no track is chosen', () => {
+    const rows = carProgress({ bestPerDay, lapsPerDay: days });
+    expect(rows.map((row) => [row.day, row.laps, row.bestS])).toEqual([['2026-11-03', 7, null], ['2026-11-05', 2, null], ['2026-11-09', 3, null]]);
+    expect(carProgress({ bestPerDay: [], lapsPerDay: days }).every((row) => row.bestS === null)).toBe(true);
+  });
+
+  it('draws the best lap of each day on the chosen track only (times of different tracks are not comparable)', () => {
+    const imolaRows = carProgress({ bestPerDay, lapsPerDay: days }, 't2');
+    expect(imolaRows.map((row) => [row.day, row.bestS, row.lapId])).toEqual([['2026-11-03', 95, 'b'], ['2026-11-05', 94.5, 'c'], ['2026-11-09', null, null]]);
+    expect(carProgress({ bestPerDay, lapsPerDay: days }, 't1').map((row) => row.bestS)).toEqual([140, null, 139]);
+    expect(bestRange(imolaRows)).not.toBeNull();
+    expect(bestRange(carProgress({ bestPerDay, lapsPerDay: days }))).toBeNull();
+  });
+
+  it('lists the tracks with a daily best, the one with the most days first', () => {
+    expect(carProgressTracks({ bestPerDay, lapsPerDay: days })).toEqual([imola, spa]); // two days each: by name
+    expect(carProgressTracks({ bestPerDay: [...bestPerDay, { day: '2026-11-10', bestMs: 138_000, lapId: 'e', track: spa }], lapsPerDay: days })).toEqual([spa, imola]); // three days beat two
+    expect(carProgressTracks({ bestPerDay: [], lapsPerDay: days })).toEqual([]);
   });
 });

@@ -66,6 +66,25 @@ describe('the friends screen', () => {
     expect(screen.getByTestId('tab-blocked')).toBeInTheDocument();
   });
 
+  it('takes the number on the Requests tab from the count endpoint, not from the first page of the list', async () => {
+    const state = seeded();
+    await open(state);
+    await waitFor(() => expect(screen.getByTestId('requests-count')).toHaveTextContent('1'));
+    expect(callsTo(state, 'GET', '/friends/requests/count').length).toBeGreaterThan(0);
+    // The list of requests is only read when its tab is open.
+    expect(callsTo(state, 'GET', '/friends').some((call) => call.params.status === 'incoming')).toBe(false);
+  });
+
+  it('has no badge when nobody is waiting, and updates it when a request is answered', async () => {
+    const state = seeded();
+    await open(state);
+    await waitFor(() => expect(screen.getByTestId('requests-count')).toHaveTextContent('1'));
+    tab('requests');
+    fireEvent.click(await within(await screen.findByTestId('list-incoming')).findByTestId('request-decline'));
+    await waitFor(() => expect(screen.queryByTestId('requests-count')).not.toBeInTheDocument());
+    expect(callsTo(state, 'GET', '/friends/requests/count').length).toBeGreaterThan(1);
+  });
+
   it('Requests: incoming (accept, decline) and outgoing (cancel) in one tab', async () => {
     const state = seeded();
     await open(state);
