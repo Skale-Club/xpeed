@@ -11,6 +11,9 @@ import pg from 'pg';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { ensureIdentityProject, listMigrations, migrate, MIGRATIONS_DIR } from '../db/migrate.mjs';
 import { edgeFunctions } from './esbuild-edge.mjs';
+import { createServer as freePortServer } from 'node:net';
+// A port the system gives right now: a fixed one can fall in a range Windows reserves (EACCES).
+const freePort = () => new Promise((ok, fail) => { const probe = freePortServer(); probe.once('error', fail); probe.listen(0, '127.0.0.1', () => { const { port: given } = probe.address(); probe.close(() => ok(given)); }); });
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tools = pathToFileURL(resolve(root, 'node_modules/.xpeed-audit-tools/node_modules/@electric-sql/')).href + '/';
@@ -20,7 +23,7 @@ const { PGLiteSocketServer } = await import(tools + 'pglite-socket/dist/index.js
 mkdirSync(resolve(root, 'node_modules/.cache'), { recursive: true });
 const temp = mkdtempSync(resolve(root, 'node_modules/.cache/xpeed-sim-v1-'));
 const filesRoot = mkdtempSync(resolve(temp, 'files-'));
-const port = 55471, upgradePort = 55472;
+const port = await freePort(), upgradePort = await freePort();
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${port}/postgres`;
 Object.assign(process.env, {
   DATA_BACKEND: 'own', DATABASE_URL: databaseUrl, DATABASE_POOL_SIZE: '1', STORAGE_DIR: filesRoot,

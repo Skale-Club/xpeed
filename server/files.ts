@@ -143,11 +143,21 @@ export class DiskStore implements FileStore {
     const source = this.locate(bucket, from);
     const target = this.locate(bucket, to);
     await mkdir(dirname(target), { recursive: true });
-    try {
-      await rename(source, target);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new FileError(404, 'not_found', 'Object not found');
-      throw error;
+    // Windows refuses a rename onto a file another rename is replacing at that very moment (EPERM/EACCES/EBUSY), which two uploads of
+    // the same lap can do; it clears in milliseconds. Linux never sees it. So a few short retries, then the real error.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await rename(source, target);
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') throw new FileError(404, 'not_found', 'Object not found');
+        if ((code === 'EPERM' || code === 'EACCES' || code === 'EBUSY') && attempt < 6) {
+          await new Promise((wait) => setTimeout(wait, 15 * attempt));
+          continue;
+        }
+        throw error;
+      }
     }
   }
 
