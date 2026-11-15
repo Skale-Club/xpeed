@@ -2,6 +2,7 @@
 //   - retention (RETENTION_ENABLED=true): old laps are reduced to 10 Hz (server/retention.ts);
 //   - plausibility recheck (on; PLAUSIBILITY_RECHECK=false turns it off): laps that arrived before the plausibility checks get their
 //     verdict from their files, 200 at a time, for at most 3 minutes a run (api/sim/_plausibility.ts). First run 1 to 5 minutes after start;
+//   - error retention (on): error reports (first-party error tracking) older than 30 days are deleted, and resolved problems not seen for 90 days (runErrorRetention);
 //   - orphan sweeper: `sweepOrphanLaps()` (api/sim/_sweep.ts) removes lap files that have no row. It is passed in, so a test
 //     can run the schedule with or without it.
 // Every run logs one JSON line. A job never throws into the process and never overlaps itself.
@@ -43,6 +44,16 @@ export function scheduleDaily(job: Job, { random = Math.random, minOffsetMs = 0,
   return { delay, stop: () => clearTimeout(timer) };
 }
 
+/** Days an error occurrence is kept, and days a resolved problem that has not been seen again is kept. */
+export const ERROR_OCCURRENCE_DAYS = 30;
+export const ERROR_RESOLVED_GROUP_DAYS = 90;
+/** Deletes old error reports through the database function (supabase/migrations/20261115120000_error_tracking.sql). Answers what it deleted. */
+export async function runErrorRetention(db: { query: (sql: string, values?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> }): Promise<Record<string, unknown>> {
+  const done = await db.query('SELECT public.error_retention($1, $2) AS result', [ERROR_OCCURRENCE_DAYS, ERROR_RESOLVED_GROUP_DAYS]);
+  const result = done.rows[0]?.result;
+  return typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : {};
+}
+
 export const RECHECK_BATCH = 200;
 export const RECHECK_BUDGET_MS = 3 * 60 * 1000;
 /** The first plausibility recheck runs 1 to 5 minutes after start. */
@@ -70,7 +81,7 @@ export async function runPlausibilityRecheck({ recheck, batch = RECHECK_BATCH, b
 }
 
 /** The jobs this environment asks for. Exported so a test can see which ones would run. */
-export function enabledJobs(env: Env = process.env, shared: Record<string, unknown> = { sweepOrphanLaps, recheckLaps }): Job[] {
+export function enabledJobs(env: Env = process.env, shared: Record<string, unknown> = { sweepOrphanLaps, recheckLaps, runErrorRetention }): Job[] {
   const jobs: Job[] = [];
   if (env.RETENTION_ENABLED === 'true' && env.DATABASE_URL) {
     jobs.push({
@@ -87,6 +98,10 @@ export function enabledJobs(env: Env = process.env, shared: Record<string, unkno
         return typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : { result };
       },
     });
+  }
+  const errorRetention = shared.runErrorRetention;
+  if (typeof errorRetention === 'function' && env.DATABASE_URL) {
+    jobs.push({ name: 'error_retention', run: () => (errorRetention as typeof runErrorRetention)(getPool() as unknown as Parameters<typeof runErrorRetention>[0]) });
   }
   const recheck = shared.recheckLaps;
   if (env.PLAUSIBILITY_RECHECK !== 'false' && typeof recheck === 'function' && env.DATABASE_URL) {

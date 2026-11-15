@@ -258,6 +258,23 @@
       "button": "Report"
     },
     "admin": {
+      "problemsTitle": "Problems",
+      "problemsBody": "Errors that the site and Xpeed Companion reported to this server, newest first. A report never carries an e-mail, a phone number or a token. Reports are kept for 30 days.",
+      "problemsNone": "No problems here.",
+      "problemsSite": "Site",
+      "problemsCompanion": "Companion",
+      "problemsResolved": "Resolved",
+      "problemsReopened": "Came back after being resolved",
+      "problemsTimes": "{{n}} times",
+      "problemsLastSeen": "Last seen {{when}}",
+      "problemsVersion": "Version {{version}}",
+      "problemsPeople": "{{n}} people",
+      "problemsWorker": "Worker {{worker}}",
+      "problemsShow": "Show the stack",
+      "problemsHide": "Hide the stack",
+      "problemsResolve": "Mark resolved",
+      "problemsReopen": "Reopen",
+      "problemsNoStack": "No stack was sent.",
       "inspectTitle": "Lap inspector",
       "inspectBody": "What the server knows about this lap and the checks it ran. Handles and names only, never an e-mail.",
       "lapNotFound": "There is no lap with this id.",
@@ -2391,7 +2408,8 @@
         ],
         "items": [
           "Real car: your account (the phone number or the Google account e-mail you sign in with), your cars, trips and their readings, fault codes, fuel and maintenance records and the photos you add yourself.",
-          "Racing games (Virtual): the lap telemetry sent by Xpeed Companion (speed, pedals, steering, position on the track, fuel, tyre and brake data and session details such as the weather), the game, track and car names, lap and sector times, your computer's name and the date it was last seen, a profile with a handle and display name, friends, shared links and reports."
+          "Racing games (Virtual): the lap telemetry sent by Xpeed Companion (speed, pedals, steering, position on the track, fuel, tyre and brake data and session details such as the weather), the game, track and car names, lap and sector times, your computer's name and the date it was last seen, a profile with a handle and display name, friends, shared links and reports.",
+          "Technical error reports: when a page or Xpeed Companion fails, a short report (error text, page name, app version, browser or Windows family, time) goes to Xpeed's own server only, with e-mails, phone numbers, tokens and address queries removed. Kept 30 days."
         ]
       },
       "companion": {

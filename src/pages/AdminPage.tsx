@@ -6,6 +6,7 @@ import { PageLoader } from '@/components/PageLoader';
 import { useTranslation } from 'react-i18next';
 import AIProviderSection from '@/components/admin/AIProviderSection';
 import { RacingAdmin } from '@/components/social/RacingAdmin';
+import { ProblemsSection } from '@/components/social/ProblemsSection';
 
 export default function AdminPage() {
   const { t } = useTranslation();
@@ -39,6 +40,9 @@ export default function AdminPage() {
         </Alert>
 
         <AIProviderSection />
+
+        {/* What broke for people: errors reported by the site and by Xpeed Companion, to Xpeed's own server. Admins only. */}
+        <ProblemsSection />
 
         {/* Racing games: the reports to decide on, the lap inspector and the plausibility recheck. Admins only. */}
         <RacingAdmin />

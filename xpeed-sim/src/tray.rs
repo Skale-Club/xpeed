@@ -34,7 +34,7 @@ use crate::supervisor;
 use crate::text::{text, Lang, Msg};
 use crate::update::{self, DownloadError, Hold, Plan, Trigger, UpdateState, Updater, Version, Wake};
 use crate::util::lock;
-use crate::{applog, connect, engine, net, win};
+use crate::{applog, connect, crashreport, engine, net, win};
 
 const CLASS: &str = "XpeedSimTray";
 const INSTANCE_NAME: &str = "Local\\XpeedSimTray";
@@ -224,6 +224,8 @@ fn start_uploader(shared: &Arc<Shared>, dir: &Path, config: Config) {
 /// Starts the thread that tells the server this computer is running (once a minute, and when a game connects or goes away). An
 /// unpaired computer starts none. The lines it says are for the log only.
 fn start_heartbeat(shared: &Arc<Shared>, dir: &Path, config: Config) {
+    // Reports of an earlier crash go now (one background thread; nothing waiting means nothing happens).
+    crashreport::send_in_background(config.clone(), Arc::new(|line| applog::line(&line)));
     let for_worker = shared.clone();
     let hooks = heartbeat::Hooks {
         say: Arc::new(|line| applog::line(&line)),
@@ -689,6 +691,8 @@ pub fn run(open_panel: bool) -> ExitCode {
         return ExitCode::from(1);
     };
     applog::init(home.join("companion.log"));
+    // Panics and failing workers leave a small report here, sent to Xpeed's own server at the next start (crashreport.rs).
+    crashreport::init(home.clone());
     applog::line(&format!(
         "Xpeed Companion {} ({}) starting",
         env!("CARGO_PKG_VERSION"),

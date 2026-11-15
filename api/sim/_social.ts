@@ -8,6 +8,7 @@
 //   GET/POST  /v1/shares                          DELETE /v1/shares/<id>                  (the public side: api/sim/public.ts)
 //   GET       /v1/leaderboard?track&car&scope     GET /v1/leaderboard/me?track&car&scope      GET /v1/leaderboards/catalog?game&kind&track&car
 //   POST      /v1/reports                         GET /v1/admin/reports   POST /v1/admin/reports/<id>   GET /v1/admin/laps/<id>   POST /v1/admin/recheck
+//   GET       /v1/admin/problems?status&source    POST /v1/admin/problems/<id> {resolved}     (error tracking, admins only: see api/_error-reports.ts)
 //   GET       /v1/me/export                       DELETE /v1/me/data {"confirm":"delete my racing data"}
 //
 // The signed-in person only. The queries are database functions (sim_*) that take the person's id, which this file resolves from
@@ -44,6 +45,8 @@ const SCOPES = ['public', 'friends'] as const;
 const CATALOG_KINDS = ['track', 'car'] as const;
 const FRIEND_STATUSES = ['accepted', 'incoming', 'outgoing', 'blocked'] as const;
 const REPORT_STATUSES = ['open', 'dismissed', 'actioned', 'all'] as const;
+const PROBLEM_STATUSES = ['open', 'resolved', 'all'] as const;
+const PROBLEM_SOURCES = ['site', 'companion', 'all'] as const;
 const FORMAT_OR_CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const LOOKS_LIKE_EMAIL = /\S+@\S+/;
 
@@ -141,6 +144,8 @@ function match(parts: string[]): Matched | null {
       if (b === 'reports' && parts.length === 3 && UUID.test(c)) return { name: 'adminDecide', methods: ['POST'], id: c.toLowerCase() };
       if (b === 'laps' && parts.length === 3 && UUID.test(c)) return { name: 'adminLap', methods: ['GET'], id: c.toLowerCase() };
       if (b === 'recheck' && parts.length === 2) return { name: 'adminRecheck', methods: ['POST'] };
+      if (b === 'problems' && parts.length === 2) return { name: 'adminProblems', methods: ['GET'] };
+      if (b === 'problems' && parts.length === 3 && UUID.test(c)) return { name: 'adminProblemResolve', methods: ['POST'], id: c.toLowerCase() };
       return null;
     case 'me':
       if (parts.length === 2 && b === 'export') return { name: 'export', methods: ['GET'] };
@@ -374,6 +379,8 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
       case 'adminReports':
       case 'adminDecide':
       case 'adminLap':
+      case 'adminProblems':
+      case 'adminProblemResolve':
       case 'adminRecheck': {
         const asPerson = await backend.asUser(token);
         const admin = await asPerson.rpc('is_admin_user');
@@ -385,6 +392,21 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
           const rows = await call<Item[]>(backend.service, 'sim_admin_reports', { p_status: status, p_after_t: after?.t ?? null, p_after_id: after?.id ?? null, p_limit: limit + 1 });
           const { items, nextCursor } = paged(rows, limit);
           return send({ reports: items, nextCursor });
+        }
+        if (where.name === 'adminProblems') {
+          // Error groups of the site and of Xpeed Companion (first-party error tracking), newest first.
+          const status = oneOf(params.get('status'), PROBLEM_STATUSES, 'open', 'invalid_status');
+          const source = oneOf(params.get('source'), PROBLEM_SOURCES, 'all', 'invalid_source');
+          const limit = Math.min(limitParam(params), 200);
+          const problems = await call<unknown[]>(backend.service, 'error_groups_list', { p_status: status, p_source: source === 'all' ? null : source, p_limit: limit });
+          return send({ problems });
+        }
+        if (where.name === 'adminProblemResolve') {
+          const body = await readBody(req);
+          only(body, ['resolved']);
+          if (typeof body.resolved !== 'boolean') throw new Invalid('invalid_request');
+          const done = await call<{ id: string; resolvedAt: string | null } | null>(backend.service, 'error_group_set_resolved', { p_id: where.id, p_resolved: body.resolved });
+          return done ? send(done) : problem('problem_not_found', 404);
         }
         if (where.name === 'adminLap') {
           const found = await call<unknown | null>(backend.service, 'sim_admin_lap', { p_lap: where.id });

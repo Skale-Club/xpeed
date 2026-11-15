@@ -13,3 +13,6 @@ declare namespace Intl {
     | 'unit';
   function supportedValuesOf(key: SupportedValuesKey): string[];
 }
+
+// Set by vite.config.ts from SOURCE_COMMIT: the build of this page (error reports carry it).
+declare const __APP_BUILD__: string | undefined;

@@ -258,6 +258,23 @@
       "button": "Denunciar"
     },
     "admin": {
+      "problemsTitle": "Problemas",
+      "problemsBody": "Erros que o site e o Xpeed Companion informaram a este servidor, do mais novo para o mais antigo. Um relatório nunca leva e-mail, telefone nem token. Os relatórios ficam por 30 dias.",
+      "problemsNone": "Nenhum problema aqui.",
+      "problemsSite": "Site",
+      "problemsCompanion": "Companion",
+      "problemsResolved": "Resolvido",
+      "problemsReopened": "Voltou depois de resolvido",
+      "problemsTimes": "{{n}} vezes",
+      "problemsLastSeen": "Visto por último {{when}}",
+      "problemsVersion": "Versão {{version}}",
+      "problemsPeople": "{{n}} pessoas",
+      "problemsWorker": "Processo {{worker}}",
+      "problemsShow": "Mostrar o rastro",
+      "problemsHide": "Esconder o rastro",
+      "problemsResolve": "Marcar como resolvido",
+      "problemsReopen": "Reabrir",
+      "problemsNoStack": "Nenhum rastro foi enviado.",
       "inspectTitle": "Inspetor de voltas",
       "inspectBody": "O que o servidor sabe sobre esta volta e as verificações que fez. Só identificadores e nomes, nunca um e-mail.",
       "lapNotFound": "Não existe volta com este id.",
@@ -2391,7 +2408,8 @@
         ],
         "items": [
           "Carro real: sua conta (o número de telefone ou o e-mail da conta Google com que você entra), seus carros, as viagens e suas leituras, os códigos de falha, os registros de combustível e de manutenção e as fotos que você mesmo adiciona.",
-          "Jogos de corrida (Virtual): a telemetria das voltas enviada pelo Xpeed Companion (velocidade, pedais, volante, posição na pista, combustível, dados de pneus e freios e detalhes da sessão, como o clima), os nomes do jogo, da pista e do carro, os tempos de volta e de setor, o nome do seu computador e a data em que ele foi visto pela última vez, um perfil com apelido e nome de exibição, amigos, links compartilhados e relatórios."
+          "Jogos de corrida (Virtual): a telemetria das voltas enviada pelo Xpeed Companion (velocidade, pedais, volante, posição na pista, combustível, dados de pneus e freios e detalhes da sessão, como o clima), os nomes do jogo, da pista e do carro, os tempos de volta e de setor, o nome do seu computador e a data em que ele foi visto pela última vez, um perfil com apelido e nome de exibição, amigos, links compartilhados e relatórios.",
+          "Relatórios técnicos de erro: quando uma página ou o Xpeed Companion falha, um relatório curto (texto do erro, nome da página, versão do app, família do navegador ou do Windows, hora) vai só para o servidor do próprio Xpeed, sem e-mails, telefones, tokens nem consultas de endereço. Guardado por 30 dias."
         ]
       },
       "companion": {

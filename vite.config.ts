@@ -100,6 +100,8 @@ export default defineConfig(({ mode, command }) => {
       },
     },
   },
+  // The build that is running, so an error report says which deploy it came from (Coolify gives SOURCE_COMMIT to the build).
+  define: { __APP_BUILD__: JSON.stringify((process.env.SOURCE_COMMIT ?? "dev").slice(0, 12)) },
   plugins: [
     react(),
     dataApiForDev(mode),

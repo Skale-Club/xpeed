@@ -258,6 +258,23 @@
       "button": "Denunciar"
     },
     "admin": {
+      "problemsTitle": "Problemas",
+      "problemsBody": "Errores que el sitio y Xpeed Companion informaron a este servidor, del más nuevo al más antiguo. Un informe nunca lleva correo, teléfono ni token. Los informes se guardan 30 días.",
+      "problemsNone": "No hay problemas aquí.",
+      "problemsSite": "Sitio",
+      "problemsCompanion": "Companion",
+      "problemsResolved": "Resuelto",
+      "problemsReopened": "Volvió tras resolverse",
+      "problemsTimes": "{{n}} veces",
+      "problemsLastSeen": "Visto por última vez {{when}}",
+      "problemsVersion": "Versión {{version}}",
+      "problemsPeople": "{{n}} personas",
+      "problemsWorker": "Proceso {{worker}}",
+      "problemsShow": "Mostrar la traza",
+      "problemsHide": "Ocultar la traza",
+      "problemsResolve": "Marcar como resuelto",
+      "problemsReopen": "Reabrir",
+      "problemsNoStack": "No se envió ninguna traza.",
       "inspectTitle": "Inspector de vueltas",
       "inspectBody": "Lo que el servidor sabe de esta vuelta y las comprobaciones que hizo. Solo identificadores y nombres, nunca un correo.",
       "lapNotFound": "No existe ninguna vuelta con este id.",
@@ -2391,7 +2408,8 @@
         ],
         "items": [
           "Coche real: tu cuenta (el número de teléfono o el correo de la cuenta de Google con la que entras), tus coches, los viajes y sus lecturas, los códigos de avería, los registros de combustible y de mantenimiento y las fotos que añades tú mismo.",
-          "Juegos de carreras (Virtual): la telemetría de las vueltas que envía Xpeed Companion (velocidad, pedales, volante, posición en la pista, combustible, datos de neumáticos y frenos y detalles de la sesión, como el clima), los nombres del juego, la pista y el coche, los tiempos de vuelta y de sector, el nombre de tu ordenador y la fecha en que se vio por última vez, un perfil con alias y nombre visible, amigos, enlaces compartidos e informes."
+          "Juegos de carreras (Virtual): la telemetría de las vueltas que envía Xpeed Companion (velocidad, pedales, volante, posición en la pista, combustible, datos de neumáticos y frenos y detalles de la sesión, como el clima), los nombres del juego, la pista y el coche, los tiempos de vuelta y de sector, el nombre de tu ordenador y la fecha en que se vio por última vez, un perfil con alias y nombre visible, amigos, enlaces compartidos e informes.",
+          "Informes técnicos de error: cuando una página o Xpeed Companion falla, un informe breve (texto del error, nombre de la página, versión de la app, familia del navegador o de Windows, hora) va solo al servidor del propio Xpeed, sin correos, teléfonos, tokens ni consultas de dirección. Se guarda 30 días."
         ]
       },
       "companion": {

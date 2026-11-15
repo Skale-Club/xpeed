@@ -153,9 +153,10 @@ describe('the legal texts in the locale files', () => {
     expect(shape(esES.legal)).toEqual(shape(en.legal));
   });
 
-  it.each(LANGUAGES)('keep each document under 900 words in %s', (language) => {
+  // 1000 since the "Technical error reports" item (first-party error tracking); the Portuguese and Spanish privacy texts were within 10 words of 900.
+  it.each(LANGUAGES)('keep each document under 1000 words in %s', (language) => {
     const { legal } = locales[language];
-    expect(words(legal.privacy)).toBeLessThan(900);
-    expect(words(legal.terms)).toBeLessThan(900);
+    expect(words(legal.privacy)).toBeLessThan(1000);
+    expect(words(legal.terms)).toBeLessThan(1000);
   });
 });
