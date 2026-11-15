@@ -112,7 +112,7 @@ export default function SessionDetail() {
       await downloadSessionCSV(session.source_file_path, session.source_filename, session.source_csv, session.id);
     } catch (error) {
       console.error('Failed to download CSV:', error);
-      toast({ title: t('tripDetail.downloadFailed', 'Download failed'), description: t('tripDetail.downloadFailedHint', 'Could not download the CSV file.'), variant: 'destructive' });
+      toast({ title: t('tripDetail.downloadFailed', 'Download failed'), description: t('tripDetail.downloadFailedHint', 'Couldn\'t download the file.'), variant: 'destructive' });
     } finally {
       setDownloadingCsv(false);
     }
@@ -208,7 +208,7 @@ export default function SessionDetail() {
               </div>
             )}
             {aiSummary && <p className="text-sm leading-relaxed">{aiSummary}</p>}
-            {analysisOutdated && <p className="text-sm text-muted-foreground">{t('tripDetail.analysisOutdated', 'Readings were checked again. The previous AI summary has not been regenerated.')}</p>}
+            {analysisOutdated && <p className="text-sm text-muted-foreground">{t('tripDetail.analysisOutdated', 'The summary below is from before the new check.')}</p>}
           </CardContent>
         </Card>
 
@@ -217,10 +217,10 @@ export default function SessionDetail() {
           <h3 className="font-semibold">{t('tripDetail.fuelTitle', 'Fuel consumption')}</h3>
           {fuel ? <>
             <p className="text-xl font-semibold tabular-nums">{fuelAmount!.toLocaleString(i18n.resolvedLanguage, { maximumFractionDigits: 2 })} {fuelUnit}</p>
-            <p className="text-xs text-muted-foreground">{t('tripDetail.fuelMeasured', 'Calculated from recorded fuel-flow readings. Coverage: {{coverage}}.', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
-            {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Partial recording: this is only the fuel covered by the readings, not the whole trip.')}</p>}
+            <p className="text-xs text-muted-foreground">{t('tripDetail.fuelMeasured', 'Worked out from the fuel your car reported ({{coverage}} of the trip).', { coverage: fuel.coverage == null ? '—' : `${Math.round(fuel.coverage * 100)}%` })}</p>
+            {!enoughFuel && <p className="text-xs text-warn">{t('tripDetail.fuelPartial', 'Only part of this trip was recorded, so this is the fuel for that part.')}</p>}
             {fuelEfficiency && <p className="font-medium">{t('tripDetail.fuelEconomy', 'Trip fuel economy')}: {fuelEfficiency}</p>}
-          </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', 'No usable fuel-flow readings were recorded for this trip.')}</p>}
+          </> : <p className="text-sm text-muted-foreground">{t('tripDetail.fuelUnavailable', 'Your car didn\'t report fuel use on this trip.')}</p>}
           <TripFuelCost key={session.id} session={session} />
         </CardContent></Card>
         <div className="space-y-2">
@@ -280,7 +280,7 @@ export default function SessionDetail() {
                   {t('tripDetail.downloadCsv', 'Download CSV')}
                 </Button>
                 <Button variant="outline" size="sm" className="text-xs" disabled={recomputing} onClick={() => void handleRecompute()}>
-                  <RefreshCw className="w-3 h-3 mr-1" /> {t('tripDetail.reevaluate', 'Re-evaluate')}
+                  <RefreshCw className="w-3 h-3 mr-1" /> {t('tripDetail.reevaluate', 'Check again')}
                 </Button>
               </div>
               <SessionKPIs

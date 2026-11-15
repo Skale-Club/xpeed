@@ -54,7 +54,7 @@ describe('IssuesPage', () => {
     api.getIssuesForCar.mockResolvedValueOnce([ISSUES[2]]);
     renderPage();
     expect(await screen.findByText('No saved problems')).toBeInTheDocument();
-    expect(screen.getByText(/This is your saved problem list/)).toBeInTheDocument();
+    expect(screen.getByText(/read its fault codes/)).toBeInTheDocument();
   });
 
   it('lists open problems in plain language, most urgent first', async () => {

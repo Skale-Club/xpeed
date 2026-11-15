@@ -160,7 +160,7 @@ function CarIssues() {
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {open.length === 0
-                    ? t('problems.allGoodHint', 'No problems have been saved for this car. This is not a fresh check of the car.')
+                    ? t('problems.allGoodHint', 'To check the car again, read its fault codes.')
                     : mostUrgent === 'urgent'
                       ? t('problems.urgentHint', 'At least one is urgent — see what to do below.')
                       : t('problems.notUrgentHint', 'Nothing urgent. See what to do below.')}

@@ -160,7 +160,7 @@ export default function SettingsPage() {
                   <SelectTrigger id="set-currency"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="USD">USD ($)</SelectItem><SelectItem value="BRL">BRL (R$)</SelectItem><SelectItem value="EUR">EUR (€)</SelectItem></SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">{t('settings.prefs.currencyHint', 'Existing records keep their original currency. No exchange conversion is applied.')}</p>
+                <p className="text-xs text-muted-foreground">{t('settings.prefs.currencyHint', 'Old records keep their own currency.')}</p>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="set-tz">{t('settings.prefs.timezone', 'Time zone')}</Label>
@@ -170,7 +170,7 @@ export default function SettingsPage() {
                     {timezones.map((tz) => <SelectItem key={tz} value={tz}>{tz.replace(/_/g, ' ')}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">{t('settings.prefs.timezoneHint', 'Set automatically from this device; change it only if dates look wrong.')}</p>
+                <p className="text-xs text-muted-foreground">{t('settings.prefs.timezoneHint', 'Set automatically. Change it only if dates look wrong.')}</p>
               </div>
             </div>
           </CardContent>

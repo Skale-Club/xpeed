@@ -358,7 +358,7 @@ export function FuelPhotoImport(
                 reason === "limit"
                   ? "Daily photo limit reached. You can still enter the values manually."
                   : reason === "notConfigured"
-                  ? "Photo reading is not available with the current AI configuration. Enter the values manually."
+                  ? "Photo reading isn't available right now. Enter the values yourself."
                   : reason === "unreadable"
                   ? "Could not read fuel values clearly. Try a closer photo or enter them manually."
                   : reason === "tooLarge"

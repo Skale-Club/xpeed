@@ -233,7 +233,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
     if (copy.endedAt == null && currentTripRef.current?.id === id) return; // still being recorded
     const carId = copy.carId ?? (copy.vin ? carsRef.current.find(car => car.vin?.toUpperCase() === copy.vin?.toUpperCase())?.id : carIdRef.current);
     if (!carId) {
-      if (announceResult()) toast({ title: copy.vin ? t('trip.unregisteredCar') : t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
+      if (announceResult()) toast({ title: copy.vin ? t('trip.unregisteredCar', 'Add the connected car to save this trip. The recording is kept until you do.') : t('trip.noCar', 'Choose your car to save this trip'), variant: 'warning' });
       return;
     }
     const forget = async () => {
@@ -335,10 +335,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         if (conflict) reportedConflicts.current.add(id);
         const kept = !memoryCopiesRef.current.has(id);
         toast({
-          title: kept && !conflict ? t('trip.keptPending', 'Trip kept on this device; upload pending') : t('trip.saveFailed', "Couldn't save the trip"),
-          description: conflict ? t('trip.saveConflict', 'A saved trip overlaps this recording. Both copies were kept for review; the saved trip was not replaced.') : kept
-            ? t('trip.saveFailedHint', "It's kept on this device and will be saved by itself when there's internet.")
-            : t('trip.saveFailedNoCopy', "It couldn't be kept on this device either, so leave the app open: it keeps trying while it's open."),
+          title: kept && !conflict ? t('trip.keptPending', 'Trip kept; it will be saved when you\'re online') : t('trip.saveFailed', "Couldn't save the trip"),
+          description: conflict ? t('trip.saveConflict', 'This recording overlaps a trip you already have. Both were kept.') : kept
+            ? t('trip.saveFailedHint', "It will be saved by itself when you're back online.")
+            : t('trip.saveFailedNoCopy', "Keep the app open: it keeps trying to save."),
           variant: kept ? 'warning' : 'destructive',
         });
       }

@@ -62,7 +62,7 @@ export function OilChangeCard({ carId }: { carId: string }) {
       setOpen(false);
       toast({ title: t('oil.saved', 'Mileage and oil reminder saved'), variant: 'success' });
     } catch (error) {
-      toast({ title: error instanceof Error && error.message === 'changed_reload' ? t('oil.conflict', 'These details changed on another device. Close this form and refresh before saving again.') : t('oil.failedSave', 'Could not save. Your changes are still in the form.'), variant: 'destructive' });
+      toast({ title: error instanceof Error && error.message === 'changed_reload' ? t('oil.conflict', 'These details were changed somewhere else. Close this form and open it again.') : t('oil.failedSave', 'Could not save. Your changes are still in the form.'), variant: 'destructive' });
     } finally { setSaving(false); }
   };
   const reminder = care.data ? oilReminder(care.data, tripDayKey(new Date(), timezone), timezone) : null;

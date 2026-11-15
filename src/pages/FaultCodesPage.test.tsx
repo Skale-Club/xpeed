@@ -42,10 +42,10 @@ it('does not present a partial empty reading as a clean bill of health', async (
   api.readDtcs.mockResolvedValue({ stored: [], pending: [], permanent: [], checked: true, complete: false, modules: [] });
   const first = page();
   fireEvent.click(screen.getByRole('button', { name: 'Read codes' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('did not answer all required');
+  expect(await screen.findByRole('alert')).toHaveTextContent("didn't answer everything");
   expect(screen.queryByText('Code explanations')).not.toBeInTheDocument();
   first.unmount(); page();
-  expect(screen.getByRole('alert')).toHaveTextContent('did not answer all required');
+  expect(screen.getByRole('alert')).toHaveTextContent("didn't answer everything");
   expect(screen.queryByText('Code explanations')).not.toBeInTheDocument();
   expect(api.readDtcs).toHaveBeenCalledTimes(1);
 });
@@ -55,10 +55,10 @@ it('keeps unknown codes visible and reports failed persistence', async () => {
   const first = page();
   fireEvent.click(screen.getByRole('button', { name: 'Read codes' }));
   expect(await screen.findByText(/P1999/)).toBeInTheDocument();
-  expect(await screen.findByRole('alert')).toHaveTextContent('Problems could not be updated');
+  expect(await screen.findByRole('alert')).toHaveTextContent("Problems list couldn't be updated");
   first.unmount(); api.status = 'idle'; page();
   expect(screen.getByText(/P1999/)).toBeInTheDocument();
-  expect(screen.getByRole('alert')).toHaveTextContent('Problems could not be updated');
+  expect(screen.getByRole('alert')).toHaveTextContent("Problems list couldn't be updated");
   expect(api.readDtcs).toHaveBeenCalledTimes(1);
 });
 it('connecting or reconnecting never starts a reading without pressing Read codes', () => {

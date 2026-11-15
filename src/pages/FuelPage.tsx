@@ -72,11 +72,11 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
     <Card><CardContent className="space-y-4 p-4"><h3 className="text-sm font-semibold">{t('fuel.thisMonth', 'This month')}</h3>
       <dl className="grid grid-cols-2 gap-4">
         <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.spent', 'Paid at the pump')}</dt><dd className="mt-2 break-words text-xl font-semibold">{payments || '—'}</dd>{!payments && ledger.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.noSpending', 'No fill-ups recorded this month')}</p>}</div>
-        <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.economy', 'Fuel economy')}</dt><dd className="mt-2 text-xl font-semibold">{efficiency ?? '—'}</dd>{!efficiency && history.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.needReadings', 'Waiting for enough trip readings')}</p>}</div>
+        <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.economy', 'Fuel economy')}</dt><dd className="mt-2 text-xl font-semibold">{efficiency ?? '—'}</dd>{!efficiency && history.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.needReadings', 'Drive a few more trips to see this')}</p>}</div>
       </dl>
     </CardContent></Card>
     <Card><CardContent className="flex items-center justify-between gap-4 p-4">
-      <div className="min-w-0"><h3 className="text-sm font-semibold">{t('fuel.simple.price', 'Fuel price')}</h3><p className="mt-1 text-lg font-medium">{ledger.isSuccess && price ? `${money(price.pricePerLitre * factor, price.currency)} / ${unit}` : '—'}</p><p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.costHint', 'Used to estimate trip costs')}</p>
+      <div className="min-w-0"><h3 className="text-sm font-semibold">{t('fuel.simple.price', 'Fuel price')}</h3><p className="mt-1 text-lg font-medium">{ledger.isSuccess && price ? `${money(price.pricePerLitre * factor, price.currency)} / ${unit}` : '—'}</p><p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.costHint', 'Used for trip costs')}</p>
         {ledger.isSuccess && price && <p className="mt-1 text-xs text-muted-foreground">{formatAppDate(new Date(price.at), i18n.resolvedLanguage, { dateStyle: 'short' })}{price.source === 'regional' && ` · ${t('fuel.simple.averageLabel', 'Regional estimate')}`}</p>}
       </div><Button size="sm" variant="outline" className="shrink-0" disabled={!ledger.isSuccess} onClick={() => setEditor('reference')}>{price ? t('fuel.simple.changePrice', 'Change') : t('fuel.simple.setPrice', 'Set fuel price')}</Button>
     </CardContent></Card>
@@ -90,6 +90,6 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
       {details && <div id="fuel-history"><Suspense fallback={<Loader2 className="h-5 w-5 animate-spin" />}><FuelHistory entries={entries} trips={trips} timezone={timezone} volumeUnit={volumeUnit} consumptionUnit={consumptionUnit} onDelete={setDeleting} /></Suspense></div>}
     </section>}
     {editor && <FuelEntryDialog carId={carId} kind={editor} currency={currency} price={price} distanceUnit={distanceUnit} onClose={() => setEditor(null)} onSaved={saved} />}
-    <ConfirmDialog open={!!deleting} onOpenChange={value => { if (!value && !removing) setDeleting(null); }} title={t('fuel.deleteTitle', 'Delete this fuel record?')} description={t('fuel.deleteHint', 'Costs and full-tank estimates will be recalculated without this entry.')} confirmLabel={t('history.delete', 'Delete')} onConfirm={() => void remove()} />
+    <ConfirmDialog open={!!deleting} onOpenChange={value => { if (!value && !removing) setDeleting(null); }} title={t('fuel.deleteTitle', 'Delete this fuel record?')} description={t('fuel.deleteHint', 'Totals will update without this entry.')} confirmLabel={t('history.delete', 'Delete')} onConfirm={() => void remove()} />
   </div></AppLayout>;
 }

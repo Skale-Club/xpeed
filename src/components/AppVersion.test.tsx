@@ -26,7 +26,7 @@ it('keeps download available while recording, without opening a new WebView wind
   state.blocked = true;
   render(<AppUpdateBanner />);
   expect(screen.getByRole('link', { name: 'Update app' })).not.toHaveAttribute('target');
-  expect(screen.getByText(/You can download now/)).toBeInTheDocument();
+  expect(screen.getByText(/You can download it now/)).toBeInTheDocument();
 });
 it('hides an ignored notice after navigation but keeps the update accessible in About', () => {
   const view = render(<AppUpdateBanner />);

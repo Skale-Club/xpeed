@@ -198,7 +198,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                 description: kind === 'limit_reached'
                     ? t('assistant.limitReached', "You've used today's questions. The assistant is back tomorrow.")
                     : kind === 'not_configured'
-                        ? t('assistant.notConfigured', "The assistant isn't switched on yet. Ask whoever runs your Xpeed to turn it on.")
+                        ? t('assistant.notConfigured', "The assistant isn't available yet.")
                         : t('assistant.replyFailed', "The assistant couldn't answer right now. Please try again in a moment."),
                 variant: 'destructive',
             });

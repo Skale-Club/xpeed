@@ -64,8 +64,8 @@ it('keeps a drive clear of background upload indicators and repeated details lin
 it('shows a kept trip honestly as pending, with a route to sync details', () => {
   state.tripSave = { status: 'pending' };
   mount();
-  expect(screen.getByRole('status')).toHaveTextContent('Trip kept on this device. Upload pending.');
-  expect(screen.getByRole('link', { name: 'Sync details' })).toHaveAttribute('href', '/settings');
+  expect(screen.getByRole('status')).toHaveTextContent('Trip kept. It will be saved when you\'re online.');
+  expect(screen.getByRole('link', { name: 'Details' })).toHaveAttribute('href', '/settings');
 });
 
 it('explains that disabling automatic recording does not discard the current trip', () => {

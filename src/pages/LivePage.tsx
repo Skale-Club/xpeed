@@ -187,7 +187,7 @@ export default function LivePage() {
         </div>
 
         {live && obd.connectedCarId && obd.connectedCarId !== selectedCarId && <div className="rounded-xl border border-warn/40 p-3 text-sm"><p>{t('live.otherCar', 'These readings belong to {{car}}, not the selected vehicle.', { name: obd.connectedCarName })}</p><Button variant="outline" size="sm" className="mt-2" onClick={() => selectCar(obd.connectedCarId)}>{t('live.useConnectedCar', 'View connected car')}</Button></div>}
-        {live && !obd.connectedCarId && <p className="text-xs text-warn">{t('live.unidentified', 'Live readings — vehicle identity has not been confirmed.')}</p>}
+        {live && !obd.connectedCarId && <p className="text-xs text-warn">{t('live.unidentified', "We couldn't tell which car this is, so these readings aren't tied to your selected car.")}</p>}
         {!live ? (
           <Card className="bg-card border-border">
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">
@@ -267,15 +267,15 @@ export default function LivePage() {
         <HybridPanel />
       </details>}
       <details onToggle={(event) => { if (event.currentTarget.open) setDiagnostics(JSON.stringify(readObdDiagnostics(), null, 2)); }}>
-        <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('live.diagnostics', 'Connection diagnostics')}</summary>
-        <p className="mb-2 text-xs text-muted-foreground">{t('live.diagnosticsHint', 'Local connection and recording events from this device. No previous events can be recovered before logging was installed.')}</p>
-        <textarea readOnly aria-label={t('live.diagnostics', 'Connection diagnostics')} value={diagnostics} className="h-48 w-full rounded-md border border-border bg-background p-2 font-mono text-xs" />
+        <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('live.diagnostics', 'Connection log')}</summary>
+        <p className="mb-2 text-xs text-muted-foreground">{t('live.diagnosticsHint', 'Recent connection and recording events, useful if something isn\'t working.')}</p>
+        <textarea readOnly aria-label={t('live.diagnostics', 'Connection log')} value={diagnostics} className="h-48 w-full rounded-md border border-border bg-background p-2 font-mono text-xs" />
       </details>
       <Dialog open={expanded !== null} onOpenChange={(open) => { if (!open) setExpanded(null); }}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>{expanded && (byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded)}</DialogTitle>
-            <DialogDescription>{t('live.timelineHint', 'Live history from this connection, up to 30 minutes. Missing readings remain gaps.')}</DialogDescription>
+            <DialogDescription>{t('live.timelineHint', 'The last 30 minutes. Gaps mean the car didn\'t send a reading.')}</DialogDescription>
           </DialogHeader>
           <OptionSelect size="sm" className="w-auto min-w-[7rem] self-start" aria-label={t('live.timelinePeriod', 'Timeline period')} value={String(timelineMs)} onChange={(value) => setTimelineMs(Number(value))} options={[1, 5, 15, 30].map((minutes) => ({ value: String(minutes * 60_000), label: `${minutes} min` }))} />
           {expanded && <ChartWidget large label={byHeader.has(expanded) ? channelLabel(byHeader.get(expanded)!, t) : expanded} unit={sensorUnit(expanded)} now={chartNow} windowMs={timelineMs}
@@ -316,7 +316,7 @@ function LayoutEditor({ widgets, available, byHeader, hasBlocks, onChange }: {
     <div className="space-y-4">
       <SheetHeader>
         <SheetTitle>{t('live.customize', 'Customize')}</SheetTitle>
-        <SheetDescription>{t('live.customizeHint', 'Pick what the panel shows. Saved for this vehicle on this device.')}</SheetDescription>
+        <SheetDescription>{t('live.customizeHint', 'Pick what the panel shows. Saved for this car.')}</SheetDescription>
       </SheetHeader>
 
       <div className="space-y-1">

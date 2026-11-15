@@ -36,7 +36,7 @@ export function AndroidAppDownload({ className, onDownload }: { className?: stri
       <Steps
         steps={[
           { text: t('install.android.step1', 'Tap Download the app and wait for it to finish.') },
-          { text: t('install.android.step2', 'Open xpeed.apk from the notification or your Downloads folder.') },
+          { text: t('install.android.step2', 'Open the downloaded file from the notification or your Downloads folder.') },
           { text: t('install.android.step3', 'If Android asks, allow installing apps from this browser.') },
           { text: t('install.android.step4', 'Tap Install, then Open, and sign in with the same account.') },
         ]}
@@ -71,7 +71,7 @@ export function IphoneNoBluetooth({ className }: { className?: string }) {
   return (
     <p className={cn('flex items-start gap-2 rounded-xl border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-foreground', className)} data-testid="iphone-no-bluetooth">
       <BluetoothOff className="mt-px h-4 w-4 shrink-0 text-warn" />
-      <span>{t('install.ios.noBluetooth', "On iPhone, Xpeed can't connect to the car yet: Safari has no Bluetooth. You can still see your trips and problems and talk to the AI.")}</span>
+      <span>{t('install.ios.noBluetooth', "On iPhone, Xpeed can't connect to the car yet. You can still see your trips and problems and ask the assistant.")}</span>
     </p>
   );
 }

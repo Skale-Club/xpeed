@@ -76,7 +76,7 @@ export function NewCarDialog() {
         <p className="text-center font-mono text-xs text-muted-foreground">
           {t('vehicle.vinShort', 'Chassis')} {found.vin}
         </p>
-        {!found.year && <p className="text-sm text-muted-foreground">{t('vin.noYear', "We couldn't tell the year from this VIN. Add the car in My cars instead.")}</p>}
+        {!found.year && <p className="text-sm text-muted-foreground">{t('vin.noYear', "We couldn't tell the year from the chassis number. Add the car in My cars instead.")}</p>}
         {failed && <p className="text-sm text-destructive">{t('vehicle.addFailed', "Couldn't add the car. Try again.")}</p>}
 
         <DialogFooter className="gap-2 sm:gap-2">

@@ -143,7 +143,7 @@ describe('SessionDetail', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     renderTrip();
     fireEvent.click(await screen.findByRole('button', { name: /technical details/i }));
-    fireEvent.click(screen.getByRole('button', { name: /re-evaluate/i }));
+    fireEvent.click(screen.getByRole('button', { name: /check again/i }));
     expect(await screen.findByText("Couldn't check the trip again")).toBeInTheDocument();
     expect(db.getSessionFlags).toHaveBeenCalledTimes(1); // not re-read as if it had worked
     consoleError.mockRestore();

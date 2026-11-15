@@ -54,7 +54,7 @@ export default function TrendsPage() {
           <Line dataKey="max" name={t('trends.max', 'Maximum')} stroke={CHART_PALETTE.red} connectNulls={false} isAnimationActive={false} />
         </LineChart></ResponsiveContainer></div>
         <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr>{['period','trips','coverage','min','avg','max'].map((key) => <th key={key} className="p-2 text-left">{t(`trends.${key}`, key)}</th>)}</tr></thead><tbody>{display.map((row) => <tr key={row.period} className="border-t border-border"><td className="p-2">{row.period}</td><td>{row.trips}</td><td>{row.covered}/{row.trips}</td><td>{format(row.min)}</td><td>{format(row.avg)}</td><td>{format(row.max)}</td></tr>)}</tbody></table></div>
-        <p className="mt-3 text-xs text-muted-foreground">{t('trends.chartHint', 'Longer trips carry more weight in the average. Blank periods have no recorded readings.')}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{t('trends.chartHint', 'Longer trips count more in the average. Blank months had no trips.')}</p>
       </CardContent></Card>
     </>}
   </div></AppLayout>;

@@ -206,12 +206,12 @@ export function TripCard() {
               {t('trip.lastSaved', 'Last trip saved.')}
               <Link to={`/session/${tripSave.sessionId}`} className="text-primary hover:underline">{t('trip.view', 'View')}</Link>
             </> : tripSave.status === 'keeping'
-              ? t('trip.keeping', 'Keeping your trip on this device…')
+              ? t('trip.keeping', 'Saving your trip…')
               : tripSave.status === 'memory'
-                ? t('trip.saveFailedNoCopy', "It couldn't be kept on this device either, so leave the app open: it keeps trying while it's open.")
+                ? t('trip.saveFailedNoCopy', "Keep the app open: it keeps trying to save.")
               : <>
-                {t('trip.uploadPending', 'Trip kept on this device. Upload pending.')}
-                <Link to="/settings" className="shrink-0 text-primary hover:underline">{t('trip.syncDetails', 'Sync details')}</Link>
+                {t('trip.uploadPending', 'Trip kept. It will be saved when you\'re online.')}
+                <Link to="/settings" className="shrink-0 text-primary hover:underline">{t('trip.syncDetails', 'Details')}</Link>
               </>}
           </p>
         )}

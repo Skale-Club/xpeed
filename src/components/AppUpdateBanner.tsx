@@ -18,7 +18,7 @@ export function AppUpdateBanner() {
       <div className="flex-1 min-w-48">
         <p className="font-medium">{t('appVersion.available', 'A new version of Xpeed is available')}</p>
         <p className="text-xs text-muted-foreground">{t('appVersion.hint', 'Update to get the latest app improvements.')}</p>
-        {blocked && <p className="text-xs">{t('updates.installWhenReady', 'You can download now. Finish recording and save any changes before installing the APK.')}</p>}
+        {blocked && <p className="text-xs">{t('updates.installWhenReady', 'You can download it now. Finish your trip before installing.')}</p>}
       </div>
       <Button size="sm" asChild>
         {/* Opens in the phone's browser, which downloads the APK and asks to install it over this one. */}

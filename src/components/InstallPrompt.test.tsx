@@ -48,7 +48,7 @@ describe('install offer', () => {
     asDevice(IPHONE);
     render(<InstallPrompt />);
     expect(screen.getByText(/Add to Home Screen/, { selector: 'p' })).toBeInTheDocument();
-    expect(screen.getByTestId('iphone-no-bluetooth')).toHaveTextContent(/Safari has no Bluetooth/);
+    expect(screen.getByTestId('iphone-no-bluetooth')).toHaveTextContent(/can't connect to the car yet/);
     expect(screen.queryByTestId('android-app-download')).not.toBeInTheDocument();
   });
 

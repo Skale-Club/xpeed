@@ -113,7 +113,7 @@ function SessionSharing({ session }: ShareProps) {
           </AlertDialogHeader>
           <label className="flex items-start gap-3 text-sm">
             <input type="checkbox" checked={includeMedia} onChange={(event) => setIncludeMedia(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span>{t('sharing.includeMedia', 'Include the current photos, videos and their descriptions. Future uploads will not be added to this link.')}</span>
+            <span>{t('sharing.includeMedia', 'Include the photos and videos attached so far. Anything added later isn\'t included.')}</span>
           </label>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel', 'Cancel')}</AlertDialogCancel>

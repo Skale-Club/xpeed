@@ -89,7 +89,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
         <div className="flex items-center gap-3"><Button type="button" variant="ghost" size="icon" className="shrink-0 rounded-full" disabled={busy} onClick={onClose} aria-label={t('common.cancel', 'Cancel')}><ArrowLeft className="h-5 w-5" /></Button>
           <DialogTitle ref={titleRef} tabIndex={-1} className="text-lg font-semibold outline-none">{fill ? t('fuel.simple.fillTitle', 'Fill-up') : t('fuel.simple.price', 'Fuel price')}</DialogTitle>
         </div>
-        <DialogDescription className="sr-only">{fill ? t('fuel.simple.receiptHint', 'Copy these two numbers from your receipt or the pump.') : t('fuel.simple.priceHint', 'The price you pay per gallon or litre helps estimate trip costs.')}</DialogDescription>
+        <DialogDescription className="sr-only">{fill ? t('fuel.simple.receiptHint', 'Copy these two numbers from your receipt or the pump.') : t('fuel.simple.priceHint', 'Used to show what your trips cost.')}</DialogDescription>
       </div>
       <form onSubmit={event => void save(event)} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-6 pb-6 pt-8">
@@ -117,7 +117,7 @@ export function FuelEntryDialog({ carId, kind, currency, price, distanceUnit, on
             </div>
           </details>
           {!fill && <details><summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-sm text-muted-foreground">{t('fuel.simple.average', 'Use a U.S. average instead')}<ChevronDown className="h-4 w-4" /></summary><div className="mt-3 space-y-3">
-            <p className="text-xs text-muted-foreground">{t('fuel.simple.averageHint', 'Optional weekly average for regular gasoline. Review the price and date before saving.')}</p>
+            <p className="text-xs text-muted-foreground">{t('fuel.simple.averageHint', 'Optional: the weekly average for regular gasoline. Check the price and date before saving.')}</p>
             <OptionSelect aria-label={t('fuel.region', 'Price region')} className="h-11 rounded-xl" disabled={busy} value={region} onChange={setRegion} options={Object.entries(REGIONS).map(([key, label]) => ({ value: key, label }))} />
             <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void lookup()}>{lookingUp && <Loader2 className="h-4 w-4 animate-spin" />}{t('fuel.lookup', 'Look up regional average')}</Button>
           </div></details>}

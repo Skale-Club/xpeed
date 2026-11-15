@@ -50,7 +50,7 @@ it('has one native version section and no installation, screen-reload or synchro
   expect(screen.getAllByTestId('app-version')).toHaveLength(1);
   expect(screen.queryByTestId('install-section')).not.toBeInTheDocument();
   expect(screen.queryByText('App screens')).not.toBeInTheDocument();
-  expect(screen.queryByText('Trip synchronization')).not.toBeInTheDocument();
+  expect(screen.queryByText('Trips waiting to be saved')).not.toBeInTheDocument();
   expect(screen.queryByText('Check APK')).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Update app' })).toHaveAttribute('href', '/xpeed.apk');
 });

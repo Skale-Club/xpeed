@@ -9,16 +9,16 @@ beforeEach(() => { api.status.mockReset().mockResolvedValue({ pending: 2, latest
 afterEach(cleanup);
 it('shows pending copies and the actual failure, then retries without deleting copies', async () => {
   render(<TripSyncStatus />);
-  expect(await screen.findByText('2 pending trips found on this device')).toBeInTheDocument();
+  expect(await screen.findByText('2 trips waiting to be saved')).toBeInTheDocument();
   expect(screen.getByRole('alert')).toHaveTextContent('Could not save recorded trip: unavailable');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry pending trips' }));
-  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('0 pending trips'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save waiting trips now' }));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('0 trips waiting'));
   expect(api.retry).toHaveBeenCalledOnce(); expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 it('does not report success when a retry fails', async () => {
   api.retry.mockRejectedValueOnce(new Error('offline'));
-  render(<TripSyncStatus />); await screen.findByText('2 pending trips found on this device');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry pending trips' }));
+  render(<TripSyncStatus />); await screen.findByText('2 trips waiting to be saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Save waiting trips now' }));
   await waitFor(() => expect(api.retry).toHaveBeenCalledOnce());
-  expect(screen.getByRole('status')).toHaveTextContent('2 pending trips');
+  expect(screen.getByRole('status')).toHaveTextContent('2 trips waiting');
 });
