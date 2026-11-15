@@ -23,6 +23,8 @@ import simTracks from '../api/sim/tracks';
 import simGames from '../api/sim/games';
 import simMe from '../api/sim/me';
 import simHeartbeat from '../api/sim/heartbeat';
+import simCompanionErrors from '../api/sim/companion-errors';
+import clientErrors from '../api/client-errors';
 import simV1 from '../api/sim/v1';
 import simPublic from '../api/sim/public';
 import companionLatest from '../api/companion/latest';
@@ -41,7 +43,7 @@ import { asService, databaseConfigured } from './db';
 import { createAccountRoute } from './account-route';
 import { createDbRoute } from './db-route';
 import { createStorageRoute, storageStatus } from './storage-route';
-import { deepHealth } from './health';
+import { deepHealth, diskUsage } from './health';
 import { assertStorageEnv } from './storage-driver';
 import { startBackgroundJobs } from './jobs';
 import { admitUpload, rememberDevice, uploadLimit } from '../api/sim/_upload';
@@ -57,7 +59,7 @@ const routes = new Map<string,Handler>([
   ['/.well-known/oauth-protected-resource',protectedResource],['/api/wellknown/oauth-protected-resource',protectedResource],
   ['/api/oauth/register',register],['/api/oauth/issue-code',issueCode],['/api/oauth/token',token],
   ['/api/account',createAccountRoute()],['/api/db',createDbRoute()],
-  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],['/api/sim/heartbeat',simHeartbeat],
+  ['/api/sim/pair',simPair],['/api/sim/laps',simLaps],['/api/sim/codes',simCodes],['/api/sim/devices',simDevices],['/api/sim/link',simLink],['/api/sim/tracks',simTracks],['/api/sim/games',simGames],['/api/sim/me',simMe],['/api/sim/heartbeat',simHeartbeat],['/api/sim/companion-errors',simCompanionErrors],['/api/client-errors',clientErrors],
   ['/api/companion/latest',companionLatest],['/api/companion/download',companionDownload],
   ['/api/car-brands',carBrands],
   ['/api/vehicle-visuals',vehicleVisuals],
@@ -74,6 +76,8 @@ const MAX_LAP_BODY_BYTES = 17 * 1024 * 1024;
 const MAX_TRACK_BODY_BYTES = 33 * 1024 * 1024;
 // A heartbeat from Xpeed Companion is a few dozen bytes (api/sim/heartbeat.ts refuses more than 2 KB).
 const MAX_HEARTBEAT_BODY_BYTES = 4 * 1024;
+// An error report (site or Companion) is a few KB (api/_error-reports.ts refuses more than 16 KB).
+const MAX_ERROR_REPORT_BODY_BYTES = 32 * 1024;
 const storageRoute=createStorageRoute();
 // The Supabase edge functions, run in this process. /api/fn/<name>[/more] is what the app calls;
 // the api/* proxies reach the same functions through the hook.
@@ -117,7 +121,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
         // The database is reported but never fails the check: a blip must not restart the container.
         const database=databaseConfigured()?await asService(c=>c.query('SELECT 1')).then(()=>'ok',()=>'down'):'off';
-        res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database,storage:await storageStatus()}));return;
+        res.end(JSON.stringify({status:'ok',app:'xpeed',version:process.env.SOURCE_COMMIT??'local',database,storage:await storageStatus(),disk:await diskUsage()}));return;
       }
       if(url.pathname==='/api/health/deep'){
         if(!['GET','HEAD'].includes(req.method??'')){res.setHeader('Allow','GET, HEAD');res.writeHead(405).end();return;}
@@ -159,7 +163,7 @@ export function createXpeedServer(options: { staticRoot?: string; origin?: strin
         }
         let response: Response;
         try {
-          const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/heartbeat'?MAX_HEARTBEAT_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/tracks'?MAX_TRACK_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
+          const body=await requestBody(req,url.pathname==='/api/db'?MAX_DB_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/heartbeat'?MAX_HEARTBEAT_BODY_BYTES:['/api/client-errors','/api/sim/companion-errors'].includes(url.pathname.replace(/\/$/,''))?MAX_ERROR_REPORT_BODY_BYTES:url.pathname==='/api/sim/laps'?MAX_LAP_BODY_BYTES:url.pathname.replace(/\/$/,'')==='/api/sim/tracks'?MAX_TRACK_BODY_BYTES:url.pathname.startsWith('/api/storage/')?MAX_STORAGE_BODY_BYTES:url.pathname.startsWith('/api/fn/')?MAX_FUNCTION_BODY_BYTES:MAX_BODY_BYTES);
           const request=new Request(new URL(url.pathname+url.search,origin),{method:req.method,headers,signal:controller.signal,...(body?{body:body.buffer as ArrayBuffer}:{})});
           if(device)rememberDevice(request,device);
           response=await handler(request);

@@ -2,6 +2,7 @@ import type {
   AdminLap, AdminReport, CatalogEntry, DeletedSummary, DriverPage, Friend, FriendStatus, LeaderboardEntry, MyProfile, PublicShare, Relation, Share, Visibility,
 } from '@/lib/sim/social-client';
 import { fakeV1State, handleV1, type FakeResponse, type FakeV1State } from '@/test/v1-fake-server';
+import type { Problem } from '@/lib/problems-client';
 
 // A fake of the social side of the racing data API (docs/platform/API-V1.md, "Social side") for tests and the screen harness: profiles,
 // friends, share links, public shares, leaderboards, reports, moderation, export and delete, with the same paths, bodies, status codes
@@ -43,6 +44,8 @@ export interface FakeSocialState {
   /** The tracks and cars that have public laps (`GET /leaderboards/catalog`). */
   catalog: { tracks: CatalogEntry[]; cars: CatalogEntry[] };
   reports: AdminReport[];
+  /** The error groups of the Problems section (`/admin/problems`). */
+  problems: Problem[];
   adminLaps: Map<string, AdminLap>;
   admin: boolean;
   recheckRemaining: number;
@@ -63,7 +66,7 @@ export function fakeSocialState(partial: Partial<FakeSocialState> = {}): FakeSoc
     v1: partial.v1 ?? fakeV1State(),
     me: { handle: 'lap_fan', displayName: 'Lap Fan', visibility: 'public', createdAt: '2026-10-01T10:00:00.000Z', handleChangesLeft: 3, handleChangesResetAt: null },
     drivers: [], friendRows: [], shares: [], publicTokens: new Map(), shareable: { laps: new Map(), sessions: new Map() }, publicFiles: new Map(),
-    boards: new Map(), catalog: { tracks: [], cars: [] }, reports: [], adminLaps: new Map(), admin: false, recheckRemaining: 0, reported: new Set(), deleted: null, requests: [],
+    boards: new Map(), catalog: { tracks: [], cars: [] }, reports: [], problems: [], adminLaps: new Map(), admin: false, recheckRemaining: 0, reported: new Set(), deleted: null, requests: [],
     failing: null, delayMs: 0, tokenCounter: 0, ...partial,
   };
 }
@@ -331,6 +334,21 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
         report.decidedAt = '2026-11-13T12:00:00.000Z';
         if (report.target) report.target = { ...report.target, hidden: body.action === 'unhide' ? false : hide || report.target.hidden };
         return { status: 200, json: { report } };
+      }
+      if (a === 'problems' && !b && method === 'GET') {
+        const status = params.status ?? 'open';
+        const source = params.source ?? 'all';
+        const list = state.problems
+          .filter((p) => (status === 'all' || (status === 'resolved') === (p.resolvedAt !== null)) && (source === 'all' || p.source === source))
+          .sort((p, q) => Date.parse(q.lastSeen) - Date.parse(p.lastSeen));
+        return { status: 200, json: { problems: list } };
+      }
+      if (a === 'problems' && b && method === 'POST') {
+        const problem = state.problems.find((entry) => entry.id === b);
+        if (!problem) return fail(404, 'problem_not_found');
+        if (!isObject(body) || Object.keys(body).some((key) => key !== 'resolved') || typeof body.resolved !== 'boolean') return fail(400, 'invalid_request');
+        problem.resolvedAt = body.resolved ? '2026-11-15T12:00:00.000Z' : null;
+        return { status: 200, json: { id: problem.id, resolvedAt: problem.resolvedAt } };
       }
       if (a === 'laps' && b && method === 'GET') {
         const lap = state.adminLaps.get(b);

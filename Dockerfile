@@ -16,6 +16,8 @@ ARG VITE_GOOGLE_CLIENT_ID
 ARG VITE_DATA_API
 # true = the Virtual mode (racing games, Xpeed Sim) can be chosen in Settings. Each person still opts in there.
 ARG VITE_ENABLE_VIRTUAL=true
+# The deployed commit (Coolify passes it): error reports say which build they came from.
+ARG SOURCE_COMMIT
 RUN npm run build
 FROM base AS runner
 ENV NODE_ENV=production PORT=8888 TRUST_PROXY=true

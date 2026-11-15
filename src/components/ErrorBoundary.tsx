@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import i18n from '@/lib/i18n';
+import { reportError } from '@/lib/error-reporter';
 
 interface Props {
   children: ReactNode;
@@ -25,8 +26,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Log locally; wire to telemetry (Sentry/etc.) when adopted.
     console.error('Uncaught render error:', error, info.componentStack);
+    // First-party report to Xpeed's own server (src/lib/error-reporter.ts): scrubbed, rate limited, never throws.
+    reportError(error);
   }
 
   handleReset = () => {

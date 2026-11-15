@@ -21,6 +21,7 @@ mod brands;
 mod config;
 mod connect;
 mod covers;
+mod crashreport;
 mod dash;
 mod diagnostics;
 #[cfg(windows)]

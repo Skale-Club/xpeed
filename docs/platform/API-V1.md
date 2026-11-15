@@ -410,6 +410,12 @@ Moderators are decided by the app's own server-side check (`is_admin_user()`, ru
   onLeaderboard, reports: [{ id, status, reason, createdAt }] }`. `plausibility.failed` lists the checks and the numbers.
 - `POST /admin/recheck` body `{ "limit"?: 1-200 }` (default 50): reads the files of laps with no verdict and fills it in; unreadable files become
   `file_unreadable`. `{ checked, plausible, implausible, remaining }`. Run it until `remaining` is 0 after the migration.
+- `GET /admin/problems?status=open|resolved|all&source=site|companion&limit` (default `open`, both sources, up to 200): the groups of error reports
+  from the site and from Xpeed Companion (first-party error tracking, `docs/operations/alerts.md`), newest first:
+  `{ problems: [{ id, source, fingerprint, firstSeen, lastSeen, count, last24h, message, stack, route, version, agent, worker, affectedUsers,
+  resolvedAt, reopenedCount }] }`. `affectedUsers` is a count: nobody is named.
+- `POST /admin/problems/<id>` body `{ "resolved": true | false }`: marks the group resolved (or open again). `200 { id, resolvedAt }`; `404 problem_not_found`.
+  A resolved group reopens by itself when it happens again after the resolution.
 
 ## Privacy rights
 

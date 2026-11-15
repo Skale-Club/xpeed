@@ -189,6 +189,35 @@ pub fn send_heartbeat(agent: &ureq::Agent, config: &Config, body: &str) -> Resul
     }
 }
 
+/// Sends one error report (`POST /api/sim/companion-errors`, see `crashreport.rs`) with the device key. Judged by the status alone, like
+/// the heartbeat: a refused key is `Unauthorized`; a report the server will never take (it is not one, or it is too big) is `Rejected` and
+/// is dropped by the caller; a busy, older or unreachable server (and a rate limit) is a later try.
+pub fn send_error_report(agent: &ureq::Agent, config: &Config, body: &str) -> Result<(), SendError> {
+    let response = agent
+        .post(format!("{}/api/sim/companion-errors", config.server))
+        .header("Authorization", format!("Bearer {}", config.token))
+        .content_type("application/json")
+        .send(body)
+        .map_err(|error| SendError::Later {
+            reason: network_problem(&error),
+            after: None,
+        })?;
+    let reply = read_reply(response);
+    match reply.status {
+        200..=299 => Ok(()),
+        401 | 403 => Err(SendError::Unauthorized),
+        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused the report"))),
+        404 | 405 | 501 => Err(SendError::Later {
+            reason: "this server does not take error reports yet".into(),
+            after: Some(Duration::from_secs(300)),
+        }),
+        _ => Err(SendError::Later {
+            reason: explain(&reply, "the server could not take the report"),
+            after: reply.after,
+        }),
+    }
+}
+
 /// Trades a pairing code for this computer's device key.
 pub fn pair(agent: &ureq::Agent, server: &str, code: &str, device_name: &str) -> Result<String, String> {
     let body = json!({

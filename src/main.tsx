@@ -5,12 +5,18 @@ import App from "./App.tsx";
 import "./index.css";
 import { i18nReady } from "./lib/i18n";
 import { installPreloadErrorReload, startPwaUpdates } from "./lib/pwa-update";
+import { installErrorReporter } from "./lib/error-reporter";
+import { getAccessToken } from "./lib/auth/google";
+import { publicAppUrl } from "./lib/trips";
 
 // When a new Vercel deployment lands, hashed JS chunks from the previous build
 // are no longer served and lazy-imported routes fail. Reload to pick up the new
 // index.html - at most once per 5 minutes so a chunk that keeps failing cannot
 // put the app in a reload loop.
 installPreloadErrorReload();
+
+// Tell Xpeed's own server when the page breaks (no third-party service; see src/lib/error-reporter.ts).
+installErrorReporter({ baseUrl: publicAppUrl, getToken: getAccessToken, disabled: import.meta.env.DEV });
 
 // Register the service worker and keep an always-open app up to date
 // (periodic update checks; the swap waits until no trip is being recorded).

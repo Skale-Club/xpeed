@@ -12,6 +12,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
 use crate::applog;
+use crate::crashreport;
 
 /// How a worker is looked after.
 pub struct Policy {
@@ -117,6 +118,15 @@ pub fn supervise(
                 restarts.len() + 1,
                 policy.window.as_secs().div_ceil(60)
             ));
+            crashreport::record(
+                name,
+                &format!(
+                    "{name} was given up on after {} restarts in {} minutes: {message}",
+                    restarts.len(),
+                    policy.window.as_secs().div_ceil(60)
+                ),
+                "",
+            );
             health(Health::Failed);
             return Ended::GaveUp;
         }
@@ -133,6 +143,18 @@ pub fn supervise(
             restarts.len(),
             policy.max_restarts
         ));
+        // A worker that fails again and again is worth telling the owner of the site about (a first-party report, sent at the next start).
+        if restarts.len() >= 3 {
+            crashreport::record(
+                name,
+                &format!(
+                    "{name} restarted {} times in {} minutes: {message}",
+                    restarts.len(),
+                    policy.window.as_secs().div_ceil(60)
+                ),
+                "",
+            );
+        }
         health(Health::Restarting);
         wait(delay, quitting);
         if quitting() {
@@ -170,6 +192,15 @@ pub fn install_panic_hook() {
         } else {
             applog::early(&line);
         }
+        // The report for Xpeed's own server waits in a file and goes at the next start; nothing here touches the network.
+        let worker = crashreport::worker_id(thread.name().unwrap_or("main"));
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let what = format!(
+            "panicked at {}: {}",
+            location.as_deref().unwrap_or("an unknown place"),
+            panic_message(info.payload())
+        );
+        crashreport::record(&worker, &what, &backtrace);
         previous(info);
     }));
 }

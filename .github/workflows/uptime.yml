@@ -7,6 +7,8 @@ name: Uptime
 #
 # The address is the repository variable XPEED_PUBLIC_URL (Settings > Secrets and variables > Actions >
 # Variables); without it https://xpeed.skale.club is used. Change the variable when the domain moves to xpeed.app.
+#
+# It also reads the disk use of the files volume from /api/health and fails the run (so GitHub e-mails the owner) when it is above 85%.
 
 on:
   schedule:
@@ -76,7 +78,27 @@ jobs:
           echo "healthy=$healthy" >> "$GITHUB_OUTPUT"
           if [ "$healthy" = true ]; then echo "The site is healthy: $base"; else echo "The site looks down: $base"; fi
 
+      - name: Read the disk use of the files volume
+        id: disk
+        shell: bash
+        run: |
+          set -u
+          # /api/health reports how full the volume of the uploaded files is, as a percentage (no path, no sizes). An older
+          # deploy without the field, or a site that does not answer, gives no number and no alarm here: the probe above is
+          # what reports a site that is down.
+          base="${BASE_URL%/}"
+          limit=85
+          pct=""
+          body="$(curl -sS --connect-timeout 10 --max-time 15 "$base/api/health" 2>/dev/null || true)"
+          if [ -n "$body" ]; then pct="$(printf '%s' "$body" | jq -r '.disk.usedPercent // empty' 2>/dev/null || true)"; fi
+          high=false
+          if [ -n "$pct" ] && awk -v p="$pct" -v t="$limit" 'BEGIN { exit !(p + 0 > t + 0) }'; then high=true; fi
+          echo "percent=$pct" >> "$GITHUB_OUTPUT"
+          echo "high=$high" >> "$GITHUB_OUTPUT"
+          echo "Disk use of the files volume: ${pct:-unknown}% (alarm above ${limit}%)"
+
       - name: Open, update or close the "Site down" issue
+        id: issue
         shell: bash
         env:
           HEALTHY: ${{ steps.probe.outputs.healthy }}
@@ -107,6 +129,7 @@ jobs:
 
           if [ -z "$number" ]; then
             gh issue create --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+            echo "notify=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -115,6 +138,35 @@ jobs:
           age=$(( $(date -u +%s) - $(date -u -d "$last" +%s) ))
           if [ "$age" -ge 3300 ]; then
             gh issue comment "$number" --body-file "$RUNNER_TEMP/issue.md"
+            echo "notify=true" >> "$GITHUB_OUTPUT"
           else
             echo "Still down; the open issue #$number was updated $age s ago, not commenting again yet."
           fi
+
+      # A red run is what GitHub e-mails the owner about (Actions notifications). Down and full disk must not mail every 5 minutes, so
+      # the run fails only (a) when the "Site down" issue was just opened or commented on (once an hour at most), or (b) when the disk
+      # is above the limit in the first run of an hour (or on a manual run). Both are also in the log and the run summary.
+      - name: Fail the run so GitHub e-mails the owner
+        if: always()
+        shell: bash
+        env:
+          HEALTHY: ${{ steps.probe.outputs.healthy }}
+          NOTIFY: ${{ steps.issue.outputs.notify }}
+          DISK_HIGH: ${{ steps.disk.outputs.high }}
+          DISK_PERCENT: ${{ steps.disk.outputs.percent }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -u
+          fail=false
+          if [ "$HEALTHY" != true ] && [ "${NOTIFY:-}" = true ]; then
+            echo "::error::The site is not healthy (see the Site down issue)."
+            fail=true
+          fi
+          if [ "${DISK_HIGH:-false}" = true ]; then
+            echo "::warning::The disk of the files volume is ${DISK_PERCENT}% full (alarm above 85%)."
+            if [ "$EVENT" = workflow_dispatch ] || [ "$(date -u +%M | sed 's/^0//')" -lt 5 ]; then
+              echo "::error::The disk of the files volume is ${DISK_PERCENT}% full (above 85%). Free space or grow the volume."
+              fail=true
+            fi
+          fi
+          [ "$fail" = false ] || exit 1

@@ -132,6 +132,22 @@ Content-Type: application/json
 
 Toda recusa traz `{ "error": "…", "retryable": true|false }` como as do envio de voltas. Não há CORS (não é um navegador).
 
+## 2d. Relatório de erro do Xpeed Companion (`POST /api/sim/companion-errors`)
+
+Quando o Companion trava (um `panic`) ou um processo interno é reiniciado 3 vezes ou mais, ele guarda um relatório pequeno em arquivo (`error-reports.jsonl`, na pasta do próprio Companion, os 5 mais novos) e **o envia na próxima vez que abrir, já conectado a uma conta**. Só o servidor do próprio Xpeed recebe; nenhum serviço de terceiros.
+
+```
+POST /api/sim/companion-errors
+Authorization: Bearer xpd_…
+Content-Type: application/json
+
+{ "version": "0.8.0", "worker": "uploader", "message": "uploader restarted 3 times in 10 minutes: …", "backtrace": "…", "os": "windows x86_64", "at": "2026-11-15T10:00:00.000Z" }
+```
+
+- **O que vai:** versão, o processo (`worker`: letras minúsculas, dígitos e `-`), a mensagem (até 500 caracteres), o rastro (até 4000), o sistema e a arquitetura (`windows x86_64`) e a hora. Nome de usuário do Windows em caminhos vira `[user]` no Companion e de novo no servidor; e-mail, telefone, token e `?consulta` são removidos no servidor. Nada de nome do computador, voltas, arquivos nem chave.
+- **O servidor** confere a chave (revogada ou desconhecida: `401`), conta 10 por minuto por aparelho, calcula a própria impressão digital (mensagem e primeiro quadro do rastro, sem os números, mais o `worker`) e agrupa; quem vê é o admin, em "Problemas". Ocorrências ficam 30 dias.
+- **Respostas:** `200 { "ok": true }`; `400`/`413` (`invalid_json`, `invalid_version`, `invalid_worker`, `invalid_message`, `invalid_backtrace`, `invalid_os`, `too_large`: o relatório é descartado); `401`; `429` com `Retry-After`; `404`/`405`/`501` (servidor antigo) e `5xx`: o relatório espera até a próxima abertura.
+
 ## 3. O que o Xpeed Sim guarda e o que ele nunca faz
 
 - **A pasta de voltas é a fila.** Uma volta só é pendente se estiver na pasta e não constar em `.xpeed-upload.json`, ao lado dela, que lista o que já foi enviado ou recusado (com o endereço do servidor; se a pessoa parear com outro servidor, a lista de enviadas recomeça). Se o computador desligar no meio, a próxima execução continua de onde parou. Nenhum arquivo de volta é apagado, movido nem alterado pelo envio.

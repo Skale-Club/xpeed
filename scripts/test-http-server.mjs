@@ -30,6 +30,14 @@ test('container serves the SPA, API guards, OAuth metadata and bounded requests'
   assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',body:'{}'})).status,401);
   assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',headers:{authorization:'Bearer xpd_x'},body:'x'.repeat(5000)})).status,413);
   assert.equal((await fetch(base+'/api/sim/heartbeat')).status,405);
+  // First-party error tracking: Companion's report needs the device key, both reports are cut off over 32 KB while read, and only POST (the browser's also OPTIONS).
+  assert.equal((await fetch(base+'/api/sim/companion-errors',{method:'POST',body:'{}'})).status,401);
+  assert.equal((await fetch(base+'/api/sim/companion-errors',{method:'POST',headers:{authorization:'Bearer xpd_x'},body:'x'.repeat(40000)})).status,413);
+  assert.equal((await fetch(base+'/api/client-errors',{method:'POST',headers:{'content-type':'application/json'},body:'x'.repeat(40000)})).status,413);
+  assert.equal((await fetch(base+'/api/client-errors')).status,405);
+  assert.equal((await fetch(base+'/api/client-errors',{method:'OPTIONS'})).status,204);
+  // /api/health carries the disk of the files volume (percentages, or null where it cannot be read) and never fails over it.
+  assert.ok('disk' in await (await fetch(base+'/api/health')).json());
   assert.match(health.headers.get('content-security-policy'),/accounts.google.com/);
   // The app talks only to its own server: Supabase is not allowed to be called from the browser any more.
   assert.doesNotMatch(health.headers.get('content-security-policy'),/supabase/);
