@@ -11,6 +11,7 @@ import { loadVehicleNotifications, saveVehicleNotifications, mergeVehicleNotific
 import { supabase } from '@/integrations/supabase/client';
 import { useVehicleCare } from '@/hooks/use-vehicle-care';
 import { useSettings } from './SettingsContext';
+import { useModes } from './ModesContext';
 import { oilReminder } from '@/lib/vehicle-care';
 import { tripDayKey } from '@/lib/trip-history';
 
@@ -110,6 +111,8 @@ function ScopedNotifications({ userId, carId, vin, children }: { userId: string;
 export function VehicleNotificationsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { selectedCar, selectedCarId } = useCarsContext();
-  if (!user || !selectedCarId) return <Context.Provider value={{ items: [], unread: 0, loading: false, error: false, markRead: () => {}, reload: () => {}, observeFuel: () => {} }}>{children}</Context.Provider>;
+  const { mode } = useModes();
+  // Problems and maintenance reminders are Real-car data: nothing is fetched while the person is on the Virtual side.
+  if (!user || !selectedCarId || mode !== 'real') return <Context.Provider value={{ items: [], unread: 0, loading: false, error: false, markRead: () => {}, reload: () => {}, observeFuel: () => {} }}>{children}</Context.Provider>;
   return <><LiveAlertObserver userId={user.id} /><ScopedNotifications key={`${user.id}:${selectedCarId}`} userId={user.id} carId={selectedCarId} vin={selectedCar?.vin}>{children}</ScopedNotifications></>;
 }

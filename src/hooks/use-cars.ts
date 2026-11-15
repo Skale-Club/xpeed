@@ -1,10 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { readPreference, writePreference } from '@/lib/browser-storage';
 import { getUserCars, createCarProfile, updateCarProfile, deleteCarProfile, type CarProfile, type CarProfileInput } from '@/lib/db';
 
 const STORAGE_KEY = 'selected_car_id';
 
-export function useCars() {
+/**
+ * The person's cars. `enabled` is false while the person is somewhere that has
+ * nothing to do with a real car (the Virtual side): nothing is asked of the
+ * server then. Once on, it stays loaded, so coming back to the Real side is instant.
+ */
+export function useCars(enabled = true) {
   const [cars, setCars] = useState<CarProfile[]>([]);
   const [selectedCarId, setSelectedCarId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,7 +56,14 @@ export function useCars() {
     }
   }, []);
 
-  useEffect(() => { void loadCars(); }, [loadCars]);
+  const started = useRef(false);
+  useEffect(() => {
+    if (!enabled || started.current) return;
+    started.current = true;
+    void loadCars();
+  }, [enabled, loadCars]);
+  // Pull-to-refresh asks for fresh cars; nobody asked for them yet, so there is nothing to refresh.
+  const refresh = useCallback(async () => { if (started.current) await loadCars(); }, [loadCars]);
 
   const createCar = useCallback(async (
     nameOrInput: string | CarProfileInput,
@@ -115,6 +127,6 @@ export function useCars() {
     updateCar,
     deleteCar,
     selectCar,
-    refresh: loadCars,
+    refresh,
   };
 }

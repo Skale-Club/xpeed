@@ -18,6 +18,7 @@ import { PageLoader } from "@/components/PageLoader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageRefreshProvider, usePageRefresh } from '@/contexts/PageRefreshContext';
 import { VehicleNotificationsProvider } from '@/contexts/VehicleNotificationsContext';
+import { useModes } from '@/contexts/ModesContext';
 
 // Lazy imports
 const Index = lazy(() => import("./pages/Index"));
@@ -72,13 +73,19 @@ const ProtectedScreen = () => {
   </ErrorBoundary>;
 };
 
+// Watching the trips and the fuel of the person's own car is Real-car work: it runs on the Real side only.
+const RealCarObservers = () => {
+  const { mode } = useModes();
+  return mode === 'real' ? <><ProblemSyncObserver /><FuelTrendObserver /></> : null;
+};
+
 const AuthenticatedLayout = () => {
  const { user } = useAuth();
  return (
   <PrivateRoute>
     <CarsProvider key={user?.id}>
       <ObdScannerProvider>
-        <VehicleNotificationsProvider><ProblemSyncObserver /><FuelTrendObserver /><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
+        <VehicleNotificationsProvider><RealCarObservers /><PageRefreshProvider><ProtectedScreen /></PageRefreshProvider></VehicleNotificationsProvider>
       </ObdScannerProvider>
     </CarsProvider>
   </PrivateRoute>

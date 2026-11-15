@@ -21,8 +21,9 @@ export function MobileTabBar() {
   const { setOpenMobile } = useSidebar();
   const { selectedCarId } = useCarsContext();
   const { lastTrip } = useObd();
-  const { problems } = useOpenProblems(selectedCarId, lastTrip);
   const { mode } = useModes();
+  // The problems badge is a Real-car thing: nothing is fetched for it on the Virtual side.
+  const { problems } = useOpenProblems(mode === 'real' ? selectedCarId : null, lastTrip);
 
   const isActive = (to: string) => isActivePath(to, location.pathname);
   const item = 'flex flex-1 flex-col items-center justify-center pt-2 pb-1 text-[11px] font-medium transition-colors';

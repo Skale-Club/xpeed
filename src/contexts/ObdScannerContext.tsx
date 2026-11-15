@@ -5,6 +5,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useCarsContext } from '@/contexts/CarsContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useModes } from '@/contexts/ModesContext';
 import { useObdScanner, type TripResult } from '@/hooks/use-obd-scanner';
 import { useScreenWakeLock } from '@/hooks/use-wake-lock';
 import { useToast } from '@/hooks/use-toast';
@@ -103,6 +104,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { mode } = useModes();
   const { cars = [], selectedCarId, selectCar, createCar, updateCar, loading: carsLoading } = useCarsContext();
   const carIdRef = useRef(selectedCarId);
   carIdRef.current = selectedCarId;
@@ -608,8 +610,10 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
 
   // Trips a previous visit didn't finish saving go up at start, whenever the
   // connection comes back, and every few minutes while the app is open.
+  // Only while the person is on the Real side (or a trip is being recorded): the Virtual side asks nothing about the car.
+  const keepTripsFlushed = mode === 'real' || !!recording?.active;
   useEffect(() => {
-    if (!selectedCarId || !userId) return;
+    if (!selectedCarId || !userId || !keepTripsFlushed) return;
     void flushCopies();
     const onOnline = () => void flushCopies();
     window.addEventListener('online', onOnline);
@@ -621,7 +625,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', visible);
       clearInterval(id);
     };
-  }, [selectedCarId, userId, flushCopies]);
+  }, [selectedCarId, userId, flushCopies, keepTripsFlushed]);
 
   // Before signing out (the session still works): send up the trips waiting on this
   // device. Copies that still can't go up stay, tied to this user, for next time.

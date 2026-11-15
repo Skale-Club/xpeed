@@ -1,5 +1,6 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useCars } from '@/hooks/use-cars';
+import { useModes } from '@/contexts/ModesContext';
 import type { CarProfile, CarProfileInput } from '@/lib/db';
 
 interface CarsContextType {
@@ -22,7 +23,9 @@ const CarsContext: React.Context<CarsContextType | undefined> =
 if (import.meta.hot) import.meta.hot.data.CarsContext = CarsContext;
 
 export function CarsProvider({ children }: { children: ReactNode }) {
-  const carsState = useCars();
+  // The cars are Real-car data: they load when the person is on the Real side, not on a Virtual page.
+  const { mode } = useModes();
+  const carsState = useCars(mode === 'real');
 
   return (
     <CarsContext.Provider value={carsState}>
