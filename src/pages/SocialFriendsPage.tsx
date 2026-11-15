@@ -1,6 +1,7 @@
 import { Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
+import { ExampleGate } from '@/components/sim/Example';
 import { FriendsScreen } from '@/components/social/FriendsScreen';
 
 /** Virtual > Friends: add by handle, requests, blocked. */
@@ -13,7 +14,7 @@ export default function SocialFriendsPage() {
           <Users className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('social.nav.friends', 'Friends')}</h2>
         </div>
-        <FriendsScreen />
+        <ExampleGate><FriendsScreen /></ExampleGate>
       </div>
     </AppLayout>
   );

@@ -2791,5 +2791,16 @@
       "timeHint": "Tiempo conducido en estas sesiones.",
       "tracksCars": "Circuitos · coches"
     }
+  },
+  "demo": {
+    "banner": "Estás viendo un ejemplo. Tus propias vueltas aparecerán aquí cuando Xpeed Companion las envíe.",
+    "chip": "Ejemplo",
+    "leave": "Salir del ejemplo",
+    "notPartBody": "Esta página trata de pilotos reales y de tus ordenadores, así que se queda fuera del ejemplo. Se abre en cuanto salgas del ejemplo.",
+    "notPartTitle": "Fuera del ejemplo",
+    "see": "Ver un ejemplo",
+    "seeHint": "¿No sabes qué esperar? Echa un vistazo con vueltas inventadas. No se guarda nada.",
+    "unavailable": "No disponible en el ejemplo",
+    "unavailableBody": "No se guarda ni se envía nada mientras miras el ejemplo."
   }
 }
