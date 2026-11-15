@@ -293,6 +293,40 @@ describe('your computers', () => {
     for (const name of ['DRIVING', 'WAITING', 'PAUSED']) expect(within(byName(cards, name)).getByTestId('device-version')).toHaveTextContent('Version 0.7.0');
   });
 
+  it('tells a computer whose game is open but sends no data which setting to turn on, in one line, per game', async () => {
+    api.list.mockResolvedValue([
+      device({ id: 'd1', name: 'AMS', companion_version: '0.8.0', last_state: 'needs_setup', last_game: 'ams2' }),
+      device({ id: 'd2', name: 'F1', companion_version: '0.8.0', last_state: 'needs_setup', last_game: 'f1' }),
+      device({ id: 'd3', name: 'ASSETTO', companion_version: '0.8.0', last_state: 'needs_setup', last_game: 'ac' }),
+      device({ id: 'd4', name: 'NEWGAME', companion_version: '0.8.0', last_state: 'needs_setup', last_game: 'newgame' }),
+      device({ id: 'd5', name: 'NOGAME', companion_version: '0.8.0', last_state: 'needs_setup', last_game: null }),
+    ]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    const line = (name: string) => within(byName(cards, name)).getByTestId('device-activity');
+    expect(line('AMS')).toHaveAttribute('data-activity', 'needs_setup');
+    expect(line('AMS')).toHaveTextContent('Automobilista 2 is open but not sending data: turn on Options > System > Use Shared Memory > Yes');
+    expect(line('F1')).toHaveTextContent('F1 25 is open but not sending data: turn on Settings > Telemetry Settings > UDP Telemetry');
+    expect(line('F1')).toHaveTextContent('UDP Format 2025');
+    expect(line('ASSETTO')).toHaveTextContent('Assetto Corsa is open but not sending data: nothing to turn on, start a session and get on track.');
+    // A game this page has no instruction for still says what is wrong, without inventing a fix.
+    expect(line('NEWGAME')).toHaveTextContent(/^NEWGAME is open but not sending data$/);
+    expect(line('NOGAME')).toHaveTextContent('A game is open but not sending data');
+    expect(line('AMS').textContent).not.toMatch(/\{\{|companionSite|communityDash/);
+  });
+
+  it('says the same in Portuguese and Spanish', async () => {
+    api.list.mockResolvedValue([device({ id: 'd1', name: 'AMS', companion_version: '0.8.0', last_state: 'needs_setup', last_game: 'ams2' })]);
+    await i18n.changeLanguage('pt-BR');
+    const first = renderPanel();
+    expect(await screen.findByTestId('device-activity')).toHaveTextContent('Automobilista 2 está aberto, mas não envia dados: ligue Options > System > Use Shared Memory > Yes');
+    first.unmount();
+    await i18n.changeLanguage('es-ES');
+    renderPanel();
+    expect(await screen.findByTestId('device-activity')).toHaveTextContent('Automobilista 2 está abierto, pero no envía datos: activa Options > System > Use Shared Memory > Yes');
+    await i18n.changeLanguage('en');
+  });
+
   it('shows no state for a computer that is not online (what it said is old), but still its version', async () => {
     api.list.mockResolvedValue([
       device({ id: 'd1', name: 'SWITCHED OFF', last_seen_at: minutesAgo(30), companion_version: '0.7.0', last_state: 'connected', last_game: 'ac' }),
