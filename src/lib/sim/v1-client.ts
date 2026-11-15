@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery, type QueryClient } from '@tanstack/react-qu
 import { useAuth } from '@/contexts/AuthContext';
 import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '@/lib/trips';
+import { DEMO_USER_ID, isDemoMode, refuseInDemo, useDemoMode } from '@/lib/sim/demo/mode';
 
 // ---------------------------------------------------------------------------------------------------------------- errors
 
@@ -273,7 +274,26 @@ export async function failure(response: Response): Promise<V1Error> {
 
 type Method = 'GET' | 'DELETE' | 'POST' | 'PATCH';
 
+/**
+ * The example mode (src/lib/sim/demo): reads are answered by the made-up account, which is loaded only now, the first time the example reads
+ * anything; a write is refused with a friendly note. Nothing reaches the network.
+ */
+async function demoCall(method: Method, path: string, params?: Params): Promise<Response> {
+  if (method !== 'GET') {
+    refuseInDemo();
+    throw new V1Error(403, 'demo_readonly', false);
+  }
+  const demo = await import('@/lib/sim/demo');
+  const answer = await demo.answerDemo(method, path, Object.fromEntries(new URLSearchParams(queryString(params))));
+  const response = answer.bytes
+    ? new Response(answer.bytes as BodyInit, { status: answer.status })
+    : new Response(answer.json === undefined ? null : JSON.stringify(answer.json), { status: answer.status });
+  if (!response.ok) throw await failure(response);
+  return response;
+}
+
 async function call(method: Method, path: string, params?: Params, body?: unknown): Promise<Response> {
+  if (isDemoMode()) return demoCall(method, path, params);
   const token = await getAccessToken();
   if (!token) throw new V1Error(401, 'unauthorized', false);
   let response: Response;
@@ -380,7 +400,11 @@ export function usePaged<T>(
   return { ...result, items };
 }
 
-export const useUserId = (): string | null => useAuth().user?.id ?? null;
+/** The account the Virtual screens read for: the signed-in person, or the example's own (never a real one) while the example is on. */
+export const useUserId = (): string | null => {
+  const id = useAuth().user?.id ?? null;
+  return useDemoMode() ? DEMO_USER_ID : id;
+};
 
 /** The laps, newest first, a page at a time. */
 export function useLaps(filters: LapFilters = {}, options: { enabled?: boolean } = {}) {

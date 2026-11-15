@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { isOnline } from '@/lib/sim/companion';
 import { useOverview } from '@/lib/sim/v1-client';
+import { useDemoMode } from '@/lib/sim/demo/mode';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useAge } from './use-age';
@@ -18,8 +19,17 @@ export function CompanionStatus({ className }: { className?: string }) {
   const age = useAge();
   const now = useNow();
   const { data: overview } = useOverview();
+  const demo = useDemoMode();
   const devices = overview?.companion.devices ?? [];
   const newest = [...devices].sort((p, q) => Date.parse(q.lastSeenAt ?? q.pairedAt) - Date.parse(p.lastSeenAt ?? p.pairedAt))[0];
+  // The example has no computer: the chip says so instead of showing one.
+  if (demo) {
+    return (
+      <span className={cn('ml-auto rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground', className)} data-testid="companion-status-example">
+        {t('demo.chip', 'Example')}
+      </span>
+    );
+  }
   if (!overview || !newest) return null;
 
   const online = devices.some((device) => isOnline(device.lastSeenAt, now));

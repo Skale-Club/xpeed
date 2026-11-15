@@ -109,6 +109,28 @@ describe('the public Companion page', () => {
     expect(screen.getByText(/Privacy: Xpeed Companion reads only the data/)).toBeInTheDocument();
   });
 
+  it('lists, for every game, the setting to turn on when it is open and nothing arrives, in each language', async () => {
+    const lines = () => within(screen.getByTestId('companion-setup')).getAllByTestId('companion-setup-game');
+    const first = open();
+    const rows = lines();
+    expect(rows.length).toBeGreaterThanOrEqual(21);
+    const ams2 = rows.find((row) => row.getAttribute('data-game') === 'ams2')!;
+    expect(ams2).toHaveTextContent('Automobilista 2: Turn on Options > System > Use Shared Memory > Yes');
+    expect(rows.find((row) => row.getAttribute('data-game') === 'lmu')).toHaveTextContent('Le Mans Ultimate: Turn on Settings > Gameplay > Enable external plugins');
+    expect(rows.find((row) => row.getAttribute('data-game') === 'f1')).toHaveTextContent('UDP Format 2025');
+    expect(screen.getByText('If a game is open but nothing arrives')).toBeInTheDocument();
+    first.unmount();
+    await i18n.changeLanguage('pt-BR');
+    const second = open();
+    expect(lines().find((row) => row.getAttribute('data-game') === 'ams2')).toHaveTextContent('Automobilista 2: Ligue Options > System > Use Shared Memory > Yes');
+    expect(screen.getByText('Se um jogo abre mas nada chega')).toBeInTheDocument();
+    second.unmount();
+    await i18n.changeLanguage('es-ES');
+    open();
+    expect(lines().find((row) => row.getAttribute('data-game') === 'ams2')).toHaveTextContent('Automobilista 2: Activa Options > System > Use Shared Memory > Yes');
+    expect(screen.getByText('Si un juego se abre pero no llega nada')).toBeInTheDocument();
+  });
+
   it('never shows the old internal name, in any language', async () => {
     for (const language of ['en', 'pt-BR', 'es-ES']) {
       await i18n.changeLanguage(language);

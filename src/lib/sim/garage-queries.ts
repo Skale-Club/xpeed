@@ -3,7 +3,6 @@
 // v1-client.ts, so a detail read for a card is the same answer the page of that track or car opens with.
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/contexts/AuthContext';
 import { downloadAccountTrack } from '@/lib/sim/account-tracks';
 import { readTrackFile } from '@/lib/sim/read-track-file';
 import { layoutGame, type TrackFile } from '@/lib/sim/track-file';
@@ -87,7 +86,7 @@ export function useAllPbs(filters: PbFilters = {}, enabled = true) {
  * does. Null when there is none; kept for the visit.
  */
 export function useTrackLayout(track: { game: string; name: string; layoutId?: string | null } | null, enabled: boolean) {
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   const { findLayout } = useLayoutFinder();
   return useQuery<TrackFile | null>({
     queryKey: ['sim-track-layout', userId, track?.layoutId ?? `${track?.game}|${track?.name}`],

@@ -165,6 +165,8 @@ pub enum Msg {
     FocusLoading,
     /// How to switch on the data of the game of this id.
     Setup(&'static str),
+    /// The balloon for a game open without data: its id and name, then what to switch on.
+    NoticeNeedsSetup(&'static str, &'static str),
     StateSilent,
     GameSilent,
     StateLoading,
@@ -181,6 +183,14 @@ pub enum Msg {
     StateRecording(u32),
     StatePaused,
     StateUnsupported,
+}
+
+/// The name of the game of this id as the person knows it (`Assetto Corsa`), for the lines that name it.
+fn game_title(id: &str) -> &'static str {
+    crate::games::PROGRAMS
+        .iter()
+        .find(|(_, game, _)| *game == id)
+        .map_or("The game", |(_, _, name)| *name)
 }
 
 pub fn text(lang: Lang, msg: &Msg) -> String {
@@ -479,27 +489,67 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Carregando… o Xpeed Companion conecta assim que o jogo estiver pronto."),
             s("Cargando… Xpeed Companion se conecta en cuanto el juego esté listo."),
         ),
+        // What to switch on in a game that is open and shares no data. Menu names stay in English (the games' own wording);
+        // the words around them are the person's language. Games with nothing to switch on say what starts the data.
+        // Where a menu path could not be checked in the game itself, the line says only what is certain (see `watch.rs` tests
+        // and the README of the Companion for the list).
         Setup(id) => match *id {
-            // Automobilista 2's own menu (seen in the game, 2026-11-12): System > Use Shared Memory, Yes or No.
+            // Automobilista 2's own menu (seen in the game, 2026-11-12): System > Use Shared Memory, Yes or No. Builds that list
+            // formats instead call the option Shared Memory and offer "Project CARS 2".
             "ams2" => t(
-                s("Switch the data on in the game: Options > System > Use Shared Memory > Yes, then Save."),
-                s("Ligue os dados no jogo: Options > System > Use Shared Memory > Yes e depois Save."),
-                s("Activa los datos en el juego: Options > System > Use Shared Memory > Yes y luego Save."),
+                s("Turn the game's data sharing on: Options > System > Use Shared Memory > Yes (if it lists formats, pick Project CARS 2), then Save."),
+                s("Ligue o compartilhamento de dados do jogo: Options > System > Use Shared Memory > Yes (se pedir um formato, escolha Project CARS 2) e depois Save."),
+                s("Activa el uso compartido de datos del juego: Options > System > Use Shared Memory > Yes (si pide un formato, elige Project CARS 2) y luego Save."),
             ),
             "pcars2" | "pcars3" => t(
-                s("Switch the data on in the game's options: Shared Memory, in the Project CARS 2 format."),
-                s("Ligue os dados nas opções do jogo: Shared Memory, no formato Project CARS 2."),
-                s("Activa los datos en las opciones del juego: Shared Memory, en el formato Project CARS 2."),
+                s("Turn the game's data sharing on in its options: Shared Memory, in the Project CARS 2 format."),
+                s("Ligue o compartilhamento de dados nas opções do jogo: Shared Memory, no formato Project CARS 2."),
+                s("Activa el uso compartido de datos en las opciones del juego: Shared Memory, en el formato Project CARS 2."),
             ),
-            "f1" | "f124" | "f123" => t(
-                s("Switch the data on in the game: Settings > Telemetry Settings > UDP Telemetry On, port 20777, format of the game's year."),
-                s("Ligue os dados no jogo: Settings > Telemetry Settings > UDP Telemetry On, porta 20777, formato do ano do jogo."),
-                s("Activa los datos en el juego: Settings > Telemetry Settings > UDP Telemetry On, puerto 20777, formato del año del juego."),
+            "ac" | "acc" | "acr" | "acevo" => {
+                let game = game_title(id);
+                t(
+                    format!("{game} shares its data by itself: start a session and get on track."),
+                    format!("O {game} compartilha os dados sozinho: comece uma sessão e vá para a pista."),
+                    format!("{game} comparte los datos solo: empieza una sesión y sal a la pista."),
+                )
+            }
+            "iracing" => t(
+                s("iRacing shares its data by itself while you are in the car: start a session and get on track."),
+                s("O iRacing compartilha os dados sozinho enquanto você está no carro: comece uma sessão e vá para a pista."),
+                s("iRacing comparte los datos solo mientras estás en el coche: empieza una sesión y sal a la pista."),
             ),
-            "fm" | "fm7" | "fh4" | "fh5" | "fh6" => t(
-                s("Switch the data on in the game: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, port 5301."),
-                s("Ligue os dados no jogo: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, porta 5301."),
-                s("Activa los datos en el juego: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, puerto 5301."),
+            "r3e" => t(
+                s("RaceRoom shares its data by itself: start a session and get on track."),
+                s("O RaceRoom compartilha os dados sozinho: comece uma sessão e vá para a pista."),
+                s("RaceRoom comparte los datos solo: empieza una sesión y sal a la pista."),
+            ),
+            "f1" | "f124" | "f123" => {
+                let year = match *id {
+                    "f124" => 2024,
+                    "f123" => 2023,
+                    _ => 2025,
+                };
+                t(
+                    format!("In the game: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format {year}."),
+                    format!("No jogo: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format {year}."),
+                    format!("En el juego: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format {year}."),
+                )
+            }
+            "fm" => t(
+                s("In the game: Settings > Gameplay & HUD > UDP Race Telemetry > Data Out On, IP 127.0.0.1, Port 5301, Packet Format Dash."),
+                s("No jogo: Settings > Gameplay & HUD > UDP Race Telemetry > Data Out On, IP 127.0.0.1, Port 5301, Packet Format Dash."),
+                s("En el juego: Settings > Gameplay & HUD > UDP Race Telemetry > Data Out On, IP 127.0.0.1, Port 5301, Packet Format Dash."),
+            ),
+            "fm7" => t(
+                s("In the game: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, Port 5301, Format Dash."),
+                s("No jogo: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, Port 5301, Format Dash."),
+                s("En el juego: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, Port 5301, Format Dash."),
+            ),
+            "fh4" | "fh5" | "fh6" => t(
+                s("In the game: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, Port 5301."),
+                s("No jogo: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, Port 5301."),
+                s("En el juego: Settings > HUD and Gameplay > Data Out On, IP 127.0.0.1, Port 5301."),
             ),
             "wreckfest2" => t(
                 s("Switch the data on in the game's telemetry config.json: set \"enabled\" to 1 (IP 127.0.0.1, port 23123), then restart the game."),
@@ -507,9 +557,9 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
                 s("Activa los datos en el config.json de telemetría del juego: pon \"enabled\" en 1 (IP 127.0.0.1, puerto 23123) y vuelve a abrir el juego."),
             ),
             "lmu" => t(
-                s("Switch the data on in the game: Settings > Gameplay > Enable external plugins."),
-                s("Ligue os dados no jogo: Settings > Gameplay > Enable external plugins."),
-                s("Activa los datos en el juego: Settings > Gameplay > Enable external plugins."),
+                s("Turn the game's plugins on: Settings > Gameplay > Enable external plugins. If nothing changes, restart the game."),
+                s("Ligue os plugins do jogo: Settings > Gameplay > Enable external plugins. Se nada mudar, abra o jogo de novo."),
+                s("Activa los plugins del juego: Settings > Gameplay > Enable external plugins. Si no cambia nada, vuelve a abrir el juego."),
             ),
             "rfactor1" | "ams1" | "rf1" => t(
                 s("Put the rFactorSharedMemoryMap plugin in the game's Plugins folder, then start the game again."),
@@ -522,6 +572,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
                 s("El juego comparte sus datos cuando termina de cargar: sal a la pista."),
             ),
         },
+        NoticeNeedsSetup(id, name) => {
+            let how = text(lang, &Setup(id));
+            t(
+                format!("{name} is open but not sharing data yet. {how}"),
+                format!("{name} está aberto, mas ainda não compartilha dados. {how}"),
+                format!("{name} está abierto, pero aún no comparte datos. {how}"),
+            )
+        }
         StateSilent => t(s("no data"), s("sem dados"), s("sin datos")),
         StateLoading => t(s("loading"), s("carregando"), s("cargando")),
         GameLoading => t(s("Open, loading"), s("Aberto, carregando"), s("Abierto, cargando")),
@@ -701,6 +759,7 @@ mod tests {
             Msg::Setup("lmu"),
             Msg::Setup("rfactor1"),
             Msg::Setup("ac"),
+            Msg::NoticeNeedsSetup("ams2", "Automobilista 2"),
             Msg::StateSilent,
             Msg::GameSilent,
             Msg::StateLoading,
@@ -744,6 +803,102 @@ mod tests {
         for lang in [Lang::En, Lang::Pt, Lang::Es] {
             assert!(text(lang, &Msg::ConnectCodeHint("K7QX".into())).contains("K7QX"));
         }
+    }
+
+    /// What a game that is open without data must be told, per game (English), checked against each game's reader notes.
+    const SETUP_EN: &[(&str, &[&str])] = &[
+        ("ams2", &["Options > System > Use Shared Memory", "Project CARS 2", "Save"]),
+        ("pcars2", &["Shared Memory", "Project CARS 2"]),
+        ("pcars3", &["Shared Memory", "Project CARS 2"]),
+        ("ac", &["Assetto Corsa shares its data by itself", "start a session"]),
+        ("acc", &["Assetto Corsa Competizione shares its data by itself", "start a session"]),
+        ("acr", &["Assetto Corsa Rally shares its data by itself", "start a session"]),
+        ("acevo", &["Assetto Corsa EVO shares its data by itself", "start a session"]),
+        ("lmu", &["Settings > Gameplay > Enable external plugins"]),
+        (
+            "f1",
+            &[
+                "Settings > Telemetry Settings > UDP Telemetry On",
+                "Broadcast Mode Off",
+                "127.0.0.1",
+                "20777",
+                "UDP Format 2025",
+            ],
+        ),
+        ("f124", &["UDP Telemetry On", "20777", "UDP Format 2024"]),
+        ("f123", &["UDP Telemetry On", "20777", "UDP Format 2023"]),
+        (
+            "fm",
+            &["Gameplay & HUD", "UDP Race Telemetry", "Data Out On", "127.0.0.1", "5301", "Dash"],
+        ),
+        ("fm7", &["HUD and Gameplay", "Data Out On", "127.0.0.1", "5301", "Dash"]),
+        ("fh4", &["HUD and Gameplay", "Data Out On", "127.0.0.1", "5301"]),
+        ("fh5", &["HUD and Gameplay", "Data Out On", "127.0.0.1", "5301"]),
+        ("fh6", &["HUD and Gameplay", "Data Out On", "127.0.0.1", "5301"]),
+        ("iracing", &["iRacing shares its data by itself", "start a session"]),
+        ("r3e", &["RaceRoom shares its data by itself", "start a session"]),
+        ("wreckfest2", &["config.json", "\"enabled\" to 1", "23123"]),
+        ("rfactor1", &["rFactorSharedMemoryMap", "Plugins"]),
+        ("ams1", &["rFactorSharedMemoryMap"]),
+        ("rf1", &["rFactorSharedMemoryMap"]),
+    ];
+
+    #[test]
+    fn every_game_says_exactly_what_to_turn_on_in_the_three_languages() {
+        let fallback = text(Lang::En, &Msg::Setup("no-such-game"));
+        // Every game a reader waits for has its own line, and the table above names each of them.
+        for &(_, id, name) in crate::games::PROGRAMS {
+            let entry = SETUP_EN.iter().find(|(game, _)| *game == id);
+            assert!(entry.is_some(), "{name} ({id}) has no expected instruction");
+            assert_ne!(
+                text(Lang::En, &Msg::Setup(id)),
+                fallback,
+                "{name} ({id}) falls back to the generic line"
+            );
+        }
+        assert!(text(Lang::En, &Msg::Setup("lmu")).contains("external plugins"));
+        for &(id, parts) in SETUP_EN {
+            let en = text(Lang::En, &Msg::Setup(id));
+            for part in parts {
+                assert!(en.contains(part), "{id}: {en:?} lacks {part:?}");
+            }
+            let (pt, es) = (text(Lang::Pt, &Msg::Setup(id)), text(Lang::Es, &Msg::Setup(id)));
+            assert!(pt != en && es != en && pt != es, "{id}: the three languages differ");
+            // Short and friendly: one or two lines in the panel, no placeholder left over.
+            for line in [&en, &pt, &es] {
+                assert!(line.chars().count() <= 175, "{id}: too long ({}): {line}", line.chars().count());
+                assert!(!line.contains('{') && !line.contains("TODO"), "{id}: {line}");
+            }
+            // A menu path or setting is kept in the game's own (English) wording in every language.
+            for part in parts.iter().filter(|p| p.contains(" > ")) {
+                assert!(pt.contains(part) && es.contains(part), "{id}: {part:?} in {pt:?} / {es:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_balloon_for_a_game_without_data_names_the_game_and_fits_what_windows_allows() {
+        for &(id, _) in SETUP_EN {
+            let name = crate::games::PROGRAMS
+                .iter()
+                .find(|(_, game, _)| *game == id)
+                .map_or("Fake", |(_, _, name)| *name);
+            for lang in Lang::ALL {
+                let balloon = text(lang, &Msg::NoticeNeedsSetup(id, name));
+                assert!(balloon.starts_with(name), "{balloon}");
+                assert!(balloon.ends_with(&text(lang, &Msg::Setup(id))), "{balloon}");
+                // A balloon holds 255 characters (`szInfo`).
+                assert!(
+                    balloon.encode_utf16().count() <= 255,
+                    "{id} {lang:?}: {}",
+                    balloon.encode_utf16().count()
+                );
+            }
+        }
+        assert_eq!(
+            text(Lang::En, &Msg::NoticeNeedsSetup("r3e", "RaceRoom Racing Experience")),
+            "RaceRoom Racing Experience is open but not sharing data yet. RaceRoom shares its data by itself: start a session and get on track."
+        );
     }
 
     #[test]

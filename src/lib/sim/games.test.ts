@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BUILT_IN_GAME_NAMES, gameCoverUrl, gameName, loadGames, resetGamesCache } from './games';
 
-const IDS = ['lmu', 'ac', 'acc', 'acr', 'acevo', 'ams2', 'pcars2', 'pcars3', 'ams1', 'rf1', 'rfactor1', 'r3e', 'f1', 'f124', 'f123', 'fm', 'fm7', 'fh4', 'fh5', 'wreckfest2', 'iracing'];
+const IDS = ['lmu', 'ac', 'acc', 'acr', 'acevo', 'ams2', 'pcars2', 'pcars3', 'ams1', 'rf1', 'rfactor1', 'r3e', 'f1', 'f124', 'f123', 'fm', 'fm7', 'fh4', 'fh5', 'fh6', 'wreckfest2', 'iracing'];
 
 describe('gameName', () => {
   beforeEach(() => resetGamesCache());

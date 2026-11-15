@@ -1,10 +1,11 @@
 import { useTranslation } from 'react-i18next';
-import { Gamepad2, Monitor, Pause, Unplug } from 'lucide-react';
+import { Gamepad2, Monitor, Pause, TriangleAlert, Unplug } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { deviceActivity, deviceState, updateAvailable, type DeviceState } from '@/lib/sim/companion';
+import { setupText } from '@/lib/sim/game-setup';
 import { useGames } from '@/lib/sim/games';
 import type { V1Lap } from '@/lib/sim/v1-client';
 import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
@@ -41,7 +42,12 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
   const age = useAge();
   const state = deviceState(device);
   const activity = deviceActivity(device);
+  const needsSetup = activity?.kind === 'needs_setup' ? activity : null;
+  const how = needsSetup?.game ? setupText(t, needsSetup.game) : null;
   const activityText = !activity ? null
+    : activity.kind === 'needs_setup' ? (needsSetup?.game
+      ? (how ? t('communityDash.companion.needsSetup', '{{game}} is open but not sending data: {{how}}.', { game: games.name(needsSetup.game), how }) : t('communityDash.companion.needsSetupNoHow', '{{game}} is open but not sending data', { game: games.name(needsSetup.game) }))
+      : t('communityDash.companion.needsSetupGame', 'A game is open but not sending data'))
     : activity.kind === 'connected' ? (activity.game ? t('communityDash.companion.connectedTo', 'Connected to {{game}}', { game: games.name(activity.game) }) : t('communityDash.companion.connectedGame', 'Connected to a game'))
     : activity.kind === 'waiting' ? t('communityDash.companion.waitingGame', 'Waiting for a game')
     : t('communityDash.companion.readingPaused', 'Reading paused');
@@ -63,9 +69,9 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
           <StateBadge state={state} />
         </div>
         {activity && activityText ? (
-          <p className="flex items-center gap-1.5 text-sm" data-testid="device-activity" data-activity={activity.kind}>
-            {activity.kind === 'idle' ? <Pause className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <Gamepad2 className={cn('h-4 w-4 shrink-0', activity.kind === 'connected' ? 'text-success' : 'text-muted-foreground')} aria-hidden="true" />}
-            <span className="min-w-0 truncate">{activityText}</span>
+          <p className={cn('flex gap-1.5 text-sm', activity.kind === 'needs_setup' ? 'items-start' : 'items-center')} data-testid="device-activity" data-activity={activity.kind}>
+            {activity.kind === 'idle' ? <Pause className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : activity.kind === 'needs_setup' ? <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" /> : <Gamepad2 className={cn('h-4 w-4 shrink-0', activity.kind === 'connected' ? 'text-success' : 'text-muted-foreground')} aria-hidden="true" />}
+            <span className={cn('min-w-0', activity.kind === 'needs_setup' ? 'break-words' : 'truncate')}>{activityText}</span>
           </p>
         ) : state !== 'online' && (
           <p className="text-sm text-muted-foreground" data-testid="device-seen" title={device.last_seen_at ? when(Date.parse(device.last_seen_at)) : undefined}>

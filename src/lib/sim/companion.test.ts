@@ -58,6 +58,13 @@ describe('what a running computer says it is doing', () => {
     expect(deviceActivity(beat({ last_state: 'connected', last_game: '' }), NOW)).toEqual({ kind: 'connected', game: null });
   });
 
+  it('is a game that is open but sends no data (needs_setup), with the game when it names one', () => {
+    expect(deviceActivity(beat({ last_state: 'needs_setup', last_game: 'ams2' }), NOW)).toEqual({ kind: 'needs_setup', game: 'ams2' });
+    expect(deviceActivity(beat({ last_state: 'needs_setup', last_game: null }), NOW)).toEqual({ kind: 'needs_setup', game: null });
+    expect(deviceActivity(beat({ last_state: 'needs_setup', last_game: '' }), NOW)).toEqual({ kind: 'needs_setup', game: null });
+    expect(deviceActivity(beat({ last_state: 'needs_setup', last_game: 'ams2', last_seen_at: minutesAgo(10) }), NOW)).toBeNull();
+  });
+
   it('is nothing when the computer is offline (it is old news), revoked or never heard from', () => {
     expect(deviceActivity(beat({ last_state: 'connected', last_game: 'ac', last_seen_at: minutesAgo(10) }), NOW)).toBeNull();
     expect(deviceActivity(beat({ last_state: 'connected', last_game: 'ac', revoked_at: '2026-11-10T00:00:00.000Z' }), NOW)).toBeNull();

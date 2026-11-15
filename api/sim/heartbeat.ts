@@ -1,7 +1,10 @@
 // POST /api/sim/heartbeat: Xpeed Companion says it is running (once a minute, and when a game connects or goes away), so the site can tell
 // a computer that is on from one that only sent its last lap a while ago. Device key, like a lap upload; not a browser: no CORS headers.
 //
-//   { "version": "0.7.0", "state": "idle" | "waiting" | "connected", "game": "ams2" | null, "pendingLaps": 0 }
+//   { "version": "0.8.0", "state": "idle" | "waiting" | "connected" | "needs_setup", "game": "ams2" | null, "pendingLaps": 0 }
+//
+// `needs_setup` (Xpeed Companion 0.8): the game named in `game` is open but shares no data, so a setting in the game is off; the site's
+// computer card then says which one to turn on (src/lib/sim/game-setup.ts).
 //
 // Strict on the four fields; any other field is ignored (a newer Companion may send more). Nothing personal travels: no name, no path.
 // `pendingLaps` is checked and capped (the laps waiting to be sent) but not kept: the site has no use for it.
@@ -17,7 +20,7 @@ export const MAX_HEARTBEAT_BYTES = 2048;
 /** A count of waiting laps above this is read as this. */
 export const MAX_PENDING_LAPS = 1_000_000;
 
-export const HEARTBEAT_STATES = ['idle', 'waiting', 'connected'] as const;
+export const HEARTBEAT_STATES = ['idle', 'waiting', 'connected', 'needs_setup'] as const;
 export type HeartbeatState = (typeof HEARTBEAT_STATES)[number];
 
 // 0.7.0, or 0.7.0-beta.1: numbers, then an optional short tag.

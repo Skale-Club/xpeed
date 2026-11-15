@@ -5,6 +5,7 @@ import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '@/lib/trips';
 import { trackKeyOf } from '@/lib/sim/track-file';
 import { addTrackFile, listTracks } from '@/lib/sim/track-library';
+import { isDemoMode } from '@/lib/sim/demo/mode';
 
 export interface AccountTrack {
   id: string;
@@ -21,6 +22,13 @@ export interface AccountTrack {
 export const accountTrackKey = (track: Pick<AccountTrack, 'game' | 'trackName' | 'variant'>) => trackKeyOf(track.game, track.trackName, track.variant);
 
 async function request(path: string, method: 'GET' | 'DELETE'): Promise<Response | null> {
+  // The example (src/lib/sim/demo) answers from the browser and changes nothing.
+  if (isDemoMode()) {
+    if (method !== 'GET') return null;
+    const answer = await (await import('@/lib/sim/demo')).answerLayouts(path);
+    if (!answer) return null;
+    return answer.bytes ? new Response(answer.bytes as BodyInit, { status: 200 }) : new Response(JSON.stringify(answer.json), { status: 200 });
+  }
   const token = await getAccessToken();
   if (!token) return null;
   try {

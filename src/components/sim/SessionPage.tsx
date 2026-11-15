@@ -5,13 +5,12 @@ import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useAuth } from '@/contexts/AuthContext';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { useDeleteLaps } from '@/lib/sim/lap-delete';
 import { reconcileSession } from '@/lib/sim/library';
 import { sessionKpis } from '@/lib/sim/session-detail';
 import { bestLapOf, consistency, inDrivingOrder } from '@/lib/sim/session-stats';
-import { V1Error, isSignedOut, usePbs, useSession, type V1Lap } from '@/lib/sim/v1-client';
+import { V1Error, isSignedOut, usePbs, useSession, useUserId, type V1Lap } from '@/lib/sim/v1-client';
 import { lazyChart } from '@/components/LazyChart';
 
 const SessionLapChart = lazyChart(() => import('./SessionLapChart').then((m) => ({ default: m.SessionLapChart })), 'h-64');
@@ -49,7 +48,7 @@ export function SessionPage() {
   const { id = '' } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   const query = useSession(id);
   const session = query.data?.session ?? null;
   const laps = useMemo(() => inDrivingOrder(query.data?.laps ?? []), [query.data?.laps]);

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { LayoutDashboard } from 'lucide-react';
 import { loadRange, saveRange } from '@/lib/sim/dashboard';
 import { useOverview, useStats, useUserId, type StatsRange, type V1Overview, type V1Stats } from '@/lib/sim/v1-client';
+import { ExampleInvite } from './Example';
 import { QueryGate } from './SimStates';
 import { WorkOnCard } from './WorkOnCard';
 import { lazyChart } from '@/components/LazyChart';
@@ -60,6 +61,8 @@ export function SimOverview() {
   const hasLaps = (overview?.lapsPerGame.length ?? 0) > 0;
   const statsQuery = useStats(range, { enabled: hasLaps });
   const paired = (overview?.companion.devices.length ?? 0) > 0;
+  // Laps came in but none counts (all flagged not valid): the dashboard is mostly dashes, so the example is offered here too.
+  const noValidLaps = hasLaps && (overview?.lapsPerGame.every((game) => game.validLaps === 0) ?? false);
 
   return (
     <div className="space-y-4" data-testid="overview">
@@ -76,6 +79,7 @@ export function SimOverview() {
         {overview && (
           <>
             {!paired && <CompanionBanner />}
+            {noValidLaps && <ExampleInvite />}
             {!hasLaps ? (
               <>
                 <KpiTiles stats={null} />

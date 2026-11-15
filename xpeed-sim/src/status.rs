@@ -1,6 +1,6 @@
 //! What Xpeed Companion is doing, shared between the thread that records, the thread that sends and the tray icon.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -66,6 +66,12 @@ pub enum Notice {
     UpdateBlocked(String),
     /// A check the person asked for found nothing newer (this is the version running).
     UpToDate(String),
+    /// This game's program runs but it shares no data: a setting has to be turned on. The balloon says which one (the
+    /// text of `Msg::Setup(id)`). Said once per game in a run (`Shared::set_game`).
+    NeedsSetup {
+        id: &'static str,
+        name: &'static str,
+    },
 }
 
 /// Something the person would want to know happened, for the panel's activity list (put in their language there).
@@ -96,6 +102,8 @@ pub struct Shared {
     snapshot: Mutex<Snapshot>,
     /// What each game's reader says, by game id; the snapshot shows the most interesting one.
     games: Mutex<BTreeMap<&'static str, (&'static str, Game)>>,
+    /// The games that were told to switch their data on in this run: the balloon is not said twice for one game.
+    told_setup: Mutex<BTreeSet<&'static str>>,
     notices: Mutex<VecDeque<Notice>>,
     on_change: Mutex<Option<OnChange>>,
     uploader: Mutex<Option<Uploader>>,
@@ -128,6 +136,7 @@ impl Shared {
                 last_lap: None,
             }),
             games: Mutex::new(BTreeMap::new()),
+            told_setup: Mutex::new(BTreeSet::new()),
             notices: Mutex::new(VecDeque::new()),
             on_change: Mutex::new(None),
             uploader: Mutex::new(None),
@@ -197,6 +206,10 @@ impl Shared {
             s.game = game;
             s.title = title;
         });
+        // Open and sharing nothing after the wait: say once, in a balloon, what to switch on (and keep it in the activity list).
+        if state == Game::Silent && lock(&self.told_setup).insert(id) {
+            self.notify(Notice::NeedsSetup { id, name });
+        }
         self.view_changed();
     }
 
@@ -458,6 +471,40 @@ mod tests {
         assert_eq!(shared.snapshot().game, Game::Recording(3));
         shared.set_game("lmu", "Le Mans Ultimate", Game::Waiting);
         assert_eq!((shared.snapshot().game, shared.snapshot().title), (Game::Waiting, None));
+    }
+
+    #[test]
+    fn a_game_open_without_data_is_told_what_to_switch_on_once_per_run() {
+        let shared = Shared::new(true);
+        // Loading is not the person's problem yet: no balloon.
+        shared.set_game("ams2", "Automobilista 2", Game::Loading);
+        assert!(shared.take_notices().is_empty());
+        shared.set_game("ams2", "Automobilista 2", Game::Silent);
+        let wanted = Notice::NeedsSetup {
+            id: "ams2",
+            name: "Automobilista 2",
+        };
+        assert_eq!(shared.take_notices(), std::slice::from_ref(&wanted));
+        // The loop repeats the same state every couple of seconds, and the game may come and go: still one balloon.
+        shared.set_game("ams2", "Automobilista 2", Game::Silent);
+        shared.set_game("ams2", "Automobilista 2", Game::Waiting);
+        shared.set_game("ams2", "Automobilista 2", Game::Loading);
+        shared.set_game("ams2", "Automobilista 2", Game::Silent);
+        assert!(shared.take_notices().is_empty(), "said once for this game in this run");
+        // Another game has its own; the activity list keeps both.
+        shared.set_game("f1", "EA SPORTS F1 25", Game::Silent);
+        assert_eq!(
+            shared.take_notices(),
+            [Notice::NeedsSetup {
+                id: "f1",
+                name: "EA SPORTS F1 25"
+            }]
+        );
+        let kept: Vec<Activity> = shared.activity().into_iter().map(|(_, a)| a).collect();
+        assert!(kept.contains(&Activity::Notice(wanted)), "{kept:?}");
+        // A game that shares is never told anything.
+        shared.set_game("ac", "Assetto Corsa", Game::Connected);
+        assert!(shared.take_notices().is_empty());
     }
 
     #[test]

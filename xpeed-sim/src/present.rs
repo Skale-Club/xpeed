@@ -75,6 +75,7 @@ pub fn notice_text(lang: Lang, notice: &Notice) -> (String, String) {
             Notice::Updated(version) => Msg::NoticeUpdated(version.clone()),
             Notice::UpdateBlocked(version) => Msg::NoticeUpdateBlocked(version.clone()),
             Notice::UpToDate(version) => Msg::NoticeUpToDate(version.clone()),
+            Notice::NeedsSetup { id, name } => Msg::NoticeNeedsSetup(id, name),
         },
     );
     ("Xpeed Companion".to_owned(), body)
@@ -237,6 +238,20 @@ Connected as RIG"
             notice_text(Lang::En, &Notice::Updated("0.6.0".into())),
             ("Xpeed Companion".into(), "Xpeed Companion was updated to 0.6.0".into())
         );
+    }
+
+    #[test]
+    fn the_balloon_for_a_game_without_data_says_which_game_and_what_to_switch_on() {
+        let notice = Notice::NeedsSetup {
+            id: "ams2",
+            name: "Automobilista 2",
+        };
+        let (title, body) = notice_text(Lang::En, &notice);
+        assert_eq!(title, "Xpeed Companion");
+        assert!(body.starts_with("Automobilista 2 is open but not sharing data yet."), "{body}");
+        assert!(body.contains("Options > System > Use Shared Memory"), "{body}");
+        assert!(notice_text(Lang::Pt, &notice).1.contains("não compartilha"));
+        assert!(notice_text(Lang::Es, &notice).1.contains("no comparte"));
     }
 
     #[test]

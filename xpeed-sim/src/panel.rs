@@ -4024,6 +4024,7 @@ fn activity_message(event: Activity) -> Msg {
         Activity::Notice(Notice::Updated(version)) => Msg::NoticeUpdated(version),
         Activity::Notice(Notice::UpdateBlocked(version)) => Msg::NoticeUpdateBlocked(version),
         Activity::Notice(Notice::UpToDate(version)) => Msg::NoticeUpToDate(version),
+        Activity::Notice(Notice::NeedsSetup { id, name }) => Msg::NoticeNeedsSetup(id, name),
     }
 }
 
@@ -5000,6 +5001,36 @@ mod tests {
         assert!(act, "no data after the wait: there is something to do");
         assert_eq!(state_text(Lang::En, &Game::Loading), "loading");
         assert_eq!(state_color(&Game::Loading), MUTED);
+    }
+
+    #[test]
+    fn the_panel_tells_a_game_open_without_data_which_setting_to_turn_on_in_the_persons_language() {
+        let f = fixture();
+        for lang in Lang::ALL {
+            let view = view(&f, None, Tab::Dash, 1.0, lang);
+            for &(_, id, name) in crate::games::PROGRAMS {
+                let (title, line, note, act) = focus_words(&view, (id, name, Game::Silent));
+                assert_eq!(line, text(lang, &Msg::Setup(id)), "{name} {lang:?}");
+                assert!(title.contains(name), "{title}");
+                assert!(
+                    act && note.is_some(),
+                    "{name}: something to do, and the promise that it connects by itself"
+                );
+            }
+        }
+        let view = view(&f, None, Tab::Dash, 1.0, Lang::En);
+        assert!(focus_words(&view, ("ams2", "Automobilista 2", Game::Silent))
+            .1
+            .contains("Use Shared Memory"));
+        assert!(focus_words(&view, ("f1", "EA SPORTS F1 25", Game::Silent))
+            .1
+            .contains("UDP Telemetry"));
+        // Not running, loading, connected: no instruction on the screen.
+        for game in [Game::Loading, Game::Connected, Game::Paused] {
+            let (_, line, _, act) = focus_words(&view, ("ams2", "Automobilista 2", game));
+            assert_ne!(line, text(Lang::En, &Msg::Setup("ams2")));
+            assert!(!act);
+        }
     }
 
     #[test]

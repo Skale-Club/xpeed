@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useUserId } from '@/lib/sim/v1-client';
 import { syncAccountTracks } from '@/lib/sim/account-tracks';
 import type { TrackFile } from '@/lib/sim/track-file';
 import { findTrack, linkTrack, listTracks, type LibraryTrack } from '@/lib/sim/track-library';
@@ -9,7 +9,7 @@ import { findTrack, linkTrack, listTracks, type LibraryTrack } from '@/lib/sim/t
  * on this device, and, the first time one is missing, after the account's layouts have been copied onto the device once.
  */
 export function useLayoutFinder() {
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   const synced = useRef<Promise<unknown> | null>(null);
   const findLayout = useCallback(
     async (game: string, trackName: string, variant?: string | null): Promise<TrackFile | null> => {

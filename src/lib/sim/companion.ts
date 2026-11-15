@@ -25,16 +25,18 @@ export function isOnline(lastSeenAt: string | null | undefined, now = Date.now()
 }
 
 /** What a running computer said it is doing in its last heartbeat. */
-export type DeviceActivity = { kind: 'connected'; game: string | null } | { kind: 'waiting' } | { kind: 'idle' };
+export type DeviceActivity = { kind: 'connected'; game: string | null } | { kind: 'needs_setup'; game: string | null } | { kind: 'waiting' } | { kind: 'idle' };
 
 /**
  * What an online computer is doing, or null when it is not online (what it said is old then), said nothing (an older Xpeed Companion or server
- * sends no state) or said something this page does not know. A game connection with no game id is still a connection.
+ * sends no state) or said something this page does not know. A game connection with no game id is still a connection. `needs_setup` (Xpeed
+ * Companion 0.8) is a game that is open but sends no data: the card says which setting to turn on (`game-setup.ts`).
  */
 export function deviceActivity(device: Pick<SimDevice, 'last_seen_at' | 'revoked_at' | 'last_state' | 'last_game'>, now = Date.now()): DeviceActivity | null {
   if (deviceState(device, now) !== 'online') return null;
   switch (device.last_state) {
     case 'connected': return { kind: 'connected', game: typeof device.last_game === 'string' && device.last_game !== '' ? device.last_game : null };
+    case 'needs_setup': return { kind: 'needs_setup', game: typeof device.last_game === 'string' && device.last_game !== '' ? device.last_game : null };
     case 'waiting': return { kind: 'waiting' };
     case 'idle': return { kind: 'idle' };
     default: return null;

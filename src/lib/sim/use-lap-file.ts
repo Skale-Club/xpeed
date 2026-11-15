@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/contexts/AuthContext';
+import { useUserId } from '@/lib/sim/v1-client';
 import { openLap } from '@/lib/sim/library';
 
 export const lapFileKey = (userId: string | null, lapId: string | null) => ['sim-lap-file', userId, lapId] as const;
@@ -10,7 +10,7 @@ export const lapFileKey = (userId: string | null, lapId: string | null) => ['sim
  * Not retried by itself: the screen shows the failure and a retry button.
  */
 export function useLapFile(lapId: string | null) {
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   return useQuery({
     queryKey: lapFileKey(userId, lapId),
     queryFn: () => openLap(userId!, lapId!),
