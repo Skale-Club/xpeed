@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ExampleInvite } from '../Example';
 
 /** Stands in for the whole dashboard while the first read runs: the same blocks, in the same places, so nothing jumps when the numbers arrive. */
 export function DashboardSkeleton() {
@@ -46,6 +47,7 @@ export function EmptyDashboard() {
       <p className="text-sm text-muted-foreground">
         {t('modes.overview.dash.emptyBody', 'Once Xpeed Companion sends your first laps, this page shows how much you drive, where you got faster, your best laps by track and car, how consistent you are and what to work on.')}
       </p>
+      <ExampleInvite />
     </div>
   );
 }

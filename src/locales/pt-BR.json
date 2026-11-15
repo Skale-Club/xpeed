@@ -1971,6 +1971,21 @@
     "faqRemoveQ": "Como removo?",
     "faqRemoveA": "Configurações do Windows > Aplicativos > Aplicativos instalados > Xpeed Companion > Desinstalar. Depois desconecte o computador na sua conta. Seus arquivos de volta em Documentos não são apagados.",
     "privacy": "Privacidade: o Xpeed Companion lê apenas os dados que o seu jogo de corrida publica e envia as voltas só para a sua própria conta Xpeed.",
+    "setupTitle": "Se um jogo abre mas nada chega",
+    "setupIntro": "Cada jogo precisa de uma opção ligada para compartilhar os dados. O Xpeed Companion diz qual é assim que vê o jogo aberto sem enviar nada; esta é a mesma lista.",
+    "setup": {
+      "ams2": "ligue Options > System > Use Shared Memory > Yes (se o jogo pedir um formato, escolha Project CARS 2) e depois Save",
+      "pcars": "ligue Shared Memory nas opções do jogo, no formato Project CARS 2",
+      "auto": "não há nada para ligar, comece uma sessão e vá para a pista",
+      "iracing": "não há nada para ligar, entre no carro e comece uma sessão",
+      "lmu": "ligue Settings > Gameplay > Enable external plugins (abra o jogo de novo se nada mudar)",
+      "f1": "ligue Settings > Telemetry Settings > UDP Telemetry, com Broadcast Mode desligado, IP 127.0.0.1, Port 20777 e UDP Format {{year}}",
+      "forzaMotorsport": "ligue Settings > Gameplay & HUD > UDP Race Telemetry > Data Out, com IP 127.0.0.1, Port 5301 e Packet Format Dash",
+      "forzaMotorsport7": "ligue Settings > HUD and Gameplay > Data Out, com IP 127.0.0.1, Port 5301 e Format Dash",
+      "horizon": "ligue Settings > HUD and Gameplay > Data Out, com IP 127.0.0.1 e Port 5301",
+      "wreckfest2": "abra o config.json de telemetria do jogo, coloque \"enabled\" em 1 (IP 127.0.0.1, porta 23123) e abra o jogo de novo",
+      "rfactor": "coloque o plugin rFactorSharedMemoryMap na pasta Plugins do jogo e abra o jogo de novo"
+    },
     "footerAccount": "Conta Xpeed"
   },
   "landing": {
@@ -2673,6 +2688,9 @@
       "connectedGame": "Conectado a um jogo",
       "waitingGame": "Esperando um jogo",
       "readingPaused": "Leitura pausada",
+      "needsSetup": "{{game}} está aberto, mas não envia dados: {{how}}.",
+      "needsSetupNoHow": "{{game}} está aberto, mas não envia dados",
+      "needsSetupGame": "Um jogo está aberto, mas não envia dados",
       "updateAvailable": "Atualização disponível: {{version}}. Ela se instala sozinha.",
       "versionUnavailable": "Não foi possível ler a versão mais recente. O download continua funcionando.",
       "getStarted": "Primeiros passos",
@@ -2791,5 +2809,16 @@
       "timeHint": "Tempo pilotado nestas sessões.",
       "tracksCars": "Pistas · carros"
     }
+  },
+  "demo": {
+    "banner": "Você está vendo um exemplo. Suas próprias voltas aparecem aqui quando o Xpeed Companion as enviar.",
+    "chip": "Exemplo",
+    "leave": "Sair do exemplo",
+    "notPartBody": "Esta página trata de pilotos reais e dos seus computadores, então ficou fora do exemplo. Ela abre assim que você sair do exemplo.",
+    "notPartTitle": "Fora do exemplo",
+    "see": "Ver um exemplo",
+    "seeHint": "Não sabe o que esperar? Dê uma olhada com voltas de mentira. Nada é salvo.",
+    "unavailable": "Indisponível no exemplo",
+    "unavailableBody": "Nada é salvo nem enviado enquanto você olha o exemplo."
   }
 }

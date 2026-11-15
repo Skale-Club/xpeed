@@ -11,6 +11,9 @@ import pg from 'pg';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { ensureIdentityProject, listMigrations, migrate, MIGRATIONS_DIR } from '../db/migrate.mjs';
 import { edgeFunctions } from './esbuild-edge.mjs';
+import { createServer as freePortServer } from 'node:net';
+// A port the system gives right now: a fixed one can fall in a range Windows reserves (EACCES).
+const freePort = () => new Promise((ok, fail) => { const probe = freePortServer(); probe.once('error', fail); probe.listen(0, '127.0.0.1', () => { const { port: given } = probe.address(); probe.close(() => ok(given)); }); });
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tools = pathToFileURL(resolve(root, 'node_modules/.xpeed-audit-tools/node_modules/@electric-sql/')).href + '/';
@@ -20,7 +23,7 @@ const { PGLiteSocketServer } = await import(tools + 'pglite-socket/dist/index.js
 mkdirSync(resolve(root, 'node_modules/.cache'), { recursive: true });
 const temp = mkdtempSync(resolve(root, 'node_modules/.cache/xpeed-sim-v1-'));
 const filesRoot = mkdtempSync(resolve(temp, 'files-'));
-const port = 55471, upgradePort = 55472;
+const port = await freePort(), upgradePort = await freePort();
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${port}/postgres`;
 Object.assign(process.env, {
   DATA_BACKEND: 'own', DATABASE_URL: databaseUrl, DATABASE_POOL_SIZE: '1', STORAGE_DIR: filesRoot,
@@ -1093,6 +1096,53 @@ try {
     assert.deepEqual([listed.companion_version, listed.last_state, listed.last_game], ['0.7.0', 'connected', 'ams2']);
     assert.ok(listed.last_seen_at && listed.last_state_at);
     assert.ok(!('token_hash' in listed));
+  });
+
+  await hbCheck('heartbeat: needs_setup (a game is open but sends no data) is recorded with its game, shown by the overview and the list, and a game coming back to waiting replaces it', async () => {
+    const rig = await deviceFor(C, 'HB SETUP');
+    const find = async () => { forgetAllOverviews(); return (await api('/overview')).body.companion.devices.find((d) => d.id === rig.deviceId); };
+    const setup = { version: '0.8.0', state: 'needs_setup', game: 'ams2', pendingLaps: 0 };
+    const first = await beat(rig.token, setup);
+    assert.deepEqual([first.status, first.body], [200, { ok: true }]);
+    let row = await deviceRow(rig.deviceId);
+    assert.deepEqual([row.companion_version, row.last_state, row.last_game], ['0.8.0', 'needs_setup', 'ams2']);
+    assert.ok(ageMs(row.last_state_at) < 10_000, 'needing setup since now');
+    const shown = await find();
+    assert.deepEqual([shown.version, shown.state, shown.game], ['0.8.0', 'needs_setup', 'ams2']);
+    const listed = (await call(devices, '/api/sim/devices', { bearer: C })).body.devices.find((d) => d.id === rig.deviceId);
+    assert.deepEqual([listed.last_state, listed.last_game], ['needs_setup', 'ams2']);
+    // The same thing again does not move "since"; another game, or the game starting to share, does.
+    await direct.query("UPDATE public.sim_devices SET last_state_at = now() - interval '1 hour' WHERE id = $1", [rig.deviceId]);
+    assert.equal((await beat(rig.token, setup)).status, 200);
+    assert.ok(ageMs((await deviceRow(rig.deviceId)).last_state_at) > 3_500_000, 'the state did not change');
+    assert.equal((await beat(rig.token, { ...setup, game: 'f1' })).status, 200);
+    assert.ok(ageMs((await deviceRow(rig.deviceId)).last_state_at) < 10_000, 'another game moves it');
+    assert.equal((await beat(rig.token, { ...setup, state: 'connected', game: 'f1' })).status, 200);
+    row = await deviceRow(rig.deviceId);
+    assert.deepEqual([row.last_state, row.last_game], ['connected', 'f1']);
+    assert.equal((await find()).state, 'connected', 'a change shows at once');
+    // A word that is nearly it is still refused, and writes nothing.
+    const before = JSON.stringify(await deviceRow(rig.deviceId));
+    for (const state of ['needs-setup', 'needsSetup', 'NEEDS_SETUP', 'needs_setup ', 'setup']) {
+      const r = await beat(rig.token, { ...setup, state });
+      assert.deepEqual([r.status, r.body], [400, { error: 'invalid_state', retryable: false }], state);
+    }
+    assert.equal(JSON.stringify(await deviceRow(rig.deviceId)), before);
+  });
+
+  await hbCheck('heartbeat: the needs_setup migration is idempotent and the table itself allows exactly the four states', async () => {
+    const rig = await deviceFor(C, 'HB SETUP 2');
+    const file = listMigrations(MIGRATIONS_DIR).find((name) => name.startsWith('20261115100000'));
+    assert.ok(file && file > '20261113200000', 'the migration comes after the heartbeat one');
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
+    await direct.query(sql);
+    await direct.query(sql);
+    const rules = (await direct.query("SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'public.sim_devices'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%last_state%'")).rows;
+    assert.equal(rules.length, 1, 'one check on the state, not one per run');
+    assert.match(rules[0].def, /idle.*waiting.*connected.*needs_setup/);
+    for (const state of ['idle', 'waiting', 'connected', 'needs_setup']) await direct.query('UPDATE public.sim_devices SET last_state = $1 WHERE id = $2', [state, rig.deviceId]);
+    assert.equal((rules[0].def.match(/'[a-z_]+'::text/g) ?? []).length, 4, 'exactly the four words: any other is refused by the table');
+    await direct.query('UPDATE public.sim_devices SET last_state = NULL WHERE id = $1', [rig.deviceId]);
   });
 
   await hbCheck('heartbeat: strict about the four fields (one error shape, nothing written), and ignores the rest', async () => {

@@ -13,7 +13,7 @@ export interface SimDevice {
   // What the computer said in its last heartbeat (Xpeed Companion 0.7 and a server that has the endpoint). Absent or null from an older
   // server, and null until the first heartbeat: the page then shows no version and no state.
   companion_version?: string | null;
-  last_state?: 'idle' | 'waiting' | 'connected' | null;
+  last_state?: 'idle' | 'waiting' | 'connected' | 'needs_setup' | null;
   /** The game's id (`ams2`...) while connected. */
   last_game?: string | null;
   /** When the state or the game last changed. */

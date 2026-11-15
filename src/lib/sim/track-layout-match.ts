@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/contexts/AuthContext';
+import { useUserId } from '@/lib/sim/v1-client';
 import { listAccountTracks, type AccountTrack } from '@/lib/sim/account-tracks';
 import { layoutGame } from '@/lib/sim/track-file';
 
@@ -22,7 +22,7 @@ export function hasSyncedLayout(layouts: readonly AccountTrack[], track: { game:
 
 /** The layouts the account holds (a cheap list, no file); null while unknown or when the server cannot say (the badge is then not shown). */
 export function useAccountLayouts(enabled = true): AccountTrack[] | null {
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   const query = useQuery({
     queryKey: ['sim-account-layouts', userId],
     queryFn: async () => (await listAccountTracks()) ?? [],

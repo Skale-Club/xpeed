@@ -61,6 +61,7 @@ mod update;
 #[cfg(test)]
 mod upload_tests;
 mod util;
+mod watch;
 #[cfg(windows)]
 mod win;
 

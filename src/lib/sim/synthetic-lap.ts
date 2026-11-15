@@ -5,7 +5,7 @@ import type { LapFile } from '@/lib/sim/lap-file';
  * Made-up laps whose corners are known in advance, to test the analysis against: every position, speed and pedal
  * point is written down in the corner list, the channels are produced from it at any sample rate, and `truth` gives
  * back the exact clock and speed of the lap so a test can compare what the analysis found with what was put in.
- * Not used by the app. The speed along the lap is a function of distance: it climbs on the straights, holds the
+ * Used by the tests and by the made-up account of the example mode (src/lib/sim/demo). The speed along the lap is a function of distance: it climbs on the straights, holds the
  * entry speed until the brake point, falls to the apex speed, climbs to the exit speed, and goes on climbing.
  */
 
