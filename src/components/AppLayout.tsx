@@ -15,6 +15,7 @@ import { usePageRefresh } from '@/contexts/PageRefreshContext';
 import { HeaderControls } from '@/components/header/HeaderControls';
 import { ModeSwitch } from '@/components/ModeSwitch';
 import { CompanionStatus } from '@/components/sim/CompanionStatus';
+import { ExampleBanner } from '@/components/sim/Example';
 import { useModes } from '@/contexts/ModesContext';
 import { MODE_HOME } from '@/lib/modes';
 
@@ -41,6 +42,8 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
           {mode === 'virtual' && <CompanionStatus />}
         </header>
         <AppUpdateBanner />
+        {/* Virtual: while the example is on (made-up laps), every page says so. */}
+        {mode === 'virtual' && <ExampleBanner />}
 
         <main className="w-full flex-1 p-4 sm:p-6">
           {/* Phones: the Real | Virtual switch (the sidebar has it on larger screens). Nothing shows with one mode. */}

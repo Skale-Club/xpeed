@@ -1,11 +1,10 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useAuth } from '@/contexts/AuthContext';
 import type { SessionInsights } from '@/lib/sim/insights';
 import { sessionFindings, type SessionFinding } from '@/lib/sim/insight-text';
 import { studyClient } from '@/lib/sim/lap-study-client';
 import { openLap } from '@/lib/sim/library';
 import { isPitLap, isTimed } from '@/lib/sim/session-stats';
-import { STALE, isSignedOut, v1Get, v1Keys, type V1InsightFinding, type V1Lap, type V1Session, type V1SessionInsights } from '@/lib/sim/v1-client';
+import { STALE, isSignedOut, useUserId, v1Get, v1Keys, type V1InsightFinding, type V1Lap, type V1Session, type V1SessionInsights } from '@/lib/sim/v1-client';
 
 /** A session needs this many valid laps (pit laps left out) before it says anything about consistency. */
 export const MIN_LAPS = 3;
@@ -72,7 +71,7 @@ const findingOf = (finding: V1InsightFinding): SessionFinding =>
  * outage) or has nothing to say, the files of the fastest laps are read and the corners analysed here, as before.
  */
 export function useWorkOn(latest: readonly V1Session[], enabled: boolean) {
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   const client = useQueryClient();
   const candidates = latest.filter((session) => session.lapCount >= MIN_LAPS).slice(0, MAX_SESSIONS);
   const signature = candidates.map((session) => `${session.id}:${session.lapCount}:${session.bestLapMs ?? ''}`).join('|');

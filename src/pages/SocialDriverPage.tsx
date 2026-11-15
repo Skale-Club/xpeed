@@ -1,6 +1,7 @@
 import { UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
+import { ExampleGate } from '@/components/sim/Example';
 import { DriverPage } from '@/components/social/DriverPage';
 
 /** Virtual > a driver: the public profile, the friend relation, Report. */
@@ -13,7 +14,7 @@ export default function SocialDriverPage() {
           <UserRound className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-bold">{t('social.driver.title', 'Driver')}</h2>
         </div>
-        <DriverPage />
+        <ExampleGate><DriverPage /></ExampleGate>
       </div>
     </AppLayout>
   );

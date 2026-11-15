@@ -2773,5 +2773,16 @@
       "timeHint": "Time driven in these sessions.",
       "tracksCars": "Tracks · cars"
     }
+  },
+  "demo": {
+    "banner": "You are looking at an example. Your own laps appear here once Xpeed Companion sends them.",
+    "chip": "Example",
+    "leave": "Leave the example",
+    "notPartBody": "This page is about real drivers and your own computers, so it is left out of the example. It opens as soon as you leave the example.",
+    "notPartTitle": "Not part of the example",
+    "see": "See an example",
+    "seeHint": "Not sure what to expect? Look around with made-up laps. Nothing is saved.",
+    "unavailable": "Not available in the example",
+    "unavailableBody": "Nothing is saved or sent while you look at the example."
   }
 }

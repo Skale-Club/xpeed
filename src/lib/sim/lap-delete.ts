@@ -1,10 +1,9 @@
 // Deleting laps from the account: the server forgets them (and recomputes the session, the personal best and the totals), the
 // cached copy is dropped and every list derived from them is read again.
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@/contexts/AuthContext';
 import { forgetLaps } from '@/lib/sim/library';
 import { lapFileKey } from '@/lib/sim/use-lap-file';
-import { V1Error, invalidateAfterDelete, lapPath, v1Delete } from '@/lib/sim/v1-client';
+import { V1Error, invalidateAfterDelete, lapPath, useUserId, v1Delete } from '@/lib/sim/v1-client';
 
 /** How many deletions run at once: a session can have a few hundred laps, and the server answers each in turn. */
 const AT_ONCE = 4;
@@ -39,7 +38,7 @@ export async function deleteLaps(userId: string, ids: readonly string[]): Promis
 /** Deletes laps and refreshes everything that was computed from them. Resolves with what was deleted and what failed. */
 export function useDeleteLaps() {
   const client = useQueryClient();
-  const userId = useAuth().user?.id ?? null;
+  const userId = useUserId();
   return useMutation({
     mutationFn: async (ids: readonly string[]): Promise<DeleteResult> =>
       userId ? deleteLaps(userId, ids) : { deleted: [], failed: ids.map((id) => ({ id, error: new V1Error(401, 'unauthorized', false) })) },
