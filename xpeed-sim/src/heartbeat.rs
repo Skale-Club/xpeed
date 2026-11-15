@@ -140,6 +140,20 @@ pub struct Schedule {
     retrying: bool,
     not_before: u64,
     delay: Duration,
+    /// When a server last refused `needs_setup` (an older server that does not know it): `waiting` goes instead until `SETUP_RETRY` has passed.
+    setup_refused_at: Option<u64>,
+}
+
+/// How long a server that refused `needs_setup` is sent `waiting` before `needs_setup` is tried again (so an updated server is picked up
+/// without restarting the program).
+pub const SETUP_RETRY: Duration = Duration::from_secs(3600);
+
+/// The same view as `waiting` (same game).
+fn as_waiting(view: &View) -> View {
+    View {
+        state: State::Waiting,
+        game: view.game,
+    }
 }
 
 impl Schedule {
@@ -153,6 +167,19 @@ impl Schedule {
             retrying: false,
             not_before: 0,
             delay: backoff.base,
+            setup_refused_at: None,
+        }
+    }
+
+    /// What goes on the wire for `view` at `now`: `needs_setup` becomes `waiting` while the server is known to refuse it.
+    fn wire_view(&self, now: u64, view: &View) -> View {
+        let refused = self
+            .setup_refused_at
+            .is_some_and(|at| now.saturating_sub(at) < SETUP_RETRY.as_millis() as u64);
+        if view.state == State::NeedsSetup && refused {
+            as_waiting(view)
+        } else {
+            *view
         }
     }
 
@@ -276,7 +303,15 @@ pub fn tick(
     if !schedule.due(now, &view) {
         return Ok(());
     }
-    match send(&view) {
+    let wire = schedule.wire_view(now, &view);
+    let mut result = send(&wire);
+    // A server that does not know `needs_setup` answers 400: say `waiting` at once, and keep saying it for an hour.
+    if wire.state == State::NeedsSetup && matches!(result, Err(SendError::Rejected(_))) {
+        schedule.setup_refused_at = Some(now);
+        say("heartbeat: this server does not know \"needs_setup\" yet; sending \"waiting\" instead.".into());
+        result = send(&as_waiting(&view));
+    }
+    match result {
         Ok(()) => {
             schedule.sent(now, view);
             if let Some(line) = notes.success() {
@@ -478,6 +513,106 @@ mod tests {
         assert_eq!(say(&[], true), idle);
         // A game the reader paused (reading is off) is not connected.
         assert_eq!(say(&[("ac", Game::Paused)], false), View::WAITING);
+    }
+
+    /// A server that takes every state except the ones in `refuses`; what it was sent is kept.
+    fn server<'a>(
+        refuses: &'a [State],
+        seen: &'a Mutex<Vec<(State, Option<&'static str>)>>,
+    ) -> impl FnMut(&View) -> Result<(), SendError> + 'a {
+        move |view: &View| {
+            seen.lock().unwrap().push((view.state, view.game));
+            if refuses.contains(&view.state) {
+                Err(SendError::Rejected("the server refused the heartbeat (400)".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn needs(game: &'static str) -> View {
+        View {
+            state: State::NeedsSetup,
+            game: Some(game),
+        }
+    }
+
+    #[test]
+    fn a_server_that_refuses_needs_setup_is_sent_waiting_at_once_with_the_same_game() {
+        let (mut schedule, mut notes) = (standard(), Notes::default());
+        let seen = Mutex::new(Vec::new());
+        let lines = Mutex::new(Vec::new());
+        let say = |line: String| lines.lock().unwrap().push(line);
+        let mut send = server(&[State::NeedsSetup], &seen);
+        assert_eq!(tick(&mut schedule, &mut notes, 0, needs("ams2"), &mut send, &say), Ok(()));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(State::NeedsSetup, Some("ams2")), (State::Waiting, Some("ams2"))],
+            "tried, refused, resent as waiting in the same tick"
+        );
+        // It counts as sent (no retry wait): the next one is the minute after.
+        assert_eq!(schedule.wait(1_000, &needs("ams2")), Duration::from_millis(MIN - 1_000));
+        assert!(lines.lock().unwrap().iter().any(|l| l.contains("needs_setup")));
+    }
+
+    #[test]
+    fn it_sticks_to_waiting_afterwards_and_tries_needs_setup_again_only_after_an_hour() {
+        let (mut schedule, mut notes) = (standard(), Notes::default());
+        let seen = Mutex::new(Vec::new());
+        let say = |_: String| {};
+        let mut send = server(&[State::NeedsSetup], &seen);
+        tick(&mut schedule, &mut notes, 0, needs("f1"), &mut send, &say).unwrap();
+        seen.lock().unwrap().clear();
+        // Every later minute (and a change of game) goes as waiting straight away, one request each.
+        for minute in 1..=59 {
+            tick(&mut schedule, &mut notes, minute * MIN, needs("f1"), &mut send, &say).unwrap();
+        }
+        tick(&mut schedule, &mut notes, 59 * MIN + 10_000, needs("ac"), &mut send, &say).unwrap();
+        let sent = seen.lock().unwrap().clone();
+        assert_eq!(sent.len(), 60);
+        assert!(sent.iter().all(|(state, _)| *state == State::Waiting), "{sent:?}");
+        assert_eq!(sent.last(), Some(&(State::Waiting, Some("ac"))));
+        seen.lock().unwrap().clear();
+        // An hour after the refusal the server is asked again; still refusing, it is sent waiting and the hour starts over.
+        let hour = 60 * MIN;
+        tick(&mut schedule, &mut notes, hour + MIN, needs("ac"), &mut send, &say).unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(State::NeedsSetup, Some("ac")), (State::Waiting, Some("ac"))]
+        );
+        seen.lock().unwrap().clear();
+        tick(&mut schedule, &mut notes, hour + 2 * MIN, needs("ac"), &mut send, &say).unwrap();
+        assert_eq!(*seen.lock().unwrap(), [(State::Waiting, Some("ac"))]);
+        // An updated server takes it, and from then on it goes as needs_setup.
+        seen.lock().unwrap().clear();
+        let mut updated = server(&[], &seen);
+        tick(&mut schedule, &mut notes, 2 * hour + 2 * MIN, needs("ac"), &mut updated, &say).unwrap();
+        tick(&mut schedule, &mut notes, 2 * hour + 3 * MIN, needs("ac"), &mut updated, &say).unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(State::NeedsSetup, Some("ac")), (State::NeedsSetup, Some("ac"))]
+        );
+    }
+
+    #[test]
+    fn a_refusal_of_any_other_state_is_what_it_was() {
+        for state in [State::Waiting, State::Connected, State::Idle] {
+            let (mut schedule, mut notes) = (standard(), Notes::default());
+            let seen = Mutex::new(Vec::new());
+            let lines = Mutex::new(Vec::new());
+            let say = |line: String| lines.lock().unwrap().push(line);
+            let refuses = [state];
+            let mut send = server(&refuses, &seen);
+            let view = View {
+                state,
+                game: (state == State::Connected).then_some("ams2"),
+            };
+            assert_eq!(tick(&mut schedule, &mut notes, 0, view, &mut send, &say), Ok(()));
+            assert_eq!(seen.lock().unwrap().len(), 1, "{state:?}: no second request");
+            // The slow retry after a refusal (5 minutes), not a fallback.
+            assert_eq!(schedule.wait(1_000, &view), Duration::from_millis(299_000), "{state:?}");
+            assert!(lines.lock().unwrap().iter().all(|l| !l.contains("needs_setup")));
+        }
     }
 
     #[test]
