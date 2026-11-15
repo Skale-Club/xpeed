@@ -1,7 +1,7 @@
-// A stand-in for the table and function half of the Supabase client: the same chained calls
-// (from().select().eq()..., rpc()), sent as data to this app's own server at /api/db.
-// Switched on with VITE_DATA_API=true (see integrations/supabase/client.ts). The server
-// checks the Google token and runs the query under the database's row level security.
+// The app's data client: chained calls (from().select().eq()..., rpc()), files, edge functions and
+// change notices, all sent to this app's own server (/api/db, /api/storage, /api/fn); see
+// integrations/supabase/client.ts. The server checks the Google token and runs the query under
+// the database's row level security.
 import { Capacitor } from '@capacitor/core';
 import { getAccessToken } from '@/lib/auth/google';
 
@@ -188,22 +188,3 @@ export const apiData = {
   channel: (_name: string) => new PollingChannel(),
   removeChannel: (channel: PollingChannel) => { channel.stop(); return Promise.resolve('ok'); },
 };
-
-/**
- * Answers tables, database functions, files, edge functions and change notices through this app's
- * server instead of Supabase. Anything else on the client (auth helpers) is left as it was.
- */
-export function withApiData<T extends object>(client: T): T {
-  return new Proxy(client, {
-    get(target, property) {
-      if (property === 'from') return apiData.from;
-      if (property === 'rpc') return apiData.rpc;
-      if (property === 'storage') return apiData.storage;
-      if (property === 'functions') return apiData.functions;
-      if (property === 'channel') return apiData.channel;
-      if (property === 'removeChannel') return apiData.removeChannel;
-      const value = Reflect.get(target, property, target);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-}

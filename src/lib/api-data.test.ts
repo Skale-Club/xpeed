@@ -4,7 +4,7 @@ const h = vi.hoisted(() => ({ native: false, token: 'id-token' as string | null 
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => h.native } }));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => h.token }));
 
-import { apiData, apiOrigin, withApiData } from './api-data';
+import { apiData, apiOrigin } from './api-data';
 
 const fetchMock = vi.fn();
 const reply = (body: unknown, status = 200) => fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
@@ -226,18 +226,3 @@ describe('change notices', () => {
   });
 });
 
-describe('withApiData', () => {
-  it('replaces tables, functions, files, edge functions and change notices but leaves the rest alone', async () => {
-    const storage = { from: vi.fn((_name: string) => 'bucket') };
-    const original = { from: vi.fn(), rpc: vi.fn(), storage, channel: vi.fn(), functions: { invoke: vi.fn(() => 'ok') }, auth: { id() { return this === original.auth; } } };
-    const client = withApiData(original);
-    reply({ data: [], error: null });
-    await client.from('car_profiles').select('id');
-    expect(original.from).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(client.storage).toBe(apiData.storage);
-    expect(client.functions).toBe(apiData.functions);
-    expect(client.channel).toBe(apiData.channel);
-    expect(client.auth.id()).toBe(true);
-  });
-});

@@ -1,20 +1,14 @@
-// Database, storage and function client. Google Cloud owns the login session.
-import { createClient } from '@supabase/supabase-js';
-import { getAccessToken } from '@/lib/auth/google';
-import { withApiData } from '@/lib/api-data';
+// The data client of the app. Everything goes through Xpeed's own server: tables and database
+// functions (/api/db), files (/api/storage), edge functions (/api/fn) and change notices (polled
+// from /api/db). Google Cloud owns the login session. Nothing here talks to Supabase any more,
+// so the Supabase library is not part of the build; it only lends its types.
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { apiData } from '@/lib/api-data';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-// Import the supabase client like this:
+// Import the client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-const client = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  // Identity Platform issues and refreshes the token; Supabase only consumes it.
-  accessToken: getAccessToken,
-});
-
-// Leaving Supabase: with VITE_DATA_API=true, tables and database functions go through this
-// app's own server (/api/db). Files, edge functions and realtime still use Supabase for now.
-export const supabase = import.meta.env.VITE_DATA_API === 'true' ? withApiData(client) : client;
+// The calls the app makes (from, rpc, storage, functions, channel) have the same shape the typed
+// client had, so every screen keeps its types.
+export const supabase = apiData as unknown as SupabaseClient<Database>;

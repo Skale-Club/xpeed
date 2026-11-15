@@ -4,7 +4,6 @@ import { fakeV1Fetch, fakeV1State } from '@/test/v1-fake-server';
 
 // The whole app with its real providers (auth, settings, modes, cars, the Bluetooth connection, notifications).
 // Only the outside world is faked: Google sign-in and the network.
-vi.stubEnv('VITE_DATA_API', 'true');
 vi.stubEnv('VITE_ENABLE_VIRTUAL', 'true');
 
 vi.mock('@/lib/auth/google', async (importOriginal) => ({

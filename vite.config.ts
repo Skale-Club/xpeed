@@ -135,13 +135,6 @@ export default defineConfig(({ mode, command }) => {
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            // Logged-in Supabase REST responses are never cached: a cache keyed
-            // by URL showed stale data on slow networks (NetworkFirst fell back
-            // to it after 4 s) and kept one user's data around after logout.
-            urlPattern: ({ url }) => url.hostname.endsWith(".supabase.co") && url.pathname.startsWith("/rest/"),
-            handler: "NetworkOnly",
-          },
-          {
             // NHTSA VIN decoder.
             urlPattern: ({ url }) => url.hostname.endsWith("nhtsa.dot.gov"),
             handler: "CacheFirst",
@@ -176,7 +169,6 @@ export default defineConfig(({ mode, command }) => {
           if (/node_modules[\\/](recharts|recharts-scale|d3-[^\\/]+|victory-vendor|internmap)[\\/]/.test(id)) return "recharts";
           if (/node_modules[\\/](clsx|tailwind-merge|class-variance-authority)[\\/]/.test(id)) return "vendor-utils";
           if (/node_modules[\\/]@radix-ui[\\/]/.test(id)) return "radix-ui";
-          if (/node_modules[\\/]@supabase[\\/]/.test(id)) return "supabase";
           if (/node_modules[\\/](i18next|react-i18next|i18next-browser-languagedetector)[\\/]/.test(id)) return "i18n";
           return undefined;
         },

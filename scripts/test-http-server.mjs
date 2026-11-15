@@ -31,5 +31,7 @@ test('container serves the SPA, API guards, OAuth metadata and bounded requests'
   assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',headers:{authorization:'Bearer xpd_x'},body:'x'.repeat(5000)})).status,413);
   assert.equal((await fetch(base+'/api/sim/heartbeat')).status,405);
   assert.match(health.headers.get('content-security-policy'),/accounts.google.com/);
+  // The app talks only to its own server: Supabase is not allowed to be called from the browser any more.
+  assert.doesNotMatch(health.headers.get('content-security-policy'),/supabase/);
  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
