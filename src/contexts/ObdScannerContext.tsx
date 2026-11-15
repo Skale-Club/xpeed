@@ -9,7 +9,6 @@ import { useModes } from '@/contexts/ModesContext';
 import { useObdScanner, type TripResult } from '@/hooks/use-obd-scanner';
 import { useScreenWakeLock } from '@/hooks/use-wake-lock';
 import { useToast } from '@/hooks/use-toast';
-import { ingestSessionCsv } from '@/hooks/use-csv-upload';
 import { findSessionStartedAt } from '@/lib/db';
 import { recordedSessionId, RecordingDeletedError, RecordingConflictError } from '@/lib/recorded-session';
 import { formatAppDate } from '@/lib/app-date';
@@ -306,7 +305,7 @@ export function ObdScannerProvider({ children }: { children: ReactNode }) {
         // Once committed and cleaned up, release the upload queue as well.
         // Optional analysis keeps running without delaying the next trip's save.
         result = await Promise.race([
-          ingestSessionCsv(file, carId, tripName(startedAt), undefined, onStored, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() }),
+          import('@/hooks/use-csv-upload').then(({ ingestSessionCsv }) => ingestSessionCsv(file, carId, tripName(startedAt), undefined, onStored, copy.faultCodes, { sessionId, userId: owner, startedAt: startedAt.toISOString() })),
           storedReceipt,
         ]);
       } catch (error) {

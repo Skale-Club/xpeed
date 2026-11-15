@@ -4,7 +4,10 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppLayout from '@/components/AppLayout';
 import { TripCard } from '@/components/trip/TripCard';
-import DashboardCharts from '@/components/DashboardCharts';
+import { lazyChart } from '@/components/LazyChart';
+
+// The chart library loads when there are trips to chart, not with the page.
+const DashboardCharts = lazyChart(() => import('@/components/DashboardCharts'), 'h-72');
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';

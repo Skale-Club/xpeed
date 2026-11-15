@@ -5,14 +5,17 @@ import { loadRange, saveRange } from '@/lib/sim/dashboard';
 import { useOverview, useStats, useUserId, type StatsRange, type V1Overview, type V1Stats } from '@/lib/sim/v1-client';
 import { QueryGate } from './SimStates';
 import { WorkOnCard } from './WorkOnCard';
-import { ActivityPanel } from './overview/Activity';
-import { ConsistencyPanel } from './overview/Consistency';
+import { lazyChart } from '@/components/LazyChart';
 import { CompanionBanner, RangeSelect } from './overview/Header';
 import { KpiTiles } from './overview/KpiTiles';
 import { BestsPanel, SessionsPanel } from './overview/Latest';
-import { ProgressPanel } from './overview/Progress';
 import { DashboardSkeleton, EmptyDashboard } from './overview/States';
 import { WherePanel } from './overview/Where';
+
+// The three panels that draw charts load the chart library on their own, after the page has drawn.
+const ActivityPanel = lazyChart(() => import('./overview/Activity').then((m) => ({ default: m.ActivityPanel })), 'h-48');
+const ProgressPanel = lazyChart(() => import('./overview/Progress').then((m) => ({ default: m.ProgressPanel })), 'h-80');
+const ConsistencyPanel = lazyChart(() => import('./overview/Consistency').then((m) => ({ default: m.ConsistencyPanel })), 'h-56');
 
 /** What is on screen once the numbers are in: the tiles, the activity, the progress with what to work on beside it, where you drive, the latest. */
 function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: V1Overview; refreshing: boolean }) {

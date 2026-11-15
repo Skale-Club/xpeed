@@ -8,7 +8,9 @@ import { completeTripInspection } from '@/lib/trip-inspection';
 import AppLayout from '@/components/AppLayout';
 import SessionKPIs from '@/components/SessionKPIs';
 import FlagsPanel from '@/components/FlagsPanel';
-import SessionCharts from '@/components/SessionCharts';
+import { lazyChart } from '@/components/LazyChart';
+
+const SessionCharts = lazyChart(() => import('@/components/SessionCharts'), 'h-72');
 import AIAnalysisCard from '@/components/AIAnalysisCard';
 import DTCPanel from '@/components/DTCPanel';
 import PhotoUpload from '@/components/PhotoUpload';

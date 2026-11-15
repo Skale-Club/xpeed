@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe('a lap and its reference', () => {
-  it('compares them and finds where the time is lost', () => {
+  it('compares them and finds where the time is lost', async () => {
     renderAnalysis();
     expect(screen.getByTestId('final-gap')).toHaveTextContent(/^\+0\.3\d\d s$/);
     const numbers = within(screen.getByTestId('lap-numbers'));
@@ -48,7 +48,7 @@ describe('a lap and its reference', () => {
     expect(numbers.getByText('0:41.076')).toBeInTheDocument();
     expect(numbers.getAllByText(/km\/h/).length).toBeGreaterThan(0);
 
-    const charts = screen.getAllByTestId('chart');
+    const charts = await screen.findAllByTestId('chart');
     expect(charts).toHaveLength(4); // the gap, speed, throttle and brake
     expect(charts.every((chart) => chart.getAttribute('data-points') === '1200')).toBe(true);
     expect(screen.getByTestId('track-map')).toBeInTheDocument();
@@ -65,11 +65,11 @@ describe('a lap and its reference', () => {
     expect(within(screen.getByTestId('time-changes')).getByText('Where the lap gains time')).toBeInTheDocument();
   });
 
-  it('shows the lap alone when there is no reference', () => {
+  it('shows the lap alone when there is no reference', async () => {
     renderAnalysis(mine, null);
     expect(screen.queryByTestId('final-gap')).not.toBeInTheDocument();
     expect(screen.getByTestId('lap-numbers')).toBeInTheDocument();
-    expect(screen.getAllByTestId('chart')).toHaveLength(3);
+    expect(await screen.findAllByTestId('chart')).toHaveLength(3);
   });
 
   it('shows speed and distance in miles when that is the unit chosen', () => {

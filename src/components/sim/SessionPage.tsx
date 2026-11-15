@@ -12,7 +12,9 @@ import { reconcileSession } from '@/lib/sim/library';
 import { sessionKpis } from '@/lib/sim/session-detail';
 import { bestLapOf, consistency, inDrivingOrder } from '@/lib/sim/session-stats';
 import { V1Error, isSignedOut, usePbs, useSession, type V1Lap } from '@/lib/sim/v1-client';
-import { SessionLapChart } from './SessionLapChart';
+import { lazyChart } from '@/components/LazyChart';
+
+const SessionLapChart = lazyChart(() => import('./SessionLapChart').then((m) => ({ default: m.SessionLapChart })), 'h-64');
 import { SessionHero } from './session/Hero';
 import { SessionKpiTiles } from './session/Kpis';
 import { LapsTable } from './session/LapsTable';

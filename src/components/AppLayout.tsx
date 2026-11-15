@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { restoreUpdatePosition } from '@/lib/update-position';
 import { useTranslation } from 'react-i18next';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
@@ -14,7 +14,8 @@ import { PullToRefresh } from '@/components/PullToRefresh';
 import { usePageRefresh } from '@/contexts/PageRefreshContext';
 import { HeaderControls } from '@/components/header/HeaderControls';
 import { ModeSwitch } from '@/components/ModeSwitch';
-import { CompanionStatus } from '@/components/sim/CompanionStatus';
+// Only the Virtual side shows it, so the Real side never downloads it.
+const CompanionStatus = lazy(() => import('@/components/sim/CompanionStatus').then((m) => ({ default: m.CompanionStatus })));
 import { useModes } from '@/contexts/ModesContext';
 import { MODE_HOME } from '@/lib/modes';
 
@@ -38,7 +39,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
           {/* The car's connection and notifications belong to the Real mode. */}
           {mode === 'real' && <HeaderControls />}
           {/* Virtual: whether the Windows app is online, as one quiet dot and a name. */}
-          {mode === 'virtual' && <CompanionStatus />}
+          {mode === 'virtual' && <Suspense fallback={null}><CompanionStatus /></Suspense>}
         </header>
         <AppUpdateBanner />
 

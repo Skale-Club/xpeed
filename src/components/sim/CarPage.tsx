@@ -12,7 +12,9 @@ import { BackLink, LatestSessions } from './DetailBits';
 import { CarConsistency, CarTracks } from './garage/CarTracks';
 import { DetailSkeleton, StatTile, TileGrid, TileItem } from './garage/bits';
 import { useDashFormat } from './overview/use-format';
-import { ProgressChart } from './ProgressChart';
+import { lazyChart } from '@/components/LazyChart';
+
+const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-80');
 import { GameBadge } from './session-bits';
 import { SimCarIdentity } from './SimCarIdentity';
 import { QueryGate } from './SimStates';

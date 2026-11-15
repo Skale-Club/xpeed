@@ -4,7 +4,9 @@ import { MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { LapCharts } from '@/components/sim/LapCharts';
+import { lazyChart } from '@/components/LazyChart';
+
+const LapCharts = lazyChart(() => import('@/components/sim/LapCharts').then((m) => ({ default: m.LapCharts })), 'h-96');
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useLapStudy } from '@/lib/sim/lap-study-client';

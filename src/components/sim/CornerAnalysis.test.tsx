@@ -51,8 +51,9 @@ describe('where the time went', () => {
     renderAnalysis();
     // The numbers and the charts do not wait for the analysis.
     expect(screen.getByTestId('lap-numbers')).toBeInTheDocument();
-    expect(screen.getAllByTestId('chart').length).toBeGreaterThan(0);
     expect(screen.getByTestId('where-loading')).toBeInTheDocument();
+    // (The charts load on their own, a moment after the numbers.)
+    expect((await screen.findAllByTestId('chart')).length).toBeGreaterThan(0);
     const list = await ready();
     expect(screen.queryByTestId('where-loading')).not.toBeInTheDocument();
     const items = within(list).getAllByTestId('where-item');

@@ -21,7 +21,9 @@ import { SectorsPanel } from './garage/Sectors';
 import { TrackBoard } from './garage/TrackBoard';
 import { Panel, Quiet } from './overview/parts';
 import { useDashFormat } from './overview/use-format';
-import { ProgressChart } from './ProgressChart';
+import { lazyChart } from '@/components/LazyChart';
+
+const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-80');
 import { GameBadge } from './session-bits';
 import { QueryGate } from './SimStates';
 import { TrackMap } from './TrackMap';

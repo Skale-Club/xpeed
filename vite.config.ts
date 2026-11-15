@@ -125,7 +125,8 @@ export default defineConfig(({ mode, command }) => {
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         // Model assets load only for the selected vehicle, not on every PWA install.
-        globIgnores: ['**/vehicle-visuals/**'],
+        // The 3D viewer (about 1 MB) is left out too: it downloads the first time a car model is opened, then stays cached.
+        globIgnores: ['**/vehicle-visuals/**', '**/model-viewer-*.js'],
         // The new worker must NOT take over by itself: swapping assets under a
         // running trip recording (or half-loaded lazy chunks) is how stale-bundle
         // errors happen. src/lib/pwa-update.ts sends SKIP_WAITING when it is safe.
@@ -134,6 +135,11 @@ export default defineConfig(({ mode, command }) => {
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /\/assets\/model-viewer-[^/]+\.js$/.test(url.pathname),
+            handler: "CacheFirst",
+            options: { cacheName: "model-viewer", expiration: { maxEntries: 2 } },
+          },
           {
             // NHTSA VIN decoder.
             urlPattern: ({ url }) => url.hostname.endsWith("nhtsa.dot.gov"),
@@ -170,6 +176,9 @@ export default defineConfig(({ mode, command }) => {
           if (/node_modules[\\/](clsx|tailwind-merge|class-variance-authority)[\\/]/.test(id)) return "vendor-utils";
           if (/node_modules[\\/]@radix-ui[\\/]/.test(id)) return "radix-ui";
           if (/node_modules[\\/](i18next|react-i18next|i18next-browser-languagedetector)[\\/]/.test(id)) return "i18n";
+          // Sign-in and the router change rarely: their own files stay cached across app updates.
+          if (/node_modules[\\/](firebase|@firebase)[\\/]/.test(id)) return "firebase";
+          if (/node_modules[\\/](react-router|react-router-dom|@remix-run)[\\/]/.test(id)) return "router";
           return undefined;
         },
       },
