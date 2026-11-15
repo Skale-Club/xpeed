@@ -1954,6 +1954,21 @@
     "faqRemoveQ": "How do I remove it?",
     "faqRemoveA": "Windows Settings > Apps > Installed apps > Xpeed Companion > Uninstall. Then disconnect the computer in your account. Your lap files in Documents are not deleted.",
     "privacy": "Privacy: Xpeed Companion reads only the data your racing game publishes and sends laps only to your own Xpeed account.",
+    "setupTitle": "If a game is open but nothing arrives",
+    "setupIntro": "Each game needs one setting turned on before it shares its data. Xpeed Companion tells you which one as soon as it sees the game open and sending nothing; this is the same list.",
+    "setup": {
+      "ams2": "turn on Options > System > Use Shared Memory > Yes (if it lists formats, pick Project CARS 2), then Save",
+      "pcars": "turn on Shared Memory in the game's options, in the Project CARS 2 format",
+      "auto": "nothing to turn on, start a session and get on track",
+      "iracing": "nothing to turn on, get in the car and start a session",
+      "lmu": "turn on Settings > Gameplay > Enable external plugins (restart the game if nothing changes)",
+      "f1": "turn on Settings > Telemetry Settings > UDP Telemetry, with Broadcast Mode off, IP 127.0.0.1, Port 20777 and UDP Format {{year}}",
+      "forzaMotorsport": "turn on Settings > Gameplay & HUD > UDP Race Telemetry > Data Out, with IP 127.0.0.1, Port 5301 and Packet Format Dash",
+      "forzaMotorsport7": "turn on Settings > HUD and Gameplay > Data Out, with IP 127.0.0.1, Port 5301 and Format Dash",
+      "horizon": "turn on Settings > HUD and Gameplay > Data Out, with IP 127.0.0.1 and Port 5301",
+      "wreckfest2": "open the game's telemetry config.json, set \"enabled\" to 1 (IP 127.0.0.1, port 23123) and restart the game",
+      "rfactor": "put the rFactorSharedMemoryMap plugin in the game's Plugins folder and start the game again"
+    },
     "footerAccount": "Xpeed account"
   },
   "landing": {
@@ -2655,6 +2670,9 @@
       "connectedGame": "Connected to a game",
       "waitingGame": "Waiting for a game",
       "readingPaused": "Reading paused",
+      "needsSetup": "{{game}} is open but not sending data: {{how}}.",
+      "needsSetupNoHow": "{{game}} is open but not sending data",
+      "needsSetupGame": "A game is open but not sending data",
       "updateAvailable": "Update available: {{version}}. It installs by itself.",
       "versionUnavailable": "The latest version could not be read. The download still works.",
       "getStarted": "Get started",

@@ -4,6 +4,8 @@ import { ChevronDown, Download, Flag, Plug, ShieldCheck, TriangleAlert } from 'l
 import { BrandLockup } from '@/components/BrandLockup';
 import { Button } from '@/components/ui/button';
 import { COMPANION_DOWNLOAD_PATH, formatFileSize, useCompanionRelease } from '@/lib/companion-release';
+import { setupGames, setupSentence, setupText } from '@/lib/sim/game-setup';
+import { gameName } from '@/lib/sim/games';
 
 // The public page of Xpeed Companion, the Windows app that reads your racing game: what it is, the download
 // (the stable /api/companion/download link), the version and checksum from /api/companion/latest, three steps,
@@ -146,6 +148,21 @@ export default function CompanionPage() {
                 </details>
               ))}
             </div>
+            <details className="group max-w-3xl rounded-lg border border-border p-4" data-testid="companion-setup">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium [&::-webkit-details-marker]:hidden">
+                {t('companionSite.setupTitle', 'If a game is open but nothing arrives')}
+                <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+              </summary>
+              <p className="mt-2 text-sm text-muted-foreground">{t('companionSite.setupIntro', 'Each game needs one setting turned on before it shares its data.')}</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                {setupGames().map((game) => (
+                  <li key={game} data-testid="companion-setup-game" data-game={game}>
+                    <span className="font-medium">{gameName(game)}: </span>
+                    <span className="text-muted-foreground">{setupSentence(setupText(t, game) ?? '')}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
             <p className="max-w-3xl text-sm text-muted-foreground">{t('companionSite.privacy', 'Privacy: Xpeed Companion reads only the data your racing game publishes and sends laps only to your own Xpeed account.')}</p>
           </div>
         </section>

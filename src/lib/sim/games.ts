@@ -24,6 +24,7 @@ export const BUILT_IN_GAME_NAMES: Readonly<Record<string, string>> = {
   fm7: 'Forza Motorsport 7',
   fh4: 'Forza Horizon 4',
   fh5: 'Forza Horizon 5',
+  fh6: 'Forza Horizon 6',
   wreckfest2: 'Wreckfest 2',
   iracing: 'iRacing',
 };

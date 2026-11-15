@@ -16,6 +16,7 @@ use crate::status::{Game, Notice, Shared};
 use crate::supervisor::{self, supervise, Ended, Policy};
 use crate::tracks::auto::{self, Folders, Seen};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
+use crate::watch::{detect, quiet_state, Watch};
 
 const LMU_ID: &str = "lmu";
 const LMU_NAME: &str = "Le Mans Ultimate";
@@ -25,15 +26,6 @@ pub const LMU_PROGRAMS: &[&str] = &["le mans ultimate.exe"];
 /// How long a game whose program runs without sharing data is "loading" (splash screens, menus coming up) before it is
 /// called "open, no data": some games create their shared memory only once loaded.
 const LOADING_GRACE: Duration = Duration::from_secs(45);
-
-/// What a game that runs without sharing data is, given when it was first seen so.
-fn quiet_state(since: Instant, grace: Duration) -> Game {
-    if since.elapsed() < grace {
-        Game::Loading
-    } else {
-        Game::Silent
-    }
-}
 
 pub fn explain(error: &OpenError) -> String {
     match error {
@@ -216,7 +208,7 @@ pub fn run_games(
     // Families let go while their game still ran: opened again without a word.
     let mut reopen_quietly: Vec<&'static str> = Vec::new();
     // When each game's program was first seen running without data (cleared when it stops running or shares).
-    let mut first_seen: std::collections::HashMap<&'static str, Instant> = std::collections::HashMap::new();
+    let mut watch = Watch::default();
     let mut last_look = Instant::now().checked_sub(Duration::from_secs(10)).unwrap_or_else(Instant::now);
     while !shared.quitting() {
         if shared.paused() {
@@ -253,26 +245,22 @@ pub fn run_games(
                         }
                     }
                     for id in reader.ids {
-                        first_seen.remove(id);
+                        watch.forget(id);
                     }
                     continue;
                 }
                 let opened = (reader.open)();
-                if opened.is_none() {
-                    // Its program runs but there is no data: the panel names the game and tells how to switch it on.
-                    if let Some((id, name)) = crate::games::running_game(&running, reader) {
-                        let since = *first_seen.entry(id).or_insert_with(Instant::now);
-                        let state = quiet_state(since, grace);
+                // Not running, sharing, or running without data (`watch.rs`). In the last case the panel names the game
+                // and tells how to switch it on, and the tray says it once.
+                match detect(reader, &running, opened.is_some(), &mut watch, Instant::now(), grace) {
+                    Some((id, name, state)) if state != Game::Connected => {
                         let told = shared.games().iter().any(|(i, _, g)| *i == id && *g == Game::Silent);
                         if state == Game::Silent && !told {
                             say(format!("{name} is open but shares no data yet."));
                         }
                         shared.set_game(id, name, state);
                     }
-                } else {
-                    for id in reader.ids {
-                        first_seen.remove(id);
-                    }
+                    _ => {}
                 }
                 if let Some(source) = opened {
                     let quiet = reopen_quietly.contains(&reader.family);
@@ -290,7 +278,7 @@ pub fn run_games(
                         // Only a socket is open: the game may send nothing. It is loading for a while, then "no data",
                         // until the first packet.
                         let (id, name) = crate::games::running_game(&running, reader).unwrap_or((source.game_id(), source.game_name()));
-                        let state = quiet_state(opened_at, grace);
+                        let state = quiet_state(opened_at, Instant::now(), grace);
                         let told = shared.games().iter().any(|(i, _, g)| *i == id && *g == Game::Silent);
                         if state == Game::Silent && !told && !quiet {
                             say(format!("{name} is open but shares no data yet."));
@@ -385,7 +373,7 @@ pub fn run_games(
                 // Open, nothing heard yet: loading for the grace period, then "no data" for as long as its program runs
                 // (and after a pause).
                 if let Some((id, name)) = l.silent_as {
-                    let state = quiet_state(l.opened_at, grace);
+                    let state = quiet_state(l.opened_at, Instant::now(), grace);
                     if state == Game::Silent && !l.told_silent && !l.quiet {
                         say(format!("{name} is open but shares no data yet."));
                     }
@@ -463,7 +451,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
     let mut waiting = false;
     let mut told_silent = false;
     // When the game's program was first seen running without its memory.
-    let mut loading_since: Option<Instant> = None;
+    let mut watch = Watch::default();
     while !shared.quitting() {
         if shared.paused() {
             shared.set_game(LMU_ID, LMU_NAME, Game::Paused);
@@ -480,12 +468,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                 // No memory. With the game's program running, it is open and not sharing: the panel says how to switch
                 // that on. Without it, the game is simply not there.
                 let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
-                let state = if running {
-                    quiet_state(*loading_since.get_or_insert_with(Instant::now), LOADING_GRACE)
-                } else {
-                    loading_since = None;
-                    Game::Waiting
-                };
+                let state = watch.without_data(LMU_ID, running, Instant::now(), LOADING_GRACE);
                 let silent = state == Game::Silent;
                 if silent && !told_silent {
                     say("Le Mans Ultimate is open but shares no data yet.".into());

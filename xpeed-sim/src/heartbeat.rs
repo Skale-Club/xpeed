@@ -2,8 +2,8 @@
 //! minute and at once when a game connects or goes away. The site shows a computer as Online by this (until now it only knew
 //! of a computer when it sent a lap, so one that was running but had not finished a lap for hours looked switched off).
 //!
-//! What goes: the version of this program, what it is doing (`idle`, `waiting` for a game, `connected` to one), the id of
-//! that game, and how many laps are waiting to be sent. Nothing else: no name, no path, no account, no laps. The contract is
+//! What goes: the version of this program, what it is doing (`idle`, `waiting` for a game, `connected` to one, or, from 0.8.0,
+//! `needs_setup`: a game is open but shares no data), the id of that game, and how many laps are waiting to be sent. Nothing else: no name, no path, no account, no laps. The contract is
 //! `docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md`, section 2c.
 //!
 //! The heartbeat has a thread of its own, looked after by the supervisor like the uploader, and never touches the reading of the
@@ -43,6 +43,8 @@ pub enum State {
     Waiting,
     /// A game is sharing data (connected, or recording a lap).
     Connected,
+    /// A game's program runs but it shares no data (a setting in the game is off): the site shows which one to turn on.
+    NeedsSetup,
 }
 
 impl State {
@@ -51,6 +53,7 @@ impl State {
             State::Idle => "idle",
             State::Waiting => "waiting",
             State::Connected => "connected",
+            State::NeedsSetup => "needs_setup",
         }
     }
 }
@@ -59,7 +62,7 @@ impl State {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct View {
     pub state: State,
-    /// The game's id (`ac`, `ams2`, `lmu`...) while connected, else none.
+    /// The game's id (`ac`, `ams2`, `lmu`...) while connected or needing setup, else none.
     pub game: Option<&'static str>,
 }
 
@@ -72,8 +75,8 @@ impl View {
 }
 
 /// The view of what every game reader says (`(id, state)`, by id) and whether the person paused reading. Paused beats everything; a
-/// game that is recording or connected makes it `Connected` (recording first); a game that is open but shares nothing, or that this
-/// build cannot read, is still waiting.
+/// game that is recording or connected makes it `Connected` (recording first); failing that, a game that is open but shares nothing
+/// after its wait (`Silent`) makes it `NeedsSetup` (the first by id); a game still loading, or that this build cannot read, is waiting.
 pub fn view_of<'a>(games: impl IntoIterator<Item = (&'a &'static str, &'a Game)>, paused: bool) -> View {
     if paused {
         return View {
@@ -82,7 +85,11 @@ pub fn view_of<'a>(games: impl IntoIterator<Item = (&'a &'static str, &'a Game)>
         };
     }
     let mut best: Option<(u8, &'static str)> = None;
+    let mut silent: Option<&'static str> = None;
     for (id, game) in games {
+        if *game == Game::Silent && silent.is_none() {
+            silent = Some(*id);
+        }
         let rank = match game {
             Game::Recording(_) => 2,
             Game::Connected => 1,
@@ -98,7 +105,13 @@ pub fn view_of<'a>(games: impl IntoIterator<Item = (&'a &'static str, &'a Game)>
             state: State::Connected,
             game: Some(id),
         },
-        None => View::WAITING,
+        None => match silent {
+            Some(id) => View {
+                state: State::NeedsSetup,
+                game: Some(id),
+            },
+            None => View::WAITING,
+        },
     }
 }
 
@@ -419,10 +432,31 @@ mod tests {
         };
         assert_eq!(say(&[], false), View::WAITING);
         assert_eq!(say(&[("ac", Game::Waiting), ("ams2", Game::Waiting)], false), View::WAITING);
-        // Open but sharing nothing, or a game this build cannot read: still waiting for a game.
+        // Still loading, or a game this build cannot read: still waiting for a game.
+        assert_eq!(say(&[("f1", Game::Loading), ("lmu", Game::Unsupported)], false), View::WAITING);
+        // Open but sharing nothing after the wait: it needs a setting turned on (the first game by id when there are several).
+        let needs = |game: &'static str| View {
+            state: State::NeedsSetup,
+            game: Some(game),
+        };
         assert_eq!(
             say(&[("ac", Game::Silent), ("f1", Game::Loading), ("lmu", Game::Unsupported)], false),
-            View::WAITING
+            needs("ac")
+        );
+        assert_eq!(say(&[("f1", Game::Silent), ("ams2", Game::Silent)], false), needs("ams2"));
+        // A game that shares beats one that does not; pausing beats both.
+        assert_eq!(say(&[("ams2", Game::Silent), ("lmu", Game::Connected)], false), connected("lmu"));
+        assert_eq!(
+            say(&[("ams2", Game::Silent)], true),
+            View {
+                state: State::Idle,
+                game: None
+            }
+        );
+        let said: Value = serde_json::from_str(&payload("0.8.0", &needs("ams2"), 0)).unwrap();
+        assert_eq!(
+            said,
+            json!({ "version": "0.8.0", "state": "needs_setup", "game": "ams2", "pendingLaps": 0 })
         );
         assert_eq!(say(&[("ac", Game::Connected)], false), connected("ac"));
         assert_eq!(
