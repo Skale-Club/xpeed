@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { build } from 'esbuild';
+import { createServer as freePortServer } from 'node:net';
 import pg from 'pg';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { ensureIdentityProject, listMigrations, migrate, MIGRATIONS_DIR } from '../db/migrate.mjs';
@@ -21,7 +22,8 @@ const { PGLiteSocketServer } = await import(tools + 'pglite-socket/dist/index.js
 mkdirSync(resolve(root, 'node_modules/.cache'), { recursive: true });
 const temp = mkdtempSync(resolve(root, 'node_modules/.cache/xpeed-errors-'));
 const filesRoot = mkdtempSync(resolve(temp, 'files-'));
-const port = 54491;
+const freePort = () => new Promise((ok, fail) => { const probe = freePortServer(); probe.once('error', fail); probe.listen(0, '127.0.0.1', () => { const { port: given } = probe.address(); probe.close(() => ok(given)); }); });
+const port = await freePort();
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${port}/postgres`;
 Object.assign(process.env, {
   DATA_BACKEND: 'own', DATABASE_URL: databaseUrl, DATABASE_POOL_SIZE: '1', STORAGE_DIR: filesRoot,
