@@ -192,10 +192,12 @@ describe('the texts of the example', () => {
     for (const locale of [en, ptBR, esES]) expect(JSON.stringify((locale as unknown as { demo: unknown }).demo)).not.toMatch(/\bSim\b/);
   });
 
-  it('keep the line endings of the locale files (CRLF)', () => {
+  it('keep one kind of line ending in each locale file (CRLF on a Windows checkout, LF on CI: never mixed)', () => {
     for (const name of ['en', 'pt-BR', 'es-ES']) {
       const text = readFileSync(join(process.cwd(), 'src', 'locales', `${name}.json`), 'utf8');
-      expect(text.split('\n').every((line, i, all) => i === all.length - 1 || line.endsWith('\r')), name).toBe(true);
+      const lines = text.split('\n').slice(0, -1);
+      const crlf = lines.filter((line) => line.endsWith('\r')).length;
+      expect(crlf === 0 || crlf === lines.length, name).toBe(true);
     }
   });
 });
