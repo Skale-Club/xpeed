@@ -29,7 +29,7 @@ function renderAnalysis(lap: LapFile | null = mine, reference: LapFile | null = 
     </SettingsProvider>,
   );
   if (overview) {
-    const map = screen.queryByRole('button', { name: 'Map', exact: true });
+    const map = screen.queryByRole('button', { name: 'Map' });
     if (map) fireEvent.click(map);
   }
   return result;
@@ -47,9 +47,9 @@ afterEach(() => {
 describe('a lap and its reference', () => {
   it('opens in perspective and lets the driver switch to the overall map', () => {
     renderAnalysis(mine, best, {}, false);
-    expect(screen.getByRole('button', { name: 'Perspective', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Perspective' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByTestId('track-map')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Map', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Map' }));
     expect(screen.getByTestId('track-map')).toBeInTheDocument();
   });
   it('compares them and finds where the time is lost', async () => {

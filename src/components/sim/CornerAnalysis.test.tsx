@@ -34,7 +34,7 @@ function renderAnalysis(lap: LapFile = mine, ref: LapFile | null = reference, ex
       <LapAnalysis lap={loaded('a', lap)} reference={ref ? loaded('b', ref) : null} {...extra} />
     </SettingsProvider>,
   );
-  const map = screen.queryByRole('button', { name: 'Map', exact: true });
+  const map = screen.queryByRole('button', { name: 'Map' });
   if (map) fireEvent.click(map);
   return result;
 }
@@ -234,7 +234,7 @@ describe('on a phone', () => {
     expect(screen.queryByTestId('corner-table')).not.toBeInTheDocument();
 
     press('map');
-    fireEvent.click(screen.getByRole('button', { name: 'Map', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Map' }));
     expect(screen.getByTestId('track-map')).toBeInTheDocument();
     expect(screen.queryByTestId('lap-charts')).not.toBeInTheDocument();
   });

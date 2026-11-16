@@ -23,7 +23,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 describe('perspective lap playback', () => {
   it('starts paused with an upward opaque arrow outside the screen-space ground mask', () => {
     const { container } = mount();
-    expect(screen.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Play' })).toBeEnabled();
     expect(callbacks.size).toBe(0);
     expect(screen.getByTestId('perspective-car').parentElement).toBe(screen.getByTestId('perspective-svg'));
     const mask = container.querySelector('mask')!;
@@ -35,12 +35,12 @@ describe('perspective lap playback', () => {
 
   it('plays real elapsed time from frame zero, pauses/resumes, and stops finitely', () => {
     mount(); const svg = screen.getByTestId('perspective-svg');
-    fireEvent.click(screen.getByRole('button', { name: 'Play', exact: true })); tick(0); tick(500);
+    fireEvent.click(screen.getByRole('button', { name: 'Play' })); tick(0); tick(500);
     expect(Number(svg.getAttribute('data-time'))).toBeCloseTo(.5);
-    fireEvent.click(screen.getByRole('button', { name: 'Pause', exact: true })); expect(callbacks.size).toBe(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Play', exact: true })); tick(1000); tick(1500);
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' })); expect(callbacks.size).toBe(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Play' })); tick(1000); tick(1500);
     expect(Number(svg.getAttribute('data-time'))).toBeCloseTo(1);
-    tick(4000); expect(screen.getByRole('button', { name: 'Replay', exact: true })).toBeInTheDocument(); expect(callbacks.size).toBe(0);
+    tick(4000); expect(screen.getByRole('button', { name: 'Replay' })).toBeInTheDocument(); expect(callbacks.size).toBe(0);
   });
 
   it('scrubs, adjusts camera controls, and focuses the nearest recorded point', () => {
@@ -57,7 +57,7 @@ describe('perspective lap playback', () => {
     const first = mount(), second = mount();
     const maskIds = screen.getAllByTestId('perspective-ground').map(p => p.getAttribute('mask'));
     expect(new Set(maskIds).size).toBe(2);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Play', exact: true })[0]); expect(callbacks.size).toBe(1);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Play' })[0]); expect(callbacks.size).toBe(1);
     first.unmount(); expect(callbacks.size).toBe(0); second.unmount();
   });
 
@@ -65,6 +65,6 @@ describe('perspective lap playback', () => {
     mount({ lap: { ...lap, data: { t: lap.data.t, dist: lap.data.dist } } });
     expect(screen.getByText('Position is unavailable at this moment.')).toBeInTheDocument();
     expect(screen.queryByTestId('perspective-car')).not.toBeInTheDocument(); expect(screen.queryByTestId('perspective-road')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Play', exact: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Play' })).toBeDisabled();
   });
 });
