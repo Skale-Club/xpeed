@@ -49,7 +49,7 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         view.layout.get(),
     );
     view.layout.set(Some(layout));
-    let plan = layout.plan(&slots);
+    let plan = layout.plan_for(&slots, m.laps.rows.len());
     let (s, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
     g.place(s, ox, oy);
     header(g, &d, plan.w);
@@ -65,6 +65,46 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
             Pane::Alerts => alerts_card(g, &d, area),
         }
     }
+    if let Some(target) = banner_target(&plan) {
+        banner(g, &d, target);
+    }
+}
+
+/// The box over the centre card (else the times card) while the game is paused or silent: a card-coloured box with the title
+/// in the caution colour and a line under it. It covers only a card whose values are dimmed anyway, so every slow reading
+/// (fuel, tyres, laps, track, alerts) stays readable, and it moves nothing.
+pub(super) fn banner(g: &mut Painter, d: &Dash, target: Area) {
+    let Some(b) = &d.m.banner else {
+        return;
+    };
+    let semi = FW_SEMIBOLD as i32;
+    let room = (target.2 - 2.0 * (S3 + S4)).max(60.0);
+    let size = g.fitted(&b.title, room, T_NUMERAL, T_LEAD, semi, Face::Num);
+    let title_w = g.tabular_width(&b.title, size, semi).min(room);
+    let note_w = room.min(g.width_of(&b.note, T_BODY, FW_NORMAL as i32, Face::Ui));
+    let lines = g
+        .wrap_lines(&b.note, note_w.max(title_w), T_BODY, FW_NORMAL as i32, Face::Ui)
+        .len()
+        .max(1);
+    let title_h = size * 1.2;
+    let note_h = lines as f32 * 20.0;
+    let content_w = title_w.max(note_w);
+    let (x, y, w, h) = banner_box(target, content_w, title_h + S2 + note_h);
+    g.round(g.r(x, y, w, h), R_LG, CARD, Some(BORDER));
+    let r = g.r(x, y + S4, w, title_h);
+    g.text(&b.title, r, size, semi, Face::Num, WARN, DT_CENTER);
+    g.wrapped(
+        &b.note,
+        x + S4,
+        y + S4 + title_h + S2,
+        w - 2.0 * S4,
+        T_BODY,
+        FW_NORMAL as i32,
+        Face::Ui,
+        MUTED_TEXT,
+        DT_CENTER,
+        20.0,
+    );
 }
 
 /// A card: a rounded `CARD` with its border.
@@ -131,10 +171,16 @@ pub(super) fn header(g: &mut Painter, d: &Dash, width: f32) {
     }
     g.round(g.r(0.0, REV_H + 1.0, width, STROKE_BAR), STROKE_BAR / 2.0, CYAN, None);
 
-    let right_w = 230.0;
+    // A narrow canvas (the single column) gives the lap less room, and leaves the session chip out so the track keeps its name.
+    let narrow = width < 500.0;
+    let right_w = if narrow { 150.0 } else { 230.0 };
     let left_w = (width - right_w - S4).max(120.0);
     // The track and, after it, the session chip.
-    let chip = m.session.as_ref().map(|s| (s.clone(), g.caps_width(s, T_CAPTION) + S4));
+    let chip = m
+        .session
+        .as_ref()
+        .filter(|_| !narrow)
+        .map(|s| (s.clone(), g.caps_width(s, T_CAPTION) + S4));
     let chip_w = chip.as_ref().map_or(0.0, |(_, w)| w + S3);
     let track = g.clipped(&m.track, left_w - chip_w, T_VALUE, semi, Face::Num);
     let r = g.r(0.0, TITLE_Y, left_w, 30.0);
@@ -158,7 +204,7 @@ pub(super) fn header(g: &mut Painter, d: &Dash, width: f32) {
             invalid_flag(g, view, at, TITLE_Y + 5.0, width >= 900.0);
         }
     });
-    if let Some((_, line)) = &m.status {
+    if let Some((_, line)) = m.status.as_ref().filter(|_| m.banner.is_none()) {
         let r = g.r(width - right_w - S4, TITLE_Y + 36.0, right_w + S4, 18.0);
         g.caps(line, r, T_CAPTION, WARN, DT_RIGHT);
     }
@@ -166,55 +212,55 @@ pub(super) fn header(g: &mut Painter, d: &Dash, width: f32) {
 }
 
 /// The times card: the lap time as the hero, the delta to the best lap under it (a number and a thin bar centred on
-/// zero), then the last and the best lap side by side. On the first lap, where the delta is, a short sentence says when
-/// it comes; nothing moves when it does.
+/// zero), then the last and the best lap side by side. The three are one stack under the caption (`times_plan`): grouped
+/// with an even gap and centred, a tall card gets the big step of the type scale. On the first lap, where the delta is, a
+/// short sentence says when it comes; nothing moves when it does.
 pub(super) fn times_card(g: &mut Painter, d: &Dash, card: Area) {
     let semi = FW_SEMIBOLD as i32;
     let (m, slots) = (d.m, d.slots);
-    let (x, y, w, h) = inner(card);
-    // What is at the bottom first: the last and the best lap, and the line over them.
-    let records = [(slots.last, &m.last_lap), (slots.best, &m.best_lap)];
-    let on = records.iter().filter(|(on, _)| *on).count();
-    let block_h = CAPTION_H + S1 + 32.0;
-    let block_y = y + h - block_h;
-    if on > 0 {
-        g.fill(g.r(x, block_y - S3, w, STROKE_HAIR), BORDER);
+    let plan = times_plan(card, slots);
+    let (x, y, w, _) = inner(card);
+    let (hero, value_size, delta_size) = if plan.big {
+        (T_DISPLAY, T_NUMERAL, T_NUMERAL)
+    } else {
+        (T_HERO, T_VALUE_L, T_VALUE_L)
+    };
+    if let Some(rule) = plan.rule {
+        g.fill(g.r(rule.0, rule.1, rule.2, rule.3), BORDER);
         let col = (w - S3) / 2.0;
+        let records = [(slots.last, &m.last_lap), (slots.best, &m.best_lap)];
         for (i, (_, elem)) in records.iter().filter(|(on, _)| *on).enumerate() {
             let cx = x + i as f32 * (col + S3);
             shown(g, elem.show, |g| {
-                caption(g, &elem.label, (cx, block_y, col, CAPTION_H), DT_LEFT);
-                let size = g.fitted(&elem.text, col, T_VALUE_L, T_BODY, semi, Face::Num);
-                let r = g.r(cx - 1.0, block_y + CAPTION_H + S1, col + 2.0, 32.0);
+                let (_, ry, _, rh) = plan.records;
+                caption(g, &elem.label, (cx, ry, col, CAPTION_H), DT_LEFT);
+                let size = g.fitted(&elem.text, col, value_size, T_BODY, semi, Face::Num);
+                let r = g.r(cx - 1.0, ry + CAPTION_H + S1, col + 2.0, rh - CAPTION_H - S1);
                 g.text(&elem.text, r, size, semi, Face::Num, elem.role.colour(), DT_LEFT);
             });
         }
     }
-    let below = if on > 0 { block_y - S3 } else { y + h };
-    // The lap time.
     let lap = &m.lap_time;
     if slots.lap_time {
         shown(g, lap.show, |g| {
             caption(g, &lap.label, (x, y, w, CAPTION_H), DT_LEFT);
-            let size = g.fitted(&lap.text, w, T_HERO, T_VALUE_L, semi, Face::Num);
-            let r = g.r(x - 2.0, y + CAPTION_H + S1, w + 4.0, 60.0);
+            let (_, ly, _, lh) = plan.lap;
+            let size = g.fitted(&lap.text, w, hero, T_VALUE_L, semi, Face::Num);
+            let r = g.r(x - 2.0, ly, w + 4.0, lh);
             g.text(&lap.text, r, size, semi, Face::Num, lap.role.colour(), DT_LEFT);
         });
     }
-    // The delta, in the room between the lap time and the line, in the middle of it.
     if slots.delta {
-        let top = y + CAPTION_H + S1 + 60.0 + S2;
-        let group_h = 34.0 + S2 + STEER_BAR_H;
-        let gy = top + ((below - S2 - top - group_h) / 2.0).max(0.0);
         let delta = &m.delta;
+        let (_, gy, _, gh) = plan.delta;
         if delta.visible() {
             shown(g, delta.show, |g| {
-                let r = g.r(x - 1.0, gy, w, 34.0);
-                g.text(&delta.text, r, T_VALUE_L, semi, Face::Num, delta.role.colour(), DT_LEFT);
-                let nw = g.tabular_width(&delta.text, T_VALUE_L, semi);
-                let r = g.r(x + nw + S2, gy + 8.0, (w - nw - S2).max(1.0), 20.0);
+                let r = g.r(x - 1.0, gy, w, gh);
+                g.text(&delta.text, r, delta_size, semi, Face::Num, delta.role.colour(), DT_LEFT);
+                let nw = g.tabular_width(&delta.text, delta_size, semi);
+                let r = g.r(x + nw + S2, gy + gh - 26.0, (w - nw - S2).max(1.0), 20.0);
                 g.text(&m.delta_vs, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
-                g.centred_bar((x, gy + 34.0 + S2, w, STEER_BAR_H), delta.frac, delta.role.colour(), FOREGROUND);
+                g.centred_bar(plan.bar, delta.frac, delta.role.colour(), FOREGROUND);
             });
         } else if let Some(note) = &m.delta_note {
             shown(g, Show::Dimmed, |g| {
@@ -249,7 +295,7 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
         let r = g.r(ux, uy, uw, uh);
         g.caps(m.speed.unit, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
     });
-    for (elem, place) in [&m.brake, &m.throttle, &m.clutch].into_iter().zip(plan.pedals) {
+    for (elem, place) in [&m.throttle, &m.brake, &m.clutch].into_iter().zip(plan.pedals) {
         let Some(((lx, ly, lw, lh), bar)) = place else {
             continue;
         };
@@ -279,15 +325,13 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
     let m = d.m;
     let (x, y, w, h) = inner(card);
     caption(g, &m.fuel_title, (x, y, w, CAPTION_H), DT_LEFT);
-    // The temperatures sit at the bottom.
     let cells = &m.engine;
-    let temps_h = if cells.is_empty() { 0.0 } else { CAPTION_H + S1 + 28.0 };
     let hero_h = 52.0;
     let bar_h = if m.fuel_share.is_some() { S2 + 14.0 } else { 0.0 };
     let line_h = if m.fuel_per_lap.visible() { S2 + 16.0 } else { 0.0 };
-    let group_h = hero_h + bar_h + line_h;
-    let free = (h - CAPTION_H - S3 - temps_h - group_h - S3).max(0.0);
-    let gy = y + CAPTION_H + S3 + free * 0.4;
+    // The fuel group and the temperatures are one stack under the caption, grouped and centred (`fuel_plan`).
+    let plan = fuel_plan(card, hero_h + bar_h + line_h, !cells.is_empty());
+    let gy = plan.group.1;
     if m.fuel.visible() {
         shown(g, m.fuel.show, |g| {
             let half = w / 2.0;
@@ -335,11 +379,12 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
         });
     }
     let col = w / cells.len().max(1) as f32;
+    let temps_y = plan.temps.map_or(y + h, |t| t.1);
     for (i, cell) in cells.iter().enumerate() {
         let cx = x + i as f32 * col;
         shown(g, cell.show, |g| {
-            caption(g, &cell.label, (cx, y + h - temps_h, col, CAPTION_H), DT_LEFT);
-            let r = g.r(cx - 1.0, y + h - 28.0, col, 28.0);
+            caption(g, &cell.label, (cx, temps_y, col, CAPTION_H), DT_LEFT);
+            let r = g.r(cx - 1.0, temps_y + CAPTION_H + S1, col, 28.0);
             g.text(&cell.value, r, T_VALUE, semi, Face::Num, cell.role.colour(), DT_LEFT);
         });
     }

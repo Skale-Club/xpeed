@@ -1254,7 +1254,8 @@ fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
     assert!(SCALE.windows(2).all(|w| w[0] < w[1]));
     assert_eq!(type_step(13.0), T_CAPTION);
     assert_eq!(type_step(23.9), T_VALUE);
-    assert_eq!(type_step(500.0), T_HERO);
+    assert_eq!(type_step(500.0), T_DISPLAY);
+    assert_eq!(type_step(60.0), T_HERO);
     assert_eq!(type_step(1.0), T_CAPTION);
     // Spacing is on a 4 px grid; the radii are the site's.
     for s in [S1, S2, S3, S4, S6, S8] {
@@ -1723,22 +1724,318 @@ fn a_paused_game_dims_the_live_readings_and_keeps_the_slow_ones() {
 }
 
 #[test]
-fn the_rows_of_cards_share_their_width_and_a_few_cards_are_centred_not_stretched() {
-    let two = [(Pane::Times, 1.0), (Pane::Centre, 1.0)];
-    let places = row_places(0.0, 1440.0, GAP, &two, true);
-    assert_eq!(places.len(), 2);
-    assert!(places[0].1 <= Pane::Times.max_w() && places[1].1 <= Pane::Centre.max_w());
-    assert!(places[0].0 > 100.0, "centred: the row starts away from the edge");
-    let used = places[1].0 + places[1].1 - places[0].0;
-    assert!((places[0].0 - (1440.0 - used) / 2.0).abs() < 0.01);
-    // Narrow canvases (a phone, 4:3) fill the row.
-    let full = row_places(0.0, 600.0, GAP, &[(Pane::Times, 1.0)], false);
-    assert_eq!(full, vec![(0.0, 600.0)]);
-    // A full row: no card past its widest, the whole width used.
-    let all = [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)];
-    let places = row_places(0.0, 1440.0, GAP, &all, true);
-    let end = places.last().map(|p| p.0 + p.1).unwrap();
-    assert!((end - 1440.0).abs() < 0.01 && places[0].0.abs() < 0.01);
+fn the_cards_of_a_row_always_share_the_whole_width_with_no_margins_at_the_sides() {
+    for (total, cards) in [
+        (1440.0, vec![(Pane::Times, 1.0), (Pane::Centre, 1.3)]),
+        (1440.0, vec![(Pane::Times, 1.0)]),
+        (1900.0, vec![(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Fuel, 1.0)]),
+        (
+            1440.0,
+            vec![(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)],
+        ),
+        (600.0, vec![(Pane::Times, 1.0)]),
+    ] {
+        let places = row_places(0.0, total, GAP, &cards);
+        assert!(places[0].0.abs() < 0.01, "starts at the left edge: {places:?}");
+        let end = places.last().map(|p| p.0 + p.1).unwrap();
+        assert!((end - total).abs() < 0.01, "ends at the right edge: {places:?}");
+        for pair in places.windows(2) {
+            assert!((pair[1].0 - pair[0].0 - pair[0].1 - GAP).abs() < 0.01, "the gap is the token");
+        }
+    }
+    // Each takes its share.
+    let two = row_places(0.0, 1000.0, 0.0, &[(Pane::Times, 1.0), (Pane::Centre, 3.0)]);
+    assert!((two[1].1 / two[0].1 - 3.0).abs() < 0.001);
+    // And in a whole plan: the cards of every row span the canvas, whatever the game can fill.
+    for caps in [
+        every_cap(),
+        evo_like_caps(),
+        crate::game::Caps::GEAR.or(crate::game::Caps::LAP_TIME),
+    ] {
+        let s = slots(caps);
+        for layout in [
+            Layout::Ultrawide,
+            Layout::Wide,
+            Layout::Square,
+            Layout::Portrait,
+            Layout::Stack,
+            Layout::Classic,
+        ] {
+            let plan = layout.plan_for(&s, 1);
+            let mut rows: Vec<(f32, Vec<Area>)> = Vec::new();
+            for (_, a) in &plan.cards {
+                match rows.iter_mut().find(|r| (r.0 - a.1).abs() < 0.01) {
+                    Some(r) => r.1.push(*a),
+                    None => rows.push((a.1, vec![*a])),
+                }
+            }
+            for (_, cards) in rows {
+                assert!(
+                    cards.iter().map(|a| a.0).fold(f32::MAX, f32::min).abs() < 0.01,
+                    "{layout:?}: left edge"
+                );
+                let right = cards.iter().map(|a| a.0 + a.2).fold(0.0, f32::max);
+                assert!((right - plan.w).abs() < 0.01, "{layout:?}: right edge {right} of {}", plan.w);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_row_is_as_tall_as_its_content_needs_and_the_height_it_does_not_need_goes_to_the_row_above() {
+    // The laps table alone in its row takes only the rows it has.
+    let rows = [(300.0, vec![Pane::Times, Pane::Centre]), (262.0, vec![Pane::Laps])];
+    let one = row_heights(&rows, 1);
+    assert!((one[1] - laps_card_h(1)).abs() < 0.01, "one row: {one:?}");
+    assert!((one[0] + one[1] - 562.0).abs() < 0.01, "the canvas keeps its height");
+    assert!(one[0] > 300.0, "the row above grows");
+    let three = row_heights(&rows, 3);
+    assert!(three[1] > one[1] && (three[1] - laps_card_h(3)).abs() < 0.01);
+    // Never past its own height, and never under one row (the line that says there are no laps).
+    let many = row_heights(&rows, 99);
+    assert!(many[1] <= 262.0 + 0.01 && (many[0] + many[1] - 562.0).abs() < 0.01);
+    assert!(laps_card_h(lap_rows_fit(262.0)) <= 262.0 + 0.01);
+    assert_eq!(row_heights(&rows, 0), one, "no laps still has the line that says so");
+    // A row with a card that needs all its height keeps it.
+    let mixed = [(300.0, vec![Pane::Times]), (262.0, vec![Pane::Laps, Pane::Tyres])];
+    assert_eq!(row_heights(&mixed, 1), vec![300.0, 262.0]);
+    // Track and alerts hold their floor.
+    let with_track = [(300.0, vec![Pane::Times]), (262.0, vec![Pane::Laps, Pane::Track])];
+    let h = row_heights(&with_track, 1);
+    assert!((h[1] - TRACK_NEED_H).abs() < 0.01);
+    // A laps row with nothing above it gives its spare height to the row below, else keeps it.
+    assert_eq!(row_heights(&[(262.0, vec![Pane::Laps])], 1), vec![262.0]);
+    let below = row_heights(&[(262.0, vec![Pane::Laps]), (300.0, vec![Pane::Times])], 1);
+    assert!((below[0] + below[1] - 562.0).abs() < 0.01 && below[1] > 300.0);
+    // In a real layout: a game with few cards, one lap.
+    let s = slots(
+        crate::game::Caps::LAP_TIME
+            .or(crate::game::Caps::SPEED)
+            .or(crate::game::Caps::GEAR)
+            .or(crate::game::Caps::THROTTLE),
+    );
+    for layout in [Layout::Wide, Layout::Square, Layout::Portrait, Layout::Stack] {
+        let few = layout.plan_for(&s, 1);
+        let full = layout.plan(&s);
+        assert!((few.h - full.h).abs() < 0.01, "{layout:?}: the canvas does not change size");
+        let laps = few.area(Pane::Laps).unwrap();
+        assert!(laps.3 < full.area(Pane::Laps).unwrap().3 - 20.0, "{layout:?}: the table is short");
+        // The card right above the table took the height the table gave up.
+        let above = few
+            .cards
+            .iter()
+            .find(|(_, a)| (a.1 + a.3 + GAP - laps.1).abs() < 0.01)
+            .map(|(c, a)| (*c, *a))
+            .expect("a card right above the table");
+        assert!(above.1 .3 > full.area(above.0).unwrap().3 + 20.0, "{layout:?}: the card above grew");
+    }
+}
+
+#[test]
+fn blocks_are_stacked_with_an_even_gap_and_centred_never_with_a_hole() {
+    // Tall room: the gap stops at its cap, the group is centred.
+    let tops = stack(0.0, 400.0, &[60.0, 48.0, 52.0], S3, S8);
+    assert_eq!(tops[1] - tops[0] - 60.0, S8);
+    assert_eq!(tops[2] - tops[1] - 48.0, S8);
+    let (first, last) = (tops[0], 400.0 - (tops[2] + 52.0));
+    assert!((first - last).abs() < 0.01, "equal margins");
+    // Tight room: the gap is never under its floor.
+    let tops = stack(0.0, 170.0, &[60.0, 48.0, 52.0], S3, S8);
+    assert!((tops[1] - tops[0] - 60.0 - S3).abs() < 0.01);
+    // One block is just centred.
+    assert_eq!(stack(10.0, 100.0, &[40.0], S3, S8), vec![40.0]);
+    // The times card, whatever its height: the lap time, the delta and the records are never further apart than the cap.
+    let s = slots(every_cap());
+    for h in [260.0, 300.0, 380.0, 466.0, 560.0] {
+        let card = (0.0, 0.0, 480.0, h);
+        let p = times_plan(card, &s);
+        let (x, y, w, ih) = inner(card);
+        assert!(inside_box(p.lap, x, y, w, ih) && inside_box(p.delta, x, y, w, ih) && inside_box(p.records, x, y, w, ih));
+        assert!(p.delta.1 - (p.lap.1 + p.lap.3) <= S8 + 0.01, "h {h}: lap time to delta");
+        assert!(p.records.1 - (p.bar.1 + p.bar.3) <= 2.0 * S8 + 0.01, "h {h}: delta to records");
+        assert!(!overlap(p.lap, p.delta) && !overlap(p.bar, p.records) && !overlap(p.delta, p.records));
+        assert_eq!(p.big, h - 2.0 * S3 >= TIMES_BIG_H, "tall cards get the big figures");
+        let rule = p.rule.expect("the line over the records");
+        assert!(rule.1 > p.bar.1 + p.bar.3 && rule.1 < p.records.1);
+    }
+    // The fuel card: the group and the temperatures, close together and centred.
+    for h in [262.0, 300.0, 460.0] {
+        let card = (0.0, 0.0, 400.0, h);
+        let p = fuel_plan(card, 98.0, true);
+        let t = p.temps.unwrap();
+        let (x, y, w, ih) = inner(card);
+        assert!(inside_box(p.group, x, y + CAPTION_H, w, ih - CAPTION_H) && inside_box(t, x, y, w, ih));
+        assert!(
+            t.1 - (p.group.1 + p.group.3) <= S8 + 0.01,
+            "h {h}: the water and oil follow the fuel"
+        );
+        assert!(!overlap(p.group, t));
+        assert_eq!(fuel_plan(card, 98.0, false).temps, None);
+    }
+}
+
+#[test]
+fn the_pedals_are_throttle_brake_clutch_from_left_to_right() {
+    let plan = centre_plan((0.0, 0.0, 576.0, 300.0), &slots(every_cap()));
+    let [Some(throttle), Some(brake), Some(clutch)] = plan.pedals else {
+        panic!("three pedals");
+    };
+    assert!(throttle.1 .0 < brake.1 .0 && brake.1 .0 < clutch.1 .0, "left to right");
+    // Pixels: the throttle bar (green) is in the left third of the pedals, the clutch (blue) in the right third.
+    let f = fixture();
+    let mut live = rich_reading();
+    live.throttle = 1.0;
+    live.brake = 0.0;
+    live.clutch = 1.0;
+    let (w, h) = (1536, 864);
+    let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+    let s = slots(live.caps);
+    let body = rect(16, 66, w - 16, h - 16);
+    let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
+    let plan_all = layout.plan_for(&s, model_with(&live, Default::default(), &f.laps).laps.rows.len());
+    let (scale, ox, oy) = canvas_fit_wh(body, plan_all.w, plan_all.h);
+    let card = plan_all.area(Pane::Centre).unwrap();
+    let cp = centre_plan(card, &s);
+    let px = |a: Area| {
+        (
+            ox + (a.0 * scale) as i32,
+            oy + (a.1 * scale) as i32,
+            ox + ((a.0 + a.2) * scale) as i32,
+            oy + ((a.1 + a.3) * scale) as i32,
+        )
+    };
+    let bar = |i: usize| px(cp.pedals[i].unwrap().1);
+    assert!(
+        has_color(&region_of(&pixels, w, bar(0)), SUCCESS) > 50,
+        "the first bar is the throttle"
+    );
+    assert_eq!(has_color(&region_of(&pixels, w, bar(1)), SUCCESS), 0, "the brake is not first");
+    assert!(has_color(&region_of(&pixels, w, bar(2)), INFO) > 50, "the third is the clutch");
+}
+
+#[test]
+fn a_paused_or_silent_game_gets_a_banner_and_the_other_states_keep_the_state_line() {
+    let mut live = rich_reading();
+    // Driving: no banner.
+    assert_eq!(model(&live, Lang::En).banner, None);
+    // Paused: the title and the sentence, in every language.
+    live.driving = false;
+    live.phase = crate::game::Phase::Paused;
+    for (lang, title, note) in [
+        (Lang::En, "PAUSED", "Tyres, fuel and laps show the last value read."),
+        (Lang::Pt, "PAUSADO", "Pneus, combustível e voltas mostram o último valor lido."),
+        (
+            Lang::Es,
+            "EN PAUSA",
+            "Neumáticos, combustible y vueltas muestran el último valor leído.",
+        ),
+    ] {
+        let b = model(&live, lang).banner.expect("a banner while paused");
+        assert_eq!((b.kind, b.title.as_str(), b.note.as_str()), (StatusKind::Paused, title, note));
+    }
+    // Menu and garage: the state line, no banner.
+    live.phase = crate::game::Phase::default();
+    let m = model(&live, Lang::En);
+    assert_eq!((m.banner, m.status.map(|s| s.0)), (None, Some(StatusKind::NotDriving)));
+    // In the pits: the state line.
+    live.in_pits = true;
+    assert_eq!(model(&live, Lang::En).banner, None);
+    live.in_pits = false;
+    // A silent game: the same banner with its own words.
+    live.driving = true;
+    let silent = dashboard(&live, &ctx_of(Lang::En, live.at_ms + 60_000));
+    let b = silent.banner.expect("a banner while the game is silent");
+    assert_eq!(b.kind, StatusKind::NoData);
+    assert_eq!(b.title, "NO DATA FROM THE GAME");
+    assert_ne!(b.note, "Tyres, fuel and laps show the last value read.");
+    // The box is centred in its card and always inside it.
+    let card = (100.0, 200.0, 420.0, 300.0);
+    for (tw, th) in [(100.0, 60.0), (900.0, 400.0)] {
+        let (x, y, w, h) = banner_box(card, tw, th);
+        assert!((x * 2.0 + w - (card.0 * 2.0 + card.2)).abs() < 0.01);
+        assert!((y * 2.0 + h - (card.1 * 2.0 + card.3)).abs() < 0.01);
+        assert!(inside_box(
+            (x, y, w, h),
+            card.0 + S3,
+            card.1 + S3,
+            card.2 - 2.0 * S3,
+            card.3 - 2.0 * S3
+        ));
+    }
+}
+
+#[test]
+fn the_banner_is_painted_over_the_dimmed_cards_without_moving_them() {
+    let mut f = fixture();
+    // The game is connected and its frames stopped: the dashboard stays, dimmed.
+    f.snapshot.game = Game::Recording(4);
+    let mut driving = rich_reading();
+    driving.caps = every_cap();
+    let mut paused = driving.clone();
+    paused.driving = false;
+    paused.phase = crate::game::Phase::Paused;
+    let mut stale = driving.clone();
+    stale.at_ms = -10_000;
+    let silent_at = view(&f, Some(&stale), Tab::Dash, 1.0, Lang::En);
+    for (w, h) in [(1536, 864), (1024, 768), (430, 900), (2560, 1080)] {
+        let live_px = render(&view(&f, Some(&driving), Tab::Dash, 1.0, Lang::En), w, h);
+        let paused_px = render(&view(&f, Some(&paused), Tab::Dash, 1.0, Lang::En), w, h);
+        let silent_px = render(&silent_at, w, h);
+        // The title is in the caution colour; driving has no such colour in the middle of the cards.
+        let s = slots(paused.caps);
+        let body = rect(16, 66, w - 16, h - 16);
+        let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
+        let rows = model_with(&paused, Default::default(), &f.laps).laps.rows.len();
+        let plan = layout.plan_for(&s, rows);
+        let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
+        let target = banner_target(&plan).expect("a card to put it over");
+        assert_eq!(Some(target), plan.area(Pane::Centre), "over the centre card");
+        // Never over a card whose readings stay readable.
+        for (pane, other) in &plan.cards {
+            if *pane != Pane::Centre {
+                assert!(!overlap(target, *other), "{w}x{h}: the banner stays off {pane:?}");
+            }
+        }
+        let b = banner_box(target, 200.0, 70.0);
+        let middle = (
+            ox + (b.0 * scale) as i32,
+            oy + ((b.1 + b.3 * 0.2) * scale) as i32,
+            ox + ((b.0 + b.2) * scale) as i32,
+            oy + ((b.1 + b.3 * 0.6) * scale) as i32,
+        );
+        assert!(
+            has_color(&region_of(&paused_px, w, middle), WARN) > 30,
+            "{w}x{h}: PAUSED in the caution colour"
+        );
+        assert!(
+            has_color(&region_of(&silent_px, w, middle), WARN) > 30,
+            "{w}x{h}: the silent banner has the same style"
+        );
+        assert_eq!(
+            has_color(&region_of(&live_px, w, middle), WARN),
+            0,
+            "{w}x{h}: no banner while driving"
+        );
+        // The box is card-coloured: its inside is the card colour next to the text.
+        let inside = (middle.0 + 2, middle.1, middle.0 + 6, middle.3);
+        assert!(
+            has_color(&region_of(&paused_px, w, inside), CARD) > 0,
+            "{w}x{h}: a card-coloured box"
+        );
+        // Nothing underneath moves: the cards are where they are with and without it (their frames match at an edge strip
+        // away from the box).
+        let edge = (ox, oy + (CARDS_TOP * scale) as i32 - 4, ox + 40, oy + (plan.h * scale) as i32);
+        let live_edge = region_of(&live_px, w, edge);
+        let paused_edge = region_of(&paused_px, w, edge);
+        assert_eq!(
+            has_color(&live_edge, BORDER) > 0,
+            has_color(&paused_edge, BORDER) > 0,
+            "{w}x{h}: the card frames are in the same place"
+        );
+    }
+    // The header keeps no second word for it: the state line is for the other states.
+    let m = model(&paused, Lang::En);
+    assert!(m.banner.is_some() && m.status.is_some());
 }
 
 #[test]
@@ -1749,7 +2046,14 @@ fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_over
         crate::game::Caps::GEAR.or(crate::game::Caps::LAP_TIME),
     ] {
         let s = slots(caps);
-        for layout in [Layout::Classic, Layout::Ultrawide, Layout::Wide, Layout::Square, Layout::Portrait] {
+        for layout in [
+            Layout::Classic,
+            Layout::Ultrawide,
+            Layout::Wide,
+            Layout::Square,
+            Layout::Portrait,
+            Layout::Stack,
+        ] {
             let plan = layout.plan(&s);
             if layout != Layout::Classic {
                 assert_eq!(plan.cards.len(), s.cards.len(), "{layout:?}: every card has a place");
@@ -1763,7 +2067,12 @@ fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_over
         }
     }
     let s = slots(every_cap());
-    assert_eq!(Layout::Wide.plan(&s).area(Pane::Laps).map(|a| a.1), Some(CARDS_TOP + 300.0 + GAP));
+    let wide = Layout::Wide.plan(&s);
+    let (times, laps) = (wide.area(Pane::Times).unwrap(), wide.area(Pane::Laps).unwrap());
+    assert!(
+        times.3 >= 300.0 && laps.1 == times.1 + times.3 + GAP,
+        "the laps are right under the first row"
+    );
     // Nothing the game can give: no cards and a canvas that is only the header.
     assert_eq!(Layout::Wide.plan(&slots(crate::game::Caps::NONE)).h, CARDS_TOP);
 }
@@ -1791,6 +2100,37 @@ fn each_screen_shape_gets_the_layout_that_fills_it() {
         let (cw, ch) = layout.size(&s);
         assert!((bw / cw).min(bh / ch) >= 0.5, "{w}x{h} {layout:?}");
     }
+}
+
+#[test]
+fn a_phone_with_few_cards_gets_one_column_at_a_size_text_reads_at() {
+    let few = slots(
+        crate::game::Caps::LAP_TIME
+            .or(crate::game::Caps::SPEED)
+            .or(crate::game::Caps::GEAR)
+            .or(crate::game::Caps::RPM)
+            .or(crate::game::Caps::THROTTLE)
+            .or(crate::game::Caps::BRAKE)
+            .or(crate::game::Caps::LAST_LAP),
+    );
+    let all = slots(every_cap());
+    for (w, h) in [(430.0, 900.0), (390.0, 844.0), (412.0, 915.0)] {
+        let (bw, bh) = (w - 32.0, h - 66.0 - 16.0);
+        let layout = pick_layout(bw, bh, &few);
+        assert_eq!(layout, Layout::Stack, "{w}x{h}: one column, not two scaled down");
+        let (cw, ch) = layout.size(&few);
+        let scale = (bw / cw).min(bh / ch);
+        assert!(
+            scale * T_CAPTION >= 10.0,
+            "{w}x{h}: the smallest text is {} px on screen",
+            scale * T_CAPTION
+        );
+        // With every card the single column would shrink the text further, so the two columns stay.
+        assert_eq!(pick_layout(bw, bh, &all), Layout::Portrait);
+    }
+    // The single column never has a card beside another.
+    let plan = Layout::Stack.plan(&all);
+    assert!(plan.cards.iter().all(|(_, a)| a.0 == 0.0 && (a.2 - plan.w).abs() < 0.01));
 }
 
 #[test]
@@ -1894,11 +2234,11 @@ fn the_laps_table_columns_fill_its_width_and_its_rows_fit_its_height() {
 }
 
 /// Where a pane is on a `w` x `h` window, in pixels, for the picture to be compared there.
-fn pane_region(caps: crate::game::Caps, w: i32, h: i32, pane: Pane) -> (i32, i32, i32, i32) {
+fn pane_region(caps: crate::game::Caps, w: i32, h: i32, pane: Pane, lap_rows: usize) -> (i32, i32, i32, i32) {
     let s = slots(caps);
     let body = rect(16, 66, w - 16, h - 16);
     let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
-    let plan = layout.plan(&s);
+    let plan = layout.plan_for(&s, lap_rows);
     let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
     let (x, y, aw, ah) = plan.area(pane).expect("the pane is there");
     let p = |v: f32, o: i32| o + (v * scale).round() as i32;
@@ -1912,6 +2252,7 @@ fn values_that_come_and_go_never_move_another_card() {
     base.caps = every_cap();
     let (w, h) = (1536, 864);
     let still = render(&view(&f, Some(&base), Tab::Dash, 1.0, Lang::En), w, h);
+    let rows = model_with(&base, Default::default(), &f.laps).laps.rows.len();
     // The tyres, the fuel, the temperatures, the alerts and the best lap go missing: the other cards do not shift.
     let mut gone = base.clone();
     gone.tyres = None;
@@ -1923,12 +2264,12 @@ fn values_that_come_and_go_never_move_another_card() {
     gone.last_lap_s = None;
     let after = render(&view(&f, Some(&gone), Tab::Dash, 1.0, Lang::En), w, h);
     for pane in [Pane::Centre, Pane::Track] {
-        let region = pane_region(base.caps, w, h, pane);
+        let region = pane_region(base.caps, w, h, pane, rows);
         assert_eq!(region_of(&still, w, region), region_of(&after, w, region), "{pane:?} did not move");
     }
     assert_eq!(slots(base.caps), slots(gone.caps), "the layout is chosen from the caps");
     // The times card keeps the lap time where it was (the top of the card) when the records appear.
-    let (x0, y0, x1, y1) = pane_region(base.caps, w, h, Pane::Times);
+    let (x0, y0, x1, y1) = pane_region(base.caps, w, h, Pane::Times, rows);
     let top = (x0, y0, x1, y0 + (y1 - y0) / 3);
     assert_eq!(region_of(&still, w, top), region_of(&after, w, top), "the lap time did not move");
 }
@@ -2011,14 +2352,16 @@ fn a_lap_that_does_not_count_has_its_time_struck_through_in_red() {
     let (w, h) = (1920, 1080);
     let a = render(&with_invalid, w, h);
     let b = render(&without, w, h);
-    let region = pane_region(live.caps, w, h, Pane::Laps);
+    let laps_model_rows = model_with(&live, Default::default(), &laps).laps.rows.len();
+    let region = pane_region(live.caps, w, h, Pane::Laps, laps_model_rows);
     let (ra, rb) = (region_of(&a, w, region), region_of(&b, w, region));
     assert!(reddish(&ra) > reddish(&rb) + 40, "the strike and the word invalid are red");
 }
 
 #[test]
 fn every_preview_state_paints_at_every_shape() {
-    let f = fixture();
+    let mut f = fixture();
+    f.snapshot.game = Game::Recording(4);
     let rich = rich_reading();
     let mut paused = rich.clone();
     paused.driving = false;
@@ -2037,10 +2380,11 @@ fn every_preview_state_paints_at_every_shape() {
         .or(crate::game::Caps::LAST_LAP);
     let laps = rich_laps();
     let none: Vec<SavedLap> = Vec::new();
-    let states: [(&str, &Live, &Vec<SavedLap>); 4] = [
+    let states: [(&str, &Live, &Vec<SavedLap>); 5] = [
         ("driving", &rich, &laps),
         ("paused", &paused, &laps),
         ("first-lap", &first, &none),
+        ("silent", &rich, &laps),
         ("little-data", &little, &none),
     ];
     let shapes = [
@@ -2057,6 +2401,9 @@ fn every_preview_state_paints_at_every_shape() {
         for (shape, w, h) in shapes {
             let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
             v.recent_laps = laps;
+            if state == "silent" {
+                v.now_ms = live.at_ms + 60_000;
+            }
             let pixels = render(&v, w, h);
             save(&pixels, w, h, &format!("state-{state}-{shape}.png"));
             assert!(has_color(&pixels, CARD) > 1000, "{state} {shape}: cards are drawn");

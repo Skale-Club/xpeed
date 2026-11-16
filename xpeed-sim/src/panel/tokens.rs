@@ -133,8 +133,20 @@ pub(super) const T_NUMERAL: f32 = 36.0;
 pub(super) const T_NUMERAL_L: f32 = 44.0;
 /// The biggest figures of a row of times.
 pub(super) const T_HERO: f32 = 52.0;
+/// The lap time of a tall times card.
+pub(super) const T_DISPLAY: f32 = 72.0;
 /// The type scale, smallest first.
-pub(super) const SCALE: [f32; 8] = [T_CAPTION, T_BODY, T_LEAD, T_VALUE, T_VALUE_L, T_NUMERAL, T_NUMERAL_L, T_HERO];
+pub(super) const SCALE: [f32; 9] = [
+    T_CAPTION,
+    T_BODY,
+    T_LEAD,
+    T_VALUE,
+    T_VALUE_L,
+    T_NUMERAL,
+    T_NUMERAL_L,
+    T_HERO,
+    T_DISPLAY,
+];
 
 /// At most nine sizes, and a label is never below 12 design pixels: checked when the program is built.
 const _: () = assert!(SCALE.len() <= 9 && SCALE[0] >= 12.0);
