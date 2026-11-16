@@ -88,6 +88,11 @@ fn degrees(c: f32) -> Option<f64> {
     (c.is_finite() && (-100.0..=200.0).contains(&tenth)).then_some(tenth)
 }
 
+/// The slowest game lap clock tick that is carried on by the host clock between ticks (a 30 Hz clock).
+const COARSE_CLOCK_SECONDS: f64 = 1.0 / 30.0;
+/// The least `t` moves between two samples of a lap.
+const MIN_T_STEP_SECONDS: f64 = 1e-3;
+
 struct InProgress {
     number: i32,
     session: String,
@@ -111,6 +116,8 @@ struct InProgress {
     meta: Meta,
     last_clock: f64,
     last_lap_time: Option<f64>,
+    /// The last `t` written to the lap, so a game clock coarser than the physics still gives a `t` that moves.
+    last_t: f64,
     dist: f64,
 }
 
@@ -247,13 +254,23 @@ impl LapCutter {
             },
             last_clock: frame.clock_s,
             last_lap_time: None,
+            last_t: f64::NEG_INFINITY,
             dist: 0.0,
         }
     }
 
     fn add_sample(lap: &mut InProgress, frame: &Frame) {
-        let t = frame.lap_time_s.unwrap_or(frame.clock_s - lap.first_clock);
         let dt = (frame.clock_s - lap.last_clock).clamp(0.0, MAX_GAP_SECONDS);
+        let t = match frame.lap_time_s {
+            // A game clock that has not moved past the last `t` (it ticks slower than the physics) is carried on by the
+            // host clock, never further than one tick of the game clock (1/30 s at most) ahead of what the game says.
+            Some(game) if game <= lap.last_t => (lap.last_t + dt)
+                .min(game + COARSE_CLOCK_SECONDS - MIN_T_STEP_SECONDS)
+                .max(lap.last_t + MIN_T_STEP_SECONDS),
+            Some(game) => game,
+            None => frame.clock_s - lap.first_clock,
+        };
+        lap.last_t = t;
         lap.dist = match frame.dist_m {
             Some(d) => d.max(0.0),
             None => lap.dist + f64::from(frame.speed_ms.max(0.0)) * dt,
@@ -438,6 +455,45 @@ mod tests {
             clock += 0.05;
         }
         (done, clock)
+    }
+
+    /// Feeds one lap whose game clock ticks every `tick` seconds while frames come every `step` seconds.
+    fn coarse_lap(tick: f64, step: f64, seconds: f64) -> (Lap, Vec<f64>) {
+        let mut cutter = LapCutter::new("test");
+        let mut games = Vec::new();
+        let n = (seconds / step) as usize;
+        for i in 0..n {
+            let clock = i as f64 * step;
+            let game = (clock / tick + 1e-9).floor() * tick;
+            games.push(game);
+            cutter.on_frame(
+                &frame(clock, 1, Some(game), None, Some(clock * 50.0)),
+                1_794_312_000_000 + (clock * 1000.0) as i64,
+            );
+        }
+        let mut last = frame(seconds + 0.1, 2, Some(0.0), Some(seconds), None);
+        let mut laps = cutter.on_frame(&last, 1_794_312_100_000);
+        last.clock_s += 0.05;
+        laps.extend(cutter.on_frame(&last, 1_794_312_100_050));
+        assert_eq!(laps.len(), 1);
+        (laps.remove(0), games)
+    }
+
+    #[test]
+    fn a_game_clock_slower_than_the_physics_still_gives_a_t_that_moves() {
+        let (lap, games) = coarse_lap(1.0 / 60.0, 1.0 / 97.0, 30.0);
+        assert_eq!(lap.time_ms, 30_000);
+        let t = &lap.channel("t").unwrap().values;
+        assert_eq!(t.len(), games.len());
+        assert!(t.windows(2).all(|w| w[1] > w[0]), "t must be strictly increasing");
+        assert!(t.iter().zip(&games).all(|(t, g)| (f64::from(*t) - g).abs() <= 1.0 / 30.0 + 1e-6));
+    }
+
+    #[test]
+    fn a_game_clock_that_moves_every_frame_is_written_as_it_is() {
+        let (lap, games) = coarse_lap(1.0 / 20.0, 1.0 / 20.0, 30.0);
+        let t = &lap.channel("t").unwrap().values;
+        assert!(t.iter().zip(&games).all(|(t, g)| *t == *g as f32));
     }
 
     #[test]

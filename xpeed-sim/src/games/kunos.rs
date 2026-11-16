@@ -78,7 +78,7 @@
 //!
 //! `steerAngle` is documented as -1..1 and is passed through (clamped, and dropped when it is far outside that).
 //! Competizione's `fuel` is documented in kilograms and is taken as litres, the way the game's own fuel gauge and
-//! `maxFuel` read. The clutch pedal is not read: its polarity (1 = pressed or released) is not documented.
+//! `maxFuel` read (and Assetto Corsa's `maxFuel` is the tank's capacity, in litres). The clutch pedal is not read: its polarity (1 = pressed or released) is not documented.
 
 use std::time::{Duration, Instant};
 
@@ -186,6 +186,8 @@ mod layout {
     pub const STAT_TRACK: usize = 134;
     /// `int sectorCount` (Assetto Corsa's static page, after the three driver names).
     pub const STAT_SECTOR_COUNT: usize = 400;
+    /// `float maxFuel` (Assetto Corsa's static page, litres), after `sectorCount`, `maxTorque`, `maxPower` and `maxRpm`.
+    pub const STAT_AC_MAX_FUEL: usize = 416;
     /// The end of `track`: all that is read of Competizione and Rally.
     pub const STAT_PREFIX_LEN: usize = 200;
     // Static, Assetto Corsa only.
@@ -676,6 +678,7 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         Family::Ac => {
             let length = f64::from(s.f32_at(STAT_AC_TRACK_SPLINE_LENGTH));
             f.track_length_m = (length.is_finite() && (200.0..=100_000.0).contains(&length)).then_some(length);
+            f.fuel_capacity_l = Some(s.f32_at(STAT_AC_MAX_FUEL)).filter(|c| c.is_finite() && (1.0..=1000.0).contains(c));
             // Read at most the 15 characters the header gives it; stops at the first zero.
             let variant = s.utf16_at(STAT_AC_TRACK_CONFIGURATION, 15);
             f.track_variant = (!variant.is_empty() && variant.chars().all(|c| !c.is_control())).then_some(variant);
@@ -1119,6 +1122,8 @@ mod tests {
         const { assert!(STAT_PREFIX_LEN >= 200) };
         assert_eq!(offset_of(STATIC, "maxTurboBoost"), 452, "where sim_info.py's own struct ends");
         assert_eq!(offset_of(STATIC, "sectorCount"), STAT_SECTOR_COUNT);
+        assert_eq!(offset_of(STATIC, "maxFuel"), STAT_AC_MAX_FUEL);
+        const { assert!(STAT_AC_MAX_FUEL + 4 <= STAT_AC_LEN) };
         const { assert!(STAT_SECTOR_COUNT + 4 <= STAT_AC_LEN) };
         assert_eq!(offset_of(STATIC, "hasDRS"), STAT_AC_HAS_DRS);
         assert_eq!(offset_of(STATIC, "trackSplineLength"), STAT_AC_TRACK_SPLINE_LENGTH);
@@ -1338,9 +1343,11 @@ mod tests {
         sim.phys.write(PHYS_BRAKE_BIAS, &0.625f32.to_le_bytes());
         sim.phys.write(PHYS_DRS_AVAILABLE, &1i32.to_le_bytes());
         sim.stat.write(STAT_AC_HAS_DRS, &1i32.to_le_bytes());
+        sim.stat.write(STAT_AC_MAX_FUEL, &80.0f32.to_le_bytes());
         sim.gfx_i32(GFX_AC_FLAG, 2);
         let mut source = open_sim(&sim, processes(&["acs.exe"]));
         let f = source.next(SOON).expect("a frame");
+        assert_eq!(f.fuel_capacity_l, Some(80.0), "the static page's maxFuel");
         assert_eq!(
             f.state,
             CarState {
