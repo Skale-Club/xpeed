@@ -33,6 +33,7 @@
 //! | `Tyre::temp_c` | Celsius | the tread where the game gives it (the mean across), else the core |
 //! | `Tyre::pressure_kpa` | kilopascals (1 psi is 6.894757 kPa) | the tyre's pressure |
 //! | `Tyre::left` | 0 to 1 | 1 is a new tyre, 0 is gone |
+//! | `Tyre::tread_c` | Celsius, three values | the inner, middle and outer reading across the tread (inner is the side toward the car's centre); `temp_c` is their mean |
 //! | `Tyre::brake_c` | Celsius | the brake disc beside that wheel; tyres are front left, front right, rear left, rear right |
 //! | `CarState::pit_limiter` | bool | the pit lane limiter is on |
 //! | `CarState::abs_active`, `tc_active` | bool | the aid is acting right now, not just switched on |
@@ -94,6 +95,9 @@ pub struct Tyre {
     pub pressure_kpa: f32,
     /// How much of the tread is left, 0..1 (1 = new).
     pub left: f32,
+    /// The temperature across the tread, inner, middle and outer, in °C, when the game gives the three (all three or
+    /// none). `temp_c` is their mean then.
+    pub tread_c: Option<[f32; 3]>,
 }
 
 impl Tyre {
@@ -343,6 +347,7 @@ impl Frame {
             add(tyres.iter().any(|t| t.pressure_kpa.is_finite()), Caps::TYRE_PRESSURE);
             add(tyres.iter().any(|t| t.left.is_finite()), Caps::TYRE_WEAR);
             add(tyres.iter().any(|t| t.brake_c.is_finite()), Caps::BRAKE_TEMP);
+            add(tyres.iter().any(|t| t.tread_c.is_some()), Caps::TYRE_TREAD);
         }
         add(self.car_class.is_some(), Caps::CAR_CLASS);
         add(self.track_variant.is_some(), Caps::TRACK_VARIANT);
@@ -508,6 +513,8 @@ caps_table! {
     TYRE_PRESSURE,
     TYRE_WEAR,
     BRAKE_TEMP,
+    /// The temperature across each tyre's tread (inner, middle, outer).
+    TYRE_TREAD,
     // Frame: the circuit and the session.
     CAR_CLASS,
     TRACK_VARIANT,
@@ -789,6 +796,7 @@ mod tests {
                 temp_c: 1.0,
                 pressure_kpa: 1.0,
                 left: 1.0,
+                tread_c: Some([1.0; 3]),
             }; 4],
         );
         f.car_class = Some("x".into());

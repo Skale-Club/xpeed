@@ -40,6 +40,7 @@ impl Role {
             Role::Warn => WARN,
             Role::Best => BEST,
             Role::Info => INFO,
+            Role::Cold => STEEL,
         }
     }
 }
@@ -57,36 +58,17 @@ pub(super) fn pill_color(kind: PillKind) -> COLORREF {
     }
 }
 
-/// Damage's colour: green, through amber, to red.
-pub(super) fn damage_color(share: f32) -> COLORREF {
-    let s = share.clamp(0.0, 1.0);
-    if s < 0.5 {
-        mix(SUCCESS, WARN, s / 0.5)
-    } else {
-        mix(WARN, DESTRUCTIVE, (s - 0.5) / 0.5)
-    }
-}
-
-/// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
-/// tyres; each game and compound has its own window, so this is a guide, not a target).
-pub(super) fn tyre_color(temp_c: f32) -> COLORREF {
-    match temp_c {
-        t if !t.is_finite() => MUTED_TEXT,
-        t if t < 65.0 => STEEL,
-        t if t < 95.0 => SUCCESS,
-        t if t < 110.0 => WARN,
-        _ => DESTRUCTIVE,
-    }
-}
-
-/// The colour of a brake disc's temperature: steel blue cold, green working, amber hot, red over the limit.
-pub(super) fn brake_color(temp_c: f32) -> COLORREF {
-    match temp_c {
-        t if !t.is_finite() => MUTED_TEXT,
-        t if t < 150.0 => STEEL,
-        t if t < 450.0 => SUCCESS,
-        t if t < 700.0 => WARN,
-        _ => DESTRUCTIVE,
+/// How a lit alert looks: its fill, an outline when it needs one and the ink of its words. Every alert is a solid tile in
+/// its colour with dark ink; a black flag is dark with a light edge and light ink.
+pub(super) fn alert_look(light: &Light) -> (COLORREF, Option<COLORREF>, COLORREF) {
+    use crate::game::Flag;
+    match (light.kind, light.flag) {
+        (PillKind::Flag, Some(Flag::Green)) => (SUCCESS, None, ON_PRIMARY),
+        (PillKind::Flag, Some(Flag::Yellow)) => (PRIMARY, None, ON_PRIMARY),
+        (PillKind::Flag, Some(Flag::Blue)) => (INFO, None, ON_PRIMARY),
+        (PillKind::Flag, Some(Flag::White | Flag::Chequered)) => (FLAG_WHITE, None, ON_PRIMARY),
+        (PillKind::Flag, Some(Flag::Black)) => (FLAG_BLACK, Some(MUTED_TEXT), FOREGROUND),
+        (kind, _) => (pill_color(kind), None, ON_PRIMARY),
     }
 }
 
@@ -749,192 +731,69 @@ impl Painter {
         });
     }
 
-    /// A pedal: a column of small square blocks filling from the bottom to `value` (0..1; a value the game does not
-    /// give counts as released), in the segmented look of the delta bar. The rest of the column is a dim track.
-    pub(super) fn pedal_blocks(&self, (x, y, w, h): Area, value: f32, color: COLORREF) {
-        let area = self.r(x, y, w, h);
-        let count = pedal_count(h);
-        let lit = pedal_lit(value, count);
-        // Whole pixels, so every gap is the same.
-        let gap = (PEDAL_GAP * self.s).round().max(1.0);
-        let total = (area.bottom - area.top) as f32;
-        let seg = ((total - gap * (count as f32 - 1.0)) / count as f32).max(1.0);
-        for i in 0..count {
-            let off = i as f32 * (seg + gap);
-            let bottom = area.bottom - off.round() as i32;
-            let top = area.bottom - (off + seg).round() as i32;
-            self.fill(
-                rect(area.left, top.min(bottom - 1), area.right, bottom),
-                if i < lit { color } else { SECONDARY },
-            );
-        }
-    }
-
-    /// The wheel as a slim bar: a trough with a tick at the centre and a yellow fill from the centre toward the side
-    /// the wheel is turned to (-1 full left .. 1 full right; none without a value).
-    pub(super) fn steer_bar(&self, (x, y, w, h): Area, steer: f32) {
+    /// A solid bar: a rounded trough with `frac` (0..1) of it filled from the left in `color`. Nothing is filled for a
+    /// value that is not there (or a hair above nothing); a fill is never shorter than the bar is tall, so it stays a
+    /// rounded end and not a sliver.
+    pub(super) fn solid_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
         self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
-        let share = steer_share(steer);
-        let (half, len) = (w / 2.0, w / 2.0 * share.abs());
+        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
+        if frac > 0.005 {
+            self.round(self.r(x, y, (w * frac).max(h.min(w)), h), h / 2.0, color, None);
+        }
+    }
+
+    /// A bar with its zero in the middle: the fill runs from the middle to `frac` (0..1, a half is the middle), with a
+    /// tick of `tick` at the middle.
+    pub(super) fn centred_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF, tick: COLORREF) {
+        self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
+        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.5 };
+        let (from, to) = (frac.min(0.5), frac.max(0.5));
+        let len = (to - from) * w;
         if len >= 1.0 {
-            let fx = if share > 0.0 { x + half } else { x + half - len };
-            self.round(self.r(fx, y, len, h), (h / 2.0).min(len / 2.0), PRIMARY, None);
+            self.round(self.r(x + from * w, y, len, h), (h / 2.0).min(len / 2.0), color, None);
         }
+        self.fill(self.r(x + w / 2.0 - 1.0, y - 3.0, 2.0, h + 6.0), tick);
+    }
+
+    /// The wheel as a slim bar with a tick at the centre and a yellow fill from the centre toward the side the wheel is
+    /// turned to (-1 full left .. 1 full right; straight, and a muted tick, without a value).
+    pub(super) fn steer_bar(&self, area: Area, steer: f32) {
         let tick = if steer.is_finite() { FOREGROUND } else { MUTED_TEXT };
-        self.fill(self.r(x + half - 1.0, y - 3.0, 2.0, h + 6.0), tick);
+        self.centred_bar(area, 0.5 + steer_share(steer) / 2.0, PRIMARY, tick);
     }
 
-    /// One light of the lights card, a squared tile of `cell`: lit it is filled with its colour (dark label), off it is
-    /// dim (a thin edge, a dim label), and DRS allowed but not open it is outlined in its colour. Headlights are a small
-    /// lamp, the flag a swatch of its colour with its word.
-    pub(super) fn light_tile(&mut self, lang: Lang, pill: &Light, (x, y, w, h): Area) {
-        let color = pill_color(pill.kind);
-        let off = LIGHT_OFF_FILL;
-        let (fill, edge, ink) = match pill.glow {
-            Glow::On => (color, None, ON_PRIMARY),
-            Glow::Ready => (off, Some(color), color),
-            Glow::Off => (off, Some(BORDER), LIGHT_OFF_INK),
-        };
+    /// The tank: a trough filled `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the
+    /// whole) so each tick is one lap's worth of fuel. Ticks closer than three pixels are left out.
+    pub(super) fn tank_bar(&self, (x, y, w, h): Area, share: f32, tick: Option<f32>, color: COLORREF) {
+        self.round(self.r(x, y, w, h), R_XS, SECONDARY, None);
+        let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
+        if share > 0.005 {
+            self.round(self.r(x, y, (w * share).max(R_XS * 2.0).min(w), h), R_XS, color, None);
+        }
+        if let Some(tick) = tick.filter(|t| t.is_finite() && *t > 0.0 && t * w * self.s >= 3.0) {
+            let mut at = tick;
+            while at < 0.999 {
+                self.fill(self.r(x + at * w - 1.0, y, 2.0, h), CARD);
+                at += tick;
+            }
+        }
+    }
+
+    /// Three short bars side by side with a hair between: the tread's inner, middle and outer.
+    pub(super) fn thirds_bar(&self, (x, y, w, h): Area, colors: [COLORREF; 3]) {
+        let gap = S1 / 2.0;
+        let seg = (w - 2.0 * gap) / 3.0;
+        for (i, color) in colors.into_iter().enumerate() {
+            self.round(self.r(x + i as f32 * (seg + gap), y, seg, h), 1.5, color, None);
+        }
+    }
+
+    /// An alert that is lit: a solid tile in its colour with its words in dark ink (light ink on a black flag).
+    pub(super) fn alert_tile(&mut self, light: &Light, (x, y, w, h): Area) {
+        let (fill, edge, ink) = alert_look(light);
         self.round(self.r(x, y, w, h), R_TILE, fill, edge);
-        let label = match pill.kind {
-            PillKind::Pit => Some("PIT".to_owned()),
-            PillKind::Abs => Some("ABS".to_owned()),
-            PillKind::Tc => Some("TC".to_owned()),
-            PillKind::Drs => Some("DRS".to_owned()),
-            PillKind::Fuel => Some(text(lang, &Msg::PanelLightFuel)),
-            PillKind::Engine => Some(text(lang, &Msg::PanelLightEngine)),
-            PillKind::Handbrake => Some(text(lang, &Msg::PanelLightHandbrake)),
-            PillKind::Flag | PillKind::Headlights => None,
-        };
-        match (pill.kind, label) {
-            (PillKind::Headlights, _) => self.headlamp(x + w / 2.0, y + h / 2.0, (h * 0.5).clamp(11.0, 16.0), ink),
-            (PillKind::Flag, _) => {
-                let sw = (h * 0.42).clamp(10.0, 16.0);
-                self.flag_swatch(x + w / 2.0 - sw / 2.0, y + h / 2.0 - sw / 2.0, sw, pill.flag);
-            }
-            (_, Some(label)) => {
-                let r = self.r(x, y, w, h);
-                self.caps(&label, r, T_CAPTION, ink, DT_CENTER);
-            }
-            _ => {}
-        }
-    }
-
-    /// The flag's colour as a small square at (`x`, `y`): green, yellow, blue, white, black with a light edge, or
-    /// chequered.
-    pub(super) fn flag_swatch(&self, x: f32, y: f32, size: f32, flag: Option<crate::game::Flag>) {
-        use crate::game::Flag;
-        let Some(flag) = flag else { return };
-        let radius = 1.5;
-        match flag {
-            Flag::Green => self.round(self.r(x, y, size, size), radius, SUCCESS, None),
-            Flag::Yellow => self.round(self.r(x, y, size, size), radius, PRIMARY, None),
-            Flag::Blue => self.round(self.r(x, y, size, size), radius, INFO, None),
-            Flag::White => self.round(self.r(x, y, size, size), radius, FLAG_WHITE, None),
-            Flag::Black => self.round(self.r(x, y, size, size), radius, FLAG_BLACK, Some(MUTED_TEXT)),
-            Flag::Chequered => {
-                self.round(self.r(x, y, size, size), radius, FLAG_WHITE, None);
-                let q = size / 2.0;
-                self.fill(self.r(x, y, q, q), FLAG_CHEQUER);
-                self.fill(self.r(x + q, y + q, q, q), FLAG_CHEQUER);
-            }
-        }
-    }
-
-    /// A small headlamp glyph centred at (`cx`, `cy`), `size` design units across: a lamp with three rays.
-    pub(super) fn headlamp(&self, cx: f32, cy: f32, size: f32, color: COLORREF) {
-        let to_px = |x: f32, y: f32| (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s);
-        smooth(self.hdc, |graphics| unsafe {
-            let (lx, ly) = to_px(cx - size * 0.5, cy - size * 0.36);
-            let (lw, lh) = (size * 0.5 * self.s, size * 0.72 * self.s);
-            let mut brush = null_mut();
-            GdipCreateSolidFill(argb(color), &mut brush);
-            GdipFillEllipse(graphics, brush.cast(), lx, ly, lw, lh);
-            GdipDeleteBrush(brush.cast());
-            let mut pen = null_mut();
-            GdipCreatePen1(argb(color), (1.4 * self.s).max(1.0), UnitPixel, &mut pen);
-            GdipSetPenStartCap(pen, LineCapRound);
-            GdipSetPenEndCap(pen, LineCapRound);
-            for k in [-1.0_f32, 0.0, 1.0] {
-                let (ax, ay) = to_px(cx + size * 0.18, cy + k * size * 0.3);
-                let (bx, by) = to_px(cx + size * 0.5, cy + k * size * 0.42);
-                GdipDrawLine(graphics, pen, ax, ay, bx, by);
-            }
-            GdipDeletePen(pen);
-        });
-    }
-
-    /// A brake disc glyph centred at (`cx`, `cy`), `d` design units across: a disc with a hole and a hub.
-    pub(super) fn brake_disc(&self, cx: f32, cy: f32, d: f32, color: COLORREF) {
-        let to_px = |x: f32, y: f32| (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s);
-        smooth(self.hdc, |graphics| unsafe {
-            for (size, c) in [(d, color), (d * 0.5, BACKGROUND), (d * 0.2, color)] {
-                let (x, y) = to_px(cx - size / 2.0, cy - size / 2.0);
-                let mut brush = null_mut();
-                GdipCreateSolidFill(argb(c), &mut brush);
-                GdipFillEllipse(graphics, brush.cast(), x, y, size * self.s, size * self.s);
-                GdipDeleteBrush(brush.cast());
-            }
-        });
-    }
-
-    /// The car's silhouette from above in `area`: a rounded body tapering to the nose, a cockpit opening, a wing at
-    /// each end, all in a colour barely lighter than the background.
-    pub(super) fn car_body(&self, area: Area) {
-        let (x, y, w, h) = area;
-        if w < 4.0 || h < 4.0 {
-            return;
-        }
-        let body = CAR_BODY;
-        let points: Vec<PointF> = body_outline(area)
-            .into_iter()
-            .map(|(px, py)| PointF {
-                X: self.ox as f32 + px * self.s,
-                Y: self.oy as f32 + py * self.s,
-            })
-            .collect();
-        smooth(self.hdc, |graphics| unsafe {
-            let mut path = null_mut();
-            GdipCreatePath(FillModeAlternate, &mut path);
-            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
-            GdipClosePathFigure(path);
-            let mut brush = null_mut();
-            GdipCreateSolidFill(argb(body), &mut brush);
-            GdipFillPath(graphics, brush.cast(), path);
-            GdipDeleteBrush(brush.cast());
-            GdipDeletePath(path);
-        });
-        let cx = x + w / 2.0;
-        // The wings across the two ends, the cockpit in the middle.
-        let wing = CAR_WING;
-        self.round(self.r(cx - w * 0.36, y, w * 0.72, (h * 0.03).max(3.0)), 1.5, wing, None);
-        self.round(
-            self.r(cx - w * 0.4, y + h - (h * 0.035).max(3.0), w * 0.8, (h * 0.035).max(3.0)),
-            1.5,
-            wing,
-            None,
-        );
-        self.round(self.r(cx - w * 0.17, y + h * 0.38, w * 0.34, h * 0.24), w * 0.15, CAR_CABIN, None);
-    }
-
-    /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
-    /// `from` and `to` (shares of the bar's width), dark otherwise.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn blocks(&self, x: f32, y: f32, w: f32, h: f32, count: usize, from: f32, to: f32, color: COLORREF) {
-        // Square blocks a hair apart, laid out in whole pixels so every gap is the same.
-        let area = self.r(x, y, w, h);
-        let gap = (1.5 * self.s).round().max(1.0);
-        let block = ((area.right - area.left) as f32 - gap * (count as f32 - 1.0)) / count as f32;
-        for i in 0..count {
-            let middle = (i as f32 + 0.5) / count as f32;
-            let lit = from.is_finite() && to.is_finite() && middle >= from && middle <= to;
-            let left = area.left + (i as f32 * (block + gap)).round() as i32;
-            let right = area.left + (i as f32 * (block + gap) + block).round() as i32;
-            self.fill(
-                rect(left, area.top, right.max(left + 1), area.bottom),
-                if lit { color } else { SECONDARY },
-            );
-        }
+        let r = self.r(x, y, w, h);
+        self.caps(&light.word, r, T_CAPTION, ink, DT_CENTER);
     }
 
     /// One line of text in a box, cut with "…" when it does not fit.
@@ -1106,6 +965,75 @@ impl Painter {
         unsafe {
             SetTextCharacterExtra(self.hdc, 0);
         }
+    }
+
+    /// The width of an upper-case label as `caps` draws it, in design units.
+    pub(super) fn caps_width(&mut self, s: &str, size: f32) -> f32 {
+        let upper = s.to_uppercase();
+        let extra = self.px(1.3);
+        unsafe {
+            SetTextCharacterExtra(self.hdc, extra);
+        }
+        let width = self.width_of(&upper, size * 1.18, FW_SEMIBOLD as i32, Face::Label);
+        unsafe {
+            SetTextCharacterExtra(self.hdc, 0);
+        }
+        width - extra as f32 / self.s
+    }
+
+    /// `s` cut with an ellipsis so it is no wider than `room` design units at this size (as is when it already fits).
+    pub(super) fn clipped(&mut self, s: &str, room: f32, size: f32, weight: i32, face: Face) -> String {
+        if self.width_of(s, size, weight, face) <= room {
+            return s.to_owned();
+        }
+        let mut kept: Vec<char> = s.chars().collect();
+        while !kept.is_empty() {
+            kept.pop();
+            let candidate = kept.iter().collect::<String>().trim_end().to_owned() + "\u{2026}";
+            if self.width_of(&candidate, size, weight, face) <= room {
+                return candidate;
+            }
+        }
+        String::new()
+    }
+
+    /// The width numbers are drawn with (`tabular`), in design units: every digit in a slot as wide as the widest.
+    pub(super) fn tabular_width(&mut self, s: &str, size: f32, weight: i32) -> f32 {
+        let font = self.font(size, weight, Face::Num);
+        unsafe {
+            let old = SelectObject(self.hdc, font);
+            let width = |c: char| {
+                let mut unit = [0u16; 2];
+                let unit = c.encode_utf16(&mut unit);
+                let mut extent = SIZE { cx: 0, cy: 0 };
+                GetTextExtentPoint32W(self.hdc, unit.as_ptr(), unit.len() as i32, &mut extent);
+                extent.cx
+            };
+            let digit = ('0'..='9').map(width).max().unwrap_or(0);
+            let total: i32 = s.chars().map(|c| if c.is_ascii_digit() { digit } else { width(c) }).sum();
+            SelectObject(self.hdc, old);
+            total as f32 / self.s
+        }
+    }
+
+    /// Numbers with a line struck through them in `strike`: a time that does not count.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn text_struck(&mut self, s: &str, r: RECT, size: f32, weight: i32, color: COLORREF, align: u32, strike: COLORREF) {
+        if s.is_empty() {
+            return;
+        }
+        self.text(s, r, size, weight, Face::Num, color, align);
+        let total = (self.tabular_width(s, size, weight) * self.s).round() as i32;
+        let left = if align == DT_RIGHT {
+            r.right - total
+        } else if align == DT_CENTER {
+            (r.left + r.right - total) / 2
+        } else {
+            r.left
+        };
+        let thick = self.px(1.5).max(1);
+        let mid = (r.top + r.bottom) / 2;
+        self.fill(rect(left, mid - thick / 2, left + total, mid - thick / 2 + thick), strike);
     }
 
     /// The small upper-case label at the top left of a tile.

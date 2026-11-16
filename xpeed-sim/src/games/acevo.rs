@@ -439,6 +439,7 @@ const CAPS: Caps = {
         .or(Caps::FUEL_CAPACITY)
         .or(Caps::TYRE_TEMP)
         .or(Caps::TYRE_PRESSURE)
+        .or(Caps::TYRE_TREAD)
         .or(Caps::BRAKE_TEMP)
         .or(Caps::TRACK_VARIANT)
         .or(Caps::TRACK_LENGTH)
@@ -542,6 +543,7 @@ fn tyres(p: &Page) -> Option<[Tyre; 4]> {
             temp_c: if tread.is_finite() { tread } else { core },
             pressure_kpa: norm::pressure_kpa(at(phys::WHEELS_PRESSURE) * norm::KPA_PER_PSI),
             left: f32::NAN,
+            tread_c: norm::tread_points(at(phys::TYRE_TEMP_I), at(phys::TYRE_TEMP_M), at(phys::TYRE_TEMP_O)),
         }
     });
     tyres.iter().any(Tyre::known).then_some(tyres)
@@ -1528,13 +1530,24 @@ mod tests {
             [84.0, 85.0, 86.0, 87.0],
             "the tread: the mean of inner, middle, outer"
         );
+        assert_eq!(
+            tyres.map(|t| t.tread_c),
+            [
+                Some([80.0, 84.0, 88.0]),
+                Some([81.0, 85.0, 89.0]),
+                Some([82.0, 86.0, 90.0]),
+                Some([83.0, 87.0, 91.0])
+            ],
+            "the three readings across the tread, inner, middle, outer"
+        );
         assert_eq!(tyres.map(|t| t.brake_c), [300.0, 310.0, 250.0, 260.0]);
         assert!((tyres[0].pressure_kpa - 26.0 * 6.894_757).abs() < 1e-3);
         assert!(tyres.iter().all(|t| t.left.is_nan()), "the wear has no documented unit");
-        // One of the three tread temperatures missing: the core stands in for that tyre only.
+        // One of the three tread temperatures missing: the core stands in for that tyre only, and it has no bar.
         image.physics.f32(phys::TYRE_TEMP_M + 4, 0.0);
         let tyres = image.frame().unwrap().tyres.unwrap();
         assert_eq!((tyres[0].temp_c, tyres[1].temp_c), (84.0, 71.0));
+        assert_eq!((tyres[0].tread_c.is_some(), tyres[1].tread_c), (true, None));
         // A value far outside what a tyre can be is dropped, not pinned.
         put(&mut image, phys::WHEELS_PRESSURE, [500.0, f32::NAN, 0.0, -3.0]);
         put(&mut image, phys::BRAKE_TEMP, [9000.0, -1.0, f32::NAN, 0.0]);

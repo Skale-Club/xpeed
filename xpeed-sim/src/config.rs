@@ -415,6 +415,135 @@ pub fn save_lang(home: &Path, lang: crate::text::Lang) -> Result<(), String> {
 
 const LANGUAGE_FILE: &str = "language";
 
+/// Which units the dashboard shows each kind of value in. The readers always give metric values (km/h as m/s, °C, kPa,
+/// litres); only the panel's text turns them. The default is what the panel has always shown: km/h, °C, psi, litres.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Units {
+    pub speed: SpeedUnit,
+    pub temperature: TempUnit,
+    pub pressure: PressureUnit,
+    pub fuel: FuelUnit,
+}
+
+macro_rules! unit_kind {
+    ($(#[$doc:meta])* $name:ident { $($(#[$d:meta])* $variant:ident => $code:literal, $label:literal;)+ }) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        pub enum $name {
+            $($(#[$d])* $variant,)+
+        }
+
+        impl $name {
+            /// Every choice, in the order the tray menu lists them.
+            pub const ALL: &'static [$name] = &[$($name::$variant),+];
+
+            /// How it is kept in the settings file.
+            pub fn code(self) -> &'static str {
+                match self {
+                    $($name::$variant => $code),+
+                }
+            }
+
+            /// The unit as it is written next to a value.
+            pub fn label(self) -> &'static str {
+                match self {
+                    $($name::$variant => $label),+
+                }
+            }
+
+            /// From the settings file; anything else is the default.
+            pub fn from_code(code: &str) -> $name {
+                match code.trim().to_ascii_lowercase().as_str() {
+                    $($code => $name::$variant,)+
+                    _ => $name::default(),
+                }
+            }
+        }
+    };
+}
+
+unit_kind! {
+    /// Speed: kilometres or miles an hour.
+    SpeedUnit {
+        #[default]
+        Kmh => "kmh", "km/h";
+        Mph => "mph", "mph";
+    }
+}
+
+unit_kind! {
+    /// Temperature: Celsius or Fahrenheit.
+    TempUnit {
+        #[default]
+        C => "c", "°C";
+        F => "f", "°F";
+    }
+}
+
+unit_kind! {
+    /// Tyre pressure: pounds per square inch, bar or kilopascals.
+    PressureUnit {
+        #[default]
+        Psi => "psi", "psi";
+        Bar => "bar", "bar";
+        Kpa => "kpa", "kPa";
+    }
+}
+
+unit_kind! {
+    /// Fuel: litres or US gallons.
+    FuelUnit {
+        #[default]
+        Litre => "l", "L";
+        Gallon => "gal", "gal";
+    }
+}
+
+impl Units {
+    /// The settings file's text: one `name=choice` line for each kind.
+    pub fn to_text(self) -> String {
+        format!(
+            "speed={}\ntemperature={}\npressure={}\nfuel={}\n",
+            self.speed.code(),
+            self.temperature.code(),
+            self.pressure.code(),
+            self.fuel.code()
+        )
+    }
+
+    /// From the settings file's text; a line that is missing or not understood keeps the default.
+    pub fn from_text(text: &str) -> Units {
+        let mut units = Units::default();
+        for line in text.lines() {
+            let Some((name, choice)) = line.split_once('=') else {
+                continue;
+            };
+            match name.trim() {
+                "speed" => units.speed = SpeedUnit::from_code(choice),
+                "temperature" => units.temperature = TempUnit::from_code(choice),
+                "pressure" => units.pressure = PressureUnit::from_code(choice),
+                "fuel" => units.fuel = FuelUnit::from_code(choice),
+                _ => {}
+            }
+        }
+        units
+    }
+}
+
+/// The units the person picked in the tray menu, kept in `units` next to the language. The defaults when there is no
+/// choice yet (or the file cannot be read).
+pub fn load_units(home: &Path) -> Units {
+    std::fs::read_to_string(home.join(UNITS_FILE)).map_or_else(|_| Units::default(), |text| Units::from_text(&text))
+}
+
+pub fn save_units(home: &Path, units: Units) -> Result<(), String> {
+    std::fs::create_dir_all(home).map_err(|e| format!("cannot create {}: {e}", home.display()))?;
+    let path = home.join(UNITS_FILE);
+    std::fs::write(&path, units.to_text()).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+const UNITS_FILE: &str = "units";
+
 /// Forgets the pairing on this computer. The server is not told: the person revokes the device in the app.
 pub fn remove(path: &Path) -> Result<bool, String> {
     match std::fs::remove_file(path) {
@@ -479,6 +608,52 @@ mod tests {
         assert_eq!(load_lang(&home), Lang::Pt);
         save_lang(&home, Lang::En).unwrap();
         assert_eq!(load_lang(&home), Lang::En);
+    }
+
+    #[test]
+    fn remembers_the_units_picked_and_starts_in_km_h_celsius_psi_and_litres() {
+        let home = scratch_dir("units");
+        let default = Units::default();
+        assert_eq!(
+            (
+                default.speed.label(),
+                default.temperature.label(),
+                default.pressure.label(),
+                default.fuel.label()
+            ),
+            ("km/h", "°C", "psi", "L")
+        );
+        assert_eq!(load_units(&home), default, "no file: today's look");
+        let picked = Units {
+            speed: SpeedUnit::Mph,
+            temperature: TempUnit::F,
+            pressure: PressureUnit::Kpa,
+            fuel: FuelUnit::Gallon,
+        };
+        save_units(&home, picked).unwrap();
+        assert_eq!(load_units(&home), picked);
+        // Each kind is kept on its own, and what is not understood keeps its default.
+        assert_eq!(
+            Units::from_text("speed=mph\npressure=bar\nfuel=stone\nnonsense\ncolour=red"),
+            Units {
+                speed: SpeedUnit::Mph,
+                pressure: PressureUnit::Bar,
+                ..Units::default()
+            }
+        );
+        for unit in SpeedUnit::ALL {
+            assert_eq!(SpeedUnit::from_code(unit.code()), *unit);
+        }
+        for unit in TempUnit::ALL {
+            assert_eq!(TempUnit::from_code(unit.code()), *unit);
+        }
+        for unit in PressureUnit::ALL {
+            assert_eq!(PressureUnit::from_code(unit.code()), *unit);
+        }
+        for unit in FuelUnit::ALL {
+            assert_eq!(FuelUnit::from_code(unit.code()), *unit);
+        }
+        assert_eq!(Units::from_text(&picked.to_text()), picked);
     }
 
     #[test]

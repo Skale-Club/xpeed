@@ -337,6 +337,7 @@ impl Decoder {
                 temp_c,
                 pressure_kpa: f32::NAN,
                 left,
+                tread_c: None,
             }
         });
         f.tyres = tyres.iter().any(Tyre::known).then_some(tyres);

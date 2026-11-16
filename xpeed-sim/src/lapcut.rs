@@ -915,24 +915,28 @@ mod tests {
                     temp_c: 80.0 + n / 10.0,
                     pressure_kpa: 190.0,
                     left: 0.9,
+                    tread_c: None,
                 },
                 Tyre {
                     brake_c: 310.0,
                     temp_c: 81.0,
                     pressure_kpa: 191.0,
                     left: 0.8,
+                    tread_c: None,
                 },
                 Tyre {
                     brake_c: f32::NAN,
                     temp_c: 82.0,
                     pressure_kpa: 192.0,
                     left: f32::NAN,
+                    tread_c: None,
                 },
                 Tyre {
                     brake_c: f32::NAN,
                     temp_c: 83.0,
                     pressure_kpa: 193.0,
                     left: f32::NAN,
+                    tread_c: None,
                 },
             ]);
             f.g_lat = Some(1.25);

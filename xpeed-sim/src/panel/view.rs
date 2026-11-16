@@ -39,6 +39,8 @@ pub struct GameRow {
 /// Everything one frame of the window shows.
 pub struct View<'a> {
     pub lang: Lang,
+    /// The units the dashboard's values are written in.
+    pub units: crate::config::Units,
     pub tab: Tab,
     pub on_top: bool,
     /// The window fills its screen.
@@ -106,6 +108,7 @@ pub struct Account {
     /// Who the computer is connected as (the account's email or name), when known.
     pub label: Option<String>,
     pub lang: Lang,
+    pub units: crate::config::Units,
 }
 
 /// What the window needs from the rest of the program.

@@ -31,6 +31,8 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         &ModelCtx {
             lang: view.lang,
             now_ms: view.now_ms,
+            units: view.units,
+            laps: view.recent_laps,
         },
     );
     let slots = slots(live.caps);
@@ -40,177 +42,50 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         m: &m,
         slots: &slots,
     };
-    let (side, main_h) = (slots.side(), main_height(&slots));
     let layout = pick_layout_sticky(
         (body.right - body.left) as f32,
         (body.bottom - body.top) as f32,
-        side,
-        main_h,
+        &slots,
         view.layout.get(),
     );
     view.layout.set(Some(layout));
-    let (w, h) = layout.size(side, main_h);
-    let (s, ox, oy) = canvas_fit_wh(body, w, h);
+    let plan = layout.plan(&slots);
+    let (s, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
     g.place(s, ox, oy);
-    match layout {
-        Layout::Portrait => portrait_block(g, &d),
-        Layout::Classic => main_block(g, &d, w),
-        Layout::Ultrawide => {
-            main_block(g, &d, w);
-            side_column(g, &d, CANVAS_H);
-        }
-        Layout::Wide => {
-            main_block(g, &d, w);
-            side_column(g, &d, h);
-            laps_band(g, &d, main_h + 22.0, CANVAS_W, h);
-        }
-        Layout::Square => {
-            main_block(g, &d, w);
-            if side {
-                let (top, half) = (main_h + 22.0, (CANVAS_W - 20.0) / 2.0);
-                side_pair(g, &d, (0.0, top, CANVAS_W, h - top), half, 20.0);
-            }
+    header(g, &d, plan.w);
+    for &(card, area) in &plan.cards {
+        card_frame(g, area);
+        match card {
+            Pane::Times => times_card(g, &d, area),
+            Pane::Centre => centre_card(g, &d, area),
+            Pane::Fuel => fuel_card(g, &d, area),
+            Pane::Tyres => tyres_card(g, &d, area),
+            Pane::Laps => laps_card(g, &d, area),
+            Pane::Track => track_card(g, &d, area),
+            Pane::Alerts => alerts_card(g, &d, area),
         }
     }
 }
 
-/// The track and the tyres side by side in a box, the track `track_w` wide; whichever the game cannot give leaves its
-/// room to the other.
-pub(super) fn side_pair(g: &mut Painter, d: &Dash, (x, y, w, h): Area, track_w: f32, gap: f32) {
-    match (d.slots.map, d.slots.tyres) {
-        (true, true) => {
-            track_panel(g, d, x, y, track_w, h);
-            tyres_panel(g, d, x + track_w + gap, y, w - track_w - gap, h);
-        }
-        (true, false) => track_panel(g, d, x, y, w, h),
-        (false, true) => tyres_panel(g, d, x, y, w, h),
-        (false, false) => {}
-    }
+/// A card: a rounded `CARD` with its border.
+pub(super) fn card_frame(g: &mut Painter, (x, y, w, h): Area) {
+    g.round(g.r(x, y, w, h), R_CARD, CARD, Some(BORDER));
 }
 
-/// A card: a rounded `CARD` with a thin accent along its top edge.
-pub(super) fn card_with_edge(g: &mut Painter, (x, y, w, h): Area, edge: COLORREF) {
+/// A card's caption: a small upper-case label.
+pub(super) fn caption(g: &mut Painter, s: &str, (x, y, w, _): Area, align: u32) {
+    let r = g.r(x, y, w, CAPTION_H);
+    g.caps(s, r, T_CAPTION, MUTED_TEXT, align);
+}
+
+/// A tile on a card: `fill` and a border, with a thin accent along its top edge.
+pub(super) fn tile_with_edge(g: &mut Painter, (x, y, w, h): Area, fill: COLORREF, edge: COLORREF) {
     let r = g.r(x, y, w, h);
-    g.round(r, R_CARD, CARD, None);
-    let band = g.r(x, y, w, STROKE_BAR);
+    g.round(r, R_TILE, fill, Some(BORDER));
+    let band = g.r(x, y, w, STROKE_ACCENT);
     g.clip(band);
-    g.round(r, R_CARD, edge, None);
+    g.round(r, R_TILE, edge, None);
     g.unclip();
-}
-
-/// The recent laps as cards, oldest to newest, then the lap being driven (marked yellow, its time running): the
-/// fastest in purple, each with its gap to the fastest.
-pub(super) fn laps_band(g: &mut Painter, d: &Dash, top: f32, w: f32, bottom: f32) {
-    let (view, m) = (d.view, d.m);
-    let r = g.r(0.0, top, w, S4);
-    g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-    let (y, h) = (top + S6, bottom - top - S6);
-    let laps = view.recent_laps;
-    let fastest = fastest_valid(laps);
-    // Cards of a fixed width (six fit the row): the last completed laps (up to five), then the lap being driven.
-    // Only laps that exist get a card; with fewer the row simply ends sooner.
-    let (n, gap) = (6_usize, S3);
-    let card_w = (w - gap * (n as f32 - 1.0)) / n as f32;
-    let shown_laps = &laps[laps.len().saturating_sub(n - 1)..];
-    let semi = FW_SEMIBOLD as i32;
-    let card = |g: &mut Painter,
-                i: usize,
-                edge: COLORREF,
-                name: &str,
-                name_color: COLORREF,
-                time: &str,
-                time_color: COLORREF,
-                note: &str,
-                note_color: COLORREF,
-                invalid: bool| {
-        let x = i as f32 * (card_w + gap);
-        card_with_edge(g, (x, y, card_w, h), edge);
-        let r = g.r(x + S4, y + S4, card_w - 2.0 * S4, S4);
-        g.caps(name, r, T_CAPTION, name_color, DT_LEFT);
-        if invalid {
-            g.invalid_mark(x + card_w - S4 - S4, y + S3, S4);
-        }
-        // The time never leaves its card: smaller when it is long.
-        let room = card_w - S6;
-        let size = g.fitted(time, room, T_VALUE_L, T_BODY, semi, Face::Num);
-        let r = g.r(x + S3, y + 40.0, room + S1, 40.0);
-        g.text(time, r, size, semi, Face::Num, time_color, DT_LEFT);
-        let r = g.r(x + S4, y + h - 36.0, card_w - 2.0 * S4, 20.0);
-        g.text(note, r, T_BODY, semi, Face::Num, note_color, DT_LEFT);
-    };
-    for (i, lap) in shown_laps.iter().enumerate() {
-        let invalid = !lap.valid;
-        let is_fastest = !invalid && fastest == Some(lap.time_ms);
-        let note = match fastest {
-            _ if invalid => text(view.lang, &Msg::PanelInvalid),
-            _ if is_fastest => text(view.lang, &Msg::PanelFastest),
-            Some(best) => format!("+{:.3}", f64::from(lap.time_ms.saturating_sub(best)) / 1000.0),
-            None => String::new(),
-        };
-        let (edge, color) = match (invalid, is_fastest) {
-            (true, _) => (DESTRUCTIVE, MUTED_TEXT),
-            (_, true) => (BEST, BEST),
-            _ => (BORDER, FOREGROUND),
-        };
-        let note_color = match (invalid, is_fastest) {
-            (true, _) => DESTRUCTIVE,
-            (_, true) => BEST,
-            _ => MUTED_TEXT,
-        };
-        let name = text(view.lang, &Msg::PanelLap(lap.number as i32));
-        card(
-            g,
-            i,
-            edge,
-            &name,
-            MUTED_TEXT,
-            &clock(lap.time_ms),
-            color,
-            &note,
-            note_color,
-            invalid,
-        );
-    }
-    // The lap being driven, its time running and its delta to the best lap: drawn when the game gives a lap clock.
-    let now = shown_laps.len();
-    if d.slots.lap_time {
-        shown(g, m.lap_time.show, |g| {
-            let name = text(view.lang, &Msg::PanelLap(d.live.lap.max(1)));
-            let time = if d.live.lap_time_s.is_some() {
-                m.lap_time.text.clone()
-            } else {
-                String::new()
-            };
-            card(
-                g,
-                now,
-                PRIMARY,
-                &name,
-                PRIMARY,
-                &time,
-                FOREGROUND,
-                &m.delta.text,
-                m.delta.role.colour(),
-                m.invalid,
-            );
-        });
-    }
-    if laps.is_empty() {
-        let x = (now + 1) as f32 * (card_w + gap);
-        let note = text(view.lang, &Msg::PanelNoLapsYet);
-        g.wrapped(
-            &note,
-            x + S6,
-            y + h / 2.0 - S3,
-            w - x - 2.0 * S6,
-            T_BODY,
-            FW_NORMAL as i32,
-            Face::Ui,
-            MUTED_TEXT,
-            DT_CENTER,
-            S6,
-        );
-    }
 }
 
 /// The mark of a lap that will not count, ending at `right` (design units), with its word before it when `label`.
@@ -228,273 +103,144 @@ pub(super) fn invalid_flag(g: &mut Painter, view: &View, right: f32, y: f32, lab
 }
 
 /// The car's line under the track, with the make's mark before it when the make is known; the box the text goes in.
-pub(super) fn brand_car_line(g: &mut Painter, live: &Live, view: &View, width: f32) -> RECT {
+pub(super) fn brand_car_line(g: &mut Painter, live: &Live, view: &View, y: f32, width: f32) -> RECT {
     let catalog: Vec<_> = view.brands.iter().map(|b| b.brand.clone()).collect();
     let Some(brand) = crate::brands::match_brand(&live.car, &catalog) else {
-        return g.r(0.0, 72.0, width, 18.0);
+        return g.r(0.0, y, width, 20.0);
     };
     if let Some(art) = view.brands.iter().find(|b| b.brand.key == brand.key) {
-        let tile = g.r(0.0, 70.0, 34.0, 20.0);
+        let tile = g.r(0.0, y, 34.0, 20.0);
         g.round(tile, R_XS, BRAND_TILE, None);
-        g.image(g.r(2.0, 71.0, 30.0, 18.0), art.image);
-        g.r(40.0, 72.0, width - 40.0, 18.0)
+        g.image(g.r(2.0, y + 1.0, 30.0, 18.0), art.image);
+        g.r(40.0, y, width - 40.0, 20.0)
     } else {
-        g.r(0.0, 72.0, width, 18.0)
+        g.r(0.0, y, width, 20.0)
     }
 }
 
-/// The rev bar across the top: a dome in the revs' colours on a cyan base line, and the shift lights' state. Returns
-/// `(lit, flashing, blink phase)` for the gear's frame.
-pub(super) fn rev_header(g: &mut Painter, d: &Dash, width: f32) -> (usize, bool, bool) {
-    let share = if d.m.rev.show == Show::Shown { d.m.rev.frac } else { f32::NAN };
-    let (lit, flash) = lights_lit(share);
-    let blink_on = d.view.now_ms / 120 % 2 == 0;
-    g.rev_bar(0.0, 0.0, width, 36.0, share, flash && blink_on);
-    g.round(g.r(0.0, 37.0, width, STROKE_BAR), STROKE_BAR / 2.0, CYAN, None);
-    (lit, flash, blink_on)
-}
-
-/// The tall layout (a phone held upright), on a 600 x 1210 canvas: the rev bar, the lap, the delta, the gear with the
-/// pedals either side and the wheel under the speed, the times and the fuel in two columns, the car strip (lights,
-/// engine and fuel, electronics and damage), then the track and the tyres side by side.
-pub(super) fn portrait_block(g: &mut Painter, d: &Dash) {
-    let w = PORTRAIT_W;
-    let lights = rev_header(g, d, w);
-    title_line(g, d, w, 420.0, false);
-    g.fill(g.r(0.0, 95.0, w, STROKE_HAIR), BORDER);
-
-    let bottom = centre_block(g, d, w / 2.0, 100.0, 190.0, lights);
-    g.fill(g.r(0.0, bottom + 14.0, w, STROKE_HAIR), BORDER);
-
-    // The times on the left, fuel and lap progress on the right.
-    let top = bottom + 22.0;
-    side_stats(g, d, (0.0, w, top), 76.0, [T_NUMERAL; 3], 290.0);
-    let strip = top + 76.0 * 3.0 + 6.0;
-    g.fill(g.r(0.0, strip - S1, w, STROKE_HAIR), BORDER);
-
-    // The car strip, stacked: the lights across, the engine and the electronics side by side under them. A card the
-    // game cannot fill is left out and the others take its room.
-    let has = |c: CarCard| d.slots.cards.contains(&c);
-    let (lights_h, row_h, gap) = (80.0, 108.0, S3);
-    let mut y = strip + 6.0;
-    if has(CarCard::Lights) {
-        car_card(g, d, CarCard::Lights, (0.0, y, w, lights_h));
-        y += lights_h + gap;
-    }
-    let pair: Vec<CarCard> = [CarCard::Engine, CarCard::Electronics].into_iter().filter(|c| has(*c)).collect();
-    let each = (w - gap * (pair.len() as f32 - 1.0)) / pair.len().max(1) as f32;
-    for (i, card) in pair.iter().enumerate() {
-        car_card(g, d, *card, (i as f32 * (each + gap), y, each, row_h));
-    }
-    if !pair.is_empty() {
-        y += row_h + gap;
-    }
-
-    // The track and the tyres side by side, a square each.
-    let low = y + S1;
-    side_pair(g, d, (0.0, low, w, PORTRAIT_H - low), 250.0, 14.0);
-}
-
-/// The line over the dashboard: track and car on the left, the lap on the right (with the mark of a lap that will
-/// not count, and the state line under it). `left_w` is the room the left side has.
-pub(super) fn title_line(g: &mut Painter, d: &Dash, width: f32, left_w: f32, labelled: bool) {
+/// The line over the cards: the rev bar across the top; the track with the session chip, and the car and game under it,
+/// on the left; the lap (with the mark of a lap that will not count) and the state line under it on the right.
+pub(super) fn header(g: &mut Painter, d: &Dash, width: f32) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let (m, view) = (d.m, d.view);
-    let r = g.r(0.0, 48.0, left_w, S6);
-    g.text(&m.track, r, T_LEAD, semi, Face::Num, FOREGROUND, DT_LEFT);
-    let r = brand_car_line(g, d.live, view, left_w);
-    g.text(&m.car, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+    if d.slots.rev {
+        let share = if m.rev.show == Show::Shown { m.rev.frac } else { f32::NAN };
+        let flash = lights_lit(share).1;
+        let blink_on = view.now_ms / 120 % 2 == 0;
+        g.rev_bar(0.0, 0.0, width, REV_H, share, flash && blink_on);
+    }
+    g.round(g.r(0.0, REV_H + 1.0, width, STROKE_BAR), STROKE_BAR / 2.0, CYAN, None);
+
+    let right_w = 230.0;
+    let left_w = (width - right_w - S4).max(120.0);
+    // The track and, after it, the session chip.
+    let chip = m.session.as_ref().map(|s| (s.clone(), g.caps_width(s, T_CAPTION) + S4));
+    let chip_w = chip.as_ref().map_or(0.0, |(_, w)| w + S3);
+    let track = g.clipped(&m.track, left_w - chip_w, T_VALUE, semi, Face::Num);
+    let r = g.r(0.0, TITLE_Y, left_w, 30.0);
+    g.text(&track, r, T_VALUE, semi, Face::Num, FOREGROUND, DT_LEFT);
+    if let Some((word, w)) = chip {
+        let x = g.tabular_width(&track, T_VALUE, semi) + S3;
+        let (cx, cy, ch) = (x.min(left_w - w), TITLE_Y + 4.0, 22.0);
+        g.round(g.r(cx, cy, w, ch), R_XS, SURFACE, None);
+        let r = g.r(cx, cy, w, ch);
+        g.caps(&word, r, T_CAPTION, FOREGROUND_2, DT_CENTER);
+    }
+    let r = brand_car_line(g, d.live, view, TITLE_Y + 31.0, left_w);
+    g.text(&m.car, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+
     // Out of the car (menu, garage) the lap is dim; where there is no lap to number only the state line shows.
     shown(g, m.lap.show, |g| {
-        let r = g.r(width - 200.0, 46.0, 200.0, 28.0);
+        let r = g.r(width - right_w, TITLE_Y, right_w, 32.0);
         g.text(&m.lap.text, r, T_VALUE_L, semi, Face::Num, PRIMARY, DT_RIGHT);
         if m.invalid {
-            let at = width - g.width_of(&m.lap.text, T_VALUE_L, semi, Face::Num) - S3;
-            invalid_flag(g, view, at, 49.0, labelled);
+            let at = width - g.tabular_width(&m.lap.text, T_VALUE_L, semi) - S3;
+            invalid_flag(g, view, at, TITLE_Y + 5.0, width >= 900.0);
         }
     });
     if let Some((_, line)) = &m.status {
-        let r = g.r(width - 240.0, 72.0, 240.0, 18.0);
+        let r = g.r(width - right_w - S4, TITLE_Y + 36.0, right_w + S4, 18.0);
         g.caps(line, r, T_CAPTION, WARN, DT_RIGHT);
     }
+    g.fill(g.r(0.0, CARDS_TOP - S2, width, STROKE_HAIR), BORDER);
 }
 
-/// The lap's times in a column on the left (lap time, last, best) and fuel and lap progress on the right. `columns`
-/// is `(left edge, right edge, top)`; `row_h` the height of a row; `sizes` the size of each time's figure; `room` the
-/// width a column has. A row the game cannot fill is not there and the others take its room; a row whose value is not
-/// known yet (no best lap on the first lap) keeps its place, empty.
-pub(super) fn side_stats(g: &mut Painter, d: &Dash, columns: (f32, f32, f32), row_h: f32, sizes: [f32; 3], room: f32) {
-    let (left, right, top) = columns;
+/// The times card: the lap time as the hero, the delta to the best lap under it (a number and a thin bar centred on
+/// zero), then the last and the best lap side by side. On the first lap, where the delta is, a short sentence says when
+/// it comes; nothing moves when it does.
+pub(super) fn times_card(g: &mut Painter, d: &Dash, card: Area) {
     let semi = FW_SEMIBOLD as i32;
     let (m, slots) = (d.m, d.slots);
-    let rows: Vec<(&Elem, f32)> = [
-        (slots.lap_time, &m.lap_time, sizes[0]),
-        (slots.last, &m.last_lap, sizes[1]),
-        (slots.best, &m.best_lap, sizes[2]),
-    ]
-    .into_iter()
-    .filter(|(on, _, _)| *on)
-    .map(|(_, elem, size)| (elem, size))
-    .collect();
-    let step = left_row_h(slots.times(), row_h);
-    for (i, (elem, size)) in rows.iter().enumerate() {
-        let y = top + step * i as f32;
-        if i > 0 {
-            g.fill(g.r(left, y, room, STROKE_HAIR), BORDER);
+    let (x, y, w, h) = inner(card);
+    // What is at the bottom first: the last and the best lap, and the line over them.
+    let records = [(slots.last, &m.last_lap), (slots.best, &m.best_lap)];
+    let on = records.iter().filter(|(on, _)| *on).count();
+    let block_h = CAPTION_H + S1 + 32.0;
+    let block_y = y + h - block_h;
+    if on > 0 {
+        g.fill(g.r(x, block_y - S3, w, STROKE_HAIR), BORDER);
+        let col = (w - S3) / 2.0;
+        for (i, (_, elem)) in records.iter().filter(|(on, _)| *on).enumerate() {
+            let cx = x + i as f32 * (col + S3);
+            shown(g, elem.show, |g| {
+                caption(g, &elem.label, (cx, block_y, col, CAPTION_H), DT_LEFT);
+                let size = g.fitted(&elem.text, col, T_VALUE_L, T_BODY, semi, Face::Num);
+                let r = g.r(cx - 1.0, block_y + CAPTION_H + S1, col + 2.0, 32.0);
+                g.text(&elem.text, r, size, semi, Face::Num, elem.role.colour(), DT_LEFT);
+            });
         }
-        shown(g, elem.show, |g| {
-            let r = g.r(left, y + 10.0, room, 18.0);
-            g.caps(&elem.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-            let r = g.r(left - 2.0, y + 28.0, room + 20.0, row_h - 34.0);
-            g.text(&elem.text, r, *size, semi, Face::Num, elem.role.colour(), DT_LEFT);
+    }
+    let below = if on > 0 { block_y - S3 } else { y + h };
+    // The lap time.
+    let lap = &m.lap_time;
+    if slots.lap_time {
+        shown(g, lap.show, |g| {
+            caption(g, &lap.label, (x, y, w, CAPTION_H), DT_LEFT);
+            let size = g.fitted(&lap.text, w, T_HERO, T_VALUE_L, semi, Face::Num);
+            let r = g.r(x - 2.0, y + CAPTION_H + S1, w + 4.0, 60.0);
+            g.text(&lap.text, r, size, semi, Face::Num, lap.role.colour(), DT_LEFT);
         });
     }
-    let (fuel_at, lap_at) = right_plan(row_h, slots.fuel, slots.progress);
-    let rx = right - room;
-    if let Some((dy, h)) = fuel_at {
-        fuel_block(g, d, (rx, top + dy, room, h), sizes[0].min(T_NUMERAL_L));
-    }
-    // The lap: the share, the bar and the distance.
-    if let Some((dy, _)) = lap_at {
-        let y = top + dy;
-        if dy > 0.0 {
-            g.fill(g.r(rx, y, room, STROKE_HAIR), BORDER);
+    // The delta, in the room between the lap time and the line, in the middle of it.
+    if slots.delta {
+        let top = y + CAPTION_H + S1 + 60.0 + S2;
+        let group_h = 34.0 + S2 + STEER_BAR_H;
+        let gy = top + ((below - S2 - top - group_h) / 2.0).max(0.0);
+        let delta = &m.delta;
+        if delta.visible() {
+            shown(g, delta.show, |g| {
+                let r = g.r(x - 1.0, gy, w, 34.0);
+                g.text(&delta.text, r, T_VALUE_L, semi, Face::Num, delta.role.colour(), DT_LEFT);
+                let nw = g.tabular_width(&delta.text, T_VALUE_L, semi);
+                let r = g.r(x + nw + S2, gy + 8.0, (w - nw - S2).max(1.0), 20.0);
+                g.text(&m.delta_vs, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
+                g.centred_bar((x, gy + 34.0 + S2, w, STEER_BAR_H), delta.frac, delta.role.colour(), FOREGROUND);
+            });
+        } else if let Some(note) = &m.delta_note {
+            shown(g, Show::Dimmed, |g| {
+                g.wrapped(note, x, gy, w, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT, 20.0);
+            });
         }
-        shown(g, m.progress.show, |g| {
-            let r = g.r(rx, y + 10.0, room, 18.0);
-            g.caps(&m.progress.label, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
-            let r = g.r(rx - 22.0, y + 28.0, room + S6, row_h - 30.0);
-            let big = if sizes[1] >= T_NUMERAL_L { T_HERO } else { T_NUMERAL_L };
-            g.text(&m.progress.text, r, big, semi, Face::Num, FOREGROUND, DT_RIGHT);
-            let bar_w = room.min(240.0);
-            g.blocks(right - bar_w, y + row_h + 2.0, bar_w, 9.0, 20, 0.0, m.progress.frac, PRIMARY);
-            let r = g.r(rx, y + row_h + 18.0, room, S4);
-            g.text(&m.distance.text, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
-        });
     }
 }
 
-/// The fuel block: the litres big on the right, the laps they last prominent beside them, a tank gauge under them (a
-/// bar of small squares, fuel in the tank against the tank's size) and the use per lap small under the gauge. Only
-/// what is known is drawn; the laps and the gauge turn red when the car is driving and the fuel lasts under two laps.
-pub(super) fn fuel_block(g: &mut Painter, d: &Dash, (x, y, w, _h): Area, size: f32) {
-    let (semi, m) = (FW_SEMIBOLD as i32, d.m);
-    let fuel = &m.fuel;
-    shown(g, fuel.show, |g| {
-        let r = g.r(x, y + 10.0, w, 18.0);
-        g.caps(&fuel.label, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
-        let (line_y, line_h) = (y + 28.0, size * 1.2);
-        let litres = format!("{} {}", fuel.text, fuel.unit);
-        let r = g.r(x - 22.0, line_y, w + S6, line_h);
-        g.text(&litres, r, size, semi, Face::Num, FOREGROUND, DT_RIGHT);
-        if m.fuel_laps.visible() {
-            let room = (w - g.width_of(&litres, size, semi, Face::Num) - 14.0).max(40.0);
-            let laps_size = g.fitted(&m.fuel_laps.text, room, T_VALUE, T_CAPTION, semi, Face::Num);
-            let r = g.r(x, line_y, room + 6.0, line_h);
-            g.text(&m.fuel_laps.text, r, laps_size, semi, Face::Num, m.fuel_laps.role.colour(), DT_LEFT);
-        }
-        let mut at = line_y + line_h + S1;
-        if let Some(share) = m.fuel_share {
-            g.blocks(x, at, w, 9.0, 20, 0.0, share, if m.fuel_low { DESTRUCTIVE } else { PRIMARY });
-            at += 14.0;
-        }
-        if m.fuel_per_lap.visible() {
-            let r = g.r(x, at, w, S4);
-            g.text(&m.fuel_per_lap.text, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
-        }
-    });
-}
-
-/// The main dashboard on its 1000 x 520 canvas: rev bar (as wide as the whole layout, `width`), track and car, the
-/// lap's times and the fuel on the sides, the delta, the gear between its pedals and the speed over the wheel in the
-/// middle, and the car strip along the bottom.
-pub(super) fn main_block(g: &mut Painter, d: &Dash, width: f32) {
-    let lights = rev_header(g, d, width);
-    title_line(g, d, width, 640.0, true);
-    g.fill(g.r(0.0, 95.0, width, STROKE_HAIR), BORDER);
-
-    side_stats(g, d, (0.0, CANVAS_W, 100.0), 98.0, [T_HERO, T_NUMERAL_L, T_NUMERAL_L], MAIN_SIDE_W);
-    centre_block(g, d, CANVAS_W / 2.0, 100.0, 140.0, lights);
-
-    // The car strip along the bottom: only the cards the game can fill.
-    let strip = STRIP_TOP;
-    let plan = strip_plan(0.0, strip, CANVAS_W, CANVAS_H - strip - S2, &d.slots.cards);
-    if !plan.is_empty() {
-        g.fill(g.r(0.0, strip - 5.0, CANVAS_W, STROKE_HAIR), BORDER);
-    }
-    for (card, area) in plan {
-        car_card(g, d, card, area);
-    }
-}
-
-/// The middle of the dashboard: the delta over the gear (its corner brackets turning red near the limit and flashing
-/// blue at the shift), the brake and the throttle as columns of small squares outside the brackets (the clutch beside
-/// the brake, when the game gives it), the speed under the gear and the wheel as a bar under the speed. Whatever the
-/// game cannot give is not drawn; what it gives but not now is dimmed. Returns the line under all of it. `lights` is
-/// `(shift lights lit, flashing, blink phase)`.
-pub(super) fn centre_block(g: &mut Painter, d: &Dash, cx: f32, top: f32, frame_h: f32, lights: (usize, bool, bool)) -> f32 {
-    let (lit, flash, blink_on) = lights;
+/// The centre card: the gear big with the gears either side of it quiet, the speed under it with its unit, the pedals as
+/// three solid bars with their names and percentages over them, and the wheel under them.
+pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let (m, slots) = (d.m, d.slots);
-    let semi = FW_SEMIBOLD as i32;
-    let plan = centre_plan(cx, top, frame_h, slots.delta);
-    // The delta: its place is there whenever the game gives a lap clock; it fills once there is a best lap.
-    shown(g, m.delta.show, |g| {
-        let color = m.delta.role.colour();
-        let r = g.r(cx - 170.0, top, 340.0, S4);
-        g.caps(&m.delta.label, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
-        let r = g.r(cx - 170.0, top + 14.0, 340.0, 40.0);
-        g.text(&m.delta.text, r, T_NUMERAL, semi, Face::Num, color, DT_CENTER);
-        // Each block is a tenth of a second, faster to the left.
-        let at = m.delta.frac;
-        g.blocks(cx - 150.0, top + 56.0, 300.0, 9.0, 20, at.min(0.5), at.max(0.5), color);
-        g.fill(g.r(cx - 1.0, top + 52.0, 2.0, 17.0), FOREGROUND);
-    });
-
+    let plan = centre_plan(card, slots);
     shown(g, m.gear.show, |g| {
-        let frame = match (flash, lit) {
-            (true, _) if blink_on => INFO,
-            (true, _) => DESTRUCTIVE,
-            (false, n) if n >= LIGHTS - 2 => DESTRUCTIVE,
-            _ => MUTED_TEXT,
-        };
-        let (fx, fy, fw, fh) = plan.frame;
-        let (arm, thick) = (26.0, STROKE_BAR);
-        for (px, py, dx, dy) in [
-            (fx, fy, 1.0, 1.0),
-            (fx + fw, fy, -1.0, 1.0),
-            (fx, fy + fh, 1.0, -1.0),
-            (fx + fw, fy + fh, -1.0, -1.0),
-        ] {
-            let x0 = if dx > 0.0 { px } else { px - arm };
-            let y0 = if dy > 0.0 { py } else { py - thick };
-            g.fill(g.r(x0, y0, arm, thick), frame);
-            let x1 = if dx > 0.0 { px } else { px - thick };
-            let y1 = if dy > 0.0 { py } else { py - arm };
-            g.fill(g.r(x1, y1, thick, arm), frame);
-        }
-        let r = g.r(fx - S1, fy - S1, fw + S2, fh + S2);
-        g.text(&m.gear.text, r, fh * GEAR_FILL, semi, Face::Num, PRIMARY, DT_CENTER);
-        for (gear, x) in [(&m.gear_below, fx + S6), (&m.gear_above, fx + fw - 64.0)] {
+        let (gx, gy, gw, gh) = plan.gear;
+        let r = g.r(gx, gy, gw, gh);
+        g.text(&m.gear.text, r, gh * GEAR_FILL, semi, Face::Num, PRIMARY, DT_CENTER);
+        for (gear, (x, y, w, h)) in [(&m.gear_below, plan.below), (&m.gear_above, plan.above)] {
             if gear.visible() {
-                let (w, h) = (40.0, 52.0);
-                let y = fy + fh / 2.0 - h / 2.0;
-                g.fill(g.r(x, y, w, h), SURFACE);
                 let r = g.r(x, y, w, h);
                 g.text(&gear.text, r, T_VALUE_L, semi, Face::Num, GREY, DT_CENTER);
             }
         }
     });
-
-    // The pedals: columns of small squares (brake red, throttle green, clutch blue), a letter under each.
-    for (elem, area) in [(&m.brake, plan.brake), (&m.throttle, plan.throttle), (&m.clutch, plan.clutch)] {
-        shown(g, elem.show, |g| {
-            g.pedal_blocks(area, elem.frac, elem.role.colour());
-            let (bx, by, bw, bh) = area;
-            let r = g.r(bx - S2, by + bh + 3.0, bw + S4, 14.0);
-            g.caps(&elem.label, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
-        });
-    }
-
     shown(g, m.speed.show, |g| {
         let (sx, sy, sw, sh) = plan.speed;
         let r = g.r(sx, sy, sw, sh);
@@ -503,211 +249,328 @@ pub(super) fn centre_block(g: &mut Painter, d: &Dash, cx: f32, top: f32, frame_h
         let r = g.r(ux, uy, uw, uh);
         g.caps(m.speed.unit, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
     });
+    for (elem, place) in [&m.brake, &m.throttle, &m.clutch].into_iter().zip(plan.pedals) {
+        let Some(((lx, ly, lw, lh), bar)) = place else {
+            continue;
+        };
+        shown(g, elem.show, |g| {
+            // The name left and the percentage right; a name that does not fit with it gives way to its short one.
+            let pct = g.tabular_width(&elem.text, T_CAPTION, normal);
+            let name = if g.caps_width(&elem.label, T_CAPTION) + pct + S2 <= lw {
+                &elem.label
+            } else {
+                &elem.short
+            };
+            let r = g.r(lx, ly, lw, lh);
+            g.caps(name, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let r = g.r(lx, ly, lw, lh);
+            g.text(&elem.text, r, T_CAPTION, normal, Face::Num, FOREGROUND_2, DT_RIGHT);
+            g.solid_bar(bar, elem.frac, elem.role.colour());
+        });
+    }
     shown(g, m.steer.show, |g| g.steer_bar(plan.steer, m.steer.frac));
-    plan.bottom
 }
 
-/// One card: its fill and top edge like a lap card, its title, then what it holds.
-pub(super) fn car_card(g: &mut Painter, d: &Dash, card: CarCard, area: Area) {
-    let (x, y, w, h) = area;
-    card_with_edge(g, area, BORDER);
-    let title = match card {
-        CarCard::Lights => Msg::PanelLights,
-        CarCard::Engine => Msg::PanelEngineFuel,
-        CarCard::Electronics => Msg::PanelElectronics,
-    };
-    let r = g.r(x + S4, y + S3, w - 2.0 * S4, S4);
-    g.caps(&text(d.view.lang, &title), r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-    let inner = (x + S4, y + S8, w - 2.0 * S4, (h - S8 - S2).max(1.0));
-    match card {
-        CarCard::Lights => lights_card(g, d, inner),
-        CarCard::Engine => draw_cells(g, &d.m.engine, inner, 2),
-        CarCard::Electronics => electronics_card(g, d, inner),
-    }
-}
-
-pub(super) fn lights_card(g: &mut Painter, d: &Dash, inner: Area) {
-    let lights = &d.m.lights;
-    for (light, cell) in lights.iter().zip(light_cells(inner, lights.len())) {
-        shown(g, light.show, |g| g.light_tile(d.view.lang, light, cell));
-    }
-}
-
-pub(super) fn draw_cells(g: &mut Painter, cells: &[Cell], area: Area, cols: usize) {
+/// The fuel card: the laps of fuel left as the hero (green, amber under five laps, red under two, while driving), the
+/// litres and the tank's size beside it, a tank bar with a tick for each lap's worth of fuel and what a lap takes under
+/// it; the water and oil temperatures at the bottom when the game gives them.
+pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
     let semi = FW_SEMIBOLD as i32;
-    for (cell, (x, y, w, h)) in cells.iter().zip(cell_grid(area, cells.len(), cols)) {
-        shown(g, cell.show, |g| {
-            let r = g.r(x, y, w - S1, S3);
-            g.caps(&cell.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-            let size = (h - S3).clamp(T_BODY, T_VALUE);
-            let r = g.r(x - 1.0, y + S3, w + 2.0, size + S1);
-            g.text(&cell.value, r, size, semi, Face::Num, cell.role.colour(), DT_LEFT);
-        });
-    }
-}
-
-pub(super) fn electronics_card(g: &mut Painter, d: &Dash, inner: Area) {
-    let (cells, bars) = (&d.m.electronics, &d.m.damage);
-    let (stats_area, bars_area) = electronics_split(inner, !cells.is_empty(), !bars.is_empty());
-    draw_cells(g, cells, stats_area, 2);
-    let (bx, by, bw, bh) = bars_area;
-    let row_h = (bh / S1).min(18.0);
-    let label_w = 64.0;
-    for (i, bar) in bars.iter().enumerate() {
-        let y = by + i as f32 * row_h;
-        shown(g, bar.show, |g| {
-            let r = g.r(bx, y, label_w, row_h);
-            g.caps(&bar.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-            let track = (bx + label_w + S1, y + row_h / 2.0 - 3.0, (bw - label_w - S1).max(1.0), 6.0);
-            g.round(g.r(track.0, track.1, track.2, track.3), STROKE_BAR, SECONDARY, None);
-            // Undamaged is an empty bar with a pip of green, so it still reads as healthy.
-            let len = (track.2 * bar.share).max(5.0);
-            g.round(g.r(track.0, track.1, len, track.3), STROKE_BAR, damage_color(bar.share), None);
-        });
-    }
-}
-
-/// The right-hand column, from under the header line to `bottom`: the track map, then the four tyres. Whichever the
-/// game cannot give leaves its room to the other; with neither the column is empty.
-pub(super) fn side_column(g: &mut Painter, d: &Dash, bottom: f32) {
-    let (x, w, top) = (CANVAS_W + S6, SIDE_W - S6, 106.0);
-    match (d.slots.map, d.slots.tyres) {
-        (true, true) => {
-            let tyres_h = ((bottom - top) * 0.46).clamp(214.0, 330.0);
-            track_panel(g, d, x, top, w, bottom - top - tyres_h - 14.0);
-            tyres_panel(g, d, x, bottom - tyres_h, w, tyres_h);
-        }
-        (true, false) => track_panel(g, d, x, top, w, bottom - top),
-        (false, true) => tyres_panel(g, d, x, top, w, bottom - top),
-        (false, false) => {}
-    }
-}
-
-/// The track map (the car's own path, with where it is now) in a box; its title is there whenever the game gives a
-/// position, the path once there is enough of one.
-pub(super) fn track_panel(g: &mut Painter, d: &Dash, x: f32, y: f32, w: f32, h: f32) {
     let m = d.m;
-    shown(g, m.map, |g| {
-        let r = g.r(x, y, w, S4);
-        g.caps(&m.map_title, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-        if let Some(map) = d.live.map.as_ref().filter(|_| has_map(d.live)) {
-            g.track_map((x, y + 22.0, w, h - 22.0), map, d.live.map_complete, d.live.pos);
-        }
-    });
+    let (x, y, w, h) = inner(card);
+    caption(g, &m.fuel_title, (x, y, w, CAPTION_H), DT_LEFT);
+    // The temperatures sit at the bottom.
+    let cells = &m.engine;
+    let temps_h = if cells.is_empty() { 0.0 } else { CAPTION_H + S1 + 28.0 };
+    let hero_h = 52.0;
+    let bar_h = if m.fuel_share.is_some() { S2 + 14.0 } else { 0.0 };
+    let line_h = if m.fuel_per_lap.visible() { S2 + 16.0 } else { 0.0 };
+    let group_h = hero_h + bar_h + line_h;
+    let free = (h - CAPTION_H - S3 - temps_h - group_h - S3).max(0.0);
+    let gy = y + CAPTION_H + S3 + free * 0.4;
+    if m.fuel.visible() {
+        shown(g, m.fuel.show, |g| {
+            let half = w / 2.0;
+            if m.fuel_laps.visible() {
+                // The laps left on the left, the litres on the right.
+                let size = g.fitted(&m.fuel_laps.text, half - S2, T_NUMERAL_L, T_VALUE, semi, Face::Num);
+                let r = g.r(x - 1.0, gy, half, hero_h);
+                g.text(&m.fuel_laps.text, r, size, semi, Face::Num, m.fuel_laps.role.colour(), DT_LEFT);
+                let used = g.tabular_width(&m.fuel_laps.text, size, semi);
+                let r = g.r(x + used + S2, gy + 22.0, (half - used - S2).max(1.0), 22.0);
+                g.text(&m.fuel_laps.label, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
+                let litres = format!("{} {}", m.fuel.text, m.fuel.unit);
+                let size = g.fitted(&litres, half, T_VALUE_L, T_BODY, semi, Face::Num);
+                let r = g.r(x + half, gy + 2.0, half + 1.0, 30.0);
+                g.text(&litres, r, size, semi, Face::Num, FOREGROUND, DT_RIGHT);
+                if m.fuel_tank.visible() {
+                    let r = g.r(x + half, gy + 32.0, half + 1.0, 18.0);
+                    g.text(&m.fuel_tank.text, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
+                }
+            } else {
+                // No laps (the use per lap is not known yet): the litres are the hero.
+                let litres = format!("{} {}", m.fuel.text, m.fuel.unit);
+                let size = g.fitted(&litres, w * 0.6, T_NUMERAL_L, T_VALUE, semi, Face::Num);
+                let r = g.r(x - 1.0, gy, w * 0.6, hero_h);
+                g.text(&litres, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+                if m.fuel_tank.visible() {
+                    let r = g.r(x + w * 0.6, gy + 17.0, w * 0.4 + 1.0, 18.0);
+                    g.text(&m.fuel_tank.text, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
+                }
+            }
+            let mut at = gy + hero_h;
+            if let Some(share) = m.fuel_share {
+                let colour = if m.fuel_laps.visible() {
+                    m.fuel_laps.role.colour()
+                } else {
+                    SUCCESS
+                };
+                g.tank_bar((x, at + S2, w, 14.0), share, m.fuel_tick, colour);
+                at += bar_h;
+            }
+            if m.fuel_per_lap.visible() {
+                let r = g.r(x, at + S2, w, 16.0);
+                g.text(&m.fuel_per_lap.text, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
+            }
+        });
+    }
+    let col = w / cells.len().max(1) as f32;
+    for (i, cell) in cells.iter().enumerate() {
+        let cx = x + i as f32 * col;
+        shown(g, cell.show, |g| {
+            caption(g, &cell.label, (cx, y + h - temps_h, col, CAPTION_H), DT_LEFT);
+            let r = g.r(cx - 1.0, y + h - 28.0, col, 28.0);
+            g.text(&cell.value, r, T_VALUE, semi, Face::Num, cell.role.colour(), DT_LEFT);
+        });
+    }
 }
 
-/// The four tyres around a quiet top view of the car: a rounded tyre at each corner, partly outside the body, its
-/// border and glow in its temperature's colour and its tread left filling it from the bottom. On the outer side the
-/// temperature and the pressure; above the front tyres and below the rear ones the brake's temperature with a disc
-/// in its colour. When the game cannot give tyres, nothing is drawn (not even the title); when it can and has not yet,
-/// the car is there dimmed with dashes.
-pub(super) fn tyres_panel(g: &mut Painter, d: &Dash, x: f32, y: f32, w: f32, h: f32) {
+/// The tyres card: the compound in its header, and a tile for each tyre in a grid of two by two.
+pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area) {
     let Some(tyres) = &d.m.tyres else {
         return;
     };
+    let (x, y, w, _) = inner(card);
     shown(g, tyres.show, |g| {
-        let r = g.r(x, y, w, S4);
-        g.caps(&tyres.title, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-        let plan = schematic(x, y + 22.0, w, h - 22.0, d.slots.brakes);
-        // The car first, so the tyres sit on top of it.
-        g.car_body(plan.body);
-        for (i, tyre) in tyres.tyres.iter().enumerate() {
-            tyre_box(g, &plan, i, tyre);
+        caption(g, &tyres.title, (x, y, w, CAPTION_H), DT_LEFT);
+        if let Some(compound) = &tyres.compound {
+            caption(g, compound, (x, y, w, CAPTION_H), DT_RIGHT);
+        }
+        for (tile, area) in tyres.tiles.iter().zip(tyre_tiles(card)) {
+            tyre_tile_view(g, tile, &tyres.brake_label, area);
         }
     });
 }
 
-/// One tyre of the schematic: a dark tyre with its border and a soft glow in its temperature's colour and its tread
-/// left as a muted fill from the bottom; the temperature big and the pressure under it on the outer side; the
-/// brake's temperature with its disc in its row.
-pub(super) fn tyre_box(g: &mut Painter, plan: &Schematic, i: usize, tyre: &crate::game::Tyre) {
+/// One tyre's tile: its corner and state word, the temperature in the state's colour, a bar of three across the tread when
+/// the game gives them, the pressure and the brake in a small row, and a thin wear bar when the game gives the wear.
+/// What does not fit the tile's height is left out, the wear first, then the bar across the tread.
+pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, area: Area) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
-    let known = tyre.temp_c.is_finite();
-    let color = tyre_color(tyre.temp_c);
-    let (x, y, w, h) = plan.tyres[i];
-    let radius = (w * 0.3).min(9.0);
-    let edge = if known { color } else { TYRE_UNKNOWN_EDGE };
-    // The glow: a few rings getting fainter outward.
-    if known {
-        for (grow, amount) in [(5.0, 0.07), (3.5, 0.12), (2.0, 0.2)] {
-            g.round(
-                g.r(x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow),
-                radius + grow,
-                tint(BACKGROUND, color, amount),
-                None,
+    tile_with_edge(g, area, BACKGROUND, t.role.colour());
+    let (x, y, w, h) = area;
+    // The rows, by what they need; the padding shrinks before a row goes.
+    let (head_h, temp_h, tread_h, row_h, wear_h) = (16.0, 30.0, 9.0, 18.0, 7.0);
+    let base = head_h + temp_h + if t.pressure.is_some() || t.brake.is_some() { row_h } else { 0.0 };
+    let pad = if h >= base + tread_h + wear_h + 2.0 * S2 { S2 } else { S1 };
+    let room = h - 2.0 * pad;
+    let tread = t.tread.filter(|_| room >= base + tread_h);
+    let wear = t
+        .wear
+        .filter(|_| room >= base + if tread.is_some() { tread_h } else { 0.0 } + wear_h);
+    let (ix, iw) = (x + S2, w - 2.0 * S2);
+    let mut at = y + pad + STROKE_ACCENT * 0.5;
+    let r = g.r(ix, at, iw, head_h);
+    g.caps(&t.corner, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+    if !t.word.is_empty() {
+        let r = g.r(ix, at, iw, head_h);
+        g.caps(&t.word, r, T_CAPTION, t.role.colour(), DT_RIGHT);
+    }
+    at += head_h;
+    let size = g.fitted(&t.temp, iw, T_VALUE_L, T_BODY, semi, Face::Num);
+    let r = g.r(ix - 1.0, at, iw + 2.0, temp_h);
+    g.text(&t.temp, r, size, semi, Face::Num, t.role.colour(), DT_LEFT);
+    at += temp_h;
+    if let Some(points) = tread {
+        g.thirds_bar((ix, at + 1.0, iw, 5.0), points.map(Role::colour));
+        at += tread_h;
+    }
+    if t.pressure.is_some() || t.brake.is_some() {
+        let r = g.r(ix, at, iw, row_h);
+        // The pressure on the left and the brake on the right; the brake's word goes when they would meet.
+        let mut left_w = 0.0;
+        if let Some((num, unit)) = &t.pressure {
+            let nw = g.tabular_width(num, T_BODY, semi);
+            g.text(num, g.r(ix, at, nw + 2.0, row_h), T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
+            g.text(
+                unit,
+                g.r(ix + nw + S1, at, iw, row_h),
+                T_CAPTION,
+                normal,
+                Face::Ui,
+                MUTED_TEXT,
+                DT_LEFT,
             );
+            left_w = nw + S1 + g.width_of(unit, T_CAPTION, normal, Face::Ui);
         }
-    }
-    g.round(g.r(x, y, w, h), radius, edge, None);
-    let base = TYRE_FILL;
-    let border = 1.6;
-    g.round(
-        g.r(x + border, y + border, w - 2.0 * border, h - 2.0 * border),
-        radius - border,
-        base,
-        None,
-    );
-    // Tread left: the fill rises from the bottom, in the temperature's colour, muted.
-    if tyre.left.is_finite() {
-        let inset = 3.2;
-        let (fx, fw, full) = (x + inset, w - 2.0 * inset, h - 2.0 * inset);
-        let filled = full * tyre.left.clamp(0.0, 1.0);
-        if filled >= 1.0 {
-            let tint = if known {
-                tint(base, color, 0.5)
-            } else {
-                tint(base, MUTED_TEXT, 0.3)
-            };
-            g.round(
-                g.r(fx, y + inset + full - filled, fw, filled),
-                (radius - inset).max(1.0).min(filled / 2.0),
-                tint,
-                None,
-            );
+        if let Some(brake) = &t.brake {
+            let bw = g.tabular_width(brake, T_BODY, semi);
+            let lw = g.width_of(brake_label, T_CAPTION, normal, Face::Ui);
+            let with_word = left_w + S2 + lw + S1 + bw <= iw;
+            g.text(brake, r, T_BODY, semi, Face::Num, FOREGROUND_2, DT_RIGHT);
+            if with_word {
+                let r = g.r(ix, at, iw - bw - S1, row_h);
+                g.text(brake_label, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
+            }
         }
+        at += row_h;
     }
-    // The readout, centred on the tyre's height, on its outer side.
-    let (rx, _, rw, _) = plan.readout[i];
-    let right_aligned = i.is_multiple_of(2);
-    let size = plan.temp_size;
-    let block = size * 1.15 + S4;
-    let top = y + h / 2.0 - block / 2.0;
-    let temp = if known { format!("{:.0}°", tyre.temp_c) } else { "–".to_owned() };
-    let r = g.r(rx, top, rw, size * 1.15);
-    g.text(
-        &temp,
-        r,
-        size,
-        semi,
-        Face::Num,
-        color,
-        if right_aligned { DT_RIGHT } else { DT_LEFT },
-    );
-    if tyre.pressure_kpa.is_finite() {
-        let num = format!("{:.1}", tyre.pressure_kpa / 6.894_757);
-        let (num_w, psi_w) = (
-            g.width_of(&num, T_BODY, semi, Face::Num),
-            g.width_of("psi", T_CAPTION, normal, Face::Ui),
-        );
-        let ly = top + size * 1.15 + 1.0;
-        let (num_x, psi_x) = if right_aligned {
-            (rx + rw - psi_w - S1 - num_w, rx + rw - psi_w)
-        } else {
-            (rx, rx + num_w + S1)
-        };
-        let r = g.r(num_x - 1.0, ly, num_w + 2.0, 18.0);
-        g.text(&num, r, T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
-        let r = g.r(psi_x, ly + S1, psi_w + 2.0, 14.0);
-        g.text("psi", r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+    if let Some(wear) = wear {
+        g.solid_bar((ix, at + 2.0, iw, 3.0), wear, FOREGROUND_2);
     }
-    let (bx, by, bw, bh) = plan.brake[i];
-    if tyre.brake_c.is_finite() && bh > 0.0 {
-        let label = format!("{:.0} °C", tyre.brake_c);
-        let (disc, gap) = (11.0, 5.0);
-        let label_w = g.width_of(&label, T_CAPTION, normal, Face::Num);
-        let left = bx + (bw - (disc + gap + label_w)) / 2.0;
-        g.brake_disc(left + disc / 2.0, by + bh / 2.0, disc, brake_color(tyre.brake_c));
-        let r = g.r(left + disc + gap, by, label_w + S1, bh);
-        g.text(&label, r, T_CAPTION, normal, Face::Num, MUTED_TEXT, DT_LEFT);
+}
+
+/// The laps table, newest first: the lap being driven in the accent colour with its sectors so far, then each lap done
+/// with its time, its gap to the best and (when the game gives them) its sectors. The best lap and the best sectors are in
+/// the best colour; a lap that did not count is quiet with its time struck through.
+pub(super) fn laps_card(g: &mut Painter, d: &Dash, card: Area) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let laps = &d.m.laps;
+    let (x, y, w, _) = inner(card);
+    shown(g, laps.show, |g| {
+        caption(g, &laps.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let cols = lap_columns(w, laps.sectors);
+        let head_y = y + CAPTION_H + S2;
+        let heads: Vec<String> = laps
+            .heads
+            .iter()
+            .cloned()
+            .chain(["S1", "S2", "S3"].into_iter().map(str::to_owned))
+            .take(cols.len())
+            .collect();
+        for (i, (head, (cx, cw))) in heads.iter().zip(&cols).enumerate() {
+            let r = g.r(x + cx, head_y, *cw - if i == 0 { 0.0 } else { S2 }, LAP_HEAD_H);
+            g.caps(head, r, T_CAPTION, MUTED_TEXT, if i == 0 { DT_LEFT } else { DT_RIGHT });
+        }
+        g.fill(g.r(x, head_y + LAP_HEAD_H - 1.0, w, STROKE_HAIR), BORDER);
+        let fit = lap_rows_fit(card.3);
+        let top = head_y + LAP_HEAD_H;
+        if laps.rows.is_empty() {
+            let r = g.r(x, top + S3, w, 20.0);
+            g.text(&laps.empty, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+        }
+        for (i, row) in laps.rows.iter().take(fit).enumerate() {
+            let ry = top + i as f32 * LAP_ROW_H;
+            shown(g, row.show, |g| {
+                let line = |g: &mut Painter, col: usize, s: &str, colour: COLORREF, struck: bool| {
+                    let (cx, cw) = cols[col];
+                    let (align, left, width) = if col == 0 {
+                        (DT_LEFT, x + cx, cw)
+                    } else {
+                        (DT_RIGHT, x + cx, cw - S2)
+                    };
+                    let r = g.r(left, ry, width, LAP_ROW_H);
+                    if struck {
+                        g.text_struck(s, r, T_BODY, semi, colour, align, DESTRUCTIVE);
+                    } else {
+                        g.text(s, r, T_BODY, semi, Face::Num, colour, align);
+                    }
+                };
+                let number_colour = if row.kind == LapKind::Live { PRIMARY } else { MUTED_TEXT };
+                line(g, 0, &row.number, number_colour, false);
+                line(g, 1, &row.time, row.time_role.colour(), row.kind == LapKind::Invalid);
+                line(g, 2, &row.gap, row.gap_role.colour(), false);
+                for (s, sector) in row.sectors.iter().enumerate() {
+                    if cols.len() > 3 + s {
+                        match sector {
+                            Some((text, role)) => line(g, 3 + s, text, role.colour(), false),
+                            None if row.kind == LapKind::Live => line(g, 3 + s, "–", MUTED_TEXT, false),
+                            None => line(g, 3 + s, "–", MUTED_TEXT, false),
+                        }
+                    }
+                }
+                g.fill(g.r(x, ry + LAP_ROW_H - 1.0, w, STROKE_HAIR), BORDER);
+            });
+        }
+    });
+}
+
+/// The track card: the map as the car has driven it, with the start and finish line when the lap is whole and the car's
+/// dot, and under it how far along the lap the car is, as a share and as metres.
+pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
+    let (normal, semi) = (FW_NORMAL as i32, FW_SEMIBOLD as i32);
+    let m = d.m;
+    let (x, y, w, h) = inner(card);
+    shown(g, m.map, |g| {
+        caption(g, &m.map_title, (x, y, w, CAPTION_H), DT_LEFT);
+    });
+    let line_h = if m.progress.visible() { 20.0 } else { 0.0 };
+    let map_box = (x, y + CAPTION_H + S1, w, (h - CAPTION_H - S1 - line_h - S1).max(1.0));
+    shown(g, m.map, |g| {
+        if let Some(map) = d.live.map.as_ref().filter(|_| has_map(d.live)) {
+            g.track_map(map_box, map, d.live.map_complete, d.live.pos);
+        }
+    });
+    if m.progress.visible() {
+        shown(g, m.progress.show, |g| {
+            let r = g.r(x, y + h - line_h, w, line_h);
+            g.text(&m.progress.text, r, T_BODY, semi, Face::Ui, FOREGROUND, DT_LEFT);
+            let used = g.width_of(&m.progress.text, T_BODY, semi, Face::Ui);
+            if m.distance.visible() && used + g.tabular_width(&m.distance.text, T_BODY, normal) + S4 <= w {
+                let r = g.r(x, y + h - line_h, w, line_h);
+                g.text(&m.distance.text, r, T_BODY, normal, Face::Num, MUTED_TEXT, DT_RIGHT);
+            }
+        });
+    }
+}
+
+/// The alerts card: only the alerts that are lit, as solid tiles with their words; then one row of the electronics'
+/// settings and a short damage line. An alert that is off is not drawn at all.
+pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let m = d.m;
+    let (x, y, w, h) = inner(card);
+    caption(g, &m.alerts_title, (x, y, w, CAPTION_H), DT_LEFT);
+    // From the bottom: the damage line, the electronics row, and the alerts take what is above them.
+    let damage_h = if m.damage.visible() { 18.0 } else { 0.0 };
+    let elec_h = if m.electronics.is_empty() { 0.0 } else { 50.0 };
+    let mut bottom = y + h;
+    if m.damage.visible() {
+        shown(g, m.damage.show, |g| {
+            let r = g.r(x, bottom - damage_h, w, damage_h);
+            let colour = if m.damage.role == Role::Warn { WARN } else { MUTED_TEXT };
+            g.text(&m.damage.text, r, T_BODY, normal, Face::Ui, colour, DT_LEFT);
+        });
+        bottom -= damage_h + S2;
+    }
+    if !m.electronics.is_empty() {
+        let n = m.electronics.len() as f32;
+        let cw = (w - S2 * (n - 1.0)) / n;
+        for (i, cell) in m.electronics.iter().enumerate() {
+            let cx = x + i as f32 * (cw + S2);
+            shown(g, cell.show, |g| {
+                g.round(g.r(cx, bottom - elec_h, cw, elec_h), R_TILE, BACKGROUND, Some(BORDER));
+                let r = g.r(cx + S2, bottom - elec_h + 6.0, cw - S3, 14.0);
+                g.caps(&cell.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+                let size = g.fitted(&cell.value, cw - S3, T_VALUE, T_BODY, semi, Face::Num);
+                let r = g.r(cx + S2 - 1.0, bottom - elec_h + 22.0, cw - S3 + 2.0, 24.0);
+                g.text(&cell.value, r, size, semi, Face::Num, cell.role.colour(), DT_LEFT);
+            });
+        }
+        bottom -= elec_h + S2;
+    }
+    let top = y + CAPTION_H + S2;
+    let region = (x, top, w, (bottom - top).max(0.0));
+    if m.alerts.is_empty() {
+        let r = g.r(x, top, w, 20.0);
+        g.text(&m.no_alerts, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+        return;
+    }
+    let tile_h = 28.0;
+    let widths: Vec<f32> = m.alerts.iter().map(|a| g.caps_width(&a.word, T_CAPTION) + S4 + S2).collect();
+    for (alert, place) in m.alerts.iter().zip(flow(region, &widths, tile_h, S2)) {
+        if let Some(area) = place {
+            shown(g, alert.show, |g| g.alert_tile(alert, area));
+        }
     }
 }

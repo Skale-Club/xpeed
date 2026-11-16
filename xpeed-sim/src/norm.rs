@@ -138,6 +138,13 @@ pub fn tread_c(inner: f32, middle: f32, outer: f32) -> f32 {
     (i + m + o) / 3.0
 }
 
+/// The three readings across a tyre's tread (inner, middle, outer), when all three are believable (`tyre_c`); else
+/// nothing: a bar across the tread needs the three.
+pub fn tread_points(inner: f32, middle: f32, outer: f32) -> Option<[f32; 3]> {
+    let points = [tyre_c(inner), tyre_c(middle), tyre_c(outer)];
+    points.iter().all(|p| p.is_finite()).then_some(points)
+}
+
 /// A tyre's pressure in kPa (above 0: an empty memory says 0).
 pub fn pressure_kpa(v: f32) -> f32 {
     if v > 0.0 {
@@ -291,6 +298,9 @@ mod tests {
         assert!(same(tread_c(80.0, 90.0, 100.0), 90.0));
         assert!(tread_c(80.0, 0.0, 100.0).is_nan(), "all three points or none");
         assert!(tread_c(80.0, 90.0, f32::NAN).is_nan());
+        assert_eq!(tread_points(80.0, 90.0, 100.0), Some([80.0, 90.0, 100.0]));
+        assert_eq!(tread_points(80.0, 0.0, 100.0), None, "a bar across the tread needs all three");
+        assert_eq!(tread_points(80.0, 90.0, f32::NAN), None);
     }
 
     #[test]

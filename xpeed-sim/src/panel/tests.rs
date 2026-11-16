@@ -15,33 +15,6 @@ fn the_account_card_says_connected_when_the_account_is_unknown_never_the_host() 
 }
 
 #[test]
-fn a_pedal_lights_blocks_from_the_bottom_with_its_value_and_never_past_the_column() {
-    let count = pedal_count(140.0);
-    assert_eq!(count, 17, "6 tall with 2 between: 17 blocks in 140");
-    assert_eq!(pedal_lit(0.0, count), 0);
-    assert_eq!(pedal_lit(1.0, count), count);
-    assert_eq!(pedal_lit(1.7, count), count, "clamped");
-    assert_eq!(pedal_lit(0.5, 10), 5);
-    assert_eq!(pedal_lit(0.04, 10), 1, "a pedal touched shows a block");
-    assert_eq!(pedal_lit(0.01, 10), 0, "a hair above nothing is nothing");
-    assert_eq!(pedal_lit(-0.3, 10), 0);
-    assert_eq!(pedal_count(1.0), 1, "never none");
-}
-
-#[test]
-fn a_pedal_without_a_value_counts_as_released() {
-    assert_eq!(pedal_lit(f32::NAN, 10), 0);
-    assert_eq!(pedal_lit(f32::INFINITY, 10), 0);
-}
-
-#[test]
-fn a_pedal_tag_is_the_first_letter_in_capitals() {
-    assert_eq!(pedal_tag("Brake"), "B");
-    assert_eq!(pedal_tag("embreagem"), "E");
-    assert_eq!(pedal_tag(""), "");
-}
-
-#[test]
 fn the_wheel_bar_fills_toward_the_turn_and_stays_straight_without_a_value() {
     assert_eq!(steer_share(0.0), 0.0);
     assert_eq!(steer_share(0.5), 0.5);
@@ -49,459 +22,6 @@ fn the_wheel_bar_fills_toward_the_turn_and_stays_straight_without_a_value() {
     assert_eq!(steer_share(3.0), 1.0);
     assert_eq!(steer_share(-3.0), -1.0);
     assert_eq!(steer_share(f32::NAN), 0.0);
-}
-
-/// Whether a box lies between two vertical lines.
-fn within_centre(a: Area, from: f32, to: f32) -> bool {
-    a.0 >= from && a.0 + a.2 <= to
-}
-
-#[test]
-fn the_pedal_bars_and_the_wheel_bar_stay_in_the_centre_column_clear_of_the_side_columns() {
-    // The main block (used by the classic, ultrawide, wide and square layouts), then the portrait canvas.
-    for (name, cx, top, frame_h, from, to) in [
-        ("main", CANVAS_W / 2.0, 100.0, 140.0, MAIN_SIDE_W, CANVAS_W - MAIN_SIDE_W),
-        ("portrait", PORTRAIT_W / 2.0, 100.0, 190.0, 0.0, PORTRAIT_W),
-    ] {
-        let plan = centre_plan(cx, top, frame_h, true);
-        let (fx, fy, fw, fh) = plan.frame;
-        for (what, bar) in [
-            ("brake", plan.brake),
-            ("throttle", plan.throttle),
-            ("clutch", plan.clutch),
-            ("wheel", plan.steer),
-        ] {
-            assert!(within_centre(bar, from, to), "{name}: the {what} bar stays in the centre column");
-        }
-        // The pedals are as tall as the brackets, brake on the left and throttle on the right, outside the frame.
-        assert_eq!((plan.brake.1, plan.brake.3), (fy, fh));
-        assert_eq!((plan.throttle.1, plan.throttle.3), (fy, fh));
-        assert!(plan.brake.0 + plan.brake.2 <= fx, "{name}: the brake is left of the frame");
-        assert!(plan.throttle.0 >= fx + fw, "{name}: the throttle is right of the frame");
-        // The clutch sits on the outer side of the brake, apart from it, and is thinner.
-        assert!(
-            plan.clutch.0 + plan.clutch.2 < plan.brake.0 && plan.clutch.2 < plan.brake.2,
-            "{name}: clutch"
-        );
-        // The wheel bar is about the frame's width, under the speed and its unit, above the bottom line.
-        assert!((plan.steer.2 - fw).abs() < 1.0);
-        assert!(
-            plan.steer.1 >= plan.unit.1 + plan.unit.3 && plan.steer.1 + plan.steer.3 <= plan.bottom,
-            "{name}: wheel"
-        );
-        assert!(!overlap(plan.steer, plan.brake) && !overlap(plan.steer, plan.throttle));
-        // The letters under the pedals end above the wheel bar.
-        assert!(plan.brake.1 + plan.brake.3 + 17.0 <= plan.steer.1 + plan.steer.3);
-    }
-    // The main block's middle ends above its car strip.
-    assert!(centre_plan(CANVAS_W / 2.0, 100.0, 140.0, true).bottom < STRIP_TOP - 5.0);
-}
-
-#[test]
-fn without_a_delta_the_gear_frame_rises_and_grows_so_the_middle_keeps_its_height() {
-    for (cx, frame_h) in [(CANVAS_W / 2.0, 140.0), (PORTRAIT_W / 2.0, 190.0)] {
-        let with = centre_plan(cx, 100.0, frame_h, true);
-        let without = centre_plan(cx, 100.0, frame_h, false);
-        assert_eq!(with.bottom, without.bottom, "the rest of the layout does not move");
-        assert!(without.frame.1 < with.frame.1 && without.frame.3 > with.frame.3);
-        assert_eq!(without.brake.3, without.frame.3, "the pedals follow the frame");
-        assert!(without.frame.1 >= 100.0, "and stays under the top of the block");
-    }
-}
-
-#[test]
-fn the_car_strip_cards_fit_their_row_and_the_least_important_go_first() {
-    let (row_y, row_h) = (STRIP_TOP, CANVAS_H - STRIP_TOP - 8.0);
-    let every = [CarCard::Lights, CarCard::Engine, CarCard::Electronics];
-    let all = strip_plan(0.0, row_y, CANVAS_W, row_h, &every);
-    let kinds: Vec<CarCard> = all.iter().map(|c| c.0).collect();
-    assert_eq!(
-        kinds,
-        [CarCard::Lights, CarCard::Engine, CarCard::Electronics],
-        "the main block has room for all three"
-    );
-    for (card, area) in &all {
-        assert!(inside_box(*area, 0.0, row_y, CANVAS_W, row_h), "{card:?} is inside its row");
-        assert!(area.2 >= card.min_w(), "{card:?} is wide enough to read");
-    }
-    for pair in all.windows(2) {
-        assert!(!overlap(pair[0].1, pair[1].1), "cards side by side, not over each other");
-        assert!(pair[1].1 .0 > pair[0].1 .0 + pair[0].1 .2, "with a gap");
-    }
-    // Less room: the engine and fuel card goes first, then electronics; the lights never.
-    let two: Vec<CarCard> = strip_plan(0.0, 0.0, 560.0, 100.0, &every).iter().map(|c| c.0).collect();
-    assert_eq!(two, [CarCard::Lights, CarCard::Electronics]);
-    let one: Vec<CarCard> = strip_plan(0.0, 0.0, 300.0, 100.0, &every).iter().map(|c| c.0).collect();
-    assert_eq!(one, [CarCard::Lights]);
-    let tiny: Vec<CarCard> = strip_plan(0.0, 0.0, 120.0, 100.0, &every).iter().map(|c| c.0).collect();
-    assert_eq!(tiny, [CarCard::Lights], "the lights stay even where they are squeezed");
-    // The tiles of the lights card stay inside it, in a grid that does not overlap, whatever the card's size.
-    let (_, lights) = all[0];
-    let main_inner = (lights.0 + 14.0, lights.1 + 32.0, lights.2 - 28.0, lights.3 - 40.0);
-    let portrait_inner = (0.0, 0.0, PORTRAIT_W - 28.0, 40.0);
-    for inner in [main_inner, portrait_inner] {
-        for n in 1..=9 {
-            let cells = light_cells(inner, n);
-            assert_eq!(cells.len(), n);
-            for (i, c) in cells.iter().enumerate() {
-                assert!(
-                    inside_box(*c, inner.0, inner.1, inner.2, inner.3),
-                    "tile {i} of {n} inside the card"
-                );
-                for d in &cells[i + 1..] {
-                    assert!(!overlap(*c, *d), "tiles of {n} do not overlap");
-                }
-            }
-        }
-    }
-    // And the other two cards' figures stay inside theirs, however many are known.
-    let (_, engine) = all[1];
-    let inner = (engine.0 + 14.0, engine.1 + 32.0, engine.2 - 28.0, engine.3 - 40.0);
-    for n in 1..=4 {
-        for c in cell_grid(inner, n, 2) {
-            assert!(inside_box(c, inner.0, inner.1, inner.2, inner.3), "{n} figures in the engine card");
-        }
-    }
-    for (stats, bars) in [(true, true), (true, false), (false, true)] {
-        let (s, b) = electronics_split(inner, stats, bars);
-        assert!(!overlap(s, b));
-        assert!(inside_box(s, inner.0, inner.1, inner.2, inner.3) && inside_box(b, inner.0, inner.1, inner.2, inner.3));
-    }
-}
-
-#[test]
-fn a_light_the_game_cannot_give_is_not_drawn_and_one_it_gives_without_a_value_is_dimmed() {
-    use crate::game::{Caps, CarState, Drs, Flag};
-    let mut live = live_reading();
-    live.fuel_per_lap_l = None;
-    live.state = CarState::UNKNOWN;
-    live.caps = Caps::NONE;
-    assert!(
-        model(&live, Lang::En).lights.is_empty(),
-        "nothing the game can give, nothing drawn (not even as off)"
-    );
-    // Only what the game can give appears, in the fixed order; with no value yet it is there, off and dimmed.
-    live.caps = Caps::ABS_ACTIVE.or(Caps::DRS).or(Caps::HEADLIGHTS).or(Caps::FLAG);
-    let kinds: Vec<(PillKind, Glow, Show)> = model(&live, Lang::En).lights.iter().map(|p| (p.kind, p.glow, p.show)).collect();
-    assert_eq!(
-        kinds,
-        [
-            (PillKind::Abs, Glow::Off, Show::Dimmed),
-            (PillKind::Drs, Glow::Off, Show::Dimmed),
-            (PillKind::Headlights, Glow::Off, Show::Dimmed),
-            (PillKind::Flag, Glow::Off, Show::Dimmed)
-        ]
-    );
-    live.state.headlights = Some(false);
-    live.state.abs_active = Some(true);
-    live.state.drs = Some(Drs::Available);
-    live.state.flag = Some(Flag::Yellow);
-    let kinds: Vec<(PillKind, Glow, Show)> = model(&live, Lang::En).lights.iter().map(|p| (p.kind, p.glow, p.show)).collect();
-    assert_eq!(
-        kinds,
-        [
-            (PillKind::Abs, Glow::On, Show::Shown),
-            (PillKind::Drs, Glow::Ready, Show::Shown),
-            (PillKind::Headlights, Glow::Off, Show::Shown),
-            (PillKind::Flag, Glow::Off, Show::Shown)
-        ]
-    );
-    for hidden in [PillKind::Pit, PillKind::Tc, PillKind::Fuel, PillKind::Engine, PillKind::Handbrake] {
-        assert!(
-            model(&live, Lang::En).lights.iter().all(|p| p.kind != hidden),
-            "{hidden:?} is not given"
-        );
-    }
-    live.state.drs = Some(Drs::Open);
-    assert_eq!(model(&live, Lang::En).lights[1].glow, Glow::On, "DRS open is lit");
-    // The same in the picture: one that is lit paints its colour.
-    let f = fixture();
-    let none = {
-        let mut l = live_reading();
-        l.state = CarState::UNKNOWN;
-        l.fuel_per_lap_l = None;
-        l
-    };
-    let lit = {
-        let mut l = none.clone();
-        l.state.engine_warning = Some(true);
-        l.state.handbrake = Some(true);
-        l
-    };
-    let (w, h) = (1032, 602);
-    let plain = render(&view(&f, Some(&none), Tab::Dash, 1.0, Lang::En), w, h);
-    let drawn = render(&view(&f, Some(&lit), Tab::Dash, 1.0, Lang::En), w, h);
-    assert!(
-        has_color(&drawn, DESTRUCTIVE) > has_color(&plain, DESTRUCTIVE) + 200,
-        "ENG and HB light up in red"
-    );
-}
-
-#[test]
-fn laps_of_fuel_left_are_computed_and_hidden_without_the_use_per_lap() {
-    assert_eq!(fuel_laps_left(30.0, Some(2.0)), Some(15.0));
-    assert_eq!(fuel_laps_left(0.0, Some(2.0)), Some(0.0));
-    assert_eq!(fuel_laps_left(-1.0, Some(2.0)), Some(0.0), "never below nothing");
-    assert_eq!(fuel_laps_left(30.0, None), None, "no use per lap, no laps");
-    assert_eq!(fuel_laps_left(30.0, Some(0.0)), None);
-    assert_eq!(fuel_laps_left(30.0, Some(f32::NAN)), None);
-    assert_eq!(fuel_laps_left(f32::NAN, Some(2.0)), None);
-    let mut live = live_reading();
-    live.fuel_l = 38.6;
-    live.fuel_per_lap_l = Some(2.9);
-    assert_eq!(model(&live, Lang::En).fuel_laps.text, "≈ 13.3 laps");
-    assert_eq!(model(&live, Lang::Pt).fuel_laps.text, "≈ 13.3 voltas");
-    assert_eq!(model(&live, Lang::En).fuel_per_lap.text, "2.9 L/lap");
-    assert_eq!(model(&live, Lang::Pt).fuel_per_lap.text, "2.9 L/volta");
-    live.fuel_per_lap_l = None;
-    let m = model(&live, Lang::En);
-    assert_eq!(m.fuel_laps.show, Show::Hidden, "no laps until the use per lap is known");
-    assert_eq!(m.fuel_per_lap.show, Show::Hidden);
-    let laps_left = m.engine.iter().find(|c| c.label == text(Lang::En, &Msg::PanelLapsLeft)).unwrap();
-    assert_eq!(
-        (laps_left.value.as_str(), laps_left.show),
-        ("–", Show::Dimmed),
-        "its place stays, empty"
-    );
-    // The fuel light needs the laps too: under two laps it is lit.
-    let fuel_light = |live: &Live| {
-        model(live, Lang::En)
-            .lights
-            .iter()
-            .find(|p| p.kind == PillKind::Fuel)
-            .cloned()
-            .unwrap()
-    };
-    assert_eq!(fuel_light(&live).show, Show::Dimmed);
-    live.fuel_per_lap_l = Some(2.9);
-    live.fuel_l = 4.0;
-    assert_eq!(fuel_light(&live).glow, Glow::On);
-    live.fuel_l = 20.0;
-    assert_eq!(fuel_light(&live).glow, Glow::Off);
-}
-
-#[test]
-fn a_fuel_reading_taken_while_not_driving_never_warns_and_a_zero_is_not_shown() {
-    let mut live = live_reading();
-    live.fuel_per_lap_l = Some(2.9);
-    live.fuel_l = 0.0;
-    assert!(model(&live, Lang::En).fuel_low, "driving with an empty tank warns");
-    live.driving = false;
-    let m = model(&live, Lang::En);
-    assert!(!m.fuel_low, "no warning from a reading taken in the menu");
-    assert_eq!(fuel_reading(&live), None, "a 0 in the menu is not a reading");
-    // The last real reading stays, dimmed: not a 0, not a warning.
-    assert_eq!((m.fuel.text.as_str(), m.fuel.show), ("38.6", Show::Dimmed));
-    let fuel_light = |live: &Live| {
-        model(live, Lang::En)
-            .lights
-            .iter()
-            .find(|p| p.kind == PillKind::Fuel)
-            .cloned()
-            .unwrap()
-    };
-    assert_eq!(fuel_light(&live).glow, Glow::Off, "no FUEL light either");
-    // A real reading while not driving (in the pits box, say) is shown, but still never warns.
-    live.fuel_l = 3.0;
-    assert_eq!(fuel_reading(&live), Some(3.0));
-    let m = model(&live, Lang::En);
-    assert_eq!((m.fuel.text.as_str(), m.fuel.show), ("3.0", Show::Shown));
-    assert!(!m.fuel_low);
-    assert_eq!(fuel_light(&live).glow, Glow::Off);
-    // Driving: red under two laps, not at two.
-    live.driving = true;
-    live.fuel_per_lap_l = Some(2.0);
-    live.fuel_l = 3.9;
-    assert!(model(&live, Lang::En).fuel_low);
-    live.fuel_l = 4.0;
-    assert!(!model(&live, Lang::En).fuel_low);
-    live.fuel_l = f32::NAN;
-    assert_eq!(fuel_reading(&live), None);
-}
-
-#[test]
-fn the_tank_gauge_is_the_fuel_against_the_tank_and_never_past_it() {
-    assert_eq!(fuel_share(30.0, Some(60.0)), Some(0.5));
-    assert_eq!(fuel_share(60.0, Some(60.0)), Some(1.0));
-    assert_eq!(fuel_share(65.0, Some(60.0)), Some(1.0), "a tank known too small reads full");
-    assert_eq!(fuel_share(0.0, Some(60.0)), Some(0.0));
-    assert_eq!(fuel_share(30.0, None), None, "no tank, no gauge");
-    assert_eq!(fuel_share(30.0, Some(0.0)), None);
-    assert_eq!(fuel_share(f32::NAN, Some(60.0)), None);
-}
-
-#[test]
-fn the_columns_share_their_room_among_what_is_shown() {
-    // Three times in the column: a row each; fewer: taller rows, never past half again.
-    assert_eq!(left_row_h(3, 98.0), 98.0);
-    assert_eq!(left_row_h(2, 98.0), 147.0);
-    assert_eq!(left_row_h(1, 98.0), 147.0);
-    for n in 1..=3 {
-        assert!(n as f32 * left_row_h(n, 98.0) <= 3.0 * 98.0 + 0.01, "{n} rows fit the column");
-    }
-    // The right column: fuel on top, the lap under it; one alone starts at the top.
-    let (fuel, lap) = right_plan(98.0, true, true);
-    let (fuel, lap) = (fuel.unwrap(), lap.unwrap());
-    assert_eq!(fuel.0, 0.0);
-    assert_eq!(lap.0, fuel.0 + fuel.1, "no hole between them");
-    assert!(lap.0 + lap.1 <= 3.0 * 98.0 + 0.01, "inside the column");
-    assert_eq!(right_plan(98.0, false, true).1.map(|(at, _)| at), Some(0.0));
-    assert_eq!(right_plan(98.0, true, false).0.map(|(at, _)| at), Some(0.0));
-    assert_eq!(right_plan(98.0, false, false), (None, None));
-}
-
-#[test]
-fn a_game_that_gives_nothing_shows_nothing_extra() {
-    use crate::game::Caps;
-    let mut live = live_reading();
-    let nothing = slots(Caps::NONE);
-    assert!(nothing.cards.is_empty(), "no card without something the game can give");
-    assert!(strip_plan(0.0, 0.0, CANVAS_W, 100.0, &[]).is_empty());
-    assert!(!nothing.side(), "no column without a map or tyres");
-    assert!(main_height(&nothing) < CANVAS_H, "no strip, no empty band under the dashboard");
-    let engine = slots(Caps::WATER_TEMP);
-    assert_eq!(main_height(&engine), CANVAS_H);
-    let both = slots(Caps::WATER_TEMP.or(Caps::TC_LEVEL));
-    assert_eq!(both.cards, [CarCard::Engine, CarCard::Electronics]);
-    // The two that remain take the whole row.
-    let plan = strip_plan(0.0, 0.0, CANVAS_W, 100.0, &both.cards);
-    assert_eq!(plan.len(), 2);
-    assert!((plan[1].1 .0 + plan[1].1 .2 - CANVAS_W).abs() < 0.01, "right edge reached: no hole");
-    assert_eq!(slots(Caps::WATER_TEMP.or(Caps::HEADLIGHTS)).cards[0], CarCard::Lights);
-    // Lights alone take the row too, and the lights card is the last to go when the row is narrow.
-    assert_eq!(
-        strip_plan(0.0, 0.0, 300.0, 100.0, &[CarCard::Lights, CarCard::Engine])[0].0,
-        CarCard::Lights
-    );
-    assert_eq!(strip_plan(0.0, 0.0, 300.0, 100.0, &[CarCard::Engine])[0].0, CarCard::Engine);
-    // A game that gives nothing of the car draws only what it gives, at any window shape.
-    let f = fixture();
-    live.caps = Caps::LAP_TIME.or(Caps::SPEED).or(Caps::GEAR);
-    for (w, h) in [(1536, 864), (1024, 768), (540, 1080), (960, 600), (2560, 1080)] {
-        let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-        assert!(!render(&v, w, h).is_empty());
-    }
-    // A reading without times, delta, fuel, pedals, speed or wheel paints dimmed placeholders, nothing moved.
-    let live = live_reading();
-    let mut bare = live.clone();
-    bare.lap_time_s = None;
-    bare.last_lap_s = None;
-    bare.best_lap_s = None;
-    bare.delta_s = None;
-    bare.dist_m = None;
-    bare.fuel_l = f32::NAN;
-    for value in [
-        &mut bare.throttle,
-        &mut bare.brake,
-        &mut bare.clutch,
-        &mut bare.steer,
-        &mut bare.speed_ms,
-        &mut bare.gear,
-    ] {
-        *value = f32::NAN;
-    }
-    for (w, h) in [(1536, 864), (1024, 768), (540, 1080), (960, 600), (2560, 1080)] {
-        let v = view(&f, Some(&bare), Tab::Dash, 1.0, Lang::En);
-        assert!(!render(&v, w, h).is_empty());
-    }
-    let full = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), 1536, 864);
-    let none = render(&view(&f, Some(&bare), Tab::Dash, 1.0, Lang::En), 1536, 864);
-    assert!(has_color(&full, SUCCESS) > has_color(&none, SUCCESS) || has_color(&full, PRIMARY) > has_color(&none, PRIMARY));
-    // Without a live gear the gear letter is dimmed: the full yellow is gone with it.
-    assert!(has_color(&none, PRIMARY) < has_color(&full, PRIMARY) / 2);
-}
-
-#[test]
-fn the_light_tiles_are_a_grid_of_equal_tiles_without_a_lone_one_on_a_row_of_its_own() {
-    for inner in [(0.0, 0.0, 297.0, 72.0), (0.0, 0.0, 572.0, 40.0), (0.0, 0.0, 200.0, 72.0)] {
-        for n in 1..=9 {
-            let cells = light_cells(inner, n);
-            let (w, h) = (cells[0].2, cells[0].3);
-            assert!(cells.iter().all(|c| c.2 == w && c.3 == h), "{n} tiles of one size");
-            let rows: std::collections::BTreeSet<i32> = cells.iter().map(|c| (c.1 * 100.0) as i32).collect();
-            let cols: std::collections::BTreeSet<i32> = cells.iter().map(|c| (c.0 * 100.0) as i32).collect();
-            for row in &rows {
-                let in_row = cells.iter().filter(|c| (c.1 * 100.0) as i32 == *row).count();
-                assert!(in_row > 1 || rows.len() == 1 || cols.len() == 1, "{n} tiles: a row with one tile");
-            }
-            // Aligned: one x per column, one y per row.
-            assert_eq!(cells.len(), n);
-        }
-    }
-    // Counts that divide evenly fill their rows.
-    let six = light_cells((0.0, 0.0, 297.0, 72.0), 6);
-    assert_eq!(six.iter().filter(|c| c.1 == six[0].1).count(), 3, "six is three by two");
-    let nine = light_cells((0.0, 0.0, 572.0, 40.0), 9);
-    assert!(nine.iter().all(|c| c.1 == nine[0].1), "nine in a wide, short card is one row");
-    // Colours by meaning.
-    assert_eq!(pill_color(PillKind::Fuel), WARN);
-    assert_eq!(pill_color(PillKind::Pit), WARN);
-    assert_eq!(pill_color(PillKind::Engine), DESTRUCTIVE);
-    assert_eq!(pill_color(PillKind::Abs), INFO);
-    assert_eq!(pill_color(PillKind::Tc), SUCCESS);
-}
-
-#[test]
-fn a_lit_light_paints_its_colour_and_an_unlit_one_does_not() {
-    let f = fixture();
-    let mut live = live_reading();
-    live.state.pit_limiter = Some(false);
-    let (w, h) = (1536, 864);
-    let off = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
-    live.state.pit_limiter = Some(true);
-    let on = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
-    assert!(has_color(&on, WARN) > has_color(&off, WARN) + 400, "the PIT tile fills with amber");
-}
-
-#[test]
-fn the_engine_and_electronics_cards_keep_only_what_the_game_can_give() {
-    use crate::game::{Caps, CarState};
-    let mut live = live_reading();
-    live.state = CarState::UNKNOWN;
-    live.caps = Caps::NONE;
-    let m = model(&live, Lang::En);
-    assert!(m.electronics.is_empty() && m.damage.is_empty() && m.engine.is_empty());
-    live.caps = Caps::WATER_TEMP;
-    live.state.water_c = Some(92.0);
-    let engine = model(&live, Lang::En).engine;
-    assert_eq!(engine.len(), 1, "water alone: oil, use and laps are left out");
-    assert_eq!((engine[0].value.as_str(), engine[0].show), ("92 °C", Show::Shown));
-    live.caps = Caps::TC_LEVEL.or(Caps::BRAKE_BIAS).or(Caps::DAMAGE_GEARBOX);
-    live.state.tc_level = Some(0);
-    live.state.brake_bias = Some(0.56);
-    live.state.damage_gearbox = Some(0.4);
-    let m = model(&live, Lang::En);
-    assert_eq!(
-        m.electronics.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(),
-        ["OFF", "56.0 %"]
-    );
-    assert_eq!(
-        m.damage,
-        [Damage {
-            label: "Gbx".to_owned(),
-            share: 0.4,
-            show: Show::Shown
-        }]
-    );
-    // A setting the game can give but has no value for now keeps its place, dimmed.
-    live.state.brake_bias = None;
-    let m = model(&live, Lang::En);
-    assert_eq!(m.electronics.len(), 2);
-    assert_eq!((m.electronics[1].value.as_str(), m.electronics[1].show), ("–", Show::Dimmed));
-    assert_eq!(damage_color(0.0), SUCCESS);
-    assert_eq!(damage_color(0.5), WARN);
-    assert_eq!(damage_color(1.0), DESTRUCTIVE);
-}
-
-#[test]
-fn the_brake_disc_and_tyre_colours_follow_their_temperature() {
-    assert_eq!(brake_color(100.0), STEEL);
-    assert_eq!(brake_color(300.0), SUCCESS);
-    assert_eq!(brake_color(600.0), WARN);
-    assert_eq!(brake_color(800.0), DESTRUCTIVE);
-    assert_eq!(brake_color(f32::NAN), MUTED_TEXT);
-    assert_eq!(tyre_color(50.0), STEEL, "a cold tyre is a calm steel blue");
-    assert_eq!(tyre_color(80.0), SUCCESS);
 }
 
 #[test]
@@ -602,41 +122,6 @@ fn the_window_opens_16_by_9_from_the_screen_it_is_on() {
     assert_eq!(opening_size(1366, 728, 1.0), (1093, 615));
     let (w, h) = opening_size(800, 560, 1.0);
     assert!(w >= MIN_WIDTH && h >= MIN_HEIGHT, "never under the smallest window: {w} x {h}");
-}
-
-#[test]
-fn each_screen_shape_gets_the_layout_that_fills_it() {
-    // The window's body: the window less the header (66) and the margins (16 around).
-    let body = |w: f32, h: f32| (w - 32.0, h - 66.0 - 16.0);
-    let pick = |w: f32, h: f32| {
-        let (bw, bh) = body(w, h);
-        pick_layout(bw, bh, true, CANVAS_H)
-    };
-    assert_eq!(pick(2560.0, 1080.0), Layout::Ultrawide);
-    assert_eq!(pick(3440.0, 1440.0), Layout::Ultrawide);
-    assert_eq!(pick(1920.0, 1080.0), Layout::Wide);
-    assert_eq!(pick(1536.0, 864.0), Layout::Wide, "the window as it opens on a 1080p screen");
-    assert_eq!(pick(1680.0, 1050.0), Layout::Wide);
-    assert_eq!(pick(1024.0, 768.0), Layout::Square);
-    assert_eq!(pick(1280.0, 1024.0), Layout::Square);
-    assert_eq!(pick(430.0, 900.0), Layout::Portrait);
-    assert_eq!(pick(768.0, 1024.0), Layout::Portrait, "a tablet held upright");
-    assert_eq!(pick(960.0, 600.0), Layout::Classic, "too small for the column to read well");
-    // Nothing for the column or the row (no map, no tyres): the main dashboard takes the room instead.
-    let bare = |w: f32, h: f32| {
-        let (bw, bh) = body(w, h);
-        let layout = pick_layout(bw, bh, false, CANVAS_H);
-        (layout, layout.size(false, CANVAS_H))
-    };
-    assert_eq!(
-        bare(2560.0, 1080.0).1,
-        (CANVAS_W, CANVAS_H),
-        "an ultrawide shows the dashboard alone"
-    );
-    for (w, h) in [(1024.0, 768.0), (1280.0, 1024.0), (1920.0, 1080.0)] {
-        assert_eq!(bare(w, h).1 .0, CANVAS_W, "no column at {w} x {h}");
-        assert_ne!(bare(w, h).0, Layout::Square, "a row with nothing in it is no layout at {w} x {h}");
-    }
 }
 
 #[test]
@@ -763,7 +248,17 @@ fn every_cap() -> crate::game::Caps {
 
 /// The dashboard model of a reading, as of the moment it arrived.
 fn model(live: &Live, lang: Lang) -> DashModel {
-    dashboard(live, &ModelCtx { lang, now_ms: live.at_ms })
+    dashboard(live, &ctx_of(lang, live.at_ms))
+}
+
+/// What the model needs besides the reading: a language and a time, the default units and no saved laps.
+fn ctx_of(lang: Lang, now_ms: i64) -> ModelCtx<'static> {
+    ModelCtx {
+        lang,
+        now_ms,
+        units: Default::default(),
+        laps: &[],
+    }
 }
 
 fn live_reading() -> Live {
@@ -793,6 +288,7 @@ fn live_reading() -> Live {
             temp_c: t,
             pressure_kpa: psi * 6.894_757,
             left,
+            tread_c: None,
         }),
     );
     let mut live = tracker.on_frame("Assetto Corsa", &frame, 1_000);
@@ -898,6 +394,7 @@ fn fixture() -> Fixture {
 fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: Lang) -> View<'a> {
     View {
         lang,
+        units: Default::default(),
         tab,
         on_top: tab == Tab::Monitor,
         full: false,
@@ -932,28 +429,6 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
     }
 }
 
-#[test]
-fn paints_the_dashboard_with_the_gear_in_the_accent_colour_and_the_delta_in_green() {
-    let f = fixture();
-    let live = live_reading();
-    let (w, h) = (960, 600);
-    let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
-    save(&pixels, w, h, "panel-dashboard.png");
-    assert!(pixels[..3].iter().all(|&c| c < 0x24), "the corner is the dark background");
-    assert!(
-        has_color(&pixels, PRIMARY) > 2000,
-        "the selected tab and the gear are drawn in the accent"
-    );
-    assert!(
-        has_color(&pixels, SUCCESS) > 300,
-        "a negative delta, the throttle and the low revs are green"
-    );
-    assert!(
-        has_color(&pixels, DESTRUCTIVE) < has_color(&pixels, SUCCESS),
-        "no brake, revs under the red"
-    );
-}
-
 /// The pixels of `region` (x0, y0, x1, y1) of a `width`-wide render.
 fn region_of(pixels: &[u8], width: i32, region: (i32, i32, i32, i32)) -> Vec<u8> {
     let mut out = Vec::new();
@@ -962,40 +437,6 @@ fn region_of(pixels: &[u8], width: i32, region: (i32, i32, i32, i32)) -> Vec<u8>
         out.extend_from_slice(&pixels[from..from + ((region.2 - region.0) * 4) as usize]);
     }
     out
-}
-
-#[test]
-fn out_of_the_car_the_header_shows_no_lap_and_no_invalid_badge() {
-    let f = fixture();
-    let mut live = live_reading();
-    live.lap_valid = Some(false);
-    let (w, h) = (1920, 1080);
-    let header = (1700, 135, 1920, 185);
-    let driving = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
-    let lap = region_of(&driving, w, header);
-    assert!(has_color(&lap, PRIMARY) > 200, "driving: the lap number is there");
-    assert!(has_color(&lap, DESTRUCTIVE) > 20, "driving: and the invalid mark");
-    live.driving = false;
-    let menu = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
-    let lap = region_of(&menu, w, header);
-    assert_eq!(has_color(&lap, PRIMARY), 0, "in the menu: no lap number");
-    assert_eq!(has_color(&lap, DESTRUCTIVE), 0, "in the menu: no invalid badge");
-}
-
-#[test]
-fn the_recent_laps_band_draws_only_the_laps_that_exist() {
-    let f = fixture();
-    let live = live_reading();
-    let few = vec![saved_lap(3, 107_918)];
-    let (w, h) = (1920, 1080);
-    let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-    v.recent_laps = &few;
-    let pixels = render(&v, w, h);
-    // Two cards (one lap done, the lap being driven) of the normal width: the row to their right is bare.
-    let empty = region_of(&pixels, w, (600, 880, 1380, 1050));
-    assert_eq!(has_color(&empty, CARD), 0, "no empty card");
-    let cards = region_of(&pixels, w, (16, 880, 468, 1050));
-    assert!(has_color(&cards, CARD) > 20_000, "the two cards are there");
 }
 
 #[test]
@@ -1166,12 +607,12 @@ fn says_it_waits_when_there_is_no_reading_or_the_game_is_gone_and_dims_the_dashb
         has_color(&silent, PRIMARY) < 6000,
         "nothing is lit: the gear and the lap are dimmed"
     );
-    let m = dashboard(&old, &ModelCtx { lang: Lang::En, now_ms: 0 });
+    let m = dashboard(&old, &ctx_of(Lang::En, 0));
     assert_eq!(m.status, Some((StatusKind::NoData, "No data from the game".to_owned())));
     for elem in [&m.gear, &m.speed, &m.lap_time, &m.fuel, &m.brake] {
         assert_eq!(elem.show, Show::Dimmed, "{elem:?}");
     }
-    assert!(m.lights.iter().all(|l| l.show == Show::Dimmed));
+    assert!(m.alerts.iter().all(|l| l.show == Show::Dimmed));
     assert!(m.tyres.is_some_and(|t| t.show == Show::Dimmed));
     assert!(dashboard_shown(Some(&old), &Game::Connected, 0));
     assert!(dashboard_shown(Some(&old), &Game::Paused, 0));
@@ -1182,139 +623,6 @@ fn says_it_waits_when_there_is_no_reading_or_the_game_is_gone_and_dims_the_dashb
         dashboard_shown(Some(&live_reading()), &Game::Waiting, 1_500),
         "a fresh reading always shows"
     );
-}
-
-/// The boxes the tyre schematic gets in each layout that shows it (the area under the "Tyres" title).
-const SCHEMATIC_BOXES: [(&str, f32, f32); 5] = [
-    ("side column, short", 312.0, 192.0),
-    ("side column, tall", 312.0, 255.0),
-    ("4:3 bottom row", 490.0, 266.0),
-    ("portrait", 336.0, 276.0),
-    ("narrow", 200.0, 120.0),
-];
-
-fn inside_box(a: Area, x: f32, y: f32, w: f32, h: f32) -> bool {
-    let eps = 0.01;
-    a.0 >= x - eps && a.1 >= y - eps && a.0 + a.2 <= x + w + eps && a.1 + a.3 <= y + h + eps
-}
-
-fn overlap(a: Area, b: Area) -> bool {
-    a.2 > 0.0 && b.2 > 0.0 && a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
-}
-
-#[test]
-fn the_tyre_schematic_fits_its_box_in_every_layout_without_text_over_a_tyre() {
-    for brakes in [true, false] {
-        for (name, w, h) in SCHEMATIC_BOXES {
-            let (x, y) = (7.0, 11.0);
-            let plan = schematic(x, y, w, h, brakes);
-            for i in 0..4 {
-                assert!(inside_box(plan.tyres[i], x, y, w, h), "{name}: tyre {i} is inside the box");
-                assert!(inside_box(plan.readout[i], x, y, w, h), "{name}: readout {i} is inside the box");
-                assert!(plan.tyres[i].2 < plan.tyres[i].3, "{name}: a tyre is longer than it is wide");
-                assert!(!overlap(plan.readout[i], plan.tyres[i]), "{name}: readout {i} clear of its tyre");
-                assert!(inside_box(plan.body, x, y, w, h), "{name}: the car's body is inside the box");
-                for j in 0..4 {
-                    if i != j {
-                        assert!(!overlap(plan.tyres[i], plan.tyres[j]), "{name}: tyres {i} and {j} apart");
-                        assert!(!overlap(plan.readout[i], plan.tyres[j]), "{name}: readout {i} off tyre {j}");
-                    }
-                }
-                if brakes {
-                    assert!(inside_box(plan.brake[i], x, y, w, h), "{name}: brake row {i} inside");
-                    assert!(!overlap(plan.brake[i], plan.tyres[i]), "{name}: brake row {i} clear of the tyre");
-                    for j in 0..4 {
-                        assert!(!overlap(plan.brake[i], plan.readout[j]), "{name}: brake {i} clear of readout {j}");
-                    }
-                } else {
-                    assert_eq!(plan.brake[i].3, 0.0, "{name}: no brake row without brake temperatures");
-                }
-            }
-            // The readouts of a side have room for "100°" and "25.3 psi" (about 70 units), except in the
-            // narrowest box.
-            if w >= 300.0 {
-                assert!(plan.readout[0].2 >= 70.0 && plan.readout[1].2 >= 70.0, "{name}: room for text");
-            }
-        }
-    }
-}
-
-#[test]
-fn the_tyre_schematic_is_the_car_seen_from_above_with_brakes_at_its_ends() {
-    let (x, y, w, h) = (0.0, 0.0, 340.0, 240.0);
-    let plan = schematic(x, y, w, h, true);
-    let [fl, fr, rl, rr] = plan.tyres;
-    assert_eq!(fl.1, fr.1, "the fronts side by side, level");
-    assert_eq!(rl.1, rr.1, "the rears side by side, level");
-    assert!(fl.1 + fl.3 < rl.1, "front above rear, the body between");
-    // Symmetric around the middle.
-    let mid = w / 2.0;
-    assert!(((fl.0 + fl.2 / 2.0 + fr.0 + fr.2 / 2.0) / 2.0 - mid).abs() < 1e-3);
-    assert!(((fl.0 + fl.2) - (mid - (fr.0 - mid))).abs() < 1e-3);
-    assert!(
-        (plan.body.0 + plan.body.2 / 2.0 - mid).abs() < 1e-3,
-        "the body is on the centre line"
-    );
-    // Fronts' brake above the tyre, rears' below.
-    assert!(plan.brake[0].1 + plan.brake[0].3 <= fl.1 && plan.brake[1].1 + plan.brake[1].3 <= fr.1);
-    assert!(plan.brake[2].1 >= rl.1 + rl.3 && plan.brake[3].1 >= rr.1 + rr.3);
-    // The tyres sit partly outside the body: the inner edge of each is inside it, the outer edge beyond it.
-    let (bx, _, bw, _) = plan.body;
-    for t in plan.tyres {
-        let (inner, outer) = if t.0 < mid { (t.0 + t.2, t.0) } else { (t.0, t.0 + t.2) };
-        assert!(inner > bx && inner < bx + bw, "the inner edge of a tyre is over the body");
-        assert!(outer < bx || outer > bx + bw, "the outer edge of a tyre is outside the body");
-    }
-    // The body runs from the front tyres to the rear ones.
-    assert!(plan.body.1 <= fl.1 + fl.3 / 2.0 && plan.body.1 + plan.body.3 >= rl.1 + rl.3 / 2.0);
-    // Left tyres' readouts end before their tyre, right tyres' start after it.
-    assert!(plan.readout[0].0 + plan.readout[0].2 < fl.0);
-    assert!(plan.readout[1].0 > fr.0 + fr.2);
-    // The outline of the car stays inside the body's box and is the same on both sides.
-    let outline = body_outline(plan.body);
-    assert!(outline.iter().all(|&(px, py)| inside_box(
-        (px, py, 0.0, 0.0),
-        plan.body.0 - 0.01,
-        plan.body.1 - 0.01,
-        plan.body.2 + 0.02,
-        plan.body.3 + 0.02
-    )));
-    let n = outline.len() / 2;
-    for k in 0..n {
-        let (right, left) = (outline[k], outline[outline.len() - 1 - k]);
-        assert!((right.0 + left.0 - 2.0 * mid).abs() < 1e-3 && (right.1 - left.1).abs() < 1e-3);
-    }
-}
-
-#[test]
-fn the_schematic_is_painted_for_every_shape_and_a_brake_only_tyre_gets_its_row() {
-    let f = fixture();
-    let mut live = live_reading();
-    let with_brakes = {
-        let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-        render(&v, 1536, 864)
-    };
-    // A game that gives no brake temperatures: the rows are not kept and the picture still paints.
-    for t in live.tyres.as_mut().unwrap() {
-        t.brake_c = f32::NAN;
-    }
-    let without = {
-        let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-        render(&v, 1536, 864)
-    };
-    assert_ne!(with_brakes, without);
-    // Brake temperatures alone (no tyre temperature, pressure or wear): still a schematic.
-    let tyre = crate::game::Tyre {
-        brake_c: 400.0,
-        temp_c: f32::NAN,
-        pressure_kpa: f32::NAN,
-        left: f32::NAN,
-    };
-    live.tyres = Some([tyre; 4]);
-    for (w, h) in [(1536, 864), (1024, 768), (540, 1080)] {
-        let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-        assert!(!render(&v, w, h).is_empty());
-    }
 }
 
 /// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
@@ -1692,8 +1000,8 @@ fn writes_times_gears_and_deltas_like_a_dashboard() {
     assert_eq!(lap_clock(Some(107.918)).as_deref(), Some("1:47.918"));
     assert_eq!(lap_clock(None), None, "no placeholder");
     assert_eq!(lap_clock(Some(f64::NAN)), None);
-    assert_eq!(delta_text(Some(-0.274)).as_deref(), Some("-0.27"));
-    assert_eq!(delta_text(Some(0.0)).as_deref(), Some("+0.00"));
+    assert_eq!(delta_text(Some(-0.274)).as_deref(), Some("-0.274"));
+    assert_eq!(delta_text(Some(0.0)).as_deref(), Some("+0.000"));
     assert_eq!(delta_text(None), None, "no placeholder");
     assert_eq!(
         (gear_text(-1.0), gear_text(0.0), gear_text(5.0), gear_text(f32::NAN)),
@@ -1911,6 +1219,7 @@ fn frame_of(lap: i32, dist: f64, t: f64) -> Frame {
         temp_c: t,
         pressure_kpa: 180.0,
         left: 0.9,
+        tread_c: None,
     }));
     f
 }
@@ -1937,184 +1246,6 @@ fn evo_like_caps() -> crate::game::Caps {
     ]
     .into_iter()
     .fold(Caps::NONE, Caps::or)
-}
-
-#[test]
-fn a_paused_frame_dims_the_live_readings_and_keeps_the_tyres_and_fuel_as_they_were() {
-    use crate::game::Phase;
-    let mut tracker = crate::dash::Tracker::default();
-    tracker.set_caps(evo_like_caps());
-    let mut driving = frame_of(2, 3000.0, 80.0);
-    driving.state.pit_limiter = Some(false);
-    let live = tracker.on_frame("Assetto Corsa EVO", &driving, 100);
-    let ctx = |at: i64| ModelCtx {
-        lang: Lang::En,
-        now_ms: at,
-    };
-    let m = dashboard(&live, &ctx(100));
-    assert_eq!((m.gear.show, m.gear.text.as_str()), (Show::Shown, "4"));
-    assert_eq!(m.speed.text, "216");
-    assert_eq!(m.status, None);
-    // The game is paused: the car values are gone from the frame (not a "R"), the tyres and fuel still come.
-    let mut paused = driving.clone();
-    paused.set_phase(Phase::Paused);
-    paused.withhold_car_values_unless_driving();
-    let live = tracker.on_frame("Assetto Corsa EVO", &paused, 200);
-    let m = dashboard(&live, &ctx(200));
-    assert_eq!(
-        (m.gear.show, m.gear.text.as_str()),
-        (Show::Dimmed, "4"),
-        "the last gear, dimmed, never 'R'"
-    );
-    assert_eq!(m.speed.show, Show::Dimmed);
-    assert_eq!(
-        (m.throttle.show, m.brake.show, m.steer.show),
-        (Show::Dimmed, Show::Dimmed, Show::Dimmed)
-    );
-    assert_eq!(m.rev.show, Show::Dimmed);
-    assert!(m.lights.iter().all(|l| l.show == Show::Dimmed), "the lights are dimmed");
-    let tyres = m.tyres.expect("the game can give tyres");
-    assert_eq!(tyres.show, Show::Shown, "the frame still carries them");
-    assert_eq!(tyres.tyres[0].temp_c, 84.0);
-    assert_eq!((m.fuel.show, m.fuel.text.as_str()), (Show::Shown, "40.0"));
-    assert_eq!(m.status, Some((StatusKind::Paused, "Paused".to_owned())));
-    assert_eq!(m.lap.show, Show::Dimmed, "the lap number stays, dimmed");
-    // A frame without the tyres (a menu): the last ones stay, dimmed.
-    let mut menu = paused.clone();
-    menu.set_phase(Phase::Menu);
-    menu.tyres = None;
-    menu.fuel_l = f32::NAN;
-    let live = tracker.on_frame("Assetto Corsa EVO", &menu, 300);
-    let m = dashboard(&live, &ctx(300));
-    let tyres = m.tyres.expect("the game can give tyres");
-    assert_eq!((tyres.show, tyres.tyres[3].temp_c), (Show::Dimmed, 91.0));
-    assert_eq!((m.fuel.show, m.fuel.text.as_str()), (Show::Dimmed, "40.0"));
-    assert_eq!(m.lap.show, Show::Hidden, "out of the car there is no lap to number");
-    // Driving again: everything is live.
-    let live = tracker.on_frame("Assetto Corsa EVO", &driving, 400);
-    let m = dashboard(&live, &ctx(400));
-    assert!([&m.gear, &m.speed, &m.throttle, &m.rev].iter().all(|e| e.show == Show::Shown));
-    // The same model for the same reading: a pure function.
-    assert_eq!(format!("{m:?}"), format!("{:?}", dashboard(&live, &ctx(400))));
-}
-
-#[test]
-fn a_game_without_tyres_in_its_caps_has_no_tyres_even_when_a_frame_carries_some() {
-    use crate::game::Caps;
-    let mut tracker = crate::dash::Tracker::default();
-    tracker.set_caps(evo_like_caps().minus(Caps::TYRE_TEMP.or(Caps::TYRE_PRESSURE).or(Caps::TYRE_WEAR)));
-    let live = tracker.on_frame("Test", &frame_of(1, 100.0, 5.0), 100);
-    let m = model(&live, Lang::En);
-    assert!(m.tyres.is_none(), "the game never gives tyres: not shown, not dimmed");
-    assert!(!slots(live.caps).tyres && !slots(live.caps).side(), "and no column for them");
-    // The same game with tyres in its caps shows them.
-    tracker.set_caps(evo_like_caps());
-    let live = tracker.on_frame("Test", &frame_of(1, 110.0, 5.5), 110);
-    assert!(model(&live, Lang::En).tyres.is_some());
-}
-
-#[test]
-fn on_the_first_lap_the_delta_and_the_best_lap_are_hidden_but_their_places_stay() {
-    let mut tracker = crate::dash::Tracker::default();
-    tracker.set_caps(evo_like_caps());
-    let first = tracker.on_frame("Test", &frame_of(1, 500.0, 25.0), 100);
-    let m = model(&first, Lang::En);
-    assert_eq!(first.delta_s, None);
-    assert_eq!(m.delta.show, Show::Hidden);
-    assert_eq!(m.best_lap.show, Show::Hidden);
-    assert_eq!(m.last_lap.show, Show::Hidden);
-    let s = slots(first.caps);
-    assert!(s.delta && s.best && s.last, "the places are there: the game can give them");
-    // Nothing moves when they appear: the pictures differ only where they are drawn.
-    let f = fixture();
-    let mut with = live_reading();
-    let mut without = with.clone();
-    without.delta_s = None;
-    without.best_lap_s = None;
-    without.last_lap_s = None;
-    with.caps = evo_like_caps();
-    without.caps = evo_like_caps();
-    let (w, h) = (1536, 864);
-    let a = render(&view(&f, Some(&with), Tab::Dash, 1.0, Lang::En), w, h);
-    let b = render(&view(&f, Some(&without), Tab::Dash, 1.0, Lang::En), w, h);
-    // The gear frame, the speed and the pedals in the middle, and the lap time at the top left, are the same.
-    for region in [(450, 270, 690, 390), (10, 205, 270, 265)] {
-        assert_eq!(region_of(&a, w, region), region_of(&b, w, region), "{region:?} did not move");
-    }
-}
-
-#[test]
-fn a_value_that_comes_and_goes_never_moves_another_element() {
-    let f = fixture();
-    let mut base = live_reading();
-    base.caps = every_cap();
-    let (w, h) = (1536, 864);
-    let still = render(&view(&f, Some(&base), Tab::Dash, 1.0, Lang::En), w, h);
-    // The tyres, the fuel, the temperatures and the light states go missing: the rest does not shift.
-    let mut gone = base.clone();
-    gone.tyres = None;
-    gone.fuel_l = f32::NAN;
-    gone.state = crate::game::CarState::UNKNOWN;
-    gone.last_seen = Default::default();
-    let after = render(&view(&f, Some(&gone), Tab::Dash, 1.0, Lang::En), w, h);
-    for region in [(0, 120, 520, 470), (380, 120, 780, 470)] {
-        assert_eq!(region_of(&still, w, region), region_of(&after, w, region), "{region:?}");
-    }
-    // The layout itself is the same for any values: it is chosen from the caps.
-    assert_eq!(slots(base.caps), slots(gone.caps));
-}
-
-#[test]
-fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
-    let (side, main_h) = (true, CANVAS_H);
-    let (mut sticky_flips, mut plain_flips, mut edges) = (0, 0, 0);
-    for bh in [600.0, 760.0, 900.0, 1080.0] {
-        // Every width at which the best layout changes as the window widens.
-        let widths: Vec<f32> = (600..2800).map(|w| w as f32).collect();
-        for pair in widths.windows(2) {
-            let (was, now) = (pick_layout(pair[0], bh, side, main_h), pick_layout(pair[1], bh, side, main_h));
-            if was == now {
-                continue;
-            }
-            edges += 1;
-            // A window dragged back and forth across the threshold by a few pixels.
-            let mut current = Some(pick_layout_sticky(pair[0] - 4.0, bh, side, main_h, None));
-            let mut plain = current;
-            for step in 0..40 {
-                let width = pair[1] + if step % 2 == 0 { 4.0 } else { -6.0 };
-                let next = pick_layout_sticky(width, bh, side, main_h, current);
-                sticky_flips += usize::from(Some(next) != current);
-                current = Some(next);
-                let best = pick_layout(width, bh, side, main_h);
-                plain_flips += usize::from(Some(best) != plain);
-                plain = Some(best);
-            }
-        }
-    }
-    assert!(edges >= 4, "the layouts do change with the window ({edges})");
-    assert!(
-        plain_flips > sticky_flips * 4,
-        "the margin stops the flipping: {sticky_flips} against {plain_flips}"
-    );
-    // Whatever is in use is only left for a clearly better one: far from a threshold it is always the best.
-    for (bw, bh) in [(1920.0, 1080.0), (2560.0, 1080.0), (540.0, 1080.0), (1024.0, 768.0)] {
-        for current in [Layout::Classic, Layout::Wide, Layout::Portrait, Layout::Square, Layout::Ultrawide] {
-            let kept = pick_layout_sticky(bw, bh, side, main_h, Some(current));
-            let fill = |l: Layout| {
-                let (w, h) = l.size(side, main_h);
-                (bw / w).min(bh / h)
-            };
-            assert!(
-                kept == pick_layout(bw, bh, side, main_h) || fill(kept) >= fill(pick_layout(bw, bh, side, main_h)) * 0.8,
-                "{current:?} at {bw} x {bh} kept {kept:?}"
-            );
-        }
-    }
-    // With no layout in use yet it is just the best one.
-    assert_eq!(
-        pick_layout_sticky(1920.0, 1080.0, side, main_h, None),
-        pick_layout(1920.0, 1080.0, side, main_h)
-    );
 }
 
 #[test]
@@ -2155,5 +1286,780 @@ fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
     ] {
         assert!(!source.contains("rgb("), "{file} writes a colour of its own");
         assert!(!source.contains("mix("), "{file} mixes a colour of its own");
+    }
+}
+
+// ---- Stage 2: the cards of the rebuilt dashboard ----
+
+fn inside_box(a: Area, x: f32, y: f32, w: f32, h: f32) -> bool {
+    let eps = 0.01;
+    a.0 >= x - eps && a.1 >= y - eps && a.0 + a.2 <= x + w + eps && a.1 + a.3 <= y + h + eps
+}
+
+fn overlap(a: Area, b: Area) -> bool {
+    a.2 > 0.0 && b.2 > 0.0 && a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+/// A reading with everything a rich game gives: tread temperatures, sectors, a session, a compound.
+fn rich_reading() -> Live {
+    let mut live = live_reading();
+    live.tyres = Some(
+        [(84.0, 26.9, 0.91), (88.0, 27.2, 0.9), (97.0, 26.4, 0.86), (106.0, 26.6, 0.84)].map(|(t, psi, left)| crate::game::Tyre {
+            brake_c: t * 3.4,
+            temp_c: t,
+            pressure_kpa: psi * 6.894_757,
+            left,
+            tread_c: Some([t - 6.0, t, t + 6.0]),
+        }),
+    );
+    live.sectors_ms = [Some(27_811), Some(44_597)];
+    live.session_kind = Some(crate::game::SessionKind::Practice);
+    live.tyre_compound = Some("Medium".into());
+    live.best_lap_s = Some(123.912);
+    live.last_lap_s = Some(124.331);
+    live
+}
+
+fn rich_laps() -> Vec<SavedLap> {
+    let lap = |number: u32, valid: bool, s: [u32; 3]| SavedLap {
+        valid,
+        sectors_ms: s.to_vec(),
+        time_ms: s.iter().sum(),
+        ..saved_lap(number, 0)
+    };
+    vec![
+        lap(1, false, [29_410, 47_002, 53_368]),
+        lap(2, true, [28_102, 44_880, 51_349]),
+        lap(3, true, [27_903, 44_721, 51_288]),
+    ]
+}
+
+fn model_with(live: &Live, units: crate::config::Units, laps: &[SavedLap]) -> DashModel {
+    dashboard(
+        live,
+        &ModelCtx {
+            lang: Lang::En,
+            now_ms: live.at_ms,
+            units,
+            laps,
+        },
+    )
+}
+
+#[test]
+fn values_are_written_in_the_units_the_person_picked() {
+    use crate::config::{FuelUnit, PressureUnit, SpeedUnit, TempUnit, Units};
+    assert_eq!(speed_text(50.0, SpeedUnit::Kmh), "180");
+    assert_eq!(speed_text(50.0, SpeedUnit::Mph), "112");
+    assert_eq!(temp_text(90.0, TempUnit::C), "90 °C");
+    assert_eq!(temp_text(90.0, TempUnit::F), "194 °F");
+    assert_eq!(temp_short(84.0, TempUnit::C), "84°");
+    assert_eq!(pressure_text(185.0, PressureUnit::Psi), ("26.8".to_owned(), "psi"));
+    assert_eq!(pressure_text(185.0, PressureUnit::Bar), ("1.85".to_owned(), "bar"));
+    assert_eq!(pressure_text(185.0, PressureUnit::Kpa), ("185".to_owned(), "kPa"));
+    assert_eq!(fuel_text(60.0, FuelUnit::Litre), "60.0");
+    assert_eq!(fuel_text(60.0, FuelUnit::Gallon), "15.9");
+    assert_eq!(tank_text(60.0, FuelUnit::Litre), "60 L");
+    assert_eq!(tank_text(60.0, FuelUnit::Gallon), "15.9 gal");
+    // The model carries them everywhere a value is written.
+    let live = rich_reading();
+    let imperial = Units {
+        speed: SpeedUnit::Mph,
+        temperature: TempUnit::F,
+        pressure: PressureUnit::Bar,
+        fuel: FuelUnit::Gallon,
+    };
+    let m = model_with(&live, imperial, &[]);
+    assert_eq!((m.speed.text.as_str(), m.speed.unit), ("160", "mph"));
+    assert_eq!(m.fuel.unit, "gal");
+    assert_eq!(m.fuel.text, fuel_text(38.6, FuelUnit::Gallon));
+    assert_eq!(m.engine[0].value, "198 °F");
+    let tyres = m.tyres.unwrap();
+    assert_eq!(tyres.tiles[0].temp, "183°");
+    assert_eq!(tyres.tiles[0].pressure, Some(("1.85".to_owned(), "bar")));
+    // The default is today's look.
+    let m = model(&live, Lang::En);
+    assert_eq!((m.speed.text.as_str(), m.speed.unit, m.fuel.unit), ("257", "km/h", "L"));
+    assert_eq!(m.engine[0].value, "92 °C");
+}
+
+#[test]
+fn the_fuel_card_has_laps_as_its_hero_and_warns_only_while_driving() {
+    let mut live = live_reading();
+    live.fuel_per_lap_l = Some(2.9);
+    live.fuel_l = 38.6;
+    live.fuel_tank_l = Some(60.0);
+    let m = model(&live, Lang::En);
+    assert_eq!((m.fuel_laps.text.as_str(), m.fuel_laps.label.as_str()), ("13.3", "laps"));
+    assert_eq!(m.fuel_laps.role, Role::Good);
+    assert_eq!(m.fuel_title, "Fuel");
+    assert_eq!(m.fuel_tank.text, "of 60 L");
+    assert_eq!(m.fuel_per_lap.text, "2.9 L per lap \u{b7} each tick = 1 lap");
+    let tick = m.fuel_tick.expect("a tick for each lap's fuel");
+    assert!((tick - 2.9 / 60.0).abs() < 1e-5);
+    assert_eq!(model(&live, Lang::Pt).fuel_laps.label, "voltas");
+    assert!(model(&live, Lang::Es).fuel_per_lap.text.contains("cada marca"));
+    // Amber under five laps, red under two; never from a reading taken out of the car.
+    live.fuel_l = 12.0;
+    assert_eq!(model(&live, Lang::En).fuel_laps.role, Role::Warn);
+    live.fuel_l = 4.0;
+    assert_eq!(model(&live, Lang::En).fuel_laps.role, Role::Danger);
+    live.driving = false;
+    live.fuel_l = 5.0;
+    assert_eq!(model(&live, Lang::En).fuel_laps.role, Role::Good, "paused or in a menu: no warning");
+    live.driving = true;
+    // Without the tank there is no bar and no ticks, and the line does not talk about them.
+    live.fuel_tank_l = None;
+    let m = model(&live, Lang::En);
+    assert!(m.fuel_share.is_none() && m.fuel_tick.is_none() && !m.fuel_tank.visible());
+    assert_eq!(m.fuel_per_lap.text, "2.9 L per lap");
+    // Without the use per lap there are no laps, no ticks and no line, and the litres stay.
+    live.fuel_per_lap_l = None;
+    let m = model(&live, Lang::En);
+    assert!(!m.fuel_laps.visible() && !m.fuel_per_lap.visible() && m.fuel.visible());
+    assert_eq!(fuel_role(None, true), Role::Good);
+    assert_eq!(fuel_share(30.0, Some(60.0)), Some(0.5));
+    assert_eq!(fuel_share(65.0, Some(60.0)), Some(1.0), "a tank known too small reads full");
+    assert_eq!(fuel_share(30.0, None), None);
+    assert_eq!(fuel_laps_left(30.0, Some(2.0)), Some(15.0));
+    assert_eq!(fuel_laps_left(30.0, None), None);
+}
+
+#[test]
+fn a_game_without_fuel_has_no_fuel_hero_and_one_with_only_temperatures_calls_the_card_engine() {
+    use crate::game::Caps;
+    let mut live = live_reading();
+    live.caps = Caps::WATER_TEMP.or(Caps::OIL_TEMP).or(Caps::LAP_TIME);
+    let m = model(&live, Lang::En);
+    assert!(!m.fuel.visible() && !m.fuel_laps.visible() && !m.fuel_per_lap.visible());
+    assert_eq!(m.fuel_title, "Engine");
+    assert_eq!(m.engine.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), ["Water", "Oil"]);
+    assert!(
+        slots(live.caps).cards.contains(&Pane::Fuel),
+        "the card is there for the temperatures"
+    );
+    live.caps = Caps::LAP_TIME.or(Caps::GEAR);
+    assert!(!slots(live.caps).cards.contains(&Pane::Fuel), "nothing to put in it: no card");
+    assert!(model(&live, Lang::En).engine.is_empty());
+}
+
+#[test]
+fn the_tyre_tiles_say_cold_ok_hot_or_over_and_have_a_bar_only_where_the_game_gives_the_tread() {
+    assert_eq!(TyreState::of(50.0), Some(TyreState::Cold));
+    assert_eq!(TyreState::of(80.0), Some(TyreState::Ok));
+    assert_eq!(TyreState::of(97.0), Some(TyreState::Hot));
+    assert_eq!(TyreState::of(106.0), Some(TyreState::Over));
+    assert_eq!(TyreState::of(f32::NAN), None);
+    let m = model(&rich_reading(), Lang::En);
+    let tyres = m.tyres.unwrap();
+    assert_eq!(tyres.compound.as_deref(), Some("Medium"));
+    let words: Vec<&str> = tyres.tiles.iter().map(|t| t.word.as_str()).collect();
+    assert_eq!(words, ["ok", "ok", "hot", "over"]);
+    assert_eq!(tyres.tiles[0].corner, "FL");
+    assert_eq!(tyres.tiles[3].role, Role::Danger);
+    assert_eq!(tyres.tiles[0].tread, Some([Role::Good; 3]), "78, 84 and 90: all in the window");
+    assert_eq!(tyres.tiles[2].tread, Some([Role::Good, Role::Warn, Role::Warn]), "91, 97 and 103");
+    assert_eq!(tyres.tiles[0].brake.as_deref(), Some("286°"));
+    assert_eq!(tyres.tiles[0].wear, Some(0.91));
+    let pt = model(&rich_reading(), Lang::Pt).tyres.unwrap();
+    assert_eq!(
+        (pt.tiles[0].corner.as_str(), pt.tiles[2].word.as_str(), pt.tiles[3].word.as_str()),
+        ("DE", "quente", "passou")
+    );
+    // A game with one value per tyre: no bar; no wear: no wear bar; no brakes: no brake text.
+    let mut live = live_reading();
+    for t in live.tyres.as_mut().unwrap() {
+        t.left = f32::NAN;
+        t.brake_c = f32::NAN;
+    }
+    let tiles = model(&live, Lang::En).tyres.unwrap().tiles;
+    assert!(tiles.iter().all(|t| t.tread.is_none() && t.wear.is_none() && t.brake.is_none()));
+    assert!(tiles.iter().all(|t| t.pressure.is_some()));
+    // A game without tyres has none, whatever a frame carries.
+    live.caps = crate::game::Caps::GEAR;
+    assert!(model(&live, Lang::En).tyres.is_none());
+    assert!(!slots(live.caps).cards.contains(&Pane::Tyres));
+}
+
+#[test]
+fn the_laps_table_is_newest_first_with_the_best_the_gaps_and_the_sectors() {
+    let live = rich_reading();
+    let laps = rich_laps();
+    let m = model_with(&live, Default::default(), &laps);
+    assert!(m.laps.sectors);
+    assert_eq!(m.laps.heads, ["Lap", "Time", "Gap"]);
+    let numbers: Vec<&str> = m.laps.rows.iter().map(|r| r.number.as_str()).collect();
+    assert_eq!(numbers, ["4", "3", "2", "1"], "the lap being driven first, then the newest");
+    let kinds: Vec<LapKind> = m.laps.rows.iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, [LapKind::Live, LapKind::Best, LapKind::Done, LapKind::Invalid]);
+    let live_row = &m.laps.rows[0];
+    assert_eq!(live_row.time_role, Role::Primary);
+    assert_eq!(live_row.gap, "-0.270");
+    assert_eq!(
+        live_row.sectors[0],
+        Some(("27.811".to_owned(), Role::Good)),
+        "faster than the best first sector"
+    );
+    assert_eq!(live_row.sectors[1], Some(("44.597".to_owned(), Role::Good)));
+    assert_eq!(live_row.sectors[2], None);
+    let best = &m.laps.rows[1];
+    assert_eq!((best.gap.as_str(), best.time_role), ("Best", Role::Best));
+    assert!(best.sectors.iter().all(|s| s.as_ref().is_some_and(|(_, role)| *role == Role::Best)));
+    let done = &m.laps.rows[2];
+    assert_eq!(done.gap, "+0.419");
+    assert_eq!(done.sectors[0].as_ref().map(|s| s.1), Some(Role::Text));
+    let invalid = &m.laps.rows[3];
+    assert_eq!(
+        (invalid.gap.as_str(), invalid.time_role, invalid.gap_role),
+        ("invalid", Role::Muted, Role::Danger)
+    );
+    assert!(
+        invalid.sectors.iter().all(|s| s.as_ref().is_some_and(|(_, r)| *r != Role::Best)),
+        "an invalid lap sets no best sector"
+    );
+    // Without sectors in the game: no columns for them.
+    let mut plain = live.clone();
+    plain.caps = plain.caps.minus(crate::game::Caps::SECTORS);
+    assert!(!model_with(&plain, Default::default(), &laps).laps.sectors);
+    // The first lap: only the lap being driven, with no gap yet.
+    let mut first = live.clone();
+    first.delta_s = None;
+    first.best_lap_s = None;
+    let m = model_with(&first, Default::default(), &[]);
+    assert_eq!(m.laps.rows.len(), 1);
+    assert_eq!(m.laps.rows[0].gap, "–");
+    // Out of the car there is no lap being driven.
+    let mut menu = live.clone();
+    menu.driving = false;
+    menu.phase = crate::game::Phase::Menu;
+    assert!(model_with(&menu, Default::default(), &laps)
+        .laps
+        .rows
+        .iter()
+        .all(|r| r.kind != LapKind::Live));
+    // Paused: it stays, dimmed.
+    let mut paused = live;
+    paused.driving = false;
+    paused.phase = crate::game::Phase::Paused;
+    let m = model_with(&paused, Default::default(), &laps);
+    assert_eq!((m.laps.rows[0].kind, m.laps.rows[0].show), (LapKind::Live, Show::Dimmed));
+    assert_eq!(sector_text(27_811), "27.811");
+}
+
+#[test]
+fn only_the_alerts_that_are_lit_are_there_with_their_words() {
+    use crate::game::{Caps, CarState, Drs, Flag};
+    let mut live = live_reading();
+    live.fuel_per_lap_l = None;
+    live.state = CarState::UNKNOWN;
+    live.caps = Caps::NONE;
+    assert!(model(&live, Lang::En).alerts.is_empty() && model(&live, Lang::En).electronics.is_empty());
+    live.caps = Caps::ABS_ACTIVE
+        .or(Caps::DRS)
+        .or(Caps::HEADLIGHTS)
+        .or(Caps::FLAG)
+        .or(Caps::PIT_LIMITER);
+    assert!(
+        model(&live, Lang::En).alerts.is_empty(),
+        "the game can give them, none is lit: nothing is drawn"
+    );
+    live.state.abs_active = Some(true);
+    live.state.drs = Some(Drs::Available);
+    live.state.headlights = Some(false);
+    live.state.pit_limiter = Some(false);
+    live.state.flag = Some(Flag::Yellow);
+    let m = model(&live, Lang::En);
+    let words: Vec<&str> = m.alerts.iter().map(|a| a.word.as_str()).collect();
+    assert_eq!(words, ["ABS active", "DRS available", "Yellow flag"]);
+    assert!(m.alerts.iter().all(|a| a.show == Show::Shown));
+    live.state.drs = Some(Drs::Open);
+    assert!(model(&live, Lang::En).alerts.iter().any(|a| a.word == "DRS open"));
+    assert_eq!(model(&live, Lang::Pt).alerts[0].word, "ABS atuando");
+    // Pit limiter, engine, fuel low and handbrake have their words too.
+    live.caps = live.caps.or(Caps::ENGINE_WARNING).or(Caps::HANDBRAKE).or(Caps::FUEL);
+    live.state.pit_limiter = Some(true);
+    live.state.engine_warning = Some(true);
+    live.state.handbrake = Some(true);
+    live.fuel_per_lap_l = Some(2.9);
+    live.fuel_l = 3.0;
+    let words: Vec<String> = model(&live, Lang::En).alerts.into_iter().map(|a| a.word).collect();
+    for want in ["Pit limiter", "Engine", "Fuel low", "Handbrake"] {
+        assert!(words.iter().any(|w| w == want), "{want} in {words:?}");
+    }
+    // Out of the car they are the last known, dimmed.
+    live.driving = false;
+    assert!(model(&live, Lang::En).alerts.iter().all(|a| a.show == Show::Dimmed));
+}
+
+#[test]
+fn the_electronics_row_and_the_damage_line_keep_only_what_the_game_can_give() {
+    use crate::game::{Caps, CarState};
+    let mut live = live_reading();
+    live.state = CarState::UNKNOWN;
+    live.caps = Caps::NONE;
+    let m = model(&live, Lang::En);
+    assert!(m.electronics.is_empty() && !m.damage.visible());
+    live.caps = Caps::TC_LEVEL.or(Caps::BRAKE_BIAS).or(Caps::DAMAGE_GEARBOX).or(Caps::DAMAGE_BODY);
+    live.state.tc_level = Some(0);
+    live.state.brake_bias = Some(0.56);
+    live.state.damage_gearbox = Some(0.0);
+    live.state.damage_body = Some(0.0);
+    let m = model(&live, Lang::En);
+    assert_eq!(
+        m.electronics.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(),
+        ["OFF", "56.0 %"]
+    );
+    assert_eq!(m.damage.text, "Damage: none");
+    assert_eq!(model(&live, Lang::Pt).damage.text, "Avarias: nenhuma");
+    live.state.damage_gearbox = Some(0.4);
+    live.state.damage_body = Some(0.125);
+    assert_eq!(model(&live, Lang::En).damage.text, "Damage: Body 12%, Gbx 40%");
+    // A setting the game can give but has no value for now keeps its place, dimmed.
+    live.state.brake_bias = None;
+    let m = model(&live, Lang::En);
+    assert_eq!((m.electronics[1].value.as_str(), m.electronics[1].show), ("–", Show::Dimmed));
+}
+
+#[test]
+fn the_header_says_the_session_and_nothing_when_the_game_does_not() {
+    use crate::game::SessionKind;
+    let mut live = live_reading();
+    assert_eq!(model(&live, Lang::En).session, None);
+    for (kind, en, pt) in [
+        (SessionKind::Practice, "Practice", "Treino"),
+        (SessionKind::Qualifying, "Qualifying", "Classificação"),
+        (SessionKind::Race, "Race", "Corrida"),
+    ] {
+        live.session_kind = Some(kind);
+        assert_eq!(model(&live, Lang::En).session.as_deref(), Some(en));
+        assert_eq!(model(&live, Lang::Pt).session.as_deref(), Some(pt));
+    }
+    live.session_kind = Some(SessionKind::Unknown);
+    assert_eq!(model(&live, Lang::En).session, None);
+}
+
+#[test]
+fn a_game_without_a_clutch_or_sectors_or_a_best_lap_hides_exactly_those() {
+    use crate::game::Caps;
+    let live = rich_reading();
+    let m = model(&live, Lang::En);
+    assert!(m.clutch.visible() && m.brake.visible() && m.throttle.visible());
+    assert_eq!((m.throttle.text.as_str(), m.throttle.label.as_str()), ("92%", "Throttle"));
+    let mut no_clutch = live.clone();
+    no_clutch.caps = no_clutch.caps.minus(Caps::CLUTCH);
+    let m = model(&no_clutch, Lang::En);
+    assert!(!m.clutch.visible() && m.brake.visible());
+    let plan = centre_plan((0.0, 0.0, 400.0, 300.0), &slots(no_clutch.caps));
+    assert_eq!(plan.pedals.iter().filter(|p| p.is_some()).count(), 2);
+    assert!(plan.pedals[2].is_none());
+    // The first lap: the delta says why it is not there, the best lap is hidden, the places stay.
+    let mut first = live.clone();
+    first.delta_s = None;
+    first.best_lap_s = None;
+    first.last_lap_s = None;
+    let m = model(&first, Lang::En);
+    assert!(!m.delta.visible() && !m.best_lap.visible() && !m.last_lap.visible());
+    assert_eq!(m.delta_note.as_deref(), Some("The delta shows after your first full lap."));
+    assert!(model(&live, Lang::En).delta_note.is_none());
+    let s = slots(first.caps);
+    assert!(s.delta && s.best && s.last, "the places are there: the game can give them");
+    // A game that gives no lap clock has no times card, no delta and no laps table.
+    let mut little = live;
+    little.caps = Caps::GEAR.or(Caps::SPEED).or(Caps::RPM);
+    let s = slots(little.caps);
+    assert_eq!(s.cards, [Pane::Centre]);
+    let m = model(&little, Lang::En);
+    assert!(!m.lap_time.visible() && !m.delta.visible() && m.delta_note.is_none() && m.laps.show == Show::Hidden);
+    assert!(m.tyres.is_none() && !m.fuel.visible() && m.alerts.is_empty());
+}
+
+#[test]
+fn a_paused_game_dims_the_live_readings_and_keeps_the_slow_ones() {
+    use crate::game::Phase;
+    let mut tracker = crate::dash::Tracker::default();
+    tracker.set_caps(evo_like_caps());
+    let driving = frame_of(2, 3000.0, 80.0);
+    let live = tracker.on_frame("Assetto Corsa EVO", &driving, 100);
+    let m = dashboard(&live, &ctx_of(Lang::En, 100));
+    assert_eq!(
+        (m.gear.show, m.gear.text.as_str(), m.speed.text.as_str()),
+        (Show::Shown, "4", "216")
+    );
+    assert_eq!(m.status, None);
+    let mut paused = driving.clone();
+    paused.set_phase(Phase::Paused);
+    paused.withhold_car_values_unless_driving();
+    let live = tracker.on_frame("Assetto Corsa EVO", &paused, 200);
+    let m = dashboard(&live, &ctx_of(Lang::En, 200));
+    assert_eq!(
+        (m.gear.show, m.gear.text.as_str()),
+        (Show::Dimmed, "4"),
+        "the last gear, never an R"
+    );
+    assert_eq!(
+        (m.speed.show, m.throttle.show, m.steer.show, m.rev.show),
+        (Show::Dimmed, Show::Dimmed, Show::Dimmed, Show::Dimmed)
+    );
+    assert!(m.alerts.iter().all(|a| a.show == Show::Dimmed));
+    let tyres = m.tyres.as_ref().expect("the game can give tyres");
+    assert_eq!((tyres.show, tyres.tiles[0].temp.as_str()), (Show::Shown, "84°"));
+    assert_eq!((m.fuel.show, m.fuel.text.as_str()), (Show::Shown, "40.0"));
+    assert_eq!(m.status, Some((StatusKind::Paused, "Paused".to_owned())));
+    assert_eq!(m.lap.show, Show::Dimmed);
+    // A frame without the tyres and the fuel: the last ones stay, dimmed.
+    let mut menu = paused.clone();
+    menu.set_phase(Phase::Menu);
+    menu.tyres = None;
+    menu.fuel_l = f32::NAN;
+    let live = tracker.on_frame("Assetto Corsa EVO", &menu, 300);
+    let m = dashboard(&live, &ctx_of(Lang::En, 300));
+    let tyres = m.tyres.expect("the game can give tyres");
+    assert_eq!((tyres.show, tyres.tiles[3].temp.as_str()), (Show::Dimmed, "91°"));
+    assert_eq!((m.fuel.show, m.fuel.text.as_str()), (Show::Dimmed, "40.0"));
+    assert_eq!(m.lap.show, Show::Hidden, "out of the car there is no lap to number");
+    // The same reading and the same context always give the same model.
+    let again = dashboard(&live, &ctx_of(Lang::En, 300));
+    assert_eq!(format!("{:?}", dashboard(&live, &ctx_of(Lang::En, 300))), format!("{again:?}"));
+}
+
+#[test]
+fn the_rows_of_cards_share_their_width_and_a_few_cards_are_centred_not_stretched() {
+    let two = [(Pane::Times, 1.0), (Pane::Centre, 1.0)];
+    let places = row_places(0.0, 1440.0, GAP, &two, true);
+    assert_eq!(places.len(), 2);
+    assert!(places[0].1 <= Pane::Times.max_w() && places[1].1 <= Pane::Centre.max_w());
+    assert!(places[0].0 > 100.0, "centred: the row starts away from the edge");
+    let used = places[1].0 + places[1].1 - places[0].0;
+    assert!((places[0].0 - (1440.0 - used) / 2.0).abs() < 0.01);
+    // Narrow canvases (a phone, 4:3) fill the row.
+    let full = row_places(0.0, 600.0, GAP, &[(Pane::Times, 1.0)], false);
+    assert_eq!(full, vec![(0.0, 600.0)]);
+    // A full row: no card past its widest, the whole width used.
+    let all = [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)];
+    let places = row_places(0.0, 1440.0, GAP, &all, true);
+    let end = places.last().map(|p| p.0 + p.1).unwrap();
+    assert!((end - 1440.0).abs() < 0.01 && places[0].0.abs() < 0.01);
+}
+
+#[test]
+fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_overlap() {
+    for caps in [
+        every_cap(),
+        evo_like_caps(),
+        crate::game::Caps::GEAR.or(crate::game::Caps::LAP_TIME),
+    ] {
+        let s = slots(caps);
+        for layout in [Layout::Classic, Layout::Ultrawide, Layout::Wide, Layout::Square, Layout::Portrait] {
+            let plan = layout.plan(&s);
+            if layout != Layout::Classic {
+                assert_eq!(plan.cards.len(), s.cards.len(), "{layout:?}: every card has a place");
+            }
+            for (i, (card, area)) in plan.cards.iter().enumerate() {
+                assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{layout:?} {card:?} inside the canvas");
+                for (other, b) in &plan.cards[i + 1..] {
+                    assert!(!overlap(*area, *b), "{layout:?}: {card:?} over {other:?}");
+                }
+            }
+        }
+    }
+    let s = slots(every_cap());
+    assert_eq!(Layout::Wide.plan(&s).area(Pane::Laps).map(|a| a.1), Some(CARDS_TOP + 300.0 + GAP));
+    // Nothing the game can give: no cards and a canvas that is only the header.
+    assert_eq!(Layout::Wide.plan(&slots(crate::game::Caps::NONE)).h, CARDS_TOP);
+}
+
+#[test]
+fn each_screen_shape_gets_the_layout_that_fills_it() {
+    let s = slots(every_cap());
+    // The window's body: the window less the header (66) and the margins (16 around).
+    let pick = |w: f32, h: f32| pick_layout(w - 32.0, h - 66.0 - 16.0, &s);
+    assert_eq!(pick(2560.0, 1080.0), Layout::Ultrawide);
+    assert_eq!(pick(3440.0, 1440.0), Layout::Ultrawide);
+    assert_eq!(pick(1920.0, 1080.0), Layout::Wide);
+    assert_eq!(pick(1536.0, 864.0), Layout::Wide, "the window as it opens on a 1080p screen");
+    assert_eq!(pick(1680.0, 1050.0), Layout::Wide);
+    assert_eq!(pick(1280.0, 720.0), Layout::Wide);
+    assert_eq!(pick(1024.0, 768.0), Layout::Square);
+    assert_eq!(pick(1280.0, 1024.0), Layout::Square);
+    assert_eq!(pick(430.0, 900.0), Layout::Portrait);
+    assert_eq!(pick(540.0, 1080.0), Layout::Portrait);
+    assert_eq!(pick(960.0, 600.0), Layout::Classic, "too small for the others to read well");
+    // Whatever the shape, the dashboard scales to a size that can be read.
+    for (w, h) in [(2560.0, 1080.0), (1920.0, 1080.0), (1024.0, 768.0), (430.0, 900.0), (960.0, 600.0)] {
+        let (bw, bh) = (w - 32.0, h - 82.0);
+        let layout = pick_layout(bw, bh, &s);
+        let (cw, ch) = layout.size(&s);
+        assert!((bw / cw).min(bh / ch) >= 0.5, "{w}x{h} {layout:?}");
+    }
+}
+
+#[test]
+fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
+    let s = slots(every_cap());
+    let (mut sticky_flips, mut plain_flips, mut edges) = (0, 0, 0);
+    for bh in [600.0, 760.0, 900.0, 1080.0] {
+        let widths: Vec<f32> = (600..2800).map(|w| w as f32).collect();
+        for pair in widths.windows(2) {
+            let (was, now) = (pick_layout(pair[0], bh, &s), pick_layout(pair[1], bh, &s));
+            if was == now {
+                continue;
+            }
+            edges += 1;
+            let mut current = Some(pick_layout_sticky(pair[0] - 4.0, bh, &s, None));
+            let mut plain = current;
+            for step in 0..40 {
+                let width = pair[1] + if step % 2 == 0 { 4.0 } else { -6.0 };
+                let next = pick_layout_sticky(width, bh, &s, current);
+                sticky_flips += usize::from(Some(next) != current);
+                current = Some(next);
+                let best = pick_layout(width, bh, &s);
+                plain_flips += usize::from(Some(best) != plain);
+                plain = Some(best);
+            }
+        }
+    }
+    assert!(edges >= 4, "the layouts do change with the window ({edges})");
+    assert!(
+        plain_flips > sticky_flips * 3,
+        "the margin stops the flipping: {sticky_flips} against {plain_flips}"
+    );
+    assert_eq!(pick_layout_sticky(1920.0, 1080.0, &s, None), pick_layout(1920.0, 1080.0, &s));
+    // The smallest layout is left as soon as another one reads.
+    assert_eq!(pick_layout_sticky(1888.0, 998.0, &s, Some(Layout::Classic)), Layout::Wide);
+}
+
+#[test]
+fn the_centre_card_keeps_its_parts_apart_and_inside_it() {
+    for card in [(0.0, 0.0, 420.0, 300.0), (0.0, 0.0, 330.0, 280.0), (0.0, 0.0, 576.0, 280.0)] {
+        let plan = centre_plan(card, &slots(every_cap()));
+        let (x, y, w, h) = inner(card);
+        let mut parts = vec![plan.gear, plan.speed, plan.unit, plan.steer];
+        for (label, bar) in plan.pedals.iter().flatten() {
+            parts.push(*label);
+            parts.push(*bar);
+        }
+        for (i, a) in parts.iter().enumerate() {
+            assert!(inside_box(*a, x, y, w, h), "{a:?} inside the card {card:?}");
+            for b in &parts[i + 1..] {
+                assert!(!overlap(*a, *b), "{a:?} over {b:?}");
+            }
+        }
+        // The gears either side stay in the gear's row and clear of the gear's own glyph.
+        assert!(inside_box(plan.below, x, y, w, h) && inside_box(plan.above, x, y, w, h));
+        assert!(plan.below.0 + plan.below.2 < x + w / 2.0 - 50.0 && plan.above.0 > x + w / 2.0 + 50.0);
+        assert!(plan.gear.3 >= 40.0 && plan.speed.1 >= plan.gear.1 + plan.gear.3);
+    }
+    // Without the pedals and the wheel the gear takes their room.
+    let with = centre_plan((0.0, 0.0, 420.0, 300.0), &slots(every_cap()));
+    let bare = centre_plan(
+        (0.0, 0.0, 420.0, 300.0),
+        &slots(crate::game::Caps::GEAR.or(crate::game::Caps::SPEED)),
+    );
+    assert!(bare.gear.3 > with.gear.3);
+}
+
+#[test]
+fn the_tyre_tiles_are_two_by_two_or_one_row_and_stay_in_their_card() {
+    for card in [(0.0, 0.0, 346.0, 300.0), (0.0, 0.0, 323.0, 260.0), (0.0, 0.0, 800.0, 200.0)] {
+        let tiles = tyre_tiles(card);
+        let (x, y, w, h) = inner(card);
+        for (i, a) in tiles.iter().enumerate() {
+            assert!(inside_box(*a, x, y + CAPTION_H, w, h - CAPTION_H), "{a:?} in {card:?}");
+            for b in &tiles[i + 1..] {
+                assert!(!overlap(*a, *b));
+            }
+        }
+    }
+    let [fl, fr, rl, rr] = tyre_tiles((0.0, 0.0, 346.0, 300.0));
+    assert!(fl.1 == fr.1 && rl.1 == rr.1 && fl.0 == rl.0 && fr.0 == rr.0 && rl.1 > fl.1 && fr.0 > fl.0);
+    let [a, b, c, d] = tyre_tiles((0.0, 0.0, 800.0, 200.0));
+    assert!(a.1 == b.1 && b.1 == c.1 && c.1 == d.1, "a wide, short card: one row");
+}
+
+#[test]
+fn the_laps_table_columns_fill_its_width_and_its_rows_fit_its_height() {
+    for sectors in [false, true] {
+        let cols = lap_columns(500.0, sectors);
+        assert_eq!(cols.len(), if sectors { 6 } else { 3 });
+        assert!((cols.last().map(|c| c.0 + c.1).unwrap() - 500.0).abs() < 0.01);
+        assert!(cols.windows(2).all(|p| (p[0].0 + p[0].1 - p[1].0).abs() < 0.01));
+    }
+    assert_eq!(lap_rows_fit(262.0), 7);
+    assert_eq!(lap_rows_fit(40.0), 0);
+    let places = flow((0.0, 0.0, 100.0, 70.0), &[60.0, 60.0, 30.0, 60.0, 60.0], 28.0, 8.0);
+    assert_eq!(places[0], Some((0.0, 0.0, 60.0, 28.0)));
+    assert_eq!(places[1].map(|p| p.1), Some(36.0), "a tile that does not fit goes to the next line");
+    assert!(places.iter().flatten().all(|p| inside_box(*p, 0.0, 0.0, 100.0, 70.0)));
+    assert!(places[4].is_none(), "no room for a third line");
+}
+
+/// Where a pane is on a `w` x `h` window, in pixels, for the picture to be compared there.
+fn pane_region(caps: crate::game::Caps, w: i32, h: i32, pane: Pane) -> (i32, i32, i32, i32) {
+    let s = slots(caps);
+    let body = rect(16, 66, w - 16, h - 16);
+    let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
+    let plan = layout.plan(&s);
+    let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
+    let (x, y, aw, ah) = plan.area(pane).expect("the pane is there");
+    let p = |v: f32, o: i32| o + (v * scale).round() as i32;
+    (p(x, ox), p(y, oy), p(x + aw, ox), p(y + ah, oy))
+}
+
+#[test]
+fn values_that_come_and_go_never_move_another_card() {
+    let f = fixture();
+    let mut base = rich_reading();
+    base.caps = every_cap();
+    let (w, h) = (1536, 864);
+    let still = render(&view(&f, Some(&base), Tab::Dash, 1.0, Lang::En), w, h);
+    // The tyres, the fuel, the temperatures, the alerts and the best lap go missing: the other cards do not shift.
+    let mut gone = base.clone();
+    gone.tyres = None;
+    gone.fuel_l = f32::NAN;
+    gone.state = crate::game::CarState::UNKNOWN;
+    gone.last_seen = Default::default();
+    gone.best_lap_s = None;
+    gone.delta_s = None;
+    gone.last_lap_s = None;
+    let after = render(&view(&f, Some(&gone), Tab::Dash, 1.0, Lang::En), w, h);
+    for pane in [Pane::Centre, Pane::Track] {
+        let region = pane_region(base.caps, w, h, pane);
+        assert_eq!(region_of(&still, w, region), region_of(&after, w, region), "{pane:?} did not move");
+    }
+    assert_eq!(slots(base.caps), slots(gone.caps), "the layout is chosen from the caps");
+    // The times card keeps the lap time where it was (the top of the card) when the records appear.
+    let (x0, y0, x1, y1) = pane_region(base.caps, w, h, Pane::Times);
+    let top = (x0, y0, x1, y0 + (y1 - y0) / 3);
+    assert_eq!(region_of(&still, w, top), region_of(&after, w, top), "the lap time did not move");
+}
+
+#[test]
+fn the_dashboard_paints_each_card_in_its_colours() {
+    let f = fixture();
+    let live = rich_reading();
+    let (w, h) = (1920, 1080);
+    let pixels = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+    save(&pixels, w, h, "panel-dashboard.png");
+    assert!(pixels[..3].iter().all(|&c| c < 0x24), "the corner is the dark background");
+    assert!(
+        has_color(&pixels, PRIMARY) > 2000,
+        "the gear, the lap and the tab are in the accent"
+    );
+    for (colour, what) in [
+        (SUCCESS, "the throttle bar, the delta, the fuel, an ok tyre"),
+        (BEST, "the best lap"),
+        (WARN, "a hot tyre"),
+        (DESTRUCTIVE, "an over tyre and the invalid lap"),
+    ] {
+        let n = has_color(&pixels, colour);
+        assert!(n > 100, "{what}: {n}");
+    }
+    // A lit alert is a solid tile in its colour; one that is off is not drawn at all.
+    let mut off = live.clone();
+    off.state.abs_active = Some(false);
+    off.state.drs = Some(crate::game::Drs::Off);
+    let quiet = render(&view(&f, Some(&off), Tab::Dash, 1.0, Lang::En), w, h);
+    assert!(
+        has_color(&pixels, INFO) > has_color(&quiet, INFO) + 1500,
+        "ABS ACTIVE is a solid blue tile"
+    );
+    // Out of the car: the gear is dim.
+    let mut menu = live.clone();
+    menu.driving = false;
+    let dim = render(&view(&f, Some(&menu), Tab::Dash, 1.0, Lang::En), w, h);
+    assert!(has_color(&dim, PRIMARY) < has_color(&pixels, PRIMARY) / 2);
+}
+
+#[test]
+fn out_of_the_car_the_header_shows_no_lap_and_no_invalid_badge() {
+    let f = fixture();
+    let mut live = live_reading();
+    live.lap_valid = Some(false);
+    let (w, h) = (1920, 1080);
+    let s = slots(live.caps);
+    let body = rect(16, 66, w - 16, h - 16);
+    let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
+    let plan = layout.plan(&s);
+    let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
+    let lap_box = (
+        ox + ((plan.w - 260.0) * scale) as i32,
+        oy + (TITLE_Y * scale) as i32,
+        ox + (plan.w * scale) as i32,
+        oy + ((TITLE_Y + 34.0) * scale) as i32,
+    );
+    let driving = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+    let lap = region_of(&driving, w, lap_box);
+    assert!(has_color(&lap, PRIMARY) > 200, "driving: the lap number is there");
+    assert!(has_color(&lap, DESTRUCTIVE) > 20, "driving: and the invalid mark");
+    live.driving = false;
+    let menu = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+    let lap = region_of(&menu, w, lap_box);
+    assert_eq!(has_color(&lap, PRIMARY), 0, "in the menu: no lap number");
+    assert_eq!(has_color(&lap, DESTRUCTIVE), 0, "in the menu: no invalid badge");
+}
+
+#[test]
+fn a_lap_that_does_not_count_has_its_time_struck_through_in_red() {
+    let f = fixture();
+    let live = rich_reading();
+    let laps = rich_laps();
+    let mut with_invalid = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    with_invalid.recent_laps = &laps;
+    let all_valid: Vec<SavedLap> = laps.iter().cloned().map(|l| SavedLap { valid: true, ..l }).collect();
+    let mut without = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    without.recent_laps = &all_valid;
+    let (w, h) = (1920, 1080);
+    let a = render(&with_invalid, w, h);
+    let b = render(&without, w, h);
+    let region = pane_region(live.caps, w, h, Pane::Laps);
+    let (ra, rb) = (region_of(&a, w, region), region_of(&b, w, region));
+    assert!(reddish(&ra) > reddish(&rb) + 40, "the strike and the word invalid are red");
+}
+
+#[test]
+fn every_preview_state_paints_at_every_shape() {
+    let f = fixture();
+    let rich = rich_reading();
+    let mut paused = rich.clone();
+    paused.driving = false;
+    paused.phase = crate::game::Phase::Paused;
+    let mut first = rich.clone();
+    first.best_lap_s = None;
+    first.delta_s = None;
+    first.last_lap_s = None;
+    let mut little = live_reading();
+    little.caps = crate::game::Caps::LAP_TIME
+        .or(crate::game::Caps::SPEED)
+        .or(crate::game::Caps::GEAR)
+        .or(crate::game::Caps::RPM)
+        .or(crate::game::Caps::THROTTLE)
+        .or(crate::game::Caps::BRAKE)
+        .or(crate::game::Caps::LAST_LAP);
+    let laps = rich_laps();
+    let none: Vec<SavedLap> = Vec::new();
+    let states: [(&str, &Live, &Vec<SavedLap>); 4] = [
+        ("driving", &rich, &laps),
+        ("paused", &paused, &laps),
+        ("first-lap", &first, &none),
+        ("little-data", &little, &none),
+    ];
+    let shapes = [
+        ("21x9", 2560, 1080),
+        ("16x9", 1920, 1080),
+        ("window", 1536, 864),
+        ("16x10", 1680, 1050),
+        ("4x3", 1024, 768),
+        ("5x4", 1280, 1024),
+        ("small", 960, 600),
+        ("phone", 430, 900),
+    ];
+    for (state, live, laps) in states {
+        for (shape, w, h) in shapes {
+            let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
+            v.recent_laps = laps;
+            let pixels = render(&v, w, h);
+            save(&pixels, w, h, &format!("state-{state}-{shape}.png"));
+            assert!(has_color(&pixels, CARD) > 1000, "{state} {shape}: cards are drawn");
+        }
     }
 }

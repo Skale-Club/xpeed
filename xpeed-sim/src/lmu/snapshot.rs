@@ -165,6 +165,7 @@ pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::TYRE_TEMP)
     .or(Caps::TYRE_PRESSURE)
     .or(Caps::TYRE_WEAR)
+    .or(Caps::TYRE_TREAD)
     .or(Caps::BRAKE_TEMP)
     .or(Caps::CAR_CLASS)
     .or(Caps::TRACK_LENGTH)

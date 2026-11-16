@@ -69,7 +69,7 @@ pub(super) const BEST: COLORREF = rgb(0xa4, 0x74, 0xe7);
 pub(super) const CYAN: COLORREF = rgb(0x26, 0xc6, 0xff);
 /// A calm blue for a cold tyre or a cold brake (the louder `INFO` is for the clutch and the shift flash).
 pub(super) const STEEL: COLORREF = rgb(0x6b, 0x95, 0xc2);
-/// A neighbouring gear, a light that is not lit (#7f848c, raised from #5c616b to read on a card).
+/// A neighbouring gear (#7f848c, raised from #5c616b to read on a card).
 pub(super) const GREY: COLORREF = rgb(0x7f, 0x84, 0x8c);
 /// The rev bar's gradient from low revs to the limit.
 pub(super) const REV_STOPS: [(f32, COLORREF); 4] = [
@@ -92,24 +92,13 @@ pub(super) const ROAD_LINE: COLORREF = mix(SECONDARY, FOREGROUND, 0.5);
 pub(super) const CAR_HALO: COLORREF = mix(BACKGROUND, PRIMARY, 0.3);
 /// The cover of a game that has not arrived yet.
 pub(super) const COVER_PLACEHOLDER: COLORREF = mix(BACKGROUND, CARD, 0.8);
-/// A light that is not lit: its tile and its word.
-pub(super) const LIGHT_OFF_FILL: COLORREF = mix(CARD, BACKGROUND, 0.4);
-pub(super) const LIGHT_OFF_INK: COLORREF = mix(CARD, MUTED_TEXT, 0.5);
-/// The car seen from above in the tyre schematic: the body, the wings and the cabin.
-pub(super) const CAR_BODY: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.14);
-pub(super) const CAR_WING: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.22);
-pub(super) const CAR_CABIN: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.04);
 /// The row under the mouse in the language list.
 pub(super) const ROW_HOVER: COLORREF = mix(CARD, FOREGROUND, 0.07);
-/// A tyre of the schematic that the game says nothing about: its outline, and its fill.
-pub(super) const TYRE_UNKNOWN_EDGE: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.35);
-pub(super) const TYRE_FILL: COLORREF = mix(BACKGROUND, CARD, 0.55);
 /// What the make marks stand on (the logos are drawn for a light ground).
 pub(super) const BRAND_TILE: COLORREF = rgb(0xf5, 0xf5, 0xf5);
-/// The flags of the lights card.
+/// The flags of the alerts card.
 pub(super) const FLAG_WHITE: COLORREF = rgb(0xff, 0xff, 0xff);
 pub(super) const FLAG_BLACK: COLORREF = rgb(0x05, 0x05, 0x06);
-pub(super) const FLAG_CHEQUER: COLORREF = rgb(0x10, 0x10, 0x12);
 
 /// How much of its colour an element that is not live keeps over the card (paused, a menu, a silent game): it reads as
 /// "last known", never as a live value.
@@ -178,6 +167,7 @@ pub(super) const S4: f32 = 16.0;
 pub(super) const S6: f32 = 24.0;
 pub(super) const S8: f32 = 32.0;
 
-/// Strokes: a hairline, a bar's thickness, the accent edge of a card.
+/// Strokes: a hairline, a bar's thickness, the accent edge of a tile.
 pub(super) const STROKE_HAIR: f32 = 1.0;
 pub(super) const STROKE_BAR: f32 = 3.0;
+pub(super) const STROKE_ACCENT: f32 = 2.0;
