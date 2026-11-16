@@ -3,6 +3,16 @@
 import { getAccessToken } from '@/lib/auth/google';
 import { publicAppUrl } from '@/lib/trips';
 
+/** How a Companion run is going, as the server last heard it (Xpeed Companion 0.8.5 and a server that keeps it). Counts and ids only. */
+export interface DeviceHealth {
+  lapsSaved?: number;
+  lapsDropped?: { partial?: number; short?: number; failedSave?: number };
+  lapsRejected?: number;
+  /** Ids of the workers given up on or restarting: a family of game readers (`kunos`, `ams2`...) or a part (`uploader`...). */
+  workers?: { failed?: string[]; restarting?: string[] };
+  games?: { id: string; build: string | null }[];
+}
+
 export interface SimDevice {
   id: string;
   name: string;
@@ -18,6 +28,9 @@ export interface SimDevice {
   last_game?: string | null;
   /** When the state or the game last changed. */
   last_state_at?: string | null;
+  /** The last report of how the run is going; null from an older Companion or server. */
+  last_health?: DeviceHealth | null;
+  last_health_at?: string | null;
 }
 
 export type SimErrorReason = 'signin' | 'too_many' | 'not_found' | 'unavailable';

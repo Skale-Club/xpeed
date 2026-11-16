@@ -2,8 +2,8 @@
 //!
 //! * a panic hook (`install_panic_hook`) that writes what panicked, where and on which thread to `companion.log`, with
 //!   the version and build, so a support request has the cause;
-//! * a supervisor (`supervise`) for the long-lived worker threads (the game readers, Le Mans Ultimate, the track
-//!   builder, the uploader): when one panics it is logged and the worker starts again after a wait that grows (1 s, 2 s,
+//! * a supervisor (`supervise`) for the long-lived worker threads (each family of game readers, Le Mans Ultimate, the
+//!   track builder, the uploader): when one panics it is logged and the worker starts again after a wait that grows (1 s, 2 s,
 //!   5 s, 10 s, 30 s), up to 5 times in 10 minutes; after that it is given up on and shown as failed in the panel. A
 //!   worker that failed never takes the tray down with it;
 //! * a guard (`UiGuard`) for the window procedures, which would abort the whole program if a panic unwound out of them.
@@ -46,8 +46,8 @@ pub enum Health {
     Failed,
 }
 
-/// The ids of the long-lived workers, as `Shared::set_worker` knows them.
-pub const GAMES: &str = "games";
+/// The ids of the long-lived workers, as `Shared::set_worker` knows them. Each family of game readers (`games::Reader::family`)
+/// is a worker under its own id as well.
 pub const LMU: &str = "lmu";
 pub const TRACKS: &str = "tracks";
 pub const UPLOADER: &str = "uploader";
@@ -57,13 +57,16 @@ pub const UPDATER: &str = "updater";
 /// What a worker is called in a sentence (the log, the panel, the diagnostics).
 pub fn title(id: &str) -> &'static str {
     match id {
-        GAMES => "game readers",
         LMU => "Le Mans Ultimate reader",
         TRACKS => "track builder",
         UPLOADER => "uploader",
         HEARTBEAT => "heartbeat sender",
         UPDATER => "update checker",
-        _ => "background task",
+        // A family of game readers is named after the games it reads.
+        family => crate::games::READERS
+            .iter()
+            .find(|reader| reader.family == family)
+            .map_or("background task", |reader| reader.title),
     }
 }
 

@@ -74,6 +74,30 @@ pub enum Notice {
     },
 }
 
+/// A lap the cutter let go of without writing it (`Shared::note_lap_dropped`), for the heartbeat's counts. The heartbeat already
+/// sends the counts; the lap cutter (`lapcut.rs`) is the one that knows, and reports each lap it lets go with `note_lap_dropped`.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LapDrop {
+    /// The lap was joined in the middle (the program started, or the game came back, during it).
+    Partial,
+    /// Too short or too few samples to be a lap.
+    Short,
+}
+
+/// What this run did with the laps it cut, and what the games reported about themselves: what the heartbeat tells the server.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LapStats {
+    pub saved: u32,
+    pub partial: u32,
+    pub short: u32,
+    /// Laps that could not be written to the folder and are not written now (held for another try, or lost).
+    pub failed_save: u32,
+}
+
+/// How many games the heartbeat names at most.
+pub const MAX_GAMES_REPORTED: usize = 8;
+
 /// Something the person would want to know happened, for the panel's activity list (put in their language there).
 /// The technical log stays in the log file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +145,14 @@ pub struct Shared {
     workers: Mutex<BTreeMap<&'static str, Health>>,
     /// What the person is told about a new version (the Monitor tab and the tray menu show it).
     update: Mutex<UpdateState>,
+    /// What this run did with its laps (the heartbeat's counts) and the game build each game last reported (when it did).
+    lap_stats: Mutex<LapStats>,
+    game_builds: Mutex<BTreeMap<String, Option<String>>>,
+    /// A lap that could not be saved was announced and none has been saved since: the balloon is not said again.
+    save_failing: AtomicBool,
+    /// Balloons about a lap that could not be saved (the short reason), waiting for the tray. Kept apart from `notices`: they are
+    /// problems, not news, and a later "lap saved" must not hide them.
+    save_alerts: Mutex<VecDeque<String>>,
     paused: AtomicBool,
     quit: AtomicBool,
 }
@@ -147,6 +179,10 @@ impl Shared {
             activity: Mutex::new(VecDeque::new()),
             workers: Mutex::new(BTreeMap::new()),
             update: Mutex::new(UpdateState::Nothing),
+            lap_stats: Mutex::new(LapStats::default()),
+            game_builds: Mutex::new(BTreeMap::new()),
+            save_failing: AtomicBool::new(false),
+            save_alerts: Mutex::new(VecDeque::new()),
             paused: AtomicBool::new(false),
             quit: AtomicBool::new(false),
         })
@@ -211,6 +247,67 @@ impl Shared {
             self.notify(Notice::NeedsSetup { id, name });
         }
         self.view_changed();
+    }
+
+    /// A lap was written (`late`: after an earlier try failed). `build` is the game's own version string when the reader knew it.
+    pub fn note_lap_saved(&self, game: &str, build: Option<&str>, late: bool) {
+        {
+            let mut stats = lock(&self.lap_stats);
+            stats.saved = stats.saved.saturating_add(1);
+            if late {
+                stats.failed_save = stats.failed_save.saturating_sub(1);
+            }
+        }
+        let mut builds = lock(&self.game_builds);
+        let known = builds.entry(game.to_owned()).or_insert(None);
+        if build.is_some() {
+            *known = build.map(str::to_owned);
+        }
+    }
+
+    /// The cutter let a lap go without writing it.
+    #[allow(dead_code)]
+    pub fn note_lap_dropped(&self, why: LapDrop) {
+        let mut stats = lock(&self.lap_stats);
+        match why {
+            LapDrop::Partial => stats.partial = stats.partial.saturating_add(1),
+            LapDrop::Short => stats.short = stats.short.saturating_add(1),
+        }
+    }
+
+    /// A lap could not be written and waits for another try. The tray says so once, until a lap is written again.
+    pub fn note_lap_unsaved(&self, reason: &str) {
+        {
+            let mut stats = lock(&self.lap_stats);
+            stats.failed_save = stats.failed_save.saturating_add(1);
+        }
+        if !self.save_failing.swap(true, Ordering::SeqCst) {
+            lock(&self.save_alerts).push_back(reason.to_owned());
+            self.changed();
+        }
+    }
+
+    /// The reasons of the "a lap could not be saved" balloons not shown yet, oldest first.
+    pub fn take_save_alerts(&self) -> Vec<String> {
+        lock(&self.save_alerts).drain(..).collect()
+    }
+
+    /// Writing works again (the folder took a lap): the next failure is told again.
+    pub fn note_saving_works(&self) {
+        self.save_failing.store(false, Ordering::SeqCst);
+    }
+
+    pub fn lap_stats(&self) -> LapStats {
+        lock(&self.lap_stats).clone()
+    }
+
+    /// The games that gave laps in this run with their build when known, by id (at most `MAX_GAMES_REPORTED`).
+    pub fn game_builds(&self) -> Vec<(String, Option<String>)> {
+        lock(&self.game_builds)
+            .iter()
+            .take(MAX_GAMES_REPORTED)
+            .map(|(id, build)| (id.clone(), build.clone()))
+            .collect()
     }
 
     /// What the heartbeat says about the program now: waiting, connected to a game (which), or paused by the person.
@@ -512,6 +609,33 @@ mod tests {
         // A game that shares is never told anything.
         shared.set_game("ac", "Assetto Corsa", Game::Connected);
         assert!(shared.take_notices().is_empty());
+    }
+
+    #[test]
+    fn counts_laps_and_says_a_failed_save_once_until_saving_works_again() {
+        let shared = Shared::new(true);
+        shared.note_lap_saved("ac", Some("1.16.3"), false);
+        shared.note_lap_saved("ac", None, false);
+        shared.note_lap_dropped(LapDrop::Partial);
+        shared.note_lap_dropped(LapDrop::Short);
+        shared.note_lap_dropped(LapDrop::Short);
+        shared.note_lap_unsaved("disk full");
+        shared.note_lap_unsaved("disk full");
+        let stats = shared.lap_stats();
+        assert_eq!((stats.saved, stats.partial, stats.short, stats.failed_save), (2, 1, 2, 2));
+        assert_eq!(shared.take_save_alerts(), ["disk full"], "once");
+        assert_eq!(
+            shared.game_builds(),
+            [("ac".to_owned(), Some("1.16.3".to_owned()))],
+            "a later lap without a build keeps it"
+        );
+        shared.note_lap_saved("ac", None, true);
+        shared.note_saving_works();
+        assert_eq!(shared.lap_stats().failed_save, 1);
+        shared.note_lap_unsaved("again");
+        assert_eq!(shared.take_save_alerts(), ["again"], "told again after it worked");
+        shared.note_lap_saved("lmu", None, false);
+        assert_eq!(shared.game_builds().len(), 2);
     }
 
     #[test]

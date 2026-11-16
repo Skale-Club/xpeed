@@ -43,6 +43,42 @@ export function deviceActivity(device: Pick<SimDevice, 'last_seen_at' | 'revoked
   }
 }
 
+/** Something wrong on a computer that is running, in the words of the report it sent (`last_health`). */
+export type DeviceProblem =
+  | { kind: 'save_failed'; count: number }
+  | { kind: 'rejected'; count: number }
+  | { kind: 'worker_failed'; ids: string[] }
+  | { kind: 'worker_restarting'; ids: string[] };
+
+const whole = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0);
+const idList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v !== '') : []);
+
+/**
+ * What the computer's last report says is wrong, worst first: laps that could not be saved on it, laps the server refused, a part given up on,
+ * a part starting again. Only for a computer that is online (what an offline one said is old) and not revoked; none when it sent no report (an
+ * older Companion or server) or when all is well. Laps let go as partial or short are normal and are not listed.
+ */
+export function deviceProblems(device: Pick<SimDevice, 'last_seen_at' | 'revoked_at' | 'last_health'>, now = Date.now()): DeviceProblem[] {
+  const health = device.last_health;
+  if (!health || typeof health !== 'object' || deviceState(device, now) !== 'online') return [];
+  const found: DeviceProblem[] = [];
+  const saveFailed = whole(health.lapsDropped?.failedSave);
+  if (saveFailed > 0) found.push({ kind: 'save_failed', count: saveFailed });
+  const rejected = whole(health.lapsRejected);
+  if (rejected > 0) found.push({ kind: 'rejected', count: rejected });
+  const failed = idList(health.workers?.failed);
+  if (failed.length > 0) found.push({ kind: 'worker_failed', ids: failed });
+  const restarting = idList(health.workers?.restarting).filter((id) => !failed.includes(id));
+  if (restarting.length > 0) found.push({ kind: 'worker_restarting', ids: restarting });
+  return found;
+}
+
+/** The games a family of readers (a worker id in the report) reads, as the card names it; null when the id is not a family (a part, or a family this page does not know). */
+export const FAMILY_NAMES: Readonly<Record<string, string>> = {
+  kunos: 'Assetto Corsa', ams2: 'Automobilista 2', pcars: 'Project CARS', wreckfest2: 'Wreckfest 2', f1: 'EA SPORTS F1', acevo: 'Assetto Corsa EVO',
+  rfactor1: 'rFactor', iracing: 'iRacing', r3e: 'RaceRoom', forza: 'Forza', lmu: 'Le Mans Ultimate',
+};
+
 /** `0.7.0` (or `0.7.0-beta.1`, the tag ignored) as three numbers; null when it is not a version. */
 export function parseVersion(text: string | null | undefined): [number, number, number] | null {
   const match = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})(?:-[0-9A-Za-z.]{1,16})?$/.exec((text ?? '').trim());

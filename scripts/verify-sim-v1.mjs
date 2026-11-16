@@ -1187,6 +1187,60 @@ try {
     await direct.query('UPDATE public.sim_devices SET last_state = NULL WHERE id = $1', [rig.deviceId]);
   });
 
+  await hbCheck('heartbeat: the report of how the run is going is cleaned and kept, shown in the list, and a malformed part never refuses the heartbeat', async () => {
+    const rig = await deviceFor(C, 'HB HEALTH');
+    const health = async () => (await deviceRow(rig.deviceId)).last_health;
+    assert.equal(await health(), null, 'nothing before the first report');
+    const full = {
+      ...GOOD, version: '0.8.5', lapsSaved: 12, lapsDropped: { partial: 1, short: 2, failedSave: 3 }, lapsRejected: 4,
+      workers: { failed: ['kunos'], restarting: ['f1'] }, games: [{ id: 'ac', build: '1.16.3' }, { id: 'lmu', build: null }],
+    };
+    const first = await beat(rig.token, full);
+    assert.deepEqual([first.status, first.body], [200, { ok: true }]);
+    const kept = { lapsSaved: 12, lapsDropped: { partial: 1, short: 2, failedSave: 3 }, lapsRejected: 4, workers: { failed: ['kunos'], restarting: ['f1'] }, games: [{ id: 'ac', build: '1.16.3' }, { id: 'lmu', build: null }] };
+    assert.deepEqual(await health(), kept);
+    assert.ok(ageMs((await deviceRow(rig.deviceId)).last_health_at) < 10_000, 'when it was heard');
+    const listed = (await call(devices, '/api/sim/devices', { bearer: C })).body.devices.find((d) => d.id === rig.deviceId);
+    assert.deepEqual(listed.last_health, kept, 'the person sees it on their own computer');
+    assert.ok(listed.last_health_at);
+    // An older Companion sends none of it: the last report stays, and the heartbeat is as valid as ever.
+    assert.equal((await beat(rig.token, GOOD)).status, 200);
+    assert.deepEqual(await health(), kept);
+    // A malformed part is dropped (zero or empty), never a reason to refuse; extra fields are ignored; big numbers and long lists are capped.
+    const messy = await beat(rig.token, {
+      ...GOOD, lapsSaved: 'many', lapsDropped: [1, 2], lapsRejected: 99_999_999_999, extra: 'x',
+      workers: { failed: ['kunos', 'BAD ID', 7, '../x', 'a'.repeat(40), ...Array.from({ length: 30 }, (_, i) => `w${i}`)], restarting: 'f1' },
+      games: [{ id: 'ac', build: '<script>' }, { id: 'AC' }, 7, null, { id: 'ac', build: '2' }, { id: 'ams2', build: '2.0 (steam)' }, ...Array.from({ length: 30 }, (_, i) => ({ id: `g${i}`, build: null }))],
+    });
+    assert.deepEqual([messy.status, messy.body], [200, { ok: true }]);
+    const after = await health();
+    assert.deepEqual([after.lapsSaved, after.lapsDropped, after.lapsRejected], [0, { partial: 0, short: 0, failedSave: 0 }, 1_000_000]);
+    assert.equal(after.workers.failed.length, 12);
+    assert.deepEqual([after.workers.failed[0], after.workers.restarting], ['kunos', []]);
+    assert.deepEqual(after.games.slice(0, 2), [{ id: 'ac', build: null }, { id: 'ams2', build: '2.0 (steam)' }]);
+    assert.equal(after.games.length, 12);
+    assert.ok(!JSON.stringify(after).includes('script') && !('extra' in after));
+    // A revoked key is refused before anything is written.
+    await direct.query('UPDATE public.sim_devices SET revoked_at = now(), last_health = NULL WHERE id = $1', [rig.deviceId]);
+    assert.equal((await beat(rig.token, full)).status, 401);
+    assert.equal(await health(), null);
+  });
+
+  await hbCheck('heartbeat: the health migration is idempotent, adds only nullable columns and one service-only function', async () => {
+    const file = listMigrations(MIGRATIONS_DIR).find((name) => name.startsWith('20261116120000'));
+    assert.ok(file && file > '20261115100000', 'after the heartbeat ones');
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
+    await direct.query(sql);
+    await direct.query(sql);
+    const columns = (await direct.query("SELECT column_name, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sim_devices' AND column_name IN ('last_health', 'last_health_at') ORDER BY 1")).rows;
+    assert.deepEqual(columns, [{ column_name: 'last_health', is_nullable: 'YES' }, { column_name: 'last_health_at', is_nullable: 'YES' }]);
+    const grants = async (role) => (await direct.query("SELECT has_function_privilege($1, p.oid, 'EXECUTE') AS ok FROM pg_proc p WHERE p.proname = 'sim_device_health' AND p.pronamespace = 'public'::regnamespace", [role])).rows.map((r) => r.ok);
+    assert.deepEqual([await grants('service_role'), await grants('anon'), await grants('authenticated')], [[true], [false], [false]]);
+    const rule = (await direct.query("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'public.sim_devices'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%last_health%'")).rows;
+    assert.equal(rule.length, 1, 'one check on the report, not one per run');
+    assert.match(rule[0].def, /jsonb_typeof.*object.*octet_length.*2048/, 'only a small object is kept');
+  });
+
   await hbCheck('heartbeat: strict about the four fields (one error shape, nothing written), and ignores the rest', async () => {
     const rig = await deviceFor(C, 'HB PC 3');
     const before = JSON.stringify(await deviceRow(rig.deviceId));

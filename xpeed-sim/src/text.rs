@@ -80,6 +80,8 @@ pub enum Msg {
     MenuAutostart,
     MenuQuit,
     NoticeLapSaved(String),
+    /// A lap could not be written to the laps folder (short reason); Xpeed Companion tries again.
+    NoticeLapNotSaved(String),
     NoticeLapsSent(u32),
     NoticePaired(String),
     NoticeNotPaired,
@@ -307,6 +309,11 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             format!("Lap saved: {label}"),
             format!("Volta gravada: {label}"),
             format!("Vuelta guardada: {label}"),
+        ),
+        NoticeLapNotSaved(reason) => t(
+            format!("A lap could not be saved: {reason}. Xpeed Companion will try again."),
+            format!("Uma volta não pôde ser gravada: {reason}. O Xpeed Companion vai tentar de novo."),
+            format!("No se pudo guardar una vuelta: {reason}. Xpeed Companion lo intentará de nuevo."),
         ),
         NoticeLapsSent(n) => t(
             format!("{n} lap(s) sent to your account"),
@@ -644,6 +651,7 @@ mod tests {
             Msg::MenuAutostart,
             Msg::MenuQuit,
             Msg::NoticeLapSaved("Lap 3".into()),
+            Msg::NoticeLapNotSaved("disk full".into()),
             Msg::NoticeLapsSent(2),
             Msg::NoticePaired("RIG".into()),
             Msg::NoticeNotPaired,

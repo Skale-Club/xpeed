@@ -315,6 +315,42 @@ describe('your computers', () => {
     expect(line('AMS').textContent).not.toMatch(/\{\{|companionSite|communityDash/);
   });
 
+  it('says on the card, in one short line each, what is wrong when the computer reports laps that could not be saved or sent or a reader that stopped', async () => {
+    api.list.mockResolvedValue([
+      device({
+        id: 'd1', name: 'TROUBLE', companion_version: '0.8.5', last_state: 'connected', last_game: 'ac',
+        last_health: { lapsSaved: 4, lapsDropped: { partial: 0, short: 1, failedSave: 1 }, lapsRejected: 2, workers: { failed: ['kunos', 'uploader'], restarting: ['f1'] } },
+      }),
+      device({ id: 'd2', name: 'FINE', companion_version: '0.8.5', last_state: 'waiting', last_health: { lapsSaved: 4, lapsDropped: { partial: 3, short: 2, failedSave: 0 }, lapsRejected: 0, workers: { failed: [], restarting: [] } } }),
+      device({ id: 'd3', name: 'OLD', companion_version: '0.8.4', last_state: 'waiting' }),
+    ]);
+    renderPanel();
+    const cards = await screen.findAllByTestId('device');
+    const lines = (name: string) => within(byName(cards, name)).queryAllByTestId('device-problem').map((line) => line.textContent);
+    expect(lines('TROUBLE')).toEqual([
+      '1 lap could not be saved on this computer',
+      '2 laps could not be sent',
+      'Reading Assetto Corsa stopped after errors · Stopped after errors: sending laps',
+      'Reading EA SPORTS F1 is starting again after an error',
+    ]);
+    expect(lines('FINE')).toEqual([]);
+    expect(lines('OLD')).toEqual([]);
+  });
+
+  it('says the same problems in Portuguese and Spanish', async () => {
+    api.list.mockResolvedValue([device({ id: 'd1', name: 'TROUBLE', last_state: 'connected', last_game: 'ac', last_health: { lapsRejected: 1, lapsDropped: { failedSave: 2 }, workers: { failed: ['kunos'] } } })]);
+    await i18n.changeLanguage('pt-BR');
+    const first = renderPanel();
+    await screen.findByTestId('device');
+    expect(screen.getAllByTestId('device-problem').map((line) => line.textContent)).toEqual(['2 voltas não puderam ser gravadas neste computador', '1 volta não pôde ser enviada', 'A leitura de Assetto Corsa parou após erros']);
+    first.unmount();
+    await i18n.changeLanguage('es-ES');
+    renderPanel();
+    await screen.findByTestId('device');
+    expect(screen.getAllByTestId('device-problem').map((line) => line.textContent)).toEqual(['No se pudieron guardar 2 vueltas en este ordenador', 'No se pudo enviar 1 vuelta', 'La lectura de Assetto Corsa se detuvo tras errores']);
+    await i18n.changeLanguage('en');
+  });
+
   it('says the same in Portuguese and Spanish', async () => {
     api.list.mockResolvedValue([device({ id: 'd1', name: 'AMS', companion_version: '0.8.0', last_state: 'needs_setup', last_game: 'ams2' })]);
     await i18n.changeLanguage('pt-BR');

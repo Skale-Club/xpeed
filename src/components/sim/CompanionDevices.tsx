@@ -1,10 +1,11 @@
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Gamepad2, Monitor, Pause, TriangleAlert, Unplug } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { formatLapTime } from '@/lib/sim/analysis';
-import { deviceActivity, deviceState, updateAvailable, type DeviceState } from '@/lib/sim/companion';
+import { deviceActivity, deviceProblems, deviceState, FAMILY_NAMES, updateAvailable, type DeviceProblem, type DeviceState } from '@/lib/sim/companion';
 import { setupText } from '@/lib/sim/game-setup';
 import { useGames } from '@/lib/sim/games';
 import type { V1Lap } from '@/lib/sim/v1-client';
@@ -26,6 +27,32 @@ export function StateBadge({ state }: { state: DeviceState }) {
       {label}
     </Badge>
   );
+}
+
+const PART_KEYS: Record<string, [string, string]> = {
+  tracks: ['communityDash.companion.partTracks', 'track maps'],
+  uploader: ['communityDash.companion.partUploader', 'sending laps'],
+  heartbeat: ['communityDash.companion.partHeartbeat', 'status reports'],
+  updater: ['communityDash.companion.partUpdater', 'update checks'],
+};
+
+/** One line for something wrong on a computer (laps that could not be saved or sent, a reader that stopped), in the person's language. */
+export function problemText(t: TFunction, problem: DeviceProblem): string {
+  if (problem.kind === 'save_failed') return t('communityDash.companion.saveFailed', { count: problem.count, defaultValue_one: '{{count}} lap could not be saved on this computer', defaultValue_other: '{{count}} laps could not be saved on this computer' });
+  if (problem.kind === 'rejected') return t('communityDash.companion.rejected', { count: problem.count, defaultValue_one: '{{count}} lap could not be sent', defaultValue_other: '{{count}} laps could not be sent' });
+  const failed = problem.kind === 'worker_failed';
+  const names = problem.ids.map((id) => {
+    const game = FAMILY_NAMES[id];
+    if (game) return { game: true, name: game };
+    const part = PART_KEYS[id] ?? ['communityDash.companion.partOther', 'a background part'];
+    return { game: false, name: t(part[0], part[1]) };
+  });
+  const games = names.filter((n) => n.game).map((n) => n.name);
+  const parts = names.filter((n) => !n.game).map((n) => n.name);
+  const lines: string[] = [];
+  if (games.length) lines.push(failed ? t('communityDash.companion.workerFailedGame', 'Reading {{name}} stopped after errors', { name: games.join(', ') }) : t('communityDash.companion.workerRestartingGame', 'Reading {{name}} is starting again after an error', { name: games.join(', ') }));
+  if (parts.length) lines.push(failed ? t('communityDash.companion.workerFailedPart', 'Stopped after errors: {{name}}', { name: parts.join(', ') }) : t('communityDash.companion.workerRestartingPart', 'Starting again after an error: {{name}}', { name: parts.join(', ') }));
+  return lines.join(' · ');
 }
 
 /**
@@ -51,6 +78,7 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
     : activity.kind === 'connected' ? (activity.game ? t('communityDash.companion.connectedTo', 'Connected to {{game}}', { game: games.name(activity.game) }) : t('communityDash.companion.connectedGame', 'Connected to a game'))
     : activity.kind === 'waiting' ? t('communityDash.companion.waitingGame', 'Waiting for a game')
     : t('communityDash.companion.readingPaused', 'Reading paused');
+  const problems = deviceProblems(device);
   const version = device.companion_version || null;
   const outdated = !device.revoked_at && updateAvailable(version, latestVersion);
   const ago = (iso: string) => age(Date.parse(iso));
@@ -78,6 +106,12 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
             {device.last_seen_at ? t('modes.sim.lastSeen', 'Last seen {{date}}', { date: ago(device.last_seen_at) }) : t('modes.sim.neverSeen', 'Never seen')}
           </p>
         )}
+        {problems.map((problem) => (
+          <p key={problem.kind} className="flex items-start gap-1.5 text-sm" data-testid="device-problem" data-problem={problem.kind}>
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            <span className="min-w-0 break-words">{problemText(t, problem)}</span>
+          </p>
+        ))}
         <p className="text-sm text-muted-foreground" data-testid="device-last-lap" title={device.last_lap_at ? when(Date.parse(device.last_lap_at)) : undefined}>
           {lapWhat ? t('communityDash.companion.lastLapLine', 'Last lap: {{what}}', { what: lapWhat }) : t('modes.sim.noLaps', 'No laps sent yet')}
         </p>
