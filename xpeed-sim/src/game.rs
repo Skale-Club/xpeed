@@ -605,9 +605,7 @@ pub trait Source {
     }
     /// What this game can give on a frame (see `Caps`). It describes the game and the format, not the moment: a
     /// value inside it may be missing now, a value outside it is never filled.
-    // Nothing in the engine asks yet: the panel will (step 1b of the restructuring), so the readers' answers are kept
-    // alive here and held by their tests.
-    #[allow(dead_code)]
+    // The engine hands it to the panel's tracker (`Tracker::set_caps`), which decides what the dashboard can show.
     fn caps(&self) -> Caps;
     /// A last touch on a finished lap before it is written (iRacing closes its estimated path). Nothing by default.
     fn finish_lap(&self, _lap: &mut crate::lapfile::Lap) {}

@@ -67,7 +67,7 @@ pub fn notice_text(lang: Lang, notice: &Notice) -> (String, String) {
     let body = text(
         lang,
         &match notice {
-            Notice::LapSaved(label) => Msg::NoticeLapSaved(label.clone()),
+            Notice::LapSaved(lap) => Msg::NoticeLapSaved(lap.clone()),
             Notice::LapsSent(n) => Msg::NoticeLapsSent(*n),
             Notice::Paired(name) => Msg::NoticePaired(name.clone()),
             Notice::NotPaired => Msg::NoticeNotPaired,
@@ -262,8 +262,13 @@ Connected as RIG"
     #[test]
     fn balloons_have_a_title_and_a_sentence_in_the_language() {
         assert_eq!(
-            notice_text(Lang::En, &Notice::LapSaved("Lap 3  1:42.318".into())),
+            notice_text(Lang::En, &Notice::LapSaved(crate::status::saved_lap(3, 102_318))),
             ("Xpeed Companion".into(), "Lap saved: Lap 3  1:42.318".into())
+        );
+        assert_eq!(
+            notice_text(Lang::Pt, &Notice::LapSaved(crate::status::saved_lap(3, 102_318))).1,
+            "Volta gravada: Volta 3  1:42.318",
+            "the lap's own words are in the person's language too"
         );
         assert_eq!(notice_text(Lang::Es, &Notice::Paired("RIG".into())).1, "Conectado como RIG");
         assert!(notice_text(Lang::Pt, &Notice::NotPaired).1.contains("botão direito"));

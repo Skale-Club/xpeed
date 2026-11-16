@@ -1,6 +1,8 @@
 //! The words the program shows (tray menu, balloons, questions), in the language of Windows.
 //! The command line stays in English.
 
+use crate::status::SavedLap;
+
 /// The program speaks English unless the person picks another language in the tray menu (owner decision,
 /// 2026-11-12: English first; Portuguese and Spanish only when chosen).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -79,7 +81,8 @@ pub enum Msg {
     MenuResume,
     MenuAutostart,
     MenuQuit,
-    NoticeLapSaved(String),
+    NoticeLapSaved(SavedLap),
+
     /// A lap could not be written to the laps folder (short reason); Xpeed Companion tries again.
     NoticeLapNotSaved(String),
     NoticeLapsSent(u32),
@@ -115,6 +118,10 @@ pub enum Msg {
     PanelTyres,
     PanelLapProgress,
     PanelNotDriving,
+    /// The dashboard has had no frames for a while but the game is still connected.
+    PanelNoGameData,
+    /// The game is paused.
+    PanelPaused,
     PanelLap(i32),
     PanelLastLap,
     PanelBestLap,
@@ -188,6 +195,32 @@ fn game_title(id: &str) -> &'static str {
         .iter()
         .find(|(_, game, _)| *game == id)
         .map_or("The game", |(_, _, name)| *name)
+}
+
+/// A saved lap as one line in the person's language: `Lap 3  1:42.318`, and after the time the word for a lap that did
+/// not count (`Volta 3  1:42.318 (inválida)`).
+pub fn lap_label(lang: Lang, lap: &SavedLap) -> String {
+    let (word, invalid) = match lang {
+        Lang::En => ("Lap", " (not valid)"),
+        Lang::Pt => ("Volta", " (inválida)"),
+        Lang::Es => ("Vuelta", " (no válida)"),
+    };
+    format!(
+        "{word} {}  {}{}",
+        lap.number,
+        crate::util::clock(lap.time_ms),
+        if lap.valid { "" } else { invalid }
+    )
+}
+
+/// What the panel says once it gave up drawing (the recording goes on). A constant table, not a `Msg`: the failure screen
+/// runs when the rest of the panel could not be trusted, so it looks nothing up and builds nothing.
+pub const fn draw_failed(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Something went wrong drawing the panel. Recording continues.",
+        Lang::Pt => "Algo deu errado ao desenhar o painel. A gravação continua.",
+        Lang::Es => "Algo salió mal al dibujar el panel. La grabación continúa.",
+    }
 }
 
 pub fn text(lang: Lang, msg: &Msg) -> String {
@@ -305,11 +338,12 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         MenuResume => t(s("Resume recording"), s("Retomar a gravação"), s("Reanudar la grabación")),
         MenuAutostart => t(s("Start with Windows"), s("Iniciar com o Windows"), s("Iniciar con Windows")),
         MenuQuit => t(s("Quit Xpeed Companion"), s("Sair do Xpeed Companion"), s("Salir de Xpeed Companion")),
-        NoticeLapSaved(label) => t(
-            format!("Lap saved: {label}"),
-            format!("Volta gravada: {label}"),
-            format!("Vuelta guardada: {label}"),
+        NoticeLapSaved(lap) => t(
+            format!("Lap saved: {}", lap_label(Lang::En, lap)),
+            format!("Volta gravada: {}", lap_label(Lang::Pt, lap)),
+            format!("Vuelta guardada: {}", lap_label(Lang::Es, lap)),
         ),
+
         NoticeLapNotSaved(reason) => t(
             format!("A lap could not be saved: {reason}. Xpeed Companion will try again."),
             format!("Uma volta não pôde ser gravada: {reason}. O Xpeed Companion vai tentar de novo."),
@@ -413,6 +447,12 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelThrottle => t(s("Throttle"), s("Acelerador"), s("Acelerador")),
         PanelBrake => t(s("Brake"), s("Freio"), s("Freno")),
         PanelClutch => t(s("Clutch"), s("Embreagem"), s("Embrague")),
+        PanelNoGameData => t(
+            s("No data from the game"),
+            s("Sem dados do jogo"),
+            s("Sin datos del juego"),
+        ),
+        PanelPaused => t(s("Paused"), s("Pausado"), s("En pausa")),
         PanelPits => t(s("In the pits"), s("No pit"), s("En boxes")),
         PanelGames => t(s("Games"), s("Jogos"), s("Juegos")),
         PanelAccount => t(s("Account"), s("Conta"), s("Cuenta")),
@@ -650,7 +690,7 @@ mod tests {
             Msg::MenuResume,
             Msg::MenuAutostart,
             Msg::MenuQuit,
-            Msg::NoticeLapSaved("Lap 3".into()),
+            Msg::NoticeLapSaved(crate::status::saved_lap(3, 102_318)),
             Msg::NoticeLapNotSaved("disk full".into()),
             Msg::NoticeLapsSent(2),
             Msg::NoticePaired("RIG".into()),
@@ -689,6 +729,8 @@ mod tests {
             Msg::PanelTyres,
             Msg::PanelLapProgress,
             Msg::PanelNotDriving,
+            Msg::PanelNoGameData,
+            Msg::PanelPaused,
             Msg::PanelLap(3),
             Msg::PanelLastLap,
             Msg::PanelBestLap,
@@ -877,6 +919,29 @@ mod tests {
             text(Lang::En, &Msg::NoticeNeedsSetup("r3e", "RaceRoom Racing Experience")),
             "RaceRoom Racing Experience is open but not sharing data yet. RaceRoom shares its data by itself: start a session and get on track."
         );
+    }
+
+    #[test]
+    fn the_panel_failure_sentence_is_in_every_language_and_says_the_recording_goes_on() {
+        let all: Vec<&str> = Lang::ALL.iter().map(|l| draw_failed(*l)).collect();
+        assert!(all.iter().all(|s| !s.is_empty()));
+        assert_eq!(
+            all.iter().collect::<std::collections::HashSet<_>>().len(),
+            Lang::ALL.len(),
+            "{all:?}"
+        );
+        assert!(draw_failed(Lang::Pt).contains("gravação continua"));
+        assert!(draw_failed(Lang::Es).contains("grabación continúa"));
+    }
+
+    #[test]
+    fn a_saved_lap_is_said_in_the_language_with_the_word_for_one_that_did_not_count() {
+        let mut lap = crate::status::saved_lap(5, 207_250);
+        assert_eq!(lap_label(Lang::En, &lap), "Lap 5  3:27.250");
+        lap.valid = false;
+        assert_eq!(lap_label(Lang::En, &lap), "Lap 5  3:27.250 (not valid)");
+        assert_eq!(lap_label(Lang::Pt, &lap), "Volta 5  3:27.250 (inválida)");
+        assert_eq!(lap_label(Lang::Es, &lap), "Vuelta 5  3:27.250 (no válida)");
     }
 
     #[test]
