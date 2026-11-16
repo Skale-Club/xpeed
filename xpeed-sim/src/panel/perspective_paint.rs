@@ -189,7 +189,10 @@ mod tests {
         let first = prepared(0, &source, false);
         assert!(Rc::ptr_eq(&first, &prepared(0, &source, false)));
         drop(source);
-        assert!(weak.upgrade().is_some(), "the cache owns the source allocation after the caller releases it");
+        assert!(
+            weak.upgrade().is_some(),
+            "the cache owns the source allocation after the caller releases it"
+        );
         let replacement = Arc::new(vec![(0.0, 0.0), (3.0, 5.0), (0.0, 10.0)]);
         let second = prepared(0, &replacement, false);
         assert!(!Rc::ptr_eq(&first, &second));
