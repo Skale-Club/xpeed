@@ -81,6 +81,11 @@ pub fn notice_text(lang: Lang, notice: &Notice) -> (String, String) {
     ("Xpeed Companion".to_owned(), body)
 }
 
+/// The title and the text of the balloon for a lap that could not be saved (`reason` is short).
+pub fn save_alert_text(lang: Lang, reason: &str) -> (String, String) {
+    ("Xpeed Companion".to_owned(), text(lang, &Msg::NoticeLapNotSaved(reason.to_owned())))
+}
+
 /// What the Monitor tab and the tray menu say about a new version.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateLine {

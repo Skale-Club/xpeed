@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BETA_GAMES, CERTIFIED_GAMES, ONLINE_WINDOW_MS, deviceActivity, deviceState, gameRows, isOnline, parseVersion, splitDevices, updateAvailable } from '@/lib/sim/companion';
+import { BETA_GAMES, CERTIFIED_GAMES, ONLINE_WINDOW_MS, deviceActivity, deviceProblems, deviceState, gameRows, isOnline, parseVersion, splitDevices, updateAvailable } from '@/lib/sim/companion';
 import { BUILT_IN_GAME_NAMES } from '@/lib/sim/games';
 import type { SimDevice } from '@/lib/sim/xpeed-sim-api';
 
@@ -75,6 +75,32 @@ describe('what a running computer says it is doing', () => {
     expect(deviceActivity(beat({}), NOW)).toBeNull();
     expect(deviceActivity(beat({ last_state: null, last_game: null }), NOW)).toBeNull();
     expect(deviceActivity(beat({ last_state: 'sleeping' as never }), NOW)).toBeNull();
+  });
+});
+
+describe('what is wrong on a running computer, by its last report', () => {
+  const run = (health: SimDevice['last_health'], over: Partial<SimDevice> = {}) => device({ last_seen_at: minutesAgo(1), last_health: health, ...over });
+
+  it('lists laps that could not be saved or sent, then a reader that stopped, then one that starts again', () => {
+    expect(
+      deviceProblems(run({ lapsSaved: 9, lapsDropped: { partial: 1, short: 2, failedSave: 3 }, lapsRejected: 2, workers: { failed: ['kunos'], restarting: ['f1', 'kunos'] } }), NOW),
+    ).toEqual([
+      { kind: 'save_failed', count: 3 },
+      { kind: 'rejected', count: 2 },
+      { kind: 'worker_failed', ids: ['kunos'] },
+      { kind: 'worker_restarting', ids: ['f1'] },
+    ]);
+  });
+
+  it('says nothing when all is well, when there is no report, or when the report is old or odd', () => {
+    expect(deviceProblems(run({ lapsSaved: 40, lapsDropped: { partial: 5, short: 7, failedSave: 0 }, lapsRejected: 0, workers: { failed: [], restarting: [] }, games: [] }), NOW)).toEqual([]);
+    expect(deviceProblems(run(undefined), NOW)).toEqual([]);
+    expect(deviceProblems(run(null), NOW)).toEqual([]);
+    expect(deviceProblems(run({}), NOW)).toEqual([]);
+    expect(deviceProblems(run({ lapsRejected: -3, lapsDropped: { failedSave: Number.NaN }, workers: { failed: [7 as unknown as string, ''] } }), NOW)).toEqual([]);
+    const bad = { lapsRejected: 2, workers: { failed: ['kunos'] } };
+    expect(deviceProblems(run(bad, { last_seen_at: minutesAgo(30) }), NOW), 'offline: what it said is old').toEqual([]);
+    expect(deviceProblems(run(bad, { revoked_at: '2026-11-05T10:00:00.000Z' }), NOW)).toEqual([]);
   });
 });
 

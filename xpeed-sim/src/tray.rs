@@ -325,8 +325,14 @@ impl App {
             Shell_NotifyIconW(NIM_MODIFY, &nid);
         }
         // Windows shows one balloon at a time, so the newest wins.
-        if let Some(notice) = self.shared.take_notices().last() {
-            let (title, body) = present::notice_text(self.lang, notice);
+        // A lap that could not be saved is the one worth reading, so it wins over news.
+        let alert = self.shared.take_save_alerts().pop();
+        let balloon = match (alert, self.shared.take_notices().last()) {
+            (Some(reason), _) => Some(present::save_alert_text(self.lang, &reason)),
+            (None, Some(notice)) => Some(present::notice_text(self.lang, notice)),
+            (None, None) => None,
+        };
+        if let Some((title, body)) = balloon {
             let mut nid = self.nid(NIF_INFO);
             win::fill(&mut nid.szInfoTitle, &title);
             win::fill(&mut nid.szInfo, &body);

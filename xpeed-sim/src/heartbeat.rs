@@ -3,7 +3,9 @@
 //! of a computer when it sent a lap, so one that was running but had not finished a lap for hours looked switched off).
 //!
 //! What goes: the version of this program, what it is doing (`idle`, `waiting` for a game, `connected` to one, or, from 0.8.0,
-//! `needs_setup`: a game is open but shares no data), the id of that game, and how many laps are waiting to be sent. Nothing else: no name, no path, no account, no laps. The contract is
+//! `needs_setup`: a game is open but shares no data), the id of that game, and how many laps are waiting to be sent; and, from 0.8.5,
+//! how this run is doing (`Report`): laps saved, laps let go (and why), laps the server refused, the workers that failed or are being
+//! restarted, and the games' builds. Counts and ids only: no name, no path, no account, no laps. The contract is
 //! `docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md`, section 2c.
 //!
 //! The heartbeat has a thread of its own, looked after by the supervisor like the uploader, and never touches the reading of the
@@ -21,7 +23,7 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::net::{self, SendError};
-use crate::outbox::{count_pending_laps, Backoff};
+use crate::outbox::{lap_counts, Backoff};
 use crate::status::{Game, Shared};
 use crate::supervisor::{self, supervise, Health, Policy};
 
@@ -115,13 +117,64 @@ pub fn view_of<'a>(games: impl IntoIterator<Item = (&'a &'static str, &'a Game)>
     }
 }
 
-/// The body of a heartbeat: exactly these four fields. `pending` is the number of laps waiting to be sent.
-pub fn payload(version: &str, view: &View, pending: usize) -> String {
+/// How this run of the program is doing, for the server to see what the person cannot always tell (a lap that was not written, a
+/// reader that stopped). Everything is a count or an id; the server keeps the last one it heard.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Report {
+    /// Laps written to the laps folder in this run.
+    pub saved: u32,
+    /// Laps the cutter let go of (the lap was joined halfway, or was too short) and laps that could not be written.
+    pub partial: u32,
+    pub short: u32,
+    pub failed_save: u32,
+    /// Laps in the folder that the server refused for good.
+    pub rejected: usize,
+    /// The workers given up on, and the ones restarting after an error, by id (a family of readers has its family's id).
+    pub failed_workers: Vec<String>,
+    pub restarting_workers: Vec<String>,
+    /// The games that gave laps, with their build when the reader knew it.
+    pub games: Vec<(String, Option<String>)>,
+}
+
+impl Report {
+    /// What `shared` knows now, and the number of laps the server refused (counted from the folder).
+    pub fn of(shared: &Shared, rejected: usize) -> Report {
+        let stats = shared.lap_stats();
+        let named = |wanted: Health| {
+            shared
+                .workers()
+                .into_iter()
+                .filter(|(_, health)| *health == wanted)
+                .map(|(id, _)| id.to_owned())
+                .collect::<Vec<_>>()
+        };
+        Report {
+            saved: stats.saved,
+            partial: stats.partial,
+            short: stats.short,
+            failed_save: stats.failed_save,
+            rejected,
+            failed_workers: named(Health::Failed),
+            restarting_workers: named(Health::Restarting),
+            games: shared.game_builds(),
+        }
+    }
+}
+
+/// The body of a heartbeat. `pending` is the number of laps waiting to be sent. The four fields of the first version come
+/// first; `Report` adds `lapsSaved`, `lapsDropped` (`partial`, `short`, `failedSave`), `lapsRejected`, `workers` (`failed`,
+/// `restarting`) and `games` (`id` and `build`): a server that does not know them ignores them.
+pub fn payload(version: &str, view: &View, pending: usize, report: &Report) -> String {
     json!({
         "version": version,
         "state": view.state.word(),
         "game": view.game,
         "pendingLaps": pending.min(MAX_PENDING),
+        "lapsSaved": report.saved,
+        "lapsDropped": { "partial": report.partial, "short": report.short, "failedSave": report.failed_save },
+        "lapsRejected": report.rejected.min(MAX_PENDING),
+        "workers": { "failed": report.failed_workers, "restarting": report.restarting_workers },
+        "games": report.games.iter().map(|(id, build)| json!({ "id": id, "build": build })).collect::<Vec<_>>(),
     })
     .to_string()
 }
@@ -347,8 +400,9 @@ fn run_loop(dir: &std::path::Path, config: &Config, shared: &Shared, hooks: &Hoo
     loop {
         let view = shared.heartbeat_view();
         let mut send = |view: &View| {
-            let pending = count_pending_laps(dir, &config.server);
-            net::send_heartbeat(&agent, config, &payload(VERSION, view, pending))
+            let counts = lap_counts(dir, &config.server);
+            let report = Report::of(shared, counts.rejected);
+            net::send_heartbeat(&agent, config, &payload(VERSION, view, counts.pending, &report))
         };
         if tick(&mut schedule, &mut notes, clock(), view, &mut send, &|line| (hooks.say)(line)).is_err() {
             return;
@@ -410,6 +464,15 @@ mod tests {
 
     const MIN: u64 = 60_000;
 
+    /// The four fields every heartbeat has had from the first version (the report's fields are checked on their own).
+    fn first_four(mut body: Value) -> Value {
+        let keys = body.as_object_mut().unwrap();
+        for key in ["lapsSaved", "lapsDropped", "lapsRejected", "workers", "games"] {
+            assert!(keys.remove(key).is_some(), "{key} is in every heartbeat");
+        }
+        body
+    }
+
     fn connected(game: &'static str) -> View {
         View {
             state: State::Connected,
@@ -434,27 +497,70 @@ mod tests {
     }
 
     #[test]
-    fn the_payload_has_exactly_the_four_fields_and_nothing_personal() {
-        let body: Value = serde_json::from_str(&payload("0.7.0", &connected("ams2"), 3)).unwrap();
+    fn the_report_tells_what_this_run_did_with_its_laps_and_which_workers_stand_badly() {
+        let shared = Shared::new(true);
+        shared.note_lap_saved("ac", Some("1.16.3"), false);
+        shared.note_lap_saved("ams2", None, false);
+        shared.note_lap_dropped(crate::status::LapDrop::Short);
+        shared.note_lap_unsaved("disk full");
+        shared.set_worker("kunos", Health::Failed);
+        shared.set_worker("f1", Health::Restarting);
+        shared.set_worker("uploader", Health::Running);
+        let report = Report::of(&shared, 2);
+        let body: Value = serde_json::from_str(&payload("0.8.5", &View::WAITING, 0, &report)).unwrap();
+        assert_eq!(body["lapsSaved"], 2);
+        assert_eq!(body["lapsDropped"], json!({ "partial": 0, "short": 1, "failedSave": 1 }));
+        assert_eq!(body["lapsRejected"], 2);
+        assert_eq!(body["workers"], json!({ "failed": ["kunos"], "restarting": ["f1"] }));
+        assert_eq!(
+            body["games"],
+            json!([{ "id": "ac", "build": "1.16.3" }, { "id": "ams2", "build": null }])
+        );
+        // Counts and ids: nothing a person typed or a path (the disk-full reason is not sent).
+        assert!(!body.to_string().contains("disk full"));
+        assert!(body.to_string().len() < 1000, "far below the server's limit");
+    }
+
+    #[test]
+    fn the_payload_has_exactly_these_fields_and_nothing_personal() {
+        let body: Value = serde_json::from_str(&payload("0.7.0", &connected("ams2"), 3, &Report::default())).unwrap();
         assert_eq!(
             body,
-            json!({ "version": "0.7.0", "state": "connected", "game": "ams2", "pendingLaps": 3 })
+            json!({
+                "version": "0.7.0", "state": "connected", "game": "ams2", "pendingLaps": 3,
+                "lapsSaved": 0, "lapsDropped": { "partial": 0, "short": 0, "failedSave": 0 }, "lapsRejected": 0,
+                "workers": { "failed": [], "restarting": [] }, "games": []
+            })
         );
-        let waiting: Value = serde_json::from_str(&payload("0.7.0", &View::WAITING, 0)).unwrap();
-        assert_eq!(
-            waiting,
-            json!({ "version": "0.7.0", "state": "waiting", "game": null, "pendingLaps": 0 })
-        );
+        let waiting: Value = serde_json::from_str(&payload("0.7.0", &View::WAITING, 0, &Report::default())).unwrap();
+        assert_eq!(waiting["state"], "waiting");
+        assert_eq!(waiting["game"], Value::Null);
         let idle = View {
             state: State::Idle,
             game: None,
         };
-        assert_eq!(serde_json::from_str::<Value>(&payload("0.7.0", &idle, 1)).unwrap()["state"], "idle");
+        assert_eq!(
+            serde_json::from_str::<Value>(&payload("0.7.0", &idle, 1, &Report::default())).unwrap()["state"],
+            "idle"
+        );
         // The keys are the contract: a field added by mistake (a name, a path) would show here.
         let keys: Vec<String> = body.as_object().unwrap().keys().cloned().collect();
-        assert_eq!(keys, ["game", "pendingLaps", "state", "version"]);
+        assert_eq!(
+            keys,
+            [
+                "game",
+                "games",
+                "lapsDropped",
+                "lapsRejected",
+                "lapsSaved",
+                "pendingLaps",
+                "state",
+                "version",
+                "workers"
+            ]
+        );
         // A pile of laps is capped like the server caps it, and the running version is the one in Cargo.toml.
-        let huge: Value = serde_json::from_str(&payload(VERSION, &View::WAITING, usize::MAX)).unwrap();
+        let huge: Value = serde_json::from_str(&payload(VERSION, &View::WAITING, usize::MAX, &Report::default())).unwrap();
         assert_eq!(huge["pendingLaps"], MAX_PENDING);
         assert_eq!(huge["version"], env!("CARGO_PKG_VERSION"));
     }
@@ -488,9 +594,9 @@ mod tests {
                 game: None
             }
         );
-        let said: Value = serde_json::from_str(&payload("0.8.0", &needs("ams2"), 0)).unwrap();
+        let said: Value = serde_json::from_str(&payload("0.8.0", &needs("ams2"), 0, &Report::default())).unwrap();
         assert_eq!(
-            said,
+            first_four(said),
             json!({ "version": "0.8.0", "state": "needs_setup", "game": "ams2", "pendingLaps": 0 })
         );
         assert_eq!(say(&[("ac", Game::Connected)], false), connected("ac"));
@@ -819,7 +925,7 @@ mod tests {
         let stub = Stub::start(|_: &Recorded| Reply::new(200, r#"{"ok":true}"#));
         let config = config_for(&stub.url);
         let agent = net::heartbeat_agent();
-        net::send_heartbeat(&agent, &config, &payload("0.7.0", &connected("ams2"), 2)).unwrap();
+        net::send_heartbeat(&agent, &config, &payload("0.7.0", &connected("ams2"), 2, &Report::default())).unwrap();
         let seen = heartbeats(&stub);
         assert_eq!(seen.len(), 1);
         assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("POST", "/api/sim/heartbeat"));
@@ -835,7 +941,7 @@ mod tests {
             "nothing personal: {text}"
         );
         assert_eq!(
-            serde_json::from_str::<Value>(&text).unwrap(),
+            first_four(serde_json::from_str::<Value>(&text).unwrap()),
             json!({ "version": "0.7.0", "state": "connected", "game": "ams2", "pendingLaps": 2 })
         );
     }
@@ -925,7 +1031,7 @@ mod tests {
         wait_until("the first heartbeat", || !heartbeats(&stub).is_empty());
         let body = |n: usize| serde_json::from_slice::<Value>(&heartbeats(&stub)[n].body).unwrap();
         assert_eq!(
-            body(0),
+            first_four(body(0)),
             json!({ "version": VERSION, "state": "waiting", "game": null, "pendingLaps": 2 })
         );
         // A game connects: it goes without waiting for the minute (after the short gap that spares a flicker).
