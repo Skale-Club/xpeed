@@ -444,7 +444,8 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
     let xs = &lap.channel("x").unwrap().values;
     let zs = &lap.channel("z").unwrap().values;
     let times = &lap.channel("t").unwrap().values;
-    let positions: Arc<Vec<_>> = Arc::new(xs.iter().copied().zip(zs.iter().copied()).step_by(4).collect());
+    // This historical output predates the EVO x-axis correction. Match the current reader's documented frame.
+    let positions: Arc<Vec<_>> = Arc::new(xs.iter().map(|x| -*x).zip(zs.iter().copied()).step_by(4).collect());
     let mut tracker = crate::dash::Tracker::default();
     let f = fixture();
     let mut previous = None;
@@ -457,7 +458,7 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
             frame.track = lap.track_name.clone();
             frame.car = lap.car_name.clone();
             frame.lap = 3;
-            frame.x = xs[i];
+            frame.x = -xs[i];
             frame.z = zs[i];
             let value = |id| lap.channel(id).map_or(f32::NAN, |c| c.values[i]);
             frame.speed_ms = value("speed");
