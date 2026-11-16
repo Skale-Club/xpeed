@@ -206,8 +206,16 @@ pub struct Tracker {
     current: Profile,
     /// Seen from the line: a lap joined midway has no delta and cannot become the best.
     current_from_line: bool,
-    /// A lap that just ended and waits for the game's official time, with its path.
-    finished: Option<(Profile, Path, Option<f64>)>,
+    /// The distance into the lap when the game gives none: the speed added up over the host clock, like the lap
+    /// cutter does (`lapcut::add_sample`); starts at 0 with each new lap.
+    int_dist: f64,
+    /// The host clock of the last frame, for that sum.
+    last_clock: Option<f64>,
+    /// The game called the lap being driven invalid at some point: it can never become the best.
+    called_invalid: bool,
+    /// A lap that just ended and waits for the game's official time: its profile, its path, the official time showing
+    /// while it was driven, and whether the game called it invalid.
+    finished: Option<(Profile, Path, Option<f64>, bool)>,
     /// The current lap's path (x, z), a point every few metres.
     path: Path,
     /// The current lap's path has a jump in it (a restart, the pits, a teleport): it is not a lap's map.
@@ -288,18 +296,21 @@ impl Tracker {
             let done_path = if jumped { Vec::new() } else { std::mem::take(&mut self.path) };
             self.path.clear();
             let full = self.current_from_line && is_full(&done, frame.track_length_m);
+            let invalid = std::mem::take(&mut self.called_invalid);
+            self.int_dist = 0.0;
+            self.last_clock = Some(frame.clock_s);
             if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
                 self.keep_map(done_path.clone());
             }
-            self.finished = full.then_some((done, done_path, self.official));
+            self.finished = full.then_some((done, done_path, self.official, invalid));
             self.lap = frame.lap;
             self.current_from_line = false;
         }
-        if let Some((profile, path, official_before)) = self.finished.take() {
+        if let Some((profile, path, official_before, invalid)) = self.finished.take() {
             match frame.last_lap_s {
                 // A new official time: it belongs to the lap that just ended.
-                Some(time) if Some(time) != official_before => self.offer_best(time, profile, path),
-                _ => self.finished = Some((profile, path, official_before)),
+                Some(time) if Some(time) != official_before => self.offer_best(time, profile, path, invalid),
+                _ => self.finished = Some((profile, path, official_before, invalid)),
             }
         }
         if frame.driving && frame.x.is_finite() && frame.z.is_finite() {
@@ -323,10 +334,29 @@ impl Tracker {
             self.fuel_seen(frame);
         }
         self.official = frame.last_lap_s;
+        // The distance into the lap: the game's, else the speed added up (a lap seen beginning starts at 0).
+        let dt = self
+            .last_clock
+            .map_or(0.0, |last| (frame.clock_s - last).clamp(0.0, crate::lapcut::MAX_GAP_SECONDS));
+        self.last_clock = Some(frame.clock_s);
+        let dist_m = frame.dist_m.or_else(|| {
+            if frame.driving {
+                self.int_dist += f64::from(frame.speed_ms.max(0.0)) * dt;
+            }
+            Some(self.int_dist)
+        });
         if frame.driving {
-            if let (Some(dist), Some(t)) = (frame.dist_m, frame.lap_time_s) {
+            self.called_invalid |= frame.lap_valid == Some(false);
+        }
+        if frame.driving {
+            if let (Some(dist), Some(t)) = (dist_m, frame.lap_time_s) {
                 if self.current.is_empty() {
-                    self.current_from_line = dist <= FROM_LINE_METRES;
+                    // Without the game's distance a lap joined midway (the clock well past the line) is not from it.
+                    self.current_from_line = if frame.dist_m.is_some() {
+                        dist <= FROM_LINE_METRES
+                    } else {
+                        t <= crate::lapcut::PARTIAL_START_SECONDS
+                    };
                 }
                 if self.current.last().is_none_or(|&(d, _)| dist > d) {
                     self.current.push((dist, t));
@@ -337,7 +367,7 @@ impl Tracker {
             self.rpm_top = frame.rpm;
         }
         self.see_gear(frame.gear);
-        let delta_s = match (&self.best, frame.dist_m, frame.lap_time_s) {
+        let delta_s = match (&self.best, dist_m, frame.lap_time_s) {
             (Some((_, best)), Some(dist), Some(t)) if self.current_from_line && frame.driving => {
                 time_at(best, dist).map(|best_t| t - best_t)
             }
@@ -355,7 +385,7 @@ impl Tracker {
             last_lap_s: frame.last_lap_s,
             best_lap_s: self.best.as_ref().map(|(t, _)| *t),
             delta_s,
-            dist_m: frame.dist_m,
+            dist_m: frame.dist_m.or_else(|| dist_m.filter(|_| frame.driving)),
             track_length_m: frame.track_length_m,
             speed_ms: frame.speed_ms,
             rpm: frame.rpm,
@@ -440,7 +470,10 @@ impl Tracker {
         }
     }
 
-    fn offer_best(&mut self, time: f64, profile: Profile, path: Path) {
+    fn offer_best(&mut self, time: f64, profile: Profile, path: Path, invalid: bool) {
+        if invalid {
+            return;
+        }
         if self.best.as_ref().is_none_or(|(best, _)| time < *best) {
             self.best = Some((time, profile));
             if path.len() >= MAP_MIN_POINTS && !self.map_is_layout {
@@ -1059,5 +1092,78 @@ mod tests {
         assert_eq!(time_at(&profile, 200.0), Some(10.0));
         assert_eq!(time_at(&profile, 250.0), None);
         assert_eq!(time_at(&Vec::new(), 1.0), None);
+    }
+
+    /// A frame of a game that gives no distance (like AC): the speed and the host clock are all there is.
+    fn no_dist(lap: i32, t: f64, speed: f32, last: Option<f64>, valid: Option<bool>) -> Frame {
+        let mut frame = at(lap, 0.0, t, last);
+        frame.dist_m = None;
+        frame.clock_s = 100.0 + t;
+        frame.speed_ms = speed;
+        frame.lap_valid = valid;
+        frame
+    }
+
+    /// Drives a lap of 1000 m without the game's distance, ten frames a second.
+    fn drive_no_dist(tracker: &mut Tracker, lap: i32, speed: f32, last: Option<f64>) -> Vec<Live> {
+        let n = (1000.0 / f64::from(speed) * 10.0) as usize;
+        (0..n)
+            .map(|i| tracker.on_frame("Test", &no_dist(lap, i as f64 / 10.0, speed, last, Some(true)), 0))
+            .collect()
+    }
+
+    #[test]
+    fn a_game_without_distance_still_gets_a_best_lap_and_a_delta() {
+        let mut tracker = Tracker::default();
+        drive_no_dist(&mut tracker, 1, 50.0, None);
+        drive_no_dist(&mut tracker, 2, 50.0, None);
+        let live = tracker.on_frame("Test", &no_dist(3, 0.0, 50.0, Some(20.0), Some(true)), 0);
+        assert_eq!(live.best_lap_s, Some(20.0));
+        let third = drive_no_dist(&mut tracker, 3, 40.0, Some(20.0));
+        let half = &third[third.len() / 2];
+        let delta = half.delta_s.expect("a delta against the best lap");
+        assert!(delta > 1.0, "slower than the best: {delta}");
+        // The distance shown (for the lap progress) is the integrated one.
+        assert!((half.dist_m.unwrap() - 500.0).abs() < 30.0, "{:?}", half.dist_m);
+    }
+
+    #[test]
+    fn without_the_games_distance_a_lap_joined_midway_is_not_from_the_line() {
+        let mut tracker = Tracker::default();
+        // First frame 30 s into the lap.
+        for i in 0..200 {
+            tracker.on_frame("Test", &no_dist(1, 30.0 + i as f64 / 10.0, 50.0, None, None), 0);
+        }
+        tracker.on_frame("Test", &no_dist(2, 0.0, 50.0, Some(80.0), None), 0);
+        let live = tracker.on_frame("Test", &no_dist(2, 0.1, 50.0, Some(80.0), None), 0);
+        assert_eq!(live.best_lap_s, None, "a lap joined midway is not a best lap");
+    }
+
+    #[test]
+    fn a_lap_the_game_called_invalid_never_becomes_the_best() {
+        let mut tracker = Tracker::default();
+        drive_lap(&mut tracker, 1, 50.0, None);
+        // Lap 2 is the fastest but the game calls it invalid half way.
+        for i in 0..200 {
+            let mut f = at(2, f64::from(i) * 5.0, f64::from(i) / 10.0, None);
+            f.lap_valid = Some(i < 100);
+            tracker.on_frame("Test", &f, 0);
+        }
+        let live = tracker.on_frame("Test", &at(3, 0.0, 0.0, Some(20.0)), 0);
+        assert_eq!(live.best_lap_s, None, "the invalid 20 s lap is not the best");
+        // A valid, slower lap 3 is.
+        for i in 0..250 {
+            let mut f = at(3, f64::from(i) * 4.0, f64::from(i) / 10.0, Some(20.0));
+            f.lap_valid = Some(true);
+            tracker.on_frame("Test", &f, 0);
+        }
+        let live = tracker.on_frame("Test", &at(4, 0.0, 0.0, Some(25.0)), 0);
+        assert_eq!(live.best_lap_s, Some(25.0));
+        // The invalid flag does not leak into the next lap.
+        for i in 0..240 {
+            tracker.on_frame("Test", &at(4, f64::from(i) * 4.2, f64::from(i) / 10.0, Some(25.0)), 0);
+        }
+        let live = tracker.on_frame("Test", &at(5, 0.0, 0.0, Some(24.0)), 0);
+        assert_eq!(live.best_lap_s, Some(24.0));
     }
 }

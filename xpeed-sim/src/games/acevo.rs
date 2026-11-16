@@ -384,7 +384,7 @@ impl Source for AcEvo {
     }
 
     fn game_name(&self) -> &'static str {
-        "Assetto Corsa EVO (experimental)"
+        "Assetto Corsa EVO"
     }
 
     fn next(&mut self, timeout: Duration) -> Option<Frame> {
@@ -1418,10 +1418,7 @@ mod tests {
     fn reads_a_moment_on_track_into_exact_frame_values() {
         let rig = Rig::new("happy");
         let mut reader = rig.reader();
-        assert_eq!(
-            (reader.game_id(), reader.game_name()),
-            ("acevo", "Assetto Corsa EVO (experimental)")
-        );
+        assert_eq!((reader.game_id(), reader.game_name()), ("acevo", "Assetto Corsa EVO"));
         let frame = reader.next(NOW).expect("a frame");
         let mut want = Frame::empty();
         want.clock_s = frame.clock_s;

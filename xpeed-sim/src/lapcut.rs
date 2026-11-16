@@ -35,9 +35,9 @@ pub const MIN_LAP_SECONDS: f64 = 5.0;
 /// How long a finished lap waits for its official time.
 const MAX_PENDING_SECONDS: f64 = 3.0;
 /// A longer silence between two frames is not integrated into distance.
-const MAX_GAP_SECONDS: f64 = 0.5;
+pub(crate) const MAX_GAP_SECONDS: f64 = 0.5;
 /// A first frame later than this into a lap means we joined mid-lap.
-const PARTIAL_START_SECONDS: f64 = 1.5;
+pub(crate) const PARTIAL_START_SECONDS: f64 = 1.5;
 /// Without a lap clock, a first frame further than this along the lap means we joined mid-lap.
 const PARTIAL_START_METRES: f64 = 60.0;
 const LAP_TIME_MATCH_SECONDS: f64 = 0.5;
