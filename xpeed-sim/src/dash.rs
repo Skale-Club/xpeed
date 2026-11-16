@@ -394,10 +394,18 @@ impl Tracker {
             }
         }
         let fuel = Some(frame.fuel_l).filter(|f| f.is_finite());
-        self.fuel_tank = self.fuel_tank.max(fuel.unwrap_or(0.0));
+        self.see_tank(frame, fuel.unwrap_or(0.0));
         self.fuel_clean = frame.driving && !frame.in_pits;
         self.fuel_lap_start = fuel.filter(|_| advanced && self.fuel_clean);
         self.fuel_prev = fuel;
+    }
+
+    /// The tank: the game's own capacity when it gives one, else the biggest fuel reading seen.
+    fn see_tank(&mut self, frame: &Frame, fuel: f32) {
+        self.fuel_tank = match frame.fuel_capacity_l.filter(|c| c.is_finite() && *c > 0.0) {
+            Some(capacity) => capacity,
+            None => self.fuel_tank.max(fuel),
+        };
     }
 
     /// A reading within the lap: the tank, the last fuel, and whether the lap is still clean.
@@ -409,7 +417,7 @@ impl Tracker {
             if self.fuel_prev.is_some_and(|prev| frame.fuel_l > prev + REFUEL_LITRES) {
                 self.fuel_clean = false;
             }
-            self.fuel_tank = self.fuel_tank.max(frame.fuel_l);
+            self.see_tank(frame, frame.fuel_l);
             self.fuel_prev = Some(frame.fuel_l);
         }
     }
@@ -540,6 +548,30 @@ mod tests {
         let live = drive_fuel(&mut tracker, 7, 33.5, 31.0);
         let want = (2.5 + 3.0 + 3.5) / 3.0;
         assert!((live.fuel_per_lap_l.unwrap() - want).abs() < 1e-5, "{:?}", live.fuel_per_lap_l);
+    }
+
+    #[test]
+    fn the_games_own_tank_size_stands_in_for_the_biggest_reading_seen() {
+        // Joined with 10 l left in a 100 l tank: a lap of 4 l is not "more than 30 % of the 10 l seen".
+        let drive = |capacity: Option<f32>| {
+            let mut tracker = Tracker::default();
+            let mut last = None;
+            for (lap, from, to) in [(1, 10.0, 9.0), (2, 9.0, 8.0), (3, 8.0, 4.0), (4, 4.0, 3.0)] {
+                for i in 0..=100 {
+                    let mut f = at(lap, f64::from(i) * 9.0, f64::from(i) / 10.0, None);
+                    f.fuel_l = from + (to - from) * i as f32 / 100.0;
+                    f.fuel_capacity_l = capacity;
+                    last = Some(tracker.on_frame("Test", &f, 0));
+                }
+            }
+            last.unwrap().fuel_per_lap_l
+        };
+        assert_eq!(
+            drive(None),
+            Some(1.0),
+            "without a capacity the 4 l lap is over 30 % of the 10 l seen: dropped"
+        );
+        assert_eq!(drive(Some(100.0)), Some(2.5), "laps 2 and 3 used 1 l and 4 l");
     }
 
     #[test]

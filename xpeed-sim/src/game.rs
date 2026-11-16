@@ -138,6 +138,9 @@ pub struct Frame {
     pub y: f32,
     pub z: f32,
     pub fuel_l: f32,
+    /// The size of the fuel tank in litres, when the game says (`None` when it does not: the dash then takes the
+    /// biggest fuel reading seen as the tank).
+    pub fuel_capacity_l: Option<f32>,
     /// Front left, front right, rear left, rear right; `None` when the game gives nothing about tyres.
     pub tyres: Option<[Tyre; 4]>,
     /// Dashboard lights, engine temperatures, electronics settings and damage.
@@ -192,6 +195,7 @@ impl Frame {
             y: f32::NAN,
             z: f32::NAN,
             fuel_l: f32::NAN,
+            fuel_capacity_l: None,
             tyres: None,
             state: CarState::UNKNOWN,
             car: String::new(),
