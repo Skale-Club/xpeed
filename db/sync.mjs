@@ -61,7 +61,9 @@ export async function pullAnonymized(prod, dev, { keepEmails = [], keepPhones = 
     throw new Error('Source and development clients point at the same server; refusing to overwrite production');
   }
   // Defense in depth: even called directly, never write to a production host.
-  const known = findProductionMatch(`postgres://${dev.host ?? ''}${dev.port ? `:${dev.port}` : ''}/`, env);
+  const host = String(dev.host ?? '');
+  const authority = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  const known = findProductionMatch(`postgres://${authority}${dev.port ? `:${dev.port}` : ''}/`, env);
   if (known) throw new Error(`Refusing to overwrite ${dev.host}${dev.port ? `:${dev.port}` : ''}: it matches the production host "${known}". The development sync only writes to the development database.`);
   const anonymizer = createAnonymizer({ keepEmails, keepPhones });
   const summary = { tables: {}, skipped: [] };

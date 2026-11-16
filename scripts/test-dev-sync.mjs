@@ -29,6 +29,9 @@ test('production aliases and configured ports are protected before connecting', 
 
 test('connected-client defense rejects source aliases without querying', async () => {
   await assert.rejects(pullAnonymized({ host: '::1', port: 5432, query: never }, { host: 'localhost', query: never }), /same server/);
+  for (const host of ['::1', '::ffff:127.0.0.1', '::ffff:7f00:1']) {
+    await assert.rejects(pullAnonymized({ query: never }, { host, port: 55433, query: never }), /production host/);
+  }
 });
 
 test('tunnel settings reject missing credentials, options and shell injection', () => {
@@ -85,6 +88,17 @@ test('post-open guard failure closes the acquired tunnel before any connection',
   const calls = [];
   await assert.rejects(runDevSync(env, { connect: never, openTunnel: async () => ({ url: env.DATABASE_URL, close: async () => { calls.push('close'); } }) }), /same server/);
   assert.deepEqual(calls, ['close']);
+});
+
+test('termination during tunnel acquisition closes it and never migrates', async () => {
+  const previous = process.exitCode;
+  const f = fixture();
+  const open = f.dependencies.openTunnel;
+  f.dependencies.openTunnel = async () => { const tunnel = await open(); process.emit('SIGTERM'); return tunnel; };
+  try {
+    await assert.rejects(runDevSync(env, f.dependencies), /interrupted/);
+    assert.deepEqual(f.calls, ['open', 'close']);
+  } finally { process.exitCode = previous; }
 });
 
 test('connection, role, migration and copy failures always close clients and tunnel', async () => {
