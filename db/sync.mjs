@@ -1,11 +1,25 @@
 // Copies production data into the development database, anonymized.
 // Production is only ever read (a READ ONLY transaction); everything is written to `dev`.
 import { SKIPPED_TABLES, createAnonymizer } from './anonymize.mjs';
-import { findProductionMatch } from './guard-destructive.mjs';
+import { canonicalHost, findProductionMatch } from './guard-destructive.mjs';
 
 const BATCH = 500;
 const describeHost = (url) => { try { return new URL(url).host; } catch { return 'the target'; } };
 const quote = (name) => `"${String(name).replace(/"/g, '""')}"`;
+
+export function databaseEndpoint(connectionString) {
+  let url;
+  try { url = new URL(connectionString); } catch { throw new Error('Invalid PostgreSQL connection string'); }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol) || !url.hostname ||
+    [...url.searchParams.keys()].some((key) => !['sslmode', 'application_name'].includes(key))) {
+    throw new Error('Unsupported PostgreSQL connection string or connection option');
+  }
+  return connectedEndpoint(url.hostname, url.port || 5432);
+}
+
+function connectedEndpoint(host, port = 5432) {
+  return `${canonicalHost(host)}:${Number(port || 5432)}`;
+}
 
 async function publicTables(client) {
   const { rows } = await client.query(`SELECT table_name FROM information_schema.tables
@@ -26,10 +40,11 @@ async function columnsOf(client, table, { writable = false } = {}) {
  */
 export function assertSafeTarget(devUrl, prodUrl, env = process.env) {
   if (!devUrl) throw new Error('DATABASE_URL (the development database) is not set');
+  const endpoint = databaseEndpoint(devUrl);
+  if (prodUrl && endpoint === databaseEndpoint(prodUrl)) throw new Error('DATABASE_URL and PROD_DATABASE_URL point at the same server; refusing to overwrite production');
   const known = findProductionMatch(devUrl, env);
   if (known) throw new Error(`Refusing to overwrite ${describeHost(devUrl)}: it matches the production host "${known}" (built-in list or XPEED_PROD_HOSTS). The development sync only writes to the development database.`);
   const host = (url) => { try { return new URL(url).host; } catch { return url; } };
-  if (prodUrl && host(devUrl) === host(prodUrl)) throw new Error('DATABASE_URL and PROD_DATABASE_URL point at the same server; refusing to overwrite production');
   const dev = host(devUrl);
   const allowed = /(^|\.)supabase\.(co|com)(:\d+)?$/.test(dev) || /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(dev);
   if (!allowed && env.DEV_SYNC_ALLOW_TARGET !== dev) {
@@ -42,6 +57,9 @@ export function assertSafeTarget(devUrl, prodUrl, env = process.env) {
  * @param {import('pg').Client} dev   connected to the development database, already migrated
  */
 export async function pullAnonymized(prod, dev, { keepEmails = [], keepPhones = [], log = () => {}, env = process.env } = {}) {
+  if (prod.host && dev.host && connectedEndpoint(prod.host, prod.port) === connectedEndpoint(dev.host, dev.port)) {
+    throw new Error('Source and development clients point at the same server; refusing to overwrite production');
+  }
   // Defense in depth: even called directly, never write to a production host.
   const known = findProductionMatch(`postgres://${dev.host ?? ''}${dev.port ? `:${dev.port}` : ''}/`, env);
   if (known) throw new Error(`Refusing to overwrite ${dev.host}${dev.port ? `:${dev.port}` : ''}: it matches the production host "${known}". The development sync only writes to the development database.`);

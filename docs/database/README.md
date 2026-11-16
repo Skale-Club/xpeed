@@ -15,9 +15,15 @@ A regra de acesso (RLS) continua no banco. O servidor se comporta como o PostgRE
 
 ## O que `npm run dev` faz agora
 
-1. Aplica as migrações pendentes em `DATABASE_URL` (o Supabase de desenvolvimento).
-2. Se `PROD_DATABASE_URL` existir, **substitui** os dados do desenvolvimento por uma cópia anonimizada da produção. A produção só é lida (transação `READ ONLY`).
-3. Sobe o Vite.
+1. Apply pending migrations to the development `DATABASE_URL`. Existing fake data is kept by default.
+2. Copy production data only when `DEV_SYNC_COPY_PRODUCTION=true` is explicitly set for an intentional emergency copy. A source URL alone never enables copying. The source role must have `default_transaction_read_only=on`, no write privileges and no administrative capabilities; it is checked before connecting to or migrating development.
+3. Start Vite.
+
+For a direct read-only connection, set `PROD_DATABASE_URL`. For the optional SSH tunnel, set `DEV_SYNC_PROD=coolify`, `PROD_READONLY_DATABASE_URL` (a dedicated role, container hostname, port 5432), `DEV_SYNC_PROD_SSH` and `DEV_SYNC_PROD_DB_UUID`. This mode no longer reads Coolify tokens or fetches the application's database password. Credentials must be supplied locally; this change creates no production users and changes no production credentials.
+
+The source tunnel binds only to `127.0.0.1:55433` by default. Both known tunnel ports (55432 and 55433), IPv6/localhost aliases and a configured `DEV_SYNC_TUNNEL_PORT` are protected as production destinations before any development connection or migration. Source and destination cannot be the same server, including loopback aliases/default ports. SSH startup failures and errors after acquisition close the tunnel; a process exit also stops its SSH child. Copying stays off in `.env.example`.
+
+Offline regression checks: `npm run test:dev-sync` (typically under one second). CI additionally runs `npm run test:readonly-source` against isolated PostgreSQL/WASM to verify real role and column privileges. No test reads production.
 
 Se algo falhar, o script diz o motivo e o Vite sobe mesmo assim. `npm run dev:fast` ou `DEV_SYNC=off` pulam a sincronização.
 
@@ -41,7 +47,7 @@ Depois do incidente de 10/11, todo script que esvazia, apaga ou substitui dados 
 - **Sobrescrever produção de propósito** (quase nunca é certo) exige `--i-know-this-is-production` **e** digitar o host exato num terminal interativo; sem terminal, recusa.
 - **Antes de apagar**, o script mostra o host, o banco e as tabelas ou pastas com contagens, e pede o nome do alvo digitado de volta (`--yes` pula essa pergunta, nunca para produção).
 - **`cutover-copy` é ensaio (dry run) por padrão:** só `--apply` faz de verdade.
-- `PROD_DATABASE_URL` no `.env` é opcional e só de leitura; o `.env.example` não traz credenciais de produção.
+- Production copying requires `DEV_SYNC_COPY_PRODUCTION=true` and a dedicated read-only source role. `PROD_DATABASE_URL` alone does nothing. Tunnel ports 55432, 55433 and `DEV_SYNC_TUNNEL_PORT`, including equivalent loopback addresses, are always protected as production targets. The template contains no production credentials.
 - Alertas de queda do site: `docs/operations/alerts.md`.
 
 ## Dados pelo servidor (`/api/db`)

@@ -32,16 +32,31 @@ export const DEFAULT_PROD_HOSTS = [
   'xpeed.app',
   '127.0.0.1:55432', // the cutover script's SSH tunnel to the production database
   'localhost:55432',
+  '127.0.0.1:55433', // optional development source tunnel is still production
+  'localhost:55433',
+  '::1:55432',
+  '::1:55433',
 ];
 
 export class GuardError extends Error {
   constructor(message) { super(message); this.name = 'GuardError'; }
 }
 
+// Resolve parser-equivalent loopback forms without DNS or network access.
+export function canonicalHost(input) {
+  let host = String(input).toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  try { host = new URL(`http://${host.includes(':') ? `[${host}]` : host}`).hostname.replace(/^\[|\]$/g, ''); } catch { /* non-URL target */ }
+  if (host === 'localhost' || host === '::1' || /^127\./.test(host) || /^::ffff:7f[0-9a-f]{2}:[0-9a-f]+$/.test(host)) return '127.0.0.1';
+  return host;
+}
+
 /** Every production entry in force: the built-in list plus XPEED_PROD_HOSTS. */
 export function productionHosts(env = process.env) {
   const extra = (env.XPEED_PROD_HOSTS ?? '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
-  return [...new Set([...DEFAULT_PROD_HOSTS.map((h) => h.toLowerCase()), ...extra])];
+  const port = Number(env.DEV_SYNC_TUNNEL_PORT || 55433);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new GuardError('Invalid DEV_SYNC_TUNNEL_PORT; refusing destructive work');
+  const tunnel = ['127.0.0.1', 'localhost', '::1'].map((host) => `${host}:${port}`);
+  return [...new Set([...DEFAULT_PROD_HOSTS.map((h) => h.toLowerCase()), ...extra, ...tunnel])];
 }
 
 /**
@@ -54,7 +69,7 @@ export function describeTarget(target) {
   if (match) {
     try {
       const url = new URL(raw);
-      const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+      const host = canonicalHost(url.hostname);
       if (host) return { kind: 'url', raw, host, port: url.port, database: decodeURIComponent(url.pathname.replace(/^\//, '')), label: url.port ? `${host}:${url.port}` : host };
     } catch { /* a password with raw '@' or '#' breaks URL parsing: fall back to the text after the last '@' */ }
     const after = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
@@ -76,8 +91,12 @@ export function findProductionMatch(target, env = process.env) {
       continue;
     }
     if (entry.includes(':')) {
-      if (info.port && `${info.host}:${info.port}` === entry) return entry;
-    } else if (info.host === entry || info.host.endsWith(`.${entry}`)) return entry;
+      const split = entry.lastIndexOf(':');
+      if (info.port && info.host === canonicalHost(entry.slice(0, split)) && Number(info.port) === Number(entry.slice(split + 1))) return entry;
+    } else {
+      const host = canonicalHost(entry);
+      if (info.host === host || info.host.endsWith(`.${host}`)) return entry;
+    }
   }
   return null;
 }

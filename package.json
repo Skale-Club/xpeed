@@ -9,6 +9,8 @@
     "dev:fast": "vite",
     "db:migrate": "node scripts/db-migrate.mjs",
     "test:db": "node scripts/verify-db-foundation.mjs",
+    "test:dev-sync": "node --test scripts/test-dev-sync.mjs",
+    "test:readonly-source": "node --test scripts/test-readonly-source.mjs",
     "test:dbapi": "node scripts/verify-db-api.mjs",
     "test:handlers": "node scripts/verify-handlers.mjs",
     "test:sim": "node scripts/verify-sim.mjs",
