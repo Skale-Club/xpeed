@@ -1948,12 +1948,19 @@ fn a_paused_or_silent_game_gets_a_banner_and_the_other_states_keep_the_state_lin
     assert_eq!(b.kind, StatusKind::NoData);
     assert_eq!(b.title, "NO DATA FROM THE GAME");
     assert_ne!(b.note, "Tyres, fuel and laps show the last value read.");
-    // The box is centred in the room under the header and never wider than the canvas.
-    for (cw, ch, tw, th) in [(1440.0, 600.0, 400.0, 70.0), (600.0, 1130.0, 900.0, 120.0)] {
-        let (x, y, w, h) = banner_box(cw, ch, tw, th);
-        assert!((x * 2.0 + w - cw).abs() < 0.01, "centred across");
-        assert!((y * 2.0 + h - (CARDS_TOP + ch)).abs() < 0.01, "centred down the cards' room");
-        assert!(x >= 0.0 && x + w <= cw && y >= CARDS_TOP && y + h <= ch);
+    // The box is centred in its card and always inside it.
+    let card = (100.0, 200.0, 420.0, 300.0);
+    for (tw, th) in [(100.0, 60.0), (900.0, 400.0)] {
+        let (x, y, w, h) = banner_box(card, tw, th);
+        assert!((x * 2.0 + w - (card.0 * 2.0 + card.2)).abs() < 0.01);
+        assert!((y * 2.0 + h - (card.1 * 2.0 + card.3)).abs() < 0.01);
+        assert!(inside_box(
+            (x, y, w, h),
+            card.0 + S3,
+            card.1 + S3,
+            card.2 - 2.0 * S3,
+            card.3 - 2.0 * S3
+        ));
     }
 }
 
@@ -1981,12 +1988,20 @@ fn the_banner_is_painted_over_the_dimmed_cards_without_moving_them() {
         let rows = model_with(&paused, Default::default(), &f.laps).laps.rows.len();
         let plan = layout.plan_for(&s, rows);
         let (scale, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
-        let b = banner_box(plan.w, plan.h, 300.0, 60.0);
+        let target = banner_target(&plan).expect("a card to put it over");
+        assert_eq!(Some(target), plan.area(Pane::Centre), "over the centre card");
+        // Never over a card whose readings stay readable.
+        for (pane, other) in &plan.cards {
+            if *pane != Pane::Centre {
+                assert!(!overlap(target, *other), "{w}x{h}: the banner stays off {pane:?}");
+            }
+        }
+        let b = banner_box(target, 200.0, 70.0);
         let middle = (
             ox + (b.0 * scale) as i32,
             oy + ((b.1 + b.3 * 0.2) * scale) as i32,
             ox + ((b.0 + b.2) * scale) as i32,
-            oy + ((b.1 + b.3 * 0.55) * scale) as i32,
+            oy + ((b.1 + b.3 * 0.6) * scale) as i32,
         );
         assert!(
             has_color(&region_of(&paused_px, w, middle), WARN) > 30,
@@ -2345,7 +2360,8 @@ fn a_lap_that_does_not_count_has_its_time_struck_through_in_red() {
 
 #[test]
 fn every_preview_state_paints_at_every_shape() {
-    let f = fixture();
+    let mut f = fixture();
+    f.snapshot.game = Game::Recording(4);
     let rich = rich_reading();
     let mut paused = rich.clone();
     paused.driving = false;
@@ -2364,10 +2380,11 @@ fn every_preview_state_paints_at_every_shape() {
         .or(crate::game::Caps::LAST_LAP);
     let laps = rich_laps();
     let none: Vec<SavedLap> = Vec::new();
-    let states: [(&str, &Live, &Vec<SavedLap>); 4] = [
+    let states: [(&str, &Live, &Vec<SavedLap>); 5] = [
         ("driving", &rich, &laps),
         ("paused", &paused, &laps),
         ("first-lap", &first, &none),
+        ("silent", &rich, &laps),
         ("little-data", &little, &none),
     ];
     let shapes = [
@@ -2384,6 +2401,9 @@ fn every_preview_state_paints_at_every_shape() {
         for (shape, w, h) in shapes {
             let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
             v.recent_laps = laps;
+            if state == "silent" {
+                v.now_ms = live.at_ms + 60_000;
+            }
             let pixels = render(&v, w, h);
             save(&pixels, w, h, &format!("state-{state}-{shape}.png"));
             assert!(has_color(&pixels, CARD) > 1000, "{state} {shape}: cards are drawn");

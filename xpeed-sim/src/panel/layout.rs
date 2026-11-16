@@ -229,7 +229,6 @@ pub(super) struct Plan {
     pub(super) cards: Vec<(Pane, Area)>,
 }
 
-#[cfg(test)]
 impl Plan {
     pub(super) fn area(&self, card: Pane) -> Option<Area> {
         self.cards.iter().find(|(c, _)| *c == card).map(|(_, a)| *a)
@@ -649,13 +648,19 @@ pub(super) fn fuel_plan(card: Area, group_h: f32, temps: bool) -> FuelPlan {
     }
 }
 
-/// The banner's box over a canvas `canvas_w` x `canvas_h`: `content_w` x `content_h` of text with its padding, centred in the
-/// room the cards take (under the header), never wider than the canvas less a margin.
-pub(super) fn banner_box(canvas_w: f32, canvas_h: f32, content_w: f32, content_h: f32) -> Area {
-    let w = (content_w + 2.0 * S8).min(canvas_w - 2.0 * S4).max(1.0);
-    let h = content_h + 2.0 * S6;
-    let room = (canvas_h - CARDS_TOP).max(h);
-    ((canvas_w - w) / 2.0, CARDS_TOP + (room - h) / 2.0, w, h)
+/// The card the banner goes over: the centre card (the live car values, dimmed while paused anyway), else the times card;
+/// never one whose readings stay readable (fuel, tyres, laps, track, alerts).
+pub(super) fn banner_target(plan: &Plan) -> Option<Area> {
+    plan.area(Pane::Centre).or_else(|| plan.area(Pane::Times))
+}
+
+/// The banner's box: `content_w` x `content_h` of text with the token padding, centred in `target` and always inside it
+/// (with the card's own padding left round it).
+pub(super) fn banner_box(target: Area, content_w: f32, content_h: f32) -> Area {
+    let (tx, ty, tw, th) = target;
+    let w = (content_w + 2.0 * S4).min(tw - 2.0 * S3).max(1.0);
+    let h = (content_h + 2.0 * S4).min(th - 2.0 * S3).max(1.0);
+    (tx + (tw - w) / 2.0, ty + (th - h) / 2.0, w, h)
 }
 
 /// The four tyre tiles of a tyres card: two by two (front left, front right, rear left, rear right), under the caption.

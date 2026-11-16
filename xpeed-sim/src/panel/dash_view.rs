@@ -65,17 +65,20 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
             Pane::Alerts => alerts_card(g, &d, area),
         }
     }
-    banner(g, &d, plan.w, plan.h);
+    if let Some(target) = banner_target(&plan) {
+        banner(g, &d, target);
+    }
 }
 
-/// The box over the cards while the game is paused or silent: a card-coloured box with the title in the caution colour and
-/// a line under it. Drawn over everything and moving nothing: the cards under it keep their places.
-pub(super) fn banner(g: &mut Painter, d: &Dash, canvas_w: f32, canvas_h: f32) {
+/// The box over the centre card (else the times card) while the game is paused or silent: a card-coloured box with the title
+/// in the caution colour and a line under it. It covers only a card whose values are dimmed anyway, so every slow reading
+/// (fuel, tyres, laps, track, alerts) stays readable, and it moves nothing.
+pub(super) fn banner(g: &mut Painter, d: &Dash, target: Area) {
     let Some(b) = &d.m.banner else {
         return;
     };
     let semi = FW_SEMIBOLD as i32;
-    let room = (canvas_w - 2.0 * (S4 + S8)).max(120.0);
+    let room = (target.2 - 2.0 * (S3 + S4)).max(60.0);
     let size = g.fitted(&b.title, room, T_NUMERAL, T_LEAD, semi, Face::Num);
     let title_w = g.tabular_width(&b.title, size, semi).min(room);
     let note_w = room.min(g.width_of(&b.note, T_BODY, FW_NORMAL as i32, Face::Ui));
@@ -86,15 +89,15 @@ pub(super) fn banner(g: &mut Painter, d: &Dash, canvas_w: f32, canvas_h: f32) {
     let title_h = size * 1.2;
     let note_h = lines as f32 * 20.0;
     let content_w = title_w.max(note_w);
-    let (x, y, w, h) = banner_box(canvas_w, canvas_h, content_w, title_h + S2 + note_h);
+    let (x, y, w, h) = banner_box(target, content_w, title_h + S2 + note_h);
     g.round(g.r(x, y, w, h), R_LG, CARD, Some(BORDER));
-    let r = g.r(x, y + S6, w, title_h);
+    let r = g.r(x, y + S4, w, title_h);
     g.text(&b.title, r, size, semi, Face::Num, WARN, DT_CENTER);
     g.wrapped(
         &b.note,
-        x + S8,
-        y + S6 + title_h + S2,
-        w - 2.0 * S8,
+        x + S4,
+        y + S4 + title_h + S2,
+        w - 2.0 * S4,
         T_BODY,
         FW_NORMAL as i32,
         Face::Ui,
