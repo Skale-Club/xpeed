@@ -40,6 +40,9 @@ use crate::util::iso_utc;
 
 pub const MIN_SAMPLES: usize = 50;
 pub const MIN_LAP_SECONDS: f64 = 5.0;
+/// Bound unfinished laps before their vectors can grow without limit (about 14 MB of sample values).
+const MAX_CAPTURE_SAMPLES: usize = 100_000;
+const MAX_CAPTURE_SECONDS: f64 = 3600.0;
 /// How long a finished lap waits for its official time.
 const MAX_PENDING_SECONDS: f64 = 3.0;
 const LAP_TIME_MATCH_SECONDS: f64 = 0.5;
@@ -124,6 +127,8 @@ pub struct LapCutter {
     ended: Vec<EndReason>,
     /// The laps let go without being written since the engine last asked, and why (the heartbeat counts them).
     dropped: Vec<LapDrop>,
+    max_samples: usize,
+    max_seconds: f64,
 }
 
 fn ms(seconds: f64) -> u32 {
@@ -139,6 +144,8 @@ impl LapCutter {
             pending: None,
             ended: Vec::new(),
             dropped: Vec::new(),
+            max_samples: MAX_CAPTURE_SAMPLES,
+            max_seconds: MAX_CAPTURE_SECONDS,
         }
     }
 
@@ -192,7 +199,14 @@ impl LapCutter {
                 }
             }
         }
-        if let (Some(lap), Some(sample)) = (self.current.as_mut(), step.sample) {
+        let over_limit = self.current.as_ref().zip(step.sample.as_ref()).is_some_and(|(lap, sample)| {
+            lap.columns.t.len() >= self.max_samples || sample.t_s > self.max_seconds
+        });
+        if over_limit {
+            // Discard the whole unfinished lap, once. A new boundary starts a fresh lap normally.
+            self.current = None;
+            self.dropped.push(LapDrop::CaptureLimit);
+        } else if let (Some(lap), Some(sample)) = (self.current.as_mut(), step.sample) {
             Self::add_sample(lap, frame, sample);
         }
         done
@@ -524,6 +538,42 @@ mod tests {
         assert!(lap.channel("dist").unwrap().values.windows(2).all(|w| w[1] >= w[0]));
         // The lap is a lap the strict reader accepts.
         assert!(crate::lapfile::gunzip(&crate::lapfile::gzip(lap).unwrap(), crate::lapfile::MAX_UNPACKED).is_ok());
+    }
+
+    #[test]
+    fn an_unfinished_lap_is_bounded_and_the_next_lap_records_normally() {
+        let mut cutter = LapCutter::new("test");
+        cutter.max_samples = 128;
+        let (laps, clock) = drive(&mut cutter, 0.0, 1, 0.0, 20.0, None);
+        assert!(laps.is_empty());
+        assert!(cutter.current.is_none(), "all vectors of the oversized lap are released");
+        assert_eq!(cutter.take_drops(), [LapDrop::CaptureLimit], "one alert for the whole unfinished lap");
+        let (_, clock) = drive(&mut cutter, clock, 2, 0.0, 6.0, Some(20.0));
+        let (laps, _) = drive(&mut cutter, clock, 3, 0.0, 1.0, Some(6.0));
+        assert_eq!(laps.len(), 1);
+        assert_eq!((laps[0].lap_number, laps[0].sample_count()), (2, 120));
+        assert!(cutter.take_drops().is_empty());
+    }
+
+    #[test]
+    fn a_slow_stream_is_also_bounded_by_lap_duration() {
+        let mut cutter = LapCutter::new("test");
+        cutter.max_seconds = 6.0;
+        let (laps, _) = drive(&mut cutter, 0.0, 1, 0.0, 20.0, None);
+        assert!(laps.is_empty());
+        assert!(cutter.current.is_none());
+        assert_eq!(cutter.take_drops(), [LapDrop::CaptureLimit]);
+    }
+
+    #[test]
+    fn a_lap_exactly_at_the_sample_budget_is_complete_not_truncated() {
+        let mut cutter = LapCutter::new("test");
+        cutter.max_samples = 120;
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 6.0, None);
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(6.0));
+        assert_eq!(laps.len(), 1);
+        assert_eq!(laps[0].sample_count(), 120);
+        assert!(cutter.take_drops().is_empty());
     }
 
     #[test]

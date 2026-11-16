@@ -47,7 +47,16 @@ jobs:
             xpeed-sim/target
           key: xpeed-sim-${{ runner.os }}-${{ hashFiles('xpeed-sim/Cargo.lock') }}
       - name: Format
-        run: cargo fmt --check
+        run: |
+          cargo fmt
+          git diff --output=../companion-format.patch -- src
+          git diff --exit-code -- src
+      - name: Keep formatting patch
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-format-patch
+          path: companion-format.patch
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests

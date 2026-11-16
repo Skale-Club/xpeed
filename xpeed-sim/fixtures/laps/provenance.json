@@ -1,0 +1,34 @@
+[
+  {
+    "file": "ams2-real-lap-1.xlap.gz",
+    "game": "ams2",
+    "samples": 7340,
+    "sourceSha256": "d2494aa9d232e29012379682da797fd419a5690204cd24d3c5c401c66cc84954",
+    "fixtureSha256": "c18891f0805f101b973f186192821f5c28c5a2e63f2954316a43319aa0ac63bc",
+    "scope": "recorded-lap-only; not raw-reader capture"
+  },
+  {
+    "file": "acevo-real-lap-1.xlap.gz",
+    "game": "acevo",
+    "samples": 10861,
+    "sourceSha256": "97901cff5855572b4bdff63ac394578ccff8b76066d96ac9f5fb5854be1aac17",
+    "fixtureSha256": "97c683c12f8fef8d3ee56a13774260a1259d884cc2c3f633169facb05f58e320",
+    "scope": "recorded-lap-only; not raw-reader capture"
+  },
+  {
+    "file": "acevo-real-lap-2.xlap.gz",
+    "game": "acevo",
+    "samples": 10186,
+    "sourceSha256": "f52c7155cb1213339864b17656fd3a71cc18820a139e9d76c204106eef5a3b89",
+    "fixtureSha256": "0246236cd64dd7db651d5d7d0dd1b973857e4a7bd35ce31de7ffb20befc0e81e",
+    "scope": "recorded-lap-only; not raw-reader capture"
+  },
+  {
+    "file": "acevo-real-lap-3.xlap.gz",
+    "game": "acevo",
+    "samples": 9923,
+    "sourceSha256": "52435537174cbe2f2b9ff9eb690c2fe162094087ff13e161b2e90e1c281e814e",
+    "fixtureSha256": "bf170b98b307e1b60b641ae64952b360139f7d37631083e088bce882c84164d7",
+    "scope": "recorded-lap-only; not raw-reader capture"
+  }
+]
