@@ -158,6 +158,31 @@ pub const READERS: &[Reader] = &[
     },
 ];
 
+/// A reader opened for a replay (`replay.rs`): on the memories the replay plays back, or on datagrams it hands over.
+pub(crate) enum Replayable {
+    Memory(Box<dyn Source>),
+    Datagrams(Box<dyn crate::replay::Datagrams>),
+}
+
+/// The reader of `family` as a capture of `game` needs it. The memory readers are the ones the tray app uses (they open
+/// the recorded memories while a replay is installed, see `shm::install_replay`); the UDP readers are asked for a source
+/// that takes the recorded datagrams instead of reading a socket. `None` for a family this build does not know.
+pub(crate) fn open_for_replay(family: &str, game: &str) -> Option<Replayable> {
+    Some(match family {
+        "kunos" => Replayable::Memory(kunos::open_replay(game)?),
+        "ams2" => Replayable::Memory(ams2::open()?),
+        "pcars" => Replayable::Memory(ams2::open_pcars_replay(game)?),
+        "acevo" => Replayable::Memory(acevo::open()?),
+        "rfactor1" => Replayable::Memory(rfactor1::open_replay(game)?),
+        "iracing" => Replayable::Memory(iracing::open()?),
+        "r3e" => Replayable::Memory(r3e::open_replay()?),
+        "wreckfest2" => Replayable::Datagrams(wreckfest2::datagrams()?),
+        "f1" => Replayable::Datagrams(f1::datagrams(game)?),
+        "forza" => Replayable::Datagrams(forza::datagrams(game)?),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

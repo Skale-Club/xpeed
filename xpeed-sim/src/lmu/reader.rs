@@ -270,6 +270,8 @@ impl LmuReader {
     fn copy(&mut self, start: usize, len: usize) {
         assert!(start + len <= LAYOUT_SIZE && start + len <= self.mapped_bytes);
         unsafe { copy_nonoverlapping(self.view.Value.cast::<u8>().add(start), self.buffer.as_mut_ptr().add(start), len) }
+        // A capture (`capture.rs`) keeps what was copied; nothing happens unless one runs on this thread.
+        crate::capture::tap_lmu(start, &self.buffer[start..start + len]);
     }
 
     /// Reads this frame. None if the game's lock was not free in time (the frame is skipped).

@@ -9,6 +9,8 @@
 //! * `probe`   checks that the game is sharing data and shows what it sends (nothing is written);
 //! * `record`  writes every lap to a folder as a `.xlap.gz` file (and, with `--upload`, sends them to Xpeed);
 //! * `inspect` shows what a lap file holds;
+//! * `capture` records exactly what a game's reader sees into a `.xcap` file, and `replay` plays one back through the
+//!   same parsing, lap cutting and data checks (turns minutes of driving into a regression fixture: `fixtures/README.md`);
 //! * `track-dump` reads a track's layout from a game's own files and writes it as a `.xtrk` file;
 //!   while recording, the layout of each Assetto Corsa or Stock Car Extreme track driven is also built by itself and sent
 //!   with the laps (`tracks::auto`);
@@ -18,6 +20,8 @@
 
 mod applog;
 mod brands;
+#[cfg(windows)]
+mod capture;
 mod config;
 mod connect;
 mod covers;
@@ -45,6 +49,8 @@ mod panel;
 mod present;
 #[cfg(test)]
 mod rcgen;
+#[cfg(windows)]
+mod replay;
 mod sanity;
 mod secret;
 mod session;
@@ -84,6 +90,20 @@ USAGE:
     xpeed-companion record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
     xpeed-companion inspect FILE           Show what a lap file holds
+    xpeed-companion capture GAME [--seconds N] [--out FILE.xcap] [--build TEXT]
+                                     Record exactly what the reader of GAME sees while you drive (default 600 s, Ctrl+C
+                                     ends it early) into a compact .xcap file, to be played back with `replay`. GAME is
+                                     lmu, ac, acc, acr, ams2, pcars2, pcars3, acevo, rfactor1, ams1, rf1, iracing, r3e,
+                                     wreckfest2, f1, f124, f123, fm, fm7, fh4, fh5 or fh6. Drive an out lap, two clean
+                                     laps, a pause and a pit entry. For a UDP game (F1, Forza, Wreckfest 2) pause or
+                                     close the tray app first: only one program can hold the port. --build names the
+                                     game's build, for the record.
+    xpeed-companion replay FILE.xcap [--laps-out DIR] [--speed X]
+                                     Play a capture through the reader, the lap cutter and the data checks, offline: per
+                                     lap the time, validity, samples, distance against the track length and the checks'
+                                     findings; compared with FILE.expect.json when it is there. --laps-out also writes
+                                     the laps as lap files; --speed X plays at the recorded time times X (default: as
+                                     fast as it goes).
     xpeed-companion track-dump GAME TRACK OUT.xtrk [--preview FILE.svg]
                                      Read a track's layout (centre line, road width, ideal line, pit lane) from the
                                      game's own files and write it as a track file. GAME is ac or sce; TRACK is a
@@ -116,6 +136,17 @@ enum Command {
     },
     Inspect {
         file: PathBuf,
+    },
+    Capture {
+        game: String,
+        seconds: u64,
+        out: Option<PathBuf>,
+        build: Option<String>,
+    },
+    Replay {
+        file: PathBuf,
+        laps_out: Option<PathBuf>,
+        speed: Option<f64>,
     },
     TrackDump(tracks::dump::Request),
     Pair {
@@ -226,6 +257,53 @@ fn parse(args: &[String]) -> Result<Command, String> {
                 out: PathBuf::from(out),
                 preview,
             }))
+        }
+        Some("capture") => {
+            let game = rest.next().ok_or("capture needs a game (lmu, ac, acevo, f124, ...)")?;
+            let (mut seconds, mut out, mut build) = (600, None, None);
+            while let Some(flag) = rest.next() {
+                match flag {
+                    "--seconds" => {
+                        seconds = rest
+                            .next()
+                            .and_then(|value| value.parse::<u64>().ok())
+                            .filter(|n| (1..=14_400).contains(n))
+                            .ok_or("--seconds needs a number from 1 to 14400")?;
+                    }
+                    "--out" => out = Some(PathBuf::from(rest.next().ok_or("--out needs a file name")?)),
+                    "--build" => build = Some(rest.next().ok_or("--build needs a text")?.to_owned()),
+                    other => return Err(format!("unknown option {other:?}")),
+                }
+            }
+            Ok(Command::Capture {
+                game: game.to_owned(),
+                seconds,
+                out,
+                build,
+            })
+        }
+        Some("replay") => {
+            let file = rest.next().ok_or("replay needs a .xcap file")?;
+            let (mut laps_out, mut speed) = (None, None);
+            while let Some(flag) = rest.next() {
+                match flag {
+                    "--laps-out" => laps_out = Some(PathBuf::from(rest.next().ok_or("--laps-out needs a folder")?)),
+                    "--speed" => {
+                        speed = Some(
+                            rest.next()
+                                .and_then(|value| value.parse::<f64>().ok())
+                                .filter(|n| (0.1..=1000.0).contains(n))
+                                .ok_or("--speed needs a number from 0.1 to 1000")?,
+                        );
+                    }
+                    other => return Err(format!("unknown option {other:?}")),
+                }
+            }
+            Ok(Command::Replay {
+                file: PathBuf::from(file),
+                laps_out,
+                speed,
+            })
         }
         Some("inspect") => {
             let file = rest.next().ok_or("inspect needs a file")?;
@@ -606,7 +684,13 @@ mod live {
 fn moves_data(command: &Command) -> bool {
     !matches!(
         command,
-        Command::PanelDemo | Command::MakeIcon { .. } | Command::Probe { .. } | Command::Inspect { .. } | Command::TrackDump(_)
+        Command::PanelDemo
+            | Command::MakeIcon { .. }
+            | Command::Probe { .. }
+            | Command::Inspect { .. }
+            | Command::TrackDump(_)
+            | Command::Capture { .. }
+            | Command::Replay { .. }
     )
 }
 
@@ -671,11 +755,15 @@ fn main() -> ExitCode {
         Command::Unpair => unpair_command(),
         Command::Upload { dir } => upload_command(&dir),
         #[cfg(windows)]
+        Command::Capture { game, seconds, out, build } => capture::command(&capture::Request { game, seconds, out, build }),
+        #[cfg(windows)]
+        Command::Replay { file, laps_out, speed } => replay::command(&file, laps_out.as_deref(), speed),
+        #[cfg(windows)]
         Command::Probe { seconds } => live::probe(seconds),
         #[cfg(windows)]
         Command::Record { out, upload } => live::record(&out, upload),
         #[cfg(not(windows))]
-        Command::Probe { .. } | Command::Record { .. } => {
+        Command::Probe { .. } | Command::Record { .. } | Command::Capture { .. } | Command::Replay { .. } => {
             eprintln!("Reading the game needs Windows. `inspect` works everywhere.");
             ExitCode::from(2)
         }
@@ -762,6 +850,49 @@ mod tests {
             parse(&args(&["inspect", "a.xlap.gz"])),
             Ok(Command::Inspect { file: "a.xlap.gz".into() })
         );
+        assert_eq!(
+            parse(&args(&["capture", "acevo"])),
+            Ok(Command::Capture {
+                game: "acevo".into(),
+                seconds: 600,
+                out: None,
+                build: None
+            })
+        );
+        assert_eq!(
+            parse(&args(&[
+                "capture",
+                "f124",
+                "--seconds",
+                "90",
+                "--out",
+                "a.xcap",
+                "--build",
+                "1.2.3"
+            ])),
+            Ok(Command::Capture {
+                game: "f124".into(),
+                seconds: 90,
+                out: Some("a.xcap".into()),
+                build: Some("1.2.3".into())
+            })
+        );
+        assert_eq!(
+            parse(&args(&["replay", "a.xcap"])),
+            Ok(Command::Replay {
+                file: "a.xcap".into(),
+                laps_out: None,
+                speed: None
+            })
+        );
+        assert_eq!(
+            parse(&args(&["replay", "a.xcap", "--laps-out", "laps", "--speed", "2"])),
+            Ok(Command::Replay {
+                file: "a.xcap".into(),
+                laps_out: Some("laps".into()),
+                speed: Some(2.0)
+            })
+        );
     }
 
     #[test]
@@ -775,6 +906,17 @@ mod tests {
             &["record", "--out"],
             &["inspect"],
             &["inspect", "a", "b"],
+            &["capture"],
+            &["capture", "ac", "--seconds"],
+            &["capture", "ac", "--seconds", "0"],
+            &["capture", "ac", "--seconds", "99999"],
+            &["capture", "ac", "--out"],
+            &["capture", "ac", "--fast"],
+            &["replay"],
+            &["replay", "a.xcap", "--laps-out"],
+            &["replay", "a.xcap", "--fast"],
+            &["replay", "a.xcap", "--speed", "0"],
+            &["replay", "a.xcap", "--speed"],
             &["track-dump"],
             &["track-dump", "ac"],
             &["track-dump", "ac", "monza"],
@@ -806,5 +948,16 @@ mod tests {
         assert!(!moves_data(&Command::MakeIcon { file: "a.ico".into() }));
         assert!(!moves_data(&Command::Probe { seconds: 5 }));
         assert!(!moves_data(&Command::Inspect { file: "a.xlap.gz".into() }));
+        assert!(!moves_data(&Command::Replay {
+            file: "a.xcap".into(),
+            laps_out: None,
+            speed: None
+        }));
+        assert!(!moves_data(&Command::Capture {
+            game: "ac".into(),
+            seconds: 5,
+            out: None,
+            build: None
+        }));
     }
 }
