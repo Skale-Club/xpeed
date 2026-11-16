@@ -46,6 +46,7 @@ jobs:
             ~/.cargo/git
             xpeed-sim/target
           key: xpeed-sim-${{ runner.os }}-${{ hashFiles('xpeed-sim/Cargo.lock') }}
+          restore-keys: xpeed-sim-${{ runner.os }}-
       - name: Format
         run: |
           cargo fmt --check

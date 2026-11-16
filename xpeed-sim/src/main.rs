@@ -41,7 +41,6 @@ mod lapcut;
 mod lapfile;
 mod lmu;
 mod maps;
-mod perspective;
 mod migrate;
 mod net;
 mod norm;
@@ -50,6 +49,7 @@ mod outbox;
 mod panel;
 #[cfg(windows)]
 mod persistence;
+mod perspective;
 mod present;
 #[cfg(test)]
 mod rcgen;

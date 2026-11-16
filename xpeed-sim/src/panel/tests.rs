@@ -436,7 +436,11 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
 /// Historical output drives the same tracker and native renderer used by live telemetry; no generated circuit.
 #[test]
 fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
-    let lap = crate::lapfile::gunzip(include_bytes!("../../fixtures/laps/acevo-real-lap-3.xlap.gz"), crate::lapfile::MAX_UNPACKED).unwrap();
+    let lap = crate::lapfile::gunzip(
+        include_bytes!("../../fixtures/laps/acevo-real-lap-3.xlap.gz"),
+        crate::lapfile::MAX_UNPACKED,
+    )
+    .unwrap();
     let xs = &lap.channel("x").unwrap().values;
     let zs = &lap.channel("z").unwrap().values;
     let times = &lap.channel("t").unwrap().values;
@@ -453,7 +457,8 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
             frame.track = lap.track_name.clone();
             frame.car = lap.car_name.clone();
             frame.lap = 3;
-            frame.x = xs[i]; frame.z = zs[i];
+            frame.x = xs[i];
+            frame.z = zs[i];
             frame.speed_ms = lap.channel("speed").unwrap().values[i];
             frame.lap_time_s = Some(f64::from(times[i]));
             live = Some(tracker.on_frame("acevo", &frame, (times[i] * 1000.0) as i64));
@@ -467,7 +472,9 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
         let pixels = render(&native_view, 1280, 800);
         save(&pixels, 1280, 800, &format!("panel-laguna-{target}.png"));
         assert!(has_color(&pixels, PRIMARY) > 100, "the opaque arrow and live values are painted");
-        if let Some(before) = previous { assert_ne!(pixels, before, "the native frame follows the actual position"); }
+        if let Some(before) = previous {
+            assert_ne!(pixels, before, "the native frame follows the actual position");
+        }
         previous = Some(pixels);
     }
 }

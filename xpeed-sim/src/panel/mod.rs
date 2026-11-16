@@ -33,10 +33,9 @@ use windows_sys::Win32::Graphics::GdiPlus::GdipCreateBitmapFromScan0;
 use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
-    GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawPath, GdipFillPath,
-    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend,
-    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath,
-    InterpolationModeHighQualityBicubic, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
+    GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawPath, GdipFillPath, GdipGetImageThumbnail,
+    GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput,
+    GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
     WrapModeTile,
 };
 use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};

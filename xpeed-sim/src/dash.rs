@@ -737,7 +737,8 @@ mod tests {
         assert_eq!(live.heading, Some((1.0, 0.0)));
         assert_eq!(live.trail.len(), 32);
         let mut frame = at(1, 396.0, 10.0, None);
-        frame.x = 396.0; frame.z = 0.0;
+        frame.x = 396.0;
+        frame.z = 0.0;
         let stopped = tracker.on_frame("ac", &frame, 10000);
         assert_eq!(stopped.heading, live.heading);
         assert!(Arc::ptr_eq(live.map.as_ref().unwrap(), stopped.map.as_ref().unwrap()));
@@ -763,7 +764,10 @@ mod tests {
         assert!(tracker.on_frame("ac", &frame, 300).reference.is_none());
         tracker.new_session();
         frame.session_kind = Some(SessionKind::Practice);
-        assert!(tracker.on_frame("ac", &frame, 400).reference.is_none(), "the reference belongs to its session");
+        assert!(
+            tracker.on_frame("ac", &frame, 400).reference.is_none(),
+            "the reference belongs to its session"
+        );
     }
 
     /// A frame at `dist` metres into lap `lap`, `t` seconds after it began.

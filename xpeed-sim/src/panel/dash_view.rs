@@ -552,23 +552,64 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
     let line_h = if m.progress.visible() { 20.0 } else { 0.0 };
     let map_box = (x, y + CAPTION_H + S1, w, (h - CAPTION_H - S1 - line_h - S1).max(1.0));
     shown(g, m.map, |g| {
-        let rendered = d.live.map.as_ref().filter(|_| has_map(d.live))
-            .zip(d.live.pos).zip(d.live.heading)
-            .is_some_and(|((map, car), heading)| g.track_perspective(map_box, map, d.live.map_complete,
-                d.live.road.as_deref(), &d.live.trail, d.live.reference.as_deref().map(Vec::as_slice), car, heading));
-        let msg = if !has_map(d.live) { Msg::PanelTrackLearning }
-            else if d.live.pos.is_none() { Msg::PanelTrackPosition }
-            else if !rendered { Msg::PanelTrackDirection }
-            else if d.live.road.is_some() { Msg::PanelTrackRoad }
-            else { Msg::PanelTrackPaths };
+        let rendered = d
+            .live
+            .map
+            .as_ref()
+            .filter(|_| has_map(d.live))
+            .zip(d.live.pos)
+            .zip(d.live.heading)
+            .is_some_and(|((map, car), heading)| {
+                g.track_perspective(
+                    map_box,
+                    map,
+                    d.live.map_complete,
+                    d.live.road.as_deref(),
+                    &d.live.trail,
+                    d.live.reference.as_deref().map(Vec::as_slice),
+                    car,
+                    heading,
+                )
+            });
+        let msg = if !has_map(d.live) {
+            Msg::PanelTrackLearning
+        } else if d.live.pos.is_none() {
+            Msg::PanelTrackPosition
+        } else if !rendered {
+            Msg::PanelTrackDirection
+        } else if d.live.road.is_some() {
+            Msg::PanelTrackRoad
+        } else {
+            Msg::PanelTrackPaths
+        };
         let note = text(d.view.lang, &msg);
         let (mx, my, mw, mh) = map_box;
-        let r = if rendered { g.r(mx + S1, my + S1, mw - 2.0 * S1, 16.0) } else { g.r(mx + S2, my + mh / 2.0 - 12.0, mw - 2.0 * S2, 24.0) };
+        let r = if rendered {
+            g.r(mx + S1, my + S1, mw - 2.0 * S1, 16.0)
+        } else {
+            g.r(mx + S2, my + mh / 2.0 - 12.0, mw - 2.0 * S2, 24.0)
+        };
         let size = g.fitted(&note, mw - 2.0 * S2, T_CAPTION, 9.0, normal, Face::Ui);
-        g.text(&note, r, size, normal, Face::Ui, MUTED_TEXT, if rendered { DT_LEFT } else { DT_CENTER });
+        g.text(
+            &note,
+            r,
+            size,
+            normal,
+            Face::Ui,
+            MUTED_TEXT,
+            if rendered { DT_LEFT } else { DT_CENTER },
+        );
         if rendered && d.live.reference.is_some() {
             let r = g.r(mx + S1, my + S1 + 17.0, mw - 2.0 * S1, 16.0);
-            g.text(&text(d.view.lang, &Msg::PanelTrackSessionBest), r, T_CAPTION, normal, Face::Ui, INFO, DT_LEFT);
+            g.text(
+                &text(d.view.lang, &Msg::PanelTrackSessionBest),
+                r,
+                T_CAPTION,
+                normal,
+                Face::Ui,
+                INFO,
+                DT_LEFT,
+            );
         }
     });
     if m.progress.visible() {
