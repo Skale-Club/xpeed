@@ -101,7 +101,7 @@ O contrato com o servidor está em [ENVIO-DE-VOLTAS.md](../docs/telemetria-virtu
 
 ## Como a volta é cortada
 
-Veja o comentário no topo de `src/recorder.rs`. Em resumo: a volta vai de uma troca do número de volta do jogo até a próxima; `t` vem do relógio da própria volta; `dist` é a integral da velocidade, reancorada em cada atualização de pontuação; a volta espera até 3 segundos pelo tempo oficial; volta em que o Xpeed Companion entrou no meio, com menos de 5 s ou menos de 50 amostras é descartada. **`valid` é um julgamento nosso** (tempo oficial confere com a telemetria e o carro não passou pelo box), não o veredito do jogo sobre pista cortada.
+Todos os jogos, inclusive o Le Mans Ultimate, passam pela mesma máquina de sessão (`src/session.rs`) e pelo mesmo cortador (`src/lapcut.rs`); o LMU entra como fonte em `src/lmu/source.rs`. Em resumo: a volta vai de uma troca do número de volta do jogo até a próxima; `t` vem do relógio da própria volta; no LMU, `dist` é a integral da velocidade, reancorada em cada atualização de pontuação; a volta espera até 3 segundos pelo tempo oficial; volta em que o Xpeed Companion entrou no meio, com menos de 5 s ou menos de 50 amostras é descartada. **`valid` é um julgamento nosso** (tempo oficial confere com a telemetria e o carro não passou pelo box), não o veredito do jogo sobre pista cortada.
 
 ## Formato de volta, versão 2 (Companion 0.5)
 
