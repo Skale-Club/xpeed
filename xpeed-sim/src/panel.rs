@@ -1235,11 +1235,8 @@ impl Painter {
         match (pill.kind, label) {
             (PillKind::Headlights, _) => self.headlamp(x + w / 2.0, y + h / 2.0, (h * 0.5).clamp(11.0, 16.0), ink),
             (PillKind::Flag, _) => {
-                let sw = (h * 0.36).clamp(9.0, 14.0);
-                self.flag_swatch(x + 8.0, y + h / 2.0 - sw / 2.0, sw, pill.flag);
-                let label = text(lang, &Msg::PanelFlag);
-                let r = self.r(x + 8.0 + sw + 4.0, y, (w - sw - 20.0).max(1.0), h);
-                self.caps(&label, r, 8.5, mix(CARD, MUTED, 0.75), DT_CENTER);
+                let sw = (h * 0.42).clamp(10.0, 16.0);
+                self.flag_swatch(x + w / 2.0 - sw / 2.0, y + h / 2.0 - sw / 2.0, sw, pill.flag);
             }
             (_, Some(label)) => {
                 let r = self.r(x, y, w, h);
@@ -1564,8 +1561,7 @@ fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
 
 /// `1:42.318` for seconds; nothing when there is none (the caller then draws nothing).
 fn lap_clock(s: Option<f64>) -> Option<String> {
-    s.filter(|s| s.is_finite() && *s >= 0.0)
-        .map(|s| clock((s * 1000.0).round() as u32))
+    s.filter(|s| s.is_finite() && *s >= 0.0).map(|s| clock((s * 1000.0).round() as u32))
 }
 
 /// `+0.42` or `-1.07`; nothing when there is none.
@@ -2187,16 +2183,18 @@ const PORTRAIT_H: f32 = 1210.0;
 
 impl Layout {
     /// The canvas size. `side` is whether there is anything for the track and tyre column (or row) to show: without
-    /// it the layouts that exist for it are as small as the main dashboard, which then fills the window.
-    fn size(self, side: bool) -> (f32, f32) {
+    /// it the layouts that exist for it are as small as the main dashboard, which then fills the window. `main_h` is
+    /// the height of the main dashboard (see `main_height`).
+    fn size(self, side: bool, main_h: f32) -> (f32, f32) {
         match self {
-            Layout::Classic => (CANVAS_W, CANVAS_H),
-            Layout::Ultrawide if !side => (CANVAS_W, CANVAS_H),
+            Layout::Classic => (CANVAS_W, main_h),
+            Layout::Ultrawide if !side => (CANVAS_W, main_h),
+            // The column keeps its full height: the track and the tyres need it.
             Layout::Ultrawide => (CANVAS_W + SIDE_W, CANVAS_H),
-            Layout::Wide if !side => (CANVAS_W, CANVAS_H + BAND_H),
-            Layout::Wide => (CANVAS_W + SIDE_W, CANVAS_H + BAND_H),
-            Layout::Square if !side => (CANVAS_W, CANVAS_H),
-            Layout::Square => (CANVAS_W, CANVAS_H + SQUARE_ROW_H),
+            Layout::Wide if !side => (CANVAS_W, main_h + BAND_H),
+            Layout::Wide => (CANVAS_W + SIDE_W, main_h + BAND_H),
+            Layout::Square if !side => (CANVAS_W, main_h),
+            Layout::Square => (CANVAS_W, main_h + SQUARE_ROW_H),
             Layout::Portrait => (PORTRAIT_W, PORTRAIT_H),
         }
     }
@@ -2214,10 +2212,10 @@ impl Layout {
 
 /// The layout that fills a body of `bw` x `bh` pixels best while staying readable; between two that fill it about as
 /// well, the one that shows more. `side`: there is a track or tyres to show.
-fn pick_layout(bw: f32, bh: f32, side: bool) -> Layout {
+fn pick_layout(bw: f32, bh: f32, side: bool, main_h: f32) -> Layout {
     let order = [Layout::Wide, Layout::Ultrawide, Layout::Square, Layout::Portrait, Layout::Classic];
     let fill = |l: Layout| {
-        let (w, h) = l.size(side);
+        let (w, h) = l.size(side, main_h);
         let s = (bw / w).min(bh / h);
         (s >= l.min_scale(side)).then(|| s * s * w * h / (bw * bh).max(1.0))
     };
@@ -2226,6 +2224,16 @@ fn pick_layout(bw: f32, bh: f32, side: bool) -> Layout {
         .into_iter()
         .find(|&l| fill(l).is_some_and(|f| f >= best - 0.03))
         .unwrap_or(Layout::Classic)
+}
+
+/// The height of the main dashboard: with no car card to show (no lights, engine or electronics) the strip along the
+/// bottom is not there and the canvas ends under the middle, so nothing below it is left floating.
+fn main_height(live: &Live) -> f32 {
+    if present_cards(live).is_empty() {
+        STRIP_TOP + 16.0
+    } else {
+        CANVAS_H
+    }
 }
 
 /// The track map is drawn once the car has driven enough of a path.
@@ -2243,8 +2251,9 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         return waiting(g, body, view);
     };
     let side = has_side(live);
-    let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, side);
-    let (w, h) = layout.size(side);
+    let main_h = main_height(live);
+    let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, side, main_h);
+    let (w, h) = layout.size(side, main_h);
     let (s, ox, oy) = canvas_fit_wh(body, w, h);
     g.place(s, ox, oy);
     match layout {
@@ -2257,12 +2266,12 @@ fn dashboard(g: &mut Painter, body: RECT, view: &View) {
         Layout::Wide => {
             main_block(g, live, view, w);
             side_column(g, live, view, h);
-            laps_band(g, view, live, CANVAS_H + 22.0, CANVAS_W, h);
+            laps_band(g, view, live, main_h + 22.0, CANVAS_W, h);
         }
         Layout::Square => {
             main_block(g, live, view, w);
             if side {
-                let (top, half) = (CANVAS_H + 22.0, (CANVAS_W - 20.0) / 2.0);
+                let (top, half) = (main_h + 22.0, (CANVAS_W - 20.0) / 2.0);
                 side_pair(g, live, view, (0.0, top, CANVAS_W, h - top), half, 20.0);
             }
         }
@@ -2509,9 +2518,12 @@ fn left_row_h(n: usize, row_h: f32) -> f32 {
     (3.0 * row_h / n as f32).min(row_h * 1.5)
 }
 
-/// Where the fuel and the lap progress go in the right column, as `(offset from the column's top, height)`; only what
-/// is shown has a place. The fuel block (its gauge needs the room) is taller than a plain row.
-fn right_plan(row_h: f32, fuel: bool, lap: bool) -> (Option<(f32, f32)>, Option<(f32, f32)>) {
+/// A block's place in a column: `(offset from the column's top, height)`.
+type Span = Option<(f32, f32)>;
+
+/// Where the fuel and the lap progress go in the right column; only what is shown has a place. The fuel block (its
+/// gauge needs the room) is taller than a plain row.
+fn right_plan(row_h: f32, fuel: bool, lap: bool) -> (Span, Span) {
     let (fuel_h, lap_h) = (row_h * 1.4, row_h * 1.6);
     match (fuel, lap) {
         (true, true) => (Some((0.0, fuel_h)), Some((fuel_h, lap_h))),
@@ -3061,7 +3073,9 @@ fn light_cells((x, y, w, h): Area, n: usize) -> Vec<Area> {
     // No layout is roomy enough: as many columns as the width allows, the tiles as big as the box leaves them.
     let (cols, tw, th) = best.map_or_else(
         || {
-            let cols = (((w + gap) / (min_w + gap)).floor() as usize).clamp(1, n);
+            // The most columns the width allows; of those, the count that leaves the fewest empty places.
+            let most = (((w + gap) / (min_w + gap)).floor() as usize).clamp(1, n);
+            let cols = (1..=most).min_by_key(|c| (c * n.div_ceil(*c) - n, most - c)).unwrap_or(1);
             let (_, tw, th) = size(cols);
             (cols, tw, th)
         },
@@ -4813,18 +4827,23 @@ mod tests {
     }
 
     #[test]
-    fn a_pedal_bar_fills_with_its_value_and_never_past_the_bar() {
-        assert_eq!(pedal_fill(0.0, 50.0), 0.0);
-        assert_eq!(pedal_fill(0.5, 50.0), 25.0);
-        assert_eq!(pedal_fill(1.0, 50.0), 50.0);
-        assert_eq!(pedal_fill(1.7, 50.0), 50.0);
-        assert_eq!(pedal_fill(-0.3, 50.0), 0.0);
+    fn a_pedal_lights_blocks_from_the_bottom_with_its_value_and_never_past_the_column() {
+        let count = pedal_count(140.0);
+        assert_eq!(count, 17, "6 tall with 2 between: 17 blocks in 140");
+        assert_eq!(pedal_lit(0.0, count), 0);
+        assert_eq!(pedal_lit(1.0, count), count);
+        assert_eq!(pedal_lit(1.7, count), count, "clamped");
+        assert_eq!(pedal_lit(0.5, 10), 5);
+        assert_eq!(pedal_lit(0.04, 10), 1, "a pedal touched shows a block");
+        assert_eq!(pedal_lit(0.01, 10), 0, "a hair above nothing is nothing");
+        assert_eq!(pedal_lit(-0.3, 10), 0);
+        assert_eq!(pedal_count(1.0), 1, "never none");
     }
 
     #[test]
     fn a_pedal_without_a_value_counts_as_released() {
-        assert_eq!(pedal_fill(f32::NAN, 50.0), 0.0);
-        assert_eq!(pedal_fill(f32::INFINITY, 50.0), 0.0);
+        assert_eq!(pedal_lit(f32::NAN, 10), 0);
+        assert_eq!(pedal_lit(f32::INFINITY, 10), 0);
     }
 
     #[test]
@@ -4856,7 +4875,7 @@ mod tests {
             ("main", CANVAS_W / 2.0, 100.0, 140.0, MAIN_SIDE_W, CANVAS_W - MAIN_SIDE_W),
             ("portrait", PORTRAIT_W / 2.0, 100.0, 190.0, 0.0, PORTRAIT_W),
         ] {
-            let plan = centre_plan(cx, top, frame_h);
+            let plan = centre_plan(cx, top, frame_h, true);
             let (fx, fy, fw, fh) = plan.frame;
             for (what, bar) in [
                 ("brake", plan.brake),
@@ -4887,13 +4906,26 @@ mod tests {
             assert!(plan.brake.1 + plan.brake.3 + 17.0 <= plan.steer.1 + plan.steer.3);
         }
         // The main block's middle ends above its car strip.
-        assert!(centre_plan(CANVAS_W / 2.0, 100.0, 140.0).bottom < STRIP_TOP - 5.0);
+        assert!(centre_plan(CANVAS_W / 2.0, 100.0, 140.0, true).bottom < STRIP_TOP - 5.0);
+    }
+
+    #[test]
+    fn without_a_delta_the_gear_frame_rises_and_grows_so_the_middle_keeps_its_height() {
+        for (cx, frame_h) in [(CANVAS_W / 2.0, 140.0), (PORTRAIT_W / 2.0, 190.0)] {
+            let with = centre_plan(cx, 100.0, frame_h, true);
+            let without = centre_plan(cx, 100.0, frame_h, false);
+            assert_eq!(with.bottom, without.bottom, "the rest of the layout does not move");
+            assert!(without.frame.1 < with.frame.1 && without.frame.3 > with.frame.3);
+            assert_eq!(without.brake.3, without.frame.3, "the pedals follow the frame");
+            assert!(without.frame.1 >= 100.0, "and stays under the top of the block");
+        }
     }
 
     #[test]
     fn the_car_strip_cards_fit_their_row_and_the_least_important_go_first() {
         let (row_y, row_h) = (STRIP_TOP, CANVAS_H - STRIP_TOP - 8.0);
-        let all = strip_plan(0.0, row_y, CANVAS_W, row_h);
+        let every = [CarCard::Lights, CarCard::Engine, CarCard::Electronics];
+        let all = strip_plan(0.0, row_y, CANVAS_W, row_h, &every);
         let kinds: Vec<CarCard> = all.iter().map(|c| c.0).collect();
         assert_eq!(
             kinds,
@@ -4909,25 +4941,28 @@ mod tests {
             assert!(pair[1].1 .0 > pair[0].1 .0 + pair[0].1 .2, "with a gap");
         }
         // Less room: the engine and fuel card goes first, then electronics; the lights never.
-        let two: Vec<CarCard> = strip_plan(0.0, 0.0, 560.0, 100.0).iter().map(|c| c.0).collect();
+        let two: Vec<CarCard> = strip_plan(0.0, 0.0, 560.0, 100.0, &every).iter().map(|c| c.0).collect();
         assert_eq!(two, [CarCard::Lights, CarCard::Electronics]);
-        let one: Vec<CarCard> = strip_plan(0.0, 0.0, 300.0, 100.0).iter().map(|c| c.0).collect();
+        let one: Vec<CarCard> = strip_plan(0.0, 0.0, 300.0, 100.0, &every).iter().map(|c| c.0).collect();
         assert_eq!(one, [CarCard::Lights]);
-        let tiny: Vec<CarCard> = strip_plan(0.0, 0.0, 120.0, 100.0).iter().map(|c| c.0).collect();
+        let tiny: Vec<CarCard> = strip_plan(0.0, 0.0, 120.0, 100.0, &every).iter().map(|c| c.0).collect();
         assert_eq!(tiny, [CarCard::Lights], "the lights stay even where they are squeezed");
-        // The pills of the lights card stay inside it, in rows that do not overlap.
+        // The tiles of the lights card stay inside it, in a grid that does not overlap, whatever the card's size.
         let (_, lights) = all[0];
-        let inner = (lights.0 + 14.0, lights.1 + 32.0, lights.2 - 28.0, lights.3 - 40.0);
-        for n in 1..=9 {
-            let cells = pill_cells(inner, n);
-            assert_eq!(cells.len(), n);
-            for (i, c) in cells.iter().enumerate() {
-                assert!(
-                    inside_box(*c, inner.0, inner.1, inner.2, inner.3),
-                    "pill {i} of {n} inside the card"
-                );
-                for d in &cells[i + 1..] {
-                    assert!(!overlap(*c, *d), "pills of {n} do not overlap");
+        let main_inner = (lights.0 + 14.0, lights.1 + 32.0, lights.2 - 28.0, lights.3 - 40.0);
+        let portrait_inner = (0.0, 0.0, PORTRAIT_W - 28.0, 40.0);
+        for inner in [main_inner, portrait_inner] {
+            for n in 1..=9 {
+                let cells = light_cells(inner, n);
+                assert_eq!(cells.len(), n);
+                for (i, c) in cells.iter().enumerate() {
+                    assert!(
+                        inside_box(*c, inner.0, inner.1, inner.2, inner.3),
+                        "tile {i} of {n} inside the card"
+                    );
+                    for d in &cells[i + 1..] {
+                        assert!(!overlap(*c, *d), "tiles of {n} do not overlap");
+                    }
                 }
             }
         }
@@ -5005,14 +5040,13 @@ mod tests {
         let mut live = live_reading();
         live.fuel_l = 38.6;
         live.fuel_per_lap_l = Some(2.9);
-        assert_eq!(fuel_sub_line(&live, Lang::En).0, "13.3 laps  ·  2.9 L/lap");
-        assert_eq!(fuel_sub_line(&live, Lang::Pt).0, "13.3 voltas  ·  2.9 L/volta");
+        assert_eq!(fuel_laps_text(&live, Lang::En).as_deref(), Some("≈ 13.3 laps"));
+        assert_eq!(fuel_laps_text(&live, Lang::Pt).as_deref(), Some("≈ 13.3 voltas"));
+        assert_eq!(fuel_per_lap_text(&live, Lang::En).as_deref(), Some("2.9 L/lap"));
+        assert_eq!(fuel_per_lap_text(&live, Lang::Pt).as_deref(), Some("2.9 L/volta"));
         live.fuel_per_lap_l = None;
-        assert_eq!(
-            fuel_sub_line(&live, Lang::En).0,
-            "",
-            "nothing under the fuel until the use per lap is known"
-        );
+        assert_eq!(fuel_laps_text(&live, Lang::En), None, "no laps until the use per lap is known");
+        assert_eq!(fuel_per_lap_text(&live, Lang::En), None);
         assert!(engine_cells(&live, Lang::En)
             .iter()
             .all(|c| c.label != text(Lang::En, &Msg::PanelLapsLeft)));
@@ -5028,6 +5062,173 @@ mod tests {
         assert_eq!(
             light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
             Some(Glow::Off)
+        );
+    }
+
+    #[test]
+    fn a_fuel_reading_taken_while_not_driving_never_warns_and_a_zero_is_not_shown() {
+        let mut live = live_reading();
+        live.fuel_per_lap_l = Some(2.9);
+        live.fuel_l = 0.0;
+        assert!(fuel_low(&live), "driving with an empty tank warns");
+        live.driving = false;
+        assert!(!fuel_low(&live), "no warning from a reading taken in the menu");
+        assert_eq!(fuel_reading(&live), None, "a 0 in the menu is not a reading");
+        assert_eq!(laps_left(&live), None);
+        assert!(light_pills(&live).iter().all(|p| p.kind != PillKind::Fuel), "no FUEL light either");
+        assert!(engine_cells(&live, Lang::En)
+            .iter()
+            .all(|c| c.label != text(Lang::En, &Msg::PanelLapsLeft)));
+        // A real reading while not driving (in the pits box, say) is shown, but still never warns.
+        live.fuel_l = 3.0;
+        assert_eq!(fuel_reading(&live), Some(3.0));
+        assert!(!fuel_low(&live));
+        assert_eq!(
+            light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
+            Some(Glow::Off)
+        );
+        // Driving: red under two laps, not at two.
+        live.driving = true;
+        live.fuel_per_lap_l = Some(2.0);
+        live.fuel_l = 3.9;
+        assert!(fuel_low(&live));
+        live.fuel_l = 4.0;
+        assert!(!fuel_low(&live));
+        live.fuel_l = f32::NAN;
+        assert_eq!(fuel_reading(&live), None);
+    }
+
+    #[test]
+    fn the_tank_gauge_is_the_fuel_against_the_tank_and_never_past_it() {
+        assert_eq!(fuel_share(30.0, Some(60.0)), Some(0.5));
+        assert_eq!(fuel_share(60.0, Some(60.0)), Some(1.0));
+        assert_eq!(fuel_share(65.0, Some(60.0)), Some(1.0), "a tank known too small reads full");
+        assert_eq!(fuel_share(0.0, Some(60.0)), Some(0.0));
+        assert_eq!(fuel_share(30.0, None), None, "no tank, no gauge");
+        assert_eq!(fuel_share(30.0, Some(0.0)), None);
+        assert_eq!(fuel_share(f32::NAN, Some(60.0)), None);
+    }
+
+    #[test]
+    fn the_columns_share_their_room_among_what_is_shown() {
+        // Three times in the column: a row each; fewer: taller rows, never past half again.
+        assert_eq!(left_row_h(3, 98.0), 98.0);
+        assert_eq!(left_row_h(2, 98.0), 147.0);
+        assert_eq!(left_row_h(1, 98.0), 147.0);
+        for n in 1..=3 {
+            assert!(n as f32 * left_row_h(n, 98.0) <= 3.0 * 98.0 + 0.01, "{n} rows fit the column");
+        }
+        // The right column: fuel on top, the lap under it; one alone starts at the top.
+        let (fuel, lap) = right_plan(98.0, true, true);
+        let (fuel, lap) = (fuel.unwrap(), lap.unwrap());
+        assert_eq!(fuel.0, 0.0);
+        assert_eq!(lap.0, fuel.0 + fuel.1, "no hole between them");
+        assert!(lap.0 + lap.1 <= 3.0 * 98.0 + 0.01, "inside the column");
+        assert_eq!(right_plan(98.0, false, true).1.map(|(at, _)| at), Some(0.0));
+        assert_eq!(right_plan(98.0, true, false).0.map(|(at, _)| at), Some(0.0));
+        assert_eq!(right_plan(98.0, false, false), (None, None));
+    }
+
+    #[test]
+    fn a_game_that_gives_nothing_shows_nothing_extra() {
+        use crate::game::CarState;
+        let mut live = live_reading();
+        live.state = CarState::UNKNOWN;
+        live.fuel_per_lap_l = None;
+        live.tyres = None;
+        live.map = None;
+        assert_eq!(present_cards(&live), Vec::<CarCard>::new(), "no card without something to show");
+        assert!(strip_plan(0.0, 0.0, CANVAS_W, 100.0, &[]).is_empty());
+        assert!(!has_side(&live), "no column without a map or tyres");
+        assert!(main_height(&live) < CANVAS_H, "no strip, no empty band under the dashboard");
+        live.state.water_c = Some(90.0);
+        assert_eq!(main_height(&live), CANVAS_H);
+        live.state.tc_level = Some(2);
+        assert_eq!(present_cards(&live), [CarCard::Engine, CarCard::Electronics]);
+        // The two that remain take the whole row.
+        let plan = strip_plan(0.0, 0.0, CANVAS_W, 100.0, &present_cards(&live));
+        assert_eq!(plan.len(), 2);
+        assert!((plan[1].1 .0 + plan[1].1 .2 - CANVAS_W).abs() < 0.01, "right edge reached: no hole");
+        live.state.headlights = Some(true);
+        assert_eq!(present_cards(&live)[0], CarCard::Lights);
+        // Lights alone take the row too, and the lights card is the last to go when the row is narrow.
+        assert_eq!(
+            strip_plan(0.0, 0.0, 300.0, 100.0, &[CarCard::Lights, CarCard::Engine])[0].0,
+            CarCard::Lights
+        );
+        assert_eq!(strip_plan(0.0, 0.0, 300.0, 100.0, &[CarCard::Engine])[0].0, CarCard::Engine);
+        // A reading without times, delta, fuel, pedals, speed or wheel paints without a placeholder.
+        let f = fixture();
+        let mut bare = live.clone();
+        bare.lap_time_s = None;
+        bare.last_lap_s = None;
+        bare.best_lap_s = None;
+        bare.delta_s = None;
+        bare.dist_m = None;
+        bare.fuel_l = f32::NAN;
+        for value in [
+            &mut bare.throttle,
+            &mut bare.brake,
+            &mut bare.clutch,
+            &mut bare.steer,
+            &mut bare.speed_ms,
+            &mut bare.gear,
+        ] {
+            *value = f32::NAN;
+        }
+        for (w, h) in [(1536, 864), (1024, 768), (540, 1080), (960, 600), (2560, 1080)] {
+            let v = view(&f, Some(&bare), Tab::Dash, 1.0, Lang::En);
+            assert!(!render(&v, w, h).is_empty());
+        }
+        let full = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), 1536, 864);
+        let none = render(&view(&f, Some(&bare), Tab::Dash, 1.0, Lang::En), 1536, 864);
+        assert!(has_color(&full, GREEN) > has_color(&none, GREEN) || has_color(&full, ACCENT) > has_color(&none, ACCENT));
+        // Without the gear the frame's brackets are gone too, and the yellow gear letter with them.
+        assert!(has_color(&none, ACCENT) < has_color(&full, ACCENT) / 2);
+    }
+
+    #[test]
+    fn the_light_tiles_are_a_grid_of_equal_tiles_without_a_lone_one_on_a_row_of_its_own() {
+        for inner in [(0.0, 0.0, 297.0, 72.0), (0.0, 0.0, 572.0, 40.0), (0.0, 0.0, 200.0, 72.0)] {
+            for n in 1..=9 {
+                let cells = light_cells(inner, n);
+                let (w, h) = (cells[0].2, cells[0].3);
+                assert!(cells.iter().all(|c| c.2 == w && c.3 == h), "{n} tiles of one size");
+                let rows: std::collections::BTreeSet<i32> = cells.iter().map(|c| (c.1 * 100.0) as i32).collect();
+                let cols: std::collections::BTreeSet<i32> = cells.iter().map(|c| (c.0 * 100.0) as i32).collect();
+                for row in &rows {
+                    let in_row = cells.iter().filter(|c| (c.1 * 100.0) as i32 == *row).count();
+                    assert!(in_row > 1 || rows.len() == 1 || cols.len() == 1, "{n} tiles: a row with one tile");
+                }
+                // Aligned: one x per column, one y per row.
+                assert_eq!(cells.len(), n);
+            }
+        }
+        // Counts that divide evenly fill their rows.
+        let six = light_cells((0.0, 0.0, 297.0, 72.0), 6);
+        assert_eq!(six.iter().filter(|c| c.1 == six[0].1).count(), 3, "six is three by two");
+        let nine = light_cells((0.0, 0.0, 572.0, 40.0), 9);
+        assert!(nine.iter().all(|c| c.1 == nine[0].1), "nine in a wide, short card is one row");
+        // Colours by meaning.
+        assert_eq!(pill_color(PillKind::Fuel), AMBER);
+        assert_eq!(pill_color(PillKind::Pit), AMBER);
+        assert_eq!(pill_color(PillKind::Engine), RED);
+        assert_eq!(pill_color(PillKind::Abs), BLUE);
+        assert_eq!(pill_color(PillKind::Tc), GREEN);
+    }
+
+    #[test]
+    fn a_lit_light_paints_its_colour_and_an_unlit_one_does_not() {
+        let f = fixture();
+        let mut live = live_reading();
+        live.state.pit_limiter = Some(false);
+        let (w, h) = (1536, 864);
+        let off = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+        live.state.pit_limiter = Some(true);
+        let on = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+        assert!(
+            has_color(&on, AMBER) > has_color(&off, AMBER) + 400,
+            "the PIT tile fills with amber"
         );
     }
 
@@ -5172,7 +5373,7 @@ mod tests {
         let body = |w: f32, h: f32| (w - 32.0, h - 66.0 - 16.0);
         let pick = |w: f32, h: f32| {
             let (bw, bh) = body(w, h);
-            pick_layout(bw, bh)
+            pick_layout(bw, bh, true, CANVAS_H)
         };
         assert_eq!(pick(2560.0, 1080.0), Layout::Ultrawide);
         assert_eq!(pick(3440.0, 1440.0), Layout::Ultrawide);
@@ -5184,6 +5385,21 @@ mod tests {
         assert_eq!(pick(430.0, 900.0), Layout::Portrait);
         assert_eq!(pick(768.0, 1024.0), Layout::Portrait, "a tablet held upright");
         assert_eq!(pick(960.0, 600.0), Layout::Classic, "too small for the column to read well");
+        // Nothing for the column or the row (no map, no tyres): the main dashboard takes the room instead.
+        let bare = |w: f32, h: f32| {
+            let (bw, bh) = body(w, h);
+            let layout = pick_layout(bw, bh, false, CANVAS_H);
+            (layout, layout.size(false, CANVAS_H))
+        };
+        assert_eq!(
+            bare(2560.0, 1080.0).1,
+            (CANVAS_W, CANVAS_H),
+            "an ultrawide shows the dashboard alone"
+        );
+        for (w, h) in [(1024.0, 768.0), (1280.0, 1024.0), (1920.0, 1080.0)] {
+            assert_eq!(bare(w, h).1 .0, CANVAS_W, "no column at {w} x {h}");
+            assert_ne!(bare(w, h).0, Layout::Square, "a row with nothing in it is no layout at {w} x {h}");
+        }
         assert_eq!(clock_seconds("1:47.918"), Some(107.918));
         assert_eq!(clock_seconds("-:--.---"), None);
     }
@@ -6117,11 +6333,12 @@ look(); setInterval(look, 1500);
 
     #[test]
     fn writes_times_gears_and_deltas_like_a_dashboard() {
-        assert_eq!(lap_clock(Some(107.918)), "1:47.918");
-        assert_eq!(lap_clock(None), "-:--.---");
-        assert_eq!(delta_text(Some(-0.274)), "-0.27");
-        assert_eq!(delta_text(Some(0.0)), "+0.00");
-        assert_eq!(delta_text(None), "—");
+        assert_eq!(lap_clock(Some(107.918)).as_deref(), Some("1:47.918"));
+        assert_eq!(lap_clock(None), None, "no placeholder");
+        assert_eq!(lap_clock(Some(f64::NAN)), None);
+        assert_eq!(delta_text(Some(-0.274)).as_deref(), Some("-0.27"));
+        assert_eq!(delta_text(Some(0.0)).as_deref(), Some("+0.00"));
+        assert_eq!(delta_text(None), None, "no placeholder");
         assert_eq!(
             (gear_text(-1.0), gear_text(0.0), gear_text(5.0), gear_text(f32::NAN)),
             ("R".into(), "N".into(), "5".into(), "–".into())
