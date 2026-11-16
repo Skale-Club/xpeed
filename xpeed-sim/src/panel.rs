@@ -2300,8 +2300,8 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
     let (y, h) = (top + 24.0, bottom - top - 24.0);
     let laps: Vec<LapLabel> = view.recent_laps.iter().map(|label| lap_parts(label)).collect();
     let fastest = fastest_valid(&laps).unwrap_or(f64::INFINITY);
-    // Six places, always: the last completed laps (up to five), the lap being driven, then empty places, so the row
-    // keeps its shape from the first lap on.
+    // Cards of a fixed width (six fit the row): the last completed laps (up to five), then the lap being driven.
+    // Only laps that exist get a card; with fewer the row simply ends sooner.
     let (n, gap) = (6_usize, 12.0);
     let card_w = (w - gap * (n as f32 - 1.0)) / n as f32;
     let shown = &laps[laps.len().saturating_sub(n - 1)..];
@@ -2371,13 +2371,8 @@ fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: f32, bottom
         TEXT,
         &delta_text(live.delta_s).unwrap_or_default(),
         delta_color,
-        live.lap_valid == Some(false),
+        live.driving && live.lap_valid == Some(false),
     );
-    // The places still to fill.
-    for i in now + 1..n {
-        let x = i as f32 * (card_w + gap);
-        g.fill(g.r(x, y, card_w, h), mix(BG, CARD, 0.45));
-    }
     if laps.is_empty() {
         let x = (now + 1) as f32 * (card_w + gap);
         let note = text(view.lang, &Msg::PanelNoLapsYet);
@@ -2493,8 +2488,11 @@ fn title_line(g: &mut Painter, live: &Live, view: &View, width: f32, left_w: f32
     g.text(&car, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
     let r = g.r(width - 200.0, 46.0, 200.0, 28.0);
     let title = text(view.lang, &Msg::PanelLap(live.lap)).to_uppercase();
-    g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
-    if live.lap_valid == Some(false) {
+    // Out of the car (menu, garage) there is no lap to number or to call invalid: only the state line shows.
+    if live.driving {
+        g.text(&title, r, 26.0, semi, Face::Num, ACCENT, DT_RIGHT);
+    }
+    if live.driving && live.lap_valid == Some(false) {
         let at = width - g.width_of(&title, 26.0, semi, Face::Num) - 12.0;
         invalid_flag(g, view, at, 49.0, labelled);
     }
@@ -5689,6 +5687,51 @@ mod tests {
         assert!(has_color(&pixels, RED) < has_color(&pixels, GREEN), "no brake, revs under the red");
     }
 
+    /// The pixels of `region` (x0, y0, x1, y1) of a `width`-wide render.
+    fn region_of(pixels: &[u8], width: i32, region: (i32, i32, i32, i32)) -> Vec<u8> {
+        let mut out = Vec::new();
+        for y in region.1..region.3 {
+            let from = ((y * width + region.0) * 4) as usize;
+            out.extend_from_slice(&pixels[from..from + ((region.2 - region.0) * 4) as usize]);
+        }
+        out
+    }
+
+    #[test]
+    fn out_of_the_car_the_header_shows_no_lap_and_no_invalid_badge() {
+        let f = fixture();
+        let mut live = live_reading();
+        live.lap_valid = Some(false);
+        let (w, h) = (1920, 1080);
+        let header = (1700, 135, 1920, 185);
+        let driving = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+        let lap = region_of(&driving, w, header);
+        assert!(has_color(&lap, ACCENT) > 200, "driving: the lap number is there");
+        assert!(has_color(&lap, RED) > 20, "driving: and the invalid mark");
+        live.driving = false;
+        let menu = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
+        let lap = region_of(&menu, w, header);
+        assert_eq!(has_color(&lap, ACCENT), 0, "in the menu: no lap number");
+        assert_eq!(has_color(&lap, RED), 0, "in the menu: no invalid badge");
+    }
+
+    #[test]
+    fn the_recent_laps_band_draws_only_the_laps_that_exist() {
+        let f = fixture();
+        let live = live_reading();
+        let few = vec!["Lap 3  1:47.918".to_string()];
+        let (w, h) = (1920, 1080);
+        let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        v.recent_laps = &few;
+        let pixels = render(&v, w, h);
+        // Two cards (one lap done, the lap being driven) of the normal width: the row to their right is bare.
+        let empty = region_of(&pixels, w, (600, 880, 1380, 1050));
+        assert_eq!(has_color(&empty, CARD), 0, "no empty card");
+        assert_eq!(has_color(&empty, mix(BG, CARD, 0.45)), 0, "no placeholder");
+        let cards = region_of(&pixels, w, (16, 880, 468, 1050));
+        assert!(has_color(&cards, CARD) > 20_000, "the two cards are there");
+    }
+
     #[test]
     fn paints_the_monitor_and_scales_with_the_screen() {
         let f = fixture();
@@ -6151,6 +6194,26 @@ mod tests {
             figures.push_str(&format!(
                 "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>
 "
+            ));
+        }
+        // No best lap, one lap done, and out of the car (menu, garage).
+        let mut fresh = live.clone();
+        fresh.best_lap_s = None;
+        fresh.delta_s = None;
+        let mut menu = fresh.clone();
+        menu.driving = false;
+        menu.lap_valid = Some(false);
+        let few = vec!["Lap 3  1:47.918".to_string()];
+        for (file, caption, reading) in [
+            ("preview-no-best.png", "No best lap yet, one lap done (1920 × 1080)", &fresh),
+            ("preview-menu.png", "Out of the car: only the state line shows (1920 × 1080)", &menu),
+        ] {
+            let mut v = view(&f, Some(reading), Tab::Dash, 1.0, Lang::En);
+            v.recent_laps = &few;
+            let pixels = render(&v, 1920, 1080);
+            save(&pixels, 1920, 1080, file);
+            figures.push_str(&format!(
+                "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"1920\" height=\"1080\"></figure>\n"
             ));
         }
         let covers = CoverArt::load(None);
