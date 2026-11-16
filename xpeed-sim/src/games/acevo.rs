@@ -480,15 +480,17 @@ fn flag(page: &Page, at: usize) -> Option<bool> {
 /// 9 orange circle (a mechanical problem), 10 red and yellow stripes. `Flag` has no red and no slippery-surface flag,
 /// and the black and white and the orange circle are shown as black.
 fn flag_of(v: i32) -> Option<Flag> {
-    match v {
-        1 => Some(Flag::White),
-        2 => Some(Flag::Green),
-        4 => Some(Flag::Blue),
-        5 => Some(Flag::Yellow),
-        6 | 7 | 9 => Some(Flag::Black),
-        8 => Some(Flag::Chequered),
-        _ => None,
-    }
+    const TABLE: [(i64, Flag); 8] = [
+        (1, Flag::White),
+        (2, Flag::Green),
+        (4, Flag::Blue),
+        (5, Flag::Yellow),
+        (6, Flag::Black),
+        (7, Flag::Black),
+        (8, Flag::Chequered),
+        (9, Flag::Black),
+    ];
+    norm::flag_code(i64::from(v), &TABLE)
 }
 
 /// The car's lights, temperatures and electronics from the graphics page. Damage is not read: the sources give the

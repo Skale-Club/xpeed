@@ -35,6 +35,7 @@ use crate::extra::Extras;
 use crate::game::Frame;
 use crate::lapfile::{Channel, Lap, SessionKind, STANDARD_UNITS};
 use crate::session::{EndReason, Event, Sample, Session};
+use crate::status::LapDrop;
 use crate::util::iso_utc;
 
 pub const MIN_SAMPLES: usize = 50;
@@ -121,6 +122,8 @@ pub struct LapCutter {
     pending: Option<Pending>,
     /// How the sessions that ended since the engine last asked ended.
     ended: Vec<EndReason>,
+    /// The laps let go without being written since the engine last asked, and why (the heartbeat counts them).
+    dropped: Vec<LapDrop>,
 }
 
 fn ms(seconds: f64) -> u32 {
@@ -135,6 +138,7 @@ impl LapCutter {
             current: None,
             pending: None,
             ended: Vec::new(),
+            dropped: Vec::new(),
         }
     }
 
@@ -146,6 +150,12 @@ impl LapCutter {
     /// How the sessions that ended since the last call ended (a new car, a new track, a restart...), oldest first.
     pub fn take_session_ends(&mut self) -> Vec<EndReason> {
         std::mem::take(&mut self.ended)
+    }
+
+    /// Why each lap that was let go without being written was (since the last call), oldest first: joined in the middle, or too
+    /// short to be a lap. A lap in progress that never closed is not a lap yet and is not counted.
+    pub fn take_drops(&mut self) -> Vec<LapDrop> {
+        std::mem::take(&mut self.dropped)
     }
 
     /// Feeds one frame and returns the laps that are now complete (usually none).
@@ -170,7 +180,7 @@ impl LapCutter {
                             lap,
                             closed_clock: frame.clock_s,
                         });
-                        done.extend(older.and_then(|old| Self::build(old.lap, None)));
+                        done.extend(older.and_then(|old| self.built(old.lap, None)));
                     }
                 }
                 Event::LapStarted {
@@ -190,8 +200,25 @@ impl LapCutter {
 
     /// The game is gone (or the source died): what is still waiting for its official time is written as it stands,
     /// with the time measured here and `valid: false`. The lap in progress was never finished and is dropped.
-    pub fn finish(mut self, _now_ms: i64) -> Vec<Lap> {
-        self.pending.take().and_then(|p| Self::build(p.lap, None)).into_iter().collect()
+    pub fn finish(self, now_ms: i64) -> Vec<Lap> {
+        self.finish_counted(now_ms).0
+    }
+
+    /// `finish`, and why the laps that were let go were (see `take_drops`; the ones dropped before are included).
+    pub fn finish_counted(mut self, _now_ms: i64) -> (Vec<Lap>, Vec<LapDrop>) {
+        let last = self.pending.take().and_then(|p| self.built(p.lap, None));
+        (last.into_iter().collect(), self.dropped)
+    }
+
+    /// `build`, remembering why a lap was let go.
+    fn built(&mut self, lap: InProgress, official_s: Option<f64>) -> Option<Lap> {
+        match Self::build(lap, official_s) {
+            Ok(lap) => Some(lap),
+            Err(why) => {
+                self.dropped.push(why);
+                None
+            }
+        }
     }
 
     fn start(&self, frame: &Frame, wall_ms: i64, number: i32, partial: bool, in_pits: bool) -> InProgress {
@@ -291,14 +318,17 @@ impl LapCutter {
             return None;
         }
         let pending = self.pending.take()?;
-        Self::build(pending.lap, if arrived || same_again { frame.last_lap_s } else { None })
+        self.built(pending.lap, if arrived || same_again { frame.last_lap_s } else { None })
     }
 
-    fn build(lap: InProgress, official_s: Option<f64>) -> Option<Lap> {
+    fn build(lap: InProgress, official_s: Option<f64>) -> Result<Lap, LapDrop> {
         let samples = lap.columns.t.len();
         let measured = f64::from(lap.columns.t.last().copied().unwrap_or(0.0));
-        if lap.partial || samples < MIN_SAMPLES || measured < MIN_LAP_SECONDS {
-            return None;
+        if lap.partial {
+            return Err(LapDrop::Partial);
+        }
+        if samples < MIN_SAMPLES || measured < MIN_LAP_SECONDS {
+            return Err(LapDrop::Short);
         }
         let matches = official_s.is_some_and(|o| (o - measured).abs() <= LAP_TIME_MATCH_SECONDS);
         let time_s = official_s.filter(|o| *o > 0.0).unwrap_or(measured);
@@ -345,7 +375,7 @@ impl LapCutter {
         } else {
             1.0
         };
-        Some(Lap {
+        Ok(Lap {
             game: lap.meta.game.into(),
             track_name: if lap.meta.track.is_empty() {
                 "Unknown track".into()
@@ -519,6 +549,8 @@ mod tests {
         let (_, clock) = drive(&mut cutter, 0.0, 3, 17.0, 13.0, None);
         let (laps, _) = drive(&mut cutter, clock, 4, 0.0, 4.0, Some(30.0));
         assert!(laps.is_empty());
+        assert_eq!(cutter.take_drops(), [LapDrop::Partial], "and it says why");
+        assert!(cutter.take_drops().is_empty(), "each drop is told once");
     }
 
     #[test]
@@ -591,6 +623,31 @@ mod tests {
         let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 3.0, None);
         let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 4.0, Some(3.0));
         assert!(laps.is_empty());
+        assert_eq!(cutter.take_drops(), [LapDrop::Short]);
+    }
+
+    #[test]
+    fn a_kept_lap_and_one_still_in_progress_are_not_counted_as_dropped() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 4.0, Some(30.0));
+        assert_eq!(laps.len(), 1);
+        assert!(cutter.take_drops().is_empty());
+        let (kept, dropped) = cutter.finish_counted(0);
+        assert!(
+            kept.is_empty() && dropped.is_empty(),
+            "the lap in progress never closed: not a drop"
+        );
+    }
+
+    #[test]
+    fn a_short_lap_waiting_when_the_game_goes_away_is_counted_by_finish() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 3.0, None);
+        drive(&mut cutter, clock, 2, 0.0, 0.5, None);
+        let (kept, dropped) = cutter.finish_counted(0);
+        assert!(kept.is_empty());
+        assert_eq!(dropped, [LapDrop::Short]);
     }
 
     // ---- version 2: the session, the pit laps, the sectors, the conditions and the extra channels -------------

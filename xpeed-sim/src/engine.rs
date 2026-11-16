@@ -287,6 +287,9 @@ fn handle_frame(
         source.finish_lap(&mut lap);
         saved(&lap);
     }
+    for why in cutter.take_drops() {
+        shared.note_lap_dropped(why);
+    }
     if cutter
         .take_session_ends()
         .iter()
@@ -297,8 +300,12 @@ fn handle_frame(
 }
 
 /// A game closed or its source died: the lap that still waited for its official time is written as it stands.
-fn flush(cutter: LapCutter, source: &dyn Source, saved: &dyn Fn(&lapfile::Lap)) {
-    for mut lap in cutter.finish(now_ms()) {
+fn flush(cutter: LapCutter, source: &dyn Source, shared: &Shared, saved: &dyn Fn(&lapfile::Lap)) {
+    let (laps, dropped) = cutter.finish_counted(now_ms());
+    for why in dropped {
+        shared.note_lap_dropped(why);
+    }
+    for mut lap in laps {
         source.finish_lap(&mut lap);
         saved(&lap);
     }
@@ -519,7 +526,7 @@ fn games_loop(
                 .partition(|l| l.programs.is_empty() || crate::win::any_running(&running, l.programs));
             live = kept;
             for l in closed {
-                flush(l.cutter, &*l.source, &saved);
+                flush(l.cutter, &*l.source, shared, &saved);
             }
             for reader in readers {
                 if live.iter().any(|l| l.family == reader.family) {
@@ -625,7 +632,7 @@ fn games_loop(
                 if l.cutter.game() != game {
                     shared.set_game(l.cutter.game(), l.source.game_name(), Game::Waiting);
                     say(format!("Now reading {}.", l.source.game_name()));
-                    flush(std::mem::replace(&mut l.cutter, LapCutter::new(game)), &*l.source, &saved);
+                    flush(std::mem::replace(&mut l.cutter, LapCutter::new(game)), &*l.source, shared, &saved);
                     l.tracker = tracker_for(game, out);
                     l.track_told = None;
                     l.lap_shown = 0;
@@ -698,13 +705,13 @@ fn games_loop(
                 shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
             }
             // What still waited for its official time is written as it stands.
-            flush(l.cutter, &*l.source, &saved);
+            flush(l.cutter, &*l.source, shared, &saved);
         }
         live = kept;
     }
     // Told to quit: the same for every game still open.
     for l in live {
-        flush(l.cutter, &*l.source, &saved);
+        flush(l.cutter, &*l.source, shared, &saved);
     }
 }
 
@@ -836,7 +843,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         }
         // The reader is let go (paused, told to quit, or the game is gone): a lap that still waited for its official
         // time is written as it stands.
-        flush(cutter, &source, &saved);
+        flush(cutter, &source, shared, &saved);
         saver.retry_held(true);
         if gone {
             say("No data from the game for 10 s; reconnecting.".into());
@@ -1124,6 +1131,59 @@ mod tests {
             crate::game::Caps::NONE
         }
     }
+    #[test]
+    fn the_laps_the_cutter_lets_go_of_are_counted_for_the_heartbeat_with_their_reason() {
+        let shared = Shared::new(true);
+        let source = Scripted {
+            done: false,
+            script: &SCRIPT,
+        };
+        let mut cutter = LapCutter::new("fake");
+        let mut tracker = crate::dash::Tracker::default();
+        let saved = std::cell::Cell::new(0);
+        let count = |_: &lapfile::Lap| saved.set(saved.get() + 1);
+        let mut clock = 0.0;
+        // A lap joined at 17 s (partial), then a 3 s lap (short), then a whole one.
+        for (lap, from, seconds, last) in [
+            (3, 17.0, 13.0, None),
+            (4, 0.0, 3.0, Some(30.0)),
+            (5, 0.0, 30.0, Some(3.0)),
+            (6, 0.0, 1.0, Some(30.0)),
+        ] {
+            for i in 0..(seconds * 20.0) as usize {
+                let mut f = crate::game::Frame::empty();
+                f.clock_s = clock;
+                f.driving = true;
+                f.lap = lap;
+                f.lap_time_s = Some(from + i as f64 / 20.0);
+                f.last_lap_s = last;
+                f.dist_m = Some((from + i as f64 / 20.0) * 50.0);
+                f.speed_ms = 50.0;
+                handle_frame(&f, &source, &mut cutter, &mut tracker, &shared, &count);
+                clock += 0.05;
+            }
+        }
+        let stats = shared.lap_stats();
+        assert_eq!((stats.partial, stats.short), (1, 1), "{stats:?}");
+        assert_eq!(saved.get(), 1, "the whole lap was written");
+        // A lap still waiting when the game closes is counted by `flush` too.
+        let mut short = LapCutter::new("fake");
+        for lap in [1, 2] {
+            for i in 0..40 {
+                let mut f = crate::game::Frame::empty();
+                f.clock_s = clock;
+                f.driving = true;
+                f.lap = lap;
+                f.lap_time_s = Some(i as f64 / 20.0);
+                f.dist_m = Some(i as f64);
+                short.on_frame(&f, 0);
+                clock += 0.05;
+            }
+        }
+        flush(short, &source, &shared, &count);
+        assert_eq!(shared.lap_stats().short, 2);
+    }
+
     fn open_scripted() -> Option<Box<dyn Source>> {
         Some(Box::new(Scripted {
             done: false,

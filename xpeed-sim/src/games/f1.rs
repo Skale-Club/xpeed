@@ -829,12 +829,7 @@ impl Decoder {
             } else {
                 Drs::Off
             });
-            state.flag = match s.fia_flag {
-                1 => Some(Flag::Green),
-                2 => Some(Flag::Blue),
-                3 => Some(Flag::Yellow),
-                _ => None,
-            };
+            state.flag = norm::flag_code(i64::from(s.fia_flag), &[(1, Flag::Green), (2, Flag::Blue), (3, Flag::Yellow)]);
         }
         if let Some(d) = &self.damage {
             state.damage_body = percent(d.body);

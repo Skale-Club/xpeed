@@ -567,15 +567,17 @@ fn acc_player_position(g: &Page) -> Option<[f32; 3]> {
 /// 2 yellow, 3 black, 4 white, 5 chequered, 6 penalty (a black flag), 7 green (Competizione), 8 orange (Competizione,
 /// a mechanical failure: shown as black).
 fn flag_of(v: i32) -> Option<Flag> {
-    match v {
-        1 => Some(Flag::Blue),
-        2 => Some(Flag::Yellow),
-        3 | 6 | 8 => Some(Flag::Black),
-        4 => Some(Flag::White),
-        5 => Some(Flag::Chequered),
-        7 => Some(Flag::Green),
-        _ => None,
-    }
+    const TABLE: [(i64, Flag); 8] = [
+        (1, Flag::Blue),
+        (2, Flag::Yellow),
+        (3, Flag::Black),
+        (4, Flag::White),
+        (5, Flag::Chequered),
+        (6, Flag::Black),
+        (7, Flag::Green),
+        (8, Flag::Black),
+    ];
+    norm::flag_code(i64::from(v), &TABLE)
 }
 
 /// The car's lights and settings that the pages give. Damage is left out: `carDamage` (Assetto Corsa) and

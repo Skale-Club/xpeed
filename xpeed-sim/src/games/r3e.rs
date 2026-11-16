@@ -513,21 +513,14 @@ fn state_from(page: &Page) -> CarState {
     let on = |at: usize| page.i32_at(at) == 1;
     // The most serious flag showing: a black one (with the black and white warning), the chequered, yellow, blue,
     // white, then green. The header has no red flag.
-    let flag = if on(at::FLAG_BLACK) || page.i32_at(at::FLAG_BLACK_AND_WHITE) > 0 {
-        Some(Flag::Black)
-    } else if on(at::FLAG_CHECKERED) {
-        Some(Flag::Chequered)
-    } else if on(at::FLAG_YELLOW) {
-        Some(Flag::Yellow)
-    } else if on(at::FLAG_BLUE) {
-        Some(Flag::Blue)
-    } else if on(at::FLAG_WHITE) {
-        Some(Flag::White)
-    } else if on(at::FLAG_GREEN) {
-        Some(Flag::Green)
-    } else {
-        None
-    };
+    let flag = norm::flag_showing(&[
+        (on(at::FLAG_BLACK) || page.i32_at(at::FLAG_BLACK_AND_WHITE) > 0, Flag::Black),
+        (on(at::FLAG_CHECKERED), Flag::Chequered),
+        (on(at::FLAG_YELLOW), Flag::Yellow),
+        (on(at::FLAG_BLUE), Flag::Blue),
+        (on(at::FLAG_WHITE), Flag::White),
+        (on(at::FLAG_GREEN), Flag::Green),
+    ]);
     let drs = if on(at::DRS_ENGAGED) {
         Some(Drs::Open)
     } else if on(at::DRS_AVAILABLE) {

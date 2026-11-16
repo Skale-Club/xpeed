@@ -630,7 +630,9 @@ mod tests {
 
     /// The names written in backticks in the convention table at the top of this file.
     fn convention_names() -> Vec<String> {
-        let source = include_str!("game.rs");
+        // Line endings normalised: a Windows checkout has CRLF in the file, while string literals always hold LF.
+        let source = include_str!("game.rs").replace("\r\n", "\n");
+        let source = source.as_str();
         let start = source.find("| `Frame` field |").expect("the convention table");
         let end = source[start..].find("## How each reader maps").expect("the per-reader tables");
         source[start..start + end]
@@ -643,17 +645,10 @@ mod tests {
 
     /// The names of the fields of `struct_name`, from this file's own text.
     fn fields_of(struct_name: &str) -> Vec<String> {
-        let source = include_str!("game.rs");
+        let source = include_str!("game.rs").replace("\r\n", "\n");
+        let source = source.as_str();
         let start = source.find(&format!("pub struct {struct_name} {{")).expect("the struct");
-        let body = &source[start
-            ..start
-                + source[start..]
-                    .find(
-                        "
-}
-",
-                    )
-                    .unwrap()];
+        let body = &source[start..start + source[start..].find("\n}\n").unwrap()];
         body.lines()
             .skip(1)
             .filter_map(|l| l.trim().strip_prefix("pub "))

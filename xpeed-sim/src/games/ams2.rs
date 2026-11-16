@@ -656,16 +656,20 @@ fn state_from(page: &Page) -> CarState {
 
 /// (Type#5) flag colours. No flag (0) and the red flag, which `Flag` has no value for, are not given.
 fn flag_of(colour: u32) -> Option<Flag> {
-    match colour {
-        1 => Some(Flag::Green),
-        2 => Some(Flag::Blue),
-        3 | 4 => Some(Flag::White),
-        6 | 7 => Some(Flag::Yellow),
+    const TABLE: [(i64, Flag); 10] = [
+        (1, Flag::Green),
+        (2, Flag::Blue),
+        (3, Flag::White),
+        (4, Flag::White),
+        (6, Flag::Yellow),
+        (7, Flag::Yellow),
         // Black and white (unsportsmanlike conduct), black with the orange circle (mechanical failure), black.
-        8..=10 => Some(Flag::Black),
-        11 => Some(Flag::Chequered),
-        _ => None,
-    }
+        (8, Flag::Black),
+        (9, Flag::Black),
+        (10, Flag::Black),
+        (11, Flag::Chequered),
+    ];
+    norm::flag_code(i64::from(colour), &TABLE)
 }
 
 /// The four tyres: temperature (Celsius), pressure (kPa as written, whatever the header says), tread left (1 - wear) and the brake's temperature (Celsius). The header's "unset" is 0
