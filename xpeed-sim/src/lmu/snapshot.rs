@@ -140,13 +140,12 @@ pub struct ScoringFrame {
     pub player: Option<VehicleScoring>,
 }
 
-/// What `dash::lmu_frame` can fill from these two inputs (`PlayerTelemetry` and `ScoringFrame`); Le Mans Ultimate is not
-/// a `Source`, so this stands where `Source::caps` stands for the other games. The distance, the last lap, the pit
-/// lane, the car class and the track length come from scoring (so they are missing until the first scoring update).
-/// Not given: the lap verdict, the track variant, the session kind (the number is in the scoring, but not mapped), the
-/// sectors (only the recorder writes them), the g forces, the weather, the air and track temperatures, the compound,
+/// What `dash::lmu_frame` can fill from these two inputs (`PlayerTelemetry` and `ScoringFrame`); it is what
+/// `LmuSource::caps` answers. The distance, the last lap, the pit lane, the car class, the track length and the session
+/// kind (from the session number) come from scoring (so they are missing until the first scoring update).
+/// Not given: the lap verdict, the track variant, the sectors (`LmuSource::finish_lap` puts them on the lap from
+/// scoring), the g forces, the weather, the air and track temperatures, the compound,
 /// the tank's size, the handbrake, and the engine, gearbox and suspension damage (the header has none).
-#[allow(dead_code)] // the panel will ask for it (step 1b); `dash::lmu_frame`'s tests hold the frame to it
 pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
@@ -167,6 +166,7 @@ pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::BRAKE_TEMP)
     .or(Caps::CAR_CLASS)
     .or(Caps::TRACK_LENGTH)
+    .or(Caps::SESSION_KIND)
     .or(Caps::PIT_LIMITER)
     .or(Caps::ABS_ACTIVE)
     .or(Caps::TC_ACTIVE)

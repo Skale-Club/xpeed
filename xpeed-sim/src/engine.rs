@@ -1,17 +1,21 @@
-//! The loop that reads Le Mans Ultimate and writes each lap to a folder. It is what both `record` (in a terminal)
-//! and the tray app run; the difference is only who listens to what it says (`say`) and to the shared status.
+//! The loops that read the games and write each lap to a folder. They are what both `record` (in a terminal) and the
+//! tray app run; the difference is only who listens to what it says (`say`) and to the shared status. Le Mans Ultimate
+//! has a loop of its own (its door is a memory mapping with two streams, `lmu/source.rs`), but its frames go through the
+//! same cutter and panel tracker as every other game's.
 
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crate::game::Source;
+use crate::dash::Tracker;
+use crate::game::{Frame, Source};
 use crate::games::{Reader, READERS};
+use crate::lapcut::session::EndReason;
 use crate::lapcut::LapCutter;
 use crate::lapfile;
 use crate::lmu::layout::LAYOUT_SIZE;
 use crate::lmu::reader::{LmuReader, Names, OpenError};
-use crate::recorder::Recorder;
+use crate::lmu::source::LmuSource;
 use crate::status::{Game, Notice, Shared};
 use crate::supervisor::{self, supervise, Ended, Policy};
 use crate::tracks::auto::{self, Folders, Seen};
@@ -89,6 +93,51 @@ pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<Stri
             say(format!("Could not save lap {}: {error}", lap.lap_number));
             None
         }
+    }
+}
+
+/// The game whose laps the panel's recent list holds. A frame of another game starts the list over.
+static LAST_DRIVEN: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
+
+fn note_game_driven(shared: &Shared, game: &'static str) {
+    let mut last = LAST_DRIVEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *last != Some(game) {
+        if last.is_some() {
+            shared.clear_recent_laps();
+        }
+        *last = Some(game);
+    }
+}
+
+/// One frame of a game, through the panel's tracker and the lap cutter; the laps it finishes are written. When a session
+/// ends on another track or with another car, the panel's list of recent laps starts over.
+fn handle_frame(
+    frame: &Frame,
+    source: &dyn Source,
+    cutter: &mut LapCutter,
+    tracker: &mut Tracker,
+    shared: &Shared,
+    saved: &dyn Fn(&lapfile::Lap),
+) {
+    shared.offer_live(tracker.on_frame(source.game_name(), frame, now_ms()));
+    for mut lap in cutter.on_frame(frame, now_ms()) {
+        source.finish_lap(&mut lap);
+        saved(&lap);
+    }
+    if cutter
+        .take_session_ends()
+        .iter()
+        .any(|reason| matches!(reason, EndReason::CarChanged | EndReason::TrackChanged))
+    {
+        shared.clear_recent_laps();
+    }
+}
+
+/// A game closed or its source died: the lap that still waited for its official time is written as it stands.
+fn flush(cutter: LapCutter, source: &dyn Source, saved: &dyn Fn(&lapfile::Lap)) {
+    for mut lap in cutter.finish(now_ms()) {
+        source.finish_lap(&mut lap);
+        saved(&lap);
     }
 }
 
@@ -238,7 +287,13 @@ pub fn run_games(
                     say(format!("{} closed.", l.source.game_name()));
                 }
             }
-            live.retain(|l| l.programs.is_empty() || crate::win::any_running(&running, l.programs));
+            let (kept, closed): (Vec<Live>, Vec<Live>) = live
+                .drain(..)
+                .partition(|l| l.programs.is_empty() || crate::win::any_running(&running, l.programs));
+            live = kept;
+            for l in closed {
+                flush(l.cutter, &*l.source, &saved);
+            }
             for reader in readers {
                 if live.iter().any(|l| l.family == reader.family) {
                     continue;
@@ -343,7 +398,7 @@ pub fn run_games(
                 if l.cutter.game() != game {
                     shared.set_game(l.cutter.game(), l.source.game_name(), Game::Waiting);
                     say(format!("Now reading {}.", l.source.game_name()));
-                    l.cutter = LapCutter::new(game);
+                    flush(std::mem::replace(&mut l.cutter, LapCutter::new(game)), &*l.source, &saved);
                     l.tracker = tracker_for(game, out);
                     l.track_told = None;
                     l.lap_shown = 0;
@@ -370,11 +425,8 @@ pub fn run_games(
                         l.track_told = Some((frame.track.clone(), frame.track_variant.clone()));
                     }
                 }
-                shared.offer_live(l.tracker.on_frame(l.source.game_name(), &frame, now_ms()));
-                for mut lap in l.cutter.on_frame(&frame, now_ms()) {
-                    l.source.finish_lap(&mut lap);
-                    saved(&lap);
-                }
+                note_game_driven(shared, l.source.game_id());
+                handle_frame(&frame, &*l.source, &mut l.cutter, &mut l.tracker, shared, &saved);
             } else if !l.heard {
                 // Open, nothing heard yet: loading for the grace period, then "no data" for as long as its program runs
                 // (and after a pause).
@@ -402,22 +454,30 @@ pub fn run_games(
             continue;
         }
         let running = crate::win::running_programs();
-        live.retain(|l| {
-            let alive = l.source.alive();
-            if !alive {
-                let still_open = !l.programs.is_empty() && crate::win::any_running(&running, l.programs);
-                if still_open {
-                    reopen_quietly.push(l.family);
-                } else {
-                    say(format!("{} closed.", l.source.game_name()));
-                    if let Some((id, name)) = l.silent_as {
-                        shared.set_game(id, name, Game::Waiting);
-                    }
-                    shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
-                }
+        let mut kept = Vec::new();
+        for l in live.drain(..) {
+            if l.source.alive() {
+                kept.push(l);
+                continue;
             }
-            alive
-        });
+            let still_open = !l.programs.is_empty() && crate::win::any_running(&running, l.programs);
+            if still_open {
+                reopen_quietly.push(l.family);
+            } else {
+                say(format!("{} closed.", l.source.game_name()));
+                if let Some((id, name)) = l.silent_as {
+                    shared.set_game(id, name, Game::Waiting);
+                }
+                shared.set_game(l.source.game_id(), l.source.game_name(), Game::Waiting);
+            }
+            // What still waited for its official time is written as it stands.
+            flush(l.cutter, &*l.source, &saved);
+        }
+        live = kept;
+    }
+    // Told to quit: the same for every game still open.
+    for l in live {
+        flush(l.cutter, &*l.source, &saved);
     }
 }
 
@@ -464,7 +524,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
             rest(shared, Duration::from_millis(500));
             continue;
         }
-        let mut reader = match LmuReader::open(&Names::lmu()) {
+        let reader = match LmuReader::open(&Names::lmu()) {
             Ok(reader) => reader,
             Err(OpenError::NotRunning) => {
                 if !waiting {
@@ -513,10 +573,10 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         told_silent = false;
         say(format!("Connected to Le Mans Ultimate at {}.", iso_utc(now_ms())));
         shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
-        let mut recorder = Recorder::new();
-        // The panel needs the distance and times of the scoring stream alongside each telemetry update.
+        let mut source = LmuSource::new(reader);
+        let mut cutter = LapCutter::new(LMU_ID);
+        // The panel reads the same frames as the cutter.
         let mut tracker = tracker_for(LMU_ID, out);
-        let mut last_scoring = None;
         let mut silent_waits = 0;
         let mut lap_shown = 0;
         let mut gone = false;
@@ -524,7 +584,8 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         // per quiet period (never every 200 ms). A game that still runs stays connected on the same reader, quietly:
         // Waiting is only for a game whose program closed, which starts over from a clean connection.
         while !shared.quitting() && !shared.paused() {
-            if !reader.wait_frame(200) {
+            let frame = source.next(Duration::from_millis(200));
+            if source.timed_out() {
                 silent_waits += 1;
                 if silent_waits >= LMU_QUIET_WAITS {
                     let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
@@ -544,25 +605,18 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                 continue;
             }
             silent_waits = 0;
-            let Some(snapshot) = reader.read() else { continue };
-            if let Some(s) = &snapshot.scoring {
-                last_scoring = Some(s.clone());
+            // A reading that makes no frame (scoring alone) only updates what the next frame will carry.
+            let Some(frame) = frame else { continue };
+            if frame.driving && frame.lap > 0 && frame.lap != lap_shown {
+                lap_shown = frame.lap;
+                shared.set_game(LMU_ID, LMU_NAME, Game::Recording(lap_shown as u32));
             }
-            if let Some(t) = &snapshot.telemetry {
-                let frame = crate::dash::lmu_frame(t, last_scoring.as_ref());
-                shared.offer_live(tracker.on_frame(LMU_NAME, &frame, now_ms()));
-                if t.lap_number > 0 && t.lap_number != lap_shown {
-                    lap_shown = t.lap_number;
-                    shared.set_game(LMU_ID, LMU_NAME, Game::Recording(lap_shown as u32));
-                }
-                // A garage, a pause or a game that has said nothing yet is not a lap: the recorder ignores it.
-                recorder.on_phase(frame.phase);
-                recorder.on_telemetry(t, now_ms()).iter().for_each(saved);
-            }
-            if let Some(s) = &snapshot.scoring {
-                recorder.on_scoring(s).iter().for_each(saved);
-            }
+            note_game_driven(shared, LMU_ID);
+            handle_frame(&frame, &source, &mut cutter, &mut tracker, shared, &saved);
         }
+        // The reader is let go (paused, told to quit, or the game is gone): a lap that still waited for its official
+        // time is written as it stands.
+        flush(cutter, &source, &saved);
         if gone {
             say("No data from the game for 10 s; reconnecting.".into());
             shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
@@ -682,8 +736,13 @@ mod tests {
 
     // A scripted game: the frames a test hands over, delivered one per call.
     static SCRIPT: std::sync::Mutex<Vec<crate::game::Frame>> = std::sync::Mutex::new(Vec::new());
+    // A second script, for a test that runs at the same time as the first.
+    static SCRIPT_B: std::sync::Mutex<Vec<crate::game::Frame>> = std::sync::Mutex::new(Vec::new());
+    // The tests that use it take turns.
+    static SCRIPT_B_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
     struct Scripted {
         done: bool,
+        script: &'static std::sync::Mutex<Vec<crate::game::Frame>>,
     }
     impl Source for Scripted {
         fn game_id(&self) -> &'static str {
@@ -693,7 +752,7 @@ mod tests {
             "Fake Racing"
         }
         fn next(&mut self, _timeout: Duration) -> Option<crate::game::Frame> {
-            let mut script = SCRIPT.lock().unwrap();
+            let mut script = self.script.lock().unwrap();
             if script.is_empty() {
                 self.done = true;
                 return None;
@@ -708,7 +767,16 @@ mod tests {
         }
     }
     fn open_scripted() -> Option<Box<dyn Source>> {
-        Some(Box::new(Scripted { done: false }))
+        Some(Box::new(Scripted {
+            done: false,
+            script: &SCRIPT,
+        }))
+    }
+    fn open_scripted_b() -> Option<Box<dyn Source>> {
+        Some(Box::new(Scripted {
+            done: false,
+            script: &SCRIPT_B,
+        }))
     }
 
     // A game that only listens (like a UDP reader): silent until the test lets it "send".
@@ -877,5 +945,76 @@ mod tests {
         shared.quit();
         assert_eq!(run(&dir, &shared, &|_| {}, false), Ok(()));
         assert!(dir.is_dir());
+    }
+
+    /// A frame of the scripted game: lap `lap` of 30 s at 50 m/s, `last` the official time showing.
+    fn scripted_frame(track: &str, clock: f64, lap: i32, last: Option<f64>) -> crate::game::Frame {
+        let mut f = crate::game::Frame::empty();
+        f.clock_s = clock;
+        f.driving = true;
+        f.lap = lap;
+        f.lap_time_s = Some(clock - 30.0 * f64::from(lap - 1));
+        f.last_lap_s = last;
+        f.dist_m = Some((clock - 30.0 * f64::from(lap - 1)) * 50.0);
+        f.speed_ms = 50.0;
+        f.car = "Test Car".into();
+        f.track = track.into();
+        f
+    }
+
+    fn run_script_b(dir: &Path, shared: &Shared) {
+        let readers = [Reader {
+            family: "fake",
+            title: "Fake",
+            ids: &["fake"],
+            programs: &[],
+            open: open_scripted_b,
+        }];
+        std::thread::scope(|scope| {
+            scope.spawn(|| run_games(&readers, dir, shared, &|_| {}, None, LOADING_GRACE));
+            // The script is read, the source dies, the loop sees it and (nothing more to do) goes on until told to quit.
+            let started = Instant::now();
+            while !SCRIPT_B.lock().unwrap().is_empty() && started.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            std::thread::sleep(Duration::from_millis(500));
+            shared.quit();
+        });
+    }
+
+    #[test]
+    fn a_lap_still_waiting_for_its_time_is_saved_when_the_source_goes_away() {
+        let _turn = SCRIPT_B_TURN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = crate::config::scratch_dir("engine-flush");
+        // Lap 1 is driven whole and lap 2 begins, but its official time never comes: the game closes.
+        let mut script: Vec<_> = (0..600)
+            .map(|i| scripted_frame("Test Ring", f64::from(i) * 0.05, 1, None))
+            .collect();
+        script.extend((600..620).map(|i| scripted_frame("Test Ring", f64::from(i) * 0.05, 2, None)));
+        *SCRIPT_B.lock().unwrap() = script;
+        let shared = Shared::new(true);
+        run_script_b(&dir, &shared);
+        assert_eq!(shared.snapshot().laps_saved, 1, "the waiting lap was written as the source died");
+        let name = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap().path();
+        let lap = lapfile::gunzip(&std::fs::read(name).unwrap(), lapfile::MAX_UNPACKED).unwrap();
+        assert_eq!((lap.lap_number, lap.valid, lap.time_ms), (1, false, 29_950));
+    }
+
+    #[test]
+    fn the_recent_laps_start_over_when_the_session_goes_on_to_another_track() {
+        let _turn = SCRIPT_B_TURN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = crate::config::scratch_dir("engine-recent");
+        let mut script: Vec<_> = (0..600)
+            .map(|i| scripted_frame("Test Ring", f64::from(i) * 0.05, 1, None))
+            .collect();
+        script.extend((600..1200).map(|i| scripted_frame("Test Ring", f64::from(i) * 0.05, 2, Some(30.0))));
+        // Laps 1 and 2 are written as their times show; then the game is on another track.
+        script.extend((1200..1220).map(|i| scripted_frame("Test Ring", f64::from(i) * 0.05, 3, Some(31.0))));
+        script.extend((1220..1240).map(|i| scripted_frame("Another Ring", f64::from(i) * 0.05, 3, Some(31.0))));
+        *SCRIPT_B.lock().unwrap() = script;
+        let shared = Shared::new(true);
+        run_script_b(&dir, &shared);
+        assert_eq!(shared.snapshot().laps_saved, 2, "laps 1 and 2 were written");
+        assert!(shared.recent_laps().is_empty(), "{:?}", shared.recent_laps());
     }
 }

@@ -1,10 +1,18 @@
-//! Cutting the frames of any game (see `game.rs`) into laps.
+//! Cutting the frames of any game (see `game.rs`) into laps. Le Mans Ultimate goes through here too: `lmu/source.rs`
+//! turns its two streams into frames.
+//!
+//! What a frame means (which session it is, which lap, a restart, a teleport, a menu) is decided by `session.rs`, which
+//! the panel's tracker reads as well; this file collects the samples of each lap and writes the laps.
 //!
 //! * A lap runs from one change of the game's lap number (up by one) to the next.
 //! * `t` is the time on the lap on the game's own clock when it gives one (no drift), else the time since the lap's
 //!   first frame; `dist` is the game's distance on the lap when it gives one, else the integral of the speed.
 //! * A finished lap waits a few seconds for the game's official time of the last lap. If it never comes (or the game
-//!   gives none), the lap is written with the time measured here and `valid: false`.
+//!   gives none), the lap is written with the time measured here and `valid: false`. A lap that closes while another
+//!   still waits does not push it out: the older is written first. An official time identical to the one before it
+//!   (to the millisecond) cannot be told from "not arrived yet", so it is taken once the wait is over, when it agrees
+//!   with the lap's own clock.
+//! * `finish` hands back the lap that still waits, for the engine to save when a game closes or a source dies.
 //! * A lap is kept only if it was seen from its start (no joining mid-lap), is at least 5 seconds long and has at
 //!   least 50 samples.
 //! * `valid` is a judgement from what the game gives: the official time matches the measured duration, the car was
@@ -12,8 +20,9 @@
 //! * Version 2 of the lap file (see `lapfile.rs`) adds what the cutter knows around the lap:
 //!   - the session id: one per game session, made when the first frame comes and again whenever the session ends (the
 //!     track or the car changes, the kind of session changes, the lap number goes back or the lap clock jumps back: a
-//!     restart). A cutter is made again when a game is opened again, which starts a session as well. Every lap cut
-//!     from the frames of one session carries that session's id, including a lap that finishes after the next begins;
+//!     restart; see `session.rs`). A cutter is made again when a game is opened again, which starts a session as well.
+//!     Every lap cut from the frames of one session carries that session's id, including a lap that finishes after the
+//!     next begins;
 //!   - the out lap and the in lap, from the pit flag of the frames: a lap whose first frame is in the pits is an out
 //!     lap, a lap whose last frame is in the pits is an in lap. A lap that goes through the pits and is back on the
 //!     track before the line is neither (it is not `valid` either);
@@ -21,26 +30,26 @@
 //!     minus them, and only a lap whose official time came (and matches the clock) gets sectors;
 //!   - the weather, the temperatures and the tyre compound, as the game last said them during the lap, and the
 //!     channels of `extra.rs`.
-//!
-//! The Le Mans Ultimate reader has its own cutter (`recorder.rs`) because its distance and times come from a second
-//! stream; everything else goes through this one.
 
 use crate::extra::Extras;
 use crate::game::Frame;
 use crate::lapfile::{Channel, Lap, SessionKind, STANDARD_UNITS};
-use crate::util::{iso_utc, new_session_id};
+use crate::util::iso_utc;
+use session::{EndReason, Event, Sample, Session};
+
+// The state machine lives in `session.rs` next to this file. It is declared here, and not in `main.rs`, so that the
+// module list there stays as it is; `crate::lapcut::session` is its path.
+#[path = "session.rs"]
+pub mod session;
 
 pub const MIN_SAMPLES: usize = 50;
 pub const MIN_LAP_SECONDS: f64 = 5.0;
 /// How long a finished lap waits for its official time.
 const MAX_PENDING_SECONDS: f64 = 3.0;
-/// A longer silence between two frames is not integrated into distance.
-pub(crate) const MAX_GAP_SECONDS: f64 = 0.5;
-/// A first frame later than this into a lap means we joined mid-lap.
-pub(crate) const PARTIAL_START_SECONDS: f64 = 1.5;
-/// Without a lap clock, a first frame further than this along the lap means we joined mid-lap.
-const PARTIAL_START_METRES: f64 = 60.0;
 const LAP_TIME_MATCH_SECONDS: f64 = 0.5;
+/// An official time equal to the one before is taken, once the wait is over, only when it is this close to the lap's
+/// own clock.
+const SAME_OFFICIAL_MATCH_SECONDS: f64 = 0.1;
 
 struct Meta {
     game: &'static str,
@@ -68,12 +77,6 @@ struct Columns {
     fuel: Vec<f32>,
 }
 
-/// What a game session is to the cutter: the id its laps carry and its kind (when the game says).
-struct Session {
-    id: String,
-    kind: Option<SessionKind>,
-}
-
 /// A short text a game gave, kept only if it is one the lap file takes: no control characters, cut to `max`
 /// characters, trimmed; `None` when nothing is left.
 fn label(text: &str, max: usize) -> Option<String> {
@@ -88,11 +91,6 @@ fn degrees(c: f32) -> Option<f64> {
     (c.is_finite() && (-100.0..=200.0).contains(&tenth)).then_some(tenth)
 }
 
-/// The slowest game lap clock tick that is carried on by the host clock between ticks (a 30 Hz clock).
-const COARSE_CLOCK_SECONDS: f64 = 1.0 / 30.0;
-/// The least `t` moves between two samples of a lap.
-const MIN_T_STEP_SECONDS: f64 = 1e-3;
-
 struct InProgress {
     number: i32,
     session: String,
@@ -105,7 +103,6 @@ struct InProgress {
     track_temp_c: Option<f64>,
     tyre_compound: Option<String>,
     extras: Extras,
-    first_clock: f64,
     first_wall_ms: i64,
     /// The official time showing when the lap began (the one before it): a different one means this lap's has come.
     official_at_start: Option<f64>,
@@ -114,11 +111,6 @@ struct InProgress {
     called_invalid: bool,
     columns: Columns,
     meta: Meta,
-    last_clock: f64,
-    last_lap_time: Option<f64>,
-    /// The last `t` written to the lap, so a game clock coarser than the physics still gives a `t` that moves.
-    last_t: f64,
-    dist: f64,
 }
 
 struct Pending {
@@ -128,10 +120,12 @@ struct Pending {
 
 pub struct LapCutter {
     game: &'static str,
+    /// What the frames mean: the session, and where each lap begins and ends.
+    session: Session,
     current: Option<InProgress>,
     pending: Option<Pending>,
-    /// The session being driven; `None` until the first frame, and after one ends.
-    session: Option<Session>,
+    /// How the sessions that ended since the engine last asked ended.
+    ended: Vec<EndReason>,
 }
 
 fn ms(seconds: f64) -> u32 {
@@ -142,9 +136,10 @@ impl LapCutter {
     pub fn new(game: &'static str) -> LapCutter {
         LapCutter {
             game,
+            session: Session::new(),
             current: None,
             pending: None,
-            session: None,
+            ended: Vec::new(),
         }
     }
 
@@ -153,91 +148,70 @@ impl LapCutter {
         self.game
     }
 
+    /// How the sessions that ended since the last call ended (a new car, a new track, a restart...), oldest first.
+    pub fn take_session_ends(&mut self) -> Vec<EndReason> {
+        std::mem::take(&mut self.ended)
+    }
+
     /// Feeds one frame and returns the laps that are now complete (usually none).
     pub fn on_frame(&mut self, frame: &Frame, wall_ms: i64) -> Vec<Lap> {
         let mut done = Vec::new();
         if let Some(lap) = self.settle_pending(frame) {
             done.push(lap);
         }
-        if !frame.driving {
-            return done;
-        }
-        // A new car or track: what was being driven is over, and so is its session.
-        if let Some(cur) = &self.current {
-            if (!frame.car.is_empty() && frame.car != cur.meta.car) || (!frame.track.is_empty() && frame.track != cur.meta.track) {
-                self.current = None;
-                self.session = None;
-            }
-        }
-        if let Some(cur) = &self.current {
-            // The lap clock jumping back on the same lap is a restart of the session, and so is the lap number going
-            // back. A lap number that jumps ahead only means frames were missed: the lap is lost, the session goes on.
-            let restarted =
-                frame.lap == cur.number && matches!((frame.lap_time_s, cur.last_lap_time), (Some(now), Some(before)) if now + 1.0 < before);
-            if frame.lap < cur.number || restarted {
-                self.session = None;
-            }
-            if frame.lap < cur.number || frame.lap > cur.number + 1 || restarted {
-                self.current = None;
-            }
-        }
-        // Another kind of session (practice, then qualifying) is another session.
-        if let (Some(session), Some(kind)) = (&mut self.session, frame.session_kind) {
-            match session.kind {
-                Some(before) if before != kind => {
+        let step = self.session.feed(frame);
+        for event in step.events {
+            match event {
+                Event::SessionStarted { .. } => {}
+                Event::SessionEnded { reason } => {
                     self.current = None;
-                    self.session = None;
+                    self.ended.push(reason);
                 }
-                None => session.kind = Some(kind),
-                _ => {}
+                Event::LapReset { .. } => self.current = None,
+                Event::LapClosed { .. } => {
+                    if let Some(lap) = self.current.take() {
+                        // A lap that closes while another still waits does not push it out: the older goes first.
+                        let older = self.pending.replace(Pending {
+                            lap,
+                            closed_clock: frame.clock_s,
+                        });
+                        done.extend(older.and_then(|old| Self::build(old.lap, None)));
+                    }
+                }
+                Event::LapStarted {
+                    from_line,
+                    in_pits,
+                    number,
+                } => {
+                    self.current = Some(self.start(frame, wall_ms, number, !from_line, in_pits));
+                }
             }
         }
-        if self.session.is_none() {
-            self.session = Some(Session {
-                id: new_session_id(),
-                kind: frame.session_kind,
-            });
-        }
-        match self.current.take() {
-            Some(cur) if frame.lap == cur.number + 1 => {
-                self.pending = Some(Pending {
-                    lap: cur,
-                    closed_clock: frame.clock_s,
-                });
-                self.current = Some(self.start(frame, wall_ms, false));
-            }
-            Some(cur) => self.current = Some(cur),
-            None => {
-                let first = self.start(frame, wall_ms, true);
-                self.current = Some(first);
-            }
-        }
-        if let Some(lap) = self.current.as_mut() {
-            Self::add_sample(lap, frame);
+        if let (Some(lap), Some(sample)) = (self.current.as_mut(), step.sample) {
+            Self::add_sample(lap, frame, sample);
         }
         done
     }
 
-    fn start(&self, frame: &Frame, wall_ms: i64, joined: bool) -> InProgress {
-        let partial = joined
-            && match frame.lap_time_s {
-                Some(t) => t > PARTIAL_START_SECONDS,
-                None => frame.dist_m.is_none_or(|d| d > PARTIAL_START_METRES),
-            };
-        let session = self.session.as_ref();
+    /// The game is gone (or the source died): what is still waiting for its official time is written as it stands,
+    /// with the time measured here and `valid: false`. The lap in progress was never finished and is dropped.
+    pub fn finish(mut self, _now_ms: i64) -> Vec<Lap> {
+        self.pending.take().and_then(|p| Self::build(p.lap, None)).into_iter().collect()
+    }
+
+    fn start(&self, frame: &Frame, wall_ms: i64, number: i32, partial: bool, in_pits: bool) -> InProgress {
         InProgress {
-            number: frame.lap,
-            session: session.map_or_else(new_session_id, |s| s.id.clone()),
-            session_kind: session.and_then(|s| s.kind),
-            started_in_pits: frame.in_pits,
-            last_in_pits: frame.in_pits,
+            number,
+            session: self.session.id().map(str::to_owned).unwrap_or_default(),
+            session_kind: self.session.kind(),
+            started_in_pits: in_pits,
+            last_in_pits: in_pits,
             sectors: [None; 2],
             weather: None,
             air_temp_c: None,
             track_temp_c: None,
             tyre_compound: None,
             extras: Extras::default(),
-            first_clock: frame.clock_s,
             first_wall_ms: wall_ms,
             official_at_start: frame.last_lap_s.filter(|o| *o > 0.0),
             partial,
@@ -252,31 +226,10 @@ impl LapCutter {
                 track_variant: frame.track_variant.clone(),
                 track_length_m: frame.track_length_m,
             },
-            last_clock: frame.clock_s,
-            last_lap_time: None,
-            last_t: f64::NEG_INFINITY,
-            dist: 0.0,
         }
     }
 
-    fn add_sample(lap: &mut InProgress, frame: &Frame) {
-        let dt = (frame.clock_s - lap.last_clock).clamp(0.0, MAX_GAP_SECONDS);
-        let t = match frame.lap_time_s {
-            // A game clock that has not moved past the last `t` (it ticks slower than the physics) is carried on by the
-            // host clock, never further than one tick of the game clock (1/30 s at most) ahead of what the game says.
-            Some(game) if game <= lap.last_t => (lap.last_t + dt)
-                .min(game + COARSE_CLOCK_SECONDS - MIN_T_STEP_SECONDS)
-                .max(lap.last_t + MIN_T_STEP_SECONDS),
-            Some(game) => game,
-            None => frame.clock_s - lap.first_clock,
-        };
-        lap.last_t = t;
-        lap.dist = match frame.dist_m {
-            Some(d) => d.max(0.0),
-            None => lap.dist + f64::from(frame.speed_ms.max(0.0)) * dt,
-        };
-        lap.last_clock = frame.clock_s;
-        lap.last_lap_time = frame.lap_time_s;
+    fn add_sample(lap: &mut InProgress, frame: &Frame, sample: Sample) {
         lap.touched_pits |= frame.in_pits;
         lap.last_in_pits = frame.in_pits;
         lap.called_invalid |= frame.lap_valid == Some(false);
@@ -293,12 +246,23 @@ impl LapCutter {
         lap.air_temp_c = frame.air_temp_c.and_then(degrees).or(lap.air_temp_c);
         lap.track_temp_c = frame.track_temp_c.and_then(degrees).or(lap.track_temp_c);
         lap.extras.push(frame);
-        if lap.meta.track_length_m.is_none() {
-            lap.meta.track_length_m = frame.track_length_m;
+        // A name the game gave late (or a length) completes what the first frame lacked.
+        let meta = &mut lap.meta;
+        if meta.car.is_empty() {
+            meta.car.clone_from(&frame.car);
+        }
+        if meta.track.is_empty() {
+            meta.track.clone_from(&frame.track);
+        }
+        if meta.car_class.is_none() {
+            meta.car_class.clone_from(&frame.car_class);
+        }
+        if meta.track_length_m.is_none() {
+            meta.track_length_m = frame.track_length_m;
         }
         let c = &mut lap.columns;
-        c.t.push(t as f32);
-        c.dist.push(lap.dist as f32);
+        c.t.push(sample.t_s as f32);
+        c.dist.push(sample.dist_m as f32);
         c.speed.push(frame.speed_ms);
         c.rpm.push(frame.rpm);
         c.gear.push(frame.gear);
@@ -321,14 +285,21 @@ impl LapCutter {
             (None, _) => false,
         };
         let gave_up = frame.clock_s - pending.closed_clock > MAX_PENDING_SECONDS;
+        // The same time twice running (to the millisecond) looks like "not arrived". When the wait is over, the lap
+        // clock has clearly started over and the time still agrees with the one measured, it is that lap's own.
+        let same_again = gave_up && !arrived && {
+            let measured = f64::from(pending.lap.columns.t.last().copied().unwrap_or(0.0));
+            let restarted = frame.lap_time_s.is_none_or(|t| t + 1.0 < measured);
+            restarted && matches!(frame.last_lap_s, Some(now) if now > 0.0 && (now - measured).abs() <= SAME_OFFICIAL_MATCH_SECONDS)
+        };
         if !arrived && !gave_up {
             return None;
         }
         let pending = self.pending.take()?;
-        Self::finish(pending.lap, if arrived { frame.last_lap_s } else { None })
+        Self::build(pending.lap, if arrived || same_again { frame.last_lap_s } else { None })
     }
 
-    fn finish(lap: InProgress, official_s: Option<f64>) -> Option<Lap> {
+    fn build(lap: InProgress, official_s: Option<f64>) -> Option<Lap> {
         let samples = lap.columns.t.len();
         let measured = f64::from(lap.columns.t.last().copied().unwrap_or(0.0));
         if lap.partial || samples < MIN_SAMPLES || measured < MIN_LAP_SECONDS {
@@ -358,6 +329,7 @@ impl LapCutter {
                 });
             }
         };
+        let first_t = f64::from(columns.t.first().copied().unwrap_or(0.0));
         push("t", columns.t);
         push("dist", columns.dist);
         push("speed", columns.speed);
@@ -372,7 +344,12 @@ impl LapCutter {
         push("z", columns.z);
         push("fuel", columns.fuel);
         channels.extend(lap.extras.into_channels());
-        let rate = if measured > 0.0 { samples as f64 / measured } else { 1.0 };
+        let span = measured - first_t;
+        let rate = if span > 0.0 {
+            ((samples - 1) as f64 / span * 10.0).round() / 10.0
+        } else {
+            1.0
+        };
         Some(Lap {
             game: lap.meta.game.into(),
             track_name: if lap.meta.track.is_empty() {
@@ -681,25 +658,25 @@ mod tests {
     fn the_lap_clock_jumping_back_on_the_same_lap_is_a_restart_and_a_new_session() {
         let mut cutter = LapCutter::new("test");
         let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 20.0, None);
-        let before = cutter.session.as_ref().map(|s| s.id.clone()).unwrap();
+        let before = cutter.session.id().unwrap().to_owned();
         // The same lap number, but the lap clock is back near zero.
         let (_, clock) = drive(&mut cutter, clock, 1, 0.0, 10.0, None);
-        let after = cutter.session.as_ref().map(|s| s.id.clone()).unwrap();
+        let after = cutter.session.id().unwrap().to_owned();
         assert_ne!(before, after);
         // Frames missed (the lap number jumps ahead by two) lose the lap but not the session.
         let (_, _) = drive(&mut cutter, clock, 3, 0.0, 2.0, Some(30.0));
-        assert_eq!(cutter.session.as_ref().map(|s| s.id.clone()), Some(after));
+        assert_eq!(cutter.session.id(), Some(after.as_str()));
     }
 
     #[test]
     fn a_new_track_a_new_car_or_a_new_kind_of_session_makes_a_new_session_id() {
-        let id_of = |cutter: &LapCutter| cutter.session.as_ref().map(|s| s.id.clone()).unwrap();
+        let id_of = |cutter: &LapCutter| cutter.session.id().unwrap().to_owned();
         let mut cutter = LapCutter::new("test");
         let (_, clock) = drive_with(&mut cutter, 0.0, 1, 0.0, 10.0, None, |f, _| {
             f.session_kind = Some(SessionKind::Practice)
         });
         let practice = id_of(&cutter);
-        assert_eq!(cutter.session.as_ref().unwrap().kind, Some(SessionKind::Practice));
+        assert_eq!(cutter.session.kind(), Some(SessionKind::Practice));
         // The same session, said again: nothing changes.
         let (_, clock) = drive_with(&mut cutter, clock, 1, 10.0, 5.0, None, |f, _| {
             f.session_kind = Some(SessionKind::Practice)
@@ -738,7 +715,7 @@ mod tests {
     fn a_lap_that_finishes_after_the_next_one_begins_keeps_its_own_session_id() {
         let mut cutter = LapCutter::new("test");
         let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
-        let first = cutter.session.as_ref().map(|s| s.id.clone()).unwrap();
+        let first = cutter.session.id().unwrap().to_owned();
         // Lap 2 begins without the official time of lap 1; the track changes before it comes, so lap 1 (pending) is
         // written with the id it was driven under, after the session it belonged to has ended.
         let mut next = frame(clock, 2, Some(0.0), None, Some(0.0));
@@ -746,7 +723,7 @@ mod tests {
         next.track = "Another Track".into();
         next.clock_s = clock + 0.05;
         cutter.on_frame(&next, 0);
-        assert_ne!(cutter.session.as_ref().map(|s| s.id.clone()).unwrap(), first);
+        assert_ne!(cutter.session.id().unwrap(), first);
         let mut late = frame(clock + 0.1, 2, Some(0.1), Some(30.0), Some(5.0));
         late.track = "Another Track".into();
         let laps = cutter.on_frame(&late, 0);
@@ -974,5 +951,225 @@ mod tests {
         });
         let ids: Vec<&str> = some[0].channels.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, ["t", "dist", "speed", "rpm", "gear", "throttle", "brake", "g_lat", "g_long"]);
+    }
+
+    // ---- one state machine: restarts, teleports, pauses, what waits, what is left over ---------------------------
+
+    #[test]
+    fn a_restart_that_keeps_the_lap_number_throws_the_lap_away_and_the_next_one_is_cut_whole() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 20.0, None);
+        // The lap clock is back at 0 on lap 1; this time the lap is driven to the end.
+        let (_, clock) = drive(&mut cutter, clock, 1, 0.0, 30.0, None);
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0));
+        assert_eq!(laps.len(), 1);
+        assert_eq!((laps[0].lap_number, laps[0].time_ms, laps[0].valid), (1, 30_000, true));
+        assert_eq!(laps[0].sample_count(), 600, "the 20 s before the restart are not in it");
+        assert_eq!(cutter.take_session_ends(), [EndReason::Restart]);
+    }
+
+    #[test]
+    fn a_teleport_throws_the_lap_in_progress_away_but_not_the_session() {
+        let mut cutter = LapCutter::new("test");
+        let moving = |f: &mut Frame, i: usize| (f.x, f.z) = (i as f32 * 2.5, 0.0);
+        let (_, clock) = drive_with(&mut cutter, 0.0, 1, 0.0, 15.0, None, moving);
+        let id = cutter.session.id().unwrap().to_owned();
+        // 5 km away, the same lap number and the same lap clock going on: put back on the track.
+        let (_, clock) = drive_with(&mut cutter, clock, 1, 15.0, 15.0, None, |f, i| {
+            (f.x, f.z) = (5000.0 + i as f32 * 2.5, 0.0)
+        });
+        assert_eq!(cutter.session.id(), Some(id.as_str()));
+        // Lap 1 ends at the line, but only the second half of it was driven from here: not a lap.
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 4.0, Some(30.0));
+        assert!(laps.is_empty());
+        assert!(cutter.take_session_ends().is_empty());
+    }
+
+    #[test]
+    fn a_pause_keeps_the_lap_and_a_long_stay_in_a_menu_or_the_garage_does_not() {
+        use crate::game::Phase;
+        for (phase, kept) in [
+            (Phase::Paused, true),
+            (Phase::Menu, false),
+            (Phase::Garage, false),
+            (Phase::Replay, false),
+        ] {
+            let mut cutter = LapCutter::new("test");
+            let (_, mut clock) = drive(&mut cutter, 0.0, 1, 0.0, 10.0, None);
+            // A minute with the game in `phase`, one frame a second.
+            for _ in 0..60 {
+                let mut f = frame(clock, 1, None, None, None);
+                f.set_phase(phase);
+                assert!(cutter.on_frame(&f, 0).is_empty());
+                clock += 1.0;
+            }
+            let (_, clock) = drive(&mut cutter, clock, 1, 10.0, 20.0, None);
+            let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0));
+            assert_eq!(laps.len(), usize::from(kept), "{phase:?}");
+            if kept {
+                assert_eq!(
+                    (laps[0].time_ms, laps[0].sample_count()),
+                    (30_000, 600),
+                    "the pause is not in the lap"
+                );
+            }
+            assert!(cutter.take_session_ends().is_empty(), "{phase:?}: the session goes on");
+        }
+    }
+
+    /// Frames of lap `lap` whose game clock runs `seconds` while the host clock hardly moves: `steps` frames from `clock`.
+    fn stalled(cutter: &mut LapCutter, clock: f64, lap: i32, seconds: f64, official: Option<f64>) -> Vec<Lap> {
+        let n = 120;
+        let mut done = Vec::new();
+        for i in 0..n {
+            let t = seconds * i as f64 / n as f64;
+            done.extend(cutter.on_frame(&frame(clock + i as f64 * 1e-3, lap, Some(t), official, Some(t * 50.0)), 0));
+        }
+        done
+    }
+
+    #[test]
+    fn a_lap_that_closes_while_another_waits_does_not_push_it_out() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+        // Lap 2 begins (lap 1 waits for its time, which does not come) and is over almost at once by the host clock.
+        let done = stalled(&mut cutter, clock, 2, 8.0, None);
+        assert!(done.is_empty());
+        let laps = cutter.on_frame(&frame(clock + 0.2, 3, Some(0.0), None, Some(0.0)), 0);
+        assert_eq!(laps.len(), 1, "the older lap is written first, not lost");
+        assert_eq!((laps[0].lap_number, laps[0].valid), (1, false));
+        // And the one that closed last still waits, then is written the same way.
+        let rest = cutter.finish(0);
+        assert_eq!((rest.len(), rest[0].lap_number), (1, 2));
+    }
+
+    #[test]
+    fn the_same_official_time_twice_running_is_taken_once_the_wait_is_over() {
+        // Laps 1 and 2 both took 30.0 on the nose: the time showing in lap 3's first frames is the one that was already
+        // showing in lap 2's, so it cannot be told from a time that has not come.
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+        let (mut laps, clock) = drive(&mut cutter, clock, 2, 0.0, 30.0, Some(30.0));
+        let (more, _) = drive(&mut cutter, clock, 3, 0.0, 5.0, Some(30.0));
+        laps.extend(more);
+        let by_number = |n: u32| laps.iter().find(|l| l.lap_number == n).map(|l| (l.time_ms, l.valid));
+        assert_eq!(by_number(1), Some((30_000, true)));
+        assert_eq!(by_number(2), Some((30_000, true)), "written after the wait, with the official time");
+    }
+
+    #[test]
+    fn a_time_that_did_not_change_and_does_not_fit_the_lap_is_not_taken_for_the_lap_s_own() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+        let (mut laps, clock) = drive(&mut cutter, clock, 2, 0.0, 25.0, Some(30.0));
+        let (more, _) = drive(&mut cutter, clock, 3, 0.0, 5.0, Some(30.0));
+        laps.extend(more);
+        let lap2 = laps.iter().find(|l| l.lap_number == 2).expect("written after the wait");
+        assert_eq!(
+            (lap2.time_ms, lap2.valid),
+            (24_950, false),
+            "30.0 is the lap before's, not this one's"
+        );
+    }
+
+    #[test]
+    fn finish_gives_back_the_lap_that_still_waits_and_nothing_else() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+        // Lap 2 has begun; its time (30.0) has not come yet.
+        drive(&mut cutter, clock, 2, 0.0, 0.5, None);
+        let laps = cutter.finish(0);
+        assert_eq!(laps.len(), 1);
+        assert_eq!((laps[0].lap_number, laps[0].time_ms, laps[0].valid), (1, 29_950, false));
+        assert_eq!(laps[0].sectors_ms, None);
+        // With its time in, nothing waits: the lap was written when it arrived, and the lap in progress is not a lap.
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0));
+        assert_eq!(laps.len(), 1);
+        assert!(cutter.finish(0).is_empty());
+        // And a cutter that saw nothing has nothing.
+        assert!(LapCutter::new("test").finish(0).is_empty());
+    }
+
+    #[test]
+    fn a_name_the_game_gives_late_is_used_and_one_it_never_gives_is_unknown() {
+        let mut cutter = LapCutter::new("test");
+        let mut laps = Vec::new();
+        let mut clock = 0.0;
+        for (lap, last) in [(1, None), (2, Some(30.0)), (3, Some(30.0))] {
+            for i in 0..600 {
+                let t = i as f64 / 20.0;
+                let mut f = frame(clock, lap, Some(t), last, Some(t * 50.0));
+                if lap == 1 {
+                    // Lap 1: the car is named half way round, the track never.
+                    f.track = String::new();
+                    f.car = if i < 300 { String::new() } else { "Late Car".into() };
+                }
+                if lap >= 2 {
+                    f.track = String::new();
+                    f.car = "Late Car".into();
+                }
+                laps.extend(cutter.on_frame(&f, 0));
+                clock += 0.05;
+            }
+        }
+        assert_eq!(laps.len(), 2);
+        assert_eq!(
+            (laps[0].car_name.as_str(), laps[0].track_name.as_str()),
+            ("Late Car", "Unknown track")
+        );
+        // One session all along: nothing was a change.
+        assert_eq!(laps[0].session_id, laps[1].session_id);
+        // Nothing named at all.
+        let mut cutter = LapCutter::new("test");
+        let mut nameless = Vec::new();
+        let mut clock = 0.0;
+        for (lap, last) in [(1, None), (2, Some(30.0))] {
+            for i in 0..600 {
+                let t = i as f64 / 20.0;
+                let mut f = frame(clock, lap, Some(t), last, Some(t * 50.0));
+                (f.car, f.track) = (String::new(), String::new());
+                nameless.extend(cutter.on_frame(&f, 0));
+                clock += 0.05;
+            }
+        }
+        assert_eq!(
+            (nameless[0].car_name.as_str(), nameless[0].track_name.as_str()),
+            ("Unknown car", "Unknown track")
+        );
+        assert!(crate::lapfile::gunzip(&crate::lapfile::gzip(&nameless[0]).unwrap(), crate::lapfile::MAX_UNPACKED).is_ok());
+    }
+
+    #[test]
+    fn a_track_length_that_is_not_one_is_left_out_and_the_sample_rate_is_the_one_measured() {
+        for (length, want) in [(5_000_000.0, None), (0.0, None), (3000.0, Some(3000.0))] {
+            let mut cutter = LapCutter::new("test");
+            let tweak = |f: &mut Frame, _: usize| f.track_length_m = Some(length);
+            let (_, clock) = drive_with(&mut cutter, 0.0, 1, 0.0, 30.0, None, tweak);
+            let (laps, _) = drive_with(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0), tweak);
+            assert_eq!(laps[0].track_length_m, want, "{length}");
+            assert_eq!(laps[0].sample_rate_hz, 20.0);
+        }
+    }
+
+    #[test]
+    fn a_distance_that_wraps_at_the_line_a_moment_before_the_lap_number_does_not_go_back_in_the_lap() {
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 29.0, None);
+        // The game's distance has wrapped to the start of the track while the lap number is still 1.
+        let mut tail = Vec::new();
+        let mut clock = clock;
+        for i in 0..20 {
+            let t = 29.0 + i as f64 / 20.0;
+            tail.extend(cutter.on_frame(&frame(clock, 1, Some(t), None, Some(i as f64 * 2.5)), 0));
+            clock += 0.05;
+        }
+        assert!(tail.is_empty());
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0));
+        let dist = &laps[0].channel("dist").unwrap().values;
+        assert!(dist.windows(2).all(|w| w[1] >= w[0]), "distance must not go backwards");
+        assert!(f64::from(*dist.last().unwrap()) > 1400.0);
+        assert!(cutter.take_session_ends().is_empty(), "and it is not a restart");
     }
 }

@@ -279,6 +279,13 @@ impl Shared {
         lock(&self.recent_laps).iter().cloned().collect()
     }
 
+    /// Forgets the labels of the laps saved in this run: the session they were driven in is over (another track, another
+    /// car or another game), and the panel must not show them as the laps of the new one.
+    pub fn clear_recent_laps(&self) {
+        lock(&self.recent_laps).clear();
+        self.changed();
+    }
+
     /// What every reader that has reported says: `(id, name, state)`, by id.
     pub fn games(&self) -> Vec<(&'static str, &'static str, Game)> {
         lock(&self.games)
