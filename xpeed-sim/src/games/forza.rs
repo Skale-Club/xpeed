@@ -45,8 +45,14 @@
 //!
 //! What a frame takes from a packet, and how:
 //!
-//! * `driving`: a Dash packet with `IsRaceOn` = 1 whose race clock (`CurrentRaceTime`) has moved within the last
-//!   0.25 s. The packet has no "paused" flag: a paused game sends `IsRaceOn` = 0 or a frozen race clock (or nothing).
+//! * `phase` (and `driving`, which is `phase == Driving`): a Dash packet with `IsRaceOn` = 1 whose race clock
+//!   (`CurrentRaceTime`) has moved within the last 0.25 s is `Driving`; `IsRaceOn` = 1 with the clock frozen is
+//!   `Paused`; `IsRaceOn` = 0 is `Menu` (a menu, a pause screen and a stopped race are the same packet: Forza cannot
+//!   tell a pause from a menu there); a race clock that is not a number is `Unknown`. A Sled packet is `Menu` or
+//!   `Unknown` (`IsRaceOn` only). Not told apart: `Garage`, `Replay`, `Spectating`, `Loading`. Outside `Driving` a Dash
+//!   frame's gear, pedals, steering, speed and rpm are `NaN` (a menu packet holds gear 0, which reads as reverse, and
+//!   zeros); a Sled frame keeps its rpm, which is all it gives. The lap number is `LapNumber` + 1 in every phase (1
+//!   in a menu packet) and is not used outside `Driving`.
 //! * `lap`: `LapNumber` + 1 (the game counts the laps completed; the lap file counts the lap being driven).
 //! * `lap_time_s` = `CurrentLap`, `last_lap_s` = `LastLap` (seconds; 0 means none yet).
 //! * `dist_m`: the packet has only `DistanceTraveled`, the distance of the whole session. The distance on the lap is
@@ -65,7 +71,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source, Tyre};
+use crate::game::{Caps, Frame, Phase, Source, Tyre};
 use crate::shm::Page;
 
 /// The port the person types in the game's Data Out settings. Not the F1 reader's 20777, so both can listen at once.
@@ -304,11 +310,15 @@ impl Decoder {
             f.car = format!("Car #{ordinal}");
             f.car_class = self.game.class(p.i32_at(S_CAR_CLASS), p.i32_at(S_CAR_PI));
         }
-        // Sled: no lap data at all, so never driving (no lap can be cut from it).
+        let race_on = p.i32_at(S_IS_RACE_ON) == 1;
+        // Sled: no lap data at all, so never driving (no lap can be cut from it). Its rpm still reaches the panel,
+        // so nothing is withheld here; `IsRaceOn` = 0 still says a menu (or a stopped race).
         let Some(d) = layout.dash_at() else {
+            f.set_phase(if race_on { Phase::Unknown } else { Phase::Menu });
+            #[cfg(test)]
+            crate::game::assert_frame_within_caps(&f, caps_of(self.game), "forza");
             return Some(f);
         };
-        let race_on = p.i32_at(S_IS_RACE_ON) == 1;
 
         f.x = within(p.f32_at(d + D_POSITION), -1e6..=1e6);
         f.y = within(p.f32_at(d + D_POSITION + 4), -1e6..=1e6);
@@ -365,7 +375,21 @@ impl Decoder {
 
         let race_time = p.f32_at(d + D_RACE_TIME);
         let paused = self.race_clock_still(race_time, clock_s);
-        f.driving = race_on && race_time.is_finite() && !paused;
+        f.set_phase(if !race_on {
+            // A menu, a pause screen and a stopped race all send `IsRaceOn` = 0: the packet cannot tell them apart.
+            Phase::Menu
+        } else if !race_time.is_finite() {
+            Phase::Unknown
+        } else if paused {
+            Phase::Paused
+        } else {
+            Phase::Driving
+        });
+        // A menu packet carries gear 0 (which reads as reverse) and zeroed pedals: no car values outside a race.
+        f.withhold_car_values_unless_driving();
+        // Every frame the reader tests make is held to the caps and the phase invariant.
+        #[cfg(test)]
+        crate::game::assert_frame_within_caps(&f, caps_of(self.game), "forza");
         Some(f)
     }
 
@@ -488,6 +512,36 @@ impl Source for ForzaSource {
 
     fn listens(&self) -> bool {
         true
+    }
+
+    fn caps(&self) -> Caps {
+        caps_of(self.decoder.game)
+    }
+}
+
+/// What a frame of `game` can fill, over every layout it sends (a Sled packet gives only the rpm and the car). Not
+/// given by any: fuel (a fraction of an unknown tank), the pit lane, a lap verdict, the tyres' pressure, brake
+/// temperature or compound, the weather, the session, the sectors, the lights other than the handbrake, damage. Only
+/// Forza Motorsport (2023) gives the tread left (and the track).
+fn caps_of(game: Game) -> Caps {
+    let caps = Caps::LAP_TIME
+        .or(Caps::LAST_LAP)
+        .or(Caps::DIST)
+        .or(Caps::SPEED)
+        .or(Caps::RPM)
+        .or(Caps::GEAR)
+        .or(Caps::THROTTLE)
+        .or(Caps::BRAKE)
+        .or(Caps::CLUTCH)
+        .or(Caps::STEER)
+        .or(Caps::POSITION)
+        .or(Caps::TYRE_TEMP)
+        .or(Caps::CAR_CLASS)
+        .or(Caps::HANDBRAKE);
+    if game == Game::Fm {
+        caps.or(Caps::TYRE_WEAR)
+    } else {
+        caps
     }
 }
 
@@ -965,7 +1019,13 @@ mod tests {
         let off = Sled { race_on: 0, ..s.clone() };
         let f = d.feed(&fm7_packet(&off, &dash), 0.0).unwrap();
         assert!(!f.driving);
+        assert_eq!(f.phase, Phase::Menu);
         assert_eq!(f.dist_m, None, "no lap distance outside a race");
+        // A menu packet's zeroed gear (reverse) and pedals do not get through; the rpm and the car's identity do.
+        for v in [f.gear, f.throttle, f.brake, f.clutch, f.steer, f.speed_ms, f.rpm] {
+            assert!(v.is_nan(), "car values are withheld in a menu");
+        }
+        assert_eq!(f.car, "Car #2352");
         // Racing: the race clock moves with every packet.
         let mut clock = 1.0;
         for _ in 0..10 {
@@ -977,7 +1037,10 @@ mod tests {
         clock += 0.1;
         assert!(d.feed(&fm7_packet(&s, &dash), clock).unwrap().driving);
         clock += 0.2;
-        assert!(!d.feed(&fm7_packet(&s, &dash), clock).unwrap().driving);
+        let paused = d.feed(&fm7_packet(&s, &dash), clock).unwrap();
+        assert_eq!((paused.driving, paused.phase), (false, Phase::Paused));
+        assert!(paused.gear.is_nan() && paused.speed_ms.is_nan() && paused.fuel_l.is_nan());
+        assert!(paused.lap_time_s.is_some() && paused.tyres.is_some(), "timing and tyres stay");
         clock += 5.0;
         assert!(!d.feed(&fm7_packet(&s, &dash), clock).unwrap().driving);
         // Back from the pause.
@@ -985,7 +1048,8 @@ mod tests {
         assert!(d.feed(&fm7_packet(&s, &dash), clock + 0.016).unwrap().driving);
         // A race clock that is not a number is no race.
         dash.race_time = f32::NAN;
-        assert!(!d.feed(&fm7_packet(&s, &dash), clock + 0.032).unwrap().driving);
+        let f = d.feed(&fm7_packet(&s, &dash), clock + 0.032).unwrap();
+        assert_eq!((f.driving, f.phase), (false, Phase::Unknown));
     }
 
     #[test]

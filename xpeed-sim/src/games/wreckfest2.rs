@@ -30,6 +30,11 @@
 //!
 //! # Decisions
 //!
+//! * `phase` (`Main::phase`): outside a race (`gameStatus`) is `Menu`; in one, a replay is `Replay`, spectating is
+//!   `Spectating`, a pause is `Paused`; a player car that is not on track with physics running, a mode with no laps, and
+//!   the post-race drive-around are `Unknown`; lap 0 (the grid before the start) is `Loading`; the rest is `Driving`.
+//!   Not told: `Garage`. The car values are left as the game gives them outside `Driving`: the audit found no stale
+//!   or zeroed values here. `driving` is `phase == Driving`, which is the next rule:
 //! * `driving` is true only in a lap-based mode (see `lap_based`), in a real-time race (game status), not a replay,
 //!   not spectating, not paused, with the player's car on track and physics running, and from lap 1 on (lap 0 is
 //!   the grid before the start). Derbies and the waypoint race have no laps: `lap` stays 0 and nothing is recorded.
@@ -50,7 +55,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Flag, Frame, Source};
+use crate::game::{Caps, CarState, Flag, Frame, Phase, Source};
 use crate::shm::Page;
 
 /// The port the game's telemetry output is set to by default.
@@ -344,6 +349,29 @@ impl Main {
             && self.player_status & PLAYER_PHYSICS_RUNNING != 0
     }
 
+    /// What the player is doing, from the game and player status flags: outside a race is `Menu`; then a replay is
+    /// `Replay`, spectating is `Spectating`, a pause is `Paused`; a player car that is not on track with physics
+    /// running, a mode with no laps (derby, waypoint race), or the post-race drive-around is `Unknown`; lap 0 (the grid
+    /// before the start) is `Loading`; else `Driving`.
+    fn phase(&self) -> Phase {
+        use layout::*;
+        if self.game_status & GAME_IN_RACE == 0 {
+            Phase::Menu
+        } else if self.game_status & GAME_REPLAY != 0 {
+            Phase::Replay
+        } else if self.game_status & GAME_SPECTATE != 0 {
+            Phase::Spectating
+        } else if self.game_status & GAME_PAUSED != 0 {
+            Phase::Paused
+        } else if !self.in_a_race() || !self.lap_based() {
+            Phase::Unknown
+        } else if self.lap_current < 1 {
+            Phase::Loading
+        } else {
+            Phase::Driving
+        }
+    }
+
     /// The aids, the handbrake, the flag, the coolant and the damage of the player's car. The header has no pit
     /// limiter, headlights, oil temperature (only its pressure), brake bias or engine map.
     fn state(&self) -> CarState {
@@ -395,7 +423,7 @@ impl Main {
         let timing_ok = self.lap_timing == self.lap_current;
         let mut f = Frame::empty();
         f.clock_s = clock_s;
-        f.driving = lap_based && self.in_a_race() && self.lap_current >= 1;
+        f.set_phase(self.phase());
         if lap_based {
             f.lap = i32::from(self.lap_current);
             if timing_ok {
@@ -435,9 +463,40 @@ impl Main {
         } else {
             mode_name(self.game_mode).to_owned()
         };
+        // Every frame the reader tests make is held to the caps and the phase invariant.
+        #[cfg(test)]
+        crate::game::assert_frame_within_caps(&f, CAPS, "wreckfest2");
         f
     }
 }
+
+/// What a frame can fill. The lap data only in a lap-based mode. Not given: the lap verdict, the pits, fuel, tyres, the
+/// pit limiter, headlights, oil temperature, brake bias, engine map, the session kind, weather and temperatures.
+const CAPS: Caps = Caps::LAP_TIME
+    .or(Caps::LAST_LAP)
+    .or(Caps::DIST)
+    .or(Caps::TRACK_LENGTH)
+    .or(Caps::SPEED)
+    .or(Caps::RPM)
+    .or(Caps::GEAR)
+    .or(Caps::GEARS)
+    .or(Caps::THROTTLE)
+    .or(Caps::BRAKE)
+    .or(Caps::CLUTCH)
+    .or(Caps::STEER)
+    .or(Caps::POSITION)
+    .or(Caps::ABS_ACTIVE)
+    .or(Caps::TC_ACTIVE)
+    .or(Caps::ABS_LEVEL)
+    .or(Caps::TC_LEVEL)
+    .or(Caps::HANDBRAKE)
+    .or(Caps::ENGINE_WARNING)
+    .or(Caps::WATER_TEMP)
+    .or(Caps::FLAG)
+    .or(Caps::DAMAGE_ENGINE)
+    .or(Caps::DAMAGE_GEARBOX)
+    .or(Caps::DAMAGE_SUSPENSION)
+    .or(Caps::DAMAGE_BODY);
 
 /// The open door: a UDP socket the game sends its telemetry to.
 pub struct Wreckfest2 {
@@ -474,7 +533,7 @@ impl Wreckfest2 {
         if main.finished() {
             // The first frame at `laps + 1` closes the last lap; the drive around after it is not a lap.
             if self.finish_given == Some(frame.lap) {
-                frame.driving = false;
+                frame.set_phase(Phase::Unknown);
             } else if frame.driving {
                 self.finish_given = Some(frame.lap);
             }
@@ -492,6 +551,10 @@ impl Source for Wreckfest2 {
 
     fn game_name(&self) -> &'static str {
         "Wreckfest 2"
+    }
+
+    fn caps(&self) -> Caps {
+        CAPS
     }
 
     fn next(&mut self, timeout: Duration) -> Option<Frame> {

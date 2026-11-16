@@ -77,12 +77,20 @@
 //! packet (events, setups, history...) is ignored. Car Status gives the fuel as a mass in kilograms and the spec
 //! states no density, so `fuel_l` stays NaN. The one `engineTemperature` of Car Telemetry is not said to be the
 //! water's or the oil's, so neither is given; the spec has no suspension damage, headlights or handbrake.
+//!
+//! # Phase
+//!
+//! The game only sends packets while a session runs, and none in a menu or a pause, so the frames carry what the last
+//! Session and Lap Data packets said (`Decoder::phase`): `Driving` (a known session and track, not spectating, an active
+//! car out of the garage on a numbered lap), `Garage` (an active car in the garage), `Spectating` (the Session packet's
+//! `isSpectating`), else `Unknown`. Not told: `Menu`, `Paused`, `Replay`, `Loading`. The telemetry is not withheld
+//! outside `Driving`: the game fills it in the garage, and sends nothing where it would be stale.
 
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, Source};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source};
 use crate::shm::Page;
 
 /// The port the game sends to unless the person changes it (the spec's default).
@@ -807,7 +815,10 @@ impl Decoder {
             f.dist_m = l.distance_m.is_finite().then(|| f64::from(l.distance_m.max(0.0)));
             f.in_pits = l.pit_status != 0;
         }
-        f.driving = self.driving();
+        f.set_phase(self.phase());
+        // Every frame the reader tests make is held to the caps and the phase invariant.
+        #[cfg(test)]
+        crate::game::assert_frame_within_caps(&f, CAPS, "f1");
         f
     }
 
@@ -848,16 +859,27 @@ impl Decoder {
     /// In a car on a track session: the game gave a session (a known track, not "unknown", not spectating) and lap
     /// data saying the player's car is out of the garage, active and on a numbered lap. The session type numbers
     /// differ between the years (a race is 10 in 2023, 15 later), but 0 is "unknown" in all of them.
-    fn driving(&self) -> bool {
+    ///
+    /// The phase: `Driving` as above; `Spectating` when the session says the player is spectating; `Garage` when the
+    /// lap data says the car is in the garage (driver status 0) on a known track; anything else (no session or lap
+    /// data yet, an unknown session or track, a car that is not active, no lap number) is `Unknown`. The game sends no
+    /// packets in a menu or a pause and the format has no replay flag, so `Menu`, `Paused`, `Replay` and `Loading` are
+    /// never told: the frames just stop, or carry the last session.
+    fn phase(&self) -> Phase {
         let (Some(s), Some(l)) = (&self.session, &self.lap) else {
-            return false;
+            return Phase::Unknown;
         };
-        s.session_type != 0
-            && s.track_id >= 0
-            && !s.spectating
-            && l.lap_number >= 1
-            && l.driver_status != 0 // 0 = in garage
-            && l.result_status == 2 // 2 = active
+        if s.session_type == 0 || s.track_id < 0 {
+            Phase::Unknown
+        } else if s.spectating {
+            Phase::Spectating
+        } else if l.driver_status == 0 && l.result_status == 2 {
+            Phase::Garage // 0 = in garage, 2 = active
+        } else if l.lap_number >= 1 && l.driver_status != 0 && l.result_status == 2 {
+            Phase::Driving
+        } else {
+            Phase::Unknown
+        }
     }
 }
 
@@ -955,7 +977,41 @@ impl Source for F1Source {
     fn listens(&self) -> bool {
         true
     }
+
+    fn caps(&self) -> Caps {
+        CAPS
+    }
 }
+
+/// What a frame of any of the three games (every format) can fill: the car's telemetry (no tyres, temperatures, fuel,
+/// session kind or weather are read), the lap data, the car's state from Car Status and Car Damage, the world position,
+/// the track length and the team as car and class. The fuel is a mass with no stated density (`fuel_l` stays `NaN`),
+/// the one `engineTemperature` is neither water nor oil, and the spec has no sector times in a form this reader uses.
+const CAPS: Caps = Caps::LAP_TIME
+    .or(Caps::LAST_LAP)
+    .or(Caps::LAP_VALID)
+    .or(Caps::DIST)
+    .or(Caps::IN_PITS)
+    .or(Caps::SPEED)
+    .or(Caps::RPM)
+    .or(Caps::GEAR)
+    .or(Caps::THROTTLE)
+    .or(Caps::BRAKE)
+    .or(Caps::CLUTCH)
+    .or(Caps::STEER)
+    .or(Caps::POSITION)
+    .or(Caps::CAR_CLASS)
+    .or(Caps::TRACK_LENGTH)
+    .or(Caps::PIT_LIMITER)
+    .or(Caps::DRS)
+    .or(Caps::FLAG)
+    .or(Caps::TC_LEVEL)
+    .or(Caps::ABS_LEVEL)
+    .or(Caps::BRAKE_BIAS)
+    .or(Caps::ENGINE_WARNING)
+    .or(Caps::DAMAGE_BODY)
+    .or(Caps::DAMAGE_ENGINE)
+    .or(Caps::DAMAGE_GEARBOX);
 
 #[cfg(test)]
 mod tests {
@@ -2226,12 +2282,13 @@ mod tests {
     #[test]
     fn the_menu_garage_spectating_and_unknown_sessions_are_not_driving() {
         for y in ALL {
-            let driving_with = |session: Vec<u8>, lap: Lap| {
+            let phase_with = |session: Vec<u8>, lap: Lap| {
                 let mut d = Decoder::default();
                 d.feed(&session, 0.0);
                 d.feed(&lap_in(y, 0, &lap), 0.0);
-                d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap().driving
+                d.feed(&tele_packet_in(y.format, 0, &sample_tele()), 0.0).unwrap().phase
             };
+            let driving_with = |session: Vec<u8>, lap: Lap| phase_with(session, lap) == Phase::Driving;
             let race = || race_session(y, 0);
             assert!(driving_with(race(), Lap::on_track(1, 100, 0, 5.0)));
             // In the garage.
@@ -2242,6 +2299,21 @@ mod tests {
                     ..Lap::on_track(1, 100, 0, 5.0)
                 }
             ));
+            assert_eq!(
+                phase_with(
+                    race(),
+                    Lap {
+                        driver_status: 0,
+                        ..Lap::on_track(1, 100, 0, 5.0)
+                    }
+                ),
+                Phase::Garage
+            );
+            assert_eq!(
+                phase_with(session_in(y, UID, 0, 15, 11, 5793, true), Lap::on_track(1, 100, 0, 5.0)),
+                Phase::Spectating
+            );
+            assert_eq!(phase_with(race(), Lap::on_track(0, 0, 0, 0.0)), Phase::Unknown);
             // Not an active car (inactive, finished, retired).
             for result in [0, 1, 3, 4, 7] {
                 assert!(

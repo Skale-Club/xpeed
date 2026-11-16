@@ -5,6 +5,7 @@
 //! Only the player's car is read, and the driver's name is never kept.
 
 use super::layout::*;
+use crate::game::Caps;
 
 fn f64_at(bytes: &[u8], at: usize) -> f64 {
     f64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())
@@ -138,6 +139,48 @@ pub struct ScoringFrame {
     pub session: SessionScoring,
     pub player: Option<VehicleScoring>,
 }
+
+/// What `dash::lmu_frame` can fill from these two inputs (`PlayerTelemetry` and `ScoringFrame`); Le Mans Ultimate is not
+/// a `Source`, so this stands where `Source::caps` stands for the other games. The distance, the last lap, the pit
+/// lane, the car class and the track length come from scoring (so they are missing until the first scoring update).
+/// Not given: the lap verdict, the track variant, the session kind (the number is in the scoring, but not mapped), the
+/// sectors (only the recorder writes them), the g forces, the weather, the air and track temperatures, the compound,
+/// the tank's size, the handbrake, and the engine, gearbox and suspension damage (the header has none).
+#[allow(dead_code)] // the panel will ask for it (step 1b); `dash::lmu_frame`'s tests hold the frame to it
+pub const LMU_CAPS: Caps = Caps::LAP_TIME
+    .or(Caps::LAST_LAP)
+    .or(Caps::DIST)
+    .or(Caps::IN_PITS)
+    .or(Caps::SPEED)
+    .or(Caps::RPM)
+    .or(Caps::GEAR)
+    .or(Caps::GEARS)
+    .or(Caps::THROTTLE)
+    .or(Caps::BRAKE)
+    .or(Caps::CLUTCH)
+    .or(Caps::STEER)
+    .or(Caps::POSITION)
+    .or(Caps::FUEL)
+    .or(Caps::TYRE_TEMP)
+    .or(Caps::TYRE_PRESSURE)
+    .or(Caps::TYRE_WEAR)
+    .or(Caps::BRAKE_TEMP)
+    .or(Caps::CAR_CLASS)
+    .or(Caps::TRACK_LENGTH)
+    .or(Caps::PIT_LIMITER)
+    .or(Caps::ABS_ACTIVE)
+    .or(Caps::TC_ACTIVE)
+    .or(Caps::DRS)
+    .or(Caps::HEADLIGHTS)
+    .or(Caps::ENGINE_WARNING)
+    .or(Caps::FLAG)
+    .or(Caps::WATER_TEMP)
+    .or(Caps::OIL_TEMP)
+    .or(Caps::TC_LEVEL)
+    .or(Caps::ABS_LEVEL)
+    .or(Caps::ENGINE_MAP)
+    .or(Caps::BRAKE_BIAS)
+    .or(Caps::DAMAGE_BODY);
 
 /// What one frame of the game carried.
 #[derive(Debug, Clone, Default, PartialEq)]

@@ -25,6 +25,7 @@
 //! for this game yet.
 
 use crate::extra::Extras;
+use crate::game::Phase;
 use crate::lapfile::{Channel, Lap, STANDARD_UNITS};
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame, VehicleScoring};
 use crate::util::{iso_utc, new_session_id};
@@ -99,6 +100,9 @@ pub struct Recorder {
     session: Option<String>,
     /// The game's own number of the session (practice, qualifying, race...), to see it change.
     game_session: Option<i32>,
+    /// The player is not driving (the garage, a pause, loading, or no scoring seen yet): telemetry is not recorded.
+    /// False until `on_phase` says otherwise, so a caller that never tells records every update.
+    not_driving: bool,
 }
 
 fn ms(seconds: f64) -> u32 {
@@ -162,8 +166,19 @@ impl Recorder {
         self.last_et = self.last_et_seen;
     }
 
+    /// What the player is doing (`dash::lmu_phase`, from the scoring stream), told before each telemetry update. While
+    /// it is anything but `Driving` the game keeps writing telemetry (the garage and the monitor still hold the car),
+    /// and that must not become samples of a lap: `on_telemetry` ignores it until `Driving` comes back. A lap already
+    /// in progress is kept; the gap in the clock is not integrated into distance.
+    pub fn on_phase(&mut self, phase: Phase) {
+        self.not_driving = phase != Phase::Driving;
+    }
+
     /// A telemetry frame of the player's car. Returns the laps it finished (rarely: see `finish_closed`).
     pub fn on_telemetry(&mut self, t: &PlayerTelemetry, wall_ms: i64) -> Vec<Lap> {
+        if self.not_driving {
+            return Vec::new();
+        }
         let mut done = Vec::new();
         let et = t.elapsed_time;
 
@@ -584,6 +599,27 @@ mod tests {
         rec.on_telemetry(&frame(220.01, 1, 100.0, SPEED), 0);
         let dist = &rec.current.as_ref().unwrap().columns.dist;
         assert!(f64::from(dist[dist.len() - 1]) < 10.0);
+    }
+
+    #[test]
+    fn telemetry_is_ignored_while_the_player_is_not_driving() {
+        let mut rec = Recorder::new();
+        // The garage (or a pause, or no scoring yet): the game still writes telemetry, and none of it is a lap.
+        for phase in [Phase::Garage, Phase::Paused, Phase::Loading, Phase::Unknown] {
+            rec.on_phase(phase);
+            for i in 0..200 {
+                rec.on_telemetry(&frame(100.0 + f64::from(i) * 0.01, 1, 100.0, SPEED), 0);
+            }
+            assert!(rec.current.is_none(), "{phase:?}: nothing recorded");
+        }
+        // Driving again: recorded as usual.
+        rec.on_phase(Phase::Driving);
+        rec.on_telemetry(&frame(102.0, 1, 100.0, SPEED), 0);
+        assert_eq!(rec.current.as_ref().unwrap().columns.t.len(), 1);
+        // And a phase that is not driving stops it again without losing the lap in progress.
+        rec.on_phase(Phase::Garage);
+        rec.on_telemetry(&frame(102.01, 1, 100.0, SPEED), 0);
+        assert_eq!(rec.current.as_ref().unwrap().columns.t.len(), 1);
     }
 
     /// Not a check: writes a real lap to the file named by `XPEED_SAMPLE_LAP`, so another program (the

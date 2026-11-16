@@ -48,7 +48,11 @@
 //!
 //! # What becomes of the lap
 //!
-//! * `driving`: graphics `status` is LIVE (2) and the lap count is believable. Off (0), replay (1) and pause (3) are not.
+//! * `phase` (and `driving`, which is `phase == Driving`): from graphics `status`. LIVE (2) with a believable lap count
+//!   is `Driving`, off (0) is `Menu`, replay (1) is `Replay`, pause (3) is `Paused`; a lap count that cannot be real
+//!   is `Unknown`. Not told apart: `Garage` (the pit box is a LIVE car with `in_pits`), `Loading`, `Spectating`.
+//!   Outside `Driving` the gear, pedals, steering, speed and rpm are `NaN` (a paused page is zeroed: gear 0 would read
+//!   as reverse and `1 - clutch` as a full clutch).
 //! * `lap` = `total_lap_count` (laps completed) + 1; `lap_time_s` = `current_lap_time_ms` / 1000; `last_lap_s` =
 //!   `last_laptime_ms` / 1000 when it is a real time.
 //! * `lap_valid`: `is_valid_lap` and `timing_state.is_invalid` (a lap is not valid when either says so).
@@ -96,7 +100,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// Windows gives a shared memory whole pages.
@@ -192,7 +196,10 @@ mod stat {
 }
 
 /// `ACEVO_STATUS`: 0 off, 1 replay, 2 live, 3 pause.
+const STATUS_OFF: i32 = 0;
+const STATUS_REPLAY: i32 = 1;
 const STATUS_LIVE: i32 = 2;
+const STATUS_PAUSE: i32 = 3;
 const STATUS_MAX: i32 = 3;
 const MAX_LAPS: i32 = 100_000;
 /// Ten hours, in milliseconds.
@@ -407,7 +414,49 @@ impl Source for AcEvo {
     fn alive(&self) -> bool {
         !self.gone
     }
+
+    fn caps(&self) -> Caps {
+        CAPS
+    }
 }
+
+/// What `frame_from` reads. Not given: the tread left, the damage, the engine warning, the weather and temperatures of
+/// the air and track, the session kind, the sectors, the g forces, the car class.
+const CAPS: Caps = {
+    Caps::LAP_TIME
+        .or(Caps::LAST_LAP)
+        .or(Caps::LAP_VALID)
+        .or(Caps::IN_PITS)
+        .or(Caps::SPEED)
+        .or(Caps::RPM)
+        .or(Caps::GEAR)
+        .or(Caps::GEARS)
+        .or(Caps::THROTTLE)
+        .or(Caps::BRAKE)
+        .or(Caps::CLUTCH)
+        .or(Caps::STEER)
+        .or(Caps::POSITION)
+        .or(Caps::FUEL)
+        .or(Caps::FUEL_CAPACITY)
+        .or(Caps::TYRE_TEMP)
+        .or(Caps::TYRE_PRESSURE)
+        .or(Caps::BRAKE_TEMP)
+        .or(Caps::TRACK_VARIANT)
+        .or(Caps::TRACK_LENGTH)
+        .or(Caps::PIT_LIMITER)
+        .or(Caps::ABS_ACTIVE)
+        .or(Caps::TC_ACTIVE)
+        .or(Caps::DRS)
+        .or(Caps::HEADLIGHTS)
+        .or(Caps::HANDBRAKE)
+        .or(Caps::FLAG)
+        .or(Caps::WATER_TEMP)
+        .or(Caps::OIL_TEMP)
+        .or(Caps::TC_LEVEL)
+        .or(Caps::ABS_LEVEL)
+        .or(Caps::ENGINE_MAP)
+        .or(Caps::BRAKE_BIAS)
+};
 
 /// A pedal: 0..1, pulled into range when a little outside it; far outside (or not a number) is "not given".
 fn pedal(v: f32) -> f32 {
@@ -563,7 +612,13 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
 
     let completed = g.i32_at(gfx::TOTAL_LAP_COUNT);
     let lap_known = (0..=MAX_LAPS).contains(&completed);
-    f.driving = status == STATUS_LIVE && lap_known;
+    f.set_phase(match status {
+        STATUS_LIVE if lap_known => Phase::Driving,
+        STATUS_OFF => Phase::Menu,
+        STATUS_REPLAY => Phase::Replay,
+        STATUS_PAUSE => Phase::Paused,
+        _ => Phase::Unknown,
+    });
     // Laps completed from zero: the first lap is lap 1 (the engine reads 0 as "no lap yet").
     f.lap = if lap_known { completed + 1 } else { 0 };
     f.lap_time_s = seconds(g.i32_at(gfx::CURRENT_LAP_TIME_MS), true);
@@ -621,12 +676,18 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     let session = f64::from(g.f32_at(gfx::SESSION_LAP_LENGTH_KM)) * 1000.0;
     let agrees = !(session.is_finite() && session > 0.0) || (session - length).abs() <= 0.02 * length;
     f.track_length_m = (length.is_finite() && (200.0..=100_000.0).contains(&length) && agrees).then_some(length);
+    // Paused or in a menu the page is zeroed: a zero gear would read as reverse and the zero clutch (1 - 0) as a full pedal.
+    f.withhold_car_values_unless_driving();
+    // Every frame the reader tests make is held to the caps and the phase invariant.
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&f, CAPS, "acevo");
     Some(f)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::assert_frame_within_caps;
     use crate::lapcut::LapCutter;
     use crate::shm::FakeMemory;
 
@@ -1362,13 +1423,18 @@ mod tests {
             i
         }
 
+        /// The frame of the image; every frame a test here makes is held to the reader's caps and the phase invariant.
         fn frame(&self) -> Option<Frame> {
-            frame_from(
+            let frame = frame_from(
                 &Page(&self.physics.0),
                 &Page(&self.graphics.0[..gfx::READ_LEN]),
                 &Page(&self.statics.0),
                 1.0,
-            )
+            );
+            if let Some(f) = &frame {
+                assert_frame_within_caps(f, CAPS, "acevo");
+            }
+            frame
         }
     }
 
@@ -1422,7 +1488,8 @@ mod tests {
         let frame = reader.next(NOW).expect("a frame");
         let mut want = Frame::empty();
         want.clock_s = frame.clock_s;
-        want.driving = true;
+        assert_frame_within_caps(&frame, reader.caps(), "acevo");
+        want.set_phase(Phase::Driving);
         want.lap = 4; // three laps completed: the fourth is being driven
         want.lap_time_s = Some(63.25);
         want.last_lap_s = Some(90.5);
@@ -1578,11 +1645,40 @@ mod tests {
 
     #[test]
     fn only_live_is_driving_and_an_unknown_status_is_garbled_data() {
-        for (status, name) in [(0, "off"), (1, "replay"), (2, "live"), (3, "pause")] {
+        for (status, name, phase) in [
+            (0, "off", Phase::Menu),
+            (1, "replay", Phase::Replay),
+            (2, "live", Phase::Driving),
+            (3, "pause", Phase::Paused),
+        ] {
             let mut image = Image::on_track();
             image.graphics.i32(gfx::STATUS, status);
             let frame = image.frame().unwrap();
             assert_eq!(frame.driving, status == 2, "{name}");
+            assert_eq!(frame.phase, phase, "{name}");
+            if status == 2 {
+                assert!(frame.gear.is_finite() && frame.clutch.is_finite() && frame.speed_ms.is_finite());
+            } else {
+                // The paused page of the game is zeroed: gear "R" and a full clutch must not get through.
+                image.physics.i32(phys::GEAR, 0);
+                image.physics.f32(phys::CLUTCH, 0.0);
+                let frame = image.frame().unwrap();
+                for v in [
+                    frame.gear,
+                    frame.clutch,
+                    frame.throttle,
+                    frame.brake,
+                    frame.steer,
+                    frame.speed_ms,
+                    frame.rpm,
+                ] {
+                    assert!(v.is_nan(), "{name}: car values are withheld");
+                }
+                assert!(
+                    frame.fuel_l.is_finite() && frame.lap_time_s.is_some(),
+                    "{name}: fuel and timing stay"
+                );
+            }
             // The frame still carries the lap times when it is not driving (a lap can be closed in a menu).
             assert_eq!(frame.last_lap_s, Some(90.5), "{name}");
         }

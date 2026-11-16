@@ -555,6 +555,8 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
                     lap_shown = t.lap_number;
                     shared.set_game(LMU_ID, LMU_NAME, Game::Recording(lap_shown as u32));
                 }
+                // A garage, a pause or a game that has said nothing yet is not a lap: the recorder ignores it.
+                recorder.on_phase(frame.phase);
                 recorder.on_telemetry(t, now_ms()).iter().for_each(saved);
             }
             if let Some(s) = &snapshot.scoring {
@@ -701,6 +703,9 @@ mod tests {
         fn alive(&self) -> bool {
             !self.done
         }
+        fn caps(&self) -> crate::game::Caps {
+            crate::game::Caps::NONE
+        }
     }
     fn open_scripted() -> Option<Box<dyn Source>> {
         Some(Box::new(Scripted { done: false }))
@@ -725,6 +730,9 @@ mod tests {
         }
         fn listens(&self) -> bool {
             true
+        }
+        fn caps(&self) -> crate::game::Caps {
+            crate::game::Caps::NONE
         }
     }
     fn open_listening() -> Option<Box<dyn Source>> {

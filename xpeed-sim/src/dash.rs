@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::game::{CarState, Drs, Flag, Frame, Tyre};
+use crate::game::{CarState, Drs, Flag, Frame, Phase, Tyre};
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
 
@@ -16,20 +16,26 @@ use crate::maps::Store;
 pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     let mut frame = Frame::empty();
     let speed = t.speed_ms();
-    frame.driving = scoring.is_none_or(|s| s.session.in_realtime);
+    // The game's session clock, which never goes back while a session runs (the recorder reads a clock going back as a
+    // restart); a reading that is not a time is left at 0.
+    if t.elapsed_time.is_finite() && t.elapsed_time >= 0.0 {
+        frame.clock_s = t.elapsed_time;
+    }
+    frame.set_phase(lmu_phase(scoring));
     frame.lap = t.lap_number;
     let lap_time = t.elapsed_time - t.lap_start_et;
     frame.lap_time_s = (0.0..=86_400.0).contains(&lap_time).then_some(lap_time);
-    frame.speed_ms = speed as f32;
-    frame.rpm = t.rpm as f32;
-    frame.gear = t.gear as f32;
+    // The raw values are scrubbed like every other reader's: finite and in range, else "not given".
+    frame.speed_ms = scrub(speed, 0.0, 1000.0);
+    frame.rpm = scrub(t.rpm, 0.0, 100_000.0);
+    frame.gear = if (-1..=30).contains(&t.gear) { t.gear as f32 } else { f32::NAN };
     // `mMaxGears`: maximum forward gears; 0 is unset.
     frame.gears = (t.max_gears > 0).then_some(t.max_gears);
-    frame.throttle = t.throttle as f32;
-    frame.brake = t.brake as f32;
-    frame.clutch = t.clutch as f32;
-    frame.steer = t.steering as f32;
-    frame.fuel_l = t.fuel_l as f32;
+    frame.throttle = pull_in(t.throttle, 0.0, 1.0);
+    frame.brake = pull_in(t.brake, 0.0, 1.0);
+    frame.clutch = pull_in(t.clutch, 0.0, 1.0);
+    frame.steer = pull_in(t.steering, -1.0, 1.0);
+    frame.fuel_l = scrub(t.fuel_l, 0.0, 10_000.0);
     // The car's place in the world, for the track map; a reading that is not finite or absurd is not given.
     let place = |v: f64| if v.is_finite() && v.abs() <= 1.0e7 { v as f32 } else { f32::NAN };
     (frame.x, frame.y, frame.z) = (place(t.pos[0]), place(t.pos[1]), place(t.pos[2]));
@@ -79,7 +85,53 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
             frame.dist_m = (dist.is_finite() && dist >= 0.0 && !stale_from_last_lap).then_some(dist);
         }
     }
+    // The garage and the pause keep the last telemetry in memory: no car values outside `Driving`.
+    frame.withhold_car_values_unless_driving();
+    debug_assert!(frame.phase_consistent());
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&frame, crate::lmu::snapshot::LMU_CAPS, "lmu");
     frame
+}
+
+/// What the player is doing in Le Mans Ultimate, from the scoring stream (the telemetry stream says nothing of it):
+/// `Unknown` until the first scoring update; `Garage` when `in_realtime` is false (the player is at the monitor or in
+/// the garage, not in the car); then `mGamePhase` (the rFactor 2 numbers): 9 is `Paused`; 2 (grid walk-through), 3
+/// (formation lap) and 4 (starting-light countdown) are `Loading`; 1 (reconnaissance laps), 5 to 8 (green,
+/// full-course yellow, stopped, over) and 0 are `Driving`; a number past 9 is `Unknown`. 0 is "before the session has
+/// begun" in the header, but also what a field nobody wrote holds, and which number a practice session shows once the
+/// car is out has not been checked against a live game, so it does not stop a lap (the previous rule, `in_realtime`
+/// alone, did not look at it). Not told apart: `Menu` (no stream at all), `Replay` and `Spectating` (the player entry
+/// has no control field here).
+pub fn lmu_phase(scoring: Option<&ScoringFrame>) -> Phase {
+    let Some(s) = scoring else { return Phase::Unknown };
+    if !s.session.in_realtime {
+        return Phase::Garage;
+    }
+    match s.session.game_phase {
+        9 => Phase::Paused,
+        2..=4 => Phase::Loading,
+        0 | 1 | 5..=8 => Phase::Driving,
+        _ => Phase::Unknown,
+    }
+}
+
+/// A reading inside `lo..=hi`; anything else (not a number, absurd) is "not given".
+fn scrub(v: f64, lo: f64, hi: f64) -> f32 {
+    if v.is_finite() && (lo..=hi).contains(&v) {
+        v as f32
+    } else {
+        f32::NAN
+    }
+}
+
+/// A pedal or the wheel: pulled into `lo..=hi` when a little outside it; far outside, or not a number, is "not given".
+fn pull_in(v: f64, lo: f64, hi: f64) -> f32 {
+    let slack = (hi - lo) * 0.5;
+    if v.is_finite() && v >= lo - slack && v <= hi + slack {
+        v.clamp(lo, hi) as f32
+    } else {
+        f32::NAN
+    }
 }
 
 /// The dashboard lights, temperatures, electronics and damage of Le Mans Ultimate's car (`TelemInfoV01`, and the
@@ -846,9 +898,119 @@ mod tests {
         let mut late = scoring.clone();
         late.player.as_mut().unwrap().lap_dist = 13_600.0;
         assert_eq!(lmu_frame(&just_over, Some(&late)).dist_m, None);
-        // Without scoring yet: no distance, and the car counts as driven.
+        // Without scoring yet: no distance, and nobody knows yet whether the car is driven (it used to count as driven).
         let alone = lmu_frame(&t, None);
-        assert!(alone.driving && alone.dist_m.is_none() && alone.track == "Sarthe");
+        assert!(!alone.driving && alone.phase == Phase::Unknown);
+        assert!(alone.dist_m.is_none() && alone.track == "Sarthe");
+        assert!(
+            alone.speed_ms.is_nan() && alone.gear.is_nan(),
+            "no car values until it is known to be driven"
+        );
+        assert_eq!(alone.fuel_l, 40.0, "fuel stays");
+    }
+
+    fn lmu_scoring(in_realtime: bool, game_phase: u8) -> ScoringFrame {
+        ScoringFrame {
+            session: crate::lmu::snapshot::SessionScoring {
+                in_realtime,
+                game_phase,
+                ..Default::default()
+            },
+            player: None,
+        }
+    }
+
+    #[test]
+    fn the_scoring_says_which_phase_le_mans_ultimate_is_in() {
+        assert_eq!(lmu_phase(None), Phase::Unknown, "no scoring yet");
+        assert_eq!(
+            lmu_phase(Some(&lmu_scoring(false, 5))),
+            Phase::Garage,
+            "not in realtime: the monitor"
+        );
+        for (game_phase, want) in [
+            (0, Phase::Driving),
+            (1, Phase::Driving),
+            (2, Phase::Loading),
+            (3, Phase::Loading),
+            (4, Phase::Loading),
+            (5, Phase::Driving),
+            (6, Phase::Driving),
+            (7, Phase::Driving),
+            (8, Phase::Driving),
+            (9, Phase::Paused),
+            (10, Phase::Unknown),
+            (255, Phase::Unknown),
+        ] {
+            assert_eq!(lmu_phase(Some(&lmu_scoring(true, game_phase))), want, "game phase {game_phase}");
+        }
+    }
+
+    #[test]
+    fn le_mans_ultimate_gives_no_car_values_unless_driving_and_scrubs_the_rest() {
+        let t = PlayerTelemetry {
+            elapsed_time: 321.5,
+            local_vel: [0.0, 0.0, -30.0],
+            gear: 3,
+            rpm: 6000.0,
+            throttle: 0.5,
+            brake: 0.25,
+            clutch: 0.0,
+            steering: -0.5,
+            fuel_l: 50.0,
+            ..PlayerTelemetry::default()
+        };
+        // The garage keeps the last telemetry in memory: none of the car values reach the frame, the fuel does.
+        let garage = lmu_frame(&t, Some(&lmu_scoring(false, 5)));
+        assert_eq!(garage.phase, Phase::Garage);
+        for v in [
+            garage.speed_ms,
+            garage.rpm,
+            garage.gear,
+            garage.throttle,
+            garage.brake,
+            garage.clutch,
+            garage.steer,
+        ] {
+            assert!(v.is_nan());
+        }
+        assert_eq!(garage.fuel_l, 50.0);
+        let paused = lmu_frame(&t, Some(&lmu_scoring(true, 9)));
+        assert_eq!((paused.phase, paused.driving), (Phase::Paused, false));
+        assert!(paused.gear.is_nan());
+        // Driving: the values, and the clock is the telemetry's elapsed time.
+        let on = lmu_frame(&t, Some(&lmu_scoring(true, 5)));
+        assert_eq!((on.phase, on.driving, on.clock_s), (Phase::Driving, true, 321.5));
+        assert_eq!(
+            (on.speed_ms, on.rpm, on.gear, on.throttle, on.brake, on.clutch, on.steer, on.fuel_l),
+            (30.0, 6000.0, 3.0, 0.5, 0.25, 0.0, -0.5, 50.0)
+        );
+        // Garbage is not a value: not finite, absurd, or far out of range is "not given"; a little outside is pulled in.
+        let bad = PlayerTelemetry {
+            local_vel: [f64::NAN, 0.0, 0.0],
+            gear: 99,
+            rpm: f64::INFINITY,
+            throttle: 7.0,
+            brake: 1.2,
+            clutch: -0.2,
+            steering: f64::NAN,
+            fuel_l: -3.0,
+            ..t.clone()
+        };
+        let f = lmu_frame(&bad, Some(&lmu_scoring(true, 5)));
+        for v in [f.speed_ms, f.rpm, f.gear, f.throttle, f.steer, f.fuel_l] {
+            assert!(v.is_nan());
+        }
+        assert_eq!((f.brake, f.clutch), (1.0, 0.0));
+        // A clock that is not a time stays at 0.
+        let f = lmu_frame(
+            &PlayerTelemetry {
+                elapsed_time: f64::NAN,
+                ..t.clone()
+            },
+            None,
+        );
+        assert_eq!(f.clock_s, 0.0);
     }
 
     #[test]

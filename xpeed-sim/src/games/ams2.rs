@@ -45,13 +45,22 @@
 //! * `mTyreCompound[4][40]` (19388) is the compound, the first tyre with a name; it lies past Project CARS 2's struct,
 //!   so it is read from Automobilista 2's own, longer copy only.
 //!
+//! # Phase
+//!
+//! From `mGameState` (and the pit mode for the garage): playing (2) is `Driving`, but with the pit mode "in garage" it
+//! is `Garage`; front end (1) and the in-game menu with the time ticking (4) are `Menu`; paused (3) is `Paused`;
+//! restarting (5) is `Loading`; replay (6) and front end replay (7) are `Replay`; exited (0) is `Unknown`. With no valid
+//! viewed participant the frame is `Unknown` while the state says playing. Not told apart: `Spectating` (the header
+//! has no index of the player's own car, only the viewed one). The car values are left as the game gives them outside
+//! `Driving`: the audit found no stale or zeroed values in this format.
+//!
 //! Never read: another process's memory. Only the game's own shared memory, read-only and copied out.
 
 use std::sync::atomic::{fence, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, SessionKind, Source, Tyre};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SessionKind, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// The name the games give their memory.
@@ -199,9 +208,15 @@ const DRS_ZONE_RULES: u32 = 1 << 1;
 const DRS_AVAILABLE_NOW: u32 = 1 << 3;
 const DRS_ACTIVE: u32 = 1 << 4;
 
-// (Type#1) game states: only the first three of interest are named; `GAME_MAX` is the first value that is not one.
+// (Type#1) game states; `GAME_MAX` is the first value that is not one.
 const GAME_EXITED: u32 = 0;
+const GAME_FRONT_END: u32 = 1;
 const GAME_INGAME_PLAYING: u32 = 2;
+const GAME_INGAME_PAUSED: u32 = 3;
+const GAME_INGAME_INMENU_TIME_TICKING: u32 = 4;
+const GAME_INGAME_RESTARTING: u32 = 5;
+const GAME_INGAME_REPLAY: u32 = 6;
+const GAME_FRONT_END_REPLAY: u32 = 7;
 const GAME_MAX: u32 = 8;
 // (Type#7) pit modes.
 const PIT_MODE_NONE: u32 = 0;
@@ -342,6 +357,10 @@ impl Source for Ams2 {
     fn alive(&self) -> bool {
         !self.exited && self.last_change.elapsed() < self.stale_after
     }
+
+    fn caps(&self) -> Caps {
+        caps_of(self.kind)
+    }
 }
 
 /// A float the game gave, inside `lo..=hi`; anything else (NaN, infinite, absurd) is "not given".
@@ -396,8 +415,23 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     }
     let mut frame = Frame::empty();
     frame.clock_s = clock_s;
-    // Without a valid player slot (the front end, a replay with nobody viewed) the frame says nothing about a car.
+    // What the game is doing, from `mGameState`; the garage (below) needs the pit mode too.
+    let state_phase = match state {
+        GAME_FRONT_END | GAME_INGAME_INMENU_TIME_TICKING => Phase::Menu,
+        GAME_INGAME_PLAYING => Phase::Driving,
+        GAME_INGAME_PAUSED => Phase::Paused,
+        GAME_INGAME_RESTARTING => Phase::Loading,
+        GAME_INGAME_REPLAY | GAME_FRONT_END_REPLAY => Phase::Replay,
+        _ => Phase::Unknown,
+    };
+    // Without a valid player slot (the front end, a replay with nobody viewed) the frame says nothing about a car,
+    // and a session that says "playing" with no car to play is not told apart from anything: `Unknown`.
     let Some(slot) = viewed_slot(&page) else {
+        frame.set_phase(if state_phase == Phase::Driving {
+            Phase::Unknown
+        } else {
+            state_phase
+        });
         return Some(frame);
     };
     let me = at::PARTICIPANTS + slot * PARTICIPANT_SIZE;
@@ -411,7 +445,11 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     }
 
     // Playing, and not sitting in the garage: a menu, a pause, a restart and a replay are all other states.
-    frame.driving = state == GAME_INGAME_PLAYING && pit_mode != PIT_MODE_IN_GARAGE;
+    frame.set_phase(if state_phase == Phase::Driving && pit_mode == PIT_MODE_IN_GARAGE {
+        Phase::Garage
+    } else {
+        state_phase
+    });
     // The game counts laps completed from zero; the first lap is lap 1 here (the engine reads 0 as "no lap yet").
     frame.lap = laps_completed as i32 + 1;
     frame.lap_time_s = seconds(page.f32_at(at::CURRENT_TIME), true);
@@ -456,7 +494,69 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     if kind.id == AMS2.id {
         version_2_from(&mut frame, &page, me);
     }
+    // Every frame the reader tests make is held to the caps and the phase invariant.
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&frame, caps_of(kind), "ams2");
     Some(frame)
+}
+
+/// What a frame of this game of the format can fill (what `frame_of` reads for it, nothing more). None of them gives
+/// the tank's size on its own (it is folded into `fuel_l`), the engine map, the gearbox damage or a lap verdict
+/// beyond the invalidated flag. Project CARS gives none of what version 2 of the lap file asks of Automobilista 2
+/// (the session kind, sectors, g forces, weather, temperatures, compound), and no DRS or TC / ABS levels (they lie
+/// past Project CARS 2's struct).
+fn caps_of(kind: Kind) -> Caps {
+    let shared = Caps::LAP_TIME
+        .or(Caps::LAST_LAP)
+        .or(Caps::LAP_VALID)
+        .or(Caps::DIST)
+        .or(Caps::IN_PITS)
+        .or(Caps::SPEED)
+        .or(Caps::RPM)
+        .or(Caps::GEAR)
+        .or(Caps::GEARS)
+        .or(Caps::THROTTLE)
+        .or(Caps::BRAKE)
+        .or(Caps::CLUTCH)
+        .or(Caps::STEER)
+        .or(Caps::POSITION)
+        .or(Caps::FUEL)
+        .or(Caps::CAR_CLASS)
+        .or(Caps::TRACK_VARIANT)
+        .or(Caps::TRACK_LENGTH)
+        .or(Caps::TYRE_TEMP)
+        .or(Caps::TYRE_PRESSURE)
+        .or(Caps::TYRE_WEAR)
+        .or(Caps::BRAKE_TEMP)
+        .or(Caps::PIT_LIMITER)
+        .or(Caps::ABS_ACTIVE)
+        .or(Caps::TC_ACTIVE)
+        .or(Caps::HEADLIGHTS)
+        .or(Caps::HANDBRAKE)
+        .or(Caps::ENGINE_WARNING)
+        .or(Caps::FLAG)
+        .or(Caps::WATER_TEMP)
+        .or(Caps::OIL_TEMP)
+        .or(Caps::BRAKE_BIAS)
+        .or(Caps::DAMAGE_BODY)
+        .or(Caps::DAMAGE_ENGINE)
+        .or(Caps::DAMAGE_SUSPENSION);
+    if kind.id == AMS2.id {
+        shared
+            .or(Caps::SESSION_KIND)
+            .or(Caps::SECTORS)
+            .or(Caps::G_LAT)
+            .or(Caps::G_LONG)
+            .or(Caps::AIR_TEMP)
+            .or(Caps::TRACK_TEMP)
+            .or(Caps::WEATHER)
+            .or(Caps::TYRE_COMPOUND)
+            .or(Caps::DRS)
+            .or(Caps::TC_LEVEL)
+            .or(Caps::ABS_LEVEL)
+    } else {
+        shared
+    }
 }
 
 /// What version 2 of the lap file asks of Automobilista 2: the kind of session, the first two sectors, the G, the
@@ -611,6 +711,7 @@ fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::assert_frame_within_caps;
     use crate::lapcut::LapCutter;
     use crate::shm::FakeMemory;
 
@@ -1020,7 +1121,9 @@ mod tests {
     }
 
     fn ams2_frame(image: &Image) -> Frame {
-        frame_from(&image.0, 0.0).unwrap()
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_frame_within_caps(&frame, caps_of(AMS2), "ams2");
+        frame
     }
 
     #[test]
@@ -1127,6 +1230,7 @@ mod tests {
         let mut image = Image::on_track();
         image.u32(at::VERSION, 9);
         let frame = frame_of(PCARS2, &image.0[..PCARS2_SIZE], 0.0).expect("a frame");
+        assert_frame_within_caps(&frame, caps_of(PCARS2), "pcars2");
         assert_eq!(frame.session_kind, None);
         assert_eq!(frame.sectors_ms, [None, None]);
         assert_eq!((frame.g_lat, frame.g_long), (None, None));
@@ -1187,7 +1291,8 @@ mod tests {
         let frame = reader.next(NOW).expect("a frame");
         let mut want = Frame::empty();
         want.clock_s = frame.clock_s;
-        want.driving = true;
+        assert_frame_within_caps(&frame, reader.caps(), "ams2");
+        want.set_phase(Phase::Driving);
         want.lap = 4; // three laps completed: the fourth is being driven
         want.lap_time_s = Some(63.25);
         want.last_lap_s = Some(90.5);
@@ -1422,6 +1527,17 @@ mod tests {
             image.u32(at::GAME_STATE, state as u32);
             let frame = frame_from(&image.0, 0.0).unwrap();
             assert_eq!(frame.driving, state == 2, "{name}");
+            let phase = [
+                Phase::Unknown,
+                Phase::Menu,
+                Phase::Driving,
+                Phase::Paused,
+                Phase::Menu,
+                Phase::Loading,
+                Phase::Replay,
+                Phase::Replay,
+            ][state];
+            assert_eq!(frame.phase, phase, "{name}");
             // Even when it is not driving, the frame still carries the last lap time (a lap can be closed in a menu).
             assert_eq!(frame.last_lap_s, Some(90.5), "{name}");
         }
@@ -1447,6 +1563,7 @@ mod tests {
             image.u32(at::PIT_MODE, mode);
             let frame = frame_from(&image.0, 0.0).unwrap();
             assert_eq!((frame.in_pits, frame.driving), (in_pits, driving), "pit mode {mode}");
+            assert_eq!(frame.phase, if driving { Phase::Driving } else { Phase::Garage }, "pit mode {mode}");
         }
         let mut image = Image::on_track();
         image.u32(at::PIT_MODE, 6);
