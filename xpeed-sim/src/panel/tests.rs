@@ -459,7 +459,17 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
             frame.lap = 3;
             frame.x = xs[i];
             frame.z = zs[i];
-            frame.speed_ms = lap.channel("speed").unwrap().values[i];
+            let value = |id| lap.channel(id).map_or(f32::NAN, |c| c.values[i]);
+            frame.speed_ms = value("speed");
+            frame.rpm = value("rpm");
+            frame.gear = value("gear");
+            frame.throttle = value("throttle");
+            frame.brake = value("brake");
+            frame.clutch = value("clutch");
+            frame.steer = value("steer");
+            frame.fuel_l = value("fuel");
+            frame.track_length_m = lap.track_length_m;
+            frame.dist_m = Some(f64::from(value("dist"))).filter(|d| d.is_finite());
             frame.lap_time_s = Some(f64::from(times[i]));
             live = Some(tracker.on_frame("acevo", &frame, (times[i] * 1000.0) as i64));
         }
