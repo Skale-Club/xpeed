@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::game::{CarState, Drs, Flag, Frame, Phase, Tyre};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Tyre};
 use crate::lapfile::SessionKind;
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
@@ -188,6 +188,11 @@ pub struct Live {
     pub track: String,
     pub car: String,
     pub driving: bool,
+    /// What the player is doing in the game (the panel's view model decides what to show from it).
+    pub phase: Phase,
+    /// What the game can give (`Source::caps`); the observed values of the run when the source never said (tests, the
+    /// demo). It describes the game, not the moment: a value inside it may be missing now.
+    pub caps: Caps,
     pub in_pits: bool,
     pub lap: i32,
     pub lap_time_s: Option<f64>,
@@ -198,6 +203,12 @@ pub struct Live {
     pub best_lap_s: Option<f64>,
     /// Time on this lap minus the best lap's time at the same distance (negative: faster).
     pub delta_s: Option<f64>,
+    /// The first two sector times of the lap being driven (each once done) and of the lap before it, in milliseconds.
+    pub sectors_ms: [Option<u32>; 2],
+    pub last_sectors_ms: [Option<u32>; 2],
+    pub session_kind: Option<SessionKind>,
+    /// The compound of the tyres on the car, as the game names it.
+    pub tyre_compound: Option<String>,
     pub dist_m: Option<f64>,
     pub track_length_m: Option<f64>,
     pub speed_ms: f32,
@@ -228,8 +239,22 @@ pub struct Live {
     /// `map` is a whole lap (or the real layout), a closed shape. When false it is the path driven so far, an open
     /// line, and may hold jumps (`MAP_JUMP_METRES`) the drawing must not join.
     pub map_complete: bool,
+    /// The slow-changing values as last seen, kept while the frames do not carry them (a pause, the menu, the garage).
+    pub last_seen: LastSeen,
     /// When this reading arrived (Unix ms), so the panel can tell a stale one.
     pub at_ms: i64,
+}
+
+/// What was last read of the values that outlive the moment they were read in: the panel shows them dimmed while the
+/// game gives nothing new (paused, in a menu or the garage).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LastSeen {
+    pub gear: Option<f32>,
+    pub speed_ms: Option<f32>,
+    pub fuel_l: Option<f32>,
+    pub tyres: Option<[Tyre; 4]>,
+    pub water_c: Option<f32>,
+    pub oil_c: Option<f32>,
 }
 
 /// A lap's time at each distance it was seen at, in order of distance.
@@ -282,6 +307,13 @@ pub struct Tracker {
     fuel_tank: f32,
     /// The fuel used by the last complete laps (at most `FUEL_LAPS`), oldest first.
     fuel_laps: Vec<f32>,
+    /// What the source says its game can give (`set_caps`), and what the frames of this run filled.
+    caps: Caps,
+    caps_seen: Caps,
+    /// The first two sector times seen on the lap being driven, and those of the lap before it.
+    lap_sectors: [Option<u32>; 2],
+    last_sectors: [Option<u32>; 2],
+    last_seen: LastSeen,
 }
 
 /// How many of the last laps the fuel per lap averages.
@@ -312,12 +344,19 @@ impl Tracker {
         }
     }
 
+    /// What the source's game can give, set by the engine from `Source::caps` (cheap: it is a number).
+    pub fn set_caps(&mut self, caps: Caps) {
+        self.caps = caps;
+    }
+
     pub fn on_frame(&mut self, game: &'static str, frame: &Frame, at_ms: i64) -> Live {
         let key = (frame.track.clone(), frame.car.clone(), frame.track_variant.clone());
         if self.key.as_ref() != Some(&key) {
             *self = Tracker {
                 key: Some(key),
                 store: self.store.take(),
+                caps: self.caps,
+                caps_seen: self.caps_seen,
                 ..Tracker::default()
             };
             // A track seen before has its map from the first frame (the real layout when there is one).
@@ -333,7 +372,10 @@ impl Tracker {
             match event {
                 Event::SessionEnded { .. } => self.new_session(),
                 Event::LapReset { .. } => self.lap_lost(frame),
-                Event::LapClosed { .. } => self.lap_closed(frame),
+                Event::LapClosed { .. } => {
+                    self.last_sectors = std::mem::take(&mut self.lap_sectors);
+                    self.lap_closed(frame);
+                }
                 Event::LapStarted { number, from_line, .. } => {
                     self.lap = *number;
                     self.current_from_line = *from_line;
@@ -367,7 +409,14 @@ impl Tracker {
         }
         if frame.lap == self.lap {
             self.fuel_seen(frame);
+            if frame.driving {
+                for (seen, now) in self.lap_sectors.iter_mut().zip(frame.sectors_ms) {
+                    *seen = now.or(*seen);
+                }
+            }
         }
+        self.caps_seen = self.caps_seen.or(frame.filled());
+        self.remember(frame);
         self.official = frame.last_lap_s;
         // The distance into the lap: the game's, else the speed added up (`session.rs` decides which).
         let dist_m = step.sample.map(|s| s.dist_m);
@@ -394,6 +443,8 @@ impl Tracker {
             track: frame.track.clone(),
             car: frame.car.clone(),
             driving: frame.driving,
+            phase: frame.phase,
+            caps: if self.caps.is_empty() { self.caps_seen } else { self.caps },
             in_pits: frame.in_pits,
             lap: frame.lap,
             lap_time_s: frame.lap_time_s,
@@ -401,6 +452,10 @@ impl Tracker {
             last_lap_s: frame.last_lap_s,
             best_lap_s: self.best.as_ref().map(|(t, _)| *t),
             delta_s,
+            sectors_ms: self.lap_sectors,
+            last_sectors_ms: self.last_sectors,
+            session_kind: frame.session_kind,
+            tyre_compound: frame.tyre_compound.clone(),
             dist_m: frame.dist_m.or(dist_m),
             track_length_m: frame.track_length_m,
             speed_ms: frame.speed_ms,
@@ -423,7 +478,32 @@ impl Tracker {
                 .or_else(|| (self.path.len() >= MAP_MIN_POINTS).then(|| Arc::new(self.path.clone()))),
             map_complete: self.map.is_some(),
             pos: (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z)),
+            last_seen: self.last_seen.clone(),
             at_ms,
+        }
+    }
+
+    /// Keeps the slow-changing values the frame carries, for the panel to show dimmed when a later frame has none.
+    fn remember(&mut self, frame: &Frame) {
+        let seen = &mut self.last_seen;
+        if frame.driving && frame.gear.is_finite() {
+            seen.gear = Some(frame.gear);
+        }
+        if frame.driving && frame.speed_ms.is_finite() {
+            seen.speed_ms = Some(frame.speed_ms);
+        }
+        // Some games drop their fuel reading to 0 outside the car: that is not a reading.
+        if frame.fuel_l.is_finite() && (frame.driving || frame.fuel_l > 0.0) {
+            seen.fuel_l = Some(frame.fuel_l);
+        }
+        if let Some(tyres) = frame.tyres.filter(|t| t.iter().any(Tyre::known)) {
+            seen.tyres = Some(tyres);
+        }
+        if let Some(t) = frame.state.water_c.filter(|t| t.is_finite()) {
+            seen.water_c = Some(t);
+        }
+        if let Some(t) = frame.state.oil_c.filter(|t| t.is_finite()) {
+            seen.oil_c = Some(t);
         }
     }
 
@@ -432,6 +512,8 @@ impl Tracker {
     /// The map is the track's, not the session's, and stays.
     fn new_session(&mut self) {
         *self = Tracker {
+            caps: self.caps,
+            caps_seen: self.caps_seen,
             key: self.key.take(),
             store: self.store.take(),
             map_is_layout: self.map_is_layout,
@@ -449,6 +531,7 @@ impl Tracker {
         self.path_jumped = false;
         self.called_invalid = false;
         self.current_from_line = false;
+        self.lap_sectors = [None; 2];
         self.fuel_lap_ended(frame, false);
     }
 

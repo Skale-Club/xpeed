@@ -237,27 +237,29 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }
         let lap_row = 34.0;
         let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
-        for (i, label) in view.recent_laps.iter().rev().take(room).enumerate() {
+        for (i, saved) in view.recent_laps.iter().rev().take(room).enumerate() {
             let y = 44.0 + lap_row * i as f32;
             if i > 0 {
                 g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
             }
-            let lap = lap_parts(label);
+            let name = text(view.lang, &Msg::PanelLap(saved.number as i32));
+            let time = clock(saved.time_ms);
+            let invalid = !saved.valid;
             let r = g.r(right + 20.0, y, col / 2.0, lap_row);
-            g.text(lap.name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            g.text(&name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
             // The time stays in its half of the row (smaller when it is long), the mark of an invalid lap before it.
-            let room = col / 2.0 - 20.0 - if lap.invalid { 24.0 } else { 0.0 };
-            let size = g.fitted(lap.time, room, 18.0, 11.0, semi, Face::Num);
-            let color = match (lap.invalid, i) {
+            let room = col / 2.0 - 20.0 - if invalid { 24.0 } else { 0.0 };
+            let size = g.fitted(&time, room, 18.0, 11.0, semi, Face::Num);
+            let color = match (invalid, i) {
                 (true, _) => MUTED,
                 (_, 0) => ACCENT,
                 _ => TEXT,
             };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
-            g.text(lap.time, r, size, semi, Face::Num, color, DT_RIGHT);
-            if lap.invalid {
+            g.text(&time, r, size, semi, Face::Num, color, DT_RIGHT);
+            if invalid {
                 // The digits are set a little wider than the plain measure: leave room.
-                let used = g.width_of(lap.time, size, semi, Face::Num) * 1.18 + 8.0;
+                let used = g.width_of(&time, size, semi, Face::Num) * 1.18 + 8.0;
                 g.invalid_mark(right + col - 20.0 - used - 22.0, y + (lap_row - 16.0) / 2.0, 16.0);
             }
         }

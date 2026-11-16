@@ -66,7 +66,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{WM_ACTIVATE, WM_CAPTURECHANGED
 use crate::connect::{self, Card, Note};
 use crate::dash::Live;
 use crate::present;
-use crate::status::{Activity, Cloud, Game, Notice, Shared, Snapshot};
+use crate::status::{Activity, Cloud, Game, Notice, SavedLap, Shared, Snapshot};
 use crate::text::{text, Lang, Msg};
 use crate::util::{clock, lock, now_ms};
 use crate::win;

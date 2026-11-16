@@ -45,15 +45,28 @@ pub struct Snapshot {
     pub title: Option<&'static str>,
     pub cloud: Cloud,
     pub laps_saved: u32,
-    /// `Lap 3  1:42.318` for the last lap saved in this run.
-    pub last_lap: Option<String>,
+    /// The last lap saved in this run (`text::lap_label` says it in the person's language).
+    pub last_lap: Option<SavedLap>,
+}
+
+/// A lap that was written to the laps folder: what the panel and the tray say about it. Data, not a label: the words
+/// ("Lap", "not valid") are made when it is shown, in the person's language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SavedLap {
+    pub number: u32,
+    pub time_ms: u32,
+    pub valid: bool,
+    /// The sector times the game gave for the lap, in order (empty when it gave none).
+    pub sectors_ms: Vec<u32>,
+    pub game: String,
+    pub track: String,
+    pub car: String,
 }
 
 /// Something worth a short word to the person (a balloon from the tray icon). The tray puts it in their language.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Notice {
-    /// `Lap 3  1:42.318`
-    LapSaved(String),
+    LapSaved(SavedLap),
     /// Several laps went at once (after being offline).
     LapsSent(u32),
     /// Connected under this device name.
@@ -136,8 +149,8 @@ pub struct Shared {
     heartbeat_view: Mutex<View>,
     /// The latest reading of the car, for the panel. Not a change worth waking the tray for.
     live: Mutex<Option<Live>>,
-    /// The labels of the last laps saved in this run, newest last.
-    recent_laps: Mutex<VecDeque<String>>,
+    /// The last laps saved in this run, newest last.
+    recent_laps: Mutex<VecDeque<SavedLap>>,
     /// What happened in this run worth telling the person, with the Unix time in ms, newest last.
     activity: Mutex<VecDeque<(i64, Activity)>>,
     /// How each long-lived worker thread stands, by worker id (`supervisor`).
@@ -340,9 +353,9 @@ impl Shared {
     }
 
     pub fn notify(&self, notice: Notice) {
-        if let Notice::LapSaved(label) = &notice {
+        if let Notice::LapSaved(lap) = &notice {
             let mut recent = lock(&self.recent_laps);
-            recent.push_back(label.clone());
+            recent.push_back(lap.clone());
             while recent.len() > RECENT_LAPS {
                 recent.pop_front();
             }
@@ -369,12 +382,12 @@ impl Shared {
         lock(&self.notices).drain(..).collect()
     }
 
-    /// The labels of the last laps saved in this run, newest last.
-    pub fn recent_laps(&self) -> Vec<String> {
+    /// The last laps saved in this run, newest last.
+    pub fn recent_laps(&self) -> Vec<SavedLap> {
         lock(&self.recent_laps).iter().cloned().collect()
     }
 
-    /// Forgets the labels of the laps saved in this run: the session they were driven in is over (another track, another
+    /// Forgets the laps saved in this run: the session they were driven in is over (another track, another
     /// car or another game), and the panel must not show them as the laps of the new one.
     pub fn clear_recent_laps(&self) {
         lock(&self.recent_laps).clear();
@@ -482,6 +495,20 @@ impl Shared {
     }
 }
 
+/// A saved lap for tests.
+#[cfg(test)]
+pub fn saved_lap(number: u32, time_ms: u32) -> SavedLap {
+    SavedLap {
+        number,
+        time_ms,
+        valid: true,
+        sectors_ms: Vec::new(),
+        game: "Assetto Corsa".into(),
+        track: "Monza".into(),
+        car: "Ferrari 488 GT3".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,7 +519,7 @@ mod tests {
         shared.set_game("ac", "Assetto Corsa", Game::Waiting);
         shared.set_game("ac", "Assetto Corsa", Game::Connected);
         shared.set_game("ac", "Assetto Corsa", Game::Recording(1));
-        shared.notify(Notice::LapSaved("Lap 1  1:49.002".into()));
+        shared.notify(Notice::LapSaved(saved_lap(1, 109_002)));
         shared.set_game("ac", "Assetto Corsa", Game::Paused);
         shared.set_game("ac", "Assetto Corsa", Game::Connected);
         shared.set_game("ac", "Assetto Corsa", Game::Waiting);
@@ -503,7 +530,7 @@ mod tests {
             events,
             [
                 Activity::GameConnected("Assetto Corsa"),
-                Activity::Notice(Notice::LapSaved("Lap 1  1:49.002".into())),
+                Activity::Notice(Notice::LapSaved(saved_lap(1, 109_002))),
                 Activity::GameClosed("Assetto Corsa"),
                 Activity::GameUnsupported("Stock Car Extreme"),
             ],
@@ -683,10 +710,10 @@ mod tests {
     #[test]
     fn holds_notices_until_they_are_taken() {
         let shared = Shared::new(true);
-        shared.notify(Notice::LapSaved("Lap 3  1:42.318".into()));
+        shared.notify(Notice::LapSaved(saved_lap(3, 102_318)));
         shared.notify(Notice::Paired("RIG".into()));
         let taken = shared.take_notices();
-        assert_eq!(taken, [Notice::LapSaved("Lap 3  1:42.318".into()), Notice::Paired("RIG".into())]);
+        assert_eq!(taken, [Notice::LapSaved(saved_lap(3, 102_318)), Notice::Paired("RIG".into())]);
         assert!(shared.take_notices().is_empty());
     }
 
@@ -694,12 +721,12 @@ mod tests {
     fn keeps_the_last_laps_saved_for_the_panel() {
         let shared = Shared::new(true);
         for lap in 1..=15 {
-            shared.notify(Notice::LapSaved(format!("Lap {lap}")));
+            shared.notify(Notice::LapSaved(saved_lap(lap, 100_000)));
         }
         shared.notify(Notice::LapsSent(3));
         let recent = shared.recent_laps();
         assert_eq!(recent.len(), RECENT_LAPS);
-        assert_eq!((recent[0].as_str(), recent[RECENT_LAPS - 1].as_str()), ("Lap 4", "Lap 15"));
+        assert_eq!((recent[0].number, recent[RECENT_LAPS - 1].number), (4, 15));
     }
 
     #[test]

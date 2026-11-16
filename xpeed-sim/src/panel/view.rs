@@ -53,7 +53,7 @@ pub struct View<'a> {
     pub server: &'a str,
     /// What the Account card shows (not connected, waiting for the browser, connected).
     pub card: crate::connect::Card,
-    pub recent_laps: &'a [String],
+    pub recent_laps: &'a [SavedLap],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
     pub activity: &'a [(String, String)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.

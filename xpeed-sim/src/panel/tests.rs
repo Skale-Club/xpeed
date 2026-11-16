@@ -1,5 +1,6 @@
 use super::demo::demo_frame;
 use super::*;
+use crate::status::saved_lap;
 
 #[test]
 fn the_account_card_says_connected_when_the_account_is_unknown_never_the_host() {
@@ -585,8 +586,6 @@ fn each_screen_shape_gets_the_layout_that_fills_it() {
         assert_eq!(bare(w, h).1 .0, CANVAS_W, "no column at {w} x {h}");
         assert_ne!(bare(w, h).0, Layout::Square, "a row with nothing in it is no layout at {w} x {h}");
     }
-    assert_eq!(clock_seconds("1:47.918"), Some(107.918));
-    assert_eq!(clock_seconds("-:--.---"), None);
 }
 
 #[test]
@@ -762,7 +761,7 @@ fn live_reading() -> Live {
 struct Fixture {
     snapshot: Snapshot,
     games: Vec<GameRow>,
-    laps: Vec<String>,
+    laps: Vec<SavedLap>,
     log: Vec<(String, String)>,
     update: crate::update::UpdateState,
 }
@@ -774,7 +773,7 @@ fn fixture() -> Fixture {
             title: Some("Assetto Corsa"),
             cloud: Cloud::Idle,
             laps_saved: 3,
-            last_lap: Some("Lap 3  1:47.918".into()),
+            last_lap: Some(saved_lap(3, 107_918)),
         },
         games: vec![
             GameRow {
@@ -804,9 +803,12 @@ fn fixture() -> Fixture {
             },
         ],
         laps: vec![
-            "Lap 1  1:49.002".into(),
-            "Lap 2  1:48.115 (not valid)".into(),
-            "Lap 3  1:47.918".into(),
+            saved_lap(1, 109_002),
+            SavedLap {
+                valid: false,
+                ..saved_lap(2, 108_115)
+            },
+            saved_lap(3, 107_918),
         ],
         log: vec![
             ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
@@ -906,7 +908,7 @@ fn out_of_the_car_the_header_shows_no_lap_and_no_invalid_badge() {
 fn the_recent_laps_band_draws_only_the_laps_that_exist() {
     let f = fixture();
     let live = live_reading();
-    let few = vec!["Lap 3  1:47.918".to_string()];
+    let few = vec![saved_lap(3, 107_918)];
     let (w, h) = (1920, 1080);
     let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     v.recent_laps = &few;
@@ -1390,7 +1392,7 @@ fn writes_the_design_preview_page() {
     let mut menu = fresh.clone();
     menu.driving = false;
     menu.lap_valid = Some(false);
-    let few = vec!["Lap 3  1:47.918".to_string()];
+    let few = vec![saved_lap(3, 107_918)];
     for (file, caption, reading) in [
         ("preview-no-best.png", "No best lap yet, one lap done (1920 × 1080)", &fresh),
         ("preview-menu.png", "Out of the car: only the state line shows (1920 × 1080)", &menu),
@@ -1690,26 +1692,14 @@ fn the_shift_lights_fill_up_and_flash_at_the_top() {
 }
 
 #[test]
-fn a_lap_label_splits_into_name_time_and_the_invalid_flag() {
-    let part = |name, time, invalid| LapLabel { name, time, invalid };
-    assert_eq!(lap_parts("Lap 3  1:47.918"), part("Lap 3", "1:47.918", false));
-    assert_eq!(lap_parts("Lap 5  3:27.250 (not valid)"), part("Lap 5", "3:27.250", true));
-    assert_eq!(lap_parts("odd"), part("odd", "", false));
-    assert_eq!(lap_parts(""), part("", "", false));
-    assert_eq!(lap_parts("Lap 7  (not valid)"), part("Lap 7", "", true));
-    // The mark is only the label's tail, not part of its name.
-    assert_eq!(lap_parts("Lap (not valid)  1:00.000"), part("Lap (not valid)", "1:00.000", false));
-}
-
-#[test]
 fn the_fastest_lap_is_never_an_invalid_one() {
-    let laps: Vec<_> = ["Lap 1  1:49.002", "Lap 2  1:40.000 (not valid)", "Lap 3  1:47.918"]
-        .into_iter()
-        .map(lap_parts)
-        .collect();
-    assert_eq!(fastest_valid(&laps), Some(107.918));
-    let only_invalid = [lap_parts("Lap 1  1:40.000 (not valid)")];
-    assert_eq!(fastest_valid(&only_invalid), None);
+    let invalid = SavedLap {
+        valid: false,
+        ..saved_lap(2, 100_000)
+    };
+    let laps = [saved_lap(1, 109_002), invalid.clone(), saved_lap(3, 107_918)];
+    assert_eq!(fastest_valid(&laps), Some(107_918));
+    assert_eq!(fastest_valid(&[invalid]), None);
     assert_eq!(fastest_valid(&[]), None);
 }
 

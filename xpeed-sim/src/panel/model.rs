@@ -46,39 +46,9 @@ pub(super) fn lights_lit(share: f32) -> (usize, bool) {
     (lit.clamp(0.0, LIGHTS as f32) as usize, false)
 }
 
-/// A saved lap's label (`Lap 3  1:47.918`, or `Lap 5  3:27.250 (not valid)`) in its parts.
-#[derive(Debug, PartialEq)]
-pub(super) struct LapLabel<'a> {
-    pub(super) name: &'a str,
-    pub(super) time: &'a str,
-    /// The label says the lap did not count.
-    pub(super) invalid: bool,
-}
-
-/// Splits a saved lap's label into its name, its time and whether the lap was invalid.
-pub(super) fn lap_parts(label: &str) -> LapLabel<'_> {
-    let (name, rest) = label.split_once("  ").unwrap_or((label, ""));
-    let rest = rest.trim();
-    match rest.strip_suffix(crate::engine::NOT_VALID_MARK.trim_start()) {
-        Some(time) => LapLabel {
-            name,
-            time: time.trim_end(),
-            invalid: true,
-        },
-        None => LapLabel {
-            name,
-            time: rest,
-            invalid: false,
-        },
-    }
-}
-
-/// The best time among the laps that counted, in seconds; an invalid lap is never the fastest.
-pub(super) fn fastest_valid(laps: &[LapLabel]) -> Option<f64> {
-    laps.iter()
-        .filter(|l| !l.invalid)
-        .filter_map(|l| clock_seconds(l.time))
-        .reduce(f64::min)
+/// The fastest lap that counted, in milliseconds; an invalid lap is never the fastest.
+pub(super) fn fastest_valid(laps: &[SavedLap]) -> Option<u32> {
+    laps.iter().filter(|l| l.valid).map(|l| l.time_ms).min()
 }
 
 /// The track map is drawn once the car has driven enough of a path.
@@ -89,12 +59,6 @@ pub(super) fn has_map(live: &Live) -> bool {
 /// Something for the track and tyre column: a map, or tyres.
 pub(super) fn has_side(live: &Live) -> bool {
     has_map(live) || live.tyres.is_some()
-}
-
-/// `1:47.918` as seconds.
-pub(super) fn clock_seconds(text: &str) -> Option<f64> {
-    let (minutes, seconds) = text.split_once(':')?;
-    Some(minutes.trim().parse::<f64>().ok()? * 60.0 + seconds.trim().parse::<f64>().ok()?)
 }
 
 /// Under this many laps of fuel, while driving, the fuel warns.
@@ -490,7 +454,7 @@ pub(super) fn activity_message(event: Activity) -> Msg {
         Activity::GameUnsupported(name) => Msg::ActivityGameUnsupported(name.to_owned()),
         Activity::WorkerRestarting(id) => Msg::ActivityWorkerRestarting(crate::supervisor::title(id).to_owned()),
         Activity::WorkerFailed(id) => Msg::ActivityWorkerFailed(crate::supervisor::title(id).to_owned()),
-        Activity::Notice(Notice::LapSaved(label)) => Msg::NoticeLapSaved(label),
+        Activity::Notice(Notice::LapSaved(lap)) => Msg::NoticeLapSaved(lap),
         Activity::Notice(Notice::LapsSent(n)) => Msg::NoticeLapsSent(n),
         Activity::Notice(Notice::Paired(name)) => Msg::NoticePaired(name),
         Activity::Notice(Notice::NotPaired) => Msg::CloudNotPaired,

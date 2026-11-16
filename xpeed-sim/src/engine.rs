@@ -16,7 +16,7 @@ use crate::lmu::layout::LAYOUT_SIZE;
 use crate::lmu::reader::{LmuReader, Names, OpenError};
 use crate::lmu::source::LmuSource;
 use crate::session::EndReason;
-use crate::status::{Game, Notice, Shared};
+use crate::status::{Game, Notice, SavedLap, Shared};
 use crate::supervisor::{self, supervise, Ended, Policy};
 use crate::tracks::auto::{self, Folders, Seen};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
@@ -55,9 +55,6 @@ pub fn lap_file_name(lap: &lapfile::Lap) -> String {
     )
 }
 
-/// What a saved lap's label ends with when the lap did not count; the panel looks for it to draw the invalid mark.
-pub const NOT_VALID_MARK: &str = " (not valid)";
-
 /// The name a lap goes under in `out`: its own, or (when a file of that name is already there: another lap that began in the
 /// same minute, or the same lap written before) the name with `_2`, `_3`... before the extension, so a lap never replaces one.
 fn free_name(out: &Path, name: &str) -> String {
@@ -72,9 +69,9 @@ fn free_name(out: &Path, name: &str) -> String {
 }
 
 /// One try at writing the lap: next to its final name as `.part`, then renamed, so a half-written file never looks like a
-/// lap. `Ok` is `Lap 3  1:42.318`; `Err` is what went wrong. The log gets the lines of a lap written, none for a failure
+/// lap. `Ok` is the lap as the panel lists it; `Err` is what went wrong. The log gets the lines of a lap written, none for a failure
 /// (the caller decides what a failure is worth).
-pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result<String, String> {
+pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result<SavedLap, String> {
     // The folder may have been deleted while the program ran: make it again.
     let _ = std::fs::create_dir_all(out);
     let name = free_name(out, &lap_file_name(lap));
@@ -96,19 +93,22 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
     for finding in &findings {
         say(format!("Data check {} (lap {}): {}", finding.id, lap.lap_number, finding.detail));
     }
-    Ok(format!(
-        "Lap {}  {}{}",
-        lap.lap_number,
-        clock(lap.time_ms),
-        if lap.valid { "" } else { NOT_VALID_MARK }
-    ))
+    Ok(SavedLap {
+        number: lap.lap_number,
+        time_ms: lap.time_ms,
+        valid: lap.valid,
+        sectors_ms: lap.sectors_ms.clone().unwrap_or_default(),
+        game: lap.game.clone(),
+        track: lap.track_name.clone(),
+        car: lap.car_name.clone(),
+    })
 }
 
-/// `save_once`, and a line in the log when it fails. Returns `Lap 3  1:42.318` when it worked.
+/// `save_once`, and a line in the log when it fails. Returns the lap when it worked.
 #[cfg(test)]
-pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<String> {
+pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<SavedLap> {
     match save_once(out, lap, say) {
-        Ok(label) => Some(label),
+        Ok(saved) => Some(saved),
         Err(error) => {
             say(format!("Could not save lap {}: {error}", lap.lap_number));
             None
@@ -165,26 +165,26 @@ impl<'a> Saver<'a> {
         crate::util::lock(&self.held).len()
     }
 
-    fn written(&self, lap: &lapfile::Lap, label: String, late: bool) {
+    fn written(&self, lap: &lapfile::Lap, saved: SavedLap, late: bool) {
         let build = lap.recorder.as_ref().and_then(|r| r.game_build.as_deref());
         self.shared.update(|s| {
             s.laps_saved += 1;
-            s.last_lap = Some(label.clone());
+            s.last_lap = Some(saved.clone());
         });
         self.shared.note_lap_saved(&lap.game, build, late);
-        self.shared.notify(Notice::LapSaved(label));
+        self.shared.notify(Notice::LapSaved(saved));
         self.shared.wake_uploader();
     }
 
     /// One lap with its tries and their waits.
-    fn try_hard(&self, lap: &lapfile::Lap) -> Result<String, String> {
+    fn try_hard(&self, lap: &lapfile::Lap) -> Result<SavedLap, String> {
         let mut last = String::new();
         for (index, wait) in std::iter::once(&Duration::ZERO).chain(self.delays).enumerate() {
             if index > 0 {
                 std::thread::sleep(*wait);
             }
             match save_once(self.out, lap, self.say) {
-                Ok(label) => return Ok(label),
+                Ok(saved) => return Ok(saved),
                 Err(error) => last = error,
             }
         }
@@ -195,8 +195,8 @@ impl<'a> Saver<'a> {
     pub fn lap(&self, lap: &lapfile::Lap) {
         self.retry_held(true);
         match self.try_hard(lap) {
-            Ok(label) => {
-                self.written(lap, label, false);
+            Ok(saved) => {
+                self.written(lap, saved, false);
                 self.shared.note_saving_works();
             }
             Err(error) => self.hold(lap, &error),
@@ -237,9 +237,9 @@ impl<'a> Saver<'a> {
                 return;
             };
             match save_once(self.out, &lap, self.say) {
-                Ok(label) => {
+                Ok(saved) => {
                     crate::util::lock(&self.held).pop_front();
-                    self.written(&lap, label, true);
+                    self.written(&lap, saved, true);
                     self.shared.note_saving_works();
                 }
                 Err(_) => return,
@@ -251,7 +251,7 @@ impl<'a> Saver<'a> {
     pub fn finish(&self) {
         for lap in std::mem::take(&mut *crate::util::lock(&self.held)) {
             match self.try_hard(&lap) {
-                Ok(label) => self.written(&lap, label, true),
+                Ok(saved) => self.written(&lap, saved, true),
                 Err(error) => (self.say)(format!("Lap {} could not be saved and is lost: {error}", lap.lap_number)),
             }
         }
@@ -282,6 +282,7 @@ fn handle_frame(
     shared: &Shared,
     saved: &dyn Fn(&lapfile::Lap),
 ) {
+    tracker.set_caps(source.caps());
     shared.offer_live(tracker.on_frame(source.game_name(), frame, now_ms()));
     for mut lap in cutter.on_frame(frame, now_ms()) {
         source.finish_lap(&mut lap);
@@ -857,6 +858,7 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::Lang;
 
     #[test]
     fn lmu_quiet_period_keeps_reading_while_the_game_runs() {
@@ -904,6 +906,7 @@ mod tests {
         let dir = crate::config::scratch_dir("engine-save");
         let lines = std::sync::Mutex::new(Vec::new());
         let label = save(&dir, &lap(3), &|line| lines.lock().unwrap().push(line));
+        let label = label.map(|l| crate::text::lap_label(Lang::En, &l));
         assert_eq!(label.as_deref(), Some("Lap 3  3:27.250"));
         let written: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
@@ -963,7 +966,8 @@ mod tests {
     #[test]
     fn a_folder_that_was_deleted_while_running_is_made_again() {
         let dir = crate::config::scratch_dir("engine-save-remake").join("gone").join("laps");
-        assert_eq!(save(&dir, &lap(2), &|_| {}).as_deref(), Some("Lap 2  3:27.250"));
+        let saved = save(&dir, &lap(2), &|_| {}).map(|l| crate::text::lap_label(Lang::En, &l));
+        assert_eq!(saved.as_deref(), Some("Lap 2  3:27.250"));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     }
 
@@ -1087,7 +1091,10 @@ mod tests {
         let dir = crate::config::scratch_dir("engine-invalid");
         let mut invalid = lap(5);
         invalid.valid = false;
-        assert_eq!(save(&dir, &invalid, &|_| {}).as_deref(), Some("Lap 5  3:27.250 (not valid)"));
+        let saved = save(&dir, &invalid, &|_| {}).map(|l| crate::text::lap_label(Lang::En, &l));
+        assert_eq!(saved.as_deref(), Some("Lap 5  3:27.250 (not valid)"));
+        let pt = save(&dir, &invalid, &|_| {}).map(|l| crate::text::lap_label(Lang::Pt, &l));
+        assert_eq!(pt.as_deref(), Some("Volta 5  3:27.250 (inválida)"));
     }
 
     #[test]
@@ -1502,7 +1509,8 @@ mod tests {
             }
             let seen = shared.snapshot();
             assert_eq!(seen.laps_saved, 1);
-            assert_eq!(seen.last_lap.as_deref(), Some("Lap 1  0:30.000"));
+            let last = seen.last_lap.as_ref().map(|l| crate::text::lap_label(Lang::En, l));
+            assert_eq!(last.as_deref(), Some("Lap 1  0:30.000"));
             shared.quit();
         });
         assert!(finished.load(std::sync::atomic::Ordering::SeqCst));

@@ -64,13 +64,21 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
                 fuel = (fuel - (dt * 0.004) as f32).max(0.0);
                 if dist >= DEMO_TRACK_M {
                     last = Some(lap_time);
-                    let label = format!("Lap {lap}  {}", lap_clock(Some(lap_time)).unwrap_or_default());
+                    let saved = crate::status::SavedLap {
+                        number: lap as u32,
+                        time_ms: (lap_time * 1000.0).round() as u32,
+                        valid: true,
+                        sectors_ms: Vec::new(),
+                        game: "Demo".into(),
+                        track: "Demo".into(),
+                        car: "Demo".into(),
+                    };
                     crate::applog::line(&format!("panel demo: lap {lap} done"));
                     shared.update(|s| {
                         s.laps_saved += 1;
-                        s.last_lap = Some(label.clone());
+                        s.last_lap = Some(saved.clone());
                     });
-                    shared.notify(crate::status::Notice::LapSaved(label));
+                    shared.notify(crate::status::Notice::LapSaved(saved));
                     lap += 1;
                     dist -= DEMO_TRACK_M;
                     lap_time = 0.0;

@@ -76,6 +76,9 @@ pub(super) fn scale_of(hwnd: HWND) -> f32 {
     }
 }
 
+/// The place in `Lang::ALL` of the language the panel was last drawn in, for the failure screen.
+static SHOWN_LANG: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let mut ps: PAINTSTRUCT = std::mem::zeroed();
     let hdc = BeginPaint(hwnd, &mut ps);
@@ -94,6 +97,10 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let live = ctx.shared.live();
     let games = game_rows(ctx, state.installed.as_ref());
     let account = lock(&ctx.account).clone();
+    SHOWN_LANG.store(
+        Lang::ALL.iter().position(|l| *l == account.lang).unwrap_or(0),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let recent_laps = ctx.shared.recent_laps();
     let activity: Vec<(String, String)> = ctx
         .shared
@@ -360,9 +367,9 @@ pub(super) unsafe fn paint_failed(hwnd: HWND) {
     DeleteObject(background);
     SetBkMode(hdc, TRANSPARENT as i32);
     SetTextColor(hdc, 0x00f0_ebe6);
-    let text: Vec<u16> = "Something went wrong drawing the panel. Recording continues."
-        .encode_utf16()
-        .collect();
+    // The language the panel was last drawn in (a number: nothing of the panel's state is read here).
+    let lang = Lang::ALL[SHOWN_LANG.load(std::sync::atomic::Ordering::Relaxed).min(Lang::ALL.len() - 1)];
+    let text: Vec<u16> = crate::text::draw_failed(lang).encode_utf16().collect();
     let mut inner = RECT {
         left: area.left + 24,
         top: area.top + (area.bottom - area.top) / 3,

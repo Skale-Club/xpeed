@@ -52,8 +52,8 @@ pub(super) fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: 
     let r = g.r(0.0, top, w, 16.0);
     g.caps(&text(view.lang, &Msg::PanelRecentLaps), r, 10.5, MUTED, DT_LEFT);
     let (y, h) = (top + 24.0, bottom - top - 24.0);
-    let laps: Vec<LapLabel> = view.recent_laps.iter().map(|label| lap_parts(label)).collect();
-    let fastest = fastest_valid(&laps).unwrap_or(f64::INFINITY);
+    let laps = view.recent_laps;
+    let fastest = fastest_valid(laps);
     // Cards of a fixed width (six fit the row): the last completed laps (up to five), then the lap being driven.
     // Only laps that exist get a card; with fewer the row simply ends sooner.
     let (n, gap) = (6_usize, 12.0);
@@ -87,25 +87,26 @@ pub(super) fn laps_band(g: &mut Painter, view: &View, live: &Live, top: f32, w: 
         g.text(note, r, 14.0, semi, Face::Num, note_color, DT_LEFT);
     };
     for (i, lap) in shown.iter().enumerate() {
-        let secs = clock_seconds(lap.time);
-        let is_fastest = !lap.invalid && secs.is_some_and(|s| (s - fastest).abs() < 0.0005);
-        let note = match secs {
-            _ if lap.invalid => text(view.lang, &Msg::PanelInvalid),
+        let invalid = !lap.valid;
+        let is_fastest = !invalid && fastest == Some(lap.time_ms);
+        let note = match fastest {
+            _ if invalid => text(view.lang, &Msg::PanelInvalid),
             _ if is_fastest => text(view.lang, &Msg::PanelFastest),
-            Some(s) if fastest.is_finite() => format!("+{:.3}", s - fastest),
-            _ => String::new(),
+            Some(best) => format!("+{:.3}", f64::from(lap.time_ms.saturating_sub(best)) / 1000.0),
+            None => String::new(),
         };
-        let (edge, color) = match (lap.invalid, is_fastest) {
+        let (edge, color) = match (invalid, is_fastest) {
             (true, _) => (RED, MUTED),
             (_, true) => (PURPLE, PURPLE),
             _ => (EDGE, TEXT),
         };
-        let note_color = match (lap.invalid, is_fastest) {
+        let note_color = match (invalid, is_fastest) {
             (true, _) => RED,
             (_, true) => PURPLE,
             _ => MUTED,
         };
-        card(g, i, edge, lap.name, MUTED, lap.time, color, &note, note_color, lap.invalid);
+        let name = text(view.lang, &Msg::PanelLap(lap.number as i32));
+        card(g, i, edge, &name, MUTED, &clock(lap.time_ms), color, &note, note_color, invalid);
     }
     // The lap being driven, its time running and its delta to the best lap.
     let now = shown.len();

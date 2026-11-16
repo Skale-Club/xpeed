@@ -511,7 +511,7 @@ impl App {
                 win::wide(&present::cloud_line(self.lang, &snapshot.cloud, self.device.as_deref())),
             );
             if let Some(last) = &snapshot.last_lap {
-                line(MF_STRING | MF_GRAYED, 0, win::wide(last));
+                line(MF_STRING | MF_GRAYED, 0, win::wide(&crate::text::lap_label(self.lang, last)));
             }
             // A new version, when one is waiting: "Update available: 0.6.0 · Update now" (grayed while it downloads or
             // waits for a game to close).
