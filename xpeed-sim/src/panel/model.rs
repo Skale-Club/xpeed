@@ -335,6 +335,14 @@ pub(super) enum StatusKind {
     NotDriving,
 }
 
+/// The box over a dashboard that is paused or whose game has gone silent: a title and one line of explanation.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Banner {
+    pub(super) kind: StatusKind,
+    pub(super) title: String,
+    pub(super) note: String,
+}
+
 /// An alert that is lit: its kind (for its colour), the words it says and how it is shown. Alerts that are not lit are
 /// not in the model at all.
 #[derive(Clone, Debug, PartialEq)]
@@ -474,6 +482,8 @@ pub(super) struct LapsModel {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct DashModel {
     pub(super) status: Option<(StatusKind, String)>,
+    /// The banner over the cards: only while paused or while the game is silent (the other states keep the state line).
+    pub(super) banner: Option<Banner>,
     pub(super) track: String,
     pub(super) car: String,
     /// The session's name for the chip next to the track (nothing when the game does not say).
@@ -779,6 +789,20 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         Some((StatusKind::NotDriving, say(Msg::PanelNotDriving)))
     } else {
         None
+    };
+
+    let banner = match &status {
+        Some((StatusKind::Paused, title)) => Some(Banner {
+            kind: StatusKind::Paused,
+            title: title.to_uppercase(),
+            note: say(Msg::PanelPausedNote),
+        }),
+        Some((StatusKind::NoData, title)) => Some(Banner {
+            kind: StatusKind::NoData,
+            title: title.to_uppercase(),
+            note: say(Msg::PanelNoGameDataNote),
+        }),
+        _ => None,
     };
 
     let lap = if live.driving && fresh {
@@ -1144,6 +1168,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
 
     DashModel {
         status,
+        banner,
         track: live.track.to_uppercase(),
         car: [live.car.as_str(), live.game]
             .iter()

@@ -121,6 +121,10 @@ pub enum Msg {
     PanelNoGameData,
     /// The game is paused.
     PanelPaused,
+    /// Under the paused banner: what the dimmed values are.
+    PanelPausedNote,
+    /// Under the banner of a silent game.
+    PanelNoGameDataNote,
     PanelLap(i32),
     PanelLastLap,
     PanelBestLap,
@@ -494,6 +498,16 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Sin datos del juego"),
         ),
         PanelPaused => t(s("Paused"), s("Pausado"), s("En pausa")),
+        PanelPausedNote => t(
+            s("Tyres, fuel and laps show the last value read."),
+            s("Pneus, combustível e voltas mostram o último valor lido."),
+            s("Neumáticos, combustible y vueltas muestran el último valor leído."),
+        ),
+        PanelNoGameDataNote => t(
+            s("Everything shows the last value read until the game sends data again."),
+            s("Tudo mostra o último valor lido até o jogo enviar dados de novo."),
+            s("Todo muestra el último valor leído hasta que el juego envíe datos de nuevo."),
+        ),
         PanelPits => t(s("In the pits"), s("No pit"), s("En boxes")),
         PanelGames => t(s("Games"), s("Jogos"), s("Juegos")),
         PanelAccount => t(s("Account"), s("Conta"), s("Cuenta")),
@@ -827,6 +841,8 @@ mod tests {
             Msg::PanelNotDriving,
             Msg::PanelNoGameData,
             Msg::PanelPaused,
+            Msg::PanelPausedNote,
+            Msg::PanelNoGameDataNote,
             Msg::PanelLap(3),
             Msg::PanelLastLap,
             Msg::PanelBestLap,
