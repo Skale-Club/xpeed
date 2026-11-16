@@ -59,6 +59,25 @@ command without running any. It needs only the workflow's `GITHUB_TOKEN`.
 `build` is the short commit; `minVersion` is the oldest version that may keep running (raise it only for an update that
 must not be skipped; the script's `-MinVersion`); `signed` is true when CI signed the program and the installer.
 
+### Safety controls: `rollout` and `blocked`
+
+Two optional fields of the rolling release's `latest.json` (never of the immutable `companion-v<version>` ones), also passed
+through by `/api/companion/latest` (always present there: `100` and `[]` when the file says nothing):
+
+- `rollout` (0 to 100, default 100): the share of computers that install the new version **by themselves**. Each computer has
+  a stable place from 0 to 99 (a hash of its device key and the version); it installs when its place is below `rollout`.
+  Widening the share only adds computers. "Update now" in the program ignores it, and so does a forced update (running version
+  below `minVersion`, or on `blocked`). `0` pauses the release.
+- `blocked` (up to 50 versions `a.b.c`): versions that must not stay installed. A computer running one installs the manifest's
+  version **even when it is older** (the only downgrade the program accepts), with the same size, SHA-256 and HTTPS checks, and
+  never during a game. The offered version cannot be in the list.
+
+`scripts/release-companion.ps1` sets them: `-Rollout 10`, `-Blocked 0.8.2,0.8.3`; the kill switch is
+`-RollbackTo 0.8.1 -Blocked 0.8.2` (the rolling release holds the already released `companion-v0.8.1`; no installer needed) and
+`-PolicyOnly -Rollout 50` widens or narrows what the rolling release holds now. A re-run of the same version without those
+parameters keeps what the rolling release already says. The program also checks the installer's size and SHA-256 again right
+before it starts it, and refuses (and deletes) a file that changed.
+
 ## The endpoints (public, no sign-in)
 
 - `GET /api/companion/latest` answers

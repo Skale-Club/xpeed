@@ -19,6 +19,8 @@ export default async function handler(request: Request): Promise<Response> {
       releasedAt: manifest.releasedAt,
       minVersion: manifest.minVersion,
       signed: manifest.signed,
+      rollout: manifest.rollout,
+      blocked: manifest.blocked,
     }),
     { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': '*' } },
   );

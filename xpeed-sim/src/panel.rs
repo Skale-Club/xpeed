@@ -4230,7 +4230,79 @@ unsafe fn toggle_full(hwnd: HWND, state: &mut State) {
     state.full = Some((placement, style));
 }
 
+/// Guards the panel's window procedure: a panic must not unwind out of an `extern "system"` function (that aborts the
+/// whole program, and the recording with it).
+static PANEL_GUARD: crate::supervisor::UiGuard = crate::supervisor::UiGuard::new();
+
+/// The window procedure Windows calls; the real one is `window_proc_body`, run inside `PANEL_GUARD`. A panic is already in
+/// the log and the crash report (the panic hook), and here it only means "this message was not handled": the window stays
+/// alive, the recording threads never notice. After 5 panics in a minute the panel stops drawing its screens (the next
+/// paint would fail the same way) and says so in plain words, and the tray shows one balloon.
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if message == WM_CREATE {
+        // A new panel window starts clean, even after an earlier one gave up.
+        PANEL_GUARD.reset();
+    }
+    if PANEL_GUARD.tripped() {
+        match message {
+            WM_PAINT => {
+                paint_failed(hwnd);
+                return 0;
+            }
+            WM_TIMER => {
+                // Nothing moves any more: stop the frame timer instead of repainting the same message.
+                windows_sys::Win32::UI::WindowsAndMessaging::KillTimer(hwnd, TIMER);
+                return 0;
+            }
+            _ => {}
+        }
+    }
+    match PANEL_GUARD.run(|| window_proc_body(hwnd, message, wparam, lparam)) {
+        Ok(result) => result,
+        Err(panic) => {
+            if panic == crate::supervisor::UiPanic::JustTripped {
+                crate::applog::line("the panel failed 5 times in a minute; it stopped drawing and the recording is not affected");
+                crate::tray::panel_failed_of_running();
+                windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, null(), 0);
+            }
+            DefWindowProcW(hwnd, message, wparam, lparam)
+        }
+    }
+}
+
+/// What the panel shows once it gave up drawing: a plain sentence on a plain background. Nothing here can panic (no text
+/// tables, no state of the panel, only drawing calls with constant text).
+unsafe fn paint_failed(hwnd: HWND) {
+    use windows_sys::Win32::Graphics::Gdi::{
+        BeginPaint, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, SetBkMode, SetTextColor, DT_CENTER, DT_WORDBREAK,
+        PAINTSTRUCT, TRANSPARENT,
+    };
+    let mut paint: PAINTSTRUCT = std::mem::zeroed();
+    let hdc = BeginPaint(hwnd, &mut paint);
+    if hdc.is_null() {
+        return;
+    }
+    let mut area: RECT = std::mem::zeroed();
+    GetClientRect(hwnd, &mut area);
+    let background = CreateSolidBrush(0x0020_1a14); // BGR of a dark blue-grey
+    FillRect(hdc, &area, background);
+    DeleteObject(background);
+    SetBkMode(hdc, TRANSPARENT as i32);
+    SetTextColor(hdc, 0x00f0_ebe6);
+    let text: Vec<u16> = "Something went wrong drawing the panel. Recording continues."
+        .encode_utf16()
+        .collect();
+    let mut inner = RECT {
+        left: area.left + 24,
+        top: area.top + (area.bottom - area.top) / 3,
+        right: (area.right - 24).max(area.left + 25),
+        bottom: area.bottom.max(area.top + 1),
+    };
+    DrawTextW(hdc, text.as_ptr(), text.len() as i32, &mut inner, DT_CENTER | DT_WORDBREAK);
+    EndPaint(hwnd, &paint);
+}
+
+unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if message == WM_NCCREATE {
         let create = lparam as *const CREATESTRUCTW;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*create).lpCreateParams as isize);

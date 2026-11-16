@@ -17,7 +17,12 @@
 //!   from (`ALLOWED_HOSTS`), after at most 3 redirects, never bigger than `MAX_INSTALLER_BYTES`, and it is run only
 //!   when its size and SHA-256 are the ones the server announced;
 //! * the device key is never sent with any of these requests;
-//! * nothing is downgraded and the same version is never installed again;
+//! * nothing is downgraded and the same version is never installed again, with one exception: when the server's `blocked`
+//!   list names the version that is running, the program installs the server's version even if it is older (a rollback),
+//!   with the same size, SHA-256 and HTTPS checks;
+//! * the server's `rollout` (0 to 100) says what share of computers install a new version by themselves, by a stable
+//!   bucket of the computer's own key; "Update now" and a forced update (below `minVersion`, or a blocked version) ignore it;
+//! * the downloaded file is checked again, size and SHA-256, right before the installer is started (`launch_verified`);
 //! * the pairing, the laps and the configuration are not touched: the installer replaces the program's files only.
 
 use std::fs::File;
@@ -106,20 +111,51 @@ impl std::fmt::Display for Version {
 /// What a version offered by the server means for the one that is running.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
-    /// The same version or an older one: nothing to do, and never a downgrade.
+    /// The same version or an older one: nothing to do, and never a downgrade (unless the running one is blocked).
     UpToDate,
-    /// Newer. `required` when the running version is older than the server's `minVersion`.
+    /// Newer, or a way out of a blocked version. `required` when the running version is older than the server's
+    /// `minVersion` or is on its `blocked` list.
     Available { required: bool },
 }
 
+/// Whether `target` may replace `running`: a newer version always; an older one only when `running` is on the `blocked`
+/// list (the one allowed downgrade); never the same version.
+pub fn may_replace(running: Version, target: Version, blocked: &[Version]) -> bool {
+    target > running || (target < running && blocked.contains(&running))
+}
+
 pub fn status(running: Version, offer: &Offer) -> Status {
-    if offer.version > running {
-        Status::Available {
-            required: running < offer.min_version,
-        }
-    } else {
-        Status::UpToDate
+    if !may_replace(running, offer.version, &offer.blocked) {
+        return Status::UpToDate;
     }
+    Status::Available {
+        required: running < offer.min_version || offer.blocked.contains(&running),
+    }
+}
+
+/// Which of 100 places this computer holds for this version: the same every time for the same computer and version, spread
+/// evenly between computers. `identity` is a hash of the computer's own key (see `identity_of`).
+pub fn rollout_bucket(identity: &str, version: Version) -> u8 {
+    let mut hash = Sha256::new();
+    hash.update(format!("xpeed-rollout:{version}:{identity}").as_bytes());
+    let hex = hash.finish_hex();
+    (u32::from_str_radix(&hex[..8], 16).unwrap_or(0) % 100) as u8
+}
+
+/// Whether this computer is inside the share of `offer.rollout` percent: 0 lets nobody in, 100 everybody.
+pub fn rollout_allows(offer: &Offer, identity: &str) -> bool {
+    rollout_bucket(identity, offer.version) < offer.rollout
+}
+
+/// What stands for this computer in the rollout: a hash of its device key (the key itself is not kept here), or, with no
+/// pairing, of the computer's name.
+pub fn identity_of(token: Option<&str>) -> String {
+    let mut hash = Sha256::new();
+    match token {
+        Some(token) => hash.update(format!("device:{token}").as_bytes()),
+        None => hash.update(format!("computer:{}", std::env::var("COMPUTERNAME").unwrap_or_default()).as_bytes()),
+    }
+    hash.finish_hex()
 }
 
 // ----------------------------------------------------------------------------------------------------------- addresses
@@ -256,7 +292,14 @@ pub struct Offer {
     pub released_at: String,
     pub min_version: Version,
     pub signed: bool,
+    /// 0 to 100: the share of computers that install this version by themselves. 100 when the answer says nothing.
+    pub rollout: u8,
+    /// Versions that must not stay installed. Never holds `version`.
+    pub blocked: Vec<Version>,
 }
+
+/// The most versions a `blocked` list may hold.
+pub const MAX_BLOCKED: usize = 50;
 
 fn short_text(value: &Value, key: &str, longest: usize) -> Result<String, String> {
     let text = value
@@ -311,6 +354,33 @@ pub fn parse_offer(body: &[u8], server: &str) -> Result<Offer, String> {
         .get("signed")
         .and_then(Value::as_bool)
         .ok_or_else(|| "signed is missing or not true/false".to_owned())?;
+    // Both are optional (an answer from before they existed means a full rollout and nothing blocked) and strict when present.
+    let rollout = match value.get("rollout") {
+        None => 100,
+        Some(number) => number
+            .as_u64()
+            .filter(|n| *n <= 100)
+            .ok_or_else(|| "rollout is not a whole number from 0 to 100".to_owned())? as u8,
+    };
+    let mut blocked: Vec<Version> = Vec::new();
+    if let Some(list) = value.get("blocked") {
+        let list = list
+            .as_array()
+            .filter(|l| l.len() <= MAX_BLOCKED)
+            .ok_or_else(|| format!("blocked is not a list of at most {MAX_BLOCKED} versions"))?;
+        for entry in list {
+            let version = entry
+                .as_str()
+                .and_then(Version::parse)
+                .ok_or_else(|| "blocked has something that is not a version like 1.2.3".to_owned())?;
+            if !blocked.contains(&version) {
+                blocked.push(version);
+            }
+        }
+        if blocked.contains(&version) {
+            return Err("blocked names the version being offered".into());
+        }
+    }
     let download_url = short_text(&value, "downloadUrl", 2048)?;
     let (server_origin, _) = split_url(server).ok_or_else(|| "the server's address is not valid".to_owned())?;
     let (origin, rest) = split_url(&download_url).ok_or_else(|| "downloadUrl is not a valid address".to_owned())?;
@@ -329,6 +399,8 @@ pub fn parse_offer(body: &[u8], server: &str) -> Result<Offer, String> {
         released_at,
         min_version,
         signed,
+        rollout,
+        blocked,
     })
 }
 
@@ -385,6 +457,8 @@ pub enum Hold {
     AutomaticOff,
     /// A download just failed or did not check out; it is tried again later.
     RecentFailure,
+    /// The server's `rollout` has not reached this computer yet (only "Update now" installs before that).
+    Rollout,
 }
 
 /// Whether an update may start now. A game running always holds it, whoever asks; "Update automatically" off and a lap on
@@ -442,6 +516,8 @@ pub struct Updater {
     automatic: AtomicBool,
     busy: AtomicBool,
     inner: Mutex<Inner>,
+    /// Stands for this computer in the rollout (`identity_of`).
+    identity: Mutex<String>,
 }
 
 /// Held while a download is under way; letting it go says the program is free to try again.
@@ -460,7 +536,13 @@ impl Updater {
             automatic: AtomicBool::new(automatic),
             busy: AtomicBool::new(false),
             inner: Mutex::new(Inner::default()),
+            identity: Mutex::new(identity_of(None)),
         })
+    }
+
+    /// Tells who this computer is for the rollout: the device key when paired (only its hash is kept), else the computer's name.
+    pub fn set_identity(&self, token: Option<&str>) {
+        *lock(&self.identity) = identity_of(token);
     }
 
     pub fn automatic(&self) -> bool {
@@ -503,12 +585,17 @@ impl Updater {
             return Plan::Nothing;
         }
         let automatic = self.automatic();
+        let required = matches!(status(self.running, &offer), Status::Available { required: true });
         let verdict = may_install(trigger, automatic, game_running, lap_view);
         // "Held" is only said about an update that would install by itself.
         inner.held = automatic && matches!(verdict, Err(Hold::GameRunning | Hold::LapView));
         match verdict {
             Err(hold) => Plan::Wait(hold),
             Ok(()) => match inner.failed_at {
+                // The program's own attempts wait for their place in the rollout, unless the update is forced.
+                _ if trigger == Trigger::Automatic && !required && !rollout_allows(&offer, &lock(&self.identity)) => {
+                    Plan::Wait(Hold::Rollout)
+                }
                 Some(at) if trigger == Trigger::Automatic && now.duration_since(at) < RETRY_AFTER_FAILURE => {
                     Plan::Wait(Hold::RecentFailure)
                 }
@@ -869,6 +956,59 @@ pub fn launch_installer(installer: &Path) -> Result<(), String> {
         .map_err(|error| format!("cannot start {}: {error}", installer.display()))
 }
 
+/// A downloaded installer that was checked, waiting for the program to close so it can run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Staged {
+    pub path: PathBuf,
+    pub version: Version,
+    /// What the server announced: the file is checked against them again right before it is started.
+    pub size: u64,
+    pub sha256: String,
+    /// The offer's `blocked` list when it was downloaded: it says whether `version` may be older than the running one.
+    pub blocked: Vec<Version>,
+}
+
+impl Staged {
+    pub fn of(path: PathBuf, offer: &Offer) -> Staged {
+        Staged {
+            path,
+            version: offer.version,
+            size: offer.size,
+            sha256: offer.sha256.clone(),
+            blocked: offer.blocked.clone(),
+        }
+    }
+
+    /// Whether this installer may still replace `running` (a newer one, or the way out of a blocked one).
+    pub fn still_applies(&self, running: Version) -> bool {
+        may_replace(running, self.version, &self.blocked)
+    }
+}
+
+/// Why an installer was not started.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LaunchError {
+    /// The file is not what was downloaded and checked any more (it was changed, or is gone). A changed file was deleted.
+    Changed(DownloadError),
+    Start(String),
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaunchError::Changed(why) => write!(f, "the installer is not what was downloaded any more ({why}); it was not started"),
+            LaunchError::Start(why) => f.write_str(why),
+        }
+    }
+}
+
+/// The last step before the installer runs: its size and SHA-256 are checked once more (something may have replaced the file
+/// since the download), and only a file that still checks out is handed to `start`. A file that does not is deleted.
+pub fn launch_verified(staged: &Staged, start: &dyn Fn(&Path) -> Result<(), String>) -> Result<(), LaunchError> {
+    verify_or_delete(&staged.path, staged.size, &staged.sha256).map_err(LaunchError::Changed)?;
+    start(&staged.path).map_err(LaunchError::Start)
+}
+
 /// Notes in `home` which version an update was started for.
 pub fn write_marker(home: &Path, version: &Version) -> Result<(), String> {
     let path = home.join(MARKER_FILE);
@@ -940,6 +1080,8 @@ mod tests {
                 released_at: "2026-11-13T16:20:18Z".into(),
                 min_version: Version(0, 4, 0),
                 signed: false,
+                rollout: 100,
+                blocked: vec![],
             }
         );
         // A server with a base path and a port, and the biggest size allowed.
@@ -1647,5 +1789,256 @@ mod tests {
         std::fs::write(home.join(MARKER_FILE), "garbage").unwrap();
         assert_eq!(after_update(&home, &Version(0, 6, 0)), AfterUpdate::Nothing);
         assert!(!home.join(MARKER_FILE).exists());
+    }
+
+    fn offer_with(version: &str, min: &str, rollout: Option<u64>, blocked: &[&str]) -> Offer {
+        let server = "https://xpeed.skale.club";
+        let mut value = answer_for(server);
+        value["version"] = version.into();
+        value["minVersion"] = min.into();
+        if let Some(rollout) = rollout {
+            value["rollout"] = rollout.into();
+        }
+        if !blocked.is_empty() {
+            value["blocked"] = blocked.to_vec().into();
+        }
+        parse_offer(value.to_string().as_bytes(), server).unwrap()
+    }
+
+    #[test]
+    fn an_answer_without_rollout_or_blocked_is_a_full_rollout_with_nothing_blocked() {
+        let offer = offer_at("https://xpeed.skale.club");
+        assert_eq!((offer.rollout, offer.blocked.len()), (100, 0));
+        let offer = offer_with("0.6.0", "0.4.0", Some(0), &["0.5.0", "0.5.0", "0.4.9"]);
+        assert_eq!(offer.rollout, 0);
+        assert_eq!(offer.blocked, [Version(0, 5, 0), Version(0, 4, 9)], "duplicates dropped");
+    }
+
+    #[test]
+    fn rejects_a_malformed_rollout_or_blocked_list() {
+        let server = "https://xpeed.skale.club";
+        let bad: Vec<(&str, Value)> = vec![
+            ("rollout", 101.into()),
+            ("rollout", (-1).into()),
+            ("rollout", 12.5.into()),
+            ("rollout", "50".into()),
+            ("rollout", Value::Null),
+            ("blocked", "0.5.0".into()),
+            ("blocked", serde_json::json!(["0.5"])),
+            ("blocked", serde_json::json!([5])),
+            ("blocked", serde_json::json!(["0.6.0"])), // the offered version itself
+            ("blocked", Value::Null),
+            (
+                "blocked",
+                Value::Array((0..=MAX_BLOCKED as u32).map(|i| format!("0.1.{i}").into()).collect()),
+            ),
+        ];
+        for (field, value) in bad {
+            let mut answer = answer_for(server);
+            answer[field] = value.clone();
+            assert!(parse_offer(answer.to_string().as_bytes(), server).is_err(), "{field} = {value}");
+        }
+    }
+
+    #[test]
+    fn a_blocked_running_version_may_be_replaced_by_an_older_one_and_nothing_else_may() {
+        // The server offers 0.5.0 (a rollback) and blocks 0.5.1, which is what is running.
+        let rollback = offer_with("0.5.0", "0.4.0", None, &["0.5.1"]);
+        assert_eq!(status(Version(0, 5, 1), &rollback), Status::Available { required: true });
+        assert!(may_replace(Version(0, 5, 1), Version(0, 5, 0), &rollback.blocked));
+        // A version that is lower but not blocked is still refused: never a downgrade by itself.
+        assert_eq!(status(Version(0, 5, 2), &rollback), Status::UpToDate);
+        assert_eq!(status(Version(0, 9, 0), &rollback), Status::UpToDate);
+        let plain = offer_with("0.5.0", "0.4.0", None, &[]);
+        assert_eq!(status(Version(0, 5, 1), &plain), Status::UpToDate);
+        assert!(!may_replace(Version(0, 5, 1), Version(0, 5, 0), &[]));
+        // The same version is never installed again, blocked list or not.
+        assert_eq!(status(Version(0, 5, 0), &rollback), Status::UpToDate);
+        assert!(!may_replace(Version(0, 5, 0), Version(0, 5, 0), &[Version(0, 5, 0)]));
+        // A blocked version also moves up when the offer is newer, and that is required.
+        let newer = offer_with("0.6.0", "0.4.0", None, &["0.5.1"]);
+        assert_eq!(status(Version(0, 5, 1), &newer), Status::Available { required: true });
+        assert_eq!(status(Version(0, 5, 2), &newer), Status::Available { required: false });
+    }
+
+    #[test]
+    fn the_updater_plans_the_allowed_downgrade_and_forgets_the_refused_one() {
+        let rollback = offer_with("0.5.0", "0.4.0", Some(0), &["0.5.1"]);
+        let blocked_running = Updater::new(Version(0, 5, 1), true);
+        blocked_running.offer_found(rollback.clone());
+        // Even with a rollout of 0, a blocked version is a forced update: it installs by itself.
+        assert!(matches!(
+            blocked_running.plan(Trigger::Automatic, false, false, Instant::now()),
+            Plan::Install(offer) if offer.version == Version(0, 5, 0)
+        ));
+        assert_eq!(
+            blocked_running.state(),
+            UpdateState::Available {
+                version: "0.5.0".into(),
+                required: true,
+                held: false
+            }
+        );
+        // Still never during a game.
+        assert_eq!(
+            blocked_running.plan(Trigger::Automatic, true, false, Instant::now()),
+            Plan::Wait(Hold::GameRunning)
+        );
+        // Another running version: the lower offer is not kept at all.
+        let other = Updater::new(Version(0, 5, 2), true);
+        other.offer_found(rollback);
+        assert_eq!(other.state(), UpdateState::Nothing);
+        assert_eq!(other.plan(Trigger::Person, false, false, Instant::now()), Plan::Nothing);
+    }
+
+    #[test]
+    fn the_rollout_bucket_is_stable_spread_out_and_respects_zero_and_one_hundred() {
+        let v = Version(0, 9, 0);
+        assert_eq!(rollout_bucket("device-a", v), rollout_bucket("device-a", v), "the same every time");
+        let ids: Vec<String> = (0..2000).map(|i| identity_of(Some(&format!("key-{i}")))).collect();
+        let buckets: Vec<u8> = ids.iter().map(|id| rollout_bucket(id, v)).collect();
+        assert!(buckets.iter().all(|b| *b < 100));
+        for (from, to) in [(0u8, 25u8), (25, 50), (50, 75), (75, 100)] {
+            let n = buckets.iter().filter(|b| (from..to).contains(b)).count();
+            assert!((350..650).contains(&n), "{from}..{to} holds {n} of 2000");
+        }
+        // Another version shuffles who goes first.
+        assert!(ids.iter().any(|id| rollout_bucket(id, v) != rollout_bucket(id, Version(0, 9, 1))));
+        // 0 lets nobody in, 100 lets everybody in, and a share lets in about that share.
+        let (none, all, tenth) = (
+            offer_with("0.9.0", "0.4.0", Some(0), &[]),
+            offer_with("0.9.0", "0.4.0", Some(100), &[]),
+            offer_with("0.9.0", "0.4.0", Some(10), &[]),
+        );
+        assert!(ids.iter().all(|id| !rollout_allows(&none, id)));
+        assert!(ids.iter().all(|id| rollout_allows(&all, id)));
+        let inside = ids.iter().filter(|id| rollout_allows(&tenth, id)).count();
+        assert!((120..280).contains(&inside), "10% let in {inside} of 2000");
+        // Growing the share only adds computers: nobody who was in is put out.
+        let half = offer_with("0.9.0", "0.4.0", Some(50), &[]);
+        assert!(ids
+            .iter()
+            .filter(|id| rollout_allows(&tenth, id))
+            .all(|id| rollout_allows(&half, id)));
+    }
+
+    #[test]
+    fn an_automatic_update_waits_for_its_place_in_the_rollout_and_a_manual_one_does_not() {
+        let v = Version(0, 9, 0);
+        // Two computers, one inside a 50% rollout and one outside.
+        let tokens: Vec<String> = (0..200).map(|i| format!("key-{i}")).collect();
+        let inside = tokens.iter().find(|t| rollout_bucket(&identity_of(Some(t)), v) < 50).unwrap();
+        let outside = tokens.iter().find(|t| rollout_bucket(&identity_of(Some(t)), v) >= 50).unwrap();
+        let offer = offer_with("0.9.0", "0.4.0", Some(50), &[]);
+        let make = |token: &str| {
+            let updater = Updater::new(Version(0, 8, 0), true);
+            updater.set_identity(Some(token));
+            updater.offer_found(offer.clone());
+            updater
+        };
+        let (a, b) = (make(inside), make(outside));
+        assert!(matches!(a.plan(Trigger::Automatic, false, false, Instant::now()), Plan::Install(_)));
+        assert_eq!(b.plan(Trigger::Automatic, false, false, Instant::now()), Plan::Wait(Hold::Rollout));
+        // "Update now" is the person's word: the rollout is ignored.
+        assert!(matches!(b.plan(Trigger::Person, false, false, Instant::now()), Plan::Install(_)));
+        // The update is still shown (and not "held": it is not waiting for a game).
+        assert_eq!(
+            b.state(),
+            UpdateState::Available {
+                version: "0.9.0".into(),
+                required: false,
+                held: false
+            }
+        );
+        // A rollout of 0 holds every automatic install; 100 holds none.
+        let paused = Updater::new(Version(0, 8, 0), true);
+        paused.offer_found(offer_with("0.9.0", "0.4.0", Some(0), &[]));
+        assert_eq!(
+            paused.plan(Trigger::Automatic, false, false, Instant::now()),
+            Plan::Wait(Hold::Rollout)
+        );
+        let open = Updater::new(Version(0, 8, 0), true);
+        open.set_identity(Some(outside));
+        open.offer_found(offer_with("0.9.0", "0.4.0", Some(100), &[]));
+        assert!(matches!(
+            open.plan(Trigger::Automatic, false, false, Instant::now()),
+            Plan::Install(_)
+        ));
+        // A forced update (below minVersion) goes whatever the rollout says.
+        let forced = Updater::new(Version(0, 8, 0), true);
+        forced.offer_found(offer_with("0.9.0", "0.9.0", Some(0), &[]));
+        assert!(matches!(
+            forced.plan(Trigger::Automatic, false, false, Instant::now()),
+            Plan::Install(_)
+        ));
+    }
+
+    fn staged_in(dir: &Path, bytes: &[u8]) -> Staged {
+        std::fs::create_dir_all(dir).unwrap();
+        let path = dir.join("setup.exe");
+        std::fs::write(&path, bytes).unwrap();
+        let mut hash = Sha256::new();
+        hash.update(bytes);
+        Staged {
+            path,
+            version: Version(0, 9, 0),
+            size: bytes.len() as u64,
+            sha256: hash.finish_hex(),
+            blocked: vec![],
+        }
+    }
+
+    #[test]
+    fn the_installer_is_checked_again_right_before_it_starts() {
+        let dir = crate::config::scratch_dir("update-launch");
+        let staged = staged_in(&dir, b"the real installer");
+        let started = AtomicUsize::new(0);
+        let start = |_: &Path| {
+            started.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        };
+        // Untouched: it starts.
+        assert_eq!(launch_verified(&staged, &start), Ok(()));
+        assert_eq!(started.load(Ordering::SeqCst), 1);
+        // The same size with other bytes (replaced after the download): refused and deleted, never started.
+        std::fs::write(&staged.path, b"the evil installer").unwrap();
+        assert_eq!(launch_verified(&staged, &start), Err(LaunchError::Changed(DownloadError::Hash)));
+        assert!(!staged.path.exists(), "the changed file was deleted");
+        // Another size: refused too.
+        let staged = staged_in(&dir, b"abc");
+        std::fs::write(&staged.path, b"abcd").unwrap();
+        assert!(matches!(
+            launch_verified(&staged, &start),
+            Err(LaunchError::Changed(DownloadError::Size { expected: 3, got: 4 }))
+        ));
+        assert!(!staged.path.exists());
+        // Gone altogether: refused.
+        assert!(matches!(
+            launch_verified(&staged, &start),
+            Err(LaunchError::Changed(DownloadError::Disk(_)))
+        ));
+        assert_eq!(
+            started.load(Ordering::SeqCst),
+            1,
+            "the installer was started only for the good file"
+        );
+        // A start that fails is reported as that.
+        let staged = staged_in(&dir, b"ok");
+        assert_eq!(
+            launch_verified(&staged, &|_| Err("cannot start".into())),
+            Err(LaunchError::Start("cannot start".into()))
+        );
+    }
+
+    #[test]
+    fn a_staged_installer_applies_only_while_it_may_still_replace_the_running_version() {
+        let mut staged = staged_in(&crate::config::scratch_dir("update-staged"), b"x");
+        staged.version = Version(0, 5, 0);
+        assert!(!staged.still_applies(Version(0, 5, 1)), "older and not blocked");
+        assert!(!staged.still_applies(Version(0, 5, 0)), "the same");
+        assert!(staged.still_applies(Version(0, 4, 0)), "newer");
+        staged.blocked = vec![Version(0, 5, 1)];
+        assert!(staged.still_applies(Version(0, 5, 1)), "the running one is blocked: the way out");
+        assert!(!staged.still_applies(Version(0, 5, 2)));
     }
 }

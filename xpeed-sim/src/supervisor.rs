@@ -1,14 +1,17 @@
-//! Crashes are visible and the program recovers. Two parts:
+//! Crashes are visible and the program recovers. Three parts:
 //!
 //! * a panic hook (`install_panic_hook`) that writes what panicked, where and on which thread to `companion.log`, with
 //!   the version and build, so a support request has the cause;
 //! * a supervisor (`supervise`) for the long-lived worker threads (the game readers, Le Mans Ultimate, the track
 //!   builder, the uploader): when one panics it is logged and the worker starts again after a wait that grows (1 s, 2 s,
 //!   5 s, 10 s, 30 s), up to 5 times in 10 minutes; after that it is given up on and shown as failed in the panel. A
-//!   worker that failed never takes the tray down with it.
+//!   worker that failed never takes the tray down with it;
+//! * a guard (`UiGuard`) for the window procedures, which would abort the whole program if a panic unwound out of them.
 
 use std::any::Any;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::applog;
@@ -205,11 +208,82 @@ pub fn install_panic_hook() {
     }));
 }
 
+// ------------------------------------------------------------------------------------------- window procedures that must not die
+
+/// How many panics inside window procedures, in `UI_PANIC_WINDOW`, mean the window is better left alone.
+pub const UI_PANIC_LIMIT: usize = 5;
+pub const UI_PANIC_WINDOW: Duration = Duration::from_secs(60);
+
+/// What happened to a call that went through `UiGuard::run` and panicked.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum UiPanic {
+    /// One panic; the window goes on.
+    Once,
+    /// The panic that made it `UI_PANIC_LIMIT` in `UI_PANIC_WINDOW`: said once. From now on `tripped()` is true.
+    JustTripped,
+    /// A panic after it was already tripped.
+    Again,
+}
+
+/// A window procedure is `extern "system"`: a panic that unwinds out of one aborts the whole program, and with it the
+/// recording. A guard runs its body inside `catch_unwind` instead. The panic itself is already in the log and in the crash
+/// report (`install_panic_hook` runs before the unwinding starts), so the guard only counts them: a window that keeps
+/// panicking (a paint that fails on every frame) is `tripped`, and its owner stops doing the thing that fails.
+pub struct UiGuard {
+    recent: Mutex<Vec<Instant>>,
+    tripped: AtomicBool,
+}
+
+impl Default for UiGuard {
+    fn default() -> Self {
+        UiGuard::new()
+    }
+}
+
+impl UiGuard {
+    pub const fn new() -> UiGuard {
+        UiGuard {
+            recent: Mutex::new(Vec::new()),
+            tripped: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether the window panicked `UI_PANIC_LIMIT` times in `UI_PANIC_WINDOW` (until `reset`).
+    pub fn tripped(&self) -> bool {
+        self.tripped.load(Ordering::SeqCst)
+    }
+
+    /// Forgets the count: a new window starts clean.
+    pub fn reset(&self) {
+        crate::util::lock(&self.recent).clear();
+        self.tripped.store(false, Ordering::SeqCst);
+    }
+
+    /// Counts a panic that happened at `now`.
+    pub fn note(&self, now: Instant) -> UiPanic {
+        let mut recent = crate::util::lock(&self.recent);
+        recent.retain(|at| now.duration_since(*at) < UI_PANIC_WINDOW);
+        recent.push(now);
+        if self.tripped.load(Ordering::SeqCst) {
+            UiPanic::Again
+        } else if recent.len() >= UI_PANIC_LIMIT {
+            self.tripped.store(true, Ordering::SeqCst);
+            UiPanic::JustTripped
+        } else {
+            UiPanic::Once
+        }
+    }
+
+    /// Runs `body`; a panic in it is counted and handed back as an `Err` instead of unwinding into Windows.
+    pub fn run<R>(&self, body: impl FnOnce() -> R) -> Result<R, UiPanic> {
+        catch_unwind(AssertUnwindSafe(body)).map_err(|_| self.note(Instant::now()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
 
     fn quick(max_restarts: usize) -> Policy {
         Policy {
@@ -316,5 +390,56 @@ mod tests {
         assert_eq!(panic_message(text.as_ref()), "with format");
         let literal = std::panic::catch_unwind(|| panic!("literal")).unwrap_err();
         assert_eq!(panic_message(literal.as_ref()), "literal");
+    }
+
+    #[test]
+    fn the_ui_guard_turns_a_panic_into_a_value_and_lets_a_good_call_through() {
+        let guard = UiGuard::new();
+        assert_eq!(guard.run(|| 7), Ok(7));
+        let ran_after = AtomicUsize::new(0);
+        let out: Result<(), UiPanic> = guard.run(|| panic!("a window procedure blows up"));
+        assert_eq!(out, Err(UiPanic::Once), "the panic did not unwind out of the guard");
+        assert_eq!(guard.run(|| ran_after.fetch_add(1, Ordering::SeqCst)), Ok(0));
+        assert_eq!(ran_after.load(Ordering::SeqCst), 1, "the next call runs normally");
+        assert!(!guard.tripped());
+    }
+
+    #[test]
+    fn the_ui_guard_trips_once_after_five_panics_in_a_minute_and_a_new_window_starts_clean() {
+        let guard = UiGuard::new();
+        let start = Instant::now();
+        let at = |s: u64| start + Duration::from_secs(s);
+        for second in 0..4 {
+            assert_eq!(guard.note(at(second)), UiPanic::Once);
+        }
+        assert!(!guard.tripped());
+        assert_eq!(guard.note(at(4)), UiPanic::JustTripped, "the fifth in a minute");
+        assert!(guard.tripped());
+        assert_eq!(guard.note(at(5)), UiPanic::Again, "said only once");
+        guard.reset();
+        assert!(!guard.tripped());
+        assert_eq!(guard.note(at(6)), UiPanic::Once);
+    }
+
+    #[test]
+    fn spread_out_ui_panics_never_trip_the_guard() {
+        let guard = UiGuard::new();
+        let start = Instant::now();
+        // One every 20 s is three in a minute at most: never five.
+        for i in 0..30 {
+            assert_eq!(guard.note(start + Duration::from_secs(i * 20)), UiPanic::Once);
+        }
+        assert!(!guard.tripped());
+    }
+
+    #[test]
+    fn the_ui_guard_counts_real_panics_through_run() {
+        let guard = UiGuard::new();
+        let mut last = UiPanic::Once;
+        for _ in 0..UI_PANIC_LIMIT {
+            last = guard.run(|| -> () { panic!("every frame fails") }).unwrap_err();
+        }
+        assert_eq!(last, UiPanic::JustTripped);
+        assert!(guard.tripped());
     }
 }
