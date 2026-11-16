@@ -1069,4 +1069,28 @@ mod tests {
         ids.checks = vec!["Not An Id".into()];
         assert!(pack(&ids).is_err());
     }
+
+    #[test]
+    fn real_recorded_laps_remain_readable_and_round_trip_without_changing_samples() {
+        let cases: [(&str, &[u8]); 4] = [
+            ("ams2", include_bytes!("../fixtures/laps/ams2-real-lap-1.xlap.gz")),
+            ("acevo", include_bytes!("../fixtures/laps/acevo-real-lap-1.xlap.gz")),
+            ("acevo", include_bytes!("../fixtures/laps/acevo-real-lap-2.xlap.gz")),
+            ("acevo", include_bytes!("../fixtures/laps/acevo-real-lap-3.xlap.gz")),
+        ];
+        for (game, bytes) in cases {
+            let lap = gunzip(bytes, MAX_UNPACKED).unwrap();
+            assert_eq!(lap.game, game);
+            assert!(lap.sample_count() > 1000, "a real drive, not a tiny generated example");
+            assert!(lap.session_id.is_none(), "personal session metadata was removed");
+            let restored = gunzip(&gzip(&lap).unwrap(), MAX_UNPACKED).unwrap();
+            assert_eq!(restored.sample_count(), lap.sample_count());
+            assert_eq!(restored.time_ms, lap.time_ms);
+            for (before, after) in lap.channels.iter().zip(&restored.channels) {
+                assert_eq!(before.id, after.id);
+                assert_eq!(before.unit, after.unit);
+                assert!(before.values.iter().zip(&after.values).all(|(a, b)| a.to_bits() == b.to_bits()));
+            }
+        }
+    }
 }

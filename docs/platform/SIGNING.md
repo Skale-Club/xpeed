@@ -1,5 +1,9 @@
 # Signing Xpeed Companion (optional)
 
+Owner policy (2026-11-16): Companion is experimental. Do not purchase a signing service or certificate for it.
+Unsigned releases remain supported and are not blocked on signing. The configuration below is retained only for
+a future no-cost option the owner chooses; there is no paid setup work pending for the current release.
+
 An unsigned installer works, but Windows SmartScreen warns about an "unknown publisher". A signed one shows "Xpeed" (the
 validated publisher) and the warning goes away much faster. Signing is **off until you set it up**: the release pipeline
 (`.github/workflows/xpeed-sim.yml`, job `release`) signs only when every secret and variable below exists. Nothing breaks

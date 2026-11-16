@@ -1,7 +1,7 @@
 //! What Xpeed Companion is doing, shared between the thread that records, the thread that sends and the tray icon.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::dash::Live;
@@ -95,6 +95,8 @@ pub enum LapDrop {
     Partial,
     /// Too short or too few samples to be a lap.
     Short,
+    /// An unfinished lap exceeded the bounded sample/time budget.
+    CaptureLimit,
 }
 
 /// What this run did with the laps it cut, and what the games reported about themselves: what the heartbeat tells the server.
@@ -151,6 +153,7 @@ pub struct Shared {
     live: Mutex<Option<Live>>,
     /// The last laps saved in this run, newest last.
     recent_laps: Mutex<VecDeque<SavedLap>>,
+    recent_generation: AtomicU64,
     /// What happened in this run worth telling the person, with the Unix time in ms, newest last.
     activity: Mutex<VecDeque<(i64, Activity)>>,
     /// How each long-lived worker thread stands, by worker id (`supervisor`).
@@ -188,6 +191,7 @@ impl Shared {
             heartbeat_view: Mutex::new(View::WAITING),
             live: Mutex::new(None),
             recent_laps: Mutex::new(VecDeque::new()),
+            recent_generation: AtomicU64::new(0),
             activity: Mutex::new(VecDeque::new()),
             workers: Mutex::new(BTreeMap::new()),
             update: Mutex::new(UpdateState::Nothing),
@@ -279,10 +283,16 @@ impl Shared {
 
     /// The cutter let a lap go without writing it.
     pub fn note_lap_dropped(&self, why: LapDrop) {
-        let mut stats = lock(&self.lap_stats);
         match why {
-            LapDrop::Partial => stats.partial = stats.partial.saturating_add(1),
-            LapDrop::Short => stats.short = stats.short.saturating_add(1),
+            LapDrop::Partial => {
+                let mut stats = lock(&self.lap_stats);
+                stats.partial = stats.partial.saturating_add(1);
+            }
+            LapDrop::Short => {
+                let mut stats = lock(&self.lap_stats);
+                stats.short = stats.short.saturating_add(1);
+            }
+            LapDrop::CaptureLimit => self.note_lap_unsaved("Lap exceeded the recording limit; waiting for the next lap"),
         }
     }
 
@@ -353,11 +363,26 @@ impl Shared {
     }
 
     pub fn notify(&self, notice: Notice) {
+        self.notify_in_generation(notice, None);
+    }
+
+    pub fn recent_generation(&self) -> u64 {
+        self.recent_generation.load(Ordering::SeqCst)
+    }
+
+    /// A delayed disk write remains an activity, but must not repopulate a previous session's table.
+    pub fn notify_lap_saved(&self, lap: SavedLap, generation: u64) {
+        self.notify_in_generation(Notice::LapSaved(lap), Some(generation));
+    }
+
+    fn notify_in_generation(&self, notice: Notice, generation: Option<u64>) {
         if let Notice::LapSaved(lap) = &notice {
             let mut recent = lock(&self.recent_laps);
-            recent.push_back(lap.clone());
-            while recent.len() > RECENT_LAPS {
-                recent.pop_front();
+            if generation.is_none_or(|value| value == self.recent_generation.load(Ordering::SeqCst)) {
+                recent.push_back(lap.clone());
+                while recent.len() > RECENT_LAPS {
+                    recent.pop_front();
+                }
             }
         }
         self.remember(Activity::Notice(notice.clone()));
@@ -390,7 +415,11 @@ impl Shared {
     /// Forgets the laps saved in this run: the session they were driven in is over (another track, another
     /// car or another game), and the panel must not show them as the laps of the new one.
     pub fn clear_recent_laps(&self) {
-        lock(&self.recent_laps).clear();
+        {
+            let mut recent = lock(&self.recent_laps);
+            self.recent_generation.fetch_add(1, Ordering::SeqCst);
+            recent.clear();
+        }
         self.changed();
     }
 
@@ -553,6 +582,27 @@ mod tests {
         assert_eq!(shared.snapshot().game, Game::Recording(3));
         shared.update(|s| s.laps_saved += 1);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn delayed_saves_do_not_repopulate_the_previous_sessions_recent_laps() {
+        let shared = Shared::new(true);
+        let old = shared.recent_generation();
+        shared.clear_recent_laps();
+        shared.notify_lap_saved(saved_lap(1, 109_002), old);
+        assert!(shared.recent_laps().is_empty());
+        shared.notify_lap_saved(saved_lap(2, 108_000), shared.recent_generation());
+        assert_eq!(shared.recent_laps().len(), 1);
+        assert_eq!(shared.recent_laps()[0].number, 2);
+        assert_eq!(shared.take_notices().len(), 2, "both writes remain visible as activities");
+    }
+
+    #[test]
+    fn a_capture_limit_is_a_visible_counted_recording_failure() {
+        let shared = Shared::new(true);
+        shared.note_lap_dropped(LapDrop::CaptureLimit);
+        assert_eq!(shared.lap_stats().failed_save, 1);
+        assert_eq!(shared.take_save_alerts().len(), 1);
     }
 
     #[test]

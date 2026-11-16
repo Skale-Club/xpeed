@@ -15,8 +15,9 @@ use crate::lapfile;
 use crate::lmu::layout::LAYOUT_SIZE;
 use crate::lmu::reader::{LmuReader, Names, OpenError};
 use crate::lmu::source::LmuSource;
+use crate::persistence::{with_saver, Saver as AsyncSaver};
 use crate::session::EndReason;
-use crate::status::{Game, Notice, SavedLap, Shared};
+use crate::status::{Game, SavedLap, Shared};
 use crate::supervisor::{self, supervise, Ended, Policy};
 use crate::tracks::auto::{self, Folders, Seen};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
@@ -58,20 +59,25 @@ pub fn lap_file_name(lap: &lapfile::Lap) -> String {
 /// The name a lap goes under in `out`: its own, or (when a file of that name is already there: another lap that began in the
 /// same minute, or the same lap written before) the name with `_2`, `_3`... before the extension, so a lap never replaces one.
 fn free_name(out: &Path, name: &str) -> String {
-    if !out.join(name).exists() {
+    let available = |name: &str| !out.join(name).exists() && !out.join(format!("{name}.part")).exists();
+    if available(name) {
         return name.to_owned();
     }
     let stem = name.strip_suffix(".xlap.gz").unwrap_or(name);
-    (2..100)
+    (2u64..)
         .map(|n| format!("{stem}_{n}.xlap.gz"))
-        .find(|candidate| !out.join(candidate).exists())
-        .unwrap_or_else(|| name.to_owned())
+        .find(|candidate| available(candidate))
+        .expect("a free lap filename")
 }
 
 /// One try at writing the lap: next to its final name as `.part`, then renamed, so a half-written file never looks like a
 /// lap. `Ok` is the lap as the panel lists it; `Err` is what went wrong. The log gets the lines of a lap written, none for a failure
 /// (the caller decides what a failure is worth).
 pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result<SavedLap, String> {
+    // Reader families have separate writers, but may produce the same track/car/time filename.
+    // Serialize name selection and publication within this process so neither lap replaces the other.
+    static PUBLISH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _publish = crate::util::lock(&PUBLISH);
     // The folder may have been deleted while the program ran: make it again.
     let _ = std::fs::create_dir_all(out);
     let name = free_name(out, &lap_file_name(lap));
@@ -79,10 +85,9 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
     // Stamped with this program and reader, and checked: what the checks find goes into the file's header (the server
     // sees it per lap) and into the log. It never stops the lap from being saved.
     let (stamped, findings) = crate::sanity::prepare(lap);
-    let size = lapfile::gzip(&stamped)
-        .map_err(|e| e.to_string())
-        .and_then(|bytes| std::fs::write(&partial, &bytes).map(|_| bytes.len()).map_err(|e| e.to_string()))
-        .and_then(|size| std::fs::rename(&partial, &path).map(|_| size).map_err(|e| e.to_string()))?;
+    let bytes = lapfile::gzip(&stamped).map_err(|e| e.to_string())?;
+    publish_bytes(&partial, &path, &bytes, std::fs::rename).map_err(|e| e.to_string())?;
+    let size = bytes.len();
     say(format!(
         "Saved lap {} {} ({}) -> {name} ({} KB)",
         lap.lap_number,
@@ -104,6 +109,24 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
     })
 }
 
+/// Own a fresh partial exclusively and remove only our partial on write/publication failure.
+fn publish_bytes<'a>(
+    partial: &'a Path,
+    path: &'a Path,
+    bytes: &[u8],
+    rename: impl FnOnce(&'a Path, &'a Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(partial)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    let result = written.and_then(|()| rename(partial, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(partial);
+    }
+    result
+}
+
 /// `save_once`, and a line in the log when it fails. Returns the lap when it worked.
 #[cfg(test)]
 pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<SavedLap> {
@@ -116,21 +139,23 @@ pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<Save
     }
 }
 
-/// How many laps that could not be written wait in memory for another try (the oldest is let go for a new one).
+/// Synchronous regression helper; live readers use the bounded asynchronous writer.
+#[cfg(test)]
 const HELD_MAX: usize = 5;
-/// The waits between the tries at one lap (the first try is at once).
-const SAVE_RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(100), Duration::from_millis(400)];
 /// How often the laps held are tried again while the folder keeps refusing them.
+#[cfg(test)]
 const HELD_RETRY_EVERY: Duration = Duration::from_secs(20);
 
 /// A reason as the person reads it in a balloon: one line, not long.
+#[cfg(test)]
 fn short_reason(reason: &str) -> String {
     reason.lines().next().unwrap_or("").trim().chars().take(80).collect()
 }
 
 /// Where the laps of one worker go. A lap is tried a few times with short waits; one the folder still refuses (disk full, no
-/// permission) is kept in memory (the last `HELD_MAX`) and tried again with the next lap and every `HELD_RETRY_EVERY`; the
-/// tray says so once. Nothing here panics or blocks for long: it runs inside the loop that reads a game.
+/// permission) is kept in memory and retried. This synchronous helper is only used by regression tests;
+/// live readers always use `persistence::Saver`, whose entire queue is bounded.
+#[cfg(test)]
 pub struct Saver<'a> {
     out: &'a Path,
     shared: &'a Shared,
@@ -142,11 +167,8 @@ pub struct Saver<'a> {
     last_retry: std::sync::Mutex<Instant>,
 }
 
+#[cfg(test)]
 impl<'a> Saver<'a> {
-    pub fn new(out: &'a Path, shared: &'a Shared, say: &'a (dyn Fn(String) + Sync)) -> Saver<'a> {
-        Saver::with_delays(out, shared, say, &SAVE_RETRY_DELAYS)
-    }
-
     pub fn with_delays(out: &'a Path, shared: &'a Shared, say: &'a (dyn Fn(String) + Sync), delays: &'a [Duration]) -> Saver<'a> {
         Saver {
             out,
@@ -172,7 +194,7 @@ impl<'a> Saver<'a> {
             s.last_lap = Some(saved.clone());
         });
         self.shared.note_lap_saved(&lap.game, build, late);
-        self.shared.notify(Notice::LapSaved(saved));
+        self.shared.notify(crate::status::Notice::LapSaved(saved));
         self.shared.wake_uploader();
     }
 
@@ -208,11 +230,6 @@ impl<'a> Saver<'a> {
         {
             let mut held = crate::util::lock(&self.held);
             held.push_back(lap.clone());
-            while held.len() > HELD_MAX {
-                if let Some(lost) = held.pop_front() {
-                    (self.say)(format!("Lap {} could not be saved for too long and was let go.", lost.lap_number));
-                }
-            }
             self.any_held.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         self.shared.note_lap_unsaved(&short_reason(error));
@@ -420,20 +437,20 @@ pub fn run_readers(
     std::thread::scope(|scope| {
         for reader in readers {
             scope.spawn(move || {
-                let saver = Saver::new(out, shared, say);
-                let name = format!("{} reader", reader.family);
-                let ended = watched_as(shared, reader.family, &name, policy, say, || {
-                    games_loop(std::slice::from_ref(reader), &saver, out, shared, say, tracks, grace)
-                });
-                if ended == Ended::GaveUp {
-                    // Its games are no longer read: the panel must not go on showing them as connected.
-                    for (id, name, game) in shared.games() {
-                        if reader.ids.contains(&id) && game != Game::Waiting {
-                            shared.set_game(id, name, Game::Waiting);
+                with_saver(out, shared, say, |saver| {
+                    let name = format!("{} reader", reader.family);
+                    let ended = watched_as(shared, reader.family, &name, policy, say, || {
+                        games_loop(std::slice::from_ref(reader), saver, out, shared, say, tracks, grace)
+                    });
+                    if ended == Ended::GaveUp {
+                        // Its games are no longer read: the panel must not go on showing them as connected.
+                        for (id, name, game) in shared.games() {
+                            if reader.ids.contains(&id) && game != Game::Waiting {
+                                shared.set_game(id, name, Game::Waiting);
+                            }
                         }
                     }
-                }
-                saver.finish();
+                });
             });
         }
     });
@@ -451,14 +468,14 @@ pub fn run_games(
     tracks: Option<&mpsc::Sender<Seen>>,
     grace: Duration,
 ) {
-    let saver = Saver::new(out, shared, say);
-    games_loop(readers, &saver, out, shared, say, tracks, grace);
-    saver.finish();
+    with_saver(out, shared, say, |saver| {
+        games_loop(readers, saver, out, shared, say, tracks, grace)
+    });
 }
 
 fn games_loop(
     readers: &[Reader],
-    saver: &Saver,
+    saver: &AsyncSaver,
     out: &Path,
     shared: &Shared,
     say: &(dyn Fn(String) + Sync),
@@ -510,7 +527,6 @@ fn games_loop(
         // Look again, every couple of seconds, for the games that are running and not open yet.
         if last_look.elapsed() >= Duration::from_secs(2) {
             last_look = Instant::now();
-            saver.retry_held(false);
             let running = running_now();
             for l in &live {
                 if !l.programs.is_empty() && !crate::win::any_running(&running, l.programs) {
@@ -737,9 +753,18 @@ fn lmu_quiet_action(program_running: bool) -> QuietAction {
 }
 
 fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
+    with_saver(out, shared, say, |saver| run_lmu_loop(out, shared, say, stop_on_unsupported, saver))
+}
+
+fn run_lmu_loop(
+    out: &Path,
+    shared: &Shared,
+    say: &(dyn Fn(String) + Sync),
+    stop_on_unsupported: bool,
+    saver: &AsyncSaver,
+) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
     say(format!("Writing laps to {}.", out.display()));
-    let saver = Saver::new(out, shared, say);
     let saved = |lap: &lapfile::Lap| saver.lap(lap);
     let mut waiting = false;
     let mut told_silent = false;
@@ -812,7 +837,6 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         // Waiting is only for a game whose program closed, which starts over from a clean connection.
         while !shared.quitting() && !shared.paused() {
             let frame = source.next(Duration::from_millis(200));
-            saver.retry_held(false);
             if source.timed_out() {
                 silent_waits += 1;
                 if silent_waits >= LMU_QUIET_WAITS {
@@ -845,13 +869,11 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
         // The reader is let go (paused, told to quit, or the game is gone): a lap that still waited for its official
         // time is written as it stands.
         flush(cutter, &source, shared, &saved);
-        saver.retry_held(true);
         if gone {
             say("No data from the game for 10 s; reconnecting.".into());
             shared.set_game(LMU_ID, LMU_NAME, Game::Waiting);
         }
     }
-    saver.finish();
     Ok(())
 }
 
@@ -993,6 +1015,33 @@ mod tests {
     }
 
     #[test]
+    fn failed_publication_cleans_its_partial_and_later_recovery_succeeds() {
+        let dir = crate::config::scratch_dir("engine-part-cleanup");
+        let partial = dir.join("lap.xlap.gz.part");
+        let final_path = dir.join("lap.xlap.gz");
+        for _ in 0..5 {
+            let result = publish_bytes(&partial, &final_path, b"lap bytes", |_, _| {
+                Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected rename failure"))
+            });
+            assert!(result.is_err());
+            assert!(!partial.exists(), "failed retries do not consume disk space");
+            assert!(!final_path.exists());
+        }
+        publish_bytes(&partial, &final_path, b"lap bytes", std::fs::rename).unwrap();
+        assert_eq!(std::fs::read(&final_path).unwrap(), b"lap bytes");
+        assert!(!partial.exists());
+    }
+
+    #[test]
+    fn another_writers_partial_is_never_overwritten_or_removed() {
+        let dir = crate::config::scratch_dir("engine-part-owner");
+        let partial = dir.join("lap.xlap.gz.part");
+        std::fs::write(&partial, b"other writer").unwrap();
+        assert!(publish_bytes(&partial, &dir.join("lap.xlap.gz"), b"new", std::fs::rename).is_err());
+        assert_eq!(std::fs::read(&partial).unwrap(), b"other writer");
+    }
+
+    #[test]
     fn a_lap_the_folder_refuses_is_kept_told_once_and_written_when_the_folder_takes_it() {
         let dir = refusing_folder("engine-held");
         let shared = Shared::new(true);
@@ -1026,7 +1075,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_last_laps_are_held_and_the_ones_let_go_are_said() {
+    fn previously_accepted_laps_are_never_evicted() {
         let dir = refusing_folder("engine-held-max");
         let shared = Shared::new(true);
         let lines = std::sync::Mutex::new(Vec::new());
@@ -1035,7 +1084,7 @@ mod tests {
         for n in 1..=(HELD_MAX as u32 + 2) {
             saver.lap(&lap(n));
         }
-        assert_eq!(saver.held(), HELD_MAX);
+        assert_eq!(saver.held(), HELD_MAX + 2);
         make_room(&dir);
         saver.retry_held(true);
         assert_eq!(saver.held(), 0);
@@ -1047,13 +1096,8 @@ mod tests {
             })
             .collect();
         numbers.sort_unstable();
-        assert_eq!(numbers, [3, 4, 5, 6, 7], "the two oldest were let go");
-        assert!(lines
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|l| l.starts_with("Lap 1 could not be saved for too long")));
-        assert_eq!(shared.lap_stats().failed_save, 2, "the two lost stay counted");
+        assert_eq!(numbers, [1, 2, 3, 4, 5, 6, 7], "all accepted laps survive recovery");
+        assert!(!lines.lock().unwrap().iter().any(|line| line.contains("let go")));
     }
 
     #[test]

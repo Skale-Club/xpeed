@@ -389,6 +389,22 @@ mod tests {
     }
 
     #[test]
+    fn historical_evo_recordings_keep_their_known_clock_fault_visible() {
+        let cases: [&[u8]; 3] = [
+            include_bytes!("../fixtures/laps/acevo-real-lap-1.xlap.gz"),
+            include_bytes!("../fixtures/laps/acevo-real-lap-2.xlap.gz"),
+            include_bytes!("../fixtures/laps/acevo-real-lap-3.xlap.gz"),
+        ];
+        for bytes in cases {
+            let lap = crate::lapfile::gunzip(bytes, crate::lapfile::MAX_UNPACKED).unwrap();
+            assert!(check(&lap).iter().any(|finding| finding.id == "t_repeats"));
+            let (stamped, findings) = prepare(&lap);
+            assert!(findings.iter().any(|finding| finding.id == "t_repeats"));
+            assert!(stamped.checks.iter().any(|id| id == "t_repeats"));
+        }
+    }
+
+    #[test]
     fn every_id_is_a_valid_header_id_and_listed() {
         for id in IDS {
             assert!(id.chars().all(|c| c.is_ascii_lowercase() || c == '_') && id.len() <= 32);

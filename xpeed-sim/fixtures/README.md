@@ -1,5 +1,9 @@
 # Fixtures: real drives, kept as tests
 
+Recorded **lap outputs** are available in [`laps/`](laps/README.md) for parser/serialization and diagnostic regressions.
+They do not count as raw-reader validation. This folder currently has no committed raw `.xcap` captures; reader
+conventions marked `ASSUMED` remain unverified until an actual capture and its expectations are recorded.
+
 A fixture is a few minutes of real driving, recorded with `xpeed-companion capture` into a `.xcap` file and committed
 here. `cargo test` replays every `*.xcap` in this folder through the reader of its game, the lap cutter and the data
 checks (`src/sanity.rs`), exactly as the app does with a live game, and compares the result with the fixture's

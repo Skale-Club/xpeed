@@ -4,7 +4,11 @@ Programa para Windows, em Rust, que lê a telemetria de um jogo de corrida e a l
 
 Os outros jogos têm leitores em `src/games/` (Assetto Corsa e família, AC EVO, Automobilista 2, **Project CARS 2 e 3**, F1 25, **F1 24 e F1 23**, Stock Car Extreme, **Automobilista e rFactor**, **RaceRoom**, **Forza Motorsport e Forza Horizon 4/5**, Wreckfest 2 e **iRacing**). O Forza manda os dados pela rede: no jogo, Data Out ligado, IP 127.0.0.1 e porta **5301**. Os leitores de RaceRoom, Forza, F1 24/23, Automobilista e rFactor ainda não foram testados com os jogos abertos. Os Project CARS 2 e 3 usam o leitor do Automobilista 2: os três gravam a mesma memória compartilhada, e o que o leitor usa fica na parte comum. Ainda falta testar com os jogos abertos. O iRacing é lido pelo SDK oficial do próprio jogo, sem instalar nada. Como a telemetria ao vivo dele não traz a posição do carro, o mapa da volta é estimado pela velocidade e pelo rumo. Ainda falta testar esse leitor com o jogo aberto; o que falta confirmar está no início de `src/games/iracing.rs`.
 
-**Estado: primeira versão, ainda não testada com o jogo aberto.** O que está provado: o arquivo gerado bate byte a byte com o vetor de teste da especificação e é aceito pelo leitor estrito do app; a leitura da memória compartilhada funciona contra um "jogo falso" que cria os mesmos objetos do Windows; a lógica de cortar voltas passa em 14 cenários sintéticos; o envio funciona contra os handlers do servidor; o ícone na bandeja abre, mostra o estado e fecha. O que **não** está provado: que os números do layout correspondem ao jogo ao vivo e que a distância e a validade da volta saem certas com dados reais. Para isso existe o comando `probe`.
+**Experimental project.** Development remains free of paid signing services; unsigned installers are expected and Windows may show an unknown-publisher warning. Signing is optional, not a release requirement (owner, 2026-11-16).
+
+The Windows CI checks formatting, Clippy, unit/contract tests, a release build and installer packaging. Some EVO and AMS2 fields have live evidence; many other reader conventions remain assumptions. Four sanitized real lap files now exercise compatibility and diagnostics under [`fixtures/laps/`](fixtures/laps/README.md). These are recorded outputs, not raw game-reader captures. Raw `.xcap` acceptance captures still need a running game and must not be replaced with invented samples.
+
+**Capture and disk limits:** an unfinished lap is released after 100,000 samples or one hour on its lap clock; a visible warning is raised and recording can resume at the next lap boundary. Compression, disk writes and retry waits run in a separate worker from each reader. Accepted pending laps are retained within a bounded queue (five laps and 64 MiB, including the in-flight lap). Queue saturation or disk failure pauses recording with a warning; already accepted laps are not evicted to make room. The writer retries while paused and drains on shutdown. If storage remains unwritable at shutdown, RAM-only laps cannot be guaranteed durable and the loss is reported explicitly. Previously saved lap files remain intact.
 
 ## Como se usa
 
@@ -125,7 +129,7 @@ Precisa do jogo instalado e do Visual Studio C++ Build Tools. O script foi confe
 ## Testes
 
 ```powershell
-cargo test            # 69 testes (26 são do envio: rede de verdade contra um servidor falso local)
+cargo test --locked   # unit, contract, failure/recovery and recorded-lap regression tests
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```
@@ -146,4 +150,4 @@ Para jogos que mandam UDP (F1, Forza, Wreckfest 2), **pause ou feche o app da ba
 - Os leitores de UDP (F1, Forza, Wreckfest 2) escutam só em `127.0.0.1` e descartam datagramas de quem não é local. Para quem roda o jogo em outro computador: defina a variável de ambiente `XPEED_UDP_LISTEN_ALL=1` antes de abrir o Companion (escuta em todos os endereços e aceita qualquer remetente; desligado por padrão), e no jogo ponha o IP deste computador.
 - Só o carro do jogador é lido, e o **nome do piloto nunca é guardado**.
 - O arquivo é gravado em `.part` e renomeado ao final, então um arquivo incompleto nunca aparece com o nome final.
-- A chave do aparelho é um arquivo comum da pasta do usuário (não está no Gerenciador de Credenciais do Windows): quem lê a sua pasta lê a chave. Ela só deve valer para **enviar** voltas, e se revoga no app.
+- The device key in `config.json` is protected with Windows DPAPI for the current Windows profile. Copying the file to another user/computer does not expose a usable plaintext token. The app migrates legacy plaintext keys after verifying the protected copy; the server scopes and revokes device access.
