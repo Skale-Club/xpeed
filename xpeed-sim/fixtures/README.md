@@ -84,6 +84,26 @@ Every key is optional. An unknown key is an error (it is probably a typo).
 Lap numbers, times and the distance against the track length are shown by `replay`; `laps`, `valid` and the data checks
 (`dist_vs_track` is the distance against the track length) are what the test holds them to.
 
+## What to verify per game
+
+The convention of every `Frame` field is in `src/game.rs`, with the way each reader maps its game's raw value. Only a few
+mappings were ever checked against a running game (marked `VERIFIED-LIVE` there: Assetto Corsa EVO's steering, clutch and
+axes, Automobilista 2's tyre pressure in kPa and its brake bias as the rear share). Every other mapping is `ASSUMED`, and
+where two readers contradict each other nobody guessed which one is right. A fixture of each game settles it; the
+`.expect.json` key that does is named in the last column.
+
+| What | The contradiction or doubt | Games to record | Key |
+| --- | --- | --- | --- |
+| Map axes (x east, z north) | iRacing works the position out from the velocity and writes z = MINUS north; Automobilista 2 and EVO write z = north. Assetto Corsa and Competizione write the game's coordinates as they are, while EVO's ground is mirrored (x negated) | `ac`, `acc`, `ams2`, `iracing`, `r3e`, `rfactor1`, `lmu`, `f1`, `fm`, `wreckfest2` | `map_direction` (drive a circuit whose direction you know) |
+| Steering sign (+1 = right) | only EVO was checked; the others pass the game's value through, iRacing negates the angle | all but `acevo` | `steer` |
+| Clutch polarity (1 = pressed) | EVO writes 1 = engaged and is turned around; iRacing is turned around too; the others pass the value through and nobody saw which end is "pressed" | all but `acevo` (`ac`, `acc`, `acr` do not read it) | `clutch` (use a car with a clutch and a manual box) |
+| Lap numbering (first lap driven = 1) | rFactor 1, iRacing and Le Mans Ultimate pass the game's number through and it is not known whether their first lap is 0 or 1; the other readers add 1 to a laps-completed count | `rfactor1`, `iracing`, `lmu` | none: read the `replay` table, the out lap and the first flying lap must be 1 and 2 (or 0 and 1 is the answer; write it in `notes` and change the reader) |
+| Brake bias (front share) | Assetto Corsa, Competizione and EVO are taken as the front share, Automobilista 2 (checked), RaceRoom and Le Mans Ultimate are the rear share turned around | `ac`, `acc`, `acevo`, `r3e`, `lmu` | none: the dash value in the game against the one in the replay table |
+| Aid levels, damage, pit area | taken from the headers; no game was compared with its own dash | any | none |
+
+Record the game's own dash next to the replay table when a key does not exist (a photo of the setup screen is enough
+for the brake bias), and say in `notes` what was compared.
+
 ## The `.xcap` format
 
 One gzip stream: the magic `XCAP` and a version byte, a JSON header (game, reader family, Companion version, game build,

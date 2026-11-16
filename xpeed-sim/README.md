@@ -142,6 +142,8 @@ Para jogos que mandam UDP (F1, Forza, Wreckfest 2), **pause ou feche o app da ba
 
 - A memória do jogo é aberta **somente para leitura**. A única escrita é na trava que o próprio protocolo do jogo exige.
 - O tamanho do mapa é conferido antes de ler; um tamanho diferente do conhecido faz o `record` recusar.
+- No Le Mans Ultimate, além do tamanho, o número da versão do jogo é conferido contra a versão para a qual `layout.rs` foi gerado (1.4.2): outra versão maior ou menor (1.5, 2.0) é recusada, outro patch (1.4.3) é lido e anotado uma vez no log. O jeito como o jogo escreve esse número (`major*10000 + minor*100 + patch`) **não foi conferido com o jogo aberto**: um número que não se lê como versão nunca é recusado, só anotado. O `probe` imprime o número.
+- Os leitores de UDP (F1, Forza, Wreckfest 2) escutam só em `127.0.0.1` e descartam datagramas de quem não é local. Para quem roda o jogo em outro computador: defina a variável de ambiente `XPEED_UDP_LISTEN_ALL=1` antes de abrir o Companion (escuta em todos os endereços e aceita qualquer remetente; desligado por padrão), e no jogo ponha o IP deste computador.
 - Só o carro do jogador é lido, e o **nome do piloto nunca é guardado**.
 - O arquivo é gravado em `.part` e renomeado ao final, então um arquivo incompleto nunca aparece com o nome final.
 - A chave do aparelho é um arquivo comum da pasta do usuário (não está no Gerenciador de Credenciais do Windows): quem lê a sua pasta lê a chave. Ela só deve valer para **enviar** voltas, e se revoga no app.

@@ -51,11 +51,12 @@
 //! * The socket is bound as soon as `open` runs: the game sends only while it runs, so `next` simply waits. If another
 //!   program (a dashboard) already owns the port, `open` returns `None` and is tried again later.
 
-use std::io::ErrorKind;
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Flag, Frame, Phase, Source};
+use crate::games::udp::{Door, Wait};
+use crate::norm;
 use crate::shm::Page;
 
 /// The port the game's telemetry output is set to by default.
@@ -179,33 +180,6 @@ mod layout {
     pub const MODE_GAUNTLET: u8 = 6;
 }
 
-/// A time longer than a day is not a time (the game has no such lap): garbage or a "none" marker.
-const MAX_TIME_MS: u32 = 86_400_000;
-
-fn u16_at(page: &Page, at: usize) -> u16 {
-    u16::from_le_bytes([page.u8_at(at), page.u8_at(at + 1)])
-}
-
-fn finite(v: f32) -> f32 {
-    if v.is_finite() {
-        v
-    } else {
-        f32::NAN
-    }
-}
-
-fn clamped(v: f32, low: f32, high: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(low, high)
-    } else {
-        f32::NAN
-    }
-}
-
-fn seconds(ms: u32) -> Option<f64> {
-    (ms < MAX_TIME_MS).then(|| f64::from(ms) / 1000.0)
-}
-
 fn mode_name(mode: u8) -> &'static str {
     match mode {
         0 => "Banger racing",
@@ -289,9 +263,9 @@ impl Main {
         let triple = |at: usize| [p.f32_at(at), p.f32_at(at + 4), p.f32_at(at + 8)];
         Some(Main {
             game_status: p.u8_at(GAME_STATUS_AT),
-            player_status: u16_at(&p, PLAYER_STATUS_AT),
-            lap_current: u16_at(&p, LAP_CURRENT_AT),
-            lap_timing: u16_at(&p, LAP_TIMING_AT),
+            player_status: p.u16_at(PLAYER_STATUS_AT),
+            lap_current: p.u16_at(LAP_CURRENT_AT),
+            lap_timing: p.u16_at(LAP_TIMING_AT),
             lap_time_current_ms: p.u32_at(LAP_TIME_CURRENT_AT),
             lap_time_last_ms: p.u32_at(LAP_TIME_LAST_AT),
             lap_progress: p.f32_at(LAP_PROGRESS_AT),
@@ -313,7 +287,7 @@ impl Main {
             laps: p.i16_at(LAPS_AT),
             sector_count: p.u8_at(SECTOR_COUNT_AT),
             game_mode: p.u8_at(GAME_MODE_AT),
-            marshal_flags: u16_at(&p, MARSHAL_FLAGS),
+            marshal_flags: p.u16_at(MARSHAL_FLAGS),
             assist_flags: p.u8_at(ASSIST_FLAGS_AT),
             level_abs: p.u8_at(LEVEL_ABS_AT),
             level_tcs: p.u8_at(LEVEL_TCS_AT),
@@ -387,7 +361,7 @@ impl Main {
         state.engine_warning = Some(self.engine_flags & (1 << 2) != 0);
         // `tempWater` is in Kelvin; 0 is unset.
         let celsius = self.temp_water_k - 273.15;
-        state.water_c = (self.temp_water_k.is_finite() && (0.0..=400.0).contains(&celsius)).then_some(celsius);
+        state.water_c = Some(norm::water_c(celsius)).filter(|c| c.is_finite());
         let m = self.marshal_flags;
         state.flag = if m & (MARSHAL_DQ | MARSHAL_MEATBALL) != 0 {
             Some(Flag::Black)
@@ -427,8 +401,8 @@ impl Main {
         if lap_based {
             f.lap = i32::from(self.lap_current);
             if timing_ok {
-                f.lap_time_s = seconds(self.lap_time_current_ms);
-                f.last_lap_s = seconds(self.lap_time_last_ms).filter(|t| *t > 0.0);
+                f.lap_time_s = norm::seconds_ms(self.lap_time_current_ms, true);
+                f.last_lap_s = norm::seconds_ms(self.lap_time_last_ms, false);
             }
             if self.track_length.is_finite() && self.track_length > 0.0 && self.lap_progress.is_finite() {
                 f.dist_m = Some(f64::from(self.lap_progress.clamp(0.0, 1.0)) * f64::from(self.track_length));
@@ -437,20 +411,28 @@ impl Main {
         }
         let [vx, vy, vz] = self.velocity;
         let speed = (vx * vx + vy * vy + vz * vz).sqrt();
-        f.speed_ms = if speed.is_finite() { speed } else { finite(self.driveline_speed) };
+        f.speed_ms = if speed.is_finite() {
+            speed
+        } else {
+            norm::finite(self.driveline_speed)
+        };
         f.rpm = if self.rpm >= 0 { self.rpm as f32 } else { f32::NAN };
         // 0 = reverse, 1 = neutral, 2 = first: the frame has -1, 0, 1.
-        f.gear = if self.gear <= 20 { f32::from(self.gear) - 1.0 } else { f32::NAN };
+        f.gear = if self.gear <= 20 {
+            norm::gear(i32::from(self.gear) - 1)
+        } else {
+            f32::NAN
+        };
         // `gearMax` is the top forward gear, so it is also how many there are; 0 is unset.
         f.gears = (1..=20).contains(&self.gear_max).then_some(self.gear_max);
-        f.throttle = clamped(self.throttle, 0.0, 1.0);
-        f.brake = clamped(self.brake, 0.0, 1.0);
-        f.clutch = clamped(self.clutch, 0.0, 1.0);
-        f.steer = clamped(self.steering, -1.0, 1.0);
+        f.throttle = norm::pedal(self.throttle);
+        f.brake = norm::pedal(self.brake);
+        f.clutch = norm::pedal(self.clutch);
+        f.steer = norm::steer(self.steering);
         f.state = self.state();
-        f.x = finite(self.position[0]);
-        f.y = finite(self.position[1]);
-        f.z = finite(self.position[2]);
+        f.x = norm::position(self.position[0]);
+        f.y = norm::position(self.position[1]);
+        f.z = norm::position(self.position[2]);
         f.car = if !self.car_name.is_empty() {
             self.car_name.clone()
         } else {
@@ -500,32 +482,34 @@ const CAPS: Caps = Caps::LAP_TIME
 
 /// The open door: a UDP socket the game sends its telemetry to.
 pub struct Wreckfest2 {
-    socket: UdpSocket,
+    door: Door,
     /// Taken when the door opens; the frames' clock runs from it and never goes backwards.
     started: Instant,
-    healthy: bool,
-    buffer: Vec<u8>,
     /// The lap number of the finish frame already given as driving (the next ones of it are not).
     finish_given: Option<i32>,
 }
 
+/// The largest packet (info) is 8195 bytes; a datagram can hold 65507.
+const BUFFER: usize = 65_536;
+
 impl Wreckfest2 {
-    /// Binds the socket. `None` when the address is taken (another program listens on that port).
+    /// Binds the socket (loopback senders only). `None` when the address is taken (another program listens on that
+    /// port).
     fn bind(addr: SocketAddr) -> Option<Wreckfest2> {
-        let socket = UdpSocket::bind(addr).ok()?;
-        Some(Wreckfest2 {
-            socket,
+        Some(Wreckfest2::with_door(Door::bind(addr, BUFFER)?))
+    }
+
+    fn with_door(door: Door) -> Wreckfest2 {
+        Wreckfest2 {
+            door,
             started: Instant::now(),
-            healthy: true,
-            // The largest packet (info) is 8195 bytes; a datagram can hold 65507.
-            buffer: vec![0; 65_536],
             finish_given: None,
-        })
+        }
     }
 
     #[cfg(test)]
     fn local_addr(&self) -> SocketAddr {
-        self.socket.local_addr().expect("a bound socket has an address")
+        self.door.local_addr()
     }
 
     fn frame_of(&mut self, main: &Main) -> Frame {
@@ -560,36 +544,23 @@ impl Source for Wreckfest2 {
     fn next(&mut self, timeout: Duration) -> Option<Frame> {
         let deadline = Instant::now() + timeout;
         loop {
-            // A zero timeout is an error for a socket: wait at least a millisecond.
-            let wait = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
-            if self.socket.set_read_timeout(Some(wait)).is_err() {
-                self.healthy = false;
+            let Wait::Datagram(n) = self.door.recv(deadline) else {
                 return None;
+            };
+            let data = self.door.data(n);
+            crate::capture::tap_datagram(data);
+            if let Some(main) = Main::parse(data) {
+                return Some(self.frame_of(&main));
             }
-            match self.socket.recv_from(&mut self.buffer) {
-                Ok((n, _)) => {
-                    crate::capture::tap_datagram(&self.buffer[..n]);
-                    if let Some(main) = Main::parse(&self.buffer[..n]) {
-                        return Some(self.frame_of(&main));
-                    }
-                    // Another packet type, or not ours: not a frame; keep waiting for the rest of the time.
-                    if Instant::now() >= deadline {
-                        return None;
-                    }
-                }
-                Err(e) => match e.kind() {
-                    ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted | ErrorKind::ConnectionReset => return None,
-                    _ => {
-                        self.healthy = false;
-                        return None;
-                    }
-                },
+            // Another packet type, or not ours: not a frame; keep waiting for the rest of the time.
+            if Instant::now() >= deadline {
+                return None;
             }
         }
     }
 
     fn alive(&self) -> bool {
-        self.healthy
+        self.door.alive()
     }
 
     fn listens(&self) -> bool {
@@ -610,14 +581,16 @@ pub(crate) fn datagrams() -> Option<Box<dyn crate::replay::Datagrams>> {
     Some(Box::new(Wreckfest2::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?))
 }
 
+/// Opens the door on the game's UDP port (the loopback; see `udp.rs` for `XPEED_UDP_LISTEN_ALL`).
 pub fn open() -> Option<Box<dyn Source>> {
-    Wreckfest2::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, PORT))).map(|s| Box::new(s) as Box<dyn Source>)
+    Some(Box::new(Wreckfest2::with_door(Door::listen(PORT, BUFFER)?)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::lapcut::LapCutter;
+    use std::net::UdpSocket;
 
     // ---- the header, as a table of (field, bytes) for every struct, to add up again ---------------------------
 
@@ -1445,14 +1418,23 @@ mod tests {
         });
         assert!(f.throttle.is_nan() && f.steer.is_nan() && f.x.is_nan());
         assert_eq!(f.dist_m, None);
+        // A hair outside the range is pulled in; the progress is a fraction the game limits itself.
         let f = parse_frame(&Scene {
-            throttle: 7.0,
-            brake: -2.0,
-            steering: 3.0,
+            throttle: 1.4,
+            brake: -0.3,
+            steering: 1.3,
             lap_progress: 4.0,
             ..Scene::racing()
         });
         assert_eq!((f.throttle, f.brake, f.steer, f.dist_m), (1.0, 0.0, 1.0, Some(3000.0)));
+        // Far outside it (the one tolerance of `norm.rs`) is not given, not pinned to the end.
+        let f = parse_frame(&Scene {
+            throttle: 7.0,
+            brake: -2.0,
+            steering: 3.0,
+            ..Scene::racing()
+        });
+        assert!(f.throttle.is_nan() && f.brake.is_nan() && f.steer.is_nan());
     }
 
     #[test]

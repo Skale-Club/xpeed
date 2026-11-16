@@ -152,6 +152,9 @@ impl Page<'_> {
     pub fn u32_at(&self, at: usize) -> u32 {
         self.0.get(at..at + 4).map_or(0, |b| u32::from_le_bytes(b.try_into().unwrap()))
     }
+    pub fn f64_at(&self, at: usize) -> f64 {
+        self.0.get(at..at + 8).map_or(0.0, |b| f64::from_le_bytes(b.try_into().unwrap()))
+    }
     pub fn f32_at(&self, at: usize) -> f32 {
         self.0.get(at..at + 4).map_or(0.0, |b| f32::from_le_bytes(b.try_into().unwrap()))
     }
@@ -160,6 +163,15 @@ impl Page<'_> {
     }
     pub fn u8_at(&self, at: usize) -> u8 {
         self.0.get(at).copied().unwrap_or(0)
+    }
+    pub fn i8_at(&self, at: usize) -> i8 {
+        i8::from_le_bytes([self.u8_at(at)])
+    }
+    pub fn u16_at(&self, at: usize) -> u16 {
+        self.0.get(at..at + 2).map_or(0, |b| u16::from_le_bytes(b.try_into().unwrap()))
+    }
+    pub fn u64_at(&self, at: usize) -> u64 {
+        self.0.get(at..at + 8).map_or(0, |b| u64::from_le_bytes(b.try_into().unwrap()))
     }
     /// UTF-16 text of `units` characters starting at `at`.
     pub fn utf16_at(&self, at: usize, units: usize) -> String {
@@ -260,6 +272,23 @@ mod tests {
         assert_eq!(
             (page.i32_at(10_000), page.f32_at(10_000), page.utf16_at(10_000, 4)),
             (0, 0.0, String::new())
+        );
+    }
+
+    #[test]
+    fn the_little_endian_reads_cover_every_width_and_give_zero_past_the_end() {
+        let bytes = [0x34, 0x12, 0xff, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let page = Page(&bytes);
+        assert_eq!(page.u16_at(0), 0x1234);
+        assert_eq!(page.i8_at(2), -1);
+        assert_eq!(page.u8_at(2), 255);
+        assert_eq!(page.u64_at(4), 0x0807_0605_0403_0201);
+        assert_eq!(Page(&2.5f64.to_le_bytes()).f64_at(0), 2.5);
+        assert_eq!(Page(&[1, 2, 3]).f64_at(0), 0.0, "a read that runs past the end gives zero");
+        assert_eq!(
+            (page.u16_at(11), page.i8_at(12), page.u64_at(8)),
+            (0, 0, 0),
+            "a read that runs past the end gives zero"
         );
     }
 

@@ -66,7 +66,8 @@
 //!   the game writes it (x positive to the right, z positive forward, as the game's own axes are); not checked against
 //!   a live game.
 //! * `airTemp` and `roadTemp` (physics 288 and 292, Celsius) become the air and track temperature; both zero is what an
-//!   unset page holds and says nothing. `brakeTemp[4]` (physics 348) fills the brake temperatures.
+//!   unset page holds and says nothing. `brakeTemp[4]` (physics 348) fills the brake temperatures (Competizione's document has it at the same
+//!   place: its fields sum to the same offset, so it is read there too).
 //! * `session` (graphics 8: -1 unknown, 0 practice, 1 qualify, 2 race, 3 hotlap, 4 time attack, 5 drift, 6 drag) becomes
 //!   the session kind (hotlap and time attack count as practice, drift and drag as unknown) and `tyreCompound`
 //!   (graphics 176, 33 UTF-16 characters) the tyre compound.
@@ -87,6 +88,7 @@
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SectorTracker, SessionKind, Source, Tyre};
+use crate::norm;
 use crate::shm::{Mapping, Page};
 
 /// How often the loop looks at the memory while it waits for a new reading (about 100 Hz).
@@ -122,6 +124,11 @@ mod layout {
     pub const PHYS_WHEELS_PRESSURE: usize = 88;
     /// `float tyreCoreTemperature[4]`, °C.
     pub const PHYS_TYRE_CORE_TEMPERATURE: usize = 152;
+    /// `float tyreTempI[4]`, `tyreTempM[4]` and `tyreTempO[4]`, °C: the tyre's inner, middle and outer tread (after
+    /// `clutch`, in the part both Assetto Corsa's and Competizione's layouts reach).
+    pub const PHYS_TYRE_TEMP_I: usize = 368;
+    pub const PHYS_TYRE_TEMP_M: usize = 384;
+    pub const PHYS_TYRE_TEMP_O: usize = 400;
     /// `float drs` (0 or 1: the wing is open) and `float tc` (above 0 while traction control acts).
     pub const PHYS_DRS: usize = 200;
     pub const PHYS_TC: usize = 204;
@@ -256,8 +263,7 @@ impl Family {
 
     /// What this game's pages can fill on a `Frame` (what `frame_from` reads for it, nothing more).
     fn caps(self) -> Caps {
-        // The shared prefix: lap timing, the pedals, speed, rpm, gear, steering, fuel, the tyres' pressure and core
-        // temperature, the pit lane flag, and the limiter and the TC / ABS floats.
+        // The shared prefix: lap timing, the pedals, speed, rpm, gear, steering, fuel, the tyres' pressure and temperature, the pit lane flag, and the limiter and the TC / ABS floats.
         let shared = Caps::LAP_TIME
             .or(Caps::LAST_LAP)
             .or(Caps::IN_PITS)
@@ -292,6 +298,7 @@ impl Family {
                 .or(Caps::G_LONG),
             Family::Acc => shared
                 .or(Caps::POSITION)
+                .or(Caps::BRAKE_TEMP)
                 .or(Caps::LAP_VALID)
                 .or(Caps::BRAKE_BIAS)
                 .or(Caps::WATER_TEMP)
@@ -529,22 +536,6 @@ pub(crate) fn open_replay(game_id: &str) -> Option<Box<dyn Source>> {
     Some(Box::new(source))
 }
 
-fn pedal(v: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(0.0, 1.0)
-    } else {
-        f32::NAN
-    }
-}
-
-fn within(v: f32, limit: f32) -> f32 {
-    if v.is_finite() && v.abs() <= limit {
-        v
-    } else {
-        f32::NAN
-    }
-}
-
 /// Assetto Corsa's sector index and last sector time, for a track with three sectors (anything else gives none: the
 /// third sector is worked out from the lap time, which needs exactly three).
 fn sector_reading(g: &Page, s: &Page) -> Option<(i32, i32)> {
@@ -561,11 +552,6 @@ fn session_kind_of(session: i32) -> Option<SessionKind> {
         5 | 6 => Some(SessionKind::Unknown),
         _ => None,
     }
-}
-
-/// A time in milliseconds as seconds, when it is a time (not negative, not an "none yet" value like `i32::MAX`).
-fn seconds(ms: i32) -> Option<f64> {
-    (0..=36_000_000).contains(&ms).then(|| f64::from(ms) / 1000.0)
 }
 
 /// Competizione's coordinates of the player's own car: the slot of `carID` that is `playerCarID`.
@@ -634,7 +620,7 @@ fn state_from(family: Family, p: &Page, g: &Page, s: &Page) -> CarState {
             state.tc_active = Some(p.i32_at(PHYS_ACC_TC_IN_ACTION) != 0);
             state.abs_active = Some(p.i32_at(PHYS_ACC_ABS_IN_ACTION) != 0);
             let water = p.f32_at(PHYS_ACC_WATER_TEMP);
-            state.water_c = (water.is_finite() && water > 0.0 && water <= 400.0).then_some(water);
+            state.water_c = Some(norm::water_c(water)).filter(|c| c.is_finite());
             let level = |at: usize| u8::try_from(g.i32_at(at)).ok().filter(|v| *v <= 30);
             state.tc_level = level(GFX_ACC_TC);
             state.abs_level = level(GFX_ACC_ABS);
@@ -661,25 +647,20 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         _ => Phase::Unknown,
     });
     f.lap = if lap_known { completed + 1 } else { 0 };
-    f.lap_time_s = seconds(g.i32_at(GFX_I_CURRENT_TIME));
-    f.last_lap_s = seconds(g.i32_at(GFX_I_LAST_TIME)).filter(|t| *t > 0.0);
+    f.lap_time_s = norm::seconds_ms(g.i32_at(GFX_I_CURRENT_TIME), true);
+    f.last_lap_s = norm::seconds_ms(g.i32_at(GFX_I_LAST_TIME), false);
     f.in_pits = g.i32_at(GFX_IS_IN_PIT) != 0;
 
-    f.throttle = pedal(p.f32_at(PHYS_GAS));
-    f.brake = pedal(p.f32_at(PHYS_BRAKE));
-    f.speed_ms = (f64::from(within(p.f32_at(PHYS_SPEED_KMH), 1500.0)) / 3.6) as f32;
+    f.throttle = norm::pedal(p.f32_at(PHYS_GAS));
+    f.brake = norm::pedal(p.f32_at(PHYS_BRAKE));
+    f.speed_ms = (f64::from(norm::within(p.f32_at(PHYS_SPEED_KMH), -1500.0, 1500.0)) / 3.6) as f32;
     let rpm = p.i32_at(PHYS_RPMS);
     f.rpm = if (0..=30_000).contains(&rpm) { rpm as f32 } else { f32::NAN };
     // 0 = reverse, 1 = neutral, 2 = first.
     let gear = p.i32_at(PHYS_GEAR);
-    f.gear = if (0..=15).contains(&gear) { (gear - 1) as f32 } else { f32::NAN };
+    f.gear = if (0..=15).contains(&gear) { norm::gear(gear - 1) } else { f32::NAN };
     // Documented as -1..1; a value far outside is not that (degrees, say) and is dropped, not pinned to the ends.
-    let steer = p.f32_at(PHYS_STEER);
-    f.steer = if steer.is_finite() && steer.abs() <= 1.5 {
-        steer.clamp(-1.0, 1.0)
-    } else {
-        f32::NAN
-    };
+    f.steer = norm::steer(p.f32_at(PHYS_STEER));
     f.fuel_l = {
         let fuel = p.f32_at(PHYS_FUEL);
         if fuel.is_finite() && (0.0..=1000.0).contains(&fuel) {
@@ -691,32 +672,24 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
 
     // Tyres, front left to rear right: pressure (psi in the page) and core temperature. The page's `tyreWear` has
     // no documented unit (and Competizione leaves it empty), so the tread left is not given.
+    let has_tread = matches!(family, Family::Ac | Family::Acc);
     let tyres: [Tyre; 4] = std::array::from_fn(|i| {
-        let psi = p.f32_at(PHYS_WHEELS_PRESSURE + 4 * i);
-        let core = p.f32_at(PHYS_TYRE_CORE_TEMPERATURE + 4 * i);
+        let at = |base: usize| p.f32_at(base + 4 * i);
+        // The tread (the mean of the inner, middle and outer readings, as Assetto Corsa EVO's reader takes it) when all
+        // three are believable, else the core. Both lie in the part of the page that Assetto Corsa's and
+        // Competizione's layouts reach.
+        let tread = if has_tread {
+            norm::tread_c(at(PHYS_TYRE_TEMP_I), at(PHYS_TYRE_TEMP_M), at(PHYS_TYRE_TEMP_O))
+        } else {
+            f32::NAN
+        };
+        let core = norm::tyre_c(at(PHYS_TYRE_CORE_TEMPERATURE));
         Tyre {
-            // `brakeTemp[4]` is in the part of the page that Assetto Corsa's layout reaches (and Competizione's, which is
-            // not asked for here).
-            brake_c: if family == Family::Ac {
-                let c = p.f32_at(PHYS_BRAKE_TEMP + 4 * i);
-                if c.is_finite() && c > 0.0 && c <= 2000.0 {
-                    c
-                } else {
-                    f32::NAN
-                }
-            } else {
-                f32::NAN
-            },
-            temp_c: if core.is_finite() && core != 0.0 && (-50.0..=400.0).contains(&core) {
-                core
-            } else {
-                f32::NAN
-            },
-            pressure_kpa: if psi.is_finite() && (1.0..=100.0).contains(&psi) {
-                psi * 6.894_757
-            } else {
-                f32::NAN
-            },
+            // `brakeTemp[4]` is in the part of the page that Assetto Corsa's and Competizione's layouts reach (Rally's
+            // copy stops at `abs`).
+            brake_c: if has_tread { norm::brake_c(at(PHYS_BRAKE_TEMP)) } else { f32::NAN },
+            temp_c: if tread.is_finite() { tread } else { core },
+            pressure_kpa: norm::pressure_kpa(at(PHYS_WHEELS_PRESSURE) * norm::KPA_PER_PSI),
             left: f32::NAN,
         }
     });
@@ -749,9 +722,9 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         Family::Acr => None,
     };
     if let Some([x, y, z]) = position {
-        f.x = within(x, 1.0e6);
-        f.y = within(y, 1.0e6);
-        f.z = within(z, 1.0e6);
+        f.x = norm::position(x);
+        f.y = norm::position(y);
+        f.z = norm::position(z);
     }
     match family {
         Family::Ac => {
@@ -780,48 +753,12 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
     f
 }
 
-/// The executable names of the running processes (a read-only list; no process is opened). `None` if Windows says no.
+/// The executable names of the running processes (the shared list of `win.rs`: a read-only list, no process is
+/// opened). `None` when Windows gave no list at all (a running system always has some), so a failed look is not
+/// taken for "the game is gone".
 fn running_processes() -> Option<Vec<String>> {
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
-
-    #[repr(C)]
-    struct ProcessEntry {
-        size: u32,
-        usage: u32,
-        pid: u32,
-        heap_id: usize,
-        module_id: u32,
-        threads: u32,
-        parent_pid: u32,
-        priority: i32,
-        flags: u32,
-        exe_file: [u16; 260],
-    }
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> HANDLE;
-        fn Process32FirstW(snapshot: HANDLE, entry: *mut ProcessEntry) -> i32;
-        fn Process32NextW(snapshot: HANDLE, entry: *mut ProcessEntry) -> i32;
-    }
-
-    const SNAPSHOT_PROCESSES: u32 = 2;
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(SNAPSHOT_PROCESSES, 0);
-        if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
-            return None;
-        }
-        let mut entry: ProcessEntry = std::mem::zeroed();
-        entry.size = std::mem::size_of::<ProcessEntry>() as u32;
-        let mut names = Vec::new();
-        let mut more = Process32FirstW(snapshot, &mut entry) != 0;
-        while more {
-            names.push(crate::game::text_of_utf16(&entry.exe_file));
-            more = Process32NextW(snapshot, &mut entry) != 0;
-        }
-        CloseHandle(snapshot);
-        Some(names)
-    }
+    let names = crate::win::running_programs();
+    (!names.is_empty()).then_some(names)
 }
 
 #[cfg(test)]
@@ -1145,6 +1082,9 @@ mod tests {
             ("airTemp", PHYS_AIR_TEMP),
             ("roadTemp", PHYS_ROAD_TEMP),
             ("brakeTemp", PHYS_BRAKE_TEMP),
+            ("tyreTempI", PHYS_TYRE_TEMP_I),
+            ("tyreTempM", PHYS_TYRE_TEMP_M),
+            ("tyreTempO", PHYS_TYRE_TEMP_O),
             ("drsAvailable", PHYS_DRS_AVAILABLE),
             ("drsEnabled", PHYS_DRS_ENABLED),
             ("brakeBias", PHYS_BRAKE_BIAS),
@@ -1647,7 +1587,14 @@ mod tests {
                 "{exe}"
             );
             assert_eq!(f.sectors_ms, [None, None], "{exe}");
-            assert!(f.tyres.is_none_or(|t| t.iter().all(|t| t.brake_c.is_nan())), "{exe}");
+            // Competizione's document has `brakeTemp` where Assetto Corsa's layout does (read there since the tyre and brake
+            // temperatures were taken from both); Rally's copy stops before it.
+            let brake = f.tyres.map(|t| t[0].brake_c);
+            if exe == "acr.exe" {
+                assert!(brake.is_none_or(f32::is_nan), "{exe}");
+            } else {
+                assert_eq!(brake, Some(310.0), "{exe}");
+            }
         }
     }
 
@@ -1702,6 +1649,51 @@ mod tests {
         ] {
             assert_eq!(flag_of(n), want, "flag {n}");
         }
+    }
+
+    #[test]
+    fn the_tyre_temperature_is_the_tread_mean_with_the_core_standing_in_and_rally_has_only_the_core() {
+        for (exe, version, tread) in [
+            ("acs.exe", "1.7", true),
+            ("AC2-Win64-Shipping.exe", "1.8.12", true),
+            ("acr.exe", "", false),
+        ] {
+            let mut sim = Sim::live(version);
+            let exes: &'static [&'static str] = Box::leak(vec![exe].into_boxed_slice());
+            let mut source = open_sim(&sim, processes(exes));
+            for i in 0..4 {
+                sim.phys
+                    .write(PHYS_TYRE_CORE_TEMPERATURE + 4 * i, &(60.0f32 + i as f32).to_le_bytes());
+                sim.phys.write(PHYS_TYRE_TEMP_I + 4 * i, &(80.0f32 + i as f32).to_le_bytes());
+                sim.phys.write(PHYS_TYRE_TEMP_M + 4 * i, &(84.0f32 + i as f32).to_le_bytes());
+                sim.phys.write(PHYS_TYRE_TEMP_O + 4 * i, &(88.0f32 + i as f32).to_le_bytes());
+            }
+            sim.step();
+            let temps = source.next(SOON).unwrap().tyres.unwrap().map(|t| t.temp_c);
+            let want = if tread {
+                [84.0, 85.0, 86.0, 87.0]
+            } else {
+                [60.0, 61.0, 62.0, 63.0]
+            };
+            assert_eq!(temps, want, "{exe}");
+            if tread {
+                // One of the three points missing: the core stands in for that tyre only.
+                sim.phys.write(PHYS_TYRE_TEMP_M + 4, &0.0f32.to_le_bytes());
+                sim.step();
+                let temps = source.next(SOON).unwrap().tyres.unwrap().map(|t| t.temp_c);
+                assert_eq!((temps[0], temps[1]), (84.0, 61.0), "{exe}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_process_list_is_the_shared_one_and_a_failed_look_is_none() {
+        let names = running_processes().expect("a running system has processes");
+        assert!(!names.is_empty());
+        assert!(
+            names.iter().all(|n| n == &n.to_ascii_lowercase()),
+            "the shared list is in lower case"
+        );
     }
 
     #[test]

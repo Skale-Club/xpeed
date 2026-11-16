@@ -86,11 +86,12 @@
 //! `isSpectating`), else `Unknown`. Not told: `Menu`, `Paused`, `Replay`, `Loading`. The telemetry is not withheld
 //! outside `Driving`: the game fills it in the garage, and sends nothing where it would be stale.
 
-use std::io::ErrorKind;
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source};
+use crate::games::udp::{Door, Wait};
+use crate::norm;
 use crate::shm::Page;
 
 /// The port the game sends to unless the person changes it (the spec's default).
@@ -380,18 +381,6 @@ fn layout_of_programs(running: &[String]) -> &'static Layout {
     }
 }
 
-fn u16_at(p: &Page, at: usize) -> u16 {
-    u16::from(p.u8_at(at)) | (u16::from(p.u8_at(at + 1)) << 8)
-}
-
-fn u64_at(p: &Page, at: usize) -> u64 {
-    u64::from(p.u32_at(at)) | (u64::from(p.u32_at(at + 4)) << 32)
-}
-
-fn i8_at(p: &Page, at: usize) -> i8 {
-    i8::from_le_bytes([p.u8_at(at)])
-}
-
 /// The header fields this reader needs.
 #[derive(Clone, Copy, Debug)]
 struct Header {
@@ -409,9 +398,9 @@ impl Header {
         }
         let p = Page(data);
         Some(Header {
-            layout: layout_of(u16_at(&p, H_FORMAT))?,
+            layout: layout_of(p.u16_at(H_FORMAT))?,
             packet_id: p.u8_at(H_PACKET_ID),
-            session_uid: u64_at(&p, H_SESSION_UID),
+            session_uid: p.u64_at(H_SESSION_UID),
             player_car: usize::from(p.u8_at(H_PLAYER_CAR)),
         })
     }
@@ -708,8 +697,8 @@ impl Decoder {
             ID_SESSION => {
                 self.session = Some(SessionInfo {
                     session_type: page.u8_at(S_SESSION_TYPE),
-                    track_id: i8_at(&page, S_TRACK_ID),
-                    track_length_m: u16_at(&page, S_TRACK_LENGTH),
+                    track_id: page.i8_at(S_TRACK_ID),
+                    track_length_m: page.u16_at(S_TRACK_LENGTH),
                     spectating: page.u8_at(S_IS_SPECTATING) != 0,
                 });
                 None
@@ -733,7 +722,7 @@ impl Decoder {
                 // numActiveCars comes first, then the entries.
                 let entry = HEADER_SIZE + 1 + header.player_car * layout.participant_car + layout.team_id_at;
                 self.team_id = Some(if layout.team_id_u16 {
-                    u16_at(&page, entry)
+                    page.u16_at(entry)
                 } else {
                     u16::from(page.u8_at(entry))
                 });
@@ -747,7 +736,7 @@ impl Decoder {
                     front_brake_bias: page.u8_at(car + C_FRONT_BRAKE_BIAS),
                     pit_limiter: page.u8_at(car + C_PIT_LIMITER),
                     drs_allowed: page.u8_at(car + C_DRS_ALLOWED),
-                    fia_flag: i8_at(&page, car + C_FIA_FLAGS),
+                    fia_flag: page.i8_at(car + C_FIA_FLAGS),
                 });
                 None
             }
@@ -776,16 +765,16 @@ impl Decoder {
         let mut f = Frame::empty();
         f.clock_s = clock_s;
 
-        let speed_kmh = u16_at(page, car + T_SPEED_KMH);
+        let speed_kmh = page.u16_at(car + T_SPEED_KMH);
         f.speed_ms = f32::from(speed_kmh) / 3.6;
-        f.rpm = f32::from(u16_at(page, car + T_RPM));
-        let gear = i8_at(page, car + T_GEAR);
+        f.rpm = f32::from(page.u16_at(car + T_RPM));
+        let gear = page.i8_at(car + T_GEAR);
         // -1 reverse, 0 neutral, 1..8; anything else is not a gear.
-        f.gear = if (-1..=8).contains(&gear) { f32::from(gear) } else { f32::NAN };
-        f.throttle = page.f32_at(car + T_THROTTLE).clamp(0.0, 1.0);
-        f.brake = page.f32_at(car + T_BRAKE).clamp(0.0, 1.0);
-        f.steer = page.f32_at(car + T_STEER).clamp(-1.0, 1.0);
-        f.clutch = (f32::from(page.u8_at(car + T_CLUTCH)) / 100.0).clamp(0.0, 1.0);
+        f.gear = if gear <= 8 { norm::gear(i32::from(gear)) } else { f32::NAN };
+        f.throttle = norm::pedal(page.f32_at(car + T_THROTTLE));
+        f.brake = norm::pedal(page.f32_at(car + T_BRAKE));
+        f.steer = norm::steer(page.f32_at(car + T_STEER));
+        f.clutch = norm::pedal(f32::from(page.u8_at(car + T_CLUTCH)) / 100.0);
         f.state = self.state(page.u8_at(car + T_DRS));
 
         if let Some([x, y, z]) = self.position {
@@ -885,29 +874,30 @@ impl Decoder {
 
 /// The open door: a UDP socket the game sends its telemetry to.
 pub struct F1Source {
-    socket: UdpSocket,
+    door: Door,
     start: Instant,
     decoder: Decoder,
     /// The game named before any packet has come (from the program that is running).
     first_guess: &'static Layout,
-    buf: Vec<u8>,
-    alive: bool,
 }
 
+/// The biggest packet of the formats is well under 1500 bytes; a longer datagram is cut and refused by size.
+const BUFFER: usize = 2048;
+
 impl F1Source {
-    /// Binds `addr`; `None` when that fails (the port is busy: another program, for example a dashboard, owns it).
-    /// std gives no way to ask for address reuse before the bind, so a port another program holds is not shared.
+    /// Binds `addr` (loopback senders only); `None` when that fails (the port is busy: another program, for example a
+    /// dashboard, owns it).
     fn bind(addr: SocketAddr, first_guess: &'static Layout) -> Option<F1Source> {
-        let socket = UdpSocket::bind(addr).ok()?;
-        Some(F1Source {
-            socket,
+        Some(F1Source::with_door(Door::bind(addr, BUFFER)?, first_guess))
+    }
+
+    fn with_door(door: Door, first_guess: &'static Layout) -> F1Source {
+        F1Source {
+            door,
             start: Instant::now(),
             decoder: Decoder::default(),
             first_guess,
-            // The biggest packet of the formats is well under 1500 bytes; a longer datagram is cut and refused by size.
-            buf: vec![0; 2048],
-            alive: true,
-        })
+        }
     }
 
     /// The game of the packets read so far, or the first guess before any.
@@ -917,7 +907,7 @@ impl F1Source {
 
     #[cfg(test)]
     fn local_addr(&self) -> SocketAddr {
-        self.socket.local_addr().expect("a bound socket has an address")
+        self.door.local_addr()
     }
 }
 
@@ -935,10 +925,11 @@ pub(crate) fn datagrams(game_id: &str) -> Option<Box<dyn crate::replay::Datagram
     Some(Box::new(F1Source::bind(addr, first_guess)?))
 }
 
-/// Opens the door on UDP port 20777, all local addresses. `None` when the port is not free.
+/// Opens the door on UDP port 20777 (the loopback; see `udp.rs` for `XPEED_UDP_LISTEN_ALL`). `None` when the port is
+/// not free.
 pub fn open() -> Option<Box<dyn Source>> {
     let first_guess = layout_of_programs(&crate::win::running_programs());
-    let source = F1Source::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, DEFAULT_PORT)), first_guess)?;
+    let source = F1Source::with_door(Door::listen(DEFAULT_PORT, BUFFER)?, first_guess);
     Some(Box::new(source))
 }
 
@@ -956,28 +947,14 @@ impl Source for F1Source {
     fn next(&mut self, timeout: Duration) -> Option<Frame> {
         let deadline = Instant::now() + timeout;
         loop {
-            let wait = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
-            if self.socket.set_read_timeout(Some(wait)).is_err() {
-                self.alive = false;
+            let Wait::Datagram(n) = self.door.recv(deadline) else {
                 return None;
-            }
-            match self.socket.recv_from(&mut self.buf) {
-                Ok((n, _)) => {
-                    crate::capture::tap_datagram(&self.buf[..n]);
-                    let clock_s = self.start.elapsed().as_secs_f64();
-                    if let Some(frame) = self.decoder.feed(&self.buf[..n], clock_s) {
-                        return Some(frame);
-                    }
-                }
-                Err(e) => match e.kind() {
-                    ErrorKind::WouldBlock | ErrorKind::TimedOut => return None,
-                    // Windows reports a refused earlier send on a UDP socket this way; nothing is wrong with the door.
-                    ErrorKind::ConnectionReset | ErrorKind::Interrupted => {}
-                    _ => {
-                        self.alive = false;
-                        return None;
-                    }
-                },
+            };
+            let data = self.door.data(n);
+            crate::capture::tap_datagram(data);
+            let clock_s = self.start.elapsed().as_secs_f64();
+            if let Some(frame) = self.decoder.feed(data, clock_s) {
+                return Some(frame);
             }
             if Instant::now() >= deadline {
                 return None;
@@ -986,7 +963,7 @@ impl Source for F1Source {
     }
 
     fn alive(&self) -> bool {
-        self.alive
+        self.door.alive()
     }
 
     fn listens(&self) -> bool {
@@ -1032,6 +1009,7 @@ const CAPS: Caps = Caps::LAP_TIME
 mod tests {
     use super::*;
     use crate::lapcut::LapCutter;
+    use std::net::UdpSocket;
 
     // ---- byte builders, field by field in the order of each year's spec ----
 
@@ -2203,15 +2181,26 @@ mod tests {
     #[test]
     fn pedals_and_steering_stay_in_range() {
         let mut d = Decoder::default();
+        // A hair outside the range is pulled in.
         let t = Tele {
-            throttle: 1.7,
-            steer: -3.0,
-            brake: -0.5,
-            clutch: 200,
+            throttle: 1.2,
+            steer: -1.3,
+            brake: -0.2,
+            clutch: 120,
             ..sample_tele()
         };
         let f = d.feed(&tele_packet(0, &t), 0.0).unwrap();
         assert_eq!((f.throttle, f.steer, f.brake, f.clutch), (1.0, -1.0, 0.0, 1.0));
+        // Far outside it (one tolerance for every game, `norm.rs`) is not given, not pinned to the end.
+        let t = Tele {
+            throttle: 1.7,
+            steer: -3.0,
+            brake: -0.6,
+            clutch: 200,
+            ..sample_tele()
+        };
+        let f = d.feed(&tele_packet(0, &t), 0.0).unwrap();
+        assert!(f.throttle.is_nan() && f.steer.is_nan() && f.brake.is_nan() && f.clutch.is_nan());
     }
 
     #[test]
@@ -2548,6 +2537,22 @@ mod tests {
         sender.send(&tele_packet_in(2022, 0, &sample_tele())).unwrap();
         assert!(source.next(Duration::from_millis(50)).is_none());
         assert_eq!(source.game_id(), "f1");
+    }
+
+    #[test]
+    fn an_oversized_datagram_does_not_kill_the_door() {
+        let (mut source, sender) = loopback_pair();
+        // Bigger than the buffer: Windows says "message too long" for it, which is not the door's fault.
+        sender.send(&vec![0u8; BUFFER + 500]).unwrap();
+        sender.send(&tele_packet(0, &sample_tele())).unwrap();
+        assert!(
+            source.next(Duration::from_millis(500)).is_some(),
+            "the next good packet still comes through"
+        );
+        assert!(source.alive());
+        sender.send(&vec![0u8; BUFFER + 500]).unwrap();
+        assert!(source.next(Duration::from_millis(50)).is_none());
+        assert!(source.alive(), "an oversized datagram alone is nothing");
     }
 
     #[test]

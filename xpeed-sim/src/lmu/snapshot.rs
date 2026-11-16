@@ -6,18 +6,20 @@
 
 use super::layout::*;
 use crate::game::Caps;
+use crate::shm::Page;
 
+// The little-endian reads are `Page`'s (shared with the readers of the other games): a read past the end is zero.
 fn f64_at(bytes: &[u8], at: usize) -> f64 {
-    f64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())
+    Page(bytes).f64_at(at)
 }
 fn i32_at(bytes: &[u8], at: usize) -> i32 {
-    i32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    Page(bytes).i32_at(at)
 }
 fn u32_at(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    Page(bytes).u32_at(at)
 }
 fn i16_at(bytes: &[u8], at: usize) -> i16 {
-    i16::from_le_bytes(bytes[at..at + 2].try_into().unwrap())
+    Page(bytes).i16_at(at)
 }
 fn vect3_at(bytes: &[u8], at: usize) -> [f64; 3] {
     [f64_at(bytes, at), f64_at(bytes, at + 8), f64_at(bytes, at + 16)]

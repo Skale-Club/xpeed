@@ -101,6 +101,7 @@
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
+use crate::norm;
 use crate::shm::{Mapping, Page};
 
 /// Windows gives a shared memory whole pages.
@@ -202,8 +203,6 @@ const STATUS_LIVE: i32 = 2;
 const STATUS_PAUSE: i32 = 3;
 const STATUS_MAX: i32 = 3;
 const MAX_LAPS: i32 = 100_000;
-/// Ten hours, in milliseconds.
-const MAX_TIME_MS: i32 = 36_000_000;
 const CAR_TEXT_LEN: usize = 33;
 
 /// About 100 Hz.
@@ -458,21 +457,6 @@ const CAPS: Caps = {
         .or(Caps::BRAKE_BIAS)
 };
 
-/// A pedal: 0..1, pulled into range when a little outside it; far outside (or not a number) is "not given".
-fn pedal(v: f32) -> f32 {
-    if v.is_finite() && (-0.5..=1.5).contains(&v) {
-        v.clamp(0.0, 1.0)
-    } else {
-        f32::NAN
-    }
-}
-
-/// A time in milliseconds as seconds, when it is a time (not negative, not a huge "none yet" value).
-fn seconds(ms: i32, allow_zero: bool) -> Option<f64> {
-    let lo = if allow_zero { 0 } else { 1 };
-    (lo..=MAX_TIME_MS).contains(&ms).then(|| f64::from(ms) / 1000.0)
-}
-
 /// Text of the pages: empty when it holds a control character (garbled).
 fn text(page: &Page, at: usize, len: usize) -> String {
     let t = page.ascii_at(at, len);
@@ -528,9 +512,8 @@ fn state_from(g: &Page) -> CarState {
     };
     // The flag shown to this driver; the one shown to all when there is none for this driver.
     state.flag = flag_of(g.i32_at(gfx::FLAG)).or_else(|| flag_of(g.i32_at(gfx::GLOBAL_FLAG)));
-    let temp = |c: f32| (c.is_finite() && c > 0.0 && c <= 400.0).then_some(c);
-    state.water_c = temp(f32::from(g.u8_at(gfx::WATER_TEMPERATURE_C) as i8));
-    state.oil_c = temp(g.f32_at(gfx::OIL_TEMPERATURE_C));
+    state.water_c = Some(norm::water_c(f32::from(g.i8_at(gfx::WATER_TEMPERATURE_C)))).filter(|c| c.is_finite());
+    state.oil_c = Some(norm::oil_c(g.f32_at(gfx::OIL_TEMPERATURE_C))).filter(|c| c.is_finite());
     let level = |at: usize| {
         let (value, max) = (g.u8_at(gfx::ELECTRONICS + at) as i8, g.u8_at(gfx::ELECTRONICS_MAX_LIMIT + at) as i8);
         (value >= 0 && max > 0).then_some(value as u8)
@@ -548,25 +531,14 @@ fn state_from(g: &Page) -> CarState {
 /// all three are believable) and else the core. The pressure is psi in the page, as in Assetto Corsa. The tread left
 /// (`tyreWear`) has no documented unit and is not given. `None` when the game says nothing about any of the four.
 fn tyres(p: &Page) -> Option<[Tyre; 4]> {
-    let temp = |v: f32| (v.is_finite() && v != 0.0 && (-50.0..=400.0).contains(&v)).then_some(v);
     let tyres: [Tyre; 4] = std::array::from_fn(|i| {
         let at = |base: usize| p.f32_at(base + 4 * i);
-        let tread = [phys::TYRE_TEMP_I, phys::TYRE_TEMP_M, phys::TYRE_TEMP_O].map(|base| temp(at(base)));
-        let tread = tread.iter().all(Option::is_some).then(|| tread.iter().flatten().sum::<f32>() / 3.0);
-        let psi = at(phys::WHEELS_PRESSURE);
-        let brake = at(phys::BRAKE_TEMP);
+        let tread = norm::tread_c(at(phys::TYRE_TEMP_I), at(phys::TYRE_TEMP_M), at(phys::TYRE_TEMP_O));
+        let core = norm::tyre_c(at(phys::TYRE_CORE_TEMPERATURE));
         Tyre {
-            brake_c: if brake.is_finite() && brake > 0.0 && brake <= 2000.0 {
-                brake
-            } else {
-                f32::NAN
-            },
-            temp_c: tread.or_else(|| temp(at(phys::TYRE_CORE_TEMPERATURE))).unwrap_or(f32::NAN),
-            pressure_kpa: if psi.is_finite() && (1.0..=100.0).contains(&psi) {
-                psi * 6.894_757
-            } else {
-                f32::NAN
-            },
+            brake_c: norm::brake_c(at(phys::BRAKE_TEMP)),
+            temp_c: if tread.is_finite() { tread } else { core },
+            pressure_kpa: norm::pressure_kpa(at(phys::WHEELS_PRESSURE) * norm::KPA_PER_PSI),
             left: f32::NAN,
         }
     });
@@ -580,7 +552,7 @@ fn position(p: &Page) -> [f32; 3] {
     for wheel in 0..4 {
         for (axis, total) in sum.iter_mut().enumerate() {
             let v = p.f32_at(phys::TYRE_CONTACT_POINT + 12 * wheel + 4 * axis);
-            if !v.is_finite() || v.abs() > 1.0e6 {
+            if !norm::position(v).is_finite() {
                 return [f32::NAN; 3];
             }
             any |= v != 0.0;
@@ -621,8 +593,8 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     });
     // Laps completed from zero: the first lap is lap 1 (the engine reads 0 as "no lap yet").
     f.lap = if lap_known { completed + 1 } else { 0 };
-    f.lap_time_s = seconds(g.i32_at(gfx::CURRENT_LAP_TIME_MS), true);
-    f.last_lap_s = seconds(g.i32_at(gfx::LAST_LAPTIME_MS), false);
+    f.lap_time_s = norm::seconds_ms(g.i32_at(gfx::CURRENT_LAP_TIME_MS), true);
+    f.last_lap_s = norm::seconds_ms(g.i32_at(gfx::LAST_LAPTIME_MS), false);
     f.lap_valid = match (flag(g, gfx::IS_VALID_LAP), flag(g, gfx::TIMING_IS_INVALID)) {
         (Some(false), _) | (_, Some(true)) => Some(false),
         (Some(true), Some(false)) => Some(true),
@@ -630,11 +602,11 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     };
     f.in_pits = flag(g, gfx::IS_IN_PIT_LANE) == Some(true) || flag(g, gfx::IS_IN_PIT_BOX) == Some(true);
 
-    f.throttle = pedal(p.f32_at(phys::GAS));
-    f.brake = pedal(p.f32_at(phys::BRAKE));
+    f.throttle = norm::pedal(p.f32_at(phys::GAS));
+    f.brake = norm::pedal(p.f32_at(phys::BRAKE));
     // The game writes 1 = engaged (the pedal up), the opposite of the other two pedals: turned around, so 1 is the
     // pedal pressed. (A NaN stays NaN.)
-    f.clutch = 1.0 - pedal(p.f32_at(phys::CLUTCH));
+    f.clutch = 1.0 - norm::pedal(p.f32_at(phys::CLUTCH));
     // Never negative (a hair below zero is noise): the speed, not a velocity.
     let kmh = p.f32_at(phys::SPEED_KMH);
     f.speed_ms = if kmh.is_finite() && (-1.0..=1500.0).contains(&kmh) {
@@ -646,17 +618,12 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     f.rpm = if (0..=30_000).contains(&rpm) { rpm as f32 } else { f32::NAN };
     // 0 = reverse, 1 = neutral, 2 = first.
     let gear = p.i32_at(phys::GEAR);
-    f.gear = if (0..=15).contains(&gear) { (gear - 1) as f32 } else { f32::NAN };
+    f.gear = if (0..=15).contains(&gear) { norm::gear(gear - 1) } else { f32::NAN };
     // `max_gears` (graphics page): the forward gears.
     let max_gears = g.i32_at(gfx::MAX_GEARS);
     f.gears = (1..=15).contains(&max_gears).then_some(max_gears as u8);
     // Documented as -1..1; far outside that is not a steering value and is dropped, not pinned to the ends.
-    let steer = p.f32_at(phys::STEER_ANGLE);
-    f.steer = if steer.is_finite() && steer.abs() <= 1.5 {
-        steer.clamp(-1.0, 1.0)
-    } else {
-        f32::NAN
-    };
+    f.steer = norm::steer(p.f32_at(phys::STEER_ANGLE));
     let fuel = p.f32_at(phys::FUEL);
     f.fuel_l = if fuel.is_finite() && (0.0..=1000.0).contains(&fuel) {
         fuel

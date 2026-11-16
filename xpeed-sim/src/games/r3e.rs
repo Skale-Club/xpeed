@@ -51,7 +51,8 @@
 //! * `in_pits`: `in_pitlane` 1 (-1 N/A).
 //! * Speed `car_speed` (m/s); rpm from `engine_rps` (radians per second, times 60 / 2π); `gear` -1 reverse, 0 neutral,
 //!   1.. forward (-2 N/A); the pedals are `throttle_raw`, `brake_raw` and `clutch_raw` (0..1, -1 N/A) and the wheel
-//!   `steer_input_raw` (-1..1); the position is `car_cg_location` (world space, metres, Y up); fuel `fuel_left` (litres).
+//!   `steer_input_raw` (-1..1); the position is `car_cg_location` (world space, metres, Y up); fuel `fuel_left` and the tank
+//!   `fuel_capacity` (litres, -1 N/A).
 //! * Tyres (front left, front right, rear left, rear right): temperature is the average of the three points across the
 //!   tread `tire_temp[].current_temp` (left, centre, right; °C, -1 N/A); pressure `tire_pressure` (kPa, -1 N/A). Tread
 //!   left is **not** given: the header has `tire_wear` "Range 0.0 - 1.0" but does not say whether 1.0 is a new tyre or a
@@ -68,6 +69,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
+use crate::norm::{self, pedal, seconds, within};
 use crate::shm::{Mapping, Page};
 
 /// `R3E_SHARED_MEMORY_NAME`.
@@ -114,6 +116,8 @@ mod at {
     pub const NUM_GEARS: usize = GEAR + 4;
     pub const CAR_CG_LOCATION: usize = 1416;
     pub const FUEL_LEFT: usize = 1456;
+    /// `float fuel_capacity`, litres, right after `fuel_left`.
+    pub const FUEL_CAPACITY: usize = FUEL_LEFT + 4;
     pub const THROTTLE_RAW: usize = 1504;
     pub const BRAKE_RAW: usize = 1512;
     pub const CLUTCH_RAW: usize = 1520;
@@ -245,7 +249,8 @@ impl R3e {
         let settle = self.settle;
         #[cfg(test)]
         let hook = &mut self.between_copies;
-        let copy = stable_copy(
+        let copy = norm::stable_copy(
+            ATTEMPTS,
             || memory.read(0, HEAD),
             || {
                 #[cfg(test)]
@@ -253,7 +258,7 @@ impl R3e {
                     hook();
                 }
                 if !settle.is_zero() {
-                    spin(settle)
+                    norm::spin(settle)
                 }
             },
         )?;
@@ -269,29 +274,6 @@ impl R3e {
         self.last_used = Some(copy);
         frame
     }
-}
-
-/// Waits `d` without giving the processor away (a sleep is a whole timer tick on Windows, far longer than a struct
-/// takes to write).
-fn spin(d: Duration) {
-    let until = Instant::now() + d;
-    while Instant::now() < until {
-        std::hint::spin_loop();
-    }
-}
-
-/// Two copies, `gap` apart, that are the same: nothing was written between them. A copy that differs from its
-/// successor is thrown away and the pair is tried again, up to `ATTEMPTS` times.
-fn stable_copy(mut read: impl FnMut() -> Option<Vec<u8>>, mut gap: impl FnMut()) -> Option<Vec<u8>> {
-    for _ in 0..ATTEMPTS {
-        let first = read()?;
-        gap();
-        let second = read()?;
-        if first == second {
-            return Some(first);
-        }
-    }
-    None
 }
 
 impl Source for R3e {
@@ -329,67 +311,32 @@ impl Source for R3e {
     }
 }
 
-/// A float the game gave, inside `lo..=hi`; anything else (NaN, infinite, absurd, -1 "not available") is "not given".
-fn within(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() && (lo..=hi).contains(&v) {
+/// The header's "not available" for a temperature or a pressure is -1.0: that is no reading, whatever range it is in.
+fn given(v: f32) -> f32 {
+    if v == -1.0 {
+        f32::NAN
+    } else {
         v
-    } else {
-        f32::NAN
     }
 }
 
-/// A float that should be in `lo..=hi` and is pulled into it (the wheel); NaN stays "not given".
-fn clamped(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(lo, hi)
-    } else {
-        f32::NAN
-    }
-}
-
-/// A pedal, 0..1, where the game says -1.0 for "not available": anything well below zero is not given, a hair off the
-/// range is pulled into it.
-fn pedal(v: f32) -> f32 {
-    if v.is_finite() && v >= -0.5 {
-        v.clamp(0.0, 1.0)
-    } else {
-        f32::NAN
-    }
-}
-
-/// Seconds the game gave (-1.0 is "not available").
-fn seconds(v: f32, allow_zero: bool) -> Option<f64> {
-    (v.is_finite() && v <= 86_400.0 && if allow_zero { v >= 0.0 } else { v > 0.0 }).then(|| f64::from(v))
-}
-
-/// A tyre temperature in °C; -1.0 ("not available") and zero (an empty memory) are not given.
-fn tyre_temp(v: f32) -> Option<f32> {
-    (v.is_finite() && v > 0.0 && v <= 500.0).then_some(v)
-}
-
-/// One tyre: the average of the points across the tread that are given, and the pressure.
+/// One tyre: the average of the points across the tread that are given (any one of the three is enough: the header
+/// gives left, centre and right, and a car can leave one out), and the pressure.
 fn tyre(page: &Page, index: usize) -> Tyre {
     let temps = tread_points(at::TIRE_TEMP + index * TIRE_TEMP_SIZE);
-    let points: Vec<f32> = temps.iter().filter_map(|&at| tyre_temp(page.f32_at(at))).collect();
-    let pressure = page.f32_at(at::TIRE_PRESSURE + index * 4);
-    let brake = page.f32_at(at::BRAKE_TEMP + index * BRAKE_TEMP_SIZE);
+    let points: Vec<f32> = temps
+        .iter()
+        .map(|&at| norm::tyre_c(given(page.f32_at(at))))
+        .filter(|v| v.is_finite())
+        .collect();
     Tyre {
-        // Carbon brakes run past 500 °C, so this has its own, wider limit than a tyre's.
-        brake_c: if brake.is_finite() && brake > 0.0 && brake <= 2000.0 {
-            brake
-        } else {
-            f32::NAN
-        },
+        brake_c: norm::brake_c(given(page.f32_at(at::BRAKE_TEMP + index * BRAKE_TEMP_SIZE))),
         temp_c: if points.is_empty() {
             f32::NAN
         } else {
             points.iter().sum::<f32>() / points.len() as f32
         },
-        pressure_kpa: if pressure.is_finite() && pressure > 0.0 && pressure <= 2000.0 {
-            pressure
-        } else {
-            f32::NAN
-        },
+        pressure_kpa: norm::pressure_kpa(given(page.f32_at(at::TIRE_PRESSURE + index * 4))),
         left: f32::NAN,
     }
 }
@@ -455,8 +402,7 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.speed_ms = within(page.f32_at(at::CAR_SPEED), 0.0, 1000.0);
     let rps = within(page.f32_at(at::ENGINE_RPS), 0.0, 10_000.0);
     frame.rpm = rps * (60.0 / std::f32::consts::TAU);
-    let gear = page.i32_at(at::GEAR);
-    frame.gear = if (-1..=30).contains(&gear) { gear as f32 } else { f32::NAN };
+    frame.gear = norm::gear(page.i32_at(at::GEAR));
     // `num_gears`: the forward gears of the car.
     let num_gears = page.i32_at(at::NUM_GEARS);
     frame.gears = (1..=30).contains(&num_gears).then_some(num_gears as u8);
@@ -464,11 +410,13 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.throttle = pedal(page.f32_at(at::THROTTLE_RAW));
     frame.brake = pedal(page.f32_at(at::BRAKE_RAW));
     frame.clutch = pedal(page.f32_at(at::CLUTCH_RAW));
-    frame.steer = clamped(page.f32_at(at::STEER_INPUT_RAW), -1.0, 1.0);
-    frame.x = within(page.f32_at(at::CAR_CG_LOCATION), -1.0e7, 1.0e7);
-    frame.y = within(page.f32_at(at::CAR_CG_LOCATION + 4), -1.0e7, 1.0e7);
-    frame.z = within(page.f32_at(at::CAR_CG_LOCATION + 8), -1.0e7, 1.0e7);
+    frame.steer = norm::steer(page.f32_at(at::STEER_INPUT_RAW));
+    frame.x = norm::position(page.f32_at(at::CAR_CG_LOCATION));
+    frame.y = norm::position(page.f32_at(at::CAR_CG_LOCATION + 4));
+    frame.z = norm::position(page.f32_at(at::CAR_CG_LOCATION + 8));
     frame.fuel_l = within(page.f32_at(at::FUEL_LEFT), 0.0, 10_000.0);
+    // `fuel_capacity`, right after `fuel_left`: the tank in litres (-1 N/A).
+    frame.fuel_capacity_l = Some(page.f32_at(at::FUEL_CAPACITY)).filter(|c| c.is_finite() && *c > 0.0 && *c <= 10_000.0);
     let tyres = [0, 1, 2, 3].map(|i| tyre(&page, i));
     frame.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
 
@@ -506,6 +454,7 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::STEER)
     .or(Caps::POSITION)
     .or(Caps::FUEL)
+    .or(Caps::FUEL_CAPACITY)
     .or(Caps::TYRE_TEMP)
     .or(Caps::TYRE_PRESSURE)
     .or(Caps::BRAKE_TEMP)
@@ -545,11 +494,6 @@ fn aid_acting(v: i32) -> Option<bool> {
         5 => Some(true),
         _ => None,
     }
-}
-
-/// A temperature in Celsius: -1 is N/A and 0 is not a running engine's.
-fn celsius(v: f32) -> Option<f32> {
-    (v.is_finite() && v > 0.0 && v <= 400.0).then_some(v)
 }
 
 /// A setting (-1 N/A) as the level the dash shows.
@@ -608,8 +552,8 @@ fn state_from(page: &Page) -> CarState {
         handbrake: None,
         engine_warning: None,
         flag,
-        water_c: celsius(page.f32_at(at::ENGINE_TEMP)),
-        oil_c: celsius(page.f32_at(at::ENGINE_OIL_TEMP)),
+        water_c: Some(norm::water_c(given(page.f32_at(at::ENGINE_TEMP)))).filter(|c| c.is_finite()),
+        oil_c: Some(norm::oil_c(given(page.f32_at(at::ENGINE_OIL_TEMP)))).filter(|c| c.is_finite()),
         tc_level: level(page.i32_at(at::TRACTION_CONTROL_SETTING)),
         abs_level: level(page.i32_at(at::ABS_SETTING)),
         engine_map: level(page.i32_at(at::ENGINE_MAP_SETTING)),
@@ -695,6 +639,7 @@ mod tests {
             i.f32(at::CAR_CG_LOCATION + 4, 2.25);
             i.f32(at::CAR_CG_LOCATION + 8, -300.75);
             i.f32(at::FUEL_LEFT, 42.5);
+            i.f32(at::FUEL_CAPACITY, 80.0);
             i.tyre(0, [80.0, 90.0, 100.0], 180.5);
             i.tyre(1, [81.0, 91.0, 101.0], 181.5);
             i.tyre(2, [70.0, 75.0, 80.0], 170.25);
@@ -1149,6 +1094,7 @@ mod tests {
             ("num_gears", at::NUM_GEARS),
             ("car_cg_location", at::CAR_CG_LOCATION),
             ("fuel_left", at::FUEL_LEFT),
+            ("fuel_capacity", at::FUEL_CAPACITY),
             ("throttle_raw", at::THROTTLE_RAW),
             ("brake_raw", at::BRAKE_RAW),
             ("clutch_raw", at::CLUTCH_RAW),
@@ -1234,6 +1180,7 @@ mod tests {
         want.y = 2.25;
         want.z = -300.75;
         want.fuel_l = 42.5;
+        want.fuel_capacity_l = Some(80.0);
         want.tyres = Some([
             Tyre {
                 brake_c: 450.0,
@@ -1479,11 +1426,16 @@ mod tests {
         image.f32(at::THROTTLE_RAW, 1.5);
         image.f32(at::BRAKE_RAW, -0.01);
         image.f32(at::CLUTCH_RAW, -1.0);
-        image.f32(at::STEER_INPUT_RAW, -3.0);
+        image.f32(at::STEER_INPUT_RAW, -1.2);
         image.f32(at::CAR_SPEED, f32::INFINITY);
         image.f32(at::FUEL_LEFT, -1.0);
         let frame = frame_from(&image.0, 0.0).unwrap();
         assert_eq!((frame.throttle, frame.brake, frame.steer), (1.0, 0.0, -1.0));
+        // Far outside the range (the one tolerance of `norm.rs`) is not given, not pinned to the end.
+        image.f32(at::THROTTLE_RAW, 5.0);
+        image.f32(at::STEER_INPUT_RAW, -3.0);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert!(frame.throttle.is_nan() && frame.steer.is_nan());
         assert!(frame.clutch.is_nan() && frame.speed_ms.is_nan() && frame.fuel_l.is_nan());
         // No time yet: -1.0. A lap just begun: zero is a current time but not a last one.
         let mut image = Image::on_track();
@@ -1568,13 +1520,25 @@ mod tests {
     }
 
     #[test]
+    fn the_tank_is_the_header_capacity_and_not_available_is_not_given() {
+        let frame = frame_from(&Image::on_track().0, 0.0).unwrap();
+        assert_eq!((frame.fuel_l, frame.fuel_capacity_l), (42.5, Some(80.0)));
+        for bad in [-1.0, 0.0, f32::NAN, 1.0e6] {
+            let mut image = Image::on_track();
+            image.f32(at::FUEL_CAPACITY, bad);
+            assert_eq!(frame_from(&image.0, 0.0).unwrap().fuel_capacity_l, None, "capacity {bad}");
+        }
+    }
+
+    #[test]
     fn a_copy_is_used_only_when_two_copies_taken_apart_are_the_same() {
         let a = vec![1u8, 2, 3];
         let b = vec![1u8, 2, 9];
         // Calm memory: the first pair is the same.
         let mut reads = 0;
         assert_eq!(
-            stable_copy(
+            norm::stable_copy(
+                ATTEMPTS,
                 || {
                     reads += 1;
                     Some(a.clone())
@@ -1586,12 +1550,13 @@ mod tests {
         assert_eq!(reads, 2);
         // A write between the two copies: they differ, the pair is tried again and the next one is taken.
         let mut script = vec![a.clone(), b.clone(), b.clone(), b.clone()].into_iter();
-        assert_eq!(stable_copy(|| script.next(), || {}), Some(b.clone()));
+        assert_eq!(norm::stable_copy(ATTEMPTS, || script.next(), || {}), Some(b.clone()));
         // The game never stops writing: after the attempts there is no copy at all.
         let mut n = 0u8;
         let mut gaps = 0;
         assert_eq!(
-            stable_copy(
+            norm::stable_copy(
+                ATTEMPTS,
                 || {
                     n = n.wrapping_add(1);
                     Some(vec![n])
@@ -1602,7 +1567,7 @@ mod tests {
         );
         assert_eq!(gaps, ATTEMPTS, "the copies are taken apart, once per pair");
         // The memory cannot be read: nothing.
-        assert_eq!(stable_copy(|| None, || {}), None);
+        assert_eq!(norm::stable_copy(ATTEMPTS, || None, || {}), None);
     }
 
     #[test]
@@ -1744,8 +1709,8 @@ mod tests {
             assert!(f.last_lap_s.is_none_or(|t| t.is_finite() && t > 0.0));
             assert!(f.track_length_m.is_none_or(|t| t.is_finite() && t > 0.0));
             for t in f.tyres.iter().flatten() {
-                assert!(t.temp_c.is_nan() || (0.0..=500.0).contains(&t.temp_c));
-                assert!(t.pressure_kpa.is_nan() || (0.0..=2000.0).contains(&t.pressure_kpa));
+                assert!(t.temp_c.is_nan() || (-50.0..=400.0).contains(&t.temp_c));
+                assert!(t.pressure_kpa.is_nan() || (0.0..=1000.0).contains(&t.pressure_kpa));
                 assert!(t.left.is_nan());
                 assert!(t.brake_c.is_nan() || (0.0..=2000.0).contains(&t.brake_c));
             }

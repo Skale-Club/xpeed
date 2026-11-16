@@ -61,6 +61,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SessionKind, Source, Tyre};
+use crate::norm::{self, pedal, seconds, within};
 use crate::shm::{Mapping, Page};
 
 /// The name the games give their memory.
@@ -369,28 +370,6 @@ impl Source for Ams2 {
     }
 }
 
-/// A float the game gave, inside `lo..=hi`; anything else (NaN, infinite, absurd) is "not given".
-fn within(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() && (lo..=hi).contains(&v) {
-        v
-    } else {
-        f32::NAN
-    }
-}
-
-/// A float that should be in `lo..=hi` and is pulled into it (pedals); NaN stays "not given".
-fn clamped(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(lo, hi)
-    } else {
-        f32::NAN
-    }
-}
-
-fn seconds(v: f32, allow_zero: bool) -> Option<f64> {
-    (v.is_finite() && v <= 86_400.0 && if allow_zero { v >= 0.0 } else { v > 0.0 }).then(|| f64::from(v))
-}
-
 /// The slot of the player's car in the participant array, by the rule of the header's example app.
 fn viewed_slot(page: &Page) -> Option<usize> {
     let index = page.i32_at(at::VIEWED_PARTICIPANT);
@@ -468,20 +447,19 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.in_pits = pit_mode != PIT_MODE_NONE;
     frame.speed_ms = within(page.f32_at(at::SPEED), 0.0, 1000.0);
     frame.rpm = within(page.f32_at(at::RPM), 0.0, 100_000.0);
-    let gear = page.i32_at(at::GEAR);
-    frame.gear = if (-1..=30).contains(&gear) { gear as f32 } else { f32::NAN };
+    frame.gear = norm::gear(page.i32_at(at::GEAR));
     // `mNumGears` (range 0.., unset -1): the forward gears.
     let num_gears = page.i32_at(at::NUM_GEARS);
     frame.gears = (1..=30).contains(&num_gears).then_some(num_gears as u8);
     // What the driver does with the pedals and the wheel, before any filtering the game applies.
-    frame.throttle = clamped(page.f32_at(at::UNFILTERED_THROTTLE), 0.0, 1.0);
-    frame.brake = clamped(page.f32_at(at::UNFILTERED_BRAKE), 0.0, 1.0);
-    frame.clutch = clamped(page.f32_at(at::UNFILTERED_CLUTCH), 0.0, 1.0);
-    frame.steer = clamped(page.f32_at(at::UNFILTERED_STEERING), -1.0, 1.0);
+    frame.throttle = pedal(page.f32_at(at::UNFILTERED_THROTTLE));
+    frame.brake = pedal(page.f32_at(at::UNFILTERED_BRAKE));
+    frame.clutch = pedal(page.f32_at(at::UNFILTERED_CLUTCH));
+    frame.steer = norm::steer(page.f32_at(at::UNFILTERED_STEERING));
     let position = me + at::P_WORLD_POSITION;
-    frame.x = within(page.f32_at(position), -1.0e7, 1.0e7);
-    frame.y = within(page.f32_at(position + 4), -1.0e7, 1.0e7);
-    frame.z = within(page.f32_at(position + 8), -1.0e7, 1.0e7);
+    frame.x = norm::position(page.f32_at(position));
+    frame.y = norm::position(page.f32_at(position + 4));
+    frame.z = norm::position(page.f32_at(position + 8));
     let level = page.f32_at(at::FUEL_LEVEL);
     let capacity = within(page.f32_at(at::FUEL_CAPACITY), 0.0, 10_000.0);
     frame.fuel_l = if level.is_finite() && capacity > 0.0 {
@@ -489,6 +467,8 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     } else {
         f32::NAN
     };
+    // The tank in litres: the same field that turns the level's fraction into litres above.
+    frame.fuel_capacity_l = (capacity > 0.0).then_some(capacity);
     frame.car = page.ascii_at(at::CAR_NAME, STRING_LENGTH);
     frame.car_class = Some(page.ascii_at(at::CAR_CLASS_NAME, STRING_LENGTH)).filter(|s| !s.is_empty());
     frame.track = page.ascii_at(at::TRACK_LOCATION, STRING_LENGTH);
@@ -506,8 +486,8 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     Some(frame)
 }
 
-/// What a frame of this game of the format can fill (what `frame_of` reads for it, nothing more). None of them gives
-/// the tank's size on its own (it is folded into `fuel_l`), the engine map, the gearbox damage or a lap verdict
+/// What a frame of this game of the format can fill (what `frame_of` reads for it, nothing more). The tank's size is `mFuelCapacity`
+/// (also folded into `fuel_l`). None of them gives the engine map, the gearbox damage or a lap verdict
 /// beyond the invalidated flag. Project CARS gives none of what version 2 of the lap file asks of Automobilista 2
 /// (the session kind, sectors, g forces, weather, temperatures, compound), and no DRS or TC / ABS levels (they lie
 /// past Project CARS 2's struct).
@@ -527,6 +507,7 @@ fn caps_of(kind: Kind) -> Caps {
         .or(Caps::STEER)
         .or(Caps::POSITION)
         .or(Caps::FUEL)
+        .or(Caps::FUEL_CAPACITY)
         .or(Caps::CAR_CLASS)
         .or(Caps::TRACK_VARIANT)
         .or(Caps::TRACK_LENGTH)
@@ -616,10 +597,6 @@ fn version_2_from(frame: &mut Frame, page: &Page, me: usize) {
 fn state_from(page: &Page) -> CarState {
     let flags = page.u32_at(at::CAR_FLAGS);
     let has = |bit: u32| flags & bit != 0;
-    let temp = |at: usize| {
-        let c = page.f32_at(at);
-        (c != 0.0).then(|| within(c, -40.0, 400.0)).filter(|c| c.is_finite())
-    };
     // Damage is 0..1 with no "unset" of its own (0 is none).
     let damage = |at: usize| {
         let d = page.f32_at(at);
@@ -661,8 +638,8 @@ fn state_from(page: &Page) -> CarState {
         handbrake: Some(has(CAR_HANDBRAKE)),
         engine_warning: Some(has(CAR_ENGINE_WARNING)),
         flag: flag_of(page.u32_at(at::HIGHEST_FLAG_COLOUR)),
-        water_c: temp(at::WATER_TEMP),
-        oil_c: temp(at::OIL_TEMP),
+        water_c: Some(norm::water_c(page.f32_at(at::WATER_TEMP))).filter(|c| c.is_finite()),
+        oil_c: Some(norm::oil_c(page.f32_at(at::OIL_TEMP))).filter(|c| c.is_finite()),
         tc_level: setting(at::TRACTION_CONTROL_SETTING),
         abs_level: setting(at::ANTI_LOCK_SETTING),
         engine_map: None,
@@ -700,9 +677,9 @@ fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
         let wear = page.f32_at(at::TYRE_WEAR + 4 * i);
         let brake = page.f32_at(at::BRAKE_TEMP + 4 * i);
         Tyre {
-            brake_c: if brake != 0.0 { within(brake, -40.0, 2000.0) } else { f32::NAN },
-            temp_c: if temp != 0.0 { within(temp, -40.0, 400.0) } else { f32::NAN },
-            pressure_kpa: if kpa > 0.0 { within(kpa, 0.0, 1000.0) } else { f32::NAN },
+            brake_c: norm::brake_c(brake),
+            temp_c: norm::tyre_c(temp),
+            pressure_kpa: norm::pressure_kpa(kpa),
             left: if (0.0..=1.0).contains(&wear) && (temp != 0.0 || kpa > 0.0) {
                 1.0 - wear
             } else {
@@ -1317,6 +1294,7 @@ mod tests {
         want.y = 2.25;
         want.z = -300.75;
         want.fuel_l = 50.0;
+        want.fuel_capacity_l = Some(100.0);
         want.car = "Formula Ultimate Gen2".into();
         want.car_class = Some("Formula Ultimate".into());
         want.track = "Interlagos".into();
@@ -1602,12 +1580,18 @@ mod tests {
         image.f32(at::UNFILTERED_THROTTLE, 1.5);
         image.f32(at::UNFILTERED_BRAKE, -0.5);
         image.f32(at::UNFILTERED_CLUTCH, f32::NAN);
-        image.f32(at::UNFILTERED_STEERING, -3.0);
+        image.f32(at::UNFILTERED_STEERING, -1.2);
         image.f32(at::SPEED, f32::INFINITY);
         image.f32(at::RPM, -5.0);
         let frame = frame_from(&image.0, 0.0).unwrap();
         assert_eq!((frame.throttle, frame.brake, frame.steer), (1.0, 0.0, -1.0));
         assert!(frame.clutch.is_nan() && frame.speed_ms.is_nan() && frame.rpm.is_nan());
+        // Far outside the range (the one tolerance of `norm.rs`) is not given, not pinned to the end.
+        image.f32(at::UNFILTERED_THROTTLE, 5.0);
+        image.f32(at::UNFILTERED_BRAKE, -1.0);
+        image.f32(at::UNFILTERED_STEERING, -3.0);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert!(frame.throttle.is_nan() && frame.brake.is_nan() && frame.steer.is_nan());
         // Fuel: a fraction of the capacity in litres; without a capacity there is no litre figure.
         let mut image = Image::on_track();
         image.f32(at::FUEL_LEVEL, 0.25);

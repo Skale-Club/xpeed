@@ -43,6 +43,7 @@ mod lmu;
 mod maps;
 mod migrate;
 mod net;
+mod norm;
 mod outbox;
 #[cfg(windows)]
 mod panel;

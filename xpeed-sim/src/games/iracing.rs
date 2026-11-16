@@ -49,6 +49,11 @@
 //!
 //! # Where the car is (the map)
 //!
+//! ASSUMED, never checked against a live game: the axes below. They contradict EVO's and Automobilista 2's (z = north);
+//! `game.rs` and `fixtures/README.md` list this one to be settled by a fixture (`map_direction`). The lap number `Lap` is
+//! passed through and its first lap may be 0 or 1 (ASSUMED too).
+//!
+//!
 //! **The sim does not publish the car's position in the live telemetry.** `Lat`/`Lon`/`Alt` exist only in the
 //! telemetry files it writes to disk (`.ibt`), as far as is known. When a build does publish them live, this reader
 //! uses them (metres east and north of the first fix). Otherwise it **estimates** the position by adding up the
@@ -76,6 +81,7 @@ use std::time::{Duration, Instant};
 
 use crate::game::{Caps, Frame, Phase, Source};
 use crate::lapfile::Lap;
+use crate::norm::{self, pedal, within};
 use crate::shm::{Mapping, Page};
 
 /// The name the sim gives its memory (`IRSDK_MEMMAPFILENAME`).
@@ -496,15 +502,23 @@ fn frame_from(values: &Values, session: &Session, path: &mut Path, clock_s: f64)
     frame.in_pits = values.flag("OnPitRoad").unwrap_or(false);
     frame.speed_ms = within(values.float("Speed"), 0.0, 1000.0);
     frame.rpm = within(values.float("RPM"), 0.0, 100_000.0);
-    frame.gear = within(values.float("Gear"), -1.0, 20.0);
-    frame.throttle = clamped(values.float("Throttle"), 0.0, 1.0);
-    frame.brake = clamped(values.float("Brake"), 0.0, 1.0);
-    frame.clutch = clamped(1.0 - values.float("Clutch"), 0.0, 1.0);
+    frame.gear = {
+        let gear = values.float("Gear");
+        if gear.is_finite() {
+            norm::gear(gear.round() as i32)
+        } else {
+            f32::NAN
+        }
+    };
+    frame.throttle = pedal(values.float("Throttle"));
+    frame.brake = pedal(values.float("Brake"));
+    // 1 = clutch fully engaged (pedal up) in the sim, so the pedal is turned around; NaN stays NaN.
+    frame.clutch = 1.0 - pedal(values.float("Clutch"));
     frame.steer = {
         let angle = values.float("SteeringWheelAngle");
         let max = values.float("SteeringWheelAngleMax");
         if max.is_finite() && max > 0.0 {
-            clamped(-angle / max, -1.0, 1.0)
+            norm::steer(-angle / max)
         } else {
             f32::NAN
         }
@@ -542,24 +556,6 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::CAR_CLASS)
     .or(Caps::TRACK_VARIANT)
     .or(Caps::TRACK_LENGTH);
-
-/// A float inside `lo..=hi`; anything else is "not given".
-fn within(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() && (lo..=hi).contains(&v) {
-        v
-    } else {
-        f32::NAN
-    }
-}
-
-/// A float pulled into `lo..=hi` (pedals, wheel); NaN stays "not given".
-fn clamped(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(lo, hi)
-    } else {
-        f32::NAN
-    }
-}
 
 /// Spreads the gap between a lap's last position and its first along the lap, by distance, so an estimated path that
 /// drifted closes on itself. A gap over a tenth of the track (or of the lap's distance, when the track length is not
@@ -919,6 +915,28 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
             ("Mazda MX-5 Cup", Some("MX5 Cup"))
         );
         assert!(frame.y.is_nan(), "no height without Alt");
+    }
+
+    #[test]
+    fn pedals_gear_and_wheel_follow_the_one_tolerance() {
+        let frame_with = |changes: &[(&str, f32)]| {
+            let mut image = driving_image();
+            for &(name, v) in changes {
+                image.set(0, name, f64::from(v));
+            }
+            let (vars, buf) = image.values(0);
+            frame_from(&Values { vars: &vars, buf: &buf }, &Session::default(), &mut Path::default(), 0.0).0
+        };
+        // A hair outside the range is pulled in; the clutch is turned around (1 = engaged = pedal up).
+        let f = frame_with(&[("Throttle", 1.2), ("Brake", -0.2), ("Clutch", 1.3), ("Gear", 25.0)]);
+        assert_eq!((f.throttle, f.brake, f.clutch, f.gear), (1.0, 0.0, 0.0, 25.0));
+        // Far outside it is not given: a different unit, not a pedal.
+        let f = frame_with(&[("Throttle", 5.0), ("Brake", -1.0), ("Clutch", -4.0), ("Gear", 99.0)]);
+        assert!(f.throttle.is_nan() && f.brake.is_nan() && f.clutch.is_nan() && f.gear.is_nan());
+        let f = frame_with(&[("SteeringWheelAngle", 9.0), ("SteeringWheelAngleMax", 4.0)]);
+        assert!(f.steer.is_nan(), "2.25 turns of lock beyond the maximum is not the wheel");
+        let f = frame_with(&[("SteeringWheelAngle", -4.4), ("SteeringWheelAngleMax", 4.0)]);
+        assert_eq!(f.steer, 1.0, "a hair past full lock is pulled in");
     }
 
     #[test]
