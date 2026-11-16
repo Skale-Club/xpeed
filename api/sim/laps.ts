@@ -15,6 +15,7 @@ import { authenticateDevice, rememberedDevice } from './_upload';
 import { summarizeLap } from './_summary';
 import { checkPlausibility, plausibilityJson } from './_plausibility';
 import { forgetOverview } from './_v1cache';
+import { recorderJson, reportDataChecks } from './_data-checks';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUCKET = 'sim-laps';
@@ -117,13 +118,18 @@ async function receive(req: Request): Promise<Response> {
         sector_ms: summary.sectorMs, top_speed_kmh: summary.topSpeedKmh, fuel_used_l: summary.fuelUsedL, in_lap: summary.inLap,
         out_lap: summary.outLap, format_version: summary.formatVersion, session_id: summary.session.id, session_kind: summary.session.kind,
         weather: summary.session.weather, air_temp_c: summary.session.airTempC, track_temp_c: summary.session.trackTempC,
-        plausible: plausibility.plausible, plausibility: plausibilityJson(plausibility),
+        plausible: plausibility.plausible, plausibility: plausibilityJson(plausibility), recorder: recorderJson(header),
       },
     });
     if (ingested.error) throw ingested.error;
     const result = ingested.data as { status?: string; id?: string } | null;
     forgetOverview(userId);
-    if (result?.status === 'created' && result.id) { stored = null; return reply({ id: result.id, duplicate: false }, 201); }
+    if (result?.status === 'created' && result.id) {
+      stored = null;
+      // What the Companion's own data checks found goes to the Problems page; a duplicate was reported when it first came.
+      await reportDataChecks(backend, key, header);
+      return reply({ id: result.id, duplicate: false }, 201);
+    }
     // Another request stored the same lap a moment ago: its row owns the file.
     if (result?.status === 'duplicate' && result.id) { stored = null; return reply({ id: result.id, duplicate: true }); }
     if (result?.status === 'quota') return refuse({ error: 'quota' }, 422, false);

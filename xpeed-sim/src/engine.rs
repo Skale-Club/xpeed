@@ -59,7 +59,10 @@ pub const NOT_VALID_MARK: &str = " (not valid)";
 pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<String> {
     let name = lap_file_name(lap);
     let (path, partial) = (out.join(&name), out.join(format!("{name}.part")));
-    let result = lapfile::gzip(lap)
+    // Stamped with this program and reader, and checked: what the checks find goes into the file's header (the server
+    // sees it per lap) and into the log. It never stops the lap from being saved.
+    let (stamped, findings) = crate::sanity::prepare(lap);
+    let result = lapfile::gzip(&stamped)
         .map_err(|e| e.to_string())
         .and_then(|bytes| std::fs::write(&partial, &bytes).map(|_| bytes.len()).map_err(|e| e.to_string()))
         .and_then(|size| std::fs::rename(&partial, &path).map(|_| size).map_err(|e| e.to_string()));
@@ -72,6 +75,9 @@ pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<Stri
                 if lap.valid { "valid" } else { "not valid" },
                 size.div_ceil(1024)
             ));
+            for finding in &findings {
+                say(format!("Data check {} (lap {}): {}", finding.id, lap.lap_number, finding.detail));
+            }
             Some(format!(
                 "Lap {}  {}{}",
                 lap.lap_number,
@@ -627,6 +633,24 @@ mod tests {
         // And it is a lap the strict reader accepts.
         let bytes = std::fs::read(dir.join(&written[0])).unwrap();
         assert!(lapfile::gunzip(&bytes, lapfile::MAX_UNPACKED).is_ok());
+    }
+
+    #[test]
+    fn a_saved_lap_says_who_recorded_it_and_which_checks_it_failed() {
+        let dir = crate::config::scratch_dir("engine-save-stamp");
+        let lines = std::sync::Mutex::new(Vec::new());
+        // Two samples at 2 Hz: the sample rate is too low for a lap, and the checks say so.
+        save(&dir, &lap(3), &|line| lines.lock().unwrap().push(line));
+        let name = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap().path();
+        let back = lapfile::gunzip(&std::fs::read(name).unwrap(), lapfile::MAX_UNPACKED).unwrap();
+        let recorder = back.recorder.expect("stamped");
+        assert_eq!(recorder.app, "xpeed-companion");
+        assert_eq!(recorder.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(recorder.build, env!("XPEED_BUILD"));
+        assert_eq!(recorder.source, "lmu");
+        assert!(back.checks.contains(&"sample_rate".to_string()));
+        let lines = lines.lock().unwrap();
+        assert!(lines.iter().skip(1).any(|l| l.starts_with("Data check sample_rate (lap 3)")));
     }
 
     #[test]

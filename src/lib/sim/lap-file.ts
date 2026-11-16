@@ -41,6 +41,12 @@ const CHANNEL_ID = /^[a-z][a-z0-9_]{0,31}$/;
 const GAME_ID = /^[a-z][a-z0-9_]{0,31}$/;
 /** What a Companion makes up once per run of one game session: letters, digits, `_` and `-`. */
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const RECORDER_APP = /^[A-Za-z0-9._-]{1,32}$/;
+const RECORDER_VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.]{1,16})?$/;
+const RECORDER_BUILD = /^[0-9A-Za-z._-]{1,40}$/;
+const CHECK_ID = /^[a-z][a-z0-9_]{0,31}$/;
+/** The most data checks one lap lists. */
+export const MAX_CHECKS = 16;
 
 export const SESSION_KINDS = ['practice', 'qualifying', 'race', 'unknown'] as const;
 export type SessionKind = (typeof SESSION_KINDS)[number];
@@ -57,6 +63,20 @@ export type LapFormatCode =
   | 'bad_data' | 'too_large' | 'bad_gzip' | 'unsupported';
 
 export interface LapChannelInfo { id: string; unit: string }
+
+/** Version 2, optional. Which program and which reader recorded the lap, so a bad release can be told apart. */
+export interface LapRecorder {
+  /** "xpeed-companion". */
+  app: string;
+  /** The Companion's version, "0.8.2" or "0.8.2-beta.1". */
+  version: string;
+  /** The short git hash the Companion was built from ("9900d41", "9900d41-dirty"). */
+  build: string;
+  /** The reader family or game id that produced the lap. */
+  source: string;
+  /** The game's own version string, when the reader knows it. */
+  gameBuild?: string;
+}
 
 export interface LapHeader {
   /** Lowercase id of the game the lap was driven in ("lmu", "acc"...). */
@@ -92,6 +112,10 @@ export interface LapHeader {
   trackTempC?: number;
   /** Version 2. The compound of the tyres on the car, as the game names it. */
   tyreCompound?: string;
+  /** Version 2. Who recorded the lap. Old files do not have it. */
+  recorder?: LapRecorder;
+  /** Version 2. Ids of the Companion's automatic data checks the lap failed ("clutch_stuck"...); left out when it passed all of them. */
+  checks?: string[];
   channels: LapChannelInfo[];
 }
 
@@ -112,6 +136,18 @@ const isInt = (value: unknown, min: number, max: number): value is number => typ
 const isText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length >= 1 && value.length <= max;
 /** A short word or two, with no control characters, which the screens show as they are. */
 const isLabel = (value: unknown, max: number): value is string => isText(value, max) && [...value].every((ch) => ch.charCodeAt(0) > 0x1f && ch.charCodeAt(0) !== 0x7f);
+/** The recorder object, strictly, or the reason it is not one. Unknown keys of it are ignored (a newer Companion may add some). */
+function parseRecorder(input: unknown): LapRecorder {
+  if (!isRecord(input)) return fail('bad_header', 'recorder must be an object.');
+  const { app, version, build, source, gameBuild } = input;
+  if (typeof app !== 'string' || !RECORDER_APP.test(app)) fail('bad_header', 'recorder.app must be a short id.');
+  if (typeof version !== 'string' || !RECORDER_VERSION.test(version)) fail('bad_header', 'recorder.version must be like 0.8.2.');
+  if (typeof build !== 'string' || !RECORDER_BUILD.test(build)) fail('bad_header', 'recorder.build must be a short commit id.');
+  if (!isLabel(source, 32)) fail('bad_header', 'recorder.source must be a short text.');
+  if (gameBuild !== undefined && !isLabel(gameBuild, 64)) fail('bad_header', 'recorder.gameBuild must be a short text.');
+  return { app: app as string, version: version as string, build: build as string, source: source as string, ...(gameBuild !== undefined ? { gameBuild: gameBuild as string } : {}) };
+}
+
 const isTemperature = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= -100 && value <= 200;
 function fail(code: LapFormatCode, message: string): never {
   throw new LapFormatError(code, message);
@@ -120,7 +156,7 @@ function fail(code: LapFormatCode, message: string): never {
 /** Checks an untrusted header (parsed JSON) and returns it typed, or throws a LapFormatError. */
 export function parseHeader(input: unknown): LapHeader {
   if (!isRecord(input)) return fail('bad_header', 'The header is not an object.');
-  const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels, sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound } = input;
+  const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels, sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, recorder, checks } = input;
 
   if (typeof game !== 'string' || !GAME_ID.test(game)) fail('bad_header', 'game must be a lowercase id.');
   if (!isRecord(track) || !isText(track.name, 120)) return fail('bad_header', 'track.name is missing or too long.');
@@ -148,6 +184,11 @@ export function parseHeader(input: unknown): LapHeader {
   if (airTempC !== undefined && !isTemperature(airTempC)) fail('bad_header', 'airTempC must be -100 to 200.');
   if (trackTempC !== undefined && !isTemperature(trackTempC)) fail('bad_header', 'trackTempC must be -100 to 200.');
   if (tyreCompound !== undefined && !isLabel(tyreCompound, 40)) fail('bad_header', 'tyreCompound must be a short text.');
+
+  const parsedRecorder = recorder !== undefined ? parseRecorder(recorder) : undefined;
+  if (checks !== undefined && !(Array.isArray(checks) && checks.length <= MAX_CHECKS && checks.every((id) => typeof id === 'string' && CHECK_ID.test(id)))) {
+    fail('bad_header', `checks must be up to ${MAX_CHECKS} ids.`);
+  }
 
   if (!Array.isArray(channels) || channels.length < REQUIRED_CHANNELS.length || channels.length > LAP_LIMITS.channels) {
     return fail('bad_channels', `A lap has ${REQUIRED_CHANNELS.length} to ${LAP_LIMITS.channels} channels.`);
@@ -183,6 +224,8 @@ export function parseHeader(input: unknown): LapHeader {
     ...(airTempC !== undefined ? { airTempC: airTempC as number } : {}),
     ...(trackTempC !== undefined ? { trackTempC: trackTempC as number } : {}),
     ...(tyreCompound !== undefined ? { tyreCompound: tyreCompound as string } : {}),
+    ...(parsedRecorder !== undefined ? { recorder: parsedRecorder } : {}),
+    ...(checks !== undefined ? { checks: checks as string[] } : {}),
     channels: parsedChannels,
   };
 }
@@ -203,6 +246,8 @@ function serializeHeader(header: LapHeader): string {
     airTempC: header.airTempC,
     trackTempC: header.trackTempC,
     tyreCompound: header.tyreCompound,
+    recorder: header.recorder === undefined ? undefined : { app: header.recorder.app, version: header.recorder.version, build: header.recorder.build, source: header.recorder.source, gameBuild: header.recorder.gameBuild },
+    checks: header.checks !== undefined && header.checks.length > 0 ? header.checks : undefined,
     channels: header.channels.map((channel) => ({ id: channel.id, unit: channel.unit })),
   });
 }
@@ -210,7 +255,7 @@ function serializeHeader(header: LapHeader): string {
 function hasVersion2Fields(header: LapHeader): boolean {
   return header.sessionId !== undefined || header.sessionKind !== undefined || header.weather !== undefined
     || header.airTempC !== undefined || header.trackTempC !== undefined || header.tyreCompound !== undefined
-    || header.lap.inLap !== undefined || header.lap.outLap !== undefined;
+    || header.lap.inLap !== undefined || header.lap.outLap !== undefined || header.recorder !== undefined || header.checks !== undefined;
 }
 
 /** Lays a lap out as bytes (not yet compressed). Throws a LapFormatError if the lap is not valid. */

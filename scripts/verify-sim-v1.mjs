@@ -311,6 +311,48 @@ try {
     assert.equal(fuelUsedL(undefined), null);
   });
 
+  await check('recorder: who recorded a lap and the data checks it failed are stored with the lap, and each failed check is one Problems group (once per message, counted)', async () => {
+    const rig = await deviceFor(A, 'RECORDER');
+    const recorder = { app: 'xpeed-companion', version: '0.8.2', build: '9900d41', source: 'acevo', gameBuild: '0.9.1' };
+    const groups = async () => (await direct.query(
+      `SELECT source, worker, version, sample_message, occurrences, affected_users FROM public.error_groups WHERE worker = 'data-check' ORDER BY sample_message`)).rows.map((r) => ({ ...r, occurrences: Number(r.occurrences) }));
+    assert.deepEqual(await groups(), []);
+    // A lap with neither (older Companion, golden bytes): nothing stored, nothing reported.
+    const plain = await lapRow(await put(rig, { track: 'Recorder Ring', car: 'Recorder Car', number: 1, startedAt: at(0) }));
+    assert.equal(plain.recorder, null);
+    assert.deepEqual(await groups(), []);
+    // A clean stamped lap: the recorder is stored, no problem.
+    const clean = await lapRow(await put(rig, { track: 'Recorder Ring', car: 'Recorder Car', number: 2, startedAt: at(2), recorder }));
+    assert.deepEqual(clean.recorder, recorder);
+    assert.deepEqual(await groups(), []);
+    // A failing lap: the checks join the recorder in the column, and every check is a group of its own.
+    const bad = await lapRow(await put(rig, { track: 'Recorder Ring', car: 'Recorder Car', number: 3, startedAt: at(4), recorder, checks: ['t_repeats', 'clutch_stuck'] }));
+    assert.deepEqual(bad.recorder, { ...recorder, checks: ['t_repeats', 'clutch_stuck'] });
+    assert.deepEqual(await groups(), [
+      { source: 'companion', worker: 'data-check', version: '0.8.2', sample_message: 'data check clutch_stuck in acevo (0.9.1), Companion 0.8.2', occurrences: 1, affected_users: 1 },
+      { source: 'companion', worker: 'data-check', version: '0.8.2', sample_message: 'data check t_repeats in acevo (0.9.1), Companion 0.8.2', occurrences: 1, affected_users: 1 },
+    ]);
+    // Another lap of the same reader and version joins the groups (counted), and another Companion version is another group.
+    await put(rig, { track: 'Recorder Ring', car: 'Recorder Car', number: 4, startedAt: at(6), recorder, checks: ['clutch_stuck'] });
+    await put(rig, { track: 'Recorder Ring', car: 'Recorder Car', number: 5, startedAt: at(8), recorder: { ...recorder, version: '0.8.3' }, checks: ['clutch_stuck'] });
+    const after = await groups();
+    assert.deepEqual(after.map((g) => [g.sample_message, g.occurrences]), [
+      ['data check clutch_stuck in acevo (0.9.1), Companion 0.8.2', 2],
+      ['data check clutch_stuck in acevo (0.9.1), Companion 0.8.3', 1],
+      ['data check t_repeats in acevo (0.9.1), Companion 0.8.2', 1],
+    ]);
+    // The same lap sent again is a duplicate: not stored twice and not reported twice.
+    const again = await upload(rig.token, await makeLap({ track: 'Recorder Ring', car: 'Recorder Car', number: 4, startedAt: at(6), recorder, checks: ['clutch_stuck'] }));
+    assert.equal(again.body.duplicate, true);
+    assert.equal((await groups())[0].occurrences, 2);
+    // A file with no game build names the reader only.
+    const { gameBuild: _gone, ...noBuild } = recorder;
+    await put(rig, { track: 'Recorder Ring', car: 'Recorder Car', number: 6, startedAt: at(10), recorder: noBuild, checks: ['sample_rate'] });
+    assert.ok((await groups()).some((g) => g.sample_message === 'data check sample_rate in acevo, Companion 0.8.2'));
+    // A header the strict reader refuses cannot even be written by the app's own writer.
+    await assert.rejects(() => makeLap({ number: 8, startedAt: at(14), recorder: { ...recorder, version: 'latest' } }), /recorder\.version/);
+  });
+
   // ================================================================== personal bests
 
   await check('personal best: the first valid lap sets it, a faster one improves it, an invalid, slower or equal one does not', async () => {

@@ -46,6 +46,7 @@ mod present;
 #[cfg(test)]
 mod rcgen;
 mod recorder;
+mod sanity;
 mod secret;
 #[cfg(windows)]
 mod shm;

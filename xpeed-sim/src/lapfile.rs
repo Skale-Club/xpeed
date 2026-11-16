@@ -107,6 +107,52 @@ pub struct Channel {
     pub values: Vec<f32>,
 }
 
+/// Which program and which reader made a lap (the optional `recorder` object of the header). Written only when set, so
+/// laps written before it existed, and the golden vectors, are byte for byte what they were.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Recorder {
+    /// "xpeed-companion".
+    pub app: String,
+    /// The Companion's version (`CARGO_PKG_VERSION`).
+    pub version: String,
+    /// The short git hash the program was built from (`-dirty` with local changes).
+    pub build: String,
+    /// The reader family (or game id) that produced the lap.
+    pub source: String,
+    /// The game's own version string, when the reader knows it.
+    pub game_build: Option<String>,
+}
+
+impl Recorder {
+    /// This program, reading with `source`. Values the header would refuse (it takes short plain labels) are dropped
+    /// or cut, so a stamp never costs a lap.
+    pub fn current(source: &str, game_build: Option<&str>) -> Recorder {
+        Recorder {
+            app: "xpeed-companion".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            build: env!("XPEED_BUILD").into(),
+            source: label(source, 32).unwrap_or_else(|| "unknown".into()),
+            game_build: game_build.and_then(|text| label(text, 64)),
+        }
+    }
+}
+
+/// `text` trimmed and cut to `max` UTF-16 units, or `None` when nothing usable is left.
+fn label(text: &str, max: usize) -> Option<String> {
+    let clean: String = text.trim().chars().filter(|c| *c as u32 > 0x1f && *c as u32 != 0x7f).collect();
+    let mut out = String::new();
+    let mut units = 0;
+    for c in clean.chars() {
+        units += c.len_utf16();
+        if units > max {
+            break;
+        }
+        out.push(c);
+    }
+    let out = out.trim_end().to_string();
+    (!out.is_empty()).then_some(out)
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Lap {
     pub game: String,
@@ -133,6 +179,10 @@ pub struct Lap {
     /// Version 2: the lap began in the pit lane (`out_lap`) or ended in it (`in_lap`).
     pub in_lap: Option<bool>,
     pub out_lap: Option<bool>,
+    /// Version 2: who recorded the lap (`sanity::prepare` fills it when a reader left it empty).
+    pub recorder: Option<Recorder>,
+    /// Version 2: the ids of the data checks (`sanity`) the lap failed; empty when it passed all of them.
+    pub checks: Vec<String>,
     pub channels: Vec<Channel>,
 }
 
@@ -259,6 +309,25 @@ fn header_json(lap: &Lap, sample_count: usize, version: u16) -> String {
             session.push_str(&format!(",\"tyreCompound\":{}", string(compound)));
         }
     }
+    if version >= 2 {
+        if let Some(recorder) = &lap.recorder {
+            let mut object = format!(
+                "\"app\":{},\"version\":{},\"build\":{},\"source\":{}",
+                string(&recorder.app),
+                string(&recorder.version),
+                string(&recorder.build),
+                string(&recorder.source)
+            );
+            if let Some(game_build) = &recorder.game_build {
+                object.push_str(&format!(",\"gameBuild\":{}", string(game_build)));
+            }
+            session.push_str(&format!(",\"recorder\":{{{object}}}"));
+        }
+        if !lap.checks.is_empty() {
+            let list: Vec<String> = lap.checks.iter().map(|id| string(id)).collect();
+            session.push_str(&format!(",\"checks\":[{}]", list.join(",")));
+        }
+    }
     let channels: Vec<String> = lap
         .channels
         .iter()
@@ -341,6 +410,20 @@ pub fn pack_as(lap: &Lap, version: u16) -> Result<Vec<u8>, LapError> {
         }
         if lap.air_temp_c.into_iter().chain(lap.track_temp_c).any(|t| !is_temperature(t)) {
             return err("the temperatures must be -100 to 200");
+        }
+        if let Some(recorder) = &lap.recorder {
+            let plain = |text: &str, max: usize| is_label(text, max) && text.is_ascii();
+            if !(plain(&recorder.app, 32)
+                && plain(&recorder.version, 24)
+                && plain(&recorder.build, 40)
+                && is_label(&recorder.source, 32)
+                && recorder.game_build.as_deref().is_none_or(|text| is_label(text, 64)))
+            {
+                return err("the recorder must be short plain labels");
+            }
+        }
+        if lap.checks.len() > 16 || lap.checks.iter().any(|id| !is_id(id)) {
+            return err("the checks must be up to 16 ids");
         }
     }
 
@@ -452,6 +535,20 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
         tyre_compound: text(&header["tyreCompound"]),
         in_lap: header["lap"]["inLap"].as_bool(),
         out_lap: header["lap"]["outLap"].as_bool(),
+        recorder: header["recorder"].as_object().map(|object| {
+            let get = |key: &str| object.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+            Recorder {
+                app: get("app").unwrap_or_default(),
+                version: get("version").unwrap_or_default(),
+                build: get("build").unwrap_or_default(),
+                source: get("source").unwrap_or_default(),
+                game_build: get("gameBuild"),
+            }
+        }),
+        checks: header["checks"]
+            .as_array()
+            .map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default(),
         channels,
     })
 }
@@ -510,6 +607,8 @@ mod tests {
             tyre_compound: Some("Soft".into()),
             in_lap: Some(false),
             out_lap: Some(true),
+            recorder: None,
+            checks: Vec::new(),
             channels: vec![
                 channel("t", "s", [0.0, 0.5, 1.0]),
                 channel("dist", "m", [0.0, 10.0, 20.0]),
@@ -905,5 +1004,69 @@ mod tests {
         extra.push(0);
         assert!(unpack(&extra).is_err());
         assert!(gunzip(&[1, 2, 3, 4], MAX_UNPACKED).is_err());
+    }
+
+    fn stamped_lap() -> Lap {
+        Lap {
+            recorder: Some(Recorder {
+                app: "xpeed-companion".into(),
+                version: "0.8.2".into(),
+                build: "9900d41".into(),
+                source: "acevo".into(),
+                game_build: Some("0.9.1".into()),
+            }),
+            checks: vec!["t_repeats".into(), "clutch_stuck".into()],
+            ..golden_v2_lap()
+        }
+    }
+
+    #[test]
+    fn a_lap_without_a_stamp_writes_no_recorder_and_no_checks() {
+        // The golden vector above proves the bytes; this names why: the keys are written only when set.
+        let text = String::from_utf8_lossy(&pack(&golden_v2_lap()).unwrap()).to_string();
+        assert!(!text.contains("recorder") && !text.contains("checks"));
+    }
+
+    #[test]
+    fn a_stamped_lap_carries_who_recorded_it_and_what_the_checks_found() {
+        let bytes = pack(&stamped_lap()).unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        assert!(text.contains(
+            "\"recorder\":{\"app\":\"xpeed-companion\",\"version\":\"0.8.2\",\"build\":\"9900d41\",\"source\":\"acevo\",\"gameBuild\":\"0.9.1\"},\"checks\":[\"t_repeats\",\"clutch_stuck\"],\"channels\""
+        ));
+        assert_eq!(&bytes[4..6], &2u16.to_le_bytes(), "still version 2");
+        let back = unpack(&bytes).unwrap();
+        assert_eq!(back.recorder, stamped_lap().recorder);
+        assert_eq!(back.checks, vec!["t_repeats", "clutch_stuck"]);
+        // Version 1 has neither.
+        let v1 = String::from_utf8_lossy(&pack_as(&stamped_lap(), 1).unwrap()).to_string();
+        assert!(!v1.contains("recorder") && !v1.contains("checks"));
+    }
+
+    #[test]
+    fn the_stamp_of_this_build_is_always_a_valid_header() {
+        let mut lap = stamped_lap();
+        lap.recorder = Some(Recorder::current(
+            "a reader with a very very very long name that goes on",
+            Some("  v1\u{7}.2 \n"),
+        ));
+        let recorder = lap.recorder.clone().unwrap();
+        assert_eq!(recorder.app, "xpeed-companion");
+        assert_eq!(recorder.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(recorder.game_build.as_deref(), Some("v1.2"));
+        assert!(recorder.source.len() <= 32);
+        assert!(pack(&lap).is_ok());
+        assert_eq!(Recorder::current("", Some("  ")).source, "unknown");
+        assert_eq!(Recorder::current("lmu", Some("  ")).game_build, None);
+    }
+
+    #[test]
+    fn refuses_a_recorder_or_checks_the_app_would_refuse() {
+        let mut long = stamped_lap();
+        long.recorder.as_mut().unwrap().build = "x".repeat(41);
+        assert!(pack(&long).is_err());
+        let mut ids = stamped_lap();
+        ids.checks = vec!["Not An Id".into()];
+        assert!(pack(&ids).is_err());
     }
 }
