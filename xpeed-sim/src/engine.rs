@@ -110,11 +110,11 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
 }
 
 /// Own a fresh partial exclusively and remove only our partial on write/publication failure.
-fn publish_bytes(
-    partial: &Path,
-    path: &Path,
+fn publish_bytes<'a>(
+    partial: &'a Path,
+    path: &'a Path,
     bytes: &[u8],
-    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+    rename: impl FnOnce(&'a Path, &'a Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(partial)?;
