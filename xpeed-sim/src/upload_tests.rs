@@ -670,3 +670,312 @@ fn whoami_with_a_refused_key_or_a_broken_answer_is_an_error() {
     let down = Stub::start(|_| Reply::new(503, r#"{"error":"unavailable"}"#));
     assert!(net::whoami(&agent, &down.url, "xpd_k").is_err());
 }
+
+// ------------------------------------------------------------------------- refusals, waiting and the index
+
+use crate::outbox::{clean_stale_parts, lap_counts, upload_pending_with, Counts, Index, State, STALE_PART_AGE};
+
+const BAD_LAP_BODY: &str = r#"{"error":"bad_lap","code":"bad_data","message":"nope","retryable":false}"#;
+
+/// A pass with the index of a worker, as the Companion version `companion`, at `now`.
+fn pass_as(dir: &Path, config: &Config, index: &mut Index, companion: &str, now: Instant) -> Report {
+    upload_pending_with(dir, config, &net::agent(), &mut |_| {}, index, companion, now)
+}
+
+/// A stub that answers `status` and `body` while the flag is 1 and takes everything once it is 0.
+fn switchable(status: u16, body: &'static str) -> (Stub, Arc<AtomicUsize>) {
+    let failing = Arc::new(AtomicUsize::new(1));
+    let flag = failing.clone();
+    let stub = Stub::start(move |_| {
+        if flag.load(Ordering::SeqCst) == 1 {
+            Reply::new(status, body)
+        } else {
+            Reply::new(201, "{}")
+        }
+    });
+    (stub, failing)
+}
+
+#[test]
+fn a_retryable_refusal_keeps_the_lap_pending_and_it_goes_once_the_server_accepts() {
+    let dir = scratch_dir("retryable");
+    let (name, _) = add_lap(&dir, 1);
+    let (stub, failing) = switchable(422, r#"{"error":"storage_check","retryable":true}"#);
+    let config = config_for(&stub.url);
+    let report = pass(&dir, &config);
+    assert!(matches!(report.stopped, Some(Stop::Later { .. })), "{report:?}");
+    assert_eq!((report.sent, report.rejected, report.left), (0, 0, 1));
+    let state = State::load(&dir, &stub.url);
+    assert!(state.refusal(&name).is_none());
+    assert_eq!(
+        lap_counts(&dir, &stub.url),
+        Counts {
+            pending: 1,
+            rejected: 0,
+            sent: 0
+        }
+    );
+
+    failing.store(0, Ordering::SeqCst);
+    assert_eq!(pass(&dir, &config).sent, 1);
+    assert_eq!(
+        lap_counts(&dir, &stub.url),
+        Counts {
+            pending: 0,
+            rejected: 0,
+            sent: 1
+        }
+    );
+}
+
+#[test]
+fn a_retryable_refusal_honours_retry_after_and_a_rate_limit_code_is_transient() {
+    let dir = scratch_dir("retry-after-422");
+    add_lap(&dir, 1);
+    let stub = Stub::start(|_| Reply::new(400, r#"{"error":"x","retryable":true}"#).header("Retry-After", "42"));
+    let Some(Stop::Later { after, .. }) = pass(&dir, &config_for(&stub.url)).stopped else {
+        panic!()
+    };
+    assert_eq!(after, Some(Duration::from_secs(42)));
+    let limited = Stub::start(|_| Reply::new(422, r#"{"error":"rate_limited","retryable":false}"#));
+    let report = pass(&dir, &config_for(&limited.url));
+    assert!(matches!(report.stopped, Some(Stop::Later { .. })));
+    assert_eq!((report.rejected, report.left), (0, 1));
+}
+
+#[test]
+fn a_full_account_keeps_the_laps_and_asks_again_every_six_hours_and_at_the_next_start() {
+    let dir = scratch_dir("quota");
+    for number in 1..=3 {
+        add_lap(&dir, number);
+    }
+    // This is what laps.ts answers: a 422 with `quota` that is not `retryable`.
+    let (stub, failing) = switchable(422, r#"{"error":"quota","retryable":false}"#);
+    let config = config_for(&stub.url);
+    let mut index = Index::new();
+    let start = Instant::now();
+    let report = pass_as(&dir, &config, &mut index, "1.0.0", start);
+    assert_eq!((report.sent, report.rejected, report.left, report.waiting_for_room), (0, 0, 3, 3));
+    assert_eq!(
+        report.stopped, None,
+        "a full account does not stop the track layouts or the heartbeat"
+    );
+    assert_eq!(report.next_try, Some(Duration::from_secs(6 * 3600)));
+    assert_eq!(stub.requests().len(), 1, "one try for the whole account, not one per lap");
+    assert_eq!(lap_counts(&dir, &stub.url).pending, 3);
+    let reads = index.reads();
+
+    // Space was freed, but it is not time yet: nothing is asked and no file is opened.
+    failing.store(0, Ordering::SeqCst);
+    let soon = pass_as(&dir, &config, &mut index, "1.0.0", start + Duration::from_secs(3 * 3600));
+    assert_eq!((soon.sent, soon.left, soon.waiting_for_room), (0, 3, 3));
+    assert_eq!(soon.next_try, Some(Duration::from_secs(3 * 3600)));
+    assert_eq!((stub.requests().len(), index.reads()), (1, reads));
+
+    // Six hours after, they go.
+    let later = pass_as(&dir, &config, &mut index, "1.0.0", start + Duration::from_secs(6 * 3600 + 1));
+    assert_eq!((later.sent, later.left), (3, 0));
+
+    // A new start of the Companion does not wait the 6 hours.
+    let dir2 = scratch_dir("quota-restart");
+    add_lap(&dir2, 1);
+    let (stub2, failing2) = switchable(422, r#"{"error":"quota"}"#);
+    let config2 = config_for(&stub2.url);
+    assert_eq!(pass_as(&dir2, &config2, &mut Index::new(), "1.0.0", start).waiting_for_room, 1);
+    failing2.store(0, Ordering::SeqCst);
+    assert_eq!(pass_as(&dir2, &config2, &mut Index::new(), "1.0.0", start).sent, 1);
+}
+
+#[test]
+fn a_full_account_honours_the_retry_after_of_the_server() {
+    let dir = scratch_dir("quota-retry-after");
+    add_lap(&dir, 1);
+    let stub = Stub::start(|_| Reply::new(422, r#"{"error":"quota"}"#).header("Retry-After", "600"));
+    let report = pass(&dir, &config_for(&stub.url));
+    assert_eq!((report.waiting_for_room, report.next_try), (1, Some(Duration::from_secs(600))));
+}
+
+#[test]
+fn a_refusal_for_good_keeps_the_server_code_and_the_version_that_decided() {
+    let dir = scratch_dir("refusal-meta");
+    let (name, _) = add_lap(&dir, 1);
+    let (stub, _) = switchable(422, BAD_LAP_BODY);
+    let report = pass_as(&dir, &config_for(&stub.url), &mut Index::new(), "1.2.3", Instant::now());
+    assert_eq!((report.rejected, report.stopped), (1, None));
+    let state = State::load(&dir, &stub.url);
+    let refusal = state.refusal(&name).unwrap();
+    assert_eq!(refusal.companion, "1.2.3");
+    assert_eq!(refusal.code.as_deref(), Some("bad_lap/bad_data"));
+    assert_eq!(state.companion(), Some("1.2.3"));
+    assert_eq!(
+        lap_counts(&dir, &stub.url),
+        Counts {
+            pending: 0,
+            rejected: 1,
+            sent: 0
+        }
+    );
+}
+
+#[test]
+fn a_new_version_of_the_app_tries_the_refused_laps_once_more() {
+    let dir = scratch_dir("version-change");
+    add_lap(&dir, 1);
+    let (stub, failing) = switchable(422, BAD_LAP_BODY);
+    let config = config_for(&stub.url);
+    let mut index = Index::new();
+    let now = Instant::now();
+    assert_eq!(pass_as(&dir, &config, &mut index, "1.0.0", now).rejected, 1);
+    // Same version: it is not asked again.
+    assert_eq!(pass_as(&dir, &config, &mut index, "1.0.0", now), Report::default());
+    assert_eq!(stub.requests().len(), 1);
+
+    // A new version, and the server still says no: one more try, then it is refused again, for this version.
+    let again = pass_as(&dir, &config, &mut index, "1.1.0", now);
+    assert_eq!((again.requeued, again.rejected, again.sent), (1, 1, 0));
+    assert_eq!(stub.requests().len(), 2);
+    assert_eq!(pass_as(&dir, &config, &mut index, "1.1.0", now), Report::default());
+    assert_eq!(stub.requests().len(), 2, "once per version");
+
+    // The next version finds the server willing.
+    failing.store(0, Ordering::SeqCst);
+    let fixed = pass_as(&dir, &config, &mut index, "1.2.0", now);
+    assert_eq!((fixed.requeued, fixed.sent, fixed.rejected), (1, 1, 0));
+    assert_eq!(
+        lap_counts(&dir, &stub.url),
+        Counts {
+            pending: 0,
+            rejected: 0,
+            sent: 1
+        }
+    );
+}
+
+#[test]
+fn a_state_file_from_before_versions_were_recorded_loads_and_gets_one_more_try() {
+    let dir = scratch_dir("legacy-state");
+    let (name, _) = add_lap(&dir, 1);
+    let (sent_name, _) = add_lap(&dir, 2);
+    let stub = accepts_everything();
+    let legacy = serde_json::json!({
+        "server": stub.url,
+        "sent": [sent_name],
+        "rejected": { name.clone(): "the server refused this lap (422)" },
+    });
+    std::fs::write(dir.join(".xpeed-upload.json"), legacy.to_string()).unwrap();
+    let state = State::load(&dir, &stub.url);
+    assert!(state.refusal(&name).is_none() && state.companion().is_none());
+    assert_eq!(
+        lap_counts(&dir, &stub.url),
+        Counts {
+            pending: 0,
+            rejected: 1,
+            sent: 1
+        }
+    );
+
+    let report = pass(&dir, &config_for(&stub.url));
+    assert_eq!((report.requeued, report.sent), (1, 1));
+    assert_eq!(stub.requests().len(), 1, "the lap that was sent stays sent");
+    assert_eq!(State::load(&dir, &stub.url).companion(), Some(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn a_refused_lap_whose_file_changed_is_looked_at_again() {
+    let dir = scratch_dir("changed-file");
+    std::fs::write(dir.join("fixed.xlap.gz"), b"not a lap yet").unwrap();
+    let stub = accepts_everything();
+    let config = config_for(&stub.url);
+    let mut index = Index::new();
+    let now = Instant::now();
+    let first = pass_as(&dir, &config, &mut index, "1.0.0", now);
+    assert_eq!((first.rejected, first.sent), (1, 0));
+    assert!(stub.requests().is_empty(), "a file that is not a lap never leaves");
+    assert_eq!(pass_as(&dir, &config, &mut index, "1.0.0", now), Report::default());
+
+    // The same name now holds a real lap (a different size): that is a new try, with no new version needed.
+    std::fs::write(dir.join("fixed.xlap.gz"), lapfile::gzip(&lap(1)).unwrap()).unwrap();
+    let second = pass_as(&dir, &config, &mut index, "1.0.0", now);
+    assert_eq!((second.requeued, second.sent), (1, 1));
+    assert!(dir.join("fixed.xlap.gz").exists());
+}
+
+#[test]
+fn the_index_does_not_read_a_lap_again_while_the_file_is_unchanged() {
+    let dir = scratch_dir("index-reads");
+    add_lap(&dir, 1);
+    add_lap(&dir, 2);
+    std::fs::write(dir.join("junk.xlap.gz"), b"not a lap").unwrap();
+    let stub = accepts_everything();
+    let config = config_for(&stub.url);
+    let mut index = Index::new();
+    let now = Instant::now();
+    let first = pass_as(&dir, &config, &mut index, "1.0.0", now);
+    assert_eq!((first.sent, first.rejected), (2, 1));
+    assert_eq!(index.reads(), 3, "each file is read once to be checked and sent");
+
+    for _ in 0..3 {
+        assert_eq!(pass_as(&dir, &config, &mut index, "1.0.0", now), Report::default());
+    }
+    assert_eq!(index.reads(), 3, "three more passes read nothing");
+    assert_eq!(stub.requests().len(), 2);
+
+    // Only the lap saved later is read.
+    add_lap(&dir, 3);
+    assert_eq!(pass_as(&dir, &config, &mut index, "1.0.0", now).sent, 1);
+    assert_eq!(index.reads(), 4);
+}
+
+#[test]
+fn old_part_files_go_and_every_lap_and_young_part_stays() {
+    let dir = scratch_dir("parts");
+    let (lap_name, _) = add_lap(&dir, 1);
+    let old = dir.join("lap2_20261110120000.xlap.gz.part");
+    let young = dir.join("lap3_20261110120000.xlap.gz.part");
+    let other_part = dir.join("tracks-not-ours.xtrk.gz.part");
+    let state_part = dir.join(".xpeed-upload.json.part");
+    let too_short = dir.join(".xlap.gz.part");
+    let old_lap = dir.join("old_lap.xlap.gz");
+    for path in [&old, &young, &other_part, &state_part, &too_short, &old_lap] {
+        std::fs::write(path, b"x").unwrap();
+    }
+    let long_ago = std::time::SystemTime::now() - Duration::from_secs(5 * 3600);
+    for path in [&old, &other_part, &state_part, &too_short, &old_lap, &dir.join(&lap_name)] {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+    }
+    let mut lines = Vec::new();
+    assert_eq!(clean_stale_parts(&dir, STALE_PART_AGE, &mut |line| lines.push(line)), 1);
+    assert!(!old.exists());
+    assert!(young.exists(), "a lap being written right now is left alone");
+    assert!(
+        other_part.exists() && state_part.exists() && too_short.exists(),
+        "only lap parts of the app"
+    );
+    assert!(old_lap.exists() && dir.join(&lap_name).exists(), "no lap file is ever removed");
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].contains("lap2_20261110120000.xlap.gz.part"), "{lines:?}");
+    assert_eq!(clean_stale_parts(&dir.join("missing"), STALE_PART_AGE, &mut |_| {}), 0);
+}
+
+#[test]
+fn the_worker_cleans_old_part_files_when_it_starts() {
+    let dir = scratch_dir("worker-parts");
+    let old = dir.join("stuck.xlap.gz.part");
+    std::fs::write(&old, b"x").unwrap();
+    let long_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(long_ago)
+        .unwrap();
+    let stub = accepts_everything();
+    let uploader = Uploader::start(dir.clone(), config_for(&stub.url), Backoff::default(), Observer::silent());
+    wait_until("the stale part to go", || !old.exists());
+    drop(uploader);
+}

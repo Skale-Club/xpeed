@@ -26,6 +26,45 @@ pub enum SendError {
     Later { reason: String, after: Option<Duration> },
 }
 
+/// What a file upload can come to, in more detail than [`SendError`]: the lap outbox needs to tell "this lap only, later"
+/// (the account is full) from "the server is busy" and to keep the server's code with a refusal.
+#[derive(Debug, PartialEq)]
+pub enum FileError {
+    Unauthorized,
+    /// Refused for good. `code` is what the server named it (`error` and `code` of its JSON body), when it said.
+    Rejected {
+        why: String,
+        code: Option<String>,
+    },
+    /// This file cannot go now but may after the person frees space: keep it pending and ask again after `after`.
+    Deferred {
+        reason: String,
+        after: Duration,
+    },
+    /// A problem that may pass for every file: stop and try again later.
+    Later {
+        reason: String,
+        after: Option<Duration>,
+    },
+}
+
+impl From<FileError> for SendError {
+    fn from(error: FileError) -> SendError {
+        match error {
+            FileError::Unauthorized => SendError::Unauthorized,
+            FileError::Rejected { why, .. } => SendError::Rejected(why),
+            FileError::Deferred { reason, after } => SendError::Later {
+                reason,
+                after: Some(after),
+            },
+            FileError::Later { reason, after } => SendError::Later { reason, after },
+        }
+    }
+}
+
+/// How often a lap is offered again while the account has no room for it.
+pub const QUOTA_RETRY: Duration = Duration::from_secs(6 * 3600);
+
 #[derive(Debug, PartialEq)]
 pub enum Sent {
     New,
@@ -71,6 +110,55 @@ fn server_message(body: &str) -> Option<String> {
     Some(text.chars().filter(|c| !c.is_control()).take(160).collect())
 }
 
+/// What the server's JSON body says about whether sending the same file again can work.
+#[derive(Debug, Default, PartialEq)]
+struct Detail {
+    /// The `retryable` field, when the body has one.
+    retryable: Option<bool>,
+    /// `error` and `code` of the body, lower case, as `error/code` when both are there.
+    code: Option<String>,
+    quota: bool,
+    transient: bool,
+}
+
+/// Codes that mean the account has no room left (the person can free space).
+const QUOTA_CODES: [&str; 5] = ["quota", "quota_exceeded", "storage_full", "storage_quota", "no_space"];
+/// Codes that mean the server is busy, whatever the status says.
+const TRANSIENT_CODES: [&str; 6] = [
+    "rate_limited",
+    "rate_limit",
+    "too_many_requests",
+    "busy",
+    "unavailable",
+    "try_later",
+];
+
+fn server_detail(body: &str) -> Detail {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        return Detail::default();
+    };
+    let part = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .map(|t| t.trim().to_ascii_lowercase())
+            .filter(|t| !t.is_empty())
+    };
+    let (error, code) = (part("error"), part("code"));
+    let named = |list: &[&str]| [&error, &code].into_iter().flatten().any(|c| list.contains(&c.as_str()));
+    let joined = match (&error, &code) {
+        (Some(e), Some(c)) if e != c => Some(format!("{e}/{c}")),
+        (Some(e), _) | (None, Some(e)) => Some(e.clone()),
+        (None, None) => None,
+    };
+    Detail {
+        retryable: value.get("retryable").and_then(Value::as_bool),
+        code: joined.map(|c| c.chars().filter(|ch| !ch.is_control()).take(80).collect()),
+        quota: named(&QUOTA_CODES),
+        transient: named(&TRANSIENT_CODES),
+    }
+}
+
 fn retry_after(response: &ureq::http::Response<ureq::Body>) -> Option<Duration> {
     let seconds = response.headers().get("retry-after")?.to_str().ok()?.trim().parse::<u64>().ok()?;
     Some(Duration::from_secs(seconds).min(MAX_RETRY_AFTER))
@@ -112,25 +200,32 @@ fn explain(reply: &Reply, what: &str) -> String {
 }
 
 /// Sends one lap file as it is on disk.
+#[cfg(test)]
 pub fn send_lap(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sent, SendError> {
+    send_lap_detailed(agent, config, file).map_err(SendError::from)
+}
+
+/// [`send_lap`], with the detail the lap outbox needs to decide between waiting and giving up.
+pub fn send_lap_detailed(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sent, FileError> {
     send_file(agent, config, "/api/sim/laps", file, ("lap", "laps"))
 }
 
 /// Sends one track layout file (`.xtrk.gz`) as it is on disk. The server keeps one per track and replaces it.
 pub fn send_track(agent: &ureq::Agent, config: &Config, file: &[u8]) -> Result<Sent, SendError> {
-    send_file(agent, config, "/api/sim/tracks", file, ("track layout", "track layouts"))
+    send_file(agent, config, "/api/sim/tracks", file, ("track layout", "track layouts")).map_err(SendError::from)
 }
 
 /// The same rules for every file Xpeed Companion sends: the device key, the bytes as they are, and the answer judged by its
-/// status alone. `what` names one file and several, for the messages.
-fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what: (&str, &str)) -> Result<Sent, SendError> {
+/// status and, for a refusal, by the `retryable` and `code` the server's JSON body carries. `what` names one file and
+/// several, for the messages.
+fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what: (&str, &str)) -> Result<Sent, FileError> {
     let (one, many) = what;
     let response = agent
         .post(format!("{}{path}", config.server))
         .header("Authorization", format!("Bearer {}", config.token))
         .content_type("application/gzip")
         .send(file)
-        .map_err(|error| SendError::Later {
+        .map_err(|error| FileError::Later {
             reason: network_problem(&error),
             after: None,
         })?;
@@ -138,17 +233,35 @@ fn send_file(agent: &ureq::Agent, config: &Config, path: &str, file: &[u8], what
     match reply.status {
         201 => Ok(Sent::New),
         200 => Ok(Sent::Duplicate),
-        401 | 403 => Err(SendError::Unauthorized),
-        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, &format!("the server refused this {one}")))),
-        404 | 405 | 501 => Err(SendError::Later {
+        401 | 403 => Err(FileError::Unauthorized),
+        400 | 413 | 415 | 422 => {
+            let detail = server_detail(&reply.body);
+            if detail.quota {
+                Err(FileError::Deferred {
+                    reason: explain(&reply, &format!("the account has no room for this {one} yet")),
+                    after: reply.after.unwrap_or(QUOTA_RETRY),
+                })
+            } else if detail.retryable == Some(true) || detail.transient {
+                Err(FileError::Later {
+                    reason: explain(&reply, &format!("the server could not take the {one} now")),
+                    after: reply.after,
+                })
+            } else {
+                Err(FileError::Rejected {
+                    why: explain(&reply, &format!("the server refused this {one}")),
+                    code: detail.code,
+                })
+            }
+        }
+        404 | 405 | 501 => Err(FileError::Later {
             reason: format!("this server does not receive {many}"),
             after: None,
         }),
-        300..=399 => Err(SendError::Later {
+        300..=399 => Err(FileError::Later {
             reason: "the server moved; pair again with its final address".into(),
             after: None,
         }),
-        _ => Err(SendError::Later {
+        _ => Err(FileError::Later {
             reason: explain(&reply, &format!("the server could not take the {one}")),
             after: reply.after,
         }),
