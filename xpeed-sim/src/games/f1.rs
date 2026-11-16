@@ -1,4 +1,5 @@
-//! EA SPORTS F1 25, F1 24 and F1 23: the UDP telemetry the games send to this computer ("Data Out").
+//! EA SPORTS F1 25 (also with its 2026 Season Pack), F1 24 and F1 23: the UDP telemetry the games send to this
+//! computer ("Data Out").
 //!
 //! The game only sends while it is running AND its telemetry output is switched on. The person has to set, in the
 //! game: **Settings > Telemetry Settings**
@@ -7,23 +8,32 @@
 //! * UDP IP Address: the IP of this computer (`127.0.0.1` when the game runs on the same PC; with "Broadcast Mode"
 //!   On the game ignores the address and sends to the whole network, which also reaches this program)
 //! * UDP Port: **20777** (the games' default; this reader listens on it, on every local address)
-//! * UDP Format: **the game's own year**: 2025 in F1 25, 2024 in F1 24, 2023 in F1 23. Each game also offers the
-//!   formats of the years before it; the format decides how a packet is read and which game its laps are filed
-//!   under, so F1 25 set to "2024" would be read, and its laps saved, as F1 24. Any other format (the "2026" of the
-//!   F1 25 Season Pack, 2022 and older) is refused.
+//! * UDP Format: **the game's own year**: 2025 in F1 25 (or 2026, for those who own its Season Pack), 2024 in F1 24,
+//!   2023 in F1 23. Each game also offers the formats of the years before it; the format decides how a packet is read
+//!   and which game its laps are filed under, so F1 25 set to "2024" would be read, and its laps saved, as F1 24.
+//!   Any other format (2022 and older) is refused.
 //! * UDP Send Rate: 20 Hz or more (60 Hz gives the best laps; fewer packets means a coarser lap trace)
 //!
 //! One socket serves the three games: the `packetFormat` of every packet's header says which year's layout it has.
-//! The game id follows it: `"f1"` for 2025, `"f124"` for 2024, `"f123"` for 2023.
+//! The game id follows it: `"f1"` for 2025 and for 2026 (the Season Pack is F1 25), `"f124"` for 2024, `"f123"` for
+//! 2023.
 //!
 //! Sources. EA publishes each year's "UDP Specification" on the EA Sports F1 forum, but its site refuses automated
 //! downloads (HTTP 403), so each year's layouts were taken from faithful copies of the official text and every size
 //! below is the one the spec states (proven by the `sizes_*` tests, which sum the fields in the spec's order):
 //!
 //! * F1 25 (format 2025): EA's "F1 25 UDP Specification", Game Info Hub,
-//!   <https://forums.ea.com/blog/f1-games-game-info-hub-en/f1%c2%ae-25-udp-specification/12187347> (the same thread
-//!   carries the 2026 Season Pack variant), cross-checked field by field against the community parser the spec itself
-//!   is used with, `F1Game.UDP` (<https://github.com/volodymyr-fed/F1Game.UDP>, mirrored at `Addzyyy/open-f1-parser`).
+//!   <https://forums.ea.com/blog/f1-games-game-info-hub-en/f1%c2%ae-25-udp-specification/12187347>, cross-checked field
+//!   by field against the community parser the spec itself is used with, `F1Game.UDP`
+//!   (<https://github.com/volodymyr-fed/F1Game.UDP>, mirrored at `Addzyyy/open-f1-parser`).
+//! * F1 25 with the 2026 Season Pack (format 2026): EA's "EA SPORTS F1 25 2026 Season Pack UDP Specification" (version
+//!   11.0), same forum, <https://forums.ea.com/blog/f1-games-game-info-hub-en/ea-sports%E2%84%A2-f1%C2%AE25-2026-season-pack-udp-specification/12187347>.
+//!   Copies used, two independent transcriptions that agree on every packet size and on the fields read here:
+//!   `F1Game.UDP` (commit `df33608` "add support for 2026 Season Pack telemetry data", the `Data/` and `Packets/`
+//!   structs and `Enums/Team.cs`, `Enums/Track.cs`) and `racehub-io/f1-telemetry-client` (0.3.0, `src/constants/
+//!   packetSizes.ts`, the per-car parsers and `constants/teams.ts`, <https://github.com/racehub-io/f1-telemetry-client>);
+//!   the Python bridge `Rbntje/FermaxoRacingDash` (`bridge.py`) also states the packet sizes. No recording of a real
+//!   game was available: the layout is proven by the sizes (`sizes_of_2026`), not yet by a capture.
 //! * F1 24 (format 2024): EA's "F1 24 UDP Specification",
 //!   <https://forums.ea.com/discussions/f1-24-general-discussion-en/f1-24-udp-specification/8369125>. Copies used:
 //!   `p403n1x87/f1-packets` (the official text as a C header, commit `9cb0b00` "add the new F1 24 spec", file
@@ -38,13 +48,13 @@
 //! What is read (all little-endian, packed, no padding; every packet starts with the same 29-byte header in the
 //! three years). Sizes in bytes, per format:
 //!
-//! | id | packet        | 2025 | 2024 | 2023 | used for                                                             |
-//! |----|---------------|------|------|------|----------------------------------------------------------------------|
-//! | 0  | Motion        | 1349 | 1349 | 1349 | world position x, y, z of the player's car                           |
-//! | 1  | Session       | 753  | 753  | 644  | track id, track length, session type, spectating                     |
-//! | 2  | Lap Data      | 1285 | 1285 | 1131 | lap time, last lap time, lap distance, lap number, pits, lap invalid |
-//! | 4  | Participants  | 1284 | 1350 | 1306 | team id of the player's car (the car name)                           |
-//! | 6  | Car Telemetry | 1352 | 1352 | 1352 | speed, throttle, steer, brake, clutch, gear, rpm: one `Frame` each   |
+//! | id | packet        | 2026 | 2025 | 2024 | 2023 | used for                                                             |
+//! |----|---------------|------|------|------|------|----------------------------------------------------------------------|
+//! | 0  | Motion        | 1325 | 1349 | 1349 | 1349 | world position x, y, z of the player's car                           |
+//! | 1  | Session       | 926  | 753  | 753  | 644  | track id, track length, session type, spectating                     |
+//! | 2  | Lap Data      | 1399 | 1285 | 1285 | 1131 | lap time, last lap time, lap distance, lap number, pits, lap invalid |
+//! | 4  | Participants  | 1470 | 1284 | 1350 | 1306 | team id of the player's car (the car name)                           |
+//! | 6  | Car Telemetry | 1448 | 1352 | 1352 | 1352 | speed, throttle, steer, brake, clutch, gear, rpm: one `Frame` each   |
 //!
 //! What changes between the years, for these packets: the Session packet of 2023 has 56 weather forecast samples (64
 //! later) and ends after `numRedFlagPeriods` (2024 added the rule settings, the weekend structure and the sector
@@ -54,7 +64,14 @@
 //! livery colours. Motion, Car Telemetry and the fields read from the header and from the start of the Session packet
 //! are the same in the three years. The team ids differ (Appendix: Team IDs of each year).
 //!
-//! Car Status (1239 bytes in the three years) and Car Damage (953 bytes in 2023 and 2024, 1041 in 2025, which added
+//! The 2026 Season Pack has 24 cars in every array (22 before), so every packet is longer: Motion's g-forces are i16
+//! (54 bytes a car), Car Telemetry's `engineTemperature` a u8 (59), Car Status gains `ersHarvestLimitPerLap` (59), the
+//! Participants' `driverId`, `networkId` and `teamId` are u16 (60), and the Session packet ends with the active aero
+//! and DRS zones, the start reaction time and the assists (926). Lap Data and Car Damage keep the 2025 entries. The
+//! 2026 team table adds the 2026 F1 cars (ids 476 to 486, with Audi and Cadillac) and the 2025 F2 teams; Madrid is
+//! track 42.
+//!
+//! Car Status (1239 bytes in the three years before 2026, 1445 in it) and Car Damage (953 bytes in 2023 and 2024, 1041 in 2025, which added
 //! `tyreBlisters[4]`) also feed the car's state: the aids, the brake bias, the pit limiter, the DRS permission and the
 //! FIA flag from Car Status, the wing, floor, gearbox and engine damage (percentages) from Car Damage. Every other
 //! packet (events, setups, history...) is ignored. Car Status gives the fuel as a mass in kilograms and the spec
@@ -72,7 +89,7 @@ use crate::shm::Page;
 pub const DEFAULT_PORT: u16 = 20777;
 
 const HEADER_SIZE: usize = 29;
-/// Every per-car array of the spec has 22 entries.
+/// Every per-car array of the spec has 22 entries in 2023 to 2025 (`Layout::cars`: 24 in 2026).
 const CARS: usize = 22;
 
 const ID_MOTION: u8 = 0;
@@ -83,15 +100,11 @@ const ID_CAR_TELEMETRY: u8 = 6;
 const ID_CAR_STATUS: u8 = 7;
 const ID_CAR_DAMAGE: u8 = 10;
 
-/// `CarStatusData` is 55 bytes in the three years: `PacketCarStatusData` is 1239 bytes.
+/// Sizes of one car's entry in the packets 2023 to 2025 share (`Layout` has the ones of the year):
+/// `CarStatusData` is 55 bytes (`PacketCarStatusData` 1239), `CarMotionData` and `CarTelemetryData` 60.
 const STATUS_CAR: usize = 55;
-const STATUS_SIZE: usize = HEADER_SIZE + CARS * STATUS_CAR;
-
-// The same in the three years.
 const MOTION_CAR: usize = 60;
 const TELEMETRY_CAR: usize = 60;
-const MOTION_SIZE: usize = HEADER_SIZE + CARS * MOTION_CAR; // 1349
-const TELEMETRY_SIZE: usize = HEADER_SIZE + CARS * TELEMETRY_CAR + 3; // + mfdPanel x2, suggestedGear = 1352
 
 // Header (offsets).
 const H_FORMAT: usize = 0;
@@ -110,8 +123,6 @@ const M_POS_X: usize = 0; // f32 x3: worldPositionX, Y, Z (metres)
 
 const L_LAST_LAP_MS: usize = 0; // u32, every year
 const L_CURRENT_LAP_MS: usize = 4; // u32, every year
-
-const P_TEAM_ID: usize = 3; // u8, every year
 
 const T_SPEED_KMH: usize = 0; // u16
 const T_THROTTLE: usize = 2; // f32 0..1
@@ -165,6 +176,15 @@ struct Layout {
     /// The car name when the Participants packet has not come yet (or names a team the table does not have).
     short_name: &'static str,
     session_size: usize,
+    /// The entries of every per-car array: 22 up to 2025, 24 in 2026.
+    cars: usize,
+    /// One car's entry in Motion, Car Telemetry and Car Status.
+    motion_car: usize,
+    telemetry_car: usize,
+    status_car: usize,
+    /// Where `teamId` sits in a participant's entry and whether it is a u16 (2026) or a u8.
+    team_id_at: usize,
+    team_id_u16: bool,
     /// One car's entry in Lap Data, and where its fields are.
     lap_car: usize,
     lap: LapFields,
@@ -174,30 +194,43 @@ struct Layout {
     /// brakesDamage[4], and in 2025 also tyreBlisters[4]. The entry ends `D_TAIL` bytes later.
     damage_wings: usize,
     /// The year's Appendix: Team IDs, with the class each team races in.
-    team: fn(u8) -> Option<(&'static str, &'static str)>,
+    team: fn(u16) -> Option<(&'static str, &'static str)>,
 }
 
 impl Layout {
     /// Lap Data: the 22 entries, then timeTrialPBCarIdx and timeTrialRivalCarIdx.
     const fn lap_data_size(&self) -> usize {
-        HEADER_SIZE + CARS * self.lap_car + 2
+        HEADER_SIZE + self.cars * self.lap_car + 2
+    }
+
+    const fn motion_size(&self) -> usize {
+        HEADER_SIZE + self.cars * self.motion_car
+    }
+
+    /// Car Telemetry: the entries, then mfdPanelIndex x2 and suggestedGear.
+    const fn telemetry_size(&self) -> usize {
+        HEADER_SIZE + self.cars * self.telemetry_car + 3
+    }
+
+    const fn status_size(&self) -> usize {
+        HEADER_SIZE + self.cars * self.status_car
     }
 
     /// Participants: numActiveCars, then the 22 entries.
     const fn participants_size(&self) -> usize {
-        HEADER_SIZE + 1 + CARS * self.participant_car
+        HEADER_SIZE + 1 + self.cars * self.participant_car
     }
 
     /// The size the spec gives for a packet this reader uses; `None` for every packet it does not read.
     fn expected_size(&self, packet_id: u8) -> Option<usize> {
         match packet_id {
-            ID_MOTION => Some(MOTION_SIZE),
+            ID_MOTION => Some(self.motion_size()),
             ID_SESSION => Some(self.session_size),
             ID_LAP_DATA => Some(self.lap_data_size()),
             ID_PARTICIPANTS => Some(self.participants_size()),
-            ID_CAR_TELEMETRY => Some(TELEMETRY_SIZE),
-            ID_CAR_STATUS => Some(STATUS_SIZE),
-            ID_CAR_DAMAGE => Some(HEADER_SIZE + CARS * (self.damage_wings + D_TAIL)),
+            ID_CAR_TELEMETRY => Some(self.telemetry_size()),
+            ID_CAR_STATUS => Some(self.status_size()),
+            ID_CAR_DAMAGE => Some(HEADER_SIZE + self.cars * (self.damage_wings + D_TAIL)),
             _ => None,
         }
     }
@@ -212,6 +245,12 @@ const F1_25: Layout = Layout {
     game_name: "EA SPORTS F1 25",
     short_name: "F1 25",
     session_size: 753,
+    cars: CARS,
+    motion_car: MOTION_CAR,
+    telemetry_car: TELEMETRY_CAR,
+    status_car: STATUS_CAR,
+    team_id_at: 3,
+    team_id_u16: false,
     lap_car: 57,
     lap: LapFields {
         distance: 20,
@@ -233,6 +272,12 @@ const F1_24: Layout = Layout {
     game_name: "EA SPORTS F1 24",
     short_name: "F1 24",
     session_size: 753,
+    cars: CARS,
+    motion_car: MOTION_CAR,
+    telemetry_car: TELEMETRY_CAR,
+    status_car: STATUS_CAR,
+    team_id_at: 3,
+    team_id_u16: false,
     lap_car: 57,
     lap: LapFields {
         distance: 20,
@@ -256,6 +301,12 @@ const F1_23: Layout = Layout {
     game_name: "EA SPORTS F1 23",
     short_name: "F1 23",
     session_size: 644,
+    cars: CARS,
+    motion_car: MOTION_CAR,
+    telemetry_car: TELEMETRY_CAR,
+    status_car: STATUS_CAR,
+    team_id_at: 3,
+    team_id_u16: false,
     lap_car: 50,
     lap: LapFields {
         distance: 18,
@@ -270,8 +321,40 @@ const F1_23: Layout = Layout {
     team: team_23,
 };
 
+/// F1 25 with the 2026 Season Pack ("UDP Format: 2026"): the game is F1 25, so its laps are filed as `"f1"`. 24 cars
+/// per array. CarMotionData is 54 bytes (the three g-forces are i16 in thousandths), CarTelemetryData 59
+/// (`engineTemperature` is a u8), CarStatusData 59 (`ersHarvestLimitPerLap` f32 before `ersDeployedThisLap`),
+/// ParticipantData 60 (`driverId`, `networkId` and `teamId` are u16). LapData (57 bytes), CarDamageData (46 bytes)
+/// and the start of the Session packet (926 bytes: it adds the active aero and DRS zones, the start reaction time
+/// and the assists) are laid out as in F1 25.
+const F1_25_2026: Layout = Layout {
+    format: 2026,
+    game_id: "f1",
+    game_name: "EA SPORTS F1 25",
+    short_name: "F1 25",
+    session_size: 926,
+    cars: 24,
+    motion_car: 54,
+    telemetry_car: 59,
+    status_car: 59,
+    team_id_at: 5,
+    team_id_u16: true,
+    lap_car: 57,
+    lap: LapFields {
+        distance: 20,
+        lap_num: 33,
+        pit_status: 34,
+        invalid: 37,
+        driver_status: 44,
+        result_status: 45,
+    },
+    participant_car: 60,
+    damage_wings: 28,
+    team: team_26,
+};
+
 /// The formats read, newest first.
-const LAYOUTS: [&Layout; 3] = [&F1_25, &F1_24, &F1_23];
+const LAYOUTS: [&Layout; 4] = [&F1_25_2026, &F1_25, &F1_24, &F1_23];
 
 /// The layout of a packet format; `None` for a format this reader does not read.
 fn layout_of(format: u16) -> Option<&'static Layout> {
@@ -311,7 +394,7 @@ struct Header {
 }
 
 impl Header {
-    /// `None` unless the bytes start with a header of a format this reader reads (2025, 2024, 2023).
+    /// `None` unless the bytes start with a header of a format this reader reads (2026, 2025, 2024, 2023).
     fn parse(data: &[u8]) -> Option<Header> {
         if data.len() < HEADER_SIZE {
             return None;
@@ -363,6 +446,10 @@ fn track_name(id: i8) -> String {
         30 => "Miami",
         31 => "Las Vegas",
         32 => "Losail",
+        39 => "Silverstone (Reverse)",
+        40 => "Austria (Reverse)",
+        41 => "Zandvoort (Reverse)",
+        42 => "Madrid",
         _ => return format!("Track {id}"),
     };
     name.to_owned()
@@ -370,7 +457,7 @@ fn track_name(id: i8) -> String {
 
 /// The team of the F1 25 table (Appendix: Team IDs) and the class it races in. `None` for an id the table does not
 /// have (the 2026 Season Pack adds teams the 2025 format does not name).
-fn team_25(id: u8) -> Option<(&'static str, &'static str)> {
+fn team_25(id: u16) -> Option<(&'static str, &'static str)> {
     let name = match id {
         0 => "Mercedes",
         1 => "Ferrari",
@@ -411,8 +498,39 @@ fn team_25(id: u8) -> Option<(&'static str, &'static str)> {
     Some((name, if id >= 143 { "F2" } else { "F1" }))
 }
 
+/// The 2026 Season Pack's table: the one of F1 25, the 2025 F2 teams (465 to 475) and the 2026 F1 cars (476 to 486,
+/// which include the two new teams, Audi and Cadillac). Ids 0 to 9 name the 2025 grid in this format too.
+fn team_26(id: u16) -> Option<(&'static str, &'static str)> {
+    let name = match id {
+        465 => "ART GP '25",
+        466 => "Campos '25",
+        467 => "Rodin '25",
+        468 => "AIX Racing '25",
+        469 => "Dams '25",
+        470 => "Hitech '25",
+        471 => "MP Motorsport '25",
+        472 => "Prema '25",
+        473 => "Trident '25",
+        474 => "Van Amersfoort Racing '25",
+        475 => "Invicta '25",
+        476 => "Mercedes '26",
+        477 => "Ferrari '26",
+        478 => "Red Bull Racing '26",
+        479 => "Williams '26",
+        480 => "Aston Martin '26",
+        481 => "Alpine '26",
+        482 => "RB '26",
+        483 => "Haas '26",
+        484 => "McLaren '26",
+        485 => "Audi '26",
+        486 => "Cadillac '26",
+        _ => return team_25(id),
+    };
+    Some((name, if id <= 475 { "F2" } else { "F1" }))
+}
+
 /// The F1 24 table: the one of F1 25 without the 2024 F2 teams (158 to 168), which F1 24 does not have.
-fn team_24(id: u8) -> Option<(&'static str, &'static str)> {
+fn team_24(id: u16) -> Option<(&'static str, &'static str)> {
     match id {
         158..=168 => None,
         _ => team_25(id),
@@ -421,7 +539,7 @@ fn team_24(id: u8) -> Option<(&'static str, &'static str)> {
 
 /// The F1 23 table, with the class each car races in: the F2 teams of 2021 and 2022 are F2, the road and safety
 /// cars are Supercars (the name of their formula in the Session packet), the rest is F1.
-fn team_23(id: u8) -> Option<(&'static str, &'static str)> {
+fn team_23(id: u16) -> Option<(&'static str, &'static str)> {
     let name = match id {
         0 => "Mercedes",
         1 => "Ferrari",
@@ -549,7 +667,7 @@ struct Decoder {
     session: Option<SessionInfo>,
     lap: Option<LapInfo>,
     position: Option<[f32; 3]>,
-    team_id: Option<u8>,
+    team_id: Option<u16>,
     status: Option<StatusInfo>,
     damage: Option<DamageInfo>,
 }
@@ -561,7 +679,7 @@ impl Decoder {
         let header = Header::parse(data)?;
         let layout = header.layout;
         let size = layout.expected_size(header.packet_id)?;
-        if data.len() != size || header.player_car >= CARS {
+        if data.len() != size || header.player_car >= layout.cars {
             return None;
         }
         // Another session (a new race, a restart) or another game's format: nothing from before may leak into it.
@@ -575,7 +693,7 @@ impl Decoder {
         let at = |entry: usize| HEADER_SIZE + header.player_car * entry;
         match header.packet_id {
             ID_MOTION => {
-                let base = at(MOTION_CAR) + M_POS_X;
+                let base = at(layout.motion_car) + M_POS_X;
                 self.position = Some([page.f32_at(base), page.f32_at(base + 4), page.f32_at(base + 8)]);
                 None
             }
@@ -604,13 +722,17 @@ impl Decoder {
                 None
             }
             ID_PARTICIPANTS => {
-                // numActiveCars comes first, then the 22 entries.
-                let entry = HEADER_SIZE + 1 + header.player_car * layout.participant_car;
-                self.team_id = Some(page.u8_at(entry + P_TEAM_ID));
+                // numActiveCars comes first, then the entries.
+                let entry = HEADER_SIZE + 1 + header.player_car * layout.participant_car + layout.team_id_at;
+                self.team_id = Some(if layout.team_id_u16 {
+                    u16_at(&page, entry)
+                } else {
+                    u16::from(page.u8_at(entry))
+                });
                 None
             }
             ID_CAR_STATUS => {
-                let car = at(STATUS_CAR);
+                let car = at(layout.status_car);
                 self.status = Some(StatusInfo {
                     traction_control: page.u8_at(car + C_TRACTION_CONTROL),
                     anti_lock: page.u8_at(car + C_ANTI_LOCK),
@@ -637,7 +759,7 @@ impl Decoder {
                 });
                 None
             }
-            ID_CAR_TELEMETRY => Some(self.frame(layout, &page, at(TELEMETRY_CAR), clock_s)),
+            ID_CAR_TELEMETRY => Some(self.frame(layout, &page, at(layout.telemetry_car), clock_s)),
             _ => None,
         }
     }
@@ -883,7 +1005,13 @@ mod tests {
     const UID: u64 = 0x1122_3344_5566_7788;
     /// The default of the tests that are about the reading, not the year.
     const FORMAT: u16 = 2025;
-    const ALL: [&Layout; 3] = LAYOUTS;
+    const ALL: [&Layout; 4] = LAYOUTS;
+
+    /// The entries of the arrays in the packets of a format (22 for a format this reader does not read: the tests
+    /// build packets of those too, to see them refused).
+    fn cars_of(format: u16) -> usize {
+        layout_of(format).map_or(CARS, |l| l.cars)
+    }
 
     /// PacketHeader (the same in 2023, 2024 and 2025): packetFormat u16, gameYear u8, gameMajorVersion u8,
     /// gameMinorVersion u8, packetVersion u8, packetId u8, sessionUID u64, sessionTime f32, frameIdentifier u32,
@@ -906,23 +1034,27 @@ mod tests {
         w
     }
 
-    /// CarMotionData (every year): worldPosition x3 f32, worldVelocity x3 f32, worldForwardDir x3 i16, worldRightDir
-    /// x3 i16, gForce lateral/longitudinal/vertical f32, yaw, pitch, roll f32 = 60 bytes.
-    fn motion_car(w: &mut W, pos: [f32; 3]) {
+    /// CarMotionData: worldPosition x3 f32, worldVelocity x3 f32, worldForwardDir x3 i16, worldRightDir x3 i16,
+    /// gForce lateral/longitudinal/vertical (f32 = 60 bytes; i16 thousandths in 2026 = 54 bytes), yaw, pitch, roll f32.
+    fn motion_car(format: u16, w: &mut W, pos: [f32; 3]) {
         w.f32(pos[0]).f32(pos[1]).f32(pos[2]);
         w.f32(1.0).f32(2.0).f32(3.0);
         w.i16(100).i16(200).i16(300).i16(400).i16(500).i16(600);
-        w.f32(0.1).f32(0.2).f32(0.3);
+        if format == 2026 {
+            w.i16(100).i16(200).i16(300);
+        } else {
+            w.f32(0.1).f32(0.2).f32(0.3);
+        }
         w.f32(0.4).f32(0.5).f32(0.6);
     }
 
     fn motion_packet(format: u16, uid: u64, player: u8, pos: [f32; 3]) -> Vec<u8> {
         let mut w = header(format, ID_MOTION, uid, player);
-        for i in 0..CARS {
+        for i in 0..cars_of(format) {
             if i == usize::from(player) {
-                motion_car(&mut w, pos);
+                motion_car(format, &mut w, pos);
             } else {
-                motion_car(&mut w, [9000.0 + i as f32, -9000.0, 7.0]);
+                motion_car(format, &mut w, [9000.0 + i as f32, -9000.0, 7.0]);
             }
         }
         w.0
@@ -1038,7 +1170,7 @@ mod tests {
             result_status: 7,
         };
         let mut w = header(y.format, ID_LAP_DATA, UID, player);
-        for i in 0..CARS {
+        for i in 0..y.cars {
             lap_car(y, &mut w, if i == usize::from(player) { l } else { &decoy });
         }
         w.u8(255).u8(255); // timeTrialPBCarIdx, timeTrialRivalCarIdx
@@ -1049,18 +1181,29 @@ mod tests {
         lap_in(&F1_25, player, l)
     }
 
-    /// ParticipantData: aiControlled, driverId, networkId, teamId, myTeam, raceNumber, nationality, then
+    /// ParticipantData: aiControlled, driverId, networkId, teamId (u8 each; u16 each in 2026), myTeam, raceNumber,
+    /// nationality, then 2026 as 2025 (60 bytes with the three u16 ids),
     /// 2025: name[32], yourTelemetry, showOnlineNames, techLevel u16, platform, numColours, liveryColours[4] (r,g,b);
     /// 2024: name[48], yourTelemetry, showOnlineNames, techLevel u16, platform;
     /// 2023: name[48], yourTelemetry, showOnlineNames, platform.
-    fn participants_in(y: &Layout, player: u8, team_id: u8) -> Vec<u8> {
+    fn participants_in(y: &Layout, player: u8, team_id: u16) -> Vec<u8> {
         let mut w = header(y.format, ID_PARTICIPANTS, UID, player);
-        w.u8(CARS as u8); // numActiveCars
-        for i in 0..CARS {
+        w.u8(y.cars as u8); // numActiveCars
+        for i in 0..y.cars {
             let team_id = if i == usize::from(player) { team_id } else { 8 };
-            w.u8(0).u8(3).u8(255).u8(team_id).u8(0).u8(16).u8(5);
+            if y.format == 2026 {
+                w.u8(0).u16(3).u16(255).u16(team_id).u8(0).u8(16).u8(5);
+            } else {
+                w.u8(0)
+                    .u8(3)
+                    .u8(255)
+                    .u8(u8::try_from(team_id).expect("a u8 team id"))
+                    .u8(0)
+                    .u8(16)
+                    .u8(5);
+            }
             match y.format {
-                2025 => {
+                2025 | 2026 => {
                     w.zeros(32);
                     w.u8(1).u8(1).u16(0).u8(1).u8(0);
                     w.zeros(12);
@@ -1078,7 +1221,7 @@ mod tests {
         w.0
     }
 
-    fn participants_packet(player: u8, team_id: u8) -> Vec<u8> {
+    fn participants_packet(player: u8, team_id: u16) -> Vec<u8> {
         participants_in(&F1_25, player, team_id)
     }
 
@@ -1092,11 +1235,11 @@ mod tests {
         rpm: u16,
     }
 
-    /// CarTelemetryData (every year, 60 bytes): speed u16, throttle f32, steer f32, brake f32, clutch u8, gear i8,
+    /// CarTelemetryData (60 bytes; 59 in 2026, where engineTemperature is a u8): speed u16, throttle f32, steer f32, brake f32, clutch u8, gear i8,
     /// engineRPM u16, drs u8, revLightsPercent u8, revLightsBitValue u16, brakesTemperature[4] u16,
     /// tyresSurfaceTemperature[4] u8, tyresInnerTemperature[4] u8, engineTemperature u16, tyresPressure[4] f32,
     /// surfaceType[4] u8.
-    fn tele_car(w: &mut W, t: &Tele) {
+    fn tele_car(format: u16, w: &mut W, t: &Tele) {
         w.u16(t.speed_kmh)
             .f32(t.throttle)
             .f32(t.steer)
@@ -1109,7 +1252,11 @@ mod tests {
             w.u16(500);
         }
         w.zeros(4).zeros(4);
-        w.u16(105);
+        if format == 2026 {
+            w.u8(105);
+        } else {
+            w.u16(105);
+        }
         for _ in 0..4 {
             w.f32(22.5);
         }
@@ -1127,8 +1274,8 @@ mod tests {
             rpm: 1234,
         };
         let mut w = header(format, ID_CAR_TELEMETRY, UID, player);
-        for i in 0..CARS {
-            tele_car(&mut w, if i == usize::from(player) { t } else { &decoy });
+        for i in 0..cars_of(format) {
+            tele_car(format, &mut w, if i == usize::from(player) { t } else { &decoy });
         }
         w.u8(0).u8(255).u8(4); // mfdPanelIndex, mfdPanelIndexSecondaryPlayer, suggestedGear
         w.0
@@ -1206,12 +1353,13 @@ mod tests {
         }
     }
 
-    /// CarStatusData (every year, 55 bytes): tractionControl, antiLockBrakes, fuelMix, frontBrakeBias,
+    /// CarStatusData (55 bytes; 59 in 2026, which adds ersHarvestLimitPerLap f32 before ersDeployedThisLap):
+    /// tractionControl, antiLockBrakes, fuelMix, frontBrakeBias,
     /// pitLimiterStatus u8, fuelInTank, fuelCapacity, fuelRemainingLaps f32, maxRPM, idleRPM u16, maxGears,
     /// drsAllowed u8, drsActivationDistance u16, actualTyreCompound, visualTyreCompound, tyresAgeLaps u8,
     /// vehicleFiaFlags i8, enginePowerICE, enginePowerMGUK, ersStoreEnergy f32, ersDeployMode u8, three ers f32,
     /// networkPaused u8.
-    fn status_car(w: &mut W, c: &Car) {
+    fn status_car(format: u16, w: &mut W, c: &Car) {
         w.u8(c.traction_control)
             .u8(c.anti_lock)
             .u8(1)
@@ -1220,7 +1368,11 @@ mod tests {
         w.f32(50.0).f32(110.0).f32(20.0);
         w.u16(13_000).u16(4_000).u8(8).u8(c.drs_allowed).u16(0);
         w.u8(18).u8(17).u8(3).i8(c.fia_flags);
-        w.f32(1.0).f32(2.0).f32(3.0).u8(1).f32(4.0).f32(5.0).f32(6.0).u8(0);
+        w.f32(1.0).f32(2.0).f32(3.0).u8(1).f32(4.0).f32(5.0);
+        if format == 2026 {
+            w.f32(4_000_000.0);
+        }
+        w.f32(6.0).u8(0);
     }
 
     fn status_packet_in(format: u16, player: u8, c: &Car) -> Vec<u8> {
@@ -1234,21 +1386,21 @@ mod tests {
             ..Car::sample()
         };
         let mut w = header(format, ID_CAR_STATUS, UID, player);
-        for i in 0..CARS {
-            status_car(&mut w, if i == usize::from(player) { c } else { &decoy });
+        for i in 0..cars_of(format) {
+            status_car(format, &mut w, if i == usize::from(player) { c } else { &decoy });
         }
         w.0
     }
 
     /// CarDamageData: tyresWear[4] f32, tyresDamage[4], brakesDamage[4] u8, (2025: tyreBlisters[4] u8), then the
     /// six wing and body parts, drsFault, ersFault, gearBoxDamage, engineDamage, six engine wears, engineBlown and
-    /// engineSeized (u8). 42 bytes in 2023 and 2024, 46 in 2025.
+    /// engineSeized (u8). 42 bytes in 2023 and 2024, 46 in 2025 and 2026.
     fn damage_car(format: u16, w: &mut W, c: &Car) {
         for _ in 0..4 {
             w.f32(7.0);
         }
         w.zeros(8);
-        if format == 2025 {
+        if format >= 2025 {
             w.zeros(4);
         }
         for d in &c.damage[..6] {
@@ -1267,7 +1419,7 @@ mod tests {
             ..Car::sample()
         };
         let mut w = header(format, ID_CAR_DAMAGE, UID, player);
-        for i in 0..CARS {
+        for i in 0..cars_of(format) {
             damage_car(format, &mut w, if i == usize::from(player) { c } else { &decoy });
         }
         w.0
@@ -1457,7 +1609,7 @@ mod tests {
 
     #[test]
     fn refuses_other_formats_and_short_headers() {
-        for format in [2022, 2026, 2021, 2020, 2019, 0, 25, 65_535] {
+        for format in [2022, 2027, 2021, 2020, 2019, 0, 25, 65_535] {
             assert!(Header::parse(&header(format, 6, UID, 0).0).is_none(), "format {format}");
         }
         for y in ALL {
@@ -1473,12 +1625,13 @@ mod tests {
         assert_eq!(
             ids,
             [
+                (2026, "f1", "EA SPORTS F1 25", "F1 25"),
                 (2025, "f1", "EA SPORTS F1 25", "F1 25"),
                 (2024, "f124", "EA SPORTS F1 24", "F1 24"),
                 (2023, "f123", "EA SPORTS F1 23", "F1 23"),
             ]
         );
-        assert!(layout_of(2022).is_none() && layout_of(2026).is_none());
+        assert!(layout_of(2022).is_none() && layout_of(2027).is_none());
         // The ids are the ones the panel lists for this reader.
         let reader = crate::games::READERS.iter().find(|r| r.family == "f1").expect("the F1 reader");
         assert_eq!(reader.ids, ["f1", "f124", "f123"]);
@@ -1497,17 +1650,18 @@ mod tests {
         let motion = [4, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4];
         assert_eq!(motion.iter().sum::<usize>(), MOTION_CAR);
         assert_eq!(HEADER_SIZE + CARS * motion.iter().sum::<usize>(), 1349);
-        assert_eq!(MOTION_SIZE, 1349);
+        assert_eq!(F1_25.motion_size(), 1349);
 
         // CarTelemetryData (+ mfdPanelIndex, mfdPanelIndexSecondaryPlayer, suggestedGear): every year, 1352 bytes.
         let telemetry = [2, 4, 4, 4, 1, 1, 2, 1, 1, 2, 8, 4, 4, 2, 16, 4];
         assert_eq!(telemetry.iter().sum::<usize>(), TELEMETRY_CAR);
         assert_eq!(HEADER_SIZE + CARS * telemetry.iter().sum::<usize>() + 3, 1352);
-        assert_eq!(TELEMETRY_SIZE, 1352);
+        assert_eq!(F1_25.telemetry_size(), 1352);
 
         // CarStatusData (not read, but its size is part of each spec's table): 1239 bytes in the three years.
         let status = [1, 1, 1, 1, 1, 4, 4, 4, 2, 2, 1, 1, 2, 1, 1, 1, 1, 4, 4, 4, 1, 4, 4, 4, 1];
         assert_eq!(HEADER_SIZE + CARS * status.iter().sum::<usize>(), 1239);
+        assert_eq!(F1_25.status_size(), 1239);
     }
 
     #[test]
@@ -1527,6 +1681,7 @@ mod tests {
         let participant = [1, 1, 1, 1, 1, 1, 1, 32, 1, 1, 2, 1, 1, 12];
         assert_eq!(participant.iter().sum::<usize>(), F1_25.participant_car);
         assert_eq!(F1_25.participants_size(), 1284);
+        assert_eq!(field_offsets(&participant)[3], F1_25.team_id_at);
 
         // PacketSessionData, field by field.
         let session: Vec<usize> = [session_2023_fields(64), session_2024_additions()].concat();
@@ -1561,7 +1716,7 @@ mod tests {
         let participant = [1, 1, 1, 1, 1, 1, 1, 48, 1, 1, 2, 1];
         assert_eq!(participant.iter().sum::<usize>(), F1_24.participant_car);
         assert_eq!(F1_24.participants_size(), 1350);
-        assert_eq!(field_offsets(&participant)[3], P_TEAM_ID);
+        assert_eq!(field_offsets(&participant)[3], F1_24.team_id_at);
 
         // PacketSessionData: 64 forecast samples and the fields 2024 added.
         let session: Vec<usize> = [session_2023_fields(64), session_2024_additions()].concat();
@@ -1599,12 +1754,107 @@ mod tests {
         let participant = [1, 1, 1, 1, 1, 1, 1, 48, 1, 1, 1];
         assert_eq!(participant.iter().sum::<usize>(), F1_23.participant_car);
         assert_eq!(F1_23.participants_size(), 1306);
-        assert_eq!(field_offsets(&participant)[3], P_TEAM_ID);
+        assert_eq!(field_offsets(&participant)[3], F1_23.team_id_at);
 
         // PacketSessionData: 56 forecast samples, ends after numRedFlagPeriods.
         let session = session_2023_fields(56);
         assert_eq!(HEADER_SIZE + session.iter().sum::<usize>(), 644);
         assert_eq!(F1_23.session_size, 644);
+        check_session_offsets(&session);
+    }
+
+    /// The 2026 Season Pack ("F1 25 2026 Season Pack UDP Specification", version 11.0), field by field. Two independent
+    /// transcriptions give the same packet sizes: `F1Game.UDP` (1325, 926, 1399, 1470, 1448, 1445, 1133 bytes) and
+    /// `racehub-io/f1-telemetry-client` (`PACKET_SIZES`), and the Python bridge `FermaxoRacingDash` the same table.
+    #[test]
+    fn sizes_of_2026() {
+        let y = &F1_25_2026;
+        assert_eq!(y.cars, 24);
+        // CarMotionData: positions, velocities, directions (i16), the g-forces now i16 too, yaw, pitch, roll.
+        let motion = [4, 4, 4, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4];
+        assert_eq!(motion.iter().sum::<usize>(), y.motion_car);
+        assert_eq!(y.motion_size(), 1325);
+        assert_eq!(field_offsets(&motion)[0], M_POS_X);
+
+        // LapData (+ timeTrialPBCarIdx, timeTrialRivalCarIdx): as in 2025.
+        let lap = [
+            4, 4, 2, 1, 2, 1, 2, 1, 2, 1, 4, 4, 4, // times, deltas (ms + minutes), distances
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // position .. resultStatus (14 one-byte fields)
+            1, 2, 2, 1, 4, 1, // pit lane timer, times, serve penalty, speed trap
+        ];
+        assert_eq!(lap.iter().sum::<usize>(), y.lap_car);
+        assert_eq!(y.lap_data_size(), 1399);
+        let at = field_offsets(&lap);
+        assert_eq!(
+            [at[10], at[14], at[15], at[18], at[25], at[26]],
+            [
+                y.lap.distance,
+                y.lap.lap_num,
+                y.lap.pit_status,
+                y.lap.invalid,
+                y.lap.driver_status,
+                y.lap.result_status
+            ]
+        );
+
+        // ParticipantData (+ numActiveCars): driverId, networkId and teamId are u16; name[32], techLevel,
+        // numColours, liveryColours[4] of 3 bytes.
+        let participant = [1, 2, 2, 2, 1, 1, 1, 32, 1, 1, 2, 1, 1, 12];
+        assert_eq!(participant.iter().sum::<usize>(), y.participant_car);
+        assert_eq!(y.participants_size(), 1470);
+        assert_eq!(field_offsets(&participant)[3], y.team_id_at);
+        assert!(y.team_id_u16);
+
+        // CarTelemetryData (+ mfdPanelIndex x2, suggestedGear): engineTemperature is a u8.
+        let telemetry = [2, 4, 4, 4, 1, 1, 2, 1, 1, 2, 8, 4, 4, 1, 16, 4];
+        assert_eq!(telemetry.iter().sum::<usize>(), y.telemetry_car);
+        assert_eq!(y.telemetry_size(), 1448);
+        assert_eq!(field_offsets(&telemetry)[7], T_DRS);
+
+        // CarStatusData: ersHarvestLimitPerLap f32 is new (before ersDeployedThisLap).
+        let status = [1, 1, 1, 1, 1, 4, 4, 4, 2, 2, 1, 1, 2, 1, 1, 1, 1, 4, 4, 4, 1, 4, 4, 4, 4, 1];
+        assert_eq!(status.iter().sum::<usize>(), y.status_car);
+        assert_eq!(y.status_size(), 1445);
+        let at = field_offsets(&status);
+        assert_eq!(
+            [at[0], at[1], at[3], at[4], at[11], at[16]],
+            [
+                C_TRACTION_CONTROL,
+                C_ANTI_LOCK,
+                C_FRONT_BRAKE_BIAS,
+                C_PIT_LIMITER,
+                C_DRS_ALLOWED,
+                C_FIA_FLAGS
+            ]
+        );
+
+        // CarDamageData: 46 bytes, as in 2025.
+        assert_eq!(y.damage_wings, F1_25.damage_wings);
+        assert_eq!(y.expected_size(ID_CAR_DAMAGE), Some(1133));
+
+        // PacketSessionData: the fields of 2025, then the 2026 additions.
+        let session: Vec<usize> = [
+            session_2023_fields(64),
+            session_2024_additions(),
+            vec![
+                1,
+                1,     // activeAeroTrackStatus, numActiveAeroZonesFull
+                8 * 8, // activeAeroZonesFull[8]: zoneStart f32, zoneEnd f32
+                1,
+                8 * 8, // numActiveAeroZonesPartial, activeAeroZonesPartial[8]
+                1,
+                4 * 8, // numDRSZones, drsZones[4]
+                4,     // startReactionTime
+                1,
+                1,
+                1,
+                1,
+                1, // antiLockBrakesAssist, tractionControlAssist, hiVis, colourBlind, recurringRewindPrompt
+            ],
+        ]
+        .concat();
+        assert_eq!(HEADER_SIZE + session.iter().sum::<usize>(), 926);
+        assert_eq!(y.session_size, 926);
         check_session_offsets(&session);
     }
 
@@ -1664,6 +1914,7 @@ mod tests {
         assert_eq!(sizes(&F1_25), [1349, 753, 1285, 1284, 1352]);
         assert_eq!(sizes(&F1_24), [1349, 753, 1285, 1350, 1352]);
         assert_eq!(sizes(&F1_23), [1349, 644, 1131, 1306, 1352]);
+        assert_eq!(sizes(&F1_25_2026), [1325, 926, 1399, 1470, 1448]);
     }
 
     /// A packet of one year that claims another year's format is held to that year's sizes: the Lap Data of 2023
@@ -1685,6 +1936,78 @@ mod tests {
     }
 
     // ---- exact frame values ----
+
+    /// The 2026 Season Pack: a Car Telemetry, Lap Data, Session, Motion and Participants packet of 24 cars read into
+    /// a frame, with exact values, filed under F1 25's game id.
+    #[test]
+    fn reads_the_2026_season_pack_packets_of_24_cars() {
+        let y = &F1_25_2026;
+        assert_eq!((y.game_id, y.game_name), ("f1", "EA SPORTS F1 25"));
+        for player in [0u8, 9, 23] {
+            let mut d = Decoder::default();
+            let [motion, session, lap, participants, tele] = packet_set(y, player);
+            assert_eq!(
+                [motion.len(), session.len(), lap.len(), participants.len(), tele.len()],
+                [1325, 926, 1399, 1470, 1448]
+            );
+            for p in [motion, session, lap, participants] {
+                assert!(d.feed(&p, 1.0).is_none());
+            }
+            let f = d.feed(&tele, 2.5).expect("a frame");
+            assert_eq!(d.layout.map(|l| l.game_id), Some("f1"));
+            assert!(f.driving);
+            assert!(close(f.speed_ms, 50.0));
+            assert_eq!(f.rpm, 11_500.0);
+            assert_eq!(f.gear, 5.0);
+            assert!(close(f.throttle, 0.75) && close(f.steer, -0.25) && close(f.brake, 0.125));
+            assert!(close(f.clutch, 0.4));
+            assert_eq!((f.x, f.y, f.z), (100.5, 12.25, -300.75));
+            assert_eq!(f.track, "Monza");
+            assert_eq!(f.track_length_m, Some(5793.0));
+            assert_eq!(f.lap, 3);
+            assert_eq!(f.lap_time_s, Some(45.678));
+            assert_eq!(f.last_lap_s, Some(91.234));
+            assert_eq!(f.dist_m, Some(2500.5));
+            assert_eq!(f.lap_valid, Some(true));
+            assert!(!f.in_pits);
+            assert_eq!((f.car.as_str(), f.car_class.as_deref()), ("Ferrari", Some("F1")));
+        }
+        // Car 23 is the last of 24; a player index of 24 is outside the arrays.
+        let mut d = Decoder::default();
+        assert!(d.feed(&tele_packet_in(2026, 24, &sample_tele()), 0.0).is_none());
+        // The 2025 packets still read as before (22 cars, a u8 team id).
+        let (_, f) = running_in(&F1_25, 21);
+        assert!(close(f.speed_ms, 50.0));
+        assert_eq!((f.car.as_str(), f.lap), ("Ferrari", 3));
+    }
+
+    #[test]
+    fn a_2026_team_id_is_two_bytes_and_names_the_new_cars() {
+        let car_of = |team_id: u16| {
+            let mut d = Decoder::default();
+            d.feed(&participants_in(&F1_25_2026, 4, team_id), 0.0);
+            let f = d.feed(&tele_packet_in(2026, 4, &sample_tele()), 0.0).unwrap();
+            (f.car, f.car_class.unwrap_or_default())
+        };
+        assert_eq!(car_of(485), ("Audi '26".to_owned(), "F1".to_owned()));
+        assert_eq!(car_of(486), ("Cadillac '26".to_owned(), "F1".to_owned()));
+        assert_eq!(car_of(477), ("Ferrari '26".to_owned(), "F1".to_owned()));
+        assert_eq!(car_of(475), ("Invicta '25".to_owned(), "F2".to_owned()));
+        // The 2025 grid keeps its ids; an id the table does not have falls back to the game's name.
+        assert_eq!(car_of(1), ("Ferrari".to_owned(), "F1".to_owned()));
+        assert_eq!(car_of(500), ("F1 25".to_owned(), "F1".to_owned()));
+        assert_eq!(track_name(42), "Madrid");
+    }
+
+    #[test]
+    fn the_2026_car_state_and_laps_flow_like_2025() {
+        let (d, f) = running_with(&F1_25_2026, 12, &Car::sample());
+        assert_eq!(d.layout.map(|l| l.game_id), Some("f1"));
+        assert_eq!(f.state.tc_level, Some(2));
+        assert_eq!(f.state.brake_bias, Some(0.56));
+        assert_eq!(f.state.pit_limiter, Some(true));
+        assert_eq!(f.state.damage_gearbox, Some(0.2));
+    }
 
     #[test]
     fn builds_the_frame_from_the_five_packets() {
@@ -1779,10 +2102,10 @@ mod tests {
     }
 
     #[test]
-    fn a_player_index_outside_the_22_cars_is_refused() {
+    fn a_player_index_outside_the_cars_is_refused() {
         let mut d = Decoder::default();
         for y in ALL {
-            assert!(d.feed(&tele_packet_in(y.format, 22, &sample_tele()), 1.0).is_none());
+            assert!(d.feed(&tele_packet_in(y.format, y.cars as u8, &sample_tele()), 1.0).is_none());
             assert!(d.feed(&tele_packet_in(y.format, 255, &sample_tele()), 1.0).is_none());
         }
     }
@@ -1869,7 +2192,7 @@ mod tests {
         assert_eq!(team_23(143), None);
 
         // The Participants packet is read with the table of its year.
-        let car_of = |y: &Layout, team_id: u8| {
+        let car_of = |y: &Layout, team_id: u16| {
             let mut d = Decoder::default();
             d.feed(&participants_in(y, 4, team_id), 0.0);
             let f = d.feed(&tele_packet_in(y.format, 4, &sample_tele()), 0.0).unwrap();
@@ -1988,7 +2311,7 @@ mod tests {
     #[test]
     fn a_wrong_format_year_is_ignored() {
         let mut d = Decoder::default();
-        for format in [2022, 2026, 2021, 0, 65_535] {
+        for format in [2022, 2027, 2021, 0, 65_535] {
             assert!(d.feed(&tele_packet_in(format, 0, &sample_tele()), 0.0).is_none(), "format {format}");
             assert!(d.feed(&motion_packet(format, UID, 0, [1.0, 2.0, 3.0]), 0.0).is_none());
         }
@@ -2128,13 +2451,14 @@ mod tests {
             (&F1_24, "f124", "EA SPORTS F1 24"),
             (&F1_23, "f123", "EA SPORTS F1 23"),
             (&F1_25, "f1", "EA SPORTS F1 25"),
+            (&F1_25_2026, "f1", "EA SPORTS F1 25"),
         ] {
             sender.send(&tele_packet_in(y.format, 0, &sample_tele())).unwrap();
             assert!(source.next(Duration::from_millis(500)).is_some());
             assert_eq!((source.game_id(), source.game_name()), (id, name));
         }
         // A refused format changes nothing.
-        sender.send(&tele_packet_in(2026, 0, &sample_tele())).unwrap();
+        sender.send(&tele_packet_in(2022, 0, &sample_tele())).unwrap();
         assert!(source.next(Duration::from_millis(50)).is_none());
         assert_eq!(source.game_id(), "f1");
     }
@@ -2162,7 +2486,7 @@ mod tests {
         sender.send(&lap_packet(2, &Lap::on_track(1, 2000, 0, 80.0))).unwrap();
         sender.send(&participants_packet(2, 8)).unwrap();
         sender.send(b"not a packet at all").unwrap();
-        sender.send(&tele_packet_in(2026, 2, &sample_tele())).unwrap();
+        sender.send(&tele_packet_in(2022, 2, &sample_tele())).unwrap();
         sender.send(&tele_packet(2, &sample_tele())).unwrap();
         let f = source.next(Duration::from_millis(500)).expect("a frame");
         assert!(f.driving);
@@ -2238,5 +2562,11 @@ mod tests {
     #[test]
     fn a_lap_of_f1_23_flows_from_udp_to_the_lap_cutter() {
         a_lap_flows_in(&F1_23);
+    }
+
+    /// The 2026 Season Pack format is F1 25: its lap is filed under game id `"f1"`.
+    #[test]
+    fn a_lap_of_the_2026_season_pack_flows_from_udp_to_the_lap_cutter_as_f1() {
+        a_lap_flows_in(&F1_25_2026);
     }
 }
