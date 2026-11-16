@@ -17,7 +17,7 @@ use crate::lmu::reader::{LmuReader, Names, OpenError};
 use crate::lmu::source::LmuSource;
 use crate::persistence::{with_saver, Saver as AsyncSaver};
 use crate::session::EndReason;
-use crate::status::{Game, Notice, SavedLap, Shared};
+use crate::status::{Game, SavedLap, Shared};
 use crate::supervisor::{self, supervise, Ended, Policy};
 use crate::tracks::auto::{self, Folders, Seen};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
@@ -85,10 +85,9 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
     // Stamped with this program and reader, and checked: what the checks find goes into the file's header (the server
     // sees it per lap) and into the log. It never stops the lap from being saved.
     let (stamped, findings) = crate::sanity::prepare(lap);
-    let size = lapfile::gzip(&stamped)
-        .map_err(|e| e.to_string())
-        .and_then(|bytes| std::fs::write(&partial, &bytes).map(|_| bytes.len()).map_err(|e| e.to_string()))
-        .and_then(|size| std::fs::rename(&partial, &path).map(|_| size).map_err(|e| e.to_string()))?;
+    let bytes = lapfile::gzip(&stamped).map_err(|e| e.to_string())?;
+    publish_bytes(&partial, &path, &bytes, std::fs::rename).map_err(|e| e.to_string())?;
+    let size = bytes.len();
     say(format!(
         "Saved lap {} {} ({}) -> {name} ({} KB)",
         lap.lap_number,
@@ -110,6 +109,24 @@ pub fn save_once(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Result
     })
 }
 
+/// Own a fresh partial exclusively and remove only our partial on write/publication failure.
+fn publish_bytes(
+    partial: &Path,
+    path: &Path,
+    bytes: &[u8],
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(partial)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    let result = written.and_then(|()| rename(partial, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(partial);
+    }
+    result
+}
+
 /// `save_once`, and a line in the log when it fails. Returns the lap when it worked.
 #[cfg(test)]
 pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<SavedLap> {
@@ -125,9 +142,6 @@ pub fn save(out: &Path, lap: &lapfile::Lap, say: &dyn Fn(String)) -> Option<Save
 /// Synchronous regression helper; live readers use the bounded asynchronous writer.
 #[cfg(test)]
 const HELD_MAX: usize = 5;
-/// The waits between the tries at one lap (the first try is at once).
-#[cfg(test)]
-const SAVE_RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(100), Duration::from_millis(400)];
 /// How often the laps held are tried again while the folder keeps refusing them.
 #[cfg(test)]
 const HELD_RETRY_EVERY: Duration = Duration::from_secs(20);
@@ -155,10 +169,6 @@ pub struct Saver<'a> {
 
 #[cfg(test)]
 impl<'a> Saver<'a> {
-    pub fn new(out: &'a Path, shared: &'a Shared, say: &'a (dyn Fn(String) + Sync)) -> Saver<'a> {
-        Saver::with_delays(out, shared, say, &SAVE_RETRY_DELAYS)
-    }
-
     pub fn with_delays(out: &'a Path, shared: &'a Shared, say: &'a (dyn Fn(String) + Sync), delays: &'a [Duration]) -> Saver<'a> {
         Saver {
             out,
@@ -184,7 +194,7 @@ impl<'a> Saver<'a> {
             s.last_lap = Some(saved.clone());
         });
         self.shared.note_lap_saved(&lap.game, build, late);
-        self.shared.notify(Notice::LapSaved(saved));
+        self.shared.notify(crate::status::Notice::LapSaved(saved));
         self.shared.wake_uploader();
     }
 
@@ -1002,6 +1012,33 @@ mod tests {
                 "circuit-de-la-sarthe_porsche-963-6_lap3_20261110123456_3.xlap.gz",
             ]
         );
+    }
+
+    #[test]
+    fn failed_publication_cleans_its_partial_and_later_recovery_succeeds() {
+        let dir = crate::config::scratch_dir("engine-part-cleanup");
+        let partial = dir.join("lap.xlap.gz.part");
+        let final_path = dir.join("lap.xlap.gz");
+        for _ in 0..5 {
+            let result = publish_bytes(&partial, &final_path, b"lap bytes", |_, _| {
+                Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected rename failure"))
+            });
+            assert!(result.is_err());
+            assert!(!partial.exists(), "failed retries do not consume disk space");
+            assert!(!final_path.exists());
+        }
+        publish_bytes(&partial, &final_path, b"lap bytes", std::fs::rename).unwrap();
+        assert_eq!(std::fs::read(&final_path).unwrap(), b"lap bytes");
+        assert!(!partial.exists());
+    }
+
+    #[test]
+    fn another_writers_partial_is_never_overwritten_or_removed() {
+        let dir = crate::config::scratch_dir("engine-part-owner");
+        let partial = dir.join("lap.xlap.gz.part");
+        std::fs::write(&partial, b"other writer").unwrap();
+        assert!(publish_bytes(&partial, &dir.join("lap.xlap.gz"), b"new", std::fs::rename).is_err());
+        assert_eq!(std::fs::read(&partial).unwrap(), b"other writer");
     }
 
     #[test]
