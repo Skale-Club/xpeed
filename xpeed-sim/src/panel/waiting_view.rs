@@ -74,9 +74,9 @@ pub(super) fn focus_height(g: &mut Painter, view: &View, focus: (&'static str, &
     let mut h = g.wrap_lines(&title, cw - 40.0, T_NUMERAL, semi, Face::Num).len() as f32 * 46.0 + 6.0;
     h += g.wrap_lines(&line, cw - 60.0, T_BODY, semi, Face::Ui).len() as f32 * 22.0;
     if let Some(note) = note {
-        h += 4.0 + g.wrap_lines(&note, cw - 60.0, T_BODY, normal, Face::Ui).len() as f32 * 20.0;
+        h += S1 + g.wrap_lines(&note, cw - 60.0, T_BODY, normal, Face::Ui).len() as f32 * 20.0;
     }
-    h + 24.0 + FOCUS_COVER.1 + 9.0
+    h + S6 + FOCUS_COVER.1 + 9.0
 }
 
 /// The waiting screen about one open game, from the top of its own canvas: its name, what happens next (or what to
@@ -101,12 +101,12 @@ pub(super) fn focus_screen(g: &mut Painter, view: &View, focus: (&'static str, &
         22.0,
     );
     if let Some(note) = note {
-        y += 4.0;
+        y += S1;
         y += g.wrapped(&note, 30.0, y, cw - 60.0, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_CENTER, 20.0);
     }
     // The game's cover, as big as the carousel's middle one; a name card when there is no cover.
     let (w, h) = FOCUS_COVER;
-    let (x, y) = ((cw - w) / 2.0, y + 24.0);
+    let (x, y) = ((cw - w) / 2.0, y + S6);
     let exact = g.exact(x, y, w, h);
     match view.covers.iter().find(|c| c.key == id).map(|c| c.image).filter(|i| !i.is_null()) {
         Some(image) => g.image_exact(exact, image),
@@ -177,7 +177,7 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
         let mut x = (cw - total) / 2.0;
         let y = 262.0 + i as f32 * 40.0;
         for (name, w) in row {
-            g.round(g.r(x, y, *w, 30.0), 15.0, CARD, Some(BORDER));
+            g.round(g.r(x, y, *w, S8), S4, CARD, Some(BORDER));
             let r = g.r(x, y, *w, 30.0);
             g.text(name, r, T_BODY, FW_SEMIBOLD as i32, Face::Ui, MUTED_TEXT, DT_CENTER);
             x += w + 10.0;
@@ -268,7 +268,7 @@ pub(super) fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, butt
         let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
         g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { PRIMARY } else { SECONDARY });
         // A square is small: its button reaches halfway to its neighbours and a little above and below.
-        let hit = g.r(x - gap / 2.0, top + big_h + 40.0, dot + gap, dot + 16.0);
+        let hit = g.r(x - gap / 2.0, top + big_h + 40.0, dot + gap, dot + S4);
         buttons.borrow_mut().push((Action::Cover(i), hit));
     }
 }

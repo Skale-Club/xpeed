@@ -250,7 +250,7 @@ pub(super) fn rev_header(g: &mut Painter, d: &Dash, width: f32) -> (usize, bool,
     let (lit, flash) = lights_lit(share);
     let blink_on = d.view.now_ms / 120 % 2 == 0;
     g.rev_bar(0.0, 0.0, width, 36.0, share, flash && blink_on);
-    g.round(g.r(0.0, 37.0, width, STROKE_BAR), 1.5, CYAN, None);
+    g.round(g.r(0.0, 37.0, width, STROKE_BAR), STROKE_BAR / 2.0, CYAN, None);
     (lit, flash, blink_on)
 }
 
@@ -270,7 +270,7 @@ pub(super) fn portrait_block(g: &mut Painter, d: &Dash) {
     let top = bottom + 22.0;
     side_stats(g, d, (0.0, w, top), 76.0, [T_NUMERAL; 3], 290.0);
     let strip = top + 76.0 * 3.0 + 6.0;
-    g.fill(g.r(0.0, strip - 4.0, w, STROKE_HAIR), BORDER);
+    g.fill(g.r(0.0, strip - S1, w, STROKE_HAIR), BORDER);
 
     // The car strip, stacked: the lights across, the engine and the electronics side by side under them. A card the
     // game cannot fill is left out and the others take its room.
@@ -291,7 +291,7 @@ pub(super) fn portrait_block(g: &mut Painter, d: &Dash) {
     }
 
     // The track and the tyres side by side, a square each.
-    let low = y + 4.0;
+    let low = y + S1;
     side_pair(g, d, (0.0, low, w, PORTRAIT_H - low), 250.0, 14.0);
 }
 
@@ -300,7 +300,7 @@ pub(super) fn portrait_block(g: &mut Painter, d: &Dash) {
 pub(super) fn title_line(g: &mut Painter, d: &Dash, width: f32, left_w: f32, labelled: bool) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let (m, view) = (d.m, d.view);
-    let r = g.r(0.0, 48.0, left_w, 24.0);
+    let r = g.r(0.0, 48.0, left_w, S6);
     g.text(&m.track, r, T_LEAD, semi, Face::Num, FOREGROUND, DT_LEFT);
     let r = brand_car_line(g, d.live, view, left_w);
     g.text(&m.car, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
@@ -363,12 +363,12 @@ pub(super) fn side_stats(g: &mut Painter, d: &Dash, columns: (f32, f32, f32), ro
         shown(g, m.progress.show, |g| {
             let r = g.r(rx, y + 10.0, room, 18.0);
             g.caps(&m.progress.label, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
-            let r = g.r(rx - 22.0, y + 28.0, room + 24.0, row_h - 30.0);
+            let r = g.r(rx - 22.0, y + 28.0, room + S6, row_h - 30.0);
             let big = if sizes[1] >= T_NUMERAL_L { T_HERO } else { T_NUMERAL_L };
             g.text(&m.progress.text, r, big, semi, Face::Num, FOREGROUND, DT_RIGHT);
             let bar_w = room.min(240.0);
             g.blocks(right - bar_w, y + row_h + 2.0, bar_w, 9.0, 20, 0.0, m.progress.frac, PRIMARY);
-            let r = g.r(rx, y + row_h + 18.0, room, 16.0);
+            let r = g.r(rx, y + row_h + 18.0, room, S4);
             g.text(&m.distance.text, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
         });
     }
@@ -385,7 +385,7 @@ pub(super) fn fuel_block(g: &mut Painter, d: &Dash, (x, y, w, _h): Area, size: f
         g.caps(&fuel.label, r, T_CAPTION, MUTED_TEXT, DT_RIGHT);
         let (line_y, line_h) = (y + 28.0, size * 1.2);
         let litres = format!("{} {}", fuel.text, fuel.unit);
-        let r = g.r(x - 22.0, line_y, w + 24.0, line_h);
+        let r = g.r(x - 22.0, line_y, w + S6, line_h);
         g.text(&litres, r, size, semi, Face::Num, FOREGROUND, DT_RIGHT);
         if m.fuel_laps.visible() {
             let room = (w - g.width_of(&litres, size, semi, Face::Num) - 14.0).max(40.0);
@@ -399,7 +399,7 @@ pub(super) fn fuel_block(g: &mut Painter, d: &Dash, (x, y, w, _h): Area, size: f
             at += 14.0;
         }
         if m.fuel_per_lap.visible() {
-            let r = g.r(x, at, w, 16.0);
+            let r = g.r(x, at, w, S4);
             g.text(&m.fuel_per_lap.text, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
         }
     });
@@ -440,7 +440,7 @@ pub(super) fn centre_block(g: &mut Painter, d: &Dash, cx: f32, top: f32, frame_h
     // The delta: its place is there whenever the game gives a lap clock; it fills once there is a best lap.
     shown(g, m.delta.show, |g| {
         let color = m.delta.role.colour();
-        let r = g.r(cx - 170.0, top, 340.0, 16.0);
+        let r = g.r(cx - 170.0, top, 340.0, S4);
         g.caps(&m.delta.label, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
         let r = g.r(cx - 170.0, top + 14.0, 340.0, 40.0);
         g.text(&m.delta.text, r, T_NUMERAL, semi, Face::Num, color, DT_CENTER);
@@ -472,9 +472,9 @@ pub(super) fn centre_block(g: &mut Painter, d: &Dash, cx: f32, top: f32, frame_h
             let y1 = if dy > 0.0 { py } else { py - arm };
             g.fill(g.r(x1, y1, thick, arm), frame);
         }
-        let r = g.r(fx - 4.0, fy - 4.0, fw + 8.0, fh + 8.0);
+        let r = g.r(fx - S1, fy - S1, fw + S2, fh + S2);
         g.text(&m.gear.text, r, fh * GEAR_FILL, semi, Face::Num, PRIMARY, DT_CENTER);
-        for (gear, x) in [(&m.gear_below, fx + 24.0), (&m.gear_above, fx + fw - 64.0)] {
+        for (gear, x) in [(&m.gear_below, fx + S6), (&m.gear_above, fx + fw - 64.0)] {
             if gear.visible() {
                 let (w, h) = (40.0, 52.0);
                 let y = fy + fh / 2.0 - h / 2.0;
@@ -490,7 +490,7 @@ pub(super) fn centre_block(g: &mut Painter, d: &Dash, cx: f32, top: f32, frame_h
         shown(g, elem.show, |g| {
             g.pedal_blocks(area, elem.frac, elem.role.colour());
             let (bx, by, bw, bh) = area;
-            let r = g.r(bx - 8.0, by + bh + 3.0, bw + 16.0, 14.0);
+            let r = g.r(bx - S2, by + bh + 3.0, bw + S4, 14.0);
             g.caps(&elem.label, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
         });
     }
@@ -551,7 +551,7 @@ pub(super) fn electronics_card(g: &mut Painter, d: &Dash, inner: Area) {
     let (stats_area, bars_area) = electronics_split(inner, !cells.is_empty(), !bars.is_empty());
     draw_cells(g, cells, stats_area, 2);
     let (bx, by, bw, bh) = bars_area;
-    let row_h = (bh / 4.0).min(18.0);
+    let row_h = (bh / S1).min(18.0);
     let label_w = 64.0;
     for (i, bar) in bars.iter().enumerate() {
         let y = by + i as f32 * row_h;
@@ -559,10 +559,10 @@ pub(super) fn electronics_card(g: &mut Painter, d: &Dash, inner: Area) {
             let r = g.r(bx, y, label_w, row_h);
             g.caps(&bar.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
             let track = (bx + label_w + S1, y + row_h / 2.0 - 3.0, (bw - label_w - S1).max(1.0), 6.0);
-            g.round(g.r(track.0, track.1, track.2, track.3), 3.0, SECONDARY, None);
+            g.round(g.r(track.0, track.1, track.2, track.3), STROKE_BAR, SECONDARY, None);
             // Undamaged is an empty bar with a pip of green, so it still reads as healthy.
             let len = (track.2 * bar.share).max(5.0);
-            g.round(g.r(track.0, track.1, len, track.3), 3.0, damage_color(bar.share), None);
+            g.round(g.r(track.0, track.1, len, track.3), STROKE_BAR, damage_color(bar.share), None);
         });
     }
 }
@@ -670,7 +670,7 @@ pub(super) fn tyre_box(g: &mut Painter, plan: &Schematic, i: usize, tyre: &crate
     let (rx, _, rw, _) = plan.readout[i];
     let right_aligned = i.is_multiple_of(2);
     let size = plan.temp_size;
-    let block = size * 1.15 + 16.0;
+    let block = size * 1.15 + S4;
     let top = y + h / 2.0 - block / 2.0;
     let temp = if known { format!("{:.0}°", tyre.temp_c) } else { "–".to_owned() };
     let r = g.r(rx, top, rw, size * 1.15);
@@ -691,13 +691,13 @@ pub(super) fn tyre_box(g: &mut Painter, plan: &Schematic, i: usize, tyre: &crate
         );
         let ly = top + size * 1.15 + 1.0;
         let (num_x, psi_x) = if right_aligned {
-            (rx + rw - psi_w - 4.0 - num_w, rx + rw - psi_w)
+            (rx + rw - psi_w - S1 - num_w, rx + rw - psi_w)
         } else {
-            (rx, rx + num_w + 4.0)
+            (rx, rx + num_w + S1)
         };
         let r = g.r(num_x - 1.0, ly, num_w + 2.0, 18.0);
         g.text(&num, r, T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
-        let r = g.r(psi_x, ly + 4.0, psi_w + 2.0, 14.0);
+        let r = g.r(psi_x, ly + S1, psi_w + 2.0, 14.0);
         g.text("psi", r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
     }
     let (bx, by, bw, bh) = plan.brake[i];
@@ -707,7 +707,7 @@ pub(super) fn tyre_box(g: &mut Painter, plan: &Schematic, i: usize, tyre: &crate
         let label_w = g.width_of(&label, T_CAPTION, normal, Face::Num);
         let left = bx + (bw - (disc + gap + label_w)) / 2.0;
         g.brake_disc(left + disc / 2.0, by + bh / 2.0, disc, brake_color(tyre.brake_c));
-        let r = g.r(left + disc + gap, by, label_w + 4.0, bh);
+        let r = g.r(left + disc + gap, by, label_w + S1, bh);
         g.text(&label, r, T_CAPTION, normal, Face::Num, MUTED_TEXT, DT_LEFT);
     }
 }

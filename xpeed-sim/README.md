@@ -14,7 +14,7 @@ Clicar no ícone abre o **painel**; o botão direito abre o menu. Menu do ícone
 
 **Idioma:** o programa abre em **inglês** (decisão do dono, 12/11/2026: inglês primeiro). Português e espanhol aparecem só se a pessoa escolher em **Language**, no menu. A escolha fica gravada no arquivo `language`, em `%APPDATA%\Xpeed Companion`.
 
-**O painel** (`src/panel.rs`) é uma janela com duas abas:
+**O painel** (`src/panel/`: `tokens`, `model`, `layout` e as telas) é uma janela com duas abas:
 
 - **Dashboard:** o que aparece enquanto se dirige, no lugar do SimHub:
   - marcha, velocidade, barra de giro (verde, âmbar e vermelho perto do limite);

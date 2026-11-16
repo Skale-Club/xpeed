@@ -5,7 +5,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.place(s, body.left, body.top);
     let (w, h) = ((body.right - body.left) as f32 / s, (body.bottom - body.top) as f32 / s);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
-    let gap = 16.0;
+    let gap = S4;
     let footer = 26.0;
     // Two columns side by side; in a narrow window (a phone held upright) one under the other.
     let stacked = w < 640.0;
@@ -54,8 +54,8 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // Games: each reader with its cover, its name and a status pill; the list scrolls inside its card when it is
     // longer than the room (mouse wheel, or the thin bar at the right).
     g.tile(0.0, 0.0, col, games_h, CARD);
-    g.label(&text(view.lang, &Msg::PanelGames), 20.0, 16.0, col - 40.0);
-    let (list_top, list_bottom) = (42.0, games_h - 8.0);
+    g.label(&text(view.lang, &Msg::PanelGames), 20.0, S4, col - 40.0);
+    let (list_top, list_bottom) = (42.0, games_h - S2);
     let bar = if scrolling { 14.0 } else { 0.0 };
     g.clip(g.r(0.0, list_top, col, list_bottom - list_top));
     for (i, row) in view.games.iter().enumerate() {
@@ -86,7 +86,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         pill(
             g,
             col - 20.0 - bar - pill_w,
-            y + (row_h - 24.0) / 2.0,
+            y + (row_h - S6) / 2.0,
             pill_w,
             &state,
             state_color(&row.state),
@@ -97,7 +97,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         // A thin square bar: the track in the edge colour, the thumb lit when the mouse is on it.
         let track_h = list_bottom - list_top;
         let content = row_h * games as f32;
-        let thumb_h = (track_h * track_h / content).clamp(24.0, track_h);
+        let thumb_h = (track_h * track_h / content).clamp(S6, track_h);
         let thumb_y = list_top + (track_h - thumb_h) * offset / max_scroll;
         let x = col - 17.0;
         g.fill(g.r(x, list_top, 3.0, track_h), BORDER);
@@ -117,7 +117,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     if let Some(line) = &update {
         let uy = games_h + gap;
         g.tile(0.0, uy, col, update_h, CARD);
-        g.label(&text(view.lang, &Msg::PanelUpdate), 20.0, uy + 16.0, col - 40.0);
+        g.label(&text(view.lang, &Msg::PanelUpdate), 20.0, uy + S4, col - 40.0);
         let button_text = text(view.lang, &Msg::UpdateNow);
         let button_w = if line.button {
             (g.width_of(&button_text, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0)
@@ -148,7 +148,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let account_y = games_h + gap + update_need;
     let account_h = area_h - account_y;
     g.tile(0.0, account_y, col, account_h, CARD);
-    g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
+    g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + S4, col - 40.0);
     let cloud_color = match view.snapshot.cloud {
         Cloud::Idle => SUCCESS,
         Cloud::Waiting(_) => WARN,
@@ -200,7 +200,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // it refused this computer).
     for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
         let by = account_y + 104.0 + code_h + line as f32 * (button_h + button_gap);
-        if by + button_h > area_h - 12.0 {
+        if by + button_h > area_h - S3 {
             break;
         }
         let r = g.r(20.0 + x, by, *w, button_h);
@@ -226,9 +226,9 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         (area_h * 0.44).max(150.0)
     };
     g.tile(right, 0.0, col, laps_h, CARD);
-    g.label(&text(view.lang, &Msg::PanelLaps), right + 20.0, 16.0, col - 40.0);
+    g.label(&text(view.lang, &Msg::PanelLaps), right + 20.0, S4, col - 40.0);
     if view.recent_laps.is_empty() {
-        let r = g.r(right + 20.0, 44.0, col - 40.0, 24.0);
+        let r = g.r(right + 20.0, 44.0, col - 40.0, S6);
         g.text(
             &text(view.lang, &Msg::PanelNoLaps),
             r,
@@ -242,7 +242,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         // The count beside the title only when both fit on the line (in a small window they would run into each other).
         let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
         let title = text(view.lang, &Msg::PanelLaps).to_uppercase();
-        let need = g.width_of(&count, T_CAPTION, normal, Face::Ui) + g.width_of(&title, T_CAPTION, semi, Face::Label) * 1.3 + 24.0;
+        let need = g.width_of(&count, T_CAPTION, normal, Face::Ui) + g.width_of(&title, T_CAPTION, semi, Face::Label) * 1.3 + S6;
         if need <= col - 40.0 {
             let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
             g.text(&count, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
@@ -260,7 +260,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             let r = g.r(right + 20.0, y, col / 2.0, lap_row);
             g.text(&name, r, T_BODY, normal, Face::Ui, FOREGROUND_2, DT_LEFT);
             // The time stays in its half of the row (smaller when it is long), the mark of an invalid lap before it.
-            let room = col / 2.0 - 20.0 - if invalid { 24.0 } else { 0.0 };
+            let room = col / 2.0 - 20.0 - if invalid { S6 } else { 0.0 };
             let size = g.fitted(&time, room, T_LEAD, T_CAPTION, semi, Face::Num);
             let color = match (invalid, i) {
                 (true, _) => MUTED_TEXT,
@@ -271,8 +271,8 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             g.text(&time, r, size, semi, Face::Num, color, DT_RIGHT);
             if invalid {
                 // The digits are set a little wider than the plain measure: leave room.
-                let used = g.width_of(&time, size, semi, Face::Num) * 1.18 + 8.0;
-                g.invalid_mark(right + col - 20.0 - used - 22.0, y + (lap_row - 16.0) / 2.0, 16.0);
+                let used = g.width_of(&time, size, semi, Face::Num) * 1.18 + S2;
+                g.invalid_mark(right + col - 20.0 - used - 22.0, y + (lap_row - S4) / 2.0, S4);
             }
         }
     }
@@ -280,9 +280,9 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // Activity: what happened, newest first, in plain words (the technical log stays in the log file).
     let log_y = laps_h + gap;
     g.tile(right, log_y, col, area_h - log_y, CARD);
-    g.label(&text(view.lang, &Msg::PanelActivity), right + 20.0, log_y + 16.0, col - 40.0);
+    g.label(&text(view.lang, &Msg::PanelActivity), right + 20.0, log_y + S4, col - 40.0);
     if view.activity.is_empty() {
-        let r = g.r(right + 20.0, log_y + 44.0, col - 40.0, 24.0);
+        let r = g.r(right + 20.0, log_y + 44.0, col - 40.0, S6);
         g.text(
             &text(view.lang, &Msg::PanelNoActivity),
             r,
@@ -293,7 +293,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             DT_LEFT,
         );
     }
-    let line_h = 32.0;
+    let line_h = S8;
     let room = ((area_h - log_y - 52.0) / line_h).floor().max(0.0) as usize;
     for (i, (time, line)) in view.activity.iter().take(room).enumerate() {
         let y = log_y + 42.0 + line_h * i as f32;
@@ -310,8 +310,8 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // the shortcuts at the right while there is room for them.
     g.place(s, body.left, body.top);
     let copy = text(view.lang, &Msg::DiagnosticsCopy);
-    let copy_w = g.width_of(&copy, T_CAPTION, semi, Face::Ui) + 24.0;
-    let r = g.r(0.0, h - 24.0, copy_w, 24.0);
+    let copy_w = g.width_of(&copy, T_CAPTION, semi, Face::Ui) + S6;
+    let r = g.r(0.0, h - S6, copy_w, S6);
     g.round(r, R_TILE, CARD, Some(BORDER));
     g.text(&copy, r, T_CAPTION, semi, Face::Ui, FOREGROUND, DT_CENTER);
     view.buttons.borrow_mut().push((Action::CopyDiagnostics, r));
@@ -330,7 +330,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         let r = g.r(note_x, h - 22.0, (w - note_x).max(0.0), 20.0);
         g.text(line, r, T_CAPTION, normal, Face::Ui, *color, DT_LEFT);
     }
-    if note_x + note_w + hint_w + 24.0 <= w {
+    if note_x + note_w + hint_w + S6 <= w {
         let r = g.r(0.0, h - 20.0, w, 20.0);
         g.text(&hint, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
     }
@@ -347,7 +347,7 @@ pub(super) fn cover_for(key: &str, covers: &[CoverArt]) -> Option<*mut GpImage> 
 
 /// A small rounded label with a tinted background.
 pub(super) fn pill(g: &mut Painter, x: f32, y: f32, w: f32, word: &str, color: COLORREF) {
-    g.round(g.r(x, y, w, 24.0), R_TILE, tint(CARD, color, 0.18), None);
-    let r = g.r(x, y, w, 24.0);
+    g.round(g.r(x, y, w, S6), R_TILE, tint(CARD, color, 0.18), None);
+    let r = g.r(x, y, w, S6);
     g.text(word, r, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
 }

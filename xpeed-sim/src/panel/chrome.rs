@@ -6,7 +6,7 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     g.backdrop(width, height);
     header(&mut g, width, view);
     let top = g.px(HEADER_H);
-    let body = rect(g.px(16.0), top, width - g.px(16.0), height - g.px(16.0));
+    let body = rect(g.px(S4), top, width - g.px(S4), height - g.px(S4));
     match view.tab {
         Tab::Dash => dashboard_screen(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
@@ -41,7 +41,7 @@ pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
         }
         if current {
             g.fill(
-                rect(row.left, row.top + g.px(8.0), row.left + g.px(3.0), row.bottom - g.px(8.0)),
+                rect(row.left, row.top + g.px(S2), row.left + g.px(3.0), row.bottom - g.px(S2)),
                 PRIMARY,
             );
         }
@@ -56,7 +56,7 @@ pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
         if !image.is_null() {
             g.image(flag, image);
         }
-        let label = rect(flag.right + g.px(12.0), top, row.right - g.px(8.0), top + row_h);
+        let label = rect(flag.right + g.px(S3), top, row.right - g.px(S2), top + row_h);
         g.text(
             lang.name(),
             label,
@@ -110,7 +110,7 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     let [dash, mon, lang, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
     // The tabs: one pill, the chosen tab a yellow pill inside it.
-    let control = rect(dash.left - g.px(4.0), g.px(13.0), mon.right + g.px(4.0), g.px(51.0));
+    let control = rect(dash.left - g.px(S1), g.px(13.0), mon.right + g.px(S1), g.px(51.0));
     g.round(control, R_TILE, CARD, Some(BORDER));
     let tab_size = if mon.right - dash.left < g.px(200.0) { T_CAPTION } else { T_BODY };
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
@@ -161,7 +161,7 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
 /// Four square corners in a box (pixels): pointing out to go full screen, in to leave it.
 pub(super) fn full_icon(g: &mut Painter, r: RECT, color: COLORREF, leaving: bool) {
     let (cx, cy) = ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
-    let (reach, near, arm, t) = (g.px(8.0), g.px(3.0), g.px(5.0), g.px(1.6).max(1));
+    let (reach, near, arm, t) = (g.px(S2), g.px(3.0), g.px(5.0), g.px(1.6).max(1));
     // A box from two corners in any order.
     let span = |x0: i32, y0: i32, x1: i32, y1: i32| rect(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1));
     for (sx, sy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
