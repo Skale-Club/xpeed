@@ -432,6 +432,12 @@ impl Tracker {
             }
         } else if pos.is_none() {
             self.trail = Arc::default();
+            if frame.driving {
+                // An unknown span is not a measured racing line; start learning a fresh continuous section.
+                self.path.clear();
+                self.partial_map = None;
+                self.path_jumped = true;
+            }
         }
         if frame.driving && frame.x.is_finite() && frame.z.is_finite() {
             let here = (frame.x, frame.z);
@@ -760,6 +766,12 @@ mod tests {
         assert!(qualifying.reference.is_some());
         frame.session_kind = Some(SessionKind::Race);
         assert!(tracker.on_frame("ac", &frame, 200).reference.is_none());
+        let race_path = (0..40).map(|i| (0.0, i as f32 * 4.0)).collect();
+        tracker.offer_best(59.0, vec![(0.0, 0.0), (1000.0, 59.0)], race_path, false);
+        assert!(
+            tracker.on_frame("ac", &frame, 250).reference.is_none(),
+            "even a valid race best is not selected as a line to chase"
+        );
         frame.session_kind = None;
         assert!(tracker.on_frame("ac", &frame, 300).reference.is_none());
         tracker.new_session();

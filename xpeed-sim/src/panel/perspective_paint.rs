@@ -21,8 +21,11 @@ struct PathKey {
     complete: bool,
 }
 
+type PreparedEntry = Option<(PathKey, Rc<PreparedPath>)>;
+type PathCache = [PreparedEntry; 3];
+
 thread_local! {
-    static PATHS: RefCell<[Option<(PathKey, Rc<PreparedPath>)>; 3]> = const { RefCell::new([None, None, None]) };
+    static PATHS: RefCell<PathCache> = const { RefCell::new([None, None, None]) };
 }
 
 fn prepared(slot: usize, path: &[Point], complete: bool) -> Rc<PreparedPath> {
@@ -84,6 +87,7 @@ impl Painter {
         reference: Option<&[Point]>,
         car: Point,
         heading: Point,
+        mirrored: bool,
     ) -> bool {
         let (x, y, w, h) = area;
         if ![x, y, w, h, car.0, car.1, heading.0, heading.1].iter().all(|v| v.is_finite())
@@ -101,6 +105,7 @@ impl Painter {
             height: h,
             car,
             heading,
+            mirrored,
         };
         let scene = perspective::scene(camera, &path, road, &trail, reference.as_deref());
         if scene.center.is_empty() && scene.road.is_empty() && scene.trail.is_empty() && scene.reference.is_empty() {

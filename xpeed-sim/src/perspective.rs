@@ -295,6 +295,8 @@ pub struct Camera {
     pub height: f32,
     pub car: Point,
     pub heading: Point,
+    /// Opposite planar handedness (iRacing uses x=east, z=minus north). Source coordinates stay untouched.
+    pub mirrored: bool,
 }
 
 impl Camera {
@@ -305,6 +307,7 @@ impl Camera {
         let (tx, tz) = unit(self.heading).unwrap_or((0.0, 1.0));
         let (dx, dz) = (p.0 - self.car.0, p.1 - self.car.1);
         let (lateral, forward) = (dx * tz - dz * tx, dx * tx + dz * tz);
+        let lateral = if self.mirrored { -lateral } else { lateral };
         let (s, c) = 32.0_f32.to_radians().sin_cos();
         [lateral, s * (forward + 49.0) - c * 29.0, c * (forward + 49.0) + s * 29.0]
     }
@@ -317,6 +320,7 @@ impl Camera {
             anchor.1 + focal * zero[1] / zero[2] - focal * p[1] / p[2],
         )
     }
+    #[cfg(test)]
     pub fn project(&self, p: Point) -> Option<Point> {
         if !finite(p) || !finite(self.car) || !self.width.is_finite() || !self.height.is_finite() || self.width <= 0.0 || self.height <= 0.0
         {
@@ -468,6 +472,7 @@ mod tests {
             height: 400.0,
             car: (0.0, 35.0),
             heading: (0.0, 1.0),
+            mirrored: false,
         };
         let path = PreparedPath::new(&[(0.0, 30.0), (0.0, 35.0), (0.0, 40.0)], false);
         let drawn = scene(camera, &path, Some(&road), &path, None);
@@ -493,12 +498,32 @@ mod tests {
                     height: 400.0,
                     car: (20.0, 30.0),
                     heading,
+                    mirrored: false,
                 };
                 let p = camera.project(camera.car).unwrap();
                 assert!((p.0 - width * 0.5).abs() < 0.001 && (p.1 - 304.0).abs() < 0.001);
                 let ahead = camera.project((20.0 + heading.0 * 20.0, 30.0 + heading.1 * 20.0)).unwrap();
                 assert!((ahead.0 - width * 0.5).abs() < 0.001 && ahead.1 < p.1);
             }
+        }
+    }
+    #[test]
+    fn iracing_east_stays_right_when_north_is_negative_z() {
+        for width in [320.0, 736.0] {
+            let camera = Camera {
+                width,
+                height: 400.0,
+                car: (0.0, 0.0),
+                heading: (0.0, -1.0),
+                mirrored: true,
+            };
+            let anchor = camera.project(camera.car).unwrap();
+            let east = camera.project((10.0, -20.0)).unwrap();
+            let west = camera.project((-10.0, -20.0)).unwrap();
+            let north = camera.project((0.0, -20.0)).unwrap();
+            assert!(east.0 > anchor.0 && west.0 < anchor.0);
+            assert!((north.0 - anchor.0).abs() < 0.001 && north.1 < anchor.1);
+            assert!((anchor.1 - 304.0).abs() < 0.001);
         }
     }
     #[test]
@@ -549,6 +574,7 @@ mod tests {
             height: 400.0,
             car: (0.0, 0.0),
             heading: (0.0, 1.0),
+            mirrored: false,
         };
         assert_eq!(camera.project((f32::NAN, 0.0)), None);
         assert_eq!(camera.project((0.0, -1000.0)), None);

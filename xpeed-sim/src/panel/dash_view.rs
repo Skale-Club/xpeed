@@ -569,6 +569,7 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
                     d.live.reference.as_deref().map(Vec::as_slice),
                     car,
                     heading,
+                    d.live.game == "iracing",
                 )
             });
         let msg = if !has_map(d.live) {
