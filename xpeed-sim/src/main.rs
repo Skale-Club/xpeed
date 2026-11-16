@@ -46,9 +46,9 @@ mod net;
 mod norm;
 mod outbox;
 #[cfg(windows)]
-mod persistence;
-#[cfg(windows)]
 mod panel;
+#[cfg(windows)]
+mod persistence;
 mod present;
 #[cfg(test)]
 mod rcgen;

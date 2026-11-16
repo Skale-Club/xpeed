@@ -199,9 +199,11 @@ impl LapCutter {
                 }
             }
         }
-        let over_limit = self.current.as_ref().zip(step.sample.as_ref()).is_some_and(|(lap, sample)| {
-            lap.columns.t.len() >= self.max_samples || sample.t_s > self.max_seconds
-        });
+        let over_limit = self
+            .current
+            .as_ref()
+            .zip(step.sample.as_ref())
+            .is_some_and(|(lap, sample)| lap.columns.t.len() >= self.max_samples || sample.t_s > self.max_seconds);
         if over_limit {
             // Discard the whole unfinished lap, once. A new boundary starts a fresh lap normally.
             self.current = None;
@@ -547,7 +549,11 @@ mod tests {
         let (laps, clock) = drive(&mut cutter, 0.0, 1, 0.0, 20.0, None);
         assert!(laps.is_empty());
         assert!(cutter.current.is_none(), "all vectors of the oversized lap are released");
-        assert_eq!(cutter.take_drops(), [LapDrop::CaptureLimit], "one alert for the whole unfinished lap");
+        assert_eq!(
+            cutter.take_drops(),
+            [LapDrop::CaptureLimit],
+            "one alert for the whole unfinished lap"
+        );
         let (_, clock) = drive(&mut cutter, clock, 2, 0.0, 6.0, Some(20.0));
         let (laps, _) = drive(&mut cutter, clock, 3, 0.0, 1.0, Some(6.0));
         assert_eq!(laps.len(), 1);

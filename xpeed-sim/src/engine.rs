@@ -458,7 +458,9 @@ pub fn run_games(
     tracks: Option<&mpsc::Sender<Seen>>,
     grace: Duration,
 ) {
-    with_saver(out, shared, say, |saver| games_loop(readers, saver, out, shared, say, tracks, grace));
+    with_saver(out, shared, say, |saver| {
+        games_loop(readers, saver, out, shared, say, tracks, grace)
+    });
 }
 
 fn games_loop(
@@ -744,7 +746,13 @@ fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_u
     with_saver(out, shared, say, |saver| run_lmu_loop(out, shared, say, stop_on_unsupported, saver))
 }
 
-fn run_lmu_loop(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool, saver: &AsyncSaver) -> Result<(), String> {
+fn run_lmu_loop(
+    out: &Path,
+    shared: &Shared,
+    say: &(dyn Fn(String) + Sync),
+    stop_on_unsupported: bool,
+    saver: &AsyncSaver,
+) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("Cannot create {}: {e}", out.display()))?;
     say(format!("Writing laps to {}.", out.display()));
     let saved = |lap: &lapfile::Lap| saver.lap(lap);

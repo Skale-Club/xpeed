@@ -44,7 +44,16 @@ fn lap_bytes(lap: &Lap) -> usize {
     for text in [&lap.game, &lap.track_name, &lap.car_name, &lap.started_at] {
         add(text.len());
     }
-    for text in [&lap.track_variant, &lap.car_class, &lap.session_id, &lap.weather, &lap.tyre_compound].into_iter().flatten() {
+    for text in [
+        &lap.track_variant,
+        &lap.car_class,
+        &lap.session_id,
+        &lap.weather,
+        &lap.tyre_compound,
+    ]
+    .into_iter()
+    .flatten()
+    {
         add(text.len());
     }
     if let Some(sectors) = &lap.sectors_ms {
@@ -58,7 +67,9 @@ fn lap_bytes(lap: &Lap) -> usize {
         add(recorder.game_build.as_ref().map_or(0, String::len));
     }
     add(lap.checks.len().saturating_mul(std::mem::size_of::<String>()));
-    for check in &lap.checks { add(check.len()); }
+    for check in &lap.checks {
+        add(check.len());
+    }
     add(lap.channels.len().saturating_mul(std::mem::size_of::<crate::lapfile::Channel>()));
     for channel in &lap.channels {
         add(channel.id.len());
@@ -70,7 +81,14 @@ fn lap_bytes(lap: &Lap) -> usize {
 
 impl<'a> Saver<'a> {
     fn new(shared: &'a Shared, say: &'a (dyn Fn(String) + Sync), max_laps: usize, max_bytes: usize) -> Self {
-        Self { queue: Mutex::new(Queue::default()), ready: Condvar::new(), shared, say, max_laps, max_bytes }
+        Self {
+            queue: Mutex::new(Queue::default()),
+            ready: Condvar::new(),
+            shared,
+            say,
+            max_laps,
+            max_bytes,
+        }
     }
 
     /// Only brief queue bookkeeping takes the lock; disk I/O and retry waits never hold it.
@@ -79,18 +97,25 @@ impl<'a> Saver<'a> {
         let bytes = lap_bytes(lap);
         let accepted = {
             let mut queue = crate::util::lock(&self.queue);
-            if !queue.closed && !queue.failed && queue.laps.len() < self.max_laps
-                && bytes <= self.max_bytes.saturating_sub(queue.bytes) {
-                queue.laps.push_back(Pending { lap: Arc::new(lap.clone()), bytes, late: false, generation: self.shared.recent_generation() });
+            if !queue.closed && !queue.failed && queue.laps.len() < self.max_laps && bytes <= self.max_bytes.saturating_sub(queue.bytes) {
+                queue.laps.push_back(Pending {
+                    lap: Arc::new(lap.clone()),
+                    bytes,
+                    late: false,
+                    generation: self.shared.recent_generation(),
+                });
                 queue.bytes += bytes;
                 true
-            } else { false }
+            } else {
+                false
+            }
         };
         if accepted {
             self.ready.notify_one();
         } else {
             self.shared.set_paused(true);
-            self.shared.note_lap_unsaved("Recording paused: lap save queue full or writer unavailable");
+            self.shared
+                .note_lap_unsaved("Recording paused: lap save queue full or writer unavailable");
             (self.say)(format!("Lap {} was NOT accepted for saving: queue full, byte budget exceeded, or writer unavailable. Recording paused; queued laps are retained.", lap.lap_number));
         }
     }
@@ -127,43 +152,67 @@ impl<'a> Saver<'a> {
             };
             let mut result = Err(String::new());
             for delay in std::iter::once(&Duration::ZERO).chain(delays) {
-                if !delay.is_zero() { std::thread::sleep(*delay); }
+                if !delay.is_zero() {
+                    std::thread::sleep(*delay);
+                }
                 // A faulty writer must not unwind through the scope and kill the readers.
                 result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write(&lap)))
                     .unwrap_or_else(|_| Err("lap writer panicked".into()));
-                if result.is_ok() { break; }
+                if result.is_ok() {
+                    break;
+                }
             }
             match result {
                 Ok(saved) => {
                     let build = lap.recorder.as_ref().and_then(|r| r.game_build.as_deref());
-                    self.shared.update(|s| { s.laps_saved += 1; s.last_lap = Some(saved.clone()); });
+                    self.shared.update(|s| {
+                        s.laps_saved += 1;
+                        s.last_lap = Some(saved.clone());
+                    });
                     self.shared.note_lap_saved(&lap.game, build, late);
                     self.shared.notify_lap_saved(saved, generation);
                     self.shared.wake_uploader();
                     let mut queue = crate::util::lock(&self.queue);
-                    if let Some(done) = queue.laps.pop_front() { queue.bytes -= done.bytes; }
+                    if let Some(done) = queue.laps.pop_front() {
+                        queue.bytes -= done.bytes;
+                    }
                     let recovered = queue.laps.iter().all(|pending| !pending.late);
                     drop(queue);
-                    if recovered { self.shared.note_saving_works(); }
+                    if recovered {
+                        self.shared.note_saving_works();
+                    }
                 }
                 Err(error) => {
                     self.shared.set_paused(true);
                     if !late {
                         let reason: String = error.lines().next().unwrap_or("").chars().take(80).collect();
                         self.shared.note_lap_unsaved(&reason);
-                        if let Some(front) = crate::util::lock(&self.queue).laps.front_mut() { front.late = true; }
-                        (self.say)(format!("Could not save lap {}: {error}. Recording paused; keeping it to try again.", lap.lap_number));
+                        if let Some(front) = crate::util::lock(&self.queue).laps.front_mut() {
+                            front.late = true;
+                        }
+                        (self.say)(format!(
+                            "Could not save lap {}: {error}. Recording paused; keeping it to try again.",
+                            lap.lap_number
+                        ));
                     }
                     if closing {
                         let mut queue = crate::util::lock(&self.queue);
-                        if let Some(lost) = queue.laps.pop_front() { queue.bytes -= lost.bytes; }
+                        if let Some(lost) = queue.laps.pop_front() {
+                            queue.bytes -= lost.bytes;
+                        }
                         drop(queue);
-                        (self.say)(format!("Lap {} could not be saved during shutdown and is lost: {error}", lap.lap_number));
+                        (self.say)(format!(
+                            "Lap {} could not be saved during shutdown and is lost: {error}",
+                            lap.lap_number
+                        ));
                     } else {
                         // New laps may wake us, but only shutdown bypasses the retry deadline.
                         let queue = crate::util::lock(&self.queue);
-                        drop(self.ready.wait_timeout_while(queue, retry_every, |q| !q.closed)
-                            .unwrap_or_else(std::sync::PoisonError::into_inner));
+                        drop(
+                            self.ready
+                                .wait_timeout_while(queue, retry_every, |q| !q.closed)
+                                .unwrap_or_else(std::sync::PoisonError::into_inner),
+                        );
                     }
                 }
             }
@@ -174,11 +223,24 @@ impl<'a> Saver<'a> {
 /// The writer outlives reader restarts, then drains and joins even if the reader unwinds.
 /// Retry count is bounded on shutdown; an OS disk call itself has no portable timeout.
 pub fn with_saver<R>(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), body: impl FnOnce(&Saver<'_>) -> R) -> R {
-    with_writer(shared, say, &|lap| crate::engine::save_once(out, lap, say), RETRY_DELAYS, RETRY_EVERY, body)
+    with_writer(
+        shared,
+        say,
+        &|lap| crate::engine::save_once(out, lap, say),
+        RETRY_DELAYS,
+        RETRY_EVERY,
+        body,
+    )
 }
 
-fn with_writer<R>(shared: &Shared, say: &(dyn Fn(String) + Sync), write: &(dyn Fn(&Lap) -> Result<SavedLap, String> + Sync),
-    delays: &[Duration], retry_every: Duration, body: impl FnOnce(&Saver<'_>) -> R) -> R {
+fn with_writer<R>(
+    shared: &Shared,
+    say: &(dyn Fn(String) + Sync),
+    write: &(dyn Fn(&Lap) -> Result<SavedLap, String> + Sync),
+    delays: &[Duration],
+    retry_every: Duration,
+    body: impl FnOnce(&Saver<'_>) -> R,
+) -> R {
     let saver = Saver::new(shared, say, MAX_LAPS, MAX_BYTES);
     std::thread::scope(|scope| {
         let writer = scope.spawn(|| {
@@ -188,8 +250,13 @@ fn with_writer<R>(shared: &Shared, say: &(dyn Fn(String) + Sync), write: &(dyn F
         });
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(&saver)));
         saver.close();
-        if writer.join().is_err() { saver.failed(); }
-        match result { Ok(value) => value, Err(panic) => std::panic::resume_unwind(panic) }
+        if writer.join().is_err() {
+            saver.failed();
+        }
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     })
 }
 
@@ -199,11 +266,24 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
 
-    fn lap(number: u32) -> Lap { Lap { lap_number: number, game: "fake".into(), ..Lap::default() } }
+    fn lap(number: u32) -> Lap {
+        Lap {
+            lap_number: number,
+            game: "fake".into(),
+            ..Lap::default()
+        }
+    }
 
     fn saved(lap: &Lap) -> SavedLap {
-        SavedLap { number: lap.lap_number, time_ms: 0, valid: true, sectors_ms: Vec::new(),
-            game: lap.game.clone(), track: String::new(), car: String::new() }
+        SavedLap {
+            number: lap.lap_number,
+            time_ms: 0,
+            valid: true,
+            sectors_ms: Vec::new(),
+            game: lap.game.clone(),
+            track: String::new(),
+            car: String::new(),
+        }
     }
 
     fn wait_until(test: impl Fn() -> bool) {
@@ -243,7 +323,9 @@ mod tests {
     fn count_and_byte_limits_pause_without_evicting_accepted_laps() {
         let shared = Shared::new(true);
         let saver = Saver::new(&shared, &|_| {}, 2, usize::MAX);
-        saver.lap(&lap(1)); saver.lap(&lap(2)); saver.lap(&lap(3));
+        saver.lap(&lap(1));
+        saver.lap(&lap(2));
+        saver.lap(&lap(3));
         assert!(shared.paused());
         assert!(!shared.take_save_alerts().is_empty());
         let queue = crate::util::lock(&saver.queue);
@@ -251,7 +333,8 @@ mod tests {
         drop(queue);
         let budget = lap_bytes(&lap(1));
         let saver = Saver::new(&shared, &|_| {}, 10, budget);
-        saver.lap(&lap(1)); saver.lap(&lap(2));
+        saver.lap(&lap(1));
+        saver.lap(&lap(2));
         let queue = crate::util::lock(&saver.queue);
         assert_eq!(queue.laps.len(), 1);
         assert!(queue.bytes <= budget);
@@ -263,7 +346,9 @@ mod tests {
         let writable = AtomicBool::new(false);
         let order = Mutex::new(Vec::new());
         let write = |lap: &Lap| {
-            if !writable.load(Ordering::SeqCst) { return Err("disk full".into()); }
+            if !writable.load(Ordering::SeqCst) {
+                return Err("disk full".into());
+            }
             order.lock().unwrap().push(lap.lap_number);
             Ok(saved(lap))
         };
@@ -283,10 +368,27 @@ mod tests {
     fn persistent_failure_on_shutdown_reports_every_unsaved_lap() {
         let shared = Shared::new(true);
         let lines = Mutex::new(Vec::new());
-        with_writer(&shared, &|line| lines.lock().unwrap().push(line), &|_| Err("disk full".into()), &[],
-            Duration::from_secs(60), |saver| { saver.lap(&lap(1)); saver.lap(&lap(2)); });
+        with_writer(
+            &shared,
+            &|line| lines.lock().unwrap().push(line),
+            &|_| Err("disk full".into()),
+            &[],
+            Duration::from_secs(60),
+            |saver| {
+                saver.lap(&lap(1));
+                saver.lap(&lap(2));
+            },
+        );
         assert_eq!(shared.lap_stats().failed_save, 2);
-        assert_eq!(lines.lock().unwrap().iter().filter(|s| s.contains("during shutdown and is lost")).count(), 2);
+        assert_eq!(
+            lines
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|s| s.contains("during shutdown and is lost"))
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -294,7 +396,9 @@ mod tests {
         let shared = Shared::new(true);
         let first = AtomicBool::new(true);
         let write = |lap: &Lap| {
-            if first.swap(false, Ordering::SeqCst) { panic!("broken compression"); }
+            if first.swap(false, Ordering::SeqCst) {
+                panic!("broken compression");
+            }
             Ok(saved(lap))
         };
         with_writer(&shared, &|_| {}, &write, &[], Duration::from_millis(5), |saver| {
