@@ -67,11 +67,12 @@
 //! * `fuel_l` stays NaN: `Fuel` is a fraction of the tank (0..1) and no packet says how big the tank is.
 //! * `in_pits` stays false and `lap_valid` stays `None`: no format says either.
 
-use std::io::ErrorKind;
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, Frame, Phase, Source, Tyre};
+use crate::games::udp::{Door, Wait};
+use crate::norm;
 use crate::shm::Page;
 
 /// The port the person types in the game's Data Out settings. Not the F1 reader's 20777, so both can listen at once.
@@ -125,23 +126,6 @@ const E_TRACK_ORDINAL: usize = 16; // S32
 const PAUSE_AFTER_S: f64 = 0.25;
 /// `DistanceTraveled` going back more than this from one packet to the next starts the lap distance again.
 const JUMP_BACK_M: f64 = 50.0;
-
-fn u16_at(p: &Page, at: usize) -> u16 {
-    u16::from(p.u8_at(at)) | (u16::from(p.u8_at(at + 1)) << 8)
-}
-
-fn i8_at(p: &Page, at: usize) -> i8 {
-    i8::from_le_bytes([p.u8_at(at)])
-}
-
-/// A float the game gave, if it is a number within `range`; else NaN.
-fn within(v: f32, range: std::ops::RangeInclusive<f32>) -> f32 {
-    if v.is_finite() && range.contains(&v) {
-        v
-    } else {
-        f32::NAN
-    }
-}
 
 /// The layout of a packet, from its length.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -304,7 +288,7 @@ impl Decoder {
         let p = Page(data);
         let mut f = Frame::empty();
         f.clock_s = clock_s;
-        f.rpm = within(p.f32_at(S_CURRENT_RPM), 0.0..=30_000.0);
+        f.rpm = norm::within(p.f32_at(S_CURRENT_RPM), 0.0, 30_000.0);
         let ordinal = p.i32_at(S_CAR_ORDINAL);
         if ordinal > 0 {
             f.car = format!("Car #{ordinal}");
@@ -320,16 +304,16 @@ impl Decoder {
             return Some(f);
         };
 
-        f.x = within(p.f32_at(d + D_POSITION), -1e6..=1e6);
-        f.y = within(p.f32_at(d + D_POSITION + 4), -1e6..=1e6);
-        f.z = within(p.f32_at(d + D_POSITION + 8), -1e6..=1e6);
-        f.speed_ms = within(p.f32_at(d + D_SPEED), 0.0..=200.0);
+        f.x = norm::position(p.f32_at(d + D_POSITION));
+        f.y = norm::position(p.f32_at(d + D_POSITION + 4));
+        f.z = norm::position(p.f32_at(d + D_POSITION + 8));
+        f.speed_ms = norm::within(p.f32_at(d + D_SPEED), 0.0, 200.0);
         f.throttle = f32::from(p.u8_at(d + D_ACCEL)) / 255.0;
         f.brake = f32::from(p.u8_at(d + D_BRAKE)) / 255.0;
         f.clutch = f32::from(p.u8_at(d + D_CLUTCH)) / 255.0;
         // The only light the packet gives: the handbrake input is above 0 (0..255).
         f.state.handbrake = Some(p.u8_at(d + D_HANDBRAKE) > 0);
-        f.steer = (f32::from(i8_at(&p, d + D_STEER)) / 127.0).clamp(-1.0, 1.0);
+        f.steer = norm::steer(f32::from(p.i8_at(d + D_STEER)) / 127.0);
         f.gear = match p.u8_at(d + D_GEAR) {
             0 => -1.0,
             11 => 0.0,
@@ -342,11 +326,11 @@ impl Decoder {
             let fahrenheit = p.f32_at(d + D_TIRE_TEMP + 4 * i);
             // A zeroed field (a menu packet) is no reading.
             let temp_c = if fahrenheit != 0.0 {
-                within((fahrenheit - 32.0) * 5.0 / 9.0, -50.0..=400.0)
+                norm::tyre_reading_c((fahrenheit - 32.0) * 5.0 / 9.0)
             } else {
                 f32::NAN
             };
-            let left = extras.map_or(f32::NAN, |e| 1.0 - within(p.f32_at(e + E_TIRE_WEAR + 4 * i), 0.0..=1.0));
+            let left = extras.map_or(f32::NAN, |e| 1.0 - norm::within(p.f32_at(e + E_TIRE_WEAR + 4 * i), 0.0, 1.0));
             Tyre {
                 // Data Out has no brake temperature.
                 brake_c: f32::NAN,
@@ -363,12 +347,12 @@ impl Decoder {
             }
         }
 
-        let lap_number = u16_at(&p, d + D_LAP_NUMBER);
+        let lap_number = p.u16_at(d + D_LAP_NUMBER);
         f.lap = i32::from(lap_number) + 1;
         let current = p.f32_at(d + D_CURRENT_LAP);
-        f.lap_time_s = (current.is_finite() && (0.0..=86_400.0).contains(&current)).then_some(f64::from(current));
+        f.lap_time_s = norm::seconds(current, true);
         let last = p.f32_at(d + D_LAST_LAP);
-        f.last_lap_s = (last.is_finite() && last > 0.0 && last <= 86_400.0).then_some(f64::from(last));
+        f.last_lap_s = norm::seconds(last, false);
         if race_on {
             f.dist_m = self.lap_distance(f64::from(p.f32_at(d + D_DISTANCE)), lap_number, ordinal);
         }
@@ -426,34 +410,32 @@ impl Decoder {
 
 /// The open door: a UDP socket the game sends its telemetry to.
 pub struct ForzaSource {
-    socket: UdpSocket,
+    door: Door,
     start: Instant,
     decoder: Decoder,
-    buf: Vec<u8>,
-    alive: bool,
 }
 
-/// Windows' "message too long": a datagram bigger than the buffer. Not ours, and nothing wrong with the door.
-const WSAEMSGSIZE: i32 = 10040;
+/// The biggest packet is 331 bytes; anything longer is refused by its size (or by Windows, see `udp.rs`).
+const BUFFER: usize = 1024;
 
 impl ForzaSource {
-    /// Binds `addr` for `game`; `None` when that fails (the port is busy: another program, for example a dashboard,
-    /// owns it).
+    /// Binds `addr` for `game` (loopback senders only); `None` when that fails (the port is busy: another program, for
+    /// example a dashboard, owns it).
     fn bind(addr: SocketAddr, game: Game) -> Option<ForzaSource> {
-        let socket = UdpSocket::bind(addr).ok()?;
-        Some(ForzaSource {
-            socket,
+        Some(ForzaSource::with_door(Door::bind(addr, BUFFER)?, game))
+    }
+
+    fn with_door(door: Door, game: Game) -> ForzaSource {
+        ForzaSource {
+            door,
             start: Instant::now(),
             decoder: Decoder::new(game),
-            // The biggest packet is 331 bytes; anything longer is refused by its size (or by Windows, see WSAEMSGSIZE).
-            buf: vec![0; 1024],
-            alive: true,
-        })
+        }
     }
 
     #[cfg(test)]
     fn local_addr(&self) -> SocketAddr {
-        self.socket.local_addr().expect("a bound socket has an address")
+        self.door.local_addr()
     }
 }
 
@@ -470,11 +452,11 @@ pub(crate) fn datagrams(game_id: &str) -> Option<Box<dyn crate::replay::Datagram
     Some(Box::new(ForzaSource::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), game)?))
 }
 
-/// Opens the door on UDP port 5301, all local addresses, for the Forza game that is running. `None` when none is, or
-/// when the port is not free.
+/// Opens the door on UDP port 5301 (the loopback; see `udp.rs` for `XPEED_UDP_LISTEN_ALL`), for the Forza game that is
+/// running. `None` when none is, or when the port is not free.
 pub fn open() -> Option<Box<dyn Source>> {
     let game = Game::running(&crate::win::running_programs())?;
-    let source = ForzaSource::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, DEFAULT_PORT)), game)?;
+    let source = ForzaSource::with_door(Door::listen(DEFAULT_PORT, BUFFER)?, game);
     Some(Box::new(source))
 }
 
@@ -490,29 +472,14 @@ impl Source for ForzaSource {
     fn next(&mut self, timeout: Duration) -> Option<Frame> {
         let deadline = Instant::now() + timeout;
         loop {
-            let wait = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
-            if self.socket.set_read_timeout(Some(wait)).is_err() {
-                self.alive = false;
+            let Wait::Datagram(n) = self.door.recv(deadline) else {
                 return None;
-            }
-            match self.socket.recv_from(&mut self.buf) {
-                Ok((n, _)) => {
-                    crate::capture::tap_datagram(&self.buf[..n]);
-                    let clock_s = self.start.elapsed().as_secs_f64();
-                    if let Some(frame) = self.decoder.feed(&self.buf[..n], clock_s) {
-                        return Some(frame);
-                    }
-                }
-                Err(e) if e.raw_os_error() == Some(WSAEMSGSIZE) => {}
-                Err(e) => match e.kind() {
-                    ErrorKind::WouldBlock | ErrorKind::TimedOut => return None,
-                    // Windows reports a refused earlier send on a UDP socket this way; nothing is wrong with the door.
-                    ErrorKind::ConnectionReset | ErrorKind::Interrupted => {}
-                    _ => {
-                        self.alive = false;
-                        return None;
-                    }
-                },
+            };
+            let data = self.door.data(n);
+            crate::capture::tap_datagram(data);
+            let clock_s = self.start.elapsed().as_secs_f64();
+            if let Some(frame) = self.decoder.feed(data, clock_s) {
+                return Some(frame);
             }
             if Instant::now() >= deadline {
                 return None;
@@ -521,7 +488,7 @@ impl Source for ForzaSource {
     }
 
     fn alive(&self) -> bool {
-        self.alive
+        self.door.alive()
     }
 
     fn listens(&self) -> bool {
@@ -564,6 +531,7 @@ mod tests {
     use super::*;
     use crate::game::CarState;
     use crate::lapcut::LapCutter;
+    use std::net::UdpSocket;
 
     // ---- the documented fields, in the order of Turn 10's pages, with their sizes in bytes ----
 

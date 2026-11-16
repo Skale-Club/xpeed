@@ -81,6 +81,54 @@ fn round_up_to_page(bytes: usize) -> usize {
     bytes.div_ceil(PAGE_BYTES) * PAGE_BYTES
 }
 
+/// The game version `layout.rs` was generated for (its header says "Generated for LMU 1.4.2.0"; the fourth number is
+/// the build and is not compared). Change it together with `layout.rs` when that is regenerated.
+pub const LAYOUT_VERSION: [u32; 3] = [1, 4, 2];
+
+/// What the game's version number says about the layout this build reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    /// The game has not written its version yet (0): nothing to judge.
+    Unwritten,
+    /// The version the layout was generated for.
+    Same,
+    /// The same major and minor, another patch: the layout is taken to be the same (a patch does not move fields),
+    /// and the difference is logged once.
+    Patch([u32; 3]),
+    /// Another major or minor: the layout may have moved. Nothing is read.
+    Other([u32; 3]),
+    /// A number that does not read as a version in the assumed packing (see `decode_version`): not refused (the
+    /// packing is not checked against a live game), logged once.
+    NotUnderstood(i32),
+}
+
+/// The game's `gameVersion` as major, minor and patch. ASSUMED, not checked against a live game (the header gives no
+/// packing): `major * 10000 + minor * 100 + patch` (1.4.2 is 10402). A number that does not decode to a major
+/// between 1 and 9 is not taken for a version at all, so a different packing can never make a good game look like
+/// another one: it is `NotUnderstood`, accepted and logged. `xpeed-companion probe` prints the number.
+pub fn decode_version(raw: i32) -> Option<[u32; 3]> {
+    let raw = u32::try_from(raw).ok().filter(|v| *v > 0)?;
+    let (major, minor, patch) = (raw / 10_000, raw / 100 % 100, raw % 100);
+    (1..=9).contains(&major).then_some([major, minor, patch])
+}
+
+/// Judges the game's version number against `LAYOUT_VERSION`.
+pub fn judge_version(raw: i32) -> Version {
+    if raw == 0 {
+        return Version::Unwritten;
+    }
+    match decode_version(raw) {
+        None => Version::NotUnderstood(raw),
+        Some(found) if found[..2] != LAYOUT_VERSION[..2] => Version::Other(found),
+        Some(found) if found != LAYOUT_VERSION => Version::Patch(found),
+        Some(_) => Version::Same,
+    }
+}
+
+fn dotted(v: [u32; 3]) -> String {
+    format!("{}.{}.{}", v[0], v[1], v[2])
+}
+
 /// The game's lock: a spin lock over two counters in a small mapping, with an event to sleep on.
 struct Lock {
     map: HANDLE,
@@ -183,6 +231,13 @@ pub struct LmuReader {
     buffer: Vec<u8>,
     /// How long to wait for the game's lock before giving a frame up.
     pub lock_timeout_ms: u32,
+    /// The version number judged last (each number is judged, and noted in the log, once).
+    judged: Option<i32>,
+    /// The game's version is another major or minor than the layout's: nothing is read.
+    refused: bool,
+    /// What was last written to the log about the version.
+    #[cfg_attr(not(test), allow(dead_code))]
+    note: Option<String>,
 }
 
 impl LmuReader {
@@ -235,7 +290,7 @@ impl LmuReader {
                     return Err(error);
                 }
             };
-            Ok(LmuReader {
+            let mut reader = LmuReader {
                 map,
                 view,
                 hold,
@@ -244,7 +299,68 @@ impl LmuReader {
                 mapped_bytes,
                 buffer: vec![0; LAYOUT_SIZE],
                 lock_timeout_ms: 100,
-            })
+                judged: None,
+                refused: false,
+                note: None,
+            };
+            reader.judge(reader.version_in_memory());
+            if reader.refused {
+                let message = reader.note.clone().unwrap_or_default();
+                return Err(OpenError::Os(message));
+            }
+            Ok(reader)
+        }
+    }
+
+    /// Judges the game's version number once per value: another major or minor refuses the game (nothing is read from
+    /// it), another patch or a number that does not read as a version is accepted and written to the log once.
+    fn judge(&mut self, raw: i32) {
+        if self.judged == Some(raw) {
+            return;
+        }
+        let verdict = judge_version(raw);
+        if verdict == Version::Unwritten {
+            return;
+        }
+        self.judged = Some(raw);
+        let note = match verdict {
+            Version::Other(found) => {
+                self.refused = true;
+                Some(format!(
+                    "Le Mans Ultimate says it is version {}; this build reads the layout of {}. Another game version: nothing is read.",
+                    dotted(found),
+                    dotted(LAYOUT_VERSION)
+                ))
+            }
+            Version::Patch(found) => Some(format!(
+                "Le Mans Ultimate is version {}, a patch away from the {} this build's layout was made for; reading it as the same layout.",
+                dotted(found),
+                dotted(LAYOUT_VERSION)
+            )),
+            Version::NotUnderstood(raw) => Some(format!(
+                "Le Mans Ultimate reports the game version number {raw}, which does not read as a version; reading it as the layout of {}.",
+                dotted(LAYOUT_VERSION)
+            )),
+            Version::Same | Version::Unwritten => None,
+        };
+        if let Some(text) = note {
+            crate::applog::line(&text);
+            self.note = Some(text);
+        }
+    }
+
+    /// The game's version number straight from the mapping (a plain aligned integer the game writes at the start).
+    fn version_in_memory(&self) -> i32 {
+        if self.mapped_bytes < GENERIC_GAME_VERSION + 4 {
+            return 0;
+        }
+        unsafe {
+            self.view
+                .Value
+                .cast::<u8>()
+                .add(GENERIC_GAME_VERSION)
+                .cast::<i32>()
+                .read_unaligned()
         }
     }
 
@@ -257,7 +373,7 @@ impl LmuReader {
     /// means a game version with another layout: read nothing from it. (A change smaller than a page
     /// cannot be seen from the size; the game version printed by `probe` covers that.)
     pub fn layout_matches(&self) -> bool {
-        self.mapped_bytes == round_up_to_page(LAYOUT_SIZE)
+        self.mapped_bytes == round_up_to_page(LAYOUT_SIZE) && !self.refused
     }
 
     /// Waits for the next frame, in the order the game's interface requires. False on timeout.
@@ -280,6 +396,14 @@ impl LmuReader {
             return None;
         }
         self.copy(0, GENERIC_GAME_VERSION + 4);
+        // The game may write its version after the mapping exists: the first number seen is judged here too.
+        self.judge(i32::from_le_bytes(
+            self.buffer[GENERIC_GAME_VERSION..GENERIC_GAME_VERSION + 4].try_into().unwrap(),
+        ));
+        if self.refused {
+            self.lock.unlock();
+            return None;
+        }
         let codes = events(&self.buffer);
         if codes.contains(&SME_UPDATE_TELEMETRY) {
             self.copy(TELEMETRY_ACTIVE_VEHICLES, 3);
@@ -517,6 +641,95 @@ mod tests {
             Err(OpenError::TooSmall { expected, .. }) => assert_eq!(expected, LAYOUT_SIZE),
             other => panic!("expected TooSmall, got {:?}", other.err()),
         }
+    }
+
+    fn version_number(major: i32, minor: i32, patch: i32) -> i32 {
+        major * 10_000 + minor * 100 + patch
+    }
+
+    #[test]
+    fn the_version_the_layout_was_made_for_matches_its_header() {
+        let header = include_str!("layout.rs");
+        let want = format!(
+            "Generated for LMU {}.{}.{}.0",
+            LAYOUT_VERSION[0], LAYOUT_VERSION[1], LAYOUT_VERSION[2]
+        );
+        assert!(header.contains(&want), "layout.rs says another version than LAYOUT_VERSION: {want}");
+    }
+
+    #[test]
+    fn a_version_number_is_judged_against_the_layouts() {
+        assert_eq!(judge_version(0), Version::Unwritten);
+        assert_eq!(judge_version(version_number(1, 4, 2)), Version::Same);
+        assert_eq!(judge_version(version_number(1, 4, 3)), Version::Patch([1, 4, 3]));
+        assert_eq!(judge_version(version_number(1, 4, 0)), Version::Patch([1, 4, 0]));
+        assert_eq!(judge_version(version_number(1, 5, 2)), Version::Other([1, 5, 2]));
+        assert_eq!(judge_version(version_number(1, 3, 9)), Version::Other([1, 3, 9]));
+        assert_eq!(judge_version(version_number(2, 4, 2)), Version::Other([2, 4, 2]));
+        // Numbers that do not read as a version in the assumed packing are never a refusal.
+        for odd in [777, 12, -5, 1420, 16_908_800, 104_020, 99_999_999] {
+            assert_eq!(judge_version(odd), Version::NotUnderstood(odd), "{odd}");
+        }
+    }
+
+    #[test]
+    fn a_game_of_another_major_or_minor_is_refused_with_the_other_version_message() {
+        let game = FakeGame::new(LAYOUT_SIZE, true);
+        let mut memory = full_frame();
+        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 5, 0));
+        game.write_frame(&memory);
+        match LmuReader::open(&game.names) {
+            Err(OpenError::Os(message)) => {
+                assert!(message.contains("Another game version"), "{message}");
+                assert!(message.contains("1.5.0") && message.contains("1.4.2"), "{message}");
+            }
+            other => panic!("expected a refusal, got {:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn a_game_whose_version_appears_after_the_memory_is_refused_at_the_first_read() {
+        let game = FakeGame::new(LAYOUT_SIZE, true);
+        let mut memory = full_frame();
+        memory.put_i32(GENERIC_GAME_VERSION, 0);
+        game.write_frame(&memory);
+        let mut reader = LmuReader::open(&game.names).expect("no version written yet: nothing to judge");
+        assert!(reader.layout_matches());
+        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 6, 0));
+        game.write_frame(&memory);
+        assert!(reader.read().is_none(), "another version: nothing is read");
+        assert!(!reader.layout_matches());
+        assert_eq!(game.busy().load(Ordering::SeqCst), 0, "the lock is released all the same");
+        assert!(reader.note.as_deref().is_some_and(|n| n.contains("Another game version")));
+    }
+
+    #[test]
+    fn a_game_of_another_patch_is_read_and_noted_once() {
+        let game = FakeGame::new(LAYOUT_SIZE, true);
+        let mut memory = full_frame();
+        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 4, 5));
+        game.write_frame(&memory);
+        let mut reader = LmuReader::open(&game.names).expect("a patch does not refuse");
+        assert!(reader.layout_matches());
+        let first = reader.note.clone().expect("the difference is noted when it is first seen");
+        assert!(first.contains("1.4.5") && first.contains("1.4.2"), "{first}");
+        let snapshot = reader.read().expect("and it is read");
+        assert_eq!(snapshot.telemetry, Some(car()));
+        // The same number again says nothing new.
+        reader.note = None;
+        assert!(reader.read().is_some());
+        assert_eq!(reader.note, None, "noted once, not at every frame");
+    }
+
+    #[test]
+    fn the_version_of_the_layout_reads_without_a_word() {
+        let game = FakeGame::new(LAYOUT_SIZE, true);
+        let mut memory = full_frame();
+        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 4, 2));
+        game.write_frame(&memory);
+        let mut reader = LmuReader::open(&game.names).unwrap();
+        assert!(reader.read().is_some());
+        assert_eq!(reader.note, None);
     }
 
     #[test]

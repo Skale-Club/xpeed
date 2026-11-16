@@ -4,6 +4,81 @@
 //! reads into `Frame`s with the units of the lap file (metres, seconds, metres per second, 0..1 pedals), so the lap
 //! cutter (`lapcut.rs`) and the engine do not need to know which game it is. A value the game does not give is `NaN`
 //! (or `None` for the lap fields): the lap file keeps a column only when the game gives that value.
+//!
+//! # The convention of a `Frame`
+//!
+//! One meaning for every field, whatever the game. A reader turns its game's raw value into this, and `norm.rs` says how
+//! far a raw value may be from its range before it is "not given". Where a game's raw value is known to differ from the
+//! convention (a pedal that reads 1 when released), the reader turns it around; where nobody has checked yet, the
+//! reader's mapping is in the second table and is marked ASSUMED.
+//!
+//! | `Frame` field | Unit and range | Meaning |
+//! |---------------|----------------|---------|
+//! | `clock_s` | seconds, never goes back | the game's session clock, or this program's own |
+//! | `lap` | whole number, 1 is the first lap driven, 0 is "no lap known" | the number of the lap being driven; a game that counts laps completed from 0 gives completed + 1 |
+//! | `lap_time_s` | seconds, 0 to 86 400 | time on the lap in progress |
+//! | `last_lap_s` | seconds, above 0 | the official time of the last completed lap |
+//! | `lap_valid` | bool | `Some(false)`: the game says this lap will not count |
+//! | `dist_m` | metres, 0 or more | distance covered on this lap since the line |
+//! | `in_pits` | bool | the car is in the pit area: the pit lane or the pit box |
+//! | `speed_ms` | metres per second, 0 or more | the speed, never a signed velocity |
+//! | `rpm` | revolutions per minute | engine speed |
+//! | `gear` | -1, 0, 1.. | -1 reverse, 0 neutral, 1 first |
+//! | `gears` | 1.. | how many forward gears |
+//! | `throttle`, `brake` | 0 to 1 | 1 is the pedal fully pressed (the driver's input, before the game filters it where it says) |
+//! | `clutch` | 0 to 1 | 1 is the pedal fully pressed (clutch disengaged), 0 released |
+//! | `steer` | -1 to 1 | +1 is full lock to the RIGHT, -1 full lock to the left |
+//! | `x`, `y`, `z` | metres | x east, y up, z north (the map seen from above with north up: a clockwise lap turns right) |
+//! | `fuel_l`, `fuel_capacity_l` | litres | the fuel in the tank, and the size of the tank |
+//! | `Tyre::temp_c` | Celsius | the tread where the game gives it (the mean across), else the core |
+//! | `Tyre::pressure_kpa` | kilopascals (1 psi is 6.894757 kPa) | the tyre's pressure |
+//! | `Tyre::left` | 0 to 1 | 1 is a new tyre, 0 is gone |
+//! | `Tyre::brake_c` | Celsius | the brake disc beside that wheel; tyres are front left, front right, rear left, rear right |
+//! | `CarState::pit_limiter` | bool | the pit lane limiter is on |
+//! | `CarState::abs_active`, `tc_active` | bool | the aid is acting right now, not just switched on |
+//! | `CarState::tc_level`, `abs_level` | 0 and up | the driver's setting as the dash shows it, 0 is off, more is more intervention |
+//! | `CarState::engine_map` | 0 and up | the number the dash shows for the engine map |
+//! | `CarState::brake_bias` | 0 to 1 | the FRONT share of the braking (0.56 is 56 % front); a game that gives the rear share is turned around |
+//! | `CarState::damage_*` | 0 to 1 | 0 is none, 1 is destroyed; body is the bodywork and aero, engine, gearbox, and suspension is the worst of the four |
+//! | `CarState::water_c`, `oil_c` | Celsius | coolant and oil |
+//! | `g_lat` | g | positive toward the car's right (a right-hand corner is positive) |
+//! | `g_long` | g | positive forward (accelerating is positive, braking negative) |
+//! | `sectors_ms`, `air_temp_c`, `track_temp_c` | milliseconds, Celsius | the first two sector times of the lap; the air and track temperature |
+//!
+//! ## How each reader maps its game's raw value
+//!
+//! `VERIFIED-LIVE` means it was checked against a running game (the capture and replay harness: `fixtures/README.md`);
+//! everything else is `ASSUMED`: taken from the game's documentation or from another reader, never seen live. Where
+//! two readers contradict each other, both are written down as they are; the fixtures settle which is right.
+//!
+//! | Reader | `steer` (+1 = right) | `clutch` (1 = pressed) | `x`, `y`, `z` | `lap` |
+//! |--------|----------------------|------------------------|---------------|-------|
+//! | Assetto Corsa, Competizione, Rally (`kunos.rs`) | `steerAngle` as given, positive right: ASSUMED | not read | Assetto Corsa and Competizione: `carCoordinates` as given (not mirrored); Rally none: ASSUMED | `completedLaps` + 1: ASSUMED |
+//! | Assetto Corsa EVO (`acevo.rs`) | `steerAngle` as given, positive right: VERIFIED-LIVE | `1 - clutch` (the game writes 1 = engaged): VERIFIED-LIVE | mean of the four `tyreContactPoint`s, x negated (the game's ground is mirrored), y and z as given: VERIFIED-LIVE | `total_lap_count` + 1: ASSUMED |
+//! | Automobilista 2, Project CARS 2 and 3 (`ams2.rs`) | `mUnfilteredSteering` as given, positive right: ASSUMED | `mUnfilteredClutch` as given: ASSUMED | `mWorldPosition` as given, so z is north: ASSUMED | `mLapsCompleted` + 1: ASSUMED |
+//! | RaceRoom (`r3e.rs`) | `steer_input_raw` as given, positive right: ASSUMED | `clutch_raw` as given: ASSUMED | `car_cg_location` as given, y up: ASSUMED | `completed_laps` + 1: ASSUMED |
+//! | rFactor 1 engine games (`rfactor1.rs`) | `unfilteredSteering` as given ("left to right"): ASSUMED | `unfilteredClutch` as given: ASSUMED | `pos` as given (the game's left-handed axes, y up): ASSUMED | `lapNumber` as the game counts it; whether its first lap is 0 or 1 is not known: ASSUMED (the lap cutter only needs it to go up by one) |
+//! | iRacing (`iracing.rs`) | `-SteeringWheelAngle / SteeringWheelAngleMax` (the SDK turns positive to the left): ASSUMED | `1 - Clutch` (the sim writes 1 = pedal up): ASSUMED | worked out from the velocity: x = east, z = MINUS north (the opposite of EVO and Automobilista 2): ASSUMED | `Lap` as the sim counts it; whether its first lap is 0 or 1 is not known: ASSUMED |
+//! | EA SPORTS F1 (`f1.rs`) | `steer` as given (documented -1 left, +1 right): ASSUMED | `clutch` / 100 (0 released): ASSUMED | motion packet `worldPosition` as given: ASSUMED | `currentLapNum`, documented as starting at 1: ASSUMED |
+//! | Forza Motorsport and Horizon (`forza.rs`) | `Steer` / 127 (documented -127 left, +127 right): ASSUMED | `Clutch` / 255: ASSUMED | `Position` as given, y up: ASSUMED | `LapNumber` + 1 (documented from 0): ASSUMED |
+//! | Wreckfest 2 (`wreckfest2.rs`) | `steering` as given: ASSUMED | `clutch` as given: ASSUMED | `position` as given: ASSUMED | `lapCurrent` as given (0 is the grid, 1 the first lap): ASSUMED |
+//! | Le Mans Ultimate (`lmu/`) | `mUnfilteredSteering` as given: ASSUMED | `mUnfilteredClutch` as given: ASSUMED | `mPos` as given (the game's left-handed axes): ASSUMED | `mLapNumber` as the game counts it; whether its first lap is 0 or 1 is not known: ASSUMED |
+//!
+//! | Reader | `brake_bias` (front share) | `tc_level`, `abs_level` | `damage_*` | `in_pits` | `Tyre::pressure_kpa` |
+//! |--------|----------------------------|-------------------------|------------|-----------|----------------------|
+//! | Assetto Corsa, Competizione | `brakeBias` as given, taken as the front share: ASSUMED | Competizione: the graphics page's TC and ABS (0 is off): ASSUMED; Assetto Corsa none | none | `isInPit` (and Competizione's `isInPitLane`): ASSUMED | psi to kPa: ASSUMED |
+//! | Assetto Corsa EVO | `brake_bias` of the electronics as given, taken as the front share: ASSUMED | the electronics levels where the car has the aid (its maximum is above 0): ASSUMED | none | pit lane or pit box: ASSUMED | psi to kPa: ASSUMED |
+//! | Automobilista 2 | `mBrakeBias` is the REAR share, so 1 minus it: VERIFIED-LIVE | `mTractionControlSetting`, `mAntiLockSetting`: ASSUMED | `mAeroDamage`, `mEngineDamage`, the worst `mSuspensionDamage`, as given: ASSUMED | any pit mode but none: ASSUMED | `mAirPressure` in kPa as written: VERIFIED-LIVE |
+//! | RaceRoom | `brake_bias` is the REAR share, so 1 minus it: ASSUMED | `traction_control_setting`, `abs_setting`: ASSUMED | 1 minus `car_damage` (0.0 is the bad end): ASSUMED | `in_pitlane`: ASSUMED | `tire_pressure` as given, kPa: ASSUMED |
+//! | rFactor 1 engine games | none | none | bodywork from the eight dents (sum over the worst case): ASSUMED | scoring `inPits`: ASSUMED | none |
+//! | iRacing | none | none | none | `OnPitRoad`: ASSUMED | none |
+//! | EA SPORTS F1 | `frontBrakeBias` in percent: ASSUMED | traction control 0 off, 1 medium, 2 full; ABS 0 off, 1 on: ASSUMED | percent of the wings (worst), gearbox, engine: ASSUMED | `pitStatus` other than 0: ASSUMED | none |
+//! | Forza | none | none | none | none | none |
+//! | Wreckfest 2 | none | assist levels 0 off, 1 half, 2 full: ASSUMED | the worst damage state of the group over the terminal state: ASSUMED | none | none |
+//! | Le Mans Ultimate | `mRearBrakeBias` is the REAR share, so 1 minus it: ASSUMED | `mTC`, `mABS` where the car has the aid: ASSUMED | bodywork from the eight dents: ASSUMED | scoring `mInPits`: ASSUMED | `mPressure` in kPa: ASSUMED |
+//!
+//! The places where the readers contradict each other, and what would settle each, are the "what to verify per game"
+//! list of `fixtures/README.md`: no reader was changed to guess which one is right.
 
 use std::time::Duration;
 
@@ -150,7 +225,8 @@ pub struct Frame {
     pub driving: bool,
     /// What the player is doing, as far as the game says (`Unknown` until a reader knows).
     pub phase: Phase,
-    /// The lap being driven, as the game counts it (the number changes when a lap is completed).
+    /// The number of the lap being driven: 1 for the first lap driven (a game that counts laps completed from 0 gives
+    /// completed + 1), 0 when the game says no lap. The number changes when a lap is completed.
     pub lap: i32,
     /// Time on the current lap, in seconds, on the game's own clock. `None` when the game does not give it.
     pub lap_time_s: Option<f64>,
@@ -551,6 +627,80 @@ pub fn text_of_ascii(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The names written in backticks in the convention table at the top of this file.
+    fn convention_names() -> Vec<String> {
+        let source = include_str!("game.rs");
+        let start = source.find("| `Frame` field |").expect("the convention table");
+        let end = source[start..].find("## How each reader maps").expect("the per-reader tables");
+        source[start..start + end]
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .flat_map(|names| names.split(',').map(|n| n.trim().rsplit("::").next().unwrap_or("").to_owned()))
+            .collect()
+    }
+
+    /// The names of the fields of `struct_name`, from this file's own text.
+    fn fields_of(struct_name: &str) -> Vec<String> {
+        let source = include_str!("game.rs");
+        let start = source.find(&format!("pub struct {struct_name} {{")).expect("the struct");
+        let body = &source[start
+            ..start
+                + source[start..]
+                    .find(
+                        "
+}
+",
+                    )
+                    .unwrap()];
+        body.lines()
+            .skip(1)
+            .filter_map(|l| l.trim().strip_prefix("pub "))
+            .filter_map(|l| l.split(':').next())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn the_convention_table_has_a_row_for_every_value_a_reader_fills() {
+        let names = convention_names();
+        let covered = |field: &str| {
+            names
+                .iter()
+                .any(|n| n == field || n.strip_suffix('*').is_some_and(|p| field.starts_with(p)))
+        };
+        // Who the car, track and session are, and what the game is doing, have no unit to agree on.
+        let identity = [
+            "driving",
+            "phase",
+            "car",
+            "car_class",
+            "track",
+            "track_variant",
+            "track_length_m",
+            "session_kind",
+            "weather",
+            "tyre_compound",
+            "state",
+            "tyres",
+            "lap_valid",
+            "flag",
+            "drs",
+            "headlights",
+            "handbrake",
+            "engine_warning",
+        ];
+        for (struct_name, skip) in [("Frame", &identity[..]), ("Tyre", &[][..]), ("CarState", &identity[..])] {
+            for field in fields_of(struct_name) {
+                assert!(
+                    skip.contains(&field.as_str()) || covered(&field),
+                    "{struct_name}::{field} has no row in the convention table of game.rs"
+                );
+            }
+        }
+        assert!(covered("steer") && covered("damage_body") && !covered("no_such_field"));
+    }
 
     #[test]
     fn a_frame_with_nothing_in_it_says_nothing() {

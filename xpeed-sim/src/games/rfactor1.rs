@@ -65,7 +65,8 @@
 //!
 //! `lap` is `lapNumber` as the game counts it, taken straight from the telemetry so that it changes at the very
 //! moment `lapStartET` does. The header does not say whether the first lap is 0 or 1; the lap cutter only needs the
-//! number to go up by one at each completed lap.
+//! number to go up by one at each completed lap. ASSUMED, to be settled by a fixture (`game.rs` and
+//! `fixtures/README.md`): `Frame::lap` is meant to be 1 for the first lap driven.
 //!
 //! `driving` is true only when the plugin says the player is in realtime (`inRealtime`, the car, not the monitor or
 //! the garage screen), the car is under the local player's control (`control == 0`), and the session is in a phase
@@ -87,6 +88,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::game::{Caps, CarState, Frame, Phase, Source};
+use crate::norm::{self, pedal, seconds, within};
 use crate::shm::{Mapping, Page};
 
 /// The name the plugin gives its memory (`RF_SHARED_MEMORY_NAME`).
@@ -235,11 +237,12 @@ impl RFactor1 {
     fn try_read(&mut self) -> Option<Frame> {
         let memory = &self.memory;
         let settle = self.settle;
-        let copy = stable_copy(
+        let copy = norm::stable_copy(
+            ATTEMPTS,
             || memory.read(0, SIZE),
             || {
                 if !settle.is_zero() {
-                    spin(settle)
+                    norm::spin(settle)
                 }
             },
         )?;
@@ -251,29 +254,6 @@ impl RFactor1 {
         self.last_used = Some(copy);
         frame
     }
-}
-
-/// Waits `d` without giving the processor away (a sleep is a whole timer tick on Windows, far longer than a struct
-/// takes to write).
-fn spin(d: Duration) {
-    let until = Instant::now() + d;
-    while Instant::now() < until {
-        std::hint::spin_loop();
-    }
-}
-
-/// Two copies, `gap` apart, that are the same: nothing was written between them. A copy that differs from its
-/// successor is thrown away and the pair is tried again, up to `ATTEMPTS` times.
-fn stable_copy(mut read: impl FnMut() -> Option<Vec<u8>>, mut gap: impl FnMut()) -> Option<Vec<u8>> {
-    for _ in 0..ATTEMPTS {
-        let first = read()?;
-        gap();
-        let second = read()?;
-        if first == second {
-            return Some(first);
-        }
-    }
-    None
 }
 
 impl Source for RFactor1 {
@@ -305,24 +285,6 @@ impl Source for RFactor1 {
 
     fn caps(&self) -> Caps {
         CAPS
-    }
-}
-
-/// A float the game gave, inside `lo..=hi`; anything else (NaN, infinite, absurd) is "not given".
-fn within(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() && (lo..=hi).contains(&v) {
-        v
-    } else {
-        f32::NAN
-    }
-}
-
-/// A float that should be in `lo..=hi` and is pulled into it (pedals); NaN stays "not given".
-fn clamped(v: f32, lo: f32, hi: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(lo, hi)
-    } else {
-        f32::NAN
     }
 }
 
@@ -385,10 +347,7 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.lap = lap;
     frame.lap_time_s = lap_time(page.f32_at(at::CURRENT_ET), page.f32_at(at::LAP_START_ET));
     // -1 while the player has not completed a lap.
-    frame.last_lap_s = {
-        let t = page.f32_at(me + at::V_LAST_LAP_TIME);
-        (t.is_finite() && t > 0.0 && t <= 86_400.0).then(|| f64::from(t))
-    };
+    frame.last_lap_s = seconds(page.f32_at(me + at::V_LAST_LAP_TIME), false);
     frame.dist_m = {
         // The plugin interpolates this between scoring updates, which can put it a hair below zero just after the line.
         let d = within(page.f32_at(me + at::V_LAP_DIST), -1000.0, 1_000_000.0);
@@ -403,16 +362,15 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
         f32::NAN
     };
     frame.rpm = within(page.f32_at(at::ENGINE_RPM), 0.0, 100_000.0);
-    let gear = page.i32_at(at::GEAR);
-    frame.gear = if (-1..=30).contains(&gear) { gear as f32 } else { f32::NAN };
+    frame.gear = norm::gear(page.i32_at(at::GEAR));
     // What the driver does with the pedals and the wheel, before any filtering the game applies.
-    frame.throttle = clamped(page.f32_at(at::UNFILTERED_THROTTLE), 0.0, 1.0);
-    frame.brake = clamped(page.f32_at(at::UNFILTERED_BRAKE), 0.0, 1.0);
-    frame.clutch = clamped(page.f32_at(at::UNFILTERED_CLUTCH), 0.0, 1.0);
-    frame.steer = clamped(page.f32_at(at::UNFILTERED_STEERING), -1.0, 1.0);
-    frame.x = within(page.f32_at(at::POS), -1.0e7, 1.0e7);
-    frame.y = within(page.f32_at(at::POS + 4), -1.0e7, 1.0e7);
-    frame.z = within(page.f32_at(at::POS + 8), -1.0e7, 1.0e7);
+    frame.throttle = pedal(page.f32_at(at::UNFILTERED_THROTTLE));
+    frame.brake = pedal(page.f32_at(at::UNFILTERED_BRAKE));
+    frame.clutch = pedal(page.f32_at(at::UNFILTERED_CLUTCH));
+    frame.steer = norm::steer(page.f32_at(at::UNFILTERED_STEERING));
+    frame.x = norm::position(page.f32_at(at::POS));
+    frame.y = norm::position(page.f32_at(at::POS + 4));
+    frame.z = norm::position(page.f32_at(at::POS + 8));
     frame.fuel_l = within(page.f32_at(at::FUEL), 0.0, 10_000.0);
     frame.state = state_from(&page);
     // The header has no vehicle name: the class of the player's car is the only description of it.
@@ -453,10 +411,6 @@ const CAPS: Caps = Caps::LAP_TIME
 /// The overheating light, the temperatures and the dents. The plugin exports no lights, flags, aids, brake bias or
 /// engine and gearbox damage, so those are not given.
 fn state_from(page: &Page) -> CarState {
-    let temp = |at: usize| {
-        let c = page.f32_at(at);
-        (c.is_finite() && c > 0.0 && c <= 400.0).then_some(c)
-    };
     // Eight dents, each 0 none, 1 some, 2 more (more than 2 is not one): the sum over the worst case, all at 2.
     let dents: u32 = (0..8).map(|i| u32::from(page.u8_at(at::DENT_SEVERITY + i).min(2))).sum();
     CarState {
@@ -465,8 +419,8 @@ fn state_from(page: &Page) -> CarState {
             1 => Some(true),
             _ => None,
         },
-        water_c: temp(at::ENGINE_WATER_TEMP),
-        oil_c: temp(at::ENGINE_OIL_TEMP),
+        water_c: Some(norm::water_c(page.f32_at(at::ENGINE_WATER_TEMP))).filter(|c| c.is_finite()),
+        oil_c: Some(norm::oil_c(page.f32_at(at::ENGINE_OIL_TEMP))).filter(|c| c.is_finite()),
         damage_body: Some(dents as f32 / 16.0),
         ..CarState::UNKNOWN
     }
@@ -934,12 +888,17 @@ mod tests {
         image.f32(at::UNFILTERED_THROTTLE, 1.5);
         image.f32(at::UNFILTERED_BRAKE, -0.5);
         image.f32(at::UNFILTERED_CLUTCH, f32::NAN);
-        image.f32(at::UNFILTERED_STEERING, -3.0);
+        image.f32(at::UNFILTERED_STEERING, -1.2);
         image.f32(at::ENGINE_RPM, -5.0);
         image.f32(at::FUEL, f32::INFINITY);
         let frame = frame_from(&image.0, 0.0).unwrap();
         assert_eq!((frame.throttle, frame.brake, frame.steer), (1.0, 0.0, -1.0));
         assert!(frame.clutch.is_nan() && frame.rpm.is_nan() && frame.fuel_l.is_nan());
+        // Far outside the range (the one tolerance of `norm.rs`) is not given, not pinned to the end.
+        image.f32(at::UNFILTERED_THROTTLE, 5.0);
+        image.f32(at::UNFILTERED_STEERING, -3.0);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert!(frame.throttle.is_nan() && frame.steer.is_nan());
 
         // Times: the lap time is the clock minus the lap's start; a hair below zero is zero, a lot below is not given.
         for (now, start, want) in [
@@ -1017,7 +976,8 @@ mod tests {
         // Calm memory: the first pair is the same.
         let mut reads = 0;
         assert_eq!(
-            stable_copy(
+            norm::stable_copy(
+                ATTEMPTS,
                 || {
                     reads += 1;
                     Some(a.clone())
@@ -1029,12 +989,13 @@ mod tests {
         assert_eq!(reads, 2);
         // A write between the two copies: they differ, the pair is tried again and the next one is taken.
         let mut script = vec![a.clone(), b.clone(), b.clone(), b.clone()].into_iter();
-        assert_eq!(stable_copy(|| script.next(), || {}), Some(b.clone()));
+        assert_eq!(norm::stable_copy(ATTEMPTS, || script.next(), || {}), Some(b.clone()));
         // The game never stops writing: after the attempts there is no copy at all.
         let mut n = 0u8;
         let mut gaps = 0;
         assert_eq!(
-            stable_copy(
+            norm::stable_copy(
+                ATTEMPTS,
                 || {
                     n = n.wrapping_add(1);
                     Some(vec![n])
@@ -1045,7 +1006,7 @@ mod tests {
         );
         assert_eq!(gaps, ATTEMPTS, "the copies are taken apart, once per pair");
         // The memory cannot be read: nothing.
-        assert_eq!(stable_copy(|| None, || {}), None);
+        assert_eq!(norm::stable_copy(ATTEMPTS, || None, || {}), None);
     }
 
     #[test]

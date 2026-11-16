@@ -15,6 +15,7 @@ pub mod iracing;
 pub mod kunos;
 pub mod r3e;
 pub mod rfactor1;
+pub mod udp;
 pub mod wreckfest2;
 
 /// A reader this build has.
