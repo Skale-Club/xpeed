@@ -897,11 +897,7 @@
       "bestPerTrack": "Mejor vuelta en cada circuito",
       "progressTrack": "Mejor vuelta en"
     },
-    "perspective": {
-      "view": "Vista de la pista",
-      "title": "Perspectiva",
-      "map": "Mapa",
-      "legend": "Amarillo: tu vuelta. Azul discontinuo: referencia. La flecha sigue tu dirección de conducción.",
+    "referenceContext": {
       "goal": "Objetivo de la comparación",
       "practice": "Entrenamiento",
       "qualifying": "Clasificación / contrarreloj",
@@ -911,28 +907,7 @@
       "conditionsDiffer": "Las condiciones registradas son diferentes: {{conditions}}.",
       "condition_weather": "clima",
       "condition_tyres": "neumáticos",
-      "condition_fuel": "carga de combustible",
-      "study": "Tu vuelta",
-      "reference": "Referencia",
-      "sceneLabel": "Pista en perspectiva",
-      "description": "Trayectorias grabadas delante del coche. El coche apunta hacia arriba mientras la pista se mueve. No se representa el relieve.",
-      "realEdges": "Bordes del juego · vista plana",
-      "noEdges": "Recorrido grabado; bordes de la pista no disponibles",
-      "lookahead": "{{distance}} {{unit}} por delante",
-      "noPosition": "Posición no disponible en este momento.",
-      "heading": "Dirección del coche ↑",
-      "speed": "Velocidad",
-      "throttle": "Acelerador",
-      "brake": "Freno",
-      "pause": "Pausar",
-      "replay": "Repetir",
-      "play": "Reproducir",
-      "position": "Posición en la reproducción de la vuelta",
-      "zoom": "Zoom",
-      "tilt": "Cámara bajo el horizonte",
-      "playing": "Reproduciendo a la velocidad grabada",
-      "finished": "Vuelta completada",
-      "paused": "Pausado"
+      "condition_fuel": "carga de combustible"
     }
   },
   "refresh": {

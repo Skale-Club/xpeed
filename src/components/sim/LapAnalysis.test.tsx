@@ -22,17 +22,12 @@ const [mine, best] = makeLapFixtures();
 const loaded = (id: string, lap: LapFile): LoadedLap => ({ id, lap });
 
 type Props = Partial<Parameters<typeof LapAnalysis>[0]>;
-function renderAnalysis(lap: LapFile | null = mine, reference: LapFile | null = best, extra: Props = {}, overview = true) {
-  const result = render(
+function renderAnalysis(lap: LapFile | null = mine, reference: LapFile | null = best, extra: Props = {}) {
+  return render(
     <SettingsProvider>
       <LapAnalysis lap={loaded('a', lap ?? mine)} reference={reference ? loaded('b', reference) : null} {...extra} />
     </SettingsProvider>,
   );
-  if (overview) {
-    const map = screen.queryByRole('button', { name: 'Map' });
-    if (map) fireEvent.click(map);
-  }
-  return result;
 }
 
 beforeEach(async () => {
@@ -45,13 +40,6 @@ afterEach(() => {
 });
 
 describe('a lap and its reference', () => {
-  it('opens in perspective and lets the driver switch to the overall map', () => {
-    renderAnalysis(mine, best, {}, false);
-    expect(screen.getByRole('button', { name: 'Perspective' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByTestId('track-map')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Map' }));
-    expect(screen.getByTestId('track-map')).toBeInTheDocument();
-  });
   it('compares them and finds where the time is lost', async () => {
     renderAnalysis();
     expect(screen.getByTestId('final-gap')).toHaveTextContent(/^\+0\.3\d\d s$/);

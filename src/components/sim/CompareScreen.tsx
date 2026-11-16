@@ -194,17 +194,17 @@ export function CompareScreen() {
             {aId && aFile.data && (
               <div className="space-y-2" data-testid="reference-context">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.perspective.goal', 'Comparison objective')}</span>
+                  <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.referenceContext.goal', 'Comparison objective')}</span>
                   <OptionSelect size="sm" className="w-full sm:w-56" aria-labelledby="comparison-goal-label" value={goal} onChange={(value) => setGoalChoice({ lapId: aId, goal: value as ComparisonGoal })} options={[
-                    { value: 'practice', label: t('modes.perspective.practice', 'Practice') },
-                    { value: 'qualifying', label: t('modes.perspective.qualifying', 'Qualifying / time trial') },
-                    { value: 'race', label: t('modes.perspective.race', 'Race') },
+                    { value: 'practice', label: t('modes.referenceContext.practice', 'Practice') },
+                    { value: 'qualifying', label: t('modes.referenceContext.qualifying', 'Qualifying / time trial') },
+                    { value: 'race', label: t('modes.referenceContext.race', 'Race') },
                   ]} data-testid="comparison-goal" />
                 </div>
                 <p className="text-xs text-muted-foreground">{goal === 'race'
-                  ? t('modes.perspective.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
-                  : t('modes.perspective.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
-                {conditionDifferences.length > 0 && <p className="text-xs text-amber-500" data-testid="reference-conditions">{t('modes.perspective.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.perspective.condition_${key}`, key)).join(', ') })}</p>}
+                  ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
+                  : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
+                {conditionDifferences.length > 0 && <p className="text-xs text-amber-500" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
                 <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />
               </div>
             )}

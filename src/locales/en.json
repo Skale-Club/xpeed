@@ -897,11 +897,7 @@
       "bestPerTrack": "Best lap on each track",
       "progressTrack": "Best lap on"
     },
-    "perspective": {
-      "view": "Track view",
-      "title": "Perspective",
-      "map": "Map",
-      "legend": "Yellow: the lap. Dashed blue: the reference. The arrow stays in your direction of travel.",
+    "referenceContext": {
       "goal": "Comparison objective",
       "practice": "Practice",
       "qualifying": "Qualifying / time trial",
@@ -911,28 +907,7 @@
       "conditionsDiffer": "Recorded conditions differ: {{conditions}}.",
       "condition_weather": "weather",
       "condition_tyres": "tyres",
-      "condition_fuel": "fuel load",
-      "study": "Study lap",
-      "reference": "Reference",
-      "sceneLabel": "Track in perspective",
-      "description": "Recorded paths ahead of the car. The car points upward while the track moves. Elevation is not shown.",
-      "realEdges": "Game track edges · planar view",
-      "noEdges": "Recorded path; road edges unavailable",
-      "lookahead": "{{distance}} {{unit}} ahead",
-      "noPosition": "Position is unavailable at this moment.",
-      "heading": "Car direction ↑",
-      "speed": "Speed",
-      "throttle": "Throttle",
-      "brake": "Brake",
-      "pause": "Pause",
-      "replay": "Replay",
-      "play": "Play",
-      "position": "Lap playback position",
-      "zoom": "Zoom",
-      "tilt": "Camera below horizon",
-      "playing": "Playing at recorded speed",
-      "finished": "Lap completed",
-      "paused": "Paused"
+      "condition_fuel": "fuel load"
     }
   },
   "refresh": {
