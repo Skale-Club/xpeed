@@ -447,7 +447,8 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
     // This historical output predates the EVO x-axis correction. Match the current reader's documented frame.
     let positions: Arc<Vec<_>> = Arc::new(xs.iter().map(|x| -*x).zip(zs.iter().copied()).step_by(4).collect());
     let mut tracker = crate::dash::Tracker::default();
-    let f = fixture();
+    let mut f = fixture();
+    f.laps.clear();
     let mut previous = None;
     for target in [2500, 5500, 8000] {
         let mut live = None;

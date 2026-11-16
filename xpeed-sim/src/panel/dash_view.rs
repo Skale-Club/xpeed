@@ -566,7 +566,7 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
                     d.live.map_complete,
                     d.live.road.as_deref(),
                     &d.live.trail,
-                    d.live.reference.as_deref().map(Vec::as_slice),
+                    d.live.reference.as_ref(),
                     car,
                     heading,
                     d.live.game == "iracing",

@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use windows_sys::Win32::Graphics::GdiPlus::{
     CombineModeIntersect, FillModeAlternate, GdipCreateLineBrush, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeletePen,
@@ -21,17 +22,18 @@ struct PathKey {
     complete: bool,
 }
 
-type PreparedEntry = Option<(PathKey, Rc<PreparedPath>)>;
+// Retaining the immutable source prevents its allocation address from being reused while its geometry is cached.
+type PreparedEntry = Option<(PathKey, Arc<Vec<Point>>, Rc<PreparedPath>)>;
 type PathCache = [PreparedEntry; 3];
 
 thread_local! {
     static PATHS: RefCell<PathCache> = const { RefCell::new([None, None, None]) };
 }
 
-fn prepared(slot: usize, path: &[Point], complete: bool) -> Rc<PreparedPath> {
+fn prepared(slot: usize, path: &Arc<Vec<Point>>, complete: bool) -> Rc<PreparedPath> {
     let bits = |p: &Point| [p.0.to_bits(), p.1.to_bits()];
     let key = PathKey {
-        address: path.as_ptr() as usize,
+        address: Arc::as_ptr(path) as usize,
         count: path.len(),
         first: path.first().map(bits),
         last: path.last().map(bits),
@@ -40,10 +42,10 @@ fn prepared(slot: usize, path: &[Point], complete: bool) -> Rc<PreparedPath> {
     PATHS.with(|cell| {
         let mut cache = cell.borrow_mut();
         let entry = &mut cache[slot];
-        if entry.as_ref().is_none_or(|(old, _)| *old != key) {
-            *entry = Some((key, Rc::new(PreparedPath::new(path, complete))));
+        if entry.as_ref().is_none_or(|(old, _, _)| *old != key) {
+            *entry = Some((key, Arc::clone(path), Rc::new(PreparedPath::new(path, complete))));
         }
-        Rc::clone(&entry.as_ref().unwrap().1)
+        Rc::clone(&entry.as_ref().unwrap().2)
     })
 }
 
@@ -80,11 +82,11 @@ impl Painter {
     pub(super) fn track_perspective(
         &self,
         area: (f32, f32, f32, f32),
-        path: &[Point],
+        path: &Arc<Vec<Point>>,
         complete: bool,
         road: Option<&Road>,
-        trail: &[Point],
-        reference: Option<&[Point]>,
+        trail: &Arc<Vec<Point>>,
+        reference: Option<&Arc<Vec<Point>>>,
         car: Point,
         heading: Point,
         mirrored: bool,
@@ -178,7 +180,23 @@ impl Painter {
 
 #[cfg(test)]
 mod tests {
-    use super::dashed;
+    use super::{dashed, prepared, Arc, Rc, PATHS};
+    #[test]
+    fn prepared_cache_retains_its_source_and_replaces_changed_interior_geometry() {
+        PATHS.with(|cache| cache.borrow_mut()[0] = None);
+        let source = Arc::new(vec![(0.0, 0.0), (0.0, 5.0), (0.0, 10.0)]);
+        let weak = Arc::downgrade(&source);
+        let first = prepared(0, &source, false);
+        assert!(Rc::ptr_eq(&first, &prepared(0, &source, false)));
+        drop(source);
+        assert!(weak.upgrade().is_some(), "the cache owns the source allocation after the caller releases it");
+        let replacement = Arc::new(vec![(0.0, 0.0), (3.0, 5.0), (0.0, 10.0)]);
+        let second = prepared(0, &replacement, false);
+        assert!(!Rc::ptr_eq(&first, &second));
+        assert!(second.local((3.0, 5.0), (0.0, 1.0)).contains(&(3.0, 5.0)));
+        assert!(weak.upgrade().is_none(), "replacing the cache releases the old source");
+        PATHS.with(|cache| cache.borrow_mut()[0] = None);
+    }
     #[test]
     fn dashes_continue_across_telemetry_vertices() {
         let split = dashed(&[((0.0, 0.0), (3.0, 0.0)), ((3.0, 0.0), (7.0, 0.0)), ((7.0, 0.0), (16.0, 0.0))]);
