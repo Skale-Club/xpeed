@@ -58,7 +58,8 @@
     "20261029110000_stabilize_processing.sql",
     "20261030160000_durable_issue_jobs_and_deletions.sql",
     "20261030220000_fuel_receipt_quota.sql",
-    "20261103140000_google_cloud_auth.sql"
+    "20261103140000_google_cloud_auth.sql",
+    "20261104180000_several_sign_in_methods.sql"
   ],
   "failure": null,
   "checks": [

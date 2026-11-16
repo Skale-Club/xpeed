@@ -1,0 +1,36 @@
+# MediaMTX: manda a câmera do carro por WebRTC (WHEP), com pouco atraso.
+# Só o que difere do padrão está aqui; o MediaMTX preenche o resto.
+# Opções conferidas na v1.21.2 (mediamtx.yml de exemplo do projeto).
+
+logLevel: info
+
+# Só WebRTC. Os outros protocolos ficam desligados para economizar CPU e portas.
+rtsp: false
+rtmp: false
+hls: false
+srt: false
+
+webrtc: true
+webrtcAddress: :8889
+# UDP da mídia. Pelo Tailscale o IP 100.x do carro entra sozinho como candidato
+# (webrtcIPsFromInterfaces vem ligado por padrão).
+webrtcLocalUDPAddress: :8189
+
+paths:
+  cam:
+    source: rpiCamera
+    # 540p a 1,2 Mbit/s: ~550 MB por hora de dados. Dá pra dirigir bem numa tela de celular.
+    # Imagem melhor (e ~900 MB/h): 1280 x 720 e 2000000.
+    rpiCameraWidth: 960
+    rpiCameraHeight: 540
+    rpiCameraFPS: 30
+    rpiCameraBitrate: 1200000
+    # Quadro-chave a cada 1 s: a imagem se recupera rápido depois de perder pacotes no 4G.
+    rpiCameraIDRPeriod: 30
+    # Câmera montada de cabeça pra baixo? Ligue os dois.
+    rpiCameraHFlip: false
+    rpiCameraVFlip: false
+    # Camera Module 3: foco travado no infinito. Autofoco "caçando" atrapalha a dirigir.
+    # Câmeras sem autofoco (OV5647) ignoram estas duas linhas.
+    rpiCameraAfMode: manual
+    rpiCameraLensPosition: 0.0

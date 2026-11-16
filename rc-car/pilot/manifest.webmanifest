@@ -1,0 +1,9 @@
+{
+  "name": "Piloto RC",
+  "short_name": "Piloto RC",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10"
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>Piloto RC</title>
+  <link rel="stylesheet" href="pilot.css">
+</head>
+<body>
+  <video id="video" autoplay muted playsinline></video>
+  <div id="no-video" class="no-video">sem vídeo</div>
+
+  <header class="topbar">
+    <span id="chip-link" class="chip bad">controle: desconectado</span>
+    <span id="chip-video" class="chip bad">vídeo: desligado</span>
+    <span id="chip-rtt" class="chip">ping: —</span>
+    <span id="chip-pad" class="chip bad">sem controle</span>
+    <span class="spacer"></span>
+    <button id="btn-fullscreen" type="button">Tela cheia (F)</button>
+    <button id="btn-settings" type="button">Ajustes</button>
+  </header>
+
+  <div id="armed" class="armed off">DESARMADO</div>
+  <div id="alert" class="alert" hidden></div>
+
+  <footer class="hud">
+    <div class="gauge">
+      <label>Direção</label>
+      <div class="bar center"><div id="bar-steer" class="fill"></div></div>
+    </div>
+    <div class="gauge">
+      <label>Acelerador</label>
+      <div class="bar center"><div id="bar-throttle" class="fill"></div></div>
+    </div>
+    <div class="gauge level">
+      <label>Marcha</label>
+      <div id="level" class="level-value">1/4</div>
+    </div>
+  </footer>
+
+  <aside id="settings" class="settings">
+    <h2>Conexão</h2>
+    <div id="direct-fields">
+      <p class="hint">Modo direto (página aberta no PC). No celular, abra o endereço https do carro e estes campos somem.</p>
+      <label>Endereço do carro <input id="in-host" autocomplete="off"></label>
+      <div class="row">
+        <label>Porta do controle <input id="in-control-port" type="number"></label>
+        <label>Porta do vídeo <input id="in-video-port" type="number"></label>
+      </div>
+    </div>
+    <label>Caminho do vídeo <input id="in-video-path" autocomplete="off"></label>
+    <label class="check"><input id="in-require-video" type="checkbox"> Só acelera se o vídeo estiver chegando</label>
+    <button id="btn-connect" type="button" class="primary">Conectar</button>
+
+    <h2>Controles (Xbox · PlayStation)</h2>
+    <table>
+      <tr><td>RT · R2</td><td>acelera</td></tr>
+      <tr><td>LT · L2</td><td>freia / ré</td></tr>
+      <tr><td>Analógico esquerdo</td><td>direção</td></tr>
+      <tr><td>Menu ≡ · Options</td><td>armar / desarmar</td></tr>
+      <tr><td>B · Círculo</td><td>desarma na hora</td></tr>
+      <tr><td>LB / RB · L1 / R1</td><td>marcha − / +</td></tr>
+    </table>
+    <p class="hint">Teclado, para testar na bancada: W/S acelera e freia, A/D vira, Espaço arma, Esc desarma, Q/E muda a marcha.</p>
+  </aside>
+
+  <script src="pilot.js"></script>
+</body>
+</html>

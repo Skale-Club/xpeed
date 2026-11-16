@@ -1,0 +1,179 @@
+:root {
+  --bg: #0b0d10;
+  --panel: rgba(16, 19, 24, 0.82);
+  --text: #e8ecf1;
+  --muted: #8b95a3;
+  --ok: #3ccf7a;
+  --warn: #f2b134;
+  --bad: #ef5350;
+  --accent: #4f8cff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.no-video {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 18px;
+  pointer-events: none;
+}
+
+.topbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  background: linear-gradient(var(--panel), transparent);
+}
+
+.spacer { flex: 1; }
+
+.chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.chip.ok { color: var(--ok); }
+.chip.warn { color: var(--warn); }
+.chip.bad { color: var(--bad); }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); width: 100%; margin-top: 8px; }
+
+.armed {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.armed.off { background: var(--panel); color: var(--muted); }
+.armed.on { background: var(--bad); color: #fff; }
+
+.alert {
+  position: fixed;
+  top: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--warn);
+  color: #1a1300;
+  font-weight: 600;
+  max-width: calc(100% - 32px);
+  text-align: center;
+}
+
+.hud {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  padding: 16px;
+  background: linear-gradient(transparent, var(--panel));
+}
+
+.gauge { flex: 1; max-width: 320px; }
+.gauge label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.gauge.level { flex: 0 0 auto; }
+
+.bar {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.bar.center::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.4);
+}
+.fill {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 0;
+  background: var(--accent);
+}
+.fill.neg { background: var(--warn); }
+
+.level-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.settings {
+  position: fixed;
+  top: 56px;
+  right: 16px;
+  width: min(340px, calc(100% - 32px));
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+}
+.settings[hidden], #direct-fields[hidden] { display: none; }
+.settings h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 0 10px; }
+.settings h2:not(:first-child) { margin-top: 20px; }
+.settings label { display: block; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+.settings input:not([type="checkbox"]) {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+}
+.settings .row { display: flex; gap: 10px; }
+.settings .row label { flex: 1; }
+.settings .check { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 13px; }
+.settings table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.settings td { padding: 3px 0; }
+.settings td:last-child { color: var(--muted); text-align: right; }
+.hint { color: var(--muted); font-size: 12px; }
