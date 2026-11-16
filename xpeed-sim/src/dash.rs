@@ -5,14 +5,17 @@
 use std::sync::Arc;
 
 use crate::game::{CarState, Drs, Flag, Frame, Phase, Tyre};
+use crate::lapcut::session::{Event, Session};
+use crate::lapfile::SessionKind;
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
 
-/// Le Mans Ultimate's two streams as one `Frame`, for the panel only (its laps are cut by `recorder.rs`).
+/// Le Mans Ultimate's two streams as one `Frame` (`lmu/source.rs` makes one for every telemetry update, and the panel
+/// and the lap cutter read it like any other game's).
 ///
-/// Scoring comes a few times a second; the distance is carried forward from it at the car's speed, as the recorder
-/// does. Just after the line the scoring can still show the end of the last lap: that distance is not given until
-/// the scoring catches up, so the new lap is not taken as joined midway.
+/// Scoring comes a few times a second; the distance is carried forward from it at the car's speed. Just after the line
+/// the scoring can still show the end of the last lap: that distance is not given until the scoring catches up, so the
+/// new lap is not taken as joined midway.
 pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     let mut frame = Frame::empty();
     let speed = t.speed_ms();
@@ -72,6 +75,7 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     if let Some(s) = scoring {
         let length = (s.session.track_length_m > 0.0).then_some(s.session.track_length_m);
         frame.track_length_m = length;
+        frame.session_kind = lmu_session_kind(s.session.session);
         if !s.session.track_name.is_empty() {
             frame.track = s.session.track_name.clone();
         }
@@ -91,6 +95,19 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     #[cfg(test)]
     crate::game::assert_frame_within_caps(&frame, crate::lmu::snapshot::LMU_CAPS, "lmu");
     frame
+}
+
+/// The kind of the game's session from its number (`mSession`, the rFactor 2 numbering the game inherits): 0 is the test
+/// day and 1 to 4 practice, 9 the warm-up, 5 to 8 qualifying, 10 to 13 the race. A number outside those says nothing
+/// (it must not end a session by looking like another kind). Not checked against every session type of a live game;
+/// the kind is what `session.rs` uses to tell one session of the game from the next.
+fn lmu_session_kind(number: i32) -> Option<SessionKind> {
+    match number {
+        0..=4 | 9 => Some(SessionKind::Practice),
+        5..=8 => Some(SessionKind::Qualifying),
+        10..=13 => Some(SessionKind::Race),
+        _ => None,
+    }
 }
 
 /// What the player is doing in Le Mans Ultimate, from the scoring stream (the telemetry stream says nothing of it):
@@ -248,21 +265,20 @@ type Path = Vec<(f32, f32)>;
 /// Keeps what the delta needs: the lap being driven, and the best one so far.
 #[derive(Default)]
 pub struct Tracker {
-    /// Track, car and layout the best lap belongs to; a change starts over.
+    /// Track, car and layout the best lap belongs to; a change starts over (the map included). A new session of the
+    /// same track and car (a restart, practice then qualifying) starts over too, but keeps the map.
     key: Option<(String, String, Option<String>)>,
     /// Where maps are kept between sessions; none in tests and the demo.
     store: Option<Store>,
     /// The map is the real layout the game's files gave: laps do not replace it.
     map_is_layout: bool,
+    /// What the frames mean (which session, which lap, a restart, a teleport): decided by `session.rs`, the same
+    /// machine the lap cutter reads, so the panel and the laps written cannot disagree.
+    session: Session,
     lap: i32,
     current: Profile,
     /// Seen from the line: a lap joined midway has no delta and cannot become the best.
     current_from_line: bool,
-    /// The distance into the lap when the game gives none: the speed added up over the host clock, like the lap
-    /// cutter does (`lapcut::add_sample`); starts at 0 with each new lap.
-    int_dist: f64,
-    /// The host clock of the last frame, for that sum.
-    last_clock: Option<f64>,
     /// The game called the lap being driven invalid at some point: it can never become the best.
     called_invalid: bool,
     /// A lap that just ended and waits for the game's official time: its profile, its path, the official time showing
@@ -326,7 +342,6 @@ impl Tracker {
         if self.key.as_ref() != Some(&key) {
             *self = Tracker {
                 key: Some(key),
-                lap: frame.lap,
                 store: self.store.take(),
                 ..Tracker::default()
             };
@@ -338,25 +353,18 @@ impl Tracker {
                 }
             }
         }
-        if frame.lap != self.lap {
-            self.fuel_lap_ended(frame);
-            self.look_for_layout();
-            // The lap ended: keep it until its official time shows (it can come a moment after the new lap starts),
-            // with the official time that was showing while it was driven (the one before it).
-            let done = std::mem::take(&mut self.current);
-            let jumped = std::mem::take(&mut self.path_jumped);
-            let done_path = if jumped { Vec::new() } else { std::mem::take(&mut self.path) };
-            self.path.clear();
-            let full = self.current_from_line && is_full(&done, frame.track_length_m);
-            let invalid = std::mem::take(&mut self.called_invalid);
-            self.int_dist = 0.0;
-            self.last_clock = Some(frame.clock_s);
-            if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
-                self.keep_map(done_path.clone());
+        let step = self.session.feed(frame);
+        for event in &step.events {
+            match event {
+                Event::SessionEnded { .. } => self.new_session(),
+                Event::LapReset { .. } => self.lap_lost(frame),
+                Event::LapClosed { .. } => self.lap_closed(frame),
+                Event::LapStarted { number, from_line, .. } => {
+                    self.lap = *number;
+                    self.current_from_line = *from_line;
+                }
+                Event::SessionStarted { .. } => {}
             }
-            self.finished = full.then_some((done, done_path, self.official, invalid));
-            self.lap = frame.lap;
-            self.current_from_line = false;
         }
         if let Some((profile, path, official_before, invalid)) = self.finished.take() {
             match frame.last_lap_s {
@@ -386,42 +394,23 @@ impl Tracker {
             self.fuel_seen(frame);
         }
         self.official = frame.last_lap_s;
-        // The distance into the lap: the game's, else the speed added up (a lap seen beginning starts at 0).
-        let dt = self
-            .last_clock
-            .map_or(0.0, |last| (frame.clock_s - last).clamp(0.0, crate::lapcut::MAX_GAP_SECONDS));
-        self.last_clock = Some(frame.clock_s);
-        let dist_m = frame.dist_m.or_else(|| {
-            if frame.driving {
-                self.int_dist += f64::from(frame.speed_ms.max(0.0)) * dt;
-            }
-            Some(self.int_dist)
-        });
+        // The distance into the lap: the game's, else the speed added up (`session.rs` decides which).
+        let dist_m = step.sample.map(|s| s.dist_m);
         if frame.driving {
             self.called_invalid |= frame.lap_valid == Some(false);
         }
-        if frame.driving {
-            if let (Some(dist), Some(t)) = (dist_m, frame.lap_time_s) {
-                if self.current.is_empty() {
-                    // Without the game's distance a lap joined midway (the clock well past the line) is not from it.
-                    self.current_from_line = if frame.dist_m.is_some() {
-                        dist <= FROM_LINE_METRES
-                    } else {
-                        t <= crate::lapcut::PARTIAL_START_SECONDS
-                    };
-                }
-                if self.current.last().is_none_or(|&(d, _)| dist > d) {
-                    self.current.push((dist, t));
-                }
+        if let (Some(sample), Some(_)) = (step.sample, frame.lap_time_s) {
+            if self.current.last().is_none_or(|&(d, _)| sample.dist_m > d) {
+                self.current.push((sample.dist_m, sample.t_s));
             }
         }
         if frame.rpm.is_finite() && frame.rpm > self.rpm_top {
             self.rpm_top = frame.rpm;
         }
         self.see_gear(frame.gear);
-        let delta_s = match (&self.best, dist_m, frame.lap_time_s) {
-            (Some((_, best)), Some(dist), Some(t)) if self.current_from_line && frame.driving => {
-                time_at(best, dist).map(|best_t| t - best_t)
+        let delta_s = match (&self.best, step.sample, frame.lap_time_s) {
+            (Some((_, best)), Some(sample), Some(_)) if self.current_from_line => {
+                time_at(best, sample.dist_m).map(|best_t| sample.t_s - best_t)
             }
             _ => None,
         };
@@ -437,7 +426,7 @@ impl Tracker {
             last_lap_s: frame.last_lap_s,
             best_lap_s: self.best.as_ref().map(|(t, _)| *t),
             delta_s,
-            dist_m: frame.dist_m.or_else(|| dist_m.filter(|_| frame.driving)),
+            dist_m: frame.dist_m.or(dist_m),
             track_length_m: frame.track_length_m,
             speed_ms: frame.speed_ms,
             rpm: frame.rpm,
@@ -463,12 +452,54 @@ impl Tracker {
         }
     }
 
-    /// The lap number changed. If it went up by one, the lap began where this run saw it and nothing spoiled it (no
+    /// The session ended (a restart, a new kind of session; a new car or track starts the whole tracker over before it
+    /// gets here): the best lap, the fuel per lap, the rev bar's top and the gears belong to the session that is over.
+    /// The map is the track's, not the session's, and stays.
+    fn new_session(&mut self) {
+        *self = Tracker {
+            key: self.key.take(),
+            store: self.store.take(),
+            map_is_layout: self.map_is_layout,
+            map: self.map.take(),
+            session: std::mem::take(&mut self.session),
+            ..Tracker::default()
+        };
+    }
+
+    /// The lap in progress is dropped (a restart that went on to a new session, a teleport, a lap number that jumped,
+    /// a long time away): nothing of it becomes a best lap, a delta, a path or a fuel use.
+    fn lap_lost(&mut self, frame: &Frame) {
+        self.current.clear();
+        self.path.clear();
+        self.path_jumped = false;
+        self.called_invalid = false;
+        self.current_from_line = false;
+        self.fuel_lap_ended(frame, false);
+    }
+
+    /// The lap ended at the line: keep it until its official time shows (it can come a moment after the new lap starts),
+    /// with the official time that was showing while it was driven (the one before it).
+    fn lap_closed(&mut self, frame: &Frame) {
+        self.fuel_lap_ended(frame, true);
+        self.look_for_layout();
+        let done = std::mem::take(&mut self.current);
+        let jumped = std::mem::take(&mut self.path_jumped);
+        let done_path = if jumped { Vec::new() } else { std::mem::take(&mut self.path) };
+        self.path.clear();
+        let full = self.current_from_line && is_full(&done, frame.track_length_m);
+        let invalid = std::mem::take(&mut self.called_invalid);
+        if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
+            self.keep_map(done_path.clone());
+        }
+        self.finished = full.then_some((done, done_path, self.official, invalid));
+        self.current_from_line = false;
+    }
+
+    /// A lap ended. If it went up by one (`advanced`), the lap began where this run saw it and nothing spoiled it (no
     /// refuel, no pit lane, never out of the car), the fuel it used counts: what it started with less what the last
     /// reading of it held, when that is above 0 and below `FUEL_MAX_SHARE` of the tank. The next lap starts with this
     /// frame's fuel.
-    fn fuel_lap_ended(&mut self, frame: &Frame) {
-        let advanced = frame.lap == self.lap + 1;
+    fn fuel_lap_ended(&mut self, frame: &Frame, advanced: bool) {
         if let (true, true, Some(start), Some(end)) = (advanced, self.fuel_clean, self.fuel_lap_start, self.fuel_prev) {
             let used = start - end;
             if used > 0.0 && used < FUEL_MAX_SHARE * self.fuel_tank {
@@ -669,9 +700,15 @@ mod tests {
         drive_fuel(&mut tracker, 2, 48.0, 46.0);
         let live = drive_fuel(&mut tracker, 3, 46.0, 44.0);
         assert_eq!(live.fuel_per_lap_l, Some(2.0));
-        // Lap 4: the fuel goes up (a refuel) and comes down again.
-        for (lap, from, to) in [(4, 44.0, 43.0), (4, 60.0, 59.0)] {
-            drive_fuel(&mut tracker, lap, from, to);
+        // Lap 4: the fuel goes up half way round (a refuel) and comes down again.
+        for i in 0..=100 {
+            let mut f = at(4, f64::from(i) * 9.0, f64::from(i) / 10.0, None);
+            f.fuel_l = if i < 50 {
+                44.0 - i as f32 / 50.0
+            } else {
+                60.0 - (i - 50) as f32 / 50.0
+            };
+            tracker.on_frame("Test", &f, 0);
         }
         let live = drive_fuel(&mut tracker, 5, 59.0, 57.0);
         assert_eq!(live.fuel_per_lap_l, Some(2.0), "the refuelled lap 4 added nothing");
@@ -1327,5 +1364,87 @@ mod tests {
         }
         let live = tracker.on_frame("Test", &at(5, 0.0, 0.0, Some(24.0)), 0);
         assert_eq!(live.best_lap_s, Some(24.0));
+    }
+
+    /// A frame of a game that gives no distance on the lap, only the lap clock and the speed; `host` is the program's
+    /// own clock.
+    fn counted(lap: i32, lap_time: f64, host: f64) -> Frame {
+        let mut frame = at(lap, 0.0, lap_time, None);
+        frame.dist_m = None;
+        frame.clock_s = host;
+        frame.speed_ms = 50.0;
+        frame
+    }
+
+    #[test]
+    fn a_restart_without_a_new_lap_number_takes_the_lap_progress_back_to_zero() {
+        // The symptom seen in COTA: the lap restarted (the lap clock back at 0, the lap number the same) and the
+        // distance kept adding up, so the lap progress reached 100 % at 27 s.
+        let mut tracker = Tracker::default();
+        let mut host = 0.0;
+        let mut last = None;
+        for i in 0..250 {
+            last = Some(tracker.on_frame("Test", &counted(1, f64::from(i) / 10.0, host), 0));
+            host += 0.1;
+        }
+        let before = last.unwrap().dist_m.unwrap();
+        assert!((before - 1245.0).abs() < 1.0, "{before}");
+        // The restart: the lap clock is back at 0 on the same lap.
+        let after = tracker.on_frame("Test", &counted(1, 0.0, host), 0);
+        assert!(after.dist_m.unwrap() < 1.0, "the lap progress starts over: {:?}", after.dist_m);
+        host += 0.1;
+        let later = tracker.on_frame("Test", &counted(1, 0.1, host), 0);
+        assert!(later.dist_m.unwrap() < 10.0, "{:?}", later.dist_m);
+    }
+
+    #[test]
+    fn a_new_session_starts_the_best_lap_the_fuel_and_the_rev_top_over_but_keeps_the_map() {
+        use crate::lapfile::SessionKind;
+        let mut tracker = Tracker::default();
+        let lap = |tracker: &mut Tracker, n: i32, last: Option<f64>, kind: SessionKind| {
+            let mut out = None;
+            for i in 0..200 {
+                let mut f = at(n, f64::from(i) * 5.0, f64::from(i) / 10.0, last);
+                f.session_kind = Some(kind);
+                f.fuel_l = 50.0 - i as f32 / 100.0;
+                let a = i as f32 / 200.0 * std::f32::consts::TAU;
+                (f.x, f.z) = (160.0 * a.cos(), 160.0 * a.sin());
+                out = Some(tracker.on_frame("Test", &f, 0));
+            }
+            out.unwrap()
+        };
+        lap(&mut tracker, 1, None, SessionKind::Practice);
+        lap(&mut tracker, 2, None, SessionKind::Practice);
+        lap(&mut tracker, 3, Some(20.0), SessionKind::Practice);
+        let live = lap(&mut tracker, 4, Some(20.0), SessionKind::Practice);
+        assert_eq!(live.best_lap_s, Some(20.0));
+        assert!(live.fuel_per_lap_l.is_some() && live.rpm_top > 5000.0 && live.map_complete);
+        // Qualifying on the same track and car: another session.
+        let mut first = at(1, 0.0, 0.0, Some(20.0));
+        first.session_kind = Some(SessionKind::Qualifying);
+        first.rpm = 3000.0;
+        let live = tracker.on_frame("Test", &first, 0);
+        assert_eq!(live.best_lap_s, None, "the best lap of practice is not the best of qualifying");
+        assert_eq!((live.fuel_per_lap_l, live.rpm_top), (None, 3000.0));
+        assert!(live.map_complete, "the track is the same: its map stays");
+    }
+
+    #[test]
+    fn a_teleport_drops_the_lap_in_progress_for_the_delta_and_the_best_lap() {
+        let mut tracker = Tracker::default();
+        drive_lap(&mut tracker, 1, 50.0, None);
+        drive_lap(&mut tracker, 2, 50.0, Some(20.0));
+        // Part way round lap 3 the car is put back 3 km away.
+        let mut live = None;
+        for i in 0..100 {
+            let mut f = at(3, f64::from(i) * 5.0, f64::from(i) / 10.0, Some(20.0));
+            (f.x, f.z) = (i as f32 * 5.0, 0.0);
+            live = Some(tracker.on_frame("Test", &f, 0));
+        }
+        assert!(live.unwrap().delta_s.is_some());
+        let mut f = at(3, 500.0, 10.0, Some(20.0));
+        (f.x, f.z) = (3000.0, 0.0);
+        let live = tracker.on_frame("Test", &f, 0);
+        assert_eq!(live.delta_s, None, "the lap is not one any more");
     }
 }

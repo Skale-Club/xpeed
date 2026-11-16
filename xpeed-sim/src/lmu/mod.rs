@@ -4,3 +4,4 @@ pub mod layout;
 #[cfg(windows)]
 pub mod reader;
 pub mod snapshot;
+pub mod source;
