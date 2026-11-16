@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_NULL, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
 };
 
-use crate::config::{self, Config, DEFAULT_SERVER};
+use crate::config::{self, Config, FuelUnit, PressureUnit, SpeedUnit, TempUnit, Units, DEFAULT_SERVER};
 use crate::heartbeat;
 use crate::icon::{self, Light};
 use crate::outbox::{Backoff, Observer, Uploader};
@@ -77,6 +77,11 @@ const CMD_CHECK_UPDATES: usize = 8;
 const CMD_AUTO_UPDATE: usize = 9;
 /// The languages of the menu, in the order of `Lang::ALL`, from this id up.
 const CMD_LANG: usize = 20;
+/// The choices of the units menu, each kind from its own id up, in the order of its `ALL`.
+const CMD_UNIT_SPEED: usize = 30;
+const CMD_UNIT_TEMPERATURE: usize = 40;
+const CMD_UNIT_PRESSURE: usize = 50;
+const CMD_UNIT_FUEL: usize = 60;
 
 const LIGHTS: [Light; 4] = [Light::Grey, Light::Amber, Light::Green, Light::Red];
 
@@ -84,6 +89,8 @@ struct App {
     hwnd: HWND,
     shared: Arc<Shared>,
     lang: Lang,
+    /// The units the dashboard shows its values in.
+    units: Units,
     laps_dir: PathBuf,
     config_path: PathBuf,
     exe: PathBuf,
@@ -364,7 +371,20 @@ impl App {
             server: self.server.clone(),
             label: self.account_label.clone(),
             lang: self.lang,
+            units: self.units,
         };
+    }
+
+    /// The person picked a unit in the menu: remember it, and show it in the panel at once.
+    fn set_units(&mut self, units: Units) {
+        self.units = units;
+        if let Some(home) = config::home_dir() {
+            if let Err(why) = config::save_units(&home, units) {
+                applog::line(&why);
+            }
+        }
+        self.sync_account();
+        self.refresh();
     }
 
     /// The person picked a language in the menu: remember it, and show it everywhere at once.
@@ -544,6 +564,42 @@ impl App {
                 AppendMenuW(languages, MF_STRING | checked, CMD_LANG + i, win::wide(lang.name()).as_ptr());
             }
             AppendMenuW(menu, MF_POPUP, languages as usize, say(Msg::MenuLanguage).as_ptr());
+            // The units: a menu of its own with one list of choices for each kind of value.
+            let units = CreatePopupMenu();
+            let kind = |title: Msg, base: usize, choices: Vec<(&'static str, bool)>| {
+                let group = CreatePopupMenu();
+                for (i, (label, chosen)) in choices.into_iter().enumerate() {
+                    AppendMenuW(
+                        group,
+                        MF_STRING | if chosen { MF_CHECKED } else { 0 },
+                        base + i,
+                        win::wide(label).as_ptr(),
+                    );
+                }
+                AppendMenuW(units, MF_POPUP, group as usize, say(title).as_ptr());
+            };
+            let now = self.units;
+            kind(
+                Msg::MenuUnitSpeed,
+                CMD_UNIT_SPEED,
+                SpeedUnit::ALL.iter().map(|u| (u.label(), *u == now.speed)).collect(),
+            );
+            kind(
+                Msg::MenuUnitTemperature,
+                CMD_UNIT_TEMPERATURE,
+                TempUnit::ALL.iter().map(|u| (u.label(), *u == now.temperature)).collect(),
+            );
+            kind(
+                Msg::MenuUnitPressure,
+                CMD_UNIT_PRESSURE,
+                PressureUnit::ALL.iter().map(|u| (u.label(), *u == now.pressure)).collect(),
+            );
+            kind(
+                Msg::MenuUnitFuel,
+                CMD_UNIT_FUEL,
+                FuelUnit::ALL.iter().map(|u| (u.label(), *u == now.fuel)).collect(),
+            );
+            AppendMenuW(menu, MF_POPUP, units as usize, say(Msg::MenuUnits).as_ptr());
             line(MF_SEPARATOR, 0, vec![0]);
             line(MF_STRING, CMD_QUIT, say(Msg::MenuQuit));
 
@@ -596,6 +652,22 @@ impl App {
                 self.set_auto_update(on);
             }
             id if (CMD_LANG..CMD_LANG + Lang::ALL.len()).contains(&id) => self.set_lang(Lang::ALL[id - CMD_LANG]),
+            id if (CMD_UNIT_SPEED..CMD_UNIT_SPEED + SpeedUnit::ALL.len()).contains(&id) => self.set_units(Units {
+                speed: SpeedUnit::ALL[id - CMD_UNIT_SPEED],
+                ..self.units
+            }),
+            id if (CMD_UNIT_TEMPERATURE..CMD_UNIT_TEMPERATURE + TempUnit::ALL.len()).contains(&id) => self.set_units(Units {
+                temperature: TempUnit::ALL[id - CMD_UNIT_TEMPERATURE],
+                ..self.units
+            }),
+            id if (CMD_UNIT_PRESSURE..CMD_UNIT_PRESSURE + PressureUnit::ALL.len()).contains(&id) => self.set_units(Units {
+                pressure: PressureUnit::ALL[id - CMD_UNIT_PRESSURE],
+                ..self.units
+            }),
+            id if (CMD_UNIT_FUEL..CMD_UNIT_FUEL + FuelUnit::ALL.len()).contains(&id) => self.set_units(Units {
+                fuel: FuelUnit::ALL[id - CMD_UNIT_FUEL],
+                ..self.units
+            }),
             CMD_QUIT => unsafe {
                 DestroyWindow(self.hwnd);
             },
@@ -797,6 +869,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         }
     };
     let lang = config::load_lang(&home);
+    let units = config::load_units(&home);
     let laps_dir = laps_dir();
     let shared = Shared::new(config.is_some());
     // What an update before this start left behind: said once, and its installer files removed.
@@ -832,6 +905,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             hwnd: null_mut(),
             shared: shared.clone(),
             lang,
+            units,
             laps_dir: laps_dir.clone(),
             config_path,
             exe: std::env::current_exe().unwrap_or_default(),

@@ -108,6 +108,7 @@ mod tests {
             temp_c: temp,
             pressure_kpa: kpa,
             left,
+            tread_c: None,
         }
     }
 

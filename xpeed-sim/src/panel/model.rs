@@ -5,10 +5,10 @@ pub(super) fn lap_clock(s: Option<f64>) -> Option<String> {
     s.filter(|s| s.is_finite() && *s >= 0.0).map(|s| clock((s * 1000.0).round() as u32))
 }
 
-/// `+0.42` or `-1.07`; nothing when there is none.
+/// `+0.421` or `-1.074`; nothing when there is none.
 pub(super) fn delta_text(d: Option<f64>) -> Option<String> {
     d.filter(|d| d.is_finite())
-        .map(|d| format!("{}{:.2}", if d < 0.0 { "-" } else { "+" }, d.abs()))
+        .map(|d| format!("{}{:.3}", if d < 0.0 { "-" } else { "+" }, d.abs()))
 }
 
 /// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
@@ -75,24 +75,6 @@ pub(super) fn fuel_laps_left(fuel_l: f32, per_lap_l: Option<f32>) -> Option<f32>
 pub(super) fn fuel_share(fuel: f32, tank: Option<f32>) -> Option<f32> {
     let tank = tank.filter(|t| t.is_finite() && *t > 0.0)?;
     (fuel.is_finite() && fuel >= 0.0).then(|| (fuel / tank.max(fuel)).clamp(0.0, 1.0))
-}
-
-pub(super) fn pedal_count(h: f32) -> usize {
-    (((h + PEDAL_GAP) / (PEDAL_SEG + PEDAL_GAP)).floor() as usize).max(1)
-}
-
-/// How many of `count` blocks a pedal at `value` (0..1; out of range is clamped) lights, from the bottom. A pedal
-/// pressed a little shows at least one block; one released, or one the game does not give (NaN), none.
-pub(super) fn pedal_lit(value: f32, count: usize) -> usize {
-    if !value.is_finite() || value <= 0.02 {
-        return 0;
-    }
-    ((value.clamp(0.0, 1.0) * count as f32).round() as usize).clamp(1, count)
-}
-
-/// The one-letter tag under a pedal bar: the first letter of its (translated) name, in capitals.
-pub(super) fn pedal_tag(name: &str) -> String {
-    name.chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default()
 }
 
 /// How far the wheel is turned, -1 (full left) to 1 (full right); straight without a value.
@@ -240,13 +222,15 @@ pub(super) fn activity_message(event: Activity) -> Msg {
 // The rules, per element:
 //
 // * An element the game never gives (not in `caps`) is `Hidden`.
-// * "Live" readings (gear, speed, revs, pedals, wheel, lights) are `Shown` only while the car is being driven and the
+// * "Live" readings (gear, speed, revs, pedals, wheel, alerts) are `Shown` only while the car is being driven and the
 //   frames keep coming. Paused, in a menu or the garage, or with no frames for a while, they are `Dimmed` (the last
 //   gear seen, never a stale "R").
 // * "Slow" readings (fuel, tyres, temperatures, the electronics' settings, damage) are `Shown` while the frame carries
 //   them; when it does not, the last value seen is kept `Dimmed`. With no frames at all, everything is `Dimmed`.
 // * A record of a finished lap (last lap, best lap, the delta to the best) that does not exist yet (the first lap) is
 //   `Hidden`, but its place stays: nothing moves when it appears.
+// * Every value is written in the units the person picked (`Units`): the readers' metric values are turned here and
+//   nowhere else.
 
 /// How an element is shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,6 +253,8 @@ pub(super) enum Role {
     Warn,
     Best,
     Info,
+    /// A cold tyre.
+    Cold,
 }
 
 /// One element of the dashboard: its label, its value as text, its unit, its meaning and how it is shown. A gauge also
@@ -278,6 +264,8 @@ pub(super) struct Elem {
     pub(super) show: Show,
     pub(super) role: Role,
     pub(super) label: String,
+    /// The label in fewer letters, for where the full one does not fit.
+    pub(super) short: String,
     pub(super) text: String,
     pub(super) unit: &'static str,
     pub(super) frac: f32,
@@ -295,6 +283,7 @@ impl Elem {
             show: Show::Hidden,
             role: Role::Text,
             label: String::new(),
+            short: String::new(),
             text: String::new(),
             unit: "",
             frac: 0.0,
@@ -312,6 +301,11 @@ impl Elem {
 
     fn labelled(mut self, label: String) -> Elem {
         self.label = label;
+        self
+    }
+
+    fn short(mut self, short: String) -> Elem {
+        self.short = short;
         self
     }
 
@@ -341,11 +335,14 @@ pub(super) enum StatusKind {
     NotDriving,
 }
 
+/// An alert that is lit: its kind (for its colour), the words it says and how it is shown. Alerts that are not lit are
+/// not in the model at all.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Light {
     pub(super) kind: PillKind,
     pub(super) glow: Glow,
     pub(super) flag: Option<crate::game::Flag>,
+    pub(super) word: String,
     pub(super) show: Show,
 }
 
@@ -358,21 +355,119 @@ pub(super) struct Cell {
     pub(super) show: Show,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct Damage {
-    pub(super) label: String,
-    /// 0 = none .. 1 = destroyed.
-    pub(super) share: f32,
-    pub(super) show: Show,
+/// Where a tyre's temperature is, against what a racing tyre likes (°C, a guide: each game and compound has its own
+/// window).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TyreState {
+    Cold,
+    Ok,
+    Hot,
+    Over,
 }
 
-/// The four tyres: what is shown, and the values (the last seen when the frame has none).
+/// Under this the tyre is cold, under the next it is in its window, under the last it is hot, from there it is over.
+pub(super) const TYRE_COLD_BELOW: f32 = 65.0;
+pub(super) const TYRE_HOT_FROM: f32 = 95.0;
+pub(super) const TYRE_OVER_FROM: f32 = 105.0;
+
+impl TyreState {
+    /// Nothing without a temperature.
+    pub(super) fn of(temp_c: f32) -> Option<TyreState> {
+        match temp_c {
+            t if !t.is_finite() => None,
+            t if t < TYRE_COLD_BELOW => Some(TyreState::Cold),
+            t if t < TYRE_HOT_FROM => Some(TyreState::Ok),
+            t if t < TYRE_OVER_FROM => Some(TyreState::Hot),
+            _ => Some(TyreState::Over),
+        }
+    }
+
+    pub(super) fn role(self) -> Role {
+        match self {
+            TyreState::Cold => Role::Cold,
+            TyreState::Ok => Role::Good,
+            TyreState::Hot => Role::Warn,
+            TyreState::Over => Role::Danger,
+        }
+    }
+
+    fn msg(self) -> Msg {
+        match self {
+            TyreState::Cold => Msg::PanelTyreCold,
+            TyreState::Ok => Msg::PanelTyreOk,
+            TyreState::Hot => Msg::PanelTyreHot,
+            TyreState::Over => Msg::PanelTyreOver,
+        }
+    }
+}
+
+/// One tyre's tile: its corner and state, the temperature big, the temperatures across the tread when the game gives
+/// them, and the small row under them.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct TyreTile {
+    pub(super) corner: String,
+    /// The state as a word (empty without a temperature).
+    pub(super) word: String,
+    pub(super) role: Role,
+    pub(super) temp: String,
+    /// Inner, middle and outer, each in the colour of its own state.
+    pub(super) tread: Option<[Role; 3]>,
+    /// The pressure and its unit.
+    pub(super) pressure: Option<(String, &'static str)>,
+    pub(super) brake: Option<String>,
+    /// How much of the tread is left, 0..1.
+    pub(super) wear: Option<f32>,
+}
+
+/// The four tyres: what is shown, and the tiles (made from the last values seen when the frame has none).
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct TyresModel {
     pub(super) show: Show,
-    pub(super) tyres: [crate::game::Tyre; 4],
+    pub(super) tiles: [TyreTile; 4],
     pub(super) title: String,
     pub(super) compound: Option<String>,
+    /// The word before a brake's temperature.
+    pub(super) brake_label: String,
+}
+
+/// What a row of the laps table is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LapKind {
+    /// The lap being driven.
+    Live,
+    Done,
+    /// The fastest lap that counted.
+    Best,
+    /// A lap that did not count.
+    Invalid,
+}
+
+/// One row of the laps table: texts and the meaning of their colours.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct LapRow {
+    pub(super) kind: LapKind,
+    pub(super) show: Show,
+    pub(super) number: String,
+    pub(super) time: String,
+    pub(super) time_role: Role,
+    pub(super) gap: String,
+    pub(super) gap_role: Role,
+    /// Sector 1, 2 and 3: nothing for a sector not done yet.
+    pub(super) sectors: [Option<(String, Role)>; 3],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct LapsModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    /// The column heads: lap, time, gap.
+    pub(super) heads: [String; 3],
+    /// The game gives sector times: S1, S2, S3 have their columns.
+    pub(super) sectors: bool,
+    /// Newest first: the lap being driven, then the ones done.
+    pub(super) rows: Vec<LapRow>,
+    /// What the table says while it has no row.
+    pub(super) empty: String,
 }
 
 /// Everything the dashboard shows.
@@ -381,6 +476,8 @@ pub(super) struct DashModel {
     pub(super) status: Option<(StatusKind, String)>,
     pub(super) track: String,
     pub(super) car: String,
+    /// The session's name for the chip next to the track (nothing when the game does not say).
+    pub(super) session: Option<String>,
     pub(super) lap: Elem,
     /// The lap being driven will not count.
     pub(super) invalid: bool,
@@ -389,39 +486,63 @@ pub(super) struct DashModel {
     pub(super) lap_time: Elem,
     pub(super) last_lap: Elem,
     pub(super) best_lap: Elem,
+    /// The delta to the best lap as a signed number of seconds (`frac`: where its bar's fill ends).
     pub(super) delta: Elem,
+    /// `vs best`, beside the delta.
+    pub(super) delta_vs: String,
+    /// On the first lap, where the delta will be: why it is not there yet.
+    pub(super) delta_note: Option<String>,
     pub(super) gear: Elem,
     pub(super) gear_below: Elem,
     pub(super) gear_above: Elem,
     pub(super) speed: Elem,
+    /// A pedal: its name (and a short one), the percentage as its text and the share as `frac`.
     pub(super) brake: Elem,
     pub(super) throttle: Elem,
     pub(super) clutch: Elem,
     pub(super) steer: Elem,
-    /// The litres.
+    /// The title of the card that holds the fuel: "Fuel", or "Engine" when the game gives only temperatures.
+    pub(super) fuel_title: String,
+    /// The fuel in the tank, the number (its `unit` is the litres' or gallons').
     pub(super) fuel: Elem,
     /// How full the tank is (0..1), when the tank's size is known.
     pub(super) fuel_share: Option<f32>,
+    /// One lap's fuel as a share of the gauge: the distance between its ticks.
+    pub(super) fuel_tick: Option<f32>,
+    /// The laps the fuel lasts, the number (its `label` is the word after it) in the colour of how pressing it is.
     pub(super) fuel_laps: Elem,
+    /// `of 60 L`.
+    pub(super) fuel_tank: Elem,
+    /// `2.6 L per lap · each tick = 1 lap`.
     pub(super) fuel_per_lap: Elem,
     pub(super) fuel_low: bool,
+    /// The water and the oil, when the game gives them.
+    pub(super) engine: Vec<Cell>,
     /// The share of the lap done (`frac`), and the distance.
     pub(super) progress: Elem,
     pub(super) distance: Elem,
-    pub(super) lights: Vec<Light>,
-    pub(super) engine: Vec<Cell>,
+    pub(super) alerts_title: String,
+    /// Only the alerts that are lit.
+    pub(super) alerts: Vec<Light>,
+    pub(super) no_alerts: String,
+    /// The driver's settings: TC, ABS, engine map, brake bias.
     pub(super) electronics: Vec<Cell>,
-    pub(super) damage: Vec<Damage>,
+    /// `Damage: none`, or the parts that are hurt.
+    pub(super) damage: Elem,
     pub(super) tyres: Option<TyresModel>,
+    pub(super) laps: LapsModel,
     pub(super) map: Show,
     pub(super) map_title: String,
 }
 
 /// What the model needs besides the reading.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct ModelCtx {
+pub(super) struct ModelCtx<'a> {
     pub(super) lang: Lang,
     pub(super) now_ms: i64,
+    pub(super) units: crate::config::Units,
+    /// The laps that were saved, oldest first (the laps table's rows).
+    pub(super) laps: &'a [SavedLap],
 }
 
 /// A reading older than this is not live.
@@ -431,6 +552,80 @@ pub(super) fn fresh(live: &Live, now_ms: i64) -> bool {
 
 fn finite(v: f32) -> Option<f32> {
     Some(v).filter(|v| v.is_finite())
+}
+
+// Units: the readers give metres per second, °C, kPa and litres; these write them as the person asked.
+
+/// The speed as a whole number.
+pub(super) fn speed_text(ms: f32, unit: crate::config::SpeedUnit) -> String {
+    use crate::config::SpeedUnit;
+    let v = match unit {
+        SpeedUnit::Kmh => ms * 3.6,
+        SpeedUnit::Mph => ms * 2.236_936,
+    };
+    format!("{v:.0}")
+}
+
+/// A temperature in `unit`.
+pub(super) fn temp_in(c: f32, unit: crate::config::TempUnit) -> f32 {
+    match unit {
+        crate::config::TempUnit::C => c,
+        crate::config::TempUnit::F => c * 9.0 / 5.0 + 32.0,
+    }
+}
+
+/// `92 °C`.
+pub(super) fn temp_text(c: f32, unit: crate::config::TempUnit) -> String {
+    format!("{:.0} {}", temp_in(c, unit), unit.label())
+}
+
+/// `84°`: a tile's figure, the unit left to the tile's other texts.
+pub(super) fn temp_short(c: f32, unit: crate::config::TempUnit) -> String {
+    format!("{:.0}°", temp_in(c, unit))
+}
+
+/// A tyre's pressure and its unit: psi with a decimal, bar with two, kPa whole.
+pub(super) fn pressure_text(kpa: f32, unit: crate::config::PressureUnit) -> (String, &'static str) {
+    use crate::config::PressureUnit;
+    let number = match unit {
+        PressureUnit::Psi => format!("{:.1}", kpa / 6.894_757),
+        PressureUnit::Bar => format!("{:.2}", kpa / 100.0),
+        PressureUnit::Kpa => format!("{kpa:.0}"),
+    };
+    (number, unit.label())
+}
+
+/// Litres in `unit` (US gallons).
+pub(super) fn fuel_in(litres: f32, unit: crate::config::FuelUnit) -> f32 {
+    match unit {
+        crate::config::FuelUnit::Litre => litres,
+        crate::config::FuelUnit::Gallon => litres / 3.785_412,
+    }
+}
+
+/// The fuel as a number with a decimal.
+pub(super) fn fuel_text(litres: f32, unit: crate::config::FuelUnit) -> String {
+    format!("{:.1}", fuel_in(litres, unit))
+}
+
+/// The tank's size, with its unit: `60 L` (whole when it is), `15.9 gal`.
+pub(super) fn tank_text(litres: f32, unit: crate::config::FuelUnit) -> String {
+    let v = fuel_in(litres, unit);
+    let whole = (v - v.round()).abs() < 0.05;
+    format!("{} {}", if whole { format!("{v:.0}") } else { format!("{v:.1}") }, unit.label())
+}
+
+/// Under this many laps of fuel, while driving, the fuel is pressing (amber); under `FUEL_LOW_LAPS` it is critical.
+pub(super) const FUEL_PRESSING_LAPS: f32 = 5.0;
+
+/// The colour of the fuel left by the laps it lasts: green, amber under five laps and red under two, while driving;
+/// green otherwise (a reading taken in the menu never warns).
+pub(super) fn fuel_role(laps: Option<f32>, driving: bool) -> Role {
+    match laps {
+        Some(n) if driving && n < FUEL_LOW_LAPS => Role::Danger,
+        Some(n) if driving && n < FUEL_PRESSING_LAPS => Role::Warn,
+        _ => Role::Good,
+    }
 }
 
 fn heat_role(temp_c: f32, warm: f32, hot: f32) -> Role {
@@ -443,10 +638,126 @@ fn heat_role(temp_c: f32, warm: f32, hot: f32) -> Role {
     }
 }
 
-/// The dashboard model for a reading. Pure: the same reading, language and time always give the same model.
+/// One tyre's tile.
+fn tyre_tile(lang: Lang, units: crate::config::Units, index: usize, t: &crate::game::Tyre) -> TyreTile {
+    let state = TyreState::of(t.temp_c);
+    TyreTile {
+        corner: text(lang, &Msg::PanelTyreCorner(index as u8)),
+        word: state.map_or_else(String::new, |s| text(lang, &s.msg())),
+        role: state.map_or(Role::Muted, TyreState::role),
+        temp: if t.temp_c.is_finite() {
+            temp_short(t.temp_c, units.temperature)
+        } else {
+            "–".to_owned()
+        },
+        tread: t
+            .tread_c
+            .map(|points| points.map(|c| TyreState::of(c).map_or(Role::Muted, TyreState::role))),
+        pressure: t.pressure_kpa.is_finite().then(|| pressure_text(t.pressure_kpa, units.pressure)),
+        brake: t.brake_c.is_finite().then(|| temp_short(t.brake_c, units.temperature)),
+        wear: t.left.is_finite().then(|| t.left.clamp(0.0, 1.0)),
+    }
+}
+
+/// A sector or lap time in seconds with its thousandths: `27.811`.
+pub(super) fn sector_text(ms: u32) -> String {
+    format!("{:.3}", f64::from(ms) / 1000.0)
+}
+
+/// The laps table: the lap being driven first, then the laps saved, newest first. The fastest lap that counted says
+/// "best", the others their gap to it; a lap that did not count says so. A sector is in the best colour where it is
+/// the fastest sector of any lap that counted, and the sector of the lap being driven is green where it is faster.
+fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time: &Elem, delta: &Elem) -> LapsModel {
+    let lang = ctx.lang;
+    let say = |msg: Msg| text(lang, &msg);
+    let saved = ctx.laps;
+    let best_ms = fastest_valid(saved)
+        .into_iter()
+        .chain(
+            live.best_lap_s
+                .filter(|s| s.is_finite() && *s > 0.0)
+                .map(|s| (s * 1000.0).round() as u32),
+        )
+        .min();
+    let best_sector: [Option<u32>; 3] =
+        std::array::from_fn(|i| saved.iter().filter(|l| l.valid).filter_map(|l| l.sectors_ms.get(i).copied()).min());
+    let steady = if fresh { Show::Shown } else { Show::Dimmed };
+    let mut rows = Vec::new();
+    // The lap being driven: only while there is a lap to number (not in a menu).
+    if slots.lap_time && (live.driving || live.phase == crate::game::Phase::Paused) {
+        let sectors = std::array::from_fn(|i| {
+            let done = live.sectors_ms.get(i).copied().flatten();
+            done.map(|ms| {
+                let faster = best_sector[i].is_some_and(|best| ms < best);
+                (sector_text(ms), if faster { Role::Good } else { Role::Primary })
+            })
+        });
+        rows.push(LapRow {
+            kind: LapKind::Live,
+            show: if fresh && live.driving { Show::Shown } else { Show::Dimmed },
+            number: live.lap.max(1).to_string(),
+            time: if lap_time.visible() && live.lap_time_s.is_some() {
+                lap_time.text.clone()
+            } else {
+                "–".to_owned()
+            },
+            time_role: Role::Primary,
+            gap: if delta.visible() { delta.text.clone() } else { "–".to_owned() },
+            gap_role: if delta.visible() { delta.role } else { Role::Muted },
+            sectors,
+        });
+    }
+    for lap in saved.iter().rev() {
+        let kind = match (lap.valid, best_ms) {
+            (false, _) => LapKind::Invalid,
+            (true, Some(best)) if lap.time_ms == best => LapKind::Best,
+            _ => LapKind::Done,
+        };
+        let (gap, gap_role) = match (kind, best_ms) {
+            (LapKind::Invalid, _) => (say(Msg::PanelInvalid), Role::Danger),
+            (LapKind::Best, _) => (say(Msg::PanelBestLap), Role::Best),
+            (_, Some(best)) => (format!("+{:.3}", f64::from(lap.time_ms.saturating_sub(best)) / 1000.0), Role::Muted),
+            (_, None) => ("–".to_owned(), Role::Muted),
+        };
+        let sectors = std::array::from_fn(|i| {
+            lap.sectors_ms.get(i).map(|&ms| {
+                let role = if kind != LapKind::Invalid && best_sector[i] == Some(ms) {
+                    Role::Best
+                } else {
+                    Role::Text
+                };
+                (sector_text(ms), role)
+            })
+        });
+        rows.push(LapRow {
+            kind,
+            show: steady,
+            number: lap.number.to_string(),
+            time: clock(lap.time_ms),
+            time_role: match kind {
+                LapKind::Best => Role::Best,
+                LapKind::Invalid => Role::Muted,
+                _ => Role::Text,
+            },
+            gap,
+            gap_role,
+            sectors,
+        });
+    }
+    LapsModel {
+        show: if slots.lap_time || slots.last { steady } else { Show::Hidden },
+        title: say(Msg::PanelRecentLaps),
+        heads: [say(Msg::PanelColLap), say(Msg::PanelColTime), say(Msg::PanelColGap)],
+        sectors: slots.sectors,
+        rows,
+        empty: say(Msg::PanelNoLapsYet),
+    }
+}
+
+/// The dashboard model for a reading. Pure: the same reading, laps, language, units and time always give the same model.
 pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     use crate::game::{Caps, Drs};
-    let lang = ctx.lang;
+    let (lang, units) = (ctx.lang, ctx.units);
     let slots = slots(live.caps);
     let caps = live.caps;
     let seen = &live.last_seen;
@@ -478,6 +789,13 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         Elem::hidden()
     };
 
+    let session = match live.session_kind {
+        Some(crate::game::SessionKind::Practice) => Some(say(Msg::PanelSessionPractice)),
+        Some(crate::game::SessionKind::Qualifying) => Some(say(Msg::PanelSessionQualifying)),
+        Some(crate::game::SessionKind::Race) => Some(say(Msg::PanelSessionRace)),
+        Some(crate::game::SessionKind::Unknown) | None => None,
+    };
+
     // The live readings.
     let rpm_share = (live.rpm_top > 0.0).then(|| live.rpm / live.rpm_top).filter(|s| s.is_finite());
     let rev = if slots.rev {
@@ -500,25 +818,41 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let neighbour = |t: Option<String>| t.map_or_else(Elem::hidden, |t| Elem::with(gear_show, Role::Muted, t));
     let speed_now = finite(live.speed_ms);
     let speed = if slots.speed {
-        let kmh = speed_now
+        let value = speed_now
             .or(seen.speed_ms)
-            .map_or_else(|| "–".to_owned(), |v| format!("{:.0}", v * 3.6));
-        Elem::with(reading(live_now, speed_now.is_some()), Role::Text, kmh).unit("km/h")
+            .map_or_else(|| "–".to_owned(), |v| speed_text(v, units.speed));
+        Elem::with(reading(live_now, speed_now.is_some()), Role::Text, value).unit(units.speed.label())
     } else {
         Elem::hidden()
     };
-    let pedal = |on: bool, value: f32, msg: Msg, role: Role| {
+    let pedal = |on: bool, value: f32, name: Msg, short: Msg, role: Role| {
         if !on {
             return Elem::hidden();
         }
         let v = finite(value);
-        Elem::with(reading(live_now, v.is_some()), role, "")
-            .labelled(pedal_tag(&say(msg)))
-            .frac(v.unwrap_or(0.0).clamp(0.0, 1.0))
+        let share = v.unwrap_or(0.0).clamp(0.0, 1.0);
+        Elem::with(
+            reading(live_now, v.is_some()),
+            role,
+            if v.is_some() {
+                format!("{:.0}%", share * 100.0)
+            } else {
+                "–".to_owned()
+            },
+        )
+        .labelled(say(name))
+        .short(say(short))
+        .frac(share)
     };
-    let brake = pedal(slots.brake, live.brake, Msg::PanelBrake, Role::Danger);
-    let throttle = pedal(slots.throttle, live.throttle, Msg::PanelThrottle, Role::Good);
-    let clutch = pedal(slots.clutch, live.clutch, Msg::PanelClutch, Role::Info);
+    let brake = pedal(slots.brake, live.brake, Msg::PanelBrake, Msg::PanelBrakeShort, Role::Danger);
+    let throttle = pedal(
+        slots.throttle,
+        live.throttle,
+        Msg::PanelThrottle,
+        Msg::PanelThrottleShort,
+        Role::Good,
+    );
+    let clutch = pedal(slots.clutch, live.clutch, Msg::PanelClutch, Msg::PanelClutchShort, Role::Info);
     let steer = if slots.steer {
         Elem::with(reading(live_now, live.steer.is_finite()), Role::Primary, "").frac(steer_share(live.steer))
     } else {
@@ -546,12 +880,12 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 Role::Danger
             };
             let frac = 0.5 + (live.delta_s.unwrap_or(0.0).clamp(-1.0, 1.0) as f32) / 2.0;
-            Elem::with(reading(live_now, true), role, t)
-                .labelled(say(Msg::PanelDelta))
-                .frac(frac)
+            Elem::with(reading(live_now, true), role, t).frac(frac)
         }
         _ => Elem::hidden(),
     };
+    // Before there is a best lap to compare with, the delta's place says when it will come.
+    let delta_note = (slots.delta && !delta.visible() && !best_lap.visible()).then(|| say(Msg::PanelDeltaFirstLap));
 
     // Fuel.
     let fuel_now = fuel_reading(live);
@@ -559,33 +893,68 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let fuel_show = if fresh && fuel_now.is_some() { Show::Shown } else { Show::Dimmed };
     let laps_left_val = fuel_val.and_then(|f| fuel_laps_left(f, live.fuel_per_lap_l));
     let low = live_now && laps_left_val.is_some_and(|n| n < FUEL_LOW_LAPS);
+    let role = fuel_role(laps_left_val, live_now);
+    let per_lap = live.fuel_per_lap_l.filter(|p| p.is_finite() && *p > 0.0);
     let fuel = if slots.fuel {
         Elem::with(
             fuel_show,
             Role::Text,
-            fuel_val.map_or_else(|| "–".to_owned(), |f| format!("{f:.1}")),
+            fuel_val.map_or_else(|| "–".to_owned(), |f| fuel_text(f, units.fuel)),
         )
         .labelled(say(Msg::PanelFuel))
-        .unit("L")
+        .unit(units.fuel.label())
     } else {
         Elem::hidden()
     };
     let fuel_laps = match (slots.fuel, laps_left_val) {
-        (true, Some(n)) => {
-            let role = if low { Role::Danger } else { Role::Primary };
-            Elem::with(fuel_show, role, format!("≈ {}", say(Msg::PanelFuelLaps(format!("{n:.1}")))))
-        }
+        (true, Some(n)) => Elem::with(fuel_show, role, format!("{n:.1}")).labelled(say(Msg::PanelLapsWord)),
         _ => Elem::hidden(),
     };
-    let per_lap = live.fuel_per_lap_l.filter(|p| p.is_finite() && *p > 0.0);
-    let fuel_per_lap = match (slots.fuel, per_lap) {
-        (true, Some(per)) => Elem::with(
+    let share = fuel_val.and_then(|f| fuel_share(f, live.fuel_tank_l));
+    // The gauge's full scale is the tank (never less than the fuel); a tick is one lap's use of it.
+    let scale = fuel_val.zip(live.fuel_tank_l).map(|(f, t)| t.max(f));
+    let fuel_tick = per_lap
+        .zip(scale)
+        .map(|(p, s)| p / s)
+        .filter(|t| t.is_finite() && *t > 0.0 && share.is_some());
+    let fuel_tank = match (slots.fuel, live.fuel_tank_l.filter(|t| t.is_finite() && *t > 0.0)) {
+        (true, Some(t)) => Elem::with(
             if fresh { Show::Shown } else { Show::Dimmed },
             Role::Muted,
-            say(Msg::PanelFuelPerLap(format!("{per:.1}"))),
+            say(Msg::PanelOfTank(tank_text(t, units.fuel))),
         ),
         _ => Elem::hidden(),
     };
+    let fuel_per_lap = match (slots.fuel, per_lap) {
+        (true, Some(per)) => {
+            let amount = format!("{} {}", fuel_text(per, units.fuel), units.fuel.label());
+            let line = if fuel_tick.is_some() {
+                Msg::PanelFuelPerLapTick(amount)
+            } else {
+                Msg::PanelFuelPerLapPlain(amount)
+            };
+            Elem::with(if fresh { Show::Shown } else { Show::Dimmed }, Role::Muted, say(line))
+        }
+        _ => Elem::hidden(),
+    };
+
+    // The water and oil, in the fuel card.
+    let temp_cell = |on: bool, now: Option<f32>, last: Option<f32>, msg: Msg, warm: f32, hot: f32| {
+        on.then(|| {
+            let t = now.filter(|t| t.is_finite());
+            let val = t.or(last);
+            Cell {
+                label: say(msg),
+                value: val.map_or_else(|| "–".to_owned(), |t| temp_text(t, units.temperature)),
+                role: val.map_or(Role::Muted, |t| heat_role(t, warm, hot)),
+                show: if fresh && t.is_some() { Show::Shown } else { Show::Dimmed },
+            }
+        })
+    };
+    let s = &live.state;
+    let mut engine = Vec::new();
+    engine.extend(temp_cell(slots.water, s.water_c, seen.water_c, Msg::PanelWater, 105.0, 115.0));
+    engine.extend(temp_cell(slots.oil, s.oil_c, seen.oil_c, Msg::PanelOil, 130.0, 145.0));
 
     // Where in the lap.
     let (progress, distance) = match (slots.progress, live.dist_m, live.track_length_m) {
@@ -593,102 +962,108 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
             let p = (d / l).clamp(0.0, 1.0) as f32;
             let show = if timing { Show::Shown } else { Show::Dimmed };
             (
-                Elem::with(show, Role::Text, format!("{:.0}%", p * 100.0))
-                    .labelled(say(Msg::PanelLapProgress))
-                    .frac(p),
+                Elem::with(show, Role::Text, say(Msg::PanelPercentOfLap(format!("{:.0}%", p * 100.0)))).frac(p),
                 Elem::with(show, Role::Muted, format!("{:.0} / {:.0} m", d.clamp(0.0, l), l)),
             )
         }
         _ => (Elem::hidden(), Elem::hidden()),
     };
 
-    // The lights, from what the game can give: one it cannot give is not there; one it can, and has no value for now,
-    // is there and off, dimmed.
-    let s = &live.state;
-    let lit = |on: bool| if on { Glow::On } else { Glow::Off };
-    let mut lights = Vec::new();
-    let mut light = |kind, glow: Glow, flag, present: bool| {
-        lights.push(Light {
-            kind,
-            glow,
-            flag,
-            show: reading(live_now, present),
-        });
+    // The alerts: only those that are lit. A light the game cannot give is not there at all; one it can give and has no
+    // value for now is not lit.
+    let mut alerts = Vec::new();
+    let mut alert = |kind: PillKind, glow: Glow, flag: Option<crate::game::Flag>, word: Msg, present: bool| {
+        if glow != Glow::Off {
+            alerts.push(Light {
+                kind,
+                glow,
+                flag,
+                word: say(word),
+                show: reading(live_now, present),
+            });
+        }
     };
+    let lit = |on: bool| if on { Glow::On } else { Glow::Off };
     if caps.has(Caps::PIT_LIMITER) {
-        light(PillKind::Pit, lit(s.pit_limiter == Some(true)), None, s.pit_limiter.is_some());
+        alert(
+            PillKind::Pit,
+            lit(s.pit_limiter == Some(true)),
+            None,
+            Msg::AlertPit,
+            s.pit_limiter.is_some(),
+        );
     }
     if caps.has(Caps::ABS_ACTIVE) {
-        light(PillKind::Abs, lit(s.abs_active == Some(true)), None, s.abs_active.is_some());
+        alert(
+            PillKind::Abs,
+            lit(s.abs_active == Some(true)),
+            None,
+            Msg::AlertAbs,
+            s.abs_active.is_some(),
+        );
     }
     if caps.has(Caps::TC_ACTIVE) {
-        light(PillKind::Tc, lit(s.tc_active == Some(true)), None, s.tc_active.is_some());
+        alert(
+            PillKind::Tc,
+            lit(s.tc_active == Some(true)),
+            None,
+            Msg::AlertTc,
+            s.tc_active.is_some(),
+        );
     }
     if caps.has(Caps::DRS) {
-        let glow = match s.drs {
-            Some(Drs::Open) => Glow::On,
-            Some(Drs::Available) => Glow::Ready,
-            _ => Glow::Off,
+        let (glow, word) = match s.drs {
+            Some(Drs::Open) => (Glow::On, Msg::AlertDrsOpen),
+            Some(Drs::Available) => (Glow::Ready, Msg::AlertDrsAvailable),
+            _ => (Glow::Off, Msg::AlertDrsAvailable),
         };
-        light(PillKind::Drs, glow, None, s.drs.is_some());
+        alert(PillKind::Drs, glow, None, word, s.drs.is_some());
     }
     if caps.has(Caps::HEADLIGHTS) {
-        light(PillKind::Headlights, lit(s.headlights == Some(true)), None, s.headlights.is_some());
+        alert(
+            PillKind::Headlights,
+            lit(s.headlights == Some(true)),
+            None,
+            Msg::AlertHeadlights,
+            s.headlights.is_some(),
+        );
     }
     if caps.has(Caps::FUEL) {
-        light(PillKind::Fuel, lit(low), None, laps_left_val.is_some());
+        alert(PillKind::Fuel, lit(low), None, Msg::AlertFuel, laps_left_val.is_some());
     }
     if caps.has(Caps::ENGINE_WARNING) {
-        light(
+        alert(
             PillKind::Engine,
             lit(s.engine_warning == Some(true)),
             None,
+            Msg::AlertEngine,
             s.engine_warning.is_some(),
         );
     }
     if caps.has(Caps::HANDBRAKE) {
-        light(PillKind::Handbrake, lit(s.handbrake == Some(true)), None, s.handbrake.is_some());
+        alert(
+            PillKind::Handbrake,
+            lit(s.handbrake == Some(true)),
+            None,
+            Msg::AlertHandbrake,
+            s.handbrake.is_some(),
+        );
     }
     if caps.has(Caps::FLAG) {
-        light(PillKind::Flag, Glow::Off, s.flag, s.flag.is_some());
+        if let Some(flag) = s.flag {
+            let word = match flag {
+                crate::game::Flag::Green => Msg::PanelFlagGreen,
+                crate::game::Flag::Yellow => Msg::PanelFlagYellow,
+                crate::game::Flag::Blue => Msg::PanelFlagBlue,
+                crate::game::Flag::White => Msg::PanelFlagWhite,
+                crate::game::Flag::Black => Msg::PanelFlagBlack,
+                crate::game::Flag::Chequered => Msg::PanelFlagChequered,
+            };
+            alert(PillKind::Flag, Glow::On, Some(flag), word, true);
+        }
     }
 
-    // The engine and fuel card.
-    let temp_cell = |on: bool, now: Option<f32>, last: Option<f32>, msg: Msg, warm: f32, hot: f32| {
-        on.then(|| {
-            let t = now.filter(|t| t.is_finite());
-            let val = t.or(last);
-            Cell {
-                label: say(msg),
-                value: val.map_or_else(|| "–".to_owned(), |t| format!("{t:.0} °C")),
-                role: val.map_or(Role::Muted, |t| heat_role(t, warm, hot)),
-                show: if fresh && t.is_some() { Show::Shown } else { Show::Dimmed },
-            }
-        })
-    };
-    let mut engine = Vec::new();
-    engine.extend(temp_cell(slots.water, s.water_c, seen.water_c, Msg::PanelWater, 105.0, 115.0));
-    engine.extend(temp_cell(slots.oil, s.oil_c, seen.oil_c, Msg::PanelOil, 130.0, 145.0));
-    if slots.fuel {
-        engine.push(Cell {
-            label: say(Msg::PanelPerLap),
-            value: per_lap.map_or_else(|| "–".to_owned(), |p| format!("{p:.1} L")),
-            role: Role::Text,
-            show: if fresh && per_lap.is_some() { Show::Shown } else { Show::Dimmed },
-        });
-        engine.push(Cell {
-            label: say(Msg::PanelLapsLeft),
-            value: laps_left_val.map_or_else(|| "–".to_owned(), |n| format!("{n:.1}")),
-            role: if low { Role::Danger } else { Role::Text },
-            show: if fresh && fuel_now.is_some() && laps_left_val.is_some() {
-                Show::Shown
-            } else {
-                Show::Dimmed
-            },
-        });
-    }
-
-    // The electronics and damage card.
+    // The electronics and the damage.
     let level = |n: u8| if n == 0 { "OFF".to_owned() } else { n.to_string() };
     let mut electronics = Vec::new();
     let mut setting = |on: bool, label: String, value: Option<String>| {
@@ -711,7 +1086,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
             .filter(|b| b.is_finite())
             .map(|b| format!("{:.1} %", b.clamp(0.0, 1.0) * 100.0)),
     );
-    let damage: Vec<Damage> = [
+    let parts: Vec<(Msg, Option<f32>)> = [
         (Caps::DAMAGE_BODY, Msg::PanelDmgBody, s.damage_body),
         (Caps::DAMAGE_ENGINE, Msg::PanelDmgEngine, s.damage_engine),
         (Caps::DAMAGE_GEARBOX, Msg::PanelDmgGearbox, s.damage_gearbox),
@@ -719,15 +1094,24 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     ]
     .into_iter()
     .filter(|(cap, _, _)| caps.has(*cap))
-    .map(|(_, msg, d)| {
-        let d = d.filter(|d| d.is_finite());
-        Damage {
-            label: say(msg),
-            share: d.unwrap_or(0.0).clamp(0.0, 1.0),
-            show: if fresh && d.is_some() { Show::Shown } else { Show::Dimmed },
-        }
-    })
+    .map(|(_, msg, d)| (msg, d.filter(|d| d.is_finite()).map(|d| d.clamp(0.0, 1.0))))
     .collect();
+    let damage = if parts.is_empty() {
+        Elem::hidden()
+    } else {
+        let known = parts.iter().any(|(_, d)| d.is_some());
+        let hurt: Vec<String> = parts
+            .into_iter()
+            .filter_map(|(msg, d)| d.filter(|d| *d >= 0.01).map(|d| format!("{} {:.0}%", say(msg), d * 100.0)))
+            .collect();
+        let line = match (known, hurt.is_empty()) {
+            (false, _) => say(Msg::PanelDamage("–".to_owned())),
+            (true, true) => say(Msg::PanelDamageNone),
+            (true, false) => say(Msg::PanelDamage(hurt.join(", "))),
+        };
+        let worst = if hurt.is_empty() { Role::Muted } else { Role::Warn };
+        Elem::with(if fresh && known { Show::Shown } else { Show::Dimmed }, worst, line)
+    };
 
     // The tyres and the map.
     let tyres = slots.tyres.then(|| {
@@ -737,12 +1121,15 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
             temp_c: f32::NAN,
             pressure_kpa: f32::NAN,
             left: f32::NAN,
+            tread_c: None,
         };
+        let raw = now.or(seen.tyres).unwrap_or([unknown; 4]);
         TyresModel {
             show: if fresh && now.is_some() { Show::Shown } else { Show::Dimmed },
-            tyres: now.or(seen.tyres).unwrap_or([unknown; 4]),
+            tiles: std::array::from_fn(|i| tyre_tile(lang, units, i, &raw[i])),
             title: say(Msg::PanelTyres),
-            compound: live.tyre_compound.clone(),
+            compound: live.tyre_compound.clone().filter(|c| !c.trim().is_empty()),
+            brake_label: say(Msg::PanelBrake),
         }
     });
     let map = if !slots.map {
@@ -753,6 +1140,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         Show::Dimmed
     };
 
+    let laps = laps_model(live, ctx, &slots, fresh, &lap_time, &delta);
+
     DashModel {
         status,
         track: live.track.to_uppercase(),
@@ -761,7 +1150,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
             .filter(|s| !s.is_empty())
             .cloned()
             .collect::<Vec<_>>()
-            .join("  ·  "),
+            .join("  \u{b7}  "),
+        session,
         lap,
         invalid: live.driving && fresh && live.lap_valid == Some(false),
         rev,
@@ -769,6 +1159,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         last_lap,
         best_lap,
         delta,
+        delta_vs: say(Msg::PanelVsBest),
+        delta_note,
         gear,
         gear_below: neighbour(below),
         gear_above: neighbour(above),
@@ -777,18 +1169,24 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         throttle,
         clutch,
         steer,
+        fuel_title: say(if slots.fuel { Msg::PanelFuel } else { Msg::PanelEngine }),
         fuel,
-        fuel_share: fuel_val.and_then(|f| fuel_share(f, live.fuel_tank_l)),
+        fuel_share: share,
+        fuel_tick,
         fuel_laps,
+        fuel_tank,
         fuel_per_lap,
         fuel_low: low,
+        engine,
         progress,
         distance,
-        lights,
-        engine,
+        alerts_title: say(Msg::PanelAlerts),
+        alerts,
+        no_alerts: say(Msg::PanelNoAlerts),
         electronics,
         damage,
         tyres,
+        laps,
         map,
         map_title: say(Msg::PanelTrack),
     }

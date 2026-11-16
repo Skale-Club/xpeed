@@ -329,6 +329,20 @@ fn tyre(page: &Page, index: usize) -> Tyre {
         .map(|&at| norm::tyre_c(given(page.f32_at(at))))
         .filter(|v| v.is_finite())
         .collect();
+    // The bar across the tread needs all three points. They are the tyre's own left, centre and right as seen from the
+    // car (ASSUMED): on a left tyre the right edge is the inner one, on a right tyre the left edge.
+    let across = norm::tread_points(
+        given(page.f32_at(temps[0])),
+        given(page.f32_at(temps[1])),
+        given(page.f32_at(temps[2])),
+    )
+    .map(|[left, middle, right]| {
+        if index.is_multiple_of(2) {
+            [right, middle, left]
+        } else {
+            [left, middle, right]
+        }
+    });
     Tyre {
         brake_c: norm::brake_c(given(page.f32_at(at::BRAKE_TEMP + index * BRAKE_TEMP_SIZE))),
         temp_c: if points.is_empty() {
@@ -338,6 +352,7 @@ fn tyre(page: &Page, index: usize) -> Tyre {
         },
         pressure_kpa: norm::pressure_kpa(given(page.f32_at(at::TIRE_PRESSURE + index * 4))),
         left: f32::NAN,
+        tread_c: across,
     }
 }
 
@@ -457,6 +472,7 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::FUEL_CAPACITY)
     .or(Caps::TYRE_TEMP)
     .or(Caps::TYRE_PRESSURE)
+    .or(Caps::TYRE_TREAD)
     .or(Caps::BRAKE_TEMP)
     .or(Caps::CAR_CLASS)
     .or(Caps::TRACK_VARIANT)
@@ -1180,24 +1196,28 @@ mod tests {
                 temp_c: 90.0,
                 pressure_kpa: 180.5,
                 left: f32::NAN,
+                tread_c: Some([100.0, 90.0, 80.0]),
             },
             Tyre {
                 brake_c: 455.0,
                 temp_c: 91.0,
                 pressure_kpa: 181.5,
                 left: f32::NAN,
+                tread_c: Some([81.0, 91.0, 101.0]),
             },
             Tyre {
                 brake_c: 300.0,
                 temp_c: 75.0,
                 pressure_kpa: 170.25,
                 left: f32::NAN,
+                tread_c: Some([80.0, 75.0, 70.0]),
             },
             Tyre {
                 brake_c: 305.0,
                 temp_c: 76.0,
                 pressure_kpa: 171.25,
                 left: f32::NAN,
+                tread_c: Some([71.0, 76.0, 81.0]),
             },
         ]);
         want.car = "R3E model 5031".into();
@@ -1460,6 +1480,12 @@ mod tests {
         image.tyre(0, [80.0, -1.0, 100.0], -1.0);
         let tyres = frame_from(&image.0, 0.0).unwrap().tyres.unwrap();
         assert_eq!(tyres[0].temp_c, 90.0);
+        assert_eq!(tyres[0].tread_c, None, "a bar across the tread needs all three points");
+        assert_eq!(
+            tyres[1].tread_c,
+            Some([81.0, 91.0, 101.0]),
+            "a right tyre: the left edge is the inner one"
+        );
         assert!(tyres[0].pressure_kpa.is_nan());
         assert_eq!(tyres[1].temp_c, 91.0);
         // Nothing about one tyre: that tyre is unknown, the others are still given.

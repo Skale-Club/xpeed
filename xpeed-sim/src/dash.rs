@@ -66,6 +66,16 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
             } else {
                 f32::NAN
             },
+            // The three readings are the tyre's own left, centre and right (the game says so: not inside, centre, outside),
+            // so on a left tyre (front left, rear left) the right edge is the inner one, on a right tyre the left edge
+            // (ASSUMED, as the other readers' sides). All three or none, like the mean.
+            tread_c: if w.temperature_k.iter().all(|k| *k > 0.0) {
+                let c = |k: f64| (k - 273.15) as f32;
+                let [left, middle, right] = w.temperature_k.map(c);
+                norm::tread_points(left, middle, right).map(|[l, m, r]| if i.is_multiple_of(2) { [r, m, l] } else { [l, m, r] })
+            } else {
+                None
+            },
         }
     });
     frame.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
@@ -1227,6 +1237,7 @@ mod tests {
                 temp_c: 85.0,
                 pressure_kpa: 180.0,
                 left: 0.9,
+                tread_c: None,
             }; 4],
         );
         assert_eq!(tracker.on_frame("Test", &tyred, 0).tyres.unwrap()[2].temp_c, 85.0);
@@ -1334,6 +1345,12 @@ mod tests {
         let tyres = frame.tyres.expect("one wheel is enough");
         assert!((tyres[0].temp_c - 90.0).abs() < 1e-3);
         assert_eq!((tyres[0].pressure_kpa, tyres[0].left), (175.0, 0.94));
+        // Across the tread: a left tyre's right edge is its inner one.
+        let across = tyres[0].tread_c.expect("the three readings are given");
+        for (got, want) in across.iter().zip([95.0, 90.0, 85.0]) {
+            assert!((got - want).abs() < 1e-3, "{across:?}");
+        }
+        assert_eq!(tyres[1].tread_c, None);
         assert_eq!(tyres[0].brake_c, 412.5, "the brake temperature is already Celsius");
         assert!(tyres[1].brake_c.is_nan(), "0 is the header's nothing");
         assert!(!tyres[1].known(), "an empty wheel says nothing");
@@ -1357,7 +1374,8 @@ mod tests {
                 temperature_k: k,
                 wear,
             };
-            assert!(lmu_frame(&odd, None).tyres.unwrap()[1].temp_c.is_nan(), "{k:?}");
+            let tyre = lmu_frame(&odd, None).tyres.unwrap()[1];
+            assert!(tyre.temp_c.is_nan() && tyre.tread_c.is_none(), "{k:?}");
         }
         // Values far out of range are not given, as in every other reader (`norm`).
         odd.wheels[1] = Wheel {
@@ -1517,6 +1535,7 @@ mod tests {
             temp_c: t,
             pressure_kpa: f32::NAN,
             left: f32::NAN,
+            tread_c: None,
         };
         let mut driving = at(3, 100.0, 12.0, None);
         driving.set_phase(Phase::Driving);

@@ -3,15 +3,14 @@ use super::*;
 /// Height of the header, in design pixels.
 pub(super) const HEADER_H: f32 = 66.0;
 
-/// The dashboard is laid out on this canvas (design units) and scaled whole to fit the window, so it keeps its
-/// proportions at any size and fills a full screen instead of stretching empty cards.
+/// The waiting screen is laid out on this canvas (design units), scaled whole to fit the window, so it keeps its
+/// proportions at any size.
 pub(super) const CANVAS_W: f32 = 1000.0;
 
 pub(super) const CANVAS_H: f32 = 520.0;
 
-/// The column on the right for the track map and the tyres, shown when the game gives them and the window is big
-/// enough for the wider canvas not to shrink the rest (full screen, a large window).
-pub(super) const SIDE_W: f32 = 360.0;
+/// The waiting screen's narrower canvas, for a tall window (a phone held upright).
+pub(super) const PORTRAIT_W: f32 = 600.0;
 
 /// The shift lights light from this share of the top RPM to `SHIFT_AT`, where they flash.
 pub(super) const LIGHTS_FROM: f32 = 0.55;
@@ -56,410 +55,309 @@ pub(super) fn canvas_fit_wh(body: RECT, width: f32, height: f32) -> (f32, i32, i
     (s, ox, oy)
 }
 
-/// The dashboard's layouts, one per shape of window. Each is a canvas in design units, scaled whole to fit, so the
-/// panel works on an ultrawide screen, a 16:9 or 16:10 one, a 4:3 one and a phone held upright alike.
+/// A box in design units: `(x, y, width, height)`.
+pub(super) type Area = (f32, f32, f32, f32);
+
+/// The cards of the dashboard, each a rounded box of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Pane {
+    /// The lap time, the delta to the best lap, the last and the best lap.
+    Times,
+    /// The gear, the speed, the pedals and the wheel.
+    Centre,
+    /// The fuel (and the water and oil temperatures).
+    Fuel,
+    Tyres,
+    /// The laps table.
+    Laps,
+    /// The track map and how far along the lap is.
+    Track,
+    /// The alerts that are lit, the electronics' settings and the damage.
+    Alerts,
+}
+
+impl Pane {
+    /// The widest a card is drawn: a row of few cards is centred instead of stretching them.
+    pub(super) fn max_w(self) -> f32 {
+        match self {
+            Pane::Times | Pane::Fuel => 480.0,
+            Pane::Centre => 580.0,
+            Pane::Tyres | Pane::Alerts => 560.0,
+            Pane::Track => 700.0,
+            Pane::Laps => 1500.0,
+        }
+    }
+}
+
+/// The dashboard's layouts, one per shape of window. Each is a canvas in design units made of rows of cards, scaled whole
+/// to fit, so the panel works on an ultrawide screen, a 16:9 or 16:10 one, a 4:3 one and a phone held upright alike. The
+/// same cards are in every one; a card the game cannot fill is not there and the others take its room.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
-    /// The main dashboard alone (a small window).
+    /// A small window: the times, the centre and the fuel on top, the tyres, the track and the alerts under them.
     Classic,
-    /// Ultrawide (21:9): the main dashboard and the track and tyre column.
+    /// Ultrawide (21:9): five cards in a row, the laps and the track under them.
     Ultrawide,
-    /// 16:9 and 16:10: the column, and the recent laps under the dashboard.
+    /// 16:9 and 16:10: four cards in a row, the laps, the track and the alerts under them.
     Wide,
-    /// 4:3 and 5:4: the track and the tyres side by side under the dashboard.
+    /// 4:3 and 5:4: three rows of three cards, the laps across the bottom.
     Square,
-    /// A tall window (a phone held upright): everything in one column.
+    /// A tall window (a phone held upright): everything in one column, a pair of cards where two fit side by side.
     Portrait,
 }
 
-/// The recent laps under the dashboard (`Layout::Wide`).
-pub(super) const BAND_H: f32 = 188.0;
+/// A row of cards: its height and the cards in it with the share of the row each takes.
+pub(super) struct Row {
+    pub(super) h: f32,
+    pub(super) cards: &'static [(Pane, f32)],
+}
 
-/// The track and tyre row under the dashboard (`Layout::Square`).
-pub(super) const SQUARE_ROW_H: f32 = 310.0;
+const WIDE_ROWS: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)],
+    },
+];
 
-/// The tall layout's canvas (about 9:16).
-pub(super) const PORTRAIT_W: f32 = 600.0;
+const ULTRAWIDE_ROWS: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 1.2),
+            (Pane::Fuel, 1.0),
+            (Pane::Tyres, 1.1),
+            (Pane::Alerts, 1.0),
+        ],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Laps, 2.6), (Pane::Track, 1.0)],
+    },
+];
 
-pub(super) const PORTRAIT_H: f32 = 1210.0;
+const SQUARE_ROWS: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Fuel, 1.0)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::Track, 1.0), (Pane::Alerts, 1.0)],
+    },
+    Row {
+        h: 206.0,
+        cards: &[(Pane::Laps, 1.0)],
+    },
+];
+
+const PORTRAIT_ROWS: &[Row] = &[
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 250.0,
+        cards: &[(Pane::Fuel, 0.9), (Pane::Tyres, 1.1)],
+    },
+    Row {
+        h: 200.0,
+        cards: &[(Pane::Laps, 1.0)],
+    },
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Track, 1.0), (Pane::Alerts, 1.0)],
+    },
+];
+
+const CLASSIC_ROWS: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Fuel, 1.0)],
+    },
+    Row {
+        h: 230.0,
+        cards: &[(Pane::Tyres, 1.3), (Pane::Track, 0.8), (Pane::Alerts, 1.0)],
+    },
+];
+
+/// The rev bar's height, and the line under it.
+pub(super) const REV_H: f32 = 36.0;
+
+/// Where the title (track, car, lap) starts and where the cards do.
+pub(super) const TITLE_Y: f32 = 46.0;
+
+pub(super) const CARDS_TOP: f32 = 110.0;
+
+/// The space between two cards.
+pub(super) const GAP: f32 = S3;
+
+/// Where the cards of a layout are, in design units, and how big the canvas is.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Plan {
+    pub(super) w: f32,
+    pub(super) h: f32,
+    pub(super) cards: Vec<(Pane, Area)>,
+}
+
+#[cfg(test)]
+impl Plan {
+    pub(super) fn area(&self, card: Pane) -> Option<Area> {
+        self.cards.iter().find(|(c, _)| *c == card).map(|(_, a)| *a)
+    }
+}
+
+/// The places of a row of cards `total` wide: each takes its share, none past its widest; what a card cannot take goes
+/// to the others, and when every card is at its widest the row is centred. `(x, width)` for each, from `x0`.
+pub(super) fn row_places(x0: f32, total: f32, gap: f32, cards: &[(Pane, f32)], clamp: bool) -> Vec<(f32, f32)> {
+    let room = total - gap * (cards.len() as f32 - 1.0);
+    let mut width = vec![0.0_f32; cards.len()];
+    let mut fixed = vec![false; cards.len()];
+    // A card that would be wider than it can be is held at its widest, and the rest shared again.
+    for _ in 0..cards.len() {
+        let free: f32 = (0..cards.len()).filter(|i| !fixed[*i]).map(|i| cards[i].1).sum();
+        let left = room - (0..cards.len()).filter(|i| fixed[*i]).map(|i| width[i]).sum::<f32>();
+        if free <= 0.0 {
+            break;
+        }
+        let mut changed = false;
+        for i in 0..cards.len() {
+            if fixed[i] {
+                continue;
+            }
+            width[i] = left * cards[i].1 / free;
+            if clamp && width[i] > cards[i].0.max_w() {
+                width[i] = cards[i].0.max_w();
+                fixed[i] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let used: f32 = width.iter().sum::<f32>() + gap * (cards.len() as f32 - 1.0);
+    let mut at = x0 + ((total - used) / 2.0).max(0.0);
+    width
+        .into_iter()
+        .map(|w| {
+            let place = (at, w);
+            at += w + gap;
+            place
+        })
+        .collect()
+}
 
 impl Layout {
-    /// The canvas size. `side` is whether there is anything for the track and tyre column (or row) to show: without
-    /// it the layouts that exist for it are as small as the main dashboard, which then fills the window. `main_h` is
-    /// the height of the main dashboard (see `main_height`).
-    pub(super) fn size(self, side: bool, main_h: f32) -> (f32, f32) {
+    fn spec(self) -> (f32, &'static [Row]) {
         match self {
-            Layout::Classic => (CANVAS_W, main_h),
-            Layout::Ultrawide if !side => (CANVAS_W, main_h),
-            // The column keeps its full height: the track and the tyres need it.
-            Layout::Ultrawide => (CANVAS_W + SIDE_W, CANVAS_H),
-            Layout::Wide if !side => (CANVAS_W, main_h + BAND_H),
-            Layout::Wide => (CANVAS_W + SIDE_W, main_h + BAND_H),
-            Layout::Square if !side => (CANVAS_W, main_h),
-            Layout::Square => (CANVAS_W, main_h + SQUARE_ROW_H),
-            Layout::Portrait => (PORTRAIT_W, PORTRAIT_H),
+            Layout::Classic => (1000.0, CLASSIC_ROWS),
+            Layout::Ultrawide => (1900.0, ULTRAWIDE_ROWS),
+            Layout::Wide => (1440.0, WIDE_ROWS),
+            Layout::Square => (1000.0, SQUARE_ROWS),
+            Layout::Portrait => (600.0, PORTRAIT_ROWS),
         }
     }
 
-    /// The smallest scale at which the layout still reads well (the tall one is drawn bigger to begin with).
-    pub(super) fn min_scale(self, side: bool) -> f32 {
+    /// The cards of this layout that the game can fill, with their places; the canvas is as tall as its rows need.
+    pub(super) fn plan(self, slots: &Slots) -> Plan {
+        let (w, rows) = self.spec();
+        let mut cards = Vec::new();
+        let mut y = CARDS_TOP;
+        for row in rows {
+            let present: Vec<(Pane, f32)> = row.cards.iter().copied().filter(|(c, _)| slots.cards.contains(c)).collect();
+            if present.is_empty() {
+                continue;
+            }
+            for ((card, _), (x, cw)) in present.iter().zip(row_places(0.0, w, GAP, &present, w > 1100.0)) {
+                cards.push((*card, (x, y, cw, row.h)));
+            }
+            y += row.h + GAP;
+        }
+        Plan {
+            w,
+            h: if cards.is_empty() { y } else { y - GAP },
+            cards,
+        }
+    }
+
+    /// The canvas size.
+    pub(super) fn size(self, slots: &Slots) -> (f32, f32) {
+        let plan = self.plan(slots);
+        (plan.w, plan.h)
+    }
+
+    /// The smallest scale at which the layout still reads well.
+    pub(super) fn min_scale(self) -> f32 {
         match self {
             Layout::Classic => 0.0,
-            Layout::Ultrawide | Layout::Square if !side => 0.0,
             Layout::Portrait => 0.5,
-            _ => 0.75,
+            Layout::Square => 0.7,
+            Layout::Wide | Layout::Ultrawide => 0.75,
         }
     }
 }
 
+/// The scale a canvas of `size` gets in a body of `bw` x `bh`, and how much of the body it fills.
+fn fit_of(bw: f32, bh: f32, (w, h): (f32, f32)) -> (f32, f32) {
+    let s = (bw / w).min(bh / h);
+    (s, s * s * w * h / (bw * bh).max(1.0))
+}
+
 /// The layout that fills a body of `bw` x `bh` pixels best while staying readable; between two that fill it about as
-/// well, the one that shows more. `side`: there is a track or tyres to show.
-pub(super) fn pick_layout(bw: f32, bh: f32, side: bool, main_h: f32) -> Layout {
-    let order = [Layout::Wide, Layout::Ultrawide, Layout::Square, Layout::Portrait, Layout::Classic];
+/// well, the one that shows more. Classic, the smallest, is for when none of the others reads well.
+pub(super) fn pick_layout(bw: f32, bh: f32, slots: &Slots) -> Layout {
+    let order = [Layout::Wide, Layout::Ultrawide, Layout::Square, Layout::Portrait];
     let fill = |l: Layout| {
-        let (w, h) = l.size(side, main_h);
-        let s = (bw / w).min(bh / h);
-        (s >= l.min_scale(side)).then(|| s * s * w * h / (bw * bh).max(1.0))
+        let (s, f) = fit_of(bw, bh, l.size(slots));
+        (s >= l.min_scale()).then_some(f)
     };
-    let best = order.iter().filter_map(|&l| fill(l)).fold(0.0_f32, f32::max);
+    let best = order.iter().filter_map(|&l| fill(l)).fold(f32::NEG_INFINITY, f32::max);
     order
         .into_iter()
         .find(|&l| fill(l).is_some_and(|f| f >= best - 0.03))
         .unwrap_or(Layout::Classic)
 }
 
-/// The height of the main dashboard: with no car card to show (no lights, engine or electronics) the strip along the
-/// bottom is not there and the canvas ends under the middle, so nothing below it is left floating.
-pub(super) fn main_height(slots: &Slots) -> f32 {
-    if slots.cards.is_empty() {
-        STRIP_TOP + 16.0
-    } else {
-        CANVAS_H
-    }
+/// The inside of the window as it opens (pixels), for a screen whose work area is `work_w` x `work_h`: 16:9, about
+/// 80% of the work area (1536 x 864 on a 1920 x 1080 screen), never smaller than the smallest window.
+pub(super) fn opening_size(work_w: i32, work_h: i32, scale: f32) -> (i32, i32) {
+    let (min_w, min_h) = (MIN_WIDTH as f32 * scale, MIN_HEIGHT as f32 * scale);
+    let w = (work_w as f32 * 0.8).min(work_h as f32 * 0.85 * 16.0 / 9.0).max(min_w);
+    let h = (w * 9.0 / 16.0).max(min_h);
+    (w.round() as i32, h.round() as i32)
 }
 
-/// The height of each of the `n` rows of the times column: three rows share the column's height, so with fewer the
-/// rows are taller (not past half again) and leave no hole.
-pub(super) fn left_row_h(n: usize, row_h: f32) -> f32 {
-    if n == 0 {
-        return row_h;
-    }
-    (3.0 * row_h / n as f32).min(row_h * 1.5)
-}
+/// How much better another layout must fill the window than the one in use before the dashboard changes to it: a
+/// window dragged through a threshold does not flip back and forth.
+const LAYOUT_STICKY: f32 = 0.12;
+/// The layout in use also keeps its place a little below its usual smallest scale.
+const SCALE_SLACK: f32 = 0.06;
 
-/// A block's place in a column: `(offset from the column's top, height)`.
-pub(super) type Span = Option<(f32, f32)>;
-
-/// Where the fuel and the lap progress go in the right column; only what is shown has a place. The fuel block (its
-/// gauge needs the room) is taller than a plain row.
-pub(super) fn right_plan(row_h: f32, fuel: bool, lap: bool) -> (Span, Span) {
-    let (fuel_h, lap_h) = (row_h * 1.4, row_h * 1.6);
-    match (fuel, lap) {
-        (true, true) => (Some((0.0, fuel_h)), Some((fuel_h, lap_h))),
-        (true, false) => (Some((0.0, fuel_h)), None),
-        (false, true) => (None, Some((0.0, lap_h))),
-        (false, false) => (None, None),
-    }
-}
-
-/// The width of the left and right columns of the main block, and where its car strip starts.
-pub(super) const MAIN_SIDE_W: f32 = 300.0;
-
-pub(super) const STRIP_TOP: f32 = 400.0;
-
-/// The blocks of a pedal bar: each `PEDAL_SEG` tall with a `PEDAL_GAP` between, as many as fit in `h`.
-pub(super) const PEDAL_SEG: f32 = 6.0;
-
-pub(super) const PEDAL_GAP: f32 = 2.0;
-
-/// Where the middle of the dashboard puts its parts, from the centre line `cx` and the top of the delta.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Centre {
-    /// The gear's frame (the corner brackets).
-    pub(super) frame: Area,
-    pub(super) brake: Area,
-    pub(super) throttle: Area,
-    pub(super) clutch: Area,
-    /// The steering bar, under the speed.
-    pub(super) steer: Area,
-    /// Where the speed and its unit go.
-    pub(super) speed: Area,
-    pub(super) unit: Area,
-    /// The first line under everything.
-    pub(super) bottom: f32,
-}
-
-pub(super) const FRAME_W: f32 = 280.0;
-
-/// `delta`: the delta is shown over the gear. Without it the gear frame moves up into its room and grows by it, so
-/// the block keeps its height and leaves no hole.
-pub(super) fn centre_plan(cx: f32, top: f32, frame_h: f32, delta: bool) -> Centre {
-    let (rise, frame_h) = if delta { (72.0, frame_h) } else { (8.0, frame_h + 64.0) };
-    let (fx, fy) = (cx - FRAME_W / 2.0, top + rise);
-    let (bar_w, clutch_w, gap) = (18.0, 10.0, 10.0);
-    let brake_x = fx - gap - bar_w;
-    let speed_y = fy + frame_h + 6.0;
-    Centre {
-        frame: (fx, fy, FRAME_W, frame_h),
-        brake: (brake_x, fy, bar_w, frame_h),
-        throttle: (fx + FRAME_W + gap, fy, bar_w, frame_h),
-        clutch: (brake_x - 7.0 - clutch_w, fy, clutch_w, frame_h),
-        steer: (fx, speed_y + 60.0, FRAME_W, 8.0),
-        speed: (cx - 120.0, speed_y, 240.0, 40.0),
-        unit: (cx - 120.0, speed_y + 38.0, 240.0, 14.0),
-        bottom: speed_y + 72.0,
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CarCard {
-    Lights,
-    Engine,
-    Electronics,
-}
-
-impl CarCard {
-    /// The narrowest a card reads well at, and the share of a row it takes.
-    pub(super) fn min_w(self) -> f32 {
-        match self {
-            CarCard::Lights => 230.0,
-            CarCard::Engine => 190.0,
-            CarCard::Electronics => 290.0,
-        }
-    }
-
-    pub(super) fn weight(self) -> f32 {
-        match self {
-            CarCard::Lights => 1.0,
-            CarCard::Engine => 0.85,
-            CarCard::Electronics => 1.15,
-        }
-    }
-}
-
-/// The cards of `present` that fit a row of `w` x `h` at (`x`, `y`), left to right, taking all the room between
-/// them. When there is not room for all of them, the engine goes first, then the electronics, then the lights.
-pub(super) fn strip_plan(x: f32, y: f32, w: f32, h: f32, present: &[CarCard]) -> Vec<(CarCard, Area)> {
-    let gap = 12.0;
-    let want: Vec<CarCard> = [CarCard::Lights, CarCard::Engine, CarCard::Electronics]
-        .into_iter()
-        .filter(|c| present.contains(c))
-        .collect();
-    let mut sets = vec![want];
-    for drop in [CarCard::Engine, CarCard::Electronics, CarCard::Lights] {
-        let mut next = sets.last().cloned().unwrap_or_default();
-        next.retain(|c| *c != drop);
-        if !next.is_empty() && Some(&next) != sets.last() {
-            sets.push(next);
-        }
-    }
-    for set in sets {
-        if set.is_empty() {
-            continue;
-        }
-        let room = w - gap * (set.len() as f32 - 1.0);
-        let total: f32 = set.iter().map(|c| c.weight()).sum();
-        let fits = set.iter().all(|c| room * c.weight() / total >= c.min_w());
-        if fits || set.len() == 1 {
-            let mut at = x;
-            return set
-                .iter()
-                .map(|&c| {
-                    let cw = room * c.weight() / total;
-                    let area = (at, y, cw, h);
-                    at += cw + gap;
-                    (c, area)
-                })
-                .collect();
-        }
-    }
-    Vec::new()
-}
-
-/// Where `n` light tiles go in a box: a grid of equal tiles (same width, same height, left aligned) with the number
-/// of columns chosen from the count so that no row is left with a lone tile: the layout with the fewest empty places
-/// wins, then the one with the biggest tiles. Tiles never leave the box.
-pub(super) fn light_cells((x, y, w, h): Area, n: usize) -> Vec<Area> {
-    let (min_w, max_w, min_h, max_h, gap) = (40.0, 96.0, 24.0, 40.0, 6.0);
-    if n == 0 {
-        return Vec::new();
-    }
-    let size = |cols: usize| {
-        let rows = n.div_ceil(cols);
-        let tw = ((w - gap * (cols as f32 - 1.0)) / cols as f32).min(max_w).max(1.0);
-        let th = ((h - gap * (rows as f32 - 1.0)) / rows as f32).min(max_h).max(1.0);
-        (rows, tw, th)
+/// `pick_layout`, but the layout already in use stays unless another one fills the window clearly better, or the one in
+/// use no longer reads at all. Classic is only a fallback: it is left as soon as another layout reads.
+pub(super) fn pick_layout_sticky(bw: f32, bh: f32, slots: &Slots, current: Option<Layout>) -> Layout {
+    let best = pick_layout(bw, bh, slots);
+    let Some(current) = current.filter(|c| *c != best && *c != Layout::Classic) else {
+        return best;
     };
-    let mut best: Option<(usize, usize, f32, f32)> = None;
-    for cols in 1..=n {
-        let (rows, tw, th) = size(cols);
-        if tw < min_w || th < min_h {
-            continue;
-        }
-        let better = best.is_none_or(|(c, r, bw, bh)| {
-            let (empty, best_empty) = (cols * rows - n, c * r - n);
-            empty < best_empty || (empty == best_empty && tw * th > bw * bh)
-        });
-        if better {
-            best = Some((cols, rows, tw, th));
-        }
-    }
-    // No layout is roomy enough: as many columns as the width allows, the tiles as big as the box leaves them.
-    let (cols, tw, th) = best.map_or_else(
-        || {
-            // The most columns the width allows; of those, the count that leaves the fewest empty places.
-            let most = (((w + gap) / (min_w + gap)).floor() as usize).clamp(1, n);
-            let cols = (1..=most).min_by_key(|c| (c * n.div_ceil(*c) - n, most - c)).unwrap_or(1);
-            let (_, tw, th) = size(cols);
-            (cols, tw, th)
-        },
-        |(cols, _, tw, th)| (cols, tw, th),
-    );
-    (0..n)
-        .map(|i| (x + (i % cols) as f32 * (tw + gap), y + (i / cols) as f32 * (th + gap), tw, th))
-        .collect()
-}
-
-/// Where `n` cells go in a box with `cols` columns: `(x, y, w, h)` each.
-pub(super) fn cell_grid((x, y, w, h): Area, n: usize, cols: usize) -> Vec<Area> {
-    if n == 0 {
-        return Vec::new();
-    }
-    let cols = cols.clamp(1, n);
-    let rows = n.div_ceil(cols);
-    let (cw, rh) = (w / cols as f32, (h / rows as f32).min(44.0));
-    (0..n)
-        .map(|i| (x + (i % cols) as f32 * cw, y + (i / cols) as f32 * rh, cw, rh))
-        .collect()
-}
-
-/// Where the two halves of the electronics card go: the figures on the left, the damage bars on the right; a half
-/// with nothing to show gives its room to the other.
-pub(super) fn electronics_split((x, y, w, h): Area, stats: bool, bars: bool) -> (Area, Area) {
-    match (stats, bars) {
-        (true, true) => {
-            let left = (w * 0.46).floor();
-            ((x, y, left, h), (x + left + 14.0, y, w - left - 14.0, h))
-        }
-        (true, false) => ((x, y, w, h), (x + w, y, 0.0, h)),
-        (false, true) => ((x, y, 0.0, h), (x, y, w, h)),
-        (false, false) => ((x, y, 0.0, h), (x, y, 0.0, h)),
-    }
-}
-
-/// A box in design units: `(x, y, width, height)`.
-pub(super) type Area = (f32, f32, f32, f32);
-
-/// Where everything of the tyre schematic goes. Tyre order everywhere: front left, front right, rear left, rear right.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Schematic {
-    pub(super) tyres: [Area; 4],
-    /// Beside each tyre, on its outer side: the temperature and the pressure. Left tyres' text is right-aligned (it
-    /// hugs the tyre), right tyres' text left-aligned.
-    pub(super) readout: [Area; 4],
-    /// The brake temperature: above the front tyres, below the rear ones. Zero height when no brake is shown.
-    pub(super) brake: [Area; 4],
-    /// The car's silhouette between the tyres.
-    pub(super) body: Area,
-    /// The size of the big temperature.
-    pub(super) temp_size: f32,
-}
-
-/// The brake row's height.
-pub(super) const BRAKE_ROW: f32 = 18.0;
-
-/// The schematic for a box: the car in the middle, as large as the height allows, the readouts on its two sides.
-/// `brakes`: keep a row above and below for the brake temperatures.
-pub(super) fn schematic(x: f32, y: f32, w: f32, h: f32, brakes: bool) -> Schematic {
-    let brake_h = if brakes { BRAKE_ROW } else { 0.0 };
-    let inner_h = (h - 2.0 * brake_h).max(1.0);
-    // A tyre is about twice as long as it is wide. Long enough to hold the temperature and the pressure.
-    let th = (inner_h * 0.32).clamp(33.0, 80.0).min(inner_h / 2.0 - 4.0).max(8.0);
-    let tw = (th * 0.55).clamp(8.0, 42.0);
-    // The distance between the two tyres of an axle: wide, but never so wide that the readouts lose their room.
-    let (readout_min, pad) = (80.0, 10.0);
-    let gap = (th * 1.15)
-        .clamp(30.0, 70.0)
-        .min((w - 2.0 * tw - 2.0 * (readout_min + pad)).max(14.0));
-    let cx = x + w / 2.0;
-    let (left_x, right_x) = (cx - gap / 2.0 - tw, cx + gap / 2.0);
-    let (front_y, rear_y) = (y + brake_h, y + h - brake_h - th);
-    // The temperature and the pressure take about 50 units of height at the biggest; the size follows the tyre.
-    let temp_size = type_step(((th - 18.0) / 1.15).clamp(T_BODY, T_VALUE_L));
-    let block = temp_size * 1.15 + 16.0;
-    // The body reaches a little past the tyres at both ends and as far out as the middle of each tyre.
-    let half = gap / 2.0 + tw * 0.5;
-    let (body_top, body_bottom) = ((front_y - th * 0.15).max(y), (rear_y + th * 1.15).min(y + h));
-    let mut plan = Schematic {
-        tyres: [
-            (left_x, front_y, tw, th),
-            (right_x, front_y, tw, th),
-            (left_x, rear_y, tw, th),
-            (right_x, rear_y, tw, th),
-        ],
-        readout: [(0.0, 0.0, 0.0, 0.0); 4],
-        brake: [(0.0, 0.0, 0.0, 0.0); 4],
-        body: (cx - half, body_top, half * 2.0, body_bottom - body_top),
-        temp_size,
+    let fill = |l: Layout, slack: f32| {
+        let (s, f) = fit_of(bw, bh, l.size(slots));
+        (s >= l.min_scale() - slack).then_some(f)
     };
-    for i in 0..4 {
-        let (tx, ty, tw, th) = plan.tyres[i];
-        let rh = block;
-        let ry = (ty + th / 2.0 - rh / 2.0).max(y);
-        plan.readout[i] = if i.is_multiple_of(2) {
-            (x, ry, (tx - pad - x).max(0.0), rh)
-        } else {
-            (tx + tw + pad, ry, (x + w - tx - tw - pad).max(0.0), rh)
-        };
-        if brakes {
-            let by = if i < 2 { y } else { y + h - brake_h };
-            plan.brake[i] = (tx + tw / 2.0 - 40.0, by, 80.0, brake_h);
-        }
+    match (fill(current, SCALE_SLACK), fill(best, 0.0)) {
+        (Some(keep), Some(change)) if change < keep + LAYOUT_STICKY => current,
+        (Some(_), None) => current,
+        _ => best,
     }
-    plan
-}
-
-/// The car's outline seen from above, in a box: the half width at each distance from the nose, as a share of the
-/// box's half width. Control points `(distance 0..1, half width)`, joined smoothly.
-pub(super) const BODY_PROFILE: [(f32, f32); 13] = [
-    (0.00, 0.10),
-    (0.03, 0.24),
-    (0.09, 0.38),
-    (0.17, 0.52),
-    (0.26, 0.74),
-    (0.36, 0.88),
-    (0.48, 0.84),
-    (0.60, 0.82),
-    (0.72, 0.90),
-    (0.85, 0.98),
-    (0.94, 0.96),
-    (0.98, 0.86),
-    (1.00, 0.55),
-];
-
-/// The silhouette's outline, going down the right side and back up the left, all inside the box.
-pub(super) fn body_outline((x, y, w, h): Area) -> Vec<(f32, f32)> {
-    let half = w / 2.0;
-    let cx = x + half;
-    let steps = 48;
-    let side: Vec<(f32, f32)> = (0..=steps)
-        .map(|k| {
-            let t = k as f32 / steps as f32;
-            let at = BODY_PROFILE
-                .windows(2)
-                .find(|p| t <= p[1].0)
-                .unwrap_or(&BODY_PROFILE[BODY_PROFILE.len() - 2..]);
-            let (a, b) = (at[0], at[1]);
-            let u = ((t - a.0) / (b.0 - a.0)).clamp(0.0, 1.0);
-            // Eased between the two control points, so the outline has no corners.
-            let ease = (1.0 - (u * std::f32::consts::PI).cos()) / 2.0;
-            (y + t * h, (a.1 + (b.1 - a.1) * ease) * half)
-        })
-        .collect();
-    side.iter()
-        .map(|&(py, hw)| (cx + hw, py))
-        .chain(side.iter().rev().map(|&(py, hw)| (cx - hw, py)))
-        .collect()
 }
 
 /// Buttons of these widths in lines no wider than `room`, 10 apart: each one's line and its left edge in the line.
@@ -492,38 +390,158 @@ pub(super) fn games_layout(games: usize, room: f32) -> (f32, f32, f32) {
     }
 }
 
-/// The inside of the window as it opens (pixels), for a screen whose work area is `work_w` x `work_h`: 16:9, about
-/// 80% of the work area (1536 x 864 on a 1920 x 1080 screen), never smaller than the smallest window.
-pub(super) fn opening_size(work_w: i32, work_h: i32, scale: f32) -> (i32, i32) {
-    let (min_w, min_h) = (MIN_WIDTH as f32 * scale, MIN_HEIGHT as f32 * scale);
-    let w = (work_w as f32 * 0.8).min(work_h as f32 * 0.85 * 16.0 / 9.0).max(min_w);
-    let h = (w * 9.0 / 16.0).max(min_h);
-    (w.round() as i32, h.round() as i32)
+// The insides of the cards. Each function is the geometry of one card, from the card's box: the views draw at these
+// places, and the tests check that nothing of a card leaves it or lies over another part.
+
+/// A card's inner box: its padding taken off all round.
+pub(super) fn inner((x, y, w, h): Area) -> Area {
+    (x + S3, y + S3, (w - 2.0 * S3).max(1.0), (h - 2.0 * S3).max(1.0))
 }
 
-/// How much better another layout must fill the window than the one in use before the dashboard changes to it: a
-/// window dragged through a threshold does not flip back and forth.
-const LAYOUT_STICKY: f32 = 0.12;
-/// The layout in use also keeps its place a little below its usual smallest scale.
-const SCALE_SLACK: f32 = 0.06;
+/// The height of a card's caption line, and the space under it.
+pub(super) const CAPTION_H: f32 = 16.0;
 
-/// `pick_layout`, but the layout already in use stays unless another one fills the window clearly better, or the one in
-/// use no longer reads at all.
-pub(super) fn pick_layout_sticky(bw: f32, bh: f32, side: bool, main_h: f32, current: Option<Layout>) -> Layout {
-    let best = pick_layout(bw, bh, side, main_h);
-    let Some(current) = current.filter(|c| *c != best) else {
-        return best;
+/// Where the parts of the centre card go: the gear (and the gears either side of it), the speed with its unit, the
+/// pedals, and the wheel, from the top down; a part the game cannot fill gives its height to the gear.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Centre {
+    pub(super) gear: Area,
+    /// Where the gear below and the gear above are drawn (the gear's own height, a narrow box each).
+    pub(super) below: Area,
+    pub(super) above: Area,
+    pub(super) speed: Area,
+    pub(super) unit: Area,
+    /// A pedal: the line over its bar (its name and its percentage) and the bar.
+    pub(super) pedals: [Option<(Area, Area)>; 3],
+    pub(super) steer: Area,
+}
+
+pub(super) const PEDAL_LINE_H: f32 = 16.0;
+pub(super) const PEDAL_BAR_H: f32 = 8.0;
+pub(super) const STEER_BAR_H: f32 = 6.0;
+
+pub(super) fn centre_plan(card: Area, slots: &Slots) -> Centre {
+    let (x, y, w, h) = inner(card);
+    let pedal_count = [slots.brake, slots.throttle, slots.clutch].iter().filter(|p| **p).count();
+    // The heights of what is under the gear, from the bottom up.
+    let steer_h = if slots.steer { STEER_BAR_H + S3 } else { 0.0 };
+    let pedals_h = if pedal_count > 0 {
+        PEDAL_LINE_H + S1 + PEDAL_BAR_H + S3
+    } else {
+        0.0
     };
-    let fill = |l: Layout, slack: f32| {
-        let (w, h) = l.size(side, main_h);
-        let s = (bw / w).min(bh / h);
-        (s >= l.min_scale(side) - slack).then(|| s * s * w * h / (bw * bh).max(1.0))
+    let speed_h = if slots.speed { 44.0 + 4.0 + 14.0 + S2 } else { 0.0 };
+    let gear_h = if slots.gear {
+        (h - steer_h - pedals_h - speed_h).clamp(40.0, 170.0)
+    } else {
+        0.0
     };
-    match (fill(current, SCALE_SLACK), fill(best, 0.0)) {
-        (Some(keep), Some(change)) if change < keep + LAYOUT_STICKY => current,
-        (Some(_), None) => current,
-        _ => best,
+    // Anything the gear cannot use is left over; the block under it is pushed to the bottom so the card has no hole.
+    let used = gear_h + speed_h + pedals_h + steer_h;
+    let top = y + ((h - used) / 2.0).max(0.0);
+    let gear = (x, top, w, gear_h);
+    let side = (w * 0.3).min(120.0);
+    let nb = (40.0_f32, 36.0_f32);
+    let cx = x + w / 2.0;
+    let mid = top + gear_h / 2.0 - nb.1 / 2.0;
+    let below = (cx - side - nb.0 / 2.0, mid, nb.0, nb.1);
+    let above = (cx + side - nb.0 / 2.0, mid, nb.0, nb.1);
+    let speed_y = top + gear_h + S1;
+    let speed = (x, speed_y, w, 44.0);
+    let unit = (x, speed_y + 44.0, w, 14.0);
+    let pedals_y = top + gear_h + speed_h;
+    let mut pedals = [None; 3];
+    if pedal_count > 0 {
+        let gap = S3;
+        let col = (w - gap * (pedal_count as f32 - 1.0)) / pedal_count as f32;
+        let mut at = x;
+        for (i, on) in [slots.brake, slots.throttle, slots.clutch].into_iter().enumerate() {
+            if on {
+                pedals[i] = Some((
+                    (at, pedals_y, col, PEDAL_LINE_H),
+                    (at, pedals_y + PEDAL_LINE_H + S1, col, PEDAL_BAR_H),
+                ));
+                at += col + gap;
+            }
+        }
     }
+    let steer = (x, pedals_y + pedals_h, w, STEER_BAR_H);
+    Centre {
+        gear,
+        below,
+        above,
+        speed,
+        unit,
+        pedals,
+        steer,
+    }
+}
+
+/// The four tyre tiles of a tyres card: two by two (front left, front right, rear left, rear right), under the caption.
+/// A card much wider than it is tall puts them in one row.
+pub(super) fn tyre_tiles(card: Area) -> [Area; 4] {
+    let (x, y, w, h) = inner(card);
+    let (top, h) = (y + CAPTION_H + S2, (h - CAPTION_H - S2).max(1.0));
+    if w > h * 2.6 {
+        let tile = (w - 3.0 * S2) / 4.0;
+        std::array::from_fn(|i| (x + i as f32 * (tile + S2), top, tile, h))
+    } else {
+        let (tw, th) = ((w - S2) / 2.0, (h - S2) / 2.0);
+        std::array::from_fn(|i| (x + (i % 2) as f32 * (tw + S2), top + (i / 2) as f32 * (th + S2), tw, th))
+    }
+}
+
+/// The row of a laps table's column: where each column's text goes. The lap number, the time and the gap come first, then
+/// the three sectors when the game gives them; the times take what the numbers do not.
+pub(super) fn lap_columns(width: f32, sectors: bool) -> Vec<(f32, f32)> {
+    let weights: &[f32] = if sectors {
+        &[0.7, 1.35, 1.15, 1.0, 1.0, 1.0]
+    } else {
+        &[0.7, 1.35, 1.15]
+    };
+    let total: f32 = weights.iter().sum();
+    let mut at = 0.0;
+    weights
+        .iter()
+        .map(|w| {
+            let cw = width * w / total;
+            let col = (at, cw);
+            at += cw;
+            col
+        })
+        .collect()
+}
+
+/// The height of a laps table's head row and of each row.
+pub(super) const LAP_HEAD_H: f32 = 22.0;
+pub(super) const LAP_ROW_H: f32 = 26.0;
+
+/// How many rows of the laps table fit in a card of height `h`.
+pub(super) fn lap_rows_fit(h: f32) -> usize {
+    let (_, _, _, ih) = inner((0.0, 0.0, 100.0, h));
+    (((ih - CAPTION_H - S2 - LAP_HEAD_H) / LAP_ROW_H).floor().max(0.0)) as usize
+}
+
+/// The places of tiles flowing left to right in lines inside `area`: each of the `widths` is `h` tall with `gap` between;
+/// a tile that does not fit on the line goes to the next, and a tile wider than the area is cut to it. Tiles that do not
+/// fit in the height are left out (`None`).
+pub(super) fn flow(area: Area, widths: &[f32], h: f32, gap: f32) -> Vec<Option<Area>> {
+    let (x, y, w, ah) = area;
+    let (mut at, mut line) = (0.0_f32, 0_usize);
+    widths
+        .iter()
+        .map(|tw| {
+            let tw = tw.min(w);
+            if at > 0.0 && at + tw > w {
+                line += 1;
+                at = 0.0;
+            }
+            let top = y + line as f32 * (h + gap);
+            let place = (top + h <= y + ah + 0.01).then_some((x + at, top, tw, h));
+            at += tw + gap;
+            place
+        })
+        .collect()
 }
 
 /// Which places the dashboard has, from what the game can give (`Live::caps`): the layout is chosen from these and the
@@ -545,23 +563,12 @@ pub(super) struct Slots {
     pub(super) progress: bool,
     pub(super) map: bool,
     pub(super) tyres: bool,
-    pub(super) brakes: bool,
     pub(super) water: bool,
     pub(super) oil: bool,
-    /// The car strip's cards, in their order.
-    pub(super) cards: Vec<CarCard>,
-}
-
-impl Slots {
-    /// Something for the track and tyre column (or row).
-    pub(super) fn side(&self) -> bool {
-        self.map || self.tyres
-    }
-
-    /// How many rows the times column has.
-    pub(super) fn times(&self) -> usize {
-        usize::from(self.lap_time) + usize::from(self.last) + usize::from(self.best)
-    }
+    /// The game gives the sector times: the laps table has S1, S2 and S3.
+    pub(super) sectors: bool,
+    /// The cards the game can fill, in the order the layouts place them.
+    pub(super) cards: Vec<Pane>,
 }
 
 pub(super) fn slots(caps: crate::game::Caps) -> Slots {
@@ -570,36 +577,7 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
     let any = |set: &[Caps]| set.iter().any(|c| caps.has(*c));
     // The distance into the lap is the game's own, else the speed added up: a record by lap needs one of them.
     let along = any(&[Caps::DIST, Caps::SPEED]);
-    let mut cards = Vec::new();
-    if any(&[
-        Caps::PIT_LIMITER,
-        Caps::ABS_ACTIVE,
-        Caps::TC_ACTIVE,
-        Caps::DRS,
-        Caps::HEADLIGHTS,
-        Caps::ENGINE_WARNING,
-        Caps::HANDBRAKE,
-        Caps::FLAG,
-        Caps::FUEL,
-    ]) {
-        cards.push(CarCard::Lights);
-    }
-    if any(&[Caps::WATER_TEMP, Caps::OIL_TEMP, Caps::FUEL]) {
-        cards.push(CarCard::Engine);
-    }
-    if any(&[
-        Caps::TC_LEVEL,
-        Caps::ABS_LEVEL,
-        Caps::ENGINE_MAP,
-        Caps::BRAKE_BIAS,
-        Caps::DAMAGE_BODY,
-        Caps::DAMAGE_ENGINE,
-        Caps::DAMAGE_GEARBOX,
-        Caps::DAMAGE_SUSPENSION,
-    ]) {
-        cards.push(CarCard::Electronics);
-    }
-    Slots {
+    let s = Slots {
         rev: caps.has(Caps::RPM),
         gear: caps.has(Caps::GEAR),
         speed: caps.has(Caps::SPEED),
@@ -614,10 +592,49 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
         fuel: caps.has(Caps::FUEL),
         progress: caps.has(Caps::TRACK_LENGTH) && along,
         map: caps.has(Caps::POSITION),
-        tyres: any(&[Caps::TYRE_TEMP, Caps::TYRE_PRESSURE, Caps::TYRE_WEAR, Caps::BRAKE_TEMP]),
-        brakes: caps.has(Caps::BRAKE_TEMP),
+        tyres: any(&[
+            Caps::TYRE_TEMP,
+            Caps::TYRE_PRESSURE,
+            Caps::TYRE_WEAR,
+            Caps::BRAKE_TEMP,
+            Caps::TYRE_TREAD,
+        ]),
         water: caps.has(Caps::WATER_TEMP),
         oil: caps.has(Caps::OIL_TEMP),
-        cards,
-    }
+        sectors: caps.has(Caps::SECTORS),
+        cards: Vec::new(),
+    };
+    let alerts = any(&[
+        Caps::PIT_LIMITER,
+        Caps::ABS_ACTIVE,
+        Caps::TC_ACTIVE,
+        Caps::DRS,
+        Caps::HEADLIGHTS,
+        Caps::ENGINE_WARNING,
+        Caps::HANDBRAKE,
+        Caps::FLAG,
+        Caps::FUEL,
+        Caps::TC_LEVEL,
+        Caps::ABS_LEVEL,
+        Caps::ENGINE_MAP,
+        Caps::BRAKE_BIAS,
+        Caps::DAMAGE_BODY,
+        Caps::DAMAGE_ENGINE,
+        Caps::DAMAGE_GEARBOX,
+        Caps::DAMAGE_SUSPENSION,
+    ]);
+    let cards: Vec<Pane> = [
+        (Pane::Times, s.lap_time || s.last || s.best),
+        (Pane::Centre, s.gear || s.speed || s.brake || s.throttle || s.clutch || s.steer),
+        (Pane::Fuel, s.fuel || s.water || s.oil),
+        (Pane::Tyres, s.tyres),
+        (Pane::Laps, s.lap_time || s.last),
+        (Pane::Track, s.map || s.progress),
+        (Pane::Alerts, alerts),
+    ]
+    .into_iter()
+    .filter(|(_, on)| *on)
+    .map(|(card, _)| card)
+    .collect();
+    Slots { cards, ..s }
 }

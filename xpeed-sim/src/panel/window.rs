@@ -129,6 +129,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
     let update = ctx.shared.update_state();
     let view = View {
         lang: account.lang,
+        units: account.units,
         tab: state.tab,
         on_top: state.on_top,
         full: state.full.is_some(),

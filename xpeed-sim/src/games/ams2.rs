@@ -689,6 +689,7 @@ fn tyres_from(page: &Page) -> Option<[Tyre; 4]> {
             } else {
                 f32::NAN
             },
+            tread_c: None,
         }
     };
     let tyres = [tyre(0), tyre(1), tyre(2), tyre(3)];

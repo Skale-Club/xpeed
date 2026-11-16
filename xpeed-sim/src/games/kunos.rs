@@ -282,6 +282,7 @@ impl Family {
         match self {
             Family::Ac => shared
                 .or(Caps::POSITION)
+                .or(Caps::TYRE_TREAD)
                 .or(Caps::BRAKE_TEMP)
                 .or(Caps::BRAKE_BIAS)
                 .or(Caps::DRS)
@@ -298,6 +299,7 @@ impl Family {
                 .or(Caps::G_LONG),
             Family::Acc => shared
                 .or(Caps::POSITION)
+                .or(Caps::TYRE_TREAD)
                 .or(Caps::BRAKE_TEMP)
                 .or(Caps::LAP_VALID)
                 .or(Caps::BRAKE_BIAS)
@@ -693,6 +695,11 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
             temp_c: if tread.is_finite() { tread } else { core },
             pressure_kpa: norm::pressure_kpa(at(PHYS_WHEELS_PRESSURE) * norm::KPA_PER_PSI),
             left: f32::NAN,
+            tread_c: if has_tread {
+                norm::tread_points(at(PHYS_TYRE_TEMP_I), at(PHYS_TYRE_TEMP_M), at(PHYS_TYRE_TEMP_O))
+            } else {
+                None
+            },
         }
     });
     f.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
@@ -1678,6 +1685,10 @@ mod tests {
                 [60.0, 61.0, 62.0, 63.0]
             };
             assert_eq!(temps, want, "{exe}");
+            // The three readings across the tread are given where the game has them, and only there.
+            sim.step();
+            let across = source.next(SOON).unwrap().tyres.unwrap().map(|t| t.tread_c);
+            assert_eq!(across[0], tread.then_some([80.0, 84.0, 88.0]), "{exe}");
             if tread {
                 // One of the three points missing: the core stands in for that tyre only.
                 sim.phys.write(PHYS_TYRE_TEMP_M + 4, &0.0f32.to_le_bytes());
