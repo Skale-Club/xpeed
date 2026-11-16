@@ -457,6 +457,19 @@ impl ForzaSource {
     }
 }
 
+impl crate::replay::Datagrams for ForzaSource {
+    fn feed(&mut self, data: &[u8], clock_s: f64) -> Option<Frame> {
+        self.decoder.feed(data, clock_s)
+    }
+}
+
+/// The reader of a capture (`replay.rs`): a source on a socket of the loopback that nobody writes to, fed the recorded
+/// datagrams through the same decoder, for the Forza game the capture was of.
+pub(crate) fn datagrams(game_id: &str) -> Option<Box<dyn crate::replay::Datagrams>> {
+    let game = Game::ALL.into_iter().find(|g| g.id() == game_id).unwrap_or(Game::Fm);
+    Some(Box::new(ForzaSource::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)), game)?))
+}
+
 /// Opens the door on UDP port 5301, all local addresses, for the Forza game that is running. `None` when none is, or
 /// when the port is not free.
 pub fn open() -> Option<Box<dyn Source>> {
@@ -484,6 +497,7 @@ impl Source for ForzaSource {
             }
             match self.socket.recv_from(&mut self.buf) {
                 Ok((n, _)) => {
+                    crate::capture::tap_datagram(&self.buf[..n]);
                     let clock_s = self.start.elapsed().as_secs_f64();
                     if let Some(frame) = self.decoder.feed(&self.buf[..n], clock_s) {
                         return Some(frame);
@@ -1352,6 +1366,50 @@ mod tests {
         assert!(g.clock_s >= f.clock_s);
         assert!(source.next(Duration::from_millis(10)).is_none());
         assert!(source.alive());
+    }
+
+    /// What the socket received while a capture ran, played back through the same decoder, gives the frames the reader gave.
+    #[test]
+    fn a_capture_of_the_datagrams_replays_to_the_frames_the_reader_gave() {
+        use crate::capture::testing::{header, Shared};
+        use crate::replay::{Out, Pace, Player};
+        let (mut source, sender) = loopback_pair(Game::Fm7);
+        let sink = Shared::default();
+        crate::capture::begin_manual(Box::new(sink.clone()), &header("fm7", "forza")).unwrap();
+        let mut live = Vec::new();
+        for i in 0..6u16 {
+            crate::capture::set_time(u64::from(i) * 16);
+            crate::capture::tick();
+            sender.send(b"not a packet").unwrap();
+            let dash = Dash {
+                race_time: 100.0 + f32::from(i) * 0.016,
+                distance: 2500.0 + f32::from(i),
+                steer: -127 + i as i8,
+                ..sample_dash()
+            };
+            sender.send(&fm7_packet(&sample_sled(), &dash)).unwrap();
+            live.push(source.next(Duration::from_millis(500)).expect("a frame"));
+        }
+        let stats = crate::capture::end().unwrap();
+        assert_eq!((stats.records, stats.ticks), (12, 6));
+        let mut player = Player::new(
+            crate::capture::Reader::from_bytes(sink.0.lock().unwrap().clone()).unwrap(),
+            Pace::Fast,
+        )
+        .unwrap();
+        assert_eq!(player.game_id(), "fm7");
+        for (i, want) in live.iter().enumerate() {
+            let Out::Frames(frames) = player.step().expect("a reading").out else {
+                panic!("not frames")
+            };
+            assert_eq!(frames.len(), 1);
+            let mut got = frames[0].clone();
+            assert_eq!(got.clock_s, (i as u64 * 16) as f64 / 1000.0, "the recorded time, not the replay's");
+            got.clock_s = want.clock_s;
+            // Compared as text: a frame holds NaN for what the game does not give, and NaN is not equal to itself.
+            assert_eq!(format!("{got:?}"), format!("{want:?}"));
+        }
+        assert!(player.step().is_none());
     }
 
     /// A scripted race over loopback, cut into a lap file by the real lap cutter.

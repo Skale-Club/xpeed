@@ -568,6 +568,7 @@ impl Source for Wreckfest2 {
             }
             match self.socket.recv_from(&mut self.buffer) {
                 Ok((n, _)) => {
+                    crate::capture::tap_datagram(&self.buffer[..n]);
                     if let Some(main) = Main::parse(&self.buffer[..n]) {
                         return Some(self.frame_of(&main));
                     }
@@ -594,6 +595,19 @@ impl Source for Wreckfest2 {
     fn listens(&self) -> bool {
         true
     }
+}
+
+impl crate::replay::Datagrams for Wreckfest2 {
+    fn feed(&mut self, data: &[u8], _clock_s: f64) -> Option<Frame> {
+        let main = Main::parse(data)?;
+        Some(self.frame_of(&main))
+    }
+}
+
+/// The reader of a capture (`replay.rs`): a source on a socket of the loopback that nobody writes to, fed the recorded
+/// datagrams through the same parser.
+pub(crate) fn datagrams() -> Option<Box<dyn crate::replay::Datagrams>> {
+    Some(Box::new(Wreckfest2::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))?))
 }
 
 pub fn open() -> Option<Box<dyn Source>> {

@@ -921,6 +921,20 @@ impl F1Source {
     }
 }
 
+impl crate::replay::Datagrams for F1Source {
+    fn feed(&mut self, data: &[u8], clock_s: f64) -> Option<Frame> {
+        self.decoder.feed(data, clock_s)
+    }
+}
+
+/// The reader of a capture (`replay.rs`): a source on a socket of the loopback that nobody writes to, fed the recorded
+/// datagrams through the same decoder. `game_id` is what the capture said before any packet came.
+pub(crate) fn datagrams(game_id: &str) -> Option<Box<dyn crate::replay::Datagrams>> {
+    let first_guess = [&F1_24, &F1_23].into_iter().find(|l| l.game_id == game_id).unwrap_or(&F1_25);
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    Some(Box::new(F1Source::bind(addr, first_guess)?))
+}
+
 /// Opens the door on UDP port 20777, all local addresses. `None` when the port is not free.
 pub fn open() -> Option<Box<dyn Source>> {
     let first_guess = layout_of_programs(&crate::win::running_programs());
@@ -949,6 +963,7 @@ impl Source for F1Source {
             }
             match self.socket.recv_from(&mut self.buf) {
                 Ok((n, _)) => {
+                    crate::capture::tap_datagram(&self.buf[..n]);
                     let clock_s = self.start.elapsed().as_secs_f64();
                     if let Some(frame) = self.decoder.feed(&self.buf[..n], clock_s) {
                         return Some(frame);

@@ -180,6 +180,17 @@ pub fn open() -> Option<Box<dyn Source>> {
     })
 }
 
+/// The reader of a capture (`replay.rs`): the game named in its header, and no pause between the two copies (a replay
+/// has nothing to wait for).
+pub(crate) fn open_replay(game_id: &str) -> Option<Box<dyn Source>> {
+    let (_, id, name) = GAMES.into_iter().find(|(_, id, _)| *id == game_id).unwrap_or(GAMES[0]);
+    RFactor1::open_named(MEMORY_NAME).map(|mut reader| {
+        reader.game = (id, name);
+        reader.settle = Duration::ZERO;
+        Box::new(reader) as Box<dyn Source>
+    })
+}
+
 struct RFactor1 {
     /// The game's id and name, from the program running.
     game: (&'static str, &'static str),

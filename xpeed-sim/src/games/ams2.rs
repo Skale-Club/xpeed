@@ -245,6 +245,12 @@ pub fn open_pcars() -> Option<Box<dyn Source>> {
     Ams2::open_as(MEMORY_NAME, kind).map(|reader| Box::new(reader) as Box<dyn Source>)
 }
 
+/// The reader of a capture (`replay.rs`) of Project CARS 2 or 3.
+pub(crate) fn open_pcars_replay(game_id: &str) -> Option<Box<dyn Source>> {
+    let kind = if game_id == "pcars3" { PCARS3 } else { PCARS2 };
+    Ams2::open_as(MEMORY_NAME, kind).map(|reader| Box::new(reader) as Box<dyn Source>)
+}
+
 struct Ams2 {
     kind: Kind,
     memory: Mapping,

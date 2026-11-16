@@ -516,6 +516,19 @@ pub fn open() -> Option<Box<dyn Source>> {
     Some(Box::new(source))
 }
 
+/// The reader of a capture (`replay.rs`): the same reader, told by a process list that the game of the capture is the
+/// one running (as it was while capturing), and never looking again (nothing runs in a replay).
+pub(crate) fn open_replay(game_id: &str) -> Option<Box<dyn Source>> {
+    let program = match game_id {
+        "acc" => "ac2-win64-shipping.exe",
+        "acr" => "acr.exe",
+        _ => "acs.exe",
+    };
+    let running: ProcessList = Box::new(move || Some(vec![program.to_owned()]));
+    let source = KunosSource::open_with(&Names::game(), running, Duration::from_secs(86_400))?;
+    Some(Box::new(source))
+}
+
 fn pedal(v: f32) -> f32 {
     if v.is_finite() {
         v.clamp(0.0, 1.0)
@@ -1953,5 +1966,88 @@ mod tests {
         }
         assert_eq!(laps.len(), 1);
         assert_eq!((laps[0].time_ms, laps[0].valid), (20_000, false));
+    }
+}
+
+/// A made-up drive of Assetto Corsa, written as a capture (`capture.rs`) from the reader's own pages, for the tests of
+/// `replay.rs`: a car going round a circle of 1000 m clockwise, lap after lap (the first in 25 s, each next one a second
+/// slower: the cutter tells a new official lap time from the old one, so the laps must differ), with the steering as given.
+#[cfg(test)]
+pub(crate) mod capture_fixture {
+    use super::*;
+    use crate::capture::testing::{header, Shared};
+    use crate::capture::{mem_stream, open_stream, Writer};
+
+    const NAMES: (&str, &str, &str) = ("acpmf_physics", "acpmf_graphics", "acpmf_static");
+    /// Readings in a lap; the milliseconds between two readings are `25 + lap` (about 40 Hz), counting laps from 0.
+    const PER_LAP: u32 = 1000;
+
+    /// The time of lap number `lap` (counting from 0), in milliseconds.
+    pub(crate) fn lap_ms(lap: u32) -> u64 {
+        PER_LAP as u64 * (25 + lap as u64)
+    }
+
+    fn put(page: &mut [u8], at: usize, bytes: &[u8]) {
+        page[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+
+    fn put_f32(page: &mut [u8], at: usize, v: f32) {
+        put(page, at, &v.to_le_bytes());
+    }
+
+    fn put_i32(page: &mut [u8], at: usize, v: i32) {
+        put(page, at, &v.to_le_bytes());
+    }
+
+    /// `laps` whole laps and the first ten readings of the next (which close the last of them); the steering is
+    /// `steer` all the way (positive is a right turn, which is what the clockwise circle asks for).
+    pub(crate) fn synthetic_capture(laps: u32, steer: f32) -> Vec<u8> {
+        let family = Family::Ac;
+        let mut physics = vec![0u8; family.physics_len()];
+        let mut graphics = vec![0u8; family.graphics_len()];
+        let mut statics = vec![0u8; family.static_len()];
+        let utf16 = |text: &str| text.encode_utf16().flat_map(u16::to_le_bytes).collect::<Vec<u8>>();
+        put(&mut statics, STAT_SM_VERSION, &utf16("1.7"));
+        put(&mut statics, STAT_CAR_MODEL, &utf16("ks_test_car"));
+        put(&mut statics, STAT_TRACK, &utf16("test_circle"));
+        put_f32(&mut statics, STAT_AC_TRACK_SPLINE_LENGTH, 1000.0);
+        put_f32(&mut statics, STAT_AC_MAX_FUEL, 60.0);
+        put_f32(&mut physics, PHYS_GAS, 0.8);
+        put_f32(&mut physics, PHYS_FUEL, 40.0);
+        put_i32(&mut physics, PHYS_GEAR, 5);
+        put_i32(&mut physics, PHYS_RPMS, 6000);
+        put_f32(&mut physics, PHYS_STEER, steer);
+        put_i32(&mut graphics, GFX_STATUS, STATUS_LIVE);
+
+        let sink = Shared::default();
+        let mut w = Writer::new(sink.clone(), &header("ac", "kunos")).unwrap();
+        for name in [NAMES.0, NAMES.1, NAMES.2] {
+            w.record(0, &open_stream(name), &4096u64.to_le_bytes()).unwrap();
+        }
+        w.record(0, &mem_stream(NAMES.2, 0, STAT_PREFIX_LEN), &statics[..STAT_PREFIX_LEN])
+            .unwrap();
+        let radius = 1000.0 / std::f32::consts::TAU;
+        for i in 0..(laps * PER_LAP + 10) {
+            let (lap, within) = (i / PER_LAP, i % PER_LAP);
+            let step = 25 + lap as u64;
+            let speed_ms = 1000.0 / (lap_ms(lap) as f32 / 1000.0);
+            put_f32(&mut physics, PHYS_SPEED_KMH, speed_ms * 3.6);
+            let angle = std::f32::consts::TAU * within as f32 / PER_LAP as f32;
+            put_i32(&mut physics, PHYS_PACKET_ID, i as i32 + 1);
+            put_i32(&mut graphics, GFX_PACKET_ID, i as i32 + 1);
+            put_i32(&mut graphics, GFX_COMPLETED_LAPS, lap as i32);
+            put_i32(&mut graphics, GFX_I_CURRENT_TIME, (within as u64 * step) as i32);
+            put_i32(&mut graphics, GFX_I_LAST_TIME, if lap > 0 { lap_ms(lap - 1) as i32 } else { 0 });
+            put_f32(&mut graphics, GFX_AC_CAR_COORDINATES, radius * angle.sin());
+            put_f32(&mut graphics, GFX_AC_CAR_COORDINATES + 8, radius * angle.cos());
+            let t = (0..lap).map(lap_ms).sum::<u64>() + within as u64 * step;
+            w.tick();
+            w.record(t, &mem_stream(NAMES.0, 0, physics.len()), &physics).unwrap();
+            w.record(t, &mem_stream(NAMES.1, 0, graphics.len()), &graphics).unwrap();
+            w.record(t, &mem_stream(NAMES.2, 0, statics.len()), &statics).unwrap();
+        }
+        w.finish().unwrap();
+        let bytes = sink.0.lock().unwrap().clone();
+        bytes
     }
 }

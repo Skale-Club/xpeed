@@ -63,6 +63,8 @@ xpeed-companion probe [--seconds N]    # confere a conexão e mostra o que o jog
 xpeed-companion record --out DIR       # grava cada volta em DIR como .xlap.gz (Ctrl+C para parar)
 xpeed-companion record --out DIR --upload   # idem, e envia cada volta ao Xpeed (precisa parear antes)
 xpeed-companion inspect ARQUIVO        # resume um arquivo de volta (funciona em qualquer sistema)
+xpeed-companion capture JOGO [--seconds N] [--out ARQ.xcap] [--build TEXTO]   # grava o que o leitor do jogo vê (para testes)
+xpeed-companion replay ARQ.xcap [--laps-out DIR] [--speed X]   # toca a gravação pelo leitor, o cortador de voltas e as checagens
 xpeed-companion pair --server ENDEREÇO --code CÓDIGO [--name NOME]   # liga este computador à sua conta
 xpeed-companion status                 # mostra se este computador está pareado
 xpeed-companion unpair                 # esquece o pareamento neste computador
@@ -129,6 +131,12 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 Os testes do leitor criam objetos do Windows **com nomes próprios** (nunca `LMU_Data`), então não tocam na memória de um jogo que esteja rodando. O teste `writes_a_sample_lap_to_disk` é opcional (`--ignored`): grava uma volta de exemplo para apontar outro programa, como o leitor do app, para o que o gravador produz.
+
+### Gravações reais como testes (`capture` e `replay`)
+
+Quase todos os testes acima são sintéticos, feitos a partir da documentação de cada jogo. Para pegar o que só aparece dirigindo (embreagem invertida, mapa espelhado, base da contagem de voltas), `capture JOGO` grava, num arquivo `.xcap` pequeno (gzip), exatamente os bytes que o leitor recebe enquanto alguém dirige, e `replay ARQ.xcap` passa esses bytes pelo mesmo leitor, pelo cortador de voltas e pelas checagens (`sanity`), mostrando por volta o tempo, a validade, as amostras, a distância contra o comprimento da pista e o que as checagens acharam. As gravações boas ficam em `fixtures/` e `cargo test` toca todas, comparando com o `NOME.expect.json` de cada uma. Como gravar uma: `fixtures/README.md`.
+
+Para jogos que mandam UDP (F1, Forza, Wreckfest 2), **pause ou feche o app da bandeja antes de gravar**: só um programa pode ficar com a porta. Nos jogos de memória compartilhada os dois podem ler ao mesmo tempo.
 
 ## Segurança e limites
 

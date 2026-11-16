@@ -186,6 +186,14 @@ pub fn open() -> Option<Box<dyn Source>> {
     R3e::open_named(MEMORY_NAME).map(|reader| Box::new(reader) as Box<dyn Source>)
 }
 
+/// The reader of a capture (`replay.rs`): no pause between the two copies (a replay has nothing to wait for).
+pub(crate) fn open_replay() -> Option<Box<dyn Source>> {
+    R3e::open_named(MEMORY_NAME).map(|mut reader| {
+        reader.settle = Duration::ZERO;
+        Box::new(reader) as Box<dyn Source>
+    })
+}
+
 struct R3e {
     memory: Mapping,
     started: Instant,

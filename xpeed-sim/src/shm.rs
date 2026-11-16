@@ -1,29 +1,90 @@
 //! Reading a memory a game shares under a name: opened read-only, copied out, never worked on in place.
 //! (Le Mans Ultimate has its own reader because its memory is guarded by a lock and events.)
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::CString;
+use std::sync::{Arc, Mutex};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::Memory::{
     MapViewOfFile, OpenFileMappingA, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ, MEMORY_BASIC_INFORMATION, MEMORY_MAPPED_VIEW_ADDRESS,
 };
 
-/// A named shared memory of a game, mapped for reading.
+/// A named shared memory of a game, mapped for reading (or, in a replay, a recorded one: see `ReplayMemory`).
 pub struct Mapping {
-    handle: HANDLE,
-    view: MEMORY_MAPPED_VIEW_ADDRESS,
+    name: String,
     len: usize,
+    backing: Backing,
+}
+
+enum Backing {
+    Os {
+        handle: HANDLE,
+        view: MEMORY_MAPPED_VIEW_ADDRESS,
+    },
+    /// What a capture (`capture.rs`) saw of a game, played back by `replay.rs`.
+    Replay(Arc<Mutex<ReplayMemory>>),
 }
 
 // The view is only read, through `read`, which copies; nothing else touches it.
 unsafe impl Send for Mapping {}
 
+/// The memories of a recorded game, as the replay has played them up to now: which names were open (and how big each
+/// was) and the last copy seen for each place that was read. The reader opens and reads `Mapping`s as it always does;
+/// while a replay is installed on the thread (`install_replay`) they answer from here instead of from Windows.
+#[derive(Default)]
+pub struct ReplayMemory {
+    opened: HashMap<String, usize>,
+    copies: HashMap<String, HashMap<(usize, usize), Vec<u8>>>,
+}
+
+impl ReplayMemory {
+    pub fn open(&mut self, name: &str, len: usize) {
+        self.opened.insert(name.to_owned(), len);
+    }
+
+    pub fn set(&mut self, name: &str, at: usize, bytes: Vec<u8>) {
+        self.copies.entry(name.to_owned()).or_default().insert((at, bytes.len()), bytes);
+    }
+}
+
+thread_local! {
+    static REPLAY: RefCell<Option<Arc<Mutex<ReplayMemory>>>> = const { RefCell::new(None) };
+}
+
+/// While this lives, `Mapping::open` on this thread opens the recorded memories of `memory` instead of the game's.
+pub struct ReplayGuard(());
+
+pub fn install_replay(memory: Arc<Mutex<ReplayMemory>>) -> ReplayGuard {
+    REPLAY.with(|r| *r.borrow_mut() = Some(memory));
+    ReplayGuard(())
+}
+
+impl Drop for ReplayGuard {
+    fn drop(&mut self) {
+        REPLAY.with(|r| *r.borrow_mut() = None);
+    }
+}
+
+fn locked(memory: &Mutex<ReplayMemory>) -> std::sync::MutexGuard<'_, ReplayMemory> {
+    memory.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 impl Mapping {
     /// `None` when no game has made a memory of that name (the game is not running, or it does not share).
     pub fn open(name: &str) -> Option<Mapping> {
-        let name = CString::new(name).ok()?;
+        if let Some(memory) = REPLAY.with(|r| r.borrow().clone()) {
+            let len = *locked(&memory).opened.get(name)?;
+            return Some(Mapping {
+                name: name.to_owned(),
+                len,
+                backing: Backing::Replay(memory),
+            });
+        }
+        let cname = CString::new(name).ok()?;
         unsafe {
-            let handle = OpenFileMappingA(FILE_MAP_READ, 0, name.as_ptr().cast());
+            let handle = OpenFileMappingA(FILE_MAP_READ, 0, cname.as_ptr().cast());
             if handle.is_null() {
                 return None;
             }
@@ -38,7 +99,12 @@ impl Mapping {
             } else {
                 info.RegionSize
             };
-            Some(Mapping { handle, view, len })
+            crate::capture::tap_open(name, len);
+            Some(Mapping {
+                name: name.to_owned(),
+                len,
+                backing: Backing::Os { handle, view },
+            })
         }
     }
 
@@ -52,17 +118,25 @@ impl Mapping {
         if at.checked_add(len)? > self.len {
             return None;
         }
-        let mut out = vec![0u8; len];
-        unsafe { std::ptr::copy_nonoverlapping(self.view.Value.cast::<u8>().add(at), out.as_mut_ptr(), len) };
-        Some(out)
+        match &self.backing {
+            Backing::Os { view, .. } => {
+                let mut out = vec![0u8; len];
+                unsafe { std::ptr::copy_nonoverlapping(view.Value.cast::<u8>().add(at), out.as_mut_ptr(), len) };
+                crate::capture::tap_read(&self.name, at, &out);
+                Some(out)
+            }
+            Backing::Replay(memory) => locked(memory).copies.get(&self.name)?.get(&(at, len)).cloned(),
+        }
     }
 }
 
 impl Drop for Mapping {
     fn drop(&mut self) {
-        unsafe {
-            UnmapViewOfFile(self.view);
-            CloseHandle(self.handle);
+        if let Backing::Os { handle, view } = &self.backing {
+            unsafe {
+                UnmapViewOfFile(*view);
+                CloseHandle(*handle);
+            }
         }
     }
 }
