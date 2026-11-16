@@ -3,7 +3,7 @@
 //!
 //! The game is in early access and Kunos has not published an official layout that could be found. This reader is
 //! written against three unofficial sources, and it is built to give nothing at all rather than numbers it cannot
-//! vouch for. Nothing here has been checked against a running game.
+//! vouch for. What was checked against a running game is listed below.
 //!
 //! # Where the layout comes from
 //!
@@ -55,25 +55,48 @@
 //! * `in_pits`: `is_in_pit_lane` or `is_in_pit_box`.
 //! * `dist_m` is left `None`, so the lap cutter integrates the speed (`npos` is a spline fraction and is not used).
 //! * Pedals, gear (physics: 0 reverse, 1 neutral, 2 first, so minus one), `rpms`, `speedKmh` / 3.6, `steerAngle`, `fuel`
-//!   (litres) from the physics page. The position is the mean of the four `tyreContactPoint`s, the only world position
-//!   of the player's car whose place in the page is the same under both packings (`car_coordinates` needs
-//!   `car_ids`, whose offset depends on the packing); a position of exactly zero is "not given".
+//!   (litres) from the physics page. The clutch is turned around (`1 - clutch`): the game writes 1 = engaged, the
+//!   project's channel is the pedal, 1 = pressed. The position is the mean of the four `tyreContactPoint`s, the only
+//!   world position of the player's car whose place in the page is the same under both packings (`car_coordinates`
+//!   needs `car_ids`, whose offset depends on the packing), with x negated (the game's ground plane is mirrored
+//!   against the project's x = east, z = north); a position of exactly zero is "not given".
+//! * Tyres (physics page, front left to rear right): `wheelsPressure` (psi, as in Assetto Corsa, to kPa; kept between
+//!   1 and 100 psi), the temperature (the mean of `tyreTempI`, `tyreTempM` and `tyreTempO` when all three are between
+//!   -50 and 400 and not zero, else `tyreCoreTemperature`) and `brakeTemp` (above 0 and up to 2000 C). A value outside
+//!   those is dropped, never pinned. `tyreWear` has no documented unit and is not given.
+//! * `fuel_capacity_l` = `max_fuel` (graphics, litres, 1 to 1000), the tank the dash uses for its fuel estimate.
 //! * Car: `car_model`; track and variant: `track`, `track_configuration`; track length: `track_length_m`, only when
 //!   `session_state.lap_length_km` does not contradict it (within 2 %).
 //!
+//! # Checked against a live game
+//!
+//! Assetto Corsa EVO 0.9.1 (static `ac_evo_version`; shared memory interface 1.0), three laps of Laguna Seca in an Audi R8
+//! V10 on a gamepad, read into lap files by this reader:
+//!
+//! * The pages open and the markers are sane at that version (the "layout of 0.6.x" of the sources still holds).
+//! * Steering: positive is to the right, as the project expects (the mean steering over the lap is to the left on a
+//!   counter-clockwise track).
+//! * The clutch is 1 = engaged: over a whole valid lap at full throttle and 194 km/h with an automatic clutch it read
+//!   1.0 at every sample. Hence `1 - clutch`.
+//! * The map was mirrored: the signed turning of the (x, z) path summed over the counter-clockwise lap of Laguna Seca
+//!   came out at -358 degrees (an Automobilista 2 lap of Interlagos, also counter-clockwise, gives +408). Hence x is
+//!   negated.
+//! * The tyres were not read before (the panel said the game shares no tyre data) while the game shows temperatures and
+//!   pressures; they are now read from the physics page.
+//!
 //! # Not checked against a live game
 //!
-//! Everything. In particular: the sign and range of the steering, the polarity of the clutch (`0 = engaged`), whether
-//! `total_lap_count` really counts completed laps from zero, whether `is_valid_lap` is filled in every mode, whether the
-//! contact points are in the same world axes the other games use, the units of `fuel`, and that the pages are as long as
-//! the sources say. The pages carry no sequence lock; the packet id before and after each copy is compared, which cannot
-//! catch a copy torn after the id was written.
+//! The unit of `wheelsPressure` (taken as psi, the way Assetto Corsa gives it), the tyre temperatures and `brakeTemp`
+//! against what the game shows, `max_fuel` (taken as litres), whether `total_lap_count` really counts completed laps
+//! from zero, whether `is_valid_lap` is filled in every mode, and that the pages are as long as the sources say in every
+//! build. The pages carry no sequence lock; the packet id before and after each copy is compared, which cannot catch a
+//! copy torn after the id was written.
 //!
 //! Never read: another process's memory. Only the game's own shared memory, read-only and copied out.
 
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, Source};
+use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// Windows gives a shared memory whole pages.
@@ -95,7 +118,15 @@ mod phys {
     pub const RPMS: usize = 20;
     pub const STEER_ANGLE: usize = 24;
     pub const SPEED_KMH: usize = 28;
+    /// `float wheelsPressure[4]` (psi, as in Assetto Corsa), `float tyreCoreTemperature[4]`, `float brakeTemp[4]`, and
+    /// `float tyreTempI[4]` / `tyreTempM[4]` / `tyreTempO[4]` (inner, middle, outer), all front left to rear right, Celsius.
+    pub const WHEELS_PRESSURE: usize = 88;
+    pub const TYRE_CORE_TEMPERATURE: usize = 152;
+    pub const BRAKE_TEMP: usize = 348;
     pub const CLUTCH: usize = 364;
+    pub const TYRE_TEMP_I: usize = 368;
+    pub const TYRE_TEMP_M: usize = 384;
+    pub const TYRE_TEMP_O: usize = 400;
     /// `float tyreContactPoint[4][3]`: 4 wheels, 12 bytes each.
     pub const TYRE_CONTACT_POINT: usize = 420;
 }
@@ -143,8 +174,11 @@ mod gfx {
     pub const IS_IN_PIT_BOX: usize = 3119;
     pub const IS_IN_PIT_LANE: usize = 3120;
     pub const IS_VALID_LAP: usize = 3121;
-    /// What is copied: up to the end of `is_valid_lap`.
-    pub const READ_LEN: usize = 3122;
+    /// `float max_fuel`: the tank, litres (after `car_coordinates`, the gaps, `active_cars`, `fuel_per_lap`,
+    /// `fuel_estimated_laps` and `assists_state`; the same offset under both packings).
+    pub const MAX_FUEL: usize = 3928;
+    /// What is copied: up to the end of `max_fuel`.
+    pub const READ_LEN: usize = 3932;
 }
 
 mod stat {
@@ -460,6 +494,36 @@ fn state_from(g: &Page) -> CarState {
     state
 }
 
+/// The four tyres, front left to rear right, from the physics page. A value outside what a tyre can be is dropped to
+/// "not given" (never pinned to a limit). The temperature is the tread (the mean of the inner, middle and outer, when
+/// all three are believable) and else the core. The pressure is psi in the page, as in Assetto Corsa. The tread left
+/// (`tyreWear`) has no documented unit and is not given. `None` when the game says nothing about any of the four.
+fn tyres(p: &Page) -> Option<[Tyre; 4]> {
+    let temp = |v: f32| (v.is_finite() && v != 0.0 && (-50.0..=400.0).contains(&v)).then_some(v);
+    let tyres: [Tyre; 4] = std::array::from_fn(|i| {
+        let at = |base: usize| p.f32_at(base + 4 * i);
+        let tread = [phys::TYRE_TEMP_I, phys::TYRE_TEMP_M, phys::TYRE_TEMP_O].map(|base| temp(at(base)));
+        let tread = tread.iter().all(Option::is_some).then(|| tread.iter().flatten().sum::<f32>() / 3.0);
+        let psi = at(phys::WHEELS_PRESSURE);
+        let brake = at(phys::BRAKE_TEMP);
+        Tyre {
+            brake_c: if brake.is_finite() && brake > 0.0 && brake <= 2000.0 {
+                brake
+            } else {
+                f32::NAN
+            },
+            temp_c: tread.or_else(|| temp(at(phys::TYRE_CORE_TEMPERATURE))).unwrap_or(f32::NAN),
+            pressure_kpa: if psi.is_finite() && (1.0..=100.0).contains(&psi) {
+                psi * 6.894_757
+            } else {
+                f32::NAN
+            },
+            left: f32::NAN,
+        }
+    });
+    tyres.iter().any(Tyre::known).then_some(tyres)
+}
+
 /// The mean of the four tyres' world contact points; not given when one is not a number or all of them are zero.
 fn position(p: &Page) -> [f32; 3] {
     let mut sum = [0.0f32; 3];
@@ -475,7 +539,9 @@ fn position(p: &Page) -> [f32; 3] {
         }
     }
     if any {
-        sum.map(|v| v / 4.0)
+        // The game's ground plane is mirrored against the project's (x east, z north): x is negated.
+        let [x, y, z] = sum.map(|v| v / 4.0);
+        [-x, y, z]
     } else {
         [f32::NAN; 3]
     }
@@ -511,8 +577,9 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
 
     f.throttle = pedal(p.f32_at(phys::GAS));
     f.brake = pedal(p.f32_at(phys::BRAKE));
-    // 0 = engaged, 1 = fully disengaged: the pedal pressed is 1, like the other two.
-    f.clutch = pedal(p.f32_at(phys::CLUTCH));
+    // The game writes 1 = engaged (the pedal up), the opposite of the other two pedals: turned around, so 1 is the
+    // pedal pressed. (A NaN stays NaN.)
+    f.clutch = 1.0 - pedal(p.f32_at(phys::CLUTCH));
     // Never negative (a hair below zero is noise): the speed, not a velocity.
     let kmh = p.f32_at(phys::SPEED_KMH);
     f.speed_ms = if kmh.is_finite() && (-1.0..=1500.0).contains(&kmh) {
@@ -542,6 +609,8 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
         f32::NAN
     };
     [f.x, f.y, f.z] = position(p);
+    f.tyres = tyres(p);
+    f.fuel_capacity_l = Some(g.f32_at(gfx::MAX_FUEL)).filter(|c| c.is_finite() && (1.0..=1000.0).contains(c));
     f.state = state_from(g);
 
     f.car = text(g, gfx::CAR_MODEL, CAR_TEXT_LEN);
@@ -1088,6 +1157,12 @@ mod tests {
             ("speedKmh", phys::SPEED_KMH),
             ("clutch", phys::CLUTCH),
             ("tyreContactPoint", phys::TYRE_CONTACT_POINT),
+            ("wheelsPressure", phys::WHEELS_PRESSURE),
+            ("tyreCoreTemperature", phys::TYRE_CORE_TEMPERATURE),
+            ("brakeTemp", phys::BRAKE_TEMP),
+            ("tyreTempI", phys::TYRE_TEMP_I),
+            ("tyreTempM", phys::TYRE_TEMP_M),
+            ("tyreTempO", phys::TYRE_TEMP_O),
         ] {
             assert_eq!(p.offset(name), want, "physics {name}");
         }
@@ -1144,6 +1219,7 @@ mod tests {
                     ("is_in_pit_box", gfx::IS_IN_PIT_BOX),
                     ("is_in_pit_lane", gfx::IS_IN_PIT_LANE),
                     ("is_valid_lap", gfx::IS_VALID_LAP),
+                    ("max_fuel", gfx::MAX_FUEL),
                 ] {
                     assert_eq!(g.offset(name), want, "graphics {name}, pack {pack:?}");
                 }
@@ -1171,7 +1247,7 @@ mod tests {
                 assert_eq!(g.offset("electronics_max_limit"), gfx::ELECTRONICS_MAX_LIMIT);
                 assert_eq!(g.offset("total_lap_count"), g.offset("electronics_is_modifiable") + 128);
                 const { assert!(gfx::ELECTRONICS_MAX_LIMIT + gfx::E_IS_PITLIMITER_ON < gfx::READ_LEN) };
-                assert_eq!(gfx::READ_LEN, gfx::IS_VALID_LAP + 1);
+                assert_eq!(gfx::READ_LEN, gfx::MAX_FUEL + 4);
                 // The same graphics page without `car_ids` (the header of acevo-shared-memory): shorter by 960 bytes less
                 // the alignment padding, and still one page: that is the "old layout" the page length gives away.
                 let old = graphics(pack, pads, false);
@@ -1240,7 +1316,8 @@ mod tests {
             i.physics.i32(phys::PACKET_ID, 1);
             i.physics.f32(phys::GAS, 0.75);
             i.physics.f32(phys::BRAKE, 0.25);
-            i.physics.f32(phys::CLUTCH, 0.5);
+            // The game's clutch: 0.25 is mostly let out (1 = engaged), so the pedal is 0.75 down.
+            i.physics.f32(phys::CLUTCH, 0.25);
             i.physics.f32(phys::FUEL, 42.5);
             i.physics.i32(phys::GEAR, 4);
             i.physics.i32(phys::RPMS, 7250);
@@ -1259,6 +1336,7 @@ mod tests {
             i.graphics.i32(gfx::LAST_LAPTIME_MS, 90_500);
             i.graphics.i32(gfx::MAX_GEARS, 6);
             i.graphics.f32(gfx::SESSION_LAP_LENGTH_KM, 5.793);
+            i.graphics.f32(gfx::MAX_FUEL, 80.0);
             i.graphics.0[gfx::IS_VALID_LAP] = 1;
             // The car's state: limiter on, ABS acting, headlights on, a handbrake half up, the wing open, a green
             // flag; water 85 and oil 101.5; TC 3 of 8, ABS 2 of 11, map 1 of 4, 56.25 % front brakes.
@@ -1359,12 +1437,13 @@ mod tests {
         want.gears = Some(6);
         want.throttle = 0.75;
         want.brake = 0.25;
-        want.clutch = 0.5;
+        want.clutch = 0.75;
         want.steer = -0.5;
-        want.x = 11.0;
+        want.x = -11.0; // the game's x is east mirrored
         want.y = 1.0;
         want.z = 22.0;
         want.fuel_l = 42.5;
+        want.fuel_capacity_l = Some(80.0);
         want.car = "ks_porsche_911_gt3".into();
         want.track = "monza".into();
         want.track_variant = Some("gp".into());
@@ -1391,6 +1470,69 @@ mod tests {
         };
         assert_eq!(frame, want);
         assert!(reader.alive());
+    }
+
+    /// Four wheels' values written into the physics page, front left to rear right.
+    fn put(image: &mut Image, at: usize, values: [f32; 4]) {
+        for (i, v) in values.into_iter().enumerate() {
+            image.physics.f32(at + 4 * i, v);
+        }
+    }
+
+    #[test]
+    fn reads_the_tyres_from_the_physics_page() {
+        let mut image = Image::on_track();
+        assert!(image.frame().unwrap().tyres.is_none(), "a page with no tyre values says nothing");
+        put(&mut image, phys::WHEELS_PRESSURE, [26.0, 26.5, 24.0, 24.5]);
+        put(&mut image, phys::TYRE_CORE_TEMPERATURE, [70.0, 71.0, 72.0, 73.0]);
+        put(&mut image, phys::TYRE_TEMP_I, [80.0, 81.0, 82.0, 83.0]);
+        put(&mut image, phys::TYRE_TEMP_M, [84.0, 85.0, 86.0, 87.0]);
+        put(&mut image, phys::TYRE_TEMP_O, [88.0, 89.0, 90.0, 91.0]);
+        put(&mut image, phys::BRAKE_TEMP, [300.0, 310.0, 250.0, 260.0]);
+        let tyres = image.frame().unwrap().tyres.expect("tyres");
+        assert_eq!(
+            tyres.map(|t| t.temp_c),
+            [84.0, 85.0, 86.0, 87.0],
+            "the tread: the mean of inner, middle, outer"
+        );
+        assert_eq!(tyres.map(|t| t.brake_c), [300.0, 310.0, 250.0, 260.0]);
+        assert!((tyres[0].pressure_kpa - 26.0 * 6.894_757).abs() < 1e-3);
+        assert!(tyres.iter().all(|t| t.left.is_nan()), "the wear has no documented unit");
+        // One of the three tread temperatures missing: the core stands in for that tyre only.
+        image.physics.f32(phys::TYRE_TEMP_M + 4, 0.0);
+        let tyres = image.frame().unwrap().tyres.unwrap();
+        assert_eq!((tyres[0].temp_c, tyres[1].temp_c), (84.0, 71.0));
+        // A value far outside what a tyre can be is dropped, not pinned.
+        put(&mut image, phys::WHEELS_PRESSURE, [500.0, f32::NAN, 0.0, -3.0]);
+        put(&mut image, phys::BRAKE_TEMP, [9000.0, -1.0, f32::NAN, 0.0]);
+        put(&mut image, phys::TYRE_TEMP_I, [900.0, 81.0, 82.0, 83.0]);
+        put(&mut image, phys::TYRE_CORE_TEMPERATURE, [900.0, 71.0, 72.0, 73.0]);
+        let tyres = image.frame().unwrap().tyres.unwrap();
+        assert!(tyres[0].pressure_kpa.is_nan() && tyres[0].brake_c.is_nan() && tyres[0].temp_c.is_nan());
+        assert!(tyres[1].pressure_kpa.is_nan() && tyres[1].brake_c.is_nan());
+        assert!(tyres[2].pressure_kpa.is_nan() && tyres[3].pressure_kpa.is_nan());
+    }
+
+    #[test]
+    fn the_clutch_is_the_pedal_not_the_engagement() {
+        for (written, pedal) in [(1.0, 0.0), (0.0, 1.0), (0.25, 0.75)] {
+            let mut image = Image::on_track();
+            image.physics.f32(phys::CLUTCH, written);
+            assert_eq!(image.frame().unwrap().clutch, pedal, "game {written}");
+        }
+        let mut image = Image::on_track();
+        image.physics.f32(phys::CLUTCH, 9.0);
+        assert!(image.frame().unwrap().clutch.is_nan(), "far outside is not given");
+    }
+
+    #[test]
+    fn the_tank_is_the_games_capacity_when_believable() {
+        let mut image = Image::on_track();
+        assert_eq!(image.frame().unwrap().fuel_capacity_l, Some(80.0));
+        for bad in [0.0, -5.0, 5000.0, f32::NAN] {
+            image.graphics.f32(gfx::MAX_FUEL, bad);
+            assert_eq!(image.frame().unwrap().fuel_capacity_l, None, "{bad}");
+        }
     }
 
     #[test]
