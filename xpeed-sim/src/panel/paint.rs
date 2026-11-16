@@ -370,70 +370,6 @@ impl Painter {
         }
     }
 
-    /// The track in a box (design units): the path smoothed, turned so its long side follows the box's, and scaled to
-    /// fit with a margin, drawn as a dark ribbon with a lighter line on top. A whole lap is a closed shape with a
-    /// start/finish tick; a partial path is open, and is not drawn across a jump. The car is a yellow dot, placed
-    /// with the same transform.
-    pub(super) fn track_map(&self, (x, y, w, h): (f32, f32, f32, f32), path: &[(f32, f32)], complete: bool, car: Option<(f32, f32)>) {
-        let key = MapKey {
-            at: path.as_ptr() as usize,
-            len: path.len(),
-            ends: path
-                .first()
-                .zip(path.last())
-                .map(|(a, b)| [a.0.to_bits(), a.1.to_bits(), b.0.to_bits(), b.1.to_bits()]),
-            frame: [x, y, w, h].map(f32::to_bits),
-            complete,
-        };
-        let prepared = MAP_CACHE.with(|cell| {
-            let mut kept = cell.borrow_mut();
-            if kept.as_ref().is_none_or(|(k, _)| *k != key) {
-                *kept = prepare_map(path, complete, x + w / 2.0, y + h / 2.0, w, h).map(|p| (key, p));
-            }
-            kept.as_ref().map(|(_, p)| p.clone())
-        });
-        let Some(map) = prepared else {
-            return;
-        };
-        let to_px = |(px, py): (f32, f32)| PointF {
-            X: self.ox as f32 + px * self.s,
-            Y: self.oy as f32 + py * self.s,
-        };
-        let road = (11.0 * self.s).max(3.0);
-        let line = (2.5 * self.s).max(1.0);
-        smooth(self.hdc, |graphics| unsafe {
-            for (width, color) in [(road, SECONDARY), (line, ROAD_LINE)] {
-                let mut pen = null_mut();
-                GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
-                GdipSetPenLineJoin(pen, LineJoinRound);
-                GdipSetPenStartCap(pen, LineCapRound);
-                GdipSetPenEndCap(pen, LineCapRound);
-                for run in &map.runs {
-                    let points: Vec<PointF> = run.iter().map(|&p| to_px(p)).collect();
-                    GdipDrawLines(graphics, pen, points.as_ptr(), points.len() as i32);
-                }
-                GdipDeletePen(pen);
-            }
-            if let Some((a, b)) = map.start {
-                let mut pen = null_mut();
-                GdipCreatePen1(argb(FOREGROUND), (2.5 * self.s).max(1.5), UnitPixel, &mut pen);
-                let (a, b) = (to_px(a), to_px(b));
-                GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
-                GdipDeletePen(pen);
-            }
-            if let Some(car) = car {
-                let at = to_px(map.fit.apply(car));
-                for (radius, color) in [(13.0, CAR_HALO), (7.0, PRIMARY)] {
-                    let mut brush = null_mut();
-                    GdipCreateSolidFill(argb(color), &mut brush);
-                    let d = radius * 2.0 * self.s;
-                    GdipFillEllipse(graphics, brush.cast(), at.X - d / 2.0, at.Y - d / 2.0, d, d);
-                    GdipDeleteBrush(brush.cast());
-                }
-            }
-        });
-    }
-
     /// The window's background: a light gradient from top to bottom, with very fine diagonal lines over it.
     ///
     /// It is drawn once for each window size and kept: a frame copies it (drawing its hundreds of lines every frame
@@ -454,66 +390,7 @@ impl Painter {
     }
 }
 
-/// What a prepared map was made from: the map's data (its address, length and ends) and the box, so it is made again
-/// only when one of them changes.
-#[derive(Clone, PartialEq)]
-pub(super) struct MapKey {
-    pub(super) at: usize,
-    pub(super) len: usize,
-    pub(super) ends: Option<[u32; 4]>,
-    pub(super) frame: [u32; 4],
-    pub(super) complete: bool,
-}
-
-/// A map ready to draw, in design units: the runs to draw, the start mark, and how the world is laid in the box.
-#[derive(Clone)]
-pub(super) struct PreparedMap {
-    pub(super) runs: Vec<Vec<(f32, f32)>>,
-    pub(super) start: Option<((f32, f32), (f32, f32))>,
-    pub(super) fit: crate::maps::Fit,
-}
-
-/// Cuts the path at jumps, smooths it, fits it in the box (`cx`, `cy`, `w`, `h`) and finds the start mark of a whole
-/// lap. Done once per map and box, not at every redraw.
-pub(super) fn prepare_map(path: &[(f32, f32)], complete: bool, cx: f32, cy: f32, w: f32, h: f32) -> Option<PreparedMap> {
-    let mut runs = crate::maps::split_at_gaps(path, crate::dash::MAP_JUMP_METRES);
-    if runs.is_empty() {
-        return None;
-    }
-    // A whole lap closes on itself (when it came with its first point repeated, that is dropped first).
-    let closed = complete && runs.len() == 1;
-    if closed && runs[0].len() > 3 && runs[0].first() == runs[0].last() {
-        runs[0].pop();
-    }
-    let mut runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| crate::maps::smooth(r, 3, closed)).collect();
-    if closed {
-        let first = runs[0][0];
-        runs[0].push(first);
-    }
-    let all: Vec<(f32, f32)> = runs.iter().flatten().copied().collect();
-    let fit = crate::maps::fit(&all, cx, cy, w, h, 18.0)?;
-    let runs: Vec<Vec<(f32, f32)>> = runs.iter().map(|r| r.iter().map(|&p| fit.apply(p)).collect()).collect();
-    // The start/finish mark: a tick across the road at the first point, square to the way the lap leaves it.
-    let start = closed
-        .then(|| {
-            let run = &runs[0];
-            let (a, b) = (run[0], *run.get(3).unwrap_or(&run[run.len() - 1]));
-            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-            let len = dx.hypot(dy);
-            (len > 0.0).then(|| {
-                (
-                    (a.0 - dy / len * 9.0, a.1 + dx / len * 9.0),
-                    (a.0 + dy / len * 9.0, a.1 - dx / len * 9.0),
-                )
-            })
-        })
-        .flatten();
-    Some(PreparedMap { runs, start, fit })
-}
-
 thread_local! {
-    /// The map as last prepared, for its box; one per thread (the window's, and each test's).
-    static MAP_CACHE: std::cell::RefCell<Option<(MapKey, PreparedMap)>> = const { std::cell::RefCell::new(None) };
     /// The background as last drawn, for the window's size; one per thread (the window's, and each test's).
     static BACKDROP: std::cell::RefCell<Option<Backdrop>> = const { std::cell::RefCell::new(None) };
 }

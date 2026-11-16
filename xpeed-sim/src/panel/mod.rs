@@ -33,10 +33,9 @@ use windows_sys::Win32::Graphics::GdiPlus::GdipCreateBitmapFromScan0;
 use windows_sys::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine2, GdipClosePathFigure, GdipCreateBitmapFromFile, GdipCreateFromHDC,
     GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePath,
-    GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawLines, GdipDrawPath, GdipFillEllipse, GdipFillPath,
-    GdipGetImageThumbnail, GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPenEndCap, GdipSetPenLineJoin, GdipSetPenStartCap,
-    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput, GpGraphics, GpImage, GpPath,
-    InterpolationModeHighQualityBicubic, LineCapRound, LineJoinRound, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
+    GdipDeletePen, GdipDisposeImage, GdipDrawImageRectI, GdipDrawLine, GdipDrawPath, GdipFillPath, GdipGetImageThumbnail,
+    GdipSetInterpolationMode, GdipSetLinePresetBlend, GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusStartup, GdiplusStartupInput,
+    GpGraphics, GpImage, GpPath, InterpolationModeHighQualityBicubic, PixelOffsetModeHalf, PointF, SmoothingModeAntiAlias, UnitPixel,
     WrapModeTile,
 };
 use windows_sys::Win32::Graphics::GdiPlus::{GdipCloneBitmapAreaI, GdipDrawImageRect, GdipFillRectangle, SmoothingModeNone};
@@ -79,6 +78,7 @@ mod layout;
 mod model;
 mod monitor_view;
 mod paint;
+mod perspective_paint;
 #[cfg(test)]
 mod tests;
 mod tokens;

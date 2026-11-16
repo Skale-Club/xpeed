@@ -49,6 +49,7 @@ mod outbox;
 mod panel;
 #[cfg(windows)]
 mod persistence;
+mod perspective;
 mod present;
 #[cfg(test)]
 mod rcgen;
