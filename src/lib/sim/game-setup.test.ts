@@ -69,7 +69,7 @@ describe('the table of what to turn on in each game', () => {
     expect(say('lmu')).toContain('Settings > Gameplay > Enable external plugins');
     expect(say('f1')).toContain('Settings > Telemetry Settings > UDP Telemetry');
     expect(say('f1')).toContain('Port 20777');
-    expect(say('f1')).toContain('UDP Format 2025');
+    expect(say('f1')).toContain('UDP Format 2025 (or 2026 with the Season Pack)');
     expect(say('f124')).toContain('UDP Format 2024');
     expect(say('f123')).toContain('UDP Format 2023');
     expect(say('fm')).toContain('UDP Race Telemetry > Data Out');

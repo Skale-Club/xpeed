@@ -1980,6 +1980,7 @@
       "iracing": "no hay nada que activar, súbete al coche y empieza una sesión",
       "lmu": "activa Settings > Gameplay > Enable external plugins (vuelve a abrir el juego si no cambia nada)",
       "f1": "activa Settings > Telemetry Settings > UDP Telemetry, con Broadcast Mode desactivado, IP 127.0.0.1, Port 20777 y UDP Format {{year}}",
+      "f125": "activa Settings > Telemetry Settings > UDP Telemetry, con Broadcast Mode desactivado, IP 127.0.0.1, Port 20777 y UDP Format 2025 (o 2026, con el Season Pack)",
       "forzaMotorsport": "activa Settings > Gameplay & HUD > UDP Race Telemetry > Data Out, con IP 127.0.0.1, Port 5301 y Packet Format Dash",
       "forzaMotorsport7": "activa Settings > HUD and Gameplay > Data Out, con IP 127.0.0.1, Port 5301 y Format Dash",
       "horizon": "activa Settings > HUD and Gameplay > Data Out, con IP 127.0.0.1 y Port 5301",

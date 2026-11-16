@@ -498,12 +498,13 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
                 s("O RaceRoom compartilha os dados sozinho: comece uma sessão e vá para a pista."),
                 s("RaceRoom comparte los datos solo: empieza una sesión y sal a la pista."),
             ),
-            "f1" | "f124" | "f123" => {
-                let year = match *id {
-                    "f124" => 2024,
-                    "f123" => 2023,
-                    _ => 2025,
-                };
+            "f1" => t(
+                s("In the game: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format 2025 (or 2026 with the Season Pack)."),
+                s("No jogo: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format 2025 (ou 2026, com o Season Pack)."),
+                s("En el juego: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format 2025 (o 2026, con el Season Pack)."),
+            ),
+            "f124" | "f123" => {
+                let year = if *id == "f124" { 2024 } else { 2023 };
                 t(
                     format!("In the game: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format {year}."),
                     format!("No jogo: Settings > Telemetry Settings > UDP Telemetry On, Broadcast Mode Off, IP 127.0.0.1, Port 20777, UDP Format {year}."),
@@ -791,7 +792,7 @@ mod tests {
                 "Broadcast Mode Off",
                 "127.0.0.1",
                 "20777",
-                "UDP Format 2025",
+                "UDP Format 2025 (or 2026 with the Season Pack)",
             ],
         ),
         ("f124", &["UDP Telemetry On", "20777", "UDP Format 2024"]),

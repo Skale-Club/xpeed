@@ -8,11 +8,11 @@ import type { TFunction } from 'i18next';
 import { BUILT_IN_GAME_NAMES } from '@/lib/sim/games';
 
 export type SetupKind =
-  | 'ams2' | 'pcars' | 'auto' | 'iracing' | 'lmu' | 'f1' | 'forzaMotorsport' | 'forzaMotorsport7' | 'horizon' | 'wreckfest2' | 'rfactor';
+  | 'ams2' | 'pcars' | 'auto' | 'iracing' | 'lmu' | 'f1' | 'f125' | 'forzaMotorsport' | 'forzaMotorsport7' | 'horizon' | 'wreckfest2' | 'rfactor';
 
 export interface GameSetup {
   kind: SetupKind;
-  /** Values the wording needs (the F1 games each want the format of their own year). */
+  /** Values the wording needs (F1 24 and F1 23 each want the format of their own year; F1 25 says its own in its wording). */
   params?: Record<string, string | number>;
 }
 
@@ -28,7 +28,7 @@ export const GAME_SETUP: Readonly<Record<string, GameSetup>> = {
   r3e: { kind: 'auto' },
   iracing: { kind: 'iracing' },
   lmu: { kind: 'lmu' },
-  f1: { kind: 'f1', params: { year: 2025 } },
+  f1: { kind: 'f125' },
   f124: { kind: 'f1', params: { year: 2024 } },
   f123: { kind: 'f1', params: { year: 2023 } },
   fm: { kind: 'forzaMotorsport' },
@@ -50,6 +50,7 @@ export const SETUP_ENGLISH: Readonly<Record<SetupKind, string>> = {
   iracing: 'nothing to turn on, get in the car and start a session',
   lmu: 'turn on Settings > Gameplay > Enable external plugins (restart the game if nothing changes)',
   f1: 'turn on Settings > Telemetry Settings > UDP Telemetry, with Broadcast Mode off, IP 127.0.0.1, Port 20777 and UDP Format {{year}}',
+  f125: 'turn on Settings > Telemetry Settings > UDP Telemetry, with Broadcast Mode off, IP 127.0.0.1, Port 20777 and UDP Format 2025 (or 2026 with the Season Pack)',
   forzaMotorsport: 'turn on Settings > Gameplay & HUD > UDP Race Telemetry > Data Out, with IP 127.0.0.1, Port 5301 and Packet Format Dash',
   forzaMotorsport7: 'turn on Settings > HUD and Gameplay > Data Out, with IP 127.0.0.1, Port 5301 and Format Dash',
   horizon: 'turn on Settings > HUD and Gameplay > Data Out, with IP 127.0.0.1 and Port 5301',
