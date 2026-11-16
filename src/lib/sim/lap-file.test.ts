@@ -388,6 +388,64 @@ describe('checking the version 2 header fields', () => {
   });
 });
 
+describe('who recorded the lap and what the data checks found (version 2, optional)', () => {
+  const recorder = { app: 'xpeed-companion', version: '0.8.2', build: '9900d41', source: 'acevo', gameBuild: '0.9.1' };
+  const header = (patch: Record<string, unknown>) => ({ ...structuredClone(HEADER_V2), ...patch });
+  const stamped = (): LapFile => ({ ...lapV2(), header: { ...structuredClone(HEADER_V2), recorder: { ...recorder }, checks: ['t_repeats', 'clutch_stuck'] } });
+
+  it('is read, and a lap without it is still valid (the golden bytes carry neither)', () => {
+    expect(parseHeader(header({ recorder, checks: ['map_mirrored'] }))).toMatchObject({ recorder, checks: ['map_mirrored'] });
+    const old = unpackLap(goldenV2());
+    expect(old.header.recorder).toBeUndefined();
+    expect(old.header.checks).toBeUndefined();
+    expect(hex(packLap(old))).toBe(GOLDEN_V2_HEX);
+  });
+  it('round trips through the bytes and gzip, still in version 2', async () => {
+    const bytes = packLap(stamped());
+    expect(new DataView(bytes.buffer, bytes.byteOffset).getUint16(4, true)).toBe(2);
+    const back = unpackLap(bytes);
+    expect(back.header.recorder).toEqual(recorder);
+    expect(back.header.checks).toEqual(['t_repeats', 'clutch_stuck']);
+    expect((await gunzipLap(await gzipLap(stamped()))).header.recorder).toEqual(recorder);
+  });
+  it('reads the header exactly as the Companion writes it (key order and all)', () => {
+    const text = '"recorder":{"app":"xpeed-companion","version":"0.8.2","build":"9900d41","source":"acevo","gameBuild":"0.9.1"},"checks":["t_repeats","clutch_stuck"],"channels"';
+    expect(Buffer.from(packLap(stamped())).toString('utf8')).toContain(text);
+  });
+  it('leaves out a gameBuild that is not given and an empty list of checks', () => {
+    const { gameBuild: _gone, ...bare } = recorder;
+    const text = Buffer.from(packLap({ ...lapV2(), header: { ...structuredClone(HEADER_V2), recorder: bare, checks: [] } })).toString('utf8');
+    expect(text).toContain('"source":"acevo"}');
+    expect(text).not.toContain('gameBuild');
+    expect(text).not.toContain('checks');
+  });
+  it('refuses to write it in a version 1 file', () => {
+    expect(codeOf(() => packLap({ ...stamped(), version: 1 }))).toBe('bad_header');
+  });
+  it('ignores a key of the recorder it does not know', () => {
+    expect(parseHeader(header({ recorder: { ...recorder, os: 'windows' } })).recorder).toEqual(recorder);
+  });
+  it.each([
+    ['a recorder that is not an object', () => header({ recorder: 'acevo' })],
+    ['a recorder without a version', () => header({ recorder: { ...recorder, version: undefined } })],
+    ['a version that is not three numbers', () => header({ recorder: { ...recorder, version: 'latest' } })],
+    ['a build with a space', () => header({ recorder: { ...recorder, build: 'a b' } })],
+    ['a build of 41 characters', () => header({ recorder: { ...recorder, build: 'a'.repeat(41) } })],
+    ['an empty source', () => header({ recorder: { ...recorder, source: '' } })],
+    ['a game build of 65 characters', () => header({ recorder: { ...recorder, gameBuild: 'v'.repeat(65) } })],
+    ['an app that is a number', () => header({ recorder: { ...recorder, app: 7 } })],
+    ['checks that are not a list', () => header({ checks: 't_repeats' })],
+    ['a check id with capitals', () => header({ checks: ['T_repeats'] })],
+    ['17 checks', () => header({ checks: Array.from({ length: 17 }, (_, i) => `check_${i}`) })],
+  ])('refuses %s', (_name, make) => {
+    expect(codeOf(() => parseHeader(make()))).toBe('bad_header');
+  });
+  it('accepts the longest values', () => {
+    const edge = parseHeader(header({ recorder: { ...recorder, build: 'b'.repeat(40), source: 's'.repeat(32), gameBuild: 'g'.repeat(64), version: '0.8.2-beta.1' }, checks: Array.from({ length: 16 }, (_, i) => `c${i}`) }));
+    expect(edge.checks).toHaveLength(16);
+  });
+});
+
 describe('the channels added in version 2 and the limits that stay', () => {
   const NEW_CHANNELS = [
     ...['fl', 'fr', 'rl', 'rr'].flatMap((w) => [`tyre_temp_${w}`, `tyre_press_${w}`, `tyre_wear_${w}`, `brake_temp_${w}`]),

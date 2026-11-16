@@ -402,6 +402,8 @@ impl LapCutter {
             tyre_compound: lap.tyre_compound,
             in_lap: Some(lap.last_in_pits),
             out_lap: Some(lap.started_in_pits),
+            recorder: None,
+            checks: Vec::new(),
             channels,
         })
     }

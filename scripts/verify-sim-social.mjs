@@ -1050,6 +1050,16 @@ try {
     problem(await api.E('/admin/laps/00000000-0000-4000-8000-000000000000'), 404, 'lap_not_found');
     problem(await api.E('/admin/laps/nope'), 404, 'not_found');
     problem(await api.E('/admin/reports', { method: 'DELETE' }), 405, 'method_not_allowed');
+    // Who recorded it: null for a file that carries no recorder, the recorder and the failed data checks for one that does.
+    assert.equal(goodDetail.body.lap.recorder, null);
+  });
+
+  await check('moderation: the admin lap detail says which Companion and reader recorded the lap and which data checks it failed', async () => {
+    const recorder = { app: 'xpeed-companion', version: '0.8.2', build: '9900d41', source: 'acevo', gameBuild: '0.9.1' };
+    const id = await put('A', { track: 'Recorder Detail Ring', car: 'Recorder Detail Car', recorder, checks: ['clutch_stuck'] });
+    const detail = await api.E(`/admin/laps/${id}`);
+    assert.equal(detail.status, 200, detail.text);
+    assert.deepEqual(detail.body.lap.recorder, { ...recorder, checks: ['clutch_stuck'] });
   });
 
   await check('moderation: laps that arrived before the check have no verdict, rank nowhere, and the admin recheck reads their files', async () => {
