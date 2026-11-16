@@ -28,7 +28,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let buttons: Vec<(Action, String, bool, f32)> = wanted
         .into_iter()
         .map(|(action, label, primary)| {
-            let w = (g.width_of(&label, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0);
+            let w = (g.width_of(&label, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0);
             (action, label, primary, w)
         })
         .collect();
@@ -64,7 +64,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             continue;
         }
         if i > 0 {
-            g.fill(g.r(20.0, y, col - 40.0 - bar, 1.0), EDGE);
+            g.fill(g.r(20.0, y, col - 40.0 - bar, 1.0), BORDER);
         }
         // The cover, small; the game's initial on a card when there is none.
         let th = (row_h - 10.0).min(42.0);
@@ -73,16 +73,16 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         match cover_for(row.key, view.covers) {
             Some(image) => g.image(thumb, image),
             None => {
-                g.fill(thumb, TRACK);
+                g.fill(thumb, SECONDARY);
                 let initial: String = row.title.chars().take(1).collect();
-                g.text(&initial, thumb, 14.0, semi, Face::Num, MUTED, DT_CENTER);
+                g.text(&initial, thumb, T_BODY, semi, Face::Num, MUTED_TEXT, DT_CENTER);
             }
         }
         let state = state_text(view.lang, &row.state);
-        let pill_w = g.width_of(&state, 12.0, semi, Face::Ui) + 22.0;
+        let pill_w = g.width_of(&state, T_CAPTION, semi, Face::Ui) + 22.0;
         let text_x = 20.0 + tw + 14.0;
         let r = g.r(text_x, y, col - text_x - 40.0 - bar - pill_w, row_h);
-        g.text(&row.title, r, 14.5, normal, Face::Ui, TEXT, DT_LEFT);
+        g.text(&row.title, r, T_BODY, normal, Face::Ui, FOREGROUND, DT_LEFT);
         pill(
             g,
             col - 20.0 - bar - pill_w,
@@ -100,10 +100,10 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         let thumb_h = (track_h * track_h / content).clamp(24.0, track_h);
         let thumb_y = list_top + (track_h - thumb_h) * offset / max_scroll;
         let x = col - 17.0;
-        g.fill(g.r(x, list_top, 3.0, track_h), EDGE);
+        g.fill(g.r(x, list_top, 3.0, track_h), BORDER);
         let thumb_hit = g.r(x - 6.0, thumb_y, 15.0, thumb_h);
         let lit = view.mouse.is_some_and(|(mx, my)| inside(&thumb_hit, mx, my));
-        g.fill(g.r(x - 1.0, thumb_y, 5.0, thumb_h), if lit { ACCENT } else { MUTED });
+        g.fill(g.r(x - 1.0, thumb_y, 5.0, thumb_h), if lit { PRIMARY } else { MUTED_TEXT });
         view.scroll.set(Some(ScrollBar {
             area: g.r(0.0, 0.0, col, games_h),
             track: g.r(x - 6.0, list_top, 15.0, track_h),
@@ -120,26 +120,26 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         g.label(&text(view.lang, &Msg::PanelUpdate), 20.0, uy + 16.0, col - 40.0);
         let button_text = text(view.lang, &Msg::UpdateNow);
         let button_w = if line.button {
-            (g.width_of(&button_text, 13.5, semi, Face::Ui) + 36.0).min(col - 40.0)
+            (g.width_of(&button_text, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0)
         } else {
             0.0
         };
-        g.fill(g.r(20.0, uy + 54.0, 10.0, 10.0), if line.required { RED } else { ACCENT });
+        g.fill(g.r(20.0, uy + 54.0, 10.0, 10.0), if line.required { DESTRUCTIVE } else { PRIMARY });
         let room = (col - 60.0 - if line.button { button_w + 14.0 } else { 0.0 }).max(40.0);
         let r = g.r(40.0, uy + 44.0, room, 30.0);
         g.text(
             &line.headline,
             r,
-            14.5,
+            T_BODY,
             semi,
             Face::Ui,
-            if line.required { RED } else { TEXT },
+            if line.required { DESTRUCTIVE } else { FOREGROUND },
             DT_LEFT,
         );
         if line.button {
             let r = g.r(col - 20.0 - button_w, uy + 34.0, button_w, 36.0);
-            g.round(r, CORNER, ACCENT, None);
-            g.text(&button_text, r, 13.5, semi, Face::Ui, BG, DT_CENTER);
+            g.round(r, R_TILE, PRIMARY, None);
+            g.text(&button_text, r, T_BODY, semi, Face::Ui, ON_PRIMARY, DT_CENTER);
             view.buttons.borrow_mut().push((Action::UpdateNow, r));
         }
     }
@@ -150,16 +150,16 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.tile(0.0, account_y, col, account_h, CARD);
     g.label(&text(view.lang, &Msg::PanelAccount), 20.0, account_y + 16.0, col - 40.0);
     let cloud_color = match view.snapshot.cloud {
-        Cloud::Idle => GREEN,
-        Cloud::Waiting(_) => AMBER,
+        Cloud::Idle => SUCCESS,
+        Cloud::Waiting(_) => WARN,
         Cloud::NotPaired => GREY,
-        Cloud::Refused => RED,
+        Cloud::Refused => DESTRUCTIVE,
     };
     let host = connect::host_of(view.server);
     // The headline, its colour and the muted line under it, by what the card says.
     let (dot, headline, muted) = match &view.card {
         Card::Waiting { code } => (
-            AMBER,
+            WARN,
             text(view.lang, &Msg::ConnectWaiting),
             match code {
                 Some(code) => text(view.lang, &Msg::ConnectCodeHint(code.clone())),
@@ -189,13 +189,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     };
     g.fill(g.r(20.0, account_y + 52.0, 10.0, 10.0), dot);
     let r = g.r(40.0, account_y + 42.0, col - 60.0, 30.0);
-    g.text(&headline, r, 17.0, semi, Face::Ui, TEXT, DT_LEFT);
+    g.text(&headline, r, T_LEAD, semi, Face::Ui, FOREGROUND, DT_LEFT);
     if let Some(code) = code {
         let r = g.r(40.0, account_y + 68.0, col - 60.0, code_h);
-        g.text(code, r, 30.0, semi, Face::Num, TEXT, DT_LEFT);
+        g.text(code, r, T_VALUE_L, semi, Face::Num, FOREGROUND, DT_LEFT);
     }
     let r = g.r(40.0, account_y + 70.0 + code_h, col - 60.0, 20.0);
-    g.text(&muted, r, 12.5, normal, Face::Ui, MUTED, DT_LEFT);
+    g.text(&muted, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
     // The buttons, in as many lines as the card's width needs: connecting comes first while there is no account (or
     // it refused this computer).
     for ((action, label, primary, w), &(line, x)) in buttons.iter().zip(&lines) {
@@ -204,9 +204,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
             break;
         }
         let r = g.r(20.0 + x, by, *w, button_h);
-        let (fill, edge, ink) = if *primary { (ACCENT, None, BG) } else { (CARD, Some(EDGE), TEXT) };
-        g.round(r, CORNER, fill, edge);
-        g.text(label, r, 13.5, semi, Face::Ui, ink, DT_CENTER);
+        let (fill, edge, ink) = if *primary {
+            (PRIMARY, None, ON_PRIMARY)
+        } else {
+            (CARD, Some(BORDER), FOREGROUND)
+        };
+        g.round(r, R_TILE, fill, edge);
+        g.text(label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
         view.buttons.borrow_mut().push((*action, r));
     }
 
@@ -225,35 +229,43 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.label(&text(view.lang, &Msg::PanelLaps), right + 20.0, 16.0, col - 40.0);
     if view.recent_laps.is_empty() {
         let r = g.r(right + 20.0, 44.0, col - 40.0, 24.0);
-        g.text(&text(view.lang, &Msg::PanelNoLaps), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
+        g.text(
+            &text(view.lang, &Msg::PanelNoLaps),
+            r,
+            T_BODY,
+            normal,
+            Face::Ui,
+            MUTED_TEXT,
+            DT_LEFT,
+        );
     } else {
         // The count beside the title only when both fit on the line (in a small window they would run into each other).
         let count = text(view.lang, &Msg::PanelLapsCount(view.snapshot.laps_saved));
         let title = text(view.lang, &Msg::PanelLaps).to_uppercase();
-        let need = g.width_of(&count, 12.0, normal, Face::Ui) + g.width_of(&title, 12.0, semi, Face::Label) * 1.3 + 24.0;
+        let need = g.width_of(&count, T_CAPTION, normal, Face::Ui) + g.width_of(&title, T_CAPTION, semi, Face::Label) * 1.3 + 24.0;
         if need <= col - 40.0 {
             let r = g.r(right + 20.0, 14.0, col - 40.0, 22.0);
-            g.text(&count, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+            g.text(&count, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
         }
         let lap_row = 34.0;
         let room = ((laps_h - 52.0) / lap_row).floor().max(0.0) as usize;
         for (i, saved) in view.recent_laps.iter().rev().take(room).enumerate() {
             let y = 44.0 + lap_row * i as f32;
             if i > 0 {
-                g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
+                g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), BORDER);
             }
             let name = text(view.lang, &Msg::PanelLap(saved.number as i32));
             let time = clock(saved.time_ms);
             let invalid = !saved.valid;
             let r = g.r(right + 20.0, y, col / 2.0, lap_row);
-            g.text(&name, r, 14.0, normal, Face::Ui, TEXT, DT_LEFT);
+            g.text(&name, r, T_BODY, normal, Face::Ui, FOREGROUND_2, DT_LEFT);
             // The time stays in its half of the row (smaller when it is long), the mark of an invalid lap before it.
             let room = col / 2.0 - 20.0 - if invalid { 24.0 } else { 0.0 };
-            let size = g.fitted(&time, room, 18.0, 11.0, semi, Face::Num);
+            let size = g.fitted(&time, room, T_LEAD, T_CAPTION, semi, Face::Num);
             let color = match (invalid, i) {
-                (true, _) => MUTED,
-                (_, 0) => ACCENT,
-                _ => TEXT,
+                (true, _) => MUTED_TEXT,
+                (_, 0) => PRIMARY,
+                _ => FOREGROUND,
             };
             let r = g.r(right + col / 2.0, y, col / 2.0 - 20.0, lap_row);
             g.text(&time, r, size, semi, Face::Num, color, DT_RIGHT);
@@ -271,48 +283,56 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     g.label(&text(view.lang, &Msg::PanelActivity), right + 20.0, log_y + 16.0, col - 40.0);
     if view.activity.is_empty() {
         let r = g.r(right + 20.0, log_y + 44.0, col - 40.0, 24.0);
-        g.text(&text(view.lang, &Msg::PanelNoActivity), r, 13.5, normal, Face::Ui, MUTED, DT_LEFT);
+        g.text(
+            &text(view.lang, &Msg::PanelNoActivity),
+            r,
+            T_BODY,
+            normal,
+            Face::Ui,
+            MUTED_TEXT,
+            DT_LEFT,
+        );
     }
     let line_h = 32.0;
     let room = ((area_h - log_y - 52.0) / line_h).floor().max(0.0) as usize;
     for (i, (time, line)) in view.activity.iter().take(room).enumerate() {
         let y = log_y + 42.0 + line_h * i as f32;
         if i > 0 {
-            g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), EDGE);
+            g.fill(g.r(right + 20.0, y, col - 40.0, 1.0), BORDER);
         }
         let r = g.r(right + 20.0, y, 52.0, line_h);
-        g.text(time, r, 12.0, normal, Face::Ui, MUTED, DT_LEFT);
+        g.text(time, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
         let r = g.r(right + 76.0, y, col - 96.0, line_h);
-        g.text(line, r, 13.5, normal, Face::Ui, TEXT, DT_LEFT);
+        g.text(line, r, T_BODY, normal, Face::Ui, FOREGROUND, DT_LEFT);
     }
 
     // The footer: the button that copies the support text, then what is worth a word (copied, or a part that stopped), and
     // the shortcuts at the right while there is room for them.
     g.place(s, body.left, body.top);
     let copy = text(view.lang, &Msg::DiagnosticsCopy);
-    let copy_w = g.width_of(&copy, 12.5, semi, Face::Ui) + 24.0;
+    let copy_w = g.width_of(&copy, T_CAPTION, semi, Face::Ui) + 24.0;
     let r = g.r(0.0, h - 24.0, copy_w, 24.0);
-    g.round(r, CORNER, CARD, Some(EDGE));
-    g.text(&copy, r, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
+    g.round(r, R_TILE, CARD, Some(BORDER));
+    g.text(&copy, r, T_CAPTION, semi, Face::Ui, FOREGROUND, DT_CENTER);
     view.buttons.borrow_mut().push((Action::CopyDiagnostics, r));
     let note_x = copy_w + 14.0;
     let note = if !view.failed.is_empty() {
-        Some((text(view.lang, &Msg::WorkersFailed(view.failed.to_owned())), RED))
+        Some((text(view.lang, &Msg::WorkersFailed(view.failed.to_owned())), DESTRUCTIVE))
     } else if view.copied {
-        Some((text(view.lang, &Msg::DiagnosticsCopied), MUTED))
+        Some((text(view.lang, &Msg::DiagnosticsCopied), MUTED_TEXT))
     } else {
         None
     };
     let hint = text(view.lang, &Msg::PanelHint);
-    let hint_w = g.width_of(&hint, 12.0, normal, Face::Ui);
-    let note_w = note.as_ref().map_or(0.0, |(t, _)| g.width_of(t, 12.5, normal, Face::Ui));
+    let hint_w = g.width_of(&hint, T_CAPTION, normal, Face::Ui);
+    let note_w = note.as_ref().map_or(0.0, |(t, _)| g.width_of(t, T_CAPTION, normal, Face::Ui));
     if let Some((line, color)) = &note {
         let r = g.r(note_x, h - 22.0, (w - note_x).max(0.0), 20.0);
-        g.text(line, r, 12.5, normal, Face::Ui, *color, DT_LEFT);
+        g.text(line, r, T_CAPTION, normal, Face::Ui, *color, DT_LEFT);
     }
     if note_x + note_w + hint_w + 24.0 <= w {
         let r = g.r(0.0, h - 20.0, w, 20.0);
-        g.text(&hint, r, 12.0, normal, Face::Ui, MUTED, DT_RIGHT);
+        g.text(&hint, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_RIGHT);
     }
 }
 
@@ -327,7 +347,7 @@ pub(super) fn cover_for(key: &str, covers: &[CoverArt]) -> Option<*mut GpImage> 
 
 /// A small rounded label with a tinted background.
 pub(super) fn pill(g: &mut Painter, x: f32, y: f32, w: f32, word: &str, color: COLORREF) {
-    g.round(g.r(x, y, w, 24.0), CORNER, mix(CARD, color, 0.18), None);
+    g.round(g.r(x, y, w, 24.0), R_TILE, tint(CARD, color, 0.18), None);
     let r = g.r(x, y, w, 24.0);
-    g.text(word, r, 12.0, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
+    g.text(word, r, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
 }

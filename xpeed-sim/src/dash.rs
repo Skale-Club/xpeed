@@ -1507,6 +1507,82 @@ mod tests {
     }
 
     #[test]
+    fn the_reading_carries_the_phase_the_caps_and_what_was_last_seen_through_a_pause() {
+        use crate::game::Caps;
+        let mut tracker = Tracker::default();
+        let caps = Caps::GEAR.or(Caps::SPEED).or(Caps::FUEL).or(Caps::TYRE_TEMP).or(Caps::WATER_TEMP);
+        tracker.set_caps(caps);
+        let tyre = |t: f32| Tyre {
+            brake_c: f32::NAN,
+            temp_c: t,
+            pressure_kpa: f32::NAN,
+            left: f32::NAN,
+        };
+        let mut driving = at(3, 100.0, 12.0, None);
+        driving.set_phase(Phase::Driving);
+        driving.gear = 4.0;
+        driving.speed_ms = 50.0;
+        driving.fuel_l = 31.5;
+        driving.tyres = Some([tyre(80.0), tyre(82.0), tyre(90.0), tyre(91.0)]);
+        driving.state.water_c = Some(88.0);
+        let live = tracker.on_frame("Test", &driving, 10);
+        assert_eq!((live.phase, live.caps), (Phase::Driving, caps));
+        assert_eq!(live.last_seen.gear, Some(4.0));
+        // Paused: the game gives no live car values; the tyres, fuel and temperatures still come.
+        let mut paused = driving.clone();
+        paused.set_phase(Phase::Paused);
+        paused.withhold_car_values_unless_driving();
+        paused.tyres = None;
+        paused.fuel_l = f32::NAN;
+        paused.state.water_c = None;
+        let live = tracker.on_frame("Test", &paused, 20);
+        assert_eq!((live.phase, live.driving), (Phase::Paused, false));
+        assert!(live.gear.is_nan() && live.tyres.is_none() && live.fuel_l.is_nan());
+        assert_eq!(live.last_seen.gear, Some(4.0), "the last gear seen stays");
+        assert_eq!(live.last_seen.speed_ms, Some(50.0));
+        assert_eq!(live.last_seen.fuel_l, Some(31.5));
+        assert_eq!(live.last_seen.tyres.map(|t| t[3].temp_c), Some(91.0));
+        assert_eq!(live.last_seen.water_c, Some(88.0));
+        // A zero fuel reading outside the car is not a reading worth keeping.
+        let mut menu = paused.clone();
+        menu.fuel_l = 0.0;
+        assert_eq!(tracker.on_frame("Test", &menu, 30).last_seen.fuel_l, Some(31.5));
+    }
+
+    #[test]
+    fn a_source_that_never_gave_its_caps_has_the_ones_its_frames_filled() {
+        use crate::game::Caps;
+        let mut tracker = Tracker::default();
+        let live = tracker.on_frame("Test", &at(1, 10.0, 1.0, None), 0);
+        assert!(live.caps.has(Caps::LAP_TIME) && live.caps.has(Caps::RPM) && !live.caps.has(Caps::TYRE_TEMP));
+        // What the source says wins over what the frames happened to fill.
+        tracker.set_caps(Caps::GEAR);
+        let live = tracker.on_frame("Test", &at(1, 20.0, 2.0, None), 0);
+        assert_eq!(live.caps, Caps::GEAR);
+    }
+
+    #[test]
+    fn the_sector_times_are_of_the_lap_being_driven_and_move_to_the_last_lap_at_the_line() {
+        let mut tracker = Tracker::default();
+        let mut frame = at(1, 100.0, 10.0, None);
+        frame.sectors_ms = [None, None];
+        assert_eq!(tracker.on_frame("Test", &frame, 0).sectors_ms, [None, None]);
+        frame = at(1, 400.0, 30.0, None);
+        frame.sectors_ms = [Some(28_100), None];
+        let live = tracker.on_frame("Test", &frame, 0);
+        assert_eq!(live.sectors_ms, [Some(28_100), None]);
+        frame = at(1, 800.0, 60.0, None);
+        frame.sectors_ms = [Some(28_100), Some(44_500)];
+        assert_eq!(tracker.on_frame("Test", &frame, 0).sectors_ms, [Some(28_100), Some(44_500)]);
+        // The next lap begins: those are the last lap's now, and the new lap has none yet.
+        frame = at(2, 5.0, 0.5, Some(100.0));
+        frame.sectors_ms = [None, None];
+        let live = tracker.on_frame("Test", &frame, 0);
+        assert_eq!(live.last_sectors_ms, [Some(28_100), Some(44_500)]);
+        assert_eq!(live.sectors_ms, [None, None]);
+    }
+
+    #[test]
     fn a_new_session_starts_the_best_lap_the_fuel_and_the_rev_top_over_but_keeps_the_map() {
         use crate::lapfile::SessionKind;
         let mut tracker = Tracker::default();

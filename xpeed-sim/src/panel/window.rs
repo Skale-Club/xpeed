@@ -30,6 +30,8 @@ pub(super) const MIN_WIDTH: i32 = 360;
 pub(super) const MIN_HEIGHT: i32 = 480;
 
 pub(super) struct State {
+    /// The dashboard's layout in use, kept between frames (see `pick_layout_sticky`).
+    pub(super) layout: Option<Layout>,
     /// The back buffer frames are drawn into, kept for the window's size.
     pub(super) buffer: Option<Backdrop>,
     /// Where the mouse is over the window, while it is.
@@ -152,6 +154,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         games_scroll: state.games_scroll,
         scroll: Default::default(),
         carousel_step: Default::default(),
+        layout: std::cell::Cell::new(state.layout),
         lang_open: state.lang_open,
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
         failed: &failed,
@@ -159,6 +162,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         focus: focus_of(&ctx.shared.games()),
     };
     paint(memory, w, h, &view);
+    state.layout = view.layout.get();
     state.buttons = view.buttons.take();
     state.scroll = view.scroll.get();
     if view.carousel_step.get() > 0.0 {
@@ -265,8 +269,10 @@ pub(super) fn choose_lang(state: &mut State, lang: Lang) {
     crate::tray::set_lang_of_running(lang);
 }
 
+/// The dashboard tab shows the waiting screen: no reading, or the game is gone (a game still connected keeps the
+/// dashboard up, dimmed, through a silence).
 pub(super) fn waiting_now(state: &State) -> bool {
-    state.tab == Tab::Dash && state.ctx.shared.live().is_none_or(|l| now_ms() - l.at_ms > STALE_MS)
+    state.tab == Tab::Dash && !dashboard_shown(state.ctx.shared.live().as_ref(), &state.ctx.shared.snapshot().game, now_ms())
 }
 
 pub(super) unsafe fn toggle_full(hwnd: HWND, state: &mut State) {
@@ -753,6 +759,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         // Registering twice fails harmlessly (the class from the first time is used).
         RegisterClassExW(&window_class);
         let state = Box::into_raw(Box::new(State {
+            layout: None,
             ctx: ctx(),
             tab: Tab::Dash,
             on_top: false,
@@ -799,7 +806,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             // A dark title bar, the colour of the window (Windows 11; older versions ignore what they do not know).
             let dark: i32 = 1;
             DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE as u32, (&dark as *const i32).cast(), 4);
-            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR as u32, (&BG as *const COLORREF).cast(), 4);
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR as u32, (&BACKGROUND as *const COLORREF).cast(), 4);
         }
         if hwnd.is_null() {
             crate::applog::line("could not create the panel window");

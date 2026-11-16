@@ -59,7 +59,7 @@ pub(super) fn canvas_fit_wh(body: RECT, width: f32, height: f32) -> (f32, i32, i
 /// The dashboard's layouts, one per shape of window. Each is a canvas in design units, scaled whole to fit, so the
 /// panel works on an ultrawide screen, a 16:9 or 16:10 one, a 4:3 one and a phone held upright alike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Layout {
+pub enum Layout {
     /// The main dashboard alone (a small window).
     Classic,
     /// Ultrawide (21:9): the main dashboard and the track and tyre column.
@@ -130,8 +130,8 @@ pub(super) fn pick_layout(bw: f32, bh: f32, side: bool, main_h: f32) -> Layout {
 
 /// The height of the main dashboard: with no car card to show (no lights, engine or electronics) the strip along the
 /// bottom is not there and the canvas ends under the middle, so nothing below it is left floating.
-pub(super) fn main_height(live: &Live) -> f32 {
-    if present_cards(live).is_empty() {
+pub(super) fn main_height(slots: &Slots) -> f32 {
+    if slots.cards.is_empty() {
         STRIP_TOP + 16.0
     } else {
         CANVAS_H
@@ -385,7 +385,7 @@ pub(super) fn schematic(x: f32, y: f32, w: f32, h: f32, brakes: bool) -> Schemat
     let (left_x, right_x) = (cx - gap / 2.0 - tw, cx + gap / 2.0);
     let (front_y, rear_y) = (y + brake_h, y + h - brake_h - th);
     // The temperature and the pressure take about 50 units of height at the biggest; the size follows the tyre.
-    let temp_size = ((th - 18.0) / 1.15).clamp(14.0, 30.0);
+    let temp_size = type_step(((th - 18.0) / 1.15).clamp(T_BODY, T_VALUE_L));
     let block = temp_size * 1.15 + 16.0;
     // The body reaches a little past the tyres at both ends and as far out as the middle of each tyre.
     let half = gap / 2.0 + tw * 0.5;
@@ -499,4 +499,125 @@ pub(super) fn opening_size(work_w: i32, work_h: i32, scale: f32) -> (i32, i32) {
     let w = (work_w as f32 * 0.8).min(work_h as f32 * 0.85 * 16.0 / 9.0).max(min_w);
     let h = (w * 9.0 / 16.0).max(min_h);
     (w.round() as i32, h.round() as i32)
+}
+
+/// How much better another layout must fill the window than the one in use before the dashboard changes to it: a
+/// window dragged through a threshold does not flip back and forth.
+const LAYOUT_STICKY: f32 = 0.12;
+/// The layout in use also keeps its place a little below its usual smallest scale.
+const SCALE_SLACK: f32 = 0.06;
+
+/// `pick_layout`, but the layout already in use stays unless another one fills the window clearly better, or the one in
+/// use no longer reads at all.
+pub(super) fn pick_layout_sticky(bw: f32, bh: f32, side: bool, main_h: f32, current: Option<Layout>) -> Layout {
+    let best = pick_layout(bw, bh, side, main_h);
+    let Some(current) = current.filter(|c| *c != best) else {
+        return best;
+    };
+    let fill = |l: Layout, slack: f32| {
+        let (w, h) = l.size(side, main_h);
+        let s = (bw / w).min(bh / h);
+        (s >= l.min_scale(side) - slack).then(|| s * s * w * h / (bw * bh).max(1.0))
+    };
+    match (fill(current, SCALE_SLACK), fill(best, 0.0)) {
+        (Some(keep), Some(change)) if change < keep + LAYOUT_STICKY => current,
+        (Some(_), None) => current,
+        _ => best,
+    }
+}
+
+/// Which places the dashboard has, from what the game can give (`Live::caps`): the layout is chosen from these and the
+/// window's size, so a value that appears or goes away never moves anything.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Slots {
+    pub(super) rev: bool,
+    pub(super) gear: bool,
+    pub(super) speed: bool,
+    pub(super) brake: bool,
+    pub(super) throttle: bool,
+    pub(super) clutch: bool,
+    pub(super) steer: bool,
+    pub(super) lap_time: bool,
+    pub(super) last: bool,
+    pub(super) best: bool,
+    pub(super) delta: bool,
+    pub(super) fuel: bool,
+    pub(super) progress: bool,
+    pub(super) map: bool,
+    pub(super) tyres: bool,
+    pub(super) brakes: bool,
+    pub(super) water: bool,
+    pub(super) oil: bool,
+    /// The car strip's cards, in their order.
+    pub(super) cards: Vec<CarCard>,
+}
+
+impl Slots {
+    /// Something for the track and tyre column (or row).
+    pub(super) fn side(&self) -> bool {
+        self.map || self.tyres
+    }
+
+    /// How many rows the times column has.
+    pub(super) fn times(&self) -> usize {
+        usize::from(self.lap_time) + usize::from(self.last) + usize::from(self.best)
+    }
+}
+
+pub(super) fn slots(caps: crate::game::Caps) -> Slots {
+    use crate::game::Caps;
+    let all = |set: &[Caps]| set.iter().all(|c| caps.has(*c));
+    let any = |set: &[Caps]| set.iter().any(|c| caps.has(*c));
+    // The distance into the lap is the game's own, else the speed added up: a record by lap needs one of them.
+    let along = any(&[Caps::DIST, Caps::SPEED]);
+    let mut cards = Vec::new();
+    if any(&[
+        Caps::PIT_LIMITER,
+        Caps::ABS_ACTIVE,
+        Caps::TC_ACTIVE,
+        Caps::DRS,
+        Caps::HEADLIGHTS,
+        Caps::ENGINE_WARNING,
+        Caps::HANDBRAKE,
+        Caps::FLAG,
+        Caps::FUEL,
+    ]) {
+        cards.push(CarCard::Lights);
+    }
+    if any(&[Caps::WATER_TEMP, Caps::OIL_TEMP, Caps::FUEL]) {
+        cards.push(CarCard::Engine);
+    }
+    if any(&[
+        Caps::TC_LEVEL,
+        Caps::ABS_LEVEL,
+        Caps::ENGINE_MAP,
+        Caps::BRAKE_BIAS,
+        Caps::DAMAGE_BODY,
+        Caps::DAMAGE_ENGINE,
+        Caps::DAMAGE_GEARBOX,
+        Caps::DAMAGE_SUSPENSION,
+    ]) {
+        cards.push(CarCard::Electronics);
+    }
+    Slots {
+        rev: caps.has(Caps::RPM),
+        gear: caps.has(Caps::GEAR),
+        speed: caps.has(Caps::SPEED),
+        brake: caps.has(Caps::BRAKE),
+        throttle: caps.has(Caps::THROTTLE),
+        clutch: caps.has(Caps::CLUTCH),
+        steer: caps.has(Caps::STEER),
+        lap_time: caps.has(Caps::LAP_TIME),
+        last: caps.has(Caps::LAST_LAP),
+        best: caps.has(Caps::LAST_LAP) && along,
+        delta: all(&[Caps::LAP_TIME]) && along,
+        fuel: caps.has(Caps::FUEL),
+        progress: caps.has(Caps::TRACK_LENGTH) && along,
+        map: caps.has(Caps::POSITION),
+        tyres: any(&[Caps::TYRE_TEMP, Caps::TYRE_PRESSURE, Caps::TYRE_WEAR, Caps::BRAKE_TEMP]),
+        brakes: caps.has(Caps::BRAKE_TEMP),
+        water: caps.has(Caps::WATER_TEMP),
+        oil: caps.has(Caps::OIL_TEMP),
+        cards,
+    }
 }

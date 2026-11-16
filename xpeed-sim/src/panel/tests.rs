@@ -170,33 +170,51 @@ fn the_car_strip_cards_fit_their_row_and_the_least_important_go_first() {
 }
 
 #[test]
-fn a_light_the_game_does_not_give_is_not_drawn() {
-    use crate::game::{CarState, Drs, Flag};
+fn a_light_the_game_cannot_give_is_not_drawn_and_one_it_gives_without_a_value_is_dimmed() {
+    use crate::game::{Caps, CarState, Drs, Flag};
     let mut live = live_reading();
     live.fuel_per_lap_l = None;
     live.state = CarState::UNKNOWN;
-    assert!(light_pills(&live).is_empty(), "nothing known, nothing drawn (not even as off)");
-    // Only what is given appears, in the fixed order, lit or off.
+    live.caps = Caps::NONE;
+    assert!(
+        model(&live, Lang::En).lights.is_empty(),
+        "nothing the game can give, nothing drawn (not even as off)"
+    );
+    // Only what the game can give appears, in the fixed order; with no value yet it is there, off and dimmed.
+    live.caps = Caps::ABS_ACTIVE.or(Caps::DRS).or(Caps::HEADLIGHTS).or(Caps::FLAG);
+    let kinds: Vec<(PillKind, Glow, Show)> = model(&live, Lang::En).lights.iter().map(|p| (p.kind, p.glow, p.show)).collect();
+    assert_eq!(
+        kinds,
+        [
+            (PillKind::Abs, Glow::Off, Show::Dimmed),
+            (PillKind::Drs, Glow::Off, Show::Dimmed),
+            (PillKind::Headlights, Glow::Off, Show::Dimmed),
+            (PillKind::Flag, Glow::Off, Show::Dimmed)
+        ]
+    );
     live.state.headlights = Some(false);
     live.state.abs_active = Some(true);
     live.state.drs = Some(Drs::Available);
     live.state.flag = Some(Flag::Yellow);
-    let kinds: Vec<(PillKind, Glow)> = light_pills(&live).iter().map(|p| (p.kind, p.glow)).collect();
+    let kinds: Vec<(PillKind, Glow, Show)> = model(&live, Lang::En).lights.iter().map(|p| (p.kind, p.glow, p.show)).collect();
     assert_eq!(
         kinds,
         [
-            (PillKind::Abs, Glow::On),
-            (PillKind::Drs, Glow::Ready),
-            (PillKind::Headlights, Glow::Off),
-            (PillKind::Flag, Glow::Off)
+            (PillKind::Abs, Glow::On, Show::Shown),
+            (PillKind::Drs, Glow::Ready, Show::Shown),
+            (PillKind::Headlights, Glow::Off, Show::Shown),
+            (PillKind::Flag, Glow::Off, Show::Shown)
         ]
     );
     for hidden in [PillKind::Pit, PillKind::Tc, PillKind::Fuel, PillKind::Engine, PillKind::Handbrake] {
-        assert!(light_pills(&live).iter().all(|p| p.kind != hidden), "{hidden:?} is not given");
+        assert!(
+            model(&live, Lang::En).lights.iter().all(|p| p.kind != hidden),
+            "{hidden:?} is not given"
+        );
     }
     live.state.drs = Some(Drs::Open);
-    assert_eq!(light_pills(&live)[1].glow, Glow::On, "DRS open is lit");
-    // The same in the picture: a light that is not given paints nothing, one that is lit paints its colour.
+    assert_eq!(model(&live, Lang::En).lights[1].glow, Glow::On, "DRS open is lit");
+    // The same in the picture: one that is lit paints its colour.
     let f = fixture();
     let none = {
         let mut l = live_reading();
@@ -213,7 +231,10 @@ fn a_light_the_game_does_not_give_is_not_drawn() {
     let (w, h) = (1032, 602);
     let plain = render(&view(&f, Some(&none), Tab::Dash, 1.0, Lang::En), w, h);
     let drawn = render(&view(&f, Some(&lit), Tab::Dash, 1.0, Lang::En), w, h);
-    assert!(has_color(&drawn, RED) > has_color(&plain, RED) + 200, "ENG and HB light up in red");
+    assert!(
+        has_color(&drawn, DESTRUCTIVE) > has_color(&plain, DESTRUCTIVE) + 200,
+        "ENG and HB light up in red"
+    );
 }
 
 #[test]
@@ -228,29 +249,35 @@ fn laps_of_fuel_left_are_computed_and_hidden_without_the_use_per_lap() {
     let mut live = live_reading();
     live.fuel_l = 38.6;
     live.fuel_per_lap_l = Some(2.9);
-    assert_eq!(fuel_laps_text(&live, Lang::En).as_deref(), Some("≈ 13.3 laps"));
-    assert_eq!(fuel_laps_text(&live, Lang::Pt).as_deref(), Some("≈ 13.3 voltas"));
-    assert_eq!(fuel_per_lap_text(&live, Lang::En).as_deref(), Some("2.9 L/lap"));
-    assert_eq!(fuel_per_lap_text(&live, Lang::Pt).as_deref(), Some("2.9 L/volta"));
+    assert_eq!(model(&live, Lang::En).fuel_laps.text, "≈ 13.3 laps");
+    assert_eq!(model(&live, Lang::Pt).fuel_laps.text, "≈ 13.3 voltas");
+    assert_eq!(model(&live, Lang::En).fuel_per_lap.text, "2.9 L/lap");
+    assert_eq!(model(&live, Lang::Pt).fuel_per_lap.text, "2.9 L/volta");
     live.fuel_per_lap_l = None;
-    assert_eq!(fuel_laps_text(&live, Lang::En), None, "no laps until the use per lap is known");
-    assert_eq!(fuel_per_lap_text(&live, Lang::En), None);
-    assert!(engine_cells(&live, Lang::En)
-        .iter()
-        .all(|c| c.label != text(Lang::En, &Msg::PanelLapsLeft)));
+    let m = model(&live, Lang::En);
+    assert_eq!(m.fuel_laps.show, Show::Hidden, "no laps until the use per lap is known");
+    assert_eq!(m.fuel_per_lap.show, Show::Hidden);
+    let laps_left = m.engine.iter().find(|c| c.label == text(Lang::En, &Msg::PanelLapsLeft)).unwrap();
+    assert_eq!(
+        (laps_left.value.as_str(), laps_left.show),
+        ("–", Show::Dimmed),
+        "its place stays, empty"
+    );
     // The fuel light needs the laps too: under two laps it is lit.
-    assert!(light_pills(&live).iter().all(|p| p.kind != PillKind::Fuel));
+    let fuel_light = |live: &Live| {
+        model(live, Lang::En)
+            .lights
+            .iter()
+            .find(|p| p.kind == PillKind::Fuel)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(fuel_light(&live).show, Show::Dimmed);
     live.fuel_per_lap_l = Some(2.9);
     live.fuel_l = 4.0;
-    assert_eq!(
-        light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
-        Some(Glow::On)
-    );
+    assert_eq!(fuel_light(&live).glow, Glow::On);
     live.fuel_l = 20.0;
-    assert_eq!(
-        light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
-        Some(Glow::Off)
-    );
+    assert_eq!(fuel_light(&live).glow, Glow::Off);
 }
 
 #[test]
@@ -258,30 +285,36 @@ fn a_fuel_reading_taken_while_not_driving_never_warns_and_a_zero_is_not_shown() 
     let mut live = live_reading();
     live.fuel_per_lap_l = Some(2.9);
     live.fuel_l = 0.0;
-    assert!(fuel_low(&live), "driving with an empty tank warns");
+    assert!(model(&live, Lang::En).fuel_low, "driving with an empty tank warns");
     live.driving = false;
-    assert!(!fuel_low(&live), "no warning from a reading taken in the menu");
+    let m = model(&live, Lang::En);
+    assert!(!m.fuel_low, "no warning from a reading taken in the menu");
     assert_eq!(fuel_reading(&live), None, "a 0 in the menu is not a reading");
-    assert_eq!(laps_left(&live), None);
-    assert!(light_pills(&live).iter().all(|p| p.kind != PillKind::Fuel), "no FUEL light either");
-    assert!(engine_cells(&live, Lang::En)
-        .iter()
-        .all(|c| c.label != text(Lang::En, &Msg::PanelLapsLeft)));
+    // The last real reading stays, dimmed: not a 0, not a warning.
+    assert_eq!((m.fuel.text.as_str(), m.fuel.show), ("38.6", Show::Dimmed));
+    let fuel_light = |live: &Live| {
+        model(live, Lang::En)
+            .lights
+            .iter()
+            .find(|p| p.kind == PillKind::Fuel)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(fuel_light(&live).glow, Glow::Off, "no FUEL light either");
     // A real reading while not driving (in the pits box, say) is shown, but still never warns.
     live.fuel_l = 3.0;
     assert_eq!(fuel_reading(&live), Some(3.0));
-    assert!(!fuel_low(&live));
-    assert_eq!(
-        light_pills(&live).iter().find(|p| p.kind == PillKind::Fuel).map(|p| p.glow),
-        Some(Glow::Off)
-    );
+    let m = model(&live, Lang::En);
+    assert_eq!((m.fuel.text.as_str(), m.fuel.show), ("3.0", Show::Shown));
+    assert!(!m.fuel_low);
+    assert_eq!(fuel_light(&live).glow, Glow::Off);
     // Driving: red under two laps, not at two.
     live.driving = true;
     live.fuel_per_lap_l = Some(2.0);
     live.fuel_l = 3.9;
-    assert!(fuel_low(&live));
+    assert!(model(&live, Lang::En).fuel_low);
     live.fuel_l = 4.0;
-    assert!(!fuel_low(&live));
+    assert!(!model(&live, Lang::En).fuel_low);
     live.fuel_l = f32::NAN;
     assert_eq!(fuel_reading(&live), None);
 }
@@ -319,34 +352,37 @@ fn the_columns_share_their_room_among_what_is_shown() {
 
 #[test]
 fn a_game_that_gives_nothing_shows_nothing_extra() {
-    use crate::game::CarState;
+    use crate::game::Caps;
     let mut live = live_reading();
-    live.state = CarState::UNKNOWN;
-    live.fuel_per_lap_l = None;
-    live.tyres = None;
-    live.map = None;
-    assert_eq!(present_cards(&live), Vec::<CarCard>::new(), "no card without something to show");
+    let nothing = slots(Caps::NONE);
+    assert!(nothing.cards.is_empty(), "no card without something the game can give");
     assert!(strip_plan(0.0, 0.0, CANVAS_W, 100.0, &[]).is_empty());
-    assert!(!has_side(&live), "no column without a map or tyres");
-    assert!(main_height(&live) < CANVAS_H, "no strip, no empty band under the dashboard");
-    live.state.water_c = Some(90.0);
-    assert_eq!(main_height(&live), CANVAS_H);
-    live.state.tc_level = Some(2);
-    assert_eq!(present_cards(&live), [CarCard::Engine, CarCard::Electronics]);
+    assert!(!nothing.side(), "no column without a map or tyres");
+    assert!(main_height(&nothing) < CANVAS_H, "no strip, no empty band under the dashboard");
+    let engine = slots(Caps::WATER_TEMP);
+    assert_eq!(main_height(&engine), CANVAS_H);
+    let both = slots(Caps::WATER_TEMP.or(Caps::TC_LEVEL));
+    assert_eq!(both.cards, [CarCard::Engine, CarCard::Electronics]);
     // The two that remain take the whole row.
-    let plan = strip_plan(0.0, 0.0, CANVAS_W, 100.0, &present_cards(&live));
+    let plan = strip_plan(0.0, 0.0, CANVAS_W, 100.0, &both.cards);
     assert_eq!(plan.len(), 2);
     assert!((plan[1].1 .0 + plan[1].1 .2 - CANVAS_W).abs() < 0.01, "right edge reached: no hole");
-    live.state.headlights = Some(true);
-    assert_eq!(present_cards(&live)[0], CarCard::Lights);
+    assert_eq!(slots(Caps::WATER_TEMP.or(Caps::HEADLIGHTS)).cards[0], CarCard::Lights);
     // Lights alone take the row too, and the lights card is the last to go when the row is narrow.
     assert_eq!(
         strip_plan(0.0, 0.0, 300.0, 100.0, &[CarCard::Lights, CarCard::Engine])[0].0,
         CarCard::Lights
     );
     assert_eq!(strip_plan(0.0, 0.0, 300.0, 100.0, &[CarCard::Engine])[0].0, CarCard::Engine);
-    // A reading without times, delta, fuel, pedals, speed or wheel paints without a placeholder.
+    // A game that gives nothing of the car draws only what it gives, at any window shape.
     let f = fixture();
+    live.caps = Caps::LAP_TIME.or(Caps::SPEED).or(Caps::GEAR);
+    for (w, h) in [(1536, 864), (1024, 768), (540, 1080), (960, 600), (2560, 1080)] {
+        let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        assert!(!render(&v, w, h).is_empty());
+    }
+    // A reading without times, delta, fuel, pedals, speed or wheel paints dimmed placeholders, nothing moved.
+    let live = live_reading();
     let mut bare = live.clone();
     bare.lap_time_s = None;
     bare.last_lap_s = None;
@@ -370,9 +406,9 @@ fn a_game_that_gives_nothing_shows_nothing_extra() {
     }
     let full = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), 1536, 864);
     let none = render(&view(&f, Some(&bare), Tab::Dash, 1.0, Lang::En), 1536, 864);
-    assert!(has_color(&full, GREEN) > has_color(&none, GREEN) || has_color(&full, ACCENT) > has_color(&none, ACCENT));
-    // Without the gear the frame's brackets are gone too, and the yellow gear letter with them.
-    assert!(has_color(&none, ACCENT) < has_color(&full, ACCENT) / 2);
+    assert!(has_color(&full, SUCCESS) > has_color(&none, SUCCESS) || has_color(&full, PRIMARY) > has_color(&none, PRIMARY));
+    // Without a live gear the gear letter is dimmed: the full yellow is gone with it.
+    assert!(has_color(&none, PRIMARY) < has_color(&full, PRIMARY) / 2);
 }
 
 #[test]
@@ -398,11 +434,11 @@ fn the_light_tiles_are_a_grid_of_equal_tiles_without_a_lone_one_on_a_row_of_its_
     let nine = light_cells((0.0, 0.0, 572.0, 40.0), 9);
     assert!(nine.iter().all(|c| c.1 == nine[0].1), "nine in a wide, short card is one row");
     // Colours by meaning.
-    assert_eq!(pill_color(PillKind::Fuel), AMBER);
-    assert_eq!(pill_color(PillKind::Pit), AMBER);
-    assert_eq!(pill_color(PillKind::Engine), RED);
-    assert_eq!(pill_color(PillKind::Abs), BLUE);
-    assert_eq!(pill_color(PillKind::Tc), GREEN);
+    assert_eq!(pill_color(PillKind::Fuel), WARN);
+    assert_eq!(pill_color(PillKind::Pit), WARN);
+    assert_eq!(pill_color(PillKind::Engine), DESTRUCTIVE);
+    assert_eq!(pill_color(PillKind::Abs), INFO);
+    assert_eq!(pill_color(PillKind::Tc), SUCCESS);
 }
 
 #[test]
@@ -414,43 +450,58 @@ fn a_lit_light_paints_its_colour_and_an_unlit_one_does_not() {
     let off = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
     live.state.pit_limiter = Some(true);
     let on = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
-    assert!(
-        has_color(&on, AMBER) > has_color(&off, AMBER) + 400,
-        "the PIT tile fills with amber"
-    );
+    assert!(has_color(&on, WARN) > has_color(&off, WARN) + 400, "the PIT tile fills with amber");
 }
 
 #[test]
-fn the_engine_and_electronics_cards_keep_only_what_is_known() {
-    use crate::game::CarState;
+fn the_engine_and_electronics_cards_keep_only_what_the_game_can_give() {
+    use crate::game::{Caps, CarState};
     let mut live = live_reading();
     live.state = CarState::UNKNOWN;
-    assert!(electronics_cells(&live, Lang::En).is_empty() && damage_bars(&live, Lang::En).is_empty());
+    live.caps = Caps::NONE;
+    let m = model(&live, Lang::En);
+    assert!(m.electronics.is_empty() && m.damage.is_empty() && m.engine.is_empty());
+    live.caps = Caps::WATER_TEMP;
     live.state.water_c = Some(92.0);
-    live.fuel_per_lap_l = None;
-    let engine = engine_cells(&live, Lang::En);
+    let engine = model(&live, Lang::En).engine;
     assert_eq!(engine.len(), 1, "water alone: oil, use and laps are left out");
-    assert_eq!(engine[0].value, "92 °C");
+    assert_eq!((engine[0].value.as_str(), engine[0].show), ("92 °C", Show::Shown));
+    live.caps = Caps::TC_LEVEL.or(Caps::BRAKE_BIAS).or(Caps::DAMAGE_GEARBOX);
     live.state.tc_level = Some(0);
     live.state.brake_bias = Some(0.56);
     live.state.damage_gearbox = Some(0.4);
-    let cells = electronics_cells(&live, Lang::En);
-    assert_eq!(cells.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(), ["OFF", "56.0 %"]);
-    assert_eq!(damage_bars(&live, Lang::En), [("Gbx".to_owned(), 0.4)]);
-    assert_eq!(damage_color(0.0), GREEN);
-    assert_eq!(damage_color(0.5), AMBER);
-    assert_eq!(damage_color(1.0), RED);
+    let m = model(&live, Lang::En);
+    assert_eq!(
+        m.electronics.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(),
+        ["OFF", "56.0 %"]
+    );
+    assert_eq!(
+        m.damage,
+        [Damage {
+            label: "Gbx".to_owned(),
+            share: 0.4,
+            show: Show::Shown
+        }]
+    );
+    // A setting the game can give but has no value for now keeps its place, dimmed.
+    live.state.brake_bias = None;
+    let m = model(&live, Lang::En);
+    assert_eq!(m.electronics.len(), 2);
+    assert_eq!((m.electronics[1].value.as_str(), m.electronics[1].show), ("–", Show::Dimmed));
+    assert_eq!(damage_color(0.0), SUCCESS);
+    assert_eq!(damage_color(0.5), WARN);
+    assert_eq!(damage_color(1.0), DESTRUCTIVE);
 }
 
 #[test]
 fn the_brake_disc_and_tyre_colours_follow_their_temperature() {
     assert_eq!(brake_color(100.0), STEEL);
-    assert_eq!(brake_color(300.0), GREEN);
-    assert_eq!(brake_color(600.0), AMBER);
-    assert_eq!(brake_color(800.0), RED);
-    assert_eq!(brake_color(f32::NAN), MUTED);
+    assert_eq!(brake_color(300.0), SUCCESS);
+    assert_eq!(brake_color(600.0), WARN);
+    assert_eq!(brake_color(800.0), DESTRUCTIVE);
+    assert_eq!(brake_color(f32::NAN), MUTED_TEXT);
     assert_eq!(tyre_color(50.0), STEEL, "a cold tyre is a calm steel blue");
-    assert_eq!(tyre_color(80.0), GREEN);
+    assert_eq!(tyre_color(80.0), SUCCESS);
 }
 
 #[test]
@@ -511,7 +562,7 @@ fn a_game_that_is_loading_ranks_like_one_open_without_data_and_says_to_wait() {
     assert_ne!(setup, line);
     assert!(act, "no data after the wait: there is something to do");
     assert_eq!(state_text(Lang::En, &Game::Loading), "loading");
-    assert_eq!(state_color(&Game::Loading), MUTED);
+    assert_eq!(state_color(&Game::Loading), MUTED_TEXT);
 }
 
 #[test]
@@ -669,6 +720,16 @@ fn render(view: &View, width: i32, height: i32) -> Vec<u8> {
     }
 }
 
+/// How many pixels are clearly red (thin text never gets a pixel of exactly its colour at a small size).
+fn reddish(pixels: &[u8]) -> usize {
+    pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[2] > 170 && p[1] < 110 && p[0] < 110)
+        .count()
+}
+
 fn has_color(pixels: &[u8], color: COLORREF) -> usize {
     let (r, g, b) = ((color & 0xff) as u8, (color >> 8 & 0xff) as u8, (color >> 16 & 0xff) as u8);
     pixels
@@ -691,6 +752,18 @@ fn save(pixels: &[u8], width: i32, height: i32, name: &str) {
     encoder.set_depth(png::BitDepth::Eight);
     let rgba: Vec<u8> = pixels.as_chunks::<4>().0.iter().flat_map(|p| [p[2], p[1], p[0], 255]).collect();
     encoder.write_header().unwrap().write_image_data(&rgba).unwrap();
+}
+
+/// Every group of values a game can give.
+fn every_cap() -> crate::game::Caps {
+    crate::game::Caps::ALL
+        .iter()
+        .fold(crate::game::Caps::NONE, |all, (cap, _)| all.or(*cap))
+}
+
+/// The dashboard model of a reading, as of the moment it arrived.
+fn model(live: &Live, lang: Lang) -> DashModel {
+    dashboard(live, &ModelCtx { lang, now_ms: live.at_ms })
 }
 
 fn live_reading() -> Live {
@@ -723,6 +796,7 @@ fn live_reading() -> Live {
         }),
     );
     let mut live = tracker.on_frame("Assetto Corsa", &frame, 1_000);
+    live.caps = every_cap();
     let track: Vec<(f32, f32)> = (0..400)
         .map(|i| {
             let t = i as f32 / 400.0 * std::f32::consts::TAU;
@@ -849,6 +923,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         games_scroll: 0.0,
         scroll: Default::default(),
         carousel_step: Default::default(),
+        layout: Default::default(),
         lang_open: false,
         copied: false,
         failed: "",
@@ -866,14 +941,17 @@ fn paints_the_dashboard_with_the_gear_in_the_accent_colour_and_the_delta_in_gree
     save(&pixels, w, h, "panel-dashboard.png");
     assert!(pixels[..3].iter().all(|&c| c < 0x24), "the corner is the dark background");
     assert!(
-        has_color(&pixels, ACCENT) > 2000,
+        has_color(&pixels, PRIMARY) > 2000,
         "the selected tab and the gear are drawn in the accent"
     );
     assert!(
-        has_color(&pixels, GREEN) > 300,
+        has_color(&pixels, SUCCESS) > 300,
         "a negative delta, the throttle and the low revs are green"
     );
-    assert!(has_color(&pixels, RED) < has_color(&pixels, GREEN), "no brake, revs under the red");
+    assert!(
+        has_color(&pixels, DESTRUCTIVE) < has_color(&pixels, SUCCESS),
+        "no brake, revs under the red"
+    );
 }
 
 /// The pixels of `region` (x0, y0, x1, y1) of a `width`-wide render.
@@ -895,13 +973,13 @@ fn out_of_the_car_the_header_shows_no_lap_and_no_invalid_badge() {
     let header = (1700, 135, 1920, 185);
     let driving = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
     let lap = region_of(&driving, w, header);
-    assert!(has_color(&lap, ACCENT) > 200, "driving: the lap number is there");
-    assert!(has_color(&lap, RED) > 20, "driving: and the invalid mark");
+    assert!(has_color(&lap, PRIMARY) > 200, "driving: the lap number is there");
+    assert!(has_color(&lap, DESTRUCTIVE) > 20, "driving: and the invalid mark");
     live.driving = false;
     let menu = render(&view(&f, Some(&live), Tab::Dash, 1.0, Lang::En), w, h);
     let lap = region_of(&menu, w, header);
-    assert_eq!(has_color(&lap, ACCENT), 0, "in the menu: no lap number");
-    assert_eq!(has_color(&lap, RED), 0, "in the menu: no invalid badge");
+    assert_eq!(has_color(&lap, PRIMARY), 0, "in the menu: no lap number");
+    assert_eq!(has_color(&lap, DESTRUCTIVE), 0, "in the menu: no invalid badge");
 }
 
 #[test]
@@ -916,7 +994,6 @@ fn the_recent_laps_band_draws_only_the_laps_that_exist() {
     // Two cards (one lap done, the lap being driven) of the normal width: the row to their right is bare.
     let empty = region_of(&pixels, w, (600, 880, 1380, 1050));
     assert_eq!(has_color(&empty, CARD), 0, "no empty card");
-    assert_eq!(has_color(&empty, mix(BG, CARD, 0.45)), 0, "no placeholder");
     let cards = region_of(&pixels, w, (16, 880, 468, 1050));
     assert!(has_color(&cards, CARD) > 20_000, "the two cards are there");
 }
@@ -928,7 +1005,7 @@ fn paints_the_monitor_and_scales_with_the_screen() {
     let pixels = render(&view(&f, None, Tab::Monitor, 1.5, Lang::En), w, h);
     save(&pixels, w, h, "panel-monitor-150.png");
     assert!(has_color(&pixels, CARD) > 100_000, "the cards fill most of the window");
-    assert!(has_color(&pixels, RED) > 10, "the unsupported game has a red dot");
+    assert!(has_color(&pixels, DESTRUCTIVE) > 10, "the unsupported game has a red dot");
 }
 
 #[test]
@@ -972,7 +1049,7 @@ fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it()
         }
     }
     // Required: the same button, and red where it was not.
-    let available_red = has_color(&with(&f, Lang::En, 1280, 800).0, RED);
+    let available_red = has_color(&with(&f, Lang::En, 1280, 800).0, DESTRUCTIVE);
     f.update = UpdateState::Available {
         version: "0.6.0".into(),
         required: true,
@@ -981,9 +1058,12 @@ fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it()
     let (required, buttons) = with(&f, Lang::Pt, 1280, 800);
     save(&required, 1280, 800, "panel-monitor-update-required.png");
     assert!(buttons.iter().any(|(a, _)| *a == Action::UpdateNow));
-    assert!(has_color(&required, RED) > available_red + 100, "a required update is shown in red");
     assert!(
-        has_color(&plain, RED) < has_color(&required, RED),
+        has_color(&required, DESTRUCTIVE) > available_red + 100,
+        "a required update is shown in red"
+    );
+    assert!(
+        has_color(&plain, DESTRUCTIVE) < has_color(&required, DESTRUCTIVE),
         "and the same screen without an update has less red"
     );
     // Downloading, or waiting for a game to close: told, with no button to press.
@@ -1037,10 +1117,7 @@ fn the_monitor_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_
     let (copied_pixels, _) = buttons_of(&copied);
     let (stopped_pixels, _) = buttons_of(&stopped);
     assert_ne!(copied_pixels, render(&view(&f, None, Tab::Monitor, 1.0, Lang::Pt), w, h));
-    assert!(
-        has_color(&stopped_pixels, RED) > has_color(&before, RED),
-        "a stopped part is in red"
-    );
+    assert!(reddish(&stopped_pixels) > reddish(&before), "a stopped part is in red");
     // The waiting card with a code has a line of its own for it, so its buttons are lower, and still above the footer.
     let mut without = view(&f, None, Tab::Monitor, 1.0, Lang::En);
     without.card = connect::Card::Waiting { code: None };
@@ -1065,18 +1142,45 @@ fn the_monitor_has_the_diagnostics_button_the_waiting_card_shows_the_code_and_a_
 }
 
 #[test]
-fn says_it_waits_when_there_is_no_reading_or_it_is_old() {
-    let f = fixture();
+fn says_it_waits_when_there_is_no_reading_or_the_game_is_gone_and_dims_the_dashboard_through_a_silence() {
+    let mut f = fixture();
     let mut old = live_reading();
     old.at_ms = -10_000;
     let (w, h) = (960, 600);
     let waiting = render(&view(&f, None, Tab::Dash, 1.0, Lang::En), w, h);
     save(&waiting, w, h, "panel-waiting.png");
-    let stale = render(&view(&f, Some(&old), Tab::Dash, 1.0, Lang::En), w, h);
-    assert_eq!(waiting, stale, "a reading older than 3 s is not shown");
+    // The game is no longer connected: an old reading is not shown.
+    f.snapshot.game = Game::Waiting;
+    let gone = render(&view(&f, Some(&old), Tab::Dash, 1.0, Lang::En), w, h);
+    assert_eq!(waiting, gone, "no game, no dashboard from an old reading");
     assert!(
-        has_color(&waiting, ACCENT) < 6000,
+        has_color(&waiting, PRIMARY) < 6000,
         "no gear while waiting: only the selected tab is in the accent"
+    );
+    // The game is still connected and only the frames stopped: the dashboard stays, every value dimmed, with its line.
+    f.snapshot.game = Game::Recording(4);
+    let silent = render(&view(&f, Some(&old), Tab::Dash, 1.0, Lang::En), w, h);
+    save(&silent, w, h, "panel-silent.png");
+    assert_ne!(waiting, silent, "the dashboard is not replaced by the waiting screen");
+    assert!(
+        has_color(&silent, PRIMARY) < 6000,
+        "nothing is lit: the gear and the lap are dimmed"
+    );
+    let m = dashboard(&old, &ModelCtx { lang: Lang::En, now_ms: 0 });
+    assert_eq!(m.status, Some((StatusKind::NoData, "No data from the game".to_owned())));
+    for elem in [&m.gear, &m.speed, &m.lap_time, &m.fuel, &m.brake] {
+        assert_eq!(elem.show, Show::Dimmed, "{elem:?}");
+    }
+    assert!(m.lights.iter().all(|l| l.show == Show::Dimmed));
+    assert!(m.tyres.is_some_and(|t| t.show == Show::Dimmed));
+    assert!(dashboard_shown(Some(&old), &Game::Connected, 0));
+    assert!(dashboard_shown(Some(&old), &Game::Paused, 0));
+    assert!(!dashboard_shown(Some(&old), &Game::Silent, 0));
+    assert!(!dashboard_shown(Some(&old), &Game::Waiting, 0));
+    assert!(!dashboard_shown(None, &Game::Recording(1), 0));
+    assert!(
+        dashboard_shown(Some(&live_reading()), &Game::Waiting, 1_500),
+        "a fresh reading always shows"
     );
 }
 
@@ -1645,7 +1749,7 @@ fn frame_times() {
     if let Some(image) = covers.iter().find(|c| !c.image.is_null()).map(|c| c.image) {
         time("one cover image 283x425", &|g| g.image_exact((100.0, 100.0, 283.0, 425.0), image));
     }
-    time("one veil 283x425", &|g| g.veil_exact((100.0, 100.0, 283.0, 425.0), BG, 0.5));
+    time("one veil 283x425", &|g| g.veil_exact((100.0, 100.0, 283.0, 425.0), BACKGROUND, 0.5));
     time("backdrop (kept)", &|g| g.backdrop(w, h));
     time("rev bar", &|g| g.rev_bar(0.0, 0.0, 1360.0, 36.0, 0.9, false));
     time("text 34px", &|g| {
@@ -1655,7 +1759,7 @@ fn frame_times() {
             34.0,
             FW_SEMIBOLD as i32,
             Face::Num,
-            TEXT,
+            FOREGROUND,
             DT_CENTER,
         )
     });
@@ -1677,7 +1781,7 @@ fn the_dashboard_canvas_fills_the_window_and_keeps_its_shape() {
 #[test]
 fn turns_gdi_colours_into_gdiplus_colours() {
     assert_eq!(argb(rgb(0x12, 0x34, 0x56)), 0xff12_3456);
-    assert_eq!(argb(ACCENT), 0xfff5_e663);
+    assert_eq!(argb(PRIMARY), 0xfff5_e663);
 }
 
 #[test]
@@ -1783,4 +1887,273 @@ fn shows_log_times_on_the_local_clock() {
     let text = local_time(1_794_000_000_000);
     assert_eq!(text.len(), 8);
     assert_eq!(text.as_bytes()[2], b':');
+}
+
+/// A frame of a car on the track, as the readers build them.
+fn frame_of(lap: i32, dist: f64, t: f64) -> Frame {
+    let mut f = Frame::empty();
+    f.set_phase(crate::game::Phase::Driving);
+    f.lap = lap;
+    f.dist_m = Some(dist);
+    f.lap_time_s = Some(t);
+    f.track = "Spa".into();
+    f.car = "GT3".into();
+    f.track_length_m = Some(7000.0);
+    f.rpm = 7000.0;
+    f.speed_ms = 60.0;
+    f.gear = 4.0;
+    f.throttle = 0.8;
+    f.brake = 0.0;
+    f.steer = 0.1;
+    f.fuel_l = 40.0;
+    f.tyres = Some([84.0, 85.0, 90.0, 91.0].map(|t| crate::game::Tyre {
+        brake_c: f32::NAN,
+        temp_c: t,
+        pressure_kpa: 180.0,
+        left: 0.9,
+    }));
+    f
+}
+
+fn evo_like_caps() -> crate::game::Caps {
+    use crate::game::Caps;
+    [
+        Caps::LAP_TIME,
+        Caps::LAST_LAP,
+        Caps::DIST,
+        Caps::SPEED,
+        Caps::RPM,
+        Caps::GEAR,
+        Caps::THROTTLE,
+        Caps::BRAKE,
+        Caps::STEER,
+        Caps::FUEL,
+        Caps::TRACK_LENGTH,
+        Caps::TYRE_TEMP,
+        Caps::TYRE_PRESSURE,
+        Caps::TYRE_WEAR,
+        Caps::PIT_LIMITER,
+        Caps::DRS,
+    ]
+    .into_iter()
+    .fold(Caps::NONE, Caps::or)
+}
+
+#[test]
+fn a_paused_frame_dims_the_live_readings_and_keeps_the_tyres_and_fuel_as_they_were() {
+    use crate::game::Phase;
+    let mut tracker = crate::dash::Tracker::default();
+    tracker.set_caps(evo_like_caps());
+    let mut driving = frame_of(2, 3000.0, 80.0);
+    driving.state.pit_limiter = Some(false);
+    let live = tracker.on_frame("Assetto Corsa EVO", &driving, 100);
+    let ctx = |at: i64| ModelCtx {
+        lang: Lang::En,
+        now_ms: at,
+    };
+    let m = dashboard(&live, &ctx(100));
+    assert_eq!((m.gear.show, m.gear.text.as_str()), (Show::Shown, "4"));
+    assert_eq!(m.speed.text, "216");
+    assert_eq!(m.status, None);
+    // The game is paused: the car values are gone from the frame (not a "R"), the tyres and fuel still come.
+    let mut paused = driving.clone();
+    paused.set_phase(Phase::Paused);
+    paused.withhold_car_values_unless_driving();
+    let live = tracker.on_frame("Assetto Corsa EVO", &paused, 200);
+    let m = dashboard(&live, &ctx(200));
+    assert_eq!(
+        (m.gear.show, m.gear.text.as_str()),
+        (Show::Dimmed, "4"),
+        "the last gear, dimmed, never 'R'"
+    );
+    assert_eq!(m.speed.show, Show::Dimmed);
+    assert_eq!(
+        (m.throttle.show, m.brake.show, m.steer.show),
+        (Show::Dimmed, Show::Dimmed, Show::Dimmed)
+    );
+    assert_eq!(m.rev.show, Show::Dimmed);
+    assert!(m.lights.iter().all(|l| l.show == Show::Dimmed), "the lights are dimmed");
+    let tyres = m.tyres.expect("the game can give tyres");
+    assert_eq!(tyres.show, Show::Shown, "the frame still carries them");
+    assert_eq!(tyres.tyres[0].temp_c, 84.0);
+    assert_eq!((m.fuel.show, m.fuel.text.as_str()), (Show::Shown, "40.0"));
+    assert_eq!(m.status, Some((StatusKind::Paused, "Paused".to_owned())));
+    assert_eq!(m.lap.show, Show::Dimmed, "the lap number stays, dimmed");
+    // A frame without the tyres (a menu): the last ones stay, dimmed.
+    let mut menu = paused.clone();
+    menu.set_phase(Phase::Menu);
+    menu.tyres = None;
+    menu.fuel_l = f32::NAN;
+    let live = tracker.on_frame("Assetto Corsa EVO", &menu, 300);
+    let m = dashboard(&live, &ctx(300));
+    let tyres = m.tyres.expect("the game can give tyres");
+    assert_eq!((tyres.show, tyres.tyres[3].temp_c), (Show::Dimmed, 91.0));
+    assert_eq!((m.fuel.show, m.fuel.text.as_str()), (Show::Dimmed, "40.0"));
+    assert_eq!(m.lap.show, Show::Hidden, "out of the car there is no lap to number");
+    // Driving again: everything is live.
+    let live = tracker.on_frame("Assetto Corsa EVO", &driving, 400);
+    let m = dashboard(&live, &ctx(400));
+    assert!([&m.gear, &m.speed, &m.throttle, &m.rev].iter().all(|e| e.show == Show::Shown));
+    // The same model for the same reading: a pure function.
+    assert_eq!(format!("{m:?}"), format!("{:?}", dashboard(&live, &ctx(400))));
+}
+
+#[test]
+fn a_game_without_tyres_in_its_caps_has_no_tyres_even_when_a_frame_carries_some() {
+    use crate::game::Caps;
+    let mut tracker = crate::dash::Tracker::default();
+    tracker.set_caps(evo_like_caps().minus(Caps::TYRE_TEMP.or(Caps::TYRE_PRESSURE).or(Caps::TYRE_WEAR)));
+    let live = tracker.on_frame("Test", &frame_of(1, 100.0, 5.0), 100);
+    let m = model(&live, Lang::En);
+    assert!(m.tyres.is_none(), "the game never gives tyres: not shown, not dimmed");
+    assert!(!slots(live.caps).tyres && !slots(live.caps).side(), "and no column for them");
+    // The same game with tyres in its caps shows them.
+    tracker.set_caps(evo_like_caps());
+    let live = tracker.on_frame("Test", &frame_of(1, 110.0, 5.5), 110);
+    assert!(model(&live, Lang::En).tyres.is_some());
+}
+
+#[test]
+fn on_the_first_lap_the_delta_and_the_best_lap_are_hidden_but_their_places_stay() {
+    let mut tracker = crate::dash::Tracker::default();
+    tracker.set_caps(evo_like_caps());
+    let first = tracker.on_frame("Test", &frame_of(1, 500.0, 25.0), 100);
+    let m = model(&first, Lang::En);
+    assert_eq!(first.delta_s, None);
+    assert_eq!(m.delta.show, Show::Hidden);
+    assert_eq!(m.best_lap.show, Show::Hidden);
+    assert_eq!(m.last_lap.show, Show::Hidden);
+    let s = slots(first.caps);
+    assert!(s.delta && s.best && s.last, "the places are there: the game can give them");
+    // Nothing moves when they appear: the pictures differ only where they are drawn.
+    let f = fixture();
+    let mut with = live_reading();
+    let mut without = with.clone();
+    without.delta_s = None;
+    without.best_lap_s = None;
+    without.last_lap_s = None;
+    with.caps = evo_like_caps();
+    without.caps = evo_like_caps();
+    let (w, h) = (1536, 864);
+    let a = render(&view(&f, Some(&with), Tab::Dash, 1.0, Lang::En), w, h);
+    let b = render(&view(&f, Some(&without), Tab::Dash, 1.0, Lang::En), w, h);
+    // The gear frame, the speed and the pedals in the middle, and the lap time at the top left, are the same.
+    for region in [(450, 270, 690, 390), (10, 205, 270, 265)] {
+        assert_eq!(region_of(&a, w, region), region_of(&b, w, region), "{region:?} did not move");
+    }
+}
+
+#[test]
+fn a_value_that_comes_and_goes_never_moves_another_element() {
+    let f = fixture();
+    let mut base = live_reading();
+    base.caps = every_cap();
+    let (w, h) = (1536, 864);
+    let still = render(&view(&f, Some(&base), Tab::Dash, 1.0, Lang::En), w, h);
+    // The tyres, the fuel, the temperatures and the light states go missing: the rest does not shift.
+    let mut gone = base.clone();
+    gone.tyres = None;
+    gone.fuel_l = f32::NAN;
+    gone.state = crate::game::CarState::UNKNOWN;
+    gone.last_seen = Default::default();
+    let after = render(&view(&f, Some(&gone), Tab::Dash, 1.0, Lang::En), w, h);
+    for region in [(0, 120, 520, 470), (380, 120, 780, 470)] {
+        assert_eq!(region_of(&still, w, region), region_of(&after, w, region), "{region:?}");
+    }
+    // The layout itself is the same for any values: it is chosen from the caps.
+    assert_eq!(slots(base.caps), slots(gone.caps));
+}
+
+#[test]
+fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
+    let (side, main_h) = (true, CANVAS_H);
+    let (mut sticky_flips, mut plain_flips, mut edges) = (0, 0, 0);
+    for bh in [600.0, 760.0, 900.0, 1080.0] {
+        // Every width at which the best layout changes as the window widens.
+        let widths: Vec<f32> = (600..2800).map(|w| w as f32).collect();
+        for pair in widths.windows(2) {
+            let (was, now) = (pick_layout(pair[0], bh, side, main_h), pick_layout(pair[1], bh, side, main_h));
+            if was == now {
+                continue;
+            }
+            edges += 1;
+            // A window dragged back and forth across the threshold by a few pixels.
+            let mut current = Some(pick_layout_sticky(pair[0] - 4.0, bh, side, main_h, None));
+            let mut plain = current;
+            for step in 0..40 {
+                let width = pair[1] + if step % 2 == 0 { 4.0 } else { -6.0 };
+                let next = pick_layout_sticky(width, bh, side, main_h, current);
+                sticky_flips += usize::from(Some(next) != current);
+                current = Some(next);
+                let best = pick_layout(width, bh, side, main_h);
+                plain_flips += usize::from(Some(best) != plain);
+                plain = Some(best);
+            }
+        }
+    }
+    assert!(edges >= 4, "the layouts do change with the window ({edges})");
+    assert!(
+        plain_flips > sticky_flips * 4,
+        "the margin stops the flipping: {sticky_flips} against {plain_flips}"
+    );
+    // Whatever is in use is only left for a clearly better one: far from a threshold it is always the best.
+    for (bw, bh) in [(1920.0, 1080.0), (2560.0, 1080.0), (540.0, 1080.0), (1024.0, 768.0)] {
+        for current in [Layout::Classic, Layout::Wide, Layout::Portrait, Layout::Square, Layout::Ultrawide] {
+            let kept = pick_layout_sticky(bw, bh, side, main_h, Some(current));
+            let fill = |l: Layout| {
+                let (w, h) = l.size(side, main_h);
+                (bw / w).min(bh / h)
+            };
+            assert!(
+                kept == pick_layout(bw, bh, side, main_h) || fill(kept) >= fill(pick_layout(bw, bh, side, main_h)) * 0.8,
+                "{current:?} at {bw} x {bh} kept {kept:?}"
+            );
+        }
+    }
+    // With no layout in use yet it is just the best one.
+    assert_eq!(
+        pick_layout_sticky(1920.0, 1080.0, side, main_h, None),
+        pick_layout(1920.0, 1080.0, side, main_h)
+    );
+}
+
+#[test]
+fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
+    // The type scale: at most nine sizes, rising, labels never below 12.
+    assert!(SCALE.windows(2).all(|w| w[0] < w[1]));
+    assert_eq!(type_step(13.0), T_CAPTION);
+    assert_eq!(type_step(23.9), T_VALUE);
+    assert_eq!(type_step(500.0), T_HERO);
+    assert_eq!(type_step(1.0), T_CAPTION);
+    // Spacing is on a 4 px grid; the radii are the site's.
+    for s in [S1, S2, S3, S4, S6, S8] {
+        assert_eq!(s % 4.0, 0.0);
+    }
+    assert_eq!([R_XS, R_SM, R_MD, R_LG], [4.0, 6.0, 8.0, 10.0]);
+    assert_eq!((R_CARD, R_TILE), (8.0, 6.0));
+    // The site's colours.
+    assert_eq!(BACKGROUND, rgb(0x10, 0x11, 0x13));
+    assert_eq!(CARD, rgb(0x18, 0x19, 0x1b));
+    assert_eq!(MUTED_TEXT, rgb(0x93, 0x97, 0x9f));
+    assert_eq!(PRIMARY, rgb(0xf5, 0xe6, 0x63));
+    assert_eq!(ON_PRIMARY, rgb(0x12, 0x13, 0x16));
+    assert_eq!(BEST, rgb(0xa4, 0x74, 0xe7));
+    assert_eq!(GREY, rgb(0x7f, 0x84, 0x8c));
+    // A dimmed colour is between the card and the colour, never the colour itself.
+    assert_ne!(dim(PRIMARY), PRIMARY);
+    assert_eq!(dim(CARD), CARD);
+    // Nothing outside the tokens writes a colour: no `rgb(` and no `mix(` of its own (the damage gradient is the one mix).
+    for (file, source) in [
+        ("dash_view.rs", include_str!("dash_view.rs")),
+        ("monitor_view.rs", include_str!("monitor_view.rs")),
+        ("waiting_view.rs", include_str!("waiting_view.rs")),
+        ("chrome.rs", include_str!("chrome.rs")),
+        ("layout.rs", include_str!("layout.rs")),
+        ("model.rs", include_str!("model.rs")),
+        ("window.rs", include_str!("window.rs")),
+        ("art.rs", include_str!("art.rs")),
+    ] {
+        assert!(!source.contains("rgb("), "{file} writes a colour of its own");
+        assert!(!source.contains("mix("), "{file} mixes a colour of its own");
+    }
 }

@@ -118,6 +118,10 @@ pub enum Msg {
     PanelTyres,
     PanelLapProgress,
     PanelNotDriving,
+    /// The dashboard has had no frames for a while but the game is still connected.
+    PanelNoGameData,
+    /// The game is paused.
+    PanelPaused,
     PanelLap(i32),
     PanelLastLap,
     PanelBestLap,
@@ -443,6 +447,12 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelThrottle => t(s("Throttle"), s("Acelerador"), s("Acelerador")),
         PanelBrake => t(s("Brake"), s("Freio"), s("Freno")),
         PanelClutch => t(s("Clutch"), s("Embreagem"), s("Embrague")),
+        PanelNoGameData => t(
+            s("No data from the game"),
+            s("Sem dados do jogo"),
+            s("Sin datos del juego"),
+        ),
+        PanelPaused => t(s("Paused"), s("Pausado"), s("En pausa")),
         PanelPits => t(s("In the pits"), s("No pit"), s("En boxes")),
         PanelGames => t(s("Games"), s("Jogos"), s("Juegos")),
         PanelAccount => t(s("Account"), s("Conta"), s("Cuenta")),
@@ -719,6 +729,8 @@ mod tests {
             Msg::PanelTyres,
             Msg::PanelLapProgress,
             Msg::PanelNotDriving,
+            Msg::PanelNoGameData,
+            Msg::PanelPaused,
             Msg::PanelLap(3),
             Msg::PanelLastLap,
             Msg::PanelBestLap,

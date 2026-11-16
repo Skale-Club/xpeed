@@ -8,7 +8,7 @@ pub fn paint(hdc: HDC, width: i32, height: i32, view: &View) {
     let top = g.px(HEADER_H);
     let body = rect(g.px(16.0), top, width - g.px(16.0), height - g.px(16.0));
     match view.tab {
-        Tab::Dash => dashboard(&mut g, body, view),
+        Tab::Dash => dashboard_screen(&mut g, body, view),
         Tab::Monitor => monitor(&mut g, body, view),
     }
     if view.lang_open {
@@ -31,18 +31,18 @@ pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
         button.right,
         button.bottom + g.px(6.0) + pad * 2 + row_h * rows,
     );
-    g.round(list, CORNER, CARD, Some(EDGE));
+    g.round(list, R_LG, POPOVER, Some(BORDER));
     for (i, lang) in Lang::ALL.into_iter().enumerate() {
         let top = list.top + pad + row_h * i as i32;
         let row = rect(list.left + pad, top, list.right - pad, top + row_h);
         let current = lang == view.lang;
         if view.mouse.is_some_and(|(mx, my)| inside(&row, mx, my)) {
-            g.fill(row, mix(CARD, TEXT, 0.07));
+            g.fill(row, ROW_HOVER);
         }
         if current {
             g.fill(
                 rect(row.left, row.top + g.px(8.0), row.left + g.px(3.0), row.bottom - g.px(8.0)),
-                ACCENT,
+                PRIMARY,
             );
         }
         let (fw, fh) = (g.px(25.0), g.px(20.0));
@@ -60,10 +60,10 @@ pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
         g.text(
             lang.name(),
             label,
-            14.0,
+            T_BODY,
             FW_SEMIBOLD as i32,
             Face::Ui,
-            if current { ACCENT } else { TEXT },
+            if current { PRIMARY } else { FOREGROUND },
             DT_LEFT,
         );
         view.buttons.borrow_mut().push((Action::Lang(i), row));
@@ -97,12 +97,12 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
         return;
     };
     g.place(view.scale, 0, 0);
-    let measured = g.width_of(&label, 12.5, FW_SEMIBOLD as i32, Face::Ui);
+    let measured = g.width_of(&label, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui);
     let w = g.px(measured + 20.0);
     let h = g.px(28.0);
     let tip = rect(r.right - w, r.bottom + g.px(6.0), r.right, r.bottom + g.px(6.0) + h);
-    g.round(tip, CORNER, CARD, Some(EDGE));
-    g.text(&label, tip, 12.5, FW_SEMIBOLD as i32, Face::Ui, TEXT, DT_CENTER);
+    g.round(tip, R_SM, POPOVER, Some(BORDER));
+    g.text(&label, tip, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui, FOREGROUND, DT_CENTER);
 }
 
 pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
@@ -111,39 +111,50 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     let semi = FW_SEMIBOLD as i32;
     // The tabs: one pill, the chosen tab a yellow pill inside it.
     let control = rect(dash.left - g.px(4.0), g.px(13.0), mon.right + g.px(4.0), g.px(51.0));
-    g.round(control, CORNER, CARD, Some(EDGE));
-    let tab_size = if mon.right - dash.left < g.px(200.0) { 12.0 } else { 14.0 };
+    g.round(control, R_TILE, CARD, Some(BORDER));
+    let tab_size = if mon.right - dash.left < g.px(200.0) { T_CAPTION } else { T_BODY };
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
         let selected = view.tab == tab;
         if selected {
-            g.round(r, CORNER, ACCENT, None);
+            g.round(r, R_TILE, PRIMARY, None);
         }
-        let color = if selected { BG } else { MUTED };
+        let color = if selected { BACKGROUND } else { MUTED_TEXT };
         g.text(&text(view.lang, &label), r, tab_size, semi, Face::Ui, color, DT_CENTER);
     }
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
     // The language: a square button with its flag (yellow edge while its list is open); a click opens the list.
-    g.round(lang, CORNER, CARD, Some(if view.lang_open { ACCENT } else { EDGE }));
+    g.round(lang, R_TILE, CARD, Some(if view.lang_open { PRIMARY } else { BORDER }));
     let (fw, fh) = (g.px(22.5), g.px(18.0));
     let (cx, cy) = ((lang.left + lang.right) / 2, (lang.top + lang.bottom) / 2);
     let image = flag_image(view.lang);
     if image.is_null() {
-        g.text(&view.lang.code().to_uppercase(), lang, 12.5, semi, Face::Ui, TEXT, DT_CENTER);
+        g.text(
+            &view.lang.code().to_uppercase(),
+            lang,
+            T_CAPTION,
+            semi,
+            Face::Ui,
+            FOREGROUND,
+            DT_CENTER,
+        );
     } else {
         g.image(rect(cx - fw / 2, cy - fh / 2, cx - fw / 2 + fw, cy - fh / 2 + fh), image);
     }
     for (r, active) in [(full, view.full), (top, view.on_top)] {
-        let (fill, edge) = if active { (ACCENT, None) } else { (CARD, Some(EDGE)) };
-        g.round(r, CORNER, fill, edge);
+        let (fill, edge) = if active { (PRIMARY, None) } else { (CARD, Some(BORDER)) };
+        g.round(r, R_TILE, fill, edge);
     }
-    let (full_ink, pin_ink) = (if view.full { BG } else { TEXT }, if view.on_top { BG } else { TEXT });
+    let (full_ink, pin_ink) = (
+        if view.full { BACKGROUND } else { FOREGROUND },
+        if view.on_top { BACKGROUND } else { FOREGROUND },
+    );
     full_icon(g, full, full_ink, view.full);
     pin_icon(g, top, pin_ink);
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
     if let Some(r) = version_hit(width, view.scale) {
-        g.text(version, r, 12.0, FW_NORMAL as i32, Face::Ui, MUTED, DT_RIGHT);
+        g.text(version, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
     }
 }
 

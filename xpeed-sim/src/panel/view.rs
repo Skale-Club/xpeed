@@ -69,6 +69,9 @@ pub struct View<'a> {
     pub games_scroll: f32,
     /// The carousel's step from one cover to the next as drawn in this frame (pixels), for dragging it.
     pub carousel_step: std::cell::Cell<f32>,
+    /// The dashboard's layout in use: read at the start of a frame and set by it, so a window dragged through a
+    /// threshold only changes layout when another one is clearly better (`pick_layout_sticky`).
+    pub layout: std::cell::Cell<Option<Layout>>,
     /// The language list under the language button is open.
     pub lang_open: bool,
     /// The diagnostics were copied a moment ago: the Monitor tab says so for two seconds.

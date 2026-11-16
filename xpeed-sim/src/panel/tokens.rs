@@ -1,67 +1,183 @@
+//! The design tokens of the panel: the one place for every colour, type size, radius, spacing and stroke. Nothing else
+//! in `panel/` writes a colour, a font size, a corner radius or a gap as a literal; a view that needs a new one adds it
+//! here, with its reason.
+//!
+//! The surfaces, text and status colours are the site's (`src/index.css`, `tailwind.config.ts`), so the Companion and the
+//! website read as one product. What only a HUD needs (the rev bar, the cyan base line, the steel of a cold tyre) is
+//! marked as such. The typeface stays Chakra Petch (`paint.rs`, owner decision).
+
 use super::*;
 
-/// The colours, as `0x00BBGGRR`. The accent is the app's `--primary` (#F5E663); purple marks the best lap, as timing
-/// screens do.
+/// A colour as `0x00BBGGRR` (what GDI takes) from its red, green and blue.
 pub(super) const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
 
-pub(super) const BG: COLORREF = rgb(0x0c, 0x0d, 0x0f);
+/// `a` with `t` (0..1) of `b` mixed in. Only tokens and gradients use it: a view asks for a named colour instead.
+pub(super) const fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
+    const fn channel(a: COLORREF, b: COLORREF, t: f32, shift: u32) -> COLORREF {
+        let (x, y) = ((a >> shift & 0xff) as f32, (b >> shift & 0xff) as f32);
+        ((x + (y - x) * t + 0.5) as u32) << shift
+    }
+    channel(a, b, t, 0) | channel(a, b, t, 8) | channel(a, b, t, 16)
+}
 
-/// The window's background runs from this at the top to that at the bottom.
-pub(super) const BG_TOP: COLORREF = rgb(0x14, 0x16, 0x1a);
+// Surfaces.
 
-pub(super) const BG_BOTTOM: COLORREF = rgb(0x08, 0x09, 0x0b);
+/// The window's background (`--background`, #101113).
+pub(super) const BACKGROUND: COLORREF = rgb(0x10, 0x11, 0x13);
+/// A card (`--card`, #18191b).
+pub(super) const CARD: COLORREF = rgb(0x18, 0x19, 0x1b);
+/// A menu or list that floats over a card (`--popover`, #1a1b1e).
+pub(super) const POPOVER: COLORREF = rgb(0x1a, 0x1b, 0x1e);
+/// A quiet surface inside a card (`--muted`, #1f2023).
+pub(super) const SURFACE: COLORREF = rgb(0x1f, 0x20, 0x23);
+/// The empty part of a bar or a gauge, and a pressed or hovered surface (`--secondary`, #242529).
+pub(super) const SECONDARY: COLORREF = rgb(0x24, 0x25, 0x29);
+/// A line and the outline of a card (`--border`, #292a2e).
+pub(super) const BORDER: COLORREF = rgb(0x29, 0x2a, 0x2e);
 
-pub(super) const CARD: COLORREF = rgb(0x16, 0x18, 0x1c);
+// Text.
 
-pub(super) const EDGE: COLORREF = rgb(0x25, 0x28, 0x2e);
+/// The main text (`--foreground`, #eeeff2).
+pub(super) const FOREGROUND: COLORREF = rgb(0xee, 0xef, 0xf2);
+/// Text a step quieter than the main one (#d8dadf).
+pub(super) const FOREGROUND_2: COLORREF = rgb(0xd8, 0xda, 0xdf);
+/// Captions and notes (#93979f: the site's muted text, lighter than before for contrast on a card).
+pub(super) const MUTED_TEXT: COLORREF = rgb(0x93, 0x97, 0x9f);
 
-pub(super) const TRACK: COLORREF = rgb(0x27, 0x2a, 0x31);
+// Brand and status.
 
-pub(super) const WHITE: COLORREF = rgb(0xff, 0xff, 0xff);
+/// The brand colour (`--primary`, #f5e663): the gear, the lap number, a button.
+pub(super) const PRIMARY: COLORREF = rgb(0xf5, 0xe6, 0x63);
+/// The ink on `PRIMARY` and on any lit status colour (#121316).
+pub(super) const ON_PRIMARY: COLORREF = rgb(0x12, 0x13, 0x16);
+/// Danger: a lap that does not count, a hot tyre, a low fuel (`--destructive`, #e64c4c).
+pub(super) const DESTRUCTIVE: COLORREF = rgb(0xe6, 0x4c, 0x4c);
+/// Caution (#f6ae31).
+pub(super) const WARN: COLORREF = rgb(0xf6, 0xae, 0x31);
+/// Good: faster than the best lap, the throttle, a tyre in its window (#31b97a).
+pub(super) const SUCCESS: COLORREF = rgb(0x31, 0xb9, 0x7a);
+/// Information: the clutch, ABS (#4c99f0).
+pub(super) const INFO: COLORREF = rgb(0x4c, 0x99, 0xf0);
+/// The best lap, as timing screens colour it (#a474e7).
+pub(super) const BEST: COLORREF = rgb(0xa4, 0x74, 0xe7);
 
-pub(super) const TEXT: COLORREF = rgb(0xf2, 0xf2, 0xf3);
+// HUD only: nothing of the site has these.
 
-pub(super) const MUTED: COLORREF = rgb(0x7c, 0x82, 0x8c);
-
-pub(super) const ACCENT: COLORREF = rgb(0xf5, 0xe6, 0x63);
-
-pub(super) const GREEN: COLORREF = rgb(0x2f, 0xd6, 0x7b);
-
-pub(super) const RED: COLORREF = rgb(0xff, 0x4d, 0x4d);
-
-pub(super) const BLUE: COLORREF = rgb(0x3d, 0x9b, 0xff);
-
-/// A calm steel blue for a cold tyre or a cold brake (the loud BLUE is for the clutch and the shift flash).
-pub(super) const STEEL: COLORREF = rgb(0x6b, 0x95, 0xc2);
-
-pub(super) const AMBER: COLORREF = rgb(0xff, 0xb0, 0x3b);
-
-pub(super) const PURPLE: COLORREF = rgb(0xb5, 0x7c, 0xff);
-
-pub(super) const GREY: COLORREF = rgb(0x5c, 0x61, 0x6b);
-
-/// The rev bar's base line, and its gradient from low revs to the limit.
+/// The rev bar's base line and the headlights (#26c6ff).
 pub(super) const CYAN: COLORREF = rgb(0x26, 0xc6, 0xff);
-
+/// A calm blue for a cold tyre or a cold brake (the louder `INFO` is for the clutch and the shift flash).
+pub(super) const STEEL: COLORREF = rgb(0x6b, 0x95, 0xc2);
+/// A neighbouring gear, a light that is not lit (#7f848c, raised from #5c616b to read on a card).
+pub(super) const GREY: COLORREF = rgb(0x7f, 0x84, 0x8c);
+/// The rev bar's gradient from low revs to the limit.
 pub(super) const REV_STOPS: [(f32, COLORREF); 4] = [
     (0.0, rgb(0x57, 0xe3, 0x3a)),
     (0.55, rgb(0xe9, 0xef, 0x3c)),
     (0.8, rgb(0xff, 0x9f, 0x1c)),
     (1.0, rgb(0xff, 0x30, 0x30)),
 ];
-
+/// How many divisions the rev bar has.
 pub(super) const REV_DIVISIONS: usize = 10;
+/// The window's backdrop runs from this at the top to that at the bottom (a gradient around `BACKGROUND`).
+pub(super) const BACKDROP_TOP: COLORREF = mix(BACKGROUND, rgb(0x1c, 0x1e, 0x23), 0.8);
+pub(super) const BACKDROP_BOTTOM: COLORREF = mix(BACKGROUND, rgb(0, 0, 0), 0.35);
 
-/// `a` with `t` (0..1) of `b` mixed in.
-pub(super) fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
-    let channel = |shift: u32| {
-        let (x, y) = ((a >> shift & 0xff) as f32, (b >> shift & 0xff) as f32);
-        ((x + (y - x) * t).round() as u32) << shift
-    };
-    channel(0) | channel(8) | channel(16)
+// Derived colours: each is a named mix of tokens, written once here.
+
+/// The road's centre line on the track map.
+pub(super) const ROAD_LINE: COLORREF = mix(SECONDARY, FOREGROUND, 0.5);
+/// The glow round the car on the track map.
+pub(super) const CAR_HALO: COLORREF = mix(BACKGROUND, PRIMARY, 0.3);
+/// The cover of a game that has not arrived yet.
+pub(super) const COVER_PLACEHOLDER: COLORREF = mix(BACKGROUND, CARD, 0.8);
+/// A light that is not lit: its tile and its word.
+pub(super) const LIGHT_OFF_FILL: COLORREF = mix(CARD, BACKGROUND, 0.4);
+pub(super) const LIGHT_OFF_INK: COLORREF = mix(CARD, MUTED_TEXT, 0.5);
+/// The car seen from above in the tyre schematic: the body, the wings and the cabin.
+pub(super) const CAR_BODY: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.14);
+pub(super) const CAR_WING: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.22);
+pub(super) const CAR_CABIN: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.04);
+/// The row under the mouse in the language list.
+pub(super) const ROW_HOVER: COLORREF = mix(CARD, FOREGROUND, 0.07);
+/// A tyre of the schematic that the game says nothing about: its outline, and its fill.
+pub(super) const TYRE_UNKNOWN_EDGE: COLORREF = mix(BACKGROUND, MUTED_TEXT, 0.35);
+pub(super) const TYRE_FILL: COLORREF = mix(BACKGROUND, CARD, 0.55);
+/// What the make marks stand on (the logos are drawn for a light ground).
+pub(super) const BRAND_TILE: COLORREF = rgb(0xf5, 0xf5, 0xf5);
+/// The flags of the lights card.
+pub(super) const FLAG_WHITE: COLORREF = rgb(0xff, 0xff, 0xff);
+pub(super) const FLAG_BLACK: COLORREF = rgb(0x05, 0x05, 0x06);
+pub(super) const FLAG_CHEQUER: COLORREF = rgb(0x10, 0x10, 0x12);
+
+/// How much of its colour an element that is not live keeps over the card (paused, a menu, a silent game): it reads as
+/// "last known", never as a live value.
+pub(super) const DIM: f32 = 0.34;
+
+/// `c` as an element that is not live shows it, over a card.
+pub(super) const fn dim(c: COLORREF) -> COLORREF {
+    mix(CARD, c, DIM)
 }
 
-/// The corner radius of buttons, pills and cards (design pixels): nearly square, as racing screens are.
-pub(super) const CORNER: f32 = 2.5;
+/// `colour` over `base` by `amount`, for a colour that depends on a reading (a tyre's temperature, a light's colour):
+/// not a token, the one place a view derives a colour at run time.
+pub(super) fn tint(base: COLORREF, colour: COLORREF, amount: f32) -> COLORREF {
+    mix(base, colour, amount)
+}
+
+// Type: the sizes, in design pixels (a window at 96 DPI). Labels are never below `T_CAPTION`.
+
+/// Captions, labels, notes and units.
+pub(super) const T_CAPTION: f32 = 12.0;
+/// Body text and buttons.
+pub(super) const T_BODY: f32 = 14.0;
+/// A heading or a small figure.
+pub(super) const T_LEAD: f32 = 18.0;
+/// A figure in a card.
+pub(super) const T_VALUE: f32 = 22.0;
+/// A bigger figure: the lap number, a neighbouring gear.
+pub(super) const T_VALUE_L: f32 = 28.0;
+/// The delta, the fuel in litres, a lap card's time.
+pub(super) const T_NUMERAL: f32 = 36.0;
+/// The speed, the lap times.
+pub(super) const T_NUMERAL_L: f32 = 44.0;
+/// The biggest figures of a row of times.
+pub(super) const T_HERO: f32 = 52.0;
+/// The type scale, smallest first.
+pub(super) const SCALE: [f32; 8] = [T_CAPTION, T_BODY, T_LEAD, T_VALUE, T_VALUE_L, T_NUMERAL, T_NUMERAL_L, T_HERO];
+
+/// At most nine sizes, and a label is never below 12 design pixels: checked when the program is built.
+const _: () = assert!(SCALE.len() <= 9 && SCALE[0] >= 12.0);
+
+/// The largest size of the type scale that is not above `size` (the smallest when `size` is below it all): a text that
+/// shrinks to fit steps down the scale, it never makes a size of its own.
+pub(super) fn type_step(size: f32) -> f32 {
+    SCALE.iter().rev().copied().find(|s| *s <= size + 0.001).unwrap_or(T_CAPTION)
+}
+
+/// The gear fills this share of its frame's height.
+pub(super) const GEAR_FILL: f32 = 0.93;
+
+// Shape.
+
+/// Corner radii: the small controls, tiles, cards, the window's own surfaces.
+pub(super) const R_XS: f32 = 4.0;
+pub(super) const R_SM: f32 = 6.0;
+pub(super) const R_MD: f32 = 8.0;
+pub(super) const R_LG: f32 = 10.0;
+/// A card is `R_MD`, a tile (a light, a tyre, a pill, a button) `R_SM`.
+pub(super) const R_CARD: f32 = R_MD;
+pub(super) const R_TILE: f32 = R_SM;
+
+/// Spacing, on a 4 px grid.
+pub(super) const S1: f32 = 4.0;
+pub(super) const S2: f32 = 8.0;
+pub(super) const S3: f32 = 12.0;
+pub(super) const S4: f32 = 16.0;
+pub(super) const S6: f32 = 24.0;
+pub(super) const S8: f32 = 32.0;
+
+/// Strokes: a hairline, a bar's thickness, the accent edge of a card.
+pub(super) const STROKE_HAIR: f32 = 1.0;
+pub(super) const STROKE_BAR: f32 = 3.0;

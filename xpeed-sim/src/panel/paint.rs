@@ -14,8 +14,85 @@ pub(super) fn gdiplus_ready() -> bool {
     })
 }
 
+thread_local! {
+    /// Whether the elements being drawn are not live (see `Painter::set_dim`).
+    static DIMMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A colour as the element being drawn shows it: dimmed when it is not live.
+pub(super) fn ink(color: COLORREF) -> COLORREF {
+    if DIMMED.get() {
+        dim(color)
+    } else {
+        color
+    }
+}
+
+impl Role {
+    /// The token a meaning is drawn in.
+    pub(super) fn colour(self) -> COLORREF {
+        match self {
+            Role::Text => FOREGROUND,
+            Role::Muted => MUTED_TEXT,
+            Role::Primary => PRIMARY,
+            Role::Good => SUCCESS,
+            Role::Danger => DESTRUCTIVE,
+            Role::Warn => WARN,
+            Role::Best => BEST,
+            Role::Info => INFO,
+        }
+    }
+}
+
+/// The colour a light lights in, by what it means: amber for warnings of the driver's own doing (fuel, the pit
+/// limiter), red for the car's (engine, handbrake), blue, green and cyan for aids and lamps being active.
+pub(super) fn pill_color(kind: PillKind) -> COLORREF {
+    match kind {
+        PillKind::Pit | PillKind::Fuel => WARN,
+        PillKind::Abs => INFO,
+        PillKind::Tc | PillKind::Drs => SUCCESS,
+        PillKind::Engine | PillKind::Handbrake => DESTRUCTIVE,
+        PillKind::Headlights => CYAN,
+        PillKind::Flag => MUTED_TEXT,
+    }
+}
+
+/// Damage's colour: green, through amber, to red.
+pub(super) fn damage_color(share: f32) -> COLORREF {
+    let s = share.clamp(0.0, 1.0);
+    if s < 0.5 {
+        mix(SUCCESS, WARN, s / 0.5)
+    } else {
+        mix(WARN, DESTRUCTIVE, (s - 0.5) / 0.5)
+    }
+}
+
+/// The colour of a tyre's temperature: blue cold, green in its window, amber warm, red hot (°C, typical for racing
+/// tyres; each game and compound has its own window, so this is a guide, not a target).
+pub(super) fn tyre_color(temp_c: f32) -> COLORREF {
+    match temp_c {
+        t if !t.is_finite() => MUTED_TEXT,
+        t if t < 65.0 => STEEL,
+        t if t < 95.0 => SUCCESS,
+        t if t < 110.0 => WARN,
+        _ => DESTRUCTIVE,
+    }
+}
+
+/// The colour of a brake disc's temperature: steel blue cold, green working, amber hot, red over the limit.
+pub(super) fn brake_color(temp_c: f32) -> COLORREF {
+    match temp_c {
+        t if !t.is_finite() => MUTED_TEXT,
+        t if t < 150.0 => STEEL,
+        t if t < 450.0 => SUCCESS,
+        t if t < 700.0 => WARN,
+        _ => DESTRUCTIVE,
+    }
+}
+
 /// A GDI colour (`0x00BBGGRR`) as GDI+ wants it (`0xAARRGGBB`, opaque).
 pub(super) fn argb(color: COLORREF) -> u32 {
+    let color = ink(color);
     0xff00_0000 | (color & 0xff) << 16 | (color & 0xff00) | (color >> 16 & 0xff)
 }
 
@@ -160,6 +237,12 @@ impl Painter {
         }
     }
 
+    /// From here on every colour is drawn as an element that is not live shows it (`dim`), or as it is. Returns what it
+    /// was, to put back.
+    pub(super) fn set_dim(&mut self, on: bool) -> bool {
+        DIMMED.replace(on)
+    }
+
     /// Design units from here on: `s` pixels each, starting at pixel `(ox, oy)`.
     pub(super) fn place(&mut self, s: f32, ox: i32, oy: i32) {
         (self.s, self.ox, self.oy) = (s, ox, oy);
@@ -216,7 +299,7 @@ impl Painter {
 
     pub(super) fn fill(&self, r: RECT, color: COLORREF) {
         unsafe {
-            let brush = CreateSolidBrush(color);
+            let brush = CreateSolidBrush(ink(color));
             FillRect(self.hdc, &r, brush);
             DeleteObject(brush);
         }
@@ -247,8 +330,8 @@ impl Painter {
             return;
         }
         unsafe {
-            let brush = CreateSolidBrush(color);
-            let pen = edge.map(|c| CreatePen(PS_SOLID, 1, c));
+            let brush = CreateSolidBrush(ink(color));
+            let pen = edge.map(|c| CreatePen(PS_SOLID, 1, ink(c)));
             let old_brush = SelectObject(self.hdc, brush);
             let old_pen = SelectObject(self.hdc, pen.unwrap_or_else(|| GetStockObject(NULL_PEN)));
             let d = self.px(radius * 2.0).max(1);
@@ -273,7 +356,7 @@ impl Painter {
         let drawn = smooth(self.hdc, |graphics| unsafe {
             let whole = dome_part(px, py, pw, ph, side, 0.0, 1.0);
             let mut brush = null_mut();
-            GdipCreateSolidFill(argb(if flash_on { BLUE } else { TRACK }), &mut brush);
+            GdipCreateSolidFill(argb(if flash_on { INFO } else { SECONDARY }), &mut brush);
             GdipFillPath(graphics, brush.cast(), whole);
             GdipDeleteBrush(brush.cast());
             GdipDeletePath(whole);
@@ -291,7 +374,7 @@ impl Painter {
             }
             // The divisions, cut in the background colour from the curve down.
             let mut pen = null_mut();
-            GdipCreatePen1(argb(BG), line_w, UnitPixel, &mut pen);
+            GdipCreatePen1(argb(BACKGROUND), line_w, UnitPixel, &mut pen);
             for i in 1..REV_DIVISIONS {
                 let t = i as f32 / REV_DIVISIONS as f32;
                 let lx = px + pw * t;
@@ -300,8 +383,8 @@ impl Painter {
             GdipDeletePen(pen);
         });
         if !drawn {
-            self.fill(self.r(x, y + h * 0.45, w, h * 0.55), TRACK);
-            self.fill(self.r(x, y + h * 0.45, w * fill, h * 0.55), if flash_on { BLUE } else { GREEN });
+            self.fill(self.r(x, y + h * 0.45, w, h * 0.55), SECONDARY);
+            self.fill(self.r(x, y + h * 0.45, w * fill, h * 0.55), if flash_on { INFO } else { SUCCESS });
         }
     }
 
@@ -337,7 +420,7 @@ impl Painter {
         let road = (11.0 * self.s).max(3.0);
         let line = (2.5 * self.s).max(1.0);
         smooth(self.hdc, |graphics| unsafe {
-            for (width, color) in [(road, TRACK), (line, mix(TRACK, TEXT, 0.5))] {
+            for (width, color) in [(road, SECONDARY), (line, ROAD_LINE)] {
                 let mut pen = null_mut();
                 GdipCreatePen1(argb(color), width, UnitPixel, &mut pen);
                 GdipSetPenLineJoin(pen, LineJoinRound);
@@ -351,14 +434,14 @@ impl Painter {
             }
             if let Some((a, b)) = map.start {
                 let mut pen = null_mut();
-                GdipCreatePen1(argb(TEXT), (2.5 * self.s).max(1.5), UnitPixel, &mut pen);
+                GdipCreatePen1(argb(FOREGROUND), (2.5 * self.s).max(1.5), UnitPixel, &mut pen);
                 let (a, b) = (to_px(a), to_px(b));
                 GdipDrawLine(graphics, pen, a.X, a.Y, b.X, b.Y);
                 GdipDeletePen(pen);
             }
             if let Some(car) = car {
                 let at = to_px(map.fit.apply(car));
-                for (radius, color) in [(13.0, mix(BG, ACCENT, 0.3)), (7.0, ACCENT)] {
+                for (radius, color) in [(13.0, CAR_HALO), (7.0, PRIMARY)] {
                     let mut brush = null_mut();
                     GdipCreateSolidFill(argb(color), &mut brush);
                     let d = radius * 2.0 * self.s;
@@ -506,7 +589,7 @@ pub(super) fn draw_backdrop(hdc: HDC, w: i32, h: i32, step: f32) {
     let drawn = smooth(hdc, |graphics| unsafe {
         let (from, to) = (PointF { X: 0.0, Y: -1.0 }, PointF { X: 0.0, Y: fh + 1.0 });
         let mut gradient = null_mut();
-        GdipCreateLineBrush(&from, &to, argb(BG_TOP), argb(BG_BOTTOM), WrapModeTile, &mut gradient);
+        GdipCreateLineBrush(&from, &to, argb(BACKDROP_TOP), argb(BACKDROP_BOTTOM), WrapModeTile, &mut gradient);
         GdipFillRectangle(graphics, gradient.cast(), 0.0, 0.0, fw, fh);
         GdipDeleteBrush(gradient.cast());
         // Hairlines one pixel wide, crisp (no smoothing), white at a few per cent.
@@ -522,7 +605,7 @@ pub(super) fn draw_backdrop(hdc: HDC, w: i32, h: i32, step: f32) {
     });
     if !drawn {
         unsafe {
-            let brush = CreateSolidBrush(BG);
+            let brush = CreateSolidBrush(BACKGROUND);
             FillRect(hdc, &rect(0, 0, w, h), brush);
             DeleteObject(brush);
         }
@@ -547,12 +630,12 @@ impl Painter {
                 GdipDeletePath(path);
             };
             let pt = |px: f32, py: f32| PointF { X: px, Y: py };
-            fill(mix(BG, CARD, 0.8), &[pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]);
+            fill(COVER_PLACEHOLDER, &[pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]);
             // Two stripes parallel to the corner's edge: a wide one at the corner, a thin one beside it.
-            fill(ACCENT, &[pt(x + w * 0.52, y), pt(x + w, y), pt(x + w, y + w * 0.48 * k)]);
+            fill(PRIMARY, &[pt(x + w * 0.52, y), pt(x + w, y), pt(x + w, y + w * 0.48 * k)]);
             let (a, b) = (0.36, 0.44);
             fill(
-                ACCENT,
+                PRIMARY,
                 &[
                     pt(x + w * a, y),
                     pt(x + w * b, y),
@@ -563,17 +646,17 @@ impl Painter {
         });
         // The name, upper case, one word a line, in the middle.
         let words: Vec<String> = name.split_whitespace().map(str::to_uppercase).collect();
-        let size = 22.0 * scale;
+        let size = (T_VALUE * scale).max(T_CAPTION);
         let line = size * 1.1 * self.s;
         let top = y + h * 0.58 - line * words.len() as f32 / 2.0;
         for (i, word) in words.iter().enumerate() {
             let ly = top + line * i as f32;
             let r = rect(x as i32, ly as i32, (x + w) as i32, (ly + line) as i32);
-            self.text(word, r, size, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
+            self.text(word, r, size, FW_SEMIBOLD as i32, Face::Num, FOREGROUND, DT_CENTER);
         }
         self.fill(
             rect(x as i32, (y + h) as i32 - self.px(3.0), (x + w) as i32, (y + h) as i32),
-            ACCENT,
+            PRIMARY,
         );
     }
 
@@ -682,7 +765,7 @@ impl Painter {
             let top = area.bottom - (off + seg).round() as i32;
             self.fill(
                 rect(area.left, top.min(bottom - 1), area.right, bottom),
-                if i < lit { color } else { TRACK },
+                if i < lit { color } else { SECONDARY },
             );
         }
     }
@@ -690,29 +773,29 @@ impl Painter {
     /// The wheel as a slim bar: a trough with a tick at the centre and a yellow fill from the centre toward the side
     /// the wheel is turned to (-1 full left .. 1 full right; none without a value).
     pub(super) fn steer_bar(&self, (x, y, w, h): Area, steer: f32) {
-        self.round(self.r(x, y, w, h), h / 2.0, TRACK, None);
+        self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
         let share = steer_share(steer);
         let (half, len) = (w / 2.0, w / 2.0 * share.abs());
         if len >= 1.0 {
             let fx = if share > 0.0 { x + half } else { x + half - len };
-            self.round(self.r(fx, y, len, h), (h / 2.0).min(len / 2.0), ACCENT, None);
+            self.round(self.r(fx, y, len, h), (h / 2.0).min(len / 2.0), PRIMARY, None);
         }
-        let tick = if steer.is_finite() { TEXT } else { MUTED };
+        let tick = if steer.is_finite() { FOREGROUND } else { MUTED_TEXT };
         self.fill(self.r(x + half - 1.0, y - 3.0, 2.0, h + 6.0), tick);
     }
 
     /// One light of the lights card, a squared tile of `cell`: lit it is filled with its colour (dark label), off it is
     /// dim (a thin edge, a dim label), and DRS allowed but not open it is outlined in its colour. Headlights are a small
     /// lamp, the flag a swatch of its colour with its word.
-    pub(super) fn light_tile(&mut self, lang: Lang, pill: Pill, (x, y, w, h): Area) {
+    pub(super) fn light_tile(&mut self, lang: Lang, pill: &Light, (x, y, w, h): Area) {
         let color = pill_color(pill.kind);
-        let off = mix(CARD, BG, 0.4);
+        let off = LIGHT_OFF_FILL;
         let (fill, edge, ink) = match pill.glow {
-            Glow::On => (color, None, BG),
+            Glow::On => (color, None, ON_PRIMARY),
             Glow::Ready => (off, Some(color), color),
-            Glow::Off => (off, Some(EDGE), mix(CARD, MUTED, 0.5)),
+            Glow::Off => (off, Some(BORDER), LIGHT_OFF_INK),
         };
-        self.round(self.r(x, y, w, h), CORNER, fill, edge);
+        self.round(self.r(x, y, w, h), R_TILE, fill, edge);
         let label = match pill.kind {
             PillKind::Pit => Some("PIT".to_owned()),
             PillKind::Abs => Some("ABS".to_owned()),
@@ -731,7 +814,7 @@ impl Painter {
             }
             (_, Some(label)) => {
                 let r = self.r(x, y, w, h);
-                self.caps(&label, r, 9.5, ink, DT_CENTER);
+                self.caps(&label, r, T_CAPTION, ink, DT_CENTER);
             }
             _ => {}
         }
@@ -744,16 +827,16 @@ impl Painter {
         let Some(flag) = flag else { return };
         let radius = 1.5;
         match flag {
-            Flag::Green => self.round(self.r(x, y, size, size), radius, GREEN, None),
-            Flag::Yellow => self.round(self.r(x, y, size, size), radius, ACCENT, None),
-            Flag::Blue => self.round(self.r(x, y, size, size), radius, BLUE, None),
-            Flag::White => self.round(self.r(x, y, size, size), radius, WHITE, None),
-            Flag::Black => self.round(self.r(x, y, size, size), radius, rgb(0x05, 0x05, 0x06), Some(MUTED)),
+            Flag::Green => self.round(self.r(x, y, size, size), radius, SUCCESS, None),
+            Flag::Yellow => self.round(self.r(x, y, size, size), radius, PRIMARY, None),
+            Flag::Blue => self.round(self.r(x, y, size, size), radius, INFO, None),
+            Flag::White => self.round(self.r(x, y, size, size), radius, FLAG_WHITE, None),
+            Flag::Black => self.round(self.r(x, y, size, size), radius, FLAG_BLACK, Some(MUTED_TEXT)),
             Flag::Chequered => {
-                self.round(self.r(x, y, size, size), radius, WHITE, None);
+                self.round(self.r(x, y, size, size), radius, FLAG_WHITE, None);
                 let q = size / 2.0;
-                self.fill(self.r(x, y, q, q), rgb(0x10, 0x10, 0x12));
-                self.fill(self.r(x + q, y + q, q, q), rgb(0x10, 0x10, 0x12));
+                self.fill(self.r(x, y, q, q), FLAG_CHEQUER);
+                self.fill(self.r(x + q, y + q, q, q), FLAG_CHEQUER);
             }
         }
     }
@@ -785,7 +868,7 @@ impl Painter {
     pub(super) fn brake_disc(&self, cx: f32, cy: f32, d: f32, color: COLORREF) {
         let to_px = |x: f32, y: f32| (self.ox as f32 + x * self.s, self.oy as f32 + y * self.s);
         smooth(self.hdc, |graphics| unsafe {
-            for (size, c) in [(d, color), (d * 0.5, BG), (d * 0.2, color)] {
+            for (size, c) in [(d, color), (d * 0.5, BACKGROUND), (d * 0.2, color)] {
                 let (x, y) = to_px(cx - size / 2.0, cy - size / 2.0);
                 let mut brush = null_mut();
                 GdipCreateSolidFill(argb(c), &mut brush);
@@ -802,7 +885,7 @@ impl Painter {
         if w < 4.0 || h < 4.0 {
             return;
         }
-        let body = mix(BG, MUTED, 0.14);
+        let body = CAR_BODY;
         let points: Vec<PointF> = body_outline(area)
             .into_iter()
             .map(|(px, py)| PointF {
@@ -823,7 +906,7 @@ impl Painter {
         });
         let cx = x + w / 2.0;
         // The wings across the two ends, the cockpit in the middle.
-        let wing = mix(BG, MUTED, 0.22);
+        let wing = CAR_WING;
         self.round(self.r(cx - w * 0.36, y, w * 0.72, (h * 0.03).max(3.0)), 1.5, wing, None);
         self.round(
             self.r(cx - w * 0.4, y + h - (h * 0.035).max(3.0), w * 0.8, (h * 0.035).max(3.0)),
@@ -831,12 +914,7 @@ impl Painter {
             wing,
             None,
         );
-        self.round(
-            self.r(cx - w * 0.17, y + h * 0.38, w * 0.34, h * 0.24),
-            w * 0.15,
-            mix(BG, MUTED, 0.04),
-            None,
-        );
+        self.round(self.r(cx - w * 0.17, y + h * 0.38, w * 0.34, h * 0.24), w * 0.15, CAR_CABIN, None);
     }
 
     /// A bar of `count` small blocks in design units; a block is lit (in `color`) when its middle falls between
@@ -854,7 +932,7 @@ impl Painter {
             let right = area.left + (i as f32 * (block + gap) + block).round() as i32;
             self.fill(
                 rect(left, area.top, right.max(left + 1), area.bottom),
-                if lit { color } else { TRACK },
+                if lit { color } else { SECONDARY },
             );
         }
     }
@@ -874,7 +952,7 @@ impl Painter {
         let mut r = r;
         unsafe {
             let old = SelectObject(self.hdc, font);
-            SetTextColor(self.hdc, color);
+            SetTextColor(self.hdc, ink(color));
             DrawTextW(
                 self.hdc,
                 wide.as_ptr(),
@@ -894,7 +972,7 @@ impl Painter {
     pub(super) fn tabular(&mut self, s: &str, r: RECT, font: HFONT, color: COLORREF, align: u32) {
         unsafe {
             let old = SelectObject(self.hdc, font);
-            SetTextColor(self.hdc, color);
+            SetTextColor(self.hdc, ink(color));
             let width = |c: char| {
                 let mut unit = [0u16; 2];
                 let unit = c.encode_utf16(&mut unit);
@@ -986,20 +1064,21 @@ impl Painter {
             }
             fit = (fit * 0.95).max(floor);
         }
-        fit
+        // Only the sizes of the type scale: the largest step that still fits.
+        type_step(fit).max(floor)
     }
 
     /// The mark of a lap that does not count: a red square with a white "!", `size` design units on a side.
     pub(super) fn invalid_mark(&self, x: f32, y: f32, size: f32) {
-        self.round(self.r(x, y, size, size), size * 0.22, RED, None);
+        self.round(self.r(x, y, size, size), size * 0.22, DESTRUCTIVE, None);
         let (bar, cx) = ((size * 0.14).max(1.0), x + size / 2.0);
-        self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), WHITE);
-        self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), WHITE);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), FLAG_WHITE);
+        self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), FLAG_WHITE);
     }
 
     /// A tile: the card colour with its border.
     pub(super) fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), CORNER, color, Some(EDGE));
+        self.round(self.r(x, y, w, h), R_CARD, color, Some(BORDER));
     }
 
     /// A small upper-case label with its letters spaced out.
@@ -1032,7 +1111,7 @@ impl Painter {
     /// The small upper-case label at the top left of a tile.
     pub(super) fn label(&mut self, s: &str, x: f32, y: f32, w: f32) {
         let r = self.r(x, y, w, 18.0);
-        self.caps(s, r, 11.0, MUTED, DT_LEFT);
+        self.caps(s, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
     }
 }
 

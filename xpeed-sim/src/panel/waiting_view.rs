@@ -17,13 +17,13 @@ pub(super) fn state_text(lang: Lang, game: &Game) -> String {
 
 pub(super) fn state_color(game: &Game) -> COLORREF {
     match game {
-        Game::Recording(_) => GREEN,
-        Game::Connected => BLUE,
+        Game::Recording(_) => SUCCESS,
+        Game::Connected => INFO,
         Game::Waiting => GREY,
-        Game::Paused => AMBER,
-        Game::Unsupported => RED,
-        Game::Silent => AMBER,
-        Game::Loading => MUTED,
+        Game::Paused => WARN,
+        Game::Unsupported => DESTRUCTIVE,
+        Game::Silent => WARN,
+        Game::Loading => MUTED_TEXT,
     }
 }
 
@@ -71,10 +71,10 @@ pub(super) const FOCUS_COVER: (f32, f32) = (170.0, 255.0);
 pub(super) fn focus_height(g: &mut Painter, view: &View, focus: (&'static str, &'static str, Game), cw: f32) -> f32 {
     let (title, line, note, _) = focus_words(view, focus);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
-    let mut h = g.wrap_lines(&title, cw - 40.0, 34.0, semi, Face::Num).len() as f32 * 46.0 + 6.0;
-    h += g.wrap_lines(&line, cw - 60.0, 15.0, semi, Face::Ui).len() as f32 * 22.0;
+    let mut h = g.wrap_lines(&title, cw - 40.0, T_NUMERAL, semi, Face::Num).len() as f32 * 46.0 + 6.0;
+    h += g.wrap_lines(&line, cw - 60.0, T_BODY, semi, Face::Ui).len() as f32 * 22.0;
     if let Some(note) = note {
-        h += 4.0 + g.wrap_lines(&note, cw - 60.0, 13.0, normal, Face::Ui).len() as f32 * 20.0;
+        h += 4.0 + g.wrap_lines(&note, cw - 60.0, T_BODY, normal, Face::Ui).len() as f32 * 20.0;
     }
     h + 24.0 + FOCUS_COVER.1 + 9.0
 }
@@ -86,23 +86,23 @@ pub(super) fn focus_screen(g: &mut Painter, view: &View, focus: (&'static str, &
     let (title, line, note, act) = focus_words(view, focus);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let mut y = 0.0;
-    y += g.wrapped(&title, 20.0, y, cw - 40.0, 34.0, semi, Face::Num, TEXT, DT_CENTER, 46.0);
+    y += g.wrapped(&title, 20.0, y, cw - 40.0, T_NUMERAL, semi, Face::Num, FOREGROUND, DT_CENTER, 46.0);
     y += 6.0;
     y += g.wrapped(
         &line,
         30.0,
         y,
         cw - 60.0,
-        15.0,
+        T_BODY,
         semi,
         Face::Ui,
-        if act { ACCENT } else { MUTED },
+        if act { PRIMARY } else { MUTED_TEXT },
         DT_CENTER,
         22.0,
     );
     if let Some(note) = note {
         y += 4.0;
-        y += g.wrapped(&note, 30.0, y, cw - 60.0, 13.0, normal, Face::Ui, MUTED, DT_CENTER, 20.0);
+        y += g.wrapped(&note, 30.0, y, cw - 60.0, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_CENTER, 20.0);
     }
     // The game's cover, as big as the carousel's middle one; a name card when there is no cover.
     let (w, h) = FOCUS_COVER;
@@ -113,7 +113,7 @@ pub(super) fn focus_screen(g: &mut Painter, view: &View, focus: (&'static str, &
         None => g.cover_card(exact, name, 1.1),
     }
     // A line under it: yellow while the game is the one being watched, amber while it shares no data.
-    g.fill(g.r(x, y + h + 6.0, w, 3.0), if game == Game::Silent { AMBER } else { ACCENT });
+    g.fill(g.r(x, y + h + 6.0, w, 3.0), if game == Game::Silent { WARN } else { PRIMARY });
 }
 
 pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
@@ -134,16 +134,16 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
     }
     let title = text(view.lang, &Msg::PanelWaitingTitle);
     let r = g.r(0.0, 66.0, cw, 50.0);
-    g.text(&title, r, 34.0, FW_SEMIBOLD as i32, Face::Num, TEXT, DT_CENTER);
+    g.text(&title, r, T_NUMERAL, FW_SEMIBOLD as i32, Face::Num, FOREGROUND, DT_CENTER);
     g.wrapped(
         &text(view.lang, &Msg::PanelWaiting),
         20.0,
         116.0,
         cw - 40.0,
-        15.0,
+        T_BODY,
         FW_NORMAL as i32,
         Face::Ui,
-        MUTED,
+        MUTED_TEXT,
         DT_CENTER,
         22.0,
     );
@@ -155,7 +155,12 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
     let chips: Vec<(String, f32)> = view
         .games
         .iter()
-        .map(|row| (row.title.clone(), g.width_of(&row.title, 13.0, FW_SEMIBOLD as i32, Face::Ui) + 28.0))
+        .map(|row| {
+            (
+                row.title.clone(),
+                g.width_of(&row.title, T_BODY, FW_SEMIBOLD as i32, Face::Ui) + 28.0,
+            )
+        })
         .collect();
     let mut rows: Vec<Vec<(String, f32)>> = vec![Vec::new()];
     let mut used = 0.0;
@@ -172,9 +177,9 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
         let mut x = (cw - total) / 2.0;
         let y = 262.0 + i as f32 * 40.0;
         for (name, w) in row {
-            g.round(g.r(x, y, *w, 30.0), 15.0, CARD, Some(EDGE));
+            g.round(g.r(x, y, *w, 30.0), 15.0, CARD, Some(BORDER));
             let r = g.r(x, y, *w, 30.0);
-            g.text(name, r, 13.0, FW_SEMIBOLD as i32, Face::Ui, MUTED, DT_CENTER);
+            g.text(name, r, T_BODY, FW_SEMIBOLD as i32, Face::Ui, MUTED_TEXT, DT_CENTER);
             x += w + 10.0;
         }
     }
@@ -238,7 +243,7 @@ pub(super) fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, butt
         // Darker the further from the middle.
         let shade = (far * 0.32).min(0.8);
         if shade > 0.01 {
-            g.veil_exact(exact, BG, shade);
+            g.veil_exact(exact, BACKGROUND, shade);
         }
         // A side cover is a button; nearer covers are drawn later and go first, as they are on top.
         if far > 0.5 {
@@ -251,17 +256,17 @@ pub(super) fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, butt
     g.text(
         &covers[middle].name.to_uppercase(),
         r,
-        18.0,
+        T_LEAD,
         FW_SEMIBOLD as i32,
         Face::Num,
-        TEXT,
+        FOREGROUND,
         DT_CENTER,
     );
     let (dot, gap) = (7.0, 6.0);
     let total = count as f32 * dot + (count as f32 - 1.0) * gap;
     for i in 0..count {
         let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
-        g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { ACCENT } else { TRACK });
+        g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { PRIMARY } else { SECONDARY });
         // A square is small: its button reaches halfway to its neighbours and a little above and below.
         let hit = g.r(x - gap / 2.0, top + big_h + 40.0, dot + gap, dot + 16.0);
         buttons.borrow_mut().push((Action::Cover(i), hit));
