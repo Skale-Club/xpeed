@@ -45,9 +45,9 @@ mod panel;
 mod present;
 #[cfg(test)]
 mod rcgen;
-mod recorder;
 mod sanity;
 mod secret;
+mod session;
 #[cfg(windows)]
 mod shm;
 mod status;

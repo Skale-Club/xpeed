@@ -5,10 +5,10 @@
 use std::sync::Arc;
 
 use crate::game::{CarState, Drs, Flag, Frame, Phase, Tyre};
-use crate::lapcut::session::{Event, Session};
 use crate::lapfile::SessionKind;
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
+use crate::session::{Event, Session};
 
 /// Le Mans Ultimate's two streams as one `Frame` (`lmu/source.rs` makes one for every telemetry update, and the panel
 /// and the lap cutter read it like any other game's).

@@ -34,13 +34,8 @@
 use crate::extra::Extras;
 use crate::game::Frame;
 use crate::lapfile::{Channel, Lap, SessionKind, STANDARD_UNITS};
+use crate::session::{EndReason, Event, Sample, Session};
 use crate::util::iso_utc;
-use session::{EndReason, Event, Sample, Session};
-
-// The state machine lives in `session.rs` next to this file. It is declared here, and not in `main.rs`, so that the
-// module list there stays as it is; `crate::lapcut::session` is its path.
-#[path = "session.rs"]
-pub mod session;
 
 pub const MIN_SAMPLES: usize = 50;
 pub const MIN_LAP_SECONDS: f64 = 5.0;
