@@ -83,6 +83,7 @@ export function comparable(a: LapFile, b: LapFile): boolean {
 export function incomparableReason(a: LapFile, b: LapFile): 'game' | 'track' | 'length' | null {
   if (a.header.game !== b.header.game) return 'game';
   if (a.header.track.name.trim().toLowerCase() !== b.header.track.name.trim().toLowerCase()) return 'track';
+  if ((a.header.track.variant ?? '').trim().toLowerCase() !== (b.header.track.variant ?? '').trim().toLowerCase()) return 'track';
   const [la, lb] = [lapLength(a), lapLength(b)];
   return la > 0 && lb > 0 && Math.abs(la - lb) / Math.max(la, lb) <= 0.03 ? null : 'length';
 }

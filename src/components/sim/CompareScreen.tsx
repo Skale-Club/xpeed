@@ -20,6 +20,8 @@ import { QuickPickers } from './compare/QuickPickers';
 import { SavedChips } from './compare/SavedChips';
 import { LapPicker, type PickerStart } from './LapPicker';
 import { useReadAllPages } from './use-read-all-pages';
+import { OptionSelect } from '@/components/ui/option-select';
+import { comparisonGoal, referenceDifferences, type ComparisonGoal } from '@/lib/sim/reference-context';
 
 /**
  * Virtual > Compare laps. The laps come from the account only: a link names them by their ids (`?a=<lap>&b=<reference>`), or they are found with the picker
@@ -38,6 +40,8 @@ export function CompareScreen() {
 
   const aFile = useLapFile(aId);
   const aHeader = aFile.data?.header;
+  const [goalChoice, setGoalChoice] = useState<{ lapId: string | null; goal: ComparisonGoal } | null>(null);
+  const goal = goalChoice && goalChoice.lapId === aId ? goalChoice.goal : comparisonGoal(aHeader);
 
   // The personal best of the lap's track and car (by the names the lap file carries) is the reference unless one was chosen.
   const pbs = usePbs({ game: aHeader?.game }, { enabled: !!aHeader });
@@ -47,9 +51,11 @@ export function CompareScreen() {
     const same = (x: string, y: string) => x.trim().toLowerCase() === y.trim().toLowerCase();
     return pbs.items.find((entry) => entry.game === aHeader.game && same(entry.track.name, aHeader.track.name) && same(entry.car.name, aHeader.car.name)) ?? null;
   }, [pbs.items, aHeader]);
-  const defaultRef = pb && pb.lapId !== aId ? pb.lapId : null;
+  // Race pace is contextual: never silently use an all-time personal best as the race reference.
+  const defaultRef = goal !== 'race' && pb && pb.lapId !== aId ? pb.lapId : null;
   const bId = bParam ?? defaultRef;
   const bFile = useLapFile(bId);
+  const conditionDifferences = aFile.data && bFile.data ? referenceDifferences(aFile.data, bFile.data) : [];
 
   const go = (next: { a?: string | null; b?: string | null }) => {
     const out = new URLSearchParams(params);
@@ -185,7 +191,23 @@ export function CompareScreen() {
               )}
             </div>
 
-            {aId && aFile.data && <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />}
+            {aId && aFile.data && (
+              <div className="space-y-2" data-testid="reference-context">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.perspective.goal', 'Comparison objective')}</span>
+                  <OptionSelect size="sm" className="w-full sm:w-56" aria-labelledby="comparison-goal-label" value={goal} onChange={(value) => setGoalChoice({ lapId: aId, goal: value as ComparisonGoal })} options={[
+                    { value: 'practice', label: t('modes.perspective.practice', 'Practice') },
+                    { value: 'qualifying', label: t('modes.perspective.qualifying', 'Qualifying / time trial') },
+                    { value: 'race', label: t('modes.perspective.race', 'Race') },
+                  ]} data-testid="comparison-goal" />
+                </div>
+                <p className="text-xs text-muted-foreground">{goal === 'race'
+                  ? t('modes.perspective.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
+                  : t('modes.perspective.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
+                {conditionDifferences.length > 0 && <p className="text-xs text-amber-500" data-testid="reference-conditions">{t('modes.perspective.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.perspective.condition_${key}`, key)).join(', ') })}</p>}
+                <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />
+              </div>
+            )}
 
             <SavedChips
               items={saved}

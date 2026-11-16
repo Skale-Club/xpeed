@@ -54,6 +54,27 @@ const gapReady = () => waitFor(() => expect(screen.getByTestId('final-gap')).not
 const search = () => whereNow(screen.getByTestId('where')).searchParams;
 
 describe('the reference', () => {
+  it('does not automatically use an all-time best for a race lap', async () => {
+    const race = { ...mine, header: { ...mine.header, sessionKind: 'race' as const } };
+    state.files.set(myLap.id, await gzipLap(race));
+    open(`/virtual/compare?a=${myLap.id}`);
+    await screen.findByTestId('reference-context');
+    expect(screen.getByTestId('reference-context')).toHaveTextContent('not selected automatically');
+    expect(screen.getByTestId('slot-reference')).not.toHaveTextContent('Lap 5');
+    expect(fileRequests()).not.toContain(`/laps/${bestLap.id}/file`);
+    await chooseOption(screen.getByTestId('comparison-goal'), 'Qualifying / time trial');
+    await gapReady();
+    expect(screen.getByTestId('slot-reference')).toHaveTextContent('Lap 5');
+  });
+
+  it('keeps an explicitly selected reference in a race', async () => {
+    state.files.set(myLap.id, await gzipLap({ ...mine, header: { ...mine.header, sessionKind: 'race' } }));
+    open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
+    await gapReady();
+    expect(screen.getByTestId('slot-reference')).toHaveTextContent('Lap 5');
+    expect(screen.getByTestId('slot-reference')).not.toHaveTextContent('default');
+  });
+
   it('is the personal best of the same track and car by default', async () => {
     open(`/virtual/compare?a=${myLap.id}`);
     await waitFor(() => expect(screen.getByTestId('final-gap')).toHaveTextContent(/^\+0\.3\d\d s$/));

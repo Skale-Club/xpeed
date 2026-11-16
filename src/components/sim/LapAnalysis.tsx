@@ -17,6 +17,7 @@ import { CornerTable } from './CornerTable';
 import { SectorStripCard } from './SectorStripCard';
 import { WhereTimeWent } from './WhereTimeWent';
 import { TrackMap, type MapFocus } from '@/components/sim/TrackMap';
+import { TrackPerspective } from '@/components/sim/TrackPerspective';
 import { offLineStretches, offsetsFromLine, type OffLineStretch } from '@/lib/sim/line-offset';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
@@ -252,6 +253,7 @@ export function LapAnalysis({
   }, [analysis, layout]);
 
   const [focus, setFocus] = useState<MapFocus | null>(null);
+  const [trackView, setTrackView] = useState<'perspective' | 'map'>('perspective');
   const mapCard = useRef<HTMLDivElement>(null);
   const showOnMap = (atM: number) => {
     const step = analysis.grid.length > 1 ? analysis.grid[1] - analysis.grid[0] : 1;
@@ -461,15 +463,23 @@ export function LapAnalysis({
 
   const mapNode = analysis.pathA && (
     <Card className="bg-card border-border">
-      <CardHeader className="pb-1">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-1">
         <CardTitle className="text-sm font-semibold">{t('modes.compare.mapTitle', 'Track')}</CardTitle>
+        <div className="flex gap-1" role="group" aria-label={t('modes.perspective.view', 'Track view')}>
+          <Button type="button" size="sm" variant={trackView === 'perspective' ? 'secondary' : 'ghost'} aria-pressed={trackView === 'perspective'} onClick={() => setTrackView('perspective')}>{t('modes.perspective.title', 'Perspective')}</Button>
+          <Button type="button" size="sm" variant={trackView === 'map' ? 'secondary' : 'ghost'} aria-pressed={trackView === 'map'} onClick={() => setTrackView('map')}>{t('modes.perspective.map', 'Map')}</Button>
+        </div>
       </CardHeader>
       <CardContent className="pb-3">
         <div ref={mapCard}>
-          <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} />
+          {trackView === 'perspective'
+            ? <TrackPerspective lap={a.lap} reference={analysis.same ? b?.lap : null} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} />
+            : <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} />}
         </div>
         <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
-          {layout
+          {trackView === 'perspective'
+            ? t('modes.perspective.legend', 'Yellow: the lap. Dashed blue: the reference. The arrow stays in your direction of travel.')
+            : layout
             ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
             : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start.')}
         </p>
@@ -489,7 +499,7 @@ export function LapAnalysis({
             }
           />
         )}
-        {layout && (
+        {layout && trackView === 'map' && (
           <p className="text-xs text-muted-foreground">{t('modes.compare.mapZoomHint', 'Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.')}</p>
         )}
       </CardContent>

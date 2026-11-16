@@ -29,11 +29,14 @@ const mine = lapWith((corners) => corners.map((c, i) => (i === 1 ? { ...c, brake
 const loaded = (id: string, lap: LapFile): LoadedLap => ({ id, lap });
 
 function renderAnalysis(lap: LapFile = mine, ref: LapFile | null = reference, extra: Partial<Parameters<typeof LapAnalysis>[0]> = {}) {
-  return render(
+  const result = render(
     <SettingsProvider>
       <LapAnalysis lap={loaded('a', lap)} reference={ref ? loaded('b', ref) : null} {...extra} />
     </SettingsProvider>,
   );
+  const map = screen.queryByRole('button', { name: 'Map', exact: true });
+  if (map) fireEvent.click(map);
+  return result;
 }
 const ready = () => screen.findByTestId('where-list');
 
@@ -231,6 +234,7 @@ describe('on a phone', () => {
     expect(screen.queryByTestId('corner-table')).not.toBeInTheDocument();
 
     press('map');
+    fireEvent.click(screen.getByRole('button', { name: 'Map', exact: true }));
     expect(screen.getByTestId('track-map')).toBeInTheDocument();
     expect(screen.queryByTestId('lap-charts')).not.toBeInTheDocument();
   });
