@@ -21,6 +21,12 @@
       "port": 5010
     },
     {
+      "name": "rc-pilot",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8090", "-d", "rc-car/pilot"],
+      "port": 8090
+    },
+    {
       "name": "xpeed-build-preview",
       "runtimeExecutable": "node",
       "runtimeArgs": [

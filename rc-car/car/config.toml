@@ -1,0 +1,34 @@
+# Configuração do carrinho. Calibre com as RODAS NO AR antes de ir pro chão.
+
+[server]
+host = "0.0.0.0"
+port = 8765
+# Sem comando do piloto por este tempo -> acelerador em neutro.
+failsafe_ms = 300
+
+[pca9685]
+i2c_bus = 1
+address = 0x40
+frequency_hz = 50
+# Ajuste se um pulso de 1500 us medir diferente (o oscilador varia de placa pra placa).
+oscillator_hz = 25_000_000
+
+[throttle]
+channel = 0
+min_us = 1000
+neutral_us = 1500
+max_us = 2000
+invert = false
+# Teto absoluto (0..1). O controle escolhe a marcha dentro desse teto.
+# Comece baixo: carro de hobby a 100% passa fácil de 40 km/h.
+max_forward = 0.4
+max_reverse = 0.3
+
+[steering]
+channel = 1
+min_us = 1100
+center_us = 1500
+max_us = 1900
+invert = false
+# Se o carro puxa pra um lado com o analógico solto, corrija aqui (ex.: -20).
+trim_us = 0
