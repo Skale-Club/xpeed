@@ -47,11 +47,37 @@ jobs:
             xpeed-sim/target
           key: xpeed-sim-${{ runner.os }}-${{ hashFiles('xpeed-sim/Cargo.lock') }}
       - name: Format
-        run: cargo fmt --check
+        run: |
+          cargo fmt --check
+          if ($LASTEXITCODE -ne 0) {
+            cargo fmt
+            git diff --output="$env:RUNNER_TEMP/companion-rustfmt.patch"
+            exit 1
+          }
+      - name: Keep formatter corrections
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-rustfmt-patch
+          path: ${{ runner.temp }}/companion-rustfmt.patch
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests
-        run: cargo test --locked
+        env:
+          XPEED_SIM_PANEL_PNG: ${{ runner.temp }}/xpeed-panel-preview
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:XPEED_SIM_PANEL_PNG | Out-Null
+          cargo test --locked
+      - name: Keep native perspective previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-perspective-preview
+          path: ${{ runner.temp }}/xpeed-panel-preview/panel-laguna-*.png
+          if-no-files-found: warn
+          retention-days: 3
       - name: Release build
         run: cargo build --release --locked
       - name: Installer (Inno Setup)

@@ -300,6 +300,10 @@ fn live_reading() -> Live {
         })
         .collect();
     live.pos = Some(track[160]);
+    let direction = (track[161].0 - track[159].0, track[161].1 - track[159].1);
+    let length = direction.0.hypot(direction.1);
+    live.heading = Some((direction.0 / length, direction.1 / length));
+    live.trail = Arc::new(track[150..=160].to_vec());
     live.map = Some(std::sync::Arc::new(track));
     live.map_complete = true;
     live.best_lap_s = Some(107.204);
@@ -426,6 +430,45 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         failed: "",
         update: &f.update,
         focus: None,
+    }
+}
+
+/// Historical output drives the same tracker and native renderer used by live telemetry; no generated circuit.
+#[test]
+fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
+    let lap = crate::lapfile::gunzip(include_bytes!("../../fixtures/laps/acevo-real-lap-3.xlap.gz"), crate::lapfile::MAX_UNPACKED).unwrap();
+    let xs = &lap.channel("x").unwrap().values;
+    let zs = &lap.channel("z").unwrap().values;
+    let times = &lap.channel("t").unwrap().values;
+    let positions: Arc<Vec<_>> = Arc::new(xs.iter().copied().zip(zs.iter().copied()).step_by(4).collect());
+    let mut tracker = crate::dash::Tracker::default();
+    let f = fixture();
+    let mut previous = None;
+    for target in [2500, 5500, 8000] {
+        let mut live = None;
+        for i in target - 80..=target {
+            let mut frame = Frame::empty();
+            frame.driving = true;
+            frame.phase = crate::game::Phase::Driving;
+            frame.track = lap.track_name.clone();
+            frame.car = lap.car_name.clone();
+            frame.lap = 3;
+            frame.x = xs[i]; frame.z = zs[i];
+            frame.speed_ms = lap.channel("speed").unwrap().values[i];
+            frame.lap_time_s = Some(f64::from(times[i]));
+            live = Some(tracker.on_frame("acevo", &frame, (times[i] * 1000.0) as i64));
+        }
+        let mut live = live.unwrap();
+        assert!(live.heading.is_some(), "real movement establishes a forward direction");
+        live.map = Some(positions.clone());
+        live.map_complete = true;
+        let mut native_view = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        native_view.now_ms = live.at_ms;
+        let pixels = render(&native_view, 1280, 800);
+        save(&pixels, 1280, 800, &format!("panel-laguna-{target}.png"));
+        assert!(has_color(&pixels, PRIMARY) > 100, "the opaque arrow and live values are painted");
+        if let Some(before) = previous { assert_ne!(pixels, before, "the native frame follows the actual position"); }
+        previous = Some(pixels);
     }
 }
 
@@ -623,40 +666,6 @@ fn says_it_waits_when_there_is_no_reading_or_the_game_is_gone_and_dims_the_dashb
         dashboard_shown(Some(&live_reading()), &Game::Waiting, 1_500),
         "a fresh reading always shows"
     );
-}
-
-/// With `XPEED_SIM_PANEL_PNG` set, paints the panel the way people see it (a window, full HD, an ultrawide, the
-/// other tabs) into that folder with a page that shows them and reloads itself when they change, to review the
-/// design in a browser (`.claude/launch.json`: xpeed-sim-panel-preview). Without it, nothing.
-#[test]
-fn a_whole_lap_closes_with_a_start_mark_and_a_partial_path_stays_open_and_breaks_at_jumps() {
-    let lap: Vec<(f32, f32)> = (0..200)
-        .map(|i| {
-            let a = i as f32 / 200.0 * std::f32::consts::TAU;
-            (300.0 * a.cos(), 100.0 * a.sin())
-        })
-        .collect();
-    let whole = prepare_map(&lap, true, 200.0, 100.0, 400.0, 200.0).unwrap();
-    assert_eq!(whole.runs.len(), 1);
-    assert_eq!(whole.runs[0].first(), whole.runs[0].last(), "a whole lap closes");
-    assert!(whole.start.is_some());
-    let partial = prepare_map(&lap[..150], false, 200.0, 100.0, 400.0, 200.0).unwrap();
-    assert_ne!(
-        partial.runs[0].first(),
-        partial.runs[0].last(),
-        "a partial path is not joined back to its start"
-    );
-    assert!(partial.start.is_none());
-    let mut jumped = lap[..100].to_vec();
-    jumped.extend(lap[..100].iter().map(|&(x, z)| (x + 2000.0, z)));
-    assert_eq!(prepare_map(&jumped, false, 200.0, 100.0, 400.0, 200.0).unwrap().runs.len(), 2);
-    // The car is placed with the map's own transform: the first point of the lap is the start mark's place.
-    let at = whole.fit.apply(lap[0]);
-    assert!(whole.runs[0].iter().any(|p| (p.0 - at.0).hypot(p.1 - at.1) < 8.0));
-    // Everything lies in the box, with its margin.
-    assert!(whole.runs[0]
-        .iter()
-        .all(|p| (0.0..=400.0).contains(&p.0) && (0.0..=200.0).contains(&p.1)));
 }
 
 #[test]

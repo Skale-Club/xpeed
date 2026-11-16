@@ -540,8 +540,8 @@ pub(super) fn laps_card(g: &mut Painter, d: &Dash, card: Area) {
     });
 }
 
-/// The track card: the map as the car has driven it, with the start and finish line when the lap is whole and the car's
-/// dot, and under it how far along the lap the car is, as a share and as metres.
+/// The live track card: an upward-facing car and the next corners in a local perspective.
+/// Recorded movement drives the camera directly; the site keeps the top-down lap-study map.
 pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
     let (normal, semi) = (FW_NORMAL as i32, FW_SEMIBOLD as i32);
     let m = d.m;
@@ -552,8 +552,23 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
     let line_h = if m.progress.visible() { 20.0 } else { 0.0 };
     let map_box = (x, y + CAPTION_H + S1, w, (h - CAPTION_H - S1 - line_h - S1).max(1.0));
     shown(g, m.map, |g| {
-        if let Some(map) = d.live.map.as_ref().filter(|_| has_map(d.live)) {
-            g.track_map(map_box, map, d.live.map_complete, d.live.pos);
+        let rendered = d.live.map.as_ref().filter(|_| has_map(d.live))
+            .zip(d.live.pos).zip(d.live.heading)
+            .is_some_and(|((map, car), heading)| g.track_perspective(map_box, map, d.live.map_complete,
+                d.live.road.as_deref(), &d.live.trail, d.live.reference.as_deref().map(Vec::as_slice), car, heading));
+        let msg = if !has_map(d.live) { Msg::PanelTrackLearning }
+            else if d.live.pos.is_none() { Msg::PanelTrackPosition }
+            else if !rendered { Msg::PanelTrackDirection }
+            else if d.live.road.is_some() { Msg::PanelTrackRoad }
+            else { Msg::PanelTrackPaths };
+        let note = text(d.view.lang, &msg);
+        let (mx, my, mw, mh) = map_box;
+        let r = if rendered { g.r(mx + S1, my + S1, mw - 2.0 * S1, 16.0) } else { g.r(mx + S2, my + mh / 2.0 - 12.0, mw - 2.0 * S2, 24.0) };
+        let size = g.fitted(&note, mw - 2.0 * S2, T_CAPTION, 9.0, normal, Face::Ui);
+        g.text(&note, r, size, normal, Face::Ui, MUTED_TEXT, if rendered { DT_LEFT } else { DT_CENTER });
+        if rendered && d.live.reference.is_some() {
+            let r = g.r(mx + S1, my + S1 + 17.0, mw - 2.0 * S1, 16.0);
+            g.text(&text(d.view.lang, &Msg::PanelTrackSessionBest), r, T_CAPTION, normal, Face::Ui, INFO, DT_LEFT);
         }
     });
     if m.progress.visible() {

@@ -244,6 +244,14 @@ pub struct Live {
     /// The track as the car has driven it (the best lap's path, or the first full lap's until there is a best one),
     /// in the game's x and z; shared, as it changes once a lap at most.
     pub map: Option<Arc<Vec<(f32, f32)>>>,
+    /// The game's road widths, when an actual layout is available (a driven map is only a line).
+    pub road: Option<Arc<crate::perspective::Road>>,
+    /// Actual recent positions, independent of the saved circuit and of a reference lap.
+    pub trail: Arc<Vec<(f32, f32)>>,
+    /// A valid best path from this session, shown only for an explicit practice/qualifying context.
+    pub reference: Option<Arc<Vec<(f32, f32)>>>,
+    /// Forward direction inferred from recent live movement, never from replay progression.
+    pub heading: Option<(f32, f32)>,
     /// Where the car is now, in the same x and z.
     pub pos: Option<(f32, f32)>,
     /// `map` is a whole lap (or the real layout), a closed shape. When false it is the path driven so far, an open
@@ -300,6 +308,12 @@ pub struct Tracker {
     path_jumped: bool,
     /// The path shown as the map.
     map: Option<Arc<Path>>,
+    /// Cached growing path: publishing a stationary frame must not copy/rebuild the whole map.
+    partial_map: Option<Arc<Path>>,
+    road: Option<Arc<crate::perspective::Road>>,
+    trail: Arc<Path>,
+    heading: crate::perspective::MotionHeading,
+    best_path: Option<Arc<Path>>,
     best: Option<(f64, Profile)>,
     /// The official time of the last lap as the previous reading showed it.
     official: Option<f64>,
@@ -373,6 +387,7 @@ impl Tracker {
             if let (Some(store), false) = (&self.store, frame.track.is_empty()) {
                 if let Some(path) = store.start(&frame.track, frame.track_variant.as_deref()) {
                     self.map_is_layout = store.layout(&frame.track, frame.track_variant.as_deref()).is_some();
+                    self.road = store.road(&frame.track, frame.track_variant.as_deref()).map(Arc::new);
                     self.map = Some(Arc::new(path));
                 }
             }
@@ -400,6 +415,24 @@ impl Tracker {
                 _ => self.finished = Some((profile, path, official_before, invalid)),
             }
         }
+        let pos = (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z));
+        let heading = self.heading.update(pos, at_ms, frame.driving);
+        if let Some(here) = pos.filter(|_| frame.driving) {
+            let previous = self.trail.last().copied();
+            let distance = previous.map(|p| (p.0 - here.0).hypot(p.1 - here.1));
+            if distance.is_none_or(|d| d >= MAP_STEP_METRES) {
+                let trail = Arc::make_mut(&mut self.trail);
+                if distance.is_some_and(|d| d > MAP_JUMP_METRES) {
+                    trail.clear();
+                }
+                if trail.len() >= 32 {
+                    trail.remove(0);
+                }
+                trail.push(here);
+            }
+        } else if pos.is_none() {
+            self.trail = Arc::default();
+        }
         if frame.driving && frame.x.is_finite() && frame.z.is_finite() {
             let here = (frame.x, frame.z);
             let far_enough = self
@@ -415,6 +448,7 @@ impl Tracker {
                     self.path_jumped = true;
                 }
                 self.path.push(here);
+                self.partial_map = (self.path.len() >= MAP_MIN_POINTS).then(|| Arc::new(self.path.clone()));
             }
         }
         if frame.lap == self.lap {
@@ -482,12 +516,15 @@ impl Tracker {
             state: frame.state,
             fuel_per_lap_l: (!self.fuel_laps.is_empty()).then(|| self.fuel_laps.iter().sum::<f32>() / self.fuel_laps.len() as f32),
             fuel_tank_l: (self.fuel_tank > 0.0).then_some(self.fuel_tank),
-            map: self
-                .map
-                .clone()
-                .or_else(|| (self.path.len() >= MAP_MIN_POINTS).then(|| Arc::new(self.path.clone()))),
+            map: self.map.clone().or_else(|| self.partial_map.clone()),
             map_complete: self.map.is_some(),
-            pos: (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z)),
+            road: self.road.clone(),
+            trail: self.trail.clone(),
+            reference: matches!(frame.session_kind, Some(SessionKind::Practice | SessionKind::Qualifying))
+                .then(|| self.best_path.clone())
+                .flatten(),
+            heading,
+            pos,
             last_seen: self.last_seen.clone(),
             at_ms,
         }
@@ -528,6 +565,7 @@ impl Tracker {
             store: self.store.take(),
             map_is_layout: self.map_is_layout,
             map: self.map.take(),
+            road: self.road.take(),
             session: std::mem::take(&mut self.session),
             ..Tracker::default()
         };
@@ -538,6 +576,9 @@ impl Tracker {
     fn lap_lost(&mut self, frame: &Frame) {
         self.current.clear();
         self.path.clear();
+        self.partial_map = None;
+        self.trail = Arc::default();
+        self.heading.reset();
         self.path_jumped = false;
         self.called_invalid = false;
         self.current_from_line = false;
@@ -554,6 +595,7 @@ impl Tracker {
         let jumped = std::mem::take(&mut self.path_jumped);
         let done_path = if jumped { Vec::new() } else { std::mem::take(&mut self.path) };
         self.path.clear();
+        self.partial_map = None;
         let full = self.current_from_line && is_full(&done, frame.track_length_m);
         let invalid = std::mem::take(&mut self.called_invalid);
         if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
@@ -627,6 +669,7 @@ impl Tracker {
         }
         if self.best.as_ref().is_none_or(|(best, _)| time < *best) {
             self.best = Some((time, profile));
+            self.best_path = (path.len() >= MAP_MIN_POINTS).then(|| Arc::new(path.clone()));
             if path.len() >= MAP_MIN_POINTS && !self.map_is_layout {
                 self.keep_map(path);
             }
@@ -651,6 +694,7 @@ impl Tracker {
         if let (Some(store), Some((track, _, variant))) = (&self.store, &self.key) {
             if let Some(path) = store.layout(track, variant.as_deref()) {
                 self.map = Some(Arc::new(path));
+                self.road = store.road(track, variant.as_deref()).map(Arc::new);
                 self.map_is_layout = true;
             }
         }
@@ -678,6 +722,49 @@ fn time_at(profile: &Profile, dist: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_camera_uses_motion_and_retains_a_bounded_trail_without_rebuilding_a_stationary_map() {
+        let mut tracker = Tracker::default();
+        let mut live = None;
+        for i in 0..100 {
+            let mut frame = at(1, f64::from(i) * 4.0, f64::from(i) * 0.1, None);
+            frame.x = i as f32 * 4.0;
+            frame.z = 0.0;
+            live = Some(tracker.on_frame("ac", &frame, i64::from(i) * 100));
+        }
+        let live = live.unwrap();
+        assert_eq!(live.heading, Some((1.0, 0.0)));
+        assert_eq!(live.trail.len(), 32);
+        let mut frame = at(1, 396.0, 10.0, None);
+        frame.x = 396.0; frame.z = 0.0;
+        let stopped = tracker.on_frame("ac", &frame, 10000);
+        assert_eq!(stopped.heading, live.heading);
+        assert!(Arc::ptr_eq(live.map.as_ref().unwrap(), stopped.map.as_ref().unwrap()));
+        frame.x = 5000.0;
+        let jumped = tracker.on_frame("ac", &frame, 10100);
+        assert!(jumped.heading.is_none());
+        assert!(jumped.trail.len() <= 1, "no line connects a teleport");
+    }
+
+    #[test]
+    fn session_best_path_is_never_automatically_a_race_reference() {
+        let mut tracker = Tracker::default();
+        let mut frame = at(1, 0.0, 0.0, None);
+        tracker.on_frame("ac", &frame, 0);
+        let path = (0..40).map(|i| (0.0, i as f32 * 4.0)).collect();
+        tracker.offer_best(60.0, vec![(0.0, 0.0), (1000.0, 60.0)], path, false);
+        frame.session_kind = Some(SessionKind::Qualifying);
+        let qualifying = tracker.on_frame("ac", &frame, 100);
+        assert!(qualifying.reference.is_some());
+        frame.session_kind = Some(SessionKind::Race);
+        assert!(tracker.on_frame("ac", &frame, 200).reference.is_none());
+        frame.session_kind = None;
+        assert!(tracker.on_frame("ac", &frame, 300).reference.is_none());
+        tracker.new_session();
+        frame.session_kind = Some(SessionKind::Practice);
+        assert!(tracker.on_frame("ac", &frame, 400).reference.is_none(), "the reference belongs to its session");
+    }
 
     /// A frame at `dist` metres into lap `lap`, `t` seconds after it began.
     fn at(lap: i32, dist: f64, t: f64, last: Option<f64>) -> Frame {

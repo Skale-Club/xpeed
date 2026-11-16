@@ -88,8 +88,6 @@ pub(super) const BACKDROP_BOTTOM: COLORREF = mix(BACKGROUND, rgb(0, 0, 0), 0.35)
 
 /// The road's centre line on the track map.
 pub(super) const ROAD_LINE: COLORREF = mix(SECONDARY, FOREGROUND, 0.5);
-/// The glow round the car on the track map.
-pub(super) const CAR_HALO: COLORREF = mix(BACKGROUND, PRIMARY, 0.3);
 /// The cover of a game that has not arrived yet.
 pub(super) const COVER_PLACEHOLDER: COLORREF = mix(BACKGROUND, CARD, 0.8);
 /// The row under the mouse in the language list.

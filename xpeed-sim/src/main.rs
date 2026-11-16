@@ -41,6 +41,7 @@ mod lapcut;
 mod lapfile;
 mod lmu;
 mod maps;
+mod perspective;
 mod migrate;
 mod net;
 mod norm;

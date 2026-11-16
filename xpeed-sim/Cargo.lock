@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "xpeed-sim"
-version = "0.8.7"
+version = "0.9.0"
 dependencies = [
  "flate2",
  "png",
