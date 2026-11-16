@@ -65,6 +65,8 @@ jobs:
         run: npm run test:sql
       - name: Database foundation (migrator, token check, sync)
         run: npm run test:db
+      - name: Development sync safety and read-only source privileges
+        run: npm run test:dev-sync && npm run test:readonly-source
       - name: Data API (queries, row level security, injection attempts)
         run: npm run test:dbapi
       - name: Server handlers on the own backend (fuel, care, checkpoints, sharing)
