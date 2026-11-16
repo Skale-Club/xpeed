@@ -334,6 +334,8 @@ mod tests {
 
     #[test]
     fn a_worker_that_keeps_panicking_is_given_up_on_and_marked_failed() {
+        // Giving up writes a crash report: it must not land in the folder of a crash-report test running at the same time.
+        let _alone = crate::util::lock(&crate::crashreport::TEST_GLOBALS);
         let runs = AtomicUsize::new(0);
         let (lines, states) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
         let ended = supervise(

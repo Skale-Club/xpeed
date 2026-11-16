@@ -45,6 +45,9 @@ static SENDING: AtomicBool = AtomicBool::new(false);
 static WRITING: Mutex<()> = Mutex::new(());
 /// Makes the names of the side files different.
 static SIDE: AtomicU64 = AtomicU64::new(0);
+/// Tests that set `DIR`/`SENDER`, or that make `record` run (the supervisor's), take turns on this lock: `record` reads both globals.
+#[cfg(test)]
+pub(crate) static TEST_GLOBALS: Mutex<()> = Mutex::new(());
 
 /// Where the reports wait (Companion's own folder). Until this is called, `record` does nothing (tests, and commands with no folder).
 pub fn init(dir: PathBuf) {
@@ -249,22 +252,35 @@ fn send_now() {
         return;
     }
     let started = std::thread::Builder::new().name("error-report-sender".into()).spawn(move || {
-        // Whatever happens in here, the next report may start a thread again.
-        struct Done;
+        // Whatever happens in here, the next report may start a thread again (unless another thread already took the flag over).
+        struct Done {
+            owns: bool,
+        }
         impl Drop for Done {
             fn drop(&mut self) {
-                SENDING.store(false, Ordering::SeqCst);
+                if self.owns {
+                    SENDING.store(false, Ordering::SeqCst);
+                }
             }
         }
-        let _done = Done;
+        let mut done = Done { owns: true };
         let agent = net::heartbeat_agent();
         let mut total = 0;
         loop {
             let sent = send_waiting(&agent, &config, &dir, &*say);
             total += sent;
-            // Went well and more came meanwhile: once more. Anything else waits for the next start.
-            if sent == 0 || waiting(&dir) == 0 {
+            // The server did not take anything: the rest waits for the next start.
+            if sent == 0 {
                 break;
+            }
+            if waiting(&dir) == 0 {
+                // Nothing waits: let go of the flag and look once more. A report written between the last look and the release
+                // saw the flag set and started no thread, so it would otherwise wait for the next start.
+                SENDING.store(false, Ordering::SeqCst);
+                if waiting(&dir) == 0 || SENDING.swap(true, Ordering::SeqCst) {
+                    done.owns = false;
+                    break;
+                }
             }
         }
         if total > 0 {
@@ -281,8 +297,31 @@ mod tests {
     use super::*;
     use crate::stub::{Recorded, Reply, Stub};
 
-    /// The tests that set the folder and the sender everybody shares take turns.
-    static GLOBALS: Mutex<()> = Mutex::new(());
+    /// Puts the folder and the sender everybody shares back to "none" when a test ends, even when it fails halfway.
+    struct Clean;
+    impl Drop for Clean {
+        fn drop(&mut self) {
+            *lock(&DIR) = None;
+            *lock(&SENDER) = None;
+        }
+    }
+
+    /// Takes the turn on the folder and the sender everybody shares (see `TEST_GLOBALS`) and starts and ends with them empty.
+    fn alone() -> (std::sync::MutexGuard<'static, ()>, Clean) {
+        let turn = lock(&TEST_GLOBALS);
+        let clean = Clean;
+        drop(Clean); // start empty too
+        (turn, clean)
+    }
+
+    /// Waits (up to `limit`) until no sender thread is running, so a thread of one test never lives into the next.
+    fn wait_for_sender_to_end() {
+        let started = Instant::now();
+        while SENDING.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!SENDING.load(Ordering::SeqCst), "the sender thread did not end");
+    }
 
     fn config_for(url: &str) -> Config {
         Config {
@@ -341,7 +380,7 @@ mod tests {
 
     #[test]
     fn only_the_newest_five_wait_and_nothing_is_written_before_init() {
-        let _turn = lock(&GLOBALS);
+        let _alone = alone();
         let dir = crate::config::scratch_dir("crash-keep");
         for n in 0..8 {
             record_in(&dir, "uploader", &format!("failure number {n}"), "");
@@ -361,6 +400,7 @@ mod tests {
     #[test]
     fn waiting_reports_go_to_the_server_with_the_device_key_and_are_then_removed() {
         let stub = Stub::start(|_: &Recorded| Reply::new(200, r#"{"ok":true}"#));
+        let _alone = alone();
         let dir = crate::config::scratch_dir("crash-send");
         record_in(&dir, "uploader", "uploader restarted 3 times in 10 minutes: boom", "");
         record_in(
@@ -390,7 +430,6 @@ mod tests {
         // Nothing waits any more: no request, and no thread at all.
         send_in_background(config_for(&stub.url), Arc::new(|_| {}));
         assert_eq!(stub.requests().len(), 2);
-        *lock(&SENDER) = None;
     }
 
     #[test]
@@ -439,14 +478,13 @@ mod tests {
 
     #[test]
     fn a_report_goes_to_the_server_as_soon_as_it_is_written_when_connected() {
-        let _turn = lock(&GLOBALS);
+        let _alone = alone();
         let stub = Stub::start(|_: &Recorded| Reply::new(200, r#"{"ok":true}"#));
         let dir = crate::config::scratch_dir("crash-now");
         init(dir.clone());
         // Not connected yet: the line waits (the next start sends it).
         record("uploader", "marker-one restarted 3 times in 10 minutes", "");
-        // (Other tests of the program may panic on purpose while this runs and write to the same folder: only the lines with
-        // the marker are counted.)
+        // (The tests that make `record` run take the same turn, so nothing else writes to this folder or this server.)
         let mine = |stub: &Stub| {
             stub.requests()
                 .iter()
@@ -467,8 +505,8 @@ mod tests {
         assert_eq!(wait_for(1), 1);
         record("recorder", "marker-two panicked at src/x.rs:1:1", "0: x");
         assert_eq!(wait_for(2), 2, "sent at once, not at the next start");
-        *lock(&DIR) = None;
-        *lock(&SENDER) = None;
+        wait_for_sender_to_end();
+        assert_eq!(waiting(&dir), 0, "the server took both");
     }
 
     #[test]

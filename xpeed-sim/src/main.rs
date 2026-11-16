@@ -552,10 +552,12 @@ mod live {
             "Shared memory: {} bytes, this build expects {} ({}).",
             reader.mapped_bytes(),
             LAYOUT_SIZE,
-            if reader.layout_matches() {
+            if reader.same_size() {
                 "same size"
+            } else if reader.layout_matches() {
+                "bigger: read anyway, the data checks guard it"
             } else {
-                "DIFFERENT: values may be wrong, `record` will refuse"
+                "SMALLER: `record` will refuse"
             }
         );
 

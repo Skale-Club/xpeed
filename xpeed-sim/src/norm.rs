@@ -21,12 +21,16 @@
 //! | gear (`gear`) | -1 ..= 30 | not given | as it is |
 //! | world position (`position`) | -1e7 ..= 1e7 m | not given | as it is |
 //!
+//! | flag (`flag_code`, `flag_showing`) | the game's own table | no flag, or one `Flag` has no value for (red...): `None` | the most serious showing |
+//!
 //! "Never exactly 0" for the temperatures is the memory of a game that has not written yet (every temperature header
 //! that has an "unset" says 0 or -1); a real reading is never exactly 0.0. A packet that is never zeroed (Forza's)
 //! uses `tyre_reading_c`, where 0 C is a reading.
 
 use std::time::Duration;
 use std::time::Instant;
+
+use crate::game::Flag;
 
 /// A float that is a number; anything else is "not given".
 pub fn finite(v: f32) -> f32 {
@@ -160,6 +164,25 @@ pub fn position(v: f32) -> f32 {
     within(v, -1.0e7, 1.0e7)
 }
 
+/// The flags from the most to the least serious. When a game shows several at once, the first of this list is the one the panel
+/// shows (the game's own table for each flag stays the reader's: the numbers differ from game to game).
+const FLAG_PRIORITY: [Flag; 6] = [Flag::Black, Flag::Chequered, Flag::Yellow, Flag::Blue, Flag::White, Flag::Green];
+
+/// A game whose flag is one number (an enumeration): `table` is the game's own raw value of each flag (a flag may have several raw
+/// values: the black flag with its variants). A raw value that is not in the table is `None`: no flag (0), a flag `Flag` has no value
+/// for (red, slippery surface), or a number from another version of the game. Never a guess.
+pub fn flag_code(raw: i64, table: &[(i64, Flag)]) -> Option<Flag> {
+    table.iter().find(|(code, _)| *code == raw).map(|(_, flag)| *flag)
+}
+
+/// A game whose flags are bits or lights that may be on together: each entry says whether the game shows that flag. The most serious
+/// one showing wins (`FLAG_PRIORITY`); none showing is `None`, never green by default.
+pub fn flag_showing(showing: &[(bool, Flag)]) -> Option<Flag> {
+    FLAG_PRIORITY
+        .into_iter()
+        .find(|flag| showing.iter().any(|(on, shown)| *on && shown == flag))
+}
+
 /// Waits `d` without giving the processor away (a sleep is a whole timer tick on Windows, far longer than a struct
 /// takes to write).
 pub fn spin(d: Duration) {
@@ -282,6 +305,46 @@ mod tests {
         assert!(same(position(123_456.0), 123_456.0));
         assert!(same(position(-9.9e6), -9.9e6));
         assert!(position(1.1e7).is_nan() && position(f32::INFINITY).is_nan());
+    }
+
+    #[test]
+    fn a_flag_number_is_looked_up_in_the_games_table_and_anything_else_is_no_flag() {
+        let table = [(1, Flag::Green), (2, Flag::Blue), (3, Flag::Black), (9, Flag::Black)];
+        assert_eq!(flag_code(1, &table), Some(Flag::Green));
+        assert_eq!(flag_code(9, &table), Some(Flag::Black), "a flag may have several numbers");
+        for none in [0, -1, 4, 255, i64::from(u32::MAX), i64::MIN] {
+            assert_eq!(flag_code(none, &table), None, "{none}");
+        }
+        assert_eq!(flag_code(1, &[]), None);
+    }
+
+    #[test]
+    fn when_several_flags_show_the_most_serious_wins_and_none_is_none() {
+        use Flag::*;
+        assert_eq!(flag_showing(&[]), None);
+        assert_eq!(
+            flag_showing(&[(false, Black), (false, Green)]),
+            None,
+            "off is off, never green by default"
+        );
+        assert_eq!(flag_showing(&[(true, Green)]), Some(Green));
+        // From the least to the most serious: with all of them from `from` on showing, the last one wins, in any order.
+        let all = [Green, White, Blue, Yellow, Chequered, Black];
+        for from in 0..all.len() {
+            let set: Vec<(bool, Flag)> = all.iter().enumerate().map(|(i, f)| (i >= from, *f)).collect();
+            let reversed: Vec<(bool, Flag)> = set.iter().rev().copied().collect();
+            assert_eq!(flag_showing(&set), Some(Black), "{from}");
+            assert_eq!(flag_showing(&reversed), Some(Black), "{from} reversed");
+        }
+        for (set, want) in [
+            (vec![Green, White, Blue], Blue),
+            (vec![Green, Yellow, Blue], Yellow),
+            (vec![White, Chequered], Chequered),
+            (vec![Chequered, Black], Black),
+        ] {
+            let showing: Vec<(bool, Flag)> = set.iter().map(|f| (true, *f)).collect();
+            assert_eq!(flag_showing(&showing), Some(want), "{set:?}");
+        }
     }
 
     #[test]

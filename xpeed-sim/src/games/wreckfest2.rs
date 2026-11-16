@@ -363,19 +363,13 @@ impl Main {
         let celsius = self.temp_water_k - 273.15;
         state.water_c = Some(norm::water_c(celsius)).filter(|c| c.is_finite());
         let m = self.marshal_flags;
-        state.flag = if m & (MARSHAL_DQ | MARSHAL_MEATBALL) != 0 {
-            Some(Flag::Black)
-        } else if m & MARSHAL_FINISH != 0 {
-            Some(Flag::Chequered)
-        } else if m & MARSHAL_BLUE != 0 {
-            Some(Flag::Blue)
-        } else if m & MARSHAL_WHITE != 0 {
-            Some(Flag::White)
-        } else if m & MARSHAL_GREEN != 0 {
-            Some(Flag::Green)
-        } else {
-            None
-        };
+        state.flag = norm::flag_showing(&[
+            (m & (MARSHAL_DQ | MARSHAL_MEATBALL) != 0, Flag::Black),
+            (m & MARSHAL_FINISH != 0, Flag::Chequered),
+            (m & MARSHAL_BLUE != 0, Flag::Blue),
+            (m & MARSHAL_WHITE != 0, Flag::White),
+            (m & MARSHAL_GREEN != 0, Flag::Green),
+        ]);
         // Damage states are 0 (ok) to 4 (terminal); the worst of the parts of a group, as a share of terminal.
         let worst = |parts: &mut dyn Iterator<Item = usize>| {
             let states: Vec<u8> = parts.map(|i| damage_state(&self.damage, i)).collect();

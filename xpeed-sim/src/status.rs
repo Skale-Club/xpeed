@@ -76,7 +76,6 @@ pub enum Notice {
 
 /// A lap the cutter let go of without writing it (`Shared::note_lap_dropped`), for the heartbeat's counts. The heartbeat already
 /// sends the counts; the lap cutter (`lapcut.rs`) is the one that knows, and reports each lap it lets go with `note_lap_dropped`.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LapDrop {
     /// The lap was joined in the middle (the program started, or the game came back, during it).
@@ -266,7 +265,6 @@ impl Shared {
     }
 
     /// The cutter let a lap go without writing it.
-    #[allow(dead_code)]
     pub fn note_lap_dropped(&self, why: LapDrop) {
         let mut stats = lock(&self.lap_stats);
         match why {

@@ -8,6 +8,7 @@ use crate::game::{CarState, Drs, Flag, Frame, Phase, Tyre};
 use crate::lapfile::SessionKind;
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
+use crate::norm;
 use crate::session::{Event, Session};
 
 /// Le Mans Ultimate's two streams as one `Frame` (`lmu/source.rs` makes one for every telemetry update, and the panel
@@ -28,41 +29,40 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     frame.lap = t.lap_number;
     let lap_time = t.elapsed_time - t.lap_start_et;
     frame.lap_time_s = (0.0..=86_400.0).contains(&lap_time).then_some(lap_time);
-    // The raw values are scrubbed like every other reader's: finite and in range, else "not given".
-    frame.speed_ms = scrub(speed, 0.0, 1000.0);
-    frame.rpm = scrub(t.rpm, 0.0, 100_000.0);
-    frame.gear = if (-1..=30).contains(&t.gear) { t.gear as f32 } else { f32::NAN };
+    // The raw values go through `norm`, the tolerances every other reader uses: finite and in range, else "not given".
+    frame.speed_ms = norm::within(speed as f32, 0.0, 1000.0);
+    frame.rpm = norm::within(t.rpm as f32, 0.0, 100_000.0);
+    frame.gear = norm::gear(t.gear);
     // `mMaxGears`: maximum forward gears; 0 is unset.
     frame.gears = (t.max_gears > 0).then_some(t.max_gears);
-    frame.throttle = pull_in(t.throttle, 0.0, 1.0);
-    frame.brake = pull_in(t.brake, 0.0, 1.0);
-    frame.clutch = pull_in(t.clutch, 0.0, 1.0);
-    frame.steer = pull_in(t.steering, -1.0, 1.0);
-    frame.fuel_l = scrub(t.fuel_l, 0.0, 10_000.0);
+    frame.throttle = norm::pedal(t.throttle as f32);
+    frame.brake = norm::pedal(t.brake as f32);
+    frame.clutch = norm::pedal(t.clutch as f32);
+    frame.steer = norm::steer(t.steering as f32);
+    frame.fuel_l = norm::within(t.fuel_l as f32, 0.0, 10_000.0);
     // The car's place in the world, for the track map; a reading that is not finite or absurd is not given.
-    let place = |v: f64| if v.is_finite() && v.abs() <= 1.0e7 { v as f32 } else { f32::NAN };
-    (frame.x, frame.y, frame.z) = (place(t.pos[0]), place(t.pos[1]), place(t.pos[2]));
+    (frame.x, frame.y, frame.z) = (
+        norm::position(t.pos[0] as f32),
+        norm::position(t.pos[1] as f32),
+        norm::position(t.pos[2] as f32),
+    );
     let tyres: [Tyre; 4] = std::array::from_fn(|i| {
         let w = &t.wheels[i];
+        // The game's quirk, kept: the tyre temperatures are Kelvin (three readings across the tread, 0 when not written), so
+        // the mean is turned to Celsius first, and a tyre with any of the three at 0 K has no temperature yet ("not given",
+        // not a mean pulled down by the missing one). The range is then `norm::tyre_c`'s, like every other reader.
         let kelvin = w.temperature_k.iter().sum::<f64>() / 3.0;
         Tyre {
-            brake_c: if w.brake_temp_c > 0.0 && w.brake_temp_c <= 2000.0 {
-                w.brake_temp_c as f32
+            brake_c: norm::brake_c(w.brake_temp_c as f32),
+            temp_c: if w.temperature_k.iter().all(|k| *k > 0.0) {
+                norm::tyre_c((kelvin - 273.15) as f32)
             } else {
                 f32::NAN
             },
-            temp_c: if (200.0..=600.0).contains(&kelvin) {
-                (kelvin - 273.15) as f32
-            } else {
-                f32::NAN
-            },
-            pressure_kpa: if w.pressure_kpa > 0.0 && w.pressure_kpa <= 1000.0 {
-                w.pressure_kpa as f32
-            } else {
-                f32::NAN
-            },
-            left: if (0.0..=1.0).contains(&w.wear) && w.wear > 0.0 {
-                w.wear as f32
+            pressure_kpa: norm::pressure_kpa(w.pressure_kpa as f32),
+            // The tyre's wear is what is left, 0..1; 0 is what an unwritten field holds.
+            left: if w.wear > 0.0 {
+                norm::within(w.wear as f32, 0.0, 1.0)
             } else {
                 f32::NAN
             },
@@ -132,30 +132,13 @@ pub fn lmu_phase(scoring: Option<&ScoringFrame>) -> Phase {
     }
 }
 
-/// A reading inside `lo..=hi`; anything else (not a number, absurd) is "not given".
-fn scrub(v: f64, lo: f64, hi: f64) -> f32 {
-    if v.is_finite() && (lo..=hi).contains(&v) {
-        v as f32
-    } else {
-        f32::NAN
-    }
-}
-
-/// A pedal or the wheel: pulled into `lo..=hi` when a little outside it; far outside, or not a number, is "not given".
-fn pull_in(v: f64, lo: f64, hi: f64) -> f32 {
-    let slack = (hi - lo) * 0.5;
-    if v.is_finite() && v >= lo - slack && v <= hi + slack {
-        v.clamp(lo, hi) as f32
-    } else {
-        f32::NAN
-    }
-}
-
 /// The dashboard lights, temperatures, electronics and damage of Le Mans Ultimate's car (`TelemInfoV01`, and the
 /// player's scoring entry for the flag). The header has no handbrake, no gearbox or engine damage and no suspension
 /// damage, so those stay `None`.
 fn lmu_state(t: &PlayerTelemetry, player: Option<&crate::lmu::snapshot::VehicleScoring>) -> CarState {
-    let temp = |c: f64| (c.is_finite() && c > 0.0 && c <= 400.0).then_some(c as f32);
+    // The coolant and the oil, in Celsius; 0 is what an unwritten field holds (`norm`).
+    let water = Some(norm::water_c(t.water_c as f32)).filter(|c| c.is_finite());
+    let oil = Some(norm::oil_c(t.oil_c as f32)).filter(|c| c.is_finite());
     // A setting is given for a car that has the aid (its maximum is above 0).
     let setting = |value: u8, max: u8| (max > 0).then_some(value);
     // `mDentSeverity`: eight places, each 0 none, 1 some, 2 more. Body damage is their sum over the worst case
@@ -175,15 +158,7 @@ fn lmu_state(t: &PlayerTelemetry, player: Option<&crate::lmu::snapshot::VehicleS
         }
     };
     // The header names only green (0) and blue (6) for `mFlag`; a car that took the full-course caution is under yellow.
-    let flag = player.and_then(|p| {
-        if p.under_yellow {
-            Some(Flag::Yellow)
-        } else if p.flag == 6 {
-            Some(Flag::Blue)
-        } else {
-            None
-        }
-    });
+    let flag = player.and_then(|p| norm::flag_showing(&[(p.under_yellow, Flag::Yellow), (p.flag == 6, Flag::Blue)]));
     CarState {
         pit_limiter: Some(t.speed_limiter_active),
         abs_active: Some(t.abs_active),
@@ -193,8 +168,8 @@ fn lmu_state(t: &PlayerTelemetry, player: Option<&crate::lmu::snapshot::VehicleS
         handbrake: None,
         engine_warning: Some(t.overheating),
         flag,
-        water_c: temp(t.water_c),
-        oil_c: temp(t.oil_c),
+        water_c: water,
+        oil_c: oil,
         tc_level: setting(t.tc, t.tc_max),
         abs_level: setting(t.abs, t.abs_max),
         engine_map: setting(t.motor_map, t.motor_map_max),
@@ -1107,6 +1082,11 @@ mod tests {
         );
         assert_eq!(lmu_frame(&t, Some(&scoring(0, true))).state.flag, Some(Flag::Yellow));
         assert_eq!(lmu_frame(&t, Some(&scoring(0, false))).state.flag, None);
+        assert_eq!(
+            lmu_frame(&t, Some(&scoring(6, true))).state.flag,
+            Some(Flag::Yellow),
+            "yellow outranks blue (norm::flag_showing)"
+        );
         assert_eq!(lmu_frame(&t, None).state.flag, None, "no scoring yet");
         // The rear flap: activated is open; "1" is not yet; 0 is what a car without one writes.
         let mut flap = t.clone();
@@ -1280,6 +1260,52 @@ mod tests {
         let tyres = lmu_frame(&only_brakes, None).tyres.expect("a brake temperature is enough");
         assert!(tyres[2].known() && tyres[2].temp_c.is_nan());
         assert!(lmu_frame(&PlayerTelemetry::default(), None).tyres.is_none());
+        // The game's quirk (Kelvin, 0 when not written) goes through the shared tolerances: a reading with one of the three
+        // missing, or a unit that is not Kelvin, is "not given", never a cold or an absurd tyre.
+        let mut odd = PlayerTelemetry::default();
+        for (k, brake, pressure, wear) in [
+            ([358.15, 0.0, 368.15], 100.0, 175.0, 0.9),
+            ([90.0, 90.0, 90.0], 100.0, 175.0, 0.9),
+            ([900.0, 900.0, 900.0], 100.0, 175.0, 0.9),
+        ] {
+            odd.wheels[1] = Wheel {
+                brake_temp_c: brake,
+                pressure_kpa: pressure,
+                temperature_k: k,
+                wear,
+            };
+            assert!(lmu_frame(&odd, None).tyres.unwrap()[1].temp_c.is_nan(), "{k:?}");
+        }
+        // Values far out of range are not given, as in every other reader (`norm`).
+        odd.wheels[1] = Wheel {
+            brake_temp_c: 2500.0,
+            pressure_kpa: 5000.0,
+            temperature_k: [358.15; 3],
+            wear: 1.5,
+        };
+        let wheel = lmu_frame(&odd, None).tyres.unwrap()[1];
+        assert!(wheel.brake_c.is_nan() && wheel.pressure_kpa.is_nan() && wheel.left.is_nan());
+        assert!((wheel.temp_c - 85.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn le_mans_ultimate_pedals_the_wheel_and_the_position_use_the_shared_tolerances() {
+        let t = PlayerTelemetry {
+            throttle: 1.2,
+            brake: -0.3,
+            clutch: -1.0,
+            steering: 1.4,
+            pos: [1.0e7 + 1.0e6, -5.0, 2.5],
+            water_c: -20.0,
+            oil_c: 0.0,
+            ..PlayerTelemetry::default()
+        };
+        let frame = lmu_frame(&t, Some(&lmu_scoring(true, 5)));
+        assert_eq!((frame.throttle, frame.brake), (1.0, 0.0), "a hair outside is pulled in");
+        assert!(frame.clutch.is_nan(), "-1 is the games' not available");
+        assert_eq!(frame.steer, 1.0);
+        assert!(frame.x.is_nan() && frame.y == -5.0 && frame.z == 2.5);
+        assert_eq!((frame.state.water_c, frame.state.oil_c), (Some(-20.0), None), "0 is not given");
     }
 
     #[test]

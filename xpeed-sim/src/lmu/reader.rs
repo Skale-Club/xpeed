@@ -95,10 +95,10 @@ pub enum Version {
     /// The same major and minor, another patch: the layout is taken to be the same (a patch does not move fields),
     /// and the difference is logged once.
     Patch([u32; 3]),
-    /// Another major or minor: the layout may have moved. Nothing is read.
+    /// Another major or minor: the layout may have moved, but the game updates often and the size check and the automatic
+    /// data checks (`sanity.rs`) guard what is read. It is read all the same, noted once in the log and reported once to Xpeed.
     Other([u32; 3]),
-    /// A number that does not read as a version in the assumed packing (see `decode_version`): not refused (the
-    /// packing is not checked against a live game), logged once.
+    /// A number that does not read as a version in the assumed packing (see `decode_version`): logged once, read.
     NotUnderstood(i32),
 }
 
@@ -122,6 +122,29 @@ pub fn judge_version(raw: i32) -> Version {
         Some(found) if found[..2] != LAYOUT_VERSION[..2] => Version::Other(found),
         Some(found) if found != LAYOUT_VERSION => Version::Patch(found),
         Some(_) => Version::Same,
+    }
+}
+
+/// Each difference is told to Xpeed's own server once per run (a game restart opens a new reader, and the same number must not
+/// say it all again): `key` names the difference.
+fn first_time(key: &str) -> bool {
+    static TOLD: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let mut told = crate::util::lock(&TOLD);
+    if told.iter().any(|k| k == key) {
+        return false;
+    }
+    told.push(key.to_owned());
+    true
+}
+
+/// Writes the difference to the crash-report path (shown in the admin Problems section, from the worker "lmu").
+/// Tests only keep the note: they must not write to the folder another test uses for reports.
+fn tell_xpeed(key: &str, text: &str) {
+    if first_time(key) {
+        #[cfg(not(test))]
+        crate::crashreport::record("lmu", text, "");
+        #[cfg(test)]
+        let _ = text;
     }
 }
 
@@ -233,8 +256,6 @@ pub struct LmuReader {
     pub lock_timeout_ms: u32,
     /// The version number judged last (each number is judged, and noted in the log, once).
     judged: Option<i32>,
-    /// The game's version is another major or minor than the layout's: nothing is read.
-    refused: bool,
     /// What was last written to the log about the version.
     #[cfg_attr(not(test), allow(dead_code))]
     note: Option<String>,
@@ -300,20 +321,17 @@ impl LmuReader {
                 buffer: vec![0; LAYOUT_SIZE],
                 lock_timeout_ms: 100,
                 judged: None,
-                refused: false,
                 note: None,
             };
+            reader.judge_size();
             reader.judge(reader.version_in_memory());
-            if reader.refused {
-                let message = reader.note.clone().unwrap_or_default();
-                return Err(OpenError::Os(message));
-            }
             Ok(reader)
         }
     }
 
-    /// Judges the game's version number once per value: another major or minor refuses the game (nothing is read from
-    /// it), another patch or a number that does not read as a version is accepted and written to the log once.
+    /// Judges the game's version number once per value. Nothing is ever refused for its version: another major or minor
+    /// is read, written to the log once and reported once (per number, per run) to Xpeed's Problems section; another patch
+    /// or a number that does not read as a version is only written to the log once.
     fn judge(&mut self, raw: i32) {
         if self.judged == Some(raw) {
             return;
@@ -325,12 +343,13 @@ impl LmuReader {
         self.judged = Some(raw);
         let note = match verdict {
             Version::Other(found) => {
-                self.refused = true;
-                Some(format!(
-                    "Le Mans Ultimate says it is version {}; this build reads the layout of {}. Another game version: nothing is read.",
+                let text = format!(
+                    "Le Mans Ultimate version {} differs from the layout {} this build was made for; reading it anyway, the size and the data checks guard it.",
                     dotted(found),
                     dotted(LAYOUT_VERSION)
-                ))
+                );
+                tell_xpeed(&format!("version-{}", dotted(found)), &text);
+                Some(text)
             }
             Version::Patch(found) => Some(format!(
                 "Le Mans Ultimate is version {}, a patch away from the {} this build's layout was made for; reading it as the same layout.",
@@ -364,16 +383,35 @@ impl LmuReader {
         }
     }
 
+    /// A mapping bigger than the layout (the game grew) is read, written to the log once and reported once; a smaller one never
+    /// gets here (`open` refuses it: the layout would read past the end).
+    fn judge_size(&mut self) {
+        let known = round_up_to_page(LAYOUT_SIZE);
+        if self.mapped_bytes > known {
+            let text = format!(
+                "Le Mans Ultimate shares {} bytes of memory; the layout this build was made for has {} ({} with the page rounding); reading it anyway, the data checks guard it.",
+                self.mapped_bytes, LAYOUT_SIZE, known
+            );
+            tell_xpeed(&format!("size-{}", self.mapped_bytes), &text);
+            crate::applog::line(&text);
+            self.note = Some(text);
+        }
+    }
+
     /// The size of the mapping the game made, rounded up to whole pages (what Windows reports).
     pub fn mapped_bytes(&self) -> usize {
         self.mapped_bytes
     }
 
-    /// Whether the game's memory is the size of the layout this build was made for. A different size
-    /// means a game version with another layout: read nothing from it. (A change smaller than a page
-    /// cannot be seen from the size; the game version printed by `probe` covers that.)
+    /// Whether the game's memory holds the whole layout this build reads. Only a smaller mapping is refused (the layout
+    /// would read past its end); a bigger one is read (see `judge_size`). `open` already refuses a smaller one.
     pub fn layout_matches(&self) -> bool {
-        self.mapped_bytes == round_up_to_page(LAYOUT_SIZE) && !self.refused
+        self.mapped_bytes >= LAYOUT_SIZE
+    }
+
+    /// Whether the memory is exactly the size of the layout (with the page rounding), for the probe's report.
+    pub fn same_size(&self) -> bool {
+        self.mapped_bytes == round_up_to_page(LAYOUT_SIZE)
     }
 
     /// Waits for the next frame, in the order the game's interface requires. False on timeout.
@@ -400,10 +438,6 @@ impl LmuReader {
         self.judge(i32::from_le_bytes(
             self.buffer[GENERIC_GAME_VERSION..GENERIC_GAME_VERSION + 4].try_into().unwrap(),
         ));
-        if self.refused {
-            self.lock.unlock();
-            return None;
-        }
         let codes = events(&self.buffer);
         if codes.contains(&SME_UPDATE_TELEMETRY) {
             self.copy(TELEMETRY_ACTIVE_VEHICLES, 3);
@@ -673,34 +707,49 @@ mod tests {
     }
 
     #[test]
-    fn a_game_of_another_major_or_minor_is_refused_with_the_other_version_message() {
-        let game = FakeGame::new(LAYOUT_SIZE, true);
-        let mut memory = full_frame();
-        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 5, 0));
-        game.write_frame(&memory);
-        match LmuReader::open(&game.names) {
-            Err(OpenError::Os(message)) => {
-                assert!(message.contains("Another game version"), "{message}");
-                assert!(message.contains("1.5.0") && message.contains("1.4.2"), "{message}");
-            }
-            other => panic!("expected a refusal, got {:?}", other.err()),
+    fn a_game_of_another_major_or_minor_is_read_and_noted_never_refused() {
+        for (major, minor) in [(1, 5), (1, 3), (2, 0)] {
+            let game = FakeGame::new(LAYOUT_SIZE, true);
+            let mut memory = full_frame();
+            memory.put_i32(GENERIC_GAME_VERSION, version_number(major, minor, 0));
+            game.write_frame(&memory);
+            let mut reader = LmuReader::open(&game.names).expect("another version never refuses the game");
+            assert!(reader.layout_matches());
+            let note = reader.note.clone().expect("the difference is noted");
+            let found = format!("{major}.{minor}.0");
+            assert!(
+                note.contains(&found) && note.contains("1.4.2") && note.contains("differs"),
+                "{note}"
+            );
+            let snapshot = reader.read().expect("and it is read");
+            assert_eq!(snapshot.telemetry, Some(car()));
         }
     }
 
     #[test]
-    fn a_game_whose_version_appears_after_the_memory_is_refused_at_the_first_read() {
+    fn a_game_whose_version_appears_after_the_memory_is_read_and_noted_at_the_first_read() {
         let game = FakeGame::new(LAYOUT_SIZE, true);
         let mut memory = full_frame();
         memory.put_i32(GENERIC_GAME_VERSION, 0);
         game.write_frame(&memory);
         let mut reader = LmuReader::open(&game.names).expect("no version written yet: nothing to judge");
-        assert!(reader.layout_matches());
+        assert!(reader.layout_matches() && reader.note.is_none());
         memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 6, 0));
         game.write_frame(&memory);
-        assert!(reader.read().is_none(), "another version: nothing is read");
-        assert!(!reader.layout_matches());
-        assert_eq!(game.busy().load(Ordering::SeqCst), 0, "the lock is released all the same");
-        assert!(reader.note.as_deref().is_some_and(|n| n.contains("Another game version")));
+        assert!(reader.read().is_some(), "another version: it is read all the same");
+        assert!(reader.layout_matches());
+        assert_eq!(game.busy().load(Ordering::SeqCst), 0, "the lock is released");
+        assert!(reader.note.as_deref().is_some_and(|n| n.contains("1.6.0") && n.contains("differs")));
+    }
+
+    #[test]
+    fn a_difference_is_told_to_xpeed_once_per_run() {
+        assert!(first_time("test-version-9.9.9"));
+        assert!(
+            !first_time("test-version-9.9.9"),
+            "a restarted game says the same number again: nothing more is sent"
+        );
+        assert!(first_time("test-version-9.9.8"), "another number is another finding");
     }
 
     #[test]
@@ -733,10 +782,27 @@ mod tests {
     }
 
     #[test]
-    fn notices_memory_of_another_size_without_reading_it() {
+    fn memory_bigger_than_the_layout_is_read_and_noted() {
         let game = FakeGame::new(LAYOUT_SIZE + 2 * PAGE_BYTES, true);
-        let reader = LmuReader::open(&game.names).unwrap();
-        assert!(!reader.layout_matches());
+        let mut memory = full_frame();
+        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 4, 2));
+        game.write_frame(&memory);
+        let mut reader = LmuReader::open(&game.names).unwrap();
+        assert!(reader.layout_matches(), "the whole layout is there");
+        assert!(!reader.same_size());
         assert_eq!(reader.mapped_bytes(), round_up_to_page(LAYOUT_SIZE + 2 * PAGE_BYTES));
+        assert!(reader.note.as_deref().is_some_and(|n| n.contains("reading it anyway")));
+        assert_eq!(reader.read().expect("read").telemetry, Some(car()));
+    }
+
+    #[test]
+    fn memory_of_the_layouts_size_is_the_same_size() {
+        let game = FakeGame::new(LAYOUT_SIZE, true);
+        let mut memory = full_frame();
+        memory.put_i32(GENERIC_GAME_VERSION, version_number(1, 4, 2));
+        game.write_frame(&memory);
+        let reader = LmuReader::open(&game.names).unwrap();
+        assert!(reader.layout_matches() && reader.same_size());
+        assert_eq!(reader.note, None);
     }
 }
