@@ -39,6 +39,14 @@
 //!
 //! `driving` is `IsOnTrack` (the player is in the car and its physics run) and not `IsReplayPlaying`.
 //!
+//! # Phase
+//!
+//! `IsReplayPlaying` is `Replay`; else `IsOnTrack` is `Driving`; else `IsInGarage` (when the build publishes it) is
+//! `Garage`; anything else is `Unknown` (the sim's menus, the pause of an offline session and the pit stall are not
+//! told apart, and the telemetry is the player's own car even when watching another, so `Spectating` is not told
+//! either). The sim leaving a session gives one empty `Unknown` frame. The car values are left as the sim gives them
+//! outside `Driving`: the audit found no stale or zeroed values here.
+//!
 //! # Where the car is (the map)
 //!
 //! **The sim does not publish the car's position in the live telemetry.** `Lat`/`Lon`/`Alt` exist only in the
@@ -66,7 +74,7 @@ use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{Frame, Source};
+use crate::game::{Caps, Frame, Phase, Source};
 use crate::lapfile::Lap;
 use crate::shm::{Mapping, Page};
 
@@ -468,7 +476,16 @@ fn frame_from(values: &Values, session: &Session, path: &mut Path, clock_s: f64)
     frame.clock_s = clock_s;
     let on_track = values.flag("IsOnTrack").unwrap_or(false);
     let replay = values.flag("IsReplayPlaying").unwrap_or(false);
-    frame.driving = on_track && !replay;
+    let in_garage = values.flag("IsInGarage").unwrap_or(false);
+    frame.set_phase(if replay {
+        Phase::Replay
+    } else if on_track {
+        Phase::Driving
+    } else if in_garage {
+        Phase::Garage
+    } else {
+        Phase::Unknown
+    });
     frame.lap = values.number("Lap").map_or(0, |v| v as i32).clamp(0, 100_000);
     frame.lap_time_s = values.number("LapCurrentLapTime").filter(|t| (0.0..=86_400.0).contains(t));
     frame.last_lap_s = values.number("LapLastLapTime").filter(|t| *t > 0.0 && *t <= 86_400.0);
@@ -500,8 +517,31 @@ fn frame_from(values: &Values, session: &Session, path: &mut Path, clock_s: f64)
     frame.track = session.track.clone();
     frame.track_variant = session.variant.clone();
     frame.track_length_m = session.length_m;
+    // Every frame the reader tests make is held to the caps and the phase invariant.
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&frame, CAPS, "iracing");
     (frame, estimated)
 }
+
+/// What a frame can fill. The position is the SDK's `Lat`/`Lon` when the build publishes them, else the path worked out
+/// from the velocity (`Path`). Not given: tyres, temperatures, the car's state lights, the session kind, the sectors
+/// and the g forces (none is read), and the tank's size.
+const CAPS: Caps = Caps::LAP_TIME
+    .or(Caps::LAST_LAP)
+    .or(Caps::DIST)
+    .or(Caps::IN_PITS)
+    .or(Caps::SPEED)
+    .or(Caps::RPM)
+    .or(Caps::GEAR)
+    .or(Caps::THROTTLE)
+    .or(Caps::BRAKE)
+    .or(Caps::CLUTCH)
+    .or(Caps::STEER)
+    .or(Caps::POSITION)
+    .or(Caps::FUEL)
+    .or(Caps::CAR_CLASS)
+    .or(Caps::TRACK_VARIANT)
+    .or(Caps::TRACK_LENGTH);
 
 /// A float inside `lo..=hi`; anything else is "not given".
 fn within(v: f32, lo: f32, hi: f32) -> f32 {
@@ -665,6 +705,10 @@ impl Source for IRacing {
     /// The sim keeps its memory while it runs; the engine lets go of the reader when the program closes.
     fn alive(&self) -> bool {
         true
+    }
+
+    fn caps(&self) -> Caps {
+        CAPS
     }
 
     fn finish_lap(&self, lap: &mut Lap) {

@@ -72,12 +72,21 @@
 //! where a lap counts (`gamePhase`: warm-up, green flag, full-course yellow, stopped, over: not the garage, the grid
 //! walk, the formation lap or the countdown).
 //!
+//! # Phase
+//!
+//! The first that is true: a replay `control` (3) is `Replay`; not `inRealtime` (the monitor or the garage screen) is
+//! `Garage`; an AI or remote `control` (1, 2) is `Spectating`; any other control than the player's (0, so nobody) is
+//! `Unknown`; a `gamePhase` before the session has begun (0), the grid walk, the formation lap and the countdown is
+//! `Loading`; else `Driving`. Not told: `Menu` (the memory is cleared and no frame comes) and `Paused` (the plugin has no pause
+//! flag). Outside `Driving` the gear, pedals, steering, speed and rpm are `NaN`: the plugin writes the telemetry only
+//! while the player is in the car, so what the memory holds then is the last values the car gave.
+//!
 //! Never read: another process's memory. Only the plugin's own shared memory, read-only and copied out.
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Frame, Source};
+use crate::game::{Caps, CarState, Frame, Phase, Source};
 use crate::shm::{Mapping, Page};
 
 /// The name the plugin gives its memory (`RF_SHARED_MEMORY_NAME`).
@@ -135,8 +144,11 @@ const CLASS_NAME_LENGTH: usize = 32;
 const PHASE_WARM_UP: u8 = 1;
 const PHASE_GREEN_FLAG: u8 = 5;
 const PHASE_MAX: u8 = 8;
-/// `rfControl::player`.
+/// `rfControl`: -1 nobody, 0 the player, 1 an AI, 2 a remote driver, 3 a replay.
 const CONTROL_PLAYER: i8 = 0;
+const CONTROL_AI: i8 = 1;
+const CONTROL_REMOTE: i8 = 2;
+const CONTROL_REPLAY: i8 = 3;
 
 /// A copy is tried this many times before that frame is given up.
 const ATTEMPTS: usize = 4;
@@ -279,6 +291,10 @@ impl Source for RFactor1 {
     fn alive(&self) -> bool {
         self.last_change.elapsed() < self.stale_after
     }
+
+    fn caps(&self) -> Caps {
+        CAPS
+    }
 }
 
 /// A float the game gave, inside `lo..=hi`; anything else (NaN, infinite, absurd) is "not given".
@@ -340,7 +356,21 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     let in_realtime = page.u8_at(at::IN_REALTIME) == 1;
     let control = page.u8_at(me + at::V_CONTROL) as i8;
     let lap_counts = phase == PHASE_WARM_UP || phase >= PHASE_GREEN_FLAG;
-    frame.driving = in_realtime && control == CONTROL_PLAYER && lap_counts;
+    frame.set_phase(if control == CONTROL_REPLAY {
+        Phase::Replay
+    } else if !in_realtime {
+        // The monitor or the garage screen: the player is out of the car.
+        Phase::Garage
+    } else if control == CONTROL_AI || control == CONTROL_REMOTE {
+        Phase::Spectating
+    } else if control != CONTROL_PLAYER {
+        Phase::Unknown
+    } else if !lap_counts {
+        // Before the session has begun, the grid walk, the formation lap and the countdown.
+        Phase::Loading
+    } else {
+        Phase::Driving
+    });
     frame.lap = lap;
     frame.lap_time_s = lap_time(page.f32_at(at::CURRENT_ET), page.f32_at(at::LAP_START_ET));
     // -1 while the player has not completed a lap.
@@ -379,8 +409,35 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track = page.ascii_at(at::TRACK_NAME, TRACK_NAME_LENGTH);
     let length = within(page.f32_at(at::LAP_DIST), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
+    // The telemetry is written only while the player is in the car: out of it (the monitor, a pause between
+    // sessions) the memory holds the last values, which are stale. No car values outside `Driving`.
+    frame.withhold_car_values_unless_driving();
+    // Every frame the reader tests make is held to the caps and the phase invariant.
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&frame, CAPS, "rfactor1");
     Some(frame)
 }
+
+/// What a frame can fill. The plugin exports no lights, flags, aids, brake bias, tyres, or engine and gearbox damage
+/// (the car's dents are the body damage), no tank size and no session or weather data.
+const CAPS: Caps = Caps::LAP_TIME
+    .or(Caps::LAST_LAP)
+    .or(Caps::DIST)
+    .or(Caps::IN_PITS)
+    .or(Caps::SPEED)
+    .or(Caps::RPM)
+    .or(Caps::GEAR)
+    .or(Caps::THROTTLE)
+    .or(Caps::BRAKE)
+    .or(Caps::CLUTCH)
+    .or(Caps::STEER)
+    .or(Caps::POSITION)
+    .or(Caps::FUEL)
+    .or(Caps::TRACK_LENGTH)
+    .or(Caps::ENGINE_WARNING)
+    .or(Caps::WATER_TEMP)
+    .or(Caps::OIL_TEMP)
+    .or(Caps::DAMAGE_BODY);
 
 /// The overheating light, the temperatures and the dents. The plugin exports no lights, flags, aids, brake bias or
 /// engine and gearbox damage, so those are not given.
@@ -703,7 +760,7 @@ mod tests {
         let frame = reader.next(NOW).expect("a frame");
         let mut want = Frame::empty();
         want.clock_s = frame.clock_s;
-        want.driving = true;
+        want.set_phase(Phase::Driving);
         want.lap = 4;
         want.lap_time_s = Some(63.25); // 1063.75 - 1000.5
         want.last_lap_s = Some(90.5);

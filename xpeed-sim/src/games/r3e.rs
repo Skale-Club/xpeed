@@ -35,10 +35,12 @@
 //!
 //! # What is read, and how
 //!
-//! * `driving`: not `game_paused`, not `game_in_menus`, not `game_in_replay`, not `game_player_in_garage`, the car under
-//!   the player's control (`control_type` 0), a lap count given, and a session phase where a lap counts (not the garage
-//!   countdown, the grid walk, the formation lap or the start countdown; -1 "unavailable", green and checkered count,
-//!   and so does 0, which the enum does not name).
+//! * `phase` (and `driving`, which is `phase == Driving`): the first that is true of `game_in_replay` or a replay
+//!   `control_type` (3) is `Replay`; `game_in_menus` is `Menu`; `game_paused` is `Paused`; `game_player_in_garage` or the
+//!   garage session phase is `Garage`; an AI or remote `control_type` (1, 2) is `Spectating`; any other control than the
+//!   player's (0), or no lap count given, is `Unknown`; the grid walk, the formation lap and the start countdown are
+//!   `Loading`; else `Driving` (-1 "unavailable", green, checkered and 0, which the enum does not name, count). The car
+//!   values are left as the game gives them outside `Driving`: the audit found no stale or zeroed values here.
 //! * `lap` is `completed_laps + 1` ("If this value is 6, the car is on it's 7th lap"); 0 while the game says -1.
 //! * Times: `lap_time_current_self` and `lap_time_previous_self`, seconds, -1 = not given.
 //! * `lap_valid`: `lap_valid_state` (0 this and next lap valid, 1 this lap invalid, 2 this and next invalid, -1 N/A).
@@ -65,7 +67,7 @@
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, Source, Tyre};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// `R3E_SHARED_MEMORY_NAME`.
@@ -163,7 +165,11 @@ const PHASE_GARAGE: i32 = 1;
 const PHASE_COUNTDOWN: i32 = 4;
 const PHASE_MAX: i32 = 6;
 // `r3e_control`.
+/// `r3e_control`: -1 unavailable, 0 the player, 1 an AI, 2 a remote driver, 3 a replay.
 const CONTROL_PLAYER: i32 = 0;
+const CONTROL_AI: i32 = 1;
+const CONTROL_REMOTE: i32 = 2;
+const CONTROL_REPLAY: i32 = 3;
 const CONTROL_MAX: i32 = 3;
 
 /// A copy is tried this many times before that frame is given up.
@@ -309,6 +315,10 @@ impl Source for R3e {
     fn alive(&self) -> bool {
         !self.refused && self.last_change.elapsed() < self.stale_after
     }
+
+    fn caps(&self) -> Caps {
+        CAPS
+    }
 }
 
 /// A float the game gave, inside `lo..=hi`; anything else (NaN, infinite, absurd, -1 "not available") is "not given".
@@ -400,12 +410,25 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     let mut frame = Frame::empty();
     frame.clock_s = clock_s;
 
-    let on_track = page.i32_at(at::GAME_PAUSED) == 0
-        && page.i32_at(at::GAME_IN_MENUS) == 0
-        && page.i32_at(at::GAME_IN_REPLAY) == 0
-        && page.i32_at(at::GAME_PLAYER_IN_GARAGE) == 0;
-    let lap_counts = !(PHASE_GARAGE..=PHASE_COUNTDOWN).contains(&phase);
-    frame.driving = on_track && control == CONTROL_PLAYER && completed >= 0 && lap_counts;
+    // The first thing that is true decides, in this order.
+    frame.set_phase(if page.i32_at(at::GAME_IN_REPLAY) != 0 || control == CONTROL_REPLAY {
+        Phase::Replay
+    } else if page.i32_at(at::GAME_IN_MENUS) != 0 {
+        Phase::Menu
+    } else if page.i32_at(at::GAME_PAUSED) != 0 {
+        Phase::Paused
+    } else if page.i32_at(at::GAME_PLAYER_IN_GARAGE) != 0 || phase == PHASE_GARAGE {
+        Phase::Garage
+    } else if control == CONTROL_AI || control == CONTROL_REMOTE {
+        Phase::Spectating
+    } else if control != CONTROL_PLAYER || completed < 0 {
+        Phase::Unknown
+    } else if (PHASE_GARAGE..=PHASE_COUNTDOWN).contains(&phase) {
+        // The grid walk, the formation lap and the start countdown: a lap does not count yet.
+        Phase::Loading
+    } else {
+        Phase::Driving
+    });
     // The game counts laps completed from zero; the first lap is lap 1 here (the engine reads 0 as "no lap yet").
     frame.lap = if completed >= 0 { completed + 1 } else { 0 };
     frame.lap_time_s = seconds(page.f32_at(at::LAP_TIME_CURRENT_SELF), true);
@@ -451,8 +474,52 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track_variant = Some(page.ascii_at(at::LAYOUT_NAME, STRING_LENGTH)).filter(|s| !s.is_empty());
     let length = within(page.f32_at(at::LAYOUT_LENGTH), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
+    // Every frame the reader tests make is held to the caps and the phase invariant.
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&frame, CAPS, "r3e");
     Some(frame)
 }
+
+/// What a frame can fill. Not given: the handbrake and the engine warning (not in the header), the tread left (no
+/// stated direction), the tank's size, the weather, the session kind, the sectors, the g forces, the air and track
+/// temperatures (none is read).
+const CAPS: Caps = Caps::LAP_TIME
+    .or(Caps::LAST_LAP)
+    .or(Caps::LAP_VALID)
+    .or(Caps::DIST)
+    .or(Caps::IN_PITS)
+    .or(Caps::SPEED)
+    .or(Caps::RPM)
+    .or(Caps::GEAR)
+    .or(Caps::GEARS)
+    .or(Caps::THROTTLE)
+    .or(Caps::BRAKE)
+    .or(Caps::CLUTCH)
+    .or(Caps::STEER)
+    .or(Caps::POSITION)
+    .or(Caps::FUEL)
+    .or(Caps::TYRE_TEMP)
+    .or(Caps::TYRE_PRESSURE)
+    .or(Caps::BRAKE_TEMP)
+    .or(Caps::CAR_CLASS)
+    .or(Caps::TRACK_VARIANT)
+    .or(Caps::TRACK_LENGTH)
+    .or(Caps::PIT_LIMITER)
+    .or(Caps::ABS_ACTIVE)
+    .or(Caps::TC_ACTIVE)
+    .or(Caps::DRS)
+    .or(Caps::HEADLIGHTS)
+    .or(Caps::FLAG)
+    .or(Caps::WATER_TEMP)
+    .or(Caps::OIL_TEMP)
+    .or(Caps::TC_LEVEL)
+    .or(Caps::ABS_LEVEL)
+    .or(Caps::ENGINE_MAP)
+    .or(Caps::BRAKE_BIAS)
+    .or(Caps::DAMAGE_BODY)
+    .or(Caps::DAMAGE_ENGINE)
+    .or(Caps::DAMAGE_GEARBOX)
+    .or(Caps::DAMAGE_SUSPENSION);
 
 /// A three-way int of the header (-1 no data, 0 no, 1 yes) as a bool; 2 and the rest are not given.
 fn yes_no(v: i32) -> Option<bool> {
@@ -1140,7 +1207,7 @@ mod tests {
         let frame = reader.next(NOW).expect("a frame");
         let mut want = Frame::empty();
         want.clock_s = frame.clock_s;
-        want.driving = true;
+        want.set_phase(Phase::Driving);
         want.lap = 4; // three laps completed: the fourth is being driven
         want.lap_time_s = Some(63.25);
         want.last_lap_s = Some(90.5);

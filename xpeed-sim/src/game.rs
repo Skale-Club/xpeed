@@ -28,6 +28,39 @@ impl Tyre {
     }
 }
 
+/// What the player is doing in the game right now, as far as the game says. `Frame::driving` is exactly
+/// `phase == Phase::Driving`; the two are only ever set together, by `Frame::set_phase`.
+///
+/// A reader reports the phases its game exposes and nothing finer: a game that cannot tell a pause from a menu gives
+/// `Menu` or `Unknown` for both, and says so in its module doc. `Unknown` is the honest answer when the game shows
+/// something this reader cannot place (a status number it does not know, a page that is not written yet).
+///
+/// While the phase is not `Driving`, the live car values (gear, pedals, steering, speed, rpm) are `NaN` in the readers
+/// whose game leaves them stale or zeroed there; see `Frame::withhold_car_values_unless_driving`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phase {
+    /// The player's own car is on the track and under the player's hands, in a session where a lap counts. The only
+    /// phase whose frames the lap cutter uses. Pit lane and pit stops are still `Driving` (see `Frame::in_pits`).
+    Driving,
+    /// The game is frozen by the player (a pause screen or an escape menu in a running session). The car is still
+    /// on the track, so the identity, fuel, tyres and lap times are meaningful; the live car values are not.
+    Paused,
+    /// A front-end screen outside any session: main menu, lobby, car or track selection, results.
+    Menu,
+    /// The player is in the garage or the pit box before going out (setup screens and the garage view included),
+    /// not yet moving under their own control.
+    Garage,
+    /// The game is playing a recording back. Nothing on the frame is the player's live driving.
+    Replay,
+    /// Not the player's own driving: another car is being watched, or an AI or a remote driver has the player's car.
+    Spectating,
+    /// The game is loading a session or counting down to a start in which the player cannot drive yet.
+    Loading,
+    /// The game exposes no phase this reader can use, or what it shows is not one this reader knows.
+    #[default]
+    Unknown,
+}
+
 /// A flag the race shows the player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flag {
@@ -112,8 +145,11 @@ impl CarState {
 pub struct Frame {
     /// Seconds on a clock that never goes backwards while the game runs (the game's, or the program's own).
     pub clock_s: f64,
-    /// False in a menu, a replay or a garage: the frame is not part of any lap.
+    /// False in a menu, a replay or a garage: the frame is not part of any lap. Always `phase == Phase::Driving`; set
+    /// it only with `set_phase`.
     pub driving: bool,
+    /// What the player is doing, as far as the game says (`Unknown` until a reader knows).
+    pub phase: Phase,
     /// The lap being driven, as the game counts it (the number changes when a lap is completed).
     pub lap: i32,
     /// Time on the current lap, in seconds, on the game's own clock. `None` when the game does not give it.
@@ -172,11 +208,105 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Sets what the player is doing, and `driving` with it: the one way to change either, so the two cannot disagree.
+    pub fn set_phase(&mut self, phase: Phase) {
+        self.phase = phase;
+        self.driving = phase == Phase::Driving;
+    }
+
+    /// True when `driving` and `phase` agree (the invariant `set_phase` keeps). Readers `debug_assert!` it on every
+    /// frame they build, so each reader test checks it on every frame the test produces.
+    pub fn phase_consistent(&self) -> bool {
+        self.driving == (self.phase == Phase::Driving)
+    }
+
+    /// The rule for every phase but `Driving`: the live car values (gear, pedals, steering, speed, rpm) are `NaN`,
+    /// because a game leaves them stale or zeroed there (a zeroed gear is reverse, a zeroed clutch a full pedal).
+    /// Identity (car, track), fuel, tyres, temperatures, the state lights and the lap timing are kept as they are:
+    /// they mean something in the pits, the garage and a pause. Readers call this where their game was found to leave
+    /// such values behind; it does nothing while the phase is `Driving`.
+    pub fn withhold_car_values_unless_driving(&mut self) {
+        if self.phase != Phase::Driving {
+            self.speed_ms = f32::NAN;
+            self.rpm = f32::NAN;
+            self.gear = f32::NAN;
+            self.throttle = f32::NAN;
+            self.brake = f32::NAN;
+            self.clutch = f32::NAN;
+            self.steer = f32::NAN;
+        }
+    }
+
+    /// What this frame actually fills: the groups of values that are present (finite, `Some` or true).
+    #[allow(dead_code)] // held by the reader tests; the panel will use it in step 1b
+    pub fn filled(&self) -> Caps {
+        let mut c = Caps::NONE;
+        let mut add = |on: bool, cap: Caps| {
+            if on {
+                c = c.or(cap);
+            }
+        };
+        add(self.lap_time_s.is_some(), Caps::LAP_TIME);
+        add(self.last_lap_s.is_some(), Caps::LAST_LAP);
+        add(self.lap_valid.is_some(), Caps::LAP_VALID);
+        add(self.dist_m.is_some(), Caps::DIST);
+        add(self.in_pits, Caps::IN_PITS);
+        add(self.speed_ms.is_finite(), Caps::SPEED);
+        add(self.rpm.is_finite(), Caps::RPM);
+        add(self.gear.is_finite(), Caps::GEAR);
+        add(self.gears.is_some(), Caps::GEARS);
+        add(self.throttle.is_finite(), Caps::THROTTLE);
+        add(self.brake.is_finite(), Caps::BRAKE);
+        add(self.clutch.is_finite(), Caps::CLUTCH);
+        add(self.steer.is_finite(), Caps::STEER);
+        add(self.x.is_finite() || self.y.is_finite() || self.z.is_finite(), Caps::POSITION);
+        add(self.fuel_l.is_finite(), Caps::FUEL);
+        add(self.fuel_capacity_l.is_some(), Caps::FUEL_CAPACITY);
+        if let Some(tyres) = &self.tyres {
+            add(tyres.iter().any(|t| t.temp_c.is_finite()), Caps::TYRE_TEMP);
+            add(tyres.iter().any(|t| t.pressure_kpa.is_finite()), Caps::TYRE_PRESSURE);
+            add(tyres.iter().any(|t| t.left.is_finite()), Caps::TYRE_WEAR);
+            add(tyres.iter().any(|t| t.brake_c.is_finite()), Caps::BRAKE_TEMP);
+        }
+        add(self.car_class.is_some(), Caps::CAR_CLASS);
+        add(self.track_variant.is_some(), Caps::TRACK_VARIANT);
+        add(self.track_length_m.is_some(), Caps::TRACK_LENGTH);
+        add(self.sectors_ms.iter().any(Option::is_some), Caps::SECTORS);
+        add(self.session_kind.is_some(), Caps::SESSION_KIND);
+        add(self.weather.is_some(), Caps::WEATHER);
+        add(self.air_temp_c.is_some(), Caps::AIR_TEMP);
+        add(self.track_temp_c.is_some(), Caps::TRACK_TEMP);
+        add(self.tyre_compound.is_some(), Caps::TYRE_COMPOUND);
+        add(self.g_lat.is_some(), Caps::G_LAT);
+        add(self.g_long.is_some(), Caps::G_LONG);
+        let s = &self.state;
+        add(s.pit_limiter.is_some(), Caps::PIT_LIMITER);
+        add(s.abs_active.is_some(), Caps::ABS_ACTIVE);
+        add(s.tc_active.is_some(), Caps::TC_ACTIVE);
+        add(s.drs.is_some(), Caps::DRS);
+        add(s.headlights.is_some(), Caps::HEADLIGHTS);
+        add(s.handbrake.is_some(), Caps::HANDBRAKE);
+        add(s.engine_warning.is_some(), Caps::ENGINE_WARNING);
+        add(s.flag.is_some(), Caps::FLAG);
+        add(s.water_c.is_some(), Caps::WATER_TEMP);
+        add(s.oil_c.is_some(), Caps::OIL_TEMP);
+        add(s.tc_level.is_some(), Caps::TC_LEVEL);
+        add(s.abs_level.is_some(), Caps::ABS_LEVEL);
+        add(s.engine_map.is_some(), Caps::ENGINE_MAP);
+        add(s.brake_bias.is_some(), Caps::BRAKE_BIAS);
+        add(s.damage_body.is_some(), Caps::DAMAGE_BODY);
+        add(s.damage_engine.is_some(), Caps::DAMAGE_ENGINE);
+        add(s.damage_gearbox.is_some(), Caps::DAMAGE_GEARBOX);
+        add(s.damage_suspension.is_some(), Caps::DAMAGE_SUSPENSION);
+        c
+    }
+
     /// A frame that says nothing yet: every optional value missing. Sources fill in what their game has.
     pub fn empty() -> Frame {
         Frame {
             clock_s: 0.0,
             driving: false,
+            phase: Phase::Unknown,
             lap: 0,
             lap_time_s: None,
             last_lap_s: None,
@@ -246,6 +376,141 @@ impl SectorTracker {
     }
 }
 
+macro_rules! caps_table {
+    ($($(#[$doc:meta])* $name:ident),+ $(,)?) => {
+        /// Which optional values a game can give: one bit per group of `Frame`, `Tyre` and `CarState` fields. A value
+        /// that is missing now (the game has not said yet) and one the game never gives look the same on a `Frame`
+        /// (`NaN` or `None`); `Source::caps` tells them apart. The rule: a field outside a reader's caps is always
+        /// `NaN`/`None`/false on its frames; a field inside them may still be missing at any moment.
+        #[derive(Clone, Copy, Default, PartialEq, Eq)]
+        pub struct Caps(u64);
+
+        #[allow(non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
+        #[repr(u8)]
+        enum Bit { $($name),+ }
+
+        impl Caps {
+            $(
+                $(#[$doc])*
+                pub const $name: Caps = Caps(1u64 << (Bit::$name as u8));
+            )+
+
+            /// Every group, with the name it is shown by.
+            pub const ALL: &'static [(Caps, &'static str)] = &[$((Caps::$name, stringify!($name))),+];
+        }
+    };
+}
+
+caps_table! {
+    // Frame: lap timing.
+    /// Time on the current lap.
+    LAP_TIME,
+    /// The official time of the last lap.
+    LAST_LAP,
+    /// The game's verdict on whether the current lap counts.
+    LAP_VALID,
+    /// Distance covered on the lap, in metres (else the cutter integrates the speed).
+    DIST,
+    /// Whether the car is in the pit lane (the field is a plain bool: "filled" means true).
+    IN_PITS,
+    // Frame: the car.
+    SPEED,
+    RPM,
+    GEAR,
+    /// How many forward gears the car has.
+    GEARS,
+    THROTTLE,
+    BRAKE,
+    CLUTCH,
+    STEER,
+    /// The world position (x, y, z).
+    POSITION,
+    FUEL,
+    FUEL_CAPACITY,
+    // Tyre.
+    TYRE_TEMP,
+    TYRE_PRESSURE,
+    TYRE_WEAR,
+    BRAKE_TEMP,
+    // Frame: the circuit and the session.
+    CAR_CLASS,
+    TRACK_VARIANT,
+    TRACK_LENGTH,
+    /// The first two sector times.
+    SECTORS,
+    SESSION_KIND,
+    WEATHER,
+    AIR_TEMP,
+    TRACK_TEMP,
+    TYRE_COMPOUND,
+    G_LAT,
+    G_LONG,
+    // CarState.
+    PIT_LIMITER,
+    ABS_ACTIVE,
+    TC_ACTIVE,
+    DRS,
+    HEADLIGHTS,
+    HANDBRAKE,
+    ENGINE_WARNING,
+    FLAG,
+    WATER_TEMP,
+    OIL_TEMP,
+    TC_LEVEL,
+    ABS_LEVEL,
+    ENGINE_MAP,
+    BRAKE_BIAS,
+    DAMAGE_BODY,
+    DAMAGE_ENGINE,
+    DAMAGE_GEARBOX,
+    DAMAGE_SUSPENSION,
+}
+
+#[allow(dead_code)] // the set operations are used by the tests now and by the panel in step 1b
+impl Caps {
+    /// Nothing.
+    pub const NONE: Caps = Caps(0);
+
+    /// Both sets together (usable in a `const`).
+    pub const fn or(self, other: Caps) -> Caps {
+        Caps(self.0 | other.0)
+    }
+
+    /// Every group of `self` that is not in `other`, as a set.
+    pub const fn minus(self, other: Caps) -> Caps {
+        Caps(self.0 & !other.0)
+    }
+
+    /// True when every group of `other` is in `self`.
+    pub const fn has(self, other: Caps) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The names of the groups in the set, in declaration order.
+    pub fn names(self) -> Vec<&'static str> {
+        Caps::ALL.iter().filter(|(c, _)| self.has(*c)).map(|(_, n)| *n).collect()
+    }
+}
+
+impl std::fmt::Debug for Caps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Caps{:?}", self.names())
+    }
+}
+
+/// Checks a frame against what its reader says it can give: the phase invariant holds, and nothing outside `caps` is
+/// filled. Reader tests call it on the frames their fixtures build.
+#[cfg(test)]
+pub fn assert_frame_within_caps(frame: &Frame, caps: Caps, who: &str) {
+    assert!(frame.phase_consistent(), "{who}: driving and phase disagree: {:?}", frame.phase);
+    let outside = frame.filled().minus(caps);
+    assert!(outside.is_empty(), "{who}: the frame fills {outside:?}, which its caps do not give");
+}
+
 /// An open door into one game.
 pub trait Source {
     /// The id written into lap files (`"ac"`, `"acc"`, ...): lower case, no spaces.
@@ -262,6 +527,12 @@ pub trait Source {
     fn listens(&self) -> bool {
         false
     }
+    /// What this game can give on a frame (see `Caps`). It describes the game and the format, not the moment: a
+    /// value inside it may be missing now, a value outside it is never filled.
+    // Nothing in the engine asks yet: the panel will (step 1b of the restructuring), so the readers' answers are kept
+    // alive here and held by their tests.
+    #[allow(dead_code)]
+    fn caps(&self) -> Caps;
     /// A last touch on a finished lap before it is written (iRacing closes its estimated path). Nothing by default.
     fn finish_lap(&self, _lap: &mut crate::lapfile::Lap) {}
 }
@@ -295,6 +566,135 @@ mod tests {
         assert!(frame.session_kind.is_none() && frame.weather.is_none() && frame.tyre_compound.is_none());
         assert!(frame.air_temp_c.is_none() && frame.track_temp_c.is_none());
         assert!(frame.g_lat.is_none() && frame.g_long.is_none());
+    }
+
+    #[test]
+    fn the_phase_and_driving_only_change_together() {
+        let mut frame = Frame::empty();
+        assert_eq!((frame.phase, frame.driving), (Phase::Unknown, false));
+        for phase in [
+            Phase::Driving,
+            Phase::Paused,
+            Phase::Menu,
+            Phase::Garage,
+            Phase::Replay,
+            Phase::Spectating,
+            Phase::Loading,
+            Phase::Unknown,
+        ] {
+            frame.set_phase(phase);
+            assert_eq!(frame.driving, phase == Phase::Driving, "{phase:?}");
+            assert!(frame.phase_consistent());
+        }
+        frame.driving = true;
+        assert!(!frame.phase_consistent(), "the check catches a hand-set flag");
+    }
+
+    #[test]
+    fn car_values_are_withheld_unless_driving_and_the_rest_is_kept() {
+        let mut frame = Frame::empty();
+        frame.speed_ms = 30.0;
+        frame.rpm = 6000.0;
+        frame.gear = -1.0;
+        (frame.throttle, frame.brake, frame.clutch, frame.steer) = (0.5, 0.2, 1.0, -0.3);
+        (frame.x, frame.y, frame.z) = (1.0, 2.0, 3.0);
+        frame.fuel_l = 40.0;
+        frame.lap_time_s = Some(12.5);
+        frame.car = "Car".into();
+        frame.set_phase(Phase::Driving);
+        let driving = frame.clone();
+        frame.withhold_car_values_unless_driving();
+        assert_eq!(frame, driving, "nothing changes while driving");
+        for phase in [
+            Phase::Paused,
+            Phase::Menu,
+            Phase::Garage,
+            Phase::Replay,
+            Phase::Spectating,
+            Phase::Loading,
+            Phase::Unknown,
+        ] {
+            let mut f = driving.clone();
+            f.set_phase(phase);
+            f.withhold_car_values_unless_driving();
+            for v in [f.speed_ms, f.rpm, f.gear, f.throttle, f.brake, f.clutch, f.steer] {
+                assert!(v.is_nan(), "{phase:?}");
+            }
+            assert_eq!((f.fuel_l, f.lap_time_s, f.car.as_str()), (40.0, Some(12.5), "Car"), "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn an_empty_frame_fills_nothing_and_a_full_one_fills_every_group_once() {
+        assert!(Frame::empty().filled().is_empty());
+        let all = Caps::ALL.iter().fold(Caps::NONE, |all, (c, _)| all.or(*c));
+        assert_eq!(Caps::ALL.len() as u32, all.names().len() as u32, "every group has its own bit");
+        let mut f = Frame::empty();
+        f.lap_time_s = Some(1.0);
+        f.last_lap_s = Some(1.0);
+        f.lap_valid = Some(true);
+        f.dist_m = Some(1.0);
+        f.in_pits = true;
+        (f.speed_ms, f.rpm, f.gear, f.throttle, f.brake, f.clutch, f.steer) = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+        f.gears = Some(6);
+        f.x = 1.0;
+        f.fuel_l = 1.0;
+        f.fuel_capacity_l = Some(1.0);
+        f.tyres = Some(
+            [Tyre {
+                brake_c: 1.0,
+                temp_c: 1.0,
+                pressure_kpa: 1.0,
+                left: 1.0,
+            }; 4],
+        );
+        f.car_class = Some("x".into());
+        f.track_variant = Some("x".into());
+        f.track_length_m = Some(1.0);
+        f.sectors_ms = [Some(1), None];
+        f.session_kind = Some(SessionKind::Race);
+        f.weather = Some("dry".into());
+        (f.air_temp_c, f.track_temp_c) = (Some(1.0), Some(1.0));
+        f.tyre_compound = Some("x".into());
+        (f.g_lat, f.g_long) = (Some(1.0), Some(1.0));
+        f.state = CarState {
+            pit_limiter: Some(true),
+            abs_active: Some(true),
+            tc_active: Some(true),
+            drs: Some(Drs::Off),
+            headlights: Some(true),
+            handbrake: Some(true),
+            engine_warning: Some(true),
+            flag: Some(Flag::Green),
+            water_c: Some(1.0),
+            oil_c: Some(1.0),
+            tc_level: Some(1),
+            abs_level: Some(1),
+            engine_map: Some(1),
+            brake_bias: Some(0.5),
+            damage_body: Some(0.0),
+            damage_engine: Some(0.0),
+            damage_gearbox: Some(0.0),
+            damage_suspension: Some(0.0),
+        };
+        assert_eq!(f.filled(), all, "missing from the frame: {:?}", all.minus(f.filled()));
+    }
+
+    #[test]
+    fn caps_combine_and_name_their_groups() {
+        let caps = Caps::SPEED.or(Caps::GEAR);
+        assert!(caps.has(Caps::SPEED) && caps.has(Caps::GEAR) && !caps.has(Caps::RPM));
+        assert_eq!(caps.names(), ["SPEED", "GEAR"]);
+        assert_eq!(caps.minus(Caps::SPEED), Caps::GEAR);
+        assert!(Caps::default().is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "which its caps do not give")]
+    fn a_frame_that_fills_what_its_caps_do_not_give_is_caught() {
+        let mut f = Frame::empty();
+        f.rpm = 1.0;
+        assert_frame_within_caps(&f, Caps::SPEED, "test");
     }
 
     #[test]

@@ -41,7 +41,11 @@
 //!
 //! # What becomes of the lap
 //!
-//! * `driving`: graphics `status` is LIVE (2). Off (0), replay (1) and pause (3) are not driving.
+//! * `phase` (and `driving`, which is `phase == Driving`): from graphics `status`. LIVE (2) is `Driving` (with a
+//!   believable lap count; else `Unknown`), off (0) is `Menu`, replay (1) is `Replay`, pause (3) is `Paused`, any other
+//!   number is `Unknown`. Not told apart: `Garage` (the pit box is a LIVE car with `in_pits`), `Loading`, and
+//!   `Spectating` (the pages do not say whose car the camera follows). Outside `Driving` the gear, pedals, steering,
+//!   speed and rpm are `NaN`: the pages hold zeros there, and a zero gear reads as reverse.
 //! * `lap` = `completedLaps` + 1, `lap_time_s` = `iCurrentTime` / 1000, `last_lap_s` = `iLastTime` / 1000 when it is
 //!   a real time (Competizione shows `i32::MAX` before a first lap).
 //! * `lap_valid`: Competizione's `isValidLap`; the other two games do not say, so `None`.
@@ -82,7 +86,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{CarState, Drs, Flag, Frame, SectorTracker, SessionKind, Source, Tyre};
+use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SectorTracker, SessionKind, Source, Tyre};
 use crate::shm::{Mapping, Page};
 
 /// How often the loop looks at the memory while it waits for a new reading (about 100 Hz).
@@ -95,7 +99,11 @@ const MISSES_BEFORE_GONE: u32 = 3;
 
 /// Offsets (bytes) in the three pages. `_pack_ = 4`: every field is 4-aligned, a `wchar_t` is 2 bytes.
 mod layout {
+    /// `AC_STATUS`: 0 off, 1 replay, 2 live, 3 pause.
+    pub const STATUS_OFF: i32 = 0;
+    pub const STATUS_REPLAY: i32 = 1;
     pub const STATUS_LIVE: i32 = 2;
+    pub const STATUS_PAUSE: i32 = 3;
     pub const MAX_LAPS: i32 = 100_000;
     pub const MAX_CARS: usize = 60;
 
@@ -243,6 +251,54 @@ impl Family {
             (1, 0..=7) => Some(Family::Ac),
             (1, 8) => Some(Family::Acc),
             _ => None,
+        }
+    }
+
+    /// What this game's pages can fill on a `Frame` (what `frame_from` reads for it, nothing more).
+    fn caps(self) -> Caps {
+        // The shared prefix: lap timing, the pedals, speed, rpm, gear, steering, fuel, the tyres' pressure and core
+        // temperature, the pit lane flag, and the limiter and the TC / ABS floats.
+        let shared = Caps::LAP_TIME
+            .or(Caps::LAST_LAP)
+            .or(Caps::IN_PITS)
+            .or(Caps::SPEED)
+            .or(Caps::RPM)
+            .or(Caps::GEAR)
+            .or(Caps::THROTTLE)
+            .or(Caps::BRAKE)
+            .or(Caps::STEER)
+            .or(Caps::FUEL)
+            .or(Caps::TYRE_TEMP)
+            .or(Caps::TYRE_PRESSURE)
+            .or(Caps::PIT_LIMITER)
+            .or(Caps::TC_ACTIVE)
+            .or(Caps::ABS_ACTIVE);
+        match self {
+            Family::Ac => shared
+                .or(Caps::POSITION)
+                .or(Caps::BRAKE_TEMP)
+                .or(Caps::BRAKE_BIAS)
+                .or(Caps::DRS)
+                .or(Caps::FLAG)
+                .or(Caps::FUEL_CAPACITY)
+                .or(Caps::TRACK_LENGTH)
+                .or(Caps::TRACK_VARIANT)
+                .or(Caps::SECTORS)
+                .or(Caps::SESSION_KIND)
+                .or(Caps::AIR_TEMP)
+                .or(Caps::TRACK_TEMP)
+                .or(Caps::TYRE_COMPOUND)
+                .or(Caps::G_LAT)
+                .or(Caps::G_LONG),
+            Family::Acc => shared
+                .or(Caps::POSITION)
+                .or(Caps::LAP_VALID)
+                .or(Caps::BRAKE_BIAS)
+                .or(Caps::WATER_TEMP)
+                .or(Caps::TC_LEVEL)
+                .or(Caps::ABS_LEVEL)
+                .or(Caps::FLAG),
+            Family::Acr => shared,
         }
     }
 
@@ -449,6 +505,10 @@ impl Source for KunosSource {
     fn alive(&self) -> bool {
         !self.gone
     }
+
+    fn caps(&self) -> Caps {
+        self.family.caps()
+    }
 }
 
 pub fn open() -> Option<Box<dyn Source>> {
@@ -580,7 +640,13 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
     f.clock_s = clock_s;
     let completed = g.i32_at(GFX_COMPLETED_LAPS);
     let lap_known = (0..=MAX_LAPS).contains(&completed);
-    f.driving = g.i32_at(GFX_STATUS) == STATUS_LIVE && lap_known;
+    f.set_phase(match g.i32_at(GFX_STATUS) {
+        STATUS_LIVE if lap_known => Phase::Driving,
+        STATUS_OFF => Phase::Menu,
+        STATUS_REPLAY => Phase::Replay,
+        STATUS_PAUSE => Phase::Paused,
+        _ => Phase::Unknown,
+    });
     f.lap = if lap_known { completed + 1 } else { 0 };
     f.lap_time_s = seconds(g.i32_at(GFX_I_CURRENT_TIME));
     f.last_lap_s = seconds(g.i32_at(GFX_I_LAST_TIME)).filter(|t| *t > 0.0);
@@ -693,6 +759,11 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
         }
         Family::Acr => {}
     }
+    // Outside a live session the page holds zeros (a zero gear reads as reverse): no car values.
+    f.withhold_car_values_unless_driving();
+    // Every frame the reader tests make is held to the caps and the phase invariant.
+    #[cfg(test)]
+    crate::game::assert_frame_within_caps(&f, family.caps(), "kunos");
     f
 }
 
@@ -743,6 +814,7 @@ fn running_processes() -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::assert_frame_within_caps;
     use crate::lapcut::LapCutter;
     use crate::shm::FakeMemory;
     use std::cell::RefCell;
@@ -1347,6 +1419,7 @@ mod tests {
         sim.gfx_i32(GFX_AC_FLAG, 2);
         let mut source = open_sim(&sim, processes(&["acs.exe"]));
         let f = source.next(SOON).expect("a frame");
+        assert_frame_within_caps(&f, source.caps(), "assetto corsa");
         assert_eq!(f.fuel_capacity_l, Some(80.0), "the static page's maxFuel");
         assert_eq!(
             f.state,
@@ -1411,6 +1484,7 @@ mod tests {
                 ..CarState::UNKNOWN
             }
         );
+        assert_frame_within_caps(&f, source.caps(), "competizione");
         assert_eq!(
             (f.lap, f.lap_time_s, f.last_lap_s, f.lap_valid),
             (5, Some(63.25), Some(91.5), Some(true))
@@ -1456,6 +1530,7 @@ mod tests {
         let mut source = open_sim(&sim, processes(&["acr.exe"]));
         let f = source.next(SOON).expect("a frame");
         assert_eq!(source.game_id(), "acr");
+        assert_frame_within_caps(&f, source.caps(), "rally");
         assert!(f.driving && !f.in_pits);
         assert_eq!((f.lap, f.lap_valid, f.track_variant, f.track_length_m), (5, None, None, None));
         assert!(f.x.is_nan() && f.y.is_nan() && f.z.is_nan());
@@ -1644,6 +1719,38 @@ mod tests {
             let f = source.next(SOON).expect("a frame");
             assert_eq!(f.driving, driving, "status {status}");
             assert_eq!(f.lap, 5, "the lap is still known");
+            assert_frame_within_caps(&f, source.caps(), "kunos");
+        }
+    }
+
+    #[test]
+    fn the_status_says_which_phase_and_a_game_that_is_not_live_gives_no_car_values() {
+        let mut sim = Sim::live("1.7");
+        let mut source = open_sim(&sim, no_processes());
+        for (status, phase) in [
+            (STATUS_LIVE, Phase::Driving),
+            (STATUS_OFF, Phase::Menu),
+            (STATUS_REPLAY, Phase::Replay),
+            (STATUS_PAUSE, Phase::Paused),
+            (-1, Phase::Unknown),
+            (7, Phase::Unknown),
+        ] {
+            sim.gfx_i32(GFX_STATUS, status);
+            // The page left behind: gear 0 (reverse), pedals and speed as they were.
+            sim.phys.write(PHYS_GEAR, &0i32.to_le_bytes());
+            sim.step();
+            let f = source.next(SOON).expect("a frame");
+            assert_eq!(f.phase, phase, "status {status}");
+            let live = phase == Phase::Driving;
+            if live {
+                assert_eq!((f.gear, f.throttle, f.rpm), (-1.0, 0.75, 7200.0));
+            } else {
+                for v in [f.gear, f.throttle, f.brake, f.steer, f.speed_ms, f.rpm] {
+                    assert!(v.is_nan(), "status {status}: car values are withheld");
+                }
+                assert!(f.fuel_l.is_finite() && f.lap_time_s.is_some(), "fuel and timing stay");
+                assert_eq!((f.car.as_str(), f.track.as_str()), ("ks_ferrari_f40", "monza"));
+            }
         }
     }
 
