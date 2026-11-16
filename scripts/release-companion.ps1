@@ -4,6 +4,20 @@
 #   pwsh scripts/release-companion.ps1 -Installer xpeed-sim/dist/xpeed-companion-setup-0.5.0.exe -Signed false
 #   pwsh scripts/release-companion.ps1 -Installer <file> -DryRun     # writes the files, prints every gh command, publishes nothing
 #
+# Safety controls (they live in the rolling release's latest.json only; the immutable companion-v<version> releases are never touched):
+#   -Rollout <0-100>      Percentage of computers that install this version BY THEMSELVES (each computer has a stable bucket from
+#                         its device key; "Update now" in the program ignores it, and so does a forced update: a version below
+#                         minVersion, or one on the blocked list). Default 100. 0 pauses a release.
+#   -Blocked 0.8.2,0.8.3  Versions that must not stay installed. A computer running one installs the manifest's version even when
+#                         it is OLDER (the only downgrade the program accepts), with the same size, SHA-256 and HTTPS checks.
+#   -RollbackTo <version> Kill switch: makes the rolling release hold the already released companion-v<version> instead of the
+#                         newest one, with -Blocked naming what to get rid of. No installer needed:
+#                           pwsh scripts/release-companion.ps1 -RollbackTo 0.8.1 -Blocked 0.8.2
+#   -PolicyOnly           Changes only -Rollout / -Blocked of what the rolling release holds now (for example to widen a rollout
+#                         from 10 to 50 to 100), with no installer:  pwsh scripts/release-companion.ps1 -PolicyOnly -Rollout 50
+# A re-run of the same version without -Rollout / -Blocked keeps what the rolling release already says (it never resets a
+# staged rollout or forgets a blocked version).
+#
 # What it does:
 #   1. Writes SHA256SUMS.txt and latest.json next to a copy of the installer (folder -OutDir).
 #   2. Creates the immutable release companion-v<version> if it does not exist. If it exists, it is never changed: when it holds a
@@ -12,12 +26,20 @@
 #      rolling release holds: new files first, latest.json last, then stale files removed, then the notes.
 # Uses the gh CLI with GH_TOKEN (the workflow's GITHUB_TOKEN). Nothing else is needed.
 param(
-    [Parameter(Mandatory = $true)][string]$Installer,
+    [string]$Installer = '',
     [string]$OutDir = 'release-out',
     # 'true' when CI signed the program and the installer; anything else is an unsigned build.
     [string]$Signed = 'false',
     # The oldest version that may keep running. Raise it only for an update that must not be skipped.
     [string]$MinVersion = '0.4.0',
+    # 0-100: the share of computers that install by themselves. Default 100.
+    [int]$Rollout = 100,
+    # Versions to get rid of, comma separated (see the header).
+    [string]$Blocked = '',
+    # Republish an older, already released version as the rolling one (the kill switch).
+    [string]$RollbackTo = '',
+    # Change only the rollout / blocked list of the rolling release.
+    [switch]$PolicyOnly,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -49,6 +71,94 @@ function Parse-Version([string]$Text) {
     try { return [Version]$Text } catch { return $null }
 }
 
+# ---- The safety controls, checked before anything is read or written
+if ($Rollout -lt 0 -or $Rollout -gt 100) { throw "-Rollout must be a whole number from 0 to 100, got $Rollout" }
+$rolloutGiven = $PSBoundParameters.ContainsKey('Rollout')
+$blockedGiven = $PSBoundParameters.ContainsKey('Blocked')
+$blockedList = @($Blocked -split '[,\s]+' | Where-Object { $_ } | Select-Object -Unique)
+foreach ($entry in $blockedList) { if ($entry -notmatch '^\d{1,4}\.\d{1,5}\.\d{1,6}$') { throw "-Blocked: '$entry' is not a version like 1.2.3" } }
+if ($blockedList.Count -gt 50) { throw '-Blocked: at most 50 versions' }
+if ($RollbackTo -and $RollbackTo -notmatch '^\d{1,4}\.\d{1,5}\.\d{1,6}$') { throw "-RollbackTo: '$RollbackTo' is not a version like 1.2.3" }
+$republish = ($RollbackTo -ne '') -or $PolicyOnly.IsPresent
+if (-not $republish -and -not $Installer) { throw 'Give -Installer <file>, or -RollbackTo <version>, or -PolicyOnly.' }
+
+# The manifest the rolling release gets: the released one plus the safety controls. -Rollout / -Blocked when given; otherwise what
+# the rolling release says now when it is the same version (a re-run never resets a staged rollout), otherwise 100 and none.
+function New-RollingManifest($Released, $Current) {
+    $sameVersion = ($null -ne $Current) -and ($Current.version -eq $Released.version)
+    $rollout = $Rollout
+    $blocked = $blockedList
+    if ($sameVersion -and -not $rolloutGiven -and $null -ne $Current.rollout) { $rollout = [int]$Current.rollout }
+    if ($sameVersion -and -not $blockedGiven -and $null -ne $Current.blocked) { $blocked = @($Current.blocked) }
+    if ($blocked -contains $Released.version) { throw "The blocked list names $($Released.version), the version being published." }
+    $min = [string]$Released.minVersion
+    $parsedMin = Parse-Version $min
+    $parsedVersion = Parse-Version $Released.version
+    if ($null -ne $parsedMin -and $null -ne $parsedVersion -and $parsedMin -gt $parsedVersion) { $min = [string]$Released.version }   # a rollback below minVersion
+    return [ordered]@{
+        version = $Released.version; build = $Released.build; file = $Released.file; sha256 = $Released.sha256; size = [int64]$Released.size
+        releasedAt = $Released.releasedAt; minVersion = $min; notes = [string]$Released.notes; signed = ($Released.signed -eq $true)
+        rollout = $rollout; blocked = @($blocked)
+    }
+}
+
+# Uploads a release's files to the rolling release: the installer and the sums first, latest.json last (the file it names is always
+# there), then stale assets go and the notes change. Creates the rolling release when it does not exist.
+function Publish-Rolling([string]$Dir, $Manifest, [string]$NotesFile, [bool]$Exists, [string]$Sha) {
+    $dirOut = Join-Path $OutDir 'rolling'
+    New-Item -ItemType Directory -Force -Path $dirOut | Out-Null
+    $rollingJson = Join-Path $dirOut 'latest.json'
+    Write-Text $rollingJson ((($Manifest | ConvertTo-Json) -replace "`r`n", "`n") + "`n")
+    $installerFile = Join-Path $Dir $Manifest.file
+    $sums = Join-Path $Dir 'SHA256SUMS.txt'
+    $title = 'Xpeed Companion (latest)'
+    if (-not $Exists) {
+        Write-Gh @('release', 'create', $rolling, $installerFile, $sums, $rollingJson, '--title', $title, '--notes-file', $NotesFile, '--target', $Sha, '--latest')
+    } else {
+        Write-Gh @('release', 'upload', $rolling, $installerFile, '--clobber')
+        Write-Gh @('release', 'upload', $rolling, $sums, '--clobber')
+        Write-Gh @('release', 'upload', $rolling, $rollingJson, '--clobber')
+        $keep = @($Manifest.file, 'SHA256SUMS.txt', 'latest.json')
+        $assets = Read-Gh @('release', 'view', $rolling, '--json', 'assets', '--jq', '.assets[].name')
+        foreach ($name in ($assets.Out -split "`r?`n" | Where-Object { $_ })) {
+            if ($keep -notcontains $name) { Write-Host "Removing stale asset $name"; Write-Gh @('release', 'delete-asset', $rolling, $name, '--yes') }
+        }
+        Write-Gh @('release', 'edit', $rolling, '--title', $title, '--notes-file', $NotesFile, '--latest', '--prerelease=false')
+    }
+}
+
+# ---- 0. The kill switch and the policy-only change: no new build, the files of an already released version
+if ($republish) {
+    $rollingView = Read-Gh @('release', 'view', $rolling, '--json', 'tagName')
+    $current = $null
+    if ($rollingView.Ok) {
+        $probe = Join-Path $OutDir 'rolling-current'
+        New-Item -ItemType Directory -Force -Path $probe | Out-Null
+        if ((Read-Gh @('release', 'download', $rolling, '--pattern', 'latest.json', '--dir', $probe, '--clobber')).Ok) { $current = Read-Manifest (Join-Path $probe 'latest.json') }
+    }
+    if ($DryRun) {
+        Write-Host "[dry-run] would republish $(if ($RollbackTo) { "companion-v$RollbackTo" } else { 'the version the rolling release holds' }) as $rolling with rollout $Rollout and blocked [$($blockedList -join ', ')]"
+        exit 0
+    }
+    $target = if ($RollbackTo) { $RollbackTo } elseif ($null -ne $current) { [string]$current.version } else { '' }
+    if (-not $target) { throw 'The rolling release holds no readable latest.json and no -RollbackTo was given.' }
+    $tag = "companion-v$target"
+    $canonical = Join-Path $OutDir 'canonical'
+    New-Item -ItemType Directory -Force -Path $canonical | Out-Null
+    Write-Gh @('release', 'download', $tag, '--dir', $canonical, '--clobber')
+    $released = Read-Manifest (Join-Path $canonical 'latest.json')
+    if ($null -eq $released -or $released.version -ne $target) { throw "$tag does not hold a readable latest.json for version $target." }
+    $rollingManifest = New-RollingManifest $released $current
+    $sha = (& git -C $repoRoot rev-parse HEAD).Trim()
+    $what = if ($RollbackTo) { "Rolled back to $target." } else { 'Rollout / blocked list changed.' }
+    $blockedText = if ($rollingManifest.blocked.Count) { $rollingManifest.blocked -join ', ' } else { 'none' }
+    $notesFile = Join-Path $OutDir 'notes.md'
+    Write-Text $notesFile ((@("Xpeed Companion $target (build $($released.build)). $what", '', "SHA-256: $($released.sha256)", "Rollout: $($rollingManifest.rollout)%. Blocked: $blockedText.") -join "`n") + "`n")
+    Publish-Rolling $canonical $rollingManifest $notesFile $rollingView.Ok $sha
+    Write-Host "Done: $rolling now holds $($rollingManifest.file) (rollout $($rollingManifest.rollout), blocked: $blockedText)."
+    exit 0
+}
+
 # ---- 1. The files of this build
 $cargoToml = Join-Path $repoRoot 'xpeed-sim/Cargo.toml'
 $version = (Select-String -Path $cargoToml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
@@ -70,7 +180,7 @@ $releasedAt = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globaliza
 Write-Text (Join-Path $built 'SHA256SUMS.txt') "$hash  $file`n"
 $manifest = [ordered]@{
     version = $version; build = $build; file = $file; sha256 = $hash; size = [int64]$size; releasedAt = $releasedAt
-    minVersion = $MinVersion; notes = ''; signed = $isSigned
+    minVersion = $MinVersion; notes = ''; signed = $isSigned; rollout = $Rollout; blocked = @($blockedList)
 }
 Write-Text (Join-Path $built 'latest.json') ((($manifest | ConvertTo-Json) -replace "`r`n", "`n") + "`n")
 Write-Host "Xpeed Companion $version (build $build), sha256 $hash, $size bytes, $(if ($isSigned) { 'signed' } else { 'unsigned' })"
@@ -154,24 +264,9 @@ $lines += if ($subjects.Count) { $subjects } else { '- (no commits to list)' }
 $notesFile = Join-Path $OutDir 'notes.md'
 Write-Text $notesFile (($lines -join "`n") + "`n")
 
-$installerFile = Join-Path $set $setManifest.file
-$sums = Join-Path $set 'SHA256SUMS.txt'
-$latestJson = Join-Path $set 'latest.json'
-$title = 'Xpeed Companion (latest)'
-if (-not $rollingView.Ok) {
-    Write-Gh @('release', 'create', $rolling, $installerFile, $sums, $latestJson, '--title', $title, '--notes-file', $notesFile, '--target', $sha, '--latest')
-} else {
-    # Files first, latest.json last: the file it names is always there. Then the old files go, then the notes change.
-    Write-Gh @('release', 'upload', $rolling, $installerFile, '--clobber')
-    Write-Gh @('release', 'upload', $rolling, $sums, '--clobber')
-    Write-Gh @('release', 'upload', $rolling, $latestJson, '--clobber')
-    $keep = @($setManifest.file, 'SHA256SUMS.txt', 'latest.json')
-    $assets = Read-Gh @('release', 'view', $rolling, '--json', 'assets', '--jq', '.assets[].name')
-    foreach ($name in ($assets.Out -split "`r?`n" | Where-Object { $_ })) {
-        if ($keep -notcontains $name) { Write-Host "Removing stale asset $name"; Write-Gh @('release', 'delete-asset', $rolling, $name, '--yes') }
-    }
-    Write-Gh @('release', 'edit', $rolling, '--title', $title, '--notes-file', $notesFile, '--latest', '--prerelease=false')
-}
+$rollingManifest = New-RollingManifest $setManifest $current
+Publish-Rolling $set $rollingManifest $notesFile $rollingView.Ok $sha
+Write-Host "Rollout $($rollingManifest.rollout)%, blocked: $(if ($rollingManifest.blocked.Count) { $rollingManifest.blocked -join ', ' } else { 'none' })."
 Write-Host "Done: $rolling now holds $($setManifest.file)."
 if ($env:GITHUB_STEP_SUMMARY) {
     Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Released Xpeed Companion $($setManifest.version) ($(if ($setManifest.signed -eq $true) { 'signed' } else { 'unsigned' })): https://github.com/$repo/releases/download/$rolling/$($setManifest.file)"

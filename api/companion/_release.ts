@@ -8,6 +8,7 @@ const CACHE_MS = 5 * 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = 5000;
 const MAX_MANIFEST_BYTES = 16 * 1024;
 const MAX_INSTALLER_BYTES = 1024 * 1024 * 1024;
+const MAX_BLOCKED = 50;
 
 export interface CompanionManifest {
   version: string;
@@ -19,6 +20,10 @@ export interface CompanionManifest {
   minVersion: string;
   /** False when CI had no signing certificate: Windows will show the "unknown publisher" warning. */
   signed: boolean;
+  /** 0-100: the share of computers that install this version by themselves (a stable bucket per computer). 100 when the file says nothing. */
+  rollout: number;
+  /** Versions that must not stay installed: a computer running one of them installs this manifest's version, even when it is older. */
+  blocked: string[];
 }
 
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.exe$/;
@@ -30,7 +35,7 @@ export function parseManifest(text: string): CompanionManifest | null {
   let data: unknown;
   try { data = JSON.parse(text); } catch { return null; }
   if (!isRecord(data)) return null;
-  const { version, build, file, sha256, size, releasedAt, minVersion, notes, signed } = data;
+  const { version, build, file, sha256, size, releasedAt, minVersion, notes, signed, rollout, blocked } = data;
   if (typeof version !== 'string' || !VERSION.test(version)) return null;
   if (typeof minVersion !== 'string' || !VERSION.test(minVersion)) return null;
   if (typeof build !== 'string' || !/^[0-9a-f]{7,40}$/.test(build)) return null;
@@ -41,7 +46,17 @@ export function parseManifest(text: string): CompanionManifest | null {
   if (typeof releasedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(releasedAt) || Number.isNaN(Date.parse(releasedAt))) return null;
   if (notes !== undefined && (typeof notes !== 'string' || notes.length > 4000)) return null;
   if (signed !== undefined && typeof signed !== 'boolean') return null;
-  return { version, build, file, sha256, size, releasedAt, minVersion, signed: signed === true };
+  // Both are optional (a latest.json from before they existed is a full rollout with nothing blocked) but strict when present.
+  if (rollout !== undefined && (typeof rollout !== 'number' || !Number.isInteger(rollout) || rollout < 0 || rollout > 100)) return null;
+  let blockedList: string[] = [];
+  if (blocked !== undefined) {
+    if (!Array.isArray(blocked) || blocked.length > MAX_BLOCKED) return null;
+    if (!blocked.every((entry) => typeof entry === 'string' && VERSION.test(entry))) return null;
+    blockedList = [...new Set(blocked as string[])];
+    // The version being offered can never be on the list: that would ask everyone to leave the version they are asked to install.
+    if (blockedList.includes(version)) return null;
+  }
+  return { version, build, file, sha256, size, releasedAt, minVersion, signed: signed === true, rollout: rollout ?? 100, blocked: blockedList };
 }
 
 /** `COMPANION_RELEASE_BASE`, without a trailing slash. https only (plain http just for a local test server); anything else falls back to the default. */

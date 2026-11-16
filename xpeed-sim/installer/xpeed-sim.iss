@@ -129,8 +129,14 @@ var
 begin
   if IsSelfUpdate and not CheckForMutexes('XpeedSimTray') then
   begin
-    Exe := ExpandConstant('{localappdata}\Programs\{#AppName}\{#AppExe}');
-    if FileExists(Exe) then
+    // The folder this setup installed into ({app}, the same one the [Run] line above starts from), not a fixed path: if the
+    // install folder ever changes (a /DIR= given to the setup, another default), the restart follows it.
+    try
+      Exe := ExpandConstant('{app}\{#AppExe}');
+    except
+      Exe := '';  // {app} is not known when the setup stopped before it chose the folder
+    end;
+    if (Exe <> '') and FileExists(Exe) then
       Exec(Exe, 'run', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
   end;
 end;

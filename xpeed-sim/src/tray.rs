@@ -32,7 +32,7 @@ use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
 use crate::supervisor;
 use crate::text::{text, Lang, Msg};
-use crate::update::{self, DownloadError, Hold, Plan, Trigger, UpdateState, Updater, Version, Wake};
+use crate::update::{self, DownloadError, Hold, Plan, Staged, Trigger, UpdateState, Updater, Version, Wake};
 use crate::util::lock;
 use crate::{applog, connect, crashreport, engine, net, win};
 
@@ -54,6 +54,17 @@ const WM_UPDATE: u32 = WM_APP + 7;
 const WM_UPDATE_NOW: u32 = WM_APP + 8;
 /// The installer of the new version was downloaded and checked.
 const WM_UPDATE_READY: u32 = WM_APP + 9;
+/// The panel's window procedure panicked again and again and stopped drawing: say so once, in a balloon.
+const WM_PANEL_FAILED: u32 = WM_APP + 10;
+
+/// Guards the tray's window procedure: a panic must not unwind out of an `extern "system"` function (that aborts the whole
+/// program, recording included).
+static GUARD: supervisor::UiGuard = supervisor::UiGuard::new();
+
+/// The words of the balloon when a window keeps failing. (English only: it is shown when something is already wrong, and it
+/// must not depend on the texts and the language of the code that failed.)
+const WINDOW_FAILED_TITLE: &str = "Xpeed Companion";
+const WINDOW_FAILED_BODY: &str = "Something went wrong with a window. Recording continues.";
 
 const CMD_CONNECT: usize = 1;
 const CMD_LAPS: usize = 2;
@@ -93,7 +104,7 @@ struct App {
     /// Asks the checker to look now ("Check for updates").
     wake: Arc<Wake>,
     /// The installer that was downloaded and checked, and the version it is.
-    install: Arc<Mutex<Option<(PathBuf, Version)>>>,
+    install: Arc<Mutex<Option<Staged>>>,
     /// The program is closing to let that installer run: `run` starts it once everything has been closed.
     installing: bool,
 }
@@ -128,16 +139,25 @@ fn start_again() {
 }
 
 /// The last step of an update, after everything was closed: note which version it is for, free the name of the running
-/// copy (the installer waits for it to go), start the installer and let this program end. If the installer cannot be
-/// started, the program starts again as it was.
-fn hand_over_to_installer(home: &Path, only_copy: win::Instance, installer: &Path, version: &Version) {
+/// copy (the installer waits for it to go), check the installer one last time, start it and let this program end. If the
+/// installer is not what was downloaded any more, or cannot be started, the program starts again as it was.
+fn hand_over_to_installer(home: &Path, only_copy: win::Instance, staged: &Staged) {
+    let version = &staged.version;
+    // Checked before anything else changes: a file that was replaced since the download is never run.
+    if let Err(why) = update::verify_or_delete(&staged.path, staged.size, &staged.sha256) {
+        applog::line(&format!("the installer of version {version} was not started: {why}"));
+        drop(only_copy);
+        start_again();
+        return;
+    }
     if let Err(why) = update::write_marker(home, version) {
         applog::line(&why);
     }
     drop(only_copy);
     applog::line(&format!("starting the installer of version {version}"));
-    if let Err(why) = update::launch_installer(installer) {
-        applog::line(&why);
+    // `launch_verified` checks the file again at the very last moment, after the name of this copy was freed.
+    if let Err(why) = update::launch_verified(staged, &update::launch_installer) {
+        applog::line(&why.to_string());
         start_again();
     }
 }
@@ -284,6 +304,17 @@ impl App {
         });
     }
 
+    /// A balloon that says a window keeps failing and the recording goes on.
+    fn window_failed_balloon(&self) {
+        let mut nid = self.nid(NIF_INFO);
+        win::fill(&mut nid.szInfoTitle, WINDOW_FAILED_TITLE);
+        win::fill(&mut nid.szInfo, WINDOW_FAILED_BODY);
+        nid.dwInfoFlags = NIIF_INFO;
+        unsafe {
+            Shell_NotifyIconW(NIM_MODIFY, &nid);
+        }
+    }
+
     /// The icon, the tooltip and any balloons, to match the state.
     fn refresh(&self) {
         let snapshot = self.shared.snapshot();
@@ -382,7 +413,7 @@ impl App {
             let message = match result {
                 Ok(path) => {
                     applog::line(&format!("the update to version {} was downloaded and checked", offer.version));
-                    *lock(&install) = Some((path, offer.version));
+                    *lock(&install) = Some(Staged::of(path, &offer));
                     WM_UPDATE_READY
                 }
                 Err(DownloadError::Quit) => WM_UPDATE,
@@ -402,8 +433,10 @@ impl App {
     /// The installer is downloaded and checked. Last look: if a game started meanwhile, it waits (the file is kept, and
     /// goes when the game has closed). Otherwise the program closes, and `run` starts the installer.
     fn update_ready(&mut self) {
-        let Some((_, version)) = lock(&self.install).clone() else { return };
-        if version <= Version::running() || game_running(&self.shared) {
+        let Some(staged) = lock(&self.install).clone() else { return };
+        let version = staged.version;
+        // Newer, or the way out of a blocked version (the one downgrade the server may ask for); the same version never.
+        if !staged.still_applies(Version::running()) || game_running(&self.shared) {
             *lock(&self.install) = None;
             self.update_tick(Trigger::Automatic);
             return;
@@ -433,6 +466,7 @@ impl App {
             Ok(Some(config)) => {
                 applog::line(&format!("paired with {} as {}", config.server, config.device_name));
                 self.updater.set_automatic(config.auto_update);
+                self.updater.set_identity(Some(&config.token));
                 self.server = config.server.clone();
                 self.device = Some(config.device_name.clone());
                 self.account_label = config.account.clone();
@@ -574,7 +608,26 @@ impl Drop for App {
     }
 }
 
+/// The window procedure Windows calls. Everything it does is in `window_proc_body`, run inside `GUARD`: a panic there is
+/// already in the log and the crash report (the panic hook), and here it only means "this message was not handled", so the
+/// window stays alive and the recording threads never notice. Repeated panics (5 in a minute) show one balloon.
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match GUARD.run(|| window_proc_body(hwnd, message, wparam, lparam)) {
+        Ok(result) => result,
+        Err(panic) => {
+            if panic == supervisor::UiPanic::JustTripped {
+                applog::line("the tray window failed 5 times in a minute; it keeps running and recording is not affected");
+                let app = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const App;
+                if let Some(app) = app.as_ref() {
+                    app.window_failed_balloon();
+                }
+            }
+            DefWindowProcW(hwnd, message, wparam, lparam)
+        }
+    }
+}
+
+unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if message == WM_NCCREATE {
         let create = lparam as *const CREATESTRUCTW;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, (*create).lpCreateParams as isize);
@@ -616,6 +669,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_RELOAD => {
             app.reload_pairing();
+            0
+        }
+        WM_PANEL_FAILED => {
+            app.window_failed_balloon();
             0
         }
         WM_ACCOUNT => {
@@ -673,6 +730,13 @@ pub fn set_lang_of_running(lang: Lang) -> bool {
 pub fn update_now_of_running() -> bool {
     let running = find_running();
     !running.is_null() && unsafe { PostMessageW(running, WM_UPDATE_NOW, 0, 0) } != 0
+}
+
+/// Tells the tray of this program that the panel's window failed again and again and stopped drawing, so it shows a
+/// balloon. False when there is no tray (the panel demo).
+pub fn panel_failed_of_running() -> bool {
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_PANEL_FAILED, 0, 0) } != 0
 }
 
 /// Asks the copy that is running to open its panel. False when none is running.
@@ -736,6 +800,8 @@ pub fn run(open_panel: bool) -> ExitCode {
         Updater::new(Version::running(), config.as_ref().is_none_or(|c| c.auto_update)),
         Arc::new(Wake::new()),
     );
+    // Who this computer is for the rollout of a new version: a hash of its device key, never the key.
+    updater.set_identity(config.as_ref().map(|c| c.token.as_str()));
 
     unsafe {
         let instance = GetModuleHandleW(null());
@@ -855,8 +921,8 @@ pub fn run(open_panel: bool) -> ExitCode {
         shared.set_uploader(None);
         shared.set_heartbeat(None);
         drop(Box::from_raw(app));
-        if let Some((installer, version)) = install {
-            hand_over_to_installer(&home, only_copy, &installer, &version);
+        if let Some(staged) = install {
+            hand_over_to_installer(&home, only_copy, &staged);
         }
     }
     ExitCode::SUCCESS

@@ -70,8 +70,36 @@ try {
     assert.match(response.headers.get('content-type'), /application\/json/);
     assert.deepEqual(await json(response), {
       version: '0.5.0', build: 'abc1234', downloadUrl: 'https://xpeed.test/api/companion/download', sha256: 'a'.repeat(64),
-      size: 3145728, releasedAt: '2026-11-13T12:00:00Z', minVersion: '0.4.0', signed: false,
+      size: 3145728, releasedAt: '2026-11-13T12:00:00Z', minVersion: '0.4.0', signed: false, rollout: 100, blocked: [],
     });
+  });
+
+  await check('rollout and blocked are passed through; a manifest without them is a full rollout with nothing blocked', async () => {
+    serve({ ...good, version: '0.5.1', file: 'xpeed-companion-setup-0.5.1.exe', rollout: 10, blocked: ['0.5.0', '0.4.9', '0.5.0'] });
+    const answer = await json(await call(latest));
+    assert.equal(answer.rollout, 10);
+    assert.deepEqual(answer.blocked, ['0.5.0', '0.4.9'], 'duplicates are dropped');
+    forgetCompanionRelease();
+    serve({ ...good, rollout: 0, blocked: [] });
+    assert.equal((await json(await call(latest))).rollout, 0, 'zero is a valid rollout (paused)');
+    forgetCompanionRelease();
+    serve({ ...good });
+    const old = await json(await call(latest));
+    assert.deepEqual([old.rollout, old.blocked], [100, []]);
+    assert.equal(parseManifest(JSON.stringify({ ...good, rollout: 100, blocked: ['0.4.0'] })).blocked[0], '0.4.0');
+  });
+
+  await check('a malformed rollout or blocked rejects the whole file', async () => {
+    const bad = {
+      'rollout above 100': { ...good, rollout: 101 }, 'rollout negative': { ...good, rollout: -1 }, 'rollout fractional': { ...good, rollout: 12.5 },
+      'rollout as text': { ...good, rollout: '50' }, 'rollout null': { ...good, rollout: null },
+      'blocked not a list': { ...good, blocked: '0.4.0' }, 'blocked with a bad version': { ...good, blocked: ['0.4.0', 'old'] },
+      'blocked with a number': { ...good, blocked: [4] }, 'blocked too long': { ...good, blocked: Array.from({ length: 51 }, (_, i) => `0.1.${i}`) },
+      'blocked has the offered version': { ...good, blocked: ['0.5.0'] },
+    };
+    for (const [name, body] of Object.entries(bad)) {
+      assert.equal(parseManifest(JSON.stringify(body)), null, name);
+    }
   });
 
   await check('signed is true only when latest.json says so', async () => {
