@@ -39,6 +39,8 @@ export interface StatTileProps {
   testId?: string;
   /** Overrides the value's test id (default `${testId}-value`); the skeleton is `${valueTestId}-loading`. */
   valueTestId?: string;
+  /** Overrides the hint line's test id (default `${testId}-sub`). */
+  subTestId?: string;
 }
 
 /**
