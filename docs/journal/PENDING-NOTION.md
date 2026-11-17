@@ -217,3 +217,24 @@ Judged each script in scripts/ and db/. Guarded: cutover-copy, dev-sync/db sync,
 
 ### Next
 Merge, set the repository variable `XPEED_PUBLIC_URL` when the domain changes, and decide when to install the disk alarm.
+
+---
+## Synced Notion amendment — 2026-11-16 — Fix perspective preview playback
+Target: existing journal entry https://app.notion.com/p/41ab7a686121812b8d53c64e1877bba1 in collection://159b40f3-47aa-492c-a3b3-ee8028397b66. Update the existing logical unit, do not create a duplicate. Two Notion update attempts returned INVALID_ARGUMENT.
+Synced and read back on 2026-11-16 using the required `data` wrapper. The original fallback text below is preserved as history; no amendment remains pending for this entry.
+Properties: Type=Investigation; Area=["i18n & UX","General"]; Status=Done; Agent=Codex; Model=Codex session model (ID not exposed); Date=2026-11-16; Commits / PR=uncommitted; Repo / Branch=xpeed / external conversation preview only.
+Summary: Fixed Play immediately pausing itself when the host echoed saved widget state. Ignore own, unchanged and incompatible acknowledgements; do not persist transient playback start.
+### Context
+The owner could not start playback in the inline perspective prototype.
+### What changed
+Updated the external track-perspective.html preview. The application runtime was not changed.
+### How it was built
+Removed a redundant save when starting playback and tagged private saved state with a per-instance origin. The global-state listener ignores local acknowledgements, including delayed ones, and unchanged/incompatible state.
+### Decisions and why
+Playback remains transient; saving/restoring UI choices must not interrupt it.
+### Tests and evidence
+A simulated synchronous host acknowledgement reproduced immediate pause before the fix. All 108 geometry cases and synchronous/delayed echo, real external restore, pause/resume, scrub, zoom and tilt checks passed after the change. Check script: C:/Users/Vanildo/.codex/visualizations/2026/11/16/01a1e659-df0c-7331-99bf-1c766b38c028/check-perspective.cjs.
+### Not done / risks
+Browser/CSS inspection was unavailable; the regression executes the actual preview script with a lightweight fake DOM and host events. The earlier Notion tool failure was resolved on 2026-11-16.
+### Next
+The corrected preview was displayed and this amendment was synchronized to the existing journal entry. Estimate 5 minutes; actual about 3 minutes.
