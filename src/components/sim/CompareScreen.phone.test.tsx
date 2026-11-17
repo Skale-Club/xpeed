@@ -85,10 +85,10 @@ describe('the Compare screen on a phone', () => {
   it('makes the sticky bar compact: 40 px, one line, small text', async () => {
     renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
     const bar = await screen.findByTestId('sticky-laps');
-    expect(bar.className).toMatch(/h-10/);
-    expect(bar.className).not.toMatch(/h-14/);
+    expect(bar.className).toMatch(/\bh-10\b/);
+    expect(bar.className).not.toMatch(/\bh-14\b/);
     expect(within(bar).getByTestId('sticky-lap').parentElement?.className).toMatch(/whitespace-nowrap/);
-    expect(within(bar).getByTestId('sticky-change').className).toMatch(/h-10/);
+    expect(within(bar).getByTestId('sticky-change').className).toMatch(/\bh-10\b/);
   });
 
   it('lists the corners as tappable cards, not a table, and selects one on tap', async () => {

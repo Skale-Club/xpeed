@@ -21,7 +21,7 @@ describe('the track map', () => {
   it('is 16 rem tall unless the page makes it taller (a track page gives the map more room)', () => {
     const { rerender } = render(<TrackMap lap={lap} />);
     expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/(^|\s)h-56(\s|$)/);
-    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/md:h-64/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bmd:h-64\b/);
     rerender(<TrackMap lap={lap} className="h-96" />);
     expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/(^|\s)h-96(\s|$)/);
     expect(screen.getByTestId('track-map').getAttribute('class')).not.toMatch(/(^|\s)h-56(\s|$)/);
