@@ -1,56 +1,48 @@
 // The small pieces the track and car screens share: a tile with a number, the shape of a track, a lap-time sparkline, the search box and
 // the toggle of a list's header, and the summary strip. The look is the dashboard's (overview/parts.tsx, overview/KpiTiles.tsx).
 import { useMemo, type ReactNode } from 'react';
-import { Search } from 'lucide-react';
-import { Card } from '@/components/ui/card';
-import { FILTER_CELL, FILTER_WIDE_CELL } from '@/components/ui/filter-bar';
+import { Chip } from '@/components/ui/chip';
+import { SearchField as UiSearchField } from '@/components/ui/filter-fields';
+import { FILTER_CELL } from '@/components/ui/filter-bar';
 import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState, LoadingState } from '@/components/ui/states';
+import { StatGrid, StatTile as UiStatTile } from '@/components/ui/stat-tile';
 import { timeSparkPath } from '@/lib/sim/garage';
 import type { TrackFile } from '@/lib/sim/track-file';
 import { cn } from '@/lib/utils';
+import { SparkSvg } from '../overview/parts';
 
 /**
  * One number of a page: a label, the value, a line under it and, when the page has one, something small (a trend, a sparkline). While the number
  * is still being worked out (`loading`) the value is a skeleton, never a zero. `testId` is the value's; the tile itself is `${testId}-tile`.
+ * A thin adapter over the shared `StatTile`.
  */
-export function StatTile({ label, value, sub, mono = false, loading = false, testId, children }: {
+export function StatTile({ label, value, sub, loading = false, testId, children }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
+  /** Lap times are set in the monospaced face; the shared tile always does. */
   mono?: boolean;
   loading?: boolean;
   testId: string;
   children?: ReactNode;
 }) {
-  return (
-    <Card className="h-full space-y-1.5 bg-card p-3" data-testid={`${testId}-tile`}>
-      <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-      {loading ? (
-        <Skeleton className="h-7 w-20" data-testid={`${testId}-loading`} />
-      ) : (
-        <p className={`truncate text-xl font-semibold tabular-nums leading-tight ${mono ? 'font-mono' : ''}`} data-testid={testId}>{value}</p>
-      )}
-      <p className="line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground" data-testid={`${testId}-sub`}>{loading ? ' ' : sub ?? ' '}</p>
-      {children}
-    </Card>
-  );
+  return <UiStatTile label={label} value={value} hint={loading ? undefined : sub} loading={loading} testId={`${testId}-tile`} valueTestId={testId} footer={children} />;
 }
 
-/** The grid the tiles of a page sit in: two across on a phone, three from small, `xl` across from extra large. */
-export function TileGrid({ children, testId, columns = 'xl:grid-cols-6' }: { children: ReactNode; testId?: string; columns?: string }) {
-  return <ul className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${columns}`} data-testid={testId}>{children}</ul>;
+type GridColumns = NonNullable<Parameters<typeof StatGrid>[0]['columns']>;
+
+/** The grid the tiles of a page sit in: the shared `StatGrid`, two across on a phone, three from small, `xl` across from extra large (6 unless `columns` says otherwise). */
+export function TileGrid({ children, testId, columns = { xl: 6 } }: { children: ReactNode; testId?: string; columns?: GridColumns }) {
+  return <StatGrid columns={columns} testId={testId}>{children}</StatGrid>;
 }
-export const TileItem = ({ children }: { children: ReactNode }) => <li className="min-w-0">{children}</li>;
+/** A tile of the grid; the shared `StatTile` is already the list item, so this only passes its child through. */
+export const TileItem = ({ children }: { children: ReactNode }) => <>{children}</>;
 
 /** The line of a lap-time sparkline: a faster lap is lower, as on the progress chart. Decorative (the numbers around it say it). */
 export function TimeSparkline({ values, color, width = 96, height = 28 }: { values: readonly number[]; color: string; width?: number; height?: number }) {
   const path = useMemo(() => timeSparkPath(values, width, height), [values, width, height]);
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-7 w-full" preserveAspectRatio="none" aria-hidden="true" focusable="false" data-testid="pb-spark" data-points={path.points}>
-      {path.d && <path d={path.d} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
-      {path.last && <circle cx={path.last.x} cy={path.last.y} r={2} fill={color} />}
-    </svg>
-  );
+  return <SparkSvg path={path} color={color} width={width} height={height} testId="pb-spark" />;
 }
 
 /** The centre line of a layout as a picture (z down, as the big map draws it); nothing when the layout has no usable points. */
@@ -83,77 +75,34 @@ export function TrackShape({ layout, className = '', testId = 'track-shape', str
   );
 }
 
-/**
- * A search box for the bar over a list: small (h-8, text-xs) like the drop-downs next to it, the magnifier inside it and no caption above (the label
- * is its accessible name). A whole row on a phone, a fixed width on a wide screen; `className` changes that width.
- */
+/** A search box for the bar over a list: the shared `SearchField` (small, the magnifier inside, the label is its accessible name). */
 export function SearchField({ label, value, onChange, placeholder, testId, className }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; testId?: string; className?: string }) {
-  return (
-    <span className={cn(FILTER_WIDE_CELL, 'relative block sm:w-52', className)}>
-      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-      <input
-        type="search"
-        aria-label={label}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        autoComplete="off"
-        className="h-8 w-full min-w-0 rounded-lg border border-input bg-background/60 py-0 pl-8 pr-2 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        data-testid={testId}
-      />
-    </span>
-  );
+  return <UiSearchField label={label} value={value} onChange={onChange} placeholder={placeholder} testId={testId} className={className} />;
 }
 
-/** An on/off filter as a button (`aria-pressed`), the size of the drop-downs next to it (h-8, text-xs). */
+/** An on/off filter as a button (`aria-pressed`), the size of the drop-downs next to it (h-8, text-xs): the shared `Chip` as a toggle. */
 export function ToggleChip({ pressed, onChange, children, testId, className }: { pressed: boolean; onChange: (pressed: boolean) => void; children: ReactNode; testId?: string; className?: string }) {
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={() => onChange(!pressed)}
-      data-testid={testId}
-      className={cn(
-        FILTER_CELL,
-        'inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&>svg]:h-3.5 [&>svg]:w-3.5',
-        pressed ? 'border-primary bg-primary/10 text-foreground' : 'border-input bg-background/60 text-muted-foreground hover:text-foreground',
-        className,
-      )}
-    >
+    <Chip selected={pressed} onClick={() => onChange(!pressed)} testId={testId} className={cn(FILTER_CELL, 'h-8 gap-1.5 whitespace-nowrap px-2.5 text-xs focus-visible:ring-1', className)}>
       {children}
-    </button>
+    </Chip>
   );
 }
 
-/** The numbers over a list (how many, how many laps...): small tiles, the same look as the dashboard's, written for what the list shows. */
+/** The numbers over a list (how many, how many laps...): small tiles, written for what the list shows. */
 export function SummaryStrip({ items, testId = 'summary' }: { items: Array<{ id: string; label: string; value: ReactNode; sub?: ReactNode }>; testId?: string }) {
   return (
-    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid={testId}>
+    <StatGrid columns={{ sm: 4, lg: null }} testId={testId}>
       {items.map((item) => (
-        <li key={item.id} className="min-w-0">
-          <Card className="h-full space-y-1 bg-card p-3" data-testid={`${testId}-${item.id}`}>
-            <p className="truncate text-xs font-medium text-muted-foreground">{item.label}</p>
-            <p className="truncate text-xl font-semibold tabular-nums leading-tight" data-testid={`${testId}-${item.id}-value`}>{item.value}</p>
-            <p className="min-h-4 truncate text-xs text-muted-foreground">{item.sub ?? ' '}</p>
-          </Card>
-        </li>
+        <UiStatTile key={item.id} label={item.label} value={item.value} hint={item.sub} testId={`${testId}-${item.id}`} />
       ))}
-    </ul>
+    </StatGrid>
   );
 }
 
-/** The skeleton of a list of cards: the same grid, the same card height, so nothing jumps when the cards arrive. */
+/** The skeleton of a list of cards: the shared loading state, so nothing jumps when the cards arrive. */
 export function CardGridSkeleton({ count = 6, label }: { count?: number; label: string }) {
-  return (
-    <div className="space-y-4" role="status" aria-label={label} data-testid="garage-skeleton">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[88px] rounded-lg" />)}
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {Array.from({ length: count }, (_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}
-      </div>
-    </div>
-  );
+  return <LoadingState variant="cards" rows={count} label={label} testId="garage-skeleton" />;
 }
 
 /** The skeleton of a track or car page: the header, the tiles and the blocks in the places they will be, so nothing jumps when the numbers arrive. */
@@ -182,9 +131,11 @@ export function DetailSkeleton({ label, tiles = 8 }: { label: string; tiles?: nu
 /** The words of a list that has nothing to show for the filters chosen, with the way out. */
 export function NoResults({ children, onClear, clearLabel, testId }: { children: ReactNode; onClear: () => void; clearLabel: string; testId: string }) {
   return (
-    <div className="space-y-2 rounded-lg border border-dashed border-border p-4" data-testid={testId}>
-      <p className="text-sm text-muted-foreground">{children}</p>
-      <button type="button" onClick={onClear} className="text-sm underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{clearLabel}</button>
-    </div>
+    <EmptyState
+      compact
+      title={children}
+      action={<button type="button" onClick={onClear} className="text-sm underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{clearLabel}</button>}
+      testId={testId}
+    />
   );
 }

@@ -21,6 +21,8 @@ export interface SegmentedControlProps<T extends string> {
   /** Marks the group as busy (the choice is being applied). */
   busy?: boolean;
   testId?: string;
+  /** The test id of each option (default `${testId}-${value}`). */
+  optionTestId?: (value: T) => string;
 }
 
 const SIZE = {
@@ -41,6 +43,7 @@ export function SegmentedControl<T extends string>({
   "aria-label": ariaLabel,
   busy,
   testId,
+  optionTestId,
 }: SegmentedControlProps<T>) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const found = options.findIndex((option) => option.value === value);
@@ -82,7 +85,7 @@ export function SegmentedControl<T extends string>({
             tabIndex={index === tabStop ? 0 : -1}
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => move(event, index)}
-            data-testid={testId ? `${testId}-${option.value}` : undefined}
+            data-testid={optionTestId ? optionTestId(option.value) : testId ? `${testId}-${option.value}` : undefined}
             className={cn(
               "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               look.item,

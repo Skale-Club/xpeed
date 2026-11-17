@@ -45,6 +45,22 @@ export function Chip({ children, selected = false, onClick, onRemove, removeLabe
     </>
   );
 
+  // A plain toggle is one button: the test id, `aria-pressed` and the focus ring all sit on the pill itself.
+  if (onClick && !onRemove) {
+    return (
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={onClick}
+        className={cn(shell, "justify-center px-3", !selected && "hover:bg-muted hover:text-foreground", focus, className)}
+        data-testid={testId}
+        data-selected={selected ? "true" : undefined}
+      >
+        {body}
+      </button>
+    );
+  }
+
   const main = onClick ? (
     <button type="button" aria-pressed={selected} onClick={onClick} className={cn("inline-flex h-full min-w-0 items-center rounded-full px-3 hover:text-foreground", focus)}>
       {body}

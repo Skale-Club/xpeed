@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react';
-import { Card } from '@/components/ui/card';
+import { Panel } from '@/components/ui/panel';
 import { FILTER_CELL } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Link } from 'react-router-dom';
@@ -142,18 +142,14 @@ export function VisibilityPicker({ value, onChange, disabled, name = 'visibility
 }
 
 /**
- * One block of a settings page: the title and a sentence about it on the left, the controls in a card on the right (stacked on a phone).
+ * One block of a settings page: the shared `Panel` with a title and a sentence about it, the controls inside.
  * `danger` is for what cannot be undone: a red outline and a red title.
  */
 export function SettingsSection({ title, description, danger, testId, children }: { title: ReactNode; description?: ReactNode; danger?: boolean; testId?: string; children: ReactNode }) {
   return (
-    <section className="grid gap-3 md:grid-cols-[15rem,minmax(0,1fr)] md:gap-6" data-testid={testId}>
-      <div className="space-y-1">
-        <h3 className={cn('text-sm font-semibold', danger && 'text-destructive')}>{title}</h3>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-      </div>
-      <Card className={cn('min-w-0 space-y-4 bg-card p-4', danger && 'border-destructive/40')}>{children}</Card>
-    </section>
+    <Panel title={danger ? <span className="text-destructive">{title}</span> : title} description={description} className={cn(danger && 'border-destructive/40')} testId={testId}>
+      {children}
+    </Panel>
   );
 }
 

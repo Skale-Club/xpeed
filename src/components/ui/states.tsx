@@ -38,6 +38,7 @@ export function EmptyState({ icon: Icon, title, description, action, compact = f
 
 export interface ErrorStateProps {
   title?: ReactNode;
+  /** An empty string leaves the line out (the title already says it all). */
   description?: ReactNode;
   /** Adds the "Try again" button. */
   onRetry?: () => void;
@@ -59,7 +60,7 @@ export function ErrorState({ title, description, onRetry, retrying = false, acti
       </span>
       <div className="max-w-sm space-y-1">
         <h3 className="text-sm font-semibold text-foreground">{title ?? t("ui.states.errorTitle", "Something went wrong")}</h3>
-        <p className="text-xs text-muted-foreground">{description ?? t("ui.states.errorDescription", "This could not be loaded. Try again in a moment.")}</p>
+        {description !== "" && <p className="text-xs text-muted-foreground">{description ?? t("ui.states.errorDescription", "This could not be loaded. Try again in a moment.")}</p>}
       </div>
       {(onRetry || action) && (
         <div className="flex flex-wrap justify-center gap-2">

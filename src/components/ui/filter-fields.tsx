@@ -52,14 +52,14 @@ export function SearchField({ label, value, onChange, placeholder, testId, class
     <span className={cn(FILTER_WIDE_CELL, "relative block sm:w-52", className)}>
       <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       <input
-        type="text"
+        type="search"
         role="searchbox"
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder ?? label}
         autoComplete="off"
-        className="h-8 w-full min-w-0 rounded-lg border border-input bg-background/60 py-0 pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="h-8 w-full min-w-0 rounded-lg border border-input bg-background/60 py-0 pl-8 pr-8 text-xs [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         data-testid={testId}
       />
       {value !== "" && (

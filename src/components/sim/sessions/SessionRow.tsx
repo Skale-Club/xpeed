@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Award, ChevronRight } from 'lucide-react';
@@ -111,14 +112,10 @@ function SessionRowView({ session, pb, pbsReady }: { session: V1Session; pb: V1P
                       <span className="text-xs text-muted-foreground" data-testid="session-no-valid">{t('sessionsDash.row.noValid', 'no valid lap')}</span>
                     )}
                     {standing.kind === 'pb' && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full border border-success/40 bg-success/15 px-1.5 py-0.5 text-2xs font-semibold leading-none text-success"
-                        title={t('sessionsDash.row.pbHint', 'This is your personal best on this track in this car.')}
-                        data-testid="session-pb"
-                      >
+                      <Badge variant="success" className="gap-1 px-1.5 py-0.5 text-2xs leading-none" title={t('sessionsDash.row.pbHint', 'This is your personal best on this track in this car.')} data-testid="session-pb">
                         <Award className="h-3 w-3" aria-hidden="true" />
                         {t('sessionsDash.row.pb', 'PB')}
-                      </span>
+                      </Badge>
                     )}
                     {standing.kind === 'behind' && (
                       <span

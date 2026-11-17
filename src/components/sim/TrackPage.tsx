@@ -175,7 +175,7 @@ export function TrackPage() {
 
               <div className="grid gap-4 lg:grid-cols-12">
                 <div className="min-w-0 lg:col-span-7">
-                  <TileGrid testId="track-tiles" columns="xl:grid-cols-4">
+                  <TileGrid testId="track-tiles" columns={{ xl: 4 }}>
                     <TileItem>
                       <StatTile testId="totals-laps" label={t('modes.detail.laps', 'Laps')} value={format.number(detail.totals.lapCount)} sub={share !== null ? t('modes.overview.dash.kpiValid', '{{percent}}% valid', { percent: share }) : t('modes.overview.dash.kpiValidNone', 'no laps yet')} />
                     </TileItem>

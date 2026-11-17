@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export type StatTone = "default" | "brand" | "success" | "warn" | "critical" | "info";
@@ -31,26 +32,37 @@ export interface StatTileProps {
   trend?: { direction: "up" | "down" | "flat"; label: string; meaning?: "good" | "bad" | "neutral" };
   /** Anything small at the bottom (a sparkline). */
   footer?: ReactNode;
+  /** What the number means, as a tooltip on the tile. */
+  title?: string;
+  /** The number is still being worked out: a skeleton in place of the value, never a zero. */
+  loading?: boolean;
   testId?: string;
+  /** Overrides the value's test id (default `${testId}-value`); the skeleton is `${valueTestId}-loading`. */
+  valueTestId?: string;
 }
 
 /**
  * One number of a screen: small label, big tabular value, a quiet hint and an optional trend. Use it inside a `StatGrid` for a row of KPIs;
  * the tile is a list item so the grid reads as a list. `testId` is the tile's; the value is `${testId}-value`.
  */
-export function StatTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, testId }: StatTileProps) {
+export function StatTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, title, loading = false, testId, valueTestId }: StatTileProps) {
+  const valueId = valueTestId ?? (testId ? `${testId}-value` : undefined);
   const TrendIcon = trend ? TREND_ICON[trend.direction] : null;
   return (
     <li className="min-w-0">
-      <Card className="h-full space-y-1.5 bg-card p-3" data-testid={testId}>
+      <Card className="h-full space-y-1.5 bg-card p-3" data-testid={testId} title={title}>
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
           {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
         </div>
-        <p className={cn("truncate font-mono text-xl font-semibold leading-tight tabular-nums", TONE[tone])} data-testid={testId ? `${testId}-value` : undefined}>
-          {value}
-        </p>
-        {(hint != null || trend) && (
+        {loading ? (
+          <Skeleton className="h-7 w-20" data-testid={valueId ? `${valueId}-loading` : undefined} />
+        ) : (
+          <p className={cn("truncate font-mono text-xl font-semibold leading-tight tabular-nums", TONE[tone])} data-testid={valueId}>
+            {value}
+          </p>
+        )}
+        {!loading && (hint != null || trend) && (
           <div className="flex min-h-4 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             {trend && TrendIcon && (
               <span
@@ -63,7 +75,11 @@ export function StatTile({ label, value, hint, icon: Icon, tone = "default", tre
                 <span className="sr-only">{trend.label}</span>
               </span>
             )}
-            {hint != null && <span className="min-w-0 truncate">{hint}</span>}
+            {hint != null && (
+              <span className="min-w-0 truncate" data-testid={testId ? `${testId}-sub` : undefined}>
+                {hint}
+              </span>
+            )}
           </div>
         )}
         {footer}
@@ -72,18 +88,21 @@ export function StatTile({ label, value, hint, icon: Icon, tone = "default", tre
   );
 }
 
-type Cols = { base?: 1 | 2; sm?: 2 | 3; lg?: 3 | 4 | 6 };
+type Cols = { base?: 1 | 2; sm?: 2 | 3 | 4; lg?: 3 | 4 | 6 | null; xl?: 4 | 6 };
 
 // Full class names so Tailwind can see them.
 const BASE = { 1: "grid-cols-1", 2: "grid-cols-2" } as const;
-const SM = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-3" } as const;
+const SM = { 2: "sm:grid-cols-2", 3: "sm:grid-cols-3", 4: "sm:grid-cols-4" } as const;
 const LG = { 3: "lg:grid-cols-3", 4: "lg:grid-cols-4", 6: "lg:grid-cols-6" } as const;
+const XL = { 4: "xl:grid-cols-4", 6: "xl:grid-cols-6" } as const;
 
-/** The grid `StatTile`s sit in: 2 across on a phone, 3 from `sm`, 6 from `lg` unless `columns` says otherwise. */
+/** The grid `StatTile`s sit in: 2 across on a phone, 3 from `sm`, 6 from `lg` (or `xl`) unless `columns` says otherwise. */
 export function StatGrid({ children, columns, className, testId }: { children: ReactNode; columns?: Cols; className?: string; testId?: string }) {
-  const { base = 2, sm = 3, lg = 6 } = columns ?? {};
+  // `lg: null` (or an `xl` without an `lg`) leaves the lg step out.
+  const { base = 2, sm = 3, xl } = columns ?? {};
+  const lg = columns && "lg" in columns ? columns.lg : xl ? null : 6;
   return (
-    <ul className={cn("grid gap-3", BASE[base], SM[sm], LG[lg], className)} data-testid={testId}>
+    <ul className={cn("grid gap-3", BASE[base], SM[sm], lg && LG[lg], xl && XL[xl], className)} data-testid={testId}>
       {children}
     </ul>
   );

@@ -1,10 +1,9 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SlidersHorizontal, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { FilterSheet } from '@/components/ui/filter-sheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Switch } from '@/components/ui/switch';
 import { useGames } from '@/lib/sim/games';
@@ -28,7 +27,6 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
   const { t } = useTranslation();
   const games = useGames();
   const mobile = useIsMobile();
-  const [open, setOpen] = useState(false);
   const count = activeFilterCount(filters);
   const all = t('modes.sessions.all', 'All');
   const kindLabels: Record<KindFilter, string> = {
@@ -77,51 +75,33 @@ export function SessionFilterBar({ filters, onChange, onClear, gameOptions, trac
   return (
     <section aria-label={t('sessionsDash.filters.title', 'Filters')} data-testid="session-filters">
       {mobile ? (
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <Button type="button" variant="outline" className="h-10 w-full justify-center gap-2" data-testid="filters-open">
-              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-              {t('sessionsDash.filters.title', 'Filters')}
-              {count > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground" data-testid="filters-count">{count}</span>
-              )}
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="bottom" className="flex max-h-[85vh] flex-col gap-0 p-0" data-testid="filters-sheet">
-            <SheetHeader className="px-4 pb-2 pt-4 text-left">
-              <SheetTitle>{t('sessionsDash.filters.title', 'Filters')}</SheetTitle>
-              <SheetDescription className="sr-only">{t('sessionsDash.filters.validOnlyHint', 'Hides sessions where the game counted no lap as valid.')}</SheetDescription>
-            </SheetHeader>
-            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-2">
-              {phoneSelects.map((item) => (
-                <div key={item.key} className="space-y-1">
-                  <span className="text-xs text-muted-foreground" aria-hidden="true">{item.label}</span>
-                  <OptionSelect
-                    aria-label={item.label}
-                    value={item.value}
-                    onChange={(value) => onChange(item.key, value)}
-                    options={item.options}
-                    emptyLabel={item.all}
-                    data-testid={item.testId}
-                    className="w-full"
-                  />
-                </div>
-              ))}
-              <label className="flex h-10 cursor-pointer items-center justify-between gap-2 text-sm">
-                {validLabel}
-                <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={validLabel} />
-              </label>
+        <FilterSheet
+          count={count}
+          onClear={onClear}
+          title={t('sessionsDash.filters.title', 'Filters')}
+          testId="filters-open"
+          testIds={{ count: 'filters-count', sheet: 'filters-sheet', clear: 'filters-clear-all', apply: 'filters-show-results' }}
+          triggerClassName="w-full justify-center"
+        >
+          {phoneSelects.map((item) => (
+            <div key={item.key} className="space-y-1">
+              <span className="text-xs text-muted-foreground" aria-hidden="true">{item.label}</span>
+              <OptionSelect
+                aria-label={item.label}
+                value={item.value}
+                onChange={(value) => onChange(item.key, value)}
+                options={item.options}
+                emptyLabel={item.all}
+                data-testid={item.testId}
+                className="w-full"
+              />
             </div>
-            <SheetFooter className="flex-row gap-2 border-t border-border px-4 py-3">
-              <Button type="button" variant="outline" className="h-10 flex-1" onClick={onClear} disabled={count === 0} data-testid="filters-clear-all">
-                {t('sessionsDash.filters.clearAll', 'Clear all')}
-              </Button>
-              <Button type="button" className="h-10 flex-1" onClick={() => setOpen(false)} data-testid="filters-show-results">
-                {t('sessionsDash.filters.showResults', 'Show results')}
-              </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
+          ))}
+          <label className="flex h-10 cursor-pointer items-center justify-between gap-2 text-sm">
+            {validLabel}
+            <Switch checked={filters.validOnly} onCheckedChange={(checked) => onChange('validOnly', checked)} data-testid="filter-valid" aria-label={validLabel} />
+          </label>
+        </FilterSheet>
       ) : (
       /* One row of five small drop-downs (the label inside each) and the switch on the right; it wraps only on a narrow screen. */
       <FilterBar data-testid="filter-toolbar">

@@ -1,38 +1,30 @@
-// A tile with one number: the look of the Overview's tiles (small label over a big tabular value, a quiet line under it) for the screens that show a set of
-// numbers about one thing (the filtered sessions, one session).
+// The Virtual screens' tile with one number: a thin adapter over the shared `StatTile` / `StatGrid` (ui/stat-tile), keeping the props these screens
+// already use (`sub` is the quiet line, `tone` the old good/bad/accent names).
 import type { ReactNode } from 'react';
-import { Card } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { StatGrid, StatTile as UiStatTile, type StatTone } from '@/components/ui/stat-tile';
 
 export type Tone = 'good' | 'bad' | 'accent' | 'plain';
-const TONE: Record<Tone, string> = { good: 'text-success', bad: 'text-destructive', accent: 'text-primary', plain: '' };
+const TONE: Record<Tone, StatTone> = { good: 'success', bad: 'critical', accent: 'brand', plain: 'default' };
 
-export function StatTile({ label, value, sub, tone = 'plain', mono = false, hint, testId, children }: {
+export function StatTile({ label, value, sub, tone = 'plain', hint, testId, children }: {
   label: ReactNode;
   value: ReactNode;
   /** The quiet line under the value. */
   sub?: ReactNode;
   tone?: Tone;
-  /** Lap times are set in the monospaced face, as everywhere else. */
+  /** Lap times are set in the monospaced face, as everywhere else (the shared tile always does). */
   mono?: boolean;
   /** What the number means, as a tooltip. */
   hint?: string;
   testId?: string;
   children?: ReactNode;
 }) {
-  return (
-    <li className="min-w-0">
-      <Card className="h-full space-y-1 bg-card p-3" data-testid={testId} title={hint}>
-        <p className="truncate text-xs font-medium text-muted-foreground">{label}</p>
-        <p className={cn('truncate text-xl font-semibold tabular-nums leading-tight', mono && 'font-mono', TONE[tone])} data-testid={testId ? `${testId}-value` : undefined}>{value}</p>
-        <p className="min-h-4 truncate text-xs text-muted-foreground" data-testid={testId ? `${testId}-sub` : undefined}>{sub ?? ' '}</p>
-        {children}
-      </Card>
-    </li>
-  );
+  return <UiStatTile label={label} value={value} hint={sub} tone={TONE[tone]} title={hint} testId={testId} footer={children} />;
 }
 
-/** The grid the tiles sit in: two across on a phone, more as the screen allows. */
-export function TileGrid({ children, testId, columns = 'sm:grid-cols-4' }: { children: ReactNode; testId?: string; columns?: string }) {
-  return <ul className={cn('grid grid-cols-2 gap-3', columns)} data-testid={testId}>{children}</ul>;
+type GridColumns = NonNullable<Parameters<typeof StatGrid>[0]['columns']>;
+
+/** The grid the tiles sit in: two across on a phone, four from `sm` unless `columns` says otherwise. */
+export function TileGrid({ children, testId, columns = { sm: 4, lg: null } }: { children: ReactNode; testId?: string; columns?: GridColumns }) {
+  return <StatGrid columns={columns} testId={testId}>{children}</StatGrid>;
 }
