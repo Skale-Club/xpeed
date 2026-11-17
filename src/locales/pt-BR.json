@@ -73,19 +73,13 @@
     },
     "leaderboard": {
       "you": "Você",
-      "compareMine": "Comparar minha volta",
-      "compare": "Comparar",
       "notListedPublic": "Você não aparece porque seu perfil é privado, ou porque sua volta não é válida.",
       "notListedFriends": "Você não aparece aqui porque não tem uma volta válida nesta pista com este carro.",
       "notListedHelp": "Só voltas válidas contam. Os rankings públicos também pedem um perfil público.",
       "profileLink": "Mudar quem pode ver você",
       "around": "Os pilotos ao seu redor",
       "nothingDriven": "Dê uma volta primeiro: as classificações mostram as pistas e os carros que você já correu.",
-      "drivenGroup": "Que você correu",
-      "otherGroup": "Com voltas públicas",
       "game": "Jogo",
-      "track": "Pista",
-      "car": "Carro",
       "scope": "Quem classificar",
       "public": "Pública",
       "friends": "Amigos",
@@ -115,11 +109,20 @@
       "copyLink": "Copiar link desta classificação",
       "linkCopied": "Link copiado",
       "copyFailed": "Não foi possível copiar. Copie o endereço da barra do navegador.",
-      "choose": "Escolha uma classificação",
       "searchTrack": "Buscar uma pista",
-      "searchCar": "Buscar um carro",
       "noMatch": "Nada corresponde ao que você digitou.",
-      "keepTyping": "Há mais resultados: continue digitando para filtrar a lista."
+      "allGames": "Todos os jogos",
+      "crumbs": "Onde você está nos rankings",
+      "tracksTitle": "Pistas",
+      "publicLaps": "Voltas públicas: {{count}}",
+      "noPublicLaps": "Ainda sem voltas públicas",
+      "carsTitle": "Escolha um carro para ver o ranking",
+      "noCars": "Ainda não há rankings nesta pista. Eles aparecem assim que alguém faz uma volta válida aqui.",
+      "onlyYours": "Só as suas voltas por enquanto",
+      "youLead": "Você lidera",
+      "analyzeMine": "Analisar minha volta",
+      "alone": "Só você neste ranking por enquanto.",
+      "aloneHelp": "Copie o link deste ranking e desafie seus amigos."
     },
     "visibility": {
       "label": "Quem pode ver seu perfil",
@@ -445,7 +448,6 @@
       "simFinish": "Ir para o Virtual"
     },
     "compare": {
-      "intro": "Escolha uma volta da sua conta para vê-la de perto e compará-la com outra. Uma volta sozinha é medida contra o seu recorde pessoal na mesma pista e no mesmo carro.",
       "lapN": "Volta {{n}}",
       "valid": "válida",
       "notValid": "não válida",
@@ -509,7 +511,12 @@
       "myBest": "Meu recorde pessoal (padrão)",
       "swap": "Trocar a volta e a referência de lugar",
       "removeReference": "Remover a referência",
-      "useMyBest": "Usar o meu recorde pessoal como referência"
+      "useMyBest": "Usar o meu recorde pessoal como referência",
+      "title": "Análise da volta",
+      "back": "Voltar",
+      "startIntro": "Abra uma volta para analisá-la: a partir de uma sessão, de uma pista, de um carro ou de um ranking. Ela é medida contra o seu recorde pessoal na mesma pista e no mesmo carro, e lá você pode escolher outra referência.",
+      "latestLaps": "Suas últimas voltas",
+      "findLap": "Achar uma volta por pista e carro"
     },
     "sessions": {
       "intro": "Suas sessões, com as voltas que o Xpeed Companion enviou.",
@@ -696,7 +703,8 @@
         "emptyBody": "Quando o Xpeed Companion enviar suas primeiras voltas, esta página mostra quanto você pilota, onde ficou mais rápido, suas melhores voltas por pista e carro, o quanto você é regular e no que trabalhar.",
         "showAll": "Mostrar todas ({{total}})",
         "showFewer": "Mostrar menos"
-      }
+      },
+      "comparisons": "Suas comparações"
     },
     "cars": {
       "empty": "Nenhum carro ainda. Instale o Xpeed Companion e conecte à sua conta: os carros que você dirigir aparecem aqui.",

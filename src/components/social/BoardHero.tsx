@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Check, Copy, Flag, Users } from 'lucide-react';
+import { Check, Copy, Flag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -24,11 +24,11 @@ function Stat({ label, value, testId }: { label: string; value: string; testId: 
 }
 
 /**
- * The top of the leaderboards: the track (its map when Xpeed Companion sent the layout) and the car, the game, how many drivers are on the
- * board, the fastest time and yours; the Public / Friends choice; a link to the track page and a button that copies the address of the board.
- * The pickers are the children, so they sit in the same card.
+ * The top of a board: the track (its map when Xpeed Companion sent the layout) and the car, the game, how many drivers are on the board, the
+ * fastest time and yours (said once: when you lead, your tile says so instead of repeating the time); the Public / Friends choice; a link to the
+ * track page and a button that copies the address of the board.
  */
-export function BoardHero({ trackId, trackName, lengthM, layoutId, carName, carClass, game, total, leaderMs, myMs, scopeTabs, children }: {
+export function BoardHero({ trackId, trackName, lengthM, layoutId, carName, carClass, game, total, leaderMs, myMs, scopeTabs }: {
   trackId: string | null;
   trackName: string;
   lengthM: number | null | undefined;
@@ -41,7 +41,6 @@ export function BoardHero({ trackId, trackName, lengthM, layoutId, carName, carC
   leaderMs: number | null;
   myMs: number | null;
   scopeTabs: ReactNode;
-  children: ReactNode;
 }) {
   const { t, i18n } = useTranslation();
   const { distanceUnit } = useSettings();
@@ -71,7 +70,11 @@ export function BoardHero({ trackId, trackName, lengthM, layoutId, carName, carC
       <div className="grid grid-cols-3 gap-2" data-testid="board-stats">
         <Stat label={t('social.leaderboard.statDrivers', 'Drivers')} value={total === null ? dash : new Intl.NumberFormat(lang).format(total)} testId="board-stat-drivers" />
         <Stat label={t('social.leaderboard.statFastest', 'Fastest')} value={leaderMs === null ? dash : formatLapTime(leaderMs)} testId="board-stat-fastest" />
-        <Stat label={t('social.leaderboard.yourBest', 'Your best')} value={myMs === null ? dash : formatLapTime(myMs)} testId="board-stat-yours" />
+        <Stat
+          label={t('social.leaderboard.yourBest', 'Your best')}
+          value={myMs === null ? dash : leaderMs !== null && myMs === leaderMs ? t('social.leaderboard.youLead', 'You lead') : formatLapTime(myMs)}
+          testId="board-stat-yours"
+        />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -95,11 +98,6 @@ export function BoardHero({ trackId, trackName, lengthM, layoutId, carName, carC
         </div>
       </div>
       {copied === 'no' && <p className="text-xs text-muted-foreground" role="status">{t('social.leaderboard.copyFailed', 'Could not copy. Copy the address from the browser bar.')}</p>}
-
-      <div className="border-t border-border pt-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Users className="h-3.5 w-3.5" aria-hidden="true" />{t('social.leaderboard.choose', 'Choose a board')}</p>
-        {children}
-      </div>
     </Card>
   );
 }

@@ -76,9 +76,9 @@ describe('the Compare screen on a phone', () => {
     expect(screen.queryByTestId('compare-slots')).not.toBeInTheDocument();
   });
 
-  it('starts with the selector open when no lap is chosen yet', async () => {
+  it('starts from the latest laps when no lap is chosen yet, with no sticky bar', async () => {
     renderSim(<CompareScreen />, { state, route: '/virtual/compare' });
-    expect(await screen.findByTestId('compare-slots')).toBeInTheDocument();
+    expect(await screen.findByTestId('compare-start')).toBeInTheDocument();
     expect(screen.queryByTestId('sticky-laps')).not.toBeInTheDocument();
   });
 });

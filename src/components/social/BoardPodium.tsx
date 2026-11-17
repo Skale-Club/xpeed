@@ -10,15 +10,18 @@ import { Avatar, DriverName } from './social-bits';
 /** How tall each step stands, by rank; a tie shares the height of its rank. */
 const STEP_HEIGHT = ['min-h-[10.5rem]', 'min-h-[9rem]', 'min-h-[8rem]'] as const;
 const MEDAL = ['bg-amber-500 text-black', 'bg-slate-300 text-black', 'bg-orange-500 text-black'] as const;
+/** A podium needs three drivers. */
+export const MIN_DRIVERS = 3;
 
 /**
  * The top three of the board on a podium: the winner in the middle, then second and third at the sides, each with the avatar, the driver,
- * the time and the gap to the winner. A tie shares a step (1, 2, 2). The driver's own step is outlined. Fewer than three drivers: just them.
+ * the time and the gap to the winner. A tie shares a step (1, 2, 2). The driver's own step is outlined. With fewer than three drivers there is
+ * no podium: the table says it all.
  */
 export function BoardPodium({ entries }: { entries: readonly LeaderboardEntry[] }) {
   const { t } = useTranslation();
   const podium = podiumOf(entries);
-  if (podium.length === 0) return null;
+  if (entries.length < MIN_DRIVERS) return null;
   const stage = podiumStage(podium);
   return (
     <section aria-labelledby="podium-title" className="space-y-2" data-testid="board-podium">

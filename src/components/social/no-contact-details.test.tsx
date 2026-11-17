@@ -116,7 +116,7 @@ afterEach(() => {
 
 describe('no screen shows an e-mail, a phone number or the account\'s real name', () => {
   it('the leaderboard, public and friends, with your row and your neighbours', async () => {
-    renderSocial(<LeaderboardScreen />, { state: seeded(), route: '/virtual/leaderboards' });
+    renderSocial(<LeaderboardScreen />, { state: seeded(), route: `/virtual/leaderboards?game=lmu&track=${monza.id}&car=${ferrari.id}` });
     await screen.findByTestId('board-table');
     await screen.findByTestId('board-me');
     expectNoLeaks();

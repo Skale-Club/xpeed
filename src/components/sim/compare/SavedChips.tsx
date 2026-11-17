@@ -10,19 +10,21 @@ import { cn } from '@/lib/utils';
  * The comparisons made lately and the ones saved, as chips that open them again (kept in this browser). Each chip is a link to the comparison; beside it, a
  * pin saves it (a saved one stays, the recent ones are cut to the latest few) and a cross lets it go. The chip of the comparison on screen is marked.
  */
-export function SavedChips({ items, a, b, onPin, onForget }: {
+export function SavedChips({ items, a, b, onPin, onForget, hideTitle = false }: {
   items: readonly SavedComparison[];
   /** The comparison on screen: its lap and its reference (null for the personal best). */
   a: string | null;
   b: string | null;
   onPin: (item: SavedComparison, pinned: boolean) => void;
   onForget: (item: SavedComparison) => void;
+  /** Leave out the small title (the card around the chips already names them). */
+  hideTitle?: boolean;
 }) {
   const { t } = useTranslation();
   if (items.length === 0) return null;
   return (
     <section className="space-y-1.5" aria-label={t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')} data-testid="saved-comparisons">
-      <p className="text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')}</p>
+      {!hideTitle && <p className="text-xs font-medium text-muted-foreground">{t('sessionsDash.compare.savedTitle', 'Saved and recent comparisons')}</p>}
       <ul className="flex flex-wrap gap-2">
         {items.map((item) => {
           const current = isCurrent(item, a, b);

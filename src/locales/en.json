@@ -73,19 +73,13 @@
     },
     "leaderboard": {
       "you": "You",
-      "compareMine": "Compare my lap",
-      "compare": "Compare",
       "notListedPublic": "You are not listed because your profile is private, or your lap is not valid.",
       "notListedFriends": "You are not listed here because you have no valid lap on this track and car.",
       "notListedHelp": "Only valid laps count. Public boards also need a public profile.",
       "profileLink": "Change who can see you",
       "around": "The drivers around you",
       "nothingDriven": "Drive a lap first: the leaderboards show the tracks and cars you have driven.",
-      "drivenGroup": "Driven by you",
-      "otherGroup": "With public laps",
       "game": "Game",
-      "track": "Track",
-      "car": "Car",
       "scope": "Who to rank",
       "public": "Public",
       "friends": "Friends",
@@ -115,11 +109,20 @@
       "copyLink": "Copy link to this board",
       "linkCopied": "Link copied",
       "copyFailed": "Could not copy. Copy the address from the browser bar.",
-      "choose": "Choose a board",
       "searchTrack": "Search a track",
-      "searchCar": "Search a car",
       "noMatch": "Nothing matches what you typed.",
-      "keepTyping": "More than this match: keep typing to narrow the list."
+      "allGames": "All games",
+      "crumbs": "Where you are in the leaderboards",
+      "tracksTitle": "Tracks",
+      "publicLaps": "Public laps: {{count}}",
+      "noPublicLaps": "No public laps yet",
+      "carsTitle": "Choose a car to see its board",
+      "noCars": "No boards on this track yet. They appear as soon as someone drives a valid lap here.",
+      "onlyYours": "Only your laps so far",
+      "youLead": "You lead",
+      "analyzeMine": "Analyze my lap",
+      "alone": "Only you on this board so far.",
+      "aloneHelp": "Copy the link to this board and challenge your friends."
     },
     "visibility": {
       "label": "Who can see your profile",
@@ -445,7 +448,6 @@
       "simFinish": "Go to Virtual"
     },
     "compare": {
-      "intro": "Pick a lap from your account to look at it closely and compare it with another one. A lap on its own is measured against your personal best on the same track and car.",
       "lapN": "Lap {{n}}",
       "valid": "valid",
       "notValid": "not valid",
@@ -509,7 +511,12 @@
       "myBest": "My personal best (default)",
       "swap": "Swap the lap and the reference",
       "removeReference": "Remove the reference",
-      "useMyBest": "Use my personal best as the reference"
+      "useMyBest": "Use my personal best as the reference",
+      "title": "Lap analysis",
+      "back": "Back",
+      "startIntro": "Open a lap to analyze it: from a session, a track, a car or a leaderboard. It is measured against your personal best on the same track and car, and you can choose another reference there.",
+      "latestLaps": "Your latest laps",
+      "findLap": "Find a lap by track and car"
     },
     "sessions": {
       "intro": "Your sessions, with the laps Xpeed Companion sent.",
@@ -696,7 +703,8 @@
         "emptyBody": "Once Xpeed Companion sends your first laps, this page shows how much you drive, where you got faster, your best laps by track and car, how consistent you are and what to work on.",
         "showAll": "Show all {{total}}",
         "showFewer": "Show fewer"
-      }
+      },
+      "comparisons": "Your comparisons"
     },
     "cars": {
       "empty": "No cars yet. Install Xpeed Companion and connect it to your account: the cars you drive show up here.",

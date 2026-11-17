@@ -216,7 +216,17 @@ describe('the saved and recent comparisons', () => {
 
   it('shows no chips before anything was compared', async () => {
     open('/virtual/compare');
-    await screen.findByTestId('lap-picker');
+    await screen.findAllByTestId('compare-latest-lap');
     expect(screen.queryByTestId('saved-comparisons')).not.toBeInTheDocument();
+  });
+
+  it('offers the kept comparisons on the screen with no lap in the address', async () => {
+    open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
+    await gapReady();
+    cleanup();
+    open('/virtual/compare');
+    const start = await screen.findByTestId('compare-start');
+    const chip = within(start).getByTestId('saved-chip');
+    expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('href', `/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
   });
 });

@@ -73,19 +73,13 @@
     },
     "leaderboard": {
       "you": "Tú",
-      "compareMine": "Comparar mi vuelta",
-      "compare": "Comparar",
       "notListedPublic": "No apareces porque tu perfil es privado, o porque tu vuelta no es válida.",
       "notListedFriends": "No apareces aquí porque no tienes una vuelta válida en este circuito con este coche.",
       "notListedHelp": "Solo cuentan las vueltas válidas. Las clasificaciones públicas también piden un perfil público.",
       "profileLink": "Cambiar quién puede verte",
       "around": "Los pilotos a tu alrededor",
       "nothingDriven": "Da una vuelta primero: las clasificaciones muestran los circuitos y coches que has conducido.",
-      "drivenGroup": "Que has conducido",
-      "otherGroup": "Con vueltas públicas",
       "game": "Juego",
-      "track": "Circuito",
-      "car": "Coche",
       "scope": "A quién clasificar",
       "public": "Pública",
       "friends": "Amigos",
@@ -115,11 +109,20 @@
       "copyLink": "Copiar enlace de esta clasificación",
       "linkCopied": "Enlace copiado",
       "copyFailed": "No se pudo copiar. Copia la dirección de la barra del navegador.",
-      "choose": "Elige una clasificación",
       "searchTrack": "Buscar un circuito",
-      "searchCar": "Buscar un coche",
       "noMatch": "Nada coincide con lo que has escrito.",
-      "keepTyping": "Hay más resultados: sigue escribiendo para acotar la lista."
+      "allGames": "Todos los juegos",
+      "crumbs": "Dónde estás en las clasificaciones",
+      "tracksTitle": "Circuitos",
+      "publicLaps": "Vueltas públicas: {{count}}",
+      "noPublicLaps": "Aún sin vueltas públicas",
+      "carsTitle": "Elige un coche para ver su clasificación",
+      "noCars": "Aún no hay clasificaciones en este circuito. Aparecen en cuanto alguien hace una vuelta válida aquí.",
+      "onlyYours": "Solo tus vueltas por ahora",
+      "youLead": "Vas primero",
+      "analyzeMine": "Analizar mi vuelta",
+      "alone": "Solo tú en esta clasificación por ahora.",
+      "aloneHelp": "Copia el enlace de esta clasificación y reta a tus amigos."
     },
     "visibility": {
       "label": "Quién puede ver tu perfil",
@@ -445,7 +448,6 @@
       "simFinish": "Ir a Virtual"
     },
     "compare": {
-      "intro": "Elige una vuelta de tu cuenta para verla de cerca y compararla con otra. Una vuelta sola se mide con tu mejor marca personal en el mismo circuito y con el mismo coche.",
       "lapN": "Vuelta {{n}}",
       "valid": "válida",
       "notValid": "no válida",
@@ -509,7 +511,12 @@
       "myBest": "Mi mejor marca personal (por defecto)",
       "swap": "Intercambiar la vuelta y la referencia",
       "removeReference": "Quitar la referencia",
-      "useMyBest": "Usar mi mejor marca personal como referencia"
+      "useMyBest": "Usar mi mejor marca personal como referencia",
+      "title": "Análisis de la vuelta",
+      "back": "Volver",
+      "startIntro": "Abre una vuelta para analizarla: desde una sesión, un circuito, un coche o una clasificación. Se mide con tu mejor marca personal en el mismo circuito y con el mismo coche, y allí puedes elegir otra referencia.",
+      "latestLaps": "Tus últimas vueltas",
+      "findLap": "Buscar una vuelta por circuito y coche"
     },
     "sessions": {
       "intro": "Tus sesiones, con las vueltas que envió Xpeed Companion.",
@@ -696,7 +703,8 @@
         "emptyBody": "Cuando Xpeed Companion envíe tus primeras vueltas, esta página mostrará cuánto conduces, dónde mejoraste, tus mejores vueltas por circuito y coche, qué tan regular eres y en qué trabajar.",
         "showAll": "Mostrar todas ({{total}})",
         "showFewer": "Mostrar menos"
-      }
+      },
+      "comparisons": "Tus comparaciones"
     },
     "cars": {
       "empty": "Aún no hay coches. Instala Xpeed Companion y conéctalo a tu cuenta: los coches que conduzcas aparecen aquí.",

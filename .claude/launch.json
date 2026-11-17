@@ -21,9 +21,31 @@
       "port": 5010
     },
     {
+      "name": "xpeed-screens-virtual",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "--config",
+        "vite.harness.config.ts",
+        "--port",
+        "5011",
+        "--strictPort"
+      ],
+      "env": {
+        "VITE_ENABLE_VIRTUAL": "true"
+      },
+      "port": 5011
+    },
+    {
       "name": "rc-pilot",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8090", "-d", "rc-car/pilot"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8090",
+        "-d",
+        "rc-car/pilot"
+      ],
       "port": 8090
     },
     {

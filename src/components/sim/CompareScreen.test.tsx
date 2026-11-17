@@ -198,10 +198,38 @@ describe('downloading', () => {
   });
 });
 
+/** With no lap in the address, the picker is folded under "Find a lap by track and car". */
+const openPicker = async () => {
+  fireEvent.click(await screen.findByTestId('compare-find'));
+  return screen.findByTestId('lap-picker');
+};
+
+describe('with no lap in the address', () => {
+  it('offers the newest laps, each opening its analysis, and keeps the picker folded', async () => {
+    open('/virtual/compare');
+    const start = await screen.findByTestId('compare-start');
+    const laps = await within(start).findAllByTestId('compare-latest-lap');
+    expect(laps.map((link) => link.getAttribute('data-lap-id'))).toEqual([myLap.id, bestLap.id, otherLap.id]); // newest first
+    expect(laps[0]).toHaveAttribute('href', `/virtual/compare?a=${myLap.id}`);
+    expect(laps[0]).toHaveTextContent('Sample Ring · Lap 7');
+    expect(within(start).getByTestId('compare-all-sessions')).toHaveAttribute('href', '/virtual/sessions');
+    expect(screen.queryByTestId('lap-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('compare-slots')).not.toBeInTheDocument();
+    expect(within(start).getByTestId('compare-find')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens a lap from the list', async () => {
+    open('/virtual/compare');
+    fireEvent.click((await screen.findAllByTestId('compare-latest-lap'))[0]);
+    await waitFor(() => expect(search().get('a')).toBe(myLap.id));
+    await gapReady(); // measured against the personal best
+  });
+});
+
 describe('finding a lap', () => {
-  it('starts with the picker, which goes game, track, then the laps of that track newest first, and picking one opens it', async () => {
+  it('unfolds the picker, which goes game, track, then the laps of that track newest first, and picking one opens it', async () => {
     const { container } = open('/virtual/compare');
-    const picker = await screen.findByTestId('lap-picker');
+    const picker = await openPicker();
     // One game: nothing to choose.
     await waitFor(() => expect(within(picker).getByTestId('picker-game')).toHaveTextContent('SAMPLE'));
     expect(within(picker).getByTestId('picker-hint')).toHaveTextContent('Now choose a track');
@@ -211,7 +239,7 @@ describe('finding a lap', () => {
     const list = await within(picker).findByTestId('picker-laps');
     expect(within(list).getAllByTestId('picker-lap').map((button) => button.getAttribute('data-lap-id'))).toEqual([myLap.id, bestLap.id]); // newest first
     expect(within(list).getByText('Personal best')).toBeInTheDocument();
-    const lapsRequest = state.requests.find((request) => request.path === '/laps')!;
+    const lapsRequest = state.requests.find((request) => request.path === '/laps' && request.params.track)!; // the first one, unfiltered, is the latest laps
     expect(lapsRequest.params).toMatchObject({ game: 'sample', track: track.id });
 
     chooseOption(within(picker).getByTestId('picker-car'), 'Sample Car');
@@ -242,7 +270,7 @@ describe('finding a lap', () => {
 describe('the lap picker of the compare screen', () => {
   it('has its game, track and car as one wrapping row of compact drop-downs with the name inside each', async () => {
     open('/virtual/compare');
-    const picker = await screen.findByTestId('lap-picker');
+    const picker = await openPicker();
     const bar = within(picker).getByTestId('picker-filters');
     expect(bar).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
     for (const chrome of ['grid', 'border', 'bg-card']) expect(bar).not.toHaveClass(chrome);

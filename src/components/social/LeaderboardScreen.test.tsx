@@ -3,7 +3,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import i18n from '@/lib/i18n';
 import { renderSocial, callsTo } from '@/test/social-render';
 import { boardKey, fakeSocialState, ranked, type FakeSocialState } from '@/test/social-fake-server';
-import { ref, v1Session } from '@/test/v1-fake-server';
+import { ref, v1Lap, v1Session } from '@/test/v1-fake-server';
 import { whereNow } from '@/test/sim-render';
 import { circle, makeLayout } from '@/test/track-fixture';
 import { LeaderboardScreen } from './LeaderboardScreen';
@@ -55,23 +55,14 @@ function seeded(extra: Partial<FakeSocialState> = {}): FakeSocialState {
   return state;
 }
 
-const open = async (state: FakeSocialState, route = '/virtual/leaderboards') => {
+/** The address of a board: game, track and car (the lists come before it, see "finding a board"). */
+const boardRoute = (track = monza, car = ferrari, extra = '') => `/virtual/leaderboards?game=lmu&track=${track.id}&car=${car.id}${extra}`;
+const open = async (state: FakeSocialState, route = boardRoute()) => {
   const view = renderSocial(<LeaderboardScreen />, { state, route });
   await screen.findByTestId('board-table');
   return view;
 };
 const rows = () => screen.getAllByTestId('board-row');
-
-/** The searchable pickers: opening one (focus) lists its options; choosing is a click on an option. */
-const optionsOf = (testId: string) => within(screen.getByTestId(`${testId}-list`)).queryAllByRole('option');
-const openPicker = (testId: string) => {
-  fireEvent.focus(screen.getByTestId(testId));
-  return screen.getByTestId(`${testId}-list`);
-};
-const choose = (testId: string, label: string) => {
-  openPicker(testId);
-  fireEvent.click(optionsOf(testId).find((option) => option.textContent === label)!);
-};
 
 beforeEach(async () => {
   layout.available = false;
@@ -83,13 +74,9 @@ afterEach(() => {
 });
 
 describe('the leaderboard screen', () => {
-  it('opens on the track and car the driver used most recently and asks the server for that board', async () => {
+  it('asks the server for the board the address names', async () => {
     const state = seeded();
     await open(state);
-    expect(screen.getByTestId('board-track')).toHaveAttribute('data-value', monza.id);
-    expect(screen.getByTestId('board-track')).toHaveValue('Monza');
-    expect(screen.getByTestId('board-car')).toHaveAttribute('data-value', ferrari.id);
-    expect(screen.getByTestId('board-car')).toHaveValue('Ferrari 499P');
     const call = callsTo(state, 'GET', '/leaderboard')[0];
     expect(call.params).toMatchObject({ track: monza.id, car: ferrari.id, scope: 'public', game: 'lmu' });
     expect(screen.getByTestId('board-title')).toHaveTextContent('Monza');
@@ -107,20 +94,20 @@ describe('the leaderboard screen', () => {
     expect(within(first).getByRole('link', { name: /Driver 1/ })).toHaveAttribute('href', '/virtual/drivers/driver_01');
   });
 
-  it('highlights your row, labels it "You" and offers Compare only on your own lap', async () => {
+  it('highlights your row and labels it "You"; Report is on the other rows, and your lap is analysed from the position card', async () => {
     const state = seeded();
     await open(state);
     const mine = rows().find((row) => row.getAttribute('data-me') === 'true')!;
     expect(mine).toHaveAttribute('aria-current', 'true');
     expect(mine.className).toContain('bg-primary');
     expect(within(mine).getByTestId('board-you')).toBeInTheDocument();
-    expect(within(mine).getByTestId('board-compare')).toHaveAttribute('href', expect.stringMatching(/^\/virtual\/compare\?a=/));
     expect(within(mine).queryByTestId('report-button')).not.toBeInTheDocument();
-    const others = rows().filter((row) => row !== mine);
-    for (const row of others) {
-      expect(within(row).queryByTestId('board-compare')).not.toBeInTheDocument();
-      expect(within(row).getByTestId('report-button')).toBeInTheDocument();
-    }
+    for (const row of rows().filter((row) => row !== mine)) expect(within(row).getByTestId('report-button')).toBeInTheDocument();
+    // One way to look at your lap, not one per row.
+    expect(screen.queryByTestId('board-compare')).not.toBeInTheDocument();
+    const analyze = await screen.findByTestId('board-me-compare');
+    expect(analyze).toHaveTextContent('Analyze my lap');
+    expect(analyze).toHaveAttribute('href', expect.stringMatching(/^\/virtual\/compare\?a=/));
   });
 
   it('says where you stand ("You are 12th of 25") with the drivers around you', async () => {
@@ -151,7 +138,7 @@ describe('the leaderboard screen', () => {
   it('says "No public laps for this track and car yet" for an empty board, and still explains you are not listed', async () => {
     const state = seeded();
     state.boards.set(boardKey(monza.id, ferrari.id, 'public'), { entries: [], game: 'lmu', track: { ...monza, lengthM: null }, car: { ...ferrari, class: null } });
-    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    renderSocial(<LeaderboardScreen />, { state, route: boardRoute() });
     expect(await screen.findByTestId('board-empty')).toHaveTextContent('No public laps for this track and car yet.');
     expect(await screen.findByTestId('board-not-listed')).toBeInTheDocument();
   });
@@ -187,15 +174,6 @@ describe('the leaderboard screen', () => {
     expect(callsTo(state, 'GET', '/leaderboard').some((call) => call.params.cursor)).toBe(true);
   });
 
-  it('changes the board when another track is picked, and writes the choice in the address', async () => {
-    const state = seeded();
-    state.boards.set(boardKey(spa.id, ferrari.id, 'public'), { entries: ranked([{ handle: 'spa_ace', displayName: 'Spa Ace', timeMs: 135_000 }]), game: 'lmu', track: { ...spa, lengthM: null }, car: { ...ferrari, class: null } });
-    await open(state);
-    choose('board-track', 'Spa-Francorchamps');
-    await waitFor(() => expect(screen.getByTestId('leaderboards')).toHaveTextContent('Spa Ace'));
-    expect(whereNow(screen.getByTestId('where')).searchParams.get('track')).toBe(spa.id);
-  });
-
   it('shows only the handle for a driver with no display name', async () => {
     const state = seeded();
     state.boards.set(boardKey(monza.id, ferrari.id, 'public'), { entries: ranked([{ handle: 'quiet_one', displayName: null, timeMs: 99_000 }]), game: 'lmu', track: { ...monza, lengthM: null }, car: { ...ferrari, class: null } });
@@ -203,8 +181,6 @@ describe('the leaderboard screen', () => {
     const link = within(rows()[0]).getByRole('link', { name: '@quiet_one' });
     expect(link).toHaveAttribute('href', '/virtual/drivers/quiet_one');
     expect(link.textContent).toBe('@quiet_one');
-    // The podium says the same, once.
-    expect(within(screen.getByTestId('podium-step')).getByRole('link', { name: '@quiet_one' }).textContent).toBe('@quiet_one');
   });
 
   it('has a Report button on other drivers\' rows that opens the report dialog for the lap or the driver', async () => {
@@ -216,91 +192,129 @@ describe('the leaderboard screen', () => {
     expect(within(dialog).getByText(/The driver @driver_/)).toBeInTheDocument();
   });
 
-  it('invites a driver with nothing driven to drive a lap first', async () => {
-    const state = fakeSocialState();
-    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
-    expect(await screen.findByTestId('board-nothing-driven')).toHaveTextContent('Drive a lap first');
-  });
-
-  it('is an honest error, not an empty board, when the server does not answer', async () => {
-    const state = seeded();
-    state.failing = { status: 503, error: 'unavailable', retryable: true };
-    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
-    expect(await screen.findByTestId('sim-error')).toBeInTheDocument();
-    expect(screen.queryByTestId('board-empty')).not.toBeInTheDocument();
-  });
 });
 
-describe('the leaderboard catalog in the pickers', () => {
+describe('finding a board: a game, then a track, then a car', () => {
   const imola = ref('Imola');
   const bmw = ref('BMW M Hybrid V8');
+  const laguna = ref('Laguna Seca');
   const entry = (r: { id: string; name: string }, lapCount = 40, game = 'lmu') => ({ id: r.id, game, name: r.name, lapCount });
+  const listed = () => screen.getAllByTestId('board-track').map((card) => card.getAttribute('data-track-id'));
 
-  it('lists the tracks and cars you drove first, then the others that have public laps, under their own headings', async () => {
+  it('opens on the tracks of the game, not on a board: yours first, then the others with public laps', async () => {
     const state = seeded();
-    state.catalog = { tracks: [entry(imola), entry(monza), entry(spa)], cars: [entry(bmw), entry(ferrari), entry(toyota)] };
-    await open(state);
-    openPicker('board-track');
-    await waitFor(() => expect(optionsOf('board-track')).toHaveLength(3));
-    const groupsOf = (testId: string) => within(screen.getByTestId(`${testId}-list`)).getAllByRole('group').map((group) => [group.getAttribute('aria-label'), within(group).getAllByRole('option').map((option) => option.textContent)]);
-    // Driven: Monza, Spa (in the order of the driven list); not driven: Imola.
-    expect(groupsOf('board-track')).toEqual([['Driven by you', ['Monza', 'Spa-Francorchamps']], ['With public laps', ['Imola']]]);
-    fireEvent.keyDown(screen.getByTestId('board-track'), { key: 'Escape' });
-    openPicker('board-car');
-    await waitFor(() => expect(optionsOf('board-car')).toHaveLength(3));
-    expect(groupsOf('board-car').map(([, names]) => names)).toEqual([['Ferrari 499P', 'Toyota GR010'], ['BMW M Hybrid V8']]);
-    // The catalog was asked for the game of the latest session, tracks and cars separately.
-    expect(callsTo(state, 'GET', '/leaderboards/catalog').map((call) => [call.params.kind, call.params.game]).sort()).toEqual([['car', 'lmu'], ['track', 'lmu']]);
+    state.v1.tracks = [{ ...trackItem(spa), lastDrivenAt: '2026-11-12T12:00:00.000Z' }, trackItem(monza)];
+    state.catalog = { tracks: [entry(imola), entry(monza)], cars: [] };
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    await waitFor(() => expect(listed()).toEqual([spa.id, monza.id, imola.id]));
+    expect(screen.queryByTestId('board-table')).not.toBeInTheDocument();
+    expect(callsTo(state, 'GET', '/leaderboard')).toHaveLength(0);
+    // Nothing is written for the person: the address stays as it was.
+    expect(whereNow(screen.getByTestId('where')).search).toBe('');
+    expect(screen.getAllByTestId('board-track')[2]).toHaveAttribute('href', `/virtual/leaderboards?game=lmu&track=${imola.id}`);
   });
 
-  it('opens the board of a track nobody on this account drove, and writes it in the address', async () => {
+  it('says on each track your best there and how many public laps it has', async () => {
     const state = seeded();
-    state.catalog = { tracks: [entry(imola), entry(monza), entry(spa)], cars: [entry(ferrari)] };
-    state.boards.set(boardKey(imola.id, ferrari.id, 'public'), { entries: ranked([{ handle: 'imola_ace', displayName: 'Imola Ace', timeMs: 91_000 }]), game: 'lmu', track: { ...imola, lengthM: null }, car: { ...ferrari, class: null } });
-    await open(state);
-    openPicker('board-track');
-    await waitFor(() => expect(optionsOf('board-track')).toHaveLength(3));
-    choose('board-track', 'Imola');
-    await waitFor(() => expect(screen.getByTestId('leaderboards')).toHaveTextContent('Imola Ace'));
-    expect(whereNow(screen.getByTestId('where')).searchParams.get('track')).toBe(imola.id);
+    state.catalog = { tracks: [entry(imola, 12), entry(monza, 40)], cars: [] };
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    await waitFor(() => expect(listed()).toHaveLength(3));
+    const card = (id: string) => screen.getAllByTestId('board-track').find((item) => item.getAttribute('data-track-id') === id)!;
+    expect(within(card(monza.id)).getByTestId('board-track-mine')).toHaveTextContent('Your best 1:39.000');
+    expect(within(card(monza.id)).getByTestId('board-track-public')).toHaveTextContent('Public laps: 40');
+    expect(within(card(spa.id)).getByTestId('board-track-public')).toHaveTextContent('No public laps yet');
+    expect(within(card(imola.id)).queryByTestId('board-track-mine')).not.toBeInTheDocument();
   });
 
-  it('has no headings when there is nothing but the tracks you drove, and never lists one twice', async () => {
+  it('has a tab for each game, the one driven last first, and a tab shows the tracks of its game', async () => {
     const state = seeded();
-    state.catalog = { tracks: [entry(monza), entry(spa)], cars: [entry(ferrari), entry(toyota)] };
-    await open(state);
-    await waitFor(() => expect(callsTo(state, 'GET', '/leaderboards/catalog')).toHaveLength(2));
-    openPicker('board-track');
-    expect(within(screen.getByTestId('board-track-list')).queryAllByRole('group')).toHaveLength(0);
-    expect(optionsOf('board-track').map((option) => option.textContent)).toEqual(['Monza', 'Spa-Francorchamps']);
+    state.v1.tracks = [trackItem(monza), trackItem(spa), { ...trackItem(laguna, 'acevo'), lastDrivenAt: '2026-11-15T12:00:00.000Z' }];
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    const tabs = await screen.findByTestId('board-game-tabs');
+    expect(within(tabs).getAllByRole('tab').map((tab) => tab.getAttribute('data-testid'))).toEqual(['board-game-acevo', 'board-game-lmu']);
+    await waitFor(() => expect(listed()).toEqual([laguna.id]));
+    fireEvent.mouseDown(screen.getByTestId('board-game-lmu'), { button: 0, ctrlKey: false });
+    await waitFor(() => expect(listed()).toEqual([monza.id, spa.id]));
+    expect(whereNow(screen.getByTestId('where')).searchParams.get('game')).toBe('lmu');
+  });
+
+  it('searches a long list of tracks, ignoring case and accents', async () => {
+    const state = seeded();
+    const many = Array.from({ length: 10 }, (_, i) => entry(ref(`Extra ${i}`)));
+    state.catalog = { tracks: [...many, entry(ref('Autódromo José Carlos Pace'))], cars: [] };
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    const search = await screen.findByTestId('board-track-search');
+    fireEvent.change(search, { target: { value: 'autodromo jose' } });
+    expect(screen.getAllByTestId('board-track')).toHaveLength(1);
+    expect(screen.getByTestId('board-track')).toHaveTextContent('Autódromo José Carlos Pace');
+    fireEvent.change(search, { target: { value: 'zzz' } });
+    expect(screen.getByTestId('board-tracks-none')).toHaveTextContent('Nothing matches what you typed.');
   });
 
   it('reads a long catalog page by page until it is whole', async () => {
     const state = seeded();
     state.catalog = { tracks: Array.from({ length: 120 }, (_, i) => entry({ id: `20000000-0000-4000-8000-${String(i).padStart(12, '0')}`, name: `Extra ${String(i).padStart(3, '0')}` })), cars: [] };
-    await open(state);
-    openPicker('board-track');
-    await waitFor(() => expect(optionsOf('board-track')).toHaveLength(122));
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    await waitFor(() => expect(listed()).toHaveLength(122));
     expect(callsTo(state, 'GET', '/leaderboards/catalog').filter((call) => call.params.kind === 'track')).toHaveLength(3);
   });
 
-  it('lets a driver with nothing driven open a board from the catalog instead of inviting them to drive', async () => {
-    const state = fakeSocialState();
-    state.catalog = { tracks: [entry(imola)], cars: [entry(bmw)] };
-    state.boards.set(boardKey(imola.id, bmw.id, 'public'), { entries: ranked([{ handle: 'imola_ace', displayName: 'Imola Ace', timeMs: 91_000 }]), game: 'lmu', track: { ...imola, lengthM: null }, car: { ...bmw, class: null } });
-    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
-    await screen.findByTestId('board-table');
-    expect(screen.queryByTestId('board-nothing-driven')).not.toBeInTheDocument();
-    expect(screen.getByTestId('board-track')).toHaveAttribute('data-value', imola.id);
-    expect(screen.getByTestId('board-car')).toHaveAttribute('data-value', bmw.id);
-    expect(screen.getByTestId('leaderboards')).toHaveTextContent('Imola Ace');
+  it('opens a track on its cars that have a board there: yours first with your best, then the others with public laps', async () => {
+    const state = seeded();
+    state.v1.laps = [v1Lap({ game: 'lmu', track: monza, car: ferrari, timeMs: 99_000, valid: true })];
+    state.catalog = { tracks: [entry(monza)], cars: [entry(bmw, 7), entry(ferrari, 30), entry(toyota, 5)] };
+    state.boards.set(boardKey(monza.id, bmw.id, 'public'), { entries: ranked([{ handle: 'bmw_ace', timeMs: 98_000 }]), game: 'lmu', track: { ...monza, lengthM: null }, car: { ...bmw, class: null } });
+    renderSocial(<LeaderboardScreen />, { state, route: `/virtual/leaderboards?game=lmu&track=${monza.id}` });
+    const list = await screen.findByTestId('board-cars');
+    // Toyota has public laps in the game, but none on this track: it has no board here.
+    await waitFor(() => expect(within(list).getAllByTestId('board-car').map((row) => row.getAttribute('data-car-id'))).toEqual([ferrari.id, bmw.id]));
+    const [mine, other] = within(list).getAllByTestId('board-car');
+    expect(within(mine).getByTestId('board-car-mine')).toHaveTextContent('1:39.000');
+    expect(within(mine).getByTestId('board-car-public')).toHaveTextContent('Public laps: 30');
+    expect(within(other).queryByTestId('board-car-mine')).not.toBeInTheDocument();
+    expect(other).toHaveAttribute('href', `/virtual/leaderboards?game=lmu&track=${monza.id}&car=${bmw.id}`);
+    expect(callsTo(state, 'GET', '/leaderboards/catalog').some((call) => call.params.kind === 'car' && call.params.track === monza.id)).toBe(true);
+    expect(screen.getByTestId('board-track-title')).toHaveTextContent('Monza');
+    expect(screen.getByTestId('board-crumbs')).toHaveTextContent('All games');
+    expect(screen.getByTestId('board-crumb-here')).toHaveTextContent('Monza');
   });
 
-  it('still invites a driver with nothing driven when no board has public laps either', async () => {
+  it('says when a track has no board yet', async () => {
+    const state = seeded();
+    renderSocial(<LeaderboardScreen />, { state, route: `/virtual/leaderboards?game=lmu&track=${spa.id}` });
+    expect(await screen.findByTestId('board-cars-none')).toHaveTextContent('No boards on this track yet');
+  });
+
+  it('leads back from a board to its track and its game', async () => {
+    await open(seeded());
+    const crumbs = screen.getAllByTestId('board-crumb');
+    expect(crumbs.map((crumb) => crumb.textContent)).toEqual(['All games', 'Le Mans Ultimate', 'Monza']);
+    expect(crumbs[1]).toHaveAttribute('href', '/virtual/leaderboards?game=lmu');
+    expect(crumbs[2]).toHaveAttribute('href', `/virtual/leaderboards?game=lmu&track=${monza.id}`);
+    expect(screen.getByTestId('board-crumb-here')).toHaveTextContent('Ferrari 499P');
+  });
+
+  it('lets a driver with nothing driven browse the tracks with public laps', async () => {
+    const state = fakeSocialState();
+    state.catalog = { tracks: [entry(imola)], cars: [entry(bmw)] };
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    await waitFor(() => expect(listed()).toEqual([imola.id]));
+    expect(screen.queryByTestId('board-nothing-driven')).not.toBeInTheDocument();
+  });
+
+  it('invites a driver with nothing driven to drive a lap first when no track has public laps either', async () => {
     const state = fakeSocialState();
     renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
-    expect(await screen.findByTestId('board-nothing-driven')).toBeInTheDocument();
+    expect(await screen.findByTestId('board-nothing-driven')).toHaveTextContent('Drive a lap first');
     expect(callsTo(state, 'GET', '/leaderboards/catalog').length).toBeGreaterThan(0);
+  });
+
+  it('is an honest error, not an empty list, when the server does not answer', async () => {
+    const state = seeded();
+    state.failing = { status: 503, error: 'unavailable', retryable: true };
+    renderSocial(<LeaderboardScreen />, { state, route: '/virtual/leaderboards' });
+    expect(await screen.findByTestId('sim-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('board-nothing-driven')).not.toBeInTheDocument();
   });
 });
 
@@ -348,11 +362,27 @@ describe('the competitive board: hero, podium, your position, gap bars', () => {
     expect(within(winner).getByRole('link', { name: /Driver 1/ })).toHaveAttribute('href', '/virtual/drivers/driver_01');
   });
 
-  it('shows a board of two drivers as two steps, in rank order', async () => {
+  it('has no podium below three drivers: the table says it all', async () => {
     const state = seeded();
     state.boards.set(boardKey(monza.id, ferrari.id, 'public'), { entries: ranked([{ handle: 'a_one', timeMs: 99_000 }, { handle: 'b_two', timeMs: 99_500 }]), game: 'lmu', track: { ...monza, lengthM: null }, car: { ...ferrari, class: null } });
     await open(state);
-    expect(screen.getAllByTestId('podium-step').map((step) => step.getAttribute('data-rank'))).toEqual(['1', '2']);
+    expect(screen.queryByTestId('board-podium')).not.toBeInTheDocument();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('says each thing once when you are alone on the board: no podium, no gap column, "You lead" instead of the same time twice', async () => {
+    const state = seeded();
+    state.boards.set(boardKey(monza.id, ferrari.id, 'public'), { entries: ranked([{ handle: 'lap_fan', displayName: 'Lap Fan', timeMs: 102_609, isMe: true }]), game: 'lmu', track: { ...monza, lengthM: null }, car: { ...ferrari, class: null } });
+    await open(state);
+    expect(screen.queryByTestId('board-podium')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('board-gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('table')).not.toHaveTextContent('Gap');
+    const place = await screen.findByTestId('board-me-place');
+    expect(place).toHaveAttribute('data-kind', 'alone');
+    expect(place).toHaveTextContent('Only you on this board so far.');
+    expect(screen.queryByTestId('board-me-time')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('board-stat-yours')).toHaveTextContent('You lead'));
+    expect(screen.getByTestId('board-stat-fastest')).toHaveTextContent('1:42.609');
   });
 
   it('outlines your step on the podium when you are on it, and the sentence says so', async () => {
@@ -428,45 +458,7 @@ describe('the competitive board: hero, podium, your position, gap bars', () => {
   });
 });
 
-describe('the searchable track and car pickers', () => {
-  const imola = ref('Imola');
-  const entry = (r: { id: string; name: string }) => ({ id: r.id, game: 'lmu', name: r.name, lapCount: 40 });
-
-  it('narrows the list as you type, ignoring case and accents, and says so when nothing matches', async () => {
-    const state = seeded();
-    state.catalog = { tracks: [entry(imola), entry(monza), entry(spa), entry(ref('Autódromo José Carlos Pace'))], cars: [] };
-    await open(state);
-    const field = screen.getByTestId('board-track');
-    openPicker('board-track');
-    await waitFor(() => expect(optionsOf('board-track')).toHaveLength(4));
-    fireEvent.change(field, { target: { value: 'autodromo jose' } });
-    expect(optionsOf('board-track').map((option) => option.textContent)).toEqual(['Autódromo José Carlos Pace']);
-    fireEvent.change(field, { target: { value: 'zzz' } });
-    expect(screen.getByTestId('board-track-empty')).toHaveTextContent('Nothing matches what you typed.');
-  });
-
-  it('is a combobox a keyboard can drive: arrows move, Enter chooses, Escape closes without changing anything', async () => {
-    await open(seeded());
-    const field = screen.getByTestId('board-track');
-    expect(field).toHaveAttribute('role', 'combobox');
-    expect(field).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.keyDown(field, { key: 'ArrowDown' });
-    expect(field).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('listbox')).toBeInTheDocument();
-    const active = () => document.getElementById(field.getAttribute('aria-activedescendant') ?? '')?.textContent;
-    expect(active()).toBe('Monza');
-    fireEvent.keyDown(field, { key: 'ArrowDown' });
-    expect(active()).toBe('Spa-Francorchamps');
-    fireEvent.keyDown(field, { key: 'Escape' });
-    expect(field).toHaveAttribute('aria-expanded', 'false');
-    expect(field).toHaveAttribute('data-value', monza.id);
-    fireEvent.keyDown(field, { key: 'ArrowDown' });
-    fireEvent.keyDown(field, { key: 'ArrowDown' });
-    fireEvent.keyDown(field, { key: 'Enter' });
-    await waitFor(() => expect(whereNow(screen.getByTestId('where')).searchParams.get('track')).toBe(spa.id));
-    expect(field).toHaveAttribute('aria-expanded', 'false');
-  });
-
+describe('the address of a board', () => {
   it('keeps the track, the car, the game and the scope in the address, so the board can be linked to', async () => {
     const state = seeded();
     state.boards.set(boardKey(spa.id, toyota.id, 'friends'), { entries: ranked([{ handle: 'spa_ace', timeMs: 135_000 }]), game: 'lmu', track: { ...spa, lengthM: null }, car: { ...toyota, class: null } });
@@ -475,19 +467,5 @@ describe('the searchable track and car pickers', () => {
     const search = whereNow(screen.getByTestId('where')).searchParams;
     expect([search.get('track'), search.get('car'), search.get('game'), search.get('scope')]).toEqual([spa.id, toyota.id, 'lmu', 'friends']);
     expect(callsTo(state, 'GET', '/leaderboard')[0].params).toMatchObject({ track: spa.id, car: toyota.id, game: 'lmu', scope: 'friends' });
-  });
-});
-
-describe('the pickers of the leaderboard screen', () => {
-  it('are one wrapping row of compact controls with the name inside each, and no caption above', async () => {
-    await open(seeded());
-    const bar = screen.getByTestId('board-pickers');
-    expect(bar).toHaveClass('flex', 'flex-wrap', 'items-center', 'gap-2');
-    for (const chrome of ['grid', 'border', 'bg-card']) expect(bar).not.toHaveClass(chrome);
-    const track = screen.getByRole('combobox', { name: 'Track' });
-    const car = screen.getByRole('combobox', { name: 'Car' });
-    for (const box of [track, car]) expect(box.parentElement).toHaveClass('h-8', 'text-xs');
-    expect(track.parentElement).toHaveTextContent(/^Track/);
-    expect(bar.querySelector('label')).toBeNull();
   });
 });

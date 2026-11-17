@@ -65,9 +65,13 @@ export function modeOfPath(path: string): Mode | null {
 }
 
 /** Whether a menu entry is the page being shown ("/" and "/virtual" match only themselves). */
+/** Screens with no menu entry of their own, lit under the entry they belong to: a lap's analysis is opened from Sessions. */
+const PART_OF: Record<string, string> = { '/virtual/compare': '/virtual/sessions' };
+
 export function isActivePath(to: string, pathname: string): boolean {
-  if (to === '/' || to === '/virtual') return pathname === to;
-  return pathname === to || pathname.startsWith(`${to}/`);
+  const path = PART_OF[pathname] ?? pathname;
+  if (to === '/' || to === '/virtual') return path === to;
+  return path === to || path.startsWith(`${to}/`);
 }
 
 const LAST_MODE_KEY = 'xpeed.mode';

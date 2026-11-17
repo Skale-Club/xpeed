@@ -104,6 +104,25 @@ export function BoardPlace({ me, scope, entries }: {
   if (me.isError || !data) return null;
   if (!data.me) return <NotListed scope={scope} />;
   const mine = data.me;
+  const alone = data.total <= 1;
+  const analyze = (
+    <Button asChild size="sm" variant="outline" className="w-full sm:w-auto">
+      <Link to={compareUrl(mine.lapId)} data-testid="board-me-compare"><LineChart className="mr-2 h-4 w-4" />{t('social.leaderboard.analyzeMine', 'Analyze my lap')}</Link>
+    </Button>
+  );
+  // Alone on the board: nothing to place, so one quiet line and the way to look at the lap.
+  if (alone) {
+    return (
+      <Card className="border-primary/40 bg-primary/5" data-testid="board-me">
+        <CardContent className="space-y-3 p-4">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('social.leaderboard.yourPosition', 'Your position')}</h3>
+          <p className="text-sm font-semibold leading-snug" data-testid="board-me-place" data-kind="alone">{t('social.leaderboard.alone', 'Only you on this board so far.')}</p>
+          <p className="text-xs text-muted-foreground">{t('social.leaderboard.aloneHelp', 'Copy the link to this board and challenge your friends.')}</p>
+          {analyze}
+        </CardContent>
+      </Card>
+    );
+  }
   return (
     <Card className="border-primary/40 bg-primary/5" data-testid="board-me">
       <CardContent className="space-y-3 p-4">
@@ -131,9 +150,7 @@ export function BoardPlace({ me, scope, entries }: {
             ))}
           </ol>
         )}
-        <Button asChild size="sm" variant="outline" className="w-full sm:w-auto">
-          <Link to={compareUrl(mine.lapId)} data-testid="board-me-compare"><LineChart className="mr-2 h-4 w-4" />{t('social.leaderboard.compareMine', 'Compare my lap')}</Link>
-        </Button>
+        {analyze}
       </CardContent>
     </Card>
   );

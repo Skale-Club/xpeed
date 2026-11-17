@@ -4,15 +4,15 @@ import { NAV, TABS } from '@/lib/mode-nav';
 import { isActivePath } from '@/lib/modes';
 
 describe('the Virtual navigation', () => {
-  it('lists Overview, Sessions, Compare, Leaderboards, Friends, Tracks and Cars, in that order', () => {
+  it('lists Overview, Sessions, Leaderboards, Friends, Tracks and Cars, in that order', () => {
     expect(NAV.virtual.map((item) => item.to)).toEqual([
-      '/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/leaderboards', '/virtual/friends', '/virtual/tracks',
+      '/virtual', '/virtual/sessions', '/virtual/leaderboards', '/virtual/friends', '/virtual/tracks',
       '/virtual/cars',
     ]);
   });
 
-  it('keeps the four everyday places in the phone tab bar and the rest under "More"', () => {
-    expect(TABS.virtual.map((item) => item.to)).toEqual(['/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/leaderboards']);
+  it('keeps the three everyday places in the phone tab bar and the rest under "More"', () => {
+    expect(TABS.virtual.map((item) => item.to)).toEqual(['/virtual', '/virtual/sessions', '/virtual/leaderboards']);
     const menu = NAV.virtual.map((item) => item.to);
     for (const tab of TABS.virtual) expect(menu).toContain(tab.to);
   });
@@ -22,6 +22,8 @@ describe('the Virtual navigation', () => {
     expect(active(sessionPath('abc'))).toEqual(['/virtual/sessions']);
     expect(active(trackPath('abc'))).toEqual(['/virtual/tracks']);
     expect(active(carPath('abc'))).toEqual(['/virtual/cars']);
+    // A lap's analysis is opened from a lap, so it sits under Sessions.
+    expect(active('/virtual/compare')).toEqual(['/virtual/sessions']);
     // The home entry matches only itself.
     expect(active('/virtual')).toEqual(['/virtual']);
   });

@@ -18,14 +18,15 @@ import { describeLap } from './compare/describe-lap';
 import { LapPanel } from './compare/LapPanel';
 import { QuickPickers } from './compare/QuickPickers';
 import { SavedChips } from './compare/SavedChips';
+import { CompareStart } from './compare/CompareStart';
 import { LapPicker, type PickerStart } from './LapPicker';
 import { useReadAllPages } from './use-read-all-pages';
 import { OptionSelect } from '@/components/ui/option-select';
 import { comparisonGoal, referenceDifferences, type ComparisonGoal } from '@/lib/sim/reference-context';
 
 /**
- * Virtual > Compare laps. The laps come from the account only: a link names them by their ids (`?a=<lap>&b=<reference>`), or they are found with the picker
- * (game, track, car, lap). A lap with no reference is measured against the personal best of the same track and car; the reference can be changed, picked
+ * Virtual > a lap's analysis. It is opened from a lap elsewhere in the app (there is no menu entry): the address names the laps by their ids
+ * (`?a=<lap>&b=<reference>`); with no lap in it, `CompareStart` offers the latest laps and the comparisons kept. A lap with no reference is measured against the personal best of the same track and car; the reference can be changed, picked
  * from three quick choices (my best, the previous session's best, another car) or found with the picker. The header shows the two laps with the gap between
  * them big and coloured, and a swap button; under it, the comparisons made lately and the ones saved, as chips. Laps are downloaded once and kept on the device as a cache.
  */
@@ -79,8 +80,7 @@ export function CompareScreen() {
   const { findLayout, listKeptLayouts, linkLayout } = useLayoutFinder();
 
   const start: PickerStart | undefined = aHeader ? { game: aHeader.game, trackName: aHeader.track.name, carName: aHeader.car.name } : undefined;
-  // With nothing chosen yet the picker is open: that is how a comparison starts.
-  const showPicker = picking !== null || !aId;
+  const showPicker = picking !== null;
   const usingDefault = !bParam && !!defaultRef;
   const isPb = !!aId && !!pb && pb.lapId === aId;
 
@@ -150,19 +150,26 @@ export function CompareScreen() {
       />
     ) : null;
 
+  if (!aId) {
+    return (
+      <div className="space-y-4" data-testid="compare">
+        <CompareStart
+          saved={saved}
+          onPick={pick}
+          onPin={(item, pinned) => setSaved(setPinned(userId, saved, item, pinned))}
+          onForget={(item) => setSaved(forget(userId, saved, item))}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4" data-testid="compare">
       {slimBar}
       {(!slim || editing || picking !== null) && (
         <Card className="border-border bg-card">
           <CardContent className="space-y-4 p-4">
-            {!aId && (
-              <p className="text-sm text-muted-foreground">
-                {t('modes.compare.intro', 'Pick a lap from your account to look at it closely, and compare it with another one. A lap on its own is measured against your personal best on the same track and car.')}
-              </p>
-            )}
-
-            <div className={cn('grid gap-3', aId && 'md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]')} data-testid="compare-slots">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]" data-testid="compare-slots">
               <LapPanel
                 side="lap"
                 label={t('modes.compare.lap', 'Lap')}
@@ -171,27 +178,24 @@ export function CompareScreen() {
                 file={aFile}
                 lapId={aId}
                 onChange={() => setPicking(picking === 'a' ? null : 'a')}
-                hideChange={!aId}
                 badge={isPb ? t('modes.session.pb', 'Personal best') : undefined}
               />
-              {aId && <DeltaBlock seconds={delta} note={deltaNote} canSwap={!!bId} onSwap={swap} />}
-              {aId && (
-                <LapPanel
-                  side="reference"
-                  label={t('modes.compare.reference', 'Reference')}
-                  testId="slot-reference"
-                  hint={isPb ? t('modes.compare.isPb', 'This is your personal best on this track and car, so there is nothing to compare it with. Choose a reference to compare it with.') : pbs.isPending && !!aHeader ? t('modes.compare.lookingForPb', 'Looking for your personal best…') : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
-                  file={bFile}
-                  lapId={bId}
-                  onChange={() => setPicking(picking === 'b' ? null : 'b')}
-                  onClear={bParam ? () => go({ b: null }) : undefined}
-                  clearLabel={defaultRef ? t('modes.compare.useMyBest', 'Use my personal best as the reference') : t('modes.compare.removeReference', 'Remove the reference')}
-                  badge={usingDefault ? t('modes.compare.myBest', 'My personal best (default)') : undefined}
-                />
-              )}
+              <DeltaBlock seconds={delta} note={deltaNote} canSwap={!!bId} onSwap={swap} />
+              <LapPanel
+                side="reference"
+                label={t('modes.compare.reference', 'Reference')}
+                testId="slot-reference"
+                hint={isPb ? t('modes.compare.isPb', 'This is your personal best on this track and car, so there is nothing to compare it with. Choose a reference to compare it with.') : pbs.isPending && !!aHeader ? t('modes.compare.lookingForPb', 'Looking for your personal best…') : t('modes.compare.noReference', 'No reference. Choose a lap to compare with.')}
+                file={bFile}
+                lapId={bId}
+                onChange={() => setPicking(picking === 'b' ? null : 'b')}
+                onClear={bParam ? () => go({ b: null }) : undefined}
+                clearLabel={defaultRef ? t('modes.compare.useMyBest', 'Use my personal best as the reference') : t('modes.compare.removeReference', 'Remove the reference')}
+                badge={usingDefault ? t('modes.compare.myBest', 'My personal best (default)') : undefined}
+              />
             </div>
 
-            {aId && aFile.data && (
+            {aFile.data && (
               <div className="space-y-2" data-testid="reference-context">
                 <div className="flex flex-wrap items-center gap-2">
                   <span id="comparison-goal-label" className="text-xs text-muted-foreground">{t('modes.referenceContext.goal', 'Comparison objective')}</span>

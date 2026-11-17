@@ -1,5 +1,5 @@
 import {
-  Activity, AlertTriangle, ArrowLeftRight, Bluetooth, Car, CarFront, Flag, Fuel, Gauge, HeartPulse,
+  Activity, AlertTriangle, Bluetooth, Car, CarFront, Flag, Fuel, Gauge, HeartPulse,
   History, LayoutDashboard, ScanSearch, Settings, Timer, Trophy, Users, Wrench, type LucideIcon,
 } from 'lucide-react';
 import type { Mode } from '@/lib/modes';
@@ -13,6 +13,8 @@ export type NavEntry = {
   tabI18nKey?: string;
 };
 
+// Virtual has no "Compare laps" entry: a comparison always starts from a lap (a session, a track, a car, a leaderboard), and
+// its screen counts as part of Sessions (see `isActivePath`).
 // Real: everyday places first; the technical Scanner only shows with "Advanced tools" on.
 // On phones Home, Trips and Problems live in the bottom tab bar, so the menu
 // ("More") only lists the rest.
@@ -31,7 +33,6 @@ export const NAV: Record<Mode, NavEntry[]> = {
   virtual: [
     { to: '/virtual', i18nKey: 'modes.nav.overview', icon: LayoutDashboard },
     { to: '/virtual/sessions', i18nKey: 'modes.nav.sessions', icon: Timer },
-    { to: '/virtual/compare', i18nKey: 'modes.nav.compare', icon: ArrowLeftRight },
     { to: '/virtual/leaderboards', i18nKey: 'social.nav.leaderboards', tabI18nKey: 'social.nav.leaderboardsTab', icon: Trophy },
     { to: '/virtual/friends', i18nKey: 'social.nav.friends', icon: Users },
     { to: '/virtual/tracks', i18nKey: 'modes.nav.tracks', icon: Flag },
@@ -47,5 +48,5 @@ const entries = (mode: Mode, ...paths: string[]) => paths.flatMap((to) => NAV[mo
 /** The phone tab bar: three places always one tap away, then "More". */
 export const TABS: Record<Mode, NavEntry[]> = {
   real: entries('real', '/', '/history', '/issues'),
-  virtual: entries('virtual', '/virtual', '/virtual/sessions', '/virtual/compare', '/virtual/leaderboards'),
+  virtual: entries('virtual', '/virtual', '/virtual/sessions', '/virtual/leaderboards'),
 };

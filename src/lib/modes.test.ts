@@ -87,6 +87,10 @@ describe('paths and modes', () => {
     expect(isActivePath('/history', '/history/2')).toBe(true);
     expect(isActivePath('/history', '/historyx')).toBe(false);
   });
+  it('lights Sessions on a lap analysis, which has no menu entry of its own', () => {
+    expect(isActivePath('/virtual/sessions', '/virtual/compare')).toBe(true);
+    expect(isActivePath('/virtual', '/virtual/compare')).toBe(false);
+  });
 });
 
 describe('the current mode and where each mode reopens', () => {

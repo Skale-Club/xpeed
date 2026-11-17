@@ -172,8 +172,9 @@ const router = createBrowserRouter(createRoutesFromElements(
       {/* Virtual: racing games, only for someone who chose it. */}
       <Route element={<ModeGate mode="virtual" />}>
         {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
-        {/* One session: no menu entry of its own (Sessions stays highlighted). */}
+        {/* One session, and a lap's analysis (opened from a lap): no menu entry of their own (Sessions stays highlighted). */}
         <Route path="/virtual/sessions/:id" element={<SimSessionPage />} />
+        <Route path="/virtual/compare" element={<SimComparePage />} />
         {/* One track, one car: likewise (Tracks and Game cars stay highlighted). */}
         <Route path="/virtual/tracks/:id" element={<SimTrackPage />} />
         <Route path="/virtual/cars/:id" element={<SimCarPage />} />

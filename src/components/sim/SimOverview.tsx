@@ -9,6 +9,7 @@ import { WorkOnCard } from './WorkOnCard';
 import { lazyChart } from '@/components/LazyChart';
 import { CompanionBanner, RangeSelect } from './overview/Header';
 import { KpiTiles } from './overview/KpiTiles';
+import { ComparisonsPanel } from './overview/Comparisons';
 import { BestsPanel, SessionsPanel } from './overview/Latest';
 import { DashboardSkeleton, EmptyDashboard } from './overview/States';
 import { WherePanel } from './overview/Where';
@@ -34,7 +35,10 @@ function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: 
       <WherePanel stats={stats} />
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="min-w-0 lg:col-span-8"><SessionsPanel sessions={overview.latestSessions} /></div>
-        <div className="min-w-0 lg:col-span-4"><BestsPanel bests={overview.latestPersonalBests} /></div>
+        <div className="min-w-0 space-y-4 lg:col-span-4">
+          <BestsPanel bests={overview.latestPersonalBests} />
+          <ComparisonsPanel />
+        </div>
       </div>
     </div>
   );
@@ -43,7 +47,7 @@ function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: 
 /**
  * Virtual > Overview: a racing dashboard. A header with the period (remembered per person) and the Companion's status; six tiles with their change
  * against the period before; the activity of the period and, from 90 days up, of the last 12 months; where you got faster; the best lap by track and car;
- * where you drive; how consistent you are; what to work on; the latest sessions and personal bests. The numbers come from one call per period
+ * where you drive; how consistent you are; what to work on; the latest sessions and personal bests; the comparisons made lately or saved. The numbers come from one call per period
  * (GET /stats) and the Companion, sessions and bests from the overview call; no lap file is read except for "what to work on", after the page is up.
  */
 export function SimOverview() {

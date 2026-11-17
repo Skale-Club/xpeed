@@ -301,7 +301,11 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
       if (method !== 'GET') return fail(405, 'method_not_allowed');
       const kind = params.kind ?? 'track';
       if (kind !== 'track' && kind !== 'car') return fail(400, 'invalid_kind');
-      const listed = (kind === 'track' ? state.catalog.tracks : state.catalog.cars).filter((entry) => !params.game || entry.game === params.game);
+      // `track` narrows the cars (and `car` the tracks) to those with a public board together, as the server does.
+      const together = (trackId: string, carId: string) => state.boards.has(boardKey(trackId, carId, 'public'));
+      const listed = (kind === 'track' ? state.catalog.tracks : state.catalog.cars)
+        .filter((entry) => !params.game || entry.game === params.game)
+        .filter((entry) => (kind === 'car' ? !params.track || together(params.track, entry.id) : !params.car || together(entry.id, params.car)));
       const answer = page([...listed].sort((p, q) => p.name.localeCompare(q.name)), params, 'items');
       return answer.json ? { ...answer, json: { kind, ...(answer.json as object) } } : answer;
     }

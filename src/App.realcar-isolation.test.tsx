@@ -86,3 +86,11 @@ it('loads the real car when a Virtual-first person switches to Real, and stops a
   expect(realCarCalls().length).toBe(before);
   view.unmount();
 }, 20_000);
+
+it('opens a lap analysis, which has no menu entry and so needs a route of its own', async () => {
+  stubNetwork();
+  const view = await openApp('/virtual/compare', 'virtual');
+  expect(await screen.findByTestId('compare-start', {}, { timeout: 10_000 })).toBeInTheDocument();
+  expect(screen.queryByText(/couldn't find that page/i)).not.toBeInTheDocument();
+  view.unmount();
+}, 20_000);

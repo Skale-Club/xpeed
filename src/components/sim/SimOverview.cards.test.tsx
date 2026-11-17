@@ -98,6 +98,29 @@ describe('the Overview cards', () => {
     expect(within(ac).getByTestId('where-count')).toHaveTextContent('1');
   });
 
+  it('shows the comparisons kept in this browser beside the personal bests, and nothing when there are none', async () => {
+    const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z' });
+    const race = v1Session({ track: monza, car: ferrari, kind: 'race', lapCount: 1, bestLapMs: 99_000, startedAt: '2026-11-12T10:00:00.000Z' });
+    state.sessions.push(race);
+    state.laps.push(v1Lap({ track: monza, car: ferrari, sessionId: race.id, timeMs: 99_000, startedAt: '2026-11-12T10:02:00.000Z' }));
+    const first = renderSim(<SimOverview />, { state, route: '/virtual' });
+    await screen.findByTestId('overview-best');
+    expect(screen.queryByTestId('overview-comparisons')).not.toBeInTheDocument();
+    first.unmount();
+
+    localStorage.setItem('xpeed.sim.compare.saved.ana', JSON.stringify([
+      { a: 'lap-a', b: 'lap-b', info: { track: 'Monza', aLap: 3, aMs: 99_000, bLap: 1, bMs: 98_500 }, at: 2, pinned: true },
+    ]));
+    renderSim(<SimOverview />, { state, route: '/virtual' });
+    const panel = await screen.findByTestId('overview-comparisons');
+    expect(panel).toHaveTextContent('Your comparisons');
+    const chip = within(panel).getByTestId('saved-chip');
+    expect(chip).toHaveAttribute('data-pinned', 'true');
+    expect(within(chip).getByTestId('saved-chip-link')).toHaveAttribute('href', '/virtual/compare?a=lap-a&b=lap-b');
+    fireEvent.click(within(chip).getByTestId('saved-chip-forget'));
+    expect(screen.queryByTestId('overview-comparisons')).not.toBeInTheDocument();
+  });
+
   it('shows at most five personal bests and five sessions', async () => {
     const state = fakeV1State({ now: '2026-11-13T12:00:00.000Z' });
     for (let i = 0; i < 7; i++) {
