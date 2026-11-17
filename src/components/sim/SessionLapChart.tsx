@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CHART_PALETTE } from '@/lib/chart-palette';
+import { tokenColor } from '@/lib/design-tokens';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { lapTrend } from '@/lib/sim/session-detail';
 import { chartRows, isPitLap, plotRange, type ChartRow } from '@/lib/sim/session-stats';
@@ -36,7 +37,7 @@ function Swatch({ kind, label }: { kind: 'valid' | 'best' | 'void' | 'pit' | 'tr
     valid: { background: CHART_PALETTE.blue },
     best: { background: CHART_PALETTE.green },
     void: { background: 'repeating-linear-gradient(45deg, hsl(var(--muted-foreground) / 0.7) 0 2px, transparent 2px 4px)', border: '1px solid hsl(var(--muted-foreground) / 0.7)' },
-    pit: { background: `${CHART_PALETTE.blue}59`, border: `1px dashed ${CHART_PALETTE.blue}` },
+    pit: { background: tokenColor('chart-2', 0.35), border: `1px dashed ${CHART_PALETTE.blue}` },
     trend: { background: CHART_PALETTE.amber, height: 2, borderRadius: 1, width: 14 },
   }[kind];
   return <li className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={style} aria-hidden="true" />{label}</li>;

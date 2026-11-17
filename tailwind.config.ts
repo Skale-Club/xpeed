@@ -19,7 +19,47 @@ export default {
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
-        border: "hsl(var(--border))",
+        border: {
+          DEFAULT: "hsl(var(--border))",
+          subtle: "hsl(var(--border-subtle))",
+          strong: "hsl(var(--border-strong))",
+        },
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          raised: "hsl(var(--surface-raised))",
+          overlay: "hsl(var(--surface-overlay))",
+        },
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          foreground: "hsl(var(--brand-foreground))",
+          2: "hsl(var(--brand-2))",
+          "2-foreground": "hsl(var(--brand-2-foreground))",
+          3: "hsl(var(--brand-3))",
+          "3-foreground": "hsl(var(--brand-3-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+          soft: "hsl(var(--info) / 0.1)",
+          line: "hsl(var(--info) / 0.3)",
+        },
+        critical: {
+          DEFAULT: "hsl(var(--critical))",
+          foreground: "hsl(var(--critical-foreground))",
+          soft: "hsl(var(--critical) / 0.1)",
+          line: "hsl(var(--critical) / 0.3)",
+        },
+        chart: {
+          1: "hsl(var(--chart-1))",
+          2: "hsl(var(--chart-2))",
+          3: "hsl(var(--chart-3))",
+          4: "hsl(var(--chart-4))",
+          5: "hsl(var(--chart-5))",
+          6: "hsl(var(--chart-6))",
+          7: "hsl(var(--chart-7))",
+          8: "hsl(var(--chart-8))",
+          9: "hsl(var(--chart-9))",
+        },
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
@@ -35,6 +75,8 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          soft: "hsl(var(--destructive) / 0.1)",
+          line: "hsl(var(--destructive) / 0.3)",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
@@ -55,10 +97,14 @@ export default {
         warn: {
           DEFAULT: "hsl(var(--warn))",
           foreground: "hsl(var(--warn-foreground))",
+          soft: "hsl(var(--warn) / 0.1)",
+          line: "hsl(var(--warn) / 0.3)",
         },
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
+          soft: "hsl(var(--success) / 0.1)",
+          line: "hsl(var(--success) / 0.3)",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
@@ -70,6 +116,14 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        raised: "var(--shadow-raised)",
+        overlay: "var(--shadow-overlay)",
+      },
+      fontSize: {
+        "2xs": ["0.6875rem", { lineHeight: "1rem" }],
       },
       borderRadius: {
         // One tighter scale for the whole app: cards 12px, buttons and inputs 10px, small controls 8px and below.
