@@ -182,9 +182,25 @@ pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
 }
 
 /// The folder whose files were read: nothing may be written into it.
-fn inside(out: &Path, folder: &Path) -> bool {
-    let absolute = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
-    absolute(out).starts_with(absolute(folder))
+pub(crate) fn inside(out: &Path, folder: &Path) -> bool {
+    fn target(path: &Path) -> std::io::Result<PathBuf> {
+        match std::fs::canonicalize(path) {
+            Ok(path) => Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let absolute = std::path::absolute(path)?;
+                let parent = absolute.parent().ok_or(error)?;
+                let name = absolute
+                    .file_name()
+                    .ok_or_else(|| std::io::Error::other("unresolved output path"))?;
+                Ok(target(parent)?.join(name))
+            }
+            Err(error) => Err(error),
+        }
+    }
+    match (target(out), target(folder)) {
+        (Ok(out), Ok(folder)) => out.starts_with(folder),
+        _ => true, // An unresolved alias is not permission to write into a game.
+    }
 }
 
 /// The track as it is stored and sent (gzip), once it reads back as the same bytes: the same check the readers of the
@@ -220,11 +236,31 @@ pub fn run(request: &Request) -> ExitCode {
             );
             (ac::extract(&layout), layout.dir)
         }
-        "acevo" => {
+        "acevo" | "acevo-asphalt" => {
+            let file = PathBuf::from(&request.source);
+            let folder = if file.is_dir() {
+                file.clone()
+            } else {
+                file.parent().unwrap_or(Path::new(".")).to_path_buf()
+            };
+            println!("Assetto Corsa EVO offline Laguna Seca pilot: {}", file.display());
+            let extracted = if request.game == "acevo-asphalt" {
+                let package = if file.is_dir() { file.join("content.kspkg") } else { file };
+                acevo::extract_package_asphalt(&package)
+            } else {
+                acevo::extract(&file)
+            };
+            (extracted, folder)
+        }
+        "lmu-aiw" => {
             let file = PathBuf::from(&request.source);
             let folder = file.parent().unwrap_or(Path::new(".")).to_path_buf();
-            println!("Assetto Corsa EVO offline Laguna Seca pilot: {}", file.display());
-            (acevo::extract(&file), folder)
+            (lmu_aiw::extract(&file), folder)
+        }
+        "f125-spline" => {
+            let file=PathBuf::from(&request.source);
+            let folder=file.parent().unwrap_or(Path::new(".")).to_path_buf();
+            (f125_spline::extract(&file),folder)
         }
         "sce" | "rf1" | "rfactor1" => {
             let file = match resolve_sce(&request.source) {
@@ -237,7 +273,7 @@ pub fn run(request: &Request) -> ExitCode {
         }
         other => {
             return fail(format!(
-                "unknown game {other:?}; track files can be made for: ac, sce, acevo (offline Laguna Seca pilot)"
+                "unknown game {other:?}; track files can be made for: ac, sce, acevo, acevo-asphalt, lmu-aiw, f125-spline (offline source adapters)"
             ))
         }
     };

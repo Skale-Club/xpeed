@@ -482,6 +482,7 @@
       "mapTitle": "Circuito",
       "mapLabel": "La línea recorrida, vista desde arriba",
       "mapHint": "Línea continua: la vuelta. Discontinua: la referencia. Punto verde: la salida.",
+      "localTrack": {"open": "Abrir mapa local de pista (.xtrk o .xtrk.gz)", "private": "Solo para esta vuelta. Permanece en la memoria de este dispositivo; nunca se sube. Máximo de 64 MB comprimido y descomprimido.", "loading": "Leyendo mapa local…", "identity": "Este archivo es de otro juego, pista o variante.", "size": "El archivo de pista supera el límite de 64 MB.", "invalid": "Este archivo de pista está dañado o no es compatible.", "clear": "Quitar mapa local", "alignment": "Esta vuelta no se alinea con este mapa. Las grabaciones antiguas pueden usar otras coordenadas; no se aplicó ningún ajuste.", "surface_asphalt": "malla de asfalto del juego", "surface_ai": "corredor nativo de IA, no bordes de asfalto", "surface_estimated": "anchuras estimadas proyectadas de la trazada de IA, no bordes de asfalto muestreados", "surface_unknown": "geometría de pista con tipo de superficie no verificado", "mapHint": "Gris: {{surface}}. Rojo: trazada ideal del juego. Naranja: boxes. Amarillo: vuelta; azul discontinuo: referencia. Punto verde: inicio.", "sourceLabel": "Mapa local · Fuente: {{source}} · {{surface}}.", "surface_limits": "límites de líneas blancas de la fuente (alineación no verificada)"},
       "mapHintLayout": "Gris: el asfalto, entre sus bordes. Rojo: la línea ideal del juego. Naranja: el pit lane. Amarillo: la vuelta; azul discontinuo: la referencia. Punto verde: la salida.",
       "mapZoomHint": "Acerca (o haz doble clic en el mapa) para ver la vuelta contra los bordes y la línea ideal; arrastra para mover.",
       "zoomIn": "Acercar",
@@ -917,6 +918,15 @@
       "progressTrack": "Mejor vuelta en"
     },
     "referenceContext": {
+      "coordinateRefusal": "Estas grabaciones de EVO usan sistemas de coordenadas distintos conocidos; no se puede comparar la geometría. No se ajustó ninguna coordenada.",
+      "defaultRefused": "La mejor vuelta es de otra variante, sistema de coordenadas o coche. Elige una vuelta de referencia.",
+      "versionPair": "Versiones del juego: vuelta {{a}} · referencia {{b}}.",
+      "unknown": "desconocida",
+      "build_same": "Los identificadores de versión registrados coinciden.",
+      "build_different": "Versiones distintas pueden cambiar la física o la pista; comprueba la compatibilidad.",
+      "build_unknown": "La ausencia de versión no demuestra compatibilidad.",
+      "coordinatesUnknown": "Se desconoce la compatibilidad de coordenadas de EVO. Los metadatos de coordenadas ausentes o no reconocidos no demuestran compatibilidad; la versión 0.8.2 por sí sola no basta.",
+
       "goal": "Objetivo de la comparación",
       "practice": "Entrenamiento",
       "qualifying": "Clasificación / contrarreloj",

@@ -75,10 +75,10 @@ export async function canonical(target) {
   }
 }
 const inside = (file, root) => { const rel = path.relative(root, file); return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel)); };
-const issue = (where, error) => ({ path: where, message: error.message });
+const issue = (where, error) => ({ path: where, message: error.message, ...(error.code ? { code: error.code } : {}) });
 export async function inventory({ steamRoots = [], games = [], maxEntries = 10000, maxDepth = 8 } = {}) {
   if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || !Number.isSafeInteger(maxDepth) || maxDepth < 0) throw Error('Invalid traversal limits');
-  const report = { warning: 'Metadata only. Candidates are unvalidated; no native geometry support is proven. Partial scans never establish absence of geometry.', steam: [], games: [], errors: [], protectedRoots: [] };
+  const report = { warning: 'Metadata only. Candidates are unvalidated; no native geometry support is proven. Partial scans never establish absence of geometry.', steamDiscoveryComplete: true, steam: [], games: [], errors: [], protectedRoots: [] };
   const protect = async root => {
     const p = await canonical(root);
     for (const name of [path.resolve(root), p]) if (!report.protectedRoots.includes(name)) report.protectedRoots.push(name);
@@ -89,15 +89,22 @@ export async function inventory({ steamRoots = [], games = [], maxEntries = 1000
     try {
       libraries.add(await protect(root));
       const file = path.join(root, 'steamapps', 'libraryfolders.vdf');
-      const data = (await readMetadata(file)).libraryfolders;
+      let data;
+      try { data = (await readMetadata(file)).libraryfolders; }
+      catch (error) { report.steamDiscoveryComplete = false; report.errors.push(issue(file, error)); continue; }
       if (!data || typeof data !== 'object') throw Error('Missing libraryfolders object');
       for (const [key, value] of Object.entries(data)) {
         if (!/^\d+$/.test(key)) continue;
-        const folder = typeof value === 'string' ? value : value.path;
-        if (typeof folder !== 'string' || !path.isAbsolute(folder)) throw Error('Invalid library path');
-        libraries.add(await protect(folder));
+        const folder = typeof value === 'string' ? value : value?.path;
+        try {
+          if (typeof folder !== 'string' || !path.isAbsolute(folder)) throw Error('Invalid library path');
+          libraries.add(await protect(folder));
+        } catch (error) {
+          report.steamDiscoveryComplete = false;
+          report.errors.push({ ...issue(typeof folder === 'string' ? folder : file, error), metadataPath: file, libraryKey: key });
+        }
       }
-    } catch (error) { report.errors.push(issue(root, error)); }
+    } catch (error) { report.steamDiscoveryComplete = false; report.errors.push(issue(root, error)); }
   }
   for (const root of libraries) {
     const library = { root, apps: [], errors: [], complete: true }; report.steam.push(library);
@@ -142,7 +149,7 @@ export async function inventory({ steamRoots = [], games = [], maxEntries = 1000
             } else if (entry.isFile()) {
               const name = entry.name.toLowerCase();
               const candidate = /^(fast_lane|pit_lane)\.ai$/.test(name) || /\.(aiw|aisplinedata|trackcontrolpoints)$/.test(name);
-              const container = /\.(kspkg|mas|bff|pak)$/.test(name);
+              const container = /\.(kspkg|mas|bff|pak|ucas|utoc|erp|rpck)$/.test(name);
               if (candidate || container) {
                 const stat = await fs.lstat(file);
                 if (!stat.isFile()) { fail(file, Error('File type changed during scan')); continue; }

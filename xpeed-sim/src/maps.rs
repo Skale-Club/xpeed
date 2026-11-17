@@ -1,9 +1,9 @@
 //! The track map the panel draws, kept between sessions: the path the car drove on a track is saved when it becomes
 //! the map, and read back the next time the car is on that track, so the map is there from the first frame.
 //!
-//! For the games whose layouts Xpeed Companion builds (Assetto Corsa, Stock Car Extreme) the built layout's centre line is
-//! the real track, so it is used instead when its copy is in the layouts outbox (`<laps folder>/tracks/`, which the
-//! uploader never empties).
+//! Source-attested AC/SCE layouts take priority over learned trajectories; their
+//! AI corridors remain distinct from asphalt. EVO's verified asphalt is loaded
+//! from its private cache, outside the layouts upload outbox.
 //!
 //! Files are small (8 bytes a point) and written beside their name and renamed, like the covers.
 
@@ -34,7 +34,7 @@ impl Store {
         self.layout(track, variant).or_else(|| self.load(track, variant))
     }
 
-    /// The built layout's centre line (Assetto Corsa and Stock Car Extreme only). The layout file says its axes are
+    /// The built layout's centre line, including private current-source EVO geometry. Its axes are
     /// the game's own world, the one telemetry reports, so the car is drawn on it as it is.
     pub fn layout(&self, track: &str, variant: Option<&str>) -> Option<Path2> {
         let track = self.layout_track(track, variant)?;
@@ -52,6 +52,9 @@ impl Store {
     }
 
     fn layout_track(&self, track: &str, variant: Option<&str>) -> Option<tracks::Track> {
+        if self.game == "acevo" {
+            return tracks::local::load(&self.layouts.parent()?.join(tracks::local::DIRECTORY), self.game, track, variant);
+        }
         let file_game = auto::file_game(self.game)?;
         let hash = auto::hash_hex(auto::track_key(file_game, track, variant).as_bytes());
         let ending = format!("_{}{}", &hash[..8], auto::EXTENSION);
@@ -61,7 +64,8 @@ impl Store {
             .flatten()
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .find(|name| name.starts_with(&prefix) && name.ends_with(&ending))?;
-        tracks::gunzip(&std::fs::read(self.layouts.join(name)).ok()?, tracks::MAX_UNPACKED).ok()
+        let found = tracks::fresh::load(&self.layouts.join(name))?;
+        (auto::track_key(&found.game, &found.name, found.variant.as_deref()) == auto::track_key(file_game, track, variant)).then_some(found)
     }
 
     fn file(&self, track: &str, variant: Option<&str>) -> PathBuf {

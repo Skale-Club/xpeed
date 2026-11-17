@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Laps come only from Xpeed Companion. No Virtual screen may take a file by hand: no file input, no drop zone, no folder picker.
+// Laps come only from Xpeed Companion. One bounded, memory-only track-map chooser
+// accepts XTRK geometry; lap imports, drop zones and folder pickers remain absent.
 // (A render-based check of the same rule lives in each screen's own tests; this one reads the code of every Virtual screen.)
 
 const root = join(process.cwd(), 'src');
@@ -34,7 +35,7 @@ describe('the Virtual screens', () => {
   for (const [what, pattern] of FORBIDDEN) {
     it(`do not contain ${what}`, () => {
       const found = screens.filter((entry) => pattern.test(entry.text)).map((entry) => entry.file);
-      expect(found).toEqual([]);
+      expect(found).toEqual(what === 'a file input' ? ['components/sim/LocalTrackLayout.tsx'] : []);
     });
   }
 

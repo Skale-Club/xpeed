@@ -1,3 +1,4 @@
+import { coordinateFramesDiffer } from './reference-context';
 import type { LapFile } from '@/lib/sim/lap-file';
 
 /**
@@ -80,8 +81,9 @@ export function comparable(a: LapFile, b: LapFile): boolean {
 }
 
 /** Why two laps cannot be compared (a different game, a different track, or lengths too far apart to be the same track), or null when they can. */
-export function incomparableReason(a: LapFile, b: LapFile): 'game' | 'track' | 'length' | null {
+export function incomparableReason(a: LapFile, b: LapFile): 'game' | 'track' | 'length' | 'coordinates' | null {
   if (a.header.game !== b.header.game) return 'game';
+  if (coordinateFramesDiffer(a.header, b.header)) return 'coordinates';
   if (a.header.track.name.trim().toLowerCase() !== b.header.track.name.trim().toLowerCase()) return 'track';
   if ((a.header.track.variant ?? '').trim().toLowerCase() !== (b.header.track.variant ?? '').trim().toLowerCase()) return 'track';
   const [la, lb] = [lapLength(a), lapLength(b)];

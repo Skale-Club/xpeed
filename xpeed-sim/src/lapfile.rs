@@ -121,6 +121,8 @@ pub struct Recorder {
     pub source: String,
     /// The game's own version string, when the reader knows it.
     pub game_build: Option<String>,
+    /// Explicit reader coordinate contract, independent of release/build labels.
+    pub coordinate_frame: Option<String>,
 }
 
 impl Recorder {
@@ -133,6 +135,7 @@ impl Recorder {
             build: env!("XPEED_BUILD").into(),
             source: label(source, 32).unwrap_or_else(|| "unknown".into()),
             game_build: game_build.and_then(|text| label(text, 64)),
+            coordinate_frame: (source == "acevo").then(|| "acevo-reflected-x-v1".into()),
         }
     }
 }
@@ -321,6 +324,9 @@ fn header_json(lap: &Lap, sample_count: usize, version: u16) -> String {
             if let Some(game_build) = &recorder.game_build {
                 object.push_str(&format!(",\"gameBuild\":{}", string(game_build)));
             }
+            if let Some(frame) = &recorder.coordinate_frame {
+                object.push_str(&format!(",\"coordinateFrame\":{}", string(frame)));
+            }
             session.push_str(&format!(",\"recorder\":{{{object}}}"));
         }
         if !lap.checks.is_empty() {
@@ -417,7 +423,8 @@ pub fn pack_as(lap: &Lap, version: u16) -> Result<Vec<u8>, LapError> {
                 && plain(&recorder.version, 24)
                 && plain(&recorder.build, 40)
                 && is_label(&recorder.source, 32)
-                && recorder.game_build.as_deref().is_none_or(|text| is_label(text, 64)))
+                && recorder.game_build.as_deref().is_none_or(|text| is_label(text, 64))
+                && recorder.coordinate_frame.as_deref().is_none_or(|text| is_label(text, 64)))
             {
                 return err("the recorder must be short plain labels");
             }
@@ -543,6 +550,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
                 build: get("build").unwrap_or_default(),
                 source: get("source").unwrap_or_default(),
                 game_build: get("gameBuild"),
+                coordinate_frame: get("coordinateFrame"),
             }
         }),
         checks: header["checks"]
@@ -1014,6 +1022,7 @@ mod tests {
                 build: "9900d41".into(),
                 source: "acevo".into(),
                 game_build: Some("0.9.1".into()),
+                coordinate_frame: None,
             }),
             checks: vec!["t_repeats".into(), "clutch_stuck".into()],
             ..golden_v2_lap()
@@ -1058,6 +1067,19 @@ mod tests {
         assert!(pack(&lap).is_ok());
         assert_eq!(Recorder::current("", Some("  ")).source, "unknown");
         assert_eq!(Recorder::current("lmu", Some("  ")).game_build, None);
+    }
+
+    #[test]
+    fn new_evo_laps_name_the_coordinate_contract_without_changing_historical_stamps() {
+        let old = stamped_lap();
+        assert!(!String::from_utf8_lossy(&pack(&old).unwrap()).contains("coordinateFrame"));
+        let mut current = old.clone();
+        current.recorder = Some(Recorder::current("acevo", Some("0.9.1")));
+        let back = unpack(&pack(&current).unwrap()).unwrap();
+        assert_eq!(back.recorder.unwrap().coordinate_frame.as_deref(), Some("acevo-reflected-x-v1"));
+        assert!(Recorder::current("ac", None).coordinate_frame.is_none());
+        current.recorder.as_mut().unwrap().coordinate_frame = Some("x".repeat(65));
+        assert!(pack(&current).is_err());
     }
 
     #[test]

@@ -18,7 +18,8 @@
 //! (`// road left, road right, far left, far right`, `// 0 = main, 1...whatever pit lanes`).
 //!
 //! The waypoints of the main path are not always in the middle of the road: they are moved to the middle between the
-//! two edges (`to_edges_midpoint`), and the dry line (the waypoint plus `wp_path[0]` along `wp_perp`) is the `fast` line.
+//! two source edges, and the dry line (the waypoint plus `wp_path[0]` along `wp_perp`) is the `fast` line.
+//! XTRK v2 preserves the sampled source side envelope directly; neither edge nor dry line flattens banked vectors.
 
 use super::*;
 use std::path::{Path, PathBuf};
@@ -313,18 +314,21 @@ pub fn extract_text(text: &str, name: &str, title: Option<&str>) -> Result<Extra
     // The direction across the road must be the one the format says (to the driver's left), or the widths are on the
     // wrong sides.
     let x: Vec<f32> = pos.iter().map(|p| p[0] as f32).collect();
-    let y: Vec<f32> = pos.iter().map(|p| p[1] as f32).collect();
+    let mut y: Vec<f32> = pos.iter().map(|p| p[1] as f32).collect();
     let z: Vec<f32> = pos.iter().map(|p| p[2] as f32).collect();
     let units = left_units(&x, &z, closed);
     let mut agree = 0.0;
     let mut unit_perp = 0usize;
+    let mut usable_axes = Vec::with_capacity(n);
     for (k, &i) in chain.iter().enumerate() {
         let p = wps[i].perp;
         let len = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
         if (0.9..=1.1).contains(&len) {
             unit_perp += 1;
         }
-        agree += (p[0] * units[k].0 + p[2] * units[k].1) / len.max(1e-9);
+        let agreement = (p[0] * units[k].0 + p[2] * units[k].1) / len.max(1e-9);
+        agree += agreement;
+        usable_axes.push((0.9..=1.1).contains(&len) && agreement >= 0.8);
     }
     let agree = agree / n as f64;
     if (unit_perp as f64) < 0.95 * n as f64 || agree < 0.9 {
@@ -334,13 +338,13 @@ pub fn extract_text(text: &str, name: &str, title: Option<&str>) -> Result<Extra
         );
     }
     report.notes.push(format!(
-        "wp_perp points to the driver's left at every point (mean agreement {agree:.3})"
+        "wp_perp mean agreement with the driver's left {agree:.3}; invalid individual vectors leave explicit gaps"
     ));
 
     // Widths: road left and road right, from the waypoint.
     let raw_left: Vec<f32> = chain.iter().map(|&i| wps[i].width[0] as f32).collect();
     let raw_right: Vec<f32> = chain.iter().map(|&i| wps[i].width[1] as f32).collect();
-    let widths = clean_widths(&raw_left, &raw_right);
+    let widths = ac::signed_widths(&raw_left, &raw_right);
     if widths.kept {
         report.notes.push(format!(
             "widths known at {} of {n} points, median whole-road width {:.1} m",
@@ -354,27 +358,70 @@ pub fn extract_text(text: &str, name: &str, title: Option<&str>) -> Result<Extra
     }
 
     // The dry line.
-    let fast = if chain.iter().any(|&i| wps[i].dry.is_some_and(|d| d != 0.0)) {
+    let fast = if usable_axes.iter().all(|&valid| valid) && chain.iter().any(|&i| wps[i].dry.is_some_and(|d| d != 0.0)) {
         let (mut fx, mut fz) = (Vec::with_capacity(n), Vec::with_capacity(n));
         for &i in &chain {
             let w = &wps[i];
             let lateral = w.dry.unwrap_or(0.0);
-            let len = (w.perp[0].powi(2) + w.perp[2].powi(2)).sqrt().max(1e-9);
-            fx.push((w.pos[0] + lateral * w.perp[0] / len) as f32);
-            fz.push((w.pos[2] + lateral * w.perp[2] / len) as f32);
+            fx.push((w.pos[0] + lateral * w.perp[0]) as f32);
+            fz.push((w.pos[2] + lateral * w.perp[2]) as f32);
         }
         Some(Fast { x: fx, z: fz })
     } else {
-        report
-            .warnings
-            .push("no dry line in the file (wp_path is 0 everywhere): the track has no ideal line".into());
+        report.warnings.push(
+            "no dry line with usable source vectors (wp_path is 0 everywhere or a wp_perp is invalid): the track has no ideal line".into(),
+        );
         None
     };
 
     let (mut cx, mut cz, mut left, mut right) = (x, z, widths.left, widths.right);
-    if widths.kept {
-        to_edges_midpoint(&mut cx, &mut cz, &mut left, &mut right, closed);
-    }
+    let boundaries = if widths.kept {
+        let mut edges = Boundaries {
+            left_x: Vec::with_capacity(n),
+            left_z: Vec::with_capacity(n),
+            right_x: Vec::with_capacity(n),
+            right_z: Vec::with_capacity(n),
+        };
+        let mut known = 0;
+        for (k, &i) in chain.iter().enumerate() {
+            let w = &wps[i];
+            let row = if usable_axes[k] && left[k].is_finite() && right[k].is_finite() {
+                let (l, r) = (w.width[0], w.width[1]);
+                let row = [
+                    (w.pos[0] + w.perp[0] * l) as f32,
+                    (w.pos[2] + w.perp[2] * l) as f32,
+                    (w.pos[0] - w.perp[0] * r) as f32,
+                    (w.pos[2] - w.perp[2] * r) as f32,
+                ];
+                let shift = (l - r) / 2.0;
+                cx[k] = (w.pos[0] + w.perp[0] * shift) as f32;
+                y[k] = (w.pos[1] + w.perp[1] * shift) as f32;
+                cz[k] = (w.pos[2] + w.perp[2] * shift) as f32;
+                left[k] = ((l + r) / 2.0) as f32;
+                right[k] = left[k];
+                known += 1;
+                row
+            } else {
+                left[k] = f32::NAN;
+                right[k] = f32::NAN;
+                [f32::NAN; 4]
+            };
+            edges.left_x.push(row[0]);
+            edges.left_z.push(row[1]);
+            edges.right_x.push(row[2]);
+            edges.right_z.push(row[3]);
+        }
+        report.notes.push(format!("XTRK v2: {known}/{n} explicit wp_pos +/- signed wp_width * wp_perp cross-sections; sampled AIW road envelope, not surveyed asphalt"));
+        if known < n {
+            report.warnings.push(format!(
+                "{} source cross-sections unknown: invalid wp_perp or unmeasured width; explicit gaps retained",
+                n - known
+            ));
+        }
+        Some(edges)
+    } else {
+        None
+    };
 
     let pitlane = match extract_pit(wps, &pos) {
         Ok((pit, note)) => {
@@ -389,7 +436,7 @@ pub fn extract_text(text: &str, name: &str, title: Option<&str>) -> Result<Extra
 
     let track = Track {
         game: "sce".into(),
-        boundaries: None,
+        boundaries,
         name: name.to_owned(),
         variant: None,
         title: title.map(str::to_owned),
@@ -602,6 +649,70 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn source_cross_sections_preserve_signed_offsets_and_banked_perp() {
+        let base = synthetic(300, -2.0, 10.0, -3.0, false);
+        let mut text = String::new();
+        for line in base.lines() {
+            if let Some(rest) = line.strip_prefix("wp_perp=(") {
+                let v = exactly::<3>(&format!("({rest}")).unwrap();
+                text.push_str(&format!(
+                    "wp_perp=({:.8},0.2,{:.8})\n",
+                    v[0] * 0.96f64.sqrt(),
+                    v[2] * 0.96f64.sqrt()
+                ));
+            } else {
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+        let t = extract_text(&text, "banked", None).unwrap().track;
+        let b = t.boundaries.as_ref().unwrap();
+        // The chain is rotated to the source start line (x=100,z=0), with signed offsets kept.
+        assert!((b.left_x[0] - (100.0 - 2.0 * 0.96f32.sqrt())).abs() < 1e-5);
+        assert!((b.right_x[0] - (100.0 - 10.0 * 0.96f32.sqrt())).abs() < 1e-5);
+        assert!((t.centerline.y[0] - 3.8).abs() < 1e-5);
+        assert!((t.fast.as_ref().unwrap().x[0] - (100.0 - 3.0 * 0.96f32.sqrt())).abs() < 1e-5);
+        assert_eq!(t.centerline.left[0], 4.0);
+        let packed = pack(&t).unwrap();
+        assert_eq!(u16::from_le_bytes([packed[4], packed[5]]), 2);
+        assert_eq!(pack(&unpack(&packed).unwrap()).unwrap(), packed);
+    }
+
+    #[test]
+    fn individual_degenerate_perp_leaves_a_gap_without_inventing_a_dry_line() {
+        let text = synthetic(300, 4.0, 10.0, -2.0, false);
+        let line = text.lines().find(|line| line.starts_with("wp_perp=")).unwrap();
+        let broken = text.replacen(line, "wp_perp=(0,0,0)", 1);
+        let found = extract_text(&broken, "gap", None).unwrap();
+        let b = found.track.boundaries.as_ref().unwrap();
+        assert_eq!(b.left_x.iter().filter(|v| v.is_nan()).count(), 1);
+        assert!(found.track.fast.is_none());
+        assert!(found.report.warnings.iter().any(|s| s.contains("explicit gaps")));
+        assert!(pack(&found.track).is_ok());
+    }
+
+    #[test]
+    fn long_pointer_chain_keeps_its_order_without_recursion() {
+        let n = 20000;
+        let wps: Vec<_> = (0..n)
+            .map(|i| Waypoint {
+                pos: [i as f64, 0.0, 0.0],
+                perp: [0.0, 0.0, -1.0],
+                width: [4.0; 4],
+                dry: None,
+                score: None,
+                prev: if i == 0 { -1 } else { i as i64 - 1 },
+                next: if i + 1 == n { -1 } else { i as i64 + 1 },
+                branch: 0,
+                bitfields: 0,
+            })
+            .collect();
+        let (chain, closed) = follow(&wps, 0, &|_| true);
+        assert!(!closed);
+        assert_eq!(chain, (0..n).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn decodes_a_synthetic_track_starting_at_the_start_line() {
         let text = synthetic(300, 4.0, 10.0, -2.0, true);
         let found = extract_text(&text, "circle", Some("The Circle")).unwrap();
@@ -722,6 +833,34 @@ pub(crate) mod tests {
 
     /// Every `.AIW` of the installed game, checked and tallied. Run it with
     /// `cargo test -- --ignored --nocapture validates_every_installed_sce_track`; it does nothing when the game is not installed.
+    #[test]
+    #[ignore = "reads the installed game; run by hand"]
+    fn exports_representative_installed_sce_cross_sections() {
+        let Some(root) = crate::tracks::dump::game_folders("XPEED_SCE_DIR", "Stock Car Extreme", "GameData/Locations")
+            .into_iter()
+            .find(|p| p.is_dir())
+        else {
+            return;
+        };
+        for relative in [
+            "Interlagos/InterlagosGP/InterlagosGP.AIW",
+            "BolognaHistoric/BolognaHistoric/bolognahistoric.AIW",
+        ] {
+            let path = root.join(relative);
+            let t = extract(&path).unwrap().track;
+            let b = t.boundaries.as_ref().unwrap();
+            let known = b.left_x.iter().filter(|v| v.is_finite()).count();
+            assert_eq!(known, t.centerline.x.len());
+            let bytes = pack(&t).unwrap();
+            assert_eq!(pack(&unpack(&bytes).unwrap()).unwrap(), bytes);
+            if let Some(dir) = std::env::var_os("XPEED_TRACK_EVIDENCE_DIR") {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(PathBuf::from(dir).join(format!("sce-{}.xtrk", t.name)), bytes).unwrap();
+            }
+            eprintln!("SCE {}: {known}/{} explicit source cross-sections", t.name, t.centerline.x.len());
+        }
+    }
+
     #[test]
     #[ignore = "reads the installed game; run by hand"]
     fn validates_every_installed_sce_track() {

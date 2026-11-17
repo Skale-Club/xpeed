@@ -76,6 +76,8 @@ export interface LapRecorder {
   source: string;
   /** The game's own version string, when the reader knows it. */
   gameBuild?: string;
+  /** Optional coordinate convention id; absent in historical recordings. Unknown ids are preserved. */
+  coordinateFrame?: string;
 }
 
 export interface LapHeader {
@@ -139,13 +141,14 @@ const isLabel = (value: unknown, max: number): value is string => isText(value, 
 /** The recorder object, strictly, or the reason it is not one. Unknown keys of it are ignored (a newer Companion may add some). */
 function parseRecorder(input: unknown): LapRecorder {
   if (!isRecord(input)) return fail('bad_header', 'recorder must be an object.');
-  const { app, version, build, source, gameBuild } = input;
+  const { app, version, build, source, gameBuild, coordinateFrame } = input;
   if (typeof app !== 'string' || !RECORDER_APP.test(app)) fail('bad_header', 'recorder.app must be a short id.');
   if (typeof version !== 'string' || !RECORDER_VERSION.test(version)) fail('bad_header', 'recorder.version must be like 0.8.2.');
   if (typeof build !== 'string' || !RECORDER_BUILD.test(build)) fail('bad_header', 'recorder.build must be a short commit id.');
   if (!isLabel(source, 32)) fail('bad_header', 'recorder.source must be a short text.');
   if (gameBuild !== undefined && !isLabel(gameBuild, 64)) fail('bad_header', 'recorder.gameBuild must be a short text.');
-  return { app: app as string, version: version as string, build: build as string, source: source as string, ...(gameBuild !== undefined ? { gameBuild: gameBuild as string } : {}) };
+  if (coordinateFrame !== undefined && !isLabel(coordinateFrame, 64)) fail('bad_header', 'recorder.coordinateFrame must be a short text.');
+  return { app: app as string, version: version as string, build: build as string, source: source as string, ...(gameBuild !== undefined ? { gameBuild: gameBuild as string } : {}), ...(coordinateFrame !== undefined ? { coordinateFrame: coordinateFrame as string } : {}) };
 }
 
 const isTemperature = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= -100 && value <= 200;
@@ -246,7 +249,7 @@ function serializeHeader(header: LapHeader): string {
     airTempC: header.airTempC,
     trackTempC: header.trackTempC,
     tyreCompound: header.tyreCompound,
-    recorder: header.recorder === undefined ? undefined : { app: header.recorder.app, version: header.recorder.version, build: header.recorder.build, source: header.recorder.source, gameBuild: header.recorder.gameBuild },
+    recorder: header.recorder === undefined ? undefined : { app: header.recorder.app, version: header.recorder.version, build: header.recorder.build, source: header.recorder.source, gameBuild: header.recorder.gameBuild, coordinateFrame: header.recorder.coordinateFrame },
     checks: header.checks !== undefined && header.checks.length > 0 ? header.checks : undefined,
     channels: header.channels.map((channel) => ({ id: channel.id, unit: channel.unit })),
   });

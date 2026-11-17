@@ -578,8 +578,13 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
             Msg::PanelTrackPosition
         } else if !rendered {
             Msg::PanelTrackDirection
-        } else if d.live.road.is_some() {
-            Msg::PanelTrackRoad
+        } else if let Some(road) = &d.live.road {
+            match road.kind {
+                crate::perspective::RoadKind::AiEnvelope => Msg::PanelTrackRoad,
+                crate::perspective::RoadKind::Asphalt => Msg::PanelTrackAsphalt,
+                crate::perspective::RoadKind::WhiteLine => Msg::PanelTrackLimits,
+                crate::perspective::RoadKind::Estimated => Msg::PanelTrackEstimated,
+            }
         } else {
             Msg::PanelTrackPaths
         };

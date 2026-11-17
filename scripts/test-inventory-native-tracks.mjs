@@ -46,6 +46,33 @@ test('Legacy VDF external-library strings are discovered', async t => {
   assert.deepEqual(report.errors, []);
   assert.equal(report.steam.flatMap(l => l.apps)[0].appid, '12');
 });
+
+test('A malformed middle library does not suppress later libraries and identifies its metadata', async t => {
+  const { steam, external } = await fixture(t);
+  const folders = path.join(steam, 'steamapps', 'libraryfolders.vdf');
+  await fs.writeFile(folders, `"libraryfolders" { "0" { "path" ${quote(steam)} } "1" { "path" "relative-broken-library" } "2" { "path" ${quote(external)} } }`);
+  await manifest(external, '22', 'AfterBrokenLibrary');
+  const report = await inventory({ steamRoots: [steam] });
+  assert.equal(report.steamDiscoveryComplete, false);
+  assert.equal(report.steam.flatMap(l => l.apps).find(a => a.appid === '22').installdir, 'AfterBrokenLibrary');
+  assert.equal(report.errors.length, 1);
+  assert.deepEqual(report.errors[0], { path: 'relative-broken-library', message: 'Invalid library path', metadataPath: folders, libraryKey: '1' });
+});
+
+test('A middle library realpath failure does not suppress later libraries', async t => {
+  const { root, steam, external } = await fixture(t);
+  const broken = path.join(root, 'loop');
+  try { await fs.symlink(broken, broken, process.platform === 'win32' ? 'junction' : 'dir'); }
+  catch (error) { if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) { t.skip('Directory links unavailable'); return; } throw error; }
+  await fs.writeFile(path.join(steam, 'steamapps', 'libraryfolders.vdf'), `"libraryfolders" { "0" { "path" ${quote(steam)} } "1" { "path" ${quote(broken)} } "2" { "path" ${quote(external)} } }`);
+  await manifest(external, '23', 'AfterRealpathFailure');
+  const report = await inventory({ steamRoots: [steam] });
+  assert.equal(report.steamDiscoveryComplete, false);
+  assert.equal(report.steam.flatMap(l => l.apps).find(a => a.appid === '23').installdir, 'AfterRealpathFailure');
+  assert.equal(report.errors[0].path, broken);
+  assert.equal(report.errors[0].libraryKey, '1');
+  assert.ok(report.errors[0].code);
+});
 test('CLI rejects missing or unknown flags and invalid traversal limits', () => {
   const cli = path.join(import.meta.dirname, 'inventory-native-tracks.mjs');
   for (const args of [['--unknown'], ['--out'], ['--out', '--help'], ['--game', 'invalid'], ['--max-entries', '0'], ['--max-depth', '-1'], ['--max-entries', 'NaN']]) {
@@ -66,6 +93,8 @@ test('Steam metadata symlinks are refused without parsing their targets', async 
   await fs.symlink(target, path.join(steam, 'steamapps', 'appmanifest_1.acf'), 'file');
   const report = await inventory({ steamRoots: [steam] });
   assert.match(report.errors[0].message, /regular file.*symlink/);
+  assert.equal(report.errors[0].path, folders);
+  assert.equal(report.steamDiscoveryComplete, false);
   assert.equal(report.steam[0].apps.length, 0);
   assert.match(report.steam[0].errors[0].message, /regular file/);
   assert.equal(await fs.readFile(target, 'utf8'), 'not VDF');
@@ -81,11 +110,11 @@ test('Malformed and traversing manifests are reported, never accepted', async t 
 });
 test('Explicit games inventory candidates separately; assets remain byte-identical', async t => {
   const { root } = await fixture(t); const game = path.join(root, 'non-steam'); await fs.mkdir(game);
-  const names = ['fast_lane.ai', 'pit_lane.ai', 'track.aiw', 'track.aisplinedata', 'track.trackcontrolpoints', 'assets.kspkg', 'assets.mas', 'assets.bff', 'assets.pak', 'unrelated.ai'];
+  const names = ['fast_lane.ai', 'pit_lane.ai', 'track.aiw', 'track.aisplinedata', 'track.trackcontrolpoints', 'assets.kspkg', 'assets.mas', 'assets.bff', 'assets.pak', 'assets.ucas', 'assets.utoc', 'assets.erp', 'assets.rpck', 'unrelated.ai'];
   for (const name of names) await fs.writeFile(path.join(game, name), Buffer.from([0, 255, 1, 10]));
   const before = await Promise.all(names.map(name => fs.readFile(path.join(game, name))));
   const report = await inventory({ games: [{ id: 'custom', dir: game }] });
-  assert.equal(report.games[0].candidates.length, 5); assert.equal(report.games[0].containers.length, 4);
+  assert.equal(report.games[0].candidates.length, 5); assert.equal(report.games[0].containers.length, 8);
   assert.equal(report.games[0].complete, true);
   assert.ok(report.games[0].candidates.every(c => c.validation === 'unvalidated candidate'));
   assert.deepEqual(await Promise.all(names.map(name => fs.readFile(path.join(game, name)))), before);

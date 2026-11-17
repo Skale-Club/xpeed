@@ -1,6 +1,6 @@
-//! Offline Laguna Seca pilot for already-extracted EVO AISplineData protobuf files.
+//! Hash-pinned Laguna Seca reader for EVO AISplineData, loose or in KSPackage.
 //! The schema was recovered from the installed game's AIData.proto and Math.proto.
-//! No archives are opened, no game files are modified, and this is not automatic discovery.
+//! Only selected package entries are read. Installed game files are never modified.
 
 use super::*;
 use sha2::{Digest, Sha256};
@@ -9,8 +9,9 @@ use std::path::Path;
 
 const LAYOUT: &str = "content\\tracks\\laguna_seca\\containers\\layout_laguna_seca";
 const MAX_INPUT: usize = 64 * 1024 * 1024;
-const VERIFIED_IDEAL_SHA256: &str = "b547920c27c1e5732567ad078213aa0cd3afe1b536e9f0ffc24dd22df915409e";
-const VERIFIED_PIT_SHA256: &str = "c3c81c4a4ce1f126eab78a695fde2e4099e4d1a5ea9599e2772e44e4aaaf03bf";
+pub(crate) const VERIFIED_IDEAL_SHA256: &str = "b547920c27c1e5732567ad078213aa0cd3afe1b536e9f0ffc24dd22df915409e";
+pub(crate) const VERIFIED_PIT_SHA256: &str = "c3c81c4a4ce1f126eab78a695fde2e4099e4d1a5ea9599e2772e44e4aaaf03bf";
+pub(crate) const VERIFIED_BUILD: &str = "25170311";
 type Result<T> = std::result::Result<T, Refusal>;
 
 fn bad<T>(message: impl Into<String>) -> Result<T> {
@@ -19,18 +20,18 @@ fn bad<T>(message: impl Into<String>) -> Result<T> {
 
 /// A bounded protobuf wire reader. Nested messages are borrowed slices; unknown fields
 /// use their declared wire lengths, never a guessed message shape.
-struct Wire<'a> {
+pub(super) struct Wire<'a> {
     bytes: &'a [u8],
     at: usize,
 }
-enum Value<'a> {
+pub(super) enum Value<'a> {
     Var(u64),
     Bits64([u8; 8]),
     Bytes(&'a [u8]),
     Bits32([u8; 4]),
 }
 impl<'a> Wire<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
+    pub(super) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, at: 0 }
     }
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
@@ -59,7 +60,7 @@ impl<'a> Wire<'a> {
         }
         bad("unterminated protobuf varint")
     }
-    fn next(&mut self) -> Result<Option<(u32, Value<'a>)>> {
+    pub(super) fn next(&mut self) -> Result<Option<(u32, Value<'a>)>> {
         if self.at == self.bytes.len() {
             return Ok(None);
         }
@@ -84,14 +85,14 @@ impl<'a> Wire<'a> {
         Ok(Some((field as u32, value)))
     }
 }
-fn bytes<'a>(v: Value<'a>) -> Result<&'a [u8]> {
+pub(super) fn bytes<'a>(v: Value<'a>) -> Result<&'a [u8]> {
     if let Value::Bytes(b) = v {
         Ok(b)
     } else {
         bad("expected protobuf message/string")
     }
 }
-fn float(v: Value<'_>) -> Result<f32> {
+pub(super) fn float(v: Value<'_>) -> Result<f32> {
     if let Value::Bits32(b) = v {
         let n = f32::from_le_bytes(b);
         if n.is_finite() {
@@ -110,7 +111,7 @@ fn text(v: Value<'_>) -> Result<String> {
         message: "invalid UTF-8 text".into(),
     })
 }
-fn vector(b: &[u8]) -> Result<[f32; 3]> {
+pub(super) fn vector(b: &[u8]) -> Result<[f32; 3]> {
     let mut p = [0.0; 3]; // Proto3 omits zero components.
     let mut w = Wire::new(b);
     while let Some((f, v)) = w.next()? {
@@ -389,6 +390,14 @@ fn convert(s: Spline, input: &[u8]) -> Result<Extracted> {
 }
 
 pub fn extract(path: &Path) -> Result<Extracted> {
+    if path.is_dir() || path.extension().is_some_and(|e| e.eq_ignore_ascii_case("kspkg")) {
+        let package_path = if path.is_dir() {
+            path.join("content.kspkg")
+        } else {
+            path.to_path_buf()
+        };
+        return extract_package(&package_path);
+    }
     let input = read_bounded(path)?;
     if format!("{:x}", Sha256::digest(&input)) != VERIFIED_IDEAL_SHA256 {
         return refuse("evo_revalidation_required", "unrecognized EVO ideal-line asset SHA256; this pilot is pinned to the verified Steam build 25170311 asset and requires revalidation after changes");
@@ -438,6 +447,147 @@ pub fn extract(path: &Path) -> Result<Extracted> {
     }
     check(&found.track).map_err(|e| Refusal {
         code: "evo_invalid",
+        message: e.message,
+    })?;
+    Ok(found)
+}
+
+/// The same verified source, read directly from the installed package. This
+/// does not unpack files, write a list or modify anything in the installation.
+pub fn extract_package(path: &Path) -> Result<Extracted> {
+    const IDEAL: &str = "content\\tracks\\laguna_seca\\layouts\\layout_laguna_seca.ideal_line.aisplinedata";
+    const PIT: &str = "content\\tracks\\laguna_seca\\layouts\\layout_laguna_seca.pitlane.aisplinedata";
+    let failure = |message| Refusal {
+        code: "evo_package",
+        message,
+    };
+    let mut package = super::package::Package::open(path).map_err(failure)?;
+    let input = package.read(IDEAL, MAX_INPUT).map_err(failure)?;
+    if format!("{:x}", Sha256::digest(&input)) != VERIFIED_IDEAL_SHA256 {
+        return refuse(
+            "evo_revalidation_required",
+            "changed native EVO ideal asset; source revalidation required before using cached geometry",
+        );
+    }
+    let mut found = convert(parse(&input)?, &input)?;
+    match package.read(PIT, MAX_INPUT) {
+        Ok(bytes) if format!("{:x}", Sha256::digest(&bytes)) == VERIFIED_PIT_SHA256 => {
+            let pit = parse(&bytes)?;
+            if !pit.closed && pit_near_track(&pit, &found.track) {
+                let n = pit.points.len();
+                found.track.pitlane = Some(Pitlane {
+                    x: pit.points.iter().map(|p| -p[0]).collect(),
+                    z: pit.points.iter().map(|p| p[2]).collect(),
+                    left: vec![f32::NAN; n],
+                    right: vec![f32::NAN; n],
+                });
+                found.report.notes.push(format!(
+                    "native package pit lane: {n} points; SHA256 {:x}; widths unknown",
+                    Sha256::digest(&bytes)
+                ));
+            } else {
+                found
+                    .report
+                    .warnings
+                    .push("native pit lane omitted: open-path/proximity checks failed".into());
+            }
+        }
+        Ok(_) => found
+            .report
+            .warnings
+            .push("native pit lane changed: omitted pending source revalidation".into()),
+        Err(why) => found.report.warnings.push(format!("native pit lane unavailable: {why}")),
+    }
+    found
+        .report
+        .notes
+        .push("selected native package entries read without extracting or modifying the installed game".into());
+    Ok(found)
+}
+
+/// Physical asphalt cross-sections from independently classified collision
+/// meshes. The AI line remains a distinct reference; kerbs/turf are not asphalt.
+pub fn extract_package_asphalt(path: &Path) -> Result<Extracted> {
+    const IDEAL: &str = "content\\tracks\\laguna_seca\\layouts\\layout_laguna_seca.ideal_line.aisplinedata";
+    let mut found = extract_package(path)?;
+    let failure = |message| Refusal {
+        code: "evo_package",
+        message,
+    };
+    let mut package = super::package::Package::open(path).map_err(failure)?;
+    let input = package.read(IDEAL, MAX_INPUT).map_err(failure)?;
+    if format!("{:x}", Sha256::digest(&input)) != VERIFIED_IDEAL_SHA256 {
+        return refuse("evo_revalidation_required", "native ideal source changed during surface extraction");
+    }
+    let spline = parse(&input)?;
+    let forwards: Result<Vec<_>> = spline
+        .payloads
+        .iter()
+        .map(|p| {
+            p.forward.ok_or_else(|| Refusal {
+                code: "evo_invalid",
+                message: "missing source forward vector".into(),
+            })
+        })
+        .collect();
+    let surface = super::acevo_surface::extract(&mut package, &spline.points, &forwards?)?;
+    let raw = surface.asphalt_boundaries;
+    let n = spline.points.len();
+    let mut boundaries = Boundaries {
+        left_x: Vec::with_capacity(n),
+        left_z: Vec::with_capacity(n),
+        right_x: Vec::with_capacity(n),
+        right_z: Vec::with_capacity(n),
+    };
+    let mut known = 0;
+    for i in 0..n {
+        // Reflection reverses the side convention as well as the X coordinate.
+        let (left, right) = ((-raw.right_x[i], raw.right_z[i]), (-raw.left_x[i], raw.left_z[i]));
+        boundaries.left_x.push(left.0);
+        boundaries.left_z.push(left.1);
+        boundaries.right_x.push(right.0);
+        boundaries.right_z.push(right.1);
+        if left.0.is_finite() && right.0.is_finite() {
+            let c = &mut found.track.centerline;
+            c.x[i] = (left.0 + right.0) * 0.5;
+            c.z[i] = (left.1 + right.1) * 0.5;
+            c.y[i] = surface.asphalt_midpoint_y[i];
+            c.left[i] = (left.0 - right.0).hypot(left.1 - right.1) * 0.5;
+            c.right[i] = c.left[i];
+            known += 1;
+        }
+    }
+    found.track.boundaries = Some(boundaries);
+    found.track.source = "mesh_asphalt".into();
+    // Unknown sections retain the game line and NaN widths rather than a guessed midpoint.
+    found.track.center_kind = "edges_midpoint".into();
+    found.report.notes.push(format!(
+        "{}: {} verified surface triangles; {known}/{n} asphalt sections; reflected X and swapped sides",
+        surface.provenance, surface.triangle_count
+    ));
+    found.report.notes.push(format!(
+        "{} reference samples classified by nearest compatible source surface; kerb/turf/other paved bands remain separate",
+        surface.point_samples.iter().flatten().count()
+    ));
+    let mut classes = std::collections::BTreeMap::new();
+    let mut height_range = (f32::INFINITY, f32::NEG_INFINITY);
+    for sample in surface.point_samples.iter().flatten() {
+        *classes.entry(format!("{:?}/{}", sample.class, sample.surface_id)).or_insert(0usize) += 1;
+        height_range.0 = height_range.0.min(sample.y);
+        height_range.1 = height_range.1.max(sample.y);
+    }
+    let mut band_classes = std::collections::BTreeMap::new();
+    let mut max_bank = 0f32;
+    for band in surface.bands.iter().flatten() {
+        if band.max_offset > band.min_offset {
+            *band_classes.entry(format!("{:?}", band.class)).or_insert(0usize) += 1;
+            max_bank = max_bank.max((band.positive[1] - band.negative[1]).abs());
+        }
+    }
+    found.report.notes.push(format!("source surface samples {classes:?}; elevation {:.3}..{:.3} m; separate class bands {band_classes:?}; max band edge-height span {max_bank:.3} m (not flattened into asphalt)",height_range.0,height_range.1));
+    found.report.warnings.push("Asphalt excludes kerbs, turf and other paved areas; sampled sections omit separate edge heights/banking. Timing origin is not the AI-line origin.".into());
+    check(&found.track).map_err(|e| Refusal {
+        code: "evo_surface_invalid",
         message: e.message,
     })?;
     Ok(found)

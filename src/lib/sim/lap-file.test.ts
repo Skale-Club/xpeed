@@ -81,6 +81,18 @@ function withHeaderEdit(from: string, to: string): Uint8Array {
 }
 
 describe('the byte layout', () => {
+  it('round-trips bounded opaque coordinate frame metadata without inventing it for old files', async () => {
+    const recorder = { app: 'xpeed-companion', version: '0.10.0', build: '9c36958', source: 'acevo', coordinateFrame: 'acevo-reflected-x-v1' };
+    const stamped = { ...lapV2(), header: { ...HEADER_V2, recorder } };
+    expect(unpackLap(packLap(stamped)).header.recorder).toEqual(recorder);
+    expect((await gunzipLap(await gzipLap(stamped))).header.recorder?.coordinateFrame).toBe(recorder.coordinateFrame);
+    expect(unpackLap(golden()).header.recorder).toBeUndefined();
+    expect(unpackLap(goldenV2()).header.recorder).toBeUndefined();
+    for (const coordinateFrame of ['', 'x'.repeat(65), 'bad\nframe', 12, null]) {
+      expect(() => parseHeader({ ...HEADER_V2, recorder: { ...recorder, coordinateFrame } })).toThrow(LapFormatError);
+    }
+    expect(parseHeader({ ...HEADER_V2, recorder: { ...recorder, coordinateFrame: 'x'.repeat(64) } }).recorder?.coordinateFrame).toHaveLength(64);
+  });
   it('writes exactly the bytes of the golden lap', () => {
     expect(hex(packLap(lap()))).toBe(GOLDEN_HEX);
     expect(golden().length).toBe(396);

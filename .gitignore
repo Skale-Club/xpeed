@@ -41,6 +41,7 @@ gitleaks-report.json
 .claude/settings.local.json
 /.codex-local/
 /.audit-*.json
+__pycache__/
 
 /build/
 # Local files for `npm run dev` with VITE_DATA_API=true
