@@ -2854,5 +2854,44 @@
     "seeHint": "Not sure what to expect? Look around with made-up laps. Nothing is saved.",
     "unavailable": "Not available in the example",
     "unavailableBody": "Nothing is saved or sent while you look at the example."
+  },
+  "ui": {
+    "chip": {
+      "remove": "Remove"
+    },
+    "pagination": {
+      "label": "Pagination",
+      "previous": "Previous",
+      "next": "Next",
+      "status": "Page {{page}} of {{count}}",
+      "range": "{{from}}–{{to}} of {{total}}",
+      "jump": "Go to page",
+      "option": "Page {{page}}"
+    },
+    "loadMore": {
+      "label": "Load more"
+    },
+    "states": {
+      "errorTitle": "Something went wrong",
+      "errorDescription": "This could not be loaded. Try again in a moment.",
+      "retry": "Try again",
+      "loading": "Loading…"
+    },
+    "queryGate": {
+      "signedOutTitle": "You are signed out",
+      "signedOutDescription": "Sign in again to continue.",
+      "stale": "Showing saved data",
+      "staleHint": "Could not refresh.",
+      "emptyTitle": "Nothing here yet"
+    },
+    "filter": {
+      "clearSearch": "Clear search"
+    },
+    "filterSheet": {
+      "title": "Filters",
+      "description": "Choose how to narrow the list.",
+      "clear": "Clear all",
+      "apply": "Show results"
+    }
   }
 }

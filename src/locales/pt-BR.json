@@ -2854,5 +2854,44 @@
     "seeHint": "Não sabe o que esperar? Dê uma olhada com voltas de mentira. Nada é salvo.",
     "unavailable": "Indisponível no exemplo",
     "unavailableBody": "Nada é salvo nem enviado enquanto você olha o exemplo."
+  },
+  "ui": {
+    "chip": {
+      "remove": "Remover"
+    },
+    "pagination": {
+      "label": "Paginação",
+      "previous": "Anterior",
+      "next": "Próxima",
+      "status": "Página {{page}} de {{count}}",
+      "range": "{{from}}–{{to}} de {{total}}",
+      "jump": "Ir para a página",
+      "option": "Página {{page}}"
+    },
+    "loadMore": {
+      "label": "Carregar mais"
+    },
+    "states": {
+      "errorTitle": "Algo deu errado",
+      "errorDescription": "Não foi possível carregar. Tente de novo em instantes.",
+      "retry": "Tentar de novo",
+      "loading": "Carregando…"
+    },
+    "queryGate": {
+      "signedOutTitle": "Você saiu da conta",
+      "signedOutDescription": "Entre de novo para continuar.",
+      "stale": "Mostrando dados salvos",
+      "staleHint": "Não foi possível atualizar.",
+      "emptyTitle": "Nada por aqui ainda"
+    },
+    "filter": {
+      "clearSearch": "Limpar busca"
+    },
+    "filterSheet": {
+      "title": "Filtros",
+      "description": "Escolha como filtrar a lista.",
+      "clear": "Limpar tudo",
+      "apply": "Ver resultados"
+    }
   }
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ export interface ChipProps {
  * the user can clear, neither for a plain label. `md` (h-8) is the phone-friendly default; `sm` fits dense toolbars.
  */
 export function Chip({ children, selected = false, onClick, onRemove, removeLabel, icon, size = "md", className, testId }: ChipProps) {
+  const { t } = useTranslation();
   const shell = cn(
     "inline-flex max-w-full items-center rounded-full border font-medium transition-colors",
     SIZE[size],
@@ -58,7 +60,7 @@ export function Chip({ children, selected = false, onClick, onRemove, removeLabe
         <button
           type="button"
           onClick={onRemove}
-          aria-label={removeLabel ?? "Remove"}
+          aria-label={removeLabel ?? t("ui.chip.remove", "Remove")}
           className={cn("-ml-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:text-foreground", focus)}
         >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
