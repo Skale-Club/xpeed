@@ -13,7 +13,7 @@ import type { LapStudy } from '@/lib/sim/lap-study-core';
 import { cn } from '@/lib/utils';
 import { WhyNotComparable } from './WhereTimeWent';
 
-const TONE_CLASS: Record<RowTone, string> = { loss: 'text-destructive', gain: 'text-green-500', even: 'text-muted-foreground' };
+const TONE_CLASS: Record<RowTone, string> = { loss: 'text-destructive', gain: 'text-success', even: 'text-muted-foreground' };
 
 /** A signed difference with its unit; a dash where the lap has no such figure. */
 const signed = (value: number | null, digits = 1) => {

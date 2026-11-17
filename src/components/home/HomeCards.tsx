@@ -125,7 +125,7 @@ export function TripTotals({ sessions }: { sessions: Session[] }) {
         <Card key={label}>
           <CardContent className="px-1.5 py-4 text-center">
             <p className="whitespace-nowrap text-base font-bold tracking-tight tabular-nums sm:text-lg">{value}</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p>
+            <p className="mt-0.5 text-2xs text-muted-foreground">{label}</p>
           </CardContent>
         </Card>
       ))}

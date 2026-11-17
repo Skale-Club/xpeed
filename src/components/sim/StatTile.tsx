@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 export type Tone = 'good' | 'bad' | 'accent' | 'plain';
-const TONE: Record<Tone, string> = { good: 'text-green-500', bad: 'text-destructive', accent: 'text-primary', plain: '' };
+const TONE: Record<Tone, string> = { good: 'text-success', bad: 'text-destructive', accent: 'text-primary', plain: '' };
 
 export function StatTile({ label, value, sub, tone = 'plain', mono = false, hint, testId, children }: {
   label: ReactNode;

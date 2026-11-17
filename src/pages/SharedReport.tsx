@@ -174,7 +174,7 @@ function ReportView({ id }: { id?: string }) {
                       {r.text.title}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">{r.text.meaning}</p>
-                    <p className="text-[11px] text-muted-foreground font-mono mt-1">
+                    <p className="text-2xs text-muted-foreground font-mono mt-1">
                       {[r.text.code, ...r.numbers].join(' · ')}
                     </p>
                   </CardContent>
@@ -185,7 +185,7 @@ function ReportView({ id }: { id?: string }) {
         </section>
 
         {id && params.get('attachments') === '1' && <SharedTripAttachments reportId={id} />}
-        <footer className="mt-8 pt-4 border-t border-border flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-mono">
+        <footer className="mt-8 pt-4 border-t border-border flex items-center justify-center gap-2 text-2xs text-muted-foreground font-mono">
           <BrandLogo className="h-3.5 w-3.5 opacity-70" alt="" />
           <span>{t('sharedReport.footer', 'Made with Xpeed · View-only diagnostic report')}</span>
         </footer>

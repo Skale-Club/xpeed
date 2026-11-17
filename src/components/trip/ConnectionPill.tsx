@@ -23,7 +23,7 @@ export function ConnectionPill() {
           : ['text-muted-foreground', t('pill.idle', 'Car not connected')];
 
   return (
-    <HeaderControl asChild className="w-auto min-w-0 shrink gap-1.5 px-3 text-[11px] font-medium text-foreground min-[380px]:text-xs">
+    <HeaderControl asChild className="w-auto min-w-0 shrink gap-1.5 px-3 text-2xs font-medium text-foreground min-[380px]:text-xs">
       <Link to="/live" title={label} data-testid="connection-pill" onClick={event => {
         if (!canConnect || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         // Open the chooser in this user gesture, before the Link changes route.

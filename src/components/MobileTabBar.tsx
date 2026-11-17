@@ -26,7 +26,7 @@ export function MobileTabBar() {
   const { problems } = useOpenProblems(mode === 'real' ? selectedCarId : null, lastTrip);
 
   const isActive = (to: string) => isActivePath(to, location.pathname);
-  const item = 'flex flex-1 flex-col items-center justify-center pt-2 pb-1 text-[11px] font-medium transition-colors';
+  const item = 'flex flex-1 flex-col items-center justify-center pt-2 pb-1 text-2xs font-medium transition-colors';
   // The active page gets a short yellow bar under its name, as in Xtimator and Xpot;
   // every item keeps the slot so all names share one baseline.
   const indicator = (active: boolean) => (
@@ -49,7 +49,7 @@ export function MobileTabBar() {
               <span className="relative flex h-7 w-14 items-center justify-center">
                 <Icon className="h-5 w-5" />
                 {badge !== null && (
-                  <span className="absolute right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                  <span className="absolute right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-2xs font-bold text-destructive-foreground">
                     {badge}
                   </span>
                 )}

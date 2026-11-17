@@ -35,7 +35,7 @@ function SpreadBar({ spread, meMs }: { spread: Spread; meMs: number }) {
           <span key={dot.lapId} className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-primary ring-2 ring-primary/40" style={{ left: `${dot.at * 100}%` }} data-testid="spread-me" />
         ))}
       </div>
-      <div className="flex justify-between font-mono text-[11px] tabular-nums text-muted-foreground" aria-hidden="true">
+      <div className="flex justify-between font-mono text-2xs tabular-nums text-muted-foreground" aria-hidden="true">
         <span>{values.fastest}</span>
         <span>{values.slowest}</span>
       </div>

@@ -196,7 +196,7 @@ export function FriendsScreen() {
               {t('social.friends.add', 'Send request')}
             </Button>
           </form>
-          {notice && <p className="flex items-center gap-1.5 text-sm" role="status" data-testid="friend-notice"><Check className="h-4 w-4 text-green-500" aria-hidden /> {notice}</p>}
+          {notice && <p className="flex items-center gap-1.5 text-sm" role="status" data-testid="friend-notice"><Check className="h-4 w-4 text-success" aria-hidden /> {notice}</p>}
           {failure && <ErrorLine testId="friends-error">{errorText(failure)}</ErrorLine>}
         </CardContent>
       </Card>

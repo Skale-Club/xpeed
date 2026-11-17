@@ -9,7 +9,7 @@ type Level = "default" | "success" | "warning" | "destructive";
 // goes quickly, a problem stays until it can be read (or until it is closed).
 const LEVELS: Record<Level, { icon: typeof Info; color: string; duration: number }> = {
   success: { icon: CheckCircle2, color: "text-success", duration: 3500 },
-  default: { icon: Info, color: "text-sky-400", duration: 5000 },
+  default: { icon: Info, color: "text-info", duration: 5000 },
   warning: { icon: AlertTriangle, color: "text-warn", duration: 7000 },
   destructive: { icon: XCircle, color: "text-destructive", duration: 9000 },
 };

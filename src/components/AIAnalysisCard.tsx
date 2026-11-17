@@ -53,7 +53,7 @@ export default function AIAnalysisCard({ analysis: raw }: AIAnalysisCardProps) {
         {/* Insights Section */}
         {analysis.insights && analysis.insights.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-amber-500">
+            <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-warn">
               <Lightbulb className="w-4 h-4" />
               {t('aiReport.insights', 'What stood out')}
             </h4>
@@ -68,7 +68,7 @@ export default function AIAnalysisCard({ analysis: raw }: AIAnalysisCardProps) {
                     className={`
                       relative p-4 rounded-lg border bg-card/50 transition-colors
                       ${isCritical ? 'border-destructive/40 bg-destructive/5' :
-                        isWarning ? 'border-amber-500/40 bg-amber-500/5' :
+                        isWarning ? 'border-warn/40 bg-warn/5' :
                         'border-border hover:border-primary/30'}
                     `}
                   >
@@ -84,7 +84,7 @@ export default function AIAnalysisCard({ analysis: raw }: AIAnalysisCardProps) {
         {/* Recommendations Section */}
         {analysis.recommendations && analysis.recommendations.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-emerald-500">
+            <h4 className="text-sm font-bold mb-4 flex items-center gap-2 text-success">
               <CheckCircle2 className="w-4 h-4" />
               {t('aiReport.actions', 'What to do')}
             </h4>
@@ -92,8 +92,8 @@ export default function AIAnalysisCard({ analysis: raw }: AIAnalysisCardProps) {
               {analysis.recommendations.map((rec, idx) => (
                 <div key={idx} className="flex gap-4 p-3 rounded-md hover:bg-muted/50 transition-colors group">
                   <div className="mt-1 flex-shrink-0">
-                    <div className="w-5 h-5 rounded-full border-2 border-emerald-500/30 group-hover:border-emerald-500 flex items-center justify-center transition-colors">
-                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="w-5 h-5 rounded-full border-2 border-success-line group-hover:border-success flex items-center justify-center transition-colors">
+                      <div className="w-2.5 h-2.5 rounded-full bg-success opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                   </div>
                   <p className="text-base text-muted-foreground group-hover:text-foreground transition-colors">

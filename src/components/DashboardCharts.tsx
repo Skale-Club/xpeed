@@ -254,11 +254,11 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
               <ResponsiveContainer width="100%" height="100%">
                 {chart.type === 'composed' ? (
                   <ComposedChart data={processedData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                    <XAxis dataKey="formattedDate" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis yAxisId="left" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis yAxisId="right" orientation="right" stroke="#666" fontSize={12} tickLine={false} axisLine={false} unit="%" />
-                    <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }} labelStyle={{ color: '#888' }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} unit="%" />
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--muted-foreground))' }} />
                     <Legend />
                     {chart.series.map(s => {
                       if (s.type === 'bar') {
@@ -292,17 +292,17 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                   </ComposedChart>
                 ) : chart.type === 'line' ? (
                   <LineChart data={processedData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                    <XAxis dataKey="formattedDate" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis 
-                        stroke="#666" 
+                        stroke="hsl(var(--muted-foreground))" 
                         fontSize={12} 
                         tickLine={false} 
                         axisLine={false} 
                         unit={unitOf(chart) ? ` ${unitOf(chart)}` : ''} 
                         domain={chart.yAxisDomain || ['auto', 'auto']}
                     />
-                    <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }} labelStyle={{ color: '#888' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--muted-foreground))' }} />
                     <Legend />
                     {chart.series.map(s => (
                       <Line 
@@ -329,17 +329,17 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                         </linearGradient>
                       ))}
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                    <XAxis dataKey="formattedDate" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis 
-                        stroke="#666" 
+                        stroke="hsl(var(--muted-foreground))" 
                         fontSize={12} 
                         tickLine={false} 
                         axisLine={false} 
                         unit={unitOf(chart) ? ` ${unitOf(chart)}` : ''} 
                         domain={chart.yAxisDomain || ['auto', 'auto']}
                     />
-                    <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333' }} labelStyle={{ color: '#888' }} />
+                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--muted-foreground))' }} />
                     <Legend />
                     {chart.series.map(s => (
                       <Area 

@@ -95,8 +95,8 @@ export default function CompanionPage() {
             </div>
 
             {release && !release.signed && (
-              <div role="note" className="flex max-w-xl items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm" data-testid="companion-smartscreen">
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div role="note" className="flex max-w-xl items-start gap-3 rounded-lg border border-warn/40 bg-warn-soft p-4 text-sm" data-testid="companion-smartscreen">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
                 <p>{t('companionSite.smartscreen', 'Windows may say the publisher is unknown. Click More info, then Run anyway.')}</p>
               </div>
             )}

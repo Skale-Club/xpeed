@@ -17,14 +17,14 @@ interface Readout {
 
 function MissingReading({ value }: { value: number | null | undefined }) {
   const { t } = useTranslation();
-  return value == null || !Number.isFinite(value) ? <p className="text-[10px] text-muted-foreground">{t('live.noReading', 'No reading')}</p> : null;
+  return value == null || !Number.isFinite(value) ? <p className="text-2xs text-muted-foreground">{t('live.noReading', 'No reading')}</p> : null;
 }
 
 export function GaugeWidget({ label, unit, value, min, max, tone }: Readout & { min: number; max: number; tone?: GaugeTone }) {
   return (
     <div className="flex flex-col items-center" role="meter" aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value != null && Number.isFinite(value) ? value : undefined}>
       <PillDial value={value ?? null} unit={unit} label={label} min={min} max={max} tone={tone} className="max-w-[200px]" />
-      <div className="mt-1 flex w-full max-w-[200px] justify-between px-1 text-[10px] tabular-nums text-muted-foreground">
+      <div className="mt-1 flex w-full max-w-[200px] justify-between px-1 text-2xs tabular-nums text-muted-foreground">
         <span>{formatValue(min, unit)}</span>
         <span>{unit}</span>
         <span>{formatValue(max, unit)}</span>
@@ -54,14 +54,14 @@ export function ValueWidget({ label, unit, value, min, max }: Readout & { min?: 
       {ranged && <div className="space-y-1.5" data-testid={thermometer ? 'temperature-scale' : centered ? 'centered-scale' : voltage ? 'voltage-scale' : 'level-scale'}>
         {thermometer ? <div className="flex items-center gap-2">
           <div className="relative h-12 w-2 overflow-hidden rounded-full bg-muted"><span className="absolute inset-x-0 bottom-0 rounded-full bg-primary" style={{ height: `${position ?? 0}%` }} /></div>
-          <div className="flex h-12 flex-col justify-between text-[10px] text-muted-foreground"><span>{formatValue(max!, unit)} {unit}</span><span>{formatValue(min!, unit)} {unit}</span></div>
+          <div className="flex h-12 flex-col justify-between text-2xs text-muted-foreground"><span>{formatValue(max!, unit)} {unit}</span><span>{formatValue(min!, unit)} {unit}</span></div>
         </div> : <>
           <div className="relative h-2 rounded-full bg-muted">
             {!voltage && position != null && <span className="absolute inset-y-0 rounded-full bg-primary" style={{ left: `${centered ? Math.min(zero, position) : 0}%`, width: `${centered ? Math.abs(position - zero) : position}%` }} />}
             {centered && <span className="absolute -top-1 h-4 w-px bg-muted-foreground" style={{ left: `${zero}%` }} />}
             {position != null && <span className="absolute -top-0.5 h-3 w-1 -translate-x-1/2 rounded bg-foreground" style={{ left: `${position}%` }} />}
           </div>
-          <div className="flex justify-between text-[10px] tabular-nums text-muted-foreground"><span>{formatValue(min!, unit)} {unit}</span>{centered && <span>0</span>}<span>{formatValue(max!, unit)} {unit}</span></div>
+          <div className="flex justify-between text-2xs tabular-nums text-muted-foreground"><span>{formatValue(min!, unit)} {unit}</span>{centered && <span>0</span>}<span>{formatValue(max!, unit)} {unit}</span></div>
         </>}
       </div>}
     </div>
@@ -120,15 +120,15 @@ export function ChartWidget({ label, unit, points, now, windowMs, min, max, larg
         </svg>
         {nums.length > 0 && (
           <>
-            <span className="absolute top-0.5 right-1 text-[10px] text-muted-foreground font-mono">{formatValue(Math.max(...nums), unit)}</span>
-            <span className="absolute bottom-0.5 right-1 text-[10px] text-muted-foreground font-mono">{formatValue(Math.min(...nums), unit)}</span>
+            <span className="absolute top-0.5 right-1 text-2xs text-muted-foreground font-mono">{formatValue(Math.max(...nums), unit)}</span>
+            <span className="absolute bottom-0.5 right-1 text-2xs text-muted-foreground font-mono">{formatValue(Math.min(...nums), unit)}</span>
           </>
         )}
       </div>
       {large ? <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
         <time dateTime={new Date(from).toISOString()}>{formatAppDate(new Date(from), undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
         <time dateTime={new Date(now).toISOString()}>{formatAppDate(new Date(now), undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
-      </div> : <p className="text-[10px] text-muted-foreground text-right">{Math.round(windowMs / 1000)} s</p>}
+      </div> : <p className="text-2xs text-muted-foreground text-right">{Math.round(windowMs / 1000)} s</p>}
     </div>
   );
 }
@@ -159,11 +159,11 @@ export function BlocksWidget({ blocks, label }: { blocks: { index: number; value
           const color = isMin ? CHART_PALETTE.amber : isMax ? CHART_PALETTE.blue : ACCENT;
           return (
             <div key={b.index} className="flex-1 flex flex-col items-center justify-end h-full min-w-0" data-testid={`hv-block-${b.index}`}>
-              <span className="text-[9px] font-mono text-muted-foreground mb-0.5 [writing-mode:vertical-rl] sm:[writing-mode:horizontal-tb]">
+              <span className="text-2xs font-mono text-muted-foreground mb-0.5 [writing-mode:vertical-rl] sm:[writing-mode:horizontal-tb]">
                 {b.value == null ? '—' : b.value.toFixed(2)}
               </span>
               <div className="w-full rounded-t" style={{ height: `${Math.max(2, frac * 100)}%`, background: color, opacity: b.value == null ? 0.2 : 1 }} />
-              <span className="text-[9px] font-mono text-muted-foreground mt-0.5">{b.index}</span>
+              <span className="text-2xs font-mono text-muted-foreground mt-0.5">{b.index}</span>
             </div>
           );
         })}

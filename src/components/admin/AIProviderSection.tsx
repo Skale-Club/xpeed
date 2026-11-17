@@ -156,7 +156,7 @@ export default function AIProviderSection() {
             <div className="space-y-1.5">
               <Label htmlFor="or-key" className="text-xs font-mono text-muted-foreground flex items-center gap-2">
                 API Key
-                <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-warn/10 text-warn">
+                <span className="text-2xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-warn/10 text-warn">
                   secret
                 </span>
               </Label>
@@ -176,7 +176,7 @@ export default function AIProviderSection() {
                 </Button>
               </div>
               {keyStored && (
-                <p className="text-[10px] text-muted-foreground font-mono">
+                <p className="text-2xs text-muted-foreground font-mono">
                   A key is stored (masked). Type a new value to replace it.
                 </p>
               )}
@@ -204,7 +204,7 @@ export default function AIProviderSection() {
                     key={m}
                     type="button"
                     onClick={() => setModel(m)}
-                    className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                    className={`text-2xs font-mono px-2 py-0.5 rounded border transition-colors ${
                       model === m
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground hover:border-primary/40'
@@ -214,7 +214,7 @@ export default function AIProviderSection() {
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-muted-foreground font-mono">
+              <p className="text-2xs text-muted-foreground font-mono">
                 Leave empty to use the code default ({DEFAULT_MODEL}). Any valid OpenRouter slug works.
               </p>
             </div>

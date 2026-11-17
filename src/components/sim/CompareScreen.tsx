@@ -127,7 +127,7 @@ export function CompareScreen() {
         </p>
       </div>
       {delta !== null && (
-        <span className={cn('shrink-0 font-mono text-xs font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-green-500')} data-testid="sticky-delta">
+        <span className={cn('shrink-0 font-mono text-xs font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-success')} data-testid="sticky-delta">
           {formatGap(delta)} s
         </span>
       )}
@@ -208,7 +208,7 @@ export function CompareScreen() {
                 <p className="text-xs text-muted-foreground">{goal === 'race'
                   ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
                   : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
-                {conditionDifferences.length > 0 && <p className="text-xs text-amber-500" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
+                {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
                 <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />
               </div>
             )}

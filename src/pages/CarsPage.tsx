@@ -257,7 +257,7 @@ export default function CarsPage() {
                           <span className="block truncate text-sm font-semibold">{headline}</span>
                           {car.trim && <span className="mt-0.5 block text-xs text-muted-foreground">{car.trim}</span>}
                           {car.vin && (
-                            <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
+                            <span className="mt-0.5 block truncate font-mono text-2xs text-muted-foreground">
                               {t('vehicle.vinShort', 'Chassis')} {car.vin}
                             </span>
                           )}

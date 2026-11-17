@@ -19,8 +19,8 @@ import { ReadCodesButton } from '@/components/ReadCodesButton';
 
 const URGENCY_STYLE: Record<Urgency, string> = {
   urgent: 'bg-destructive/15 text-destructive border-destructive/30',
-  soon: 'bg-warn/15 text-warn border-warn/30',
-  watch: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30',
+  soon: 'bg-warn/15 text-warn border-warn-line',
+  watch: 'bg-warn/15 text-warn border-warn-line',
   later: 'bg-muted text-muted-foreground border-border',
 };
 
@@ -324,7 +324,7 @@ function ProblemCard({ issue, acting, formatDate, onAct }: {
 function ProblemDate({ icon, label, ago, date }: { icon: ReactNode; label: string; ago: string; date: string }) {
   return (
     <div className="rounded-lg border border-border bg-background/50 px-3 py-2">
-      <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{icon} {label}</p>
+      <p className="flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">{icon} {label}</p>
       <p className="mt-0.5 text-base font-semibold first-letter:uppercase">{ago}</p>
       <p className="text-xs text-muted-foreground">{date}</p>
     </div>

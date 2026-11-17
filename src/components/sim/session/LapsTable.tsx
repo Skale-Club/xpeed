@@ -104,7 +104,7 @@ export function LapsTable({ laps, best, pb, shareLabel, shareTitle, deleting, on
             return (
               <li
                 key={lap.id}
-                className={cn('rounded-md border p-3', isBest ? 'border-green-500/60 bg-green-500/10' : 'border-border bg-card', isWorst && 'border-l-2 border-l-orange-500/70')}
+                className={cn('rounded-md border p-3', isBest ? 'border-success/60 bg-success-soft' : 'border-border bg-card', isWorst && 'border-l-2 border-l-warn/70')}
                 data-testid="lap-card"
                 data-lap-id={lap.id}
                 data-best={isBest ? 'true' : undefined}
@@ -113,12 +113,12 @@ export function LapsTable({ laps, best, pb, shareLabel, shareTitle, deleting, on
                 <Link to={compareUrl(lap.id)} aria-label={`${analyze} ${lap.lapNumber}`} className="flex min-h-10 items-center justify-between gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="lap-card-link">
                   <span className="flex flex-col">
                     <span className="text-xs text-muted-foreground">{t('modes.compare.lapN', 'Lap {{n}}', { n: lap.lapNumber })}</span>
-                    <span className={cn('font-mono text-2xl font-bold tabular-nums', !lap.valid && 'text-muted-foreground line-through decoration-muted-foreground/50', isBest && 'text-green-500')} data-testid="lap-time">{formatLapTime(lap.timeMs)}</span>
+                    <span className={cn('font-mono text-2xl font-bold tabular-nums', !lap.valid && 'text-muted-foreground line-through decoration-muted-foreground/50', isBest && 'text-success')} data-testid="lap-time">{formatLapTime(lap.timeMs)}</span>
                   </span>
                   <span className="flex flex-col items-end gap-1 text-right">
                     <span className="font-mono text-sm tabular-nums text-muted-foreground" data-testid="lap-gap">{gap !== null && !isBest ? formatGap(gap) : '–'}</span>
                     {isBest && <Badge>{tagLabels.best}</Badge>}
-                    {isWorst && <span className="text-xs text-orange-500" data-testid="lap-worst">{t('sessionsDash.session.slowest', 'slowest')}</span>}
+                    {isWorst && <span className="text-xs text-warn" data-testid="lap-worst">{t('sessionsDash.session.slowest', 'slowest')}</span>}
                   </span>
                 </Link>
                 {tags.length > 0 && (
@@ -180,7 +180,7 @@ export function LapsTable({ laps, best, pb, shareLabel, shareTitle, deleting, on
               const gap = gapToBest(lap, best);
               const tags = lapTags(lap, best?.id ?? null, pb?.lapId ?? null);
               return (
-                <tr key={lap.id} className={cn('border-t border-border', isBest && 'bg-green-500/5')} data-testid="session-lap" data-lap-id={lap.id}>
+                <tr key={lap.id} className={cn('border-t border-border', isBest && 'bg-success/5')} data-testid="session-lap" data-lap-id={lap.id}>
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-card py-1.5 pr-2 tabular-nums">{lap.lapNumber}</td>
                   <td className={cn('whitespace-nowrap py-1.5 pr-3 text-right font-mono tabular-nums', !lap.valid && 'text-muted-foreground line-through decoration-muted-foreground/50')} data-testid="lap-time">{formatLapTime(lap.timeMs)}</td>
                   <td className="whitespace-nowrap py-1.5 pr-3 text-right font-mono tabular-nums text-muted-foreground" data-testid="lap-gap">

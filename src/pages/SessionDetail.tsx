@@ -40,8 +40,8 @@ type SessionWithStoredCsv = Session & { source_csv?: string | null; active_dtcs?
 
 const URGENCY_STYLE = {
   urgent: 'bg-destructive/15 text-destructive border-destructive/30',
-  soon: 'bg-warn/15 text-warn border-warn/30',
-  watch: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30',
+  soon: 'bg-warn/15 text-warn border-warn-line',
+  watch: 'bg-warn/15 text-warn border-warn-line',
   later: 'bg-muted text-muted-foreground border-border',
 } as const;
 
@@ -202,7 +202,7 @@ export default function SessionDetail() {
                   <div key={label} className="text-center">
                     <Icon className="w-4 h-4 mx-auto text-muted-foreground" />
                     <p className="font-semibold tabular-nums">{value}</p>
-                    <p className="text-[11px] text-muted-foreground">{label}</p>
+                    <p className="text-2xs text-muted-foreground">{label}</p>
                   </div>
                 ))}
               </div>

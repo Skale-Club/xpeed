@@ -297,7 +297,7 @@ export default function ScannerPage() {
                     {dtcs && (
                       <div className="space-y-2">
                         {(dtcs.pending.length > 0 || dtcs.permanent.length > 0) && (
-                          <div className="flex flex-wrap gap-1.5 text-[11px]">
+                          <div className="flex flex-wrap gap-1.5 text-2xs">
                             {dtcs.pending.map((c) => (
                               <Badge key={`p-${c}`} variant="outline" className="font-mono">{c} · {t('scanner.pending', 'pending')}</Badge>
                             ))}

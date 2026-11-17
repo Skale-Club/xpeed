@@ -4,6 +4,8 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { CHART_SERIES } from '@/lib/chart-palette';
+import { tokenColor } from '@/lib/design-tokens';
 import { CANONICAL_PARAMS, PRIUS_PRIORITY_KEYS } from '@/lib/canonical-params';
 
 interface ParameterChartProps {
@@ -18,14 +20,7 @@ interface ParameterChartProps {
   criticalMin?: number | null;
 }
 
-const CHART_COLORS = [
-  'hsl(174, 72%, 46%)',   // teal
-  'hsl(210, 80%, 55%)',   // blue
-  'hsl(152, 60%, 42%)',   // green
-  'hsl(270, 60%, 60%)',   // purple
-  'hsl(38, 92%, 55%)',    // amber
-  'hsl(340, 70%, 55%)',   // pink
-];
+const CHART_COLORS = CHART_SERIES;
 
 export function ParameterChart({
   rows, parameterKey, canonicalKey, label, unit,
@@ -68,42 +63,42 @@ export function ParameterChart({
       <CardContent className="p-2">
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 14%, 18%)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis
               dataKey="x"
-              tick={{ fontSize: 9, fill: 'hsl(215, 12%, 55%)' }}
-              axisLine={{ stroke: 'hsl(220, 14%, 20%)' }}
+              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+              axisLine={{ stroke: 'hsl(var(--border))' }}
               tickLine={false}
             />
             <YAxis
-              tick={{ fontSize: 9, fill: 'hsl(215, 12%, 55%)' }}
-              axisLine={{ stroke: 'hsl(220, 14%, 20%)' }}
+              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+              axisLine={{ stroke: 'hsl(var(--border))' }}
               tickLine={false}
               width={40}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'hsl(220, 18%, 13%)',
-                border: '1px solid hsl(220, 14%, 20%)',
+                backgroundColor: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
                 borderRadius: '6px',
                 fontSize: '11px',
                 fontFamily: 'JetBrains Mono',
-                color: 'hsl(210, 20%, 90%)',
+                color: 'hsl(var(--foreground))',
               }}
               labelFormatter={v => `t: ${Number(v).toFixed(1)}s`}
               formatter={(v: number) => [v.toFixed(2), label]}
             />
             {warnMax !== null && warnMax !== undefined && (
-              <ReferenceLine y={warnMax} stroke="hsl(38, 92%, 55%)" strokeDasharray="4 4" strokeOpacity={0.6} />
+              <ReferenceLine y={warnMax} stroke={tokenColor('warn')} strokeDasharray="4 4" strokeOpacity={0.6} />
             )}
             {criticalMax !== null && criticalMax !== undefined && (
-              <ReferenceLine y={criticalMax} stroke="hsl(0, 72%, 55%)" strokeDasharray="4 4" strokeOpacity={0.6} />
+              <ReferenceLine y={criticalMax} stroke={tokenColor('destructive')} strokeDasharray="4 4" strokeOpacity={0.6} />
             )}
             {warnMin !== null && warnMin !== undefined && (
-              <ReferenceLine y={warnMin} stroke="hsl(38, 92%, 55%)" strokeDasharray="4 4" strokeOpacity={0.6} />
+              <ReferenceLine y={warnMin} stroke={tokenColor('warn')} strokeDasharray="4 4" strokeOpacity={0.6} />
             )}
             {criticalMin !== null && criticalMin !== undefined && (
-              <ReferenceLine y={criticalMin} stroke="hsl(0, 72%, 55%)" strokeDasharray="4 4" strokeOpacity={0.6} />
+              <ReferenceLine y={criticalMin} stroke={tokenColor('destructive')} strokeDasharray="4 4" strokeOpacity={0.6} />
             )}
             <Line
               type="monotone"

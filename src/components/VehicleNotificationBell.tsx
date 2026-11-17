@@ -23,7 +23,7 @@ export function VehicleNotificationBell() {
     description={selectedCar?.name || t('notifications.chooseCar', 'Choose a car to see its notifications.')}
     trigger={<HeaderControl aria-label={t('notifications.open', 'Notifications: {{count}} unread', { count: unread })} title={t('notifications.title', 'Notifications')}>
       <Bell />
-      {(unread > 0 || error) && <span className="absolute right-1 top-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-destructive px-0.5 text-[8px] font-semibold leading-none text-destructive-foreground" aria-hidden="true">{unread > 99 ? '99+' : unread || '!'}</span>}
+      {(unread > 0 || error) && <span className="absolute right-1 top-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-destructive px-0.5 text-2xs font-semibold leading-none text-destructive-foreground" aria-hidden="true">{unread > 99 ? '99+' : unread || '!'}</span>}
     </HeaderControl>}>
       <div className="space-y-3">
         {loading && <p className="flex items-center gap-2 text-sm" role="status"><Loader2 className="h-4 w-4 animate-spin" />{t('notifications.loading', 'Checking saved problems…')}</p>}
@@ -45,7 +45,7 @@ export function VehicleNotificationBell() {
               {item.oil?.dueKm != null && <p className="text-xs text-muted-foreground">{t('oil.nextAt', 'Next oil change at {{value}} {{unit}}', { value: new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 0 }).format(item.oil.dueKm / (distanceUnit === 'mi' ? KM_PER_MILE : 1)), unit: distanceUnit })}</p>}
               {item.oil?.dueDate && <p className="text-xs text-muted-foreground">{item.oil.dueDate}</p>}
               {codes.length > 0 && <p className="font-mono text-xs">{codes.join(', ')}</p>}
-              <p className="text-[11px] text-muted-foreground">{item.kind === 'live' ? t('notifications.liveSource','During your trip') : item.kind === 'maintenance' ? t('nav.maintenance', 'Service history') : item.kind === 'fuel' ? t('fuel.trendTitle', 'Is consumption changing?') : item.kind === 'problem' ? t('notifications.savedSource', 'Saved problem') : t('notifications.scanSource', 'Code reading')} · {Number.isFinite(date.getTime()) ? formatAppDate(date, i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
+              <p className="text-2xs text-muted-foreground">{item.kind === 'live' ? t('notifications.liveSource','During your trip') : item.kind === 'maintenance' ? t('nav.maintenance', 'Service history') : item.kind === 'fuel' ? t('fuel.trendTitle', 'Is consumption changing?') : item.kind === 'problem' ? t('notifications.savedSource', 'Saved problem') : t('notifications.scanSource', 'Code reading')} · {Number.isFinite(date.getTime()) ? formatAppDate(date, i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</p>
               <span className="flex items-center gap-1 pt-1 text-xs font-medium text-primary">{t('notifications.openDetails', 'View details')}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span>
             </Link>
             {!item.read && <button className="mt-2 text-xs text-primary hover:underline" onClick={() => markRead(item.source)}>{t('notifications.read', 'Mark as read')}</button>}

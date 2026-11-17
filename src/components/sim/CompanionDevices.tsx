@@ -98,7 +98,7 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
         </div>
         {activity && activityText ? (
           <p className={cn('flex gap-1.5 text-sm', activity.kind === 'needs_setup' ? 'items-start' : 'items-center')} data-testid="device-activity" data-activity={activity.kind}>
-            {activity.kind === 'idle' ? <Pause className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : activity.kind === 'needs_setup' ? <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" /> : <Gamepad2 className={cn('h-4 w-4 shrink-0', activity.kind === 'connected' ? 'text-success' : 'text-muted-foreground')} aria-hidden="true" />}
+            {activity.kind === 'idle' ? <Pause className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : activity.kind === 'needs_setup' ? <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden="true" /> : <Gamepad2 className={cn('h-4 w-4 shrink-0', activity.kind === 'connected' ? 'text-success' : 'text-muted-foreground')} aria-hidden="true" />}
             <span className={cn('min-w-0', activity.kind === 'needs_setup' ? 'break-words' : 'truncate')}>{activityText}</span>
           </p>
         ) : state !== 'online' && (
@@ -108,7 +108,7 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
         )}
         {problems.map((problem) => (
           <p key={problem.kind} className="flex items-start gap-1.5 text-sm" data-testid="device-problem" data-problem={problem.kind}>
-            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden="true" />
             <span className="min-w-0 break-words">{problemText(t, problem)}</span>
           </p>
         ))}

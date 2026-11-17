@@ -92,20 +92,20 @@ export function AdaptiveMetricsSection({ engineType, latestSession }: AdaptiveMe
             <Card
               key={metric.canonical_key}
               className={`bg-card border ${
-                tone === 'critical' ? 'border-destructive/60' : tone === 'warn' ? 'border-yellow-500/50' : 'border-border'
+                tone === 'critical' ? 'border-destructive/60' : tone === 'warn' ? 'border-warn/50' : 'border-border'
               }`}
             >
               <CardContent className="px-3 py-2.5">
                 <p className="text-xs text-muted-foreground truncate">{t(`dashboard.metric.${metric.canonical_key}`, metric.label)}</p>
                 <p
                   className={`text-xl font-bold mt-0.5 ${
-                    tone === 'critical' ? 'text-destructive' : tone === 'warn' ? 'text-yellow-500' : 'text-foreground'
+                    tone === 'critical' ? 'text-destructive' : tone === 'warn' ? 'text-warn' : 'text-foreground'
                   }`}
                 >
                   {text}
                   <span className="text-xs font-normal text-muted-foreground ml-1">{unit}</span>
                 </p>
-                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{t(`dashboard.valueType.${metric.valueType}`, metric.valueType)}</p>
+                <p className="text-2xs text-muted-foreground/70 mt-0.5">{t(`dashboard.valueType.${metric.valueType}`, metric.valueType)}</p>
               </CardContent>
             </Card>
           );

@@ -41,7 +41,7 @@ export function AndroidAppDownload({ className, onDownload }: { className?: stri
           { text: t('install.android.step4', 'Tap Install, then Open, and sign in with the same account.') },
         ]}
       />
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-2xs text-muted-foreground">
         {t('install.android.playStore', "Android may warn that the app isn't from the Play Store. That's expected: it comes straight from Xpeed's site.")}
       </p>
     </div>

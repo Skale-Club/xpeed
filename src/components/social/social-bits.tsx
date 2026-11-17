@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { cleanName, driverPath, VISIBILITIES, type Visibility } from '@/lib/sim/social-client';
 import { VISIBILITY_SHOWS, atHandle, avatarHue, initialsOf } from './social-utils';
 
-const AVATAR_SIZE = { sm: 'h-7 w-7 text-[11px]', md: 'h-9 w-9 text-sm', lg: 'h-14 w-14 text-xl', xl: 'h-16 w-16 text-2xl' } as const;
+const AVATAR_SIZE = { sm: 'h-7 w-7 text-2xs', md: 'h-9 w-9 text-sm', lg: 'h-14 w-14 text-xl', xl: 'h-16 w-16 text-2xl' } as const;
 
 /** A round avatar with the driver's initials, in a colour that is always the same for the same handle. Decorative: the name is written next to it. */
 export function Avatar({ handle, displayName, size = 'md', className }: { handle: string; displayName?: string | null; size?: keyof typeof AVATAR_SIZE; className?: string }) {

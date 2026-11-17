@@ -215,7 +215,7 @@ export function ProfileSettings() {
                 </Button>
                 {saved && !dirty && (
                   <span className="flex items-center gap-1.5 text-sm text-muted-foreground" role="status" data-testid="profile-saved">
-                    <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden /> {t('social.profile.saved', 'Saved')}
+                    <CheckCircle2 className="h-4 w-4 text-success" aria-hidden /> {t('social.profile.saved', 'Saved')}
                   </span>
                 )}
               </div>

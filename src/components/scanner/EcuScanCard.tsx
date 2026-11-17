@@ -92,7 +92,7 @@ export function EcuScanCard({ findEcus, sweepMode21 }: Props) {
         {progress && (
           <div className="space-y-1">
             <Progress value={(progress.done / progress.total) * 100} className="h-1.5" />
-            <p className="text-[11px] text-muted-foreground font-mono">{progress.label} {progress.done}/{progress.total}</p>
+            <p className="text-2xs text-muted-foreground font-mono">{progress.label} {progress.done}/{progress.total}</p>
           </div>
         )}
 
@@ -120,7 +120,7 @@ export function EcuScanCard({ findEcus, sweepMode21 }: Props) {
               </div>
             )}
             {silent > 0 && (
-              <p className="text-[11px] text-muted-foreground">{t('scanner.scan.silent', '{{count}} addresses did not answer.', { count: silent })}</p>
+              <p className="text-2xs text-muted-foreground">{t('scanner.scan.silent', '{{count}} addresses did not answer.', { count: silent })}</p>
             )}
           </div>
         )}
@@ -138,7 +138,7 @@ export function EcuScanCard({ findEcus, sweepMode21 }: Props) {
                 </Button>
               )}
             </div>
-            <div className="rounded-md border border-border bg-muted/30 p-2 max-h-80 overflow-auto font-mono text-[11px] space-y-1">
+            <div className="rounded-md border border-border bg-muted/30 p-2 max-h-80 overflow-auto font-mono text-2xs space-y-1">
               {hits.map((h) => (
                 <div key={h.command} className="flex gap-2">
                   <span className="text-primary shrink-0">{h.command}</span>

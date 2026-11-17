@@ -160,7 +160,7 @@ export default function OAuthAuthorize() {
             </div>
             <div>
               <h1 className="text-sm font-semibold text-foreground">Authorize Connection</h1>
-              <p className="text-[10px] text-muted-foreground font-mono">Xpeed MCP Server</p>
+              <p className="text-2xs text-muted-foreground font-mono">Xpeed MCP Server</p>
             </div>
           </div>
 
@@ -170,18 +170,18 @@ export default function OAuthAuthorize() {
               to your Xpeed vehicle data via the MCP API.
             </p>
             <p>This will allow it to:</p>
-            <ul className="list-disc list-inside space-y-1 ml-2 text-[11px]">
+            <ul className="list-disc list-inside space-y-1 ml-2 text-2xs">
               <li>List your vehicle profiles</li>
               <li>Read your diagnostic sessions and AI analyses</li>
               <li>Read maintenance logs and diagnostic flags</li>
             </ul>
-            <p className="text-[10px] pt-1">
+            <p className="text-2xs pt-1">
               Access is <strong>read-only</strong> and tied to your account ({user.email}).
               You can revoke access at any time.
             </p>
           </div>
 
-          <div className="text-[10px] font-mono text-muted-foreground bg-muted/30 rounded p-2 space-y-1">
+          <div className="text-2xs font-mono text-muted-foreground bg-muted/30 rounded p-2 space-y-1">
             <div className="flex items-center gap-1 text-foreground">
               <ExternalLink className="w-3 h-3" />
               <span className="font-semibold">Redirect target</span>

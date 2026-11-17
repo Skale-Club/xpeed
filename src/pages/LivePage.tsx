@@ -349,7 +349,7 @@ function LayoutEditor({ widgets, available, byHeader, hasBlocks, onChange }: {
             {t('live.add', 'Add')}
           </Button>
         </div>
-        {available.length === 0 && <p className="text-[11px] text-muted-foreground">{t('live.connectFirst', 'Connect the adapter to list the parameters your car reports.')}</p>}
+        {available.length === 0 && <p className="text-2xs text-muted-foreground">{t('live.connectFirst', 'Connect the adapter to list the parameters your car reports.')}</p>}
       </div>
 
       <Button variant="ghost" onClick={() => onChange(null)}>
