@@ -367,6 +367,17 @@
       "leaderboardsTab": "Ranking",
       "privacy": "Privacidade",
       "profile": "Perfil"
+    },
+    "choose": {
+      "title": "Escolha seu nome de usuário",
+      "body": "É assim que os outros pilotos encontram você e veem você nos rankings. Seu e-mail e o nome da sua conta nunca aparecem.",
+      "handle": "Nome de usuário",
+      "handlePlaceholder": "ana_veloz",
+      "handleHelp": "De 3 a 24 caracteres: a a z, 0 a 9 e _. Você pode trocar depois, 3 vezes em 30 dias.",
+      "handleEmpty": "Escolha um nome de usuário para continuar.",
+      "displayName": "Nome de exibição (opcional)",
+      "displayNameHelp": "Aparece ao lado do seu nome de usuário. Se ficar vazio, usamos o nome de usuário.",
+      "save": "Continuar"
     }
   },
   "trends": {

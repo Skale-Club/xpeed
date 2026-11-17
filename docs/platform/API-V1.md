@@ -256,7 +256,7 @@ Laps count on any board, profile page or share only when they are `valid`, `plau
 
 ## Profile
 
-**Own profile** `{ handle, displayName, visibility, createdAt, handleChangesLeft (0-3), handleChangesResetAt | null }`.
+**Own profile** `{ handle, handleChosen, displayName, visibility, createdAt, handleChangesLeft (0-3), handleChangesResetAt | null }`.
 **Driver page** `{ handle, displayName, joinedAt, isMe, relation: "self" | "friend" | "requested" | "incoming" | "none", visibility (the owner only, else null),
 gamesPlayed: [game], personalBestsCount, bestLaps: [{ lapId, game, track: {id, name}, car: {id, name}, timeMs, achievedAt }] }` (the 5 most
 recent personal bests that count).
@@ -264,14 +264,16 @@ recent personal bests that count).
 ### `GET /profile`
 `{ "profile": <own profile> }`. Created now when it does not exist: handle `driver_` plus six letters and digits (no look-alikes), display
 name `Driver ` plus the first four of them in capitals, visibility `public`. Nothing is derived from the e-mail, the phone or the account's
-name. The first uploaded lap creates it too.
+name. The first uploaded lap creates it too. The generated handle is a placeholder: `handleChosen` is `false` until the person sends a
+handle with `PATCH /profile`, and the site asks for a username before any Virtual screen while it is.
 
 ### `PATCH /profile`
 Body: any of `handle`, `displayName`, `visibility` (other fields are `400 invalid_request`; none is `400 invalid_request`).
 Answer `{ "profile": <own profile> }`.
 - `handle`: trimmed and lower-cased; 3 to 24 characters of `a-z0-9_`; not reserved (`admin`, `support`, `xpeed...`, `moderator...`, `staff...`,
   `driver`, `me`, `requests`, ... see `RESERVED_HANDLES` in `api/sim/_social.ts`); not taken (`409 handle_taken`, which is not counted).
-  A change to the handle you already have is not a change. **3 changes per 30 days**: the 4th is `429 handle_change_limit` with
+  A change to the handle you already have is not a change. The first handle sent (while `handleChosen` is `false`, even the generated one
+  kept on purpose) is the person's choice: it sets `handleChosen` and is not counted. After that, **3 changes per 30 days**: the 4th is `429 handle_change_limit` with
   `Retry-After` until the oldest of the three leaves the window. The generated handle is not a change.
 - `displayName`: trimmed, 1 to 40 characters, no control or invisible formatting characters, nothing that looks like an e-mail address.
 - `visibility`: `public`, `friends` or `private`; takes effect at once everywhere.
