@@ -111,7 +111,7 @@ describe('the golden track', () => {
 describe('a file that is not exactly the spec', () => {
   it.each<[string, (b: Uint8Array) => void, TrackFormatCode]>([
     ['another magic', (b) => { b[0] = 0x59; }, 'bad_magic'],
-    ['a newer version', (b) => { b[4] = 2; }, 'bad_version'],
+    ['a newer version', (b) => { b[4] = 3; }, 'bad_version'],
     ['flags set', (b) => { b[6] = 1; }, 'bad_flags'],
     ['a header size that is not a multiple of 4', (b) => { b[8] = 0x87; }, 'bad_length'],
     ['a header that is not an object', (b) => { b[12] = 0x5b; }, 'bad_header'],
@@ -173,5 +173,125 @@ describe('the header', () => {
     const header = base();
     mutate(header);
     expect(codeOf(() => parseTrackHeader(header))).toMatch(/^bad_(header|section)$/);
+  });
+});
+
+/** Synthetic sampled edges deliberately do not follow the midpoint's local normals. No game files are used. */
+function sampledFixture() {
+  const columns = {
+    centerline: { x: [0, 10, 10, 0], y: [0, 0, 0, 0], z: [0, 0, 10, 10], dist: [0, 10, 20, 30], left: [NaN, NaN, NaN, NaN], right: [NaN, NaN, NaN, NaN] },
+    boundaries: { left_x: [-4, 7, 8, -2], left_z: [-2, -5, 13, 12], right_x: [3, 14, 15, 4], right_z: [1, 2, 8, 7] },
+  };
+  const header = {
+    game: 'acevo', track: { name: 'Synthetic bends' }, source: 'synthetic native edges', frame: 'game world metres',
+    closed: true, centerKind: 'edges_midpoint',
+    sections: Object.entries(columns).map(([id, channels]) => ({ id, count: 4, channels: Object.keys(channels) })),
+  };
+  const pack = (version = 2) => {
+    const json = new TextEncoder().encode(JSON.stringify(header));
+    const headerSize = Math.ceil(json.length / 4) * 4;
+    const values = Object.values(columns).flatMap((section) => Object.values(section).flat());
+    const bytes = new Uint8Array(12 + headerSize + values.length * 4);
+    bytes.set(new TextEncoder().encode('XTRK'));
+    const view = new DataView(bytes.buffer);
+    view.setUint16(4, version, true);
+    view.setUint32(8, headerSize, true);
+    bytes.fill(32, 12, 12 + headerSize);
+    bytes.set(json, 12);
+    values.forEach((value, index) => view.setFloat32(12 + headerSize + index * 4, value, true));
+    return bytes;
+  };
+  return { header, columns, pack };
+}
+
+describe('version 2 sampled boundaries', () => {
+  it('preserves asymmetric, non-normal edges exactly even with unknown centre widths', () => {
+    const fixture = sampledFixture();
+    const track = unpackTrack(fixture.pack());
+    expect(track.centerline.left.every(Number.isNaN)).toBe(true);
+    expect([...track.boundaries!.left_x]).toEqual(fixture.columns.boundaries.left_x);
+    const { runs, closedRing } = roadRuns(track);
+    expect(runs).toEqual([{
+      left: [[-4, -2], [7, -5], [8, 13], [-2, 12]],
+      right: [[3, 1], [14, 2], [15, 8], [4, 7]],
+    }]);
+    expect(closedRing).toBe(true);
+    track.header.closed = false;
+    expect(roadRuns(track).closedRing).toBe(false);
+  });
+
+  it('splits on unknown boundary rows, without substituting the centre widths or bridging the gap', () => {
+    const fixture = sampledFixture();
+    Object.values(fixture.columns.boundaries).forEach((values) => { values[1] = NaN; });
+    fixture.columns.centerline.left.fill(5);
+    fixture.columns.centerline.right.fill(5);
+    const { runs, closedRing } = roadRuns(unpackTrack(fixture.pack()));
+    expect(runs.map((run) => run.left)).toEqual([[[-4, -2]], [[8, 13], [-2, 12]]]);
+    expect(closedRing).toBe(false);
+    Object.values(fixture.columns.boundaries).forEach((values) => values.fill(NaN));
+    expect(roadRuns(unpackTrack(fixture.pack()))).toEqual({ runs: [], closedRing: false });
+  });
+
+  it('accepts edges at the distance limits and distinct edges coincident with the centre', () => {
+    const fixture = sampledFixture();
+    fixture.columns.boundaries.left_x[0] = -200;
+    fixture.columns.boundaries.left_z[0] = 0;
+    fixture.columns.boundaries.right_x[0] = 200;
+    fixture.columns.boundaries.right_z[0] = 0;
+    expect(codeOf(() => unpackTrack(fixture.pack()))).toBe('no error');
+    fixture.columns.boundaries.left_x[0] = 0;
+    expect(codeOf(() => unpackTrack(fixture.pack()))).toBe('no error');
+  });
+
+  it.each<[string, (fixture: ReturnType<typeof sampledFixture>) => void]>([
+    ['a partial unknown row', ({ columns }) => { columns.boundaries.left_x[0] = NaN; }],
+    ['infinite coordinates', ({ columns }) => { columns.boundaries.right_z[0] = Infinity; }],
+    ['a left edge too far from the centre', ({ columns }) => { columns.boundaries.left_x[0] = -201; }],
+    ['a right edge too far from the centre', ({ columns }) => { columns.boundaries.right_x[0] = 201; }],
+    ['coincident edges', ({ columns }) => {
+      columns.boundaries.right_x[0] = columns.boundaries.left_x[0];
+      columns.boundaries.right_z[0] = columns.boundaries.left_z[0];
+    }],
+  ])('refuses %s', (_what, mutate) => {
+    const fixture = sampledFixture();
+    mutate(fixture);
+    expect(codeOf(() => unpackTrack(fixture.pack()))).toBe('bad_data');
+  });
+
+  it.each<[string, (fixture: ReturnType<typeof sampledFixture>) => void]>([
+    ['missing boundaries', ({ header }) => { header.sections.pop(); }],
+    ['a mismatched count', ({ header }) => { header.sections[1].count = 3; }],
+    ['reordered channels', ({ header }) => { header.sections[1].channels.reverse(); }],
+    ['extra channels', ({ header }) => { header.sections[1].channels.push('y'); }],
+    ['boundaries before centerline', ({ header }) => { header.sections.reverse(); }],
+    ['boundaries before fast', ({ header }) => { header.sections.push({ id: 'fast', count: 4, channels: ['x', 'z'] }); }],
+    ['duplicate boundaries', ({ header }) => { header.sections.push(header.sections[1]); }],
+  ])('refuses %s in the header and the file', (_what, mutate) => {
+    const fixture = sampledFixture();
+    mutate(fixture);
+    expect(codeOf(() => parseTrackHeader(fixture.header, 2))).toBe('bad_section');
+    expect(codeOf(() => unpackTrack(fixture.pack()))).toBe('bad_section');
+  });
+
+  it('allows optional fast and pitlane sections before the final boundaries', () => {
+    const fixture = sampledFixture();
+    fixture.header.sections.splice(1, 0,
+      { id: 'fast', count: 4, channels: ['x', 'z'] },
+      { id: 'pitlane', count: 2, channels: ['x', 'z', 'left', 'right'] });
+    expect(parseTrackHeader(fixture.header, 2).sections.map((section) => section.id)).toEqual(['centerline', 'fast', 'pitlane', 'boundaries']);
+  });
+
+  it('requires v2 boundaries and forbids them in v1, accepting no other versions', () => {
+    const fixture = sampledFixture();
+    expect(codeOf(() => unpackTrack(fixture.pack(1)))).toBe('bad_section');
+    expect(codeOf(() => parseTrackHeader(fixture.header))).toBe('bad_section');
+    for (const version of [0, 3, 65535]) {
+      expect(codeOf(() => unpackTrack(fixture.pack(version)))).toBe('bad_version');
+      expect(codeOf(() => parseTrackHeader(fixture.header, version))).toBe('bad_version');
+    }
+    const upgradedV1 = copy(goldenBytes());
+    new DataView(upgradedV1.buffer).setUint16(4, 2, true);
+    expect(codeOf(() => unpackTrack(upgradedV1))).toBe('bad_section');
+    expect(unpackTrack(goldenBytes()).boundaries).toBeUndefined();
   });
 });

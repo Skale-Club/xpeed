@@ -24,6 +24,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 pub mod ac;
+pub mod acevo;
 pub mod aiw;
 pub mod auto;
 pub mod dump;
@@ -31,6 +32,7 @@ pub mod preview;
 
 pub const MAGIC: &[u8; 4] = b"XTRK";
 pub const VERSION: u16 = 1;
+pub const BOUNDARIES_VERSION: u16 = 2;
 const PREAMBLE: usize = 12;
 /// Most points in one section. The longest real track found is 66468 points (a 50 km hill climb).
 pub const MAX_POINTS: usize = 200_000;
@@ -54,7 +56,11 @@ pub const PITLANE: Section = Section {
     id: "pitlane",
     channels: &["x", "z", "left", "right"],
 };
-const SECTIONS: [Section; 3] = [CENTERLINE, FAST, PITLANE];
+pub const BOUNDARIES: Section = Section {
+    id: "boundaries",
+    channels: &["left_x", "left_z", "right_x", "right_z"],
+};
+const SECTIONS: [Section; 4] = [CENTERLINE, FAST, PITLANE, BOUNDARIES];
 
 #[derive(Clone, Copy)]
 pub struct Section {
@@ -92,6 +98,14 @@ pub struct Pitlane {
 }
 
 #[derive(Debug, Clone)]
+pub struct Boundaries {
+    pub left_x: Vec<f32>,
+    pub left_z: Vec<f32>,
+    pub right_x: Vec<f32>,
+    pub right_z: Vec<f32>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Track {
     pub game: String,
     pub name: String,
@@ -110,6 +124,8 @@ pub struct Track {
     pub centerline: Centerline,
     pub fast: Option<Fast>,
     pub pitlane: Option<Pitlane>,
+    /// Explicit native road edges, point for point with centerline. Requires XTRK v2.
+    pub boundaries: Option<Boundaries>,
 }
 
 #[derive(Debug)]
@@ -356,6 +372,9 @@ fn columns(track: &Track) -> Vec<(Section, usize, Vec<&[f32]>)> {
     if let Some(p) = &track.pitlane {
         out.push((PITLANE, p.x.len(), vec![&p.x[..], &p.z, &p.left, &p.right]));
     }
+    if let Some(b) = &track.boundaries {
+        out.push((BOUNDARIES, b.left_x.len(), vec![&b.left_x, &b.left_z, &b.right_x, &b.right_z]));
+    }
     out
 }
 
@@ -439,6 +458,30 @@ pub fn check(track: &Track) -> Result<(), TrackError> {
         }
     }
     check_widths("centre line", &c.left, &c.right)?;
+    if let Some(b) = &track.boundaries {
+        if [&b.left_x, &b.left_z, &b.right_x, &b.right_z].iter().any(|v| v.len() != n) {
+            return err("bad_section", "boundaries need one point for each centerline point");
+        }
+        for i in 0..n {
+            let row = [b.left_x[i], b.left_z[i], b.right_x[i], b.right_z[i]];
+            if row.iter().all(|v| v.is_nan()) {
+                continue;
+            }
+            if !row.iter().all(|v| v.is_finite()) {
+                return err("bad_data", "boundary row must be four finite coordinates or four NaNs");
+            }
+            let (x, z) = (f64::from(c.x[i]), f64::from(c.z[i]));
+            let l = (f64::from(row[0]) - x).hypot(f64::from(row[1]) - z);
+            let r = (f64::from(row[2]) - x).hypot(f64::from(row[3]) - z);
+            let span = (f64::from(row[0]) - f64::from(row[2])).hypot(f64::from(row[1]) - f64::from(row[3]));
+            if l > f64::from(MAX_SIDE_M) || r > f64::from(MAX_SIDE_M) || span <= 0.0 {
+                return err(
+                    "bad_data",
+                    "boundary edges must differ and lie within 200 m of their centerline point",
+                );
+            }
+        }
+    }
     if track.closed {
         let gap = (f64::from(c.x[0]) - f64::from(c.x[n - 1])).hypot(f64::from(c.z[0]) - f64::from(c.z[n - 1]));
         if gap > MAX_CLOSE_GAP_M {
@@ -499,7 +542,8 @@ pub fn pack(track: &Track) -> Result<Vec<u8>, TrackError> {
     let floats: usize = sections.iter().map(|(s, count, _)| s.channels.len() * count).sum();
     let mut out = Vec::with_capacity(PREAMBLE + header_bytes + floats * 4);
     out.extend_from_slice(MAGIC);
-    out.extend_from_slice(&VERSION.to_le_bytes());
+    let version = if track.boundaries.is_some() { BOUNDARIES_VERSION } else { VERSION };
+    out.extend_from_slice(&version.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes());
     out.extend_from_slice(&(header_bytes as u32).to_le_bytes());
     out.extend_from_slice(text.as_bytes());
@@ -554,7 +598,8 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
     if &bytes[0..4] != MAGIC {
         return err("bad_magic", "not a track file");
     }
-    if u16_at(bytes, 4) != VERSION {
+    let version = u16_at(bytes, 4);
+    if version != VERSION && version != BOUNDARIES_VERSION {
         return err("bad_version", format!("unsupported track file version {}", u16_at(bytes, 4)));
     }
     if u16_at(bytes, 6) != 0 {
@@ -574,7 +619,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
         message: "sections is missing".into(),
     })?;
     if list.is_empty() || list.len() > SECTIONS.len() {
-        return err("bad_section", "a track has 1 to 3 sections");
+        return err("bad_section", "a track has 1 to 4 sections");
     }
     // The sections come in the fixed order centerline, fast, pitlane, each at most once.
     let mut counts: Vec<(Section, usize)> = Vec::new();
@@ -604,6 +649,13 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
     if counts[0].0.id != CENTERLINE.id {
         return err("bad_section", "the first section must be the centre line");
     }
+    let boundaries_count = counts.iter().find(|(s, _)| s.id == BOUNDARIES.id).map(|(_, n)| *n);
+    if (version == VERSION && boundaries_count.is_some()) || (version == BOUNDARIES_VERSION && boundaries_count.is_none()) {
+        return err("bad_section", "boundaries are required in version 2 and forbidden in version 1");
+    }
+    if boundaries_count.is_some_and(|n| n != counts[0].1) {
+        return err("bad_section", "boundaries need one point for each centerline point");
+    }
     let floats: usize = counts.iter().map(|(s, count)| s.channels.len() * count).sum();
     if bytes.len() != PREAMBLE + header_bytes + floats * 4 {
         return err("bad_length", "the file size does not match its header");
@@ -623,6 +675,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
     let mut centerline = Centerline::default();
     let mut fast = None;
     let mut pitlane = None;
+    let mut boundaries = None;
     for (section, count) in &counts {
         match section.id {
             "centerline" => {
@@ -641,7 +694,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
                     z: read(*count),
                 })
             }
-            _ => {
+            "pitlane" => {
                 pitlane = Some(Pitlane {
                     x: read(*count),
                     z: read(*count),
@@ -649,6 +702,15 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
                     right: read(*count),
                 })
             }
+            "boundaries" => {
+                boundaries = Some(Boundaries {
+                    left_x: read(*count),
+                    left_z: read(*count),
+                    right_x: read(*count),
+                    right_z: read(*count),
+                })
+            }
+            _ => unreachable!("validated section"),
         }
     }
 
@@ -669,6 +731,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Track, TrackError> {
         centerline,
         fast,
         pitlane,
+        boundaries,
     };
     check(&track)?;
     Ok(track)
@@ -759,7 +822,24 @@ impl Track {
             }
         ));
         let w = width_stats(&c.left, &c.right);
-        if w.known == 0 {
+        if let Some(b) = &self.boundaries {
+            let spans: Vec<f32> = (0..b.left_x.len())
+                .map(|i| (b.left_x[i] - b.right_x[i]).hypot(b.left_z[i] - b.right_z[i]))
+                .filter(|v| v.is_finite())
+                .collect();
+            let min = spans.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = spans.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            if spans.is_empty() {
+                out.push_str("boundaries  unknown\n");
+            } else {
+                out.push_str(&format!(
+                    "boundaries  {} explicit cross-sections, {:.1}-{:.1} m span\n",
+                    spans.len(),
+                    min,
+                    max
+                ));
+            }
+        } else if w.known == 0 {
             out.push_str("width       unknown\n");
         } else {
             out.push_str(&format!(
@@ -800,6 +880,7 @@ mod tests {
 
     pub(crate) fn golden_track() -> Track {
         Track {
+            boundaries: None,
             game: "ac".into(),
             name: "Test Track".into(),
             variant: Some("GP".into()),
@@ -846,6 +927,55 @@ mod tests {
         let bytes = pack(&golden_track()).unwrap();
         assert_eq!(bytes.len(), 564);
         assert_eq!(hex(&bytes), GOLDEN_HEX.trim());
+    }
+
+    #[test]
+    fn explicit_boundaries_round_trip_only_as_version_two() {
+        let mut track = golden_track();
+        track.boundaries = Some(Boundaries {
+            left_x: vec![-1.0, 11.0, 11.0, f32::NAN],
+            left_z: vec![-1.0, -1.0, 11.0, f32::NAN],
+            right_x: vec![1.0, 9.0, 9.0, f32::NAN],
+            right_z: vec![1.0, 1.0, 9.0, f32::NAN],
+        });
+        let mut raw = pack(&track).unwrap();
+        assert_eq!(u16_at(&raw, 4), BOUNDARIES_VERSION);
+        let back = unpack(&raw).unwrap();
+        assert_eq!(pack(&back).unwrap(), raw);
+        assert_eq!(pack(&gunzip(&gzip(&track).unwrap(), MAX_UNPACKED).unwrap()).unwrap(), raw);
+        raw[4..6].copy_from_slice(&VERSION.to_le_bytes());
+        assert_eq!(unpack(&raw).unwrap_err().code, "bad_section");
+        let mut v1 = pack(&golden_track()).unwrap();
+        v1[4..6].copy_from_slice(&BOUNDARIES_VERSION.to_le_bytes());
+        assert_eq!(unpack(&v1).unwrap_err().code, "bad_section");
+    }
+
+    #[test]
+    fn rejects_invalid_explicit_boundary_rows_and_counts() {
+        let mut track = golden_track();
+        let b = Boundaries {
+            left_x: vec![-1.; 4],
+            left_z: vec![-1.; 4],
+            right_x: vec![1.; 4],
+            right_z: vec![1.; 4],
+        };
+        track.boundaries = Some(b.clone());
+        check(&track).unwrap();
+        track.boundaries.as_mut().unwrap().left_x.pop();
+        assert_eq!(check(&track).unwrap_err().code, "bad_section");
+        track.boundaries = Some(b.clone());
+        track.boundaries.as_mut().unwrap().left_x[0] = f32::NAN;
+        assert_eq!(check(&track).unwrap_err().code, "bad_data");
+        track.boundaries = Some(b.clone());
+        track.boundaries.as_mut().unwrap().left_x[0] = f32::INFINITY;
+        assert_eq!(check(&track).unwrap_err().code, "bad_data");
+        track.boundaries = Some(b.clone());
+        track.boundaries.as_mut().unwrap().left_x[0] = 201.;
+        assert_eq!(check(&track).unwrap_err().code, "bad_data");
+        track.boundaries = Some(b);
+        track.boundaries.as_mut().unwrap().left_x[0] = 1.;
+        track.boundaries.as_mut().unwrap().left_z[0] = 1.;
+        assert_eq!(check(&track).unwrap_err().code, "bad_data");
     }
 
     #[test]
@@ -906,7 +1036,7 @@ mod tests {
         magic[0] = b'Y';
         assert_eq!(unpack(&magic).unwrap_err().code, "bad_magic");
         let mut version = good.clone();
-        version[4] = 2;
+        version[4] = 3;
         assert_eq!(unpack(&version).unwrap_err().code, "bad_version");
         let mut flags = good.clone();
         flags[6] = 1;

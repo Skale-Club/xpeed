@@ -254,8 +254,20 @@ impl Road {
             return None;
         }
         let points: Vec<Point> = c.x.iter().copied().zip(c.z.iter().copied()).collect();
+        if track.boundaries.as_ref().is_some_and(|b| {
+            [b.left_x.len(), b.left_z.len(), b.right_x.len(), b.right_z.len()]
+                .iter()
+                .any(|&n| n != count)
+        }) {
+            return None;
+        }
         let edges = (0..count)
             .map(|i| {
+                // V2 retains source cross-sections. Recomputing normals here would move EVO's borders.
+                if let Some(b) = &track.boundaries {
+                    let (left, right) = ((b.left_x[i], b.left_z[i]), (b.right_x[i], b.right_z[i]));
+                    return (finite(points[i]) && finite(left) && finite(right)).then_some((left, right));
+                }
                 if !finite(points[i]) || !c.left[i].is_finite() || !c.right[i].is_finite() || c.left[i] <= 0.0 || c.right[i] <= 0.0 {
                     return None;
                 }
@@ -438,6 +450,7 @@ mod tests {
     fn track(widths: Vec<f32>) -> crate::tracks::Track {
         let count = widths.len();
         crate::tracks::Track {
+            boundaries: None,
             game: "ac".into(),
             name: "Test track".into(),
             variant: None,
@@ -459,6 +472,34 @@ mod tests {
             pitlane: None,
         }
     }
+    #[test]
+    fn explicit_boundaries_keep_oblique_source_sections_and_missing_rows() {
+        let mut t = track(vec![f32::NAN; 30]);
+        let mut b = crate::tracks::Boundaries {
+            left_x: vec![8.0; 30],
+            left_z: (0..30).map(|i| i as f32 * 5.0 + 2.0).collect(),
+            right_x: vec![-3.0; 30],
+            right_z: (0..30).map(|i| i as f32 * 5.0 - 1.0).collect(),
+        };
+        for col in [&mut b.left_x, &mut b.left_z, &mut b.right_x, &mut b.right_z] {
+            col[10] = f32::NAN;
+        }
+        t.boundaries = Some(b);
+        let road = Road::from_track(&t).unwrap();
+        assert_eq!(road.edges[0], Some(((8.0, 2.0), (-3.0, -1.0))));
+        assert_eq!(road.edges[10], None);
+        let camera = Camera {
+            width: 736.0,
+            height: 400.0,
+            car: (0.0, 35.0),
+            heading: (0.0, 1.0),
+            mirrored: false,
+        };
+        let path = PreparedPath::new(&[(0.0, 30.0), (0.0, 35.0), (0.0, 40.0)], false);
+        let drawn = scene(camera, &path, Some(&road), &path, None);
+        assert_eq!(drawn.road.len(), 27, "no quads bridge the missing cross-section");
+    }
+
     #[test]
     fn road_retains_native_widths_and_never_fills_unknown_sections() {
         assert!(Road::from_track(&track(vec![f32::NAN; 20])).is_none());

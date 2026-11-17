@@ -111,7 +111,8 @@ USAGE:
     xpeed-companion track-dump GAME TRACK OUT.xtrk [--preview FILE.svg]
                                      Read a track's layout (centre line, road width, ideal line, pit lane) from the
                                      game's own files and write it as a track file. GAME is ac or sce; TRACK is a
-                                     folder or file of the game, or its name. Only reads the game's folders.
+                                     folder or file of the game, or its name. For acevo (offline Laguna Seca GP pilot),
+                                     TRACK is an already-extracted ideal_line.aisplinedata file. Only reads source files.
     xpeed-companion pair --server URL --code CODE [--name NAME]
                                            Connect this computer to your Xpeed account (the code comes from the app)
     xpeed-companion status                 Show whether this computer is paired
@@ -245,7 +246,7 @@ fn parse(args: &[String]) -> Result<Command, String> {
             }
         }
         Some("track-dump") => {
-            let game = rest.next().ok_or("track-dump needs a game (ac or sce)")?;
+            let game = rest.next().ok_or("track-dump needs a game (ac, sce or offline acevo pilot)")?;
             let source = rest.next().ok_or("track-dump needs a track (a folder, a file or a name)")?;
             let out = rest.next().ok_or("track-dump needs the file to write (OUT.xtrk)")?;
             let mut preview = None;

@@ -491,6 +491,68 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
     }
 }
 
+/// Local acceptance using proprietary assets kept outside the committed fixtures.
+#[test]
+#[ignore = "requires XPEED_EVO_PILOT_TRACK: a locally extracted, uncommitted EVO XTRK v2 file"]
+fn native_evo_pilot_replays_real_lap_with_source_boundaries() {
+    let path = std::env::var_os("XPEED_EVO_PILOT_TRACK").expect("set XPEED_EVO_PILOT_TRACK");
+    let track = crate::tracks::gunzip(&std::fs::read(path).unwrap(), crate::tracks::MAX_UNPACKED).unwrap();
+    assert_eq!((track.game.as_str(), track.name.as_str()), ("acevo", "Laguna Seca"));
+    assert!(track.boundaries.is_some());
+    let road = Arc::new(crate::perspective::Road::from_track(&track).expect("native source road"));
+    let layout = Arc::new(track.centerline.x.iter().copied().zip(track.centerline.z.iter().copied()).collect());
+    let lap = crate::lapfile::gunzip(
+        include_bytes!("../../fixtures/laps/acevo-real-lap-3.xlap.gz"),
+        crate::lapfile::MAX_UNPACKED,
+    )
+    .unwrap();
+    let xs = &lap.channel("x").unwrap().values;
+    let zs = &lap.channel("z").unwrap().values;
+    let times = &lap.channel("t").unwrap().values;
+    let mut tracker = crate::dash::Tracker::default();
+    let mut f = fixture();
+    f.laps.clear();
+    for target in [2500, 5500, 8000] {
+        let mut live = None;
+        for i in target - 80..=target {
+            let mut frame = Frame::empty();
+            frame.driving = true;
+            frame.phase = crate::game::Phase::Driving;
+            frame.track = lap.track_name.clone();
+            frame.car = lap.car_name.clone();
+            frame.lap = 3;
+            frame.x = -xs[i];
+            frame.z = zs[i]; // Historical recordings predate the reader's x reflection.
+            frame.speed_ms = lap.channel("speed").unwrap().values[i];
+            frame.dist_m = Some(lap.channel("dist").unwrap().values[i] as f64);
+            frame.lap_time_s = Some(times[i] as f64);
+            live = Some(tracker.on_frame("acevo", &frame, (times[i] * 1000.0) as i64));
+        }
+        let mut live = live.unwrap();
+        live.map = Some(Arc::clone(&layout));
+        live.map_complete = true;
+        live.road = Some(Arc::clone(&road));
+        let heading = live.heading.expect("motion provides heading");
+        let points = crate::perspective::PreparedPath::new(&layout, true);
+        let camera = crate::perspective::Camera {
+            width: 736.0,
+            height: 400.0,
+            car: (-xs[target], zs[target]),
+            heading,
+            mirrored: false,
+        };
+        let scene = crate::perspective::scene(camera, &points, Some(&road), &Default::default(), None);
+        assert!(
+            scene.road.len() > 20 && scene.edges.len() > 40,
+            "real source boundaries project into view"
+        );
+        let mut native_view = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        native_view.now_ms = live.at_ms;
+        let pixels = render(&native_view, 1280, 800);
+        save(&pixels, 1280, 800, &format!("panel-evo-native-{target}.png"));
+    }
+}
+
 /// The pixels of `region` (x0, y0, x1, y1) of a `width`-wide render.
 fn region_of(pixels: &[u8], width: i32, region: (i32, i32, i32, i32)) -> Vec<u8> {
     let mut out = Vec::new();

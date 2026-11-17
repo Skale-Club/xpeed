@@ -5,9 +5,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use windows_sys::Win32::Graphics::GdiPlus::{
-    CombineModeIntersect, FillModeAlternate, GdipCreateLineBrush, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeletePen,
-    GdipDrawLine, GdipDrawLines, GdipFillPolygon, GdipSetClipRect, GdipSetLinePresetBlend, GdipSetPenEndCap, GdipSetPenLineJoin,
-    GdipSetPenStartCap, GpGraphics, LineCapRound, LineJoinRound, PointF, UnitPixel, WrapModeTile,
+    CombineModeIntersect, FillModeAlternate, FillModeWinding, GdipAddPathPolygon, GdipCreateLineBrush, GdipCreatePath, GdipCreatePen1,
+    GdipCreateSolidFill, GdipDeleteBrush, GdipDeletePath, GdipDeletePen, GdipDrawLine, GdipDrawLines, GdipFillPath, GdipFillPolygon,
+    GdipSetClipRect, GdipSetLinePresetBlend, GdipSetPenEndCap, GdipSetPenLineJoin, GdipSetPenStartCap, GpGraphics, LineCapRound,
+    LineJoinRound, PointF, UnitPixel, WrapModeTile,
 };
 
 use super::*;
@@ -153,10 +154,16 @@ impl Painter {
                 let places = [0.0_f32, 0.72, 1.0];
                 GdipCreateLineBrush(&origin, &bottom, colors[0], colors[2], WrapModeTile, &mut brush);
                 GdipSetLinePresetBlend(brush, colors.as_ptr(), places.as_ptr(), 3);
+                // Fill the entire strip once: antialiasing/transparency per quad
+                // creates cracks and dark overlaps at shared source cross-sections.
+                let mut road_path = null_mut();
+                GdipCreatePath(FillModeWinding, &mut road_path);
                 for polygon in &scene.road {
                     let points: Vec<_> = polygon.iter().map(|p| to_px(*p)).collect();
-                    GdipFillPolygon(graphics, brush.cast(), points.as_ptr(), points.len() as i32, FillModeAlternate);
+                    GdipAddPathPolygon(road_path, points.as_ptr(), points.len() as i32);
                 }
+                GdipFillPath(graphics, brush.cast(), road_path);
+                GdipDeletePath(road_path);
                 GdipDeleteBrush(brush.cast());
             }
             strokes(graphics, &scene.center, ROAD_LINE, 1.0);

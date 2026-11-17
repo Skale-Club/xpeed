@@ -577,6 +577,7 @@ pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Opti
 
     let result = Track {
         game: "ac".into(),
+        boundaries: None,
         name: track.to_owned(),
         variant: variant.map(str::to_owned),
         title: outside.ui_title.clone(),

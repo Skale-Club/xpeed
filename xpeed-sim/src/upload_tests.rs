@@ -422,6 +422,7 @@ fn the_worker_gives_up_on_a_refused_key_instead_of_knocking_forever() {
 /// A small closed track (a 10 m square) as a track file; `y` changes the bytes without changing the track.
 fn track_bytes(name: &str, y: f32) -> Vec<u8> {
     let track = Track {
+        boundaries: None,
         game: "ac".into(),
         name: name.into(),
         variant: Some("GP".into()),

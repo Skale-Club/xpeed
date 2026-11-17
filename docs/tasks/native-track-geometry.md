@@ -3,7 +3,9 @@
 Canonical next-task record: https://app.notion.com/p/41bb7a686121817fb7dfdd4f71792d15
 
 ## Status and handoff
-Ready for the next work session on the home desktop. Owner explicitly deferred this work on 2026-11-16 while switching computers. Do not start extraction or heavy builds on VANILDO-TABLET. Scope is every simulator supported by Xpeed, not only Assetto Corsa EVO.
+2026-11-16 update: the owner selected EVO as the pilot. An offline, hash-pinned Laguna Seca extraction and XTRK v2 sampled-boundary support are implemented on `codex/acevo-native-track-pilot`, pending release. See [pilot evidence and limitations](acevo-native-track-pilot.md). This establishes native AI-side geometry and historical-lap alignment; exact asphalt/white-line semantics, live-game acceptance and automatic discovery remain pending. Other game families are still queued.
+
+Original handoff: the owner deferred this work on 2026-11-16 while switching computers, then resumed it on the desktop with EVO as the pilot. Do not start extraction or heavy builds on VANILDO-TABLET. The wider backlog still covers every simulator supported by Xpeed.
 
 ## Goal
 Show the actual road geometry used by each game, aligned with recorded car positions, so drivers can inspect and compare racing lines accurately. Keep a heading-up perspective in the live Windows Companion and a top-down zoomable view on the website.

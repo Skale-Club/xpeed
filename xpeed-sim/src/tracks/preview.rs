@@ -78,13 +78,21 @@ fn runs(left: &[f32]) -> Vec<(usize, usize)> {
 /// The road and its edges for a line with widths: `(filled shapes, edge strokes)` as SVG path data.
 fn road(view: &View, x: &[f32], z: &[f32], left: &[f32], right: &[f32], closed: bool) -> (String, String) {
     let e = edges(x, z, left, right, closed);
-    let known = runs(left);
+    road_sections(view, &e, closed)
+}
+
+fn road_sections(view: &View, e: &[[f64; 4]], closed: bool) -> (String, String) {
+    let available: Vec<f32> = e
+        .iter()
+        .map(|p| if p.iter().all(|v| v.is_finite()) { 1.0 } else { f32::NAN })
+        .collect();
+    let known = runs(&available);
     let (mut fill, mut stroke) = (String::new(), String::new());
     let pts = |from: usize, to: usize, side: usize| -> Vec<(f64, f64)> { (from..to).map(|i| (e[i][side], e[i][side + 1])).collect() };
-    if closed && known.len() == 1 && known[0] == (0, x.len()) {
+    if closed && known.len() == 1 && known[0] == (0, e.len()) {
         // A ring: the two edges are two closed outlines; the road is what lies between them.
         for side in [0, 2] {
-            let p = path(view, &pts(0, x.len(), side));
+            let p = path(view, &pts(0, e.len(), side));
             fill.push_str(&format!("{p} Z "));
             stroke.push_str(&format!("{p} Z "));
         }
@@ -105,7 +113,13 @@ fn road(view: &View, x: &[f32], z: &[f32], left: &[f32], right: &[f32], closed: 
 pub fn svg(track: &Track) -> String {
     let c = &track.centerline;
     let mut cloud: Vec<(f64, f64)> = (0..c.x.len()).map(|i| (f64::from(c.x[i]), f64::from(c.z[i]))).collect();
-    let e = edges(&c.x, &c.z, &c.left, &c.right, track.closed);
+    let e = if let Some(b) = &track.boundaries {
+        (0..b.left_x.len())
+            .map(|i| [b.left_x[i] as f64, b.left_z[i] as f64, b.right_x[i] as f64, b.right_z[i] as f64])
+            .collect()
+    } else {
+        edges(&c.x, &c.z, &c.left, &c.right, track.closed)
+    };
     cloud.extend(e.iter().filter(|p| p[0].is_finite()).flat_map(|p| [(p[0], p[1]), (p[2], p[3])]));
     if let Some(p) = &track.pitlane {
         cloud.extend((0..p.x.len()).map(|i| (f64::from(p.x[i]), f64::from(p.z[i]))));
@@ -119,7 +133,7 @@ pub fn svg(track: &Track) -> String {
     ));
     out.push_str(&format!("<rect width=\"{SIZE}\" height=\"{height:.0}\" fill=\"#ffffff\"/>\n"));
 
-    let (fill, stroke) = road(&view, &c.x, &c.z, &c.left, &c.right, track.closed);
+    let (fill, stroke) = road_sections(&view, &e, track.closed);
     if !fill.is_empty() {
         out.push_str(&format!(
             "<path d=\"{fill}\" fill=\"#d9dde3\" fill-rule=\"evenodd\" stroke=\"none\"/>\n"
@@ -172,7 +186,9 @@ pub fn svg(track: &Track) -> String {
         track.variant.as_deref().unwrap_or("-"),
         track.length_m.unwrap_or(f64::from(c.dist.last().copied().unwrap_or(0.0))),
         c.x.len(),
-        if w.known > 0 {
+        if track.boundaries.is_some() {
+            ", explicit source boundaries".to_owned()
+        } else if w.known > 0 {
             format!(", road {:.1}-{:.1} m", w.min, w.max)
         } else {
             ", no width".to_owned()
@@ -200,7 +216,7 @@ pub fn svg(track: &Track) -> String {
         ));
     }
     out.push_str(&format!(
-        "<text x=\"{MARGIN}\" y=\"{}\" font-size=\"11\" fill=\"#6b7280\">x across, z down (the game's world, not mirrored); 1 px = {:.2} m; source {}</text>\n",
+        "<text x=\"{MARGIN}\" y=\"{}\" font-size=\"11\" fill=\"#6b7280\">x across, z down (stored telemetry frame); 1 px = {:.2} m; source {}</text>\n",
         y + 22.0,
         1.0 / view.scale,
         xml(&track.source)

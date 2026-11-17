@@ -389,6 +389,7 @@ pub fn extract_text(text: &str, name: &str, title: Option<&str>) -> Result<Extra
 
     let track = Track {
         game: "sce".into(),
+        boundaries: None,
         name: name.to_owned(),
         variant: None,
         title: title.map(str::to_owned),

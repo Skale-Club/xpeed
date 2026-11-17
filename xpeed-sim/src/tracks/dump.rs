@@ -220,6 +220,12 @@ pub fn run(request: &Request) -> ExitCode {
             );
             (ac::extract(&layout), layout.dir)
         }
+        "acevo" => {
+            let file = PathBuf::from(&request.source);
+            let folder = file.parent().unwrap_or(Path::new(".")).to_path_buf();
+            println!("Assetto Corsa EVO offline Laguna Seca pilot: {}", file.display());
+            (acevo::extract(&file), folder)
+        }
         "sce" | "rf1" | "rfactor1" => {
             let file = match resolve_sce(&request.source) {
                 Ok(file) => file,
@@ -229,7 +235,11 @@ pub fn run(request: &Request) -> ExitCode {
             let folder = file.parent().unwrap_or(Path::new(".")).to_path_buf();
             (aiw::extract(&file), folder)
         }
-        other => return fail(format!("unknown game {other:?}; track files can be made for: ac, sce")),
+        other => {
+            return fail(format!(
+                "unknown game {other:?}; track files can be made for: ac, sce, acevo (offline Laguna Seca pilot)"
+            ))
+        }
     };
     if inside(&request.out, &read_from) || request.preview.as_deref().is_some_and(|p| inside(p, &read_from)) {
         return fail(format!(
