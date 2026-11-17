@@ -14,7 +14,7 @@ import { DetailSkeleton, StatTile, TileGrid, TileItem } from './garage/bits';
 import { useDashFormat } from './overview/use-format';
 import { lazyChart } from '@/components/LazyChart';
 
-const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-80');
+const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-60 md:h-80');
 import { GameBadge } from './session-bits';
 import { SimCarIdentity } from './SimCarIdentity';
 import { QueryGate } from './SimStates';
@@ -68,7 +68,7 @@ export function CarPage() {
                   {detail.car.class && <Badge variant="outline" data-testid="car-class">{detail.car.class}</Badge>}
                   {detail.car.brand && <span className="text-xs text-muted-foreground" data-testid="car-brand">{detail.car.brand}</span>}
                 </div>
-                <h2 className="min-w-0 text-2xl font-bold leading-tight"><SimCarIdentity name={detail.car.name} logoClassName="h-12 w-12" className="gap-3" /></h2>
+                <h2 className="min-w-0 break-words text-xl font-bold leading-tight md:text-2xl"><SimCarIdentity name={detail.car.name} logoClassName="h-10 w-10 md:h-12 md:w-12" className="gap-3" /></h2>
                 <p className="text-sm text-muted-foreground" data-testid="car-subtitle">
                   {games.name(detail.car.game)}
                   {detail.totals.lastDrivenAt ? ` · ${t('modes.cars.lastDriven', 'Last driven {{when}}', { when: when(Date.parse(detail.totals.lastDrivenAt)) })}` : ''}

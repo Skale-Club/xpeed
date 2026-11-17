@@ -29,21 +29,22 @@ export function Avatar({ handle, displayName, size = 'md', className }: { handle
  * Who a driver is: the display name and the handle, or the handle alone when the person has no name to show (a private profile in
  * a friend list). Never an e-mail, a phone number or an account name: the API has none to give. Links to the driver's page.
  */
-export function DriverName({ handle, displayName, link = true, className, testId }: {
+export function DriverName({ handle, displayName, link = true, className, nameClassName, testId }: {
   handle: string;
   displayName?: string | null;
   link?: boolean;
   className?: string;
+  nameClassName?: string;
   testId?: string;
 }) {
   const name = cleanName(displayName);
   const inner = name ? (
     <>
-      <span className="truncate font-medium">{name}</span>
+      <span className={cn('truncate font-medium', nameClassName)}>{name}</span>
       <span className="truncate text-xs text-muted-foreground">{atHandle(handle)}</span>
     </>
   ) : (
-    <span className="truncate font-medium">{atHandle(handle)}</span>
+    <span className={cn('truncate font-medium', nameClassName)}>{atHandle(handle)}</span>
   );
   const classes = cn('flex min-w-0 items-baseline gap-x-2', className);
   return link ? (

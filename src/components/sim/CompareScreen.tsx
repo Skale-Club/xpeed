@@ -113,12 +113,12 @@ export function CompareScreen() {
   // On a phone the two laps stay in view as a slim bar while the page scrolls; "Change" opens the full selector.
   const slim = mobile && !!aId && !!aFile.data;
   const slimBar = slim && aInfo && (
-    <div className="sticky top-14 z-30 -mx-4 flex h-14 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur" data-testid="sticky-laps">
-      <div className="min-w-0 flex-1 text-xs leading-tight">
-        <p className="truncate font-medium" data-testid="sticky-lap">
+    <div className="sticky top-14 z-30 -mx-4 flex h-10 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur" data-testid="sticky-laps">
+      <div className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap text-xs">
+        <p className="min-w-0 flex-1 truncate font-medium" data-testid="sticky-lap">
           {t('modes.compare.lap', 'Lap')} {aInfo.number} · <span className="font-mono tabular-nums">{formatLapTime(aInfo.timeMs)}</span> · {aInfo.track}
         </p>
-        <p className="truncate text-muted-foreground" data-testid="sticky-reference">
+        <p className="max-w-[45%] shrink-0 truncate text-muted-foreground" data-testid="sticky-reference">
           {bInfo
             ? <>{t('modes.compare.reference', 'Reference')} {bInfo.number} · <span className="font-mono tabular-nums">{formatLapTime(bInfo.timeMs)}</span></>
             : bFile.isPending && !!bId
@@ -127,11 +127,11 @@ export function CompareScreen() {
         </p>
       </div>
       {delta !== null && (
-        <span className={cn('shrink-0 font-mono text-sm font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-green-500')} data-testid="sticky-delta">
+        <span className={cn('shrink-0 font-mono text-xs font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-green-500')} data-testid="sticky-delta">
           {formatGap(delta)} s
         </span>
       )}
-      <Button size="sm" variant="outline" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="sticky-change">
+      <Button size="sm" variant="outline" className="h-10 px-3 text-xs" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="sticky-change">
         {t('modes.compare.change', 'Change')}
       </Button>
     </div>

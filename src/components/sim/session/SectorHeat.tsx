@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Panel } from '../overview/parts';
 import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { sectorBestHolders, sectorCell, sectorScales, sectorText, type HeatLevel } from '@/lib/sim/session-detail';
@@ -24,6 +25,7 @@ const HEAT: Record<HeatLevel, string> = {
  */
 export function SectorHeatTable({ laps, pb, bestId }: { laps: readonly V1Lap[]; pb: V1Pb | null; bestId: string | null }) {
   const { t } = useTranslation();
+  const mobile = useIsMobile();
   const bests = useMemo(() => bestSectors(laps), [laps]);
   const scales = useMemo(() => sectorScales(laps, bests), [laps, bests]);
   const holders = useMemo(() => sectorBestHolders(laps, bests), [laps, bests]);
@@ -38,6 +40,56 @@ export function SectorHeatTable({ laps, pb, bestId }: { laps: readonly V1Lap[]; 
 
   return (
     <Panel title={t('sessionsDash.session.sectorsTitle', 'Sectors')} testId="sector-heat" action={<span className="text-xs text-muted-foreground">{t('sessionsDash.session.sectorsSub', 'against the best of the session')}</span>}>
+      {mobile ? (
+        <div className="space-y-1.5" data-testid="sector-chips">
+          <div className="flex flex-wrap items-center gap-1.5 pb-1" data-testid="best-sectors">
+            <span className="w-full text-xs text-muted-foreground">{t('modes.session.bestSectors', 'Best sectors')}</span>
+            {bests.map((ms, i) => (
+              <span key={i} className="rounded bg-purple-500/10 px-1.5 py-1 font-mono text-xs tabular-nums text-purple-400" data-testid="best-sector">
+                {`S${i + 1}`} {ms !== null ? sectorText(ms) : '–'}
+                {holders[i] !== null && <span className="ml-1 font-sans text-muted-foreground">{t('sessionsDash.session.heldBy', 'lap {{n}}', { n: holders[i] })}</span>}
+              </span>
+            ))}
+            <span className="rounded px-1.5 py-1 font-mono text-xs tabular-nums text-muted-foreground" data-testid="best-sectors-total">{theoretical !== null ? formatLapTime(theoretical) : '–'}</span>
+          </div>
+          {ranked.map((lap) => (
+            <div key={lap.id} className={cn('flex flex-wrap items-center gap-1.5 border-t border-border pt-1.5', !lap.valid && 'text-muted-foreground')} data-testid="sector-row" data-lap-id={lap.id}>
+              <span className="w-12 shrink-0 text-xs">
+                {lap.lapNumber}
+                {lap.id === bestId && <span className="ml-1 font-semibold text-green-500">{t('sessionsDash.session.bestShort', 'best')}</span>}
+              </span>
+              {bests.map((best, i) => {
+                const cell = sectorCell(lap, i, bests, scales);
+                const tone = sectorTone(lap, i, bests, pb);
+                const level = cell.level;
+                return (
+                  <span
+                    key={i}
+                    className={cn(
+                      'rounded px-1.5 py-1 font-mono text-xs tabular-nums',
+                      level !== null && HEAT[level],
+                      cell.kind === 'pit' && 'italic text-muted-foreground opacity-70',
+                      cell.kind === 'none' && 'text-muted-foreground',
+                      tone === 'green' && 'text-green-500 ring-1 ring-inset ring-green-500/60',
+                    )}
+                    data-testid="lap-sector"
+                    data-tone={tone}
+                    data-heat={level ?? undefined}
+                    data-kind={cell.kind}
+                    title={toneTitle(tone)}
+                  >
+                    {`S${i + 1}`} {cell.ms !== null ? sectorText(cell.ms) : '–'}
+                    {cell.kind === 'time' && cell.deltaMs !== null && best !== null && cell.deltaMs > 0 && (
+                      <span className="ml-1 font-normal opacity-80" data-testid="sector-delta">{formatGap(cell.deltaMs / 1000)}</span>
+                    )}
+                  </span>
+                );
+              })}
+              <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">{lap.timeMs > 0 ? formatLapTime(lap.timeMs) : '–'}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full min-w-[22rem] border-separate border-spacing-y-0.5 text-xs sm:text-sm" data-testid="sector-table">
           <thead>
@@ -99,6 +151,7 @@ export function SectorHeatTable({ laps, pb, bestId }: { laps: readonly V1Lap[]; 
           </tbody>
         </table>
       </div>
+      )}
 
       <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" data-testid="sector-legend">
         <li className="flex items-center gap-1.5"><span className={cn('h-3 w-5 rounded', HEAT[0])} aria-hidden="true" /><span><span className="font-semibold text-purple-400">{t('modes.session.legendPurple', 'Purple')}</span>: {t('modes.session.tonePurple', 'Best of the session in this sector')}</span></li>

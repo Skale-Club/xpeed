@@ -217,7 +217,7 @@ export function TrackMap({ lap, reference, layout, focus, highlight, className }
         viewBox={`${(cx - vbW / 2).toFixed(1)} ${(cy - vbH / 2).toFixed(1)} ${vbW.toFixed(1)} ${vbH.toFixed(1)}`}
         preserveAspectRatio="xMidYMid meet"
         className={cn(
-          'h-64 w-full rounded-md text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'h-56 w-full rounded-md md:h-64 text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring',
           // Zoomed in, a finger drags the map; on the whole track it still scrolls the page, and a pinch zooms the map.
           k > 1 ? 'cursor-grab touch-none active:cursor-grabbing' : 'touch-pan-x touch-pan-y',
           className,

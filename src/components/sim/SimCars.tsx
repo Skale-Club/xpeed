@@ -59,8 +59,8 @@ function CarCard({ car, today }: { car: V1CarItem; today: string }) {
             <ChevronRight className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
           </div>
 
-          <dl className="grid grid-cols-3 gap-2 text-xs">
-            <div className="min-w-0" data-testid="car-laps">
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs md:grid-cols-3 md:gap-2">
+            <div className="col-span-2 min-w-0 md:col-span-1" data-testid="car-laps">
               <dt className="text-muted-foreground">{t('modes.detail.laps', 'Laps')}</dt>
               <dd className="font-medium tabular-nums text-foreground">
                 {format.number(car.lapCount)}

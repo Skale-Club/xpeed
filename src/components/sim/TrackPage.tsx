@@ -23,7 +23,7 @@ import { Panel, Quiet } from './overview/parts';
 import { useDashFormat } from './overview/use-format';
 import { lazyChart } from '@/components/LazyChart';
 
-const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-80');
+const ProgressChart = lazyChart(() => import('./ProgressChart').then((m) => ({ default: m.ProgressChart })), 'h-60 md:h-80');
 import { GameBadge } from './session-bits';
 import { QueryGate } from './SimStates';
 import { TrackMap } from './TrackMap';
@@ -41,7 +41,7 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
   const path = useMemo(() => (file.data ? lapPath(file.data, 3000) : null), [file.data]);
 
   if (track.hasLayout !== false && layout.isPending) {
-    return <Skeleton className="h-72 rounded-lg lg:h-full lg:min-h-72" data-testid="track-layout-loading" />;
+    return <Skeleton className="h-56 rounded-lg md:h-72 lg:h-full lg:min-h-72" data-testid="track-layout-loading" />;
   }
   if (!layout.data) {
     return (
@@ -57,14 +57,14 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
     <Panel title={t('modes.trackPage.layout', 'Layout and best lap')} testId="track-layout-map" className="h-full">
       {path ? (
         <>
-          <TrackMap lap={path} layout={layout.data} className="h-72" />
+          <TrackMap lap={path} layout={layout.data} className="h-56 md:h-72" />
           <p className="text-xs text-muted-foreground">{t('modes.trackPage.layoutHint', 'The road between its edges, with your best valid lap on this track in yellow.')}</p>
         </>
       ) : bestLapId && file.isPending ? (
-        <Skeleton className="h-72 w-full" />
+        <Skeleton className="h-56 w-full md:h-72" />
       ) : (
         <>
-          <div className="flex h-72 items-center justify-center rounded-md bg-muted/30">
+          <div className="flex h-56 items-center justify-center md:h-72 rounded-md bg-muted/30">
             <TrackShape layout={layout.data} className="h-full w-full p-4" testId="track-layout-shape" strokeWidth={3} />
           </div>
           <p className="text-xs text-muted-foreground" data-testid="track-layout-no-lap">
@@ -228,7 +228,7 @@ export function TrackPage() {
                   <div className="grid gap-4 lg:grid-cols-12">
                     <div className="min-w-0 lg:col-span-8">
                       {filtered && laps.loading && laps.laps.length === 0 ? (
-                        <Skeleton className="h-80 rounded-lg" data-testid="track-progress-loading" />
+                        <Skeleton className="h-60 rounded-lg md:h-80" data-testid="track-progress-loading" />
                       ) : (
                         <ProgressChart
                           rows={rows}
