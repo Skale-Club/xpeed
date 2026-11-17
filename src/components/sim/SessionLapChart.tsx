@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { lapTrend } from '@/lib/sim/session-detail';
@@ -49,6 +50,7 @@ function Swatch({ kind, label }: { kind: 'valid' | 'best' | 'void' | 'pit' | 'tr
  */
 export function SessionLapChart({ laps, bestId, onOpenLap }: { laps: readonly V1Lap[]; bestId: string | null; onOpenLap?: (lapId: string) => void }) {
   const { t } = useTranslation();
+  const mobile = useIsMobile();
   const rows = useMemo(() => chartRows(laps, bestId), [laps, bestId]);
   const range = useMemo(() => (rows.length > 0 ? plotRange(rows) : { low: 0, high: 1 }), [rows]);
   const trend = useMemo(() => lapTrend(rows), [rows]);
@@ -81,7 +83,7 @@ export function SessionLapChart({ laps, bestId, onOpenLap }: { laps: readonly V1
 
   return (
     <div data-testid="session-chart">
-      <div style={{ height: 240 }} role="img" aria-label={summary} data-testid="session-chart-plot">
+      <div style={{ height: mobile ? 180 : 240 }} role="img" aria-label={summary} data-testid="session-chart-plot">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={plotted} margin={{ top: 30, right: 10, bottom: 0, left: 0 }}>
             <defs>
@@ -129,7 +131,7 @@ export function SessionLapChart({ laps, bestId, onOpenLap }: { laps: readonly V1
         {hasPit && <Swatch kind="pit" label={t('modes.session.legendPit', 'Out or in lap (through the pits)')} />}
         {trend && <Swatch kind="trend" label={trend.slope < -0.005 ? t('sessionsDash.session.trendFaster', 'Trend: getting faster') : trend.slope > 0.005 ? t('sessionsDash.session.trendSlower', 'Trend: getting slower') : t('sessionsDash.session.trendFlat', 'Trend: steady')} />}
       </ul>
-      {onOpenLap && <p className="mt-1 text-xs text-muted-foreground">{t('sessionsDash.session.chartHint', 'Click a bar to open the analysis of that lap.')}</p>}
+      {onOpenLap && <p className="mt-1 text-xs text-muted-foreground">{mobile ? t('sessionsDash.session.chartHintTouch', 'Tap a bar to open the analysis of that lap.') : t('sessionsDash.session.chartHint', 'Click a bar to open the analysis of that lap.')}</p>}
     </div>
   );
 }
