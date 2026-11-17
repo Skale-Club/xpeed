@@ -40,7 +40,7 @@ export function PageHeader({ icon: Icon, title, description, actions, back, clas
         </h2>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      {description && <p className="break-words text-sm text-muted-foreground">{description}</p>}
     </header>
   );
 }

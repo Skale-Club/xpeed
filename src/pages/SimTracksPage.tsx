@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { TrackLayouts } from '@/components/sim/TrackLayouts';
 import { TracksList } from '@/components/sim/TracksList';
+import { PageHeader } from '@/components/ui/page-header';
 
 /** Virtual > Tracks: the tracks driven, and (folded away) the track layouts kept on this device. */
 export default function SimTracksPage() {
@@ -13,10 +14,7 @@ export default function SimTracksPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Flag className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold">{t('modes.nav.tracks', 'Tracks')}</h2>
-        </div>
+        <PageHeader icon={Flag} title={t('modes.nav.tracks', 'Tracks')} />
         <TracksList />
         <details className="rounded-lg border border-border p-3" data-testid="layouts-fold" onToggle={(event) => setOpen(event.currentTarget.open)}>
           <summary className="cursor-pointer text-sm font-medium">{t('modes.tracks.layoutsFold', 'Track layouts kept on this device')}</summary>

@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { LANGUAGES, currentLanguage } from '@/lib/languages';
 import type { ConsumptionUnit, Currency, VolumeUnit } from '@/lib/fuel-units';
+import { PageHeader } from '@/components/ui/page-header';
 
 const McpTokensSection = lazy(() => import('@/components/McpTokensSection'));
 
@@ -101,10 +102,7 @@ export default function SettingsPage() {
     <AppLayout refreshDisabled={dirty || saving}>
       <UnsavedChangesGuard dirty={dirty} />
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Settings className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold">{t('settings.title', 'Settings')}</h2>
-        </div>
+        <PageHeader icon={Settings} title={t('settings.title', 'Settings')} />
 
         {/* Draft preferences are applied only after Save. */}
         <Card className="bg-card border-border">

@@ -27,6 +27,7 @@ import { useObd } from '@/contexts/ObdScannerContext';
 import { ActiveTripRow } from '@/components/trip/ActiveTripRow';
 import { TripCalendar } from '@/components/trip/TripCalendar';
 import type { Session, SessionFlag } from '@/types/session';
+import { PageHeader } from '@/components/ui/page-header';
 
 type Trip = Session & { active_dtcs?: string[] | null };
 
@@ -196,16 +197,16 @@ function CarHistory() {
   return (
     <AppLayout>
       <Tabs value={view} onValueChange={changeView}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
-            {selectedCar && <p className="truncate text-sm text-muted-foreground" title={selectedCar.name}>{selectedCar.name}</p>}
-          </div>
+        <PageHeader
+          title={t('history.title', 'Trips')}
+          description={selectedCar?.name}
+          actions={
           <TabsList aria-label={t('history.viewLabel', 'Trip view')} className="h-9 shrink-0 gap-0.5 rounded-lg border border-border bg-card p-0.5">
             <TabsTrigger value="list" className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t('history.listView', 'List')}</TabsTrigger>
             <TabsTrigger value="calendar" className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t('history.calendarView', 'Calendar')}</TabsTrigger>
           </TabsList>
-        </div>
+          }
+        />
         <TabsContent value={view} className="mt-4 space-y-4">
         {calendar && <>
           <TripCalendar month={month} selectedDay={day} days={calendarDays} activeStart={active?.startedAt} timezone={timezone} onMonth={(value) => chooseDay(value === today.slice(0, 7) ? today : `${value}-01`)} onDay={chooseDay} />

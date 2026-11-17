@@ -14,6 +14,7 @@ import { ComparisonsPanel } from './overview/Comparisons';
 import { BestsPanel, SessionsPanel } from './overview/Latest';
 import { DashboardSkeleton, EmptyDashboard } from './overview/States';
 import { WherePanel } from './overview/Where';
+import { PageHeader } from '@/components/ui/page-header';
 
 // The three panels that draw charts load the chart library on their own, after the page has drawn.
 const ActivityPanel = lazyChart(() => import('./overview/Activity').then((m) => ({ default: m.ActivityPanel })), 'h-48');
@@ -105,14 +106,15 @@ export function SimOverview() {
 
   return (
     <div className="space-y-4" data-testid="overview">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h2 className="flex items-center gap-2 text-xl font-bold"><LayoutDashboard className="h-5 w-5 text-primary" aria-hidden="true" />{t('modes.nav.overview', 'Overview')}</h2>
+      <PageHeader
+        icon={LayoutDashboard}
+        title={t('modes.nav.overview', 'Overview')}
+        actions={
           <div className="w-full sm:w-auto">
             <RangeSelect value={range} onChange={choose} busy={statsQuery.isFetching && statsQuery.isPlaceholderData} />
           </div>
-        </div>
-      </header>
+        }
+      />
 
       <QueryGate query={query} empty={false} skeleton={<DashboardSkeleton />}>
         {overview && (

@@ -24,6 +24,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { KM_PER_MILE } from '@/lib/vehicle-care';
 import { zonedDateTimeInput } from '@/lib/app-date';
 import { holdAppUpdates } from '@/lib/pwa-update';
+import { PageHeader } from '@/components/ui/page-header';
 
 // English defaults; translations live under maint.types.<type>.
 const TYPE_LABELS: Record<MaintenanceType, string> = {
@@ -181,14 +182,11 @@ function MaintenanceScreen() {
   return (
     <AppLayout refreshDisabled={isAddOpen || saving}>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-start gap-2 min-w-0">
-            <Wrench className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-            <div className="min-w-0">
-              <h2 className="text-lg font-bold text-foreground">{t('maint.title', 'Service history')}</h2>
-              {selectedCar && <p className="text-sm text-muted-foreground truncate">{selectedCar.name}</p>}
-            </div>
-          </div>
+        <PageHeader
+          icon={Wrench}
+          title={t('maint.title', 'Service history')}
+          description={selectedCar?.name}
+          actions={
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={!selectedCarId}>
@@ -256,7 +254,8 @@ function MaintenanceScreen() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
+          }
+        />
 
         {selectedCarId && <OilChangeCard carId={selectedCarId} />}
         {!selectedCarId ? (

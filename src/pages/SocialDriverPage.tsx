@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { ExampleGate } from '@/components/sim/Example';
 import { DriverPage } from '@/components/social/DriverPage';
+import { PageHeader } from '@/components/ui/page-header';
 
 /** Virtual > a driver: the public profile, the friend relation, Report. */
 export default function SocialDriverPage() {
@@ -10,10 +11,7 @@ export default function SocialDriverPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <UserRound className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold">{t('social.driver.title', 'Driver')}</h2>
-        </div>
+        <PageHeader icon={UserRound} title={t('social.driver.title', 'Driver')} />
         <ExampleGate><DriverPage /></ExampleGate>
       </div>
     </AppLayout>

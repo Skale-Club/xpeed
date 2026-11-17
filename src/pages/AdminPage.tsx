@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import AIProviderSection from '@/components/admin/AIProviderSection';
 import { RacingAdmin } from '@/components/social/RacingAdmin';
 import { ProblemsSection } from '@/components/social/ProblemsSection';
+import { PageHeader } from '@/components/ui/page-header';
 
 export default function AdminPage() {
   const { t } = useTranslation();
@@ -28,13 +29,15 @@ export default function AdminPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-bold text-foreground">Super-Admin Panel</h2>
+        <PageHeader
+          icon={Shield}
+          title="Super-Admin Panel"
+          actions={
           <Button asChild variant="outline" size="sm" className="ml-auto">
             <Link to="/admin/design"><Palette />Design system</Link>
           </Button>
-        </div>
+          }
+        />
 
         <Alert>
           <AlertTriangle className="w-4 h-4" />

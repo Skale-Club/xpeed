@@ -16,6 +16,7 @@ import { AI_PREFIX, CODE_GONE_NOTE, URGENCY, URGENCY_ORDER, describeProblem, isO
 import { formatAppDate } from '@/lib/app-date';
 import { timeAgo } from '@/lib/time-ago';
 import { ReadCodesButton } from '@/components/ReadCodesButton';
+import { PageHeader } from '@/components/ui/page-header';
 
 const URGENCY_STYLE: Record<Urgency, string> = {
   urgent: 'bg-destructive/15 text-destructive border-destructive/30',
@@ -124,10 +125,7 @@ function CarIssues() {
   return (
     <AppLayout>
       <div className="space-y-5">
-        <div>
-          <h2 className="text-xl font-bold">{t('problems.title', 'Problems')}</h2>
-          <p className="text-sm text-muted-foreground">{selectedCar.name}</p>
-        </div>
+        <PageHeader title={t('problems.title', 'Problems')} description={selectedCar.name} />
         <ReadCodesButton />
 
         {loadFailed && (

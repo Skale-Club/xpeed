@@ -29,6 +29,7 @@ import {
   HV_BLOCK_RE, defaultLayout, loadLayout, moveWidget, newWidgetId, saveLayout, type LiveWidget, type WidgetKind,
 } from '@/lib/obd/live-layout';
 import type { LiveChannel } from '@/hooks/use-obd-scanner';
+import { PageHeader } from '@/components/ui/page-header';
 
 const CHART_WINDOW_MS = 60_000;
 
@@ -149,13 +150,13 @@ export default function LivePage() {
   return (
     <AppLayout>
       <div ref={containerRef} className={`space-y-4 ${fullscreen ? 'bg-background p-4 overflow-auto h-screen' : ''}`}>
-        <div className="flex flex-wrap items-center gap-2">
-          <Activity className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-bold text-foreground mr-auto">
+        <PageHeader
+          icon={Activity}
+          title={<>
             {t('live.title', 'Live panel')}
             {(live ? obd.connectedCarName : selectedCar?.name) && <span className="text-muted-foreground font-normal"> — {live ? obd.connectedCarName : selectedCar?.name}</span>}
-          </h2>
-
+          </>}
+          actions={<>
           {/* Says what it does: it starts, or ends, the recording of a trip. */}
           {live && (recording?.active ? (
             <Button size="sm" variant="destructive" onClick={obd.stopTrip}>
@@ -184,7 +185,8 @@ export default function LivePage() {
           <Button size="sm" variant="outline" onClick={toggleFullscreen} aria-label={fullscreen ? t('live.exitFullscreen', 'Exit fullscreen') : t('live.fullscreen', 'Fullscreen')}>
             {fullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </Button>
-        </div>
+          </>}
+        />
 
         {live && obd.connectedCarId && obd.connectedCarId !== selectedCarId && <div className="rounded-xl border border-warn/40 p-3 text-sm"><p>{t('live.otherCar', 'These readings belong to {{car}}, not the selected vehicle.', { name: obd.connectedCarName })}</p><Button variant="outline" size="sm" className="mt-2" onClick={() => selectCar(obd.connectedCarId)}>{t('live.useConnectedCar', 'View connected car')}</Button></div>}
         {live && !obd.connectedCarId && <p className="text-xs text-warn">{t('live.unidentified', "We couldn't tell which car this is, so these readings aren't tied to your selected car.")}</p>}

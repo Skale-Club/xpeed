@@ -29,6 +29,7 @@ import { BodyTypePicker, ColorPicker } from '@/components/car/CarLookPickers';
 import { guessBodyType, isBodyType, isCarColor, type BodyType, type CarColor } from '@/lib/car-look';
 import { carPhotoProblem, removeCarPhoto, uploadCarPhoto } from '@/lib/car-photo';
 import { isValidVin } from '@/lib/vin';
+import { PageHeader } from '@/components/ui/page-header';
 
 type CarWithEngine = CarProfile & { engine_type?: EngineType | null };
 
@@ -183,11 +184,10 @@ export default function CarsPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Car className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-bold text-foreground">{t('vehicle.myCars', 'My cars')}</h2>
-          </div>
+        <PageHeader
+          icon={Car}
+          title={t('vehicle.myCars', 'My cars')}
+          actions={
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -208,7 +208,8 @@ export default function CarsPage() {
               />
             </DialogContent>
           </Dialog>
-        </div>
+          }
+        />
 
         {loading ? (
           <PageLoader fullScreen={false} className="py-12" />

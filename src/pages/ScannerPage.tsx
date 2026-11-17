@@ -29,6 +29,7 @@ import { WaitingNotice } from '@/components/trip/WaitingNotice';
 import { CustomPidsCard } from '@/components/scanner/CustomPidsCard';
 import { TerminalCard } from '@/components/scanner/TerminalCard';
 import { EcuScanCard } from '@/components/scanner/EcuScanCard';
+import { PageHeader } from '@/components/ui/page-header';
 
 type Tab = 'readings' | 'codes' | 'tools';
 
@@ -152,10 +153,7 @@ export default function ScannerPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-bold">{t('scanner.title', 'OBD2 Scanner')}</h2>
-          {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
-        </div>
+        <PageHeader title={t('scanner.title', 'OBD2 Scanner')} description={selectedCar?.name} />
 
         {status === 'unsupported' && (
           <Alert variant="destructive">

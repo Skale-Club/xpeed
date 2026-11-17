@@ -16,6 +16,7 @@ import { getSessions } from '@/lib/db';
 import { aggregateTrends, trendMetrics } from '@/lib/long-term-trends';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import type { Session } from '@/types/session';
+import { PageHeader } from '@/components/ui/page-header';
 const EMPTY_SESSIONS: Session[] = [];
 
 export default function TrendsPage() {
@@ -39,8 +40,10 @@ export default function TrendsPage() {
   const display = data.map((bucket) => ({ ...bucket, avg: bucket.avg == null ? null : temperatureValue(bucket.avg * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit), min: bucket.min == null ? null : temperatureValue(bucket.min * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit), max: bucket.max == null ? null : temperatureValue(bucket.max * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit) }));
   const format = (value: number | null) => value == null ? '—' : new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 1 }).format(value);
   return <AppLayout><div className="space-y-4">
-    <h2 className="text-xl font-bold">{t('trends.heading', 'How your car is changing')}{selectedCar && ` — ${selectedCar.name}`}</h2>
-    <p className="text-sm text-muted-foreground">{t('trends.hint', 'Compare fuel use, temperatures and other readings across your trips to spot changes over time.')}</p>
+    <PageHeader
+      title={<>{t('trends.heading', 'How your car is changing')}{selectedCar && ` — ${selectedCar.name}`}</>}
+      description={t('trends.hint', 'Compare fuel use, temperatures and other readings across your trips to spot changes over time.')}
+    />
     {!selectedCarId ? <p>{t('trends.noCar', 'Choose a car to see its history.')}</p> : query.isPending ? <PageLoader /> : query.isError ? <Button onClick={() => void query.refetch()}>{t('common.retry', 'Try again')}</Button> : !metrics.length ? <p>{t('trends.empty', 'Complete a trip to start seeing how your car changes over time.')}</p> : <>
       <FilterBar data-testid="trends-filters">
         <OptionSelect size="sm" id="trends-sensor" label={t('trends.sensor', 'What to compare')} className={cn(FILTER_CELL, 'basis-full sm:basis-auto sm:w-72')} value={metric?.key ?? ''} onChange={setChosen} options={metrics.map((item) => ({ value: item.key, label: `${item.label}${item.unit ? ` (${item.unit})` : ''}` }))} />

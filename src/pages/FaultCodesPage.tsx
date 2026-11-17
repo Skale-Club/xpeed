@@ -14,6 +14,7 @@ import { notifyProblemsChanged } from '@/hooks/use-open-problems';
 import { syncFaultCodes } from '@/lib/issue-reconciler';
 import { formatAppDate } from '@/lib/app-date';
 import { faultInspectionScope, loadFaultInspection, saveFaultInspection, type SavedFaultInspection } from '@/lib/obd/fault-inspection-cache';
+import { PageHeader } from '@/components/ui/page-header';
 
 export default function FaultCodesPage() {
   const { t, i18n } = useTranslation();
@@ -78,8 +79,7 @@ export default function FaultCodesPage() {
   const complete = !!result && (result.readout.complete ?? (result.readout.checked && !!result.readout.modules?.length));
   const mismatch = !!(selectedCar?.vin && obd.vin && selectedCar.vin !== obd.vin);
   return <AppLayout refreshDisabled={busy}><div className="space-y-4">
-    <h2 className="text-xl font-bold">{t('codes.title', 'Read car fault codes')}</h2>
-    {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
+    <PageHeader title={t('codes.title', 'Read car fault codes')} description={selectedCar?.name} />
     <p className="text-sm text-muted-foreground">{t('codes.hint', 'Connect the adapter and switch on the ignition. This reads codes without clearing anything in the car.')}</p>
     {mismatch && <p role="alert" className="text-sm text-warn">{t('codes.carMismatch', 'This isn\'t the car you selected, so the results won\'t be saved to it.')}</p>}
     <Card><CardContent className="space-y-3 p-4">

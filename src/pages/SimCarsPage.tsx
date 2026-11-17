@@ -2,6 +2,7 @@ import { CarFront } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { SimCars } from '@/components/sim/SimCars';
+import { PageHeader } from '@/components/ui/page-header';
 
 /** Virtual > Game cars: the cars driven in each game. */
 export default function SimCarsPage() {
@@ -9,10 +10,7 @@ export default function SimCarsPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <CarFront className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold">{t('modes.nav.cars', 'Game cars')}</h2>
-        </div>
+        <PageHeader icon={CarFront} title={t('modes.nav.cars', 'Game cars')} />
         <SimCars />
       </div>
     </AppLayout>
