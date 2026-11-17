@@ -2757,10 +2757,12 @@
     "filters": {
       "active": "Filtrando por",
       "anyTime": "Cualquier fecha",
+      "clearAll": "Borrar todo",
       "kind": "Tipo de sesión",
       "kindShort": "Tipo",
       "period": "Período",
       "removeFilter": "Quitar el filtro: {{filter}}",
+      "showResults": "Mostrar resultados",
       "title": "Filtros",
       "validOnly": "Solo vueltas válidas",
       "validOnlyHint": "Oculta las sesiones en las que el juego no dio ninguna vuelta por válida."
