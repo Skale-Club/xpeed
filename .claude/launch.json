@@ -37,6 +37,23 @@
       "port": 5011
     },
     {
+      "name": "xpeed-screens-new-driver",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "node_modules/vite/bin/vite.js",
+        "--config",
+        "vite.harness.config.ts",
+        "--port",
+        "5012",
+        "--strictPort"
+      ],
+      "env": {
+        "VITE_ENABLE_VIRTUAL": "true",
+        "HARNESS_NEW_DRIVER": "1"
+      },
+      "port": 5012
+    },
+    {
       "name": "rc-pilot",
       "runtimeExecutable": "python",
       "runtimeArgs": [

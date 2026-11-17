@@ -367,6 +367,17 @@
       "leaderboardsTab": "Ranking",
       "privacy": "Privacy",
       "profile": "Profile"
+    },
+    "choose": {
+      "title": "Choose your username",
+      "body": "This is how other drivers find you and see you on the leaderboards. Your e-mail and your account name are never shown.",
+      "handle": "Username",
+      "handlePlaceholder": "speedy_ana",
+      "handleHelp": "3 to 24 characters: a to z, 0 to 9 and _. You can change it later, 3 times in 30 days.",
+      "handleEmpty": "Choose a username to continue.",
+      "displayName": "Display name (optional)",
+      "displayNameHelp": "Shown next to your username. Left empty, your username is used.",
+      "save": "Continue"
     }
   },
   "trends": {

@@ -17,6 +17,8 @@ export type Scope = 'public' | 'friends';
 /** The person's own profile. */
 export interface MyProfile {
   handle: string;
+  /** False while the handle is still the generated placeholder: the site asks for a username before any Virtual screen. */
+  handleChosen: boolean;
   /** Never null for one's own profile, but screens treat it like everyone else's: a missing name shows the handle only. */
   displayName: string | null;
   visibility: Visibility;
