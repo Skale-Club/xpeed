@@ -38,6 +38,9 @@ jobs:
       - name: Google Cloud auth policy tests
         run: npm run test:auth-cloud
 
+      - name: Native track inventory safety
+        run: node --test scripts/test-inventory-native-tracks.mjs
+
       - name: Production build
         run: npm run build
         env:
