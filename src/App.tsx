@@ -52,6 +52,7 @@ const SocialFriendsPage = lazy(() => import("./pages/SocialFriendsPage"));
 const SocialPrivacyPage = lazy(() => import("./pages/SocialPrivacyPage"));
 const SocialSharePage = lazy(() => import("./pages/SocialSharePage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
+const DesignPage = lazy(() => import("./pages/DesignPage"));
 const SharedReport = lazy(() => import("./pages/SharedReport"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const CompanionPage = lazy(() => import("./pages/CompanionPage"));
@@ -190,6 +191,7 @@ const router = createBrowserRouter(createRoutesFromElements(
       <Route path="/companion/connect/:id" element={<SimConnectPage />} />
       <Route path="/onboarding" element={<OnboardingPage />} />
       <Route path="/admin" element={<AdminPage />} />
+      <Route path="/admin/design" element={<DesignPage />} />
       <Route path="/settings" element={<SettingsPage />} />
     </Route>
 

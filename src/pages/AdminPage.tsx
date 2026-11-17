@@ -1,6 +1,8 @@
 import AppLayout from '@/components/AppLayout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Shield, AlertTriangle } from 'lucide-react';
+import { Shield, AlertTriangle, Palette } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 import { useAdminStatus } from '@/hooks/use-admin-status';
 import { PageLoader } from '@/components/PageLoader';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +31,9 @@ export default function AdminPage() {
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-bold text-foreground">Super-Admin Panel</h2>
+          <Button asChild variant="outline" size="sm" className="ml-auto">
+            <Link to="/admin/design"><Palette />Design system</Link>
+          </Button>
         </div>
 
         <Alert>
