@@ -73,7 +73,7 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
     {ledger.isPending && <LoadingState label={t('fuel.loading', 'Loading fuel records…')} className="py-4" />}
     {(ledger.isError || history.isError) && <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-4"><p className="text-sm">{t('fuel.simple.loadFailed', 'Some fuel information could not be loaded.')}</p><Button size="sm" variant="outline" onClick={() => { void ledger.refetch(); void history.refetch(); }}>{t('common.retry', 'Try again')}</Button></div>}
     <Button size="lg" className="w-full" disabled={!ledger.isSuccess} onClick={() => setEditor('fill')}><Plus className="h-5 w-5" />{t('fuel.simple.addFill', 'Add a fill-up')}</Button>
-    <Panel title={t('fuel.thisMonth', 'This month')}>
+    <Panel title={t('fuel.thisMonth', 'This month')} testId="fuel-this-month">
       <dl className="grid grid-cols-2 gap-4">
         <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.spent', 'Paid at the pump')}</dt><dd className="mt-2 break-words text-xl font-semibold">{payments || '—'}</dd>{!payments && ledger.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.noSpending', 'No fill-ups recorded this month')}</p>}</div>
         <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.economy', 'Fuel economy')}</dt><dd className="mt-2 text-xl font-semibold">{efficiency ?? '—'}</dd>{!efficiency && history.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.needReadings', 'Drive a few more trips to see this')}</p>}</div>

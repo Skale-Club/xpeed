@@ -27,7 +27,7 @@ export function StatTile({ label, value, sub, loading = false, testId, children 
   testId: string;
   children?: ReactNode;
 }) {
-  return <UiStatTile label={label} value={value} hint={loading ? undefined : sub} loading={loading} testId={`${testId}-tile`} valueTestId={testId} footer={children} />;
+  return <UiStatTile label={label} value={value} hint={loading ? undefined : sub} loading={loading} testId={`${testId}-tile`} valueTestId={testId} subTestId={`${testId}-sub`} footer={children} />;
 }
 
 type GridColumns = NonNullable<Parameters<typeof StatGrid>[0]['columns']>;

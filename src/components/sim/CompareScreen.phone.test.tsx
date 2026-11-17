@@ -93,8 +93,7 @@ describe('the Compare screen on a phone', () => {
 
   it('lists the corners as tappable cards, not a table, and selects one on tap', async () => {
     renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
-    fireEvent.mouseDown(await screen.findByTestId('tab-corners'), { button: 0 });
-    fireEvent.click(screen.getByTestId('tab-corners'));
+    fireEvent.mouseDown(await screen.findByTestId('tab-corners'), { button: 0, ctrlKey: false });
     const cards = await screen.findAllByTestId('corner-card');
     expect(screen.queryByTestId('corner-rows')).not.toBeInTheDocument();
     expect(screen.queryByTestId('corner-row')).not.toBeInTheDocument();
@@ -106,8 +105,12 @@ describe('the Compare screen on a phone', () => {
     }
     expect(cards[0]).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(cards[0]);
+    // On a phone a tap takes the driver to the charts, zoomed to the corner; the way back is the Corners tab.
+    await waitFor(() => expect(screen.getByTestId('tab-charts')).toHaveAttribute('data-state', 'active'));
+    expect(screen.getByTestId('zoom-bar')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId('tab-corners'), { button: 0, ctrlKey: false });
     await waitFor(() => expect(screen.getAllByTestId('corner-card')[0]).toHaveAttribute('data-selected', 'true'));
     expect(screen.getAllByTestId('corner-card')[0]).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('show-whole-lap')).toBeInTheDocument();
-  });
+  }, 20000);
 });

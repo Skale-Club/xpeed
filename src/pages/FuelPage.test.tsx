@@ -52,7 +52,7 @@ it('records a fill-up using only payment and quantity, leaving extra fields opti
   expect(api.save.mock.calls[0][1]).toMatchObject({ kind: 'fill', litres: 37.85411784, totalPaid: 30, fullTank: false, odometerKm: null, currency: 'USD', source: 'receipt' });
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(api.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
-  const summary = screen.getByRole('heading', { name: 'This month' }).parentElement!;
+  const summary = screen.getByTestId('fuel-this-month');
   expect(within(summary).getByText('$30.00')).toBeInTheDocument();
 });
 it('saves a price independently without requiring a purchase quantity or creating actual spending', async () => {

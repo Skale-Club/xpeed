@@ -2875,17 +2875,6 @@
       "tracksCars": "Pistas · carros"
     }
   },
-  "demo": {
-    "banner": "Você está vendo um exemplo. Suas próprias voltas aparecem aqui quando o Xpeed Companion as enviar.",
-    "chip": "Exemplo",
-    "leave": "Sair do exemplo",
-    "notPartBody": "Esta página trata de pilotos reais e dos seus computadores, então ficou fora do exemplo. Ela abre assim que você sair do exemplo.",
-    "notPartTitle": "Fora do exemplo",
-    "see": "Ver um exemplo",
-    "seeHint": "Não sabe o que esperar? Dê uma olhada com voltas de mentira. Nada é salvo.",
-    "unavailable": "Indisponível no exemplo",
-    "unavailableBody": "Nada é salvo nem enviado enquanto você olha o exemplo."
-  },
   "ui": {
     "chip": {
       "remove": "Remover"
@@ -2924,5 +2913,16 @@
       "clear": "Limpar tudo",
       "apply": "Ver resultados"
     }
+  },
+  "demo": {
+    "banner": "Você está vendo um exemplo. Suas próprias voltas aparecem aqui quando o Xpeed Companion as enviar.",
+    "chip": "Exemplo",
+    "leave": "Sair do exemplo",
+    "notPartBody": "Esta página trata de pilotos reais e dos seus computadores, então ficou fora do exemplo. Ela abre assim que você sair do exemplo.",
+    "notPartTitle": "Fora do exemplo",
+    "see": "Ver um exemplo",
+    "seeHint": "Não sabe o que esperar? Dê uma olhada com voltas de mentira. Nada é salvo.",
+    "unavailable": "Indisponível no exemplo",
+    "unavailableBody": "Nada é salvo nem enviado enquanto você olha o exemplo."
   }
 }

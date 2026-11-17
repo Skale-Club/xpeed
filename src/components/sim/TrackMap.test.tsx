@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { TrackMap } from './TrackMap';
 import type { TrackPath } from '@/lib/sim/analysis';
 import { circle, makeLayout } from '@/test/track-fixture';
+import { CHART_PALETTE } from '@/lib/chart-palette';
 
 afterEach(cleanup);
 
@@ -43,7 +44,7 @@ describe('the track map', () => {
     expect(screen.getByTestId('track-pitlane')).toBeInTheDocument();
     // The layout comes first in the drawing, so the lap is on top of it.
     const layoutGroup = screen.getByTestId('track-layout');
-    const lapLine = [...container.querySelectorAll('polyline')].find((p) => p.getAttribute('stroke')?.includes('94%, 49%'));
+    const lapLine = [...container.querySelectorAll('polyline')].find((p) => p.getAttribute('stroke') === CHART_PALETTE.yellow);
     expect(lapLine).toBeTruthy();
     expect(layoutGroup.compareDocumentPosition(lapLine!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

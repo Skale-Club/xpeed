@@ -45,7 +45,7 @@ export interface StatTileProps {
  * One number of a screen: small label, big tabular value, a quiet hint and an optional trend. Use it inside a `StatGrid` for a row of KPIs;
  * the tile is a list item so the grid reads as a list. `testId` is the tile's; the value is `${testId}-value`.
  */
-export function StatTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, title, loading = false, testId, valueTestId }: StatTileProps) {
+export function StatTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, title, loading = false, testId, valueTestId, subTestId }: StatTileProps) {
   const valueId = valueTestId ?? (testId ? `${testId}-value` : undefined);
   const TrendIcon = trend ? TREND_ICON[trend.direction] : null;
   return (
@@ -76,7 +76,7 @@ export function StatTile({ label, value, hint, icon: Icon, tone = "default", tre
               </span>
             )}
             {hint != null && (
-              <span className="min-w-0 truncate" data-testid={testId ? `${testId}-sub` : undefined}>
+              <span className="min-w-0 truncate" data-testid={subTestId ?? (testId ? `${testId}-sub` : undefined)}>
                 {hint}
               </span>
             )}
