@@ -6,8 +6,9 @@ import { completeTripInspection } from '@/lib/trip-inspection';
 import AppLayout from '@/components/AppLayout';
 import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
-import { OptionSelect } from '@/components/ui/option-select';
+import { Pagination } from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -224,13 +225,17 @@ function CarHistory() {
           </Card>
         ) : calendar && filtered.length === 0 ? <p className="py-5 text-sm text-muted-foreground">{showActive ? t('history.noCompleted', 'Completed trips will appear here after saving.') : t('history.noDayTrips', 'No trips on this day.')}</p> : trips.length === 0 && (active || savingTrip) ? <p className="text-sm text-muted-foreground">{t('history.noCompleted', 'Completed trips will appear here after saving.')}</p> : trips.length === 0 ? (
           <Card>
-            <CardContent className="py-10 text-center space-y-3">
-              <Route className="w-10 h-10 text-muted-foreground/40 mx-auto" />
-              <p className="font-medium">{t('history.empty', 'No trips yet')}</p>
-              <p className="text-sm text-muted-foreground">{t('history.emptyHint', 'Connect the adapter and drive — trips are saved here by themselves.')}</p>
-              <Button onClick={() => navigate('/')}>
-                <Play className="w-4 h-4 mr-2" /> {t('trip.start', 'Start trip')}
-              </Button>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Route}
+                title={t('history.empty', 'No trips yet')}
+                description={t('history.emptyHint', 'Connect the adapter and drive — trips are saved here by themselves.')}
+                action={
+                  <Button onClick={() => navigate('/')}>
+                    <Play className="w-4 h-4 mr-2" /> {t('trip.start', 'Start trip')}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         ) : (
@@ -298,11 +303,7 @@ function CarHistory() {
 
           </div>
         )}
-        {total > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
-          <OptionSelect size="sm" label={t('history.page', 'Page')} className="w-auto min-w-[8rem]" value={String(page)} onChange={(value) => goPage(Number(value))} options={Array.from({ length: pages }, (_, index) => ({ value: String(index + 1), label: `${index + 1} / ${pages}` }))} />
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
-        </nav>}
+        {total > PAGE_SIZE && <Pagination page={page} pageCount={pages} onPageChange={goPage} showJump className="pt-3" testId="history-pagination" />}
         </TabsContent>
       </Tabs>
 

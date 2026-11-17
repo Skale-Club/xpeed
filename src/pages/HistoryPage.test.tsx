@@ -153,12 +153,11 @@ describe('HistoryPage calendar and paging', () => {
     render(<MemoryRouter><HistoryPage /></MemoryRouter>);
     expect(await screen.findAllByTestId('trip-row')).toHaveLength(20);
     expect(await screen.findByText('Journey 299')).toBeInTheDocument();
-    // The page picker is a compact drop-down with its name inside it (no caption beside it).
-    const picker = screen.getByRole('combobox', { name: 'Page' });
+    // The shared Pagination: a compact "Go to page" drop-down between Previous and Next.
+    const picker = screen.getByRole('combobox', { name: 'Go to page' });
     expect(picker).toHaveClass('h-8', 'text-xs');
-    expect(picker).toHaveTextContent(/^Page1 \/ 15$/);
-    expect(screen.getByRole('navigation', { name: 'Trip pages' }).querySelector('label')).toBeNull();
-    chooseOption(picker, '15 / 15');
+    expect(screen.getByRole('navigation', { name: 'Pagination' })).toHaveTextContent('Page 1 of 15');
+    chooseOption(picker, 'Page 15');
     await waitFor(() => expect(screen.getByText('Journey 0')).toBeInTheDocument());
     expect(screen.getAllByTestId('trip-row')).toHaveLength(20);
     await waitFor(() => expect(db.getFlagsForSessions).toHaveBeenCalledTimes(2));

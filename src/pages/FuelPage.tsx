@@ -5,6 +5,9 @@ import { Fuel, Loader2, Plus, Trash2, ChevronDown } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Pagination } from '@/components/ui/pagination';
+import { Panel } from '@/components/ui/panel';
+import { LoadingState } from '@/components/ui/states';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FuelEntryDialog } from '@/components/fuel/FuelEntryDialog';
 import { useCarsContext } from '@/contexts/CarsContext';
@@ -67,15 +70,15 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
   const lastPage = Math.max(1, Math.ceil(fills.length / 5)), shownPage = Math.min(page, lastPage);
   return <AppLayout refreshDisabled={editor !== null || removing}><div className="space-y-5">
     <PageHeader icon={Fuel} title={t('fuel.title', 'Fuel')} description={name} />
-    {ledger.isPending && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t('fuel.loading', 'Loading fuel records…')}</p>}
+    {ledger.isPending && <LoadingState label={t('fuel.loading', 'Loading fuel records…')} className="py-4" />}
     {(ledger.isError || history.isError) && <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-4"><p className="text-sm">{t('fuel.simple.loadFailed', 'Some fuel information could not be loaded.')}</p><Button size="sm" variant="outline" onClick={() => { void ledger.refetch(); void history.refetch(); }}>{t('common.retry', 'Try again')}</Button></div>}
     <Button size="lg" className="w-full" disabled={!ledger.isSuccess} onClick={() => setEditor('fill')}><Plus className="h-5 w-5" />{t('fuel.simple.addFill', 'Add a fill-up')}</Button>
-    <Card><CardContent className="space-y-4 p-4"><h3 className="text-sm font-semibold">{t('fuel.thisMonth', 'This month')}</h3>
+    <Panel title={t('fuel.thisMonth', 'This month')}>
       <dl className="grid grid-cols-2 gap-4">
         <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.spent', 'Paid at the pump')}</dt><dd className="mt-2 break-words text-xl font-semibold">{payments || '—'}</dd>{!payments && ledger.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.noSpending', 'No fill-ups recorded this month')}</p>}</div>
         <div><dt className="text-xs text-muted-foreground">{t('fuel.simple.economy', 'Fuel economy')}</dt><dd className="mt-2 text-xl font-semibold">{efficiency ?? '—'}</dd>{!efficiency && history.isSuccess && <p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.needReadings', 'Drive a few more trips to see this')}</p>}</div>
       </dl>
-    </CardContent></Card>
+    </Panel>
     <Card><CardContent className="flex items-center justify-between gap-4 p-4">
       <div className="min-w-0"><h3 className="text-sm font-semibold">{t('fuel.simple.price', 'Fuel price')}</h3><p className="mt-1 text-lg font-medium">{ledger.isSuccess && price ? `${money(price.pricePerLitre * factor, price.currency)} / ${unit}` : '—'}</p><p className="mt-1 text-xs text-muted-foreground">{t('fuel.simple.costHint', 'Used for trip costs')}</p>
         {ledger.isSuccess && price && <p className="mt-1 text-xs text-muted-foreground">{formatAppDate(new Date(price.at), i18n.resolvedLanguage, { dateStyle: 'short' })}{price.source === 'regional' && ` · ${t('fuel.simple.averageLabel', 'Regional estimate')}`}</p>}
@@ -85,7 +88,7 @@ function FuelScreen({ carId, name }: { carId: string; name: string }) {
       {fills.length === 0 ? <p className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{t('fuel.simple.empty', 'Your first fill-up will appear here.')}</p> : <div className="divide-y divide-border rounded-xl border border-border px-4">
         {fills.slice((shownPage - 1) * 5, shownPage * 5).map(entry => <div key={entry.id} className="flex items-center justify-between gap-3 py-4"><div className="min-w-0"><p className="font-semibold">{money(entry.totalPaid!, entry.currency)} <span className="font-normal text-muted-foreground">· {number(entry.litres / factor)} {unit}</span></p><p className="mt-1 text-xs text-muted-foreground">{formatAppDate(new Date(entry.at), i18n.resolvedLanguage, { dateStyle: 'medium' })}</p>{entry.note && <p className="mt-1 break-words text-sm text-muted-foreground">{entry.note}</p>}</div><Button variant="ghost" size="icon" className="shrink-0" aria-label={t('history.delete', 'Delete')} onClick={() => setDeleting(entry)}><Trash2 className="h-4 w-4" /></Button></div>)}
       </div>}
-      {lastPage > 1 && <div className="flex items-center justify-between gap-2"><Button size="sm" variant="outline" disabled={shownPage <= 1} onClick={() => setPage(shownPage - 1)}>{t('history.previous', 'Previous')}</Button><span className="text-xs text-muted-foreground">{shownPage} / {lastPage}</span><Button size="sm" variant="outline" disabled={shownPage >= lastPage} onClick={() => setPage(shownPage + 1)}>{t('history.next', 'Next')}</Button></div>}
+      {lastPage > 1 && <Pagination page={shownPage} pageCount={lastPage} onPageChange={setPage} testId="fuel-pagination" />}
     </section>}
     {ledger.isSuccess && history.isSuccess && <section className="border-t border-border pt-2"><button className="flex min-h-12 w-full items-center justify-between gap-3 text-left text-sm font-medium" aria-expanded={details} aria-controls="fuel-history" onClick={() => setDetails(value => !value)}>{t('fuel.simple.history', 'History & comparisons')}<ChevronDown className={`h-4 w-4 transition-transform ${details ? 'rotate-180' : ''}`} /></button>
       {details && <div id="fuel-history"><Suspense fallback={<Loader2 className="h-5 w-5 animate-spin" />}><FuelHistory entries={entries} trips={trips} timezone={timezone} volumeUnit={volumeUnit} consumptionUnit={consumptionUnit} onDelete={setDeleting} /></Suspense></div>}

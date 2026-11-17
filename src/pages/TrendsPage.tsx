@@ -7,7 +7,9 @@ import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FILTER_CELL, FilterBar } from '@/components/ui/filter-bar';
+import { FilterSheet } from '@/components/ui/filter-sheet';
 import { OptionSelect } from '@/components/ui/option-select';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { PageLoader } from '@/components/PageLoader';
 import { useCarsContext } from '@/contexts/CarsContext';
@@ -21,6 +23,7 @@ const EMPTY_SESSIONS: Session[] = [];
 
 export default function TrendsPage() {
   const { t, i18n } = useTranslation();
+  const isMobile = useIsMobile();
   const { selectedCarId, selectedCar } = useCarsContext();
   const { timezone, distanceUnit, temperatureUnit } = useSettings();
   const [group, setGroup] = useState<'month' | 'year'>('month');
@@ -45,11 +48,19 @@ export default function TrendsPage() {
       description={t('trends.hint', 'Compare fuel use, temperatures and other readings across your trips to spot changes over time.')}
     />
     {!selectedCarId ? <p>{t('trends.noCar', 'Choose a car to see its history.')}</p> : query.isPending ? <PageLoader /> : query.isError ? <Button onClick={() => void query.refetch()}>{t('common.retry', 'Try again')}</Button> : !metrics.length ? <p>{t('trends.empty', 'Complete a trip to start seeing how your car changes over time.')}</p> : <>
-      <FilterBar data-testid="trends-filters">
-        <OptionSelect size="sm" id="trends-sensor" label={t('trends.sensor', 'What to compare')} className={cn(FILTER_CELL, 'basis-full sm:basis-auto sm:w-72')} value={metric?.key ?? ''} onChange={setChosen} options={metrics.map((item) => ({ value: item.key, label: `${item.label}${item.unit ? ` (${item.unit})` : ''}` }))} />
-        <OptionSelect size="sm" id="trends-group" label={t('trends.group', 'View by')} className={cn(FILTER_CELL, 'sm:w-44')} value={group} onChange={(value) => setGroup(value as 'month' | 'year')} options={[{ value: 'month', label: t('trends.month', 'Month') }, { value: 'year', label: t('trends.year', 'Year') }]} />
-        <OptionSelect size="sm" id="trends-range" label={t('trends.range', 'History')} className={cn(FILTER_CELL, 'sm:w-48')} value={period} onChange={setPeriod} options={[...[12, 36].map((n) => ({ value: String(n), label: t('trends.months', '{{count}} months', { count: n }) })), { value: 'all', label: t('home.range.all', 'All time') }]} />
-      </FilterBar>
+      {isMobile ? (
+        <FilterSheet count={(group !== 'month' ? 1 : 0) + (period !== '12' ? 1 : 0)} onClear={() => { setGroup('month'); setPeriod('12'); }} testId="trends-filter-sheet" triggerClassName="w-full">
+          <OptionSelect size="sm" id="trends-sensor" label={t('trends.sensor', 'What to compare')} className="w-full" value={metric?.key ?? ''} onChange={setChosen} options={metrics.map((item) => ({ value: item.key, label: `${item.label}${item.unit ? ` (${item.unit})` : ''}` }))} />
+          <OptionSelect size="sm" id="trends-group" label={t('trends.group', 'View by')} className="w-full" value={group} onChange={(value) => setGroup(value as 'month' | 'year')} options={[{ value: 'month', label: t('trends.month', 'Month') }, { value: 'year', label: t('trends.year', 'Year') }]} />
+          <OptionSelect size="sm" id="trends-range" label={t('trends.range', 'History')} className="w-full" value={period} onChange={setPeriod} options={[...[12, 36].map((n) => ({ value: String(n), label: t('trends.months', '{{count}} months', { count: n }) })), { value: 'all', label: t('home.range.all', 'All time') }]} />
+        </FilterSheet>
+      ) : (
+        <FilterBar data-testid="trends-filters">
+          <OptionSelect size="sm" id="trends-sensor" label={t('trends.sensor', 'What to compare')} className={cn(FILTER_CELL, 'basis-full sm:basis-auto sm:w-72')} value={metric?.key ?? ''} onChange={setChosen} options={metrics.map((item) => ({ value: item.key, label: `${item.label}${item.unit ? ` (${item.unit})` : ''}` }))} />
+          <OptionSelect size="sm" id="trends-group" label={t('trends.group', 'View by')} className={cn(FILTER_CELL, 'sm:w-44')} value={group} onChange={(value) => setGroup(value as 'month' | 'year')} options={[{ value: 'month', label: t('trends.month', 'Month') }, { value: 'year', label: t('trends.year', 'Year') }]} />
+          <OptionSelect size="sm" id="trends-range" label={t('trends.range', 'History')} className={cn(FILTER_CELL, 'sm:w-48')} value={period} onChange={setPeriod} options={[...[12, 36].map((n) => ({ value: String(n), label: t('trends.months', '{{count}} months', { count: n }) })), { value: 'all', label: t('home.range.all', 'All time') }]} />
+        </FilterBar>
+      )}
       <Card><CardContent className="pt-5"><p className="mb-3 font-semibold">{metric?.label} · {mph ? 'mph' : temperatureLabel(metric?.unit ?? '', temperatureUnit)}</p>
         <div className="h-72 w-full"><ResponsiveContainer width="100%" height="100%"><LineChart data={display}><CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" /><XAxis dataKey="period" /><YAxis /><Tooltip /><Legend />
           <Line dataKey="min" name={t('trends.min', 'Minimum')} stroke={CHART_PALETTE.blue} connectNulls={false} isAnimationActive={false} />

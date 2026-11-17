@@ -28,6 +28,7 @@ import { reprocessStoredSession } from '@/lib/reprocess-session';
 import { resolveRulesetForCar } from '@/lib/rule-resolver';
 import type { DefaultRule } from '@/lib/default-rules';
 import { URGENCY, describeProblem } from '@/lib/problems';
+import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
 import {
   formatDistance, formatDuration, formatTripDate, tripAverageSpeed, tripDate, tripDistanceKm, tripProblems, tripTitle,
 } from '@/lib/trips';
@@ -38,12 +39,12 @@ import { tripFuel } from '@/lib/trip-fuel';
 
 type SessionWithStoredCsv = Session & { source_csv?: string | null; active_dtcs?: string[] | null };
 
-const URGENCY_STYLE = {
-  urgent: 'bg-destructive/15 text-destructive border-destructive/30',
-  soon: 'bg-warn/15 text-warn border-warn-line',
-  watch: 'bg-warn/15 text-warn border-warn-line',
-  later: 'bg-muted text-muted-foreground border-border',
-} as const;
+const URGENCY_TONE = {
+  urgent: 'critical',
+  soon: 'warn',
+  watch: 'warn',
+  later: 'neutral',
+} as const satisfies Record<string, StatusTone>;
 
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>();
@@ -240,9 +241,9 @@ export default function SessionDetail() {
                 return (
                   <Card key={p.canonical_key} data-testid="trip-problem">
                     <CardContent className="p-4 space-y-2">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${URGENCY_STYLE[urgency]}`}>
+                      <StatusBadge tone={URGENCY_TONE[urgency]}>
                         {t(`problems.urgency.${urgency}`)}
-                      </span>
+                      </StatusBadge>
                       <h4 className="font-semibold">{text.title}</h4>
                       <p className="text-sm text-muted-foreground">{text.meaning}</p>
                       <p className="text-sm"><span className="font-medium">{t('problems.whatToDo', 'What to do')}: </span>{text.action}</p>

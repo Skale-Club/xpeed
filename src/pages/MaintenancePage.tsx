@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState, LoadingState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Input } from '@/components/ui/input';
@@ -265,23 +266,21 @@ function MaintenanceScreen() {
             </CardContent>
           </Card>
         ) : loading ? (
-          <Card className="bg-card border-border">
-            <CardContent className="p-6 text-center">
-              <Loader2 className="w-5 h-5 text-primary animate-spin mx-auto" />
-            </CardContent>
-          </Card>
+          <LoadingState />
         ) : events.length === 0 ? (
           <Card className="bg-card border-border">
-            <CardContent className="py-12 text-center">
-              <Wrench className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-semibold text-foreground mb-2">{t('maint.emptyTitle', 'No services recorded yet')}</h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                {t('maint.emptyBody', "Write down what's been done (oil changes, brake pads, tire rotations) so we can give you better advice.")}
-              </p>
-              <Button size="sm" onClick={() => setIsAddOpen(true)}>
-                <Plus className="w-3.5 h-3.5 mr-2" />
-                {t('maint.addFirst', 'Add your first service')}
-              </Button>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Wrench}
+                title={t('maint.emptyTitle', 'No services recorded yet')}
+                description={t('maint.emptyBody', "Write down what's been done (oil changes, brake pads, tire rotations) so we can give you better advice.")}
+                action={
+                  <Button size="sm" onClick={() => setIsAddOpen(true)}>
+                    <Plus className="w-3.5 h-3.5 mr-2" />
+                    {t('maint.addFirst', 'Add your first service')}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         ) : (

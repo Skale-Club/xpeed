@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -222,16 +223,18 @@ export default function CarsPage() {
           </Card>
         ) : cars.length === 0 ? (
           <Card className="bg-card border-border">
-            <CardContent className="py-12 text-center">
-              <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-semibold text-foreground mb-2">{t('vehicle.none', 'No cars yet')}</h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                {t('vehicle.noneHint', 'Add your car to start checking it.')}
-              </p>
-              <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
-                <Plus className="w-3.5 h-3.5 mr-2" />
-                {t('vehicle.add', 'Add car')}
-              </Button>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Car}
+                title={t('vehicle.none', 'No cars yet')}
+                description={t('vehicle.noneHint', 'Add your car to start checking it.')}
+                action={
+                  <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
+                    <Plus className="w-3.5 h-3.5 mr-2" />
+                    {t('vehicle.add', 'Add car')}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         ) : (
