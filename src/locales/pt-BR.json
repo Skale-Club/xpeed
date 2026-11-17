@@ -696,6 +696,8 @@
         "spreadTighter": "Sua dispersão é de {{spread}} s, {{percent}}% menor que antes.",
         "spreadLooser": "Sua dispersão é de {{spread}} s, {{percent}}% maior que antes.",
         "noSessions": "Nenhuma sessão ainda.",
+        "pbBadge": "PB",
+        "moreStats": "Mais estatísticas",
         "colWhen": "Quando",
         "colTrackCar": "Pista e carro",
         "colLaps": "Voltas",

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { useSettings } from '@/contexts/SettingsContext';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { buildKpis, formatDistance, formatDuration, validShare, type Change, type Kpi, type KpiId } from '@/lib/sim/dashboard';
 import type { V1Stats } from '@/lib/sim/v1-client';
@@ -10,6 +11,8 @@ import { Sparkline } from './parts';
 import { useDashFormat } from './use-format';
 
 const ORDER: readonly KpiId[] = ['laps', 'time', 'distance', 'sessions', 'personalBests', 'tracksCars'];
+/** On a phone four tiles are enough: what you did, not where. */
+const PHONE_ORDER: readonly KpiId[] = ['sessions', 'time', 'laps', 'personalBests'];
 
 /** How the tile says the change: an arrow and a percent in the muted colour (more driving is not good or bad), "n/a" when the period before is empty. */
 function ChangeLine({ change }: { change: Change }) {
@@ -41,6 +44,7 @@ function ChangeLine({ change }: { change: Change }) {
  */
 export function KpiTiles({ stats }: { stats: V1Stats | null }) {
   const { t } = useTranslation();
+  const mobile = useIsMobile();
   const { distanceUnit } = useSettings();
   const format = useDashFormat();
   const kpis = useMemo(() => (stats ? new Map<KpiId, Kpi>(buildKpis(stats).map((kpi) => [kpi.id, kpi])) : null), [stats]);
@@ -74,7 +78,7 @@ export function KpiTiles({ stats }: { stats: V1Stats | null }) {
 
   return (
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" data-testid="kpi-tiles" data-empty={stats ? undefined : 'true'}>
-      {ORDER.map((id) => {
+      {(mobile ? PHONE_ORDER : ORDER).map((id) => {
         const kpi = kpis?.get(id);
         return (
           <li key={id}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LayoutDashboard } from 'lucide-react';
+import { ChevronDown, LayoutDashboard } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { loadRange, saveRange } from '@/lib/sim/dashboard';
 import { useOverview, useStats, useUserId, type StatsRange, type V1Overview, type V1Stats } from '@/lib/sim/v1-client';
 import { ExampleInvite } from './Example';
@@ -21,6 +22,40 @@ const ConsistencyPanel = lazyChart(() => import('./overview/Consistency').then((
 
 /** What is on screen once the numbers are in: the tiles, the activity, the progress with what to work on beside it, where you drive, the latest. */
 function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: V1Overview; refreshing: boolean }) {
+  const { t } = useTranslation();
+  const mobile = useIsMobile();
+  const [more, setMore] = useState(false);
+  if (mobile) {
+    // Phone: the last session first, then what to work on and progress; the rest waits behind "More stats" (unmounted while closed, so its charts do not load).
+    return (
+      <div className={`space-y-4 transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing || undefined} data-testid="overview-dashboard">
+        <KpiTiles stats={stats} />
+        <SessionsPanel sessions={overview.latestSessions} bests={overview.latestPersonalBests} />
+        <WorkOnCard sessions={overview.latestSessions} />
+        <ProgressPanel stats={stats} />
+        <BestsPanel bests={overview.latestPersonalBests} />
+        <button
+          type="button"
+          onClick={() => setMore((open) => !open)}
+          aria-expanded={more}
+          aria-controls="overview-more-stats"
+          className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-card px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="overview-more-toggle"
+        >
+          {t('modes.overview.dash.moreStats', 'More stats')}
+          <ChevronDown className={`h-4 w-4 transition-transform ${more ? 'rotate-180' : ''}`} aria-hidden="true" />
+        </button>
+        {more && (
+          <div id="overview-more-stats" className="space-y-4" data-testid="overview-more">
+            <ActivityPanel stats={stats} />
+            <ConsistencyPanel stats={stats} />
+            <WherePanel stats={stats} />
+            <ComparisonsPanel />
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={`space-y-4 transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing || undefined} data-testid="overview-dashboard">
       <KpiTiles stats={stats} />
