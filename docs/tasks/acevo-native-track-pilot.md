@@ -1,6 +1,6 @@
 # Assetto Corsa EVO native geometry pilot
 
-Status: offline pilot implemented on 2026-11-16, not released. Branch: `codex/acevo-native-track-pilot`. Parent task: [native track geometry](https://app.notion.com/p/41bb7a686121817fb7dfdd4f71792d15).
+Status: offline extraction pilot implemented on 2026-11-16, included in Companion 0.10.0. Implementation branch: `codex/acevo-native-track-pilot`. Operational release evidence is recorded in the [Journal](https://app.notion.com/p/411b7a686121816a9858f5dc553e8608). Parent task: [native track geometry](https://app.notion.com/p/41bb7a686121817fb7dfdd4f71792d15).
 
 ## Proven source and scope
 

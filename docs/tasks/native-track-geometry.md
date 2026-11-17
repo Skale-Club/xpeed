@@ -3,7 +3,7 @@
 Canonical next-task record: https://app.notion.com/p/41bb7a686121817fb7dfdd4f71792d15
 
 ## Status and handoff
-2026-11-16 update: the owner selected EVO as the pilot. An offline, hash-pinned Laguna Seca extraction and XTRK v2 sampled-boundary support are implemented on `codex/acevo-native-track-pilot`, pending release. See [pilot evidence and limitations](acevo-native-track-pilot.md). This establishes native AI-side geometry and historical-lap alignment; exact asphalt/white-line semantics, live-game acceptance and automatic discovery remain pending. Other game families are still queued.
+2026-11-16 update: the owner selected EVO as the pilot. An offline, hash-pinned Laguna Seca extraction and XTRK v2 sampled-boundary support are implemented for Companion 0.10.0. See [pilot evidence and limitations](acevo-native-track-pilot.md) and the Journal for operational release evidence. This establishes native AI-side geometry and historical-lap alignment; exact asphalt/white-line semantics, live-game acceptance and automatic discovery remain pending. Other game families are still queued.
 
 Original handoff: the owner deferred this work on 2026-11-16 while switching computers, then resumed it on the desktop with EVO as the pilot. Do not start extraction or heavy builds on VANILDO-TABLET. The wider backlog still covers every simulator supported by Xpeed.
 
