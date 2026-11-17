@@ -822,6 +822,7 @@
       "notComparableLength": "These laps are not on the same track layout, so their corners cannot be compared.",
       "notComparableChannels": "These laps cannot be compared corner by corner.",
       "zoomTo": "Zoom to corner {{corner}}",
+      "cornerLabel": "Corner {{corner}}",
       "zoomedTo": "Zoomed to corner {{corner}} ({{from}}–{{to}} {{unit}})",
       "showWhole": "Show whole lap",
       "cornersTitle": "Corner by corner",

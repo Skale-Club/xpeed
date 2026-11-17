@@ -81,4 +81,33 @@ describe('the Compare screen on a phone', () => {
     expect(await screen.findByTestId('compare-start')).toBeInTheDocument();
     expect(screen.queryByTestId('sticky-laps')).not.toBeInTheDocument();
   });
+
+  it('makes the sticky bar compact: 40 px, one line, small text', async () => {
+    renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
+    const bar = await screen.findByTestId('sticky-laps');
+    expect(bar.className).toMatch(/h-10/);
+    expect(bar.className).not.toMatch(/h-14/);
+    expect(within(bar).getByTestId('sticky-lap').parentElement?.className).toMatch(/whitespace-nowrap/);
+    expect(within(bar).getByTestId('sticky-change').className).toMatch(/h-10/);
+  });
+
+  it('lists the corners as tappable cards, not a table, and selects one on tap', async () => {
+    renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
+    fireEvent.mouseDown(await screen.findByTestId('tab-corners'), { button: 0 });
+    fireEvent.click(screen.getByTestId('tab-corners'));
+    const cards = await screen.findAllByTestId('corner-card');
+    expect(screen.queryByTestId('corner-rows')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('corner-row')).not.toBeInTheDocument();
+    for (const card of cards) {
+      expect(card.tagName).toBe('BUTTON');
+      expect(card.className).toMatch(/min-h-10/);
+      expect(within(card).getByTestId('corner-time')).toHaveTextContent(/s$/);
+      expect(card).toHaveTextContent(/Corner \d+/);
+    }
+    expect(cards[0]).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(cards[0]);
+    await waitFor(() => expect(screen.getAllByTestId('corner-card')[0]).toHaveAttribute('data-selected', 'true'));
+    expect(screen.getAllByTestId('corner-card')[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('show-whole-lap')).toBeInTheDocument();
+  });
 });

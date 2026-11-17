@@ -822,6 +822,7 @@
       "notComparableLength": "Essas voltas não são do mesmo traçado, então as curvas não podem ser comparadas.",
       "notComparableChannels": "Não dá para comparar essas voltas curva a curva.",
       "zoomTo": "Ampliar a curva {{corner}}",
+      "cornerLabel": "Curva {{corner}}",
       "zoomedTo": "Ampliado na curva {{corner}} ({{from}}–{{to}} {{unit}})",
       "showWhole": "Mostrar a volta toda",
       "cornersTitle": "Curva a curva",

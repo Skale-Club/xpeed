@@ -533,7 +533,7 @@ export function LapAnalysis({
   const current = tabs.some((item) => item.id === tab) ? tab : 'summary';
   return (
     <Tabs value={current} onValueChange={setTab} className="space-y-3" data-testid="lap-analysis" data-layout="tabs">
-      <TabsList className={cn('sticky top-28 z-20 grid h-10 w-full shadow-sm')} style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} data-testid="analysis-tabs">
+      <TabsList className={cn('sticky top-24 z-20 grid h-10 w-full shadow-sm')} style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} data-testid="analysis-tabs">
         {tabs.map((item) => (
           <TabsTrigger key={item.id} value={item.id} className="px-1 text-xs" data-testid={`tab-${item.id}`}>{item.label}</TabsTrigger>
         ))}

@@ -822,6 +822,7 @@
       "notComparableLength": "Estas vueltas no son del mismo trazado, así que sus curvas no se pueden comparar.",
       "notComparableChannels": "No se pueden comparar estas vueltas curva a curva.",
       "zoomTo": "Ampliar la curva {{corner}}",
+      "cornerLabel": "Curva {{corner}}",
       "zoomedTo": "Ampliado en la curva {{corner}} ({{from}}–{{to}} {{unit}})",
       "showWhole": "Mostrar la vuelta entera",
       "cornersTitle": "Curva a curva",
