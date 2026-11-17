@@ -64,7 +64,7 @@ export const boardKey = (track: string, car: string, scope: string) => `${track}
 export function fakeSocialState(partial: Partial<FakeSocialState> = {}): FakeSocialState {
   return {
     v1: partial.v1 ?? fakeV1State(),
-    me: { handle: 'lap_fan', displayName: 'Lap Fan', visibility: 'public', createdAt: '2026-10-01T10:00:00.000Z', handleChangesLeft: 3, handleChangesResetAt: null },
+    me: { handle: 'lap_fan', handleChosen: true, displayName: 'Lap Fan', visibility: 'public', createdAt: '2026-10-01T10:00:00.000Z', handleChangesLeft: 3, handleChangesResetAt: null },
     drivers: [], friendRows: [], shares: [], publicTokens: new Map(), shareable: { laps: new Map(), sessions: new Map() }, publicFiles: new Map(),
     boards: new Map(), catalog: { tracks: [], cars: [] }, reports: [], problems: [], adminLaps: new Map(), admin: false, recheckRemaining: 0, reported: new Set(), deleted: null, requests: [],
     failing: null, delayMs: 0, tokenCounter: 0, ...partial,
@@ -162,11 +162,15 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
         if (RESERVED.includes(handle) || handle.startsWith('xpeed')) return fail(400, 'reserved_handle');
         if (handle !== state.me.handle) {
           if (state.drivers.some((entry) => entry.handle === handle)) return fail(409, 'handle_taken');
-          if (state.me.handleChangesLeft <= 0) return fail(429, 'handle_change_limit', true);
+          // The first pick replaces the generated handle and is free; later ones are changes.
+          if (state.me.handleChosen) {
+            if (state.me.handleChangesLeft <= 0) return fail(429, 'handle_change_limit', true);
+            next.handleChangesLeft = state.me.handleChangesLeft - 1;
+            next.handleChangesResetAt = state.me.handleChangesResetAt ?? '2026-12-13T09:00:00.000Z';
+          }
           next.handle = handle;
-          next.handleChangesLeft = state.me.handleChangesLeft - 1;
-          next.handleChangesResetAt = state.me.handleChangesResetAt ?? '2026-12-13T09:00:00.000Z';
         }
+        next.handleChosen = true;
       }
       state.me = next;
       return { status: 200, json: { profile: next } };

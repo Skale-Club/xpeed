@@ -9,6 +9,8 @@ import { trackPath } from '@/lib/sim/analysis';
 import { circle, makeLayout } from '@/test/track-fixture';
 import { chooseOption, selectOptions } from '@/test/select';
 import { LapAnalysis, type LoadedLap } from './LapAnalysis';
+import { readLocalTrack } from '@/lib/sim/local-track';
+vi.mock('@/lib/sim/local-track', async (importOriginal) => ({ ...await importOriginal<typeof import('@/lib/sim/local-track')>(), readLocalTrack: vi.fn() }));
 
 vi.mock('./SimCarIdentity', () => ({ SimCarIdentity: ({ name }: { name: string }) => <span data-testid="sim-car-identity">{name}</span> }));
 // The real charts need a layout engine; what matters here is which charts are drawn and with how many points.
@@ -80,9 +82,9 @@ describe('a lap and its reference', () => {
     expect(screen.queryByText(/km\/h/)).not.toBeInTheDocument();
   });
 
-  it('has no way to open a file: no file input and no drop zone', () => {
+  it('offers only a local track file, without a lap import or drop zone', () => {
     const { container } = renderAnalysis();
-    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toHaveAttribute('accept', '.xtrk,.gz,application/gzip');
     expect(screen.queryByTestId('lap-dropzone')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Open lap files|sample laps/i })).not.toBeInTheDocument();
   });
@@ -184,5 +186,33 @@ describe('laps that cannot be compared', () => {
     const short: LapFile = { ...best, data: { ...best.data, dist: best.data.dist.map((d) => d * 0.5) } };
     renderAnalysis(mine, short);
     expect(screen.getByTestId('different-tracks')).toHaveTextContent(/not on the same track layout/);
+  });
+});
+
+
+describe('local layout scope', () => {
+  it('prefers a local map, clears it on lap changes, and ignores an old pending read', async () => {
+    const first = loaded('first', mine);
+    const second = loaded('second', best);
+    const library = makeLayout({ points: trackPath(mine, 6000)!.points, width: 8, closed: true, game: mine.header.game, name: mine.header.track.name });
+    const local = { ...library, header: { ...library.header, source: 'private-local-test' } };
+    const findLayout = vi.fn(async () => library);
+    const view = (lap: LoadedLap) => <SettingsProvider><LapAnalysis lap={lap} findLayout={findLayout} /></SettingsProvider>;
+    const { rerender } = render(view(first));
+    await screen.findByTestId('track-layout');
+    vi.mocked(readLocalTrack).mockResolvedValueOnce(local);
+    fireEvent.change(screen.getByLabelText(/Open a local track map/), { target: { files: [new File(['x'], 'map.xtrk')] } });
+    await screen.findByText(/private-local-test/);
+    fireEvent.click(screen.getByRole('button', { name: /Remove local map/ }));
+    expect(screen.queryByText(/private-local-test/)).not.toBeInTheDocument();
+    rerender(view(second));
+    expect(screen.queryByText(/private-local-test/)).not.toBeInTheDocument();
+    let finish!: (value: typeof local) => void;
+    vi.mocked(readLocalTrack).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.change(screen.getByLabelText(/Open a local track map/), { target: { files: [new File(['x'], 'map.xtrk')] } });
+    rerender(view(first));
+    finish(local);
+    await waitFor(() => expect(screen.queryByText(/Reading local track/)).not.toBeInTheDocument());
+    expect(screen.queryByText(/private-local-test/)).not.toBeInTheDocument();
   });
 });

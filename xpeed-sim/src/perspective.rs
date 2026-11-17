@@ -239,8 +239,17 @@ fn neighbours(run: &Run, index: usize) -> (Point, Point) {
 }
 
 /// Native layout boundaries. Unknown widths remain unknown; no road is inferred from a driven line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoadKind {
+    AiEnvelope,
+    Asphalt,
+    WhiteLine,
+    Estimated,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Road {
+    pub kind: RoadKind,
     path: PreparedPath,
     edges: Vec<Option<(Point, Point)>>,
     unknown_prefix: Vec<usize>,
@@ -294,6 +303,15 @@ impl Road {
             unknown_prefix.push(unknown_prefix.last().copied().unwrap_or(0) + usize::from(edge.is_none()));
         }
         Some(Self {
+            kind: if track.source == "mesh_asphalt" {
+                RoadKind::Asphalt
+            } else if track.source == "ego_white_line" {
+                RoadKind::WhiteLine
+            } else if track.boundaries.is_some() {
+                RoadKind::AiEnvelope
+            } else {
+                RoadKind::Estimated
+            },
             path: PreparedPath::new(&points, track.closed),
             edges,
             unknown_prefix,
@@ -447,6 +465,61 @@ pub fn scene(camera: Camera, path: &PreparedPath, road: Option<&Road>, trail: &P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires XPEED_EVO_PILOT_TRACK; measures local source queries over a 20-minute-equivalent replay"]
+    fn native_surface_long_replay_keeps_scene_queries_bounded() {
+        let file = std::env::var_os("XPEED_EVO_PILOT_TRACK").expect("set local native asphalt XTRK path");
+        let track = crate::tracks::gunzip(&std::fs::read(file).unwrap(), crate::tracks::MAX_UNPACKED).unwrap();
+        assert_eq!(track.source, "mesh_asphalt");
+        let road = Road::from_track(&track).unwrap();
+        let points: Vec<_> = track.centerline.x.iter().copied().zip(track.centerline.z.iter().copied()).collect();
+        let path = PreparedPath::new(&points, true);
+        let empty = PreparedPath::default();
+        let lap = crate::lapfile::gunzip(
+            include_bytes!("../fixtures/laps/acevo-real-lap-3.xlap.gz"),
+            crate::lapfile::MAX_UNPACKED,
+        )
+        .unwrap();
+        let x = &lap.channel("x").unwrap().values;
+        let z = &lap.channel("z").unwrap().values;
+        let start = std::time::Instant::now();
+        let mut maximum = (0, 0);
+        let mut drawn = 0usize;
+        for tick in 0..120_000 {
+            let i = tick % x.len();
+            let next = (i + 8) % x.len();
+            let car = (-x[i], z[i]); // Historical recording; normalization stays in validation memory.
+            let heading = unit((-x[next] + x[i], z[next] - z[i])).unwrap_or((0., 1.));
+            let result = scene(
+                Camera {
+                    width: 736.,
+                    height: 400.,
+                    car,
+                    heading,
+                    mirrored: false,
+                },
+                &path,
+                Some(&road),
+                &empty,
+                None,
+            );
+            maximum.0 = maximum.0.max(result.road.len());
+            maximum.1 = maximum.1.max(result.edges.len());
+            assert!(result.road.len() < MAX_VERTICES && result.edges.len() < 2 * MAX_VERTICES);
+            assert!(result.road.iter().flatten().copied().all(finite));
+            drawn += usize::from(!result.road.is_empty());
+        }
+        assert!(drawn > 118_000, "native road must remain available around the recorded lap");
+        let elapsed = start.elapsed();
+        eprintln!(
+            "120000 queries (20 min at 100 Hz): {elapsed:?}; {:.3} ms/query; max {} road strips / {} edges; immutable source {} points",
+            elapsed.as_secs_f64() * 1000. / 120_000.,
+            maximum.0,
+            maximum.1,
+            points.len()
+        );
+    }
     fn track(widths: Vec<f32>) -> crate::tracks::Track {
         let count = widths.len();
         crate::tracks::Track {

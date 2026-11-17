@@ -8,8 +8,9 @@ the checks are `npm run test:sim-social`. The owner's decisions: **profiles are 
 
 A driver is a `handle` (3 to 24 characters of `a-z0-9_`) and a `displayName` (1 to 40 characters). Both are **generated** the first time the
 person uses the Virtual API (a read of their profile, or their first uploaded lap): `driver_k7f2q9` and `Driver K7F2`, from random letters
-and digits with no look-alikes. Nothing is ever derived from the account's e-mail, phone number or real name. The driver may change them:
-the handle 3 times in 30 days (reserved words like `admin`, `xpeed...`, `support`, `moderator...` are refused), the name any time (no control or invisible
+and digits with no look-alikes. Nothing is ever derived from the account's e-mail, phone number or real name. The generated pair is only a
+placeholder: right after signing in, before any Virtual screen, the site asks the driver to choose a username (and, optionally, a display
+name; left empty, the username is used). That first choice is free. After it the driver may change them: the handle 3 times in 30 days (reserved words like `admin`, `xpeed...`, `support`, `moderator...` are refused), the name any time (no control or invisible
 characters, and nothing that looks like an e-mail address).
 
 ## What is public by default, and what never is

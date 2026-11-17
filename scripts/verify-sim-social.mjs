@@ -3,7 +3,7 @@
 // share links, plausibility of laps, leaderboards, reports and moderation, and the export and delete rights.
 // Needs: npm install --prefix node_modules/.xpeed-audit-tools --no-save --ignore-scripts --legacy-peer-deps @electric-sql/pglite@0.5.13 @electric-sql/pglite-socket@0.2.18
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -252,7 +252,8 @@ try {
     assert.equal(profile.visibility, 'public', 'public by default');
     assert.deepEqual([profile.handleChangesLeft, profile.handleChangesResetAt], [3, null]);
     assert.match(profile.createdAt, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
-    assert.deepEqual(Object.keys(profile).sort(), ['createdAt', 'displayName', 'handleChangesLeft', 'handleChangesResetAt', 'handle', 'visibility'].sort());
+    assert.deepEqual(Object.keys(profile).sort(), ['createdAt', 'displayName', 'handleChangesLeft', 'handleChangesResetAt', 'handle', 'handleChosen', 'visibility'].sort());
+    assert.equal(profile.handleChosen, false, 'the generated handle is a placeholder: the site asks for a username');
     for (const secret of secrets) assert.ok(!JSON.stringify(profile).toLowerCase().includes(secret.toLowerCase()));
     assert.equal((await api.A('/profile')).body.profile.handle, profile.handle, 'the same one every time');
     assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_profiles WHERE user_id = $1', [ids.A])).rows[0].n, 1);
@@ -262,6 +263,9 @@ try {
     // Signed out, or with a device key: 401.
     for (const bearer of [undefined, 'nope', rigs.A.token]) problem(await call(v1, '/api/sim/v1/profile', { bearer }), 401, 'unauthorized');
     problem(await api.A('/profile', { method: 'DELETE' }), 405, 'method_not_allowed');
+    // Changing only the name or the visibility is not choosing a username.
+    const named = await api.A('/profile', { method: 'PATCH', body: { displayName: 'Ana' } });
+    assert.deepEqual([named.status, named.body.profile.handleChosen, named.body.profile.handle], [200, false, profile.handle]);
   });
 
   await check('profile: the first uploaded lap creates the profile too', async () => {
@@ -272,6 +276,9 @@ try {
     assert.deepEqual([row.display_name.startsWith('Driver '), row.visibility], [true, 'public']);
     assert.equal((await lapRow(id)).plausible, true);
     assert.equal((await api.F('/profile')).body.profile.handle, row.handle, 'and the read finds it');
+    // Keeping the generated handle on purpose is a choice too, and it is free.
+    const kept = await api.F('/profile', { method: 'PATCH', body: { handle: row.handle } });
+    assert.deepEqual([kept.status, kept.body.profile.handle, kept.body.profile.handleChosen, kept.body.profile.handleChangesLeft], [200, row.handle, true, 3]);
     // A duplicate upload does not make another.
     await put('F', { track: 'First Ring', car: 'First Car' });
     assert.equal((await direct.query('SELECT count(*)::int AS n FROM public.sim_profiles WHERE user_id = $1', [ids.F])).rows[0].n, 1);
@@ -283,24 +290,25 @@ try {
     for (const bad of ['ab', 'a'.repeat(25), 'bad-handle', 'has space', 'ünïcode', '', 'a@b.co', 12, null, ['x']]) problem(await patch('A', { handle: bad }), 400, 'invalid_handle');
     for (const word of ['admin', 'xpeed_fan', 'support', 'REQUESTS', 'moderator1', 'driver']) problem(await patch('A', { handle: word }), 400, 'reserved_handle');
     assert.ok(RESERVED_HANDLES.has('admin') && RESERVED_HANDLES.has('xpeed') && RESERVED_HANDLES.has('requests'));
-    // Typed in capitals it is read as lower case, and it counts as one change.
+    // Typed in capitals it is read as lower case. The first pick replaces the generated handle and is not one of the 3 changes.
     let r = await patch('A', { handle: ' Speedy_Ana ' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual([r.body.profile.handle, r.body.profile.handleChangesLeft], ['speedy_ana', 2]);
+    assert.deepEqual([r.body.profile.handle, r.body.profile.handleChosen, r.body.profile.handleChangesLeft], ['speedy_ana', true, 3]);
     // Taken: 409, and it does not use up one of B's changes. A's own handle in another case is also taken.
     problem(await patch('B', { handle: 'speedy_ana' }), 409, 'handle_taken');
     problem(await patch('B', { handle: 'SPEEDY_ANA' }), 409, 'handle_taken');
     assert.equal((await profileOf('B')).handleChangesLeft, 3);
-    // The same handle again is not a change.
-    assert.equal((await patch('A', { handle: 'speedy_ana' })).body.profile.handleChangesLeft, 2);
-    assert.equal((await patch('A', { handle: 'ana_two' })).body.profile.handleChangesLeft, 1);
-    r = await patch('A', { handle: 'ana_three' });
+    // The same handle again is not a change; every later different one is.
+    assert.equal((await patch('A', { handle: 'speedy_ana' })).body.profile.handleChangesLeft, 3);
+    assert.equal((await patch('A', { handle: 'ana_two' })).body.profile.handleChangesLeft, 2);
+    assert.equal((await patch('A', { handle: 'ana_three' })).body.profile.handleChangesLeft, 1);
+    r = await patch('A', { handle: 'ana_four' });
     assert.deepEqual([r.status, r.body.profile.handleChangesLeft], [200, 0]);
     assert.ok(Date.parse(r.body.profile.handleChangesResetAt) > Date.now() + 29 * 86_400_000, 'the oldest change leaves the window in about 30 days');
-    r = await patch('A', { handle: 'ana_four' });
+    r = await patch('A', { handle: 'ana_five' });
     problem(r, 429, 'handle_change_limit');
     assert.ok(Number(r.headers.get('retry-after')) > 29 * 86_400, 'Retry-After says when a change is free again');
-    assert.equal((await profileOf('A')).handle, 'ana_three', 'the refused change did nothing');
+    assert.equal((await profileOf('A')).handle, 'ana_four', 'the refused change did nothing');
     // The name and the visibility are not limited by it.
     assert.equal((await patch('A', { displayName: 'Ana Rápida' })).status, 200);
     assert.equal((await patch('A', { visibility: 'friends' })).body.profile.visibility, 'friends');
@@ -308,7 +316,7 @@ try {
     assert.equal((await patch('B', { handle: 'speedy_ana' })).status, 200);
     await direct.query("UPDATE public.sim_handle_changes SET changed_at = now() - interval '31 days' WHERE user_id = $1 AND changed_at = (SELECT min(changed_at) FROM public.sim_handle_changes WHERE user_id = $1)", [ids.A]);
     assert.equal((await profileOf('A')).handleChangesLeft, 1);
-    assert.equal((await patch('A', { handle: 'ana_four' })).status, 200);
+    assert.equal((await patch('A', { handle: 'ana_five' })).status, 200);
   });
 
   await check('profile: display name and field rules', async () => {
@@ -1527,6 +1535,55 @@ try {
     assert.equal((await api.A('/friends/requests/count', { method: 'POST' })).headers.get('allow'), 'GET');
     problem(await api.A('/friends/requests/count/accept', { method: 'POST' }), 404, 'request_not_found');
     problem(await api.A('/friends/requests/count/extra/more', { method: 'POST' }), 404, 'not_found');
+  });
+
+  await check('upgrade: username choice backfills existing profiles without changing their identity or history and can run twice', async () => {
+    const choiceMigration = '20261116140000_sim_handle_chosen.sql';
+    const before = mkdtempSync(resolve(temp, 'migrations-before-choice-'));
+    for (const name of listMigrations(MIGRATIONS_DIR).filter((file) => file < choiceMigration)) {
+      copyFileSync(resolve(MIGRATIONS_DIR, name), resolve(before, name));
+    }
+    const fixtureDb = await PGlite.create();
+    const fixturePort = await freePort();
+    const fixtureServer = new PGLiteSocketServer({ db: fixtureDb, port: fixturePort, host: '127.0.0.1' });
+    const client = new pg.Client({ connectionString: `postgres://postgres:postgres@127.0.0.1:${fixturePort}/postgres` });
+    try {
+      await fixtureServer.start();
+      await client.connect();
+      await migrate(client, { dir: before });
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sim_profiles' AND column_name = 'handle_chosen'")).rows[0].n, 0);
+      const unchanged = 'eee00000-0000-4000-8000-000000000001';
+      const renamed = 'eee00000-0000-4000-8000-000000000002';
+      for (const id of [unchanged, renamed]) {
+        await client.query('INSERT INTO public.app_accounts(id, email) VALUES ($1, $2)', [id, `${id}@example.com`]);
+        await client.query('SELECT public.sim_ensure_profile($1)', [id]);
+      }
+      await client.query("SELECT public.sim_set_profile($1, 'already_chosen', 'Existing Driver', 'friends')", [renamed]);
+      // The migration must recognize a choice even after its rate-limit history ages out.
+      await client.query("UPDATE public.sim_handle_changes SET changed_at = now() - interval '45 days' WHERE user_id = $1", [renamed]);
+      const snapshot = async () => ({
+        profiles: (await client.query('SELECT user_id, handle, display_name, visibility, hidden, created_at, updated_at FROM public.sim_profiles ORDER BY user_id')).rows,
+        history: (await client.query('SELECT * FROM public.sim_handle_changes ORDER BY user_id, changed_at')).rows,
+      });
+      const original = await snapshot();
+      assert.equal(original.history.length, 1);
+      const sql = readFileSync(resolve(MIGRATIONS_DIR, choiceMigration), 'utf8');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await client.query(sql);
+        assert.deepEqual(await snapshot(), original, 'profile values and handle history survive each application');
+        const flags = (await client.query('SELECT user_id, handle_chosen FROM public.sim_profiles ORDER BY user_id')).rows;
+        assert.deepEqual(flags, [{ user_id: unchanged, handle_chosen: false }, { user_id: renamed, handle_chosen: true }]);
+        for (const [id, chosen] of [[unchanged, false], [renamed, true]]) {
+          const profile = (await client.query('SELECT public.sim_my_profile($1) AS profile', [id])).rows[0].profile;
+          assert.equal(profile.handleChosen, chosen);
+          assert.equal(profile.handleChangesLeft, 3, 'old choices do not consume the current window');
+        }
+      }
+    } finally {
+      await client.end().catch(() => {});
+      await fixtureServer.stop().catch(() => {});
+      await fixtureDb.close().catch(() => {});
+    }
   });
 
   await check('upgrade: a database at the previous schema with laps in it keeps every row, and then ingests, ranks and erases', async () => {

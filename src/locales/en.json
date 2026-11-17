@@ -367,6 +367,17 @@
       "leaderboardsTab": "Ranking",
       "privacy": "Privacy",
       "profile": "Profile"
+    },
+    "choose": {
+      "title": "Choose your username",
+      "body": "This is how other drivers find you and see you on the leaderboards. Your e-mail and your account name are never shown.",
+      "handle": "Username",
+      "handlePlaceholder": "speedy_ana",
+      "handleHelp": "3 to 24 characters: a to z, 0 to 9 and _. You can change it later, 3 times in 30 days.",
+      "handleEmpty": "Choose a username to continue.",
+      "displayName": "Display name (optional)",
+      "displayNameHelp": "Shown next to your username. Left empty, your username is used.",
+      "save": "Continue"
     }
   },
   "trends": {
@@ -471,6 +482,7 @@
       "mapTitle": "Track",
       "mapLabel": "The line driven, seen from above",
       "mapHint": "Solid: the lap. Dashed: the reference. Green dot: the start.",
+      "localTrack": {"open": "Open a local track map (.xtrk or .xtrk.gz)", "private": "Only for this lap. Stays in memory on this device; never uploaded. Maximum 64 MB compressed and uncompressed.", "loading": "Reading local track map…", "identity": "This file is for a different game, track or variant.", "size": "The track file exceeds the 64 MB limit.", "invalid": "This track file is corrupt or unsupported.", "clear": "Remove local map", "alignment": "This lap does not align with this map. Older recordings may use different coordinates; no adjustment was applied.", "surface_asphalt": "game asphalt mesh", "surface_ai": "native AI corridor, not asphalt edges", "surface_estimated": "estimated widths projected from the AI line, not sampled asphalt edges", "surface_unknown": "track geometry of unverified surface type", "mapHint": "Grey: {{surface}}. Red: the game’s ideal line. Orange: pit lane. Yellow: lap; dashed blue: reference. Green dot: start.", "sourceLabel": "Local map · Source: {{source}} · {{surface}}.", "surface_limits": "source-labelled white-line limits (alignment unverified)"},
       "mapHintLayout": "Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.",
       "mapZoomHint": "Zoom in (or double-click the map) to see the lap against the edges and the ideal line; drag to move.",
       "zoomIn": "Zoom in",
@@ -909,6 +921,15 @@
       "progressTrack": "Best lap on"
     },
     "referenceContext": {
+      "coordinateRefusal": "These EVO recordings use known different coordinate frames, so their geometry cannot be compared. No coordinates were adjusted.",
+      "defaultRefused": "The personal best is for a different layout, coordinate frame or car. Choose a reference lap.",
+      "versionPair": "Game builds: lap {{a}} · reference {{b}}.",
+      "unknown": "unknown",
+      "build_same": "The recorded build identifiers match.",
+      "build_different": "Different game builds may change physics or track data; check compatibility.",
+      "build_unknown": "Missing build metadata does not establish compatibility.",
+      "coordinatesUnknown": "EVO coordinate compatibility is unknown. Missing or unrecognized coordinate-frame metadata does not establish compatibility; version 0.8.2 alone is insufficient.",
+
       "goal": "Comparison objective",
       "practice": "Practice",
       "qualifying": "Qualifying / time trial",

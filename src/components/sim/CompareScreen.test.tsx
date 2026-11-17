@@ -54,6 +54,35 @@ const gapReady = () => waitFor(() => expect(screen.getByTestId('final-gap')).not
 const search = () => whereNow(screen.getByTestId('where')).searchParams;
 
 describe('the reference', () => {
+  it('shows different game builds as context while retaining comparison', async () => {
+    const recorder = { app: 'xpeed-companion', source: 'sample', version: '0.8.2', build: '9c36958', gameBuild: '0.9.1' };
+    state.files.set(myLap.id, await gzipLap({ ...mine, header: { ...mine.header, recorder } }));
+    state.files.set(bestLap.id, await gzipLap({ ...best, header: { ...best.header, recorder: { ...recorder, gameBuild: '0.9.2' } } }));
+    open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
+    await gapReady();
+    expect(screen.getByTestId('reference-versions')).toHaveTextContent('lap 0.9.1 · reference 0.9.2');
+    expect(screen.getByTestId('reference-versions')).toHaveTextContent('Different game builds');
+    expect(screen.queryByTestId('different-tracks')).not.toBeInTheDocument();
+  });
+
+  it('does not select a PB from another variant after verifying its file', async () => {
+    state.files.set(bestLap.id, await gzipLap({ ...best, header: { ...best.header, track: { ...best.header.track, variant: 'Short' } } }));
+    open(`/virtual/compare?a=${myLap.id}`);
+    await screen.findByTestId('default-reference-refused');
+    expect(screen.getByTestId('slot-reference')).not.toHaveTextContent('Lap 5');
+    expect(screen.getByTestId('slot-reference')).toHaveTextContent('Choose a lap');
+    expect(screen.getByTestId('final-gap')).toHaveTextContent('–');
+    expect(screen.queryByTestId('different-tracks')).not.toBeInTheDocument();
+  });
+
+  it('retains an explicitly selected different layout and explains the refusal', async () => {
+    state.files.set(bestLap.id, await gzipLap({ ...best, header: { ...best.header, track: { ...best.header.track, variant: 'Short' } } }));
+    open(`/virtual/compare?a=${myLap.id}&b=${bestLap.id}`);
+    await screen.findByTestId('different-tracks');
+    expect(screen.getByTestId('slot-reference')).toHaveTextContent('Lap 5');
+    expect(screen.queryByTestId('default-reference-refused')).not.toBeInTheDocument();
+  });
+
   it('does not automatically use an all-time best for a race lap', async () => {
     const race = { ...mine, header: { ...mine.header, sessionKind: 'race' as const } };
     state.files.set(myLap.id, await gzipLap(race));
@@ -248,7 +277,7 @@ describe('finding a lap', () => {
     fireEvent.click(await within(picker).findByRole('button', { name: /Lap 7/ }));
     await waitFor(() => expect(search().get('a')).toBe(myLap.id));
     await gapReady(); // and its reference is the personal best
-    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toHaveAttribute('accept', '.xtrk,.gz,application/gzip');
   });
 
   it('invites to install and connect Xpeed Companion when the account has no laps', async () => {
@@ -259,10 +288,10 @@ describe('finding a lap', () => {
     expect(within(empty).getByRole('link', { name: 'Connect it to your account' })).toHaveAttribute('href', '/virtual/companion');
   });
 
-  it('offers no file input and no drop zone, and no sample laps', async () => {
+  it('offers only the local track selector, no lap import or sample laps', async () => {
     const { container } = open(`/virtual/compare?a=${myLap.id}`);
     await waitFor(() => expect(screen.getByTestId('lap-numbers')).toBeInTheDocument());
-    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toHaveAttribute('accept', '.xtrk,.gz,application/gzip');
     expect(screen.queryByText(/sample laps|Open lap files|drop/i)).not.toBeInTheDocument();
   });
 });

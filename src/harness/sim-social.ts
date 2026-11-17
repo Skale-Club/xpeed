@@ -5,6 +5,7 @@
 //
 //   VITE_HARNESS_ADMIN=true   the signed-in driver is an admin (the "Racing games" section of the admin page, and /admin/* answers)
 //   HARNESS_NO_LAPS=1         (from sim-v1.ts) nothing driven: the leaderboards show their "drive a lap first" state
+//   HARNESS_NEW_DRIVER=1      the driver has not chosen a username yet (the generated placeholder): every Virtual screen asks for one first
 import type { PublicLapShare, PublicSessionShare } from '@/lib/sim/social-client';
 import type { FakeV1State } from '@/test/v1-fake-server';
 import { boardKey, driver, fakeSocialState, handlePublic, ranked, type FakeBoard, type FakeSocialState } from '@/test/social-fake-server';
@@ -14,6 +15,7 @@ const SCOPES = ['public', 'friends'] as const;
 export function buildSocial(v1: FakeV1State): FakeSocialState {
   const admin = process.env.VITE_HARNESS_ADMIN === 'true';
   const state = fakeSocialState({ v1, admin, recheckRemaining: admin ? 120 : 0, publicFiles: v1.files });
+  if (process.env.HARNESS_NEW_DRIVER === '1') state.me = { ...state.me, handle: 'driver_wgcdme', displayName: 'Driver WGCD', handleChosen: false };
   const pairs = new Map<string, { game: string; track: { id: string; name: string }; car: { id: string; name: string } }>();
   for (const session of v1.sessions) pairs.set(`${session.track.id}|${session.car.id}`, { game: session.game, track: session.track, car: session.car });
 

@@ -11,6 +11,7 @@ import { CarsProvider } from "@/contexts/CarsContext";
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext";
 import { ModesProvider } from "@/contexts/ModesContext";
 import { ModeGate } from "@/components/ModeGate";
+import { HandleGate } from "@/components/social/HandleGate";
 import { NAV } from "@/lib/mode-nav";
 import { ObdScannerProvider } from "@/contexts/ObdScannerContext";
 import PrivateRoute from "@/components/PrivateRoute";
@@ -172,6 +173,8 @@ const router = createBrowserRouter(createRoutesFromElements(
       </Route>
       {/* Virtual: racing games, only for someone who chose it. */}
       <Route element={<ModeGate mode="virtual" />}>
+      {/* The username comes first: someone who still has the generated placeholder chooses one before any Virtual screen. */}
+      <Route element={<HandleGate />}>
         {NAV.virtual.map((item) => <Route key={item.to} path={item.to} element={SIM_SCREENS[item.to] ?? <SimPage />} />)}
         {/* One session, and a lap's analysis (opened from a lap): no menu entry of their own (Sessions stays highlighted). */}
         <Route path="/virtual/sessions/:id" element={<SimSessionPage />} />
@@ -186,6 +189,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path="/virtual/companion" element={<SimAppPage />} />
         <Route path="/virtual/profile" element={<SocialProfilePage />} />
         <Route path="/virtual/privacy" element={<SocialPrivacyPage />} />
+      </Route>
       </Route>
       {/* Shared by both modes. */}
       <Route path="/companion/connect/:id" element={<SimConnectPage />} />

@@ -367,6 +367,17 @@
       "leaderboardsTab": "Ranking",
       "privacy": "Privacidade",
       "profile": "Perfil"
+    },
+    "choose": {
+      "title": "Escolha seu nome de usuário",
+      "body": "É assim que os outros pilotos encontram você e veem você nos rankings. Seu e-mail e o nome da sua conta nunca aparecem.",
+      "handle": "Nome de usuário",
+      "handlePlaceholder": "ana_veloz",
+      "handleHelp": "De 3 a 24 caracteres: a a z, 0 a 9 e _. Você pode trocar depois, 3 vezes em 30 dias.",
+      "handleEmpty": "Escolha um nome de usuário para continuar.",
+      "displayName": "Nome de exibição (opcional)",
+      "displayNameHelp": "Aparece ao lado do seu nome de usuário. Se ficar vazio, usamos o nome de usuário.",
+      "save": "Continuar"
     }
   },
   "trends": {
@@ -471,6 +482,7 @@
       "mapTitle": "Pista",
       "mapLabel": "A linha percorrida, vista de cima",
       "mapHint": "Linha cheia: a volta. Tracejada: a referência. Ponto verde: a largada.",
+      "localTrack": {"open": "Abrir mapa local de pista (.xtrk ou .xtrk.gz)", "private": "Só para esta volta. Fica na memória deste dispositivo; nunca é enviado. Máximo de 64 MB comprimido e descomprimido.", "loading": "Lendo mapa local…", "identity": "Este arquivo é de outro jogo, pista ou variante.", "size": "O arquivo de pista excede o limite de 64 MB.", "invalid": "Este arquivo de pista está corrompido ou não é compatível.", "clear": "Remover mapa local", "alignment": "Esta volta não se alinha a este mapa. Gravações antigas podem usar outras coordenadas; nenhum ajuste foi aplicado.", "surface_asphalt": "malha de asfalto do jogo", "surface_ai": "corredor nativo da IA, não bordas de asfalto", "surface_estimated": "larguras estimadas projetadas da linha de IA, não bordas de asfalto amostradas", "surface_unknown": "geometria de pista com tipo de superfície não verificado", "mapHint": "Cinza: {{surface}}. Vermelho: linha ideal do jogo. Laranja: boxes. Amarelo: volta; azul tracejado: referência. Ponto verde: início.", "sourceLabel": "Mapa local · Fonte: {{source}} · {{surface}}.", "surface_limits": "limites de linhas brancas da fonte (alinhamento não verificado)"},
       "mapHintLayout": "Cinza: o asfalto, entre as bordas. Vermelho: a linha ideal do jogo. Laranja: o pit lane. Amarelo: a volta; azul tracejado: a referência. Ponto verde: a largada.",
       "mapZoomHint": "Aproxime (ou dê dois cliques no mapa) para ver a volta contra as bordas e a linha ideal; arraste para mover.",
       "zoomIn": "Aproximar",
@@ -909,6 +921,15 @@
       "progressTrack": "Melhor volta em"
     },
     "referenceContext": {
+      "coordinateRefusal": "Estas gravações do EVO usam sistemas de coordenadas comprovadamente diferentes; a geometria não pode ser comparada. Nenhuma coordenada foi ajustada.",
+      "defaultRefused": "A melhor volta é de outra variante, sistema de coordenadas ou carro. Escolha uma volta de referência.",
+      "versionPair": "Versões do jogo: volta {{a}} · referência {{b}}.",
+      "unknown": "desconhecida",
+      "build_same": "Os identificadores de versão registrados coincidem.",
+      "build_different": "Versões diferentes podem alterar a física ou a pista; confira a compatibilidade.",
+      "build_unknown": "A ausência da versão não comprova compatibilidade.",
+      "coordinatesUnknown": "A compatibilidade das coordenadas do EVO é desconhecida. Metadados de coordenadas ausentes ou não reconhecidos não comprovam compatibilidade; só a versão 0.8.2 é insuficiente.",
+
       "goal": "Objetivo da comparação",
       "practice": "Treino",
       "qualifying": "Qualify / volta rápida",

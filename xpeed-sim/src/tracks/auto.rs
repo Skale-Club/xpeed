@@ -7,7 +7,8 @@
 //! waits for a disk full of game files. Each track is tried once per run of the program; a track whose files are
 //! refused, or cannot be found, is said once in the log and left alone.
 //!
-//! Only the game's folders are read; nothing is written into them.
+//! EVO's verified package sources instead go to the private `native-tracks`
+//! cache, outside this upload outbox. Only game folders are read, never written.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -183,9 +184,11 @@ pub fn build(seen: &Seen, folders: &Folders, outbox: &Path) -> Result<Built, Str
     let game = file_game(&seen.game).ok_or_else(|| format!("track layouts are not made for {}", seen.game))?;
     let track = plain(&seen.track, "track")?;
     let variant = seen.variant.as_deref().map(|v| plain(v, "layout")).transpose()?;
-    let extracted = match game {
+    let (extracted, sources, before) = match game {
         "ac" => {
             let layout = find_ac(&folders.ac, &track, variant.as_deref())?;
+            let sources = vec![layout.ai_dir.join(ac::SOURCE), layout.ai_dir.join("pit_lane.ai")];
+            let before = fresh::capture(&sources)?;
             let found = ac::extract(&layout).map_err(|refusal| format!("the game's files were refused: {refusal}"))?;
             // The folders are the names: what was read must be the track the game reports, or it is someone else's.
             let (reported, read) = (
@@ -195,13 +198,21 @@ pub fn build(seen: &Seen, folders: &Folders, outbox: &Path) -> Result<Built, Str
             if reported != read {
                 return Err(format!("the folder found holds {read:?}, not {reported:?}"));
             }
-            found
+            (found, sources, before)
         }
-        _ => aiw::extract(&find_sce(&folders.sce, &track)?).map_err(|refusal| format!("the game's files were refused: {refusal}"))?,
+        "sce" => {
+            let source = find_sce(&folders.sce, &track)?;
+            let sources = vec![source.clone(), source.with_extension("gdb")];
+            let before = fresh::capture(&sources)?;
+            let found = aiw::extract(&source).map_err(|refusal| format!("the game's files were refused: {refusal}"))?;
+            (found, sources, before)
+        }
+        _ => return Err("no native source adapter for this game".into()),
     };
     let bytes = dump::gzip_checked(&extracted.track)?;
     let path = outbox.join(file_name(&extracted.track));
     if std::fs::read(&path).is_ok_and(|old| old == bytes) {
+        fresh::attest(&path, &extracted.track, &bytes, &sources, &before)?;
         return Ok(Built::Unchanged(path));
     }
     std::fs::create_dir_all(outbox).map_err(|e| format!("cannot create {}: {e}", outbox.display()))?;
@@ -210,6 +221,7 @@ pub fn build(seen: &Seen, folders: &Folders, outbox: &Path) -> Result<Built, Str
     std::fs::write(&partial, &bytes)
         .and_then(|()| std::fs::rename(&partial, &path))
         .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    fresh::attest(&path, &extracted.track, &bytes, &sources, &before)?;
     Ok(Built::Written(path))
 }
 
@@ -238,7 +250,27 @@ pub fn run(
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => return,
         };
-        if file_game(&next.game).is_none() || !tried.insert(track_key(&next.game, &next.track, next.variant.as_deref())) {
+        if (next.game != "acevo" && file_game(&next.game).is_none())
+            || !tried.insert(track_key(&next.game, &next.track, next.variant.as_deref()))
+        {
+            continue;
+        }
+        if next.game == "acevo" {
+            // Private native cache is separate from the upload outbox. Do not
+            // route EVO through the SCE fallback below or publish game assets.
+            match local::ensure_evo(
+                &out.join(local::DIRECTORY),
+                &local::evo_roots(),
+                &next.track,
+                next.variant.as_deref(),
+            ) {
+                Ok(true) => {
+                    say(format!("Native EVO layout cached locally for {} (not uploaded)", label(&next)));
+                    ready();
+                }
+                Ok(false) => {}
+                Err(why) => say(format!("No verified native EVO geometry for {}: {why}", label(&next))),
+            }
             continue;
         }
         match build(&next, &folders(), &outbox) {
@@ -331,7 +363,10 @@ mod tests {
         );
         assert_eq!(
             files(&outbox),
-            [path.file_name().unwrap().to_string_lossy().into_owned()],
+            [
+                path.file_name().unwrap().to_string_lossy().into_owned(),
+                format!("{}.source.json", path.file_name().unwrap().to_string_lossy())
+            ],
             "no .part left behind"
         );
         assert!(path.file_name().unwrap().to_string_lossy().starts_with("ac_circle_"));
@@ -342,11 +377,13 @@ mod tests {
         );
         // The game's file changes (a mod updated): the same outbox file, new bytes.
         ac_track(&tracks, "circle", None, 120.0);
+        assert!(fresh::load(&path).is_none(), "an old geometry cannot survive its source update");
         assert_eq!(
             build(&seen("ac", "circle", None), &folders, &outbox).unwrap(),
             Built::Written(path.clone())
         );
         assert_ne!(std::fs::read(&path).unwrap(), first);
+        assert!(fresh::load(&path).is_some());
     }
 
     #[test]
@@ -369,7 +406,7 @@ mod tests {
                 format!("ac|park|{layout}")
             );
         }
-        assert_eq!(files(&outbox).len(), 2);
+        assert_eq!(files(&outbox).len(), 4, "two layouts and their source receipts");
         // A track with layouts, reported without one: which layout is not known, so none is made.
         let why = build(&seen("ac", "park", None), &folders, &outbox).unwrap_err();
         assert!(why.contains("2 layouts"), "{why}");
@@ -464,7 +501,7 @@ mod tests {
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(lines[0].starts_with("Track layout of circle built"), "{lines:?}");
         assert!(lines[1].starts_with("No track layout for nowhere"), "{lines:?}");
-        assert_eq!(files(&out.join(TRACKS_DIR)).len(), 1);
+        assert_eq!(files(&out.join(TRACKS_DIR)).len(), 2, "one layout and its source receipt");
     }
 
     #[test]

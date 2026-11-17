@@ -28,6 +28,8 @@ import { layoutGame, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 import type { LibraryTrack } from '@/lib/sim/track-library';
 import { cn } from '@/lib/utils';
 import { SimCarIdentity } from './SimCarIdentity';
+import { LocalTrackLayout } from './LocalTrackLayout';
+import { assertLocalTrackAlignment, localTrackSurface } from '@/lib/sim/local-track';
 
 /** A lap whose samples are loaded, by the id the server gave it. */
 export interface LoadedLap {
@@ -212,7 +214,10 @@ export function LapAnalysis({
     // `wanted` is rebuilt every render; `wantedKey` says when it really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantedKey, findLayout]);
-  const layout = (kept && kept.key === wantedKey ? kept.layout : null) || null;
+  const [local, setLocal] = useState<{ lap: LapFile; id: string; layout: TrackFile } | null>(null);
+  useEffect(() => { setLocal(null); }, [a.id, a.lap]);
+  const localLayout = local?.lap === a.lap && local.id === a.id ? local.layout : null;
+  const layout = localLayout ?? (kept && kept.key === wantedKey ? kept.layout : null);
 
   const refusal = b ? incomparableReason(a.lap, b.lap) : null;
   const analysis = useMemo(() => {
@@ -341,6 +346,7 @@ export function LapAnalysis({
   const refusalNote = refusal && (
     <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="different-tracks">
       {{
+        coordinates: t('modes.referenceContext.coordinateRefusal'),
         game: t('modes.compare.refused.game', 'These laps are from different games, so they cannot be compared. Only the lap is shown.'),
         track: t('modes.compare.refused.track', 'These laps are from different tracks, so they cannot be compared. Only the lap is shown.'),
         length: t('modes.compare.refused.length', 'These laps are not on the same track layout, so they cannot be compared. Only the lap is shown.'),
@@ -470,9 +476,14 @@ export function LapAnalysis({
         </div>
         <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
           {layout
-            ? t('modes.compare.mapHintLayout', 'Grey: the road, between its edges. Red: the game’s ideal line. Orange: the pit lane. Yellow: the lap; dashed blue: the reference. Green dot: the start.')
+            ? t('modes.compare.localTrack.mapHint', { surface: t(`modes.compare.localTrack.surface_${localTrackSurface(layout)}`) })
             : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start.')}
         </p>
+        <LocalTrackLayout key={`${a.id}|${wantedKey}`} wanted={wanted} selected={!!localLayout} onLayout={(picked) => {
+          if (picked) assertLocalTrackAlignment(picked, analysis.lap.x, analysis.lap.z);
+          setLocal(picked ? { lap: a.lap, id: a.id, layout: picked } : null);
+        }} />
+        {localLayout && <p className="mt-1 text-xs text-muted-foreground" role="status">{t('modes.compare.localTrack.sourceLabel', { source: localLayout.header.source, surface: t(`modes.compare.localTrack.surface_${localTrackSurface(localLayout)}`) })}</p>}
         {!layout && wanted && wantedKey && findLayout && kept?.key === wantedKey && (
           <NoLayout
             game={wanted.game}

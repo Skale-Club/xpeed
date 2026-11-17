@@ -48,6 +48,8 @@ O tamanho total tem de ser exatamente `12 + N + canais × sampleCount × 4`. Sob
 | `checks` | lista de ids, opcional | **Versão 2.** Os ids das verificações automáticas de dados que a volta reprovou (`t_repeats`, `clutch_stuck`, `map_mirrored`...), até 16, cada um `[a-z][a-z0-9_]{0,31}`. Ausente quando a volta passou em todas |
 | `channels` | lista | De 2 a 128 itens `{ "id", "unit" }`, sem repetição |
 
+`recorder.coordinateFrame` is optional version-2 metadata: an opaque label of 1–64 characters without control characters. It follows `gameBuild` when present. Current EVO recordings use `acevo-reflected-x-v1`; `acevo-original-x-v1` identifies the original unreflected convention. Historical files stay unchanged and readers preserve unknown future labels without assuming compatibility. The X reflection landed inside Companion 0.8.2 (commit `9c36958`), so the version number alone cannot identify the coordinate convention.
+
 Quem escreve deve usar sempre esta ordem de chaves, para que a mesma volta gere os mesmos bytes. Quem lê **não** pode depender da ordem. Chaves desconhecidas são ignoradas na leitura. A ordem de escrita:
 
 ```

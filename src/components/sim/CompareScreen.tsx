@@ -22,7 +22,7 @@ import { CompareStart } from './compare/CompareStart';
 import { LapPicker, type PickerStart } from './LapPicker';
 import { useReadAllPages } from './use-read-all-pages';
 import { OptionSelect } from '@/components/ui/option-select';
-import { comparisonGoal, referenceDifferences, type ComparisonGoal } from '@/lib/sim/reference-context';
+import { comparisonGoal, referenceDifferences, referenceVersionContext, type ComparisonGoal } from '@/lib/sim/reference-context';
 
 /**
  * Virtual > a lap's analysis. It is opened from a lap elsewhere in the app (there is no menu entry): the address names the laps by their ids
@@ -53,10 +53,14 @@ export function CompareScreen() {
     return pbs.items.find((entry) => entry.game === aHeader.game && same(entry.track.name, aHeader.track.name) && same(entry.car.name, aHeader.car.name)) ?? null;
   }, [pbs.items, aHeader]);
   // Race pace is contextual: never silently use an all-time personal best as the race reference.
-  const defaultRef = goal !== 'race' && pb && pb.lapId !== aId ? pb.lapId : null;
+  const candidateRef = goal !== 'race' && pb && pb.lapId !== aId ? pb.lapId : null;
+  const bFile = useLapFile(bParam ?? candidateRef);
+  // PB summaries have no variant: verify the downloaded header before selecting an automatic reference.
+  const rejectedDefault = !bParam && !!candidateRef && !!aFile.data && !!bFile.data && (incomparableReason(aFile.data, bFile.data) !== null || aFile.data.header.car.name.trim().toLowerCase() !== bFile.data.header.car.name.trim().toLowerCase());
+  const defaultRef = candidateRef && bFile.data && !rejectedDefault ? candidateRef : null;
   const bId = bParam ?? defaultRef;
-  const bFile = useLapFile(bId);
-  const conditionDifferences = aFile.data && bFile.data ? referenceDifferences(aFile.data, bFile.data) : [];
+  const conditionDifferences = aFile.data && bFile.data && bId ? referenceDifferences(aFile.data, bFile.data) : [];
+  const versionContext = aHeader && bFile.data && bId ? referenceVersionContext(aHeader, bFile.data.header) : null;
 
   const go = (next: { a?: string | null; b?: string | null }) => {
     const out = new URLSearchParams(params);
@@ -209,6 +213,9 @@ export function CompareScreen() {
                   ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
                   : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
                 {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
+                {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
+                {versionContext && <p className="text-xs text-muted-foreground" data-testid="reference-versions">{t('modes.referenceContext.versionPair', { a: aHeader?.recorder?.gameBuild ?? t('modes.referenceContext.unknown'), b: bFile.data?.header.recorder?.gameBuild ?? t('modes.referenceContext.unknown') })} {t(`modes.referenceContext.build_${versionContext.gameBuild}`)}</p>}
+                {versionContext?.coordinatesUnknown && <p className="text-xs text-warn" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
                 <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />
               </div>
             )}

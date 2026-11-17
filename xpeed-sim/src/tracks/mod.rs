@@ -25,9 +25,15 @@ use flate2::Compression;
 
 pub mod ac;
 pub mod acevo;
+pub mod acevo_surface;
 pub mod aiw;
 pub mod auto;
 pub mod dump;
+pub mod f125_spline;
+pub mod fresh;
+pub mod lmu_aiw;
+pub mod local;
+pub mod package;
 pub mod preview;
 
 pub const MAGIC: &[u8; 4] = b"XTRK";

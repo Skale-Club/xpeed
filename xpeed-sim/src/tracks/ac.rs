@@ -11,7 +11,7 @@
 //! 16   N x 20   point: f32 x, y, z, f32 distance along the line (metres), i32 index (0, 1, 2, ...)
 //! ..   i32      N again
 //! ..   N x 72   detail, 18 x f32: speed, gas, brake, lateral g, radius, SIDE LEFT, SIDE RIGHT, camber, direction,
-//!               normal (3), length, forward vector (3), tag, grade. Only the two sides are used here: the other
+//!               normal (3), length, forward vector (3), tag, grade. Source normal/forward are used only when verified:
 //!               fields are not the same in every file (in the ones Kunos made, "length" is the distance to the
 //!               previous point and the forward vector is the direction of travel; in many mods' files they are not)
 //! ..   rest     a lookup grid for the game's own use (cell lists); not read here
@@ -19,7 +19,8 @@
 //!
 //! The two side values are the distances from the line to the left and to the right edge of the road. The line is the
 //! racing line, so it is not in the middle: `fast_lane.ai` is turned into a centre line by moving each point to the
-//! middle between its two edges (`to_edges_midpoint`), and the original line is kept as the `fast` line.
+//! middle between its two edges, and the original line is kept as the `fast` line. Valid source bases preserve explicit
+//! sampled side-envelope coordinates in XTRK v2. Mods without usable bases retain the v1 tangent approximation with a warning.
 
 use std::path::{Path, PathBuf};
 
@@ -48,6 +49,8 @@ pub struct AiPoint {
     pub side_right: f32,
     /// The point's own length field: the distance to the previous point.
     pub length: f32,
+    pub normal: [f32; 3],
+    pub forward: [f32; 3],
 }
 
 fn f32_at(bytes: &[u8], at: usize) -> f32 {
@@ -109,9 +112,63 @@ pub fn parse_ai(bytes: &[u8]) -> Result<Vec<AiPoint>, Refusal> {
             side_left: f32_at(bytes, d + 5 * 4),
             side_right: f32_at(bytes, d + 6 * 4),
             length: f32_at(bytes, d + 12 * 4),
+            normal: [f32_at(bytes, d + 9 * 4), f32_at(bytes, d + 10 * 4), f32_at(bytes, d + 11 * 4)],
+            forward: [f32_at(bytes, d + 13 * 4), f32_at(bytes, d + 14 * 4), f32_at(bytes, d + 15 * 4)],
         });
     }
     Ok(points)
+}
+
+/// Signed distances can put the reference line outside its envelope. Zero still means unmeasured in these readers.
+/// Width channels remain unsigned distances from the exported midpoint; only the source offsets carry a sign.
+pub(super) fn signed_widths(left: &[f32], right: &[f32]) -> CleanWidths {
+    let usable = |l: f32, r: f32| {
+        l.is_finite()
+            && r.is_finite()
+            && l != 0.0
+            && r != 0.0
+            && l.abs() <= MAX_BELIEVED_SIDE_M
+            && r.abs() <= MAX_BELIEVED_SIDE_M
+            && l + r > 0.0
+    };
+    let half: Vec<f32> = left
+        .iter()
+        .zip(right)
+        .map(|(&l, &r)| if usable(l, r) { (l + r) / 2.0 } else { f32::NAN })
+        .collect();
+    let mut cleaned = clean_widths(&half, &half);
+    if cleaned.kept {
+        for i in 0..left.len() {
+            if cleaned.left[i].is_finite() {
+                cleaned.left[i] = left[i];
+                cleaned.right[i] = right[i];
+            }
+        }
+    }
+    cleaned
+}
+
+/// Upward surface normal crossed with travel gives the source left axis. Reject stale, zero and non-orthogonal mod fields.
+fn source_left(point: &AiPoint, tangent_left: (f64, f64)) -> Option<[f64; 3]> {
+    let n = point.normal.map(f64::from);
+    let f = point.forward.map(f64::from);
+    if !n.iter().chain(&f).all(|v| v.is_finite()) {
+        return None;
+    }
+    let norm = |v: [f64; 3]| v.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let (nn, nf) = (norm(n), norm(f));
+    let dot = n.iter().zip(f).map(|(a, b)| a * b).sum::<f64>();
+    if !(0.9..=1.1).contains(&nn)
+        || !(0.9..=1.1).contains(&nf)
+        || n[1] < 0.5
+        || dot.abs() > 0.1
+        || (-f[0] * tangent_left.1 + f[2] * tangent_left.0) / nf < 0.8
+    {
+        return None;
+    }
+    let cross = [n[1] * f[2] - n[2] * f[1], n[2] * f[0] - n[0] * f[2], n[0] * f[1] - n[1] * f[0]];
+    let length = norm(cross);
+    (length > 0.5).then(|| cross.map(|v| v / length))
 }
 
 /// What the points of one line say about themselves.
@@ -524,7 +581,17 @@ pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Opti
     // Widths.
     let raw_left: Vec<f32> = points.iter().map(|p| p.side_left).collect();
     let raw_right: Vec<f32> = points.iter().map(|p| p.side_right).collect();
-    let widths = clean_widths(&raw_left, &raw_right);
+    let raw_x: Vec<f32> = points.iter().map(|p| p.x).collect();
+    let raw_z: Vec<f32> = points.iter().map(|p| p.z).collect();
+    let units = left_units(&raw_x, &raw_z, geometry.closed);
+    let axes: Vec<_> = points.iter().zip(&units).map(|(p, &u)| source_left(p, u)).collect();
+    let valid_axes = axes.iter().filter(|axis| axis.is_some()).count();
+    let native = valid_axes as f64 >= 0.95 * n as f64;
+    let widths = if native {
+        signed_widths(&raw_left, &raw_right)
+    } else {
+        clean_widths(&raw_left, &raw_right)
+    };
     if widths.kept {
         report.notes.push(format!(
             "widths known at {} of {n} points, median whole-road width {:.1} m",
@@ -546,14 +613,65 @@ pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Opti
     }
 
     let mut x: Vec<f32> = points.iter().map(|p| p.x).collect();
-    let y: Vec<f32> = points.iter().map(|p| p.y).collect();
+    let mut y: Vec<f32> = points.iter().map(|p| p.y).collect();
     let mut z: Vec<f32> = points.iter().map(|p| p.z).collect();
     let fast = Fast {
         x: x.clone(),
         z: z.clone(),
     };
     let (mut left, mut right) = (widths.left, widths.right);
-    if widths.kept {
+    let boundaries = if native && widths.kept {
+        let mut edges = Boundaries {
+            left_x: Vec::with_capacity(n),
+            left_z: Vec::with_capacity(n),
+            right_x: Vec::with_capacity(n),
+            right_z: Vec::with_capacity(n),
+        };
+        let mut known = 0;
+        for i in 0..n {
+            let row = if let Some(axis) = axes[i].filter(|_| left[i].is_finite() && right[i].is_finite()) {
+                let p = points[i];
+                let (l, r) = (f64::from(left[i]), f64::from(right[i]));
+                let row = [
+                    (f64::from(p.x) + axis[0] * l) as f32,
+                    (f64::from(p.z) + axis[2] * l) as f32,
+                    (f64::from(p.x) - axis[0] * r) as f32,
+                    (f64::from(p.z) - axis[2] * r) as f32,
+                ];
+                x[i] = (f64::from(p.x) + axis[0] * (l - r) / 2.0) as f32;
+                y[i] = (f64::from(p.y) + axis[1] * (l - r) / 2.0) as f32;
+                z[i] = (f64::from(p.z) + axis[2] * (l - r) / 2.0) as f32;
+                left[i] = ((l + r) / 2.0) as f32;
+                right[i] = left[i];
+                known += 1;
+                row
+            } else {
+                left[i] = f32::NAN;
+                right[i] = f32::NAN;
+                [f32::NAN; 4]
+            };
+            edges.left_x.push(row[0]);
+            edges.left_z.push(row[1]);
+            edges.right_x.push(row[2]);
+            edges.right_z.push(row[3]);
+        }
+        report.notes.push(format!("XTRK v2: {known}/{n} source normal/forward cross-sections; sampled AI side envelope, not surveyed asphalt; no midpoint tangent reconstruction"));
+        if known < n {
+            report.warnings.push(format!(
+                "{} source cross-sections unknown: invalid basis or unmeasured width; explicit gaps retained",
+                n - known
+            ));
+        }
+        Some(edges)
+    } else {
+        if widths.kept {
+            report.warnings.push(format!(
+                "only {valid_axes}/{n} usable source normal/forward bases: retaining legacy tangent-derived width approximation (XTRK v1)"
+            ));
+        }
+        None
+    };
+    if widths.kept && boundaries.is_none() {
         to_edges_midpoint(&mut x, &mut z, &mut left, &mut right, geometry.closed);
     }
     let dist: Vec<f32> = points.iter().map(|p| p.dist).collect();
@@ -577,7 +695,7 @@ pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Opti
 
     let result = Track {
         game: "ac".into(),
-        boundaries: None,
+        boundaries,
         name: track.to_owned(),
         variant: variant.map(str::to_owned),
         title: outside.ui_title.clone(),
@@ -716,6 +834,75 @@ pub(crate) mod tests {
 
     fn circle() -> Vec<u8> {
         synthetic(600, 100.0, std::f64::consts::TAU, 9.0, 3.0)
+    }
+
+    fn detail_value(bytes: &mut [u8], n: usize, i: usize, field: usize, value: f32) {
+        let at = HEADER_BYTES + n * POINT_BYTES + 4 + i * DETAIL_BYTES + field * 4;
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn native_circle(n: usize, radius: f64, left: f32, right: f32) -> Vec<u8> {
+        let mut bytes = synthetic(n, radius, std::f64::consts::TAU, left, right);
+        for i in 0..n {
+            let a = std::f64::consts::TAU * i as f64 / n as f64;
+            // A banked source basis: retain its vertical component instead of flattening the source cross-section.
+            for (field, value) in [
+                (9, -0.2 * a.cos()),
+                (10, 0.96f64.sqrt()),
+                (11, -0.2 * a.sin()),
+                (13, -a.sin()),
+                (14, 0.0),
+                (15, a.cos()),
+            ] {
+                detail_value(&mut bytes, n, i, field, value as f32);
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn native_cross_sections_keep_signed_offsets_and_banking() {
+        let bytes = native_circle(600, 100.0, -2.0, 10.0);
+        let t = extract_bytes(&bytes, None, "banked", None, &Outside::default()).unwrap().track;
+        let b = t.boundaries.as_ref().unwrap();
+        assert!((b.left_x[0] - (100.0 - 2.0 * 0.96f32.sqrt())).abs() < 1e-5);
+        assert!((b.right_x[0] - (100.0 - 10.0 * 0.96f32.sqrt())).abs() < 1e-5);
+        assert!((t.centerline.y[0] - 1.8).abs() < 1e-5);
+        assert_eq!(t.centerline.left[0], 4.0);
+        assert_eq!(t.fast.as_ref().unwrap().x[0], 100.0);
+        let packed = pack(&t).unwrap();
+        assert_eq!(u16::from_le_bytes([packed[4], packed[5]]), 2);
+        assert_eq!(pack(&unpack(&packed).unwrap()).unwrap(), packed);
+    }
+
+    #[test]
+    fn invalid_native_vectors_leave_gaps_or_a_labelled_legacy_approximation() {
+        let mut bytes = native_circle(600, 100.0, 9.0, 3.0);
+        detail_value(&mut bytes, 600, 7, 13, f32::NAN);
+        let found = extract_bytes(&bytes, None, "gap", None, &Outside::default()).unwrap();
+        let b = found.track.boundaries.as_ref().unwrap();
+        assert!([b.left_x[7], b.left_z[7], b.right_x[7], b.right_z[7]].iter().all(|v| v.is_nan()));
+        assert!(found.track.centerline.left[7].is_nan());
+        assert!(pack(&found.track).is_ok());
+        let fallback = extract_bytes(&circle(), None, "legacy", None, &Outside::default()).unwrap();
+        assert!(fallback.track.boundaries.is_none());
+        assert!(fallback.report.warnings.iter().any(|s| s.contains("legacy tangent-derived")));
+        let p = parse_ai(&bytes).unwrap()[0];
+        let mut wrong = p;
+        wrong.forward = [0.0; 3];
+        assert!(source_left(&wrong, (1.0, 0.0)).is_none());
+        wrong = p;
+        wrong.normal = wrong.forward;
+        assert!(source_left(&wrong, (1.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn long_native_loop_preserves_every_cross_section() {
+        let bytes = native_circle(12000, 10000.0, 9.0, 3.0);
+        let t = extract_bytes(&bytes, None, "long", None, &Outside::default()).unwrap().track;
+        assert!(t.length_m.unwrap() > 62000.0);
+        assert_eq!(t.boundaries.as_ref().unwrap().left_x.len(), 12000);
+        assert!(pack(&t).is_ok());
     }
 
     #[test]
@@ -870,7 +1057,7 @@ pub(crate) mod tests {
             .report
             .warnings
             .iter()
-            .all(|w| w.contains("no pit_lane")));
+            .all(|w| w.contains("no pit_lane") || w.contains("legacy tangent-derived")));
         assert!(ok(Some("0.63 km"), None).is_ok());
         assert!(ok(None, Some(map)).is_ok());
         assert_eq!(ok(Some("3000"), None).unwrap_err().code, "ai_not_confirmed");
@@ -990,6 +1177,35 @@ pub(crate) mod tests {
 
     /// Every `fast_lane.ai` of the installed game, checked and tallied. Run it with
     /// `cargo test -- --ignored --nocapture validates_every_installed_ac_track`; it does nothing when the game is not installed.
+    #[test]
+    #[ignore = "reads the installed game; run by hand"]
+    fn exports_representative_installed_ac_cross_sections() {
+        let Some(root) = crate::tracks::dump::game_folders("XPEED_AC_DIR", "assettocorsa", "content/tracks")
+            .into_iter()
+            .find(|p| p.is_dir())
+        else {
+            return;
+        };
+        for name in ["monza", "spa", "imola", "magione"] {
+            let layout = layout_of_ai_dir(&root.join(name).join("ai")).unwrap();
+            let found = extract(&layout).unwrap();
+            let t = found.track;
+            let b = t
+                .boundaries
+                .as_ref()
+                .expect("representative Kunos source basis must support explicit borders");
+            let known = b.left_x.iter().filter(|v| v.is_finite()).count();
+            assert!(known as f64 >= t.centerline.x.len() as f64 * 0.95);
+            let bytes = pack(&t).unwrap();
+            assert_eq!(pack(&unpack(&bytes).unwrap()).unwrap(), bytes);
+            if let Some(dir) = std::env::var_os("XPEED_TRACK_EVIDENCE_DIR") {
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(PathBuf::from(dir).join(format!("ac-{name}.xtrk")), bytes).unwrap();
+            }
+            eprintln!("AC {name}: {known}/{} explicit source cross-sections", t.centerline.x.len());
+        }
+    }
+
     #[test]
     #[ignore = "reads the installed game; run by hand"]
     fn validates_every_installed_ac_track() {

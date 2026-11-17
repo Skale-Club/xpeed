@@ -112,7 +112,11 @@ USAGE:
                                      Read a track's layout (centre line, road width, ideal line, pit lane) from the
                                      game's own files and write it as a track file. GAME is ac or sce; TRACK is a
                                      folder or file of the game, or its name. For acevo (offline Laguna Seca GP pilot),
-                                     TRACK is an already-extracted ideal_line.aisplinedata file. Only reads source files.
+                                     TRACK is the game folder, content.kspkg or an extracted ideal_line.aisplinedata.
+                                     acevo-asphalt reads verified Laguna Seca collision asphalt from content.kspkg.
+                                     lmu-aiw exports a verified loose LMU AIW offline (telemetry alignment unverified).
+                                     f125-spline exports verified F1 2025 Brazil white-line source (alignment unverified).
+                                     Reads selected native sources only; the installation is never modified.
     xpeed-companion pair --server URL --code CODE [--name NAME]
                                            Connect this computer to your Xpeed account (the code comes from the app)
     xpeed-companion status                 Show whether this computer is paired
@@ -246,7 +250,9 @@ fn parse(args: &[String]) -> Result<Command, String> {
             }
         }
         Some("track-dump") => {
-            let game = rest.next().ok_or("track-dump needs a game (ac, sce or offline acevo pilot)")?;
+            let game = rest
+                .next()
+                .ok_or("track-dump needs a game (ac, sce, acevo, acevo-asphalt, lmu-aiw or f125-spline)")?;
             let source = rest.next().ok_or("track-dump needs a track (a folder, a file or a name)")?;
             let out = rest.next().ok_or("track-dump needs the file to write (OUT.xtrk)")?;
             let mut preview = None;
