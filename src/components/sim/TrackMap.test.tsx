@@ -20,10 +20,11 @@ describe('the track map', () => {
 
   it('is 16 rem tall unless the page makes it taller (a track page gives the map more room)', () => {
     const { rerender } = render(<TrackMap lap={lap} />);
-    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bh-64\b/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/(^|\s)h-56(\s|$)/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/md:h-64/);
     rerender(<TrackMap lap={lap} className="h-96" />);
-    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bh-96\b/);
-    expect(screen.getByTestId('track-map').getAttribute('class')).not.toMatch(/\bh-64\b/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/(^|\s)h-96(\s|$)/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).not.toMatch(/(^|\s)h-56(\s|$)/);
   });
 
   it('keeps z down: nothing is mirrored', () => {

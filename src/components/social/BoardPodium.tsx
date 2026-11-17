@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Avatar, DriverName } from './social-bits';
 
 /** How tall each step stands, by rank; a tie shares the height of its rank. */
-const STEP_HEIGHT = ['min-h-[10.5rem]', 'min-h-[9rem]', 'min-h-[8rem]'] as const;
+const STEP_HEIGHT = ['min-h-[8.5rem] sm:min-h-[10.5rem]', 'min-h-[7.5rem] sm:min-h-[9rem]', 'min-h-[7rem] sm:min-h-[8rem]'] as const;
 const MEDAL = ['bg-amber-500 text-black', 'bg-slate-300 text-black', 'bg-orange-500 text-black'] as const;
 /** A podium needs three drivers. */
 export const MIN_DRIVERS = 3;
@@ -49,9 +49,9 @@ export function BoardPodium({ entries }: { entries: readonly LeaderboardEntry[] 
                 <span className="sr-only">{t('social.leaderboard.rank', 'Rank')} </span>{entry.rank}
               </span>
               <Avatar handle={entry.handle} displayName={entry.displayName} size="lg" />
-              <DriverName handle={entry.handle} displayName={entry.displayName} className="w-full flex-col items-center gap-0 text-sm" testId="podium-name" />
+              <DriverName handle={entry.handle} displayName={entry.displayName} className="w-full flex-col items-center gap-0 text-xs sm:text-sm" nameClassName="line-clamp-2 whitespace-normal break-words sm:line-clamp-none sm:truncate sm:whitespace-nowrap" testId="podium-name" />
               {entry.isMe && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]" data-testid="podium-you">{t('social.leaderboard.you', 'You')}</Badge>}
-              <p className="mt-auto font-mono text-sm font-semibold tabular-nums sm:text-base" data-testid="podium-time">{formatLapTime(entry.timeMs)}</p>
+              <p className="mt-auto font-mono text-xs font-semibold tabular-nums sm:text-base" data-testid="podium-time">{formatLapTime(entry.timeMs)}</p>
               <p className="font-mono text-xs tabular-nums text-muted-foreground" data-testid="podium-gap">
                 {entry.gapMs > 0 ? formatGap(entry.gapMs / 1000) : t('social.leaderboard.leader', 'Leader')}
               </p>
