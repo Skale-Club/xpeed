@@ -62,6 +62,18 @@ describe('the track map', () => {
     expect(container.querySelectorAll('[data-testid="track-layout"] polyline')).toHaveLength(1);
   });
 
+  it('draws sampled edges exactly when widths are unknown, including non-normal offsets', () => {
+    const layout = makeLayout({ points: [[0, 0], [10, 0]], closed: false });
+    layout.boundaries = {
+      left_x: new Float32Array([-4, 7]), left_z: new Float32Array([-2, -5]),
+      right_x: new Float32Array([3, 14]), right_z: new Float32Array([1, 2]),
+    };
+    const { container } = render(<TrackMap lap={lap} layout={layout} />);
+    // Bounds include the lap and the exact edges: min=(-4,-5), max=(20,20), margin=2.25.
+    const road = container.querySelector('[data-testid="track-layout"] path')!;
+    expect(road.getAttribute('d')).toBe('M2.3,5.3 L13.3,2.3 L20.3,9.3 L9.3,8.3 Z');
+  });
+
   it('shows the whole layout, not only the lap, in the picture', () => {
     const layout = makeLayout({ points: circle(500, 40), width: 6, closed: true });
     render(<TrackMap lap={lap} layout={layout} />);

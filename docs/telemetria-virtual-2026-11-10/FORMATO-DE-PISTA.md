@@ -1,4 +1,22 @@
-# Formato do arquivo de pista (versão 1)
+# Track layout format (versions 1 and 2)
+
+## Version 2 extension — sampled boundaries (2026-11-16)
+
+The original version 1 contract below remains unchanged. Writers without explicit boundaries still write v1, including the identical golden vector. Readers accept versions 1 and 2; other versions and nonzero flags are refused.
+
+Version 2 requires one additional final section, after any `fast` and `pitlane` sections:
+
+```json
+{"id":"boundaries","count":2135,"channels":["left_x","left_z","right_x","right_z"]}
+```
+
+Each column is little-endian float32, following the existing column-major layout. `count` equals the centerline count. A boundary row is either four finite world coordinates or four NaNs for an unknown cross-section. Partial unknown rows, infinities, coincident edges, or an edge more than 200 m from its corresponding centerline point are refused. V1 forbids this section; v2 requires it. All other section order, size, compression and coordinate checks still apply.
+
+Explicit boundaries take precedence over reconstructed width normals. Renderers connect consecutive known cross-sections, leave unknown rows open and close the ring only when the track is closed and every row is known. They must never recalculate or shift these coordinates. Centerline width columns can remain NaN when signed native offsets cannot be represented by v1's positive widths. `centerKind=game_line` preserves the game's reference positions and elevation; boundaries currently retain only planar x/z, not edge heights or banking.
+
+The first producer is the local EVO Laguna Seca pilot. Its game id is `acevo`, identity is `Laguna Seca / GP`, source is `aisplinedata`, and its documented frame reflects source x to match the current telemetry reader. Native AI side envelopes must not be relabeled as surveyed asphalt or white-line limits. See [pilot evidence](../tasks/acevo-native-track-pilot.md). Automatic EVO extraction/upload is not enabled.
+
+## Original version 1 contract
 
 Contrato entre o **Xpeed Sim (Windows)** (que grava) e o **Xpeed** (que lê). O **traçado de uma pista**: a linha central, a largura da pista de cada lado dela (para desenhar as bordas), a linha ideal do jogo e o caminho do pit lane. O arquivo de volta ([FORMATO-DE-VOLTA.md](FORMATO-DE-VOLTA.md)) guarda a linha que o *carro* andou; este guarda a *pista*, e o Xpeed desenha a volta do piloto por cima dela.
 

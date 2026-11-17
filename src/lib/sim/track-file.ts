@@ -1,5 +1,5 @@
 /**
- * The track layout file (.xtrk, version 1): the real shape of a circuit as Xpeed Companion reads it from a game's own files.
+ * The track layout file (.xtrk, versions 1 and 2): the real shape of a circuit as Xpeed Companion reads it from a game's own files.
  * Spec: docs/telemetria-virtual-2026-11-10/FORMATO-DE-PISTA.md (that page is the contract; this is a strict reader of it).
  *
  * A layout is the centre line of the track, how far each edge is on either side, the game's ideal line and the pit lane;
@@ -9,6 +9,7 @@
 
 export const TRACK_MAGIC = 'XTRK';
 export const TRACK_VERSION = 1;
+export const TRACK_SUPPORTED_VERSIONS: readonly number[] = [1, 2];
 
 export const TRACK_LIMITS = {
   headerBytes: 65_536,
@@ -62,15 +63,18 @@ export interface TrackFile {
   /** The game's ideal line, point for point with the centre line. */
   fast?: { x: Float32Array; z: Float32Array };
   pitlane?: { x: Float32Array; z: Float32Array; left: Float32Array; right: Float32Array };
+  /** Version 2's sampled road edges, point for point with the centre line; all four values are NaN where unknown. */
+  boundaries?: { left_x: Float32Array; left_z: Float32Array; right_x: Float32Array; right_z: Float32Array };
 }
 
 const SECTION_CHANNELS = {
   centerline: ['x', 'y', 'z', 'dist', 'left', 'right'],
   fast: ['x', 'z'],
   pitlane: ['x', 'z', 'left', 'right'],
+  boundaries: ['left_x', 'left_z', 'right_x', 'right_z'],
 } as const;
 type SectionId = keyof typeof SECTION_CHANNELS;
-const SECTION_ORDER: readonly SectionId[] = ['centerline', 'fast', 'pitlane'];
+const SECTION_ORDER: readonly SectionId[] = ['centerline', 'fast', 'pitlane', 'boundaries'];
 
 const PREAMBLE_BYTES = 12;
 const GAME_ID = /^[a-z][a-z0-9_]{0,31}$/;
@@ -87,7 +91,8 @@ interface SectionInfo {
 }
 
 /** Checks an untrusted header (parsed JSON) and returns it typed, with the sections it lists. */
-export function parseTrackHeader(input: unknown): { header: TrackHeader; sections: SectionInfo[] } {
+export function parseTrackHeader(input: unknown, version = TRACK_VERSION): { header: TrackHeader; sections: SectionInfo[] } {
+  if (!TRACK_SUPPORTED_VERSIONS.includes(version)) fail('bad_version', 'This track layout is of a version this reader does not know.');
   if (!isRecord(input)) return fail('bad_header', 'The header must be a JSON object.');
   const { game, track, source, frame, closed, centerKind, sections } = input;
   if (typeof game !== 'string' || !GAME_ID.test(game)) fail('bad_header', 'game must be a lowercase id.');
@@ -103,7 +108,8 @@ export function parseTrackHeader(input: unknown): { header: TrackHeader; section
   if (!isText(frame, 200)) fail('bad_header', 'frame must be 1 to 200 characters.');
   if (typeof closed !== 'boolean') fail('bad_header', 'closed must be true or false.');
   if (centerKind !== 'edges_midpoint' && centerKind !== 'game_line') fail('bad_header', 'centerKind is not one the spec knows.');
-  if (!Array.isArray(sections) || sections.length < 1 || sections.length > 3) return fail('bad_section', 'There must be 1 to 3 sections.');
+  const maxSections = version === 1 ? 3 : 4;
+  if (!Array.isArray(sections) || sections.length < 1 || sections.length > maxSections) return fail('bad_section', `There must be 1 to ${maxSections} sections.`);
 
   const found: SectionInfo[] = [];
   let lastOrder = -1;
@@ -111,7 +117,8 @@ export function parseTrackHeader(input: unknown): { header: TrackHeader; section
     if (!isRecord(entry) || typeof entry.id !== 'string') return fail('bad_section', 'A section needs an id.');
     const order = SECTION_ORDER.indexOf(entry.id as SectionId);
     if (order < 0) return fail('bad_section', `Unknown section "${entry.id}".`);
-    if (order <= lastOrder) return fail('bad_section', 'Sections come once each, in the order centerline, fast, pitlane.');
+    if (version === 1 && entry.id === 'boundaries') return fail('bad_section', 'Version 1 cannot contain boundaries.');
+    if (order <= lastOrder) return fail('bad_section', 'Sections come once each, in the order centerline, fast, pitlane, boundaries.');
     lastOrder = order;
     const id = entry.id as SectionId;
     const wanted = SECTION_CHANNELS[id];
@@ -124,6 +131,9 @@ export function parseTrackHeader(input: unknown): { header: TrackHeader; section
   if (found[0].id !== 'centerline') fail('bad_section', 'The centerline section is required, and first.');
   const fast = found.find((s) => s.id === 'fast');
   if (fast && fast.count !== found[0].count) fail('bad_section', 'The fast line must have as many points as the centre line.');
+  const boundaries = found.find((s) => s.id === 'boundaries');
+  if (version === 2 && !boundaries) fail('bad_section', 'Version 2 requires sampled boundaries.');
+  if (boundaries && boundaries.count !== found[0].count) fail('bad_section', 'The boundaries must have as many points as the centre line.');
 
   const header: TrackHeader = {
     game,
@@ -160,7 +170,8 @@ export function unpackTrack(bytes: Uint8Array): TrackFile {
   if (bytes.length < PREAMBLE_BYTES) return fail('bad_length', 'The file is too short to be a track layout.');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== TRACK_MAGIC) return fail('bad_magic', 'This is not a track layout file.');
-  if (view.getUint16(4, true) !== TRACK_VERSION) return fail('bad_version', 'This track layout is of a version this reader does not know.');
+  const version = view.getUint16(4, true);
+  if (!TRACK_SUPPORTED_VERSIONS.includes(version)) return fail('bad_version', 'This track layout is of a version this reader does not know.');
   if (view.getUint16(6, true) !== 0) return fail('bad_flags', 'This track layout uses flags this reader does not know.');
   const headerBytes = view.getUint32(8, true);
   if (headerBytes < 4 || headerBytes > TRACK_LIMITS.headerBytes || headerBytes % 4 !== 0 || PREAMBLE_BYTES + headerBytes > bytes.length) {
@@ -173,7 +184,7 @@ export function unpackTrack(bytes: Uint8Array): TrackFile {
   } catch {
     return fail('bad_header', 'The header is not valid JSON.');
   }
-  const { header, sections } = parseTrackHeader(parsed);
+  const { header, sections } = parseTrackHeader(parsed, version);
 
   const columns = sections.reduce((total, s) => total + SECTION_CHANNELS[s.id].length * s.count, 0);
   if (bytes.length !== PREAMBLE_BYTES + headerBytes + columns * 4) return fail('bad_length', 'The file size does not match its header.');
@@ -210,7 +221,22 @@ export function unpackTrack(bytes: Uint8Array): TrackFile {
     for (const channel of ['x', 'z'] as const) allFinite(pit[channel], `pitlane.${channel}`);
     checkWidths(pit.left, pit.right, 'pitlane');
   }
-  return { header, centerline: c, ...(fast ? { fast } : {}), ...(pit ? { pitlane: pit } : {}) };
+  const boundaries = sectionData.boundaries as unknown as TrackFile['boundaries'];
+  if (boundaries) {
+    for (let i = 0; i < c.x.length; i++) {
+      const row = [boundaries.left_x[i], boundaries.left_z[i], boundaries.right_x[i], boundaries.right_z[i]];
+      if (row.every(Number.isNaN)) continue;
+      if (!row.every(Number.isFinite)) fail('bad_data', `boundaries: point ${i} must be all finite or all unknown.`);
+      const [lx, lz, rx, rz] = row;
+      const span = Math.hypot(lx - rx, lz - rz);
+      if (Math.hypot(lx - c.x[i], lz - c.z[i]) > TRACK_LIMITS.maxSideM
+        || Math.hypot(rx - c.x[i], rz - c.z[i]) > TRACK_LIMITS.maxSideM
+        || span <= 0 || span > 2 * TRACK_LIMITS.maxSideM) {
+        fail('bad_data', `boundaries: point ${i} has edges outside the allowed distances.`);
+      }
+    }
+  }
+  return { header, centerline: c, ...(fast ? { fast } : {}), ...(pit ? { pitlane: pit } : {}), ...(boundaries ? { boundaries } : {}) };
 }
 
 async function readAll(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array> {
@@ -287,11 +313,28 @@ export interface RoadRun {
 }
 
 /**
- * The road as runs of consecutive points whose widths are known, with the edge of each: the centre line moved to the left
- * by `left` and to the right by `right` along the normal. A closed track whose every width is known gives one run that
- * closes on itself.
+ * The road as runs of consecutive known sampled edges (v2), or centre widths projected along the normal (v1).
+ * Unknown rows split runs. A closed track whose every edge is known gives one run that closes on itself.
  */
 export function roadRuns(track: TrackFile): { runs: RoadRun[]; closedRing: boolean } {
+  if (track.boundaries) {
+    const { left_x, left_z, right_x, right_z } = track.boundaries;
+    const runs: RoadRun[] = [];
+    let current: RoadRun | null = null;
+    for (let i = 0; i < left_x.length; i++) {
+      if (Number.isNaN(left_x[i])) {
+        current = null;
+        continue;
+      }
+      if (!current) {
+        current = { left: [], right: [] };
+        runs.push(current);
+      }
+      current.left.push([left_x[i], left_z[i]]);
+      current.right.push([right_x[i], right_z[i]]);
+    }
+    return { runs, closedRing: track.header.closed && runs.length === 1 && runs[0].left.length === left_x.length };
+  }
   const { x, z, left, right } = track.centerline;
   return bandRuns(x, z, left, right, track.header.closed);
 }
