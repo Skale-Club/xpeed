@@ -27,7 +27,14 @@ export interface ChatContext {
 }
 
 /** Why the AI did not answer, so the app can say something useful. */
-export type AiFailure = 'limit_reached' | 'not_configured' | 'unavailable';
+export type AiFailure = 'limit_reached' | 'not_configured' | 'context_not_found' | 'development_disabled' | 'unavailable';
+
+interface VirtualChatRequest {
+  mode: 'virtual';
+  sessionId: string;
+  conversationId: string;
+  messageId: string;
+}
 
 export class AiError extends Error {
   constructor(public kind: AiFailure) {
@@ -36,11 +43,21 @@ export class AiError extends Error {
 }
 
 // supabase-js wraps non-2xx replies in a FunctionsHttpError whose `context` is the Response.
-async function failureKind(error: unknown): Promise<AiFailure> {
+async function failureKind(error: unknown, virtual = false): Promise<AiFailure> {
   const response = (error as { context?: Response })?.context;
   if (response && typeof response.status === 'number') {
     if (response.status === 429) return 'limit_reached';
-    if (response.status === 503) return 'not_configured';
+    if (virtual && response.status === 404) return 'context_not_found';
+    if (response.status === 503) {
+      let code: unknown;
+      try {
+        code = (await response.clone().json())?.code;
+      } catch {
+        // Older handlers may return a response without a structured code.
+      }
+      if (code === 'development_disabled' && virtual) return 'development_disabled';
+      if (code === 'not_configured' || (code == null && !virtual)) return 'not_configured';
+    }
   }
   return 'unavailable';
 }
@@ -73,11 +90,15 @@ export async function chatViaEdge(
   context: ChatContext,
   /** The car the owner is asking about; the server checks it is theirs and builds the context itself. */
   carProfileId?: string | null,
+  virtual?: VirtualChatRequest,
 ): Promise<string> {
+  const language = i18n.resolvedLanguage;
   const { data, error } = await supabase.functions.invoke('chat', {
-    body: { history, message, context, language: i18n.resolvedLanguage, ...(carProfileId ? { carProfileId } : {}) },
+    body: virtual
+      ? { ...virtual, message, language }
+      : { history, message, context, language, ...(carProfileId ? { carProfileId } : {}) },
   });
-  if (error) throw new AiError(await failureKind(error));
+  if (error) throw new AiError(await failureKind(error, !!virtual));
   const reply = data?.reply as string | undefined;
   if (!reply) throw new AiError('unavailable');
   return reply;

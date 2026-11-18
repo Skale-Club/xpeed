@@ -415,6 +415,23 @@
     "more": "More"
   },
   "modes": {
+    "coach": {
+      "title": "Session coach",
+      "description": "Ask an AI coach about your lap and sector times in this session.",
+      "enable": "Enable coach",
+      "open": "Open coach",
+      "disable": "Disable coach",
+      "intro": "I can compare the recorded lap and sector times from this session.",
+      "placeholder": "Ask about this session…",
+      "questions": {
+        "sectors": "Which sector varied most between my laps?",
+        "consistency": "How consistent were my valid laps?"
+      },
+      "contextNotFound": "This session or conversation is no longer available.",
+      "developmentDisabled": "The session coach is disabled in development.",
+      "notConfigured": "The session coach isn't available yet.",
+      "replyFailed": "The session coach couldn't answer right now. Try again in a moment."
+    },
     "switchLabel": "Switch mode",
     "real": "Real",
     "virtual": "Virtual",

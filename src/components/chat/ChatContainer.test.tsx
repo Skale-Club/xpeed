@@ -78,7 +78,8 @@ it('saves a delayed answer in its original conversation without showing it in an
   await screen.findByText('History A');
   sendQuestion();
   await waitFor(() => expect(h.reply).toHaveBeenCalled());
-  expect(h.reply.mock.calls[0][3]).toBe('car-A');
+  expect(h.conversations).toHaveBeenCalledWith();
+  expect(h.reply).toHaveBeenCalledWith([{ role: 'model', parts: 'History A' }], 'My question', {}, 'car-A');
   await openConversation('B');
   await screen.findByText('History B');
   await act(async () => { reply.resolve('Answer for A'); });

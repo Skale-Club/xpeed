@@ -23,11 +23,19 @@ export interface Attachment {
     contentType: string;
 }
 
+export interface ChatScope {
+    mode: 'virtual';
+    sessionId: string;
+    label: string;
+}
+
 export interface ChatConversation {
     id: string;
     title: string;
     user_id: string;
     car_profile_id: string | null;
+    mode?: string;
+    sim_session_id?: string | null;
     created_at: string;
     updated_at: string;
 }

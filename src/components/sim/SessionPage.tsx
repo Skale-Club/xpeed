@@ -21,6 +21,7 @@ import { SectorHeatTable } from './session/SectorHeat';
 import { StoodOutCard } from './session/Stood';
 import { Panel } from './overview/parts';
 import { ListSkeleton, QueryGate } from './SimStates';
+import { SessionCoach } from './SessionCoach';
 
 type Pending = { kind: 'session' } | { kind: 'lap'; lap: V1Lap } | null;
 
@@ -110,6 +111,7 @@ export function SessionPage() {
           {session && (
             <>
               <SessionHero session={session} lapCount={laps.length} shareLabel={share.session} onDelete={() => setPending({ kind: 'session' })} deleting={remove.isPending} />
+              <SessionCoach userId={userId} session={session} />
 
               {problem && (
                 <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm" data-testid="session-problem">

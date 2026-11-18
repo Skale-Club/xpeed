@@ -415,6 +415,23 @@
     "more": "Mais"
   },
   "modes": {
+    "coach": {
+      "title": "Treinador da sessão",
+      "description": "Use o treinador com IA para tirar dúvidas sobre seus tempos de volta e de setor nesta sessão.",
+      "enable": "Ativar treinador",
+      "open": "Abrir treinador",
+      "disable": "Desativar treinador",
+      "intro": "Posso comparar os tempos de volta e de setor registrados nesta sessão.",
+      "placeholder": "Pergunte sobre esta sessão…",
+      "questions": {
+        "sectors": "Qual setor variou mais entre minhas voltas?",
+        "consistency": "Quão consistentes foram minhas voltas válidas?"
+      },
+      "contextNotFound": "Esta sessão ou conversa não está mais disponível.",
+      "developmentDisabled": "O treinador da sessão está desativado no ambiente de desenvolvimento.",
+      "notConfigured": "O treinador da sessão ainda não está disponível.",
+      "replyFailed": "O treinador da sessão não conseguiu responder agora. Tente novamente daqui a pouco."
+    },
     "switchLabel": "Trocar de modo",
     "real": "Real",
     "virtual": "Virtual",

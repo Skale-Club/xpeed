@@ -1,0 +1,70 @@
+// Pure, network-free checks; Node 24 can load the erasable TypeScript helper.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { buildVirtualCoachPrompt, loadVirtualCoachContext, MAX_COACH_LAPS } from '../supabase/functions/_shared/virtual-coach.ts';
+
+import { ids, request, fixture, fakeDb } from './lib/virtual-coach-fixture.mjs';
+
+test('uses only owned session data, verified clean laps and persisted prior history', async () => {
+  const db = fakeDb();
+  const { evidence, history } = await loadVirtualCoachContext(db, ids.user, request);
+  assert.equal(evidence.session.track, 'Monza');
+  assert.equal(evidence.insights.summary.bestLapMs, 90000);
+  assert.equal(evidence.insights.summary.consistencyMs, 300);
+  assert.equal(evidence.insights.lapsUsed, 3);
+  assert.equal(evidence.coverage.excludedLaps, 2);
+  assert.equal(evidence.coverage.truncated, false);
+  assert.deepEqual(history, [{ role: 'model', parts: 'Earlier advice' }]);
+  for (const table of ['chat_conversations', 'sim_sessions', 'sim_laps']) {
+    assert(db.reads.find((r) => r.table === table).filters.some((f) => f[1] === 'user_id' && f[2] === ids.user));
+  }
+  assert(!db.reads.some((r) => ['car_profiles', 'sessions', 'vehicle_issues'].includes(r.table)));
+});
+
+test('rejects another user, Real conversation, session mismatch and saved-question mismatch', async () => {
+  for (const change of [
+    (r) => { r.chat_conversations[0].user_id = ids.other; },
+    (r) => { r.chat_conversations[0].mode = 'real'; },
+    (r) => { r.chat_conversations[0].sim_session_id = ids.car; },
+    (r) => { r.sim_sessions[0].user_id = ids.other; },
+    (r) => { r.chat_messages[1].parts[0].text = 'Different question'; },
+    (r) => { r.chat_messages[1].conversation_id = 'foreign'; },
+  ]) {
+    const rows = fixture(); change(rows);
+    await assert.rejects(loadVirtualCoachContext(fakeDb(rows), ids.user, request), (e) => e.code === 'context_not_found' && e.status === 404);
+  }
+});
+
+test('database failures fail closed instead of yielding an empty or fallback context', async () => {
+  for (const table of Object.keys(fixture())) {
+    await assert.rejects(loadVirtualCoachContext(fakeDb(fixture(), table), ids.user, request), (e) => e.code === 'unavailable' && e.status === 503);
+  }
+});
+
+test('bounds a large session and explicitly identifies partial coverage', async () => {
+  const rows = fixture();
+  rows.sim_sessions[0].lap_count = 300;
+  rows.sim_laps = Array.from({ length: 300 }, (_, i) => ({ ...rows.sim_laps[0], id: `${i}`, lap_number: i + 1 }));
+  const { evidence } = await loadVirtualCoachContext(fakeDb(rows), ids.user, request);
+  assert.equal(evidence.coverage.inspectedLaps, MAX_COACH_LAPS);
+  assert.equal(evidence.coverage.truncated, true);
+});
+
+test('empty and unverified sessions do not invent a best or consistency', async () => {
+  const rows = fixture(); rows.sim_laps.forEach((lap) => { lap.plausible = null; });
+  const { evidence } = await loadVirtualCoachContext(fakeDb(rows), ids.user, request);
+  assert.equal(evidence.insights.summary.bestLapMs, null);
+  assert.equal(evidence.insights.summary.consistencyMs, null);
+  assert.equal(evidence.links.bestLap, null);
+});
+
+test('prompt identifies missing telemetry, uncertainty and unsupported actions, within a bounded size', async () => {
+  const { evidence } = await loadVirtualCoachContext(fakeDb(), ids.user, request);
+  const prompt = buildVirtualCoachPrompt(evidence, 'Brazilian Portuguese');
+  assert.match(prompt, /Reply in Brazilian Portuguese/);
+  assert.match(prompt, /METADATA ONLY/);
+  assert.match(prompt, /full setup values have NOT been loaded/);
+  assert.match(prompt, /Do not claim to save a training plan/);
+  assert.match(prompt, /not a guaranteed achievable lap/);
+  assert(prompt.length < 7000);
+});

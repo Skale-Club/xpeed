@@ -1,4 +1,4 @@
-// Supabase Edge Function: the in-app car assistant (OpenRouter).
+// Shared in-app Real-car assistant and optional Virtual session coach (OpenRouter).
 // - Key + model come from the admin panel (app_settings).
 // - Per-user daily quota (30 msgs/day); a failed AI call gives its unit back.
 // - The system prompt is built HERE from the database, scoped to the signed-in caller
@@ -13,6 +13,7 @@ import { getOpenRouterApiKey, getDefaultModel } from "../_shared/admin-config.ts
 import { consumeQuota, getServiceClient, getUserIdFromAuth, refundQuota } from "../_shared/quota.ts";
 import { buildSystemPrompt, clampHistory, MAX_USER_MESSAGE_CHARS } from "../_shared/chat-prompt.ts";
 import { loadCarPromptData } from "../_shared/car-data.ts";
+import { buildVirtualCoachPrompt, loadVirtualCoachContext, VirtualCoachError, type CoachContext } from "../_shared/virtual-coach.ts";
 
 // S04: validate request shape and bound sizes before doing any work / spending
 // quota. Caps prevent token/cost inflation via huge message or history payloads.
@@ -22,6 +23,10 @@ const LanguageSchema = z.enum(["en", "pt-BR", "es-ES"]).optional();
 
 const ChatBodySchema = z.object({
   language: LanguageSchema,
+  mode: z.enum(["real", "virtual"]).optional(),
+  sessionId: z.string().uuid().optional(),
+  conversationId: z.string().uuid().optional(),
+  messageId: z.string().uuid().optional(),
   message: z.string().min(1).max(MAX_USER_MESSAGE_CHARS),
   // Which of the caller's cars is selected. Verified server-side; anything else in "context" is ignored.
   carProfileId: z.string().uuid().optional(),
@@ -32,6 +37,14 @@ const ChatBodySchema = z.object({
     .array(z.object({ role: z.enum(["user", "model"]), parts: z.string().max(8000) }))
     .max(50)
     .optional(),
+}).superRefine((body, ctx) => {
+  if (body.mode === "virtual") {
+    if (!body.sessionId || !body.conversationId || !body.messageId || body.carProfileId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A Virtual session, conversation and saved question are required" });
+    }
+  } else if (body.sessionId || body.conversationId || body.messageId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Virtual context requires Virtual mode" });
+  }
 });
 
 const corsHeaders = {
@@ -61,6 +74,7 @@ function carHintFrom(body: z.infer<typeof ChatBodySchema>) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   let userId: string | null = null;
   let quotaSpent = false;
@@ -76,6 +90,20 @@ serve(async (req) => {
       return jsonResponse({ error: "Invalid request body" }, 400);
     }
     const body = parsed.data;
+
+    // Virtual context is explicit, owner-verified and fixed to the persisted
+    // conversation. Fail before spending quota or contacting the provider.
+    let coach: CoachContext | null = null;
+    if (body.mode === "virtual") {
+      // The retired Supabase project and local servers are development. Paid
+      // coaching stays off there; tests use a simulated production provider.
+      if (Deno.env.get("NODE_ENV") !== "production") {
+        return jsonResponse({ error: "Coaching AI is disabled in development", code: "development_disabled" }, 503);
+      }
+      coach = await loadVirtualCoachContext(getServiceClient(), userId, {
+        sessionId: body.sessionId!, conversationId: body.conversationId!, messageId: body.messageId!, message: body.message,
+      });
+    }
 
     // 3. Resolve API key (OpenRouter, configured in /admin)
     const apiKey = await getOpenRouterApiKey();
@@ -104,13 +132,15 @@ serve(async (req) => {
     }
 
     // 5. The car's state, read from the database for THIS user.
-    const carData = await loadCarPromptData(getServiceClient(), userId, carHintFrom(body));
-    const systemPrompt = buildSystemPrompt(carData, LANGUAGE_NAMES[body.language ?? "en"]);
+    const language = LANGUAGE_NAMES[body.language ?? "en"];
+    const systemPrompt = coach
+      ? buildVirtualCoachPrompt(coach.evidence, language)
+      : buildSystemPrompt(await loadCarPromptData(getServiceClient(), userId, carHintFrom(body)), language);
 
     // OpenAI-compatible chat messages (OpenRouter). role "model" -> "assistant".
     const messages = [
       { role: "system", content: systemPrompt },
-      ...clampHistory(body.history).map((h) => ({
+      ...clampHistory(coach ? coach.history : body.history).map((h) => ({
         role: h.role === "model" ? "assistant" : "user",
         content: h.parts,
       })),
@@ -150,6 +180,7 @@ serve(async (req) => {
 
     return jsonResponse({ reply, quota: quotaInfo });
   } catch (err: any) {
+    if (err instanceof VirtualCoachError) return jsonResponse({ error: err.code, code: err.code, retryable: err.status === 503 }, err.status);
     // S09-2: log detail server-side only; never echo internal/DB messages to the client.
     console.error("chat error:", err);
     if (userId && quotaSpent) await refundQuota(userId, "chat_messages");

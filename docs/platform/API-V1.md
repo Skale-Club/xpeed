@@ -1,5 +1,53 @@
 # API v1: racing data (read side)
 
+## Optional session coach
+
+The session page offers an optional text coach using the existing chat UI and
+`POST /api/fn/chat`. It starts off for every account on this browser. Enabling it
+does not open a conversation or contact AI: the person opens the coach and sends
+a question explicitly. Disabling it leaves capture, uploads, sessions and lap
+analysis usable. Example mode hides it and cannot start a real coaching request.
+Voice, live interventions, saved training plans and setup versioning are future
+increments, not capabilities of this first release.
+
+Virtual requests carry `{ mode: "virtual", sessionId, conversationId, messageId,
+message, language }`. The question must already exist as a user message in that
+conversation. The server verifies the conversation and session belong to the
+caller and match each other, then reads persisted history before that question.
+Client history and telemetry claims are not used for Virtual coaching. Missing,
+deleted or mismatched context returns `404 context_not_found`; database failures
+return `503 unavailable`, before any quota is spent. There is no fallback to a
+Real car or another session. The existing provider/admin configuration and daily
+chat quota are reused; failed provider requests return their quota unit.
+
+The first context is metadata only: the first 200 laps in driving order, with
+explicit partial-coverage reporting for larger sessions. Only valid, plausible
+laps outside pit laps contribute to `insightsFromLaps` (the same calculation as
+the session-insights endpoint). Conditions that are missing remain unknown.
+Instructions distinguish measured evidence, driver reports and hypotheses;
+sector timing does not establish a particular braking point, corner trajectory
+or exact setup adjustment. No raw lap samples are loaded. Links point back to
+the verified session and its best eligible lap.
+
+Migration `20261118160000_virtual_coach_chat.sql` defaults legacy conversations
+to `mode=real`. Virtual conversations have an immutable `sim_session_id`, no
+`car_profile_id`, and owner-checked insert/update policies. Deleting a session
+cascades to its coaching conversations and messages. Real chat lists remain
+separate from each Virtual session's list. The opt-in is a versioned browser
+preference scoped to the signed-in account, not an account-wide server setting.
+
+Paid Virtual AI requests are disabled unless the server's `NODE_ENV` is
+`production` (`503 development_disabled` otherwise). Development verification
+uses a simulated provider; no paid AI or production database is required.
+
+Checks: `npm run test:virtual-coach` (Node 24, esbuild and the existing
+`.xpeed-audit-tools` PGlite dependency). On a light computer,
+`XPEED_TEST_TOOLS_ROOT` can point to an existing checkout with these packages;
+it does not install or change those dependencies. Measured on the Surface on
+2026-11-18: context/handler/client checks about 3 seconds; isolated SQL checks
+about 7 seconds. React tests cover activation, context switches and late
+responses; run them with the repository's normal Vitest dependencies.
+
 Base path `/api/sim/v1/`. Phase 1 of the platform (`PHASE-1-DATA-MODEL.md`). Code: `api/sim/v1.ts`; the queries are the
 `sim_v1_*` functions of `supabase/migrations/20261113150000_sim_platform_model.sql`. Checks: `npm run test:sim-v1`. The social side (profiles, friends, shares, leaderboards, reports, privacy rights) is at the end of this file.
 

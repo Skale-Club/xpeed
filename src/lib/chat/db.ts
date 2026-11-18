@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth/session';
 // Handles all Supabase interactions for the chat system
 
 import { supabase } from '@/integrations/supabase/client';
-import type { ChatMessage, ChatConversation, ChatContext, MessagePart, Attachment } from './types';
+import type { ChatMessage, ChatConversation, ChatContext, ChatScope, MessagePart, Attachment } from './types';
 import { getSessions } from '@/lib/db';
 import { getIssuesForCar } from '@/lib/db-issues';
 import { describeProblem } from '@/lib/problems';
@@ -21,6 +21,8 @@ function toConversation(row: {
     title: string;
     user_id: string | null;
     car_profile_id: string | null;
+    mode: string;
+    sim_session_id: string | null;
     created_at: string;
     updated_at: string;
 }): ChatConversation {
@@ -29,6 +31,8 @@ function toConversation(row: {
         title: row.title,
         user_id: row.user_id || '',
         car_profile_id: row.car_profile_id,
+        mode: row.mode,
+        sim_session_id: row.sim_session_id,
         created_at: row.created_at,
         updated_at: row.updated_at,
     };
@@ -52,13 +56,14 @@ function toChatMessage(row: {
     };
 }
 
-// Get all conversations for the current user
-export async function getConversations(): Promise<ChatConversation[]> {
-    const data = await readAllPages<Parameters<typeof toConversation>[0]>((from, to) => supabase
-        .from('chat_conversations')
-        .select('*')
-        .order('updated_at', { ascending: false }).order('id', { ascending: false })
-        .range(from, to), 'Failed to fetch conversations');
+// Get conversations for the current user's Real assistant or one Virtual session.
+export async function getConversations(scope?: ChatScope): Promise<ChatConversation[]> {
+    const data = await readAllPages<Parameters<typeof toConversation>[0]>((from, to) => {
+        const query = supabase.from('chat_conversations').select('*').eq('mode', scope?.mode ?? 'real');
+        return (scope ? query.eq('sim_session_id', scope.sessionId) : query.is('sim_session_id', null))
+            .order('updated_at', { ascending: false }).order('id', { ascending: false })
+            .range(from, to);
+    }, 'Failed to fetch conversations');
 
     return (data || []).map(toConversation);
 }
@@ -83,7 +88,8 @@ export async function getConversation(id: string): Promise<ChatConversation | nu
 // Create a new conversation
 export async function createConversation(
     title: string = 'New Conversation',
-    carProfileId?: string
+    carProfileId?: string,
+    scope?: ChatScope,
 ): Promise<ChatConversation> {
     // Explicitly fetch + set user_id: the chat_conversations RLS INSERT policy
     // checks `auth.uid() = user_id`, and the table has no BEFORE INSERT trigger
@@ -98,7 +104,9 @@ export async function createConversation(
         .from('chat_conversations')
         .insert({
             title,
-            car_profile_id: carProfileId || null,
+            car_profile_id: scope ? null : carProfileId || null,
+            mode: scope?.mode ?? 'real',
+            sim_session_id: scope?.sessionId ?? null,
             user_id: user.id,
         })
         .select()

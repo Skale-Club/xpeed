@@ -88,5 +88,7 @@ jobs:
         run: npm run test:companion-release
       - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
         run: npm run test:functions
+      - name: Optional Virtual coach (session isolation, AI boundary and migration)
+        run: npm run test:virtual-coach
       - name: Server starts, migrates and answers (needs the build from the HTTP test)
         run: npm run test:boot
