@@ -433,6 +433,16 @@
       "notConfigured": "O treinador da sessão ainda não está disponível.",
       "replyFailed": "O treinador da sessão não conseguiu responder agora. Tente novamente daqui a pouco."
     },
+    "deviceCoach": {
+      "title": "Assistente neste computador",
+      "on": "Permitido. Texto e voz ainda precisam ser ativados no Companion.",
+      "off": "Desligado. A gravação e o envio das voltas continuam funcionando.",
+      "enable": "Permitir assistente",
+      "disable": "Desligar assistente",
+      "confirmTitle": "Permitir o assistente neste computador?",
+      "confirmBody": "As mensagens podem consumir a cota de IA ou gerar cobrança conforme sua conta. Microfone e voz são controles opcionais dentro do Companion. Solicitações já enviadas podem terminar.",
+      "failed": "Não foi possível salvar a permissão. Tente novamente."
+    },
     "training": {
       "title": "Metas de treino",
       "intro": "Use esta sessão como referência para uma nova meta. A evolução usa o resultado elegível mais recente entre até 20 sessões iniciadas após a criação da meta, no mesmo simulador, carro, pista e tipo de sessão.",

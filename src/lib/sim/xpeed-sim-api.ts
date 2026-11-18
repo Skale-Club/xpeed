@@ -14,6 +14,7 @@ export interface DeviceHealth {
 }
 
 export interface SimDevice {
+  companion_coach_enabled?: boolean;
   id: string;
   name: string;
   created_at: string;

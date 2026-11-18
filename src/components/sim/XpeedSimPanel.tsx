@@ -15,6 +15,7 @@ import { useNow } from './use-now';
 import { CompanionDownload } from './CompanionDownload';
 import { DeviceCard } from './CompanionDevices';
 import { CompanionGames } from './CompanionGames';
+import { DeviceCoachPermission } from './DeviceCoachPermission';
 
 const ERROR_TEXT: Record<SimErrorReason, [key: string, fallback: string]> = {
   signin: ['modes.sim.errors.signin', 'Sign in again to manage your computers.'],
@@ -71,6 +72,8 @@ export function XpeedSimPanel() {
       busy={revoke.isPending}
       latestVersion={release.data?.version}
       onRevoke={withRevoke ? () => setPending(device) : undefined}
+      coachControl={user && !device.revoked_at ? <DeviceCoachPermission key={`${user.id}:${device.id}`} accountId={user.id} deviceId={device.id}
+        allowed={device.companion_coach_enabled === true} onChanged={() => { void client.invalidateQueries({ queryKey: devicesKey }); }} /> : undefined}
     />
   );
 

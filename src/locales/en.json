@@ -433,6 +433,16 @@
       "notConfigured": "The session coach isn't available yet.",
       "replyFailed": "The session coach couldn't answer right now. Try again in a moment."
     },
+    "deviceCoach": {
+      "title": "Assistant on this computer",
+      "on": "Allowed. Text and voice still need to be enabled in Companion.",
+      "off": "Off. Lap recording and uploads keep working.",
+      "enable": "Allow assistant",
+      "disable": "Turn off assistant",
+      "confirmTitle": "Allow the assistant on this computer?",
+      "confirmBody": "Messages can consume AI allowance or incur charges according to your account. Microphone and voice are optional controls inside Companion. Already submitted requests may finish.",
+      "failed": "The permission could not be saved. Try again."
+    },
     "training": {
       "title": "Training goals",
       "intro": "Use this session as a baseline for a new goal. Progress uses the latest eligible result among up to 20 sessions started after goal creation with the same simulator, car, track and session type.",

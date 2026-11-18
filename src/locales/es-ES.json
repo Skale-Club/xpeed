@@ -433,6 +433,16 @@
       "notConfigured": "El entrenador de sesión aún no está disponible.",
       "replyFailed": "El entrenador de sesión no ha podido responder ahora. Inténtalo de nuevo en un momento."
     },
+    "deviceCoach": {
+      "title": "Asistente en este equipo",
+      "on": "Permitido. El texto y la voz aún deben activarse en Companion.",
+      "off": "Desactivado. La grabación y el envío de vueltas siguen funcionando.",
+      "enable": "Permitir asistente",
+      "disable": "Desactivar asistente",
+      "confirmTitle": "¿Permitir el asistente en este equipo?",
+      "confirmBody": "Los mensajes pueden consumir la cuota de IA o generar cargos según tu cuenta. El micrófono y la voz son controles opcionales dentro de Companion. Las solicitudes ya enviadas pueden terminar.",
+      "failed": "No se pudo guardar el permiso. Inténtalo de nuevo."
+    },
     "training": {
       "title": "Objetivos de entrenamiento",
       "intro": "Usa esta sesión como referencia para un nuevo objetivo. El progreso usa el resultado válido más reciente entre hasta 20 sesiones iniciadas después de crear el objetivo, con el mismo simulador, coche, pista y tipo de sesión.",

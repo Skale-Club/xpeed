@@ -7,8 +7,9 @@ The session page offers an optional text coach using the existing chat UI and
 does not open a conversation or contact AI: the person opens the coach and sends
 a question explicitly. Disabling it leaves capture, uploads, sessions and lap
 analysis usable. Example mode hides it and cannot start a real coaching request.
-Voice, live interventions and structured exercise plans are future increments.
-Manually saved training goals and private setup versions are described below.
+Manually saved training goals, private setup versions and optional native
+Companion text/dictation/speech are described below. Automatic live
+interventions and structured exercise plans remain outside this increment.
 
 Virtual requests carry `{ mode: "virtual", sessionId, conversationId, messageId,
 message, language, accountId }`. New clients bind requests to the displayed
@@ -59,7 +60,7 @@ Checks: `npm run test:virtual-coach` (Node 24, esbuild and the existing
 `.xpeed-audit-tools` PGlite dependency). On a light computer,
 `XPEED_TEST_TOOLS_ROOT` can point to an existing checkout with these packages;
 it does not install or change those dependencies. Measured on the Surface on
-2026-11-18: the focused Node and isolated SQL suite took about 10 seconds.
+2026-11-18: the current focused Node and isolated SQL suite took 13.24 seconds.
 React tests cover activation, context switches and late
 responses; run them with the repository's normal Vitest dependencies.
 
@@ -121,7 +122,8 @@ Deleting the source session cascades to its goals; deleting the account or
 all Virtual sessions also erases them. The Virtual data download includes
 `trainingGoals` without credential data. No application database migration
 or production configuration is performed by the local tests. The combined
-focused suite measured about nine seconds on the Surface on 2026-11-18;
+focused suite including the later setup/Companion contracts measured about
+thirteen seconds on the Surface on 2026-11-18;
 normal UI Vitest and full project checks remain release requirements.
 
 ## Private setup versions and consultation
@@ -171,8 +173,78 @@ The model asks about the balance symptom, corner phase and conditions, separates
 driving and mechanical hypotheses, and proposes one qualified experiment at a
 time. It must not invent ranges/clicks, prescribe exact numerical targets from
 unverified settings, claim that a time difference proves a setup effect, or
-claim to apply/change settings. Simulator writes and voice remain unavailable
-in this increment. Normal AI billing still follows super-admin configuration.
+claim to apply/change settings. Simulator writes remain unavailable. Normal AI
+billing still follows super-admin configuration.
+
+## Optional Companion conversation and local speech
+
+Companion 0.12.0 adds a Session Coach window from the connected Monitor. It
+starts off every time it opens. Separately, `companion_coach_enabled` starts
+false for every device. The signed-in Google owner can explicitly permit or
+disable a non-revoked device on `/virtual/companion` through
+`PATCH /api/sim/devices?id=<uuid>` with `{accountId,enabled}`. The actor must
+match `accountId`; owner/device filters and current revocation are checked
+on the server. Pairing alone does not enable AI, and a device bearer cannot
+grant itself this permission. Revocation also clears the capability.
+
+`GET /api/sim/coach` authenticates the existing hashed, non-revoked device
+bearer and checks permission before returning up to twenty recent owned
+sessions with laps attributed to that device. No default session is selected.
+`GET /api/sim/coach?sessionId=<uuid>` returns the shared session conversation
+and up to twelve text messages, each clipped to 1,500 characters. An optional
+`pendingRequest` contains the admitted question's exact original message,
+conversation and idempotency UUID, allowing native restart recovery without
+another paid send. There is no AI call on opening, selecting, refreshing or
+dictating.
+
+`POST /api/sim/coach` accepts `{sessionId,conversationId?,idempotencyKey,
+message,language?}`. The text is at most 2,000 UTF-16 units, HTTP body 16 KiB;
+language is en/pt-BR/es-ES. The bridge pins the authenticated owner and saved
+Virtual question, uses the shared chat handler and billing resolver, then
+persists the assistant reply atomically. It does not mint Google tokens or
+trust client history. The provider wait is bounded at 45 seconds; native HTTP
+has a 90-second deadline, no redirects and a 128 KiB response bound.
+
+Migration `20261118200000_companion_coach.sql` provides service-only device
+scope, history, begin/finish and export functions. A persisted question UUID
+admits only one dispatch; repeats return its cached reply, pending status or
+terminal failure. Admission transactions serialize briefly per account, never
+across the provider call. A different outstanding request returns `device_busy`
+without admitting the new UUID; `request_pending` is reserved for the original
+admitted request. There is at most one recent pending request per device and
+six POSTs per minute. HTTP 409 distinguishes `device_busy`, `request_pending`
+and `request_failed`; no automatic fresh UUID, retry or billing-source fallback
+is performed. Unresolved old admissions remain uncertain even after the
+two-minute busy window. Deleting their conversation erases those records.
+Only a deliberate new question can start a new request.
+
+Companion holds its UI draft/history in memory, with generation checks before
+send and before display. Closing, disabling, session changes or re-pairing
+discard stale results. An HTTP request already received can finish. No device
+token appears in the View, logs or model prompt, and native errors do not expose
+provider credential or credit details. Paid sends are disabled outside
+production; local contracts use a simulated AI boundary.
+
+Record performs bounded local Windows dictation into the draft; the driver
+reviews it and presses Send explicitly. Speak answer reads the last answer
+only on request. Neither action uploads audio or saves an audio file. The
+fixed PowerShell scripts use installed Microsoft desktop System.Speech engines
+matching the app language (en-US/pt-BR/es-ES); missing recognition/voice packs
+leave text usable rather than selecting another language or paid service.
+Controls currently use English; AI replies and speech select the app language.
+Dictation has a 15-second wall-clock bound, speech 120 seconds. Text passes over
+private stdin, never executable command interpolation. A private Windows
+kill-on-close Job Object is assigned before an stdin handshake allows audio,
+so failed assignment, closing or application exit cannot leave an orphan
+microphone/speech process. The Stop voice control cancels only its own job.
+API references: [recognition](https://learn.microsoft.com/en-us/dotnet/api/system.speech.recognition.speechrecognitionengine.recognize?view=netframework-4.8),
+[speech](https://learn.microsoft.com/en-us/dotnet/api/system.speech.synthesis.speechsynthesizer.speak?view=netframework-4.8.1).
+
+Full Virtual export now includes owner-scoped coach chats alongside goals,
+setup versions and session associations. Source-session/account erasure
+cascades to native questions/replies. Native compilation, formatter/Clippy,
+window interaction and real microphone/speaker acceptance are release gates;
+PowerShell AST parsing does not establish that the native flow works.
 
 ## OpenRouter provider and billing selection
 
@@ -184,7 +256,7 @@ OpenRouter account bears the provider charges instead of consuming platform
 quota. The setting applies to Real/Virtual chat, trip
 summaries and fuel-receipt extraction; the chosen model still needs image and
 structured-output capability for receipt extraction. A personal key does not
-enable the Virtual coach or any future voice feature.
+enable the Virtual coach, device permission or voice controls.
 
 `POST /api/fn/ai-preferences` verifies the existing super-admin role on the
 server before reading the request body or target data. Ordinary accounts get

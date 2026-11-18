@@ -448,10 +448,12 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
         ]);
         const incomplete = [goals, setups, associations].find((result) => result.error);
         if (incomplete) throw incomplete.error;
+        const coachChats = await call<unknown>(backend.service, 'sim_companion_export_chat', { p_user: userId });
         const body = {
           format: 'xpeed-virtual-export', version: 1, exportedAt: new Date().toISOString(), ...data,
           trainingGoals: goals.data ?? [],
           setupVersions: setups.data ?? [], sessionSetups: associations.data ?? [],
+          coachChats,
           // The files are not in this document: each is downloaded with the same sign-in, one call per file.
           lapFiles: data.laps.map((lap) => ({ lapId: lap.id, sizeBytes: lap.sizeBytes, path: `/api/sim/v1/laps/${lap.id}/file` })),
           trackLayoutFiles: data.trackLayouts.map((layout) => ({ id: layout.id, sizeBytes: layout.sizeBytes, path: `/api/sim/tracks/${layout.id}/file` })),

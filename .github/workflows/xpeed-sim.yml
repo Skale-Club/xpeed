@@ -15,7 +15,7 @@ on:
       - "public/logo.svg"
       - "public/icon-512.png"
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
     paths:
       - "xpeed-sim/**"
       - ".github/workflows/xpeed-sim.yml"

@@ -409,6 +409,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         games: &f.games,
         device: Some("RIG"),
         server: "https://xpeed.skale.club",
+        coach_available: true,
         card: crate::connect::card(
             matches!(f.snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
             &crate::connect::Phase::Idle,
