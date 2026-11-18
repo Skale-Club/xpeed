@@ -41,6 +41,9 @@ jobs:
       - name: Native track inventory safety
         run: node --test scripts/test-inventory-native-tracks.mjs
 
+      - name: AI encryption deployment configuration
+        run: node --test scripts/test-ensure-ai-credential-key.mjs
+
       - name: Production build
         run: npm run build
         env:
@@ -88,5 +91,7 @@ jobs:
         run: npm run test:companion-release
       - name: Edge functions hosted by the server (chat quotas, OAuth, proxies)
         run: npm run test:functions
+      - name: Optional Virtual coach and training (isolation, metrics, AI boundary and migrations)
+        run: npm run test:virtual-coach
       - name: Server starts, migrates and answers (needs the build from the HTTP test)
         run: npm run test:boot

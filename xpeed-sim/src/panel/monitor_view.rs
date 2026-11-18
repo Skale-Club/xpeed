@@ -18,7 +18,13 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     // get lower and, when even that is not enough, the last line says how many more games there are. Nothing is
     // ever drawn outside its card, whatever the window's size.
     let wanted: Vec<(Action, String, bool)> = match &view.card {
-        Card::Connected { .. } => vec![(Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)],
+        Card::Connected { .. } => {
+            let mut actions = vec![(Action::OpenXpeed, text(view.lang, &Msg::PanelOpenXpeed), false)];
+            if view.coach_available {
+                actions.push((Action::Coach, "Session Coach".into(), false));
+            }
+            actions
+        }
         Card::Waiting { .. } => vec![
             (Action::OpenConnectPage, text(view.lang, &Msg::ConnectOpenAgain), true),
             (Action::CancelConnect, text(view.lang, &Msg::ConnectCancel), false),

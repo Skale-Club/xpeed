@@ -1,5 +1,303 @@
 # API v1: racing data (read side)
 
+## Optional session coach
+
+The session page offers an optional text coach using the existing chat UI and
+`POST /api/fn/chat`. It starts off for every account on this browser. Enabling it
+does not open a conversation or contact AI: the person opens the coach and sends
+a question explicitly. Disabling it leaves capture, uploads, sessions and lap
+analysis usable. Example mode hides it and cannot start a real coaching request.
+Manually saved training goals, private setup versions and optional native
+Companion text/dictation/speech are described below. Automatic live
+interventions and structured exercise plans remain outside this increment.
+
+Virtual requests carry `{ mode: "virtual", sessionId, conversationId, messageId,
+message, language, accountId }`. New clients bind requests to the displayed
+account; the server rejects a different authenticated account before any work.
+The question must already exist as a user message in that
+conversation. The server verifies the conversation and session belong to the
+caller and match each other, then reads persisted history before that question.
+Client history and telemetry claims are not used for Virtual coaching. Missing,
+deleted or mismatched context returns `404 context_not_found`; database failures
+return `503 unavailable`, before any quota is spent. There is no fallback to a
+Real car or another session. Platform-funded requests reuse the daily chat quota;
+failed provider requests return their quota unit. Personal-key requests do not
+consume or refund platform quota (see provider selection below).
+
+Session metadata covers the first 200 laps in driving order, with
+explicit partial-coverage reporting for larger sessions. Only valid, plausible
+laps outside pit laps contribute to `insightsFromLaps` (the same calculation as
+the session-insights endpoint). Conditions that are missing remain unknown.
+Instructions distinguish measured evidence, driver reports and hypotheses;
+sector timing does not establish a particular braking point, corner trajectory
+or exact setup adjustment.
+
+Detailed driving evidence decodes at most two owned, identity-matching stored
+laps: up to 8 MiB compressed / 24 MiB unpacked and 100,000 samples each. Practice
+and qualifying use the best eligible lap in the inspected session as reference;
+race/unknown contexts compare adjacent eligible laps. The source pair is named
+explicitly and linked to the existing comparison screen. The shared comparison
+core returns up to five corner losses and five findings about measured braking,
+throttle, speed, gear and trajectory differences, when the channels exist.
+Unknown coordinate frames withhold position-based conclusions; missing/gapped
+inputs remain missing. Causes/confidence are heuristic rather than proof or
+calibrated probabilities. Missing, corrupt, mismatched or oversized files leave
+the metadata coach available with a driving-evidence limitation. Raw sample
+arrays and storage paths are never included in model prompts.
+
+Migration `20261118160000_virtual_coach_chat.sql` defaults legacy conversations
+to `mode=real`. Virtual conversations have an immutable `sim_session_id`, no
+`car_profile_id`, and owner-checked insert/update policies. Deleting a session
+cascades to its coaching conversations and messages. Real chat lists remain
+separate from each Virtual session's list. The opt-in is a versioned browser
+preference scoped to the signed-in account, not an account-wide server setting.
+
+Paid chat, trip-summary and fuel-receipt requests are disabled unless the server's `NODE_ENV` is
+`production` (`503 development_disabled` otherwise). Development verification
+uses a simulated provider; no paid AI or production database is required.
+
+Checks: `npm run test:virtual-coach` (Node 24, esbuild and the existing
+`.xpeed-audit-tools` PGlite dependency). On a light computer,
+`XPEED_TEST_TOOLS_ROOT` can point to an existing checkout with these packages;
+it does not install or change those dependencies. Measured on the Surface on
+2026-11-18: the current focused Node and isolated SQL suite took 13.24 seconds.
+React tests cover activation, context switches and late
+responses; run them with the repository's normal Vitest dependencies.
+
+## Optional training goals and evolution
+
+After enabling the coach, the driver can explicitly open **Training goals** in
+the session card. Until then the goals module and its reads stay unloaded. Goal
+management makes no AI calls and works without an AI provider. Turning the
+coach off hides the tools; existing goals remain saved. Account/session changes
+and example mode reset the view and discard late responses. Cancelling a view
+stops waiting for its result; an RPC already submitted can still finish.
+
+Migration `20261118180000_virtual_training_goals.sql` exposes these
+owner-checked RPCs through the existing database transport:
+
+- `sim_coach_goals({p_session_id})`: `{goals,limit:20,truncated}` for this
+  session's simulator/car/track. Each goal includes its baseline, latest
+  eligible measurement, signed `delta` (latest minus baseline), and nullable
+  `reached`. No eligible follow-up means no measured progress.
+- `sim_coach_goal_create({p_session_id,p_title,p_metric,p_target,p_notes})`:
+  create a goal from an owned session with enough eligible baseline laps;
+  returns its UUID. Names have 1–120 characters and notes at most 1,000.
+- `sim_coach_goal_status({p_id,p_status})`: manually set `active`, `completed`
+  or `archived`; returns false for an unavailable/foreign goal.
+- `sim_coach_goal_delete({p_id})`: explicitly remove the owned goal and notes;
+  returns false for an unavailable/foreign goal.
+
+Metrics are `best_lap_ms` (integer 1,000–3,600,000), `consistency_ms` (integer
+0–3,600,000) and `valid_lap_pct` (0–100). The UI accepts durations in seconds
+and converts to milliseconds. Lower time/variation is better; higher valid
+percentage is better. Best/consistency use valid, plausible non-pit laps.
+Consistency requires at least three eligible laps within 7% of the best and
+uses sample standard deviation. The percentage denominator includes every
+timed non-pit lap inspected, including invalid/unverified laps; its numerator
+uses only verified valid laps. It is deliberately not a claim about all
+recorded distance or all driving time.
+
+Measurements inspect the first 200 lap metadata rows in driving order and
+explicitly flag partial coverage. Baselines are recomputed from surviving
+source data. Progress uses the latest evaluable result among the twenty most
+recent subsequent sessions of the same simulator/car/track/source-session
+kind, started after both goal creation and the baseline session start. It
+does not use earlier historical sessions or a lifetime best. Weather and
+temperature labels are shown; matching fuel, tyres, setup and grip are not
+assumed. A reached target is an observation and never automatically completes
+a goal or proves that coaching caused an improvement.
+
+There are at most twenty goals per simulator/car/track, including archived
+goals, and one hundred per account. Creation uses an owner transaction lock
+to enforce concurrent limits. The table and measurement/context helpers are
+not directly accessible to anonymous/authenticated database roles. Public
+goal RPCs obtain the actor from the verified application identity, validate
+source ownership and do not accept a user ID. The server coach alone can
+request explicitly owner-scoped context and includes at most three active
+goals with bounded scalar measurements. Chat can advise around these goals;
+it cannot create, update or complete them.
+
+Deleting the source session cascades to its goals; deleting the account or
+all Virtual sessions also erases them. The Virtual data download includes
+`trainingGoals` without credential data. No application database migration
+or production configuration is performed by the local tests. The combined
+focused suite including the later setup/Companion contracts measured about
+thirteen seconds on the Surface on 2026-11-18;
+normal UI Vitest and full project checks remain release requirements.
+
+## Private setup versions and consultation
+
+**Car setups** is a separate explicitly opened tool in the opted-in session
+coach. It loads only on request and makes no AI calls to manage the library.
+The source session determines its simulator/car/track context; another account
+or context cannot supply a parent or session association.
+
+Migration `20261118190000_virtual_setup_versions.sql` adds owner-checked RPCs:
+
+- `sim_setup_versions({p_session_id})`: `{versions,selectedVersionId,limit:20}`.
+  A version has `{id,label,notes,parameters,parentId,createdAt,runs}`. `runs`
+  contains at most three recent owned, explicitly associated sessions with
+  bounded verified best-lap measurements, conditions and coverage.
+- `sim_setup_create({p_session_id,p_label,p_notes,p_parameters,p_parent_id})`:
+  save a new immutable snapshot, returning its UUID. Creating a version does
+  not associate it with the session. A parent must belong to the same owner
+  and simulator/car/track. Copying starts a new draft; the original survives.
+- `sim_setup_attach({p_session_id,p_version_id})`: explicitly record the
+  driver's setup declaration for this owned session; null removes it. Merely
+  selecting a version for viewing does not change this association.
+- `sim_setup_delete({p_id})`: explicitly delete the owned version. Its session
+  associations are removed; derived snapshots retain their parameters and
+  lose the deleted parent link.
+
+Labels have 1–120 characters, notes at most 1,000. Parameters are 1–32 objects
+`{name,value,unit}`, all strings, with name 1–60 characters, value 1–80 and unit
+0–20. Names are unique ignoring case. Control characters are rejected, and
+values are stored with their explicit units. The application does not infer
+numeric meaning, convert simulator units, validate supported adjustment
+ranges or import proprietary simulator setup files. Parameter differences
+preserve names, values, unit changes, additions and removals.
+
+The library holds twenty versions per context and one hundred per account.
+Direct table/private-helper access is denied to browser database roles.
+Mutations take the same owner lock as racing-data erasure where needed. The
+library survives session deletion; full Virtual-profile or account erasure
+cascades to snapshots and associations. The Virtual privacy download includes
+`setupVersions` and `sessionSetups`, scoped to the authenticated owner.
+
+The shared chat becomes a setup consultant when an explicitly associated
+snapshot exists. Server evidence includes that version, its surviving parent,
+parameter changes and bounded associated runs, marked as **driver reports**.
+An unassociated newest library version is never assumed to be in the car.
+The model asks about the balance symptom, corner phase and conditions, separates
+driving and mechanical hypotheses, and proposes one qualified experiment at a
+time. It must not invent ranges/clicks, prescribe exact numerical targets from
+unverified settings, claim that a time difference proves a setup effect, or
+claim to apply/change settings. Simulator writes remain unavailable. Normal AI
+billing still follows super-admin configuration.
+
+## Optional Companion conversation and local speech
+
+Companion 0.12.0 adds a Session Coach window from the connected Monitor. It
+starts off every time it opens. Separately, `companion_coach_enabled` starts
+false for every device. The signed-in Google owner can explicitly permit or
+disable a non-revoked device on `/virtual/companion` through
+`PATCH /api/sim/devices?id=<uuid>` with `{accountId,enabled}`. The actor must
+match `accountId`; owner/device filters and current revocation are checked
+on the server. Pairing alone does not enable AI, and a device bearer cannot
+grant itself this permission. Revocation also clears the capability.
+
+`GET /api/sim/coach` authenticates the existing hashed, non-revoked device
+bearer and checks permission before returning up to twenty recent owned
+sessions with laps attributed to that device. No default session is selected.
+`GET /api/sim/coach?sessionId=<uuid>` returns the shared session conversation
+and up to twelve text messages, each clipped to 1,500 characters. An optional
+`pendingRequest` contains the admitted question's exact original message,
+conversation and idempotency UUID, allowing native restart recovery without
+another paid send. There is no AI call on opening, selecting, refreshing or
+dictating.
+
+`POST /api/sim/coach` accepts `{sessionId,conversationId?,idempotencyKey,
+message,language?}`. The text is at most 2,000 UTF-16 units, HTTP body 16 KiB;
+language is en/pt-BR/es-ES. The bridge pins the authenticated owner and saved
+Virtual question, uses the shared chat handler and billing resolver, then
+persists the assistant reply atomically. It does not mint Google tokens or
+trust client history. The provider wait is bounded at 45 seconds; native HTTP
+has a 90-second deadline, no redirects and a 128 KiB response bound.
+
+Migration `20261118200000_companion_coach.sql` provides service-only device
+scope, history, begin/finish and export functions. A persisted question UUID
+admits only one dispatch; repeats return its cached reply, pending status or
+terminal failure. Admission transactions serialize briefly per account, never
+across the provider call. A different outstanding request returns `device_busy`
+without admitting the new UUID; `request_pending` is reserved for the original
+admitted request. There is at most one recent pending request per device and
+six POSTs per minute. HTTP 409 distinguishes `device_busy`, `request_pending`
+and `request_failed`; no automatic fresh UUID, retry or billing-source fallback
+is performed. Unresolved old admissions remain uncertain even after the
+two-minute busy window. Deleting their conversation erases those records.
+Only a deliberate new question can start a new request.
+
+Companion holds its UI draft/history in memory, with generation checks before
+send and before display. Closing, disabling, session changes or re-pairing
+discard stale results. An HTTP request already received can finish. No device
+token appears in the View, logs or model prompt, and native errors do not expose
+provider credential or credit details. Paid sends are disabled outside
+production; local contracts use a simulated AI boundary.
+
+Record performs bounded local Windows dictation into the draft; the driver
+reviews it and presses Send explicitly. Speak answer reads the last answer
+only on request. Neither action uploads audio or saves an audio file. The
+fixed PowerShell scripts use installed Microsoft desktop System.Speech engines
+matching the app language (en-US/pt-BR/es-ES); missing recognition/voice packs
+leave text usable rather than selecting another language or paid service.
+Controls currently use English; AI replies and speech select the app language.
+Dictation has a 15-second wall-clock bound, speech 120 seconds. Text passes over
+private stdin, never executable command interpolation. A private Windows
+kill-on-close Job Object is assigned before an stdin handshake allows audio,
+so failed assignment, closing or application exit cannot leave an orphan
+microphone/speech process. The Stop voice control cancels only its own job.
+API references: [recognition](https://learn.microsoft.com/en-us/dotnet/api/system.speech.recognition.speechrecognitionengine.recognize?view=netframework-4.8),
+[speech](https://learn.microsoft.com/en-us/dotnet/api/system.speech.synthesis.speechsynthesizer.speak?view=netframework-4.8.1).
+
+Full Virtual export now includes owner-scoped coach chats alongside goals,
+setup versions and session associations. Source-session/account erasure
+cascades to native questions/replies. Native compilation, formatter/Clippy,
+window interaction and real microphone/speaker acceptance are release gates;
+PowerShell AST parsing does not establish that the native flow works.
+
+## OpenRouter provider and billing selection
+
+Only the Super-Admin Panel offers provider configuration. Ordinary users have
+no key controls, provider selector or access to credential metadata. The default
+is the platform key/model and platform quotas. A super admin can select a client
+account and assign its personal OpenRouter key plus model; that client's
+OpenRouter account bears the provider charges instead of consuming platform
+quota. The setting applies to Real/Virtual chat, trip
+summaries and fuel-receipt extraction; the chosen model still needs image and
+structured-output capability for receipt extraction. A personal key does not
+enable the Virtual coach, device permission or voice controls.
+
+`POST /api/fn/ai-preferences` verifies the existing super-admin role on the
+server before reading the request body or target data. Ordinary accounts get
+`403 forbidden` for every action, including their own credentials. `accountId`
+must match the authenticated administrator, and `targetAccountId` identifies
+the client being configured. `{accountId,action:"accounts",cursor?}` returns
+up to 100 account names/emails/IDs and `nextCursor`; this picker loads only when
+the administrator opens the section. Other bodies are
+`{accountId,targetAccountId,action:"status"}`,
+`{accountId,targetAccountId,action:"save",mode:"global"}`, or
+`{accountId,targetAccountId,action:"save",mode:"personal",model,apiKey?}`.
+Omit `apiKey` to retain an existing encrypted key.
+`{accountId,targetAccountId,action:"delete"}` explicitly removes the client's
+stored key and returns it to platform mode. Switching the administrator or
+target account aborts pending operations and clears the password input.
+No credential metadata is loaded before a target is selected. Responses contain safe metadata
+only (mode, saved-key presence/last four characters, model, global availability
+and storage availability). Never paste credentials into a chat.
+
+Migration `20261118170000_personal_ai_preferences.sql` stores service-only
+AES-256-GCM ciphertext with fresh random nonces and account-bound associated
+data. Authenticated/anonymous database roles cannot read or change the table.
+Before enabling personal-key saving in production, configure a persistent
+`AI_CREDENTIAL_ENCRYPTION_KEY` containing 32 random bytes in Base64 in the server
+environment, never a `VITE_*` variable or committed file. Keep it with protected
+server backups: replacing it requires a deliberate key-rotation migration or
+an administrator re-entering the clients' personal keys. Missing encryption configuration disables
+personal-key saving; decryption/storage failures stop the request.
+
+The authorized Coolify deployment runs `scripts/ensure-ai-credential-key.mjs`
+before restarting the app. It creates a hidden runtime-only secret when absent,
+preserves existing keys without rotation, verifies metadata and logs no values.
+The Coolify API token needs environment read/write permissions as well as deploy.
+
+There is no automatic fallback between billing sources. Invalid personal keys,
+insufficient personal credits, unsupported models and provider rate limits are
+classified separately by the server; ordinary chat shows a generic assistant
+failure without credential-management instructions. No provider account or
+credit purchase is created by the app. Provider requests use OpenRouter's documented Bearer authentication:
+https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key.
+
 Base path `/api/sim/v1/`. Phase 1 of the platform (`PHASE-1-DATA-MODEL.md`). Code: `api/sim/v1.ts`; the queries are the
 `sim_v1_*` functions of `supabase/migrations/20261113150000_sim_platform_model.sql`. Checks: `npm run test:sim-v1`. The social side (profiles, friends, shares, leaderboards, reports, privacy rights) is at the end of this file.
 

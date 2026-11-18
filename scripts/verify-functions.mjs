@@ -23,6 +23,7 @@ const temp = mkdtempSync(resolve(root, 'node_modules/.cache/xpeed-functions-'));
 const port = 54460;
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${port}/postgres`;
 Object.assign(process.env, {
+  NODE_ENV: 'production', // Provider is simulated below; exercise the paid-path guards safely.
   DATABASE_URL: databaseUrl, DATABASE_POOL_SIZE: '1', FIREBASE_PROJECT_ID: 'skaleclub', PUBLIC_APP_URL: 'https://xpeed.test',
   DATA_BACKEND: 'own', XPEED_OAUTH_JWT_SECRET: 'test-oauth-secret-test-oauth-secret',
 });
@@ -99,8 +100,8 @@ try {
     return { status: response.status, json, text, headers: response.headers };
   };
 
-  await check('all eight functions are registered, and the retired ones still answer 410 Gone', async () => {
-    assert.deepEqual(functionNames().sort(), ['ai-health', 'analyze-session', 'chat', 'manage-mcp-tokens', 'mcp-server', 'read-fuel-receipt', 'xpeed-mcp', 'xpeed-oauth']);
+  await check('all functions are registered, and the retired ones still answer 410 Gone', async () => {
+    assert.deepEqual(functionNames().sort(), ['ai-health', 'ai-preferences', 'analyze-session', 'chat', 'manage-mcp-tokens', 'mcp-server', 'read-fuel-receipt', 'xpeed-mcp', 'xpeed-oauth']);
     assert.equal((await call('mcp-server')).status, 410);
     assert.equal((await call('mcp-server', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call('no-such-function')).status, 404);
@@ -124,9 +125,11 @@ try {
     assert.equal(sent.body.model, 'test/model');
     assert.equal(sent.body.messages.at(-1).content, 'Why is my engine warm?');
     assert.match(sent.body.messages[0].content, /Prius/);
-    // Asking about somebody else's car must not leak it into the prompt.
-    await call('chat', { bearer: A, body: { message: 'And this one?', carProfileId: carB } });
-    assert.doesNotMatch(provider.calls.at(-1).body.messages[0].content, /Civic/);
+    const callsBeforeForeignCar = provider.calls.length;
+    const foreignCar = await call('chat', { bearer: A, body: { message: 'And this one?', carProfileId: carB } });
+    assert.equal(foreignCar.status, 404);
+    assert.equal(foreignCar.json.code, 'context_not_found');
+    assert.equal(provider.calls.length, callsBeforeForeignCar);
   });
 
   await check('chat: a failing provider gives the quota back; the daily limit is enforced', async () => {

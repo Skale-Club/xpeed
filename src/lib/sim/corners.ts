@@ -1,5 +1,5 @@
-import type { LapFile } from '@/lib/sim/lap-file';
-import { MS_TO_KMH, boxSmooth, fillGaps, lapView, makeGrid, mean, median, valueAt } from '@/lib/sim/lap-series';
+import type { LapFile } from './lap-file.ts';
+import { MS_TO_KMH, boxSmooth, fillGaps, lapView, makeGrid, mean, median, valueAt } from './lap-series.ts';
 
 /**
  * Corners found in the speed trace of one lap, and what the driver did in each (brake point, trail braking, throttle

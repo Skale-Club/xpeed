@@ -11,6 +11,8 @@ pub enum Action {
     CancelConnect,
     /// Opens Xpeed in the browser.
     OpenXpeed,
+    /// Opens the optional native session coach with its local switch off.
+    Coach,
     /// Brings this cover of the waiting screen's carousel to the middle.
     Cover(usize),
     /// Picks this language (its place in `Lang::ALL`) from the language list.
@@ -55,6 +57,8 @@ pub struct View<'a> {
     pub server: &'a str,
     /// What the Account card shows (not connected, waiting for the browser, connected).
     pub card: crate::connect::Card,
+    /// The paired tray can use Coach. The panel demo never offers it.
+    pub coach_available: bool,
     pub recent_laps: &'a [SavedLap],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
     pub activity: &'a [(String, String)],

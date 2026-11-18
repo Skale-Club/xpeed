@@ -15,7 +15,7 @@ on:
       - "public/logo.svg"
       - "public/icon-512.png"
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
     paths:
       - "xpeed-sim/**"
       - ".github/workflows/xpeed-sim.yml"
@@ -204,6 +204,25 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+
+      - name: Wait for the compatible server before publication
+        env:
+          PUBLIC_URL: ${{ vars.XPEED_PUBLIC_URL }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          if (-not $env:PUBLIC_URL) { throw 'XPEED_PUBLIC_URL is required before Companion publication.' }
+          for ($attempt = 1; $attempt -le 120; $attempt++) {
+            try {
+              $health = Invoke-RestMethod -Uri "$($env:PUBLIC_URL)/api/health" -TimeoutSec 10
+              if ($health.version -eq $env:EXPECTED_SHA -and $health.database -eq 'ok' -and $health.storage -eq 'ok') {
+                Write-Host "Compatible server is healthy at $env:EXPECTED_SHA."
+                exit 0
+              }
+            } catch { }
+            Write-Host "[$attempt/120] Waiting for the CI-validated server deployment."
+            Start-Sleep -Seconds 10
+          }
+          throw 'The compatible server was not deployed; Companion publication was withheld.'
 
       # The hash is computed here, after any signing: signing changes the file.
       - name: Publish the releases

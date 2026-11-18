@@ -133,6 +133,8 @@ export type Database = {
           car_profile_id: string | null
           created_at: string
           id: string
+          mode: string
+          sim_session_id: string | null
           title: string
           updated_at: string
           user_id: string
@@ -141,6 +143,8 @@ export type Database = {
           car_profile_id?: string | null
           created_at?: string
           id?: string
+          mode?: string
+          sim_session_id?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -149,6 +153,8 @@ export type Database = {
           car_profile_id?: string | null
           created_at?: string
           id?: string
+          mode?: string
+          sim_session_id?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -159,6 +165,13 @@ export type Database = {
             columns: ["car_profile_id"]
             isOneToOne: false
             referencedRelation: "car_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_conversations_sim_session_id_fkey"
+            columns: ["sim_session_id"]
+            isOneToOne: false
+            referencedRelation: "sim_sessions"
             referencedColumns: ["id"]
           },
         ]

@@ -1,5 +1,5 @@
-import { coordinateFramesDiffer } from './reference-context';
-import type { LapFile } from '@/lib/sim/lap-file';
+import { coordinateFramesDiffer } from './reference-context.ts';
+import type { LapFile } from './lap-file.ts';
 
 /**
  * Looking at laps. Two laps are compared by where the car is on the track, not by the clock: both

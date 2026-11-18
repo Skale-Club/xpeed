@@ -1,5 +1,5 @@
-import { lapLength, sampleAlong } from '@/lib/sim/analysis';
-import type { LapFile } from '@/lib/sim/lap-file';
+import { lapLength, sampleAlong } from './analysis.ts';
+import type { LapFile } from './lap-file.ts';
 
 /**
  * Shared plumbing for the lap analysis modules (corners, comparison, insights): a lap's channels laid on an even

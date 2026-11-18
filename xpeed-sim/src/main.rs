@@ -22,6 +22,8 @@ mod applog;
 mod brands;
 #[cfg(windows)]
 mod capture;
+#[cfg(windows)]
+mod coach;
 mod config;
 mod connect;
 mod covers;
@@ -60,6 +62,8 @@ mod secret;
 mod session;
 #[cfg(windows)]
 mod shm;
+#[cfg(windows)]
+mod speech;
 mod status;
 #[cfg(test)]
 mod stub;

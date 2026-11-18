@@ -18,7 +18,7 @@ name: Deploy to Coolify
 #     firewall closes 8000 to the public; GitHub runners only reach 443).
 #   - Do NOT also turn on Coolify's UI "Automatic Deployment", or each push
 #     deploys twice.
-#   - workflow_dispatch deploys without waiting for CI: use it for emergencies.
+#   - workflow_dispatch also requires successful CI for the current main commit.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -76,6 +76,22 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "sha=${main_sha}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          ref: ${{ steps.guard.outputs.sha }}
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          node-version: "24"
+
+      - name: Ensure persistent AI credential encryption
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: node scripts/ensure-ai-credential-key.mjs
 
       - name: Trigger Coolify deployment
         id: trigger

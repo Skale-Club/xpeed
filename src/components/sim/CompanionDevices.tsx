@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import type { ReactNode } from 'react';
 import type { TFunction } from 'i18next';
 import { Gamepad2, Monitor, Pause, TriangleAlert, Unplug } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -62,7 +63,7 @@ export function problemText(t: TFunction, problem: DeviceProblem): string {
  * arrived); and a quiet Disconnect. A disconnected computer has no button: it is history. What the heartbeat says is shown only when the server
  * gave it: an older server or Companion shows none of it.
  */
-export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: { device: SimDevice; lastLap: V1Lap | null; onRevoke?: () => void; busy?: boolean; latestVersion?: string | null }) {
+export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion, coachControl }: { device: SimDevice; lastLap: V1Lap | null; onRevoke?: () => void; busy?: boolean; latestVersion?: string | null; coachControl?: ReactNode }) {
   const { t } = useTranslation();
   const games = useGames();
   const when = useWhen('short');
@@ -121,6 +122,7 @@ export function DeviceCard({ device, lastLap, onRevoke, busy, latestVersion }: {
             {outdated && latestVersion && <p data-testid="device-update">{t('communityDash.companion.updateAvailable', 'Update available: {{version}}. It installs by itself.', { version: latestVersion })}</p>}
           </div>
         )}
+        {coachControl}
         {onRevoke && !device.revoked_at && (
           <div className="mt-auto pt-1">
             <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={onRevoke} disabled={busy} aria-label={`${t('modes.sim.revoke', 'Disconnect')} ${device.name}`} data-testid="device-revoke">

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { ChatSidebar } from './ChatSidebar';
@@ -20,12 +21,16 @@ import {
     getMessages,
     saveMessage,
 } from '@/lib/chat/db';
-import type { ChatConversation } from '@/lib/chat/types';
+import type { ChatConversation, ChatScope } from '@/lib/chat/types';
 import { getMessageText } from '@/lib/chat/types';
+import { isDemoMode } from '@/lib/sim/demo/mode';
+import { sessionPath } from '@/lib/sim/routes';
 
 interface ChatContainerProps {
     isOpen: boolean;
     onClose: () => void;
+    scope?: ChatScope;
+    restoreFocus?: () => void;
 }
 
 interface UIMessage {
@@ -34,7 +39,54 @@ interface UIMessage {
     content: string;
 }
 
-export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
+export function ChatContainer(props: ChatContainerProps) {
+    return props.scope
+        ? <ChatDialog key={props.scope.sessionId} {...props} />
+        : <RealChatDialog {...props} />;
+}
+
+function RealChatDialog(props: ChatContainerProps) {
+    const { selectedCar, cars } = useCarsContext();
+    return <ChatDialog {...props} selectedCar={selectedCar} cars={cars} />;
+}
+
+type ChatCars = Partial<Pick<ReturnType<typeof useCarsContext>, 'selectedCar' | 'cars'>>;
+
+function ChatWelcome({ virtual, carName, selectPrompt }: { virtual: boolean; carName?: string; selectPrompt: (prompt: string) => void }) {
+    const { t } = useTranslation();
+    if (virtual) {
+        return (
+            <div className="flex min-h-full flex-col items-center justify-center gap-4 p-2 text-center">
+                <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{t('modes.coach.intro')}</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                    {(['sectors', 'consistency', 'driving'] as const).map((question) => {
+                        const prompt = t(`modes.coach.questions.${question}`);
+                        return (
+                            <Button key={question} variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal py-2" onClick={() => selectPrompt(prompt)}>
+                                {prompt}
+                            </Button>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+    return (
+        <div className="flex flex-col items-center justify-center h-full text-center">
+            <BrandLogo alt="" className="mb-4 h-12 w-12" />
+            <h3 className="text-lg font-semibold mb-2">
+                {carName
+                    ? t('assistant.askAboutCar', 'Ask about your {{name}}', { name: carName })
+                    : t('assistant.chooseCar', 'Choose a car to get started')}
+            </h3>
+            <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+                {t('assistant.intro', "I can explain what your car's readings mean, tell you what a fault code means in plain words, and suggest when it needs a check-up.")}
+            </p>
+        </div>
+    );
+}
+
+function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = [] }: ChatContainerProps & ChatCars) {
     const { t } = useTranslation();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [conversations, setConversations] = useState<ChatConversation[]>([]);
@@ -49,38 +101,42 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     const [listAttempt,setListAttempt]=useState(0);
     const [pendingDelete, setPendingDelete] = useState<ChatConversation | null>(null);
 
-    const { selectedCar, cars = [] } = useCarsContext();
     const { toast } = useToast();
     const scrollRef = useRef<HTMLDivElement>(null);
+    const mounted = useRef(false);
     const viewVersion = useRef(0);
     const sending = useRef(false);
     const skipLoad = useRef<string | null>(null);
+    const virtual = !!scope;
     const chatCarId = currentConversation ? currentConversation.car_profile_id : selectedCar?.id;
 
     const chatCar = cars.find(car => car.id === chatCarId) ?? (selectedCar?.id === chatCarId ? selectedCar : null);
 
-    // Model is admin-configured server-side (app_settings.admin_openrouter_model);
-    // the client does not choose or send a model.
+    useLayoutEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+            viewVersion.current++;
+        };
+    }, []);
 
     // Load conversations on mount
     useEffect(() => {
         let active=true;
         async function loadConversations() {
             try {
-                const convs = await getConversations();
+                const convs = await (scope ? getConversations(scope) : getConversations());
                 if(active){setConversations(convs);setListFailed(false);}
             } catch (error) {
                 console.error('Failed to load conversations:', error);
                 if(active)setListFailed(true);
             }
         }
-        if (isOpen) {
+        if (isOpen && (!scope || !isDemoMode())) {
             loadConversations();
         }
         return()=>{active=false;};
-    }, [isOpen,listAttempt]);
-
-    // The server builds context from the authorized car.
+    }, [isOpen,listAttempt,scope]);
 
     // Load messages when conversation changes
     useEffect(() => {
@@ -92,7 +148,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             return;
         }
         async function loadConversationMessages() {
-            if (!currentConversation) {
+            if (!currentConversation || (virtual && isDemoMode())) {
                 setMessages([]);
                 setHistoryLoading(false);setHistoryFailed(false);
                 return;
@@ -115,14 +171,13 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         }
         loadConversationMessages();
         return () => { cancelled = true; };
-    }, [currentConversation,historyAttempt]);
+    }, [currentConversation,historyAttempt,virtual]);
 
     // Replies stay with their originating conversation even when the user
     // opens another conversation while the server is answering.
     const handleSendMessage = useCallback(async (text: string) => {
-        // We accept the message even without a per-user apiKey because the
-        // Edge Function might be configured with an admin key.
-        if (!text.trim() || sending.current || historyLoading || historyFailed) return;
+        const canContinue = () => mounted.current && (!scope || !isDemoMode());
+        if (!text.trim() || sending.current || historyLoading || historyFailed || !canContinue()) return;
         sending.current = true;
         const version = ++viewVersion.current;
         let userSaved = false;
@@ -141,11 +196,12 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
         try {
             // Create conversation if needed
             let conversationId = currentConversation?.id;
+            const title = text.slice(0, 50) + (text.length > 50 ? '...' : '');
             if (!conversationId) {
-                const newConv = await createConversation(
-                    text.slice(0, 50) + (text.length > 50 ? '...' : ''),
-                    selectedCar?.id
-                );
+                const newConv = await (scope
+                    ? createConversation(title, undefined, scope)
+                    : createConversation(title, selectedCar?.id));
+                if (!canContinue()) return;
                 conversationId = newConv.id;
                 if (version === viewVersion.current) {
                     skipLoad.current = newConv.id;
@@ -155,27 +211,28 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             }
 
             // Save user message
-            await saveMessage(conversationId, 'user', [{ type: 'text', text }]);
+            const savedQuestion = await saveMessage(conversationId, 'user', [{ type: 'text', text }]);
             userSaved = true;
+            if (!canContinue()) return;
 
-            // Build history (last 10 turns) for both Edge + fallback paths
-            const historyMessages = messages.slice(-10).map(m => ({
-                role: (m.role === 'user' ? 'user' : 'model') as 'user' | 'model',
-                parts: m.content,
-            }));
-
-            // Single-provider AI: only the shared admin-configured Edge Function.
-            // It throws AiError saying why when there is no answer (handled below).
-            const responseText = await chatViaEdge(
-                historyMessages,
-                text,
-                {},
-                chatCarId,
-            );
+            // Virtual history is loaded by the server using the saved question as its boundary.
+            const responseText = scope
+                ? await chatViaEdge([], text, {}, undefined, {
+                    mode: scope.mode,
+                    sessionId: scope.sessionId,
+                    conversationId,
+                    messageId: savedQuestion.id,
+                })
+                : await chatViaEdge(messages.slice(-10).map(m => ({
+                    role: m.role === 'user' ? 'user' : 'model',
+                    parts: m.content,
+                })), text, {}, chatCarId);
+            if (!canContinue()) return;
 
             // Save assistant message
             const assistantMessageId = crypto.randomUUID();
             await saveMessage(conversationId, 'assistant', [{ type: 'text', text: responseText }]);
+            if (!canContinue()) return;
 
             if (version === viewVersion.current) setMessages(prev => [...prev, {
                 id: assistantMessageId,
@@ -184,31 +241,33 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
             }]);
 
             // Update conversation title if this was the first message
-            if (messages.length === 0) {
-                await updateConversationTitle(conversationId, text.slice(0, 50) + (text.length > 50 ? '...' : ''));
+            if (messages.length === 0 && canContinue()) {
+                await updateConversationTitle(conversationId, title);
+                if (!canContinue()) return;
                 setConversations(prev => prev.map(c =>
                     c.id === conversationId ? { ...c, title: text.slice(0, 50) } : c
                 ));
             }
         } catch (error) {
+            if (!canContinue()) return;
             console.error('Chat error:', error);
             const kind = error instanceof AiError ? error.kind : 'unavailable';
-            toast({
-                title: t('assistant.errorTitle', 'Something went wrong'),
-                description: kind === 'limit_reached'
-                    ? t('assistant.limitReached', "You've used today's questions. The assistant is back tomorrow.")
-                    : kind === 'not_configured'
-                        ? t('assistant.notConfigured', "The assistant isn't available yet.")
-                        : t('assistant.replyFailed', "The assistant couldn't answer right now. Please try again in a moment."),
-                variant: 'destructive',
-            });
+            if (!scope || version === viewVersion.current) {
+                const errorMessage = kind === 'limit_reached' ? 'assistant.limitReached'
+                    : kind === 'context_not_found' ? 'modes.coach.contextNotFound'
+                    : kind === 'development_disabled' ? 'assistant.providerErrors.developmentDisabled'
+                    : kind === 'not_configured' ? scope ? 'modes.coach.notConfigured' : 'assistant.notConfigured'
+                    : kind === 'unavailable' && scope ? 'modes.coach.replyFailed'
+                    : 'assistant.replyFailed';
+                toast({ title: t('assistant.errorTitle'), description: t(errorMessage), variant: 'destructive' });
+            }
             // Keep questions already persisted when only the reply failed.
             if (!userSaved && version === viewVersion.current) setMessages(prev => prev.filter(m => m.id !== userMessageId));
         } finally {
             sending.current = false;
-            setLoading(false);
+            if (mounted.current) setLoading(false);
         }
-    }, [currentConversation, selectedCar, chatCarId, messages, toast, t,historyLoading,historyFailed]);
+    }, [currentConversation, selectedCar, chatCarId, messages, toast, t,historyLoading,historyFailed,scope]);
 
     const handleNewConversation = () => {
         viewVersion.current++;
@@ -230,6 +289,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
     };
 
     const handleDeleteConversation = async (id: string) => {
+        if (scope && isDemoMode()) return;
         try {
             await deleteConversation(id);
             setConversations(prev => prev.filter(c => c.id !== id));
@@ -263,6 +323,10 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
 
                 <DialogPrimitive.Content
                     aria-describedby={undefined}
+                    onCloseAutoFocus={restoreFocus ? (event) => {
+                        event.preventDefault();
+                        restoreFocus();
+                    } : undefined}
                     className="fixed inset-3 z-50 flex flex-col overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl animate-in slide-in-from-right duration-300 focus:outline-none sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[calc(100%-2rem)] sm:max-w-4xl"
                 >
                 <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 gap-3 border-b p-4">
@@ -271,11 +335,22 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             <BrandLogo alt="" />
                             <div className="min-w-0">
                                 <DialogPrimitive.Title asChild>
-                                    <CardTitle className="text-lg">Xpeed</CardTitle>
+                                    <CardTitle className="text-lg">{scope ? t('modes.coach.title') : 'Xpeed'}</CardTitle>
                                 </DialogPrimitive.Title>
-                                <p className="truncate text-xs text-muted-foreground">
-                                    {chatCar?.name || t('assistant.noCarSelected', 'No car selected')}
-                                </p>
+                                {scope ? (
+                                    <Link
+                                        to={sessionPath(scope.sessionId)}
+                                        onClick={onClose}
+                                        className="block truncate text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                        title={scope.label}
+                                    >
+                                        {scope.label}
+                                    </Link>
+                                ) : (
+                                    <p className="truncate text-xs text-muted-foreground">
+                                        {chatCar?.name || t('assistant.noCarSelected', 'No car selected')}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -319,17 +394,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                                 <p>{t('assistant.historyFailed')}</p>
                                 <Button variant="outline" onClick={()=>setHistoryAttempt(value=>value+1)}>{t('problems.retry','Try again')}</Button>
                             </div> : historyLoading ? <p role="status">{t('common.loading','Loading…')}</p> : messages.length === 0 && !loading ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center">
-                                    <BrandLogo alt="" className="mb-4 h-12 w-12" />
-                                    <h3 className="text-lg font-semibold mb-2">
-                                        {chatCar
-                                            ? t('assistant.askAboutCar', 'Ask about your {{name}}', { name: chatCar.name })
-                                            : t('assistant.chooseCar', 'Choose a car to get started')}
-                                    </h3>
-                                    <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                                        {t('assistant.intro', "I can explain what your car's readings mean, tell you what a fault code means in plain words, and suggest when it needs a check-up.")}
-                                    </p>
-                                </div>
+                                <ChatWelcome virtual={virtual} carName={chatCar?.name} selectPrompt={setInput} />
                             ) : (
                                 <MessageList
                                     messages={messages}
@@ -345,6 +410,7 @@ export function ChatContainer({ isOpen, onClose }: ChatContainerProps) {
                             onSend={handleSendMessage}
                             isLoading={loading}
                             disabled={historyLoading||historyFailed}
+                            placeholder={scope ? t('modes.coach.placeholder') : undefined}
                         />
                     </div>)}
                 </CardContent>

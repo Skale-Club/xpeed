@@ -1,5 +1,5 @@
-import { STANDARD_CHANNELS, type StandardChannelId } from '@/lib/sim/channels';
-import type { LapFile } from '@/lib/sim/lap-file';
+import { STANDARD_CHANNELS, type StandardChannelId } from './channels.ts';
+import type { LapFile } from './lap-file.ts';
 
 /**
  * Made-up laps whose corners are known in advance, to test the analysis against: every position, speed and pedal

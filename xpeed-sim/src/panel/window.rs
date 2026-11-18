@@ -64,6 +64,8 @@ pub(super) struct State {
     /// The games installed here, read when the window opens and each time it comes to the front.
     pub(super) installed: Option<HashSet<&'static str>>,
     pub(super) tab: Tab,
+    /// The modeless Coach window, when the driver has opened it.
+    pub(super) coach_window: HWND,
     pub(super) on_top: bool,
     /// Full screen: where the window was and its style, to put it back.
     pub(super) full: Option<(WINDOWPLACEMENT, isize)>,
@@ -139,6 +141,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         live: live.as_ref(),
         games: &games,
         device: account.device.as_deref(),
+        coach_available: !ctx.quit_on_close,
         server: &account.server,
         card: crate::connect::card(
             matches!(snapshot.cloud, Cloud::Idle | Cloud::Waiting(_)),
@@ -519,6 +522,15 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                     },
                     Action::CancelConnect => crate::connect::Flow::global().cancel(),
                     Action::OpenXpeed => win::open(&format!("{}{}", account.server, crate::connect::OPEN_PATH)),
+                    Action::Coach => {
+                        if !state.ctx.quit_on_close && account.device.is_some() {
+                            state.coach_window =
+                                crate::coach::show(hwnd, state.coach_window, account.lang, [state.ctx.icon_big, state.ctx.icon_small]);
+                            if state.coach_window.is_null() {
+                                win::tell_error("Session Coach", "Could not open the Coach window.");
+                            }
+                        }
+                    }
                     Action::UpdateNow => {
                         crate::tray::update_now_of_running();
                     }
@@ -668,6 +680,7 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         WM_DESTROY => {
             KillTimer(hwnd, TIMER);
+            crate::coach::close(hwnd, state.coach_window);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             if state.ctx.quit_on_close {
                 PostQuitMessage(0);
@@ -763,6 +776,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
             layout: None,
             ctx: ctx(),
             tab: Tab::Dash,
+            coach_window: null_mut(),
             on_top: false,
             full: None,
             covers: Vec::new(),

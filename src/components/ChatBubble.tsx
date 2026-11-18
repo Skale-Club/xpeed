@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 // The chat pulls in react-markdown and micromark (~190 KB); load it the first
 // time the bubble is opened instead of with every signed-in page.
@@ -11,6 +12,11 @@ const ChatContainer = lazy(() =>
 );
 
 export function ChatBubble() {
+  const { user } = useAuth();
+  return user ? <AccountChatBubble key={user.id} /> : null;
+}
+
+function AccountChatBubble() {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [hasOpened, setHasOpened] = useState(false);

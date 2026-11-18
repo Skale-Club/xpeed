@@ -1181,8 +1181,13 @@ try {
     assert.match(r.headers.get('content-disposition'), /^attachment; filename="[\w.-]+\.json"$/);
     assert.match(r.headers.get('content-type'), /application\/json/);
     const doc = r.body;
-    assert.deepEqual(Object.keys(doc).sort(), ['devices', 'exportedAt', 'format', 'friends', 'lapFiles', 'laps', 'personalBests', 'profile', 'reportsMade', 'sessions', 'shares', 'trackLayoutFiles', 'trackLayouts', 'version']);
+    assert.deepEqual(Object.keys(doc).sort(), [
+      'coachChats', 'devices', 'exportedAt', 'format', 'friends', 'lapFiles', 'laps', 'personalBests', 'profile',
+      'reportsMade', 'sessionSetups', 'sessions', 'setupVersions', 'shares', 'trackLayoutFiles', 'trackLayouts', 'trainingGoals', 'version',
+    ]);
     assert.deepEqual([doc.format, doc.version], ['xpeed-virtual-export', 1]);
+    assert.deepEqual(doc.coachChats, { conversations: [], messages: [] });
+    assert.deepEqual([doc.trainingGoals, doc.setupVersions, doc.sessionSetups], [[], [], []]);
     assert.deepEqual([doc.profile.handle, doc.profile.displayName, doc.profile.visibility], [ha, 'Ana Exportável', 'public']);
     const count = async (table, column = 'user_id') => (await direct.query(`SELECT count(*)::int AS n FROM public.${table} WHERE ${column} = $1`, [ids.A])).rows[0].n;
     assert.equal(doc.laps.length, await count('sim_laps'));

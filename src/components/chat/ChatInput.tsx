@@ -12,11 +12,15 @@ interface ChatInputProps {
     onSend: (message: string) => void;
     isLoading: boolean;
     disabled?: boolean;
+    placeholder?: string;
 }
 
-export function ChatInput({ input, setInput, onSend, isLoading, disabled }: ChatInputProps) {
+export function ChatInput({ input, setInput, onSend, isLoading, disabled, placeholder }: ChatInputProps) {
     const { t } = useTranslation();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const inputPlaceholder = disabled
+        ? t('assistant.unavailable', 'The assistant is not available right now')
+        : placeholder ?? t('assistant.placeholder', 'Ask anything about your car…');
 
     // Auto-resize textarea
     useLayoutEffect(() => {
@@ -49,7 +53,7 @@ export function ChatInput({ input, setInput, onSend, isLoading, disabled }: Chat
                     maxLength={MAX_USER_MESSAGE_CHARS}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={disabled ? t('assistant.unavailable', 'The assistant is not available right now') : t('assistant.placeholder', 'Ask anything about your car…')}
+                    placeholder={inputPlaceholder}
                     aria-label={t('assistant.message', 'Message')}
                     disabled={isLoading || disabled}
                     className="min-h-12 max-h-40 min-w-0 flex-1 resize-none rounded-xl border-0 bg-transparent px-2 py-3 text-base leading-6 shadow-none placeholder:text-center focus-visible:ring-0 focus-visible:ring-offset-0"

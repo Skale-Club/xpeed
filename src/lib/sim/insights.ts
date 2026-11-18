@@ -1,7 +1,7 @@
-import { compareCorners, type CornerCause, type CornerCompareOptions } from '@/lib/sim/corner-compare';
-import { detectCorners, matchCorners, trackCorners, type Corner, type CornerOptions, type TrackCorner } from '@/lib/sim/corners';
-import type { LapFile } from '@/lib/sim/lap-file';
-import { MS_TO_KMH, mean, median, round, stdDev } from '@/lib/sim/lap-series';
+import { compareCorners, type CornerCause, type CornerCompareOptions } from './corner-compare.ts';
+import { detectCorners, matchCorners, trackCorners, type Corner, type CornerOptions, type TrackCorner } from './corners.ts';
+import type { LapFile } from './lap-file.ts';
+import { MS_TO_KMH, mean, median, round, stdDev } from './lap-series.ts';
 
 /**
  * What is worth telling a driver about a lap or a session, as data: a kind, where, how many seconds, how many meters
