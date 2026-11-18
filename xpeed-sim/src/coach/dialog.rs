@@ -177,10 +177,9 @@ unsafe fn child(owner: HWND, class: &str, label: &str, id: u16, style: u32, exte
         // The tray keeps its ordinary message loop. Handle tab traversal only
         // in the controls of this window, without a thread-wide keyboard hook.
         let previous = GetWindowLongPtrW(control, GWLP_WNDPROC);
-        if previous != 0 && SetPropW(control, OLD_PROC.as_ptr(), previous as _) != 0 {
-            if SetWindowLongPtrW(control, GWLP_WNDPROC, control_proc as *const () as isize) == 0 {
-                RemovePropW(control, OLD_PROC.as_ptr());
-            }
+        let saved = previous != 0 && SetPropW(control, OLD_PROC.as_ptr(), previous as _) != 0;
+        if saved && SetWindowLongPtrW(control, GWLP_WNDPROC, control_proc as *const () as isize) == 0 {
+            RemovePropW(control, OLD_PROC.as_ptr());
         }
     }
     Some(control)
@@ -685,7 +684,7 @@ impl State {
         }) {
             if let Some(job) = self.network.take() {
                 if job.generation == self.scope.load(Ordering::Acquire) && self.enabled {
-                    let outcome = outcome.unwrap_or_else(|| {
+                    let outcome = outcome.unwrap_or({
                         NetworkEvent::Finished(Err(if matches!(&job.request, CoachRequest::Ask(_)) {
                             CoachError::DeliveryUnknown
                         } else {
