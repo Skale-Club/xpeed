@@ -24,8 +24,9 @@ test('client coach contracts preserve optionality and separate contexts', async 
           '@/integrations/supabase/client': `import { QueryBuilder } from '@/lib/query-builder';
             const state=()=>globalThis.__xpeedCoachClient;
             export const supabase={from:table=>new QueryBuilder(table,async payload=>{state().requests.push(payload);return {data:payload.action==='insert'?{...payload.values,id:'chat'}:[],error:null}}),
-              functions:{invoke:async(name,payload)=>{state().invokes.push({name,...payload});return {data:{reply:'Answer'},error:state().error}}}};`,
-          '@/lib/auth/session': 'export const getCurrentUser=async()=>({data:{user:globalThis.__xpeedCoachClient.user},error:null});',
+              functions:{invoke:async(name,payload)=>{state().invokes.push({name,...payload});return {data:name==='ai-preferences'?state().preferenceData:{reply:'Answer'},error:state().error}}}};`,
+          '@/lib/auth/session': 'export const getCurrentUser=async()=>{const s=globalThis.__xpeedCoachClient;return {data:{user:s.users?.length?s.users.shift():s.user},error:null}};',
+          '@/lib/sim/demo/mode': 'export const isDemoMode=()=>globalThis.__xpeedCoachClient.demo===true;',
           '@/lib/i18n': 'export default {resolvedLanguage:"en"};',
           '@/lib/db': 'export const getSessions=async()=>[];',
           '@/lib/db-issues': 'export const getIssuesForCar=async()=>[];',
@@ -66,19 +67,55 @@ test('client coach contracts preserve optionality and separate contexts', async 
       state.user = null; await assert.rejects(db.createConversation('Anonymous', undefined, scope));
     });
     const ai = await load('src/lib/ai-client.ts');
+    state.user = { id: 'account-a' };
     const virtual = { mode: 'virtual', sessionId: 'session', conversationId: 'chat', messageId: 'question' };
     await t.test('Virtual sends only references; Real keeps the existing payload', async () => {
       const history = [{ role: 'model', parts: 'prior' }];
       await ai.chatViaEdge(history, 'question', { vehicle: 'car' }, 'car');
-      assert.deepEqual(state.invokes.at(-1).body, { history, message: 'question', context: { vehicle: 'car' }, language: 'en', carProfileId: 'car' });
+      assert.deepEqual(state.invokes.at(-1).body, { history, message: 'question', context: { vehicle: 'car' }, language: 'en', accountId: 'account-a', carProfileId: 'car' });
       await ai.chatViaEdge(history, 'question', { vehicle: 'car' }, 'car', virtual);
-      assert.deepEqual(state.invokes.at(-1).body, { ...virtual, message: 'question', language: 'en' });
+      assert.deepEqual(state.invokes.at(-1).body, { ...virtual, message: 'question', language: 'en', accountId: 'account-a' });
+    });
+    await t.test('signed-out chat requests stop before fetching a new identity token or spending credits', async () => {
+      state.user = null; const before = state.invokes.length;
+      await assert.rejects(ai.chatViaEdge([], 'question', {}, undefined, virtual));
+      assert.equal(state.invokes.length, before); state.user = { id: 'account-a' };
     });
     await t.test('distinguishes missing context, development, outage, configuration and quota', async () => {
-      for (const [status, code] of [[404, 'context_not_found'], [503, 'development_disabled'], [503, 'unavailable'], [503, 'not_configured'], [429, 'limit_reached']]) {
+      for (const [status, code] of [[404, 'context_not_found'], [503, 'development_disabled'], [503, 'unavailable'], [503, 'not_configured'], [429, 'limit_reached'],
+        [402, 'personal_credits_exhausted'], [422, 'invalid_personal_key'], [429, 'provider_rate_limited'], [503, 'personal_key_unavailable']]) {
         state.error = { context: new Response(JSON.stringify({ code }), { status }) };
         await assert.rejects(ai.chatViaEdge([], 'question', {}, undefined, virtual), (e) => e.kind === code);
       }
+    });
+    const preferences = await load('src/lib/ai-preferences.ts');
+    await t.test('admin credential actions separate actor and target, discard unexpected data and never persist keys', async () => {
+      state.error = null;
+      state.preferenceData = { mode: 'personal', keyConfigured: true, keyLast4: '1234', model: 'test/model', canSaveKey: true,
+        globalConfigured: true, globalModel: 'global/model', api_key_ciphertext: 'MUST_NOT_ESCAPE' };
+      const input = { action: 'save', targetAccountId: 'client-b', mode: 'personal', model: 'test/model', apiKey: 'fake-personal-key-1234' };
+      const result = await preferences.requestAiPreference('account-a', input);
+      assert.deepEqual(state.invokes.at(-1).body, { ...input, accountId: 'account-a' });
+      assert(!JSON.stringify(result).includes('MUST_NOT_ESCAPE'));
+      assert.equal(values.size, 0);
+      const before = state.invokes.length;
+      await assert.rejects(preferences.requestAiPreference('account-b', { action: 'delete', targetAccountId: 'client-b' }));
+      state.demo = true;
+      await assert.rejects(preferences.requestAiPreference('account-a', { action: 'delete', targetAccountId: 'client-b' }));
+      state.demo = false;
+      const controller = new AbortController(); controller.abort();
+      await assert.rejects(preferences.requestAiPreference('account-a', { action: 'delete', targetAccountId: 'client-b' }, controller.signal));
+      assert.equal(state.invokes.length, before);
+    });
+    await t.test('admin account picker uses actor identity and returns only safe bounded fields', async () => {
+      state.preferenceData = { accounts: [{ id: 'client-b', name: 'Client', email: 'client@example.test', secret: 'MUST_NOT_ESCAPE' }], nextCursor: 'client-b' };
+      const result = await preferences.listAiAccounts('account-a', 'previous');
+      assert.deepEqual(state.invokes.at(-1).body, { action: 'accounts', cursor: 'previous', accountId: 'account-a' });
+      assert.deepEqual(result, { accounts: [{ id: 'client-b', name: 'Client', email: 'client@example.test' }], nextCursor: 'client-b' });
+    });
+    await t.test('credential status arriving after account change is discarded', async () => {
+      state.users = [{ id: 'account-a' }, { id: 'account-b' }];
+      await assert.rejects(preferences.requestAiPreference('account-a', { action: 'status', targetAccountId: 'client-b' }), (e) => e.message === 'ai_preferences_unavailable');
     });
   } finally {
     globalThis.localStorage = originalStorage; delete globalThis.__xpeedCoachClient;

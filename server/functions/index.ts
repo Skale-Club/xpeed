@@ -6,6 +6,8 @@ import './begin/analyze-session';
 import '../../supabase/functions/analyze-session/index.ts';
 import './begin/chat';
 import '../../supabase/functions/chat/index.ts';
+import './begin/ai-preferences';
+import '../../supabase/functions/ai-preferences/index.ts';
 import './begin/manage-mcp-tokens';
 import '../../supabase/functions/manage-mcp-tokens/index.ts';
 import './begin/mcp-server';

@@ -99,6 +99,12 @@ it('requires opt-in and opening, and fills a draft without sending the suggested
   expect(dialog.querySelector('img')).toHaveAttribute('src', '/logo.svg');
   await waitFor(() => expect(mocks.list).toHaveBeenCalledWith(scope));
 
+  const drivingQuestion = 'Where did I lose time in the analysed lap?';
+  fireEvent.click(button(drivingQuestion));
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(drivingQuestion);
+  expect(mocks.create).not.toHaveBeenCalled();
+  expect(mocks.reply).not.toHaveBeenCalled();
+
   const question = 'How consistent were my valid laps?';
   fireEvent.click(button(question));
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(question);

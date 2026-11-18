@@ -7,6 +7,7 @@ import { useAdminStatus } from '@/hooks/use-admin-status';
 import { PageLoader } from '@/components/PageLoader';
 import { useTranslation } from 'react-i18next';
 import AIProviderSection from '@/components/admin/AIProviderSection';
+import { AccountAIProviderSection } from '@/components/admin/AccountAIProviderSection';
 import { RacingAdmin } from '@/components/social/RacingAdmin';
 import { ProblemsSection } from '@/components/social/ProblemsSection';
 import { PageHeader } from '@/components/ui/page-header';
@@ -42,12 +43,13 @@ export default function AdminPage() {
         <Alert>
           <AlertTriangle className="w-4 h-4" />
           <AlertDescription className="text-xs">
-            These settings are <strong>global</strong>. They affect every user of the system. Secret values
-            (OpenRouter API key) are stored in the database and consumed only by trusted Edge Functions.
+            The <strong>platform provider</strong> is the default across Xpeed. Its API key is stored in the
+            database and consumed only by trusted Edge Functions.
           </AlertDescription>
         </Alert>
 
         <AIProviderSection />
+        <AccountAIProviderSection />
 
         {/* What broke for people: errors reported by the site and by Xpeed Companion, to Xpeed's own server. Admins only. */}
         <ProblemsSection />

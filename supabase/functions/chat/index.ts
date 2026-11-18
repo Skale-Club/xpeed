@@ -9,7 +9,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { z } from "npm:zod@3.23.8";
-import { getOpenRouterApiKey, getDefaultModel } from "../_shared/admin-config.ts";
+import { AiProviderError, personalProviderFailure, resolveAiProvider } from "../_shared/ai-provider.ts";
 import { consumeQuota, getServiceClient, getUserIdFromAuth, refundQuota } from "../_shared/quota.ts";
 import { buildSystemPrompt, clampHistory, MAX_USER_MESSAGE_CHARS } from "../_shared/chat-prompt.ts";
 import { loadCarPromptData } from "../_shared/car-data.ts";
@@ -23,6 +23,7 @@ const LanguageSchema = z.enum(["en", "pt-BR", "es-ES"]).optional();
 
 const ChatBodySchema = z.object({
   language: LanguageSchema,
+  accountId: z.string().uuid().optional(),
   mode: z.enum(["real", "virtual"]).optional(),
   sessionId: z.string().uuid().optional(),
   conversationId: z.string().uuid().optional(),
@@ -90,6 +91,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Invalid request body" }, 400);
     }
     const body = parsed.data;
+    if (body.accountId && body.accountId !== userId) return jsonResponse({ code: "unauthorized" }, 401);
 
     // Virtual context is explicit, owner-verified and fixed to the persisted
     // conversation. Fail before spending quota or contacting the provider.
@@ -103,20 +105,21 @@ serve(async (req) => {
       coach = await loadVirtualCoachContext(getServiceClient(), userId, {
         sessionId: body.sessionId!, conversationId: body.conversationId!, messageId: body.messageId!, message: body.message,
       });
+    } else if (body.carProfileId) {
+      const car = await getServiceClient().from("car_profiles").select("id").eq("id", body.carProfileId).eq("user_id", userId).maybeSingle();
+      if (car.error) throw new AiProviderError("ai_preferences_unavailable");
+      if (!car.data) return jsonResponse({ code: "context_not_found" }, 404);
     }
 
-    // 3. Resolve API key (OpenRouter, configured in /admin)
-    const apiKey = await getOpenRouterApiKey();
-    if (!apiKey) {
-      return jsonResponse(
-        { error: "AI features are not configured. Ask an admin to set the OpenRouter API key in the Admin panel.", code: "not_configured" },
-        503,
-      );
+    // The caller's explicit billing choice is resolved only on the server.
+    const provider = await resolveAiProvider(getServiceClient(), userId);
+    if (provider.source === "personal" && Deno.env.get("NODE_ENV") !== "production") {
+      return jsonResponse({ code: "development_disabled" }, 503);
     }
 
     // 4. Quota, only once an answer is possible. A failed AI call below gives it back.
     let quotaInfo: { remaining: number; limit: number } | undefined;
-    try {
+    if (provider.source === "global") try {
       quotaInfo = await consumeQuota(userId, "chat_messages");
       quotaSpent = true;
     } catch (err: any) {
@@ -151,12 +154,12 @@ serve(async (req) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${provider.apiKey}`,
         "HTTP-Referer": "https://xpeed.skale.club",
         "X-Title": "Xpeed",
       },
       body: JSON.stringify({
-        model: await getDefaultModel(),
+        model: provider.model,
         messages,
         temperature: 0.5,
         max_tokens: 800,
@@ -164,16 +167,20 @@ serve(async (req) => {
     });
 
     if (!aiRes.ok) {
-      console.error("OpenRouter error:", await aiRes.text());
-      await refundQuota(userId, "chat_messages");
+      console.error("OpenRouter request failed", aiRes.status);
+      if (quotaSpent) await refundQuota(userId, "chat_messages");
       quotaSpent = false;
+      if (provider.source === "personal") {
+        const failure = personalProviderFailure(aiRes.status);
+        return jsonResponse({ error: failure.code, code: failure.code }, failure.status);
+      }
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
 
     const data: OpenRouterResponse = await aiRes.json();
     const reply = data.choices?.[0]?.message?.content ?? "";
     if (!reply.trim()) {
-      await refundQuota(userId, "chat_messages");
+      if (quotaSpent) await refundQuota(userId, "chat_messages");
       quotaSpent = false;
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
@@ -181,6 +188,7 @@ serve(async (req) => {
     return jsonResponse({ reply, quota: quotaInfo });
   } catch (err: any) {
     if (err instanceof VirtualCoachError) return jsonResponse({ error: err.code, code: err.code, retryable: err.status === 503 }, err.status);
+    if (err instanceof AiProviderError) return jsonResponse({ error: err.code, code: err.code }, err.status);
     // S09-2: log detail server-side only; never echo internal/DB messages to the client.
     console.error("chat error:", err);
     if (userId && quotaSpent) await refundQuota(userId, "chat_messages");

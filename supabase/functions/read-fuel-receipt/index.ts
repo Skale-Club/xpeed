@@ -10,6 +10,7 @@ import {
   refundQuota,
 } from "../_shared/quota.ts";
 import { createReceiptHandler } from "../_shared/fuel-receipt-handler.ts";
+import { AiProviderError, personalProviderFailure, resolveAiProvider } from "../_shared/ai-provider.ts";
 
 serve(createReceiptHandler({
   authenticate: getUserIdFromAuth,
@@ -21,6 +22,12 @@ serve(createReceiptHandler({
   },
   apiKey: getOpenRouterApiKey,
   model: getDefaultModel,
+  async provider(userId) {
+    const provider = await resolveAiProvider(getServiceClient(), userId);
+    if (provider.source === 'personal' && Deno.env.get('NODE_ENV') !== 'production') throw new AiProviderError('development_disabled');
+    return provider;
+  },
+  providerFailure: personalProviderFailure,
   consume: (userId) => consumeQuota(userId, "fuel_receipts"),
   refund: (userId) => refundQuota(userId, "fuel_receipts"),
   fetch,

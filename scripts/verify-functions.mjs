@@ -23,6 +23,7 @@ const temp = mkdtempSync(resolve(root, 'node_modules/.cache/xpeed-functions-'));
 const port = 54460;
 const databaseUrl = `postgres://postgres:postgres@127.0.0.1:${port}/postgres`;
 Object.assign(process.env, {
+  NODE_ENV: 'production', // Provider is simulated below; exercise the paid-path guards safely.
   DATABASE_URL: databaseUrl, DATABASE_POOL_SIZE: '1', FIREBASE_PROJECT_ID: 'skaleclub', PUBLIC_APP_URL: 'https://xpeed.test',
   DATA_BACKEND: 'own', XPEED_OAUTH_JWT_SECRET: 'test-oauth-secret-test-oauth-secret',
 });
@@ -100,7 +101,7 @@ try {
   };
 
   await check('all eight functions are registered, and the retired ones still answer 410 Gone', async () => {
-    assert.deepEqual(functionNames().sort(), ['ai-health', 'analyze-session', 'chat', 'manage-mcp-tokens', 'mcp-server', 'read-fuel-receipt', 'xpeed-mcp', 'xpeed-oauth']);
+    assert.deepEqual(functionNames().sort(), ['ai-health', 'ai-preferences', 'analyze-session', 'chat', 'manage-mcp-tokens', 'mcp-server', 'read-fuel-receipt', 'xpeed-mcp', 'xpeed-oauth']);
     assert.equal((await call('mcp-server')).status, 410);
     assert.equal((await call('mcp-server', { method: 'OPTIONS' })).status, 204);
     assert.equal((await call('no-such-function')).status, 404);

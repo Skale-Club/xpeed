@@ -11,6 +11,8 @@ export interface ReceiptDependencies {
   ownsCar: (userId: string, carId: string) => Promise<boolean>;
   apiKey: () => Promise<string | null>;
   model: () => Promise<string>;
+  provider?: (userId: string) => Promise<{ source: 'global' | 'personal'; apiKey: string; model: string }>;
+  providerFailure?: (status: number) => { code: string; status: number };
   consume: (userId: string) => Promise<unknown>;
   refund: (userId: string) => Promise<void>;
   fetch: typeof fetch;
@@ -89,9 +91,10 @@ export function createReceiptHandler(deps: ReceiptDependencies) {
       if (!await deps.ownsCar(user, body.carId)) {
         return json({ code: "car_unavailable" }, 404);
       }
-      const key = await deps.apiKey();
+      const provider = deps.provider ? await deps.provider(user) : null;
+      const key = provider?.apiKey ?? await deps.apiKey();
       if (!key) return json({ code: "not_configured" }, 503);
-      const model = await deps.model();
+      const model = provider?.model ?? await deps.model();
       if (!registry || registry.until < Date.now()) {
         const response = await deps.fetch(
           "https://openrouter.ai/api/v1/models",
@@ -109,7 +112,7 @@ export function createReceiptHandler(deps: ReceiptDependencies) {
         !info?.architecture?.input_modalities?.includes("image") ||
         !info.supported_parameters?.includes("structured_outputs")
       ) return json({ code: "vision_unavailable" }, 503);
-      try {
+      if (provider?.source !== 'personal') try {
         await deps.consume(user);
         spent = true;
       } catch (e) {
@@ -161,6 +164,10 @@ export function createReceiptHandler(deps: ReceiptDependencies) {
       );
       if (!response.ok) {
         await refund();
+        if (provider?.source === 'personal' && deps.providerFailure) {
+          const failure = deps.providerFailure(response.status);
+          return json({ code: failure.code }, failure.status);
+        }
         return json({ code: "unavailable" }, 502);
       }
       const result = await response.json();
@@ -176,8 +183,12 @@ export function createReceiptHandler(deps: ReceiptDependencies) {
         return json({ code: "unreadable" }, 422);
       }
       return json({ receipt });
-    } catch {
+    } catch (error) {
       await refund();
+      const failure = error as { code?: string; status?: number };
+      if (failure && ['not_configured', 'ai_preferences_unavailable', 'personal_key_unavailable', 'credential_storage_unavailable', 'development_disabled'].includes(failure.code ?? '')) {
+        return json({ code: failure.code }, failure.status ?? 503);
+      }
       return json({ code: "unavailable" }, 503);
     }
   };

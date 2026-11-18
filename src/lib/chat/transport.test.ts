@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import i18n from '@/lib/i18n';
 import { chatViaEdge } from '@/lib/ai-client';
+import { setCurrentUser } from '@/lib/auth/session';
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { functions: { invoke } } }));
@@ -9,6 +10,7 @@ const virtual = { mode: 'virtual', sessionId: 'session-a', conversationId: 'chat
 
 beforeEach(async () => {
   invoke.mockReset();
+  setCurrentUser({ id: 'account-a', user_metadata: {} });
   await i18n.changeLanguage('en');
 });
 
@@ -18,10 +20,10 @@ it('keeps the Real payload and sends only references and the question for Virtua
   const context = { vehicle: 'Real car' };
   await expect(chatViaEdge(history, 'My question', context, 'car-a')).resolves.toBe('Answer');
   expect(invoke).toHaveBeenLastCalledWith('chat', {
-    body: { history, message: 'My question', context, language: 'en', carProfileId: 'car-a' },
+    body: { history, message: 'My question', context, language: 'en', accountId: 'account-a', carProfileId: 'car-a' },
   });
   await expect(chatViaEdge(history, 'My question', context, 'car-a', virtual)).resolves.toBe('Answer');
-  expect(invoke).toHaveBeenLastCalledWith('chat', { body: { ...virtual, message: 'My question', language: 'en' } });
+  expect(invoke).toHaveBeenLastCalledWith('chat', { body: { ...virtual, message: 'My question', language: 'en', accountId: 'account-a' } });
 });
 
 it.each([

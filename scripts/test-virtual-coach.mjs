@@ -62,7 +62,7 @@ test('prompt identifies missing telemetry, uncertainty and unsupported actions, 
   const { evidence } = await loadVirtualCoachContext(fakeDb(), ids.user, request);
   const prompt = buildVirtualCoachPrompt(evidence, 'Brazilian Portuguese');
   assert.match(prompt, /Reply in Brazilian Portuguese/);
-  assert.match(prompt, /METADATA ONLY/);
+  assert.match(prompt, /ONLY when driving.status is ready/);
   assert.match(prompt, /full setup values have NOT been loaded/);
   assert.match(prompt, /Do not claim to save a training plan/);
   assert.match(prompt, /not a guaranteed achievable lap/);

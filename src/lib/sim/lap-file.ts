@@ -1,4 +1,4 @@
-import { REQUIRED_CHANNELS, standardUnit } from '@/lib/sim/channels';
+import { REQUIRED_CHANNELS, standardUnit } from './channels.ts';
 
 /**
  * The lap file: one lap of one car, every channel sampled at the same moments.
@@ -52,8 +52,11 @@ export const SESSION_KINDS = ['practice', 'qualifying', 'race', 'unknown'] as co
 export type SessionKind = (typeof SESSION_KINDS)[number];
 
 export class LapFormatError extends Error {
-  constructor(public readonly code: LapFormatCode, message: string) {
+  readonly code: LapFormatCode;
+
+  constructor(code: LapFormatCode, message: string) {
     super(message);
+    this.code = code;
     this.name = 'LapFormatError';
   }
 }

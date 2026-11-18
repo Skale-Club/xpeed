@@ -1,4 +1,4 @@
-import type { LapFile, LapHeader } from './lap-file';
+import type { LapFile, LapHeader } from './lap-file.ts';
 
 export type ComparisonGoal = 'practice' | 'qualifying' | 'race';
 

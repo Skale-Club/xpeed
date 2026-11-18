@@ -30,7 +30,12 @@ export function fakeDb(rows = fixture(), failTable) {
     const result = () => {
       reads.push({ table, filters: [...filters] });
       if (table === failTable) return { data: null, error: { message: 'offline' } };
-      let data = (rows[table] ?? []).filter((r) => filters.every(([op, key, value]) => op === 'eq' ? r[key] === value : r[key] < value));
+      let data = (rows[table] ?? []).filter((r) => filters.every(([op, key, value]) => {
+        if (op === 'eq') return r[key] === value;
+        if (op === 'in') return value.includes(r[key]);
+        if (op === 'like') return String(r[key]).startsWith(value.replace(/%$/, ''));
+        return r[key] < value;
+      }));
       data = [...data].sort((a, b) => {
         for (const [key, ascending] of orders) { if (a[key] !== b[key]) return (a[key] < b[key] ? -1 : 1) * (ascending ? 1 : -1); }
         return 0;
@@ -40,6 +45,8 @@ export function fakeDb(rows = fixture(), failTable) {
     const q = {
       select() { return q; }, eq(key, value) { filters.push(['eq', key, value]); return q; },
       lt(key, value) { filters.push(['lt', key, value]); return q; },
+      in(key, value) { filters.push(['in', key, value]); return q; },
+      like(key, value) { filters.push(['like', key, value]); return q; },
       order(key, options) { orders.push([key, options.ascending]); return q; }, limit(value) { max = value; return q; },
       async maybeSingle() { const r = result(); return { ...r, data: r.data?.[0] ?? null }; },
       then(ok, fail) { return Promise.resolve(result()).then(ok, fail); },

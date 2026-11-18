@@ -11,23 +11,38 @@ Voice, live interventions, saved training plans and setup versioning are future
 increments, not capabilities of this first release.
 
 Virtual requests carry `{ mode: "virtual", sessionId, conversationId, messageId,
-message, language }`. The question must already exist as a user message in that
+message, language, accountId }`. New clients bind requests to the displayed
+account; the server rejects a different authenticated account before any work.
+The question must already exist as a user message in that
 conversation. The server verifies the conversation and session belong to the
 caller and match each other, then reads persisted history before that question.
 Client history and telemetry claims are not used for Virtual coaching. Missing,
 deleted or mismatched context returns `404 context_not_found`; database failures
 return `503 unavailable`, before any quota is spent. There is no fallback to a
-Real car or another session. The existing provider/admin configuration and daily
-chat quota are reused; failed provider requests return their quota unit.
+Real car or another session. Platform-funded requests reuse the daily chat quota;
+failed provider requests return their quota unit. Personal-key requests do not
+consume or refund platform quota (see provider selection below).
 
-The first context is metadata only: the first 200 laps in driving order, with
+Session metadata covers the first 200 laps in driving order, with
 explicit partial-coverage reporting for larger sessions. Only valid, plausible
 laps outside pit laps contribute to `insightsFromLaps` (the same calculation as
 the session-insights endpoint). Conditions that are missing remain unknown.
 Instructions distinguish measured evidence, driver reports and hypotheses;
 sector timing does not establish a particular braking point, corner trajectory
-or exact setup adjustment. No raw lap samples are loaded. Links point back to
-the verified session and its best eligible lap.
+or exact setup adjustment.
+
+Detailed driving evidence decodes at most two owned, identity-matching stored
+laps: up to 8 MiB compressed / 24 MiB unpacked and 100,000 samples each. Practice
+and qualifying use the best eligible lap in the inspected session as reference;
+race/unknown contexts compare adjacent eligible laps. The source pair is named
+explicitly and linked to the existing comparison screen. The shared comparison
+core returns up to five corner losses and five findings about measured braking,
+throttle, speed, gear and trajectory differences, when the channels exist.
+Unknown coordinate frames withhold position-based conclusions; missing/gapped
+inputs remain missing. Causes/confidence are heuristic rather than proof or
+calibrated probabilities. Missing, corrupt, mismatched or oversized files leave
+the metadata coach available with a driving-evidence limitation. Raw sample
+arrays and storage paths are never included in model prompts.
 
 Migration `20261118160000_virtual_coach_chat.sql` defaults legacy conversations
 to `mode=real`. Virtual conversations have an immutable `sim_session_id`, no
@@ -36,7 +51,7 @@ cascades to its coaching conversations and messages. Real chat lists remain
 separate from each Virtual session's list. The opt-in is a versioned browser
 preference scoped to the signed-in account, not an account-wide server setting.
 
-Paid Virtual AI requests are disabled unless the server's `NODE_ENV` is
+Paid chat, trip-summary and fuel-receipt requests are disabled unless the server's `NODE_ENV` is
 `production` (`503 development_disabled` otherwise). Development verification
 uses a simulated provider; no paid AI or production database is required.
 
@@ -44,9 +59,56 @@ Checks: `npm run test:virtual-coach` (Node 24, esbuild and the existing
 `.xpeed-audit-tools` PGlite dependency). On a light computer,
 `XPEED_TEST_TOOLS_ROOT` can point to an existing checkout with these packages;
 it does not install or change those dependencies. Measured on the Surface on
-2026-11-18: context/handler/client checks about 3 seconds; isolated SQL checks
-about 7 seconds. React tests cover activation, context switches and late
+2026-11-18: the focused Node and isolated SQL suite took about 10 seconds.
+React tests cover activation, context switches and late
 responses; run them with the repository's normal Vitest dependencies.
+
+## OpenRouter provider and billing selection
+
+Only the Super-Admin Panel offers provider configuration. Ordinary users have
+no key controls, provider selector or access to credential metadata. The default
+is the platform key/model and platform quotas. A super admin can select a client
+account and assign its personal OpenRouter key plus model; that client's
+OpenRouter account bears the provider charges instead of consuming platform
+quota. The setting applies to Real/Virtual chat, trip
+summaries and fuel-receipt extraction; the chosen model still needs image and
+structured-output capability for receipt extraction. A personal key does not
+enable the Virtual coach or any future voice feature.
+
+`POST /api/fn/ai-preferences` verifies the existing super-admin role on the
+server before reading the request body or target data. Ordinary accounts get
+`403 forbidden` for every action, including their own credentials. `accountId`
+must match the authenticated administrator, and `targetAccountId` identifies
+the client being configured. `{accountId,action:"accounts",cursor?}` returns
+up to 100 account names/emails/IDs and `nextCursor`; this picker loads only when
+the administrator opens the section. Other bodies are
+`{accountId,targetAccountId,action:"status"}`,
+`{accountId,targetAccountId,action:"save",mode:"global"}`, or
+`{accountId,targetAccountId,action:"save",mode:"personal",model,apiKey?}`.
+Omit `apiKey` to retain an existing encrypted key.
+`{accountId,targetAccountId,action:"delete"}` explicitly removes the client's
+stored key and returns it to platform mode. Switching the administrator or
+target account aborts pending operations and clears the password input.
+No credential metadata is loaded before a target is selected. Responses contain safe metadata
+only (mode, saved-key presence/last four characters, model, global availability
+and storage availability). Never paste credentials into a chat.
+
+Migration `20261118170000_personal_ai_preferences.sql` stores service-only
+AES-256-GCM ciphertext with fresh random nonces and account-bound associated
+data. Authenticated/anonymous database roles cannot read or change the table.
+Before enabling personal-key saving in production, configure a persistent
+`AI_CREDENTIAL_ENCRYPTION_KEY` containing 32 random bytes in Base64 in the server
+environment, never a `VITE_*` variable or committed file. Keep it with protected
+server backups: replacing it requires a deliberate key-rotation migration or
+an administrator re-entering the clients' personal keys. Missing encryption configuration disables
+personal-key saving; decryption/storage failures stop the request.
+
+There is no automatic fallback between billing sources. Invalid personal keys,
+insufficient personal credits, unsupported models and provider rate limits are
+classified separately by the server; ordinary chat shows a generic assistant
+failure without credential-management instructions. No provider account or
+credit purchase is created by the app. Provider requests use OpenRouter's documented Bearer authentication:
+https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key.
 
 Base path `/api/sim/v1/`. Phase 1 of the platform (`PHASE-1-DATA-MODEL.md`). Code: `api/sim/v1.ts`; the queries are the
 `sim_v1_*` functions of `supabase/migrations/20261113150000_sim_platform_model.sql`. Checks: `npm run test:sim-v1`. The social side (profiles, friends, shares, leaderboards, reports, privacy rights) is at the end of this file.

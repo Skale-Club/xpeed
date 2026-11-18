@@ -1,6 +1,6 @@
-import { detectCorners, matchCorners, type Corner, type CornerOptions, type MatchOptions } from '@/lib/sim/corners';
-import type { LapFile } from '@/lib/sim/lap-file';
-import { MS_TO_KMH, boxSmooth, fillGaps, lapView, makeGrid, median, round, valueAt, type LapView } from '@/lib/sim/lap-series';
+import { detectCorners, matchCorners, type Corner, type CornerOptions, type MatchOptions } from './corners.ts';
+import type { LapFile } from './lap-file.ts';
+import { MS_TO_KMH, boxSmooth, fillGaps, lapView, makeGrid, median, round, valueAt, type LapView } from './lap-series.ts';
 
 /**
  * Two laps of the same track compared corner by corner. The lap being studied (a) is held against a reference (b).

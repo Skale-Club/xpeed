@@ -70,5 +70,17 @@ try {
   assert.equal((await db.query('SELECT id FROM chat_conversations WHERE id=$1', [ids.thread])).rows.length, 0);
   assert.equal((await db.query('SELECT id FROM chat_messages WHERE conversation_id=$1', [ids.thread])).rows.length, 0);
   assert.equal((await db.query('SELECT id FROM chat_conversations WHERE id=$1', [realThread])).rows.length, 1); passed++;
+  await db.exec('CREATE ROLE anon; CREATE ROLE service_role BYPASSRLS; CREATE TABLE public.app_accounts(id uuid PRIMARY KEY);');
+  await db.query('INSERT INTO app_accounts VALUES($1),($2)', [ids.user, ids.other]);
+  const personalSql = readFileSync(new URL('../supabase/migrations/20261118170000_personal_ai_preferences.sql', import.meta.url), 'utf8');
+  await db.exec(personalSql); await db.exec(personalSql);
+  await db.query("INSERT INTO user_ai_preferences(user_id,mode,api_key_ciphertext,api_key_iv,key_last4,model) VALUES($1,'personal','test-ciphertext','AAAAAAAAAAAAAAAA','test','test/model')", [ids.user]);
+  for (const user of [ids.user, ids.other]) {
+    await assert.rejects(asUser(user, () => db.query('SELECT * FROM user_ai_preferences'))); passed++;
+    await assert.rejects(asUser(user, () => db.query('DELETE FROM user_ai_preferences WHERE user_id=$1', [ids.user]))); passed++;
+  }
+  await assert.rejects(db.query("INSERT INTO user_ai_preferences(user_id,mode) VALUES($1,'personal')", [ids.other])); passed++;
+  await db.query('DELETE FROM app_accounts WHERE id=$1', [ids.user]);
+  assert.equal((await db.query('SELECT * FROM user_ai_preferences WHERE user_id=$1', [ids.user])).rows.length, 0); passed++;
   console.log(`Virtual coach SQL: ${passed} checks passed (repeatability, legacy preservation, ownership, immutable scope and session erasure).`);
 } finally { await db.close(); }

@@ -59,7 +59,7 @@ function ChatWelcome({ virtual, carName, selectPrompt }: { virtual: boolean; car
             <div className="flex min-h-full flex-col items-center justify-center gap-4 p-2 text-center">
                 <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{t('modes.coach.intro')}</p>
                 <div className="flex flex-wrap justify-center gap-2">
-                    {(['sectors', 'consistency'] as const).map((question) => {
+                    {(['sectors', 'consistency', 'driving'] as const).map((question) => {
                         const prompt = t(`modes.coach.questions.${question}`);
                         return (
                             <Button key={question} variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal py-2" onClick={() => selectPrompt(prompt)}>
@@ -120,9 +120,6 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
         };
     }, []);
 
-    // Model is admin-configured server-side (app_settings.admin_openrouter_model);
-    // the client does not choose or send a model.
-
     // Load conversations on mount
     useEffect(() => {
         let active=true;
@@ -179,9 +176,7 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
     // Replies stay with their originating conversation even when the user
     // opens another conversation while the server is answering.
     const handleSendMessage = useCallback(async (text: string) => {
-        const canContinue = () => !scope || (mounted.current && !isDemoMode());
-        // We accept the message even without a per-user apiKey because the
-        // Edge Function might be configured with an admin key.
+        const canContinue = () => mounted.current && (!scope || !isDemoMode());
         if (!text.trim() || sending.current || historyLoading || historyFailed || !canContinue()) return;
         sending.current = true;
         const version = ++viewVersion.current;
@@ -258,13 +253,12 @@ function ChatDialog({ isOpen, onClose, scope, restoreFocus, selectedCar, cars = 
             console.error('Chat error:', error);
             const kind = error instanceof AiError ? error.kind : 'unavailable';
             if (!scope || version === viewVersion.current) {
-                const errorMessage = {
-                    limit_reached: 'assistant.limitReached',
-                    context_not_found: 'modes.coach.contextNotFound',
-                    development_disabled: 'modes.coach.developmentDisabled',
-                    not_configured: scope ? 'modes.coach.notConfigured' : 'assistant.notConfigured',
-                    unavailable: scope ? 'modes.coach.replyFailed' : 'assistant.replyFailed',
-                }[kind];
+                const errorMessage = kind === 'limit_reached' ? 'assistant.limitReached'
+                    : kind === 'context_not_found' ? 'modes.coach.contextNotFound'
+                    : kind === 'development_disabled' ? 'assistant.providerErrors.developmentDisabled'
+                    : kind === 'not_configured' ? scope ? 'modes.coach.notConfigured' : 'assistant.notConfigured'
+                    : kind === 'unavailable' && scope ? 'modes.coach.replyFailed'
+                    : 'assistant.replyFailed';
                 toast({ title: t('assistant.errorTitle'), description: t(errorMessage), variant: 'destructive' });
             }
             // Keep questions already persisted when only the reply failed.

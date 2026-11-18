@@ -10,7 +10,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "npm:zod@3.23.8";
-import { getOpenRouterApiKey, getDefaultModel } from "../_shared/admin-config.ts";
+import { AiProviderError, personalProviderFailure, resolveAiProvider } from "../_shared/ai-provider.ts";
 import { consumeQuota, getUserIdFromAuth, refundQuota } from "../_shared/quota.ts";
 import { parseAnalysisResponse } from "../_shared/analysis-response.ts";
 
@@ -157,11 +157,8 @@ serve(async (req) => {
     if (!parsedBody.success) return jsonResponse({ error: "Invalid request body" }, 400);
     const body = parsedBody.data;
 
-    // 2. AI configured at all?
-    const apiKey = await getOpenRouterApiKey();
-    if (!apiKey) {
-      return jsonResponse({ error: "AI features are not configured. Ask an admin to set the OpenRouter API key in the Admin panel.", code: "not_configured" }, 503);
-    }
+    const provider = await resolveAiProvider(getServiceClient(), userId);
+    if (provider.source === "personal" && Deno.env.get("NODE_ENV") !== "production") return jsonResponse({ code: "development_disabled" }, 503);
 
     // 3. The trip and its car's open problems. Service role bypasses RLS, so every
     //    query is scoped to the caller (S13-1).
@@ -193,7 +190,7 @@ serve(async (req) => {
       .order("last_seen_at", { ascending: false });
 
     // 4. Quota, now that the call will really happen.
-    try {
+    if (provider.source === "global") try {
       await consumeQuota(userId, "analysis");
       quotaSpent = true;
     } catch (err: any) {
@@ -235,12 +232,12 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${provider.apiKey}`,
         "HTTP-Referer": "https://xpeed.skale.club",
         "X-Title": "Xpeed",
       },
       body: JSON.stringify({
-        model: await getDefaultModel(),
+        model: provider.model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
         max_tokens: 1000,
@@ -249,9 +246,13 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
     });
 
     if (!aiRes.ok) {
-      console.error("OpenRouter error:", await aiRes.text());
-      await refundQuota(userId, "analysis");
+      console.error("OpenRouter request failed", aiRes.status);
+      if (quotaSpent) await refundQuota(userId, "analysis");
       quotaSpent = false;
+      if (provider.source === "personal") {
+        const failure = personalProviderFailure(aiRes.status);
+        return jsonResponse({ error: failure.code, code: failure.code }, failure.status);
+      }
       return jsonResponse({ error: "Upstream AI error" }, 502);
     }
 
@@ -259,7 +260,7 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
     const rawText = data.choices?.[0]?.message?.content ?? "{}";
     const validated = parseAnalysisResponse(rawText);
     if (!validated) {
-      await refundQuota(userId, "analysis");
+      if (quotaSpent) await refundQuota(userId, "analysis");
       quotaSpent = false;
       return jsonResponse({ error: "Invalid upstream AI response" }, 502);
     }
@@ -268,6 +269,7 @@ ${formatDismissedWarnings(dismissed ?? [])}`.trim();
 
     return jsonResponse({ analysis: parsed });
   } catch (err: any) {
+    if (err instanceof AiProviderError) return jsonResponse({ error: err.code, code: err.code }, err.status);
     // S09-2: log detail server-side only; never echo internal/DB messages to the client.
     console.error("analyze-session error:", err);
     if (userId && quotaSpent) await refundQuota(userId, "analysis");

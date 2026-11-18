@@ -1,9 +1,8 @@
-// Client-side wrapper that calls the server-side Edge Functions for AI.
-// SINGLE PROVIDER MODEL: one OpenRouter API key per system, configured by an
-// admin via /admin, which also picks the model. Users without admin-configured
-// AI get a clear "AI unavailable" message instead.
+// The server uses the account's saved OpenRouter preference to select credentials,
+// model and billing. Chat only sends the question and its context.
 
 import { supabase } from '@/integrations/supabase/client';
+import { getCurrentUser } from '@/lib/auth/session';
 import i18n from '@/lib/i18n';
 
 export interface AnalysisResult {
@@ -27,7 +26,13 @@ export interface ChatContext {
 }
 
 /** Why the AI did not answer, so the app can say something useful. */
-export type AiFailure = 'limit_reached' | 'not_configured' | 'context_not_found' | 'development_disabled' | 'unavailable';
+const PROVIDER_FAILURES = [
+  'credential_storage_unavailable', 'ai_preferences_unavailable', 'personal_key_unavailable',
+  'invalid_personal_key', 'personal_credits_exhausted', 'personal_model_unavailable',
+  'provider_rate_limited', 'provider_unavailable',
+] as const;
+export type AiFailure = 'limit_reached' | 'not_configured' | 'context_not_found' | 'development_disabled'
+  | 'unavailable' | (typeof PROVIDER_FAILURES)[number];
 
 interface VirtualChatRequest {
   mode: 'virtual';
@@ -46,18 +51,18 @@ export class AiError extends Error {
 async function failureKind(error: unknown, virtual = false): Promise<AiFailure> {
   const response = (error as { context?: Response })?.context;
   if (response && typeof response.status === 'number') {
-    if (response.status === 429) return 'limit_reached';
-    if (virtual && response.status === 404) return 'context_not_found';
-    if (response.status === 503) {
-      let code: unknown;
-      try {
-        code = (await response.clone().json())?.code;
-      } catch {
-        // Older handlers may return a response without a structured code.
-      }
-      if (code === 'development_disabled' && virtual) return 'development_disabled';
-      if (code === 'not_configured' || (code == null && !virtual)) return 'not_configured';
+    let code: unknown;
+    try {
+      code = (await response.clone().json())?.code;
+    } catch {
+      // Older handlers may return a response without a structured code.
     }
+    const providerFailure = PROVIDER_FAILURES.find((failure) => failure === code);
+    if (providerFailure) return providerFailure;
+    if (code === 'limit_reached' || (response.status === 429 && code == null)) return 'limit_reached';
+    if (virtual && response.status === 404) return 'context_not_found';
+    if (code === 'development_disabled') return 'development_disabled';
+    if (code === 'not_configured' || (response.status === 503 && code == null && !virtual)) return 'not_configured';
   }
   return 'unavailable';
 }
@@ -93,10 +98,13 @@ export async function chatViaEdge(
   virtual?: VirtualChatRequest,
 ): Promise<string> {
   const language = i18n.resolvedLanguage;
+  const { data: { user } } = await getCurrentUser();
+  if (!user?.id) throw new AiError('unavailable');
+  const account = { accountId: user.id };
   const { data, error } = await supabase.functions.invoke('chat', {
     body: virtual
-      ? { ...virtual, message, language }
-      : { history, message, context, language, ...(carProfileId ? { carProfileId } : {}) },
+      ? { ...virtual, message, language, ...account }
+      : { history, message, context, language, ...account, ...(carProfileId ? { carProfileId } : {}) },
   });
   if (error) throw new AiError(await failureKind(error, !!virtual));
   const reply = data?.reply as string | undefined;
