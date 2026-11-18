@@ -148,16 +148,19 @@ pub(crate) fn run<Job>(
     let dictated = input.is_none();
     let reader = if dictated {
         let reader = child.stdout.take().and_then(|stdout| {
-            thread::Builder::new().name("coach-speech-read".into()).spawn(move || {
-                let mut bytes = Vec::new();
-                stdout.take(MAX_TRANSCRIPT_BYTES + 1).read_to_end(&mut bytes)?;
-                if bytes.len() as u64 > MAX_TRANSCRIPT_BYTES {
-                    return Err(std::io::ErrorKind::InvalidData.into());
-                }
-                String::from_utf8(bytes)
-                    .map(SpeechResult::Dictated)
-                    .map_err(|_| std::io::ErrorKind::InvalidData.into())
-            }).ok()
+            thread::Builder::new()
+                .name("coach-speech-read".into())
+                .spawn(move || {
+                    let mut bytes = Vec::new();
+                    stdout.take(MAX_TRANSCRIPT_BYTES + 1).read_to_end(&mut bytes)?;
+                    if bytes.len() as u64 > MAX_TRANSCRIPT_BYTES {
+                        return Err(std::io::ErrorKind::InvalidData.into());
+                    }
+                    String::from_utf8(bytes)
+                        .map(SpeechResult::Dictated)
+                        .map_err(|_| std::io::ErrorKind::InvalidData.into())
+                })
+                .ok()
         });
         if reader.is_none() {
             stop(&mut child);
@@ -169,17 +172,20 @@ pub(crate) fn run<Job>(
     };
     let writer_cancelled = cancelled.clone();
     let writer = child.stdin.take().and_then(|mut stdin| {
-        thread::Builder::new().name("coach-speech-write".into()).spawn(move || {
-            // This releases the fixed script only after the job is in place.
-            if writer_cancelled.load(Ordering::Acquire) {
-                return Err(std::io::ErrorKind::Interrupted.into());
-            }
-            stdin.write_all(HANDSHAKE)?;
-            if let Some(text) = input {
-                stdin.write_all(text.as_bytes())?;
-            }
-            Ok::<(), std::io::Error>(())
-        }).ok()
+        thread::Builder::new()
+            .name("coach-speech-write".into())
+            .spawn(move || {
+                // This releases the fixed script only after the job is in place.
+                if writer_cancelled.load(Ordering::Acquire) {
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                stdin.write_all(HANDSHAKE)?;
+                if let Some(text) = input {
+                    stdin.write_all(text.as_bytes())?;
+                }
+                Ok::<(), std::io::Error>(())
+            })
+            .ok()
     });
     let Some(writer) = writer else {
         stop(&mut child);
@@ -196,21 +202,19 @@ pub(crate) fn run<Job>(
             return Err(SpeechError::TimedOut);
         }
         match child.try_wait() {
-            Ok(Some(status)) => {
-                match status.code() {
-                    Some(0) if writer.is_finished() && reader.as_ref().is_none_or(|reader| reader.is_finished()) => {
-                        writer.join().ok().and_then(Result::ok).ok_or(SpeechError::Unavailable)?;
-                        return match reader {
-                            Some(reader) => reader.join().ok().and_then(Result::ok).ok_or(SpeechError::Unavailable),
-                            None => Ok(SpeechResult::Spoken),
-                        };
-                    }
-                    Some(0) => thread::sleep(Duration::from_millis(40)),
-                    Some(21) => return Err(SpeechError::NoEngine),
-                    Some(22) => return Err(SpeechError::NoWords),
-                    _ => return Err(SpeechError::Unavailable),
+            Ok(Some(status)) => match status.code() {
+                Some(0) if writer.is_finished() && reader.as_ref().is_none_or(|reader| reader.is_finished()) => {
+                    writer.join().ok().and_then(Result::ok).ok_or(SpeechError::Unavailable)?;
+                    return match reader {
+                        Some(reader) => reader.join().ok().and_then(Result::ok).ok_or(SpeechError::Unavailable),
+                        None => Ok(SpeechResult::Spoken),
+                    };
                 }
-            }
+                Some(0) => thread::sleep(Duration::from_millis(40)),
+                Some(21) => return Err(SpeechError::NoEngine),
+                Some(22) => return Err(SpeechError::NoWords),
+                _ => return Err(SpeechError::Unavailable),
+            },
             Ok(None) => thread::sleep(Duration::from_millis(40)),
             Err(_) => {
                 stop(&mut child);
@@ -241,9 +245,21 @@ mod tests {
     #[test]
     fn pre_cancelled_and_invalid_locale_requests_stop_before_the_child() {
         let unexpected_child = |_: &Child| -> std::io::Result<()> { panic!("unexpected speech child") };
-        assert!(matches!(run(SpeechRequest::Dictate { locale: "en-US" }, Arc::new(AtomicBool::new(true)), unexpected_child),
-            Err(SpeechError::Cancelled)));
-        assert!(matches!(run(SpeechRequest::Dictate { locale: "invalid" }, Arc::new(AtomicBool::new(false)), unexpected_child),
-            Err(SpeechError::NoEngine)));
+        assert!(matches!(
+            run(
+                SpeechRequest::Dictate { locale: "en-US" },
+                Arc::new(AtomicBool::new(true)),
+                unexpected_child
+            ),
+            Err(SpeechError::Cancelled)
+        ));
+        assert!(matches!(
+            run(
+                SpeechRequest::Dictate { locale: "invalid" },
+                Arc::new(AtomicBool::new(false)),
+                unexpected_child
+            ),
+            Err(SpeechError::NoEngine)
+        ));
     }
 }

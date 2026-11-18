@@ -8,13 +8,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, GetStockObject, MonitorFromWindow, COLOR_BTNFACE, DEFAULT_GUI_FONT, HBRUSH,
-    MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, GetStockObject, MonitorFromWindow, COLOR_BTNFACE, DEFAULT_GUI_FONT, HBRUSH, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::HiDpi::{
-    GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
+use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetKeyState, SetFocus, VK_ESCAPE, VK_SHIFT, VK_TAB};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
@@ -67,14 +64,33 @@ impl Controls {
         let website = button(owner, WEBSITE, "Open website", BS_PUSHBUTTON as u32)?;
         let status = child(owner, "STATIC", "", 0, 0, 0)?;
         let session_label = child(owner, "STATIC", "Session", 0, 0, 0)?;
-        let sessions = child(owner, "COMBOBOX", "", SESSIONS, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32, 0)?;
+        let sessions = child(
+            owner,
+            "COMBOBOX",
+            "",
+            SESSIONS,
+            WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
+            0,
+        )?;
         let refresh = button(owner, REFRESH, "Refresh", BS_PUSHBUTTON as u32)?;
         let transcript_label = child(owner, "STATIC", "Conversation", 0, 0, 0)?;
-        let transcript = child(owner, "EDIT", "", TRANSCRIPT,
-            WS_TABSTOP | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY) as u32, WS_EX_CLIENTEDGE)?;
+        let transcript = child(
+            owner,
+            "EDIT",
+            "",
+            TRANSCRIPT,
+            WS_TABSTOP | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY) as u32,
+            WS_EX_CLIENTEDGE,
+        )?;
         let draft_label = child(owner, "STATIC", "Question draft", 0, 0, 0)?;
-        let draft = child(owner, "EDIT", "", DRAFT,
-            WS_TABSTOP | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32, WS_EX_CLIENTEDGE)?;
+        let draft = child(
+            owner,
+            "EDIT",
+            "",
+            DRAFT,
+            WS_TABSTOP | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32,
+            WS_EX_CLIENTEDGE,
+        )?;
         let send = button(owner, SEND, "Send", BS_PUSHBUTTON as u32)?;
         let record = button(owner, RECORD, "Record", BS_PUSHBUTTON as u32)?;
         let speak = button(owner, SPEAK, "Speak answer", BS_PUSHBUTTON as u32)?;
@@ -82,8 +98,21 @@ impl Controls {
         let close = button(owner, CLOSE, "Close", BS_PUSHBUTTON as u32)?;
         SendMessageW(draft, EDIT_LIMIT, MAX_COACH_QUESTION_UNITS, 0);
         Some(Self {
-            enable, website, status, session_label, sessions, refresh, transcript_label, transcript, draft_label,
-            draft, send, record, speak, stop, close,
+            enable,
+            website,
+            status,
+            session_label,
+            sessions,
+            refresh,
+            transcript_label,
+            transcript,
+            draft_label,
+            draft,
+            send,
+            record,
+            speak,
+            stop,
+            close,
         })
     }
 
@@ -91,7 +120,9 @@ impl Controls {
         let dpi = GetDpiForWindow(hwnd).max(96) as i32;
         let px = |value: i32| (value * dpi + 48) / 96;
         let mut client = RECT::default();
-        if GetClientRect(hwnd, &mut client) == 0 { return; }
+        if GetClientRect(hwnd, &mut client) == 0 {
+            return;
+        }
         let (w, h) = (client.right - client.left, client.bottom - client.top);
         let margin = px(14);
         let right = w - margin;
@@ -124,10 +155,23 @@ impl Controls {
 }
 
 unsafe fn child(owner: HWND, class: &str, label: &str, id: u16, style: u32, extended: u32) -> Option<HWND> {
-    let control = CreateWindowExW(extended, win::wide(class).as_ptr(), win::wide(label).as_ptr(),
-        WS_CHILD | WS_VISIBLE | style, 0, 0, 1, 1, owner, id as usize as HMENU,
-        GetModuleHandleW(null()), null());
-    if control.is_null() { return None; }
+    let control = CreateWindowExW(
+        extended,
+        win::wide(class).as_ptr(),
+        win::wide(label).as_ptr(),
+        WS_CHILD | WS_VISIBLE | style,
+        0,
+        0,
+        1,
+        1,
+        owner,
+        id as usize as HMENU,
+        GetModuleHandleW(null()),
+        null(),
+    );
+    if control.is_null() {
+        return None;
+    }
     SendMessageW(control, WM_SETFONT, GetStockObject(DEFAULT_GUI_FONT) as usize, 1);
     if style & WS_TABSTOP != 0 {
         // The tray keeps its ordinary message loop. Handle tab traversal only
@@ -153,7 +197,9 @@ unsafe extern "system" fn control_proc(hwnd: HWND, message: u32, wparam: WPARAM,
     }
     if message == WM_KEYDOWN && wparam == VK_TAB as usize {
         let next = GetNextDlgTabItem(GetParent(hwnd), hwnd, i32::from(GetKeyState(VK_SHIFT as i32) < 0));
-        if !next.is_null() { SetFocus(next); }
+        if !next.is_null() {
+            SetFocus(next);
+        }
         return 0;
     }
     if message == WM_CHAR && wparam == VK_TAB as usize {
@@ -187,24 +233,34 @@ unsafe fn get_edit(control: HWND) -> String {
 
 fn truncate_utf16(text: &str, limit: usize) -> String {
     let mut used = 0;
-    text.chars().take_while(|character| {
-        used += character.len_utf16();
-        used <= limit
-    }).collect()
+    text.chars()
+        .take_while(|character| {
+            used += character.len_utf16();
+            used <= limit
+        })
+        .collect()
 }
 
 fn clean_multiline(text: &str) -> String {
-    text.replace("\r\n", "\n").replace('\r', "\n")
-        .chars().filter(|character| !character.is_control() || matches!(character, '\t' | '\n'))
-        .collect::<String>().replace('\n', "\r\n")
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .chars()
+        .filter(|character| !character.is_control() || matches!(character, '\t' | '\n'))
+        .collect::<String>()
+        .replace('\n', "\r\n")
 }
 
 fn transcript(history: &CoachHistory) -> String {
     let mut budget = MAX_TRANSCRIPT_UNITS;
     let mut blocks = Vec::new();
     for message in history.messages.iter().rev() {
-        if budget < 16 { break; }
-        let label = match message.role { CoachRole::User => "You", CoachRole::Assistant => "Coach" };
+        if budget < 16 {
+            break;
+        }
+        let label = match message.role {
+            CoachRole::User => "You",
+            CoachRole::Assistant => "Coach",
+        };
         let body = truncate_utf16(&clean_multiline(&message.content), MAX_MESSAGE_DISPLAY_UNITS.min(budget - 14));
         let block = format!("{label}\r\n{body}\r\n\r\n");
         budget -= block.encode_utf16().count();
@@ -215,7 +271,12 @@ fn transcript(history: &CoachHistory) -> String {
 }
 
 fn session_label(session: &CoachSession) -> String {
-    let safe = |text: &str| text.chars().filter(|character| !character.is_control()).take(120).collect::<String>();
+    let safe = |text: &str| {
+        text.chars()
+            .filter(|character| !character.is_control())
+            .take(120)
+            .collect::<String>()
+    };
     let started = safe(&session.started_at);
     let at = if started.ends_with('Z') || started.ends_with("+00:00") || started.ends_with("+00") {
         let minute: String = started.chars().take(16).collect();
@@ -223,12 +284,21 @@ fn session_label(session: &CoachSession) -> String {
     } else {
         started.replace('T', " ")
     };
-    format!("{} · {} · {} · {} · {}", safe(&session.track), safe(&session.car), safe(&session.game), safe(&session.kind), at)
+    format!(
+        "{} · {} · {} · {} · {}",
+        safe(&session.track),
+        safe(&session.car),
+        safe(&session.game),
+        safe(&session.kind),
+        at
+    )
 }
 
 unsafe fn work_area(window: HWND) -> Option<RECT> {
     let monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
-    if monitor.is_null() { return None; }
+    if monitor.is_null() {
+        return None;
+    }
     let mut info: MONITORINFO = std::mem::zeroed();
     info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
     (GetMonitorInfoW(monitor, &mut info) != 0).then_some(info.rcWork)
@@ -251,14 +321,21 @@ struct State {
 
 impl State {
     unsafe fn status(&self, message: &str) {
-        if let Some(c) = self.controls { set_text(c.status, message); }
+        if let Some(c) = self.controls {
+            set_text(c.status, message);
+        }
     }
 
     unsafe fn update_controls(&self) {
         let Some(c) = self.controls else { return };
         let idle = self.network.is_none() && self.speech.is_none();
         let on = self.enabled && self.pairing.server.is_some();
-        let can_ask = on && idle && self.conversation.as_ref().is_some_and(|conversation| conversation.history.is_some());
+        let can_ask = on
+            && idle
+            && self
+                .conversation
+                .as_ref()
+                .is_some_and(|conversation| conversation.history.is_some());
         let can_speak = can_ask && self.conversation.as_ref().and_then(Conversation::last_answer).is_some();
         EnableWindow(c.enable, i32::from(self.pairing.server.is_some()));
         SendMessageW(c.enable, BM_SETCHECK, if self.enabled { CHECKED } else { 0 }, 0);
@@ -295,14 +372,19 @@ impl State {
         for session in &self.sessions {
             SendMessageW(c.sessions, CB_ADDSTRING, 0, win::wide(&session_label(session)).as_ptr() as isize);
         }
-        let selected = self.conversation.as_ref().and_then(|conversation| self.sessions.iter().position(|s| s.id == conversation.session_id));
+        let selected = self
+            .conversation
+            .as_ref()
+            .and_then(|conversation| self.sessions.iter().position(|s| s.id == conversation.session_id));
         SendMessageW(c.sessions, CB_SETCURSEL, selected.map_or(0, |index| index + 1), 0);
     }
 
     unsafe fn clear_conversation(&mut self) {
         self.cancel_work();
         self.conversation = None;
-        if let Some(c) = self.controls { set_text(c.draft, ""); }
+        if let Some(c) = self.controls {
+            set_text(c.draft, "");
+        }
         self.render_transcript();
     }
 
@@ -321,8 +403,12 @@ impl State {
     }
 
     unsafe fn start_network(&mut self, request: CoachRequest) {
-        if !self.enabled || self.pairing.server.is_none() || self.network.is_some() || self.speech.is_some() { return; }
-        if self.permit_required && !matches!(&request, CoachRequest::Sessions) { return; }
+        if !self.enabled || self.pairing.server.is_none() || self.network.is_some() || self.speech.is_some() {
+            return;
+        }
+        if self.permit_required && !matches!(&request, CoachRequest::Sessions) {
+            return;
+        }
         let busy_text = match &request {
             CoachRequest::Sessions => "Loading recent uploaded sessions…",
             CoachRequest::History(_) => "Loading this session's conversation…",
@@ -340,14 +426,25 @@ impl State {
     }
 
     unsafe fn select_session(&mut self) {
-        if !self.enabled || self.network.is_some() || self.speech.is_some() { return; }
+        if !self.enabled || self.network.is_some() || self.speech.is_some() {
+            return;
+        }
         let Some(c) = self.controls else { return };
         let index = SendMessageW(c.sessions, CB_GETCURSEL, 0, 0);
-        let id = if index > 0 { self.sessions.get(index as usize - 1).map(|session| session.id.clone()) } else { None };
-        if self.conversation.as_ref().map(|current| &current.session_id) == id.as_ref() { return; }
+        let id = if index > 0 {
+            self.sessions.get(index as usize - 1).map(|session| session.id.clone())
+        } else {
+            None
+        };
+        if self.conversation.as_ref().map(|current| &current.session_id) == id.as_ref() {
+            return;
+        }
         self.clear_conversation();
         if let Some(id) = id {
-            self.conversation = Some(Conversation { session_id: id.clone(), history: None });
+            self.conversation = Some(Conversation {
+                session_id: id.clone(),
+                history: None,
+            });
             self.start_network(CoachRequest::History(id));
         } else {
             self.status("Select an uploaded session to load its conversation.");
@@ -355,8 +452,12 @@ impl State {
     }
 
     unsafe fn send(&mut self) {
-        if !self.enabled || self.network.is_some() || self.speech.is_some() { return; }
-        let (Some(c), Some(conversation)) = (self.controls, &self.conversation) else { return };
+        if !self.enabled || self.network.is_some() || self.speech.is_some() {
+            return;
+        }
+        let (Some(c), Some(conversation)) = (self.controls, &self.conversation) else {
+            return;
+        };
         let Some(history) = &conversation.history else { return };
         let draft = get_edit(c.draft);
         let message = draft.trim();
@@ -378,21 +479,33 @@ impl State {
                 return;
             };
             CoachQuestion {
-                session_id: conversation.session_id.clone(), conversation_id: history.conversation_id.clone(),
-                message: message.to_owned(), idempotency_key, language: locales(self.lang).0,
+                session_id: conversation.session_id.clone(),
+                conversation_id: history.conversation_id.clone(),
+                message: message.to_owned(),
+                idempotency_key,
+                language: locales(self.lang).0,
             }
         };
         self.start_network(CoachRequest::Ask(question));
     }
 
     unsafe fn start_voice(&mut self, speak: bool) {
-        if !self.enabled || self.network.is_some() || self.speech.is_some() { return; }
-        let (Some(c), Some(conversation)) = (self.controls, &self.conversation) else { return };
-        if conversation.history.is_none() { return; }
+        if !self.enabled || self.network.is_some() || self.speech.is_some() {
+            return;
+        }
+        let (Some(c), Some(conversation)) = (self.controls, &self.conversation) else {
+            return;
+        };
+        if conversation.history.is_none() {
+            return;
+        }
         let locale = locales(self.lang).1;
         let request = if speak {
             let Some(text) = conversation.last_answer() else { return };
-            SpeechRequest::Speak { locale, text: text.to_owned() }
+            SpeechRequest::Speak {
+                locale,
+                text: text.to_owned(),
+            }
         } else {
             if get_edit(c.draft).encode_utf16().count() >= MAX_COACH_QUESTION_UNITS {
                 self.status("The draft is full. Make room before recording.");
@@ -404,8 +517,11 @@ impl State {
         match SpeechJob::start(request, generation) {
             Ok(job) => {
                 self.speech = Some(job);
-                self.status(if speak { "Reading the last answer. Use Stop voice to cancel." }
-                    else { "Listening locally for up to 15 seconds. Review the draft before sending." });
+                self.status(if speak {
+                    "Reading the last answer. Use Stop voice to cancel."
+                } else {
+                    "Listening locally for up to 15 seconds. Review the draft before sending."
+                });
             }
             Err(StartError::Busy) => self.status("Windows speech is still stopping. Try again in a moment."),
             Err(StartError::Unavailable) => self.status("Could not start local Windows speech. You can still type."),
@@ -453,7 +569,11 @@ impl State {
         match (request, result) {
             (CoachRequest::Sessions, CoachResult::Sessions(sessions)) => {
                 self.permit_required = false;
-                if self.conversation.as_ref().is_some_and(|context| !sessions.iter().any(|s| s.id == context.session_id)) {
+                if self
+                    .conversation
+                    .as_ref()
+                    .is_some_and(|context| !sessions.iter().any(|s| s.id == context.session_id))
+                {
                     self.clear_conversation();
                 }
                 self.sessions = sessions;
@@ -488,11 +608,17 @@ impl State {
                 }
             }
             (CoachRequest::Ask(question), CoachResult::Answer(answer)) => {
-                if let Some(context) = self.conversation.as_mut().filter(|context| context.session_id == question.session_id) {
+                if let Some(context) = self
+                    .conversation
+                    .as_mut()
+                    .filter(|context| context.session_id == question.session_id)
+                {
                     let was_retry = self.questions.find(&question.session_id, &question.message).is_some();
                     self.questions.forget(&question.idempotency_key);
                     context.answer(question, answer, was_retry);
-                    if let Some(c) = self.controls { set_text(c.draft, ""); }
+                    if let Some(c) = self.controls {
+                        set_text(c.draft, "");
+                    }
                     self.render_transcript();
                     self.status("Answer saved to this session. You can ask another question or speak the last answer.");
                 }
@@ -511,7 +637,9 @@ impl State {
                     return;
                 }
                 let mut draft = get_edit(c.draft);
-                if !draft.is_empty() && !draft.chars().last().is_some_and(char::is_whitespace) { draft.push(' '); }
+                if !draft.is_empty() && !draft.chars().last().is_some_and(char::is_whitespace) {
+                    draft.push(' ');
+                }
                 draft.push_str(dictated.trim());
                 let shortened = draft.encode_utf16().count() > MAX_COACH_QUESTION_UNITS;
                 let draft = truncate_utf16(&draft, MAX_COACH_QUESTION_UNITS);
@@ -519,8 +647,11 @@ impl State {
                 let end = draft.encode_utf16().count();
                 SendMessageW(c.draft, EDIT_SELECT, end, end as isize);
                 SetFocus(c.draft);
-                self.status(if shortened { "Dictation shortened to fit. Review the draft before sending." }
-                    else { "Dictation added to the draft. Review it, then press Send." });
+                self.status(if shortened {
+                    "Dictation shortened to fit. Review the draft before sending."
+                } else {
+                    "Dictation added to the draft. Review it, then press Send."
+                });
             }
             Ok(SpeechResult::Spoken) => self.status("Finished reading the answer."),
             Err(SpeechError::NoEngine) => self.status("No matching local Windows speech engine is installed. You can still type."),
@@ -536,9 +667,13 @@ impl State {
             if pairing.revision != self.pairing.revision {
                 let initial = self.pairing.revision == 0;
                 self.pairing = pairing;
-                let note = if self.pairing.server.is_none() { "Pair this computer before using Coach." }
-                    else if initial { "Coach is off. Enable it here to load your recent sessions." }
-                    else { "The paired account changed. Turn Coach on again when you are ready." };
+                let note = if self.pairing.server.is_none() {
+                    "Pair this computer before using Coach."
+                } else if initial {
+                    "Coach is off. Enable it here to load your recent sessions."
+                } else {
+                    "The paired account changed. Turn Coach on again when you are ready."
+                };
                 self.turn_off(note);
                 self.update_controls();
             }
@@ -550,9 +685,13 @@ impl State {
         }) {
             if let Some(job) = self.network.take() {
                 if job.generation == self.scope.load(Ordering::Acquire) && self.enabled {
-                    let outcome = outcome.unwrap_or_else(|| NetworkEvent::Finished(Err(
-                        if matches!(&job.request, CoachRequest::Ask(_)) { CoachError::DeliveryUnknown } else { CoachError::Unavailable }
-                    )));
+                    let outcome = outcome.unwrap_or_else(|| {
+                        NetworkEvent::Finished(Err(if matches!(&job.request, CoachRequest::Ask(_)) {
+                            CoachError::DeliveryUnknown
+                        } else {
+                            CoachError::Unavailable
+                        }))
+                    });
                     self.network_result(job.request, outcome);
                 }
             }
@@ -563,9 +702,14 @@ impl State {
             Err(mpsc::TryRecvError::Disconnected) => Some(Err(SpeechError::Unavailable)),
             Err(mpsc::TryRecvError::Empty) => None,
         }) {
-            let current = self.speech.take().is_some_and(|job| job.generation == self.scope.load(Ordering::Acquire));
+            let current = self
+                .speech
+                .take()
+                .is_some_and(|job| job.generation == self.scope.load(Ordering::Acquire));
             self.update_controls();
-            if current && self.enabled { self.speech_result(outcome); }
+            if current && self.enabled {
+                self.speech_result(outcome);
+            }
         }
     }
 
@@ -595,7 +739,9 @@ impl State {
                     win::open(&format!("{server}/virtual/companion"));
                 }
             }
-            CLOSE => { PostMessageW(hwnd, WM_CLOSE, 0, 0); }
+            CLOSE => {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
             _ => {}
         }
         self.update_controls();
@@ -634,7 +780,9 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
         WM_NCDESTROY => {
             let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            if !state.is_null() { drop(Box::from_raw(state)); }
+            if !state.is_null() {
+                drop(Box::from_raw(state));
+            }
             return DefWindowProcW(hwnd, message, wparam, lparam);
         }
         WM_CLOSE => {
@@ -647,8 +795,15 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
         }
         WM_DPICHANGED => {
             let bounds = &*(lparam as *const RECT);
-            SetWindowPos(hwnd, null_mut(), bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
-                SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(
+                hwnd,
+                null_mut(),
+                bounds.left,
+                bounds.top,
+                bounds.right - bounds.left,
+                bounds.bottom - bounds.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
             return 0;
         }
         WM_GETMINMAXINFO => {
@@ -666,27 +821,43 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
             // Programmatic changes to edit/combobox controls can send other
             // notifications synchronously. Ignore them before borrowing State.
             let (id, code) = (wparam as u16, (wparam >> 16) as u16);
-            let handled = if id == SESSIONS { code == CBN_SELCHANGE as u16 }
-                else { matches!(id, ENABLE | REFRESH | SEND | RECORD | SPEAK | STOP | WEBSITE | CLOSE) && code == BN_CLICKED as u16 };
-            if !handled || lparam == 0 || GetDlgItem(hwnd, id as i32) != lparam as HWND { return 0; }
+            let handled = if id == SESSIONS {
+                code == CBN_SELCHANGE as u16
+            } else {
+                matches!(id, ENABLE | REFRESH | SEND | RECORD | SPEAK | STOP | WEBSITE | CLOSE) && code == BN_CLICKED as u16
+            };
+            if !handled || lparam == 0 || GetDlgItem(hwnd, id as i32) != lparam as HWND {
+                return 0;
+            }
         }
         WM_CREATE | WM_SIZE | WM_TIMER => {}
         _ => return DefWindowProcW(hwnd, message, wparam, lparam),
     }
     let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
-    let Some(state) = state.as_mut() else { return DefWindowProcW(hwnd, message, wparam, lparam) };
+    let Some(state) = state.as_mut() else {
+        return DefWindowProcW(hwnd, message, wparam, lparam);
+    };
     match message {
         WM_CREATE => {
             let Some(controls) = Controls::create(hwnd) else { return -1 };
             state.controls = Some(controls);
             state.render_sessions();
-            state.status(if state.watch.is_some() { "Coach is off. Checking this computer's pairing…" }
-                else { "The computer pairing is unavailable. You can still use the Companion monitor." });
+            state.status(if state.watch.is_some() {
+                "Coach is off. Checking this computer's pairing…"
+            } else {
+                "The computer pairing is unavailable. You can still use the Companion monitor."
+            });
             state.update_controls();
             controls.layout(hwnd);
-            if SetTimer(hwnd, TIMER, TICK_MS, None) == 0 { return -1; }
+            if SetTimer(hwnd, TIMER, TICK_MS, None) == 0 {
+                return -1;
+            }
         }
-        WM_SIZE => if let Some(controls) = state.controls { controls.layout(hwnd); },
+        WM_SIZE => {
+            if let Some(controls) = state.controls {
+                controls.layout(hwnd);
+            }
+        }
         WM_TIMER if wparam == TIMER => state.tick(),
         WM_COMMAND => state.command(hwnd, wparam as u16),
         _ => {}
@@ -705,7 +876,9 @@ unsafe fn owned_coach(owner: HWND, hwnd: HWND) -> bool {
 
 pub(crate) fn close(owner: HWND, existing: HWND) {
     unsafe {
-        if owned_coach(owner, existing) { DestroyWindow(existing); }
+        if owned_coach(owner, existing) {
+            DestroyWindow(existing);
+        }
     }
 }
 
@@ -719,18 +892,33 @@ pub(crate) fn show(owner: HWND, existing: HWND, lang: Lang, icons: [HICON; 2]) -
         let class = win::wide(CLASS);
         let instance = GetModuleHandleW(null());
         let window = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32, style: 0, lpfnWndProc: Some(window_proc), cbClsExtra: 0,
-            cbWndExtra: 0, hInstance: instance, hIcon: icons[0], hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-            hbrBackground: (COLOR_BTNFACE + 1) as usize as HBRUSH, lpszMenuName: null(), lpszClassName: class.as_ptr(),
+            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+            style: 0,
+            lpfnWndProc: Some(window_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: instance,
+            hIcon: icons[0],
+            hCursor: LoadCursorW(null_mut(), IDC_ARROW),
+            hbrBackground: (COLOR_BTNFACE + 1) as usize as HBRUSH,
+            lpszMenuName: null(),
+            lpszClassName: class.as_ptr(),
             hIconSm: icons[1],
         };
         RegisterClassExW(&window);
         let state = Box::new(State {
             controls: None,
             watch: config::default_path().and_then(|path| PairingWatch::start(path).ok()),
-            pairing: PublicPairing::default(), scope: Arc::new(AtomicU64::new(1)),
-            enabled: false, permit_required: false, lang,
-            sessions: Vec::new(), conversation: None, questions: UncertainQuestions::default(), network: None, speech: None,
+            pairing: PublicPairing::default(),
+            scope: Arc::new(AtomicU64::new(1)),
+            enabled: false,
+            permit_required: false,
+            lang,
+            sessions: Vec::new(),
+            conversation: None,
+            questions: UncertainQuestions::default(),
+            network: None,
+            speech: None,
         });
         let mut creation = Create(Some(state));
         let previous_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -744,10 +932,23 @@ pub(crate) fn show(owner: HWND, existing: HWND, lang: Lang, icons: [HICON; 2]) -
         } else {
             (CW_USEDEFAULT, CW_USEDEFAULT)
         };
-        let hwnd = CreateWindowExW(0, class.as_ptr(), win::wide("Xpeed Session Coach").as_ptr(),
-            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, x, y, width, height,
-            owner, null_mut(), instance, (&mut creation as *mut Create).cast());
-        if !previous_context.is_null() { SetThreadDpiAwarenessContext(previous_context); }
+        let hwnd = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            win::wide("Xpeed Session Coach").as_ptr(),
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            x,
+            y,
+            width,
+            height,
+            owner,
+            null_mut(),
+            instance,
+            (&mut creation as *mut Create).cast(),
+        );
+        if !previous_context.is_null() {
+            SetThreadDpiAwarenessContext(previous_context);
+        }
         if !hwnd.is_null() {
             SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icons[0] as isize);
             SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icons[1] as isize);
@@ -767,10 +968,12 @@ mod tests {
         let history = CoachHistory {
             conversation_id: None,
             pending_request: None,
-            messages: (0..12).map(|index| CoachMessage {
-                role: CoachRole::Assistant,
-                content: format!("{index}{}\0\nend", "🚗".repeat(25_000)),
-            }).collect(),
+            messages: (0..12)
+                .map(|index| CoachMessage {
+                    role: CoachRole::Assistant,
+                    content: format!("{index}{}\0\nend", "🚗".repeat(25_000)),
+                })
+                .collect(),
         };
         let text = transcript(&history);
         assert!(text.contains("Coach\r\n11"));

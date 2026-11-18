@@ -9,9 +9,7 @@ use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::config::{self, Config};
-use crate::net::{
-    self, CoachAnswer, CoachError, CoachHistory, CoachMessage, CoachPending, CoachQuestion, CoachRole, CoachSession,
-};
+use crate::net::{self, CoachAnswer, CoachError, CoachHistory, CoachMessage, CoachPending, CoachQuestion, CoachRole, CoachSession};
 use crate::speech::{self, SpeechError, SpeechRequest, SpeechResult};
 use crate::text::Lang;
 use crate::util::lock;
@@ -62,15 +60,18 @@ struct PairingWatch {
 
 impl PairingWatch {
     fn start(path: PathBuf) -> std::io::Result<Self> {
-        let source = PairingSource { path, record: Arc::new(Mutex::new(PairingRecord::default())) };
+        let source = PairingSource {
+            path,
+            record: Arc::new(Mutex::new(PairingRecord::default())),
+        };
         let stopped = Arc::new(AtomicBool::new(false));
         let (worker_source, worker_stopped) = (source.clone(), stopped.clone());
         thread::Builder::new().name("coach-pairing".into()).spawn(move || {
             let mut checked = None;
             while !worker_stopped.load(Ordering::Acquire) {
-                let stamp = std::fs::metadata(&worker_source.path).ok().map(|metadata| {
-                    (metadata.modified().ok().unwrap_or(UNIX_EPOCH), metadata.len())
-                });
+                let stamp = std::fs::metadata(&worker_source.path)
+                    .ok()
+                    .map(|metadata| (metadata.modified().ok().unwrap_or(UNIX_EPOCH), metadata.len()));
                 if checked != Some(stamp) {
                     let config = config::load(&worker_source.path).ok().flatten();
                     let fingerprint = config.as_ref().map(|config| net::sha256_hex(config.token.as_bytes()));
@@ -107,7 +108,9 @@ struct WorkSlot(&'static AtomicBool);
 
 impl WorkSlot {
     fn acquire(busy: &'static AtomicBool) -> Option<Self> {
-        busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).ok().map(|()| Self(busy))
+        busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|()| Self(busy))
     }
 }
 
@@ -148,50 +151,57 @@ struct NetworkJob {
 }
 
 impl NetworkJob {
-    fn start(
-        request: CoachRequest, pairing: PairingSource, revision: u64, scope: Arc<AtomicU64>,
-    ) -> Result<Self, StartError> {
+    fn start(request: CoachRequest, pairing: PairingSource, revision: u64, scope: Arc<AtomicU64>) -> Result<Self, StartError> {
         let slot = WorkSlot::acquire(&HTTP_BUSY).ok_or(StartError::Busy)?;
         let (sender, results) = mpsc::sync_channel(1);
         let generation = scope.load(Ordering::Acquire);
         let worker_request = request.clone();
-        thread::Builder::new().name("coach-http".into()).spawn(move || {
-            let current = || scope.load(Ordering::Acquire) == generation;
-            let run = || {
-                // Binding is checked before transmitting and once more
-                // after the request, independent of the polling UI.
-                if !current() {
-                    return NetworkEvent::ChangedPairing;
-                }
-                let Some(config) = config::load(&pairing.path).ok().flatten() else {
-                    return NetworkEvent::ChangedPairing;
+        thread::Builder::new()
+            .name("coach-http".into())
+            .spawn(move || {
+                let current = || scope.load(Ordering::Acquire) == generation;
+                let run = || {
+                    // Binding is checked before transmitting and once more
+                    // after the request, independent of the polling UI.
+                    if !current() {
+                        return NetworkEvent::ChangedPairing;
+                    }
+                    let Some(config) = config::load(&pairing.path).ok().flatten() else {
+                        return NetworkEvent::ChangedPairing;
+                    };
+                    if !current() || !pairing.matches(revision, &config) {
+                        return NetworkEvent::ChangedPairing;
+                    }
+                    let agent = net::coach_agent();
+                    let may_send = || current() && pairing.matches(revision, &config);
+                    if !may_send() {
+                        return NetworkEvent::ChangedPairing;
+                    }
+                    let result = match &worker_request {
+                        CoachRequest::Sessions => net::coach_sessions(&agent, &config).map(CoachResult::Sessions),
+                        CoachRequest::History(id) => net::coach_history(&agent, &config, id).map(CoachResult::History),
+                        CoachRequest::Ask(question) => net::coach_ask(&agent, &config, question, may_send).map(CoachResult::Answer),
+                    };
+                    if !current() {
+                        return NetworkEvent::ChangedPairing;
+                    }
+                    match config::load(&pairing.path).ok().flatten() {
+                        Some(latest) if pairing.matches(revision, &latest) => NetworkEvent::Finished(result),
+                        _ => NetworkEvent::ChangedPairing,
+                    }
                 };
-                if !current() || !pairing.matches(revision, &config) {
-                    return NetworkEvent::ChangedPairing;
+                let result = run();
+                drop(slot);
+                if current() {
+                    let _ = sender.send(result);
                 }
-                let agent = net::coach_agent();
-                let may_send = || current() && pairing.matches(revision, &config);
-                if !may_send() {
-                    return NetworkEvent::ChangedPairing;
-                }
-                let result = match &worker_request {
-                    CoachRequest::Sessions => net::coach_sessions(&agent, &config).map(CoachResult::Sessions),
-                    CoachRequest::History(id) => net::coach_history(&agent, &config, id).map(CoachResult::History),
-                    CoachRequest::Ask(question) => net::coach_ask(&agent, &config, question, may_send).map(CoachResult::Answer),
-                };
-                if !current() { return NetworkEvent::ChangedPairing; }
-                match config::load(&pairing.path).ok().flatten() {
-                    Some(latest) if pairing.matches(revision, &latest) => NetworkEvent::Finished(result),
-                    _ => NetworkEvent::ChangedPairing,
-                }
-            };
-            let result = run();
-            drop(slot);
-            if current() {
-                let _ = sender.send(result);
-            }
-        }).map_err(|_| StartError::Unavailable)?;
-        Ok(Self { request, results, generation })
+            })
+            .map_err(|_| StartError::Unavailable)?;
+        Ok(Self {
+            request,
+            results,
+            generation,
+        })
     }
 }
 
@@ -207,14 +217,21 @@ impl SpeechJob {
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancelled = cancelled.clone();
         let (sender, results) = mpsc::sync_channel(1);
-        thread::Builder::new().name("coach-speech".into()).spawn(move || {
-            let result = speech::run(request, worker_cancelled.clone(), process_job::assign);
-            drop(slot);
-            if !worker_cancelled.load(Ordering::Acquire) {
-                let _ = sender.send(result);
-            }
-        }).map_err(|_| StartError::Unavailable)?;
-        Ok(Self { cancelled, results, generation })
+        thread::Builder::new()
+            .name("coach-speech".into())
+            .spawn(move || {
+                let result = speech::run(request, worker_cancelled.clone(), process_job::assign);
+                drop(slot);
+                if !worker_cancelled.load(Ordering::Acquire) {
+                    let _ = sender.send(result);
+                }
+            })
+            .map_err(|_| StartError::Unavailable)?;
+        Ok(Self {
+            cancelled,
+            results,
+            generation,
+        })
     }
 }
 
@@ -238,7 +255,9 @@ fn make_v4(bytes: [u8; 16]) -> String {
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let mut id = String::with_capacity(36);
     for (i, byte) in bytes.into_iter().enumerate() {
-        if matches!(i, 4 | 6 | 8 | 10) { id.push('-'); }
+        if matches!(i, 4 | 6 | 8 | 10) {
+            id.push('-');
+        }
         let _ = write!(id, "{byte:02x}");
     }
     id
@@ -262,7 +281,10 @@ fn same_draft(first: &str, second: &str) -> bool {
 
 impl UncertainQuestions {
     fn find(&self, session: &str, message: &str) -> Option<CoachQuestion> {
-        self.0.iter().find(|question| question.session_id == session && same_draft(&question.message, message)).cloned()
+        self.0
+            .iter()
+            .find(|question| question.session_id == session && same_draft(&question.message, message))
+            .cloned()
     }
 
     fn remember(&mut self, question: CoachQuestion) {
@@ -270,7 +292,9 @@ impl UncertainQuestions {
             previous.idempotency_key != question.idempotency_key
                 && (previous.session_id != question.session_id || !same_draft(&previous.message, &question.message))
         });
-        if self.0.len() == MAX_MESSAGES { self.0.remove(0); }
+        if self.0.len() == MAX_MESSAGES {
+            self.0.remove(0);
+        }
         self.0.push(question);
     }
 
@@ -309,7 +333,11 @@ struct Conversation {
 
 impl Conversation {
     fn last_answer(&self) -> Option<&str> {
-        self.history.as_ref()?.messages.iter().rev()
+        self.history
+            .as_ref()?
+            .messages
+            .iter()
+            .rev()
             .find(|message| message.role == CoachRole::Assistant)
             .map(|message| message.content.as_str())
     }
@@ -318,13 +346,22 @@ impl Conversation {
         let Some(history) = &mut self.history else { return };
         history.conversation_id = Some(answer.conversation_id);
         // Refresh may already have loaded the two lines of a confirmed request.
-        let already_shown = was_retry && history.messages.windows(2).any(|pair| {
-            pair[0].role == CoachRole::User && pair[0].content == question.message
-                && pair[1].role == CoachRole::Assistant && pair[1].content == answer.reply
-        });
+        let already_shown = was_retry
+            && history.messages.windows(2).any(|pair| {
+                pair[0].role == CoachRole::User
+                    && pair[0].content == question.message
+                    && pair[1].role == CoachRole::Assistant
+                    && pair[1].content == answer.reply
+            });
         if !already_shown {
-            history.messages.push(CoachMessage { role: CoachRole::User, content: question.message });
-            history.messages.push(CoachMessage { role: CoachRole::Assistant, content: answer.reply });
+            history.messages.push(CoachMessage {
+                role: CoachRole::User,
+                content: question.message,
+            });
+            history.messages.push(CoachMessage {
+                role: CoachRole::Assistant,
+                content: answer.reply,
+            });
             let excess = history.messages.len().saturating_sub(MAX_MESSAGES);
             history.messages.drain(..excess);
         }
@@ -346,8 +383,11 @@ mod tests {
     fn reuses_only_the_original_payload_for_same_session_and_question() {
         let mut pending = UncertainQuestions::default();
         let question = CoachQuestion {
-            session_id: "session-a".into(), conversation_id: Some("original".into()), message: "Help".into(),
-            idempotency_key: "same-key".into(), language: "en",
+            session_id: "session-a".into(),
+            conversation_id: Some("original".into()),
+            message: "Help".into(),
+            idempotency_key: "same-key".into(),
+            language: "en",
         };
         pending.remember(question.clone());
         assert_eq!(pending.find("session-a", "Help"), Some(question.clone()));
@@ -361,8 +401,11 @@ mod tests {
     fn a_limit_while_checking_delivery_does_not_change_the_original_key() {
         let mut pending = UncertainQuestions::default();
         let question = CoachQuestion {
-            session_id: "session".into(), conversation_id: None, message: "Help".into(),
-            idempotency_key: "first-key".into(), language: "en",
+            session_id: "session".into(),
+            conversation_id: None,
+            message: "Help".into(),
+            idempotency_key: "first-key".into(),
+            language: "en",
         };
         pending.after_failure(question.clone(), CoachError::Limit);
         assert!(pending.find("session", "Help").is_none());
@@ -377,8 +420,11 @@ mod tests {
     fn busy_does_not_mark_a_new_question_as_admitted() {
         let mut pending = UncertainQuestions::default();
         let question = CoachQuestion {
-            session_id: "session".into(), conversation_id: None, message: "Help".into(),
-            idempotency_key: "unused-key".into(), language: "en",
+            session_id: "session".into(),
+            conversation_id: None,
+            message: "Help".into(),
+            idempotency_key: "unused-key".into(),
+            language: "en",
         };
         pending.after_failure(question, CoachError::Busy);
         assert!(pending.find("session", "Help").is_none());
@@ -388,9 +434,18 @@ mod tests {
     fn resumed_question_preserves_server_text_and_id_for_manual_resend() {
         let mut questions = UncertainQuestions::default();
         let message = "Line one\nLine two";
-        assert_eq!(questions.restore("session".into(), CoachPending {
-            conversation_id: "saved-thread".into(), idempotency_key: "recorded-key".into(), message: message.into(),
-        }, Lang::Pt), message);
+        assert_eq!(
+            questions.restore(
+                "session".into(),
+                CoachPending {
+                    conversation_id: "saved-thread".into(),
+                    idempotency_key: "recorded-key".into(),
+                    message: message.into(),
+                },
+                Lang::Pt
+            ),
+            message
+        );
         let retry = questions.find("session", "Line one\r\nLine two").unwrap();
         assert_eq!(retry.idempotency_key, "recorded-key");
         assert_eq!(retry.conversation_id.as_deref(), Some("saved-thread"));

@@ -271,7 +271,11 @@ mod coach_http {
     fn uuid(text: &str) -> bool {
         text.len() == 36
             && text.bytes().enumerate().all(|(i, byte)| {
-                if matches!(i, 8 | 13 | 18 | 23) { byte == b'-' } else { byte.is_ascii_hexdigit() }
+                if matches!(i, 8 | 13 | 18 | 23) {
+                    byte == b'-'
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
             })
     }
 
@@ -280,7 +284,11 @@ mod coach_http {
     }
 
     fn connection_error(asked: bool) -> CoachError {
-        if asked { CoachError::DeliveryUnknown } else { CoachError::Unavailable }
+        if asked {
+            CoachError::DeliveryUnknown
+        } else {
+            CoachError::Unavailable
+        }
     }
 
     fn failure(status: u16, body: Option<&Value>, asked: bool) -> CoachError {
@@ -325,27 +333,40 @@ mod coach_http {
 
     fn sessions(value: &Value) -> Option<Vec<CoachSession>> {
         let sessions = value["sessions"].as_array()?;
-        if sessions.len() > 20 { return None; }
-        sessions.iter().map(|row| Some(CoachSession {
-            id: required_id(&row["id"])?,
-            game: row["game"].as_str()?.to_owned(),
-            track: row["track"].as_str()?.to_owned(),
-            car: row["car"].as_str()?.to_owned(),
-            kind: row["kind"].as_str()?.to_owned(),
-            started_at: row["startedAt"].as_str()?.to_owned(),
-        })).collect()
+        if sessions.len() > 20 {
+            return None;
+        }
+        sessions
+            .iter()
+            .map(|row| {
+                Some(CoachSession {
+                    id: required_id(&row["id"])?,
+                    game: row["game"].as_str()?.to_owned(),
+                    track: row["track"].as_str()?.to_owned(),
+                    car: row["car"].as_str()?.to_owned(),
+                    kind: row["kind"].as_str()?.to_owned(),
+                    started_at: row["startedAt"].as_str()?.to_owned(),
+                })
+            })
+            .collect()
     }
 
     fn history(value: &Value) -> Option<CoachHistory> {
-        let conversation_id = if value.get("conversationId")?.is_null() { None } else { Some(required_id(&value["conversationId"])?) };
+        let conversation_id = if value.get("conversationId")?.is_null() {
+            None
+        } else {
+            Some(required_id(&value["conversationId"])?)
+        };
         let pending_request = match value.get("pendingRequest") {
             None | Some(Value::Null) => None,
             Some(row) => {
                 let pending_conversation = required_id(&row["conversationId"])?;
                 let message = row["message"].as_str()?;
                 if conversation_id.as_deref() != Some(pending_conversation.as_str())
-                    || message.trim().is_empty() || message.contains('\0')
-                    || message.encode_utf16().count() > MAX_COACH_QUESTION_UNITS {
+                    || message.trim().is_empty()
+                    || message.contains('\0')
+                    || message.encode_utf16().count() > MAX_COACH_QUESTION_UNITS
+                {
                     return None;
                 }
                 Some(CoachPending {
@@ -356,16 +377,28 @@ mod coach_http {
             }
         };
         let messages = value["messages"].as_array()?;
-        if messages.len() > 12 { return None; }
-        let messages = messages.iter().map(|row| {
-            let role = match row["role"].as_str()? {
-                "user" => CoachRole::User,
-                "assistant" => CoachRole::Assistant,
-                _ => return None,
-            };
-            Some(CoachMessage { role, content: row["content"].as_str()?.to_owned() })
-        }).collect::<Option<Vec<_>>>()?;
-        Some(CoachHistory { conversation_id, messages, pending_request })
+        if messages.len() > 12 {
+            return None;
+        }
+        let messages = messages
+            .iter()
+            .map(|row| {
+                let role = match row["role"].as_str()? {
+                    "user" => CoachRole::User,
+                    "assistant" => CoachRole::Assistant,
+                    _ => return None,
+                };
+                Some(CoachMessage {
+                    role,
+                    content: row["content"].as_str()?.to_owned(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(CoachHistory {
+            conversation_id,
+            messages,
+            pending_request,
+        })
     }
 
     fn answer(value: &Value) -> Option<CoachAnswer> {
@@ -380,37 +413,47 @@ mod coach_http {
     }
 
     pub(crate) fn coach_history(agent: &ureq::Agent, config: &Config, session_id: &str) -> Result<CoachHistory, CoachError> {
-        if !uuid(session_id) { return Err(CoachError::SessionUnavailable); }
+        if !uuid(session_id) {
+            return Err(CoachError::SessionUnavailable);
+        }
         history(&get(agent, config, &format!("?sessionId={session_id}"))?).ok_or(CoachError::Unavailable)
     }
 
     fn question_body(item: &CoachQuestion) -> Option<Value> {
-        if !uuid(&item.session_id) || !uuid(&item.idempotency_key)
+        if !uuid(&item.session_id)
+            || !uuid(&item.idempotency_key)
             || item.conversation_id.as_deref().is_some_and(|id| !uuid(id))
             || !matches!(item.language, "en" | "pt-BR" | "es-ES")
-            || item.message.trim().is_empty() || item.message.encode_utf16().count() > MAX_COACH_QUESTION_UNITS {
+            || item.message.trim().is_empty()
+            || item.message.encode_utf16().count() > MAX_COACH_QUESTION_UNITS
+        {
             return None;
         }
         let mut value = json!({
             "sessionId": item.session_id, "message": item.message,
             "idempotencyKey": item.idempotency_key, "language": item.language,
         });
-        if let Some(id) = &item.conversation_id { value["conversationId"] = json!(id); }
+        if let Some(id) = &item.conversation_id {
+            value["conversationId"] = json!(id);
+        }
         Some(value)
     }
 
     pub(crate) fn coach_ask(
-        agent: &ureq::Agent, config: &Config, question: &CoachQuestion, may_send: impl FnOnce() -> bool,
+        agent: &ureq::Agent,
+        config: &Config,
+        question: &CoachQuestion,
+        may_send: impl FnOnce() -> bool,
     ) -> Result<CoachAnswer, CoachError> {
         let body = question_body(question).ok_or(CoachError::Unavailable)?.to_string();
         let request = agent
             .post(format!("{}{PATH}", config.server))
             .header("Authorization", format!("Bearer {}", config.token))
             .content_type("application/json");
-        if !may_send() { return Err(CoachError::Unavailable); }
-        let response = request
-            .send(body.as_bytes())
-            .map_err(|_| CoachError::DeliveryUnknown)?;
+        if !may_send() {
+            return Err(CoachError::Unavailable);
+        }
+        let response = request.send(body.as_bytes()).map_err(|_| CoachError::DeliveryUnknown)?;
         answer(&read_response(response, true)?).ok_or(CoachError::DeliveryUnknown)
     }
 
@@ -423,8 +466,11 @@ mod coach_http {
         #[test]
         fn coach_question_uses_utf16_bound_and_only_an_explicit_conversation() {
             let mut item = CoachQuestion {
-                session_id: ID.into(), conversation_id: None, message: "🏁".repeat(1000),
-                idempotency_key: ID.into(), language: "pt-BR",
+                session_id: ID.into(),
+                conversation_id: None,
+                message: "🏁".repeat(1000),
+                idempotency_key: ID.into(),
+                language: "pt-BR",
             };
             assert!(question_body(&item).unwrap().get("conversationId").is_none());
             item.conversation_id = Some(ID.into());
@@ -435,10 +481,16 @@ mod coach_http {
 
         #[test]
         fn coach_reply_ignores_raw_provider_errors_and_rejects_invalid_history() {
-            assert_eq!(failure(403, Some(&json!({"code":"assistant_disabled"})), false), CoachError::EnableOnWebsite);
+            assert_eq!(
+                failure(403, Some(&json!({"code":"assistant_disabled"})), false),
+                CoachError::EnableOnWebsite
+            );
             assert_eq!(failure(409, Some(&json!({"code":"request_pending"})), true), CoachError::Pending);
             assert_eq!(failure(409, Some(&json!({"error":"device_busy"})), true), CoachError::Busy);
-            assert_eq!(failure(502, Some(&json!({"error":"internal provider detail"})), true), CoachError::DeliveryUnknown);
+            assert_eq!(
+                failure(502, Some(&json!({"error":"internal provider detail"})), true),
+                CoachError::DeliveryUnknown
+            );
             assert_eq!(failure(502, None, false), CoachError::Unavailable);
             assert!(history(&json!({"conversationId": ID, "messages":[{"role":"system", "content":"hidden"}]})).is_none());
             assert!(history(&json!({"conversationId":null, "messages":[]})).is_some());

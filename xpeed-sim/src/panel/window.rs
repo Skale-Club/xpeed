@@ -524,9 +524,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                     Action::OpenXpeed => win::open(&format!("{}{}", account.server, crate::connect::OPEN_PATH)),
                     Action::Coach => {
                         if !state.ctx.quit_on_close && account.device.is_some() {
-                            state.coach_window = crate::coach::show(
-                                hwnd, state.coach_window, account.lang, [state.ctx.icon_big, state.ctx.icon_small],
-                            );
+                            state.coach_window =
+                                crate::coach::show(hwnd, state.coach_window, account.lang, [state.ctx.icon_big, state.ctx.icon_small]);
                             if state.coach_window.is_null() {
                                 win::tell_error("Session Coach", "Could not open the Coach window.");
                             }
