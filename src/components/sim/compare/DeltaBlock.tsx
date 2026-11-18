@@ -16,7 +16,7 @@ export function DeltaBlock({ seconds, note, canSwap, onSwap }: { seconds: number
     <div className="flex flex-row items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 md:min-w-[11rem] md:flex-col md:justify-center" data-testid="delta-block">
       <div className="text-center">
         <p
-          className={cn('font-mono text-3xl font-bold tabular-nums leading-none md:text-4xl', tone === 'loss' && 'text-destructive', tone === 'gain' && 'text-green-500', seconds === null && 'text-muted-foreground')}
+          className={cn('font-mono text-3xl font-bold tabular-nums leading-none md:text-4xl', tone === 'loss' && 'text-destructive', tone === 'gain' && 'text-success', seconds === null && 'text-muted-foreground')}
           data-testid="final-gap"
           data-tone={tone ?? 'none'}
         >

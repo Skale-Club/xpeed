@@ -708,6 +708,8 @@
         "spreadTighter": "Tu dispersión es de {{spread}} s, un {{percent}}% menor que antes.",
         "spreadLooser": "Tu dispersión es de {{spread}} s, un {{percent}}% mayor que antes.",
         "noSessions": "Aún no hay sesiones.",
+        "pbBadge": "PB",
+        "moreStats": "Más estadísticas",
         "colWhen": "Cuándo",
         "colTrackCar": "Circuito y coche",
         "colLaps": "Vueltas",
@@ -834,6 +836,7 @@
       "notComparableLength": "Estas vueltas no son del mismo trazado, así que sus curvas no se pueden comparar.",
       "notComparableChannels": "No se pueden comparar estas vueltas curva a curva.",
       "zoomTo": "Ampliar la curva {{corner}}",
+      "cornerLabel": "Curva {{corner}}",
       "zoomedTo": "Ampliado en la curva {{corner}} ({{from}}–{{to}} {{unit}})",
       "showWhole": "Mostrar la vuelta entera",
       "cornersTitle": "Curva a curva",
@@ -2777,10 +2780,12 @@
     "filters": {
       "active": "Filtrando por",
       "anyTime": "Cualquier fecha",
+      "clearAll": "Borrar todo",
       "kind": "Tipo de sesión",
       "kindShort": "Tipo",
       "period": "Período",
       "removeFilter": "Quitar el filtro: {{filter}}",
+      "showResults": "Mostrar resultados",
       "title": "Filtros",
       "validOnly": "Solo vueltas válidas",
       "validOnlyHint": "Oculta las sesiones en las que el juego no dio ninguna vuelta por válida."
@@ -2815,11 +2820,13 @@
       "bestShort": "mejor",
       "bestThree": "3 mejores: {{time}}",
       "chartHint": "Haz clic en una barra para abrir el análisis de esa vuelta.",
+      "chartHintTouch": "Toca una barra para abrir el análisis de esa vuelta.",
       "chartSummaryNoBest_one": "{{title}}: {{count}} vuelta, y no es válida. Tiene un enlace Analizar en la tabla de abajo.",
       "chartSummaryNoBest_other": "{{title}}: {{count}} vueltas, ninguna válida. Cada vuelta tiene un enlace Analizar en la tabla de abajo.",
       "chartSummary_one": "{{title}}: {{count}} vuelta, la mejor, {{time}}. Tiene un enlace Analizar en la tabla de abajo.",
       "chartSummary_other": "{{title}}: {{count}} vueltas; la mejor es la vuelta {{n}}, con {{time}}; la vuelta rápida más lenta es {{slow}}. Cada vuelta tiene un enlace Analizar en la tabla de abajo.",
       "clean": "limpias",
+      "fuelShort": "Combustible",
       "fuelSub": "sin las vueltas por boxes",
       "heldBy": "vuelta {{n}}",
       "isPb": "tu mejor marca personal",
@@ -2835,8 +2842,11 @@
       "legendScale": "Más lejos del mejor, de cerca a lejos",
       "lengthHint": "Del inicio al final de la sesión.",
       "noValid": "ninguna vuelta válida",
+      "reverseSort": "Invertir el orden",
       "sectorsSub": "respecto al mejor de la sesión",
       "sectorsTitle": "Sectores",
+      "slowest": "más lenta",
+      "sortBy": "Ordenar por",
       "sortHint": "Ordena por vuelta, tiempo o diferencia",
       "spreadNone": "necesita 2 vueltas válidas",
       "spreadSub": "dispersión de las vueltas válidas",
@@ -2863,6 +2873,45 @@
       "time": "Tiempo de sesión",
       "timeHint": "Tiempo conducido en estas sesiones.",
       "tracksCars": "Circuitos · coches"
+    }
+  },
+  "ui": {
+    "chip": {
+      "remove": "Quitar"
+    },
+    "pagination": {
+      "label": "Paginación",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "status": "Página {{page}} de {{count}}",
+      "range": "{{from}}–{{to}} de {{total}}",
+      "jump": "Ir a la página",
+      "option": "Página {{page}}"
+    },
+    "loadMore": {
+      "label": "Cargar más"
+    },
+    "states": {
+      "errorTitle": "Algo salió mal",
+      "errorDescription": "No se pudo cargar. Inténtalo de nuevo en un momento.",
+      "retry": "Reintentar",
+      "loading": "Cargando…"
+    },
+    "queryGate": {
+      "signedOutTitle": "Has cerrado sesión",
+      "signedOutDescription": "Inicia sesión de nuevo para continuar.",
+      "stale": "Mostrando datos guardados",
+      "staleHint": "No se pudo actualizar.",
+      "emptyTitle": "Aún no hay nada aquí"
+    },
+    "filter": {
+      "clearSearch": "Borrar búsqueda"
+    },
+    "filterSheet": {
+      "title": "Filtros",
+      "description": "Elige cómo filtrar la lista.",
+      "clear": "Borrar todo",
+      "apply": "Ver resultados"
     }
   },
   "demo": {

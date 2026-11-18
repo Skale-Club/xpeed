@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react';
-import { Card } from '@/components/ui/card';
+import { Panel } from '@/components/ui/panel';
 import { FILTER_CELL } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Link } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { cleanName, driverPath, VISIBILITIES, type Visibility } from '@/lib/sim/social-client';
 import { VISIBILITY_SHOWS, atHandle, avatarHue, initialsOf } from './social-utils';
 
-const AVATAR_SIZE = { sm: 'h-7 w-7 text-[11px]', md: 'h-9 w-9 text-sm', lg: 'h-14 w-14 text-xl', xl: 'h-16 w-16 text-2xl' } as const;
+const AVATAR_SIZE = { sm: 'h-7 w-7 text-2xs', md: 'h-9 w-9 text-sm', lg: 'h-14 w-14 text-xl', xl: 'h-16 w-16 text-2xl' } as const;
 
 /** A round avatar with the driver's initials, in a colour that is always the same for the same handle. Decorative: the name is written next to it. */
 export function Avatar({ handle, displayName, size = 'md', className }: { handle: string; displayName?: string | null; size?: keyof typeof AVATAR_SIZE; className?: string }) {
@@ -29,21 +29,22 @@ export function Avatar({ handle, displayName, size = 'md', className }: { handle
  * Who a driver is: the display name and the handle, or the handle alone when the person has no name to show (a private profile in
  * a friend list). Never an e-mail, a phone number or an account name: the API has none to give. Links to the driver's page.
  */
-export function DriverName({ handle, displayName, link = true, className, testId }: {
+export function DriverName({ handle, displayName, link = true, className, nameClassName, testId }: {
   handle: string;
   displayName?: string | null;
   link?: boolean;
   className?: string;
+  nameClassName?: string;
   testId?: string;
 }) {
   const name = cleanName(displayName);
   const inner = name ? (
     <>
-      <span className="truncate font-medium">{name}</span>
+      <span className={cn('truncate font-medium', nameClassName)}>{name}</span>
       <span className="truncate text-xs text-muted-foreground">{atHandle(handle)}</span>
     </>
   ) : (
-    <span className="truncate font-medium">{atHandle(handle)}</span>
+    <span className={cn('truncate font-medium', nameClassName)}>{atHandle(handle)}</span>
   );
   const classes = cn('flex min-w-0 items-baseline gap-x-2', className);
   return link ? (
@@ -141,18 +142,14 @@ export function VisibilityPicker({ value, onChange, disabled, name = 'visibility
 }
 
 /**
- * One block of a settings page: the title and a sentence about it on the left, the controls in a card on the right (stacked on a phone).
+ * One block of a settings page: the shared `Panel` with a title and a sentence about it, the controls inside.
  * `danger` is for what cannot be undone: a red outline and a red title.
  */
 export function SettingsSection({ title, description, danger, testId, children }: { title: ReactNode; description?: ReactNode; danger?: boolean; testId?: string; children: ReactNode }) {
   return (
-    <section className="grid gap-3 md:grid-cols-[15rem,minmax(0,1fr)] md:gap-6" data-testid={testId}>
-      <div className="space-y-1">
-        <h3 className={cn('text-sm font-semibold', danger && 'text-destructive')}>{title}</h3>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-      </div>
-      <Card className={cn('min-w-0 space-y-4 bg-card p-4', danger && 'border-destructive/40')}>{children}</Card>
-    </section>
+    <Panel title={danger ? <span className="text-destructive">{title}</span> : title} description={description} className={cn(danger && 'border-destructive/40')} testId={testId}>
+      {children}
+    </Panel>
   );
 }
 

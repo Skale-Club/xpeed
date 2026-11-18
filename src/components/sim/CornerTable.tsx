@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { formatGap, lengthIn, lengthLabel, speedIn, speedLabel, type DistanceUnit } from '@/lib/sim/analysis';
 import type { CornerDelta } from '@/lib/sim/corner-compare';
 import { cornerRange, cornerRows, unmatchedCorners, type CornerOrder, type Range, type RowTone } from '@/lib/sim/corner-table';
@@ -12,7 +13,7 @@ import type { LapStudy } from '@/lib/sim/lap-study-core';
 import { cn } from '@/lib/utils';
 import { WhyNotComparable } from './WhereTimeWent';
 
-const TONE_CLASS: Record<RowTone, string> = { loss: 'text-destructive', gain: 'text-green-500', even: 'text-muted-foreground' };
+const TONE_CLASS: Record<RowTone, string> = { loss: 'text-destructive', gain: 'text-success', even: 'text-muted-foreground' };
 
 /** A signed difference with its unit; a dash where the lap has no such figure. */
 const signed = (value: number | null, digits = 1) => {
@@ -60,6 +61,7 @@ export function CornerTable({ study, lapLengthM, unit, selected, onSelect, onRes
   onReset: () => void;
 }) {
   const { t } = useTranslation();
+  const mobile = useIsMobile();
   const [order, setOrder] = useState<CornerOrder>('track');
   const cause = useCauseLabel();
   const speed = (kmh: number | null) => signed(kmh === null ? null : speedIn(kmh / 3.6, unit), 1);
@@ -117,6 +119,46 @@ export function CornerTable({ study, lapLengthM, unit, selected, onSelect, onRes
 
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="corner-none">{t('modes.analysis.noCorners', 'No corner could be matched on both laps.')}</p>
+        ) : mobile ? (
+          <ul className="space-y-2" data-testid="corner-cards">
+            {rows.map(({ corner, tone }) => {
+              const why = cause(corner);
+              const isSelected = selected === corner.index;
+              const figures: [string, string][] = [
+                [t('modes.analysis.col.min', 'Minimum ({{unit}})', { unit: v }), speed(corner.minSpeedKmh)],
+                [t('modes.analysis.col.exit', 'Exit ({{unit}})', { unit: v }), speed(corner.exitSpeedKmh)],
+                [t('modes.analysis.col.brake', 'Brake point ({{unit}})', { unit: d }), metres(corner.brakePointM)],
+              ];
+              return (
+                <li key={corner.index}>
+                  <button
+                    type="button"
+                    className={cn('flex min-h-10 w-full flex-col gap-1.5 rounded-md border border-border p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', isSelected ? 'border-primary bg-muted' : 'bg-card')}
+                    onClick={() => onSelect(corner, cornerRange(corner, lapLengthM))}
+                    aria-pressed={isSelected}
+                    data-testid="corner-card"
+                    data-corner={corner.index}
+                    data-tone={tone}
+                    data-selected={isSelected ? 'true' : undefined}
+                  >
+                    <span className="flex w-full items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{t('modes.analysis.cornerLabel', 'Corner {{corner}}', { corner: corner.index })}</span>
+                      <span className={cn('font-mono text-sm font-bold tabular-nums', TONE_CLASS[tone])} data-testid="corner-time">{formatGap(corner.deltaTime)} s</span>
+                    </span>
+                    {why && <span className="text-xs text-muted-foreground" data-testid="corner-cause">{why.label}</span>}
+                    <span className="grid w-full grid-cols-3 gap-2">
+                      {figures.map(([label, value]) => (
+                        <span key={label} className="min-w-0 text-xs text-muted-foreground">
+                          <span className="block truncate">{label}</span>
+                          <span className="block font-mono tabular-nums text-foreground">{value}</span>
+                        </span>
+                      ))}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs sm:text-sm" data-testid="corner-rows">

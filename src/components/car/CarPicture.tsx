@@ -96,8 +96,8 @@ export function CarPicture({ car, className, label, interactive = false, cutoutO
     <div className={cn('relative aspect-[4/3] min-w-0 overflow-hidden', className)}>
       {showPoster && <img src={visual.posterPath!} alt={alt} onError={() => setPosterFailed(true)} className="absolute inset-0 h-full w-full object-contain" data-testid="vehicle-poster" />}
       {showModel && <VehicleModelViewer visual={visual} alt={alt} className="absolute inset-0 h-full w-full" onFailure={handleModelFailure} />}
-      {showModel && <span aria-hidden="true" className="absolute bottom-1 left-1 rounded bg-background/75 px-1.5 py-0.5 text-[10px] text-muted-foreground">360°</span>}
-      <div className="absolute bottom-1 right-1 z-10 flex gap-1 rounded bg-background/75 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+      {showModel && <span aria-hidden="true" className="absolute bottom-1 left-1 rounded bg-background/75 px-1.5 py-0.5 text-2xs text-muted-foreground">360°</span>}
+      <div className="absolute bottom-1 right-1 z-10 flex gap-1 rounded bg-background/75 px-1.5 py-0.5 text-2xs text-muted-foreground">
         <a href={visual.credit.sourceUrl} target="_blank" rel="noreferrer" aria-label={`Model by ${visual.credit.author}`} title={`${visual.credit.author}${visual.credit.changes ? ` · ${visual.credit.changes}` : ''}`}>{visual.credit.author}</a>
         <a href={visual.credit.licenseUrl} target="_blank" rel="noreferrer" aria-label={`License ${visual.credit.license}`}>{visual.credit.license}</a>
       </div>

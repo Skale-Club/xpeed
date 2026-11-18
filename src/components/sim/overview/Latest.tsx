@@ -4,8 +4,9 @@ import { Award, ChevronRight } from 'lucide-react';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { useGames } from '@/lib/sim/games';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { sessionPath } from '@/lib/sim/routes';
-import type { V1Overview } from '@/lib/sim/v1-client';
+import type { V1Overview, V1Session } from '@/lib/sim/v1-client';
 import { SimCarIdentity } from '../SimCarIdentity';
 import { GameBadge, KindBadge } from '../session-bits';
 import { useWhen } from '../use-when';
@@ -14,10 +15,13 @@ import { Panel, Quiet } from './parts';
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 /** The latest sessions as a compact table: when, game, track, car, laps, the best valid lap and the kind. The track opens the session. */
-export function SessionsPanel({ sessions }: { sessions: V1Overview['latestSessions'] }) {
+export function SessionsPanel({ sessions, bests = [] }: { sessions: V1Overview['latestSessions']; bests?: V1Overview['latestPersonalBests'] }) {
   const { t } = useTranslation();
+  const mobile = useIsMobile();
   const when = useWhen();
   const day = useWhen('date');
+  // A session shows the PB badge when its best lap is one of the recent personal bests (same game, track and car, same time).
+  const isPb = (session: V1Session) => session.bestLapMs !== null && bests.some((pb) => pb.game === session.game && pb.track.id === session.track.id && pb.car.id === session.car.id && pb.bestMs === session.bestLapMs);
   return (
     <Panel
       title={t('modes.overview.recent', 'Latest sessions')}
@@ -26,6 +30,28 @@ export function SessionsPanel({ sessions }: { sessions: V1Overview['latestSessio
     >
       {sessions.length === 0 ? (
         <Quiet>{t('modes.overview.dash.noSessions', 'No sessions yet.')}</Quiet>
+      ) : mobile ? (
+        <ul className="space-y-2" data-testid="overview-session-cards">
+          {sessions.slice(0, 3).map((session) => (
+            <li key={session.id} data-testid="overview-session">
+              <Link to={sessionPath(session.id)} className={`flex min-h-10 items-center justify-between gap-3 rounded-md border border-border p-3 active:bg-muted/60 ${FOCUS}`} data-testid="overview-session-link">
+                <span className="min-w-0 space-y-0.5">
+                  <span className="block truncate text-sm font-medium">{session.track.name}</span>
+                  <SimCarIdentity name={session.car.name} className="block truncate text-xs text-muted-foreground" />
+                  <span className="block text-xs text-muted-foreground">{when(Date.parse(session.startedAt))}</span>
+                </span>
+                <span className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="font-mono text-xl font-semibold tabular-nums" data-testid="overview-session-best">{session.bestLapMs !== null ? formatLapTime(session.bestLapMs) : '–'}</span>
+                  {isPb(session) && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary" data-testid="overview-session-pb">
+                      <Award className="h-3 w-3" aria-hidden="true" />{t('modes.overview.dash.pbBadge', 'PB')}
+                    </span>
+                  )}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">

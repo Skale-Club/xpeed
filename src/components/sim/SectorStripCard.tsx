@@ -4,7 +4,7 @@ import { formatLapTime } from '@/lib/sim/analysis';
 import type { SectorStrip, StripTone } from '@/lib/sim/sector-strip';
 import { cn } from '@/lib/utils';
 
-const TONE_CLASS: Record<StripTone, string> = { purple: 'font-semibold text-purple-500', yellow: 'text-yellow-500', none: 'text-muted-foreground' };
+const TONE_CLASS: Record<StripTone, string> = { purple: 'font-semibold text-brand-3', yellow: 'text-warn', none: 'text-muted-foreground' };
 
 /** A sector time: `32.145` seconds. */
 const sector = (ms: number | null) => (ms === null ? '–' : (ms / 1000).toFixed(3));
@@ -56,9 +56,9 @@ export function SectorStripCard({ strip }: { strip: SectorStrip }) {
               <tr className="border-t border-border" data-testid="strip-delta">
                 <th scope="row" className="py-1.5 pr-3 text-left font-normal text-muted-foreground">{t('modes.compare.difference', 'Difference')}</th>
                 {strip.sectors.map((s) => (
-                  <td key={s.sector} className={cn(row, s.deltaMs !== null && s.deltaMs > 0 ? 'text-destructive' : s.deltaMs !== null && s.deltaMs < 0 ? 'text-green-500' : 'text-muted-foreground')}>{signedS(s.deltaMs)}</td>
+                  <td key={s.sector} className={cn(row, s.deltaMs !== null && s.deltaMs > 0 ? 'text-destructive' : s.deltaMs !== null && s.deltaMs < 0 ? 'text-success' : 'text-muted-foreground')}>{signedS(s.deltaMs)}</td>
                 ))}
-                <td className={cn(row, lapTotal !== null && referenceTotal !== null && lapTotal > referenceTotal ? 'text-destructive' : lapTotal !== null && referenceTotal !== null && lapTotal < referenceTotal ? 'text-green-500' : 'text-muted-foreground')}>
+                <td className={cn(row, lapTotal !== null && referenceTotal !== null && lapTotal > referenceTotal ? 'text-destructive' : lapTotal !== null && referenceTotal !== null && lapTotal < referenceTotal ? 'text-success' : 'text-muted-foreground')}>
                   {lapTotal !== null && referenceTotal !== null ? signedS(lapTotal - referenceTotal) : '–'}
                 </td>
               </tr>
@@ -82,8 +82,8 @@ export function SectorStripCard({ strip }: { strip: SectorStrip }) {
           )}
         </p>
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <li><span className="font-semibold text-purple-500">{t('modes.session.legendPurple', 'Purple')}</span>: {t('modes.analysis.tonePurple', 'the better of the two in that sector')}</li>
-          <li><span className="text-yellow-500">{t('modes.session.legendYellow', 'Yellow')}</span>: {t('modes.analysis.toneYellow', 'slower than the other lap')}</li>
+          <li><span className="font-semibold text-brand-3">{t('modes.session.legendPurple', 'Purple')}</span>: {t('modes.analysis.tonePurple', 'the better of the two in that sector')}</li>
+          <li><span className="text-warn">{t('modes.session.legendYellow', 'Yellow')}</span>: {t('modes.analysis.toneYellow', 'slower than the other lap')}</li>
         </ul>
       </CardContent>
     </Card>

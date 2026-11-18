@@ -9,7 +9,7 @@ import type { Study } from '@/lib/sim/lap-study-client';
 import type { LapStudy } from '@/lib/sim/lap-study-core';
 import { cn } from '@/lib/utils';
 
-const SEVERITY_DOT = { high: 'bg-destructive', medium: 'bg-amber-500', low: 'bg-muted-foreground' } as const;
+const SEVERITY_DOT = { high: 'bg-destructive', medium: 'bg-warn', low: 'bg-muted-foreground' } as const;
 
 /** The reason a pair of laps could not be put corner by corner, in words. */
 export function WhyNotComparable({ reason }: { reason: 'length' | 'channels' | 'ok' }) {

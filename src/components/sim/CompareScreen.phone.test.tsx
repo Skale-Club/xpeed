@@ -81,4 +81,36 @@ describe('the Compare screen on a phone', () => {
     expect(await screen.findByTestId('compare-start')).toBeInTheDocument();
     expect(screen.queryByTestId('sticky-laps')).not.toBeInTheDocument();
   });
+
+  it('makes the sticky bar compact: 40 px, one line, small text', async () => {
+    renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
+    const bar = await screen.findByTestId('sticky-laps');
+    expect(bar.className).toMatch(/\bh-10\b/);
+    expect(bar.className).not.toMatch(/\bh-14\b/);
+    expect(within(bar).getByTestId('sticky-lap').parentElement?.className).toMatch(/whitespace-nowrap/);
+    expect(within(bar).getByTestId('sticky-change').className).toMatch(/\bh-10\b/);
+  });
+
+  it('lists the corners as tappable cards, not a table, and selects one on tap', async () => {
+    renderSim(<CompareScreen />, { state, route: `/virtual/compare?a=${myLap.id}&b=${bestLap.id}` });
+    fireEvent.mouseDown(await screen.findByTestId('tab-corners'), { button: 0, ctrlKey: false });
+    const cards = await screen.findAllByTestId('corner-card');
+    expect(screen.queryByTestId('corner-rows')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('corner-row')).not.toBeInTheDocument();
+    for (const card of cards) {
+      expect(card.tagName).toBe('BUTTON');
+      expect(card.className).toMatch(/min-h-10/);
+      expect(within(card).getByTestId('corner-time')).toHaveTextContent(/s$/);
+      expect(card).toHaveTextContent(/Corner \d+/);
+    }
+    expect(cards[0]).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(cards[0]);
+    // On a phone a tap takes the driver to the charts, zoomed to the corner; the way back is the Corners tab.
+    await waitFor(() => expect(screen.getByTestId('tab-charts')).toHaveAttribute('data-state', 'active'));
+    expect(screen.getByTestId('zoom-bar')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId('tab-corners'), { button: 0, ctrlKey: false });
+    await waitFor(() => expect(screen.getAllByTestId('corner-card')[0]).toHaveAttribute('data-selected', 'true'));
+    expect(screen.getAllByTestId('corner-card')[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('show-whole-lap')).toBeInTheDocument();
+  }, 20000);
 });

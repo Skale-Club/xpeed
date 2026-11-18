@@ -29,6 +29,8 @@ import { WaitingNotice } from '@/components/trip/WaitingNotice';
 import { CustomPidsCard } from '@/components/scanner/CustomPidsCard';
 import { TerminalCard } from '@/components/scanner/TerminalCard';
 import { EcuScanCard } from '@/components/scanner/EcuScanCard';
+import { PageHeader } from '@/components/ui/page-header';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type Tab = 'readings' | 'codes' | 'tools';
 
@@ -152,10 +154,7 @@ export default function ScannerPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-bold">{t('scanner.title', 'OBD2 Scanner')}</h2>
-          {selectedCar && <p className="text-sm text-muted-foreground">{selectedCar.name}</p>}
-        </div>
+        <PageHeader title={t('scanner.title', 'OBD2 Scanner')} description={selectedCar?.name} />
 
         {status === 'unsupported' && (
           <Alert variant="destructive">
@@ -233,22 +232,17 @@ export default function ScannerPage() {
         ) : (
           <>
             {/* Same underline tabs as the Problems page. */}
-            <div className="flex gap-1 border-b border-border" role="tablist">
-              {tabs.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === key}
-                  onClick={() => setTab(key)}
-                  className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm ${tab === key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                >
-                  {label}
-                  {key === 'readings' && <span className="ml-1.5 text-xs text-muted-foreground">{channels.length}</span>}
-                  {key === 'codes' && allCodes.length > 0 && <span className="ml-1.5 text-xs text-destructive">{allCodes.length}</span>}
-                </button>
-              ))}
-            </div>
+            <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+              <TabsList variant="underline">
+                {tabs.map(({ key, label }) => (
+                  <TabsTrigger key={key} value={key} aria-controls={undefined}>
+                    {label}
+                    {key === 'readings' && <span className="ml-1.5 text-xs text-muted-foreground">{channels.length}</span>}
+                    {key === 'codes' && allCodes.length > 0 && <span className="ml-1.5 text-xs text-destructive">{allCodes.length}</span>}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
 
             {tab === 'readings' && (
               channels.length === 0 ? (
@@ -297,7 +291,7 @@ export default function ScannerPage() {
                     {dtcs && (
                       <div className="space-y-2">
                         {(dtcs.pending.length > 0 || dtcs.permanent.length > 0) && (
-                          <div className="flex flex-wrap gap-1.5 text-[11px]">
+                          <div className="flex flex-wrap gap-1.5 text-2xs">
                             {dtcs.pending.map((c) => (
                               <Badge key={`p-${c}`} variant="outline" className="font-mono">{c} · {t('scanner.pending', 'pending')}</Badge>
                             ))}

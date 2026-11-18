@@ -47,9 +47,9 @@ export function TrackBoard({ board, sectors }: { board: readonly BoardRow[]; sec
               {board.map((entry) => (
                 <tr key={entry.car.id} className="hover:bg-muted/40" data-testid="best-car-row">
                   <td className="py-2 pr-2 align-middle tabular-nums text-muted-foreground" data-testid="best-car-rank">{entry.rank ?? '–'}</td>
-                  <td className="max-w-[6.5rem] py-2 pr-2 align-middle sm:max-w-[18rem] sm:pr-3">
+                  <td className="max-w-[9rem] py-2 pr-2 align-middle sm:max-w-[18rem] sm:pr-3">
                     <Link to={carPath(entry.car.id)} className="inline-flex max-w-full min-w-0 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="best-car-link">
-                      <SimCarIdentity name={entry.car.name} />
+                      <SimCarIdentity name={entry.car.name} nameClassName="line-clamp-2 break-words sm:line-clamp-none sm:truncate" />
                     </Link>
                     {entry.car.class && <Badge variant="outline" className="ml-2 hidden align-middle sm:inline-flex">{entry.car.class}</Badge>}
                     {entry.bestMs === null && <p className="mt-0.5 text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>}

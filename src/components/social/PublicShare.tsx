@@ -36,7 +36,7 @@ export function SectorStrip({ sectorsMs }: { sectorsMs: number[] }) {
             style={{ flexGrow: ms, flexBasis: 0 }}
             data-testid="sector"
           >
-            <span className="block text-[10px] text-muted-foreground">{`S${i + 1}`}</span>
+            <span className="block text-2xs text-muted-foreground">{`S${i + 1}`}</span>
             <span className="block truncate font-mono tabular-nums">{sector(ms)}</span>
           </li>
         ))}

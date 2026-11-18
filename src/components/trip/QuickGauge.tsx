@@ -96,8 +96,8 @@ export function QuickGauge({
   return (
     <div className="flex flex-col items-center rounded-xl bg-background/60 px-2 pb-2.5 pt-2" data-testid="quick-gauge">
       <PillDial value={value} unit={unit} label={label} min={min} max={max} tone={tone} />
-      <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
-      <p className={cn('mt-0.5 h-4 text-[11px] font-semibold', TONE_TEXT[tone])}>{status ?? ''}</p>
+      <p className="mt-1 text-2xs text-muted-foreground">{label}</p>
+      <p className={cn('mt-0.5 h-4 text-2xs font-semibold', TONE_TEXT[tone])}>{status ?? ''}</p>
     </div>
   );
 }

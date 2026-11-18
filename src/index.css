@@ -38,10 +38,28 @@
     --border: 225 6% 17%;
     --input: 225 6% 20%;
 
+    /* Structure — surface steps and border strengths */
+    --surface: 225 7% 10%;
+    --surface-raised: 225 7% 13%;
+    --surface-overlay: 225 7% 15%;
+    --border-subtle: 225 6% 14%;
+    --border-strong: 225 6% 24%;
+
     /* Brand accent — #F5E663 */
     --primary: 54 88% 67%;
     --primary-foreground: 225 10% 8%;
     --ring: 54 88% 67%;
+
+    /*
+     * Brand hues — brand (yellow) is for actions; brand-2 (electric blue, secondary) and
+     * brand-3 (violet, tertiary) are for highlights, selection, series and illustration, never for status.
+     */
+    --brand: 54 88% 67%;
+    --brand-foreground: 225 10% 8%;
+    --brand-2: 212 88% 64%;
+    --brand-2-foreground: 225 10% 8%;
+    --brand-3: 265 72% 70%;
+    --brand-3-foreground: 225 10% 8%;
 
     --radius: 0.5rem;
 
@@ -54,14 +72,31 @@
     --critical-foreground: 0 0% 100%;
     --success: 152 58% 46%;
     --success-foreground: 152 80% 10%;
+    --info: 205 88% 62%;
+    --info-foreground: 205 90% 10%;
 
-    /* Chart palette — series colors; the first one follows the brand. */
-    --chart-teal: 54 88% 67%;
-    --chart-amber: 38 92% 58%;
-    --chart-red: 0 75% 60%;
-    --chart-blue: 212 85% 62%;
-    --chart-green: 152 58% 46%;
-    --chart-purple: 265 70% 68%;
+    /* Chart palette — ordered series; the first one follows the brand. */
+    --chart-1: 54 88% 67%;
+    --chart-2: 212 88% 64%;
+    --chart-3: 265 72% 70%;
+    --chart-4: 152 58% 46%;
+    --chart-5: 38 92% 58%;
+    --chart-6: 322 70% 62%;
+    --chart-7: 0 75% 60%;
+    --chart-8: 243 70% 66%;
+    --chart-9: 217 91% 72%;
+    /* Deprecated aliases of the series above; use --chart-N. */
+    --chart-teal: var(--chart-1);
+    --chart-blue: var(--chart-2);
+    --chart-purple: var(--chart-3);
+    --chart-green: var(--chart-4);
+    --chart-amber: var(--chart-5);
+    --chart-red: var(--chart-7);
+
+    /* Elevation */
+    --shadow-card: inset 0 1px 0 0 hsl(0 0% 100% / 0.03), 0 10px 30px -18px rgb(0 0 0 / 0.7);
+    --shadow-raised: 0 4px 14px -6px rgb(0 0 0 / 0.55);
+    --shadow-overlay: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 0 0 1px hsl(0 0% 100% / 0.04);
 
     /* Sidebar — a step darker than the page */
     --sidebar-background: 225 8% 6%;
@@ -144,16 +179,15 @@
   }
 
   .severity-normal {
-    @apply text-success border-success/30 bg-success/10;
+    @apply text-success border-success-line bg-success-soft;
   }
 
   .severity-attention {
-    color: hsl(var(--warn));
-    border-color: hsl(var(--warn) / 0.3);
-    background-color: hsl(var(--warn) / 0.1);
+    @apply text-warn border-warn-line bg-warn-soft;
   }
 
   .severity-critical {
-    @apply text-destructive border-destructive/30 bg-destructive/10;
+    @apply text-destructive border-destructive-line bg-destructive-soft;
   }
+}
 }

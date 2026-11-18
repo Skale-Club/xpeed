@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,6 +30,7 @@ import { BodyTypePicker, ColorPicker } from '@/components/car/CarLookPickers';
 import { guessBodyType, isBodyType, isCarColor, type BodyType, type CarColor } from '@/lib/car-look';
 import { carPhotoProblem, removeCarPhoto, uploadCarPhoto } from '@/lib/car-photo';
 import { isValidVin } from '@/lib/vin';
+import { PageHeader } from '@/components/ui/page-header';
 
 type CarWithEngine = CarProfile & { engine_type?: EngineType | null };
 
@@ -183,11 +185,10 @@ export default function CarsPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Car className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-bold text-foreground">{t('vehicle.myCars', 'My cars')}</h2>
-          </div>
+        <PageHeader
+          icon={Car}
+          title={t('vehicle.myCars', 'My cars')}
+          actions={
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -208,7 +209,8 @@ export default function CarsPage() {
               />
             </DialogContent>
           </Dialog>
-        </div>
+          }
+        />
 
         {loading ? (
           <PageLoader fullScreen={false} className="py-12" />
@@ -221,16 +223,18 @@ export default function CarsPage() {
           </Card>
         ) : cars.length === 0 ? (
           <Card className="bg-card border-border">
-            <CardContent className="py-12 text-center">
-              <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-semibold text-foreground mb-2">{t('vehicle.none', 'No cars yet')}</h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                {t('vehicle.noneHint', 'Add your car to start checking it.')}
-              </p>
-              <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
-                <Plus className="w-3.5 h-3.5 mr-2" />
-                {t('vehicle.add', 'Add car')}
-              </Button>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Car}
+                title={t('vehicle.none', 'No cars yet')}
+                description={t('vehicle.noneHint', 'Add your car to start checking it.')}
+                action={
+                  <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
+                    <Plus className="w-3.5 h-3.5 mr-2" />
+                    {t('vehicle.add', 'Add car')}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         ) : (
@@ -257,7 +261,7 @@ export default function CarsPage() {
                           <span className="block truncate text-sm font-semibold">{headline}</span>
                           {car.trim && <span className="mt-0.5 block text-xs text-muted-foreground">{car.trim}</span>}
                           {car.vin && (
-                            <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
+                            <span className="mt-0.5 block truncate font-mono text-2xs text-muted-foreground">
                               {t('vehicle.vinShort', 'Chassis')} {car.vin}
                             </span>
                           )}

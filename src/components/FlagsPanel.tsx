@@ -109,17 +109,17 @@ export default function FlagsPanel({
                 <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isCritical ? 'text-destructive' : 'text-warn'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`text-[10px] uppercase font-mono font-bold tracking-wider ${isCritical ? 'text-destructive' : 'text-warn'}`}>
+                    <span className={`text-2xs uppercase font-mono font-bold tracking-wider ${isCritical ? 'text-destructive' : 'text-warn'}`}>
                       {t(`flags.${isCritical ? 'critical' : 'attention'}`, isCritical ? 'Critical' : 'Attention')}
                     </span>
-                    <span className="text-[10px] font-mono text-muted-foreground">{flag.canonical_key}</span>
+                    <span className="text-2xs font-mono text-muted-foreground">{flag.canonical_key}</span>
                     {flag.resolved && (
-                      <span className="text-[10px] font-mono text-success px-1.5 rounded bg-success/10">{t('flags.resolved', 'resolved')}</span>
+                      <span className="text-2xs font-mono text-success px-1.5 rounded bg-success/10">{t('flags.resolved', 'resolved')}</span>
                     )}
                   </div>
                   <p className="text-xs text-foreground leading-relaxed">{message}</p>
                   {evidence && (
-                    <div className="flex gap-3 mt-2 text-[10px] font-mono text-muted-foreground">
+                    <div className="flex gap-3 mt-2 text-2xs font-mono text-muted-foreground">
                       {evidence.max !== undefined && <span>{t('flags.max', 'max')}: {num(evidence.max)}</span>}
                       {evidence.avg !== undefined && <span>{t('flags.avg', 'avg')}: {num(evidence.avg)}</span>}
                       {evidence.pct_out_of_range !== undefined && <span>{t('flags.out_of_range', '{{value}}% out of range', { value: num(evidence.pct_out_of_range) })}</span>}
@@ -140,19 +140,19 @@ export default function FlagsPanel({
                         <div className="mt-2 space-y-2 border-t border-border/50 pt-2">
                           {what_happened && (
                             <div>
-                              <div className="text-[10px] font-mono uppercase text-muted-foreground mb-0.5">{t('flags.what_happened', 'What happened')}</div>
+                              <div className="text-2xs font-mono uppercase text-muted-foreground mb-0.5">{t('flags.what_happened', 'What happened')}</div>
                               <p className="text-xs text-foreground/90 leading-relaxed">{what_happened}</p>
                             </div>
                           )}
                           {why_it_matters && (
                             <div>
-                              <div className="text-[10px] font-mono uppercase text-muted-foreground mb-0.5">{t('flags.why_it_matters', 'Why it matters')}</div>
+                              <div className="text-2xs font-mono uppercase text-muted-foreground mb-0.5">{t('flags.why_it_matters', 'Why it matters')}</div>
                               <p className="text-xs text-foreground/90 leading-relaxed">{why_it_matters}</p>
                             </div>
                           )}
                           {what_to_do && (
                             <div>
-                              <div className="text-[10px] font-mono uppercase text-warn mb-0.5">{t('flags.what_to_do', 'What to do')}</div>
+                              <div className="text-2xs font-mono uppercase text-warn mb-0.5">{t('flags.what_to_do', 'What to do')}</div>
                               <p className="text-xs text-foreground leading-relaxed">{what_to_do}</p>
                             </div>
                           )}
@@ -161,7 +161,7 @@ export default function FlagsPanel({
                               type="button"
                               size="sm"
                               variant="outline"
-                              className="mt-1 h-7 text-[10px] font-mono"
+                              className="mt-1 h-7 text-2xs font-mono"
                               onClick={() => onAskAi(flag)}
                             >
                               <Sparkles className="w-3 h-3 mr-1" />

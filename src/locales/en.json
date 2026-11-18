@@ -708,6 +708,8 @@
         "spreadTighter": "Your spread is {{spread}} s, {{percent}}% tighter than before.",
         "spreadLooser": "Your spread is {{spread}} s, {{percent}}% looser than before.",
         "noSessions": "No sessions yet.",
+        "pbBadge": "PB",
+        "moreStats": "More stats",
         "colWhen": "When",
         "colTrackCar": "Track and car",
         "colLaps": "Laps",
@@ -834,6 +836,7 @@
       "notComparableLength": "These laps are not on the same track layout, so their corners cannot be compared.",
       "notComparableChannels": "These laps cannot be compared corner by corner.",
       "zoomTo": "Zoom to corner {{corner}}",
+      "cornerLabel": "Corner {{corner}}",
       "zoomedTo": "Zoomed to corner {{corner}} ({{from}}–{{to}} {{unit}})",
       "showWhole": "Show whole lap",
       "cornersTitle": "Corner by corner",
@@ -2777,10 +2780,12 @@
     "filters": {
       "active": "Filtering by",
       "anyTime": "Any time",
+      "clearAll": "Clear all",
       "kind": "Kind of session",
       "kindShort": "Type",
       "period": "Period",
       "removeFilter": "Remove the filter: {{filter}}",
+      "showResults": "Show results",
       "title": "Filters",
       "validOnly": "Valid laps only",
       "validOnlyHint": "Hides sessions where the game counted no lap as valid."
@@ -2815,11 +2820,13 @@
       "bestShort": "best",
       "bestThree": "best 3: {{time}}",
       "chartHint": "Click a bar to open the analysis of that lap.",
+      "chartHintTouch": "Tap a bar to open the analysis of that lap.",
       "chartSummaryNoBest_one": "{{title}}: {{count}} lap, and it is not valid. It has an Analyze link in the table below.",
       "chartSummaryNoBest_other": "{{title}}: {{count}} laps, none of them valid. Each lap has an Analyze link in the table below.",
       "chartSummary_one": "{{title}}: {{count}} lap, the best, {{time}}. It has an Analyze link in the table below.",
       "chartSummary_other": "{{title}}: {{count}} laps; the best is lap {{n}} in {{time}}; the slowest flying lap is {{slow}}. Each lap has an Analyze link in the table below.",
       "clean": "clean",
+      "fuelShort": "Fuel",
       "fuelSub": "laps through the pits left out",
       "heldBy": "lap {{n}}",
       "isPb": "your personal best",
@@ -2835,8 +2842,11 @@
       "legendScale": "Further from the best, from close to far",
       "lengthHint": "From the start of the session to its end.",
       "noValid": "no valid lap",
+      "reverseSort": "Reverse the order",
       "sectorsSub": "against the best of the session",
       "sectorsTitle": "Sectors",
+      "slowest": "slowest",
+      "sortBy": "Sort by",
       "sortHint": "Sort by lap, time or gap",
       "spreadNone": "needs 2 valid laps",
       "spreadSub": "spread of the valid laps",
@@ -2863,6 +2873,45 @@
       "time": "Session time",
       "timeHint": "Time driven in these sessions.",
       "tracksCars": "Tracks · cars"
+    }
+  },
+  "ui": {
+    "chip": {
+      "remove": "Remove"
+    },
+    "pagination": {
+      "label": "Pagination",
+      "previous": "Previous",
+      "next": "Next",
+      "status": "Page {{page}} of {{count}}",
+      "range": "{{from}}–{{to}} of {{total}}",
+      "jump": "Go to page",
+      "option": "Page {{page}}"
+    },
+    "loadMore": {
+      "label": "Load more"
+    },
+    "states": {
+      "errorTitle": "Something went wrong",
+      "errorDescription": "This could not be loaded. Try again in a moment.",
+      "retry": "Try again",
+      "loading": "Loading…"
+    },
+    "queryGate": {
+      "signedOutTitle": "You are signed out",
+      "signedOutDescription": "Sign in again to continue.",
+      "stale": "Showing saved data",
+      "staleHint": "Could not refresh.",
+      "emptyTitle": "Nothing here yet"
+    },
+    "filter": {
+      "clearSearch": "Clear search"
+    },
+    "filterSheet": {
+      "title": "Filters",
+      "description": "Choose how to narrow the list.",
+      "clear": "Clear all",
+      "apply": "Show results"
     }
   },
   "demo": {

@@ -30,7 +30,7 @@ export function CompanionDownload() {
       {release.isError && <p className="text-xs text-muted-foreground" data-testid="companion-download-unavailable">{t('communityDash.companion.versionUnavailable', 'The latest version could not be read. The download still works.')}</p>}
       {data && !data.signed && (
         <p role="note" className="flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="companion-smartscreen">
-          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warn" aria-hidden="true" />
           <span>{t('communityDash.companion.smartscreen', 'Windows may say the publisher is unknown. Click More info, then Run anyway.')}</span>
         </p>
       )}

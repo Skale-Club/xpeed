@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState, LoadingState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
 import { OptionSelect } from '@/components/ui/option-select';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { KM_PER_MILE } from '@/lib/vehicle-care';
 import { zonedDateTimeInput } from '@/lib/app-date';
 import { holdAppUpdates } from '@/lib/pwa-update';
+import { PageHeader } from '@/components/ui/page-header';
 
 // English defaults; translations live under maint.types.<type>.
 const TYPE_LABELS: Record<MaintenanceType, string> = {
@@ -181,14 +183,11 @@ function MaintenanceScreen() {
   return (
     <AppLayout refreshDisabled={isAddOpen || saving}>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-start gap-2 min-w-0">
-            <Wrench className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-            <div className="min-w-0">
-              <h2 className="text-lg font-bold text-foreground">{t('maint.title', 'Service history')}</h2>
-              {selectedCar && <p className="text-sm text-muted-foreground truncate">{selectedCar.name}</p>}
-            </div>
-          </div>
+        <PageHeader
+          icon={Wrench}
+          title={t('maint.title', 'Service history')}
+          description={selectedCar?.name}
+          actions={
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={!selectedCarId}>
@@ -256,7 +255,8 @@ function MaintenanceScreen() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
+          }
+        />
 
         {selectedCarId && <OilChangeCard carId={selectedCarId} />}
         {!selectedCarId ? (
@@ -266,23 +266,21 @@ function MaintenanceScreen() {
             </CardContent>
           </Card>
         ) : loading ? (
-          <Card className="bg-card border-border">
-            <CardContent className="p-6 text-center">
-              <Loader2 className="w-5 h-5 text-primary animate-spin mx-auto" />
-            </CardContent>
-          </Card>
+          <LoadingState />
         ) : events.length === 0 ? (
           <Card className="bg-card border-border">
-            <CardContent className="py-12 text-center">
-              <Wrench className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-              <h3 className="text-sm font-semibold text-foreground mb-2">{t('maint.emptyTitle', 'No services recorded yet')}</h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                {t('maint.emptyBody', "Write down what's been done (oil changes, brake pads, tire rotations) so we can give you better advice.")}
-              </p>
-              <Button size="sm" onClick={() => setIsAddOpen(true)}>
-                <Plus className="w-3.5 h-3.5 mr-2" />
-                {t('maint.addFirst', 'Add your first service')}
-              </Button>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Wrench}
+                title={t('maint.emptyTitle', 'No services recorded yet')}
+                description={t('maint.emptyBody', "Write down what's been done (oil changes, brake pads, tire rotations) so we can give you better advice.")}
+                action={
+                  <Button size="sm" onClick={() => setIsAddOpen(true)}>
+                    <Plus className="w-3.5 h-3.5 mr-2" />
+                    {t('maint.addFirst', 'Add your first service')}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         ) : (

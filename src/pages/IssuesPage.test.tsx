@@ -86,7 +86,7 @@ describe('IssuesPage', () => {
     await waitFor(() => expect(api.resolveIssue).toHaveBeenCalledWith('b'));
     await waitFor(() => expect(screen.getAllByTestId('problem-card')).toHaveLength(1));
 
-    fireEvent.click(screen.getByRole('tab', { name: /Resolved or ignored/ }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Resolved or ignored/ }), { button: 0, ctrlKey: false });
     expect(screen.getAllByTestId('problem-card')).toHaveLength(2);
     fireEvent.click(within(screen.getAllByTestId('problem-card')[0]).getByRole('button', { name: 'Reopen' }));
     await waitFor(() => expect(api.reopenIssue).toHaveBeenCalled());

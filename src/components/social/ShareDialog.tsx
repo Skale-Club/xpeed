@@ -194,14 +194,14 @@ export function ShareDialog({ open, onOpenChange, target, title }: { open: boole
 }
 
 /** A "Share" button that opens the share dialog for a lap or a session. `compact` is an icon only (a table row). */
-export function ShareButton({ target, compact, label, title }: { target: ShareTarget; compact?: boolean; label?: string; title?: string }) {
+export function ShareButton({ target, compact, label, title, compactClassName }: { target: ShareTarget; compact?: boolean; label?: string; title?: string; compactClassName?: string }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const text = label ?? t('social.share.button', 'Share');
   return (
     <>
       {compact ? (
-        <Button type="button" size="icon" variant="ghost" className="h-8 w-8" aria-label={text} title={text} onClick={() => setOpen(true)} data-testid="share-button">
+        <Button type="button" size="icon" variant="ghost" className={compactClassName ?? 'h-8 w-8'} aria-label={text} title={text} onClick={() => setOpen(true)} data-testid="share-button">
           <Share2 className="h-4 w-4" />
         </Button>
       ) : (

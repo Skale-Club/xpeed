@@ -69,7 +69,7 @@ export function ColorPicker({ value, onChange, disabled }: {
             disabled={disabled}
             onClick={() => onChange(key)}
             className={cn(
-              'flex flex-col items-center gap-1.5 rounded-xl border p-2 text-[11px] transition-colors',
+              'flex flex-col items-center gap-1.5 rounded-xl border p-2 text-2xs transition-colors',
               selected ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:border-foreground/30',
             )}
           >

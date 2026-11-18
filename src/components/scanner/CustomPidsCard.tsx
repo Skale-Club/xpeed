@@ -92,31 +92,31 @@ export function CustomPidsCard({ pids, onChange, headersUnsupported }: Props) {
         {showForm && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="col-span-2 space-y-1">
-            <Label htmlFor="cp-name" className="text-[11px]">{t('scanner.custom.name', 'Name')}</Label>
+            <Label htmlFor="cp-name" className="text-2xs">{t('scanner.custom.name', 'Name')}</Label>
             <Input id="cp-name" value={form.name} onChange={set('name')} placeholder="State of Charge" className="h-8 text-xs" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="cp-unit" className="text-[11px]">{t('scanner.custom.unit', 'Unit')}</Label>
+            <Label htmlFor="cp-unit" className="text-2xs">{t('scanner.custom.unit', 'Unit')}</Label>
             <Input id="cp-unit" value={form.unit} onChange={set('unit')} placeholder="%" className="h-8 text-xs" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="cp-header" className="text-[11px]">{t('scanner.custom.header', 'ECU header')}</Label>
+            <Label htmlFor="cp-header" className="text-2xs">{t('scanner.custom.header', 'ECU header')}</Label>
             <Input id="cp-header" value={form.header} onChange={set('header')} placeholder="7E3" className="h-8 text-xs font-mono" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="cp-command" className="text-[11px]">{t('scanner.custom.command', 'Request')}</Label>
+            <Label htmlFor="cp-command" className="text-2xs">{t('scanner.custom.command', 'Request')}</Label>
             <Input id="cp-command" value={form.command} onChange={set('command')} placeholder="2181" className="h-8 text-xs font-mono" />
           </div>
           <div className="col-span-2 sm:col-span-3 space-y-1">
-            <Label htmlFor="cp-formula" className="text-[11px]">{t('scanner.custom.formula', 'Formula')}</Label>
+            <Label htmlFor="cp-formula" className="text-2xs">{t('scanner.custom.formula', 'Formula')}</Label>
             <Input id="cp-formula" value={form.formula} onChange={set('formula')} placeholder="(A*256+B)/10" className="h-8 text-xs font-mono" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="cp-min" className="text-[11px]">Min</Label>
+            <Label htmlFor="cp-min" className="text-2xs">Min</Label>
             <Input id="cp-min" value={form.min} onChange={set('min')} inputMode="decimal" className="h-8 text-xs" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="cp-max" className="text-[11px]">Max</Label>
+            <Label htmlFor="cp-max" className="text-2xs">Max</Label>
             <Input id="cp-max" value={form.max} onChange={set('max')} inputMode="decimal" className="h-8 text-xs" />
           </div>
         </div>

@@ -2,9 +2,11 @@ import { queryClient } from '@/lib/query-client';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CalendarClock, CheckCircle2, History, Loader2, RotateCcw, Sparkles } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, History, RotateCcw, Sparkles } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
+import { LoadingState } from '@/components/ui/states';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { ToastAction } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -16,12 +18,14 @@ import { AI_PREFIX, CODE_GONE_NOTE, URGENCY, URGENCY_ORDER, describeProblem, isO
 import { formatAppDate } from '@/lib/app-date';
 import { timeAgo } from '@/lib/time-ago';
 import { ReadCodesButton } from '@/components/ReadCodesButton';
+import { PageHeader } from '@/components/ui/page-header';
+import { StatusBadge, type StatusTone } from '@/components/ui/status-badge';
 
-const URGENCY_STYLE: Record<Urgency, string> = {
-  urgent: 'bg-destructive/15 text-destructive border-destructive/30',
-  soon: 'bg-warn/15 text-warn border-warn/30',
-  watch: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30',
-  later: 'bg-muted text-muted-foreground border-border',
+const URGENCY_TONE: Record<Urgency, StatusTone> = {
+  urgent: 'critical',
+  soon: 'warn',
+  watch: 'warn',
+  later: 'neutral',
 };
 
 const URGENCY_DEFAULT: Record<Urgency, string> = {
@@ -124,10 +128,7 @@ function CarIssues() {
   return (
     <AppLayout>
       <div className="space-y-5">
-        <div>
-          <h2 className="text-xl font-bold">{t('problems.title', 'Problems')}</h2>
-          <p className="text-sm text-muted-foreground">{selectedCar.name}</p>
-        </div>
+        <PageHeader title={t('problems.title', 'Problems')} description={selectedCar.name} />
         <ReadCodesButton />
 
         {loadFailed && (
@@ -171,27 +172,20 @@ function CarIssues() {
         )}
 
         {!loadFailed && (
-          <div className="flex gap-1 border-b border-border" role="tablist" aria-label={t('problems.title', 'Problems')}>
-            {(['open', 'closed'] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                id={`problems-tab-${key}`}
-                aria-selected={tab === key}
-                aria-controls="problems-panel"
-                onClick={() => setTab(key)}
-                className={`px-3 py-2.5 text-sm border-b-2 -mb-px ${tab === key ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-              >
-                {key === 'open' ? t('problems.tabOpen', 'Need attention') : t('problems.tabClosed', 'Resolved or ignored')}
-                {!loading && <span className="ml-1.5 text-xs text-muted-foreground">{key === 'open' ? open.length : closed.length}</span>}
-              </button>
-            ))}
-          </div>
+          <Tabs value={tab} onValueChange={(value) => setTab(value as 'open' | 'closed')}>
+            <TabsList variant="underline" aria-label={t('problems.title', 'Problems')}>
+              {(['open', 'closed'] as const).map((key) => (
+                <TabsTrigger key={key} value={key} id={`problems-tab-${key}`} aria-controls="problems-panel">
+                  {key === 'open' ? t('problems.tabOpen', 'Need attention') : t('problems.tabClosed', 'Resolved or ignored')}
+                  {!loading && <span className="ml-1.5 text-xs text-muted-foreground">{key === 'open' ? open.length : closed.length}</span>}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         )}
 
         {loadFailed ? null : loading ? (
-          <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          <LoadingState className="py-10" />
         ) : shown.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center" role="tabpanel" id="problems-panel" aria-labelledby={`problems-tab-${tab}`}>
             {tab === 'open' ? t('problems.emptyOpen', 'No problems here.') : t('problems.emptyClosed', 'Nothing resolved or ignored yet.')}
@@ -241,9 +235,9 @@ function ProblemCard({ issue, acting, formatDate, onAct }: {
     <Card id={`issue-${issue.id}`} tabIndex={-1} className={`${isOpen ? '' : 'opacity-70'} target:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none scroll-mt-20`} data-testid="problem-card">
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${URGENCY_STYLE[urgency]}`}>
+          <StatusBadge tone={URGENCY_TONE[urgency]}>
             {t(`problems.urgency.${urgency}`, URGENCY_DEFAULT[urgency])}
-          </span>
+          </StatusBadge>
           {issue.status === 'recurred' && (
             <span className="text-xs text-warn">{t('problems.cameBack', { count: issue.recurrence_count, defaultValue: 'Came back after being fixed ({{count}}×)' })}</span>
           )}
@@ -324,7 +318,7 @@ function ProblemCard({ issue, acting, formatDate, onAct }: {
 function ProblemDate({ icon, label, ago, date }: { icon: ReactNode; label: string; ago: string; date: string }) {
   return (
     <div className="rounded-lg border border-border bg-background/50 px-3 py-2">
-      <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{icon} {label}</p>
+      <p className="flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">{icon} {label}</p>
       <p className="mt-0.5 text-base font-semibold first-letter:uppercase">{ago}</p>
       <p className="text-xs text-muted-foreground">{date}</p>
     </div>

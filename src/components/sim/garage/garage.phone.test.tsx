@@ -124,7 +124,7 @@ describe('the track page on a phone', () => {
       expect(hiddenOnPhone(cell)).toBe(hiddenOnPhone(head[index]));
     }
     // The name of the car is cut to a narrow column on a phone.
-    expect(classes(table.querySelector('tbody td:nth-child(2)')!)).toMatch(/max-w-\[6\.5rem\]/);
+    expect(classes(table.querySelector('tbody td:nth-child(2)')!)).toMatch(/max-w-\[9rem\]/);
   });
 
   it('puts the control of the progress chart (the car filter) beside the title without widening the card', async () => {
@@ -164,6 +164,6 @@ describe('the car page on a phone', () => {
     expect(hiddenOnPhone(named('Set on'))).toBe(true);
     expect(hiddenOnPhone(named('To your best'))).toBe(false);
     await waitFor(() => expect(table.querySelector('[data-testid="best-track-gap"]')).toBeInTheDocument());
-    expect(classes(table.querySelector('tbody td:first-child')!)).toMatch(/max-w-\[6\.5rem\]/);
+    expect(classes(table.querySelector('tbody td:first-child')!)).toMatch(/max-w-\[9rem\]/);
   });
 });

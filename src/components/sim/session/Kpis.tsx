@@ -24,7 +24,7 @@ export function SessionKpiTiles({ kpis, pb, bestThreeMs }: { kpis: SessionKpis; 
   const behindPb = best && pb && best.id !== pb.lapId ? best.timeMs - pb.bestMs : null;
 
   return (
-    <TileGrid testId="session-kpis" columns="sm:grid-cols-3 xl:grid-cols-4">
+    <TileGrid testId="session-kpis" columns={{ sm: 3, lg: null, xl: 4 }}>
       <StatTile
         testId="session-best"
         label={t('sessionsDash.session.kpiBest', 'Best lap')}

@@ -56,7 +56,7 @@ export default function AppLayout({ children, refreshDisabled = false }: { child
         <footer className="border-t border-border/60 px-20 pb-32 pt-4 text-center md:px-24 md:pb-4">
           {/* The car disclaimer is about the Real mode; the Virtual screens have no such note. */}
           {mode === 'real' && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               {t('settings.about.disclaimer', 'It gives hints from data, not a diagnosis — for warning lights or serious symptoms, see a mechanic.')}
             </p>
           )}

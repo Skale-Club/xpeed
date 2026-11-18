@@ -70,7 +70,7 @@ export function ReportDialog({ open, onOpenChange, targets }: { open: boolean; o
         {outcome ? (
           <div className="space-y-3" role="status" data-testid={outcome === 'sent' ? 'report-sent' : 'report-already'}>
             <p className="flex items-start gap-2 text-sm">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" aria-hidden />
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
               {outcome === 'sent'
                 ? t('social.report.sent', 'Thank you. Your report was sent and a moderator will look at it.')
                 : t('social.report.already', 'You already reported this, and it is still being reviewed. Nothing more to do.')}

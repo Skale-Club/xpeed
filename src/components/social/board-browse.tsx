@@ -264,7 +264,7 @@ export function TrackBoards({ game, trackId, scope }: { game: string | null; tra
                       <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <SimCarIdentity name={row.name} className="min-w-0 text-sm font-medium" />
-                          {row.carClass && <Badge variant="secondary" className="text-[11px]">{row.carClass}</Badge>}
+                          {row.carClass && <Badge variant="secondary" className="text-2xs">{row.carClass}</Badge>}
                         </div>
                         <p className="text-xs text-muted-foreground" data-testid="board-car-public">{row.publicLaps
                           ? t('social.leaderboard.publicLaps', 'Public laps: {{count}}', { count: row.publicLaps })
@@ -273,7 +273,7 @@ export function TrackBoards({ game, trackId, scope }: { game: string | null; tra
                       {row.myBestMs !== null && (
                         <span className="shrink-0 text-right" data-testid="board-car-mine">
                           <span className="block font-mono text-sm tabular-nums">{formatLapTime(row.myBestMs)}</span>
-                          <span className="block text-[11px] text-muted-foreground">{t('social.leaderboard.yourBest', 'Your best')}</span>
+                          <span className="block text-2xs text-muted-foreground">{t('social.leaderboard.yourBest', 'Your best')}</span>
                         </span>
                       )}
                       <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground')} aria-hidden="true" />

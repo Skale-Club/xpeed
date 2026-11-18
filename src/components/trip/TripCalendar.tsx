@@ -37,7 +37,7 @@ export function TripCalendar({ month, selectedDay, days, activeStart, timezone, 
       <Button size="icon" variant="ghost" aria-label={t('history.nextMonth', 'Next month')} onClick={() => move(1)}><ChevronRight /></Button>
     </div>
     <div className="grid grid-cols-7 gap-1">
-      {Array.from({ length: 7 }, (_, index) => <span key={`weekday-${index}`} className="text-center text-[10px] text-muted-foreground" aria-hidden="true">{format(new Date(Date.UTC(2023, 0, 1 + index)), { weekday: 'short' })}</span>)}
+      {Array.from({ length: 7 }, (_, index) => <span key={`weekday-${index}`} className="text-center text-2xs text-muted-foreground" aria-hidden="true">{format(new Date(Date.UTC(2023, 0, 1 + index)), { weekday: 'short' })}</span>)}
       {Array.from({ length: start.getUTCDay() }, (_, index) => <span key={`blank-${index}`} aria-hidden="true" />)}
       {Array.from({ length: count }, (_, index) => {
         const date = new Date(Date.UTC(year, number - 1, index + 1));

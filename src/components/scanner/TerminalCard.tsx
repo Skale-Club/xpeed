@@ -74,7 +74,7 @@ export function TerminalCard({ onSend }: Props) {
           </Button>
         </form>
         {log.length > 0 && (
-          <div className="rounded-md border border-border bg-muted/30 p-2 max-h-64 overflow-auto font-mono text-[11px] space-y-2">
+          <div className="rounded-md border border-border bg-muted/30 p-2 max-h-64 overflow-auto font-mono text-2xs space-y-2">
             {log.map((e) => (
               <div key={e.id}>
                 <p className="text-primary">&gt; {e.header ? `[${e.header}] ` : ''}{e.command}</p>

@@ -1,17 +1,37 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ExampleInvite } from '../Example';
 
 /** Stands in for the whole dashboard while the first read runs: the same blocks, in the same places, so nothing jumps when the numbers arrive. */
 export function DashboardSkeleton() {
   const { t } = useTranslation();
+  const mobile = useIsMobile();
   const block = (height: string, testId?: string) => (
     <Card className="space-y-3 bg-card p-4" data-testid={testId}>
       <Skeleton className="h-4 w-32" />
       <Skeleton className={`${height} w-full`} />
     </Card>
   );
+  if (mobile) {
+    return (
+      <div className="space-y-4" role="status" aria-label={t('common.loading', 'Loading…')} data-testid="overview-skeleton">
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Card key={i} className="space-y-2 bg-card p-3">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-7 w-full" />
+            </Card>
+          ))}
+        </div>
+        {block('h-44', 'skeleton-sessions')}
+        {block('h-24')}
+        {block('h-40', 'skeleton-progress')}
+      </div>
+    );
+  }
   return (
     <div className="space-y-4" role="status" aria-label={t('common.loading', 'Loading…')} data-testid="overview-skeleton">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">

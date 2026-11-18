@@ -117,12 +117,12 @@ export function CompareScreen() {
   // On a phone the two laps stay in view as a slim bar while the page scrolls; "Change" opens the full selector.
   const slim = mobile && !!aId && !!aFile.data;
   const slimBar = slim && aInfo && (
-    <div className="sticky top-14 z-30 -mx-4 flex h-14 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur" data-testid="sticky-laps">
-      <div className="min-w-0 flex-1 text-xs leading-tight">
-        <p className="truncate font-medium" data-testid="sticky-lap">
+    <div className="sticky top-14 z-30 -mx-4 flex h-10 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur" data-testid="sticky-laps">
+      <div className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap text-xs">
+        <p className="min-w-0 flex-1 truncate font-medium" data-testid="sticky-lap">
           {t('modes.compare.lap', 'Lap')} {aInfo.number} · <span className="font-mono tabular-nums">{formatLapTime(aInfo.timeMs)}</span> · {aInfo.track}
         </p>
-        <p className="truncate text-muted-foreground" data-testid="sticky-reference">
+        <p className="max-w-[45%] shrink-0 truncate text-muted-foreground" data-testid="sticky-reference">
           {bInfo
             ? <>{t('modes.compare.reference', 'Reference')} {bInfo.number} · <span className="font-mono tabular-nums">{formatLapTime(bInfo.timeMs)}</span></>
             : bFile.isPending && !!bId
@@ -131,11 +131,11 @@ export function CompareScreen() {
         </p>
       </div>
       {delta !== null && (
-        <span className={cn('shrink-0 font-mono text-sm font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-green-500')} data-testid="sticky-delta">
+        <span className={cn('shrink-0 font-mono text-xs font-bold tabular-nums', deltaTone(delta) === 'loss' && 'text-destructive', deltaTone(delta) === 'gain' && 'text-success')} data-testid="sticky-delta">
           {formatGap(delta)} s
         </span>
       )}
-      <Button size="sm" variant="outline" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="sticky-change">
+      <Button size="sm" variant="outline" className="h-10 px-3 text-xs" onClick={() => setEditing(!editing)} aria-expanded={editing} data-testid="sticky-change">
         {t('modes.compare.change', 'Change')}
       </Button>
     </div>
@@ -212,10 +212,10 @@ export function CompareScreen() {
                 <p className="text-xs text-muted-foreground">{goal === 'race'
                   ? t('modes.referenceContext.raceReference', 'Choose a pace reference with similar tyres, fuel and weather. Your all-time best is not selected automatically.')
                   : t('modes.referenceContext.fastReference', 'Your personal best is a starting reference. Check tyres, fuel and weather, or choose another lap.')}</p>
-                {conditionDifferences.length > 0 && <p className="text-xs text-amber-500" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
-                {rejectedDefault && <p role="status" className="text-xs text-amber-500" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
+                {conditionDifferences.length > 0 && <p className="text-xs text-warn" data-testid="reference-conditions">{t('modes.referenceContext.conditionsDiffer', 'Recorded conditions differ: {{conditions}}.', { conditions: conditionDifferences.map((key) => t(`modes.referenceContext.condition_${key}`, key)).join(', ') })}</p>}
+                {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
                 {versionContext && <p className="text-xs text-muted-foreground" data-testid="reference-versions">{t('modes.referenceContext.versionPair', { a: aHeader?.recorder?.gameBuild ?? t('modes.referenceContext.unknown'), b: bFile.data?.header.recorder?.gameBuild ?? t('modes.referenceContext.unknown') })} {t(`modes.referenceContext.build_${versionContext.gameBuild}`)}</p>}
-                {versionContext?.coordinatesUnknown && <p className="text-xs text-amber-500" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
+                {versionContext?.coordinatesUnknown && <p className="text-xs text-warn" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
                 <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />
               </div>
             )}

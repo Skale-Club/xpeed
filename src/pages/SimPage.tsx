@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { NAV } from '@/lib/mode-nav';
+import { PageHeader } from '@/components/ui/page-header';
 
 /**
  * Every Virtual screen, until each one has its own page: the name of the screen
@@ -19,10 +20,7 @@ export default function SimPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Icon className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold">{t(entry.i18nKey)}</h2>
-        </div>
+        <PageHeader icon={Icon} title={t(entry.i18nKey)} />
         <Card className="bg-card border-border">
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">

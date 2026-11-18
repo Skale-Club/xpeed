@@ -70,7 +70,7 @@ function Changes({ title, items, unit, tone, onShow }: {
                 {onShow && <ShowOnMap onClick={() => onShow((item.fromM + item.toM) / 2)} label={stretchLabel(t, item, unit)} />}
                 {stretchLabel(t, item, unit)}
               </span>
-              <span className={cn('font-mono tabular-nums', tone === 'loss' ? 'text-destructive' : 'text-green-500')}>{formatGap(item.seconds)} s</span>
+              <span className={cn('font-mono tabular-nums', tone === 'loss' ? 'text-destructive' : 'text-success')}>{formatGap(item.seconds)} s</span>
             </li>
           ))}
         </ul>
@@ -153,7 +153,7 @@ function OffLine({ items, unit, onShow }: { items: OffLineStretch[]; unit: Dista
                   </span>
                 </span>
                 {item.seconds !== null && (
-                  <span className={cn('font-mono tabular-nums', item.seconds > 0.0005 ? 'text-destructive' : item.seconds < -0.0005 ? 'text-green-500' : '')}>{formatGap(item.seconds)} s</span>
+                  <span className={cn('font-mono tabular-nums', item.seconds > 0.0005 ? 'text-destructive' : item.seconds < -0.0005 ? 'text-success' : '')}>{formatGap(item.seconds)} s</span>
                 )}
               </li>
             ))}
@@ -363,7 +363,7 @@ export function LapAnalysis({
         {showFinalGap && finalGap !== null && analysis.same && (
           <p className="mb-2 text-sm">
             {t('modes.compare.finalGap', 'Gap at the finish')}:{' '}
-            <span className={cn('font-mono text-lg font-semibold tabular-nums', finalGap > 0.0005 ? 'text-destructive' : finalGap < -0.0005 ? 'text-green-500' : '')} data-testid="final-gap">
+            <span className={cn('font-mono text-lg font-semibold tabular-nums', finalGap > 0.0005 ? 'text-destructive' : finalGap < -0.0005 ? 'text-success' : '')} data-testid="final-gap">
               {formatGap(finalGap)} s
             </span>
           </p>
@@ -544,7 +544,7 @@ export function LapAnalysis({
   const current = tabs.some((item) => item.id === tab) ? tab : 'summary';
   return (
     <Tabs value={current} onValueChange={setTab} className="space-y-3" data-testid="lap-analysis" data-layout="tabs">
-      <TabsList className={cn('sticky top-28 z-20 grid h-10 w-full shadow-sm')} style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} data-testid="analysis-tabs">
+      <TabsList className={cn('sticky top-24 z-20 grid h-10 w-full shadow-sm')} style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }} data-testid="analysis-tabs">
         {tabs.map((item) => (
           <TabsTrigger key={item.id} value={item.id} className="px-1 text-xs" data-testid={`tab-${item.id}`}>{item.label}</TabsTrigger>
         ))}

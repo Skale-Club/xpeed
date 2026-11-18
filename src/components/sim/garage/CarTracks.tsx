@@ -39,8 +39,8 @@ export function CarTracks({ rows, pbsReady }: { rows: readonly TrackRow[]; pbsRe
             <tbody className="divide-y divide-border">
               {rows.map((entry) => (
                 <tr key={entry.track.id} className="hover:bg-muted/40" data-testid="best-track-row">
-                  <td className="max-w-[6.5rem] py-2 pr-2 align-middle sm:max-w-[18rem] sm:pr-3">
-                    <Link to={trackPath(entry.track.id)} className="block truncate rounded-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="best-track-link">{entry.track.name}</Link>
+                  <td className="max-w-[9rem] py-2 pr-2 align-middle sm:max-w-[18rem] sm:pr-3">
+                    <Link to={trackPath(entry.track.id)} className="line-clamp-2 break-words rounded-sm font-medium sm:block sm:line-clamp-none sm:truncate hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="best-track-link">{entry.track.name}</Link>
                     {entry.bestMs === null && <p className="mt-0.5 text-xs text-muted-foreground">{t('garageDash.noValidYet', 'No valid lap yet')}</p>}
                   </td>
                   <td className="whitespace-nowrap py-2 pr-3 text-right align-middle font-mono tabular-nums" data-testid="best-track-time">{entry.bestMs !== null ? formatLapTime(entry.bestMs) : '–'}</td>

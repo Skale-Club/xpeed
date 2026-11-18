@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { formatAppDate } from '@/lib/app-date';
 
 export function ActiveTripRow({ startedAt, waiting }: { startedAt: Date; waiting: boolean }) {
@@ -13,7 +14,7 @@ export function ActiveTripRow({ startedAt, waiting }: { startedAt: Date; waiting
   return <Card className="border-destructive/50 bg-destructive/5" data-testid="active-trip">
     <CardContent className="p-0"><Link to="/live" className="block space-y-2 rounded-xl p-4 hover:bg-destructive/5">
       <div className="flex items-center justify-between gap-3">
-        <span className="inline-flex items-center gap-2 rounded-full bg-destructive px-2.5 py-1 text-xs font-semibold text-destructive-foreground"><span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />{t('pill.recording', 'Recording trip')}</span>
+        <Badge variant="destructive" className="gap-2 py-1"><span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />{t('pill.recording', 'Recording trip')}</Badge>
         <span className="font-mono text-sm tabular-nums">{duration}</span>
       </div>
       <p className="font-semibold">{t('history.liveTrip', 'Trip in progress')}</p>

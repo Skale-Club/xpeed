@@ -6,8 +6,9 @@ import { completeTripInspection } from '@/lib/trip-inspection';
 import AppLayout from '@/components/AppLayout';
 import { PageLoader } from '@/components/PageLoader';
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
-import { OptionSelect } from '@/components/ui/option-select';
+import { Pagination } from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -27,6 +28,7 @@ import { useObd } from '@/contexts/ObdScannerContext';
 import { ActiveTripRow } from '@/components/trip/ActiveTripRow';
 import { TripCalendar } from '@/components/trip/TripCalendar';
 import type { Session, SessionFlag } from '@/types/session';
+import { PageHeader } from '@/components/ui/page-header';
 
 type Trip = Session & { active_dtcs?: string[] | null };
 
@@ -196,16 +198,16 @@ function CarHistory() {
   return (
     <AppLayout>
       <Tabs value={view} onValueChange={changeView}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold">{t('history.title', 'Trips')}</h2>
-            {selectedCar && <p className="truncate text-sm text-muted-foreground" title={selectedCar.name}>{selectedCar.name}</p>}
-          </div>
+        <PageHeader
+          title={t('history.title', 'Trips')}
+          description={selectedCar?.name}
+          actions={
           <TabsList aria-label={t('history.viewLabel', 'Trip view')} className="h-9 shrink-0 gap-0.5 rounded-lg border border-border bg-card p-0.5">
             <TabsTrigger value="list" className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t('history.listView', 'List')}</TabsTrigger>
             <TabsTrigger value="calendar" className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">{t('history.calendarView', 'Calendar')}</TabsTrigger>
           </TabsList>
-        </div>
+          }
+        />
         <TabsContent value={view} className="mt-4 space-y-4">
         {calendar && <>
           <TripCalendar month={month} selectedDay={day} days={calendarDays} activeStart={active?.startedAt} timezone={timezone} onMonth={(value) => chooseDay(value === today.slice(0, 7) ? today : `${value}-01`)} onDay={chooseDay} />
@@ -223,13 +225,17 @@ function CarHistory() {
           </Card>
         ) : calendar && filtered.length === 0 ? <p className="py-5 text-sm text-muted-foreground">{showActive ? t('history.noCompleted', 'Completed trips will appear here after saving.') : t('history.noDayTrips', 'No trips on this day.')}</p> : trips.length === 0 && (active || savingTrip) ? <p className="text-sm text-muted-foreground">{t('history.noCompleted', 'Completed trips will appear here after saving.')}</p> : trips.length === 0 ? (
           <Card>
-            <CardContent className="py-10 text-center space-y-3">
-              <Route className="w-10 h-10 text-muted-foreground/40 mx-auto" />
-              <p className="font-medium">{t('history.empty', 'No trips yet')}</p>
-              <p className="text-sm text-muted-foreground">{t('history.emptyHint', 'Connect the adapter and drive — trips are saved here by themselves.')}</p>
-              <Button onClick={() => navigate('/')}>
-                <Play className="w-4 h-4 mr-2" /> {t('trip.start', 'Start trip')}
-              </Button>
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Route}
+                title={t('history.empty', 'No trips yet')}
+                description={t('history.emptyHint', 'Connect the adapter and drive — trips are saved here by themselves.')}
+                action={
+                  <Button onClick={() => navigate('/')}>
+                    <Play className="w-4 h-4 mr-2" /> {t('trip.start', 'Start trip')}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         ) : (
@@ -297,11 +303,7 @@ function CarHistory() {
 
           </div>
         )}
-        {total > PAGE_SIZE && <nav aria-label={t('history.pagination', 'Trip pages')} className="flex items-center justify-between gap-2 pt-3">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => goPage(page - 1)}>{t('history.previous', 'Previous')}</Button>
-          <OptionSelect size="sm" label={t('history.page', 'Page')} className="w-auto min-w-[8rem]" value={String(page)} onChange={(value) => goPage(Number(value))} options={Array.from({ length: pages }, (_, index) => ({ value: String(index + 1), label: `${index + 1} / ${pages}` }))} />
-          <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => goPage(page + 1)}>{t('history.next', 'Next')}</Button>
-        </nav>}
+        {total > PAGE_SIZE && <Pagination page={page} pageCount={pages} onPageChange={goPage} showJump className="pt-3" testId="history-pagination" />}
         </TabsContent>
       </Tabs>
 

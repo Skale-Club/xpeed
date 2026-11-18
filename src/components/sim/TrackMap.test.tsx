@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { TrackMap } from './TrackMap';
 import type { TrackPath } from '@/lib/sim/analysis';
 import { circle, makeLayout } from '@/test/track-fixture';
+import { CHART_PALETTE } from '@/lib/chart-palette';
 
 afterEach(cleanup);
 
@@ -20,10 +21,11 @@ describe('the track map', () => {
 
   it('is 16 rem tall unless the page makes it taller (a track page gives the map more room)', () => {
     const { rerender } = render(<TrackMap lap={lap} />);
-    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bh-64\b/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/(^|\s)h-56(\s|$)/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bmd:h-64\b/);
     rerender(<TrackMap lap={lap} className="h-96" />);
-    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/\bh-96\b/);
-    expect(screen.getByTestId('track-map').getAttribute('class')).not.toMatch(/\bh-64\b/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).toMatch(/(^|\s)h-96(\s|$)/);
+    expect(screen.getByTestId('track-map').getAttribute('class')).not.toMatch(/(^|\s)h-56(\s|$)/);
   });
 
   it('keeps z down: nothing is mirrored', () => {
@@ -42,7 +44,7 @@ describe('the track map', () => {
     expect(screen.getByTestId('track-pitlane')).toBeInTheDocument();
     // The layout comes first in the drawing, so the lap is on top of it.
     const layoutGroup = screen.getByTestId('track-layout');
-    const lapLine = [...container.querySelectorAll('polyline')].find((p) => p.getAttribute('stroke')?.includes('94%, 49%'));
+    const lapLine = [...container.querySelectorAll('polyline')].find((p) => p.getAttribute('stroke') === CHART_PALETTE.yellow);
     expect(lapLine).toBeTruthy();
     expect(layoutGroup.compareDocumentPosition(lapLine!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

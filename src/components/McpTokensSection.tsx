@@ -119,7 +119,7 @@ export default function McpTokensSection() {
 
         {/* Endpoint */}
         <div className="space-y-1.5">
-          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Endpoint</p>
+          <p className="text-2xs font-mono text-muted-foreground uppercase tracking-wide">Endpoint</p>
           <div className="flex gap-2">
             <Input value={MCP_ENDPOINT} readOnly className="font-mono text-xs h-8" />
             <CopyButton value={MCP_ENDPOINT} />
@@ -166,14 +166,14 @@ export default function McpTokensSection() {
                         <div className="text-xs font-mono font-medium text-foreground truncate">
                           {t.name}
                           {t.token_prefix && (
-                            <span className="ml-2 text-[10px] text-muted-foreground">{t.token_prefix}…</span>
+                            <span className="ml-2 text-2xs text-muted-foreground">{t.token_prefix}…</span>
                           )}
-                          {t.revoked_at && <span className="ml-2 text-[9px] uppercase text-destructive">revoked</span>}
+                          {t.revoked_at && <span className="ml-2 text-2xs uppercase text-destructive">revoked</span>}
                           {!t.revoked_at && isExpired && (
-                            <span className="ml-2 text-[9px] uppercase text-destructive">{tr('mcpTokens.expired', 'expired')}</span>
+                            <span className="ml-2 text-2xs uppercase text-destructive">{tr('mcpTokens.expired', 'expired')}</span>
                           )}
                         </div>
-                        <div className="text-[10px] text-muted-foreground font-mono">
+                        <div className="text-2xs text-muted-foreground font-mono">
                           Created {formatDate(t.created_at)} · Last used {formatDate(t.last_used_at)}
                           {t.expires_at && ` · ${tr('mcpTokens.expires', 'Expires {{date}}', { date: formatDate(t.expires_at) })}`}
                         </div>
@@ -210,7 +210,7 @@ export default function McpTokensSection() {
 
             {sessionJwt ? (
               <div className="space-y-2">
-                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wide">Session JWT</p>
+                <p className="text-2xs font-mono text-muted-foreground uppercase tracking-wide">Session JWT</p>
                 <div className="flex gap-2">
                   <Input
                     value={sessionJwt}
@@ -220,7 +220,7 @@ export default function McpTokensSection() {
                   />
                   <CopyButton value={sessionJwt} />
                 </div>
-                <p className="text-[10px] text-muted-foreground font-mono">
+                <p className="text-2xs text-muted-foreground font-mono">
                   Usage: <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;jwt&gt;</code>
                 </p>
               </div>
@@ -256,7 +256,7 @@ export default function McpTokensSection() {
                   <Input value={generatedToken} readOnly className="font-mono text-xs" />
                   <CopyButton value={generatedToken} />
                 </div>
-                <div className="text-[10px] text-muted-foreground font-mono space-y-1">
+                <div className="text-2xs text-muted-foreground font-mono space-y-1">
                   <p>Endpoint: <code className="bg-muted px-1 rounded">{MCP_ENDPOINT}</code></p>
                   <p>Header: <code className="bg-muted px-1 rounded">X-API-Key: {generatedToken.slice(0, 12)}…</code></p>
                 </div>

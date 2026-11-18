@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import i18n from '@/lib/i18n';
 import AdminPage from './AdminPage';
 
@@ -43,7 +44,7 @@ describe('AdminPage', () => {
 
   it('shows the panel to an admin', () => {
     admin.status = { isAdmin: true, loading: false };
-    render(<AdminPage />);
+    render(<MemoryRouter><AdminPage /></MemoryRouter>);
     expect(screen.getByText('AI provider settings')).toBeInTheDocument();
     expect(screen.getByText('Racing games section')).toBeInTheDocument();
     expect(screen.getByText('Problems section')).toBeInTheDocument();

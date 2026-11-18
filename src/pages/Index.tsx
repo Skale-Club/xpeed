@@ -9,6 +9,7 @@ import { lazyChart } from '@/components/LazyChart';
 // The chart library loads when there are trips to chart, not with the page.
 const DashboardCharts = lazyChart(() => import('@/components/DashboardCharts'), 'h-72');
 import { Card, CardContent } from '@/components/ui/card';
+import { EmptyState } from '@/components/ui/states';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getSessions } from '@/lib/db';
@@ -106,13 +107,17 @@ const Index = () => {
     return (
       <AppLayout>
         <Card className="bg-card border-border">
-          <CardContent className="py-12 text-center">
-            <Car className="w-12 h-12 text-primary/30 mx-auto mb-4" />
-            <h3 className="text-sm font-semibold text-foreground mb-2">{t('vehicle.none', 'No cars yet')}</h3>
-            <p className="text-xs text-muted-foreground mb-4">{t('vehicle.noneHint', 'Add your car to start checking it.')}</p>
-            <Button size="sm" onClick={() => navigate('/cars')}>
-              {t('nav.cars', 'My cars')}
-            </Button>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Car}
+              title={t('vehicle.none', 'No cars yet')}
+              description={t('vehicle.noneHint', 'Add your car to start checking it.')}
+              action={
+                <Button size="sm" onClick={() => navigate('/cars')}>
+                  {t('nav.cars', 'My cars')}
+                </Button>
+              }
+            />
           </CardContent>
         </Card>
       </AppLayout>

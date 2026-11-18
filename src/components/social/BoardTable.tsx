@@ -13,7 +13,7 @@ import { Avatar, DriverName } from './social-bits';
 /** The gap to the leader in seconds, as the rest of the app writes it (`+0.123`). */
 const gapText = (gapMs: number) => (gapMs <= 0 ? '' : formatGap(gapMs / 1000));
 
-const MEDAL = ['text-amber-500', 'text-slate-400', 'text-orange-500'] as const;
+const MEDAL = ['text-warn', 'text-slate-400', 'text-orange-500'] as const;
 
 /** One row of the board; the person's own row is highlighted (its lap is analysed from the "Your position" card). Report is offered for everybody else's. */
 function BoardRow({ entry, maxGapMs, showGap }: { entry: LeaderboardEntry; maxGapMs: number; showGap: boolean }) {
@@ -35,7 +35,7 @@ function BoardRow({ entry, maxGapMs, showGap }: { entry: LeaderboardEntry; maxGa
           <DriverName handle={entry.handle} displayName={entry.displayName} className="min-w-0 flex-1 flex-col gap-0 overflow-hidden sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2" />
           {entry.isMe && <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="board-you">{t('social.leaderboard.you', 'You')}</Badge>}
         </div>
-        {entry.isMe && <span className="mt-0.5 inline-block text-[11px] font-semibold text-primary sm:hidden" aria-hidden="true">{t('social.leaderboard.you', 'You')}</span>}
+        {entry.isMe && <span className="mt-0.5 inline-block text-2xs font-semibold text-primary sm:hidden" aria-hidden="true">{t('social.leaderboard.you', 'You')}</span>}
       </td>
       <td className="whitespace-nowrap py-2 pr-2 text-right font-mono tabular-nums" data-testid="board-time">{formatLapTime(entry.timeMs)}</td>
       {showGap && <td className="w-20 py-2 pr-2 text-right sm:w-36 sm:pr-3">

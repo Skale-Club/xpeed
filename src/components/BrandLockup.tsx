@@ -14,7 +14,7 @@ export function BrandLockup({ className, logoClassName, nameClassName, labelClas
       <BrandLogo className={logoClassName} alt="" />
       <span className={cn('flex flex-col text-left', labelClassName)}>
         <span className={cn('text-lg font-bold leading-none tracking-tight', nameClassName)}>Xpeed</span>
-        {tagline && <span className="mt-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{tagline}</span>}
+        {tagline && <span className="mt-1 text-2xs font-medium uppercase tracking-widest text-muted-foreground">{tagline}</span>}
       </span>
     </span>
   );

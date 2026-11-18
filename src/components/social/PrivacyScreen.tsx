@@ -42,7 +42,7 @@ function VisibilityControl({ withDataLink = false }: { withDataLink?: boolean })
           {update.isError && <ErrorLine testId="visibility-error">{errorText(update.error)}</ErrorLine>}
           {saved && !update.isPending && (
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground" role="status" data-testid="visibility-saved">
-              <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden /> {t('social.profile.saved', 'Saved')}
+              <CheckCircle2 className="h-4 w-4 text-success" aria-hidden /> {t('social.profile.saved', 'Saved')}
             </p>
           )}
           <p className="text-xs text-muted-foreground">
@@ -221,7 +221,7 @@ function DeletedPage({ summary }: { summary: DeletedSummary }) {
   return (
     <Card className="bg-card border-border" data-testid="delete-success">
       <CardContent className="space-y-3 p-6 text-center">
-        <CheckCircle2 className="mx-auto h-10 w-10 text-green-500" aria-hidden />
+        <CheckCircle2 className="mx-auto h-10 w-10 text-success" aria-hidden />
         <h3 className="text-lg font-semibold">{t('social.privacy.deletedTitle', 'Your racing data was deleted')}</h3>
         <p className="text-sm text-muted-foreground">
           {t('social.privacy.deletedBody', '{{laps}} laps, {{sessions}} sessions, {{shares}} share links and {{friends}} friendships were erased. Your account is still here. If you use Virtual again, you start with a new profile.', {

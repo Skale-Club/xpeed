@@ -103,7 +103,7 @@ describe('the corner table', () => {
     expect(tones['2']).toBe('loss');
     expect(tones['1']).toBe('gain');
     expect(within(rows[1]).getByTestId('corner-time').className).toMatch(/destructive/);
-    expect(within(rows[0]).getByTestId('corner-time').className).toMatch(/green/);
+    expect(within(rows[0]).getByTestId('corner-time').className).toMatch(/success/);
     expect(within(rows[1]).getByTestId('corner-cause')).toHaveTextContent('Brakes early');
     expect(within(rows[1]).getByTestId('corner-brake').textContent).toMatch(/^−1\d$/);
     expect(within(rows[2]).getByTestId('corner-cause')).toHaveTextContent('–'); // no time lost: no cause to name
