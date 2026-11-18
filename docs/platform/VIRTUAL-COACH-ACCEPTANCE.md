@@ -1,4 +1,4 @@
-# Optional Virtual coach: acceptance before release
+# Optional Virtual coach: verification and pilot acceptance
 
 Local feature branch: `feat/virtual-driving-coach`. Nothing here authorizes a
 push, merge, production migration, secret configuration or deployment.
@@ -60,9 +60,12 @@ isolated SQL and PowerShell AST parsing do not replace these full checks.
 
 Apply the five additive migrations (16:00 chat, 17:00 credentials, 18:00 goals,
 19:00 setups, 20:00 Companion) through the normal validated release procedure.
-Before saving personal credentials, an authorized operator must configure a
-persistent 32-byte Base64 `AI_CREDENTIAL_ENCRYPTION_KEY` server secret; never
-commit it or expose it as `VITE_*`. Existing global mode needs no such secret.
-Ship/verify the compatible server before distributing Companion 0.12.0.
-The owner still must approve the release; feature-branch test artifacts are
-not evidence of production publication or real driving/audio acceptance.
+The authorized Coolify deployment provisions a persistent hidden runtime-only
+32-byte Base64 `AI_CREDENTIAL_ENCRYPTION_KEY` if absent and preserves existing
+keys without rotation. Its API token needs environment read/write permissions.
+Never commit the key or expose it as `VITE_*`; keep protected Coolify backups.
+Existing global mode needs no such secret. The native publication job waits for
+the exact compatible server commit with healthy database/storage before
+distributing Companion 0.12.0. Release authorization and measured evidence belong
+in the app journal; feature-branch artifacts are not evidence of production
+publication or real driving/audio acceptance.

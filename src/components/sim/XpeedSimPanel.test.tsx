@@ -266,14 +266,14 @@ describe('your computers', () => {
     expect(fold).toHaveTextContent('Disconnected computers: 1');
   });
 
-  it('has one muted line, at most, about adding another computer, and no other footnote', async () => {
+  it('keeps the add-computer hint as the only list-level footnote', async () => {
     api.list.mockResolvedValue([device()]);
     renderPanel();
     await screen.findByTestId('device');
     const hint = screen.getByTestId('devices-hint');
     expect(hint).toHaveTextContent('To add another computer, open Xpeed Companion on it and click Connect.');
     expect(screen.queryByText('You can connect up to 10 computers.')).not.toBeInTheDocument();
-    expect(screen.getByTestId('companion-devices').querySelectorAll('p.text-xs')).toHaveLength(1);
+    expect(Array.from(screen.getByTestId('companion-devices').querySelectorAll(':scope > p.text-xs'))).toEqual([hint]);
   });
 
   it('shows the version on a computer, and what it is doing while it is online: connected to a game, waiting for one, or paused', async () => {

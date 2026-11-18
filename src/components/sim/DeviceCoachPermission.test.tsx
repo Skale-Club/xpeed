@@ -33,10 +33,10 @@ it('discards a late permission result when the displayed account changes', async
   fireEvent.click(screen.getByRole('button', { name: 'Turn off assistant' }));
   await waitFor(() => expect(mock.save).toHaveBeenCalledTimes(1));
   const signal = mock.save.mock.calls[0][3] as AbortSignal;
-  view.rerender(<DeviceCoachPermission {...props} accountId="driver-b" deviceId="device-b" />);
+  view.rerender(<DeviceCoachPermission {...props} accountId="driver-b" deviceId="device-b" allowed />);
   expect(signal.aborted).toBe(true);
   await act(async () => finish(false));
-  expect(screen.getByRole('button', { name: 'Allow assistant' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Turn off assistant' })).toBeEnabled();
 });
 it('hides capability controls in example mode', () => {
   mock.demo = true;
