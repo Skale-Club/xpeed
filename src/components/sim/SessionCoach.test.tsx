@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   reply: vi.fn(),
   toast: vi.fn(),
   training: vi.fn(),
+  setups: vi.fn(),
 }));
 
 vi.mock('@/hooks/use-toast', () => ({ toast: mocks.toast, useToast: () => ({ toast: mocks.toast }) }));
@@ -31,6 +32,12 @@ vi.mock('./TrainingGoals', () => ({
   default: ({ userId, sessionId }: { userId: string; sessionId: string }) => {
     mocks.training(userId, sessionId);
     return <div>Training panel for {userId} and {sessionId}</div>;
+  },
+}));
+vi.mock('./SessionSetups', () => ({
+  default: ({ userId, sessionId }: { userId: string; sessionId: string }) => {
+    mocks.setups(userId, sessionId);
+    return <div>Setups for {userId} and {sessionId}</div>;
   },
 }));
 
@@ -160,6 +167,29 @@ it('loads training goals only when the opted-in driver opens them and resets on 
   fireEvent.click(button('Disable coach'));
   expect(screen.queryByRole('button', { name: 'Training goals' })).not.toBeInTheDocument();
   expect(screen.queryByText(/Training panel for/)).not.toBeInTheDocument();
+});
+
+it('loads the private setup library only when explicitly opened after opt-in', async () => {
+  const view = mount();
+  expect(screen.queryByRole('button', { name: 'Car setups' })).not.toBeInTheDocument();
+  fireEvent.click(button('Enable coach'));
+  expect(button('Car setups')).toHaveAttribute('aria-expanded', 'false');
+  expect(mocks.setups).not.toHaveBeenCalled();
+
+  fireEvent.click(button('Car setups'));
+  expect(await screen.findByText('Setups for ana and monza-session')).toBeInTheDocument();
+  expect(mocks.setups).toHaveBeenCalledWith('ana', monza.id);
+  expect(mocks.reply).not.toHaveBeenCalled();
+  expect(mocks.list).not.toHaveBeenCalled();
+
+  view.rerender(<SessionCoach userId="ana" session={spa} />);
+  expect(screen.queryByText(/Setups for/)).not.toBeInTheDocument();
+  expect(button('Car setups')).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(button('Car setups'));
+  expect(await screen.findByText('Setups for ana and spa-session')).toBeInTheDocument();
+  fireEvent.click(button('Disable coach'));
+  expect(screen.queryByRole('button', { name: 'Car setups' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Setups for/)).not.toBeInTheDocument();
 });
 
 it('reloads history for the new session and drops a reply arriving after the previous session closes', async () => {

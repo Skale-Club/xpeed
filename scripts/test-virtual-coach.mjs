@@ -36,7 +36,7 @@ test('rejects another user, Real conversation, session mismatch and saved-questi
 });
 
 test('database failures fail closed instead of yielding an empty or fallback context', async () => {
-  for (const table of [...Object.keys(fixture()), 'sim_coach_context']) {
+  for (const table of [...Object.keys(fixture()), 'sim_coach_context', 'sim_setup_context']) {
     await assert.rejects(loadVirtualCoachContext(fakeDb(fixture(), table), ids.user, request), (e) => e.code === 'unavailable' && e.status === 503);
   }
 });
@@ -57,6 +57,23 @@ test('coach reads only active saved goals through an owner/session-bound service
   assert.match(prompt, /chat cannot create or complete them/);
   assert.match(prompt, /does not mean the driver has marked the goal completed/);
   assert(!db.reads.some((read) => /goal_create|goal_status|goal_delete/.test(read.table)));
+});
+
+test('setup consultation uses only the explicitly associated snapshot, preserves units and separates experiments from proof', async () => {
+  const rows = fixture();
+  rows.sim_setup_context = { version: { id: 'revision', label: 'Revision 2', notes: 'Entry understeer', parentId: 'baseline',
+    parameters: [{ name: 'Front pressure', value: '27.2', unit: 'psi', secret: 'MUST_NOT_ESCAPE' }], runs: [] },
+    parent: { id: 'baseline', label: 'Original', notes: '', parentId: null, parameters: [{ name: 'front pressure', value: '27.5', unit: 'psi' }], runs: [] } };
+  const db = fakeDb(rows), { evidence } = await loadVirtualCoachContext(db, ids.user, request);
+  assert.deepEqual(db.reads.find((r) => r.table === 'sim_setup_context').args, { p_user_id: ids.user, p_session_id: ids.session });
+  assert.deepEqual(evidence.setup.changes, [{ name: 'Front pressure', before: '27.5 psi', after: '27.2 psi' }]);
+  assert.equal(evidence.setup.source, 'driver_report'); assert(!JSON.stringify(evidence).includes('MUST_NOT_ESCAPE'));
+  const prompt = buildVirtualCoachPrompt(evidence, 'en');
+  assert.match(prompt, /never invent supported ranges, clicks, exact numerical targets/);
+  assert.match(prompt, /cannot prove a setup improved performance/);
+  assert(!db.reads.some((r) => /sim_setup_create|sim_setup_attach|sim_setup_delete/.test(r.table)));
+  rows.sim_setup_context = { version: null, parent: null };
+  assert.equal((await loadVirtualCoachContext(fakeDb(rows), ids.user, request)).evidence.setup.version, null);
 });
 
 test('bounds a large session and explicitly identifies partial coverage', async () => {
@@ -81,8 +98,8 @@ test('prompt identifies missing telemetry, uncertainty and unsupported actions, 
   const prompt = buildVirtualCoachPrompt(evidence, 'Brazilian Portuguese');
   assert.match(prompt, /Reply in Brazilian Portuguese/);
   assert.match(prompt, /ONLY when driving.status is ready/);
-  assert.match(prompt, /full setup values have NOT been loaded/);
+  assert.match(prompt, /not a complete verified simulator configuration/);
   assert.match(prompt, /Do not claim to save a training plan/);
   assert.match(prompt, /not a guaranteed achievable lap/);
-  assert(prompt.length < 7000);
+  assert(prompt.length < 10000);
 });

@@ -13,6 +13,7 @@ const ChatContainer = lazy(() =>
   import('../chat/ChatContainer').then((module) => ({ default: module.ChatContainer })),
 );
 const TrainingGoals = lazy(() => import('./TrainingGoals'));
+const SessionSetups = lazy(() => import('./SessionSetups'));
 
 interface SessionCoachProps {
   userId: string | null;
@@ -33,6 +34,7 @@ function CoachLauncher({ userId, session }: SessionCoachProps & { userId: string
   const [hasOpened, setHasOpened] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [goalsOpen, setGoalsOpen] = useState(false);
+  const [setupsOpen, setSetupsOpen] = useState(false);
   const kind = session.kind === 'unknown' ? null : t(`modes.sessions.kind.${session.kind}`);
   const label = [session.track.name, session.car.name, gameName(session.game), kind].filter(Boolean).join(' · ');
   const scope = useMemo<ChatScope>(() => ({ mode: 'virtual', sessionId: session.id, label }), [session.id, label]);
@@ -55,6 +57,7 @@ function CoachLauncher({ userId, session }: SessionCoachProps & { userId: string
     setIsOpen(false);
     setHasOpened(false);
     setGoalsOpen(false);
+    setSetupsOpen(false);
     launchButton.current?.focus();
   };
 
@@ -78,6 +81,10 @@ function CoachLauncher({ userId, session }: SessionCoachProps & { userId: string
                 onClick={() => { if (!isDemoMode()) setGoalsOpen((open) => !open); }}>
                 {t('modes.training.title')}
               </Button>
+              <Button size="sm" variant="outline" aria-expanded={setupsOpen}
+                onClick={() => { if (!isDemoMode()) setSetupsOpen((open) => !open); }}>
+                {t('modes.setups.title')}
+              </Button>
               <Button size="sm" variant="ghost" onClick={disable}>{t('modes.coach.disable')}</Button>
             </>
           )}
@@ -86,6 +93,11 @@ function CoachLauncher({ userId, session }: SessionCoachProps & { userId: string
       {enabled && goalsOpen && (
         <Suspense fallback={<p className="px-4 pb-4 text-sm text-muted-foreground" role="status">{t('common.loading', 'Loading…')}</p>}>
           <TrainingGoals userId={userId} sessionId={session.id} />
+        </Suspense>
+      )}
+      {enabled && setupsOpen && (
+        <Suspense fallback={<p className="px-4 pb-4 text-sm text-muted-foreground" role="status">{t('common.loading', 'Loading…')}</p>}>
+          <SessionSetups userId={userId} sessionId={session.id} />
         </Suspense>
       )}
       {enabled && hasOpened && (

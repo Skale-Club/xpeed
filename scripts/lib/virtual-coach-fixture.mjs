@@ -28,6 +28,7 @@ export function fakeDb(rows = fixture(), failTable) {
   return { reads, async rpc(name, args) {
     reads.push({ table: name, args });
     if (name === failTable) return { data: null, error: { message: 'offline' } };
+    if (name === 'sim_setup_context') return { data: rows.sim_setup_context ?? { version: null, parent: null }, error: null };
     return { data: { goals: rows.sim_coach_goals ?? [], limit: 20, truncated: false }, error: null };
   }, from(table) {
     const filters = [], orders = []; let max = Infinity;

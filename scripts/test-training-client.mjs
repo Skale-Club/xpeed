@@ -101,8 +101,9 @@ test('Virtual privacy export includes only the authenticated owner training goal
         const s=()=>globalThis.__trainingExport;
         export const openBackend=()=>({userId:async()=>s().user,service:{
           rpc:async(name,args)=>({data:name==='sim_rate_hit'?0:{laps:[],trackLayouts:[],sessions:[]},error:null}),
-          from:table=>{const q={select:columns=>{s().columns=columns;return q},eq:(column,value)=>{s().filters.push({table,column,value});return q},
-            order:async()=>{s().goalReads++;return s().failed?{data:null,error:{message:'simulated database failure'}}:{data:[{id:'goal-a',title:'Practice focus'}],error:null}}};return q}
+          from:table=>{const answer=()=>{s().goalReads++;return s().failed?{data:null,error:{message:'simulated database failure'}}:{data:table==='sim_coach_goals'?[{id:'goal-a',title:'Practice focus'}]:[],error:null}};
+            const q={select:columns=>{if(table==='sim_coach_goals')s().columns=columns;return q},eq:(column,value)=>{s().filters.push({table,column,value});return q},
+            order:async()=>answer(),then:(ok,bad)=>Promise.resolve(answer()).then(ok,bad)};return q}
         }});`, loader: 'js' }));
     } }] });
   try {
@@ -114,7 +115,8 @@ test('Virtual privacy export includes only the authenticated owner training goal
       const response = await run(); assert.equal(response.status, 200);
       const body = await response.json(); assert.equal(body.format, 'xpeed-virtual-export'); assert.deepEqual(body.sessions, []);
       assert.deepEqual(body.trainingGoals, [{ id: 'goal-a', title: 'Practice focus' }]);
-      assert.deepEqual(state.filters, [{ table: 'sim_coach_goals', column: 'user_id', value: 'driver-a' }]);
+      assert.deepEqual(state.filters, ['sim_coach_goals','sim_setup_versions','sim_session_setups'].map(table=>({ table, column: 'user_id', value: 'driver-a' })));
+      assert.deepEqual(body.setupVersions,[]); assert.deepEqual(body.sessionSetups,[]);
       assert(!state.columns.includes('*')); assert.match(state.columns, /source_session_id/);
     });
     await t.test('an invalid sign-in cannot read goals', async () => {

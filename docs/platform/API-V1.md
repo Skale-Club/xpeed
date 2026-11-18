@@ -7,8 +7,8 @@ The session page offers an optional text coach using the existing chat UI and
 does not open a conversation or contact AI: the person opens the coach and sends
 a question explicitly. Disabling it leaves capture, uploads, sessions and lap
 analysis usable. Example mode hides it and cannot start a real coaching request.
-Voice, live interventions, structured exercise plans and setup versioning are
-future increments. Manually saved training goals are described below.
+Voice, live interventions and structured exercise plans are future increments.
+Manually saved training goals and private setup versions are described below.
 
 Virtual requests carry `{ mode: "virtual", sessionId, conversationId, messageId,
 message, language, accountId }`. New clients bind requests to the displayed
@@ -123,6 +123,56 @@ all Virtual sessions also erases them. The Virtual data download includes
 or production configuration is performed by the local tests. The combined
 focused suite measured about nine seconds on the Surface on 2026-11-18;
 normal UI Vitest and full project checks remain release requirements.
+
+## Private setup versions and consultation
+
+**Car setups** is a separate explicitly opened tool in the opted-in session
+coach. It loads only on request and makes no AI calls to manage the library.
+The source session determines its simulator/car/track context; another account
+or context cannot supply a parent or session association.
+
+Migration `20261118190000_virtual_setup_versions.sql` adds owner-checked RPCs:
+
+- `sim_setup_versions({p_session_id})`: `{versions,selectedVersionId,limit:20}`.
+  A version has `{id,label,notes,parameters,parentId,createdAt,runs}`. `runs`
+  contains at most three recent owned, explicitly associated sessions with
+  bounded verified best-lap measurements, conditions and coverage.
+- `sim_setup_create({p_session_id,p_label,p_notes,p_parameters,p_parent_id})`:
+  save a new immutable snapshot, returning its UUID. Creating a version does
+  not associate it with the session. A parent must belong to the same owner
+  and simulator/car/track. Copying starts a new draft; the original survives.
+- `sim_setup_attach({p_session_id,p_version_id})`: explicitly record the
+  driver's setup declaration for this owned session; null removes it. Merely
+  selecting a version for viewing does not change this association.
+- `sim_setup_delete({p_id})`: explicitly delete the owned version. Its session
+  associations are removed; derived snapshots retain their parameters and
+  lose the deleted parent link.
+
+Labels have 1–120 characters, notes at most 1,000. Parameters are 1–32 objects
+`{name,value,unit}`, all strings, with name 1–60 characters, value 1–80 and unit
+0–20. Names are unique ignoring case. Control characters are rejected, and
+values are stored with their explicit units. The application does not infer
+numeric meaning, convert simulator units, validate supported adjustment
+ranges or import proprietary simulator setup files. Parameter differences
+preserve names, values, unit changes, additions and removals.
+
+The library holds twenty versions per context and one hundred per account.
+Direct table/private-helper access is denied to browser database roles.
+Mutations take the same owner lock as racing-data erasure where needed. The
+library survives session deletion; full Virtual-profile or account erasure
+cascades to snapshots and associations. The Virtual privacy download includes
+`setupVersions` and `sessionSetups`, scoped to the authenticated owner.
+
+The shared chat becomes a setup consultant when an explicitly associated
+snapshot exists. Server evidence includes that version, its surviving parent,
+parameter changes and bounded associated runs, marked as **driver reports**.
+An unassociated newest library version is never assumed to be in the car.
+The model asks about the balance symptom, corner phase and conditions, separates
+driving and mechanical hypotheses, and proposes one qualified experiment at a
+time. It must not invent ranges/clicks, prescribe exact numerical targets from
+unverified settings, claim that a time difference proves a setup effect, or
+claim to apply/change settings. Simulator writes and voice remain unavailable
+in this increment. Normal AI billing still follows super-admin configuration.
 
 ## OpenRouter provider and billing selection
 
