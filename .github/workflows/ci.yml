@@ -41,6 +41,9 @@ jobs:
       - name: Native track inventory safety
         run: node --test scripts/test-inventory-native-tracks.mjs
 
+      - name: AI encryption deployment configuration
+        run: node --test scripts/test-ensure-ai-credential-key.mjs
+
       - name: Production build
         run: npm run build
         env:

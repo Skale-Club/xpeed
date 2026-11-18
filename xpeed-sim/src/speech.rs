@@ -150,7 +150,7 @@ pub(crate) fn run<Job>(
         let reader = child.stdout.take().and_then(|stdout| {
             thread::Builder::new()
                 .name("coach-speech-read".into())
-                .spawn(move || {
+                .spawn(move || -> std::io::Result<SpeechResult> {
                     let mut bytes = Vec::new();
                     stdout.take(MAX_TRANSCRIPT_BYTES + 1).read_to_end(&mut bytes)?;
                     if bytes.len() as u64 > MAX_TRANSCRIPT_BYTES {

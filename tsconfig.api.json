@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.app.json",
   "compilerOptions": { "types": ["node", "vite/client"] },
-  "include": ["api/**/*.ts"]
+  "include": ["api/**/*.ts", "server/functions/deno-modules.d.ts"]
 }

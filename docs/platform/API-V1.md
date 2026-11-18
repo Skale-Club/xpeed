@@ -286,6 +286,11 @@ server backups: replacing it requires a deliberate key-rotation migration or
 an administrator re-entering the clients' personal keys. Missing encryption configuration disables
 personal-key saving; decryption/storage failures stop the request.
 
+The authorized Coolify deployment runs `scripts/ensure-ai-credential-key.mjs`
+before restarting the app. It creates a hidden runtime-only secret when absent,
+preserves existing keys without rotation, verifies metadata and logs no values.
+The Coolify API token needs environment read/write permissions as well as deploy.
+
 There is no automatic fallback between billing sources. Invalid personal keys,
 insufficient personal credits, unsupported models and provider rate limits are
 classified separately by the server; ordinary chat shows a generic assistant

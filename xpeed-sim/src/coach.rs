@@ -110,7 +110,7 @@ impl WorkSlot {
     fn acquire(busy: &'static AtomicBool) -> Option<Self> {
         busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
-            .map(|()| Self(busy))
+            .map(|_| Self(busy))
     }
 }
 
