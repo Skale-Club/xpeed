@@ -360,7 +360,18 @@ async function readAll(stream: ReadableStream<Uint8Array>, maxBytes: number): Pr
   return out;
 }
 
-const streamOf = (bytes: Uint8Array) => new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes); controller.close(); } });
+const streamOf = (bytes: Uint8Array) => new ReadableStream<BufferSource>({
+  start(controller) {
+    const buffer = bytes.buffer;
+    // Compression streams accept an ArrayBuffer-backed view. Preserve offsets
+    // without copying unless the source uses a shared buffer.
+    const view = buffer instanceof ArrayBuffer
+      ? new Uint8Array(buffer, bytes.byteOffset, bytes.byteLength)
+      : new Uint8Array(bytes);
+    controller.enqueue(view);
+    controller.close();
+  },
+});
 
 /** The file as it is sent and stored: the lap's bytes, gzip-compressed. */
 export async function gzipLap(file: LapFile): Promise<Uint8Array> {

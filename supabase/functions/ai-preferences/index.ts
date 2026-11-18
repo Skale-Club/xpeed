@@ -3,7 +3,12 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { z } from "npm:zod@3.23.8";
 import { getServiceClient, getUserIdFromAuth } from "../_shared/quota.ts";
-import { aiPreferenceStatus, AiProviderError, encryptPersonalKey, readAiPreference } from "../_shared/ai-provider.ts";
+import { aiPreferenceStatus, AiProviderError, encryptPersonalKey, readAiPreference, type AiPreference } from "../_shared/ai-provider.ts";
+
+type PreferenceWrite = AiPreference & { updated_at: string };
+type PreferenceWriter = {
+  upsert(row: PreferenceWrite, options: { onConflict: "user_id" }): PromiseLike<{ error: unknown }>;
+};
 
 const schema = z.object({
   accountId: z.string().uuid(),
@@ -69,7 +74,9 @@ serve(async (req) => {
         ciphertext = encrypted.ciphertext; iv = encrypted.iv; last4 = body.apiKey.slice(-4);
       }
       if (body.mode === "personal" && (!ciphertext || !body.model)) return reply({ code: "personal_key_required" }, 400);
-      const result = await db.from("user_ai_preferences").upsert({ user_id: targetId, mode: body.mode,
+      // The shared service client has no generated schema for this service-only table.
+      const preferences = db.from("user_ai_preferences") as PreferenceWriter;
+      const result = await preferences.upsert({ user_id: targetId, mode: body.mode,
         api_key_ciphertext: ciphertext, api_key_iv: iv, key_last4: last4, model: body.model ?? old?.model ?? null,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
