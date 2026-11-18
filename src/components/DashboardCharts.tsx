@@ -295,7 +295,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis 
-                        stroke="hsl(var(--muted-foreground))" 
+                        stroke="hsl(var(--muted-foreground))"
                         fontSize={12} 
                         tickLine={false} 
                         axisLine={false} 
@@ -332,7 +332,7 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis 
-                        stroke="hsl(var(--muted-foreground))" 
+                        stroke="hsl(var(--muted-foreground))"
                         fontSize={12} 
                         tickLine={false} 
                         axisLine={false} 

@@ -2,6 +2,7 @@
 // It lives entirely on this device. This file is the only part of the example that is in the main bundle (a few lines: the switch and
 // its hooks); the made-up account itself (src/lib/sim/demo/index.ts) is loaded on demand, the first time something is read in the example.
 import { useCallback, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import i18n from '@/lib/i18n';
 import { toast } from '@/hooks/use-toast';
@@ -59,8 +60,10 @@ export function useExample() {
     client.removeQueries({ queryKey: ['sim-v1'] });
   }, [client]);
   const leave = useCallback(() => {
-    leaveDemo();
-    client.removeQueries({ queryKey: ['sim-v1'] });
+    // Detach example observers before clearing their queries. Otherwise a render
+    // with the old account can recreate them while the cache is being removed.
+    flushSync(() => leaveDemo());
+    client.removeQueries({ queryKey: ['sim-v1', DEMO_USER_ID] });
     client.removeQueries({ queryKey: ['sim-lap-file'] });
     client.removeQueries({ queryKey: ['sim-track-layout'] });
     client.removeQueries({ queryKey: ['sim-account-layouts'] });

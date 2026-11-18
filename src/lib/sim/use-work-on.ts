@@ -82,9 +82,11 @@ export function useWorkOn(latest: readonly V1Session[], enabled: boolean) {
     gcTime: 10 * 60_000,
     retry: false,
     refetchOnWindowFocus: false,
-    queryFn: async (): Promise<WorkOn | null> => {
+    queryFn: async ({ signal }): Promise<WorkOn | null> => {
       for (const session of candidates) {
+        signal.throwIfAborted();
         const fast = await serverInsights(client, userId, session);
+        signal.throwIfAborted();
         if (fast) {
           if (fast.lapsUsed < MIN_LAPS) continue;
           if (fast.findings.length > 0) return { session, lapsUsed: fast.lapsUsed, findings: fast.findings.slice(0, 2).map(findingOf), insights: null };
@@ -94,10 +96,15 @@ export function useWorkOn(latest: readonly V1Session[], enabled: boolean) {
           queryFn: () => v1Get<{ session: V1Session; laps: V1Lap[] }>(`/sessions/${encodeURIComponent(session.id)}`),
           staleTime: STALE.detail,
         });
+        signal.throwIfAborted();
         const usable = usableLaps(detail.laps);
         if (usable.length < MIN_LAPS) continue;
         const chosen = [...usable].sort((p, q) => p.timeMs - q.timeMs).slice(0, MAX_LAPS);
-        const files = await inGroups(chosen, 4, (lap) => openLap(userId!, lap.id, { sessionId: session.id }));
+        const files = await inGroups(chosen, 4, (lap) => {
+          signal.throwIfAborted();
+          return openLap(userId!, lap.id, { sessionId: session.id });
+        });
+        signal.throwIfAborted();
         const insights = await studyClient().session(files);
         return { session, lapsUsed: files.length, findings: sessionFindings(insights), insights };
       }

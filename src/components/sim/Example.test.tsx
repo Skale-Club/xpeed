@@ -239,9 +239,6 @@ describe('leaving the example', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/virtual');
     await waitFor(() => expect(screen.queryByTestId('example-banner')).not.toBeInTheDocument());
     // Everything read in the example is dropped from the cache.
-    // TEMP diagnostic (remove once fixed): which example queries survive, and who still observes them.
-    const left = view.client.getQueryCache().getAll().filter((query) => query.queryKey[0] === 'sim-v1' && query.queryKey[1] === 'example');
-    if (left.length > 0) console.log('EXAMPLE-LEFT', JSON.stringify(left.map((query) => [query.queryKey, query.getObserversCount(), query.state.status])));
     expect(view.client.getQueryCache().getAll().filter((query) => query.queryKey[0] === 'sim-v1' && query.queryKey[1] === 'example')).toHaveLength(0);
     // The real account is read again (the empty overview), over the network, and its invitation is back.
     expect(await screen.findByRole('button', { name: 'See an example' })).toBeInTheDocument();
