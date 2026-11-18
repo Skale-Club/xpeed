@@ -433,6 +433,70 @@
       "notConfigured": "El entrenador de sesión aún no está disponible.",
       "replyFailed": "El entrenador de sesión no ha podido responder ahora. Inténtalo de nuevo en un momento."
     },
+    "training": {
+      "title": "Objetivos de entrenamiento",
+      "intro": "Usa esta sesión como referencia para un nuevo objetivo. El progreso usa el resultado válido más reciente entre hasta 20 sesiones iniciadas después de crear el objetivo, con el mismo simulador, coche, pista y tipo de sesión.",
+      "add": "Nuevo objetivo",
+      "goalTitle": "Nombre del objetivo",
+      "metric": "Métrica",
+      "targetSeconds": "Objetivo en segundos",
+      "targetPercent": "Objetivo en porcentaje",
+      "targetHint": {
+        "best_lap_ms": "Elige de 1 a 3.600 segundos. Cuanto menor sea el tiempo, mejor.",
+        "consistency_ms": "Elige de 0 a 3.600 segundos. La variación usa al menos tres vueltas verificadas con tiempos dentro del 7% de la mejor.",
+        "valid_lap_pct": "Elige de 0% a 100%. La base del cálculo incluye todas las vueltas cronometradas fuera de boxes, incluidas las no válidas y sin verificar."
+      },
+      "metrics": {
+        "best_lap_ms": "Mejor vuelta verificada",
+        "consistency_ms": "Variación de los tiempos de vuelta",
+        "valid_lap_pct": "Porcentaje de vueltas válidas y verificadas"
+      },
+      "notes": "Notas (opcional)",
+      "save": "Guardar objetivo",
+      "empty": "Añade un objetivo para seguir tu progreso en esta pista y con este coche.",
+      "limit": "Esta lista admite hasta {{limit}} objetivos. Los archivados cuentan para el límite.",
+      "goalTarget": "Objetivo de {{metric}} · {{target}}",
+      "baseline": "Sesión de referencia",
+      "latest": "Última sesión medida",
+      "noFollowup": "A la espera de una sesión válida para medir el progreso.",
+      "coverage": "{{usable}} verificadas · {{clean}} dentro del 7% de la mejor · {{total}} vueltas en total",
+      "unknownConditions": "Clima y temperaturas desconocidos.",
+      "unknownKind": "Tipo de sesión desconocido",
+      "partial": "Datos parciales. Este resultado usa hasta 200 vueltas registradas.",
+      "unmeasured": "Medición no disponible",
+      "delta": "Cambio desde la referencia · {{value}}",
+      "targetReached": "La última medición alcanzó el objetivo.",
+      "targetPending": "La última medición queda fuera del objetivo.",
+      "comparisonCaveat": "Las condiciones de pista pueden variar entre sesiones. El reglaje, el combustible y el estado de los neumáticos están sin verificar.",
+      "units": {
+        "seconds": "{{value}} s",
+        "percent": "{{value}}%",
+        "points": "{{value}} puntos porcentuales"
+      },
+      "status": {
+        "active": "Activo",
+        "completed": "Completado manualmente",
+        "archived": "Archivado"
+      },
+      "complete": "Marcar como completado",
+      "archive": "Archivar",
+      "reopen": "Reabrir objetivo",
+      "delete": "Eliminar objetivo",
+      "confirmDeleteTitle": "¿Eliminar este objetivo de entrenamiento?",
+      "confirmDeleteBody": "El objetivo «{{title}}» y sus notas se eliminarán de forma permanente.",
+      "goalCreated": "Objetivo guardado.",
+      "goalUpdated": "Estado del objetivo actualizado.",
+      "goalDeleted": "Objetivo eliminado.",
+      "refresh": "Actualizar progreso",
+      "retry": "Volver a cargar objetivos",
+      "error": {
+        "insufficient_laps": "Esta sesión necesita más vueltas válidas para esa métrica. Prueba con otra métrica o registra más vueltas.",
+        "goal_limit": "Has alcanzado el límite. Elimina un objetivo anterior para añadir otro.",
+        "invalid_goal": "Revisa el nombre, la métrica y el valor del objetivo.",
+        "unavailable": "Los objetivos de entrenamiento no están disponibles ahora. Inténtalo de nuevo en un momento.",
+        "refresh": "El cambio se ha guardado. Vuelve a cargar la lista para verlo."
+      }
+    },
     "switchLabel": "Cambiar de modo",
     "real": "Real",
     "virtual": "Virtual",

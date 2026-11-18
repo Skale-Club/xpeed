@@ -22,7 +22,7 @@
     "test:car-brands": "node scripts/verify-car-brands.mjs",
     "test:vehicle-visuals": "node scripts/verify-vehicle-visuals.mjs",
     "test:functions": "node scripts/verify-functions.mjs",
-    "test:virtual-coach": "node --test --test-concurrency=1 scripts/test-virtual-coach.mjs scripts/test-virtual-coach-handler.mjs scripts/test-virtual-coach-client.mjs scripts/test-coach-driving.mjs scripts/test-coach-laps.mjs scripts/test-personal-ai.mjs scripts/test-ai-consumers.mjs && node scripts/verify-virtual-coach-sql.mjs",
+    "test:virtual-coach": "node --test --test-concurrency=1 scripts/test-virtual-coach.mjs scripts/test-virtual-coach-handler.mjs scripts/test-virtual-coach-client.mjs scripts/test-coach-driving.mjs scripts/test-coach-laps.mjs scripts/test-personal-ai.mjs scripts/test-ai-consumers.mjs scripts/test-training-client.mjs && node scripts/verify-virtual-coach-sql.mjs && node scripts/verify-training-goals-sql.mjs",
     "test:boot": "node --test scripts/test-server-boot.mjs",
     "build": "npm run build:web && npm run build:server",
     "build:dev": "vite build --mode development",

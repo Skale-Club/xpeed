@@ -25,7 +25,11 @@ export function fixture() {
 }
 export function fakeDb(rows = fixture(), failTable) {
   const reads = [];
-  return { reads, from(table) {
+  return { reads, async rpc(name, args) {
+    reads.push({ table: name, args });
+    if (name === failTable) return { data: null, error: { message: 'offline' } };
+    return { data: { goals: rows.sim_coach_goals ?? [], limit: 20, truncated: false }, error: null };
+  }, from(table) {
     const filters = [], orders = []; let max = Infinity;
     const result = () => {
       reads.push({ table, filters: [...filters] });

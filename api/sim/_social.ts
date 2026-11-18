@@ -439,8 +439,13 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
         const slow = await throttle(backend, `export:${userId}`, 5, 3600);
         if (slow > 0) return wait(slow);
         const data = await call<Record<string, unknown> & { laps: { id: string; sizeBytes: number }[]; trackLayouts: { id: string; sizeBytes: number }[] }>(backend.service, 'sim_export_me', { p_user: userId });
+        const goals = await backend.service.from('sim_coach_goals')
+          .select('id,source_session_id,game,track_id,car_id,title,notes,metric,target,status,created_at')
+          .eq('user_id', userId).order('created_at', { ascending: true });
+        if (goals.error) throw goals.error;
         const body = {
           format: 'xpeed-virtual-export', version: 1, exportedAt: new Date().toISOString(), ...data,
+          trainingGoals: goals.data ?? [],
           // The files are not in this document: each is downloaded with the same sign-in, one call per file.
           lapFiles: data.laps.map((lap) => ({ lapId: lap.id, sizeBytes: lap.sizeBytes, path: `/api/sim/v1/laps/${lap.id}/file` })),
           trackLayoutFiles: data.trackLayouts.map((layout) => ({ id: layout.id, sizeBytes: layout.sizeBytes, path: `/api/sim/tracks/${layout.id}/file` })),

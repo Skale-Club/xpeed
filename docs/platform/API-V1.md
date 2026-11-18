@@ -7,8 +7,8 @@ The session page offers an optional text coach using the existing chat UI and
 does not open a conversation or contact AI: the person opens the coach and sends
 a question explicitly. Disabling it leaves capture, uploads, sessions and lap
 analysis usable. Example mode hides it and cannot start a real coaching request.
-Voice, live interventions, saved training plans and setup versioning are future
-increments, not capabilities of this first release.
+Voice, live interventions, structured exercise plans and setup versioning are
+future increments. Manually saved training goals are described below.
 
 Virtual requests carry `{ mode: "virtual", sessionId, conversationId, messageId,
 message, language, accountId }`. New clients bind requests to the displayed
@@ -62,6 +62,67 @@ it does not install or change those dependencies. Measured on the Surface on
 2026-11-18: the focused Node and isolated SQL suite took about 10 seconds.
 React tests cover activation, context switches and late
 responses; run them with the repository's normal Vitest dependencies.
+
+## Optional training goals and evolution
+
+After enabling the coach, the driver can explicitly open **Training goals** in
+the session card. Until then the goals module and its reads stay unloaded. Goal
+management makes no AI calls and works without an AI provider. Turning the
+coach off hides the tools; existing goals remain saved. Account/session changes
+and example mode reset the view and discard late responses. Cancelling a view
+stops waiting for its result; an RPC already submitted can still finish.
+
+Migration `20261118180000_virtual_training_goals.sql` exposes these
+owner-checked RPCs through the existing database transport:
+
+- `sim_coach_goals({p_session_id})`: `{goals,limit:20,truncated}` for this
+  session's simulator/car/track. Each goal includes its baseline, latest
+  eligible measurement, signed `delta` (latest minus baseline), and nullable
+  `reached`. No eligible follow-up means no measured progress.
+- `sim_coach_goal_create({p_session_id,p_title,p_metric,p_target,p_notes})`:
+  create a goal from an owned session with enough eligible baseline laps;
+  returns its UUID. Names have 1–120 characters and notes at most 1,000.
+- `sim_coach_goal_status({p_id,p_status})`: manually set `active`, `completed`
+  or `archived`; returns false for an unavailable/foreign goal.
+- `sim_coach_goal_delete({p_id})`: explicitly remove the owned goal and notes;
+  returns false for an unavailable/foreign goal.
+
+Metrics are `best_lap_ms` (integer 1,000–3,600,000), `consistency_ms` (integer
+0–3,600,000) and `valid_lap_pct` (0–100). The UI accepts durations in seconds
+and converts to milliseconds. Lower time/variation is better; higher valid
+percentage is better. Best/consistency use valid, plausible non-pit laps.
+Consistency requires at least three eligible laps within 7% of the best and
+uses sample standard deviation. The percentage denominator includes every
+timed non-pit lap inspected, including invalid/unverified laps; its numerator
+uses only verified valid laps. It is deliberately not a claim about all
+recorded distance or all driving time.
+
+Measurements inspect the first 200 lap metadata rows in driving order and
+explicitly flag partial coverage. Baselines are recomputed from surviving
+source data. Progress uses the latest evaluable result among the twenty most
+recent subsequent sessions of the same simulator/car/track/source-session
+kind, started after both goal creation and the baseline session start. It
+does not use earlier historical sessions or a lifetime best. Weather and
+temperature labels are shown; matching fuel, tyres, setup and grip are not
+assumed. A reached target is an observation and never automatically completes
+a goal or proves that coaching caused an improvement.
+
+There are at most twenty goals per simulator/car/track, including archived
+goals, and one hundred per account. Creation uses an owner transaction lock
+to enforce concurrent limits. The table and measurement/context helpers are
+not directly accessible to anonymous/authenticated database roles. Public
+goal RPCs obtain the actor from the verified application identity, validate
+source ownership and do not accept a user ID. The server coach alone can
+request explicitly owner-scoped context and includes at most three active
+goals with bounded scalar measurements. Chat can advise around these goals;
+it cannot create, update or complete them.
+
+Deleting the source session cascades to its goals; deleting the account or
+all Virtual sessions also erases them. The Virtual data download includes
+`trainingGoals` without credential data. No application database migration
+or production configuration is performed by the local tests. The combined
+focused suite measured about nine seconds on the Surface on 2026-11-18;
+normal UI Vitest and full project checks remain release requirements.
 
 ## OpenRouter provider and billing selection
 

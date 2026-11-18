@@ -433,6 +433,70 @@
       "notConfigured": "O treinador da sessão ainda não está disponível.",
       "replyFailed": "O treinador da sessão não conseguiu responder agora. Tente novamente daqui a pouco."
     },
+    "training": {
+      "title": "Metas de treino",
+      "intro": "Use esta sessão como referência para uma nova meta. A evolução usa o resultado elegível mais recente entre até 20 sessões iniciadas após a criação da meta, no mesmo simulador, carro, pista e tipo de sessão.",
+      "add": "Nova meta",
+      "goalTitle": "Nome da meta",
+      "metric": "Métrica",
+      "targetSeconds": "Alvo em segundos",
+      "targetPercent": "Alvo em porcentagem",
+      "targetHint": {
+        "best_lap_ms": "Escolha de 1 a 3.600 segundos. Quanto menor o tempo, melhor.",
+        "consistency_ms": "Escolha de 0 a 3.600 segundos. A variação considera pelo menos três voltas verificadas até 7% mais lentas que a melhor.",
+        "valid_lap_pct": "Escolha de 0% a 100%. A base do cálculo inclui todas as voltas cronometradas fora dos boxes, inclusive as inválidas e sem verificação."
+      },
+      "metrics": {
+        "best_lap_ms": "Melhor volta verificada",
+        "consistency_ms": "Variação dos tempos de volta",
+        "valid_lap_pct": "Percentual de voltas válidas e verificadas"
+      },
+      "notes": "Anotações (opcional)",
+      "save": "Salvar meta",
+      "empty": "Adicione uma meta para acompanhar sua evolução nesta pista e neste carro.",
+      "limit": "Esta lista comporta até {{limit}} metas. Metas arquivadas contam para o limite.",
+      "goalTarget": "Alvo de {{metric}} · {{target}}",
+      "baseline": "Sessão de referência",
+      "latest": "Sessão medida mais recente",
+      "noFollowup": "Aguardando uma sessão elegível para acompanhar a evolução.",
+      "coverage": "{{usable}} verificadas · {{clean}} até 7% da melhor · {{total}} voltas ao todo",
+      "unknownConditions": "Clima e temperaturas desconhecidos.",
+      "unknownKind": "Tipo de sessão desconhecido",
+      "partial": "Dados parciais. Este resultado usa até 200 voltas registradas.",
+      "unmeasured": "Medição indisponível",
+      "delta": "Variação desde a referência · {{value}}",
+      "targetReached": "A medição mais recente atingiu o alvo.",
+      "targetPending": "A medição mais recente está fora do alvo.",
+      "comparisonCaveat": "As condições da pista podem variar entre sessões. Acerto, combustível e condições dos pneus estão sem verificação.",
+      "units": {
+        "seconds": "{{value}} s",
+        "percent": "{{value}}%",
+        "points": "{{value}} pontos percentuais"
+      },
+      "status": {
+        "active": "Ativa",
+        "completed": "Concluída manualmente",
+        "archived": "Arquivada"
+      },
+      "complete": "Marcar como concluída",
+      "archive": "Arquivar",
+      "reopen": "Reabrir meta",
+      "delete": "Excluir meta",
+      "confirmDeleteTitle": "Excluir esta meta de treino?",
+      "confirmDeleteBody": "A meta “{{title}}” e suas anotações serão excluídas definitivamente.",
+      "goalCreated": "Meta salva.",
+      "goalUpdated": "Status da meta atualizado.",
+      "goalDeleted": "Meta excluída.",
+      "refresh": "Atualizar evolução",
+      "retry": "Recarregar metas",
+      "error": {
+        "insufficient_laps": "Esta sessão precisa de mais voltas elegíveis para essa métrica. Experimente outra métrica ou registre mais voltas.",
+        "goal_limit": "Limite de metas atingido. Exclua uma meta antiga para adicionar outra.",
+        "invalid_goal": "Confira o nome, a métrica e o alvo da meta.",
+        "unavailable": "As metas de treino estão indisponíveis no momento. Tente novamente.",
+        "refresh": "A alteração foi salva. Recarregue a lista para ver o resultado."
+      }
+    },
     "switchLabel": "Trocar de modo",
     "real": "Real",
     "virtual": "Virtual",

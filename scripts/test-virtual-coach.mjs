@@ -36,9 +36,27 @@ test('rejects another user, Real conversation, session mismatch and saved-questi
 });
 
 test('database failures fail closed instead of yielding an empty or fallback context', async () => {
-  for (const table of Object.keys(fixture())) {
+  for (const table of [...Object.keys(fixture()), 'sim_coach_context']) {
     await assert.rejects(loadVirtualCoachContext(fakeDb(fixture(), table), ids.user, request), (e) => e.code === 'unavailable' && e.status === 503);
   }
+});
+
+test('coach reads only active saved goals through an owner/session-bound service RPC and cannot mutate them', async () => {
+  const rows = fixture();
+  rows.sim_coach_goals = Array.from({ length: 6 }, (_, i) => ({ id: `goal-${i}`, title: 'Brake exercise ' + i, notes: 'x'.repeat(1000),
+    status: i === 0 ? 'archived' : 'active', metric: 'best_lap_ms', target: 88000, reached: null, delta: null,
+    baseline: { sessionId: ids.session, startedAt: '2026-11-18T12:00:00Z', kind: 'practice', value: 90000, weather: 'x'.repeat(10000), secret: 'MUST_NOT_ESCAPE' }, latest: null }));
+  const db = fakeDb(rows), { evidence } = await loadVirtualCoachContext(db, ids.user, request);
+  assert.deepEqual(db.reads.find((read) => read.table === 'sim_coach_context').args, { p_user_id: ids.user, p_session_id: ids.session });
+  assert.equal(evidence.training.activeGoalCount, 5); assert.equal(evidence.training.activeGoals.length, 3);
+  assert.equal(evidence.training.activeGoals[0].id, 'goal-1');
+  assert.equal(evidence.training.activeGoals[0].notes.length, 300);
+  assert.equal(evidence.training.activeGoals[0].baseline.weather.length, 40);
+  assert(!JSON.stringify(evidence.training).includes('MUST_NOT_ESCAPE'));
+  const prompt = buildVirtualCoachPrompt(evidence, 'en');
+  assert.match(prompt, /chat cannot create or complete them/);
+  assert.match(prompt, /does not mean the driver has marked the goal completed/);
+  assert(!db.reads.some((read) => /goal_create|goal_status|goal_delete/.test(read.table)));
 });
 
 test('bounds a large session and explicitly identifies partial coverage', async () => {

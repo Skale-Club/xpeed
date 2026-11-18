@@ -433,6 +433,70 @@
       "notConfigured": "The session coach isn't available yet.",
       "replyFailed": "The session coach couldn't answer right now. Try again in a moment."
     },
+    "training": {
+      "title": "Training goals",
+      "intro": "Use this session as a baseline for a new goal. Progress uses the latest eligible result among up to 20 sessions started after goal creation with the same simulator, car, track and session type.",
+      "add": "New goal",
+      "goalTitle": "Goal name",
+      "metric": "Metric",
+      "targetSeconds": "Target in seconds",
+      "targetPercent": "Target percentage",
+      "targetHint": {
+        "best_lap_ms": "Choose 1 to 3,600 seconds. A lower time is better.",
+        "consistency_ms": "Choose 0 to 3,600 seconds. Variation uses at least three verified laps within 7% of the best.",
+        "valid_lap_pct": "Choose 0% to 100%. The denominator includes all timed laps outside the pits, including invalid and unverified laps."
+      },
+      "metrics": {
+        "best_lap_ms": "Best verified lap",
+        "consistency_ms": "Lap-time variation",
+        "valid_lap_pct": "Verified valid lap rate"
+      },
+      "notes": "Notes (optional)",
+      "save": "Save goal",
+      "empty": "Add a goal to track your progress on this track and car.",
+      "limit": "This list holds up to {{limit}} goals. Archived goals count toward the limit.",
+      "goalTarget": "{{metric}} target · {{target}}",
+      "baseline": "Baseline session",
+      "latest": "Latest measured session",
+      "noFollowup": "Waiting for an eligible follow-up session.",
+      "coverage": "{{usable}} verified · {{clean}} within 7% of best · {{total}} total laps",
+      "unknownConditions": "Weather and temperatures unknown.",
+      "unknownKind": "Session type unknown",
+      "partial": "Partial lap data. This result uses up to 200 recorded laps.",
+      "unmeasured": "Measurement unavailable",
+      "delta": "Change from baseline · {{value}}",
+      "targetReached": "Latest measurement meets the target.",
+      "targetPending": "Latest measurement is outside the target.",
+      "comparisonCaveat": "Track conditions may differ between sessions. Setup, fuel and tyre conditions are unverified.",
+      "units": {
+        "seconds": "{{value}} s",
+        "percent": "{{value}}%",
+        "points": "{{value}} percentage points"
+      },
+      "status": {
+        "active": "Active",
+        "completed": "Completed manually",
+        "archived": "Archived"
+      },
+      "complete": "Mark complete",
+      "archive": "Archive",
+      "reopen": "Reopen goal",
+      "delete": "Delete goal",
+      "confirmDeleteTitle": "Delete this training goal?",
+      "confirmDeleteBody": "The goal “{{title}}” and its notes will be permanently removed.",
+      "goalCreated": "Goal saved.",
+      "goalUpdated": "Goal status updated.",
+      "goalDeleted": "Goal deleted.",
+      "refresh": "Refresh progress",
+      "retry": "Reload goals",
+      "error": {
+        "insufficient_laps": "This session needs more eligible laps for that metric. Try a different metric or record more laps.",
+        "goal_limit": "Goal limit reached. Delete an older goal to add another.",
+        "invalid_goal": "Check the goal name, metric and target.",
+        "unavailable": "Training goals are unavailable right now. Try again.",
+        "refresh": "The change was saved. Reload the list to see it."
+      }
+    },
     "switchLabel": "Switch mode",
     "real": "Real",
     "virtual": "Virtual",
