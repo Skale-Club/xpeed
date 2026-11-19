@@ -164,20 +164,20 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         match update.bar {
             present::CardBar::None => {}
             present::CardBar::Percent(p) => {
-                g.round(g.r(bx, by, bw, bh), R_XS, SECONDARY, None);
+                g.round(g.r(bx, by, bw, bh), SECONDARY, None);
                 let filled = bw * f32::from(p.min(100)) / 100.0;
                 if filled > 0.5 {
-                    g.round(g.r(bx, by, filled, bh), R_XS, PRIMARY, None);
+                    g.round(g.r(bx, by, filled, bh), PRIMARY, None);
                 }
             }
             present::CardBar::Busy => {
-                g.round(g.r(bx, by, bw, bh), R_XS, SECONDARY, None);
+                g.round(g.r(bx, by, bw, bh), SECONDARY, None);
                 let t = (view.now_ms.rem_euclid(1100)) as f32 / 1100.0;
                 let piece = bw * 0.35;
                 let start = (-piece + (bw + piece) * t).max(0.0);
                 let end = (-piece + (bw + piece) * t + piece).min(bw);
                 if end - start > 0.5 {
-                    g.round(g.r(bx + start, by, end - start, bh), R_XS, PRIMARY, None);
+                    g.round(g.r(bx + start, by, end - start, bh), PRIMARY, None);
                 }
             }
         }
@@ -187,7 +187,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
                 present::CardButton::UpdateNow => (PRIMARY, None, ON_PRIMARY, Action::UpdateNow),
                 present::CardButton::CheckNow | present::CardButton::TryAgain => (CARD, Some(BORDER), FOREGROUND, Action::CheckUpdates),
             };
-            g.round(r, R_TILE, fill, edge);
+            g.round(r, fill, edge);
             g.text(&label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
             view.buttons.borrow_mut().push((action, r));
         }
@@ -258,7 +258,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         } else {
             (CARD, Some(BORDER), FOREGROUND)
         };
-        g.round(r, R_TILE, fill, edge);
+        g.round(r, fill, edge);
         g.text(label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
         view.buttons.borrow_mut().push((*action, r));
     }
@@ -361,7 +361,7 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     let copy = text(view.lang, &Msg::DiagnosticsCopy);
     let copy_w = g.width_of(&copy, T_CAPTION, semi, Face::Ui) + S6;
     let r = g.r(0.0, h - S6, copy_w, S6);
-    g.round(r, R_TILE, CARD, Some(BORDER));
+    g.round(r, CARD, Some(BORDER));
     g.text(&copy, r, T_CAPTION, semi, Face::Ui, FOREGROUND, DT_CENTER);
     view.buttons.borrow_mut().push((Action::CopyDiagnostics, r));
     let note_x = copy_w + 14.0;
@@ -396,7 +396,7 @@ pub(super) fn cover_for(key: &str, covers: &[CoverArt]) -> Option<*mut GpImage> 
 
 /// A small rounded label with a tinted background.
 pub(super) fn pill(g: &mut Painter, x: f32, y: f32, w: f32, word: &str, color: COLORREF) {
-    g.round(g.r(x, y, w, S6), R_TILE, tint(CARD, color, 0.18), None);
+    g.round(g.r(x, y, w, S6), tint(CARD, color, 0.18), None);
     let r = g.r(x, y, w, S6);
     g.text(word, r, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui, color, DT_CENTER);
 }

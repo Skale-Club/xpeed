@@ -1356,12 +1356,10 @@ fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
     assert_eq!(type_step(500.0), T_DISPLAY);
     assert_eq!(type_step(60.0), T_HERO);
     assert_eq!(type_step(1.0), T_CAPTION);
-    // Spacing is on a 4 px grid; the radii are the site's.
+    // Spacing is on a 4 px grid (the corner has its own test: one_near_square_corner).
     for s in [S1, S2, S3, S4, S6, S8] {
         assert_eq!(s % 4.0, 0.0);
     }
-    assert_eq!([R_XS, R_SM, R_MD, R_LG], [4.0, 6.0, 8.0, 10.0]);
-    assert_eq!((R_CARD, R_TILE), (8.0, 6.0));
     // The site's colours.
     assert_eq!(BACKGROUND, rgb(0x10, 0x11, 0x13));
     assert_eq!(CARD, rgb(0x18, 0x19, 0x1b));
@@ -1386,6 +1384,43 @@ fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
     ] {
         assert!(!source.contains("rgb("), "{file} writes a colour of its own");
         assert!(!source.contains("mix("), "{file} mixes a colour of its own");
+    }
+}
+
+/// The owner's "square pill": one near-square corner for every shape (decision 2026-11-12, fec259a). A token pass once
+/// replaced it with the site's 4/6/8/10 radii (539eb8a, 2026-11-16) and nothing failed; this test is why that cannot
+/// happen again. Changing the corner is an owner decision: record it in the journal first, then change this test.
+#[test]
+fn one_near_square_corner() {
+    assert_eq!(R_CORNER, 2.5);
+    // Drawn, not only declared: two pixels in along the chosen tab's top edge is already pure yellow; any rounder
+    // corner (the site's 6 px) leaves it at least partly dark.
+    let f = fixture();
+    let (w, h) = (960, 600);
+    let pixels = render(&view(&f, None, Tab::Dash, 1.0, Lang::En), w, h);
+    let [dash, ..] = header_hits(w, 1.0);
+    let i = (((dash.top + 1) * w + dash.left + 2) * 4) as usize;
+    let got = [pixels[i + 2], pixels[i + 1], pixels[i]];
+    let yellow = [(PRIMARY & 0xff) as u8, (PRIMARY >> 8 & 0xff) as u8, (PRIMARY >> 16 & 0xff) as u8];
+    assert!(
+        got.iter().zip(yellow).all(|(g, y)| g.abs_diff(y) <= 12),
+        "the chosen tab's corner is rounder than R_CORNER: {got:?} instead of {yellow:?}"
+    );
+    // No view brings a second corner back: no radius of the site's scale, no rounded shape outside the painter.
+    for (file, source) in [
+        ("dash_view.rs", include_str!("dash_view.rs")),
+        ("monitor_view.rs", include_str!("monitor_view.rs")),
+        ("waiting_view.rs", include_str!("waiting_view.rs")),
+        ("chrome.rs", include_str!("chrome.rs")),
+        ("coach_look.rs", include_str!("coach_look.rs")),
+        ("perspective_paint.rs", include_str!("perspective_paint.rs")),
+        ("layout.rs", include_str!("layout.rs")),
+        ("art.rs", include_str!("art.rs")),
+        ("tokens.rs", include_str!("tokens.rs")),
+    ] {
+        for other in ["R_XS", "R_SM", "R_MD", "R_LG", "R_CARD", "R_TILE", "rounded_path(", "RoundRect(", "GdipAddPathArc"] {
+            assert!(!source.contains(other), "{file} draws a corner of its own ({other})");
+        }
     }
 }
 

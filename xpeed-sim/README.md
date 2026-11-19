@@ -28,6 +28,10 @@ Clicar no ícone abre o **painel**; o botão direito abre o menu. Menu do ícone
   - última e melhor volta, pedais, volante, combustível e o ponto da volta em que o carro está.
 - **Monitor:** o estado de cada leitor de jogo, a conta, as voltas gravadas e as últimas linhas do registro.
 
+**Forma (decisão do dono, 12/11/2026):** todo elemento sólido do painel e da janela do Coach (card, aba, botão, pílula, chip, barra, interruptor) tem **um só canto, quase reto, de 2,5 px**: a "pílula quadrada", como nas telas de corrida. É o token `R_CORNER` em `src/panel/tokens.rs`. `Painter::round` não aceita outro raio, e o teste `one_near_square_corner` falha se alguém voltar à escala de raios do site (4/6/8/10), como aconteceu em 16/11. Mudar o canto é decisão do dono, registrada no Journal antes do código.
+
+**Ver o painel sem Rust:** o CI desenha todas as telas (teste `writes_the_design_preview_page`) e guarda a página como artefato `companion-panel-preview`. `powershell -NoProfile -File xpeed-sim/tools/fetch-panel-preview.ps1 -Wait` baixa a última rodada da branch atual para `target/panel-preview`, e a entrada `xpeed-sim-panel-preview` do `.claude/launch.json` serve a página, que se recarrega sozinha.
+
 Atalhos do painel:
 
 - `1` e `2` trocam de aba.

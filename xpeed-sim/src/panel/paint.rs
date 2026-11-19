@@ -287,9 +287,11 @@ impl Painter {
         }
     }
 
-    /// A rounded box; `edge` draws a one-pixel border in that colour.
-    pub(super) fn round(&self, r: RECT, radius: f32, color: COLORREF, edge: Option<COLORREF>) {
+    /// A box with the panel's one corner (`R_CORNER`); `edge` draws a one-pixel border in that colour. It takes no
+    /// radius on purpose: no view can draw a second corner (owner decision, see `tokens::R_CORNER`).
+    pub(super) fn round(&self, r: RECT, color: COLORREF, edge: Option<COLORREF>) {
         let (x, y, w, h) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let radius = R_CORNER;
         let radius_px = radius * self.s;
         let drawn = smooth(self.hdc, |graphics| unsafe {
             let path = rounded_path(x, y, w, h, radius_px);
@@ -316,7 +318,7 @@ impl Painter {
             let pen = edge.map(|c| CreatePen(PS_SOLID, 1, ink(c)));
             let old_brush = SelectObject(self.hdc, brush);
             let old_pen = SelectObject(self.hdc, pen.unwrap_or_else(|| GetStockObject(NULL_PEN)));
-            let d = self.px(radius * 2.0).max(1);
+            let d = self.px(radius * 2.0).min(r.right - r.left).min(r.bottom - r.top).max(1);
             let grow = i32::from(edge.is_none());
             RoundRect(self.hdc, r.left, r.top, r.right + grow, r.bottom + grow, d, d);
             SelectObject(self.hdc, old_pen);
@@ -612,22 +614,22 @@ impl Painter {
     /// value that is not there (or a hair above nothing); a fill is never shorter than the bar is tall, so it stays a
     /// rounded end and not a sliver.
     pub(super) fn solid_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
+        self.round(self.r(x, y, w, h), SECONDARY, None);
         let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
         if frac > 0.005 {
-            self.round(self.r(x, y, (w * frac).max(h.min(w)), h), h / 2.0, color, None);
+            self.round(self.r(x, y, (w * frac).max(h.min(w)), h), color, None);
         }
     }
 
     /// A bar with its zero in the middle: the fill runs from the middle to `frac` (0..1, a half is the middle), with a
     /// tick of `tick` at the middle.
     pub(super) fn centred_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF, tick: COLORREF) {
-        self.round(self.r(x, y, w, h), h / 2.0, SECONDARY, None);
+        self.round(self.r(x, y, w, h), SECONDARY, None);
         let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.5 };
         let (from, to) = (frac.min(0.5), frac.max(0.5));
         let len = (to - from) * w;
         if len >= 1.0 {
-            self.round(self.r(x + from * w, y, len, h), (h / 2.0).min(len / 2.0), color, None);
+            self.round(self.r(x + from * w, y, len, h), color, None);
         }
         self.fill(self.r(x + w / 2.0 - 1.0, y - 3.0, 2.0, h + 6.0), tick);
     }
@@ -642,10 +644,10 @@ impl Painter {
     /// The tank: a trough filled `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the
     /// whole) so each tick is one lap's worth of fuel. Ticks closer than three pixels are left out.
     pub(super) fn tank_bar(&self, (x, y, w, h): Area, share: f32, tick: Option<f32>, color: COLORREF) {
-        self.round(self.r(x, y, w, h), R_XS, SECONDARY, None);
+        self.round(self.r(x, y, w, h), SECONDARY, None);
         let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
         if share > 0.005 {
-            self.round(self.r(x, y, (w * share).max(R_XS * 2.0).min(w), h), R_XS, color, None);
+            self.round(self.r(x, y, (w * share).max(R_CORNER * 2.0).min(w), h), color, None);
         }
         if let Some(tick) = tick.filter(|t| t.is_finite() && *t > 0.0 && t * w * self.s >= 3.0) {
             let mut at = tick;
@@ -661,14 +663,14 @@ impl Painter {
         let gap = S1 / 2.0;
         let seg = (w - 2.0 * gap) / 3.0;
         for (i, color) in colors.into_iter().enumerate() {
-            self.round(self.r(x + i as f32 * (seg + gap), y, seg, h), 1.5, color, None);
+            self.round(self.r(x + i as f32 * (seg + gap), y, seg, h), color, None);
         }
     }
 
     /// An alert that is lit: a solid tile in its colour with its words in dark ink (light ink on a black flag).
     pub(super) fn alert_tile(&mut self, light: &Light, (x, y, w, h): Area) {
         let (fill, edge, ink) = alert_look(light);
-        self.round(self.r(x, y, w, h), R_TILE, fill, edge);
+        self.round(self.r(x, y, w, h), fill, edge);
         let r = self.r(x, y, w, h);
         self.caps(&light.word, r, T_CAPTION, ink, DT_CENTER);
     }
@@ -806,7 +808,7 @@ impl Painter {
 
     /// The mark of a lap that does not count: a red square with a white "!", `size` design units on a side.
     pub(super) fn invalid_mark(&self, x: f32, y: f32, size: f32) {
-        self.round(self.r(x, y, size, size), size * 0.22, DESTRUCTIVE, None);
+        self.round(self.r(x, y, size, size), DESTRUCTIVE, None);
         let (bar, cx) = ((size * 0.14).max(1.0), x + size / 2.0);
         self.fill(self.r(cx - bar / 2.0, y + size * 0.2, bar, size * 0.38), FLAG_WHITE);
         self.fill(self.r(cx - bar / 2.0, y + size * 0.68, bar, size * 0.14), FLAG_WHITE);
@@ -814,7 +816,7 @@ impl Painter {
 
     /// A tile: the card colour with its border.
     pub(super) fn tile(&self, x: f32, y: f32, w: f32, h: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), R_CARD, color, Some(BORDER));
+        self.round(self.r(x, y, w, h), color, Some(BORDER));
     }
 
     /// A small upper-case label with its letters spaced out.

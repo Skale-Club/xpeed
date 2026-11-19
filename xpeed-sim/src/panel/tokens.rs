@@ -160,14 +160,16 @@ pub(super) const GEAR_FILL: f32 = 0.93;
 
 // Shape.
 
-/// Corner radii: the small controls, tiles, cards, the window's own surfaces.
-pub(super) const R_XS: f32 = 4.0;
-pub(super) const R_SM: f32 = 6.0;
-pub(super) const R_MD: f32 = 8.0;
-pub(super) const R_LG: f32 = 10.0;
-/// A card is `R_MD`, a tile (a light, a tyre, a pill, a button) `R_SM`.
-pub(super) const R_CARD: f32 = R_MD;
-pub(super) const R_TILE: f32 = R_SM;
+/// The panel's one corner: near-square, as racing screens are (the "square pill"). Owner decision 2026-11-12
+/// (fec259a), restored 2026-11-19 after the token pass of 2026-11-16 (539eb8a) copied the site's 4/6/8/10 radii and
+/// rounded everything again.
+///
+/// Every rounded shape of the panel and of the Coach window uses it: card, tile, button, tab, pill, chip, popover,
+/// tooltip, input, switch, bar. There is no second radius and none may be added: `Painter::round` takes no radius,
+/// and a shape thinner than twice the corner simply takes half its short side (`rounded_path`). The site's scale
+/// (`rounded-md` and friends) and the spacing tokens are never a corner here. `tests::one_near_square_corner` pins
+/// it; changing it is an owner decision, recorded in the journal before the code.
+pub(super) const R_CORNER: f32 = 2.5;
 
 /// Spacing, on a 4 px grid.
 pub(super) const S1: f32 = 4.0;

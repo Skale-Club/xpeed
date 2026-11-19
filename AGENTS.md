@@ -48,3 +48,13 @@ placeholders, tests with images). A plain "X", an icon-library X, or a look-alik
 Full rule, the list of surfaces and what the build checks: `branding/README.md`.
 <!-- /brand-rule -->
 
+## Approved design decisions are pinned (owner, 2026-11-19)
+
+A look the owner approved is a decision, not a default: a "calibration", token pass or refactor keeps it exactly and
+never swaps it for a value from another system (the site's Tailwind scale, a library default). Every approved value
+lives in one token with the date, the commit and the reason in its comment, and a test pins it (value and, where it can,
+the drawn pixels). Changing one is the owner's call, recorded in the Journal before the code. Lesson: the Companion's
+near-square corner (2.5 px, the "square pill", 2026-11-12 `fec259a`) was replaced by the site's 4/6/8/10 radii in a
+token pass (2026-11-16 `539eb8a`) with no test failing; it is now `R_CORNER` in `xpeed-sim/src/panel/tokens.rs`,
+pinned by `one_near_square_corner`.
+

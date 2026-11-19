@@ -31,7 +31,7 @@ pub(super) fn lang_list(g: &mut Painter, width: i32, view: &View) {
         button.right,
         button.bottom + g.px(6.0) + pad * 2 + row_h * rows,
     );
-    g.round(list, R_LG, POPOVER, Some(BORDER));
+    g.round(list, POPOVER, Some(BORDER));
     for (i, lang) in Lang::ALL.into_iter().enumerate() {
         let top = list.top + pad + row_h * i as i32;
         let row = rect(list.left + pad, top, list.right - pad, top + row_h);
@@ -101,7 +101,7 @@ pub(super) fn tooltip(g: &mut Painter, width: i32, view: &View) {
     let w = g.px(measured + 20.0);
     let h = g.px(28.0);
     let tip = rect(r.right - w, r.bottom + g.px(6.0), r.right, r.bottom + g.px(6.0) + h);
-    g.round(tip, R_SM, POPOVER, Some(BORDER));
+    g.round(tip, POPOVER, Some(BORDER));
     g.text(&label, tip, T_CAPTION, FW_SEMIBOLD as i32, Face::Ui, FOREGROUND, DT_CENTER);
 }
 
@@ -109,14 +109,14 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     g.place(view.scale, 0, 0);
     let [dash, mon, lang, full, top] = header_hits(width, view.scale);
     let semi = FW_SEMIBOLD as i32;
-    // The tabs: one pill, the chosen tab a yellow pill inside it.
+    // The tabs: one square pill, the chosen tab a yellow square pill inside it (corners: `R_CORNER`).
     let control = rect(dash.left - g.px(S1), g.px(13.0), mon.right + g.px(S1), g.px(51.0));
-    g.round(control, R_TILE, CARD, Some(BORDER));
+    g.round(control, CARD, Some(BORDER));
     let tab_size = if mon.right - dash.left < g.px(200.0) { T_CAPTION } else { T_BODY };
     for (r, tab, label) in [(dash, Tab::Dash, Msg::PanelTabDash), (mon, Tab::Monitor, Msg::PanelTabMonitor)] {
         let selected = view.tab == tab;
         if selected {
-            g.round(r, R_TILE, PRIMARY, None);
+            g.round(r, PRIMARY, None);
         }
         let color = if selected { BACKGROUND } else { MUTED_TEXT };
         g.text(&text(view.lang, &label), r, tab_size, semi, Face::Ui, color, DT_CENTER);
@@ -124,7 +124,7 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     // Full screen and always on top: square icon buttons; one that is on is filled yellow. Full screen uses
     // Windows' own icon; the pin is drawn here, upright and square like the rest.
     // The language: a square button with its flag (yellow edge while its list is open); a click opens the list.
-    g.round(lang, R_TILE, CARD, Some(if view.lang_open { PRIMARY } else { BORDER }));
+    g.round(lang, CARD, Some(if view.lang_open { PRIMARY } else { BORDER }));
     let (fw, fh) = (g.px(22.5), g.px(18.0));
     let (cx, cy) = ((lang.left + lang.right) / 2, (lang.top + lang.bottom) / 2);
     let image = flag_image(view.lang);
@@ -143,7 +143,7 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     }
     for (r, active) in [(full, view.full), (top, view.on_top)] {
         let (fill, edge) = if active { (PRIMARY, None) } else { (CARD, Some(BORDER)) };
-        g.round(r, R_TILE, fill, edge);
+        g.round(r, fill, edge);
     }
     let (full_ink, pin_ink) = (
         if view.full { BACKGROUND } else { FOREGROUND },

@@ -177,7 +177,7 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
         let mut x = (cw - total) / 2.0;
         let y = 262.0 + i as f32 * 40.0;
         for (name, w) in row {
-            g.round(g.r(x, y, *w, S8), S4, CARD, Some(BORDER));
+            g.round(g.r(x, y, *w, S8), CARD, Some(BORDER));
             let r = g.r(x, y, *w, 30.0);
             g.text(name, r, T_BODY, FW_SEMIBOLD as i32, Face::Ui, MUTED_TEXT, DT_CENTER);
             x += w + 10.0;

@@ -90,7 +90,7 @@ pub(super) fn banner(g: &mut Painter, d: &Dash, target: Area) {
     let note_h = lines as f32 * 20.0;
     let content_w = title_w.max(note_w);
     let (x, y, w, h) = banner_box(target, content_w, title_h + S2 + note_h);
-    g.round(g.r(x, y, w, h), R_LG, CARD, Some(BORDER));
+    g.round(g.r(x, y, w, h), CARD, Some(BORDER));
     let r = g.r(x, y + S4, w, title_h);
     g.text(&b.title, r, size, semi, Face::Num, WARN, DT_CENTER);
     g.wrapped(
@@ -109,7 +109,7 @@ pub(super) fn banner(g: &mut Painter, d: &Dash, target: Area) {
 
 /// A card: a rounded `CARD` with its border.
 pub(super) fn card_frame(g: &mut Painter, (x, y, w, h): Area) {
-    g.round(g.r(x, y, w, h), R_CARD, CARD, Some(BORDER));
+    g.round(g.r(x, y, w, h), CARD, Some(BORDER));
 }
 
 /// A card's caption: a small upper-case label.
@@ -121,10 +121,10 @@ pub(super) fn caption(g: &mut Painter, s: &str, (x, y, w, _): Area, align: u32) 
 /// A tile on a card: `fill` and a border, with a thin accent along its top edge.
 pub(super) fn tile_with_edge(g: &mut Painter, (x, y, w, h): Area, fill: COLORREF, edge: COLORREF) {
     let r = g.r(x, y, w, h);
-    g.round(r, R_TILE, fill, Some(BORDER));
+    g.round(r, fill, Some(BORDER));
     let band = g.r(x, y, w, STROKE_ACCENT);
     g.clip(band);
-    g.round(r, R_TILE, edge, None);
+    g.round(r, edge, None);
     g.unclip();
 }
 
@@ -150,7 +150,7 @@ pub(super) fn brand_car_line(g: &mut Painter, live: &Live, view: &View, y: f32, 
     };
     if let Some(art) = view.brands.iter().find(|b| b.brand.key == brand.key) {
         let tile = g.r(0.0, y, 34.0, 20.0);
-        g.round(tile, R_XS, BRAND_TILE, None);
+        g.round(tile, BRAND_TILE, None);
         g.image(g.r(2.0, y + 1.0, 30.0, 18.0), art.image);
         g.r(40.0, y, width - 40.0, 20.0)
     } else {
@@ -169,7 +169,7 @@ pub(super) fn header(g: &mut Painter, d: &Dash, width: f32) {
         let blink_on = view.now_ms / 120 % 2 == 0;
         g.rev_bar(0.0, 0.0, width, REV_H, share, flash && blink_on);
     }
-    g.round(g.r(0.0, REV_H + 1.0, width, STROKE_BAR), STROKE_BAR / 2.0, CYAN, None);
+    g.round(g.r(0.0, REV_H + 1.0, width, STROKE_BAR), CYAN, None);
 
     // A narrow canvas (the single column) gives the lap less room, and leaves the session chip out so the track keeps its name.
     let narrow = width < 500.0;
@@ -188,7 +188,7 @@ pub(super) fn header(g: &mut Painter, d: &Dash, width: f32) {
     if let Some((word, w)) = chip {
         let x = g.tabular_width(&track, T_VALUE, semi) + S3;
         let (cx, cy, ch) = (x.min(left_w - w), TITLE_Y + 4.0, 22.0);
-        g.round(g.r(cx, cy, w, ch), R_XS, SURFACE, None);
+        g.round(g.r(cx, cy, w, ch), SURFACE, None);
         let r = g.r(cx, cy, w, ch);
         g.caps(&word, r, T_CAPTION, FOREGROUND_2, DT_CENTER);
     }
@@ -656,7 +656,7 @@ pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
         for (i, cell) in m.electronics.iter().enumerate() {
             let cx = x + i as f32 * (cw + S2);
             shown(g, cell.show, |g| {
-                g.round(g.r(cx, bottom - elec_h, cw, elec_h), R_TILE, BACKGROUND, Some(BORDER));
+                g.round(g.r(cx, bottom - elec_h, cw, elec_h), BACKGROUND, Some(BORDER));
                 let r = g.r(cx + S2, bottom - elec_h + 6.0, cw - S3, 14.0);
                 g.caps(&cell.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
                 let size = g.fitted(&cell.value, cw - S3, T_VALUE, T_BODY, semi, Face::Num);
