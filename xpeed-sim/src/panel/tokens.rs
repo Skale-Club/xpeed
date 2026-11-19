@@ -118,6 +118,9 @@ pub(super) const INPUT_TRACE_SHARE: f32 = 0.34;
 pub(super) const INPUT_BAR_WIDTH: f32 = 0.7;
 pub(super) const INPUT_LAP_H: f32 = 18.0;
 pub(super) const INPUT_BLOCK_H: f32 = 5.0;
+/// The input trace's grid (owner, 2026-11-19): a hairline every 10% of the pedal travel, barely lighter than the strip,
+/// so the trace reads like a chart without the lines competing with it.
+pub(super) const INPUT_GRID_INK: COLORREF = rgb(0x1c, 0x1d, 0x21);
 /// The gear takes at least this share of the centre card's inside height (owner, 2026-11-19: it is read from afar;
 /// nothing else may shrink it).
 pub(super) const GEAR_MIN_SHARE: f32 = 0.5;

@@ -1613,13 +1613,14 @@ fn the_centre_keeps_a_big_gear_and_the_pedals_have_their_own_card() {
     let share: Vec<(&str, &str)> = m.lap_share.iter().flatten().map(|(w, v)| (w.as_str(), v.as_str())).collect();
     assert_eq!(share, [("Full", "62%"), ("Brake", "14%"), ("Coast", "3%")]);
     assert_eq!(model(&live, Lang::Pt).inputs_title, "Comandos");
-    // Drawn: a pedal bar of six to ten blocks lit from the bottom; the trace's throttle along the top at the end, and
+    // Drawn: a pedal bar of eight to thirteen blocks lit from the bottom; the trace's throttle along the top at the end, and
     // the ABS mark along the top where it acted.
     let at = painted_by(30, 100, |g| g.vertical_blocks((0.0, 0.0, 30.0, 100.0), 0.5, SUCCESS));
     assert_eq!((at(15, 98), at(15, 2)), (SUCCESS, SECONDARY), "half full: lit at the bottom");
     let at = painted_by(200, 40, |g| g.input_trace((0.0, 0.0, 200.0, 40.0), &live.inputs, live.at_ms));
     let greenish = |c: COLORREF| (c >> 8 & 0xff) > 0x80 && (c & 0xff) < 0x80;
     assert!((1..6).any(|y| greenish(at(190, y))), "flat out at the end, along the top");
+    assert_eq!(at(20, 20), INPUT_GRID_INK, "a faint line at half the travel");
     let abs_x = (0.32 * 200.0) as i32;
     assert!((abs_x - 3..abs_x + 3).any(|x| at(x, 1) == INFO), "the ABS mark where it acted");
 }

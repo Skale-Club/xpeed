@@ -699,11 +699,12 @@ impl Painter {
     }
 
     /// A pedal as a vertical bar of square blocks a hair apart (owner-approved 2026-11-19): as many blocks as the height
-    /// holds at `INPUT_BLOCK_H` or more each, six to ten, lit from the bottom up to `frac` in `color`.
+    /// holds at `INPUT_BLOCK_H` or more each, eight to thirteen (the owner asked for 30% more steps than ten), lit from
+    /// the bottom up to `frac` in `color`.
     pub(super) fn vertical_blocks(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
         let area = self.r(x, y, w, h);
         let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
-        let n = (((h + BAR_BLOCK_GAP) / (INPUT_BLOCK_H + BAR_BLOCK_GAP)).floor() as usize).clamp(6, 10);
+        let n = (((h + BAR_BLOCK_GAP) / (INPUT_BLOCK_H + BAR_BLOCK_GAP)).floor() as usize).clamp(8, 13);
         let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
         for (i, (top, bottom)) in block_spans(area.top, area.bottom, n, gap).into_iter().enumerate() {
             // The spans run top down; the bar fills from the bottom.
@@ -723,6 +724,11 @@ impl Painter {
         let from = now_ms - crate::dash::INPUT_TRACE_MS;
         let at_x = |t: i64| px + pw * ((t - from) as f32 / crate::dash::INPUT_TRACE_MS as f32).clamp(0.0, 1.0);
         let at_y = |v: f32| py + 2.0 + (ph - 4.0) * (1.0 - v.clamp(0.0, 1.0));
+        // A hairline every 10% of the travel, under everything else.
+        for tenth in 1..10 {
+            let y = at_y(tenth as f32 / 10.0).round() as i32;
+            self.fill(rect(r.left, y, r.right, y + 1), INPUT_GRID_INK);
+        }
         let recent: Vec<&crate::dash::InputPoint> = inputs.iter().filter(|p| p.at_ms >= from && p.at_ms <= now_ms).collect();
         if recent.len() < 2 {
             return;

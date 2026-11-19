@@ -143,12 +143,7 @@ const ULTRAWIDE_ROWS: &[Row] = &[
 const SQUARE_ROWS: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[
-            (Pane::Times, 1.0),
-            (Pane::Centre, 0.68),
-            (Pane::Inputs, 0.52),
-            (Pane::Fuel, 1.0),
-        ],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 0.68), (Pane::Inputs, 0.52), (Pane::Fuel, 1.0)],
     },
     Row {
         h: 260.0,
@@ -221,12 +216,7 @@ const STACK_ROWS: &[Row] = &[
 const CLASSIC_ROWS: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[
-            (Pane::Times, 1.0),
-            (Pane::Centre, 0.68),
-            (Pane::Inputs, 0.52),
-            (Pane::Fuel, 1.0),
-        ],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 0.68), (Pane::Inputs, 0.52), (Pane::Fuel, 1.0)],
     },
     Row {
         h: 230.0,
