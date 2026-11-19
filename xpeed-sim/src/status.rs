@@ -171,6 +171,9 @@ pub struct Shared {
     game_builds: Mutex<BTreeMap<String, Option<String>>>,
     /// A lap that could not be saved was announced and none has been saved since: the balloon is not said again.
     save_failing: AtomicBool,
+    /// What the person has driven, per game (the waiting screen's line), and the file that keeps it (none in tests).
+    played: Mutex<crate::played::History>,
+    played_path: Mutex<Option<std::path::PathBuf>>,
     /// Balloons about a lap that could not be saved (the short reason), waiting for the tray. Kept apart from `notices`: they are
     /// problems, not news, and a later "lap saved" must not hide them.
     save_alerts: Mutex<VecDeque<String>>,
@@ -206,6 +209,8 @@ impl Shared {
             lap_stats: Mutex::new(LapStats::default()),
             game_builds: Mutex::new(BTreeMap::new()),
             save_failing: AtomicBool::new(false),
+            played: Mutex::new(BTreeMap::new()),
+            played_path: Mutex::new(None),
             save_alerts: Mutex::new(VecDeque::new()),
             paused: AtomicBool::new(false),
             quit: AtomicBool::new(false),
@@ -274,6 +279,28 @@ impl Shared {
     }
 
     /// A lap was written (`late`: after an earlier try failed). `build` is the game's own version string when the reader knew it.
+    /// Keeps the per-game history in `path` from now on, starting from what the file holds.
+    pub fn use_played(&self, path: Option<std::path::PathBuf>) {
+        *lock(&self.played) = path.as_deref().map(crate::played::load).unwrap_or_default();
+        *lock(&self.played_path) = path;
+    }
+
+    /// A lap was saved: the waiting screen's line for its game counts it, and the file keeps it when there is one.
+    pub fn note_played(&self, lap: &SavedLap) {
+        let mut played = lock(&self.played);
+        crate::played::record(&mut played, &lap.game, &lap.track, lap.time_ms, lap.valid, crate::util::now_ms());
+        if let Some(path) = lock(&self.played_path).as_deref() {
+            if let Err(e) = crate::played::save(path, &played) {
+                crate::applog::line(&format!("played history not saved: {e}"));
+            }
+        }
+    }
+
+    /// The per-game history, for the waiting screen.
+    pub fn played(&self) -> crate::played::History {
+        lock(&self.played).clone()
+    }
+
     pub fn note_lap_saved(&self, game: &str, build: Option<&str>, late: bool) {
         {
             let mut stats = lock(&self.lap_stats);

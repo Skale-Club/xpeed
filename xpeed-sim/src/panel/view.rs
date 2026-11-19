@@ -93,6 +93,8 @@ pub struct View<'a> {
     pub download_percent: Option<u8>,
     /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
     pub focus: Option<(&'static str, &'static str, Game)>,
+    /// What the person has driven, per game: the line under the cover in the middle of the waiting screen.
+    pub played: crate::played::History,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
 }

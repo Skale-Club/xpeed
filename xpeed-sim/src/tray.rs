@@ -904,6 +904,7 @@ pub fn run(open_panel: bool) -> ExitCode {
     let units = config::load_units(&home);
     let laps_dir = laps_dir();
     let shared = Shared::new(config.is_some());
+    shared.use_played(crate::played::path());
     // What an update before this start left behind: said once, and its installer files removed.
     let after_update = update::after_update(&home, &Version::running());
     update::clean_dir(&update::download_dir());

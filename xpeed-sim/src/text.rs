@@ -130,6 +130,13 @@ pub enum Msg {
     PanelExitFullScreen,
     PanelWaitingTitle,
     PanelWaiting,
+    /// The line under the cover in the middle of the waiting screen: when the game was last driven (an `Ago*` text),
+    /// how many laps were saved, and the best valid lap with its track (the track last driven), when there is one.
+    PanelLastPlayed {
+        ago: String,
+        laps: u32,
+        best: Option<(String, String)>,
+    },
     PanelLapTime,
     PanelTrack,
     PanelTrackLearning,
@@ -552,6 +559,18 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelFullScreen => t(s("Full screen"), s("Tela cheia"), s("Pantalla completa")),
         PanelExitFullScreen => t(s("Exit full screen"), s("Sair da tela cheia"), s("Salir de pantalla completa")),
         PanelWaitingTitle => t(s("Waiting for a game"), s("Esperando um jogo"), s("Esperando un juego")),
+        PanelLastPlayed { ago, laps, best } => {
+            let unit = |one: &'static str, many: &'static str| if *laps == 1 { one } else { many };
+            let tail = |word: &str| match best {
+                Some((time, track)) => format!(" · {word} {time} · {track}"),
+                None => String::new(),
+            };
+            t(
+                format!("Last played {ago} · {laps} {}{}", unit("lap", "laps"), tail("best")),
+                format!("Jogado {ago} · {laps} {}{}", unit("volta", "voltas"), tail("melhor")),
+                format!("Jugado {ago} · {laps} {}{}", unit("vuelta", "vueltas"), tail("mejor")),
+            )
+        }
         PanelWaiting => t(
             s("Start one of these games and get in the car."),
             s("Abra um destes jogos e entre no carro."),
@@ -946,6 +965,11 @@ mod tests {
             Msg::PanelExitFullScreen,
             Msg::PanelWaitingTitle,
             Msg::PanelWaiting,
+            Msg::PanelLastPlayed {
+                ago: "2 d ago".into(),
+                laps: 14,
+                best: Some(("1:47.204".into(), "Monza".into())),
+            },
             Msg::PanelLapTime,
             Msg::PanelTrack,
             Msg::PanelTrackLearning,

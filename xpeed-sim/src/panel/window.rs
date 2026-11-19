@@ -167,6 +167,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         check: &check,
         download_percent: ctx.shared.download_percent(),
         focus: focus_of(&ctx.shared.games()),
+        played: ctx.shared.played(),
     };
     paint(memory, w, h, &view);
     state.layout = view.layout.get();

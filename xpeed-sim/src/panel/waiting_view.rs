@@ -149,7 +149,7 @@ pub(super) fn waiting(g: &mut Painter, body: RECT, view: &View) {
     );
     if !view.covers.is_empty() {
         view.carousel_step.set(120.0 * g.s);
-        return cover_carousel(g, view.covers, view.carousel, &view.buttons, cw);
+        return cover_carousel(g, view, cw);
     }
     // The games it reads, as chips, centred in rows.
     let chips: Vec<(String, f32)> = view
@@ -216,7 +216,8 @@ pub(super) fn carousel_steps(target: i64, to: usize, count: usize) -> i64 {
 /// round; the middle game's name under it and a row of small squares saying which one it is. Steam's art where it
 /// has some, the name on a card where not. A click on a side cover or on one of the squares brings that game to the
 /// middle.
-pub(super) fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, buttons: &std::cell::RefCell<Vec<(Action, RECT)>>, cw: f32) {
+pub(super) fn cover_carousel(g: &mut Painter, view: &View, cw: f32) {
+    let (covers, at, buttons) = (view.covers, view.carousel, &view.buttons);
     let count = covers.len();
     let (big_w, mid_x, top) = (150.0, cw / 2.0, 168.0);
     let big_h = big_w * 1.5;
@@ -262,13 +263,26 @@ pub(super) fn cover_carousel(g: &mut Painter, covers: &[CoverArt], at: f32, butt
         FOREGROUND,
         DT_CENTER,
     );
+    // Under the name (owner-approved module 8, 2026-11-19): when the game was last driven, its laps and the best on
+    // the track driven last; nothing for a game not driven since the history began.
+    if let Some(played) = view.played.get(covers[middle].key) {
+        let best = played.best_here().map(|(ms, track)| (crate::util::clock(ms), track.to_owned()));
+        let msg = Msg::PanelLastPlayed {
+            ago: crate::present::ago(view.lang, played.last_ms, view.now_ms),
+            laps: played.laps,
+            best,
+        };
+        let line = text(view.lang, &msg);
+        let r = g.r(20.0, top + big_h + 42.0, cw - 40.0, 22.0);
+        g.text(&line, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_CENTER);
+    }
     let (dot, gap) = (7.0, 6.0);
     let total = count as f32 * dot + (count as f32 - 1.0) * gap;
     for i in 0..count {
         let x = mid_x - total / 2.0 + i as f32 * (dot + gap);
-        g.fill(g.r(x, top + big_h + 48.0, dot, dot), if i == middle { PRIMARY } else { SECONDARY });
+        g.fill(g.r(x, top + big_h + 76.0, dot, dot), if i == middle { PRIMARY } else { SECONDARY });
         // A square is small: its button reaches halfway to its neighbours and a little above and below.
-        let hit = g.r(x - gap / 2.0, top + big_h + 40.0, dot + gap, dot + S4);
+        let hit = g.r(x - gap / 2.0, top + big_h + 68.0, dot + gap, dot + S4);
         buttons.borrow_mut().push((Action::Cover(i), hit));
     }
 }

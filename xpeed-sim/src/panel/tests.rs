@@ -467,6 +467,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         check: &f.check,
         download_percent: f.percent,
         focus: None,
+        played: Default::default(),
     }
 }
 
@@ -985,6 +986,12 @@ fn writes_the_design_preview_page() {
     let mut with_covers = view(&f, None, Tab::Dash, 1.0, Lang::En);
     with_covers.covers = &covers;
     with_covers.carousel = 9.0;
+    // The game in the middle was driven two days ago: three laps on Monza, the fastest of them invalid.
+    let mut seen = crate::played::History::new();
+    for (ms, valid) in [(107_918, true), (107_204, true), (106_000, false)] {
+        crate::played::record(&mut seen, covers[9].key, "Monza", ms, valid, 1_500 - 2 * 86_400_000);
+    }
+    with_covers.played = seen;
     let mut unpaired = fixture();
     unpaired.snapshot.cloud = Cloud::NotPaired;
     let mut monitor_covers = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
