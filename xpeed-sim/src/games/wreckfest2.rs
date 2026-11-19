@@ -206,7 +206,7 @@ struct Main {
     player_status: u16,
     lap_current: u16,
     lap_timing: u16,
-    position: u8,
+    race_position: u8,
     grid_size: u8,
     lap_time_current_ms: u32,
     lap_time_last_ms: u32,
@@ -273,7 +273,7 @@ impl Main {
             player_status: p.u16_at(PLAYER_STATUS_AT),
             lap_current: p.u16_at(LAP_CURRENT_AT),
             lap_timing: p.u16_at(LAP_TIMING_AT),
-            position: p.u8_at(RACE_POSITION_AT),
+            race_position: p.u8_at(RACE_POSITION_AT),
             grid_size: p.u8_at(GRID_SIZE_AT),
             lap_time_current_ms: p.u32_at(LAP_TIME_CURRENT_AT),
             lap_time_last_ms: p.u32_at(LAP_TIME_LAST_AT),
@@ -412,7 +412,7 @@ impl Main {
                 f.track_length_m = Some(f64::from(self.track_length));
             }
             f.cars = norm::cars(self.grid_size);
-            f.race_position = norm::place(self.position, f.cars);
+            f.race_position = norm::place(self.race_position, f.cars);
             f.session_laps = norm::race_laps(self.laps);
         }
         let [vx, vy, vz] = self.velocity;
