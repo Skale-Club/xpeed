@@ -382,24 +382,33 @@ pub(super) fn inputs_card(g: &mut Painter, d: &Dash, card: Area) {
             g.caps_fit(label, r, T_CAPTION, 0.0, MUTED_TEXT, DT_CENTER);
         });
     }
-    // This lap: FULL 62%   BRAKE 14%   COAST 3%, over a hairline.
+    // This lap: FULL 62%   BRAKE 14%   COAST 3%, over a hairline. Where the words do not fit a third each, a small
+    // square in the colour of the trace's line (throttle green, brake red, coasting grey) stands for each word.
     if let Some(share) = &m.lap_share {
         let (lx, ly, lw, lh) = plan.lap;
         g.fill(g.r(lx, ly - S1, lw, STROKE_HAIR), BORDER);
         let third = lw / 3.0;
-        for (i, (word, value)) in share.iter().enumerate() {
-            let x = lx + i as f32 * third;
-            let word_w = g.caps_width(word, T_CAPTION);
+        let mark = (lh * 0.45).round();
+        let fits = share.iter().all(|(word, value)| {
+            g.caps_width(word, T_CAPTION) + S1 + g.tabular_width(value, T_BODY, semi) <= third - S2
+        });
+        for (i, ((word, value), colour)) in share.iter().zip([SUCCESS, DESTRUCTIVE, MUTED_TEXT]).enumerate() {
+            let label_w = if fits { g.caps_width(word, T_CAPTION) } else { mark };
             let value_w = g.tabular_width(value, T_BODY, semi);
-            let total = word_w + S1 + value_w;
+            let total = label_w + S1 + value_w;
+            let x = lx + i as f32 * third;
             let start = match i {
                 0 => x,
                 1 => x + (third - total) / 2.0,
                 _ => x + third - total,
             };
-            let r = g.r(start, ly, word_w + S1, lh);
-            g.caps(word, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-            let r = g.r(start + word_w + S1, ly, value_w + 2.0, lh);
+            if fits {
+                let r = g.r(start, ly, label_w + S1, lh);
+                g.caps(word, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            } else {
+                g.fill(g.r(start, ly + (lh - mark) / 2.0, mark, mark), colour);
+            }
+            let r = g.r(start + label_w + S1, ly, value_w + 2.0, lh);
             g.text(value, r, T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
         }
     }
