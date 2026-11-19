@@ -537,8 +537,8 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
 /// last lap). A slot with no name and no place is empty and left out; `None` when no car is left.
 fn drivers_field(player_slot: i32, drivers: &[u8], frame: &Frame) -> Option<Arc<Field>> {
     let mut cars = Vec::new();
-    for (index, bytes) in drivers.chunks_exact(driver::SIZE).take(driver::MAX).enumerate() {
-        let page = Page(bytes);
+    for (index, bytes) in drivers.as_chunks::<{ driver::SIZE }>().0.iter().take(driver::MAX).enumerate() {
+        let page = Page(bytes.as_slice());
         let name = page.ascii_at(driver::NAME, STRING_LENGTH);
         let position = norm::place(page.i32_at(driver::PLACE), frame.cars);
         if name.is_empty() && position.is_none() {
