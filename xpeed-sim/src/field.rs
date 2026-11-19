@@ -438,7 +438,8 @@ mod tests {
             },
         ]);
         complete(&mut f, None);
-        assert_eq!((f.cars[1].gap_ahead_s, f.cars[1].gap_leader_s), (Some(1.5), None));
+        // Kept as given; the gap to the leader, which the game did not give, is the gaps ahead added up.
+        assert_eq!((f.cars[1].gap_ahead_s, f.cars[1].gap_leader_s), (Some(1.5), Some(1.5)));
         assert_eq!(f.cars[0].gap_leader_s, None);
     }
 

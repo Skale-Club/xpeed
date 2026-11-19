@@ -2448,10 +2448,13 @@ mod tests {
     /// The same session in each year's own layout gives the same frame.
     #[test]
     fn every_year_gives_the_same_frame_from_its_own_layout() {
-        let (_, want) = running(0);
+        let (_, mut want) = running(0);
+        // The rivals depend on which slot is the player's: compared in their own tests.
+        want.field = None;
         for y in ALL {
             for player in [0u8, 7, 21] {
-                let (d, f) = running_in(y, player);
+                let (d, mut f) = running_in(y, player);
+                f.field = None;
                 assert_eq!(d.layout.map(|l| l.format), Some(y.format));
                 // Compared as text: the values the game does not give are NaN, which is never equal to itself.
                 assert_eq!(format!("{f:?}"), format!("{want:?}"), "{} player {player}", y.format);

@@ -1568,6 +1568,9 @@ mod tests {
             damage_gearbox: None,
             damage_suspension: Some(0.5),
         };
+        // The rivals are compared in their own test.
+        let mut frame = frame;
+        frame.field = None;
         assert_eq!(frame, want);
         assert!(reader.alive());
     }
