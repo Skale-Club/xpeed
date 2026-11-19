@@ -320,6 +320,17 @@ fn live_reading() -> Live {
     );
     live.fuel_per_lap_l = Some(2.9);
     live.fuel_last_lap_l = Some(2.84);
+    // The throttle and brake of the last 5 s: flat out, a brake into a corner, then back on the throttle.
+    live.inputs = Arc::new(
+        (0..=125)
+            .map(|i| {
+                let k = i as f32 / 125.0;
+                let throttle = if (0.3..0.5).contains(&k) { 0.0 } else { 1.0 };
+                let brake = if (0.3..0.42).contains(&k) { 0.9 } else { 0.0 };
+                (live.at_ms - 5_000 + i as i64 * 40, throttle, brake)
+            })
+            .collect(),
+    );
     live.fuel_this_lap_l = Some(1.12);
     live.state = crate::game::CarState {
         pit_limiter: Some(false),
@@ -1542,6 +1553,32 @@ fn a_tyre_is_drawn_in_the_colours_of_its_temperatures() {
     // Solid: one colour across the whole tread.
     let at = painted_by(40, 80, |g| g.tyre_shape((0.0, 0.0, 40.0, 80.0), TyreShape::Solid(WARN)));
     assert!((5..35).all(|x| at(x, 5) == WARN), "a solid tyre has no bands");
+}
+
+/// The owner's centre card (module 7, 2026-11-19): shift lights over the gear and the throttle and brake of the last
+/// seconds under the wheel.
+#[test]
+fn the_centre_card_has_shift_lights_and_the_last_seconds_of_inputs() {
+    assert_eq!(shift_lit(0.5), (0, false));
+    assert_eq!(shift_lit(SHIFT_LIGHTS_FROM), (0, false));
+    assert_eq!(shift_lit(0.885), (8, false));
+    assert_eq!(shift_lit(0.97), (SHIFT_LIGHTS, true), "the shift point: all, flashing");
+    assert_eq!(shift_lit(f32::NAN), (0, false));
+    let plan = centre_plan((0.0, 0.0, 552.0, 432.0), &slots(every_cap()));
+    let shift = plan.shift.expect("shift lights over the gear");
+    assert!(shift.1 + shift.3 <= plan.gear.1, "over the gear");
+    let (_, graph) = plan.inputs.expect("room for the inputs under the wheel");
+    assert!(graph.1 > plan.steer.1 && plan.gear.3 >= GEAR_MIN_WITH_TRACE);
+    let short = centre_plan((0.0, 0.0, 552.0, 260.0), &slots(every_cap()));
+    assert!(short.inputs.is_none(), "a short card keeps its gear and drops the trace");
+    // Drawn: eight lights on at 0.885, green first and red last unlit.
+    let at = painted_by(300, 10, |g| g.shift_lights((0.0, 0.0, 300.0, 10.0), 8, false, true));
+    assert_eq!((at(2, 5), at(150, 5), at(297, 5)), (SUCCESS, WARN, SECONDARY));
+    // The trace: the throttle along the top, flat out at the right edge.
+    let live = live_reading();
+    let at = painted_by(200, 40, |g| g.input_trace((0.0, 0.0, 200.0, 40.0), &live.inputs, live.at_ms));
+    let greenish = |c: COLORREF| (c >> 8 & 0xff) > 0x80 && (c & 0xff) < 0x80;
+    assert!((1..5).any(|y| greenish(at(190, y))), "flat out at the end, along the top");
 }
 
 /// The owner's fuel card (module 6, 2026-11-19): the use as three numbers, how long the fuel lasts, and a stint plan.

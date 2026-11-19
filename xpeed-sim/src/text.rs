@@ -204,6 +204,8 @@ pub enum Msg {
     /// On the first lap, where the delta will be.
     PanelDeltaFirstLap,
     PanelVsBest,
+    /// Over the centre card's throttle and brake trace.
+    PanelInputs,
     /// The lap time this lap is heading for (the best lap plus the delta now): `Projected 1:46.934`.
     PanelProjected(String),
     PanelSessionPractice,
@@ -639,6 +641,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("La diferencia aparece tras la primera vuelta completa."),
         ),
         PanelVsBest => t(s("vs best"), s("vs melhor"), s("vs mejor")),
+        PanelInputs => t(s("Inputs · last 5 s"), s("Pedais · últimos 5 s"), s("Pedales · últimos 5 s")),
         PanelProjected(n) => t(format!("Projected {n}"), format!("Projetada {n}"), format!("Proyectada {n}")),
         PanelSessionPractice => t(s("Practice"), s("Treino"), s("Práctica")),
         PanelSessionQualifying => t(s("Qualifying"), s("Classificação"), s("Clasificación")),
@@ -996,6 +999,7 @@ mod tests {
             Msg::FuelAdd("58.0 L".into(), "19.4 L".into()),
             Msg::PanelDeltaFirstLap,
             Msg::PanelVsBest,
+            Msg::PanelInputs,
             Msg::PanelProjected("1:46.934".into()),
             Msg::PanelSessionPractice,
             Msg::PanelSessionQualifying,

@@ -112,6 +112,16 @@ pub(super) const DELTA_TRACE_FILL: f32 = 0.28;
 /// fills it; it is this tall.
 pub(super) const LAP_GAP_FULL_S: f32 = 2.0;
 pub(super) const LAP_GAP_BAR_H: f32 = 5.0;
+/// The centre card's shift lights over the gear (owner-approved module 7, 2026-11-19): how many, from what share of
+/// the top RPM they start (they flash at `SHIFT_AT`), how tall, and how far in from each side of the card.
+pub(super) const SHIFT_LIGHTS: usize = 15;
+pub(super) const SHIFT_LIGHTS_FROM: f32 = 0.80;
+pub(super) const SHIFT_LIGHT_H: f32 = 9.0;
+pub(super) const SHIFT_LIGHT_INSET: f32 = 0.2;
+/// The centre card's input trace (module 7): its label line, the graph, and the least the gear keeps beside it.
+pub(super) const INPUT_LABEL_H: f32 = 14.0;
+pub(super) const INPUT_TRACE_H: f32 = 40.0;
+pub(super) const GEAR_MIN_WITH_TRACE: f32 = 110.0;
 /// The fuel card's stint planner: the runs it counts (owner-approved module 6, 2026-11-19).
 pub(super) const FUEL_PLAN_LAPS: [u32; 2] = [10, 20];
 /// The fuel card's rows: the use tiles, a planner row, and a temperature's bar.

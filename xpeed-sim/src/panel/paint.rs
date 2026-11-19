@@ -688,6 +688,64 @@ impl Painter {
         }
     }
 
+    /// The shift lights (owner-approved module 7, 2026-11-19): `SHIFT_LIGHTS` square blocks a hair apart, green, amber
+    /// then red from left to right, the first `lit` of them on; at the shift point they all flash red (`flash_on` is the
+    /// blink's bright half).
+    pub(super) fn shift_lights(&self, (x, y, w, h): Area, lit: usize, flashing: bool, flash_on: bool) {
+        let area = self.r(x, y, w, h);
+        let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
+        let n = SHIFT_LIGHTS;
+        for (i, (left, right)) in block_spans(area.left, area.right, n, gap).into_iter().enumerate() {
+            let blink = if flash_on { DESTRUCTIVE } else { SECONDARY };
+            let colour = if flashing {
+                blink
+            } else if i >= lit {
+                SECONDARY
+            } else if i < n / 3 {
+                SUCCESS
+            } else if i < 2 * n / 3 {
+                WARN
+            } else {
+                DESTRUCTIVE
+            };
+            self.fill(rect(left, area.top, right, area.bottom), colour);
+        }
+    }
+
+    /// The throttle (green) and the brake (red) of the last `INPUT_TRACE_MS` as two lines on a dark strip, the newest at
+    /// the right edge (`now_ms`), full at the top (owner-approved module 7, 2026-11-19).
+    pub(super) fn input_trace(&self, (x, y, w, h): Area, inputs: &[(i64, f32, f32)], now_ms: i64) {
+        let r = self.r(x, y, w, h);
+        self.round(r, BACKGROUND, None);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let from = now_ms - crate::dash::INPUT_TRACE_MS;
+        let point = |t: i64, v: f32| PointF {
+            X: px + pw * ((t - from) as f32 / crate::dash::INPUT_TRACE_MS as f32).clamp(0.0, 1.0),
+            Y: py + 2.0 + (ph - 4.0) * (1.0 - v.clamp(0.0, 1.0)),
+        };
+        let recent: Vec<&(i64, f32, f32)> = inputs.iter().filter(|(t, _, _)| *t >= from && *t <= now_ms).collect();
+        if recent.len() < 2 {
+            return;
+        }
+        let line_w = (1.6 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            for (colour, pick) in [(DESTRUCTIVE, 2usize), (SUCCESS, 1usize)] {
+                let points: Vec<PointF> = recent
+                    .iter()
+                    .map(|&&(t, throttle, brake)| point(t, if pick == 1 { throttle } else { brake }))
+                    .collect();
+                let mut pen = null_mut();
+                GdipCreatePen1(argb(colour), line_w, UnitPixel, &mut pen);
+                let mut path = null_mut();
+                GdipCreatePath(FillModeAlternate, &mut path);
+                GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+                GdipDrawPath(graphics, pen, path);
+                GdipDeletePath(path);
+                GdipDeletePen(pen);
+            }
+        });
+    }
+
     /// The delta along the lap (owner-approved module 5, 2026-11-19): a zero line across the middle, the area between the
     /// delta and zero in green where the lap is ahead (under the line) and red where it is behind (over it), the delta as
     /// a light line, and a yellow mark where the car is. `trace` is (share of the lap 0..1, seconds); the graph spans the

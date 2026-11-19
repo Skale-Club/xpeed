@@ -286,6 +286,22 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let (m, slots) = (d.m, d.slots);
     let plan = centre_plan(card, slots);
+    // The shift lights over the gear: green, amber, red as the revs rise, all flashing red at the shift point.
+    if let Some(area) = plan.shift {
+        shown(g, m.rev.show, |g| {
+            let share = if m.rev.show == Show::Shown { m.rev.frac } else { f32::NAN };
+            let (lit, flashing) = shift_lit(share);
+            g.shift_lights(area, lit, flashing, d.view.now_ms / 120 % 2 == 0);
+        });
+    }
+    // Under the wheel: the throttle and brake of the last seconds.
+    if let Some(((lx, ly, lw, lh), graph)) = plan.inputs {
+        shown(g, m.throttle.show, |g| {
+            let r = g.r(lx, ly, lw, lh);
+            g.caps(&text(d.view.lang, &Msg::PanelInputs), r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            g.input_trace(graph, &d.live.inputs, d.live.at_ms);
+        });
+    }
     shown(g, m.gear.show, |g| {
         let (gx, gy, gw, gh) = plan.gear;
         let r = g.r(gx, gy, gw, gh);

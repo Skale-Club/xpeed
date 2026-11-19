@@ -46,6 +46,19 @@ pub(super) fn lights_lit(share: f32) -> (usize, bool) {
     (lit.clamp(0.0, LIGHTS as f32) as usize, false)
 }
 
+/// How many of the centre card's shift lights are lit at `share` of the top RPM, and whether they flash (owner-approved
+/// module 7, 2026-11-19): none under `SHIFT_LIGHTS_FROM`, all and flashing from `SHIFT_AT`.
+pub(super) fn shift_lit(share: f32) -> (usize, bool) {
+    if !share.is_finite() {
+        return (0, false);
+    }
+    if share >= SHIFT_AT {
+        return (SHIFT_LIGHTS, true);
+    }
+    let lit = ((share - SHIFT_LIGHTS_FROM) / (SHIFT_AT - SHIFT_LIGHTS_FROM) * SHIFT_LIGHTS as f32).ceil();
+    (lit.clamp(0.0, SHIFT_LIGHTS as f32) as usize, false)
+}
+
 /// The fastest lap that counted, in milliseconds; an invalid lap is never the fastest.
 pub(super) fn fastest_valid(laps: &[SavedLap]) -> Option<u32> {
     laps.iter().filter(|l| l.valid).map(|l| l.time_ms).min()

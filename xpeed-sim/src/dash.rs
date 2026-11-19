@@ -260,6 +260,9 @@ pub struct Live {
     /// The delta along the lap being driven: (share of the lap 0..1, seconds against the best lap), a point every
     /// `1 / DELTA_TRACE_POINTS` of the lap; empty until there is a delta. Shared, as it grows by one point at a time.
     pub delta_trace: Arc<Vec<(f32, f32)>>,
+    /// The throttle and the brake over the last `INPUT_TRACE_MS`: (Unix ms, throttle 0..1, brake 0..1), oldest first,
+    /// a point every `INPUT_TRACE_STEP_MS` at most, while driving. Shared, as it changes a point at a time.
+    pub inputs: Arc<Vec<(i64, f32, f32)>>,
     /// A valid best path from this session, shown only for an explicit practice/qualifying context.
     pub reference: Option<Arc<Vec<(f32, f32)>>>,
     /// Forward direction inferred from recent live movement, never from replay progression.
@@ -326,6 +329,8 @@ pub struct Tracker {
     trail: Arc<Path>,
     /// The delta along the lap being driven (see `Live::delta_trace`).
     delta_trace: Arc<Vec<(f32, f32)>>,
+    /// The throttle and the brake of the last seconds (see `Live::inputs`).
+    inputs: Arc<Vec<(i64, f32, f32)>>,
     heading: crate::perspective::MotionHeading,
     best_path: Option<Arc<Path>>,
     best: Option<(f64, Profile)>,
@@ -370,6 +375,9 @@ const MAP_STEP_METRES: f32 = 4.0;
 pub const MAP_JUMP_METRES: f32 = 40.0;
 /// How many points the delta along a lap keeps at most (one every 0.5% of the lap).
 pub const DELTA_TRACE_POINTS: usize = 200;
+/// How far back the throttle and brake trace goes, and how often it takes a point.
+pub const INPUT_TRACE_MS: i64 = 5_000;
+pub const INPUT_TRACE_STEP_MS: i64 = 40;
 /// A path shorter than this is not a map yet.
 const MAP_MIN_POINTS: usize = 30;
 /// A finished lap must cover this share of the track (when its length is known) to be a full lap.
@@ -510,6 +518,16 @@ impl Tracker {
             }
             _ => None,
         };
+        // The throttle and the brake of the last seconds, while driving; out of the car the trace is let go.
+        if frame.driving && frame.throttle.is_finite() && frame.brake.is_finite() {
+            if self.inputs.last().is_none_or(|&(t, _, _)| at_ms - t >= INPUT_TRACE_STEP_MS || at_ms < t) {
+                let inputs = Arc::make_mut(&mut self.inputs);
+                inputs.retain(|&(t, _, _)| at_ms - t <= INPUT_TRACE_MS && t <= at_ms);
+                inputs.push((at_ms, frame.throttle.clamp(0.0, 1.0), frame.brake.clamp(0.0, 1.0)));
+            }
+        } else if !frame.driving && !self.inputs.is_empty() {
+            self.inputs = Arc::default();
+        }
         // The delta along the lap: a point each time the car is another share of the lap further on.
         if let (Some(delta), Some(sample)) = (delta_s, step.sample) {
             let best_length = self.best.as_ref().and_then(|(_, best)| best.last().map(|&(d, _)| d));
@@ -566,6 +584,7 @@ impl Tracker {
             road: self.road.clone(),
             trail: self.trail.clone(),
             delta_trace: self.delta_trace.clone(),
+            inputs: self.inputs.clone(),
             reference: matches!(frame.session_kind, Some(SessionKind::Practice | SessionKind::Qualifying))
                 .then(|| self.best_path.clone())
                 .flatten(),
