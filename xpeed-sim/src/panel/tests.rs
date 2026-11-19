@@ -1539,9 +1539,15 @@ fn a_tyre_tile_groups_the_tyre_with_its_words_in_the_middle() {
     let bar = rows(words_x, words_x + 4, &|c| c == FOREGROUND_2 || c == SECONDARY);
     let bar_bottom = *bar.last().unwrap();
     assert!(tyre_top.abs_diff(corner_top) <= 1, "tyre top {tyre_top}, top of FL {corner_top}");
-    assert!(tyre_bottom.abs_diff(bar_bottom) <= 1, "tyre bottom {tyre_bottom}, wear bar bottom {bar_bottom}");
+    assert!(
+        tyre_bottom.abs_diff(bar_bottom) <= 1,
+        "tyre bottom {tyre_bottom}, wear bar bottom {bar_bottom}"
+    );
     let (above, below) = (tyre_top - STROKE_ACCENT as i32, h - 1 - tyre_bottom);
-    assert!(above.abs_diff(below) <= 2, "centred in the tile: {above} px above, {below} px below");
+    assert!(
+        above.abs_diff(below) <= 2,
+        "centred in the tile: {above} px above, {below} px below"
+    );
 }
 
 // ---- Stage 2: the cards of the rebuilt dashboard ----
