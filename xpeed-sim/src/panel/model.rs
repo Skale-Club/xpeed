@@ -30,9 +30,12 @@ pub(super) fn gear_places(gear: f32, gears: Option<u8>, shift: Option<(f32, i64)
         return Vec::new();
     }
     let to = gear.round();
+    // A shift slides one place even when the reader went through neutral or skipped a gear (4, N, 5 is 4 to 5 on
+    // screen, not a spin through 1, 2 and 3); a reading stamped a hair ahead of the panel's clock starts the slide.
     let at = match shift {
-        Some((from, since)) if from != to && (0..GEAR_SLIDE_MS).contains(&(now_ms - since)) => {
-            let t = (now_ms - since) as f32 / GEAR_SLIDE_MS as f32;
+        Some((from, since)) if from != to && now_ms - since < GEAR_SLIDE_MS => {
+            let from = if (to - from).abs() > 1.0 { to - (to - from).signum() } else { from };
+            let t = (now_ms - since).max(0) as f32 / GEAR_SLIDE_MS as f32;
             from + (to - from) * (1.0 - (1.0 - t).powi(3))
         }
         _ => to,
