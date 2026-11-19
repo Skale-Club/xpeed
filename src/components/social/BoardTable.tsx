@@ -7,6 +7,7 @@ import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { gapShare } from '@/lib/sim/leaderboard';
 import type { LeaderboardEntry } from '@/lib/sim/social-client';
 import { cn } from '@/lib/utils';
+import { AidIcons } from './BoardAids';
 import { ReportButton } from './ReportDialog';
 import { Avatar, DriverName } from './social-bits';
 
@@ -32,7 +33,11 @@ function BoardRow({ entry, maxGapMs, showGap }: { entry: LeaderboardEntry; maxGa
       <td className="w-full min-w-0 max-w-0 py-2 pr-2 sm:w-auto sm:max-w-none">
         <div className="flex min-w-0 items-center gap-2">
           <Avatar handle={entry.handle} displayName={entry.displayName} size="sm" />
-          <DriverName handle={entry.handle} displayName={entry.displayName} className="min-w-0 flex-1 flex-col gap-0 overflow-hidden sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2" />
+          {/* On a phone the aid icons go under the name: beside it they leave the name a letter or two of room. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+            <DriverName handle={entry.handle} displayName={entry.displayName} className="min-w-0 flex-1 flex-col gap-0 overflow-hidden sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2" />
+            <AidIcons aids={entry.aids} className="self-start sm:self-auto" />
+          </div>
           {entry.isMe && <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="board-you">{t('social.leaderboard.you', 'You')}</Badge>}
         </div>
         {entry.isMe && <span className="mt-0.5 inline-block text-2xs font-semibold text-primary sm:hidden" aria-hidden="true">{t('social.leaderboard.you', 'You')}</span>}

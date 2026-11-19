@@ -400,6 +400,77 @@ describe('checking the version 2 header fields', () => {
   });
 });
 
+describe('the driving aids of the lap (version 2, optional)', () => {
+  const aids = { tcMax: 4, absMax: 0, stability: 0.5, autoShift: false, autoClutch: true, autoBlip: false, idealLine: true };
+  const header = (patch: Record<string, unknown>) => ({ ...structuredClone(HEADER_V2), ...patch });
+  const aided = (): LapFile => ({ ...lapV2(), header: { ...structuredClone(HEADER_V2), aids: { ...aids } } });
+
+  it('is read, and a lap without it is still valid (the golden bytes carry none)', () => {
+    expect(parseHeader(header({ aids })).aids).toEqual(aids);
+    expect(parseHeader(HEADER_V2).aids).toBeUndefined();
+    const old = unpackLap(goldenV2());
+    expect(old.header.aids).toBeUndefined();
+    expect(unpackLap(golden()).header.aids).toBeUndefined();
+    expect(hex(packLap(old))).toBe(GOLDEN_V2_HEX);
+  });
+  it('round trips through the bytes and gzip, still in version 2', async () => {
+    const bytes = packLap(aided());
+    expect(new DataView(bytes.buffer, bytes.byteOffset).getUint16(4, true)).toBe(2);
+    expect(unpackLap(bytes).header.aids).toEqual(aids);
+    expect((await gunzipLap(await gzipLap(aided()))).header.aids).toEqual(aids);
+  });
+  it('reads the header exactly as the Companion writes it (the same text its Rust test expects)', () => {
+    const text = '"aids":{"tcMax":4,"absMax":0,"stability":0.5,"autoShift":false,"autoClutch":true,"autoBlip":false,"idealLine":true},"channels"';
+    expect(Buffer.from(packLap(aided())).toString('utf8')).toContain(text);
+  });
+  it('takes only the keys the game gave, and 0 is a known value', () => {
+    const some = { tcMax: 0, idealLine: false };
+    expect(parseHeader(header({ aids: some })).aids).toEqual(some);
+    const text = Buffer.from(packLap({ ...lapV2(), header: { ...structuredClone(HEADER_V2), aids: some } })).toString('utf8');
+    expect(text).toContain('"aids":{"tcMax":0,"idealLine":false},"channels"');
+    expect(parseHeader(header({ aids: { tcMax: 100, absMax: 100, stability: 1 } })).aids).toEqual({ tcMax: 100, absMax: 100, stability: 1 });
+    expect(parseHeader(header({ aids: { stability: 0 } })).aids).toEqual({ stability: 0 });
+  });
+  it('reads an object with no key as no aids, and writes none', () => {
+    expect(parseHeader(header({ aids: {} })).aids).toBeUndefined();
+    const text = Buffer.from(packLap({ ...lapV2(), header: { ...structuredClone(HEADER_V2), aids: {} } })).toString('utf8');
+    expect(text).not.toContain('aids');
+  });
+  it('refuses to write it in a version 1 file', () => {
+    expect(codeOf(() => packLap({ ...aided(), version: 1 }))).toBe('bad_header');
+  });
+  it('refuses a key it does not know inside the object (a setting is a fact about the lap)', () => {
+    expect(codeOf(() => parseHeader(header({ aids: { ...aids, nitro: true } })))).toBe('bad_header');
+    expect(codeOf(() => parseHeader(header({ aids: { tcmax: 1 } })))).toBe('bad_header');
+  });
+  it.each([
+    ['aids is not an object', null],
+    ['aids is an array', [1]],
+    ['aids is a string', 'tc'],
+    ['tcMax is above 100', { tcMax: 101 }],
+    ['tcMax is negative', { tcMax: -1 }],
+    ['tcMax is not whole', { tcMax: 1.5 }],
+    ['tcMax is a string', { tcMax: '4' }],
+    ['absMax is above 100', { absMax: 1000 }],
+    ['absMax is not a number', { absMax: true }],
+    ['stability is above 1', { stability: 1.01 }],
+    ['stability is negative', { stability: -0.01 }],
+    ['stability is NaN', { stability: Number.NaN }],
+    ['stability is a string', { stability: '0.5' }],
+    ['autoShift is a number', { autoShift: 1 }],
+    ['autoClutch is a string', { autoClutch: 'true' }],
+    ['autoBlip is null', { autoBlip: null }],
+    ['idealLine is a number', { idealLine: 0 }],
+  ])('refuses a header where %s', (_why, value) => {
+    expect(codeOf(() => parseHeader(header({ aids: value })))).toBe('bad_header');
+  });
+  it('is not a reason for a reader that does not know it to refuse the file (an unknown top-level key is ignored)', () => {
+    // What a server from before aids does with the key: the same parser, which names no `aids` and ignores what it does not know.
+    const { aids: _ignored, ...others } = { ...header({ aids }) } as Record<string, unknown>;
+    expect(parseHeader({ ...others, somethingFromVersion3: { x: 1 } })).toEqual(HEADER_V2);
+  });
+});
+
 describe('who recorded the lap and what the data checks found (version 2, optional)', () => {
   const recorder = { app: 'xpeed-companion', version: '0.8.2', build: '9900d41', source: 'acevo', gameBuild: '0.9.1' };
   const header = (patch: Record<string, unknown>) => ({ ...structuredClone(HEADER_V2), ...patch });

@@ -2,6 +2,8 @@
 //   - retention (RETENTION_ENABLED=true): old laps are reduced to 10 Hz (server/retention.ts);
 //   - plausibility recheck (on; PLAUSIBILITY_RECHECK=false turns it off): laps that arrived before the plausibility checks get their
 //     verdict from their files, 200 at a time, for at most 3 minutes a run (api/sim/_plausibility.ts). First run 1 to 5 minutes after start;
+//   - tyre backfill (on; TYRE_BACKFILL=false turns it off): laps that arrived before the server stored the tyre compound get it from the
+//     header of their files, the same way, header only (api/sim/_tyres.ts). First run 2 to 6 minutes after start;
 //   - error retention (on): error reports (first-party error tracking) older than 30 days are deleted, and resolved problems not seen for 90 days (runErrorRetention);
 //   - orphan sweeper: `sweepOrphanLaps()` (api/sim/_sweep.ts) removes lap files that have no row. It is passed in, so a test
 //     can run the schedule with or without it.
@@ -12,6 +14,7 @@ import { reduceOldLaps, type RetentionDb } from './retention';
 import { sweepOrphanLaps } from '../api/sim/_sweep';
 import { openBackend } from '../api/_backend';
 import { recheckLaps, type RecheckResult } from '../api/sim/_plausibility';
+import { backfillTyres, type TyreBackfillResult } from '../api/sim/_tyres';
 
 type Env = Record<string, string | undefined>;
 const DAY_MS = 24 * 3600 * 1000;
@@ -80,8 +83,32 @@ export async function runPlausibilityRecheck({ recheck, batch = RECHECK_BATCH, b
   } finally { rechecking = false; }
 }
 
+/** The first tyre backfill runs 2 to 6 minutes after start, after the plausibility recheck has had its turn. */
+export const TYRE_FIRST_RUN_MS: [number, number] = [2 * 60 * 1000, 6 * 60 * 1000];
+let backfilling = false;
+
+/**
+ * Reads the headers of laps whose tyre compound is not stored, `batch` at a time, until none is left or `budgetMs` is spent (checked
+ * before each batch). Stopping loses nothing: every lap is marked as soon as it is read, so the next run resumes. A batch that reads nothing
+ * ends the run. Never overlaps itself.
+ */
+export async function runTyreBackfill({ backfill, batch = RECHECK_BATCH, budgetMs = RECHECK_BUDGET_MS, now = Date.now }:
+  { backfill: (limit: number) => Promise<TyreBackfillResult>; batch?: number; budgetMs?: number; now?: () => number }): Promise<TyreBackfillResult | { skipped: true }> {
+  if (backfilling) return { skipped: true };
+  backfilling = true;
+  try {
+    const started = now();
+    const total: TyreBackfillResult = { read: 0, withTyre: 0, remaining: 0 };
+    for (;;) {
+      const done = await backfill(batch);
+      total.read += done.read; total.withTyre += done.withTyre; total.remaining = done.remaining;
+      if (done.remaining <= 0 || done.read === 0 || now() - started >= budgetMs) return total;
+    }
+  } finally { backfilling = false; }
+}
+
 /** The jobs this environment asks for. Exported so a test can see which ones would run. */
-export function enabledJobs(env: Env = process.env, shared: Record<string, unknown> = { sweepOrphanLaps, recheckLaps, runErrorRetention }): Job[] {
+export function enabledJobs(env: Env = process.env, shared: Record<string, unknown> = { sweepOrphanLaps, recheckLaps, backfillTyres, runErrorRetention }): Job[] {
   const jobs: Job[] = [];
   if (env.RETENTION_ENABLED === 'true' && env.DATABASE_URL) {
     jobs.push({
@@ -112,6 +139,18 @@ export function enabledJobs(env: Env = process.env, shared: Record<string, unkno
         const backend = openBackend(env as NodeJS.ProcessEnv);
         if (!backend) throw new Error('no backend');
         return { ...(await runPlausibilityRecheck({ recheck: (limit) => (recheck as typeof recheckLaps)(backend, limit) })) };
+      },
+    });
+  }
+  const tyres = shared.backfillTyres;
+  if (env.TYRE_BACKFILL !== 'false' && typeof tyres === 'function' && env.DATABASE_URL) {
+    jobs.push({
+      name: 'tyre_backfill',
+      firstRunMs: TYRE_FIRST_RUN_MS,
+      run: async () => {
+        const backend = openBackend(env as NodeJS.ProcessEnv);
+        if (!backend) throw new Error('no backend');
+        return { ...(await runTyreBackfill({ backfill: (limit) => (tyres as typeof backfillTyres)(backend, limit) })) };
       },
     });
   }

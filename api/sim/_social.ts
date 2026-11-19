@@ -16,7 +16,7 @@
 import { randomBytes } from 'node:crypto';
 import { openBackend, type Backend } from '../_backend';
 import { bearer, sha256Hex } from './_shared';
-import { call, CURSOR_TIME, decodeCursor, failed, gameParam, Invalid, limitParam, paged, UUID, uuidParam, type Item } from './_v1util';
+import { aidsParam, call, CURSOR_TIME, decodeCursor, failed, gameParam, Invalid, limitParam, paged, tyreParam, UUID, uuidParam, type Item } from './_v1util';
 import { forgetOverview } from './_v1cache';
 import { recheckLaps } from './_plausibility';
 
@@ -137,7 +137,10 @@ function match(parts: string[]): Matched | null {
       if (parts.length === 1) return { name: 'leaderboard', methods: ['GET'] };
       if (parts.length === 2 && b === 'me') return { name: 'leaderboardMe', methods: ['GET'] };
       return null;
-    case 'leaderboards': return parts.length === 2 && b === 'catalog' ? { name: 'leaderboardCatalog', methods: ['GET'] } : null;
+    case 'leaderboards':
+      if (parts.length !== 2) return null;
+      if (b === 'catalog') return { name: 'leaderboardCatalog', methods: ['GET'] };
+      return b === 'conditions' ? { name: 'leaderboardConditions', methods: ['GET'] } : null;
     case 'reports': return parts.length === 1 ? { name: 'report', methods: ['POST'] } : null;
     case 'admin':
       if (b === 'reports' && parts.length === 2) return { name: 'adminReports', methods: ['GET'] };
@@ -286,11 +289,17 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
 
       // ------------------------------------------------------------ leaderboards
       case 'leaderboard':
-      case 'leaderboardMe': {
+      case 'leaderboardMe':
+      case 'leaderboardConditions': {
         const scope = oneOf(params.get('scope'), SCOPES, 'public', 'invalid_scope');
-        const trackId = uuidParam(params, 'track'), carId = uuidParam(params, 'car'), game = gameParam(params);
+        const trackId = uuidParam(params, 'track'), carId = uuidParam(params, 'car'), game = gameParam(params), tyre = tyreParam(params), aids = aidsParam(params);
         if (!trackId) throw new Invalid('invalid_track');
         if (!carId) throw new Invalid('invalid_car');
+        if (where.name === 'leaderboardConditions') {
+          // Like the catalog it reads every lap of the board, so it is limited per person: 60 a minute.
+          const slow = await throttle(backend, `conditions:${userId}`, 60, 60);
+          if (slow > 0) return wait(slow);
+        }
         const limit = where.name === 'leaderboard' ? limitParam(params) : 0;
         const after = where.name === 'leaderboard' ? decodeBoardCursor(params.get('cursor')) : null;
         const [track, car] = await Promise.all([
@@ -303,19 +312,24 @@ export async function handleSocial(req: Request, parts: string[], out: { send: S
         if (!car.data) return problem('car_not_found', 404);
         if (game && game !== track.data.game) throw new Invalid('invalid_game');
         if (scope === 'friends' || where.name === 'leaderboardMe') await ensureProfile(backend, userId);
+        if (where.name === 'leaderboardConditions') {
+          // The compounds of the whole board (so the chips stay while one is chosen) and the theoretical best of the chosen one.
+          const conditions = await call<{ tyres: unknown; aids: unknown; theoreticalBest: unknown }>(backend.service, 'sim_leaderboard_conditions', { p_viewer: userId, p_track: trackId, p_car: carId, p_scope: scope, p_tyre: tyre, p_aids: aids });
+          return send({ game: track.data.game, scope, track: { id: track.data.id, name: track.data.name }, car: { id: car.data.id, name: car.data.name }, tyre, aidBoard: aids, tyres: conditions.tyres, aids: conditions.aids, theoreticalBest: conditions.theoreticalBest });
+        }
         const header = {
-          game: track.data.game, scope,
+          game: track.data.game, scope, tyre, aids,
           track: { id: track.data.id, name: track.data.name, lengthM: track.data.length_m ?? null },
           car: { id: car.data.id, name: car.data.name, class: car.data.class ?? null },
         };
         if (where.name === 'leaderboardMe') {
-          const mine = await call<Record<string, unknown>>(backend.service, 'sim_leaderboard_me', { p_viewer: userId, p_track: trackId, p_car: carId, p_scope: scope });
+          const mine = await call<Record<string, unknown>>(backend.service, 'sim_leaderboard_me', { p_viewer: userId, p_track: trackId, p_car: carId, p_scope: scope, p_tyre: tyre, p_aids: aids });
           const { above, below, ...rest } = mine;
           return send({ ...header, ...rest, neighbours: { above, below } });
         }
         const rows = await call<Item[]>(backend.service, 'sim_leaderboard', {
           p_viewer: userId, p_track: trackId, p_car: carId, p_scope: scope,
-          p_after_ms: after?.ms ?? null, p_after_t: after?.t ?? null, p_after_lap: after?.id ?? null, p_limit: limit + 1,
+          p_after_ms: after?.ms ?? null, p_after_t: after?.t ?? null, p_after_lap: after?.id ?? null, p_limit: limit + 1, p_tyre: tyre, p_aids: aids,
         });
         const kept = rows.slice(0, limit);
         const last = kept[kept.length - 1] as { _ms?: number; _t?: string; _i?: string } | undefined;

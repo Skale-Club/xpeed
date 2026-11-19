@@ -104,6 +104,27 @@ where two readers contradict each other nobody guessed which one is right. A fix
 | Lap numbering (first lap driven = 1) | rFactor 1, iRacing and Le Mans Ultimate pass the game's number through and it is not known whether their first lap is 0 or 1; the other readers add 1 to a laps-completed count | `rfactor1`, `iracing`, `lmu` | none: read the `replay` table, the out lap and the first flying lap must be 1 and 2 (or 0 and 1 is the answer; write it in `notes` and change the reader) |
 | Brake bias (front share) | Assetto Corsa, Competizione and EVO are taken as the front share, Automobilista 2 (checked), RaceRoom and Le Mans Ultimate are the rear share turned around | `ac`, `acc`, `acevo`, `r3e`, `lmu` | none: the dash value in the game against the one in the replay table |
 | Aid levels, damage, pit area | taken from the headers; no game was compared with its own dash | any | none |
+| Aids in the lap header (`aids`: `tcMax`, `absMax`, `stability`, `autoShift`, `autoClutch`, `autoBlip`, `idealLine`) | The lap keeps the highest setting seen on it. Every mapping is `ASSUMED`; the list below says what to compare for each game. A key that is not in the header means unknown, 0 means off or "the car has none" | see below | none: the setup screen against the `aids` object of the lap file (`xpeed-companion`'s lap list or the unzipped header) |
+
+What to verify for the aids, per game. In every capture drive one lap with a setting changed halfway (TC from 4 to off, say)
+and check that the lap file shows the HIGHEST value, then one lap with every aid off and one with the car's maximum:
+
+- **Assetto Corsa (`ac`)**: the settings screen (Content Manager's "Assists") against `autoShifterOn` (physics 264),
+  `aidStability` (static 484, 0..1), `aidAutoclutch` (488), `aidAutoBlip` (492) and `idealLineOn` (graphics 272: the offset
+  is the one Assetto Corsa's own struct implies, Competizione's document has a `penalty` before it, so check the value
+  really follows the line toggle). The physics `tc` and `abs` floats have NOT been settled: capture them with the aid on
+  at several settings and see whether they are the setting (steady) or the intervention (zero until the aid acts). Until a
+  capture shows it, the Assetto Corsa reader gives no TC or ABS level, so `tcMax` and `absMax` are absent from its laps.
+- **Competizione (`acc`)**: the graphics page's `TC` and `ABS` against the setup screen (0 is off; are the numbers the
+  same as the setting shown in the car's MFD?). It gives no stability, gearbox or line aid.
+- **EVO (`acevo`)**: the electronics levels against the car's dash, and on a car without TC (or ABS) that its level and
+  maximum are both 0, which the lap file turns into `tcMax: 0` (resp. `absMax: 0`).
+- **Automobilista 2 (`ams2`), RaceRoom (`r3e`), EA SPORTS F1 (`f1`), Wreckfest 2 (`wreckfest2`)**: the level numbers
+  against the game's assist menu (F1: TC 0 off, 1 medium, 2 full; ABS 0 off, 1 on; Wreckfest 2: 0, 1 half, 2 full). A
+  game that reports "unset" as a number (-1, 255) must not become a level.
+- **Le Mans Ultimate (`lmu`)**: `mTC` and `mABS` against the car's dash, and that a car without the aid (maximum 0) gives
+  `tcMax: 0` or `absMax: 0`.
+- **iRacing, Forza, rFactor 1**: give no aid setting; their laps must have no `aids` object at all.
 
 Record the game's own dash next to the replay table when a key does not exist (a photo of the setup screen is enough
 for the brake bias), and say in `notes` what was compared.

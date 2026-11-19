@@ -44,6 +44,7 @@ O tamanho total tem de ser exatamente `12 + N + canais × sampleCount × 4`. Sob
 | `airTempC` | número, opcional | **Versão 2.** Temperatura do ar em °C, de -100 a 200 (arredondada a décimos) |
 | `trackTempC` | número, opcional | **Versão 2.** Temperatura da pista em °C, de -100 a 200 |
 | `tyreCompound` | texto, opcional | **Versão 2.** 1 a 40 caracteres, sem caracteres de controle. O composto do pneu como o jogo o nomeia |
+| `aids` | objeto, opcional | **Versão 2.** Os auxílios de pilotagem da volta; cada valor é o **maior** visto em qualquer momento da volta (quem desliga o TC só na última curva ainda tem TC naquela volta). Chaves, todas opcionais: `tcMax` e `absMax` (inteiros de 0 a 100, 0 é desligado), `stability` (0 a 1), `autoShift`, `autoClutch`, `autoBlip` e `idealLine` (verdadeiro ou falso). Uma chave ausente quer dizer **desconhecido**, nunca desligado; um carro sem o auxílio grava 0. O objeto inteiro é omitido quando nada é conhecido. Vem depois de `tyreCompound` e antes de `recorder`. Diferente do `recorder`, uma chave desconhecida dentro de `aids` é um cabeçalho inválido; uma chave desconhecida no nível de cima continua ignorada, então um servidor mais antigo lê o arquivo e simplesmente não vê os auxílios |
 | `recorder` | objeto, opcional | **Versão 2.** Quem gravou a volta: `app` ("xpeed-companion"), `version` ("0.8.2"), `build` (hash curto do git, até 40 caracteres), `source` (o leitor, até 32) e, opcional, `gameBuild` (a versão do jogo, até 64). Vem depois de `tyreCompound` e antes de `checks`; chaves que o leitor não conhece são ignoradas |
 | `checks` | lista de ids, opcional | **Versão 2.** Os ids das verificações automáticas de dados que a volta reprovou (`t_repeats`, `clutch_stuck`, `map_mirrored`...), até 16, cada um `[a-z][a-z0-9_]{0,31}`. Ausente quando a volta passou em todas |
 | `channels` | lista | De 2 a 128 itens `{ "id", "unit" }`, sem repetição |
@@ -55,7 +56,7 @@ Quem escreve deve usar sempre esta ordem de chaves, para que a mesma volta gere 
 ```
 game, track{name, variant, lengthM}, car{name, class},
 lap{number, timeMs, valid, sectorsMs, inLap, outLap}, startedAt, sampleRateHz, sampleCount,
-sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, recorder, checks, channels
+sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, aids, recorder, checks, channels
 ```
 
 Campo opcional ausente **não é escrito** (nunca `null`). Uma volta da versão 1 não tem `inLap`, `outLap` nem os seis campos do fim; o escritor se recusa a gravar uma volta de versão 1 que os traga.

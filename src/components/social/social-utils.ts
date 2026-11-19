@@ -2,7 +2,19 @@ import { readPreference, writePreference } from '@/lib/browser-storage';
 import { publicAppUrl } from '@/lib/trips';
 import type { TFunction } from 'i18next';
 import { formatLapTime } from '@/lib/sim/analysis';
-import { cleanName, sharePagePath, type Share, type Visibility } from '@/lib/sim/social-client';
+import { cleanName, sharePagePath, type AidBoard, type BoardConditions, type Share, type Visibility } from '@/lib/sim/social-client';
+
+/**
+ * The tyre chips are worth showing with two or more compounds (with one, every chip would give the same board), or when the address already
+ * names a tyre, so that it can be cleared.
+ */
+export const showTyreChips = (conditions: BoardConditions | undefined, tyre: string | null): boolean => !!conditions && ((conditions.tyres ?? []).length >= 2 || !!tyre);
+
+/** The aid chips are worth showing when one of the two filtered boards has a driver, or the address already names an aid board (so it can be cleared). */
+export function showAidChips(conditions: BoardConditions | undefined, aids: AidBoard): boolean {
+  if (!conditions) return false;
+  return aids !== 'all' || (conditions.aids ?? []).some((entry) => entry.drivers > 0);
+}
 
 /** The handle as people write it: `@lap_fan`. */
 export const atHandle = (handle: string) => `@${handle}`;

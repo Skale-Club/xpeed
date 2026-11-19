@@ -918,10 +918,10 @@ try {
       combinations++;
     }
     assert.equal(combinations, 120);
-    // The real defaults: with a database, the sweeper, the error retention (first-party error tracking) and the recheck run, and nothing else.
-    assert.deepEqual(names({ DATABASE_URL: 'postgres://x' }), ['orphan_sweeper', 'error_retention', 'plausibility_recheck']);
-    assert.deepEqual(names({ DATABASE_URL: 'postgres://x', PLAUSIBILITY_RECHECK: 'false' }), ['orphan_sweeper', 'error_retention']);
-    assert.deepEqual(names({ DATABASE_URL: 'postgres://x', RETENTION_ENABLED: 'true' }), ['retention', 'orphan_sweeper', 'error_retention', 'plausibility_recheck']);
+    // The real defaults: with a database, the sweeper, the error retention (first-party error tracking), the recheck and the tyre backfill run, and nothing else.
+    assert.deepEqual(names({ DATABASE_URL: 'postgres://x' }), ['orphan_sweeper', 'error_retention', 'plausibility_recheck', 'tyre_backfill']);
+    assert.deepEqual(names({ DATABASE_URL: 'postgres://x', PLAUSIBILITY_RECHECK: 'false' }), ['orphan_sweeper', 'error_retention', 'tyre_backfill']);
+    assert.deepEqual(names({ DATABASE_URL: 'postgres://x', RETENTION_ENABLED: 'true' }), ['retention', 'orphan_sweeper', 'error_retention', 'plausibility_recheck', 'tyre_backfill']);
     assert.deepEqual(names({}), []);
 
     // The recheck first runs 1 to 5 minutes after start, the others keep their 0 to 3 hours; then every job runs daily.

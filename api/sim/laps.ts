@@ -13,7 +13,8 @@ import { gunzipLap, LapFormatError, LAP_LIMITS, type LapFile } from '../../src/l
 import { bearer, browserHeaders, lapIdentity, LAP_UPLOADS_PER_MINUTE, LEGACY_LIST_LIMIT, MAX_ACCOUNT_BYTES, MAX_LAP_BYTES, refuse, reply, sha256Hex } from './_shared';
 import { authenticateDevice, rememberedDevice } from './_upload';
 import { summarizeLap } from './_summary';
-import { checkPlausibility, plausibilityJson } from './_plausibility';
+import { checkPlausibility } from './_plausibility';
+import { aidsVerdict, plausibilityWithAids } from './_aids';
 import { forgetOverview } from './_v1cache';
 import { recorderJson, reportDataChecks } from './_data-checks';
 
@@ -95,6 +96,8 @@ async function receive(req: Request): Promise<Response> {
     const summary = summarizeLap(lap);
     // Whether the file can be believed (docs/platform/API-V1.md): stored with the lap, in the same transaction. A lap that fails is kept, but ranks nowhere.
     const plausibility = checkPlausibility(lap);
+    // The aids the lap claims, sorted into a class for the aid boards; a claim the lap's own channels contradict is noted beside the checks, not failed.
+    const aids = aidsVerdict(lap);
 
     // Already here, or no room left: answered before the file is written.
     const admission = await backend.service.rpc('sim_lap_admission', { p_user_id: userId, p_identity: identity, p_size: bytes.length, p_max_bytes: MAX_ACCOUNT_BYTES });
@@ -118,7 +121,10 @@ async function receive(req: Request): Promise<Response> {
         sector_ms: summary.sectorMs, top_speed_kmh: summary.topSpeedKmh, fuel_used_l: summary.fuelUsedL, in_lap: summary.inLap,
         out_lap: summary.outLap, format_version: summary.formatVersion, session_id: summary.session.id, session_kind: summary.session.kind,
         weather: summary.session.weather, air_temp_c: summary.session.airTempC, track_temp_c: summary.session.trackTempC,
-        plausible: plausibility.plausible, plausibility: plausibilityJson(plausibility), recorder: recorderJson(header),
+        plausible: plausibility.plausible, plausibility: plausibilityWithAids(plausibility, aids, header.aids), recorder: recorderJson(header),
+        // Always sent, even as null: the database reads "key present" as "the header has been looked at" (supabase/migrations/20261119120000_sim_lap_tyres.sql).
+        tyre_compound: summary.tyreCompound,
+        aids: aids.aids, aid_class: aids.aidClass,
       },
     });
     if (ingested.error) throw ingested.error;

@@ -87,7 +87,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SectorTracker, SessionKind, Source, Tyre};
+use crate::game::{AidSettings, Caps, CarState, Drs, Flag, Frame, Phase, SectorTracker, SessionKind, Source, Tyre};
 use crate::norm;
 use crate::shm::{Mapping, Page};
 
@@ -149,6 +149,8 @@ mod layout {
     pub const PHYS_BRAKE_TEMP: usize = 348;
     /// `float brakeBias`: the front share of the braking, 0..1.
     pub const PHYS_BRAKE_BIAS: usize = 564;
+    /// `float autoShifterOn` (Assetto Corsa; after `kersCharge` and `kersInput`): the game shifts for the driver.
+    pub const PHYS_AC_AUTO_SHIFTER_ON: usize = 264;
     /// What is copied of Assetto Corsa's physics page: through `brakeBias`.
     pub const PHYS_AC_LEN: usize = 564 + 4;
     /// Competizione's `int tcinAction`, `int absinAction`, and `float waterTemp` (Celsius).
@@ -181,7 +183,11 @@ mod layout {
     pub const GFX_AC_CAR_COORDINATES: usize = 252;
     /// `flag` of Assetto Corsa's newer `sim_info.py` (after `carCoordinates` and `penaltyTime`), and the end of it.
     pub const GFX_AC_FLAG: usize = 268;
-    pub const GFX_AC_LEN: usize = 268 + 4;
+    /// `int idealLineOn`, the field after `flag` in Assetto Corsa's struct. Competizione's document has a `penalty`
+    /// between the two (so 276 there). Assetto Corsa's own `sim_info.py` (shipped with the game in
+    /// `apps/python/actv_competizione`) has none, checked on the installed game on 2026-11-19. ASSUMED, not seen live.
+    pub const GFX_AC_IDEAL_LINE_ON: usize = 272;
+    pub const GFX_AC_LEN: usize = 272 + 4;
     // Graphics, Competizione only.
     pub const GFX_ACC_ACTIVE_CARS: usize = 252;
     pub const GFX_ACC_CAR_COORDINATES: usize = 256;
@@ -208,6 +214,11 @@ mod layout {
     // Static, Assetto Corsa only.
     /// `int hasDRS` of `sim_info.py`.
     pub const STAT_AC_HAS_DRS: usize = 496;
+    /// `float aidStability` (0..1), then `int aidAutoclutch` and `int aidAutoBlip` (0 or 1): the driver's settings of
+    /// the session, after `allowTyreBlankets`.
+    pub const STAT_AC_AID_STABILITY: usize = 484;
+    pub const STAT_AC_AID_AUTO_CLUTCH: usize = 488;
+    pub const STAT_AC_AID_AUTO_BLIP: usize = 492;
     pub const STAT_AC_TRACK_SPLINE_LENGTH: usize = 520;
     pub const STAT_AC_TRACK_CONFIGURATION: usize = 524;
     pub const STAT_AC_LEN: usize = 556;
@@ -636,6 +647,30 @@ fn state_from(family: Family, p: &Page, g: &Page, s: &Page) -> CarState {
     state
 }
 
+/// The aids of Assetto Corsa (the original) for the lap file. A switch is given only when the page holds a 0 or a 1, and
+/// the stability only inside 0..1: any other number is a page the game has not filled, not a setting.
+///
+/// `tc` and `abs` of the physics page are what the aid is doing right now (see `state_from`), so Assetto Corsa's TC and
+/// ABS settings are not given here: a lap's `tcMax` and `absMax` stay out of its header until a capture settles it.
+/// Every mapping here is ASSUMED (`game.rs` lists them).
+fn ac_aids(p: &Page, g: &Page, s: &Page) -> AidSettings {
+    // A page too short to hold the field reads as 0, which would say "off"; it must say "not given".
+    let switch = |page: &Page, at: usize| match (page.0.len() >= at + 4).then(|| page.i32_at(at)) {
+        Some(0) => Some(false),
+        Some(1) => Some(true),
+        _ => None,
+    };
+    let stability = (s.0.len() >= STAT_AC_AID_STABILITY + 4).then(|| s.f32_at(STAT_AC_AID_STABILITY));
+    AidSettings {
+        stability: stability.filter(|v| v.is_finite() && (0.0..=1.0).contains(v)),
+        auto_shift: switch(p, PHYS_AC_AUTO_SHIFTER_ON),
+        auto_clutch: switch(s, STAT_AC_AID_AUTO_CLUTCH),
+        auto_blip: switch(s, STAT_AC_AID_AUTO_BLIP),
+        ideal_line: switch(g, GFX_AC_IDEAL_LINE_ON),
+        ..AidSettings::UNKNOWN
+    }
+}
+
 /// One reading of the three pages as a `Frame`. Never panics: a short or garbled page gives `NaN`, `None` or "not
 /// driving", not an error.
 fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Frame {
@@ -716,6 +751,7 @@ fn frame_from(family: Family, p: &Page, g: &Page, s: &Page, clock_s: f64) -> Fra
             f.track_temp_c = Some(road).filter(|c| c.is_finite() && (-60.0..=100.0).contains(c));
         }
         f.session_kind = session_kind_of(g.i32_at(GFX_SESSION));
+        f.aids = ac_aids(p, g, s);
         f.tyre_compound = Some(g.utf16_at(GFX_TYRE_COMPOUND, 33)).filter(|c| !c.is_empty());
     }
     f.car = s.utf16_at(STAT_CAR_MODEL, 33);
@@ -923,6 +959,7 @@ mod tests {
         // From the newer `sim_info.py` Assetto Corsa ships (`apps/python/actv_competizione`).
         ("penaltyTime", F, 1),
         ("flag", F, 1),
+        ("idealLineOn", F, 1),
     ];
 
     /// `SPageFileGraphic` of the ACC Shared Memory Documentation v1.8.12 (Competizione).
@@ -1097,6 +1134,7 @@ mod tests {
             ("drsAvailable", PHYS_DRS_AVAILABLE),
             ("drsEnabled", PHYS_DRS_ENABLED),
             ("brakeBias", PHYS_BRAKE_BIAS),
+            ("autoShifterOn", PHYS_AC_AUTO_SHIFTER_ON),
             ("tcinAction", PHYS_ACC_TC_IN_ACTION),
             ("absinAction", PHYS_ACC_ABS_IN_ACTION),
             ("waterTemp", PHYS_ACC_WATER_TEMP),
@@ -1130,6 +1168,7 @@ mod tests {
         assert_eq!(offset_of(GRAPHICS_AC, "normalizedCarPosition") + 4, GFX_PREFIX_LEN);
         assert_eq!(offset_of(GRAPHICS_AC, "carCoordinates"), GFX_AC_CAR_COORDINATES);
         assert_eq!(offset_of(GRAPHICS_AC, "flag"), GFX_AC_FLAG);
+        assert_eq!(offset_of(GRAPHICS_AC, "idealLineOn"), GFX_AC_IDEAL_LINE_ON);
         for (name, at) in [
             ("activeCars", GFX_ACC_ACTIVE_CARS),
             ("carCoordinates", GFX_ACC_CAR_COORDINATES),
@@ -1160,6 +1199,14 @@ mod tests {
         const { assert!(STAT_AC_MAX_FUEL + 4 <= STAT_AC_LEN) };
         const { assert!(STAT_SECTOR_COUNT + 4 <= STAT_AC_LEN) };
         assert_eq!(offset_of(STATIC, "hasDRS"), STAT_AC_HAS_DRS);
+        for (name, at) in [
+            ("aidStability", STAT_AC_AID_STABILITY),
+            ("aidAutoclutch", STAT_AC_AID_AUTO_CLUTCH),
+            ("aidAutoBlip", STAT_AC_AID_AUTO_BLIP),
+        ] {
+            assert_eq!(offset_of(STATIC, name), at, "{name}");
+            const { assert!(STAT_AC_AID_AUTO_BLIP + 4 <= STAT_AC_LEN) };
+        }
         assert_eq!(offset_of(STATIC, "trackSplineLength"), STAT_AC_TRACK_SPLINE_LENGTH);
         assert_eq!(offset_of(STATIC, "trackConfiguration"), STAT_AC_TRACK_CONFIGURATION);
         const { assert!(STAT_AC_TRACK_CONFIGURATION + 15 * W <= STAT_AC_LEN) };
@@ -1335,15 +1382,19 @@ mod tests {
             !pages_fit(Family::Acc, 700, 1588, 784),
             "Competizione's physics are read through waterTemp"
         );
-        assert!(pages_fit(Family::Ac, 568, 272, 556));
+        assert!(pages_fit(Family::Ac, 568, 276, 556));
+        assert!(
+            !pages_fit(Family::Ac, 568, 272, 556),
+            "Assetto Corsa's graphics are read through idealLineOn"
+        );
         assert!(pages_fit(Family::Acr, 256, 252, 200));
         assert!(
             !pages_fit(Family::Acc, 800, 1000, 784),
             "Competizione's graphics page is 1588 bytes"
         );
-        assert!(!pages_fit(Family::Ac, 255, 272, 556));
+        assert!(!pages_fit(Family::Ac, 255, 276, 556));
         assert!(
-            !pages_fit(Family::Ac, 256, 272, 556),
+            !pages_fit(Family::Ac, 256, 276, 556),
             "Assetto Corsa's physics are read through brakeBias"
         );
         assert!(!pages_fit(Family::Ac, 568, 100, 556));
@@ -1707,6 +1758,77 @@ mod tests {
             names.iter().all(|n| n == &n.to_ascii_lowercase()),
             "the shared list is in lower case"
         );
+    }
+
+    #[test]
+    fn assetto_corsa_gives_the_aids_the_pages_hold() {
+        let sim = Sim::live("1.7");
+        sim.phys.write(PHYS_AC_AUTO_SHIFTER_ON, &1i32.to_le_bytes());
+        sim.stat.write(STAT_AC_AID_STABILITY, &0.5f32.to_le_bytes());
+        sim.stat.write(STAT_AC_AID_AUTO_CLUTCH, &1i32.to_le_bytes());
+        sim.stat.write(STAT_AC_AID_AUTO_BLIP, &0i32.to_le_bytes());
+        sim.gfx_i32(GFX_AC_IDEAL_LINE_ON, 1);
+        let mut source = open_sim(&sim, processes(&["acs.exe"]));
+        let f = source.next(SOON).expect("a frame");
+        assert_eq!(
+            f.aids,
+            AidSettings {
+                stability: Some(0.5),
+                auto_shift: Some(true),
+                auto_clutch: Some(true),
+                auto_blip: Some(false),
+                ideal_line: Some(true),
+                ..AidSettings::UNKNOWN
+            }
+        );
+        // The physics `tc` and `abs` floats stay "acting now": no setting comes from them, and no "car has none".
+        assert_eq!(
+            (f.state.tc_level, f.state.abs_level, f.aids.tc_absent, f.aids.abs_absent),
+            (None, None, false, false)
+        );
+    }
+
+    #[test]
+    fn assetto_corsa_aids_that_are_not_a_switch_or_a_share_are_not_given() {
+        let mut sim = Sim::live("1.7");
+        for bad in [2i32, -1, 1_000_000] {
+            sim.phys.write(PHYS_AC_AUTO_SHIFTER_ON, &bad.to_le_bytes());
+            sim.stat.write(STAT_AC_AID_AUTO_CLUTCH, &bad.to_le_bytes());
+            sim.stat.write(STAT_AC_AID_AUTO_BLIP, &bad.to_le_bytes());
+            sim.gfx_i32(GFX_AC_IDEAL_LINE_ON, bad);
+            sim.step();
+            let mut source = open_sim(&sim, processes(&["acs.exe"]));
+            let f = source.next(SOON).expect("a frame");
+            assert_eq!(
+                (f.aids.auto_shift, f.aids.auto_clutch, f.aids.auto_blip, f.aids.ideal_line),
+                (None, None, None, None),
+                "{bad}"
+            );
+        }
+        for bad in [1.5f32, -0.1, f32::NAN, f32::INFINITY] {
+            sim.stat.write(STAT_AC_AID_STABILITY, &bad.to_le_bytes());
+            sim.step();
+            let mut source = open_sim(&sim, processes(&["acs.exe"]));
+            assert_eq!(source.next(SOON).expect("a frame").aids.stability, None, "{bad}");
+        }
+        // A page too short to hold a field says nothing, not "off".
+        let short = Page(&[0u8; GFX_AC_IDEAL_LINE_ON + 2]);
+        let physics = Page(&[0u8; PHYS_AC_AUTO_SHIFTER_ON + 2]);
+        let statics = Page(&[0u8; STAT_AC_AID_STABILITY + 2]);
+        assert_eq!(ac_aids(&physics, &short, &statics), AidSettings::UNKNOWN);
+    }
+
+    #[test]
+    fn competizione_and_rally_give_no_other_aids() {
+        for (exe, version) in [("AC2-Win64-Shipping.exe", "1.8.12"), ("acr.exe", "")] {
+            let sim = Sim::live(version);
+            // What Assetto Corsa would read from these offsets is not read for them.
+            sim.gfx_i32(GFX_AC_IDEAL_LINE_ON, 1);
+            sim.phys.write(PHYS_AC_AUTO_SHIFTER_ON, &1i32.to_le_bytes());
+            let exes: &'static [&'static str] = Box::leak(vec![exe].into_boxed_slice());
+            let mut source = open_sim(&sim, processes(exes));
+            assert_eq!(source.next(SOON).expect("a frame").aids, AidSettings::UNKNOWN, "{exe}");
+        }
     }
 
     #[test]
