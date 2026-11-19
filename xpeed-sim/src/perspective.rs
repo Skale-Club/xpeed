@@ -319,13 +319,28 @@ impl Road {
     }
 }
 
+/// Whether a game's ground plane has the opposite handedness of the camera's (x east, z north), so the camera must
+/// mirror its lateral axis. Source coordinates stay untouched either way.
+///
+/// * iRacing: x = east, z = minus north (worked out from the velocity, see `games/iracing.rs`).
+/// * Assetto Corsa: x = east, z = south, the orientation of Kunos' own `map.png` and `ui/outline.png` (image x = world
+///   x, image y = world z). Checked on the installed game's `ai/fast_lane.ai`: every clockwise circuit (Monza, Spa,
+///   Nordschleife, Silverstone, Brands Hatch, Red Bull Ring, Barcelona, Mugello, Zandvoort) turns +360 degrees in
+///   (x, z) read as z north, and every counter-clockwise one (Imola, Laguna Seca, Interlagos) -360. `carCoordinates`
+///   is in the same world as the AI line. Without the mirror, right-hand corners were drawn as left-hand ones.
+///
+/// Assetto Corsa EVO is turned into x east, z north in its reader (x negated), so it needs no mirror here.
+pub fn mirrored_ground(game: &str) -> bool {
+    matches!(game, "iracing" | "ac")
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
     pub width: f32,
     pub height: f32,
     pub car: Point,
     pub heading: Point,
-    /// Opposite planar handedness (iRacing uses x=east, z=minus north). Source coordinates stay untouched.
+    /// Opposite planar handedness (see `mirrored_ground`). Source coordinates stay untouched.
     pub mirrored: bool,
 }
 
@@ -638,6 +653,34 @@ mod tests {
             assert!(east.0 > anchor.0 && west.0 < anchor.0);
             assert!((north.0 - anchor.0).abs() < 0.001 && north.1 < anchor.1);
             assert!((anchor.1 - 304.0).abs() < 0.001);
+        }
+    }
+    #[test]
+    fn assetto_corsa_clockwise_corner_bends_right() {
+        // In Assetto Corsa's (x east, z south) a clockwise circuit turns positive in (x, z): here a circle run with the
+        // angle going up. Its centre, the inside of a right-hand corner, must be drawn right of the car.
+        assert!(mirrored_ground("ac") && mirrored_ground("iracing"));
+        assert!(!mirrored_ground("acevo") && !mirrored_ground("ams2") && !mirrored_ground("acc"));
+        let on = |a: f32| (100.0 * a.cos(), 100.0 * a.sin());
+        for width in [320.0, 736.0] {
+            let camera = Camera {
+                width,
+                height: 400.0,
+                car: on(0.0),
+                heading: (0.0, 1.0),
+                mirrored: mirrored_ground("ac"),
+            };
+            let anchor = camera.project(camera.car).unwrap();
+            let ahead = camera.project(on(0.3)).unwrap();
+            assert!(
+                ahead.0 > anchor.0 && ahead.1 < anchor.1,
+                "the corner ahead bends right: {ahead:?} from {anchor:?}"
+            );
+            let unmirrored = Camera { mirrored: false, ..camera };
+            assert!(
+                unmirrored.project(on(0.3)).unwrap().0 < anchor.0,
+                "without the mirror it was drawn bending left"
+            );
         }
     }
     #[test]

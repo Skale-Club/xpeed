@@ -54,7 +54,7 @@
 //!
 //! | Reader | `steer` (+1 = right) | `clutch` (1 = pressed) | `x`, `y`, `z` | `lap` |
 //! |--------|----------------------|------------------------|---------------|-------|
-//! | Assetto Corsa, Competizione, Rally (`kunos.rs`) | `steerAngle` as given, positive right: ASSUMED | not read | Assetto Corsa and Competizione: `carCoordinates` as given (not mirrored); Rally none: ASSUMED | `completedLaps` + 1: ASSUMED |
+//! | Assetto Corsa, Competizione, Rally (`kunos.rs`) | `steerAngle` as given, positive right: ASSUMED | not read | Assetto Corsa and Competizione: `carCoordinates` as given; Assetto Corsa's ground is x = east, z = south like its `map.png` (checked on the installed game's `fast_lane.ai`, see `perspective::mirrored_ground`), so the live view mirrors it; Competizione's handedness not checked; Rally none: ASSUMED | `completedLaps` + 1: ASSUMED |
 //! | Assetto Corsa EVO (`acevo.rs`) | `steerAngle` as given, positive right: VERIFIED-LIVE | `1 - clutch` (the game writes 1 = engaged): VERIFIED-LIVE | mean of the four `tyreContactPoint`s, x negated (the game's ground is mirrored), y and z as given: VERIFIED-LIVE | `total_lap_count` + 1: ASSUMED |
 //! | Automobilista 2, Project CARS 2 and 3 (`ams2.rs`) | `mUnfilteredSteering` as given, positive right: ASSUMED | `mUnfilteredClutch` as given: ASSUMED | `mWorldPosition` as given, so z is north: ASSUMED | `mLapsCompleted` + 1: ASSUMED |
 //! | RaceRoom (`r3e.rs`) | `steer_input_raw` as given, positive right: ASSUMED | `clutch_raw` as given: ASSUMED | `car_cg_location` as given, y up: ASSUMED | `completed_laps` + 1: ASSUMED |

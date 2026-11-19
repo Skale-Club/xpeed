@@ -569,7 +569,7 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
                     d.live.reference.as_ref(),
                     car,
                     heading,
-                    d.live.game == "iracing",
+                    crate::perspective::mirrored_ground(d.live.game),
                 )
             });
         let msg = if !has_map(d.live) {
