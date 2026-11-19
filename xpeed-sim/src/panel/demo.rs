@@ -36,13 +36,15 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     frame.fuel_l = fuel;
     // The tread wears about 1.4 % a lap, more on the rear tyres and on the right side.
     let worn = 0.014 * (f64::from(lap - 1) + dist / DEMO_TRACK_M);
-    frame.tyres = Some([(84.0, 1.0), (88.0, 1.1), (97.0, 1.25), (101.0, 1.35)].map(|(temp, rate): (f32, f64)| crate::game::Tyre {
-        brake_c: temp * 3.4,
-        temp_c: temp,
-        pressure_kpa: 186.0 + (temp - 90.0) * 0.8,
-        left: (1.0 - worn * rate).max(0.0) as f32,
-        tread_c: None,
-    }));
+    frame.tyres = Some(
+        [(84.0, 1.0), (88.0, 1.1), (97.0, 1.25), (101.0, 1.35)].map(|(temp, rate): (f32, f64)| crate::game::Tyre {
+            brake_c: temp * 3.4,
+            temp_c: temp,
+            pressure_kpa: 186.0 + (temp - 90.0) * 0.8,
+            left: (1.0 - worn * rate).max(0.0) as f32,
+            tread_c: None,
+        }),
+    );
     // The first two sectors are 800 m each, a little different on every lap.
     let sector = (800.0 / (48.0 * pace) * 1000.0).round();
     let first = (sector + 120.0 * (f64::from(lap) * 2.3).sin()).round() as u32;

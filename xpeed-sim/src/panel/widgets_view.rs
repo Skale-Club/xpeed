@@ -139,7 +139,11 @@ pub(super) fn fuel_strategy_card(g: &mut Painter, d: &Dash, card: Area) {
         g.fill(g.r(x, table_top + TABLE_HEAD_H - 1.0, w, STROKE_HAIR), BORDER);
         for (i, row) in m.rows.iter().enumerate() {
             let ry = table_top + TABLE_HEAD_H + i as f32 * TABLE_ROW_H;
-            let cells = [(&row.laps, FOREGROUND_2), (&row.needed, FOREGROUND), (&row.to_add, row.role.colour())];
+            let cells = [
+                (&row.laps, FOREGROUND_2),
+                (&row.needed, FOREGROUND),
+                (&row.to_add, row.role.colour()),
+            ];
             for (j, ((value, colour), (cx, cw))) in cells.iter().zip(&columns).enumerate() {
                 let r = g.r(*cx, ry, *cw, TABLE_ROW_H);
                 g.text(value, r, T_BODY, semi, Face::Num, *colour, if j == 0 { DT_LEFT } else { DT_RIGHT });

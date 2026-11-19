@@ -2477,9 +2477,15 @@ fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
         plain_flips > sticky_flips * 3,
         "the margin stops the flipping: {sticky_flips} against {plain_flips}"
     );
-    assert_eq!(pick_layout_sticky(DashboardId::Practice, 1920.0, 1080.0, &s, None), pick_layout(1920.0, 1080.0, &s));
+    assert_eq!(
+        pick_layout_sticky(DashboardId::Practice, 1920.0, 1080.0, &s, None),
+        pick_layout(1920.0, 1080.0, &s)
+    );
     // The smallest layout is left as soon as another one reads.
-    assert_eq!(pick_layout_sticky(DashboardId::Practice, 1888.0, 998.0, &s, Some(Layout::Classic)), Layout::Wide);
+    assert_eq!(
+        pick_layout_sticky(DashboardId::Practice, 1888.0, 998.0, &s, Some(Layout::Classic)),
+        Layout::Wide
+    );
 }
 
 #[test]
@@ -2965,7 +2971,10 @@ fn the_fuel_strategy_card_writes_the_average_the_last_lap_the_laps_left_and_the_
     live.fuel_last_lap_l = None;
     let card = model(&live, Lang::En).fuel_calc.unwrap();
     assert!(card.stats.iter().all(|c| c.value == "–"));
-    assert!(card.rows.iter().all(|r| r.needed == "–" && r.to_add == "–" && r.role == Role::Muted));
+    assert!(card
+        .rows
+        .iter()
+        .all(|r| r.needed == "–" && r.to_add == "–" && r.role == Role::Muted));
     // In gallons the figures follow the units the person picked.
     live.fuel_per_lap_l = Some(3.785_412);
     let units = crate::config::Units {
@@ -3024,10 +3033,19 @@ fn the_sectors_come_from_the_lap_being_driven_and_the_lap_before_and_the_best_of
     let last = [Some(28_000), Some(44_800), Some(51_300)];
     // The lap being driven has done S1 in 27.950: faster than the lap before (28.000), not the best (27.903).
     let reads = sector_reads(&saved, [Some(27_950), None, None], last);
-    assert_eq!((reads[0].ms, reads[0].from_last_lap, reads[0].tone), (Some(27_950), false, SectorTone::Faster));
+    assert_eq!(
+        (reads[0].ms, reads[0].from_last_lap, reads[0].tone),
+        (Some(27_950), false, SectorTone::Faster)
+    );
     // S2 and S3 are not reached: the lap before's times, quiet.
-    assert_eq!((reads[1].ms, reads[1].from_last_lap, reads[1].tone), (Some(44_800), true, SectorTone::Plain));
-    assert_eq!((reads[2].ms, reads[2].from_last_lap, reads[2].tone), (Some(51_300), true, SectorTone::Plain));
+    assert_eq!(
+        (reads[1].ms, reads[1].from_last_lap, reads[1].tone),
+        (Some(44_800), true, SectorTone::Plain)
+    );
+    assert_eq!(
+        (reads[2].ms, reads[2].from_last_lap, reads[2].tone),
+        (Some(51_300), true, SectorTone::Plain)
+    );
     // A new best is purple; slower than the lap before is yellow.
     let reads = sector_reads(&saved, [Some(27_800), None, None], last);
     assert_eq!((reads[0].tone, reads[0].best_ms), (SectorTone::Best, Some(27_800)));
@@ -3046,24 +3064,34 @@ fn the_sectors_come_from_the_lap_being_driven_and_the_lap_before_and_the_best_of
     assert_eq!(theoretical_best(&[Some(1), None, Some(3)]), None);
     assert_eq!(third_sector(Some(123_912), Some(27_903), Some(44_721)), Some(51_288));
     assert_eq!(third_sector(None, Some(1), Some(1)), None);
-    assert_eq!(third_sector(Some(10), Some(8), Some(5)), None, "the sectors cannot be longer than the lap");
-    assert_eq!(third_sector(Some(10), Some(5), Some(5)), None, "a third sector of nothing is not a time");
+    assert_eq!(
+        third_sector(Some(10), Some(8), Some(5)),
+        None,
+        "the sectors cannot be longer than the lap"
+    );
+    assert_eq!(
+        third_sector(Some(10), Some(5), Some(5)),
+        None,
+        "a third sector of nothing is not a time"
+    );
 }
 
 #[test]
 fn the_sectors_card_writes_the_rows_the_theoretical_best_and_the_gap_to_the_best_lap() {
     let mut live = rich_reading();
     live.last_sectors_ms = [Some(28_100), Some(44_900)];
-    let card = model_with(&live, Default::default(), &rich_laps()).sectors.expect("the game gives sectors");
+    let card = model_with(&live, Default::default(), &rich_laps())
+        .sectors
+        .expect("the game gives sectors");
     assert_eq!(card.title, "Sectors");
     let times: Vec<&str> = card.rows.iter().map(|r| r.time.as_str()).collect();
     // S3 is the last lap (124.331) less its S1 and S2.
     assert_eq!(times, ["27.811", "44.597", "51.331"]);
+    assert_eq!(card.rows.iter().map(|r| r.from_last_lap).collect::<Vec<_>>(), [false, false, true]);
     assert_eq!(
-        card.rows.iter().map(|r| r.from_last_lap).collect::<Vec<_>>(),
-        [false, false, true]
+        card.rows.iter().map(|r| r.tone).collect::<Vec<_>>(),
+        [SectorTone::Best, SectorTone::Best, SectorTone::Plain]
     );
-    assert_eq!(card.rows.iter().map(|r| r.tone).collect::<Vec<_>>(), [SectorTone::Best, SectorTone::Best, SectorTone::Plain]);
     assert_eq!(card.rows[2].best, "51.288");
     // 27.811 + 44.597 + 51.288, and the best lap (123.912) is 0.216 slower than that.
     assert_eq!(card.theoretical, clock(123_696));
@@ -3086,11 +3114,18 @@ fn the_delta_bar_is_centred_on_zero_runs_two_seconds_either_side_and_never_leave
     assert_eq!(delta_bar_frac(Some(-1.0)), 0.25, "faster: the fill goes left of the middle");
     assert_eq!(delta_bar_frac(Some(1.0)), 0.75, "slower: to the right");
     assert_eq!((delta_bar_frac(Some(-2.0)), delta_bar_frac(Some(2.0))), (0.0, 1.0));
-    assert_eq!((delta_bar_frac(Some(-9.0)), delta_bar_frac(Some(9.0))), (0.0, 1.0), "past the scale the bar is full");
+    assert_eq!(
+        (delta_bar_frac(Some(-9.0)), delta_bar_frac(Some(9.0))),
+        (0.0, 1.0),
+        "past the scale the bar is full"
+    );
     assert_eq!(delta_bar_frac(Some(f64::NAN)), 0.5);
     let mut live = live_reading();
     let card = model(&live, Lang::En).delta_bar.expect("the game gives the delta's inputs");
-    assert_eq!((card.value.as_str(), card.role, card.caption.as_str()), ("-0.270", Role::Good, "vs best lap"));
+    assert_eq!(
+        (card.value.as_str(), card.role, card.caption.as_str()),
+        ("-0.270", Role::Good, "vs best lap")
+    );
     assert!((card.frac - (0.5 - 0.27 / 4.0)).abs() < 1e-4, "{}", card.frac);
     live.delta_s = Some(0.5);
     let card = model(&live, Lang::En).delta_bar.unwrap();
@@ -3106,7 +3141,10 @@ fn the_flag_card_names_the_flag_or_says_there_is_none() {
     use crate::game::Flag;
     let mut live = live_reading();
     let card = model(&live, Lang::En).flag.expect("the game gives flags");
-    assert_eq!((card.kind, card.word.as_str(), card.show), (Some(FlagKind::Yellow), "YELLOW FLAG", Show::Shown));
+    assert_eq!(
+        (card.kind, card.word.as_str(), card.show),
+        (Some(FlagKind::Yellow), "YELLOW FLAG", Show::Shown)
+    );
     assert_eq!(model(&live, Lang::Pt).flag.unwrap().word, "BANDEIRA AMARELA");
     for (flag, kind) in [
         (Flag::Green, FlagKind::Green),
@@ -3168,7 +3206,10 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             for row in rows {
                 assert!(row.h > 0.0 && !row.cards.is_empty(), "{dash:?} {layout:?}");
                 for (pane, share) in row.cards {
-                    assert!(catalog::ALL.iter().any(|w| w.pane == *pane), "{dash:?} {layout:?}: {pane:?} is not in the catalog");
+                    assert!(
+                        catalog::ALL.iter().any(|w| w.pane == *pane),
+                        "{dash:?} {layout:?}: {pane:?} is not in the catalog"
+                    );
                     assert!(*share > 0.0);
                     assert!(!seen.contains(pane), "{dash:?} {layout:?}: {pane:?} twice");
                     seen.push(*pane);
@@ -3214,10 +3255,21 @@ fn every_dashboard_puts_its_cards_in_the_canvas_without_overlap_and_tall_enough_
                     .flat_map(|row| row.cards.iter())
                     .filter(|(pane, _)| s.cards.contains(pane))
                     .count();
-                assert_eq!(plan.cards.len(), wanted, "{dash:?} {layout:?}: every card the game can fill has a place");
+                assert_eq!(
+                    plan.cards.len(),
+                    wanted,
+                    "{dash:?} {layout:?}: every card the game can fill has a place"
+                );
                 for (i, (card, area)) in plan.cards.iter().enumerate() {
-                    assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{dash:?} {layout:?} {card:?} inside the canvas");
-                    assert!(area.3 + 0.01 >= least_height(*card), "{dash:?} {layout:?}: {card:?} is {} tall", area.3);
+                    assert!(
+                        inside_box(*area, 0.0, 0.0, plan.w, plan.h),
+                        "{dash:?} {layout:?} {card:?} inside the canvas"
+                    );
+                    assert!(
+                        area.3 + 0.01 >= least_height(*card),
+                        "{dash:?} {layout:?}: {card:?} is {} tall",
+                        area.3
+                    );
                     for (other, b) in &plan.cards[i + 1..] {
                         assert!(!overlap(*area, *b), "{dash:?} {layout:?}: {card:?} over {other:?}");
                     }
@@ -3243,7 +3295,10 @@ fn every_dashboard_puts_its_cards_in_the_canvas_without_overlap_and_tall_enough_
 fn the_layout_is_picked_from_the_dashboard_in_use() {
     let s = slots(every_cap());
     // A phone held upright: the Time trial dashboard is taller than Practice, so it has its own canvas.
-    let (practice, trial) = (Layout::Stack.size_in(DashboardId::Practice, &s), Layout::Stack.size_in(DashboardId::TimeTrial, &s));
+    let (practice, trial) = (
+        Layout::Stack.size_in(DashboardId::Practice, &s),
+        Layout::Stack.size_in(DashboardId::TimeTrial, &s),
+    );
     assert_ne!(practice, trial);
     for dash in DashboardId::ALL {
         let layout = pick_layout_in(dash, 1888.0, 998.0, &s);
@@ -3298,8 +3353,16 @@ fn the_flag_card_is_a_block_of_the_flags_colour_and_the_chequered_flag_is_a_chec
     live.state.flag = Some(Flag::Chequered);
     let chequered = dashboard_pixels(DashboardId::Race, &live, &laps);
     save(&chequered, 1920, 1080, "panel-flag-chequered.png");
-    assert!(has_color(&chequered, FLAG_BLACK) > 10_000, "black squares: {}", has_color(&chequered, FLAG_BLACK));
-    assert!(has_color(&chequered, FLAG_WHITE) > 10_000, "white squares: {}", has_color(&chequered, FLAG_WHITE));
+    assert!(
+        has_color(&chequered, FLAG_BLACK) > 10_000,
+        "black squares: {}",
+        has_color(&chequered, FLAG_BLACK)
+    );
+    assert!(
+        has_color(&chequered, FLAG_WHITE) > 10_000,
+        "white squares: {}",
+        has_color(&chequered, FLAG_WHITE)
+    );
     assert!(has_color(&green, FLAG_BLACK) < 2_000, "no checkers on a green flag");
     // No flag: the card keeps the card surface, there is no block.
     live.state.flag = None;
@@ -3334,7 +3397,16 @@ fn every_dashboard_paints_at_every_shape() {
     let live = full_reading();
     let f = fixture();
     for dash in DashboardId::ALL {
-        for (w, h) in [(2560, 1080), (1920, 1080), (1536, 864), (1024, 768), (1280, 1024), (960, 600), (540, 1080), (430, 900)] {
+        for (w, h) in [
+            (2560, 1080),
+            (1920, 1080),
+            (1536, 864),
+            (1024, 768),
+            (1280, 1024),
+            (960, 600),
+            (540, 1080),
+            (430, 900),
+        ] {
             let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
             v.dashboard = Some(dash);
             v.recent_laps = &laps;
