@@ -520,7 +520,8 @@ impl Tracker {
         };
         // The throttle and the brake of the last seconds, while driving; out of the car the trace is let go.
         if frame.driving && frame.throttle.is_finite() && frame.brake.is_finite() {
-            if self.inputs.last().is_none_or(|&(t, _, _)| at_ms - t >= INPUT_TRACE_STEP_MS || at_ms < t) {
+            let due = |&(t, _, _): &(i64, f32, f32)| at_ms - t >= INPUT_TRACE_STEP_MS || at_ms < t;
+            if self.inputs.last().is_none_or(due) {
                 let inputs = Arc::make_mut(&mut self.inputs);
                 inputs.retain(|&(t, _, _)| at_ms - t <= INPUT_TRACE_MS && t <= at_ms);
                 inputs.push((at_ms, frame.throttle.clamp(0.0, 1.0), frame.brake.clamp(0.0, 1.0)));
