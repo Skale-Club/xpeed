@@ -259,7 +259,7 @@ const RACE_STACK: &[Row] = &[
 const QUALIFYING_WIDE: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Tyres, 1.05)],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.1), (Pane::Sectors, 1.15), (Pane::Tyres, 1.1)],
     },
     Row {
         h: 262.0,
@@ -272,8 +272,8 @@ const QUALIFYING_ULTRAWIDE: &[Row] = &[
         h: 300.0,
         cards: &[
             (Pane::Times, 1.0),
-            (Pane::Centre, 1.2),
-            (Pane::Sectors, 1.3),
+            (Pane::Centre, 1.1),
+            (Pane::Sectors, 1.15),
             (Pane::Tyres, 1.1),
             (Pane::Flag, 0.8),
         ],
@@ -366,7 +366,7 @@ const TIME_TRIAL_WIDE: &[Row] = &[
     },
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Tyres, 1.05)],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.1), (Pane::Sectors, 1.15), (Pane::Tyres, 1.1)],
     },
     Row {
         h: 262.0,
@@ -381,7 +381,7 @@ const TIME_TRIAL_ULTRAWIDE: &[Row] = &[
     },
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Tyres, 1.1)],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.1), (Pane::Sectors, 1.15), (Pane::Tyres, 1.1)],
     },
     Row {
         h: 262.0,

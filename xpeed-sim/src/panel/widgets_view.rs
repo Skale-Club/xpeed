@@ -172,7 +172,8 @@ pub(super) fn tyre_wear_card(g: &mut Painter, d: &Dash, card: Area) {
     shown(g, m.show, |g| {
         caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
         let (x0, x1) = (x + S2, x + w - S2);
-        let (wear_w, left_w) = ((w * 0.3).min(84.0), (w * 0.28).min(84.0));
+        // Wide enough for the letter-spaced heads ("WEAR / LAP", "LAPS LEFT"), which must never run into each other.
+        let (wear_w, left_w) = ((w * 0.3).min(116.0), (w * 0.28).min(116.0));
         let head_y = y + CAPTION_H + S2;
         let [wear_head, left_head] = &m.heads;
         let r = g.r(x1 - left_w - wear_w, head_y, wear_w, CAPTION_H);
