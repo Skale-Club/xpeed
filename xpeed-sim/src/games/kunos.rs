@@ -184,7 +184,8 @@ mod layout {
     /// `flag` of Assetto Corsa's newer `sim_info.py` (after `carCoordinates` and `penaltyTime`), and the end of it.
     pub const GFX_AC_FLAG: usize = 268;
     /// `int idealLineOn`, the field after `flag` in Assetto Corsa's struct. Competizione's document has a `penalty`
-    /// between the two (so 276 there); Assetto Corsa's own header is taken to have none. ASSUMED, not seen live.
+    /// between the two (so 276 there). Assetto Corsa's own `sim_info.py` (shipped with the game in
+    /// `apps/python/actv_competizione`) has none, checked on the installed game on 2026-11-19. ASSUMED, not seen live.
     pub const GFX_AC_IDEAL_LINE_ON: usize = 272;
     pub const GFX_AC_LEN: usize = 272 + 4;
     // Graphics, Competizione only.
