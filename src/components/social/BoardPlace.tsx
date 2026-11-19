@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { compareUrl } from '@/lib/sim/compare-url';
 import { formatSeconds, spreadLabelValues, spreadOf, standingOf, type Spread } from '@/lib/sim/leaderboard';
-import type { LeaderboardEntry, LeaderboardMe, Scope } from '@/lib/sim/social-client';
+import type { AidBoard, LeaderboardEntry, LeaderboardMe, Scope } from '@/lib/sim/social-client';
 import { cn } from '@/lib/utils';
 import { DriverName } from './social-bits';
 import { ordinal } from './social-utils';
@@ -66,7 +66,7 @@ function PlaceSentence({ me, entries, total }: { me: LeaderboardEntry; entries: 
 }
 
 /** Why the person is not on the board they are looking at. */
-function NotListed({ scope, tyre }: { scope: Scope; tyre: string | null }) {
+function NotListed({ scope, tyre, aids }: { scope: Scope; tyre: string | null; aids: AidBoard }) {
   const { t } = useTranslation();
   return (
     <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm" role="status" data-testid="board-not-listed">
@@ -75,7 +75,9 @@ function NotListed({ scope, tyre }: { scope: Scope; tyre: string | null }) {
         <p>
           {tyre
             ? t('social.leaderboard.notListedTyre', 'You are not listed here because you have no valid lap on {{tyre}} for this track and car, or your profile is private.', { tyre })
-            : scope === 'public'
+            : aids !== 'all'
+              ? t('social.leaderboard.notListedAids', 'You are not listed here because none of your laps on this track and car was driven with these aids, or the game did not report them.')
+              : scope === 'public'
               ? t('social.leaderboard.notListedPublic', 'You are not listed because your profile is private, or your lap is not valid.')
               : t('social.leaderboard.notListedFriends', 'You are not listed here because you have no valid lap on this track and car.')}
         </p>
@@ -92,11 +94,13 @@ function NotListed({ scope, tyre }: { scope: Scope; tyre: string | null }) {
  * Your position card: where you stand in one sentence (place, the gap to the podium and to the leader), your time, a line that shows the
  * spread of the field with you on it, and the drivers just above and below you. When you are not on the board, why.
  */
-export function BoardPlace({ me, scope, entries, tyre = null }: {
+export function BoardPlace({ me, scope, entries, tyre = null, aids = 'all' }: {
   me: { isPending: boolean; isError: boolean; data: LeaderboardMe | undefined };
   scope: Scope;
   /** The tyre the board is filtered to; it changes only the reason given when you are not listed. */
   tyre?: string | null;
+  /** The aid board; like the tyre it changes only the reason given when you are not listed. */
+  aids?: AidBoard;
   entries: readonly LeaderboardEntry[];
 }) {
   const { t } = useTranslation();
@@ -106,7 +110,7 @@ export function BoardPlace({ me, scope, entries, tyre = null }: {
 
   if (me.isPending) return <Skeleton className="h-40 w-full rounded-xl" data-testid="board-me-loading" />;
   if (me.isError || !data) return null;
-  if (!data.me) return <NotListed scope={scope} tyre={tyre} />;
+  if (!data.me) return <NotListed scope={scope} tyre={tyre} aids={aids} />;
   const mine = data.me;
   const alone = data.total <= 1;
   const analyze = (

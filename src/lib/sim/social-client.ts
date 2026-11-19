@@ -107,13 +107,31 @@ export interface LeaderboardEntry {
   gapMs: number;
   achievedAt: string;
   isMe: boolean;
+  /** The aids the lap was driven with, as the game reported them; null when the lap has none or its claim did not hold up. Absent on an older server. */
+  aids?: LapAids | null;
 }
+
+/** The aids of a lap (the lap file header, phase 2): each value is the highest setting seen during the lap; a missing key is unknown, never off. */
+export interface LapAids {
+  tcMax?: number;
+  absMax?: number;
+  stability?: number;
+  autoShift?: boolean;
+  autoClutch?: boolean;
+  autoBlip?: boolean;
+  idealLine?: boolean;
+}
+
+/** The aid boards: every lap, laps with TC and ABS off, laps with every aid off. */
+export type AidBoard = 'all' | 'no_tc_abs' | 'none';
 
 export interface LeaderboardMeta {
   game: string;
   scope: Scope;
   /** The tyre compound the board is filtered to; null for every tyre. */
   tyre?: string | null;
+  /** The aid board the answer is for; `all` when absent. */
+  aids?: AidBoard;
   track: { id: string; name: string; lengthM: number | null };
   car: { id: string; name: string; class: string | null };
 }
@@ -206,6 +224,8 @@ export const handlePath = (handle: string) => encodeURIComponent(handle);
 /** The page of a driver. */
 /** A tyre compound that has laps on a board (as the game writes it) and how many drivers have one there. */
 export interface BoardTyre { compound: string; drivers: number }
+/** How many drivers one filtered aid board has (with the tyre filter that is chosen). */
+export interface BoardAids { class: Exclude<AidBoard, 'all'>; drivers: number }
 /** The fastest of each sector over a board and who drove it (`index` counts from 1); the time is their sum, which no lap has to equal. */
 export interface TheoreticalBest { timeMs: number; sectors: Array<{ index: number; ms: number; handle: string }> }
 /** What a board is made of (`GET /leaderboards/conditions`): its compounds, and its theoretical best (null unless every lap has the same sectors). */
@@ -213,7 +233,11 @@ export interface BoardConditions {
   game: string;
   scope: Scope;
   tyre: string | null;
+  /** The aid board the theoretical best is for. */
+  aidBoard?: AidBoard;
   tyres: BoardTyre[];
+  /** The drivers on each aid board; absent on an older server. */
+  aids?: BoardAids[];
   theoreticalBest: TheoreticalBest | null;
 }
 
@@ -461,8 +485,8 @@ export function usePublicShare(token: string | null) {
 // ---------------------------------------------------------------------------------------------------------------- leaderboards
 
 /** `tyre` is a compound as the game writes it; absent or null is every tyre. */
-export interface BoardQuery { track: string | null; car: string | null; scope: Scope; game: string | null; tyre?: string | null }
-const boardParams = (query: BoardQuery) => ({ track: query.track, car: query.car, scope: query.scope, game: query.game, tyre: query.tyre ?? null });
+export interface BoardQuery { track: string | null; car: string | null; scope: Scope; game: string | null; tyre?: string | null; aids?: AidBoard }
+const boardParams = (query: BoardQuery) => ({ track: query.track, car: query.car, scope: query.scope, game: query.game, tyre: query.tyre ?? null, aids: query.aids && query.aids !== 'all' ? query.aids : null });
 
 /** The ranked table of a track and a car, a page at a time; `meta` is what the first page says about the board. */
 export function useLeaderboard(query: BoardQuery) {
@@ -486,8 +510,8 @@ export function useLeaderboard(query: BoardQuery) {
 }
 
 /**
- * The tyre compounds a board has (with how many drivers each) and its theoretical best. The compounds always cover the whole board, so the
- * chips stay put while one is chosen; the theoretical best follows `query.tyre`.
+ * The tyre compounds a board has (with how many drivers each), the drivers on each aid board, and its theoretical best. The chips always
+ * cover the whole board, so they stay put while one is chosen; the aid counts follow `query.tyre` and the theoretical best follows `query.tyre` and `query.aids`.
  */
 export function useBoardConditions(query: BoardQuery) {
   const userId = useUserId();

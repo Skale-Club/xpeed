@@ -45,6 +45,16 @@ export function tyreParam(params: URLSearchParams): string | null {
   if (chars.length > 40 || chars.some((ch) => ch.charCodeAt(0) <= 0x1f || ch.charCodeAt(0) === 0x7f)) throw new Invalid('invalid_tyre');
   return value;
 }
+/** The aid boards a request can ask for (api/sim/_aids.ts sorts laps into classes; `all` is every lap). */
+export const AID_BOARDS = ['all', 'no_tc_abs', 'none'] as const;
+export type AidBoard = (typeof AID_BOARDS)[number];
+/** The aid board of a request: all (the default), no_tc_abs or none; anything else is `400 invalid_aids`. */
+export function aidsParam(params: URLSearchParams): AidBoard {
+  const value = params.get('aids');
+  if (value === null || value === '') return 'all';
+  if (!(AID_BOARDS as readonly string[]).includes(value)) throw new Invalid('invalid_aids');
+  return value as AidBoard;
+}
 /** 1 to 100, 50 when absent; a number above 100 is read as 100. */
 export function limitParam(params: URLSearchParams): number {
   const value = params.get('limit');

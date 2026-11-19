@@ -24,7 +24,9 @@ characters, and nothing that looks like an e-mail address).
 | **E-mail, phone number, real name, sign-in id, account id, device names and keys, which laps exist beyond the best per track and car, lap files, sessions, track layouts, storage, friends list, who blocked whom, who reported whom** | **nobody but the driver** (and moderators see reports and lap numbers, with handles and names only, never an e-mail) |
 
 Lap files are only ever downloaded by their owner (`GET /laps/<id>/file`) and through a share link that covers that lap. A leaderboard row
-gives the time, not the file.
+gives the time, not the file. It also gives the driving aids that lap was driven with (traction control and ABS level, stability control, automatic gears, clutch and blip,
+ideal line, as the game reported them) and nothing about the hardware: they describe the lap, not the person, and a board can be filtered by them. The tyre compound is a
+filter of the board, not a field of the row.
 
 ## The visibility matrix, as implemented
 

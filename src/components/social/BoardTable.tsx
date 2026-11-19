@@ -7,6 +7,7 @@ import { formatGap, formatLapTime } from '@/lib/sim/analysis';
 import { gapShare } from '@/lib/sim/leaderboard';
 import type { LeaderboardEntry } from '@/lib/sim/social-client';
 import { cn } from '@/lib/utils';
+import { AidIcons } from './BoardAids';
 import { ReportButton } from './ReportDialog';
 import { Avatar, DriverName } from './social-bits';
 
@@ -33,6 +34,7 @@ function BoardRow({ entry, maxGapMs, showGap }: { entry: LeaderboardEntry; maxGa
         <div className="flex min-w-0 items-center gap-2">
           <Avatar handle={entry.handle} displayName={entry.displayName} size="sm" />
           <DriverName handle={entry.handle} displayName={entry.displayName} className="min-w-0 flex-1 flex-col gap-0 overflow-hidden sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2" />
+          <AidIcons aids={entry.aids} />
           {entry.isMe && <Badge variant="secondary" className="hidden sm:inline-flex" data-testid="board-you">{t('social.leaderboard.you', 'You')}</Badge>}
         </div>
         {entry.isMe && <span className="mt-0.5 inline-block text-2xs font-semibold text-primary sm:hidden" aria-hidden="true">{t('social.leaderboard.you', 'You')}</span>}
