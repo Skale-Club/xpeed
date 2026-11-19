@@ -239,6 +239,20 @@ pub enum Msg {
     PanelVsBestLap,
     /// Under the fuel table: why there is no row for the end of the session yet.
     PanelFuelToEndNote,
+    /// The session card's caption.
+    PanelSessionTitle,
+    /// After the place in the class: `P1 in class`.
+    PanelSessionInClass,
+    /// After the time left in a timed session: `23:00 left`.
+    PanelSessionLeft,
+    /// Before the lap of a lap-based session: `Lap 5 / 20`.
+    PanelSessionLap,
+    /// After the laps still to drive: `15 to go`.
+    PanelSessionToGo,
+    /// The fuel line for the end of the session: its label.
+    PanelFuelToEnd,
+    /// The fuel line for the end of the session: the word before the litres to put in.
+    PanelFuelAddShort,
     /// Under the tyre wear rows while no clean lap is known.
     PanelTyreWearWait,
     /// The words of the alerts that are lit.
@@ -692,6 +706,13 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("O combustível até o fim da sessão aparece quando os dados da sessão do jogo forem lidos."),
             s("El combustible hasta el final de la sesión aparece cuando se lean los datos de sesión del juego."),
         ),
+        PanelSessionTitle => t(s("Session"), s("Sessão"), s("Sesión")),
+        PanelSessionInClass => t(s("in class"), s("na classe"), s("en la clase")),
+        PanelSessionLeft => t(s("left"), s("restante"), s("restante")),
+        PanelSessionLap => t(s("Lap"), s("Volta"), s("Vuelta")),
+        PanelSessionToGo => t(s("to go"), s("para o fim"), s("para el final")),
+        PanelFuelToEnd => t(s("To the end"), s("Até o fim"), s("Hasta el final")),
+        PanelFuelAddShort => t(s("add"), s("abastecer"), s("añadir")),
         PanelTyreWearWait => t(
             s("Wear per lap shows after a clean lap without a pit stop."),
             s("O desgaste por volta aparece depois de uma volta limpa, sem parada no pit."),
@@ -1068,6 +1089,13 @@ mod tests {
             Msg::PanelDeltaTitle,
             Msg::PanelVsBestLap,
             Msg::PanelFuelToEndNote,
+            Msg::PanelSessionTitle,
+            Msg::PanelSessionInClass,
+            Msg::PanelSessionLeft,
+            Msg::PanelSessionLap,
+            Msg::PanelSessionToGo,
+            Msg::PanelFuelToEnd,
+            Msg::PanelFuelAddShort,
             Msg::PanelTyreWearWait,
             Msg::AlertAbs,
             Msg::AlertTc,

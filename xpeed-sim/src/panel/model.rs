@@ -582,6 +582,7 @@ pub(super) struct DashModel {
     pub(super) tyre_trend: Option<TyreTrendModel>,
     pub(super) sectors: Option<SectorsModel>,
     pub(super) delta_bar: Option<DeltaBarModel>,
+    pub(super) session_card: Option<SessionCardModel>,
 }
 
 /// What the model needs besides the reading.
@@ -1241,6 +1242,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let tyre_trend = has(Pane::TyreTrend).then(|| tyre_trend_model(lang, live, fresh));
     let sectors = has(Pane::Sectors).then(|| sectors_model(lang, live, ctx.laps, fresh));
     let delta_bar = has(Pane::DeltaBar).then(|| delta_bar_model(lang, live, &delta));
+    let session_card = has(Pane::Session).then(|| session_model(lang, live, fresh));
 
     DashModel {
         status,
@@ -1295,6 +1297,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         tyre_trend,
         sectors,
         delta_bar,
+        session_card,
     }
 }
 

@@ -70,6 +70,7 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
             Pane::TyreTrend => tyre_wear_card(g, &d, area),
             Pane::Sectors => sector_times_card(g, &d, area),
             Pane::DeltaBar => delta_card(g, &d, area),
+            Pane::Session => session_card(g, &d, area),
         }
     }
     if let Some(target) = banner_target(&plan) {

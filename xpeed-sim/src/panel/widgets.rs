@@ -97,6 +97,71 @@ pub(super) fn fuel_plan_rows(fuel_l: Option<f32>, per_lap_l: Option<f32>) -> [Fu
     })
 }
 
+/// How many laps are left to drive, counting the lap being driven for what is left of it: for a lap-based session its laps
+/// less those done (and the share of this lap already driven, when the track's length is known); for a timed one the laps
+/// that fit in the time left at the last lap's pace (else the best lap's), plus the lap finished after the time runs out.
+/// With both given the session ends at the first, so the smaller. Nothing when the game gives neither, or a timed session
+/// has no lap time to go by yet.
+pub(super) fn laps_to_go(live: &Live) -> Option<f32> {
+    let driven = match (live.dist_m, live.track_length_m) {
+        (Some(dist), Some(track)) if dist.is_finite() && track.is_finite() && dist >= 0.0 && track > 0.0 => {
+            (dist / track).clamp(0.0, 1.0) as f32
+        }
+        _ => 0.0,
+    };
+    let by_laps = live
+        .session_laps
+        .filter(|_| live.lap >= 1)
+        .map(|laps| (f32::from(laps) - (live.lap - 1) as f32 - driven).max(0.0));
+    let pace = [live.last_lap_s, live.best_lap_s]
+        .into_iter()
+        .flatten()
+        .find(|lap| lap.is_finite() && *lap > 0.0);
+    let by_time = live
+        .session_time_left_s
+        .filter(|left| left.is_finite())
+        .zip(pace)
+        .map(|(left, lap)| ((left.max(0.0) / lap).ceil() + 1.0) as f32);
+    match (by_laps, by_time) {
+        (Some(laps), Some(time)) => Some(laps.min(time)),
+        (laps, time) => laps.or(time),
+    }
+}
+
+/// The fuel to the end of the session: the litres needed for `laps` (a lap of margin included, as in the table) and the
+/// litres to put in on top of what is in the tank (nothing without the fuel reading).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct FuelToEnd {
+    pub(super) needed_l: f32,
+    pub(super) to_add_l: Option<f32>,
+}
+
+/// Nothing without the laps left or a use per lap.
+pub(super) fn fuel_to_end(laps: Option<f32>, fuel_l: Option<f32>, per_lap_l: Option<f32>) -> Option<FuelToEnd> {
+    let laps = laps.filter(|n| n.is_finite() && *n >= 0.0)?;
+    let per = per_lap_l.filter(|p| p.is_finite() && *p > 0.0)?;
+    let needed_l = per * (laps + 1.0);
+    let fuel = fuel_l.filter(|f| f.is_finite());
+    Some(FuelToEnd {
+        needed_l,
+        to_add_l: fuel.map(|now| (needed_l - now.max(0.0)).max(0.0)),
+    })
+}
+
+/// The fuel to the end of the session, written: `To the end · 23.1 L · add 4.2 L`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FuelToEndModel {
+    pub(super) label: String,
+    pub(super) needed: String,
+    /// The litres to put in, or nothing without a fuel reading.
+    pub(super) to_add: Option<String>,
+    /// The word before the litres to put in (`add`).
+    pub(super) add_label: String,
+    /// Amber while fuel has to be added, green when the tank already holds enough.
+    pub(super) role: Role,
+}
+
 /// A line of the fuel table, written.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,8 +185,10 @@ pub(super) struct FuelCalcModel {
     /// The table's heads: laps, litres needed, litres to add.
     pub(super) heads: [String; 3],
     pub(super) rows: Vec<FuelCalcRow>,
-    /// Why the fuel to the end of the session is not there.
-    pub(super) note: String,
+    /// The fuel to the end of the session, when the game gives its laps or its time and there is a use per lap.
+    pub(super) to_end: Option<FuelToEndModel>,
+    /// Why the fuel to the end of the session is not there; nothing while it is.
+    pub(super) note: Option<String>,
 }
 
 /// What the fuel strategy card needs: the reading, the fuel now and the laps it lasts (as the fuel card has them) and how
@@ -170,6 +237,17 @@ pub(super) fn fuel_calc_model(input: &FuelCalcInput) -> FuelCalcModel {
             },
         })
         .collect();
+    let to_end = fuel_to_end(laps_to_go(live), fuel_l, per_lap).map(|end| FuelToEndModel {
+        label: say(Msg::PanelFuelToEnd),
+        needed: litres(end.needed_l),
+        to_add: end.to_add_l.map(litres),
+        add_label: say(Msg::PanelFuelAddShort),
+        role: match end.to_add_l {
+            Some(add) if add > 0.0 => Role::Warn,
+            Some(_) => Role::Good,
+            None => Role::Text,
+        },
+    });
     FuelCalcModel {
         show,
         title: say(Msg::PanelFuelStrategy),
@@ -180,7 +258,8 @@ pub(super) fn fuel_calc_model(input: &FuelCalcInput) -> FuelCalcModel {
         ],
         heads: [say(Msg::PanelLapsWord), say(Msg::PanelFuelNeed), say(Msg::PanelFuelAdd)],
         rows,
-        note: say(Msg::PanelFuelToEndNote),
+        note: to_end.is_none().then(|| say(Msg::PanelFuelToEndNote)),
+        to_end,
     }
 }
 
@@ -456,5 +535,71 @@ pub(super) fn delta_bar_model(lang: Lang, live: &Live, delta: &Elem) -> DeltaBar
         value: if known { delta.text.clone() } else { "–".to_owned() },
         role: if known { delta.role } else { Role::Muted },
         frac: if known { delta_bar_frac(live.delta_s) } else { 0.5 },
+    }
+}
+
+// The session.
+
+/// Time left written: `mm:ss`, or `h:mm:ss` from an hour up. Whole seconds, never below zero.
+pub(super) fn session_clock(seconds: f64) -> String {
+    let total = seconds.max(0.0).floor() as u64;
+    let (hours, minutes, secs) = (total / 3600, total / 60 % 60, total % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{secs:02}")
+    } else {
+        format!("{minutes:02}:{secs:02}")
+    }
+}
+
+/// The laps still to drive after the one being driven, in a lap-based session; nothing before the first lap is known.
+pub(super) fn laps_after_this(session_laps: u16, lap: i32) -> Option<u16> {
+    (lap >= 1).then_some(session_laps.saturating_sub(u16::try_from(lap).unwrap_or(u16::MAX)))
+}
+
+/// The session card: the place (`P3`) with the number of cars after it (`/ 24`), the place in the class under it, and what
+/// is left of the session: the time (`mm:ss`) with a word after it, or, in a lap-based one, the lap (`Lap 5 / 20`) with the
+/// laps still to go. A part the game does not give is `None` and is not drawn.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SessionCardModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    /// `P3`.
+    pub(super) position: Option<String>,
+    /// `/ 24`: the cars in the session, only with a position.
+    pub(super) of_cars: Option<String>,
+    /// `P1 in class`.
+    pub(super) class_line: Option<String>,
+    /// `23:00`, or `Lap 5 / 20`.
+    pub(super) remaining: Option<String>,
+    /// `left`, or `15 to go`.
+    pub(super) remaining_note: Option<String>,
+}
+
+pub(super) fn session_model(lang: Lang, live: &Live, fresh: bool) -> SessionCardModel {
+    let say = |msg: Msg| text(lang, &msg);
+    let place = |n: Option<u16>| n.filter(|n| *n >= 1);
+    let position = place(live.race_position);
+    let in_class = say(Msg::PanelSessionInClass);
+    let (remaining, remaining_note) = match (live.session_time_left_s.filter(|t| t.is_finite()), live.session_laps) {
+        (Some(left), _) => (Some(session_clock(left)), Some(say(Msg::PanelSessionLeft))),
+        (None, Some(laps)) if live.lap >= 1 => {
+            let lap = live.lap.min(i32::from(laps));
+            let to_go = laps_after_this(laps, live.lap).unwrap_or(0);
+            (
+                Some(format!("{} {lap} / {laps}", say(Msg::PanelSessionLap))),
+                Some(format!("{to_go} {}", say(Msg::PanelSessionToGo))),
+            )
+        }
+        _ => (None, None),
+    };
+    SessionCardModel {
+        show: if fresh { Show::Shown } else { Show::Dimmed },
+        title: say(Msg::PanelSessionTitle),
+        position: position.map(|n| format!("P{n}")),
+        of_cars: position.and(place(live.cars)).map(|cars| format!("/ {cars}")),
+        class_line: place(live.class_position).map(|n| format!("P{n} {in_class}")),
+        remaining,
+        remaining_note,
     }
 }

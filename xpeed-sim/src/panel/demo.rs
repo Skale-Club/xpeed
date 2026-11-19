@@ -2,6 +2,9 @@ use super::*;
 
 pub(super) const DEMO_TRACK_M: f64 = 2400.0;
 
+/// The length of the demo's timed session: 25 minutes.
+const DEMO_SESSION_S: f64 = 1500.0;
+
 /// Made-up driving on a 2.4 km track, as one game would give it.
 pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, fuel: f32, pace: f64) -> crate::game::Frame {
     use std::f64::consts::TAU;
@@ -56,6 +59,11 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     } else {
         crate::game::Flag::Green
     });
+    // Third of 24 (first in its class) in a 25-minute session that counts down, a lap taking about 50 seconds.
+    frame.race_position = Some(3);
+    frame.class_position = Some(1);
+    frame.cars = Some(24);
+    frame.session_time_left_s = Some((DEMO_SESSION_S - (f64::from(lap - 1) * 50.0 + lap_time)).max(0.0));
     frame
 }
 

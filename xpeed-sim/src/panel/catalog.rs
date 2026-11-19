@@ -78,6 +78,11 @@ pub(super) const ALL: &[Widget] = &[
         pane: Pane::DeltaBar,
         needs: "the delta to the best lap",
     },
+    Widget {
+        id: "session",
+        pane: Pane::Session,
+        needs: "the place in the race, or the time or laps left",
+    },
 ];
 
 /// The widget with this id.

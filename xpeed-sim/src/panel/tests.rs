@@ -2788,13 +2788,14 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
 #[test]
 fn the_widget_ids_are_a_contract() {
     let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
-    assert_eq!(ids.len(), 12);
+    assert_eq!(ids.len(), 13);
     assert_eq!(
         ids[..7],
         ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
         "the first seven never change"
     );
-    assert_eq!(ids[7..], ["flag", "fuel_calc", "tyre_trend", "sectors", "delta_bar"]);
+    assert_eq!(ids[7..12], ["flag", "fuel_calc", "tyre_trend", "sectors", "delta_bar"], "the five of phase 2 keep their order");
+    assert_eq!(ids[12], "session");
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
         assert_eq!(catalog::id_of(w.pane), w.id);
@@ -2918,13 +2919,19 @@ fn least_height(pane: Pane) -> f32 {
         Pane::TyreTrend => TYRE_TREND_NEED_H,
         Pane::Sectors => SECTORS_NEED_H,
         Pane::DeltaBar => DELTA_NEED_H,
+        Pane::Session => SESSION_NEED_H,
         _ => 0.0,
     }
 }
 
-/// A reading that fills every widget: the sectors, the fuel and tyre figures per lap, a yellow flag.
+/// A reading that fills every widget: the sectors, the fuel and tyre figures per lap, a yellow flag, third of 24 (first in
+/// the class) with 23 minutes left.
 fn full_reading() -> Live {
     let mut live = rich_reading();
+    live.race_position = Some(3);
+    live.class_position = Some(1);
+    live.cars = Some(24);
+    live.session_time_left_s = Some(1_380.0);
     live.fuel_last_lap_l = Some(3.1);
     live.tyre_wear_per_lap = Some([0.018, 0.02, 0.026, 0.031]);
     live.last_sectors_ms = [Some(28_100), Some(44_900)];
@@ -2965,7 +2972,9 @@ fn the_fuel_strategy_card_writes_the_average_the_last_lap_the_laps_left_and_the_
     assert_eq!((card.rows[0].needed.as_str(), card.rows[0].to_add.as_str()), ("17.4 L", "0.0 L"));
     assert_eq!((card.rows[3].needed.as_str(), card.rows[3].to_add.as_str()), ("60.9 L", "22.3 L"));
     assert_eq!((card.rows[0].role, card.rows[3].role), (Role::Good, Role::Warn));
-    assert!(card.note.contains("session"), "{}", card.note);
+    let note = card.note.as_deref().expect("without the session's laps or time the card says why");
+    assert!(note.contains("session"), "{note}");
+    assert!(card.to_end.is_none());
     // No use per lap known yet: a dash, never a made-up figure.
     live.fuel_per_lap_l = None;
     live.fuel_last_lap_l = None;
@@ -3178,9 +3187,11 @@ fn a_card_the_game_cannot_fill_is_not_there() {
     live.caps = Caps::GEAR.or(Caps::LAP_TIME);
     let m = model(&live, Lang::En);
     assert!(m.flag.is_none() && m.fuel_calc.is_none() && m.tyre_trend.is_none() && m.sectors.is_none() && m.delta_bar.is_none());
+    assert!(m.session_card.is_none());
     live.caps = every_cap();
     let m = model(&live, Lang::En);
     assert!(m.flag.is_some() && m.fuel_calc.is_some() && m.tyre_trend.is_some() && m.sectors.is_some() && m.delta_bar.is_some());
+    assert!(m.session_card.is_some());
 }
 
 #[test]
@@ -3192,7 +3203,7 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
         [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)]
     );
     assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
-    let new_five = [Pane::Flag, Pane::FuelCalc, Pane::TyreTrend, Pane::Sectors, Pane::DeltaBar];
+    let new_six = [Pane::Flag, Pane::FuelCalc, Pane::TyreTrend, Pane::Sectors, Pane::DeltaBar, Pane::Session];
     for layout in ALL_LAYOUTS {
         assert!(
             std::ptr::eq(builtin(DashboardId::Practice).rows_for(layout), layout.default_rows()),
@@ -3217,7 +3228,7 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             }
             used.extend(seen);
         }
-        for pane in new_five {
+        for pane in new_six {
             // Classic, the smallest window, leaves the tyre wear out.
             if layout == Layout::Classic && pane == Pane::TyreTrend {
                 continue;
@@ -3234,9 +3245,9 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             .collect()
     };
     assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "flag", "tyres"]);
-    assert_eq!(ids(DashboardId::Race, 1), ["fuel_calc", "tyre_trend", "track", "alerts"]);
+    assert_eq!(ids(DashboardId::Race, 1), ["session", "fuel_calc", "tyre_trend", "track", "alerts"]);
     assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "sectors", "tyres"]);
-    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "track", "flag"]);
+    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "session", "track", "flag"]);
     assert_eq!(ids(DashboardId::TimeTrial, 0), ["delta_bar"]);
     assert_eq!(ids(DashboardId::TimeTrial, 1), ["times", "centre", "sectors", "tyres"]);
     assert_eq!(ids(DashboardId::TimeTrial, 2), ["laps", "track"]);
@@ -3311,7 +3322,7 @@ fn the_layout_is_picked_from_the_dashboard_in_use() {
 fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
     let live = full_reading();
     let json = serde_json::to_value(model_with(&live, Default::default(), &rich_laps())).unwrap();
-    for key in ["flag", "fuelCalc", "tyreTrend", "sectors", "deltaBar"] {
+    for key in ["flag", "fuelCalc", "tyreTrend", "sectors", "deltaBar", "sessionCard"] {
         assert!(json[key].is_object(), "{key} is in the model's JSON");
     }
     assert_eq!(json["flag"]["kind"], "yellow");
@@ -3323,6 +3334,12 @@ fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
     assert_eq!(json["sectors"]["rows"][0]["tone"], "best");
     assert_eq!(json["sectors"]["rows"][2]["fromLastLap"], true);
     assert_eq!(json["deltaBar"]["role"], "good");
+    assert_eq!(json["sessionCard"]["position"], "P3");
+    assert_eq!(json["sessionCard"]["ofCars"], "/ 24");
+    assert_eq!(json["sessionCard"]["classLine"], "P1 in class");
+    assert_eq!(json["sessionCard"]["remainingNote"], "left");
+    assert_eq!(json["fuelCalc"]["toEnd"]["addLabel"], "add");
+    assert!(json["fuelCalc"]["note"].is_null(), "the line about the end is there, so the note is not");
 }
 
 /// The dashboard `dash` painted on a 1920 × 1080 screen for `live` and the recent laps `laps`.
@@ -3412,6 +3429,200 @@ fn every_dashboard_paints_at_every_shape() {
             v.recent_laps = &laps;
             let pixels = render(&v, w, h);
             assert!(has_color(&pixels, CARD) > 1000, "{dash:?} {w}x{h}: cards are drawn");
+        }
+    }
+}
+
+// The session card and the fuel to the end of the session.
+
+#[test]
+fn the_laps_to_go_follow_the_session_laps_or_the_time_left() {
+    let mut live = live_reading();
+    live.session_laps = None;
+    live.session_time_left_s = None;
+    assert_eq!(laps_to_go(&live), None, "the game gives neither");
+    // Lap-based: lap 4 of 20 with 2310 of 5793 m driven leaves 20 - 3 laps less the share of this one.
+    live.session_laps = Some(20);
+    let share = (2310.0_f64 / 5793.0) as f32;
+    assert!((laps_to_go(&live).unwrap() - (17.0 - share)).abs() < 0.001);
+    live.track_length_m = None;
+    assert_eq!(laps_to_go(&live), Some(17.0), "without the track's length this lap counts whole");
+    live.lap = 0;
+    assert_eq!(laps_to_go(&live), None, "before the first lap is known");
+    live.lap = 25;
+    assert_eq!(laps_to_go(&live), Some(0.0), "never below nothing");
+    // Timed: the laps that fit in the time left at the last lap's pace, and the one finished after the time runs out.
+    live.lap = 4;
+    live.session_laps = None;
+    live.session_time_left_s = Some(539.0);
+    live.last_lap_s = Some(107.918);
+    live.best_lap_s = Some(107.204);
+    assert_eq!(laps_to_go(&live), Some(6.0), "ceil(539 / 107.918) + 1");
+    live.last_lap_s = None;
+    assert_eq!(laps_to_go(&live), Some(7.0), "the best lap's pace when there is no last lap: ceil(539 / 107.204) + 1");
+    live.best_lap_s = None;
+    assert_eq!(laps_to_go(&live), None, "a timed session without a lap time to go by");
+    live.last_lap_s = Some(f64::NAN);
+    live.best_lap_s = Some(0.0);
+    assert_eq!(laps_to_go(&live), None, "no figure from a lap time that means nothing");
+    // With both the session ends at the first: the smaller.
+    live.last_lap_s = Some(100.0);
+    live.session_time_left_s = Some(900.0);
+    live.session_laps = Some(6);
+    live.lap = 5;
+    live.dist_m = Some(0.0);
+    assert_eq!(laps_to_go(&live), Some(2.0), "6 - 4 laps against ceil(9) + 1 = 10");
+    live.session_time_left_s = Some(0.0);
+    assert_eq!(laps_to_go(&live), Some(1.0), "the time is up: the lap that finishes it");
+}
+
+#[test]
+fn the_fuel_to_the_end_is_the_laps_to_go_and_a_lap_of_margin_less_the_tank() {
+    let end = fuel_to_end(Some(10.0), Some(20.0), Some(2.0)).unwrap();
+    assert_eq!((end.needed_l, end.to_add_l), (22.0, Some(2.0)), "(10 + 1) x 2 l, 20 l in the tank");
+    assert_eq!(fuel_to_end(Some(10.0), Some(30.0), Some(2.0)).unwrap().to_add_l, Some(0.0));
+    assert_eq!(fuel_to_end(Some(10.0), None, Some(2.0)).unwrap().to_add_l, None, "no fuel reading, no amount to add");
+    assert_eq!(fuel_to_end(Some(0.0), Some(1.0), Some(2.0)).unwrap().needed_l, 2.0, "the margin lap alone");
+    for per in [None, Some(0.0), Some(-1.0), Some(f32::NAN)] {
+        assert_eq!(fuel_to_end(Some(10.0), Some(20.0), per), None, "{per:?}");
+    }
+    for laps in [None, Some(f32::NAN), Some(-1.0)] {
+        assert_eq!(fuel_to_end(laps, Some(20.0), Some(2.0)), None, "{laps:?}");
+    }
+}
+
+#[test]
+fn the_fuel_card_says_the_fuel_to_the_end_when_it_can_and_keeps_the_caption_when_it_cannot() {
+    let mut live = live_reading();
+    live.fuel_l = 38.6;
+    live.fuel_per_lap_l = Some(2.9);
+    live.session_laps = Some(20);
+    let card = model(&live, Lang::En).fuel_calc.unwrap();
+    let end = card.to_end.expect("the laps and the use per lap are known");
+    assert_eq!((end.label.as_str(), end.add_label.as_str()), ("To the end", "add"));
+    // 20 - 3 laps less 40 % of this one, and a lap of margin, at 2.9 l: 51.0 l, of which 12.4 l are to add.
+    assert_eq!((end.needed.as_str(), end.to_add.as_deref(), end.role), ("51.0 L", Some("12.4 L"), Role::Warn));
+    assert!(card.note.is_none(), "the line replaces the caption");
+    // Enough in the tank: green, nothing to add.
+    live.session_laps = Some(5);
+    let end = model(&live, Lang::En).fuel_calc.unwrap().to_end.unwrap();
+    assert_eq!((end.to_add.as_deref(), end.role), (Some("0.0 L"), Role::Good));
+    // A timed session works the same way.
+    live.session_laps = None;
+    live.session_time_left_s = Some(539.0);
+    assert!(model(&live, Lang::En).fuel_calc.unwrap().to_end.is_some());
+    // Portuguese words.
+    let end = model(&live, Lang::Pt).fuel_calc.unwrap().to_end.unwrap();
+    assert_eq!((end.label.as_str(), end.add_label.as_str()), ("Até o fim", "abastecer"));
+    // Neither the session's laps nor its time: the caption.
+    live.session_time_left_s = None;
+    let card = model(&live, Lang::En).fuel_calc.unwrap();
+    assert!(card.to_end.is_none() && card.note.is_some());
+    // The laps but no use per lap yet: the caption too.
+    live.session_laps = Some(20);
+    live.fuel_per_lap_l = None;
+    let card = model(&live, Lang::En).fuel_calc.unwrap();
+    assert!(card.to_end.is_none() && card.note.is_some());
+}
+
+#[test]
+fn the_time_left_is_written_as_minutes_and_seconds_and_hours_from_an_hour() {
+    assert_eq!(session_clock(0.0), "00:00");
+    assert_eq!(session_clock(59.9), "00:59", "whole seconds, never rounded up");
+    assert_eq!(session_clock(1_380.0), "23:00");
+    assert_eq!(session_clock(3_599.0), "59:59");
+    assert_eq!(session_clock(3_600.0), "1:00:00");
+    assert_eq!(session_clock(3_725.0), "1:02:05");
+    assert_eq!(session_clock(-5.0), "00:00");
+    assert_eq!(laps_after_this(20, 5), Some(15));
+    assert_eq!(laps_after_this(20, 20), Some(0));
+    assert_eq!(laps_after_this(20, 25), Some(0));
+    assert_eq!(laps_after_this(20, 0), None);
+    assert_eq!(laps_after_this(20, -1), None);
+}
+
+#[test]
+fn the_session_card_writes_the_place_the_class_and_what_is_left() {
+    let mut live = live_reading();
+    live.race_position = Some(3);
+    live.class_position = Some(1);
+    live.cars = Some(24);
+    live.session_time_left_s = Some(1_380.0);
+    let card = model(&live, Lang::En).session_card.expect("the game gives the place");
+    assert_eq!(card.title, "Session");
+    assert_eq!((card.position.as_deref(), card.of_cars.as_deref()), (Some("P3"), Some("/ 24")));
+    assert_eq!(card.class_line.as_deref(), Some("P1 in class"));
+    assert_eq!((card.remaining.as_deref(), card.remaining_note.as_deref()), (Some("23:00"), Some("left")));
+    assert_eq!(card.show, Show::Shown);
+    // Over an hour.
+    live.session_time_left_s = Some(3_725.0);
+    assert_eq!(model(&live, Lang::En).session_card.unwrap().remaining.as_deref(), Some("1:02:05"));
+    // A lap-based session: the lap and the laps still to go (lap 5 of 20 leaves 15).
+    live.session_time_left_s = None;
+    live.session_laps = Some(20);
+    live.lap = 5;
+    let card = model(&live, Lang::En).session_card.unwrap();
+    assert_eq!((card.remaining.as_deref(), card.remaining_note.as_deref()), (Some("Lap 5 / 20"), Some("15 to go")));
+    // The lap never runs past the session's laps.
+    live.lap = 22;
+    let card = model(&live, Lang::En).session_card.unwrap();
+    assert_eq!((card.remaining.as_deref(), card.remaining_note.as_deref()), (Some("Lap 20 / 20"), Some("0 to go")));
+    // The time wins when the game gives both.
+    live.session_time_left_s = Some(61.0);
+    assert_eq!(model(&live, Lang::En).session_card.unwrap().remaining.as_deref(), Some("01:01"));
+    // Portuguese.
+    let card = model(&live, Lang::Pt).session_card.unwrap();
+    assert_eq!((card.title.as_str(), card.class_line.as_deref()), ("Sessão", Some("P1 na classe")));
+    // What the game does not give is simply not there.
+    live.race_position = None;
+    live.class_position = None;
+    live.session_time_left_s = None;
+    live.session_laps = None;
+    let card = model(&live, Lang::En).session_card.unwrap();
+    assert!(card.position.is_none() && card.of_cars.is_none() && card.class_line.is_none());
+    assert!(card.remaining.is_none() && card.remaining_note.is_none());
+    // The cars without the place say nothing; a place of 0 is no place.
+    live.cars = Some(24);
+    live.race_position = Some(0);
+    let card = model(&live, Lang::En).session_card.unwrap();
+    assert!(card.position.is_none() && card.of_cars.is_none());
+    // A reading that is no longer live is dimmed.
+    live.race_position = Some(2);
+    let late = dashboard(&live, &ctx_of(Lang::En, live.at_ms + STALE_MS + 1));
+    assert_eq!(late.session_card.unwrap().show, Show::Dimmed);
+}
+
+#[test]
+fn the_session_card_is_there_when_the_game_gives_the_place_the_time_or_the_laps() {
+    use crate::game::Caps;
+    let cards = |caps: Caps| slots(caps).cards;
+    assert_eq!(cards(Caps::RACE_POSITION), [Pane::Session]);
+    assert_eq!(cards(Caps::SESSION_TIME_LEFT), [Pane::Session]);
+    assert_eq!(cards(Caps::SESSION_LAPS), [Pane::Session]);
+    assert!(cards(Caps::CLASS_POSITION).is_empty(), "the class place alone is not a session card");
+    assert!(cards(Caps::CARS).is_empty(), "nor is the number of cars");
+    assert!(!cards(Caps::GEAR.or(Caps::LAP_TIME)).contains(&Pane::Session));
+}
+
+#[test]
+fn race_and_qualifying_hold_the_session_in_every_layout_and_the_tyres_never_get_narrower_for_it() {
+    use crate::game::Caps;
+    let with = slots(every_cap());
+    let without = slots(every_cap().minus(Caps::RACE_POSITION.or(Caps::SESSION_TIME_LEFT).or(Caps::SESSION_LAPS)));
+    assert!(!without.cards.contains(&Pane::Session));
+    for layout in ALL_LAYOUTS {
+        for dash in [DashboardId::Race, DashboardId::Qualifying] {
+            let (a, b) = (layout.plan_in(dash, &with, usize::MAX), layout.plan_in(dash, &without, usize::MAX));
+            let session = a
+                .area(Pane::Session)
+                .unwrap_or_else(|| panic!("{dash:?} {layout:?}: the session is on the dashboard"));
+            assert!(session.3 + 0.01 >= SESSION_NEED_H, "{dash:?} {layout:?}: the session is {} tall", session.3);
+            assert!(b.area(Pane::Session).is_none());
+            let (tyres_with, tyres_without) = (a.area(Pane::Tyres).unwrap(), b.area(Pane::Tyres).unwrap());
+            assert!(tyres_with.2 + 0.01 >= tyres_without.2, "{dash:?} {layout:?}: the tyres lose room to the session");
+        }
+        for dash in [DashboardId::Practice, DashboardId::TimeTrial] {
+            assert!(layout.plan_in(dash, &with, usize::MAX).area(Pane::Session).is_none(), "{dash:?} {layout:?}");
         }
     }
 }

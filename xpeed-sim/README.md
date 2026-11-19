@@ -41,6 +41,8 @@ Atalhos do painel:
 
 O painel monta cada dashboard a partir de um catálogo de widgets com id estável (`src/panel/catalog.rs`) e de dashboards como dados (`src/panel/dashboards.rs`: linhas de widgets por formato de janela); por enquanto os quatro usam as mesmas linhas. Os modelos do painel são serializáveis (serde, camelCase): são o contrato que a visão do celular vai ler.
 
+O card **Session** (nas dashboards Corrida e Classificação) mostra a posição (`P3 / 24`), a posição na classe e o tempo restante (ou a volta `5 / 20` e quantas faltam) quando o jogo dá esses dados; no card de combustível, a linha **To the end** soma as voltas até o fim da sessão (com uma volta de margem) e diz quantos litros abastecer.
+
 Em tela cheia, o dashboard cresce junto com a tela. O painel é desenhado com GDI 30 vezes por segundo e se ajusta ao DPI da tela; fechar a janela não para a gravação.
 
 Para ver o painel sem jogo aberto, rode `xpeed-companion panel-demo`, que mostra uma pilotagem inventada sem gravar nem enviar nada. `xpeed-companion panel` abre o painel da cópia que já está rodando.

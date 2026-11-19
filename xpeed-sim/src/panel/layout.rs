@@ -94,6 +94,8 @@ pub(super) enum Pane {
     Sectors,
     /// The delta to the best lap as a wide bar.
     DeltaBar,
+    /// The place in the race and the class, and what is left of the session (time, or laps).
+    Session,
 }
 
 /// The dashboard's layouts, one per shape of window. Each is a canvas in design units made of rows of cards, scaled whole
@@ -284,6 +286,7 @@ pub(super) fn need_h(card: Pane, lap_rows: usize, row_h: f32) -> f32 {
         Pane::TyreTrend => TYRE_TREND_NEED_H.min(row_h),
         Pane::Sectors => SECTORS_NEED_H.min(row_h),
         Pane::DeltaBar => DELTA_NEED_H.min(row_h),
+        Pane::Session => SESSION_NEED_H.min(row_h),
         _ => row_h,
     }
 }
@@ -301,6 +304,8 @@ pub(super) const FUEL_CALC_NEED_H: f32 = 256.0;
 pub(super) const TYRE_TREND_NEED_H: f32 = 212.0;
 pub(super) const SECTORS_NEED_H: f32 = 228.0;
 pub(super) const DELTA_NEED_H: f32 = 130.0;
+/// The session card: the caption, the place (big), the class line and the time (or laps) left.
+pub(super) const SESSION_NEED_H: f32 = 168.0;
 
 /// The height of a laps card with `rows` rows: its padding, caption, head and the rows.
 pub(super) fn laps_card_h(rows: usize) -> f32 {
@@ -893,6 +898,7 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
         (Pane::TyreTrend, caps.has(Caps::TYRE_WEAR)),
         (Pane::Sectors, caps.has(Caps::SECTORS)),
         (Pane::DeltaBar, s.delta),
+        (Pane::Session, any(&[Caps::RACE_POSITION, Caps::SESSION_TIME_LEFT, Caps::SESSION_LAPS])),
     ]
     .into_iter()
     .filter(|(_, on)| *on)

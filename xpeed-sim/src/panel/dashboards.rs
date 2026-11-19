@@ -111,7 +111,7 @@ fn race_rows(layout: Layout) -> &'static [Row] {
 
 fn qualifying_rows(layout: Layout) -> &'static [Row] {
     match layout {
-        Layout::Classic => FLYING_CLASSIC,
+        Layout::Classic => QUALIFYING_CLASSIC,
         Layout::Ultrawide => QUALIFYING_ULTRAWIDE,
         Layout::Wide => QUALIFYING_WIDE,
         Layout::Square => QUALIFYING_SQUARE,
@@ -131,7 +131,7 @@ fn time_trial_rows(layout: Layout) -> &'static [Row] {
     }
 }
 
-// Race: the times, the centre, the flag, the tyres; the fuel strategy, the tyre wear, the track and the alerts.
+// Race: the times, the centre, the flag, the tyres; the session, the fuel strategy, the tyre wear, the track and the alerts.
 
 const RACE_WIDE: &[Row] = &[
     Row {
@@ -141,9 +141,10 @@ const RACE_WIDE: &[Row] = &[
     Row {
         h: 262.0,
         cards: &[
+            (Pane::Session, 0.8),
             (Pane::FuelCalc, 1.1),
-            (Pane::TyreTrend, 1.1),
-            (Pane::Track, 1.0),
+            (Pane::TyreTrend, 1.05),
+            (Pane::Track, 0.9),
             (Pane::Alerts, 1.0),
         ],
     },
@@ -162,7 +163,12 @@ const RACE_ULTRAWIDE: &[Row] = &[
     },
     Row {
         h: 262.0,
-        cards: &[(Pane::FuelCalc, 1.2), (Pane::TyreTrend, 1.2), (Pane::Track, 1.0)],
+        cards: &[
+            (Pane::Session, 0.9),
+            (Pane::FuelCalc, 1.2),
+            (Pane::TyreTrend, 1.2),
+            (Pane::Track, 1.0),
+        ],
     },
 ];
 
@@ -177,14 +183,14 @@ const RACE_SQUARE: &[Row] = &[
     },
     Row {
         h: 232.0,
-        cards: &[(Pane::Track, 1.0), (Pane::Alerts, 1.0)],
+        cards: &[(Pane::Session, 0.8), (Pane::Track, 1.0), (Pane::Alerts, 1.0)],
     },
 ];
 
 const RACE_CLASSIC: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8)],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8), (Pane::Session, 0.8)],
     },
     Row {
         h: 262.0,
@@ -196,6 +202,10 @@ const RACE_PORTRAIT: &[Row] = &[
     Row {
         h: 220.0,
         cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 170.0,
+        cards: &[(Pane::Session, 1.0)],
     },
     Row {
         h: 280.0,
@@ -223,6 +233,10 @@ const RACE_STACK: &[Row] = &[
     Row {
         h: 220.0,
         cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 170.0,
+        cards: &[(Pane::Session, 1.0)],
     },
     Row {
         h: 280.0,
@@ -254,7 +268,7 @@ const RACE_STACK: &[Row] = &[
     },
 ];
 
-// Qualifying: the times, the sectors, the delta bar, the centre, the tyres, the track and the flag.
+// Qualifying: the times, the sectors, the delta bar, the session, the centre, the tyres, the track and the flag.
 
 const QUALIFYING_WIDE: &[Row] = &[
     Row {
@@ -263,7 +277,7 @@ const QUALIFYING_WIDE: &[Row] = &[
     },
     Row {
         h: 262.0,
-        cards: &[(Pane::DeltaBar, 2.25), (Pane::Track, 1.0), (Pane::Flag, 1.05)],
+        cards: &[(Pane::DeltaBar, 1.6), (Pane::Session, 0.8), (Pane::Track, 1.0), (Pane::Flag, 0.9)],
     },
 ];
 
@@ -280,7 +294,7 @@ const QUALIFYING_ULTRAWIDE: &[Row] = &[
     },
     Row {
         h: 262.0,
-        cards: &[(Pane::DeltaBar, 2.6), (Pane::Track, 1.0)],
+        cards: &[(Pane::DeltaBar, 2.0), (Pane::Session, 0.9), (Pane::Track, 1.0)],
     },
 ];
 
@@ -294,8 +308,8 @@ const QUALIFYING_SQUARE: &[Row] = &[
         cards: &[(Pane::Tyres, 1.2), (Pane::Track, 1.0), (Pane::Flag, 0.9)],
     },
     Row {
-        h: 140.0,
-        cards: &[(Pane::DeltaBar, 1.0)],
+        h: 172.0,
+        cards: &[(Pane::DeltaBar, 1.5), (Pane::Session, 1.0)],
     },
 ];
 
@@ -303,6 +317,10 @@ const QUALIFYING_PORTRAIT: &[Row] = &[
     Row {
         h: 220.0,
         cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 170.0,
+        cards: &[(Pane::Session, 1.0)],
     },
     Row {
         h: 232.0,
@@ -330,6 +348,10 @@ const QUALIFYING_STACK: &[Row] = &[
     Row {
         h: 220.0,
         cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 170.0,
+        cards: &[(Pane::Session, 1.0)],
     },
     Row {
         h: 232.0,
@@ -466,7 +488,19 @@ const TIME_TRIAL_STACK: &[Row] = &[
     },
 ];
 
-/// Qualifying and Time trial in the smallest window (Classic): three cards over three, the delta bar among them.
+/// Qualifying in the smallest window (Classic): four cards over three, the session beside the sectors.
+const QUALIFYING_CLASSIC: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Session, 0.8)],
+    },
+    Row {
+        h: 230.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::DeltaBar, 1.3), (Pane::Track, 0.8)],
+    },
+];
+
+/// Time trial in the smallest window (Classic): three cards over three, the delta bar among them.
 const FLYING_CLASSIC: &[Row] = &[
     Row {
         h: 300.0,

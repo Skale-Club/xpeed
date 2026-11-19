@@ -9,11 +9,18 @@ const NOTE_LINE_H: f32 = 16.0;
 const STAT_H: f32 = 30.0;
 const TABLE_HEAD_H: f32 = 18.0;
 const TABLE_ROW_H: f32 = 22.0;
+/// The tile with the fuel to the end of the session, at its tallest.
+const END_TILE_H: f32 = 28.0;
 
 /// The height of a sector's row, and of a row of the wear card at its smallest.
 const SECTOR_ROW_H: f32 = 30.0;
 const WEAR_ROW_MIN_H: f32 = 28.0;
 const WEAR_ROW_MAX_H: f32 = 46.0;
+
+/// The height of the session card's place, of the class line under it and of the time (or lap) left.
+const POSITION_H: f32 = 56.0;
+const CLASS_LINE_H: f32 = 20.0;
+const REMAINING_H: f32 = 34.0;
 
 /// A delta card this tall (inside) gets the big number and the tall bar.
 const DELTA_BIG_H: f32 = 190.0;
@@ -100,8 +107,8 @@ fn chequered_pattern(g: &mut Painter, (x, y, w, h): Area) {
 }
 
 /// The fuel strategy card: the average use per lap, the last lap's use and the laps left in the tank over a table of what 5,
-/// 10, 15 and 20 laps need (with a lap of margin) and how much of it to add, and a line about the fuel to the end of the
-/// session.
+/// 10, 15 and 20 laps need (with a lap of margin) and how much of it to add, and the fuel to the end of the session in a
+/// lit tile (a line saying why it is missing until the game gives the session's laps or time).
 pub(super) fn fuel_strategy_card(g: &mut Painter, d: &Dash, card: Area) {
     let Some(m) = &d.m.fuel_calc else {
         return;
@@ -150,12 +157,31 @@ pub(super) fn fuel_strategy_card(g: &mut Painter, d: &Dash, card: Area) {
             }
             g.fill(g.r(x, ry + TABLE_ROW_H - 1.0, w, STROKE_HAIR), BORDER);
         }
-        // The line about the end of the session, as many lines as the card has room for.
+        // The fuel to the end of the session in a lit tile, or the line that says why it is not there.
         let note_top = table_top + TABLE_HEAD_H + m.rows.len() as f32 * TABLE_ROW_H + S2;
-        let room = ((y + h - note_top) / NOTE_LINE_H).floor().max(0.0) as usize;
-        for (i, line) in g.wrap_lines(&m.note, w, T_CAPTION, normal, Face::Ui).iter().take(room).enumerate() {
-            let r = g.r(x, note_top + i as f32 * NOTE_LINE_H, w, NOTE_LINE_H);
-            g.text(line, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+        if let Some(end) = &m.to_end {
+            let tile_h = (y + h - note_top).clamp(NOTE_LINE_H, END_TILE_H);
+            tile_with_edge(g, (x, note_top, w, tile_h), BACKGROUND, end.role.colour());
+            let (tx, tw) = (x + S2, w - 2.0 * S2);
+            let label_w = g.caps_width(&end.label, T_CAPTION);
+            let r = g.r(tx, note_top, label_w, tile_h);
+            g.caps(&end.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let add = end.to_add.as_ref().map(|litres| format!("{} {litres}", end.add_label));
+            let add_w = add.as_ref().map_or(0.0, |add| g.width_of(add, T_BODY, semi, Face::Num));
+            if let Some(add) = &add {
+                let r = g.r(tx + tw - add_w, note_top, add_w, tile_h);
+                g.text(add, r, T_BODY, semi, Face::Num, end.role.colour(), DT_RIGHT);
+            }
+            let needed_x = tx + label_w + S2;
+            let needed_w = (tx + tw - add_w - S2 - needed_x).max(1.0);
+            let r = g.r(needed_x, note_top, needed_w, tile_h);
+            g.text(&end.needed, r, T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
+        } else if let Some(note) = &m.note {
+            let room = ((y + h - note_top) / NOTE_LINE_H).floor().max(0.0) as usize;
+            for (i, line) in g.wrap_lines(note, w, T_CAPTION, normal, Face::Ui).iter().take(room).enumerate() {
+                let r = g.r(x, note_top + i as f32 * NOTE_LINE_H, w, NOTE_LINE_H);
+                g.text(line, r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+            }
         }
     });
 }
@@ -289,5 +315,61 @@ pub(super) fn delta_card(g: &mut Painter, d: &Dash, card: Area) {
         let r = g.r(x, tops[0], w, number_h);
         g.text(&m.value, r, size, semi, Face::Num, m.role.colour(), DT_CENTER);
         g.centred_bar((x, tops[1], w, bar_h), m.frac, m.role.colour(), FOREGROUND);
+    });
+}
+
+/// The top of a box for a text of `small` size so that it sits on the same baseline as a text of `big` size centred on
+/// `centre` (figures are centred on their own height, so the baseline is about a third of the size below the centre).
+fn sits_on(centre: f32, big: f32, small: f32) -> f32 {
+    centre + 0.35 * (big - small) - small * 0.7
+}
+
+/// The session card: the place big (`P3`) with the cars after it small (`/ 24`), the place in the class under it, and what is
+/// left of the session, the time or the lap, with its word. A part the game does not give is not drawn and the rest moves up.
+pub(super) fn session_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.session_card else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let bottom = y + h;
+        let mut top = y + CAPTION_H + S1;
+        if let Some(position) = &m.position {
+            let small = m.of_cars.as_deref().unwrap_or("");
+            let small_w = g.width_of(small, T_VALUE, normal, Face::Num);
+            let room = if small.is_empty() { w } else { w - small_w - S2 };
+            let size = g.fitted(position, room.max(1.0), T_HERO, T_VALUE, semi, Face::Num);
+            let big_w = g.tabular_width(position, size, semi).min(room.max(1.0));
+            let r = g.r(x - 1.0, top, big_w + 1.0, POSITION_H);
+            g.text(position, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+            if !small.is_empty() {
+                let base = sits_on(top + POSITION_H / 2.0, size, T_VALUE);
+                let r = g.r(x + big_w + S2, base, small_w + 1.0, T_VALUE * 1.4);
+                g.text(small, r, T_VALUE, normal, Face::Num, MUTED_TEXT, DT_LEFT);
+            }
+            top += POSITION_H + S1;
+        }
+        if let Some(line) = &m.class_line {
+            let r = g.r(x, top, w, CLASS_LINE_H);
+            g.text(line, r, T_BODY, normal, Face::Ui, FOREGROUND_2, DT_LEFT);
+            top += CLASS_LINE_H + S2;
+        }
+        // The time (or lap) left, when the card has the room for it.
+        if let Some(remaining) = m.remaining.as_ref().filter(|_| top + REMAINING_H <= bottom + 0.5) {
+            let note_text = m.remaining_note.as_deref().unwrap_or("");
+            let note_w = g.width_of(note_text, T_BODY, normal, Face::Ui);
+            let room = (w - note_w - S2).max(1.0);
+            let size = g.fitted(remaining, room, T_VALUE_L, T_BODY, semi, Face::Num);
+            let value_w = g.tabular_width(remaining, size, semi).min(room);
+            let r = g.r(x - 1.0, top, value_w + 1.0, REMAINING_H);
+            g.text(remaining, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+            if let Some(note) = &m.remaining_note {
+                let base = sits_on(top + REMAINING_H / 2.0, size, T_BODY);
+                let r = g.r(x + value_w + S2, base, note_w + 1.0, T_BODY * 1.5);
+                g.text(note, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+            }
+        }
     });
 }
