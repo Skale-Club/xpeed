@@ -91,7 +91,8 @@ try{
  });
  await check('history is the shared persisted session thread, with twelve bounded text messages',async()=>{
   for(let i=0;i<16;i++)await db.query("INSERT INTO chat_messages(conversation_id,role,parts,created_at) VALUES($1,'assistant',$2,$3)",
-   [conversation,JSON.stringify([{type:'text',text:'x'.repeat(7000)}]),`2026-11-19T13:${String(i).padStart(2,'0')}:00Z`]);
+   // Later than every message the earlier checks wrote with now(), whatever day the suite runs (fixed dates went stale).
+   [conversation,JSON.stringify([{type:'text',text:'x'.repeat(7000)}]),new Date(Date.now()+3_600_000+i*60_000).toISOString()]);
   const history=await query('sim_companion_coach_history',[owner,device,source]);assert.equal(history.conversationId,conversation);
   assert.equal(history.messages.length,12);assert(history.messages.every(m=>m.content.length===1500));
  });

@@ -471,6 +471,10 @@ try {
 
   await check('uploads are limited per device', async () => {
     const { token: key } = await deviceFor(A);
+    // The count is per clock minute (sim_rate_hit): 61 uploads that straddle a minute start over halfway and never
+    // reach the limit, so begin early in a minute.
+    const second = new Date().getUTCSeconds();
+    if (second > 40) await new Promise((done) => setTimeout(done, (61 - second) * 1000));
     let last;
     for (let i = 0; i < 61; i++) last = await upload(key, new TextEncoder().encode('x'));
     assert.equal(last.status, 429);
