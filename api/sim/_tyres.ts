@@ -21,9 +21,15 @@ export async function backfillTyres(backend: Backend, limit: number): Promise<Ty
   for (const row of rows) {
     let tyre: string | null = null;
     if (row.format_version >= 2) {
+      const file = await backend.service.storage.from('sim-laps').download(row.storage_path);
+      // A storage hiccup is not an answer: the lap stays in the queue for the next run instead of being marked "no tyre" for good.
+      // Only a file that is gone (404) or that does not read as a lap is settled without a compound.
+      if (file.error && String((file.error as { statusCode?: string | number }).statusCode) !== '404') {
+        failed('sim_tyre_backfill_storage', file.error);
+        continue;
+      }
       try {
-        const file = await backend.service.storage.from('sim-laps').download(row.storage_path);
-        if (file.error || !file.data) throw file.error ?? new Error('no file');
+        if (!file.data) throw file.error ?? new Error('no file');
         tyre = (await gunzipLapHeader(new Uint8Array(await file.data.arrayBuffer()))).tyreCompound ?? null;
       } catch (error) {
         failed('sim_tyre_backfill_unreadable', error);
