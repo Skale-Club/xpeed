@@ -37,6 +37,9 @@ Atalhos do painel:
 - `1` e `2` trocam de aba.
 - **Tela cheia:** `F11`, o botão no topo ou um duplo clique na janela. `Esc` sai.
 - **Sempre por cima:** `T`.
+- **Dashboard:** `D` troca entre Corrida, Classificação, Treino, Contra o relógio e Automático (escolhido pela sessão do jogo). A escolha fica guardada por jogo em `dashboards.json`, na pasta do Companion; o nome aparece ao lado das abas ("Race · Auto" quando automático).
+
+O painel monta cada dashboard a partir de um catálogo de widgets com id estável (`src/panel/catalog.rs`) e de dashboards como dados (`src/panel/dashboards.rs`: linhas de widgets por formato de janela); por enquanto os quatro usam as mesmas linhas. Os modelos do painel são serializáveis (serde, camelCase): são o contrato que a visão do celular vai ler.
 
 Em tela cheia, o dashboard cresce junto com a tela. O painel é desenhado com GDI 30 vezes por segundo e se ajusta ao DPI da tela; fechar a janela não para a gravação.
 

@@ -80,6 +80,8 @@ pub struct View<'a> {
     /// The dashboard's layout in use: read at the start of a frame and set by it, so a window dragged through a
     /// threshold only changes layout when another one is clearly better (`pick_layout_sticky`).
     pub layout: std::cell::Cell<Option<Layout>>,
+    /// The dashboard chosen by hand for the game that is open; `None` is automatic (picked from the session).
+    pub(super) dashboard: Option<DashboardId>,
     /// The language list under the language button is open.
     pub lang_open: bool,
     /// The diagnostics were copied a moment ago: the Monitor tab says so for two seconds.
@@ -95,6 +97,13 @@ pub struct View<'a> {
     pub focus: Option<(&'static str, &'static str, Game)>,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
     pub scroll: std::cell::Cell<Option<ScrollBar>>,
+}
+
+impl View<'_> {
+    /// The dashboard on screen: the manual choice, else the one that fits the session.
+    pub(super) fn dashboard_in_use(&self) -> DashboardId {
+        pick(self.live.and_then(|l| l.session_kind), self.dashboard)
+    }
 }
 
 /// A list's scroll bar as drawn (pixels): the list, the bar's track and thumb, how far the list scrolls (design

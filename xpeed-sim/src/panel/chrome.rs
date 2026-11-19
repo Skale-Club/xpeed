@@ -151,6 +151,20 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
     );
     full_icon(g, full, full_ink, view.full);
     pin_icon(g, top, pin_ink);
+    // The dashboard in use, as a small pill after the tabs ("Race · Auto" when picked from the session).
+    if view.tab == Tab::Dash && dashboard_shown(view.live, &view.snapshot.game, view.now_ms) {
+        if let Some(r) = dashboard_hit(width, view.scale) {
+            let name = text(view.lang, &view.dashboard_in_use().msg());
+            let label = if view.dashboard.is_none() {
+                format!("{name} · {}", text(view.lang, &Msg::PanelDashAuto))
+            } else {
+                name
+            };
+            let pill = rect(r.left, r.top, r.right, r.bottom);
+            g.round(pill, SURFACE, None);
+            g.caps(&label, pill, T_CAPTION, FOREGROUND_2, DT_CENTER);
+        }
+    }
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
     if let Some(r) = version_hit(width, view.scale) {

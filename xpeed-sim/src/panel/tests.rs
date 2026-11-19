@@ -429,6 +429,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         games_scroll: 0.0,
         scroll: Default::default(),
         carousel_step: Default::default(),
+        dashboard: None,
         layout: Default::default(),
         lang_open: false,
         copied: false,
@@ -997,6 +998,20 @@ fn writes_the_design_preview_page() {
         save(&pixels, w, h, file);
         figures.push_str(&format!(
             "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+        ));
+    }
+    // The dashboard's name in the header: picked by hand, and picked from the session ("Auto").
+    for (file, caption, manual, lang) in [
+        ("preview-dashboard-race.png", "Header: the Race dashboard picked by hand", Some(DashboardId::Race), Lang::En),
+        ("preview-dashboard-auto.png", "Header: the dashboard picked from the session (Auto), Portuguese", None, Lang::Pt),
+    ] {
+        let mut v = view(&f, Some(&live), Tab::Dash, 1.0, lang);
+        v.dashboard = manual;
+        let pixels = render(&v, 1920, 1080);
+        save(&pixels, 1920, 1080, file);
+        figures.push_str(&format!(
+            "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"1920\" height=\"1080\"></figure>
+"
         ));
     }
     let mut phone_monitor = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
@@ -2702,4 +2717,110 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
         assert!(!buttons.iter().any(|(a, _)| matches!(a, Action::CheckUpdates | Action::UpdateNow)));
         assert!(has_color(&pixels, PRIMARY) > quiet_yellow, "the bar is drawn in yellow");
     }
+}
+
+#[test]
+fn the_widget_ids_are_a_contract() {
+    let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
+    assert_eq!(ids, ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"]);
+    for w in catalog::ALL {
+        assert_eq!(catalog::by_id(w.id), Some(w.pane));
+        assert_eq!(catalog::id_of(w.pane), w.id);
+    }
+    let unique: HashSet<&str> = ids.iter().copied().collect();
+    assert_eq!(unique.len(), ids.len());
+    assert_eq!(catalog::by_id("nope"), None);
+}
+
+#[test]
+fn the_dashboard_ids_are_a_contract() {
+    let ids: Vec<&str> = DashboardId::ALL.iter().map(|d| d.id()).collect();
+    assert_eq!(ids, ["race", "qualifying", "practice", "time_trial"]);
+    for d in DashboardId::ALL {
+        assert_eq!(DashboardId::from_id(d.id()), Some(d));
+        assert_eq!(dashboard(d).id, d);
+    }
+    assert_eq!(DashboardId::from_id("nope"), None);
+}
+
+#[test]
+fn a_dashboard_follows_the_session_unless_picked_by_hand() {
+    use crate::lapfile::SessionKind as K;
+    assert_eq!(pick(Some(K::Practice), None), DashboardId::Practice);
+    assert_eq!(pick(Some(K::Qualifying), None), DashboardId::Qualifying);
+    assert_eq!(pick(Some(K::Race), None), DashboardId::Race);
+    assert_eq!(pick(Some(K::Unknown), None), DashboardId::Practice);
+    assert_eq!(pick(None, None), DashboardId::Practice);
+    assert_eq!(pick(Some(K::Race), Some(DashboardId::TimeTrial)), DashboardId::TimeTrial);
+    assert_eq!(pick(None, Some(DashboardId::Race)), DashboardId::Race);
+}
+
+#[test]
+fn d_cycles_through_the_dashboards_and_back_to_automatic() {
+    let mut at = None;
+    let mut seen = Vec::new();
+    for _ in 0..5 {
+        at = next_manual(at);
+        seen.push(at.map(|d| d.id()));
+    }
+    assert_eq!(seen, [Some("race"), Some("qualifying"), Some("practice"), Some("time_trial"), None]);
+}
+
+#[test]
+fn the_choice_is_kept_per_game_and_a_damaged_file_means_automatic() {
+    let home = std::env::temp_dir().join(format!("xpeed-dashboards-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    assert_eq!(Choices::load(&home), Choices::default());
+    let mut choices = Choices::default();
+    choices.set("ac", Some(DashboardId::Race));
+    choices.set("lmu", Some(DashboardId::TimeTrial));
+    choices.save(&home).unwrap();
+    let back = Choices::load(&home);
+    assert_eq!(back.get("ac"), Some(DashboardId::Race));
+    assert_eq!(back.get("lmu"), Some(DashboardId::TimeTrial));
+    assert_eq!(back.get("acc"), None);
+    let mut back = back;
+    back.set("ac", None);
+    assert_eq!(back.get("ac"), None);
+    std::fs::write(home.join("dashboards.json"), "{ not json").unwrap();
+    assert_eq!(Choices::load(&home), Choices::default());
+    std::fs::write(home.join("dashboards.json"), r#"{"manual":{"ac":"bogus","lmu":"race"}}"#).unwrap();
+    assert_eq!(Choices::load(&home).get("ac"), None);
+    assert_eq!(Choices::load(&home).get("lmu"), Some(DashboardId::Race));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn every_built_in_dashboard_draws_the_same_plan_for_now() {
+    let s = slots(live_reading().caps);
+    for layout in [Layout::Classic, Layout::Ultrawide, Layout::Wide, Layout::Square, Layout::Portrait, Layout::Stack] {
+        let base = layout.plan_for(&s, 3);
+        for d in DashboardId::ALL {
+            assert_eq!(layout.plan_in(d, &s, 3), base);
+        }
+    }
+}
+
+#[test]
+fn the_dashboard_model_serialises_for_the_phone() {
+    let f = fixture();
+    let live = live_reading();
+    let m = model_with(&live, Default::default(), &f.laps);
+    let json = serde_json::to_value(&m).unwrap();
+    for key in ["track", "car", "lap", "lapTime", "gear", "speed", "fuel", "fuelTitle", "alerts", "laps", "mapTitle"] {
+        assert!(json.get(key).is_some(), "{key} is in the model's JSON");
+    }
+    assert!(json["laps"]["rows"].is_array());
+    assert_eq!(json["gear"]["show"], "Shown");
+}
+
+#[test]
+fn the_header_names_the_dashboard_in_use() {
+    let f = fixture();
+    let live = live_reading();
+    let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+    assert_eq!(v.dashboard_in_use(), pick(live.session_kind, None));
+    v.dashboard = Some(DashboardId::TimeTrial);
+    assert_eq!(v.dashboard_in_use(), DashboardId::TimeTrial);
+    assert!(dashboard_hit(1536, 1.0).is_some(), "there is room for the name in a normal window");
 }

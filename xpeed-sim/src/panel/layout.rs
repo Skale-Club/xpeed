@@ -46,6 +46,16 @@ pub(super) fn version_hit(width: i32, scale: f32) -> Option<RECT> {
     (right - p(60.0) > mon.right + p(12.0)).then(|| rect(right - p(120.0), lang.top, right, lang.bottom))
 }
 
+/// Where the dashboard's name sits in the header (pixels): after the tabs, when the window leaves room before the
+/// version (or the language button, without the version).
+pub(super) fn dashboard_hit(width: i32, scale: f32) -> Option<RECT> {
+    let p = |v: f32| (v * scale).round() as i32;
+    let [_, mon, lang, _, _] = header_hits(width, scale);
+    let limit = version_hit(width, scale).map_or(lang.left - p(14.0), |v| v.left + p(60.0));
+    let left = mon.right + p(24.0);
+    (limit - left >= p(150.0)).then(|| rect(left, p(17.0), left + p(150.0), p(47.0)))
+}
+
 /// Fits a canvas of `width` x `height` design units in `body`, centred: its scale and where it starts (pixels).
 pub(super) fn canvas_fit_wh(body: RECT, width: f32, height: f32) -> (f32, i32, i32) {
     let (bw, bh) = ((body.right - body.left) as f32, (body.bottom - body.top) as f32);
@@ -299,14 +309,31 @@ pub(super) fn row_heights(rows: &[(f32, Vec<Pane>)], lap_rows: usize) -> Vec<f32
 }
 
 impl Layout {
-    fn spec(self) -> (f32, &'static [Row]) {
+    /// The canvas width and the rows of `dashboard` in this layout.
+    fn spec(self, dashboard: DashboardId) -> (f32, &'static [Row]) {
+        (self.width(), dashboards::dashboard(dashboard).rows_for(self))
+    }
+
+    /// The canvas width in design units.
+    fn width(self) -> f32 {
         match self {
-            Layout::Classic => (1000.0, CLASSIC_ROWS),
-            Layout::Ultrawide => (1900.0, ULTRAWIDE_ROWS),
-            Layout::Wide => (1440.0, WIDE_ROWS),
-            Layout::Square => (1000.0, SQUARE_ROWS),
-            Layout::Portrait => (600.0, PORTRAIT_ROWS),
-            Layout::Stack => (400.0, STACK_ROWS),
+            Layout::Classic | Layout::Square => 1000.0,
+            Layout::Ultrawide => 1900.0,
+            Layout::Wide => 1440.0,
+            Layout::Portrait => 600.0,
+            Layout::Stack => 400.0,
+        }
+    }
+
+    /// The rows the built-in dashboards share for now.
+    pub(super) fn default_rows(self) -> &'static [Row] {
+        match self {
+            Layout::Classic => CLASSIC_ROWS,
+            Layout::Ultrawide => ULTRAWIDE_ROWS,
+            Layout::Wide => WIDE_ROWS,
+            Layout::Square => SQUARE_ROWS,
+            Layout::Portrait => PORTRAIT_ROWS,
+            Layout::Stack => STACK_ROWS,
         }
     }
 
@@ -319,7 +346,12 @@ impl Layout {
     /// The same with `lap_rows` rows in the laps table: the table's row takes only the height it needs and the row above
     /// it takes the rest, so the canvas keeps its size and a few laps never leave a tall, empty card.
     pub(super) fn plan_for(self, slots: &Slots, lap_rows: usize) -> Plan {
-        let (w, rows) = self.spec();
+        self.plan_in(DashboardId::Practice, slots, lap_rows)
+    }
+
+    /// `plan_for` for a dashboard: its rows, with the cards the game cannot fill left out.
+    pub(super) fn plan_in(self, dashboard: DashboardId, slots: &Slots, lap_rows: usize) -> Plan {
+        let (w, rows) = self.spec(dashboard);
         let present: Vec<(f32, Vec<(Pane, f32)>)> = rows
             .iter()
             .map(|row| {

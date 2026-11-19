@@ -86,7 +86,8 @@ pub(super) fn steer_share(steer: f32) -> f32 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum PillKind {
     Pit,
     Abs,
@@ -99,7 +100,8 @@ pub(super) enum PillKind {
     Flag,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum Glow {
     Off,
     On,
@@ -234,7 +236,8 @@ pub(super) fn activity_message(event: Activity) -> Msg {
 //   nowhere else.
 
 /// How an element is shown.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum Show {
     Shown,
     /// There, but not live: drawn quiet, so it reads as "last known".
@@ -243,7 +246,8 @@ pub(super) enum Show {
 }
 
 /// The meaning of a colour; the views map it to a token (`Role::colour`, in `paint.rs`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum Role {
     #[default]
     Text,
@@ -260,7 +264,8 @@ pub(super) enum Role {
 
 /// One element of the dashboard: its label, its value as text, its unit, its meaning and how it is shown. A gauge also
 /// has its share (`frac`: 0..1, or -1..1 for the wheel; 0 when it has none).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct Elem {
     pub(super) show: Show,
     pub(super) role: Role,
@@ -327,7 +332,8 @@ impl Elem {
 }
 
 /// What the line over the dashboard's right corner says about the state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum StatusKind {
     /// No frames for a while, the game still connected: everything shows its last value, dimmed.
     NoData,
@@ -337,7 +343,8 @@ pub(super) enum StatusKind {
 }
 
 /// The box over a dashboard that is paused or whose game has gone silent: a title and one line of explanation.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct Banner {
     pub(super) kind: StatusKind,
     pub(super) title: String,
@@ -346,17 +353,21 @@ pub(super) struct Banner {
 
 /// An alert that is lit: its kind (for its colour), the words it says and how it is shown. Alerts that are not lit are
 /// not in the model at all.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct Light {
     pub(super) kind: PillKind,
     pub(super) glow: Glow,
+    /// The game's flag is not part of the phone contract: `word` already says it.
+    #[serde(skip)]
     pub(super) flag: Option<crate::game::Flag>,
     pub(super) word: String,
     pub(super) show: Show,
 }
 
 /// A readout: a small caps label over a figure.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct Cell {
     pub(super) label: String,
     pub(super) value: String,
@@ -412,7 +423,8 @@ impl TyreState {
 
 /// One tyre's tile: its corner and state, the temperature big, the temperatures across the tread when the game gives
 /// them, and the small row under them.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct TyreTile {
     pub(super) corner: String,
     /// The state as a word (empty without a temperature).
@@ -435,7 +447,8 @@ pub(super) struct TyreTile {
 
 /// A tyre seen from above, in the colours of its temperatures. Owner decision 2026-11-19: only the tyre (no car), three
 /// vertical bands for a game that gives the readings across the tread (`Caps::TYRE_TREAD`), a solid block otherwise.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum TyreShape {
     Solid(COLORREF),
     /// Left to right as drawn.
@@ -443,7 +456,8 @@ pub(super) enum TyreShape {
 }
 
 /// The four tyres: what is shown, and the tiles (made from the last values seen when the frame has none).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct TyresModel {
     pub(super) show: Show,
     pub(super) tiles: [TyreTile; 4],
@@ -454,7 +468,8 @@ pub(super) struct TyresModel {
 }
 
 /// What a row of the laps table is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) enum LapKind {
     /// The lap being driven.
     Live,
@@ -466,7 +481,8 @@ pub(super) enum LapKind {
 }
 
 /// One row of the laps table: texts and the meaning of their colours.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct LapRow {
     pub(super) kind: LapKind,
     pub(super) show: Show,
@@ -479,7 +495,8 @@ pub(super) struct LapRow {
     pub(super) sectors: [Option<(String, Role)>; 3],
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct LapsModel {
     pub(super) show: Show,
     pub(super) title: String,
@@ -494,7 +511,8 @@ pub(super) struct LapsModel {
 }
 
 /// Everything the dashboard shows.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct DashModel {
     pub(super) status: Option<(StatusKind, String)>,
     /// The banner over the cards: only while paused or while the game is silent (the other states keep the state line).

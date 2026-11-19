@@ -32,6 +32,8 @@ pub(super) const MIN_HEIGHT: i32 = 480;
 pub(super) struct State {
     /// The dashboard's layout in use, kept between frames (see `pick_layout_sticky`).
     pub(super) layout: Option<Layout>,
+    /// The dashboards chosen by hand, per game (`dashboards.json`).
+    pub(super) choices: Choices,
     /// The back buffer frames are drawn into, kept for the window's size.
     pub(super) buffer: Option<Backdrop>,
     /// Where the mouse is over the window, while it is.
@@ -159,6 +161,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         games_scroll: state.games_scroll,
         scroll: Default::default(),
         carousel_step: Default::default(),
+        dashboard: live.as_ref().and_then(|l| state.choices.get(l.game)),
         layout: std::cell::Cell::new(state.layout),
         lang_open: state.lang_open,
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
@@ -649,6 +652,8 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                     set_on_top(hwnd, state.on_top);
                 }
                 VK_F11 | 0x46 => toggle_full(hwnd, state),
+                // D: race, qualifying, practice, time trial, automatic; kept for the game that is open.
+                0x44 => switch_dashboard(state),
                 VK_ESCAPE if state.lang_open => state.lang_open = false,
                 VK_ESCAPE if state.full.is_some() => toggle_full(hwnd, state),
                 // Left and right arrows move the covers' carousel.
@@ -780,6 +785,7 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         RegisterClassExW(&window_class);
         let state = Box::into_raw(Box::new(State {
             layout: None,
+            choices: crate::config::home_dir().map(|h| Choices::load(&h)).unwrap_or_default(),
             ctx: ctx(),
             tab: Tab::Dash,
             coach_window: null_mut(),
@@ -863,5 +869,18 @@ pub fn show(existing: HWND, ctx: impl FnOnce() -> Context) -> HWND {
         let server = lock(&(*state).ctx.account).server.clone();
         fetch_covers_once(hwnd, server);
         hwnd
+    }
+}
+
+/// `D`: the next dashboard for the game that is open, remembered in `dashboards.json`. Nothing without a game.
+fn switch_dashboard(state: &mut State) {
+    let Some(game) = state.ctx.shared.live().map(|l| l.game) else {
+        return;
+    };
+    let next = next_manual(state.choices.get(game));
+    state.choices.set(game, next);
+    if let Some(home) = crate::config::home_dir() {
+        // Not being able to keep the choice only means it is forgotten at the next start.
+        let _ = state.choices.save(&home);
     }
 }

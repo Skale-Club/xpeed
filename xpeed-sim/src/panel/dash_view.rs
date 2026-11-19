@@ -49,7 +49,7 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         view.layout.get(),
     );
     view.layout.set(Some(layout));
-    let plan = layout.plan_for(&slots, m.laps.rows.len());
+    let plan = layout.plan_in(view.dashboard_in_use(), &slots, m.laps.rows.len());
     let (s, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
     g.place(s, ox, oy);
     header(g, &d, plan.w);
