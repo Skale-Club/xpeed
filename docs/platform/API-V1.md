@@ -653,7 +653,7 @@ unreadable file is marked `file_unreadable` (implausible) so it is never tried a
 
 ## Leaderboards
 
-### `GET /leaderboard?track&car&scope&game&tyre&limit&cursor`
+### `GET /leaderboard?track&car&scope&game&tyre&aids&limit&cursor`
 `track` and `car` are catalog ids (required; a track of another game than `game` is `400 invalid_game`); `scope` is `public` (default) or
 `friends`. The best valid, plausible, visible lap of every driver for that track and car, ranked by time. **Ties share a rank** (1, 2, 2, 4),
 the earlier lap first; `gapMs` is the distance to the leader. Cursor paging, `limit` up to 100.
@@ -663,17 +663,24 @@ compared as the exact text within one game (no case folding, no mapping across g
 gaps are of that tyre only. Absent or empty means every tyre (the board as it was). 1 to 40 characters without control characters, else
 `400 invalid_tyre`. A lap whose file had no compound is on the every-tyre board only. A lap's compound is read from its header at upload; laps that arrived
 before the server stored it are filled in by the `tyre_backfill` job (`docs/platform/STORAGE.md`), so a filtered board grows complete as it runs.
+
+`aids` limits the board to laps by **aid class** (below): `all` (default; absent or empty is the same: every lap, the board as it was), `no_tc_abs` (laps of class
+`no_tc_abs` or `none`) or `none` (class `none`); anything else is `400 invalid_aids`. It combines with `tyre`: each driver's best lap of that class **on that tyre**
+is ranked, and ranks and gaps are of that board only. A lap of class `unknown` is only on `all`.
 ```
-{ game, scope, tyre: string | null, track: { id, name, lengthM | null }, car: { id, name, class | null },
-  entries: [{ rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe }], nextCursor }
+{ game, scope, tyre: string | null, aids: "all" | "no_tc_abs" | "none", track: { id, name, lengthM | null }, car: { id, name, class | null },
+  entries: [{ rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe, aids: Aids | null }], nextCursor }
 ```
+A row's `aids` is the aids object of **that lap** as its file header gave it (below), or `null` when the lap has none (it arrived before the Companion wrote them, or the game gives
+none) or its claim did not hold up (`aids_consistent`, below), so a screen draws icons only when it is not `null`. It describes the lap, not the person: the same viewers
+already see that lap's time and date.
 `scope=public`: public profiles only, not hidden, not blocked either way with the caller. `scope=friends`: the caller (whatever their visibility)
 and their accepted friends who are not private or hidden. `lapId` is the lap that counts, for `POST /reports`.
 
-### `GET /leaderboard/me?track&car&scope&tyre`
-Takes the same `tyre` as the board (and `400 invalid_tyre`): your place, `total` and neighbours are on that tyre's board.
+### `GET /leaderboard/me?track&car&scope&tyre&aids`
+Takes the same `tyre` and `aids` as the board (and `400 invalid_tyre`, `invalid_aids`): your place, `total` and neighbours are on that board; the rows carry `aids` too.
 ```
-{ game, scope, tyre, track, car, total, me: { rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe: true } | null,
+{ game, scope, tyre, aids, track, car, total, me: { rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe: true } | null,
   reason: null | "not_listed", neighbours: { above: [Entry], below: [Entry] } }
 ```
 The two drivers above and the two below by position. `me` is `null` (reason `not_listed`) when the caller is not on that board: no valid plausible
@@ -693,15 +700,16 @@ blocked either way with the caller. Alphabetical by name, then id; cursor paging
 `lapCount` is the number of such laps (not drivers; not the caller's own private ones). It is the only thing said about anybody. `400 invalid_kind`, `invalid_game`,
 `invalid_track`, `invalid_car`, `invalid_limit`, `invalid_cursor`; `429 too_many_requests`. Use the `id`s with `GET /leaderboard`.
 
-### `GET /leaderboards/conditions?track&car&scope&game&tyre`
-What one board is made of: the tyre compounds that have laps on it, and its theoretical best. `track`, `car` (catalog ids, required), `scope`, `game` and `tyre` are
+### `GET /leaderboards/conditions?track&car&scope&game&tyre&aids`
+What one board is made of: the tyre compounds that have laps on it, how many drivers each aid board has, and its theoretical best. `track`, `car` (catalog ids, required), `scope`, `game` and `tyre` are
 read exactly as `GET /leaderboard` reads them, and the answer follows **exactly the same visibility rules** as that board (the same SQL function decides which laps
 a board can show): valid, plausible, not hidden laps of profiles that are not hidden; `scope=public` only public profiles not blocked either way, `scope=friends`
 the caller and accepted friends. Limited to 60 reads a minute per person (its own counter, the same limit as the catalog). `400 invalid_track`, `invalid_car`,
-`invalid_scope`, `invalid_game`, `invalid_tyre`; `404 track_not_found`, `car_not_found`; `429 too_many_requests`.
+`invalid_scope`, `invalid_game`, `invalid_tyre`, `invalid_aids`; `404 track_not_found`, `car_not_found`; `429 too_many_requests`.
 ```
-{ game, scope, tyre: string | null, track: { id, name }, car: { id, name },
+{ game, scope, tyre: string | null, aidBoard: "all" | "no_tc_abs" | "none", track: { id, name }, car: { id, name },
   tyres: [{ compound, drivers }],
+  aids: [{ class: "no_tc_abs", drivers }, { class: "none", drivers }],
   theoreticalBest: { timeMs, sectors: [{ index, ms, handle }] } | null }
 ```
 - `tyres` always covers the whole board, whatever `tyre` says (so a screen can keep its chips while one is chosen): every compound with the number of drivers
@@ -709,7 +717,36 @@ the caller and accepted friends. Limited to 60 reads a minute per person (its ow
 - `theoreticalBest` is the fastest of each sector over **every lap the board can show** (not only each driver's best lap, since a best sector is often not on
   the best lap), limited to `tyre` when it is given, and who drove it (`handle`; a tie goes to the earlier lap). `index` counts sectors from 1 and `timeMs` is
   the sum of the sector times, which no lap has to equal. It is `null` unless **every** counted lap has the same number of sectors, at least two, all above zero
-  (a lap with no sectors, or a different count, would make the sum meaningless), and `null` when no lap is counted.
+  (a lap with no sectors, or a different count, would make the sum meaningless), and `null` when no lap is counted. It follows `aids` as well as `tyre`.
+- `aids` lists both filtered boards, always, with the number of drivers who have a counted lap on each (`no_tc_abs` counts the `none` laps too, as the board does). It
+  honours `tyre` (the drivers on that aid board **with that tyre**) and never depends on `aidBoard`, so a screen can keep its chips while one is chosen. A screen shows the
+  chips when at least one of the two has a driver, or when it was opened on one. (`aidBoard` is the aid board the answer's `theoreticalBest` is for.)
+
+### Aid classes
+
+Phase 2 of the Companion writes the aids of a lap in the header (`aids`: `tcMax`, `absMax`, `stability`, `autoShift`, `autoClutch`, `autoBlip`, `idealLine`; each is the
+highest setting seen during the lap; a missing key is unknown, never off). At upload the server sorts the lap into one class (`api/sim/_aids.ts`), stored as
+`sim_laps.aid_class` with the header's object in `sim_laps.aids`:
+
+| Class | When | On the boards |
+|---|---|---|
+| `none` | TC and ABS are known and 0, and every other aid the header gives is off (stability 0, the others false) | `all`, `no_tc_abs`, `none` |
+| `no_tc_abs` | TC and ABS are known and 0, but some other aid is on | `all`, `no_tc_abs` |
+| `any` | TC or ABS is known and above 0 | `all` |
+| `unknown` | TC or ABS is missing, the header has no `aids` (every lap before the Companion wrote them, iRacing, Forza, rFactor 1), or the check below failed | `all` |
+
+Aids are what the game reports through the Companion. They are marked **beta** on the website until each game's reader is confirmed by a live capture; a lap file from a
+modified client can lie, and the check below catches only the common case.
+
+**`aids_consistent`.** The file also records when traction control and ABS were acting (`tc_active`, `abs_active`, one flag per sample). A lap whose header says `tcMax: 0`
+but has `tc_active` set in **more than 5 samples** (`PLAUSIBILITY.aidActiveSamples` in `api/sim/_plausibility.ts`; a game can flicker the flag for a frame or two, so a few stray
+samples are tolerated), or the same for `absMax: 0` and `abs_active`, contradicts itself. It is **not** one of the plausibility checks: `plausible` and `plausibility.failed`
+are untouched and the lap still ranks on the open board. Its class becomes `unknown`, its row shows `aids: null`, and the contradiction is written inside `plausibility`
+under its own key, which `GET /v1/admin/laps/<id>` returns:
+```
+plausibility: { v: 1, failed: [...], aids: { consistent: false, tcActiveSamples, absActiveSamples, limit: 5, claimed: { ...the header's aids } } }
+```
+(`tcActiveSamples` / `absActiveSamples` are `null` for an aid the header did not claim to be off, or a file with no such channel.) A lap that passes has no `aids` key there.
 
 ## Reports
 
@@ -732,7 +769,7 @@ Moderators are decided by the app's own server-side check (`is_admin_user()`, ru
   still has their own laps); `unhide` shows the target again (and dismisses an open report). `200 { report }`; `409 already_decided`.
 - `GET /admin/laps/<id>`: `{ lap: { id, game, track, car, lapNumber, timeMs, valid, startedAt, sectorsMs, topSpeedKmh, sampleCount, sizeBytes,
   formatVersion, createdAt, marked, plausible, plausibility, hidden }, owner: { handle, displayName, visibility, hidden } | null,
-  onLeaderboard, reports: [{ id, status, reason, createdAt }] }`. `plausibility.failed` lists the checks and the numbers.
+  onLeaderboard, reports: [{ id, status, reason, createdAt }] }`. `plausibility.failed` lists the checks and the numbers; `plausibility.aids` appears only when the lap contradicts its own aids (see Aid classes).
 - `POST /admin/recheck` body `{ "limit"?: 1-200 }` (default 50): reads the files of laps with no verdict and fills it in; unreadable files become
   `file_unreadable`. `{ checked, plausible, implausible, remaining }`. Run it until `remaining` is 0 after the migration.
 - `GET /admin/problems?status=open|resolved|all&source=site|companion&limit` (default `open`, both sources, up to 200): the groups of error reports
