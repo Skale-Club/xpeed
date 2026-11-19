@@ -1566,8 +1566,12 @@ fn the_times_card_shows_the_projected_lap_and_the_delta_along_it() {
     let green = tint(CARD, SUCCESS, DELTA_TRACE_FILL);
     assert_eq!(at(90, zero + 4), green, "ahead: green under the line");
     assert_eq!(at(90, zero - 4), 0, "nothing over the line where the lap is ahead");
-    let yellowish = |c: COLORREF| (c & 0xff) > 0x90 && (c >> 8 & 0xff) > 0x80 && (c >> 16 & 0xff) < 0x70;
-    assert!(yellowish(at(120, 2)) || yellowish(at(119, 2)), "the car's place on the lap");
+    // A thin smoothed line shares its colour between two pixel columns: look for its yellow hue there.
+    let yellowish = |c: COLORREF| {
+        let (r, g, b) = (c & 0xff, c >> 8 & 0xff, c >> 16 & 0xff);
+        r > 0x50 && g > 0x40 && b * 2 < r
+    };
+    assert!((118..=121).any(|x| yellowish(at(x, 2))), "the car's place on the lap");
     assert_eq!(at(200, zero), SECONDARY, "the rest of the lap is only the zero line");
 }
 
@@ -2273,7 +2277,15 @@ fn blocks_are_stacked_with_an_even_gap_and_centred_never_with_a_hole() {
         let (x, y, w, ih) = inner(card);
         assert!(inside_box(p.lap, x, y, w, ih) && inside_box(p.delta, x, y, w, ih) && inside_box(p.records, x, y, w, ih));
         assert!(p.delta.1 - (p.lap.1 + p.lap.3) <= S8 + 0.01, "h {h}: lap time to delta");
-        assert!(p.records.1 - (p.bar.1 + p.bar.3) <= 2.0 * S8 + 0.01, "h {h}: delta to records");
+        // With the delta along the lap (module 5) between them, each step keeps the same even gap.
+        let above_records = match p.trace {
+            Some(t) => {
+                assert!(t.1 - (p.bar.1 + p.bar.3) <= S8 + 0.01, "h {h}: delta to its graph");
+                t.1 + t.3
+            }
+            None => p.bar.1 + p.bar.3,
+        };
+        assert!(p.records.1 - above_records <= 2.0 * S8 + 0.01, "h {h}: delta to records");
         assert!(!overlap(p.lap, p.delta) && !overlap(p.bar, p.records) && !overlap(p.delta, p.records));
         assert_eq!(p.big, h - 2.0 * S3 >= TIMES_BIG_H, "tall cards get the big figures");
         let rule = p.rule.expect("the line over the records");
