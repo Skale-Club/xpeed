@@ -13,7 +13,8 @@ pub(super) const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
     r as u32 | (g as u32) << 8 | (b as u32) << 16
 }
 
-/// `a` with `t` (0..1) of `b` mixed in. Only tokens and gradients use it: a view asks for a named colour instead.
+/// `a` with `t` (0..1) of `b` mixed in. Only tokens, gradients and the gear carousel's in-between colours use it: a
+/// view asks for a named colour instead.
 pub(super) const fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
     const fn channel(a: COLORREF, b: COLORREF, t: f32, shift: u32) -> COLORREF {
         let (x, y) = ((a >> shift & 0xff) as f32, (b >> shift & 0xff) as f32);
@@ -120,6 +121,9 @@ pub(super) const INPUT_LAP_H: f32 = 18.0;
 pub(super) const INPUT_BLOCK_H: f32 = 5.0;
 /// The input trace's grid (owner, 2026-11-19): a hairline every 10% of the pedal travel, barely lighter than the strip,
 /// so the trace reads like a chart without the lines competing with it.
+/// The gear carousel (owner, 2026-11-19): on a shift the gears slide one place in this long, easing out, the new gear
+/// growing into the middle and the old one shrinking to the side.
+pub(super) const GEAR_SLIDE_MS: i64 = 220;
 pub(super) const INPUT_GRID_INK: COLORREF = rgb(0x1c, 0x1d, 0x21);
 /// The gear takes at least this share of the centre card's inside height (owner, 2026-11-19: it is read from afar;
 /// nothing else may shrink it). The layout test pins it.

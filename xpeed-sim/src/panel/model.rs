@@ -11,18 +11,39 @@ pub(super) fn delta_text(d: Option<f64>) -> Option<String> {
         .map(|d| format!("{}{:.3}", if d < 0.0 { "-" } else { "+" }, d.abs()))
 }
 
-/// The gears either side of `gear` (R, N, 1, 2, ...): the one below and the one above. There is nothing below
-/// reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known; when it is not, there
-/// is always one above a forward gear.
+/// The gears either side of `gear` (R, N, 1, 2, ...) at rest: the one below and the one above (see `gear_places`).
+/// There is nothing below reverse, and nothing above the top gear when the car's forward gear count (`gears`) is known;
+/// when it is not, there is always one above a forward gear.
+#[cfg(test)]
 pub(super) fn neighbour_gears(gear: f32, gears: Option<u8>) -> (Option<String>, Option<String>) {
+    let places = gear_places(gear, gears, None, 0);
+    let at = |place: f32| places.iter().find(|(_, p)| *p == place).map(|(text, _)| text.clone());
+    (at(-1.0), at(1.0))
+}
+
+/// The gears on the carousel's track (see `DashModel::gear_track`): the track stands on `gear`, or, for
+/// `GEAR_SLIDE_MS` after a shift (`shift`: the gear before it and when it was seen), on its way there, easing out. A gear
+/// is on it while it is less than one and a half places from where the track stands. There is nothing below reverse,
+/// and nothing above the top gear when the car's forward gear count (`gears`) is known.
+pub(super) fn gear_places(gear: f32, gears: Option<u8>, shift: Option<(f32, i64)>, now_ms: i64) -> Vec<(String, f32)> {
     if !gear.is_finite() {
-        return (None, None);
+        return Vec::new();
     }
-    let g = gear.round() as i32;
-    let below = (g > -1).then(|| gear_text((g - 1) as f32));
-    let in_top_gear = g >= 1 && gears.is_some_and(|count| g >= i32::from(count));
-    let above = (!in_top_gear).then(|| gear_text((g + 1) as f32));
-    (below, above)
+    let to = gear.round();
+    let at = match shift {
+        Some((from, since)) if from != to && (0..GEAR_SLIDE_MS).contains(&(now_ms - since)) => {
+            let t = (now_ms - since) as f32 / GEAR_SLIDE_MS as f32;
+            from + (to - from) * (1.0 - (1.0 - t).powi(3))
+        }
+        _ => to,
+    };
+    let exists = |g: i32| g == to as i32 || (g >= -1 && (g < 1 || gears.is_none_or(|count| g <= i32::from(count))));
+    let (low, high) = (at.min(to).floor() as i32 - 1, at.max(to).ceil() as i32 + 1);
+    (low..=high)
+        .filter(|&g| exists(g))
+        .map(|g| (gear_text(g as f32), g as f32 - at))
+        .filter(|(_, place)| place.abs() < 1.5)
+        .collect()
 }
 
 pub(super) fn gear_text(gear: f32) -> String {
@@ -553,8 +574,9 @@ pub(super) struct DashModel {
     pub(super) aids: (bool, bool),
     pub(super) lap_share: Option<[(String, String); 3]>,
     pub(super) gear: Elem,
-    pub(super) gear_below: Elem,
-    pub(super) gear_above: Elem,
+    /// The gears on the centre card's track at this instant: each one's text and its place, 0 the middle, -1 and 1 the
+    /// edges (the gears either side), in between while a shift slides (owner, 2026-11-19).
+    pub(super) gear_track: Vec<(String, f32)>,
     pub(super) speed: Elem,
     /// A pedal: its name (and a short one), the percentage as its text and the share as `frac`.
     pub(super) brake: Elem,
@@ -938,11 +960,11 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     } else {
         Elem::hidden()
     };
-    let (below, above) = match gear_val.filter(|_| slots.gear) {
-        Some(g) => neighbour_gears(g, live.gears),
-        None => (None, None),
+    let shift = live.gear_shift.filter(|_| gear_now.is_some());
+    let gear_track = match gear_val.filter(|_| slots.gear) {
+        Some(g) => gear_places(g, live.gears, shift, ctx.now_ms),
+        None => Vec::new(),
     };
-    let neighbour = |t: Option<String>| t.map_or_else(Elem::hidden, |t| Elem::with(gear_show, Role::Muted, t));
     let speed_now = finite(live.speed_ms);
     let speed = if slots.speed {
         let value = speed_now
@@ -1385,8 +1407,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
             std::array::from_fn(|k| (words[k].clone(), format!("{:.0}%", share[k] * 100.0)))
         }),
         gear,
-        gear_below: neighbour(below),
-        gear_above: neighbour(above),
+        gear_track,
         speed,
         brake,
         throttle,

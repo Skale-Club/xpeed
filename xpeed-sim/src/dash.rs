@@ -267,6 +267,8 @@ pub struct Live {
     pub lap_speed_ms: Option<(f32, f32)>,
     /// This lap's share of time flat out, on the brake and on neither pedal (0..1 each), once a second of it is known.
     pub lap_inputs: Option<[f32; 3]>,
+    /// The gear before the last shift and when the shift was seen (ms): the panel slides the gears from it.
+    pub gear_shift: Option<(f32, i64)>,
     /// A valid best path from this session, shown only for an explicit practice/qualifying context.
     pub reference: Option<Arc<Vec<(f32, f32)>>>,
     /// Forward direction inferred from recent live movement, never from replay progression.
@@ -349,6 +351,9 @@ pub struct Tracker {
     /// The highest forward gear seen with this car, and whether the car was seen in a lower one afterwards.
     top_gear: u8,
     top_gear_left: bool,
+    /// The gear of the last reading that had one, and the last shift (the gear before it, when it was seen).
+    last_gear: Option<f32>,
+    gear_shift: Option<(f32, i64)>,
     /// The fuel (litres) when the lap being driven began, when this run saw it begin (a lap joined midway has none).
     fuel_lap_start: Option<f32>,
     /// The last fuel reading of this lap.
@@ -533,6 +538,7 @@ impl Tracker {
             self.rpm_top = frame.rpm;
         }
         self.see_gear(frame.gear);
+        self.see_shift(frame.gear, at_ms);
         let delta_s = match (&self.best, step.sample, frame.lap_time_s) {
             (Some((_, best)), Some(sample), Some(_)) if self.current_from_line => {
                 time_at(best, sample.dist_m).map(|best_t| sample.t_s - best_t)
@@ -642,6 +648,7 @@ impl Tracker {
                 let all = self.lap_input_ms[3];
                 [0, 1, 2].map(|k| (self.lap_input_ms[k] / all) as f32)
             }),
+            gear_shift: self.gear_shift,
             reference: matches!(frame.session_kind, Some(SessionKind::Practice | SessionKind::Qualifying))
                 .then(|| self.best_path.clone())
                 .flatten(),
@@ -775,6 +782,18 @@ impl Tracker {
 
     /// Remembers the highest forward gear. It only counts as the car's top gear once the car has been seen in a lower
     /// one after it: just reaching a gear says nothing about whether there is another above it.
+    /// Remembers the last shift: the gear before it and when it was seen.
+    fn see_shift(&mut self, gear: f32, at_ms: i64) {
+        if !gear.is_finite() {
+            return;
+        }
+        let gear = gear.round();
+        if let Some(before) = self.last_gear.filter(|&before| before != gear) {
+            self.gear_shift = Some((before, at_ms));
+        }
+        self.last_gear = Some(gear);
+    }
+
     fn see_gear(&mut self, gear: f32) {
         if !gear.is_finite() || !(1.0..=30.0).contains(&gear.round()) {
             return;

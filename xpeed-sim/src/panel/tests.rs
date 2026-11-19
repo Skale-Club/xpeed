@@ -968,6 +968,12 @@ fn writes_the_design_preview_page() {
     sectors_view.recent_laps = &timed;
     let pixels = render(&sectors_view, 1920, 1080);
     save(&pixels, 1920, 1080, "preview-laps-sectors.png");
+    // The gear carousel a third of the way through a shift up into the gear shown.
+    let mut shifting = rich.clone();
+    shifting.gear_shift = Some((shifting.gear - 1.0, 1_500 - GEAR_SLIDE_MS / 3));
+    let pixels = render(&view(&f, Some(&shifting), Tab::Dash, 1.0, Lang::En), 1920, 1080);
+    save(&pixels, 1920, 1080, "preview-gear-shift.png");
+    figures.push_str("<figure><figcaption>A shift a third of the way through: the new gear grows into the middle, the old one shrinks to the side (1920 × 1080)</figcaption><img data-src=\"preview-gear-shift.png\" width=\"1920\" height=\"1080\"></figure>\n");
     figures.push_str("<figure><figcaption>Laps with sectors: purple the fastest, green faster than the best lap, yellow slower (1920 × 1080)</figcaption><img data-src=\"preview-laps-sectors.png\" width=\"1920\" height=\"1080\"></figure>\n");
     let covers = CoverArt::load(None);
     let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
@@ -1623,6 +1629,35 @@ fn the_centre_keeps_a_big_gear_and_the_pedals_have_their_own_card() {
     assert_eq!(at(20, 20), INPUT_GRID_INK, "a faint line at half the travel");
     let abs_x = (0.32 * 200.0) as i32;
     assert!((abs_x - 3..abs_x + 3).any(|x| at(x, 1) == INFO), "the ABS mark where it acted");
+}
+
+/// The gear carousel (owner-approved 2026-11-19): the reader keeps the last shift; on it the gears slide one place in
+/// `GEAR_SLIDE_MS`, easing out, the new gear growing into the middle and the old one shrinking to the side; at rest the
+/// track is the gear in the middle and its neighbours at the edges.
+#[test]
+fn a_shift_slides_the_gears_like_a_carousel() {
+    let mut tracker = crate::dash::Tracker::default();
+    let mut frame = Frame::empty();
+    frame.driving = true;
+    frame.gear = 4.0;
+    tracker.on_frame("ac", &frame, 1_000);
+    frame.gear = 5.0;
+    assert_eq!(tracker.on_frame("ac", &frame, 1_100).gear_shift, Some((4.0, 1_100)));
+    let mut live = live_reading();
+    let at = live.at_ms;
+    live.gear_shift = Some((live.gear - 1.0, at));
+    let places = |now: i64| dashboard(&live, &ctx_of(Lang::En, now)).gear_track;
+    let rest = vec![("4".to_owned(), -1.0), ("5".to_owned(), 0.0), ("6".to_owned(), 1.0)];
+    assert_eq!(
+        places(at + GEAR_SLIDE_MS),
+        rest,
+        "at rest: the gear in the middle, its neighbours at the edges"
+    );
+    let half = places(at + GEAR_SLIDE_MS / 2);
+    let place_of = |text: &str| half.iter().find(|(t, _)| t == text).map(|&(_, p)| p).expect(text);
+    let (four, five) = (place_of("4"), place_of("5"));
+    assert!((-1.0..0.0).contains(&four), "halfway: 4 on its way out to the left ({four})");
+    assert!((0.0..0.5).contains(&five), "halfway: 5 most of its way in ({five})");
 }
 
 /// The owner's fuel card (module 6, 2026-11-19): the use as three numbers, how long the fuel lasts, and a stint plan.

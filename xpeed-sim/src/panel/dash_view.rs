@@ -311,13 +311,24 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
     }
     shown(g, m.gear.show, |g| {
         let (gx, gy, gw, gh) = plan.gear;
-        let r = g.r(gx, gy, gw, gh);
-        g.text(&m.gear.text, r, gh * GEAR_FILL, semi, Face::Num, PRIMARY, DT_CENTER);
-        for (gear, (x, y, w, h)) in [(&m.gear_below, plan.below), (&m.gear_above, plan.above)] {
-            if gear.visible() {
-                let r = g.r(x, y, w, h);
-                g.text(&gear.text, r, T_VALUE_L, semi, Face::Num, GREY, DT_CENTER);
-            }
+        if m.gear_track.is_empty() {
+            let r = g.r(gx, gy, gw, gh);
+            return g.text(&m.gear.text, r, gh * GEAR_FILL, semi, Face::Num, PRIMARY, DT_CENTER);
+        }
+        // The carousel (owner-approved 2026-11-19): each gear between the middle (big, yellow) and an edge (small,
+        // grey) by its place on the track, fading into the card past an edge. The farthest first, so the middle one is
+        // drawn over the rest. At rest it is the gear in the middle and its neighbours in their boxes.
+        let mut track: Vec<&(String, f32)> = m.gear_track.iter().collect();
+        track.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()));
+        for (text, place) in track {
+            let (ex, ey, ew, eh) = if *place < 0.0 { plan.below } else { plan.above };
+            let t = place.abs().min(1.0);
+            let lerp = |a: f32, b: f32| a + (b - a) * t;
+            let (x, w) = (lerp(gx + gw / 2.0, ex + ew / 2.0), lerp(gw, ew));
+            let fade = ((place.abs() - 1.0) * 2.0).clamp(0.0, 1.0);
+            let ink = mix(mix(PRIMARY, GREY, t), CARD, fade);
+            let r = g.r(x - w / 2.0, lerp(gy, ey), w, lerp(gh, eh));
+            g.text(text, r, lerp(gh * GEAR_FILL, T_VALUE_L), semi, Face::Num, ink, DT_CENTER);
         }
     });
     shown(g, m.speed.show, |g| {
