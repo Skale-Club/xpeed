@@ -3277,8 +3277,13 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             used.extend(seen);
         }
         for pane in later_nine {
-            // Classic, the smallest window, leaves the tyre wear and the rivals out.
-            if layout == Layout::Classic && matches!(pane, Pane::TyreTrend | Pane::Relative | Pane::Standings | Pane::Gaps) {
+            // Classic, the smallest window, leaves the tyre wear and the rivals out; a phone held upright, the tyre wear.
+            let left_out = match layout {
+                Layout::Classic => matches!(pane, Pane::TyreTrend | Pane::Relative | Pane::Standings | Pane::Gaps),
+                Layout::Portrait => pane == Pane::TyreTrend,
+                _ => false,
+            };
+            if left_out {
                 continue;
             }
             assert!(used.contains(&pane), "{layout:?}: {pane:?} is on some dashboard");
@@ -4240,4 +4245,11 @@ fn the_rivals_cards_paint_in_every_shape_with_and_without_the_cars() {
             }
         }
     }
+}
+
+#[test]
+fn a_race_with_rivals_keeps_the_phone_layout_on_a_phone_held_upright() {
+    // Too tall a canvas falls back to Classic, which has no rivals: the race rows for a phone must stay short enough.
+    let s = slots(full_reading().caps);
+    assert_eq!(pick_layout_in(DashboardId::Race, 540.0, 1014.0, &s), Layout::Portrait);
 }

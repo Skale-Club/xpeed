@@ -216,6 +216,8 @@ const RACE_CLASSIC: &[Row] = &[
     },
 ];
 
+// A phone held upright: what a race needs most, so the canvas stays short enough to read (tyre wear, the track and the
+// alerts are on the bigger layouts).
 const RACE_PORTRAIT: &[Row] = &[
     Row {
         h: 220.0,
@@ -223,7 +225,7 @@ const RACE_PORTRAIT: &[Row] = &[
     },
     Row {
         h: 170.0,
-        cards: &[(Pane::Session, 1.0)],
+        cards: &[(Pane::Session, 1.0), (Pane::Flag, 1.0)],
     },
     Row {
         h: 244.0,
@@ -242,20 +244,8 @@ const RACE_PORTRAIT: &[Row] = &[
         cards: &[(Pane::Centre, 1.0)],
     },
     Row {
-        h: 120.0,
-        cards: &[(Pane::Flag, 1.0)],
-    },
-    Row {
         h: 262.0,
         cards: &[(Pane::FuelCalc, 0.9), (Pane::Tyres, 1.1)],
-    },
-    Row {
-        h: 230.0,
-        cards: &[(Pane::TyreTrend, 1.0), (Pane::Track, 1.0)],
-    },
-    Row {
-        h: 240.0,
-        cards: &[(Pane::Alerts, 1.0)],
     },
 ];
 
