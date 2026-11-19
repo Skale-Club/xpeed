@@ -1,5 +1,5 @@
 import type {
-  AdminLap, AdminReport, CatalogEntry, DeletedSummary, DriverPage, Friend, FriendStatus, LeaderboardEntry, MyProfile, PublicShare, Relation, Share, Visibility,
+  AdminLap, AdminReport, CatalogEntry, DeletedSummary, DriverPage, Friend, FriendStatus, LeaderboardEntry, MyProfile, PublicShare, Relation, Share, TheoreticalBest, Visibility,
 } from '@/lib/sim/social-client';
 import { fakeV1State, handleV1, type FakeResponse, type FakeV1State } from '@/test/v1-fake-server';
 import type { Problem } from '@/lib/problems-client';
@@ -21,7 +21,16 @@ export interface FakeDriver {
   hidden?: boolean;
 }
 
-export interface FakeBoard { entries: LeaderboardEntry[]; game: string; track: { id: string; name: string; lengthM: number | null }; car: { id: string; name: string; class: string | null } }
+export interface FakeBoard {
+  entries: LeaderboardEntry[];
+  game: string;
+  track: { id: string; name: string; lengthM: number | null };
+  car: { id: string; name: string; class: string | null };
+  /** The same board per tyre compound (`?tyre=`); a tyre not listed has no laps. Without it the board has no compounds. */
+  byTyre?: Record<string, LeaderboardEntry[]>;
+  /** The theoretical best per tyre (`''` is every tyre); missing or null is "not known" (the server sends null). */
+  theoretical?: Record<string, TheoreticalBest | null>;
+}
 
 export interface FakeRequest { method: string; path: string; params: Record<string, string>; body: unknown; authorization: string | null }
 
@@ -59,7 +68,10 @@ export interface FakeSocialState {
   tokenCounter: number;
 }
 
-export const boardKey = (track: string, car: string, scope: string) => `${track}|${car}|${scope}`;
+/** The server's rule for `?tyre=`: 1 to 40 characters, no control characters. */
+const badTyre = (tyre: string) => tyre.length > 40 || [...tyre].some((ch) => ch.charCodeAt(0) <= 0x1f || ch.charCodeAt(0) === 0x7f);
+
+export const boardKey =(track: string, car: string, scope: string) => `${track}|${car}|${scope}`;
 
 export function fakeSocialState(partial: Partial<FakeSocialState> = {}): FakeSocialState {
   return {
@@ -280,8 +292,10 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
       const scope = params.scope ?? 'public';
       if (!['public', 'friends'].includes(scope)) return fail(400, 'invalid_scope');
       const board = state.boards.get(boardKey(params.track, params.car, scope));
-      const meta = { game: board?.game ?? params.game ?? 'lmu', scope, track: board?.track ?? { id: params.track, name: 'Track', lengthM: null }, car: board?.car ?? { id: params.car, name: 'Car', class: null } };
-      const entries = board?.entries ?? [];
+      const tyre = params.tyre ? params.tyre : null;
+      if (tyre !== null && badTyre(tyre)) return fail(400, 'invalid_tyre');
+      const meta = { game: board?.game ?? params.game ?? 'lmu', scope, tyre, track: board?.track ?? { id: params.track, name: 'Track', lengthM: null }, car: board?.car ?? { id: params.car, name: 'Car', class: null } };
+      const entries = tyre === null ? board?.entries ?? [] : board?.byTyre?.[tyre] ?? [];
       if (a === 'me') {
         const index = entries.findIndex((entry) => entry.isMe);
         const me = index >= 0 ? entries[index] : null;
@@ -301,6 +315,22 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
       return { status: 200, json: { ...meta, entries: entries.slice(start, start + limit), nextCursor: start + limit < entries.length ? encode(start + limit) : null } };
     }
     case 'leaderboards': {
+      if (a === 'conditions' && !b) {
+        if (method !== 'GET') return fail(405, 'method_not_allowed');
+        if (!params.track) return fail(400, 'invalid_track');
+        if (!params.car) return fail(400, 'invalid_car');
+        const scope = params.scope ?? 'public';
+        if (!['public', 'friends'].includes(scope)) return fail(400, 'invalid_scope');
+        const tyre = params.tyre ? params.tyre : null;
+        if (tyre !== null && badTyre(tyre)) return fail(400, 'invalid_tyre');
+        const board = state.boards.get(boardKey(params.track, params.car, scope));
+        // The compounds cover the whole board, the most drivers first; the theoretical best follows the chosen tyre.
+        const tyres = Object.entries(board?.byTyre ?? {})
+          .map(([compound, rows]) => ({ compound, drivers: rows.length }))
+          .filter((entry) => entry.drivers > 0)
+          .sort((p, q) => q.drivers - p.drivers || p.compound.localeCompare(q.compound));
+        return { status: 200, json: { game: board?.game ?? params.game ?? 'lmu', scope, tyre, tyres, theoreticalBest: board?.theoretical?.[tyre ?? ''] ?? null } };
+      }
       if (a !== 'catalog' || b) return fail(404, 'not_found');
       if (method !== 'GET') return fail(405, 'method_not_allowed');
       const kind = params.kind ?? 'track';

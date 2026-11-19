@@ -122,7 +122,15 @@
       "youLead": "Vas primero",
       "analyzeMine": "Analizar mi vuelta",
       "alone": "Solo tú en esta clasificación por ahora.",
-      "aloneHelp": "Copia el enlace de esta clasificación y reta a tus amigos."
+      "aloneHelp": "Copia el enlace de esta clasificación y reta a tus amigos.",
+      "tyre": "Neumático",
+      "tyreGroup": "Filtrar por neumático",
+      "tyreAll": "Todos",
+      "tyreDrivers": "Pilotos: {{count}}",
+      "emptyTyre": "Aún no hay vueltas con este neumático para este circuito y este coche.",
+      "notListedTyre": "No apareces aquí porque no tienes una vuelta válida con {{tyre}} en este circuito con este coche, o tu perfil es privado.",
+      "theoreticalBest": "Mejor teórica",
+      "sectorShort": "S{{n}}"
     },
     "visibility": {
       "label": "Quién puede ver tu perfil",
