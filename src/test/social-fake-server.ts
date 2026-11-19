@@ -304,8 +304,10 @@ export function handleSocial(state: FakeSocialState, method: string, path: strin
       if (aids === null) return fail(400, 'invalid_aids');
       const meta = { game: board?.game ?? params.game ?? 'lmu', scope, tyre, aids, track: board?.track ?? { id: params.track, name: 'Track', lengthM: null }, car: board?.car ?? { id: params.car, name: 'Car', class: null } };
       const onTyre = tyre === null ? board?.entries ?? [] : board?.byTyre?.[tyre] ?? [];
-      // An aid board keeps the laps listed for it; the ranks are the ones the test gave the rows.
-      const entries = aids === 'all' ? onTyre : onTyre.filter((entry) => board?.byAids?.[aids]?.includes(entry.lapId));
+      // An aid board keeps the laps listed for it and ranks them among themselves, as the server does (sim_board ranks the filtered
+      // laps): its leader is rank 1 with no gap, so the podium and "your position" read the same as on a real filtered board.
+      const entries = aids === 'all' ? onTyre : ranked(onTyre.filter((entry) => board?.byAids?.[aids]?.includes(entry.lapId))
+        .map(({ handle, displayName, timeMs, isMe, lapId, aids: lapAids }) => ({ handle, displayName, timeMs, isMe, lapId, aids: lapAids })));
       if (a === 'me') {
         const index = entries.findIndex((entry) => entry.isMe);
         const me = index >= 0 ? entries[index] : null;

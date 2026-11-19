@@ -38,10 +38,10 @@ export function AidChips({ conditions, aids, onAids }: { conditions: Conditions 
           )}
         </button>
       ))}
-      <p className="flex basis-full items-center gap-1.5 text-2xs text-muted-foreground" data-testid="aids-beta">
+      <div className="flex basis-full items-center gap-1.5 text-2xs text-muted-foreground" data-testid="aids-beta">
         <Badge variant="outline" className="px-1.5 py-0 text-2xs font-normal uppercase">{t('social.leaderboard.aidsBeta', 'beta')}</Badge>
         <span>{t('social.leaderboard.aidsBetaNote', 'Aids are what the game reports and are still being verified game by game.')}</span>
-      </p>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@
 //   VITE_HARNESS_ADMIN=true   the signed-in driver is an admin (the "Racing games" section of the admin page, and /admin/* answers)
 //   HARNESS_NO_LAPS=1         (from sim-v1.ts) nothing driven: the leaderboards show their "drive a lap first" state
 //   HARNESS_NEW_DRIVER=1      the driver has not chosen a username yet (the generated placeholder): every Virtual screen asks for one first
-import type { PublicLapShare, PublicSessionShare } from '@/lib/sim/social-client';
+import type { LeaderboardEntry, PublicLapShare, PublicSessionShare } from '@/lib/sim/social-client';
 import type { FakeV1State } from '@/test/v1-fake-server';
 import { boardKey, driver, fakeSocialState, handlePublic, ranked, type FakeBoard, type FakeSocialState } from '@/test/social-fake-server';
 
@@ -62,9 +62,30 @@ export function buildSocial(v1: FakeV1State): FakeSocialState {
     // The harness driver sits 12th on the long board, 4th on the short ones.
     const place = isLatest ? 11 : 3;
     rows.splice(place, 1, { handle: state.me.handle, displayName: state.me.displayName, timeMs: mine.timeMs });
-    const entries = ranked(rows.map((row) => ({ ...row, isMe: row.handle === state.me.handle, lapId: row.handle === state.me.handle ? mine.id : undefined })));
+    // On the long board, the conditions of each lap (plans/condition-aware-leaderboards.md): every third driver on hards, aids that
+    // vary (all off, TC and ABS off with auto gears, TC on, unknown), so the tyre and aid chips, the row icons and the theoretical best show.
+    const aidsAt = (i: number) => (!isLatest ? undefined
+      : i % 4 === 0 ? { tcMax: 0, absMax: 0, autoShift: false, idealLine: false }
+        : i % 4 === 1 ? { tcMax: 0, absMax: 0, autoShift: true }
+          : i % 4 === 2 ? { tcMax: 3, absMax: 2, idealLine: true }
+            : null);
+    const entries = ranked(rows.map((row, i) => ({ ...row, isMe: row.handle === state.me.handle, lapId: row.handle === state.me.handle ? mine.id : undefined, aids: aidsAt(i) })));
     const meta = { game: pair.game, track: { ...pair.track, lengthM: null }, car: { ...pair.car, class: null } };
-    state.boards.set(boardKey(pair.track.id, pair.car.id, 'public'), { entries, ...meta } satisfies FakeBoard);
+    const conditions: Partial<FakeBoard> = {};
+    if (isLatest) {
+      const tyreAt = (i: number) => (i % 3 === 2 ? 'Hard' : 'Soft');
+      const onTyre = (tyre: string) => ranked(entries.filter((_, i) => tyreAt(i) === tyre).map((entry) => ({ ...entry })));
+      // Membership follows each row's own aids, the way the server's classes do.
+      const offTcAbs = (entry: LeaderboardEntry) => entry.aids?.tcMax === 0 && entry.aids?.absMax === 0;
+      const withAids = (pick: (entry: LeaderboardEntry) => boolean) => entries.filter(pick).map((entry) => entry.lapId);
+      const sectors = (total: number) => [Math.round(total * 0.31), Math.round(total * 0.38), total - Math.round(total * 0.31) - Math.round(total * 0.38)];
+      const best = entries[0].timeMs - 640;
+      const [s1, s2, s3] = sectors(best);
+      conditions.byTyre = { Soft: onTyre('Soft'), Hard: onTyre('Hard') };
+      conditions.byAids = { none: withAids((entry) => offTcAbs(entry) && !entry.aids?.autoShift), no_tc_abs: withAids(offTcAbs) };
+      conditions.theoretical = { '': { timeMs: best, sectors: [{ index: 1, ms: s1, handle: 'turbo_tiago' }, { index: 2, ms: s2, handle: 'apex_anna' }, { index: 3, ms: s3, handle: 'late_braker' }] } };
+    }
+    state.boards.set(boardKey(pair.track.id, pair.car.id, 'public'), { entries, ...meta, ...conditions } satisfies FakeBoard);
     const friendHandles = new Set(['apex_anna', 'turbo_tiago', 'late_braker', state.me.handle]);
     state.boards.set(boardKey(pair.track.id, pair.car.id, 'friends'), { entries: ranked(entries.filter((entry) => friendHandles.has(entry.handle)).map((entry) => ({ handle: entry.handle, displayName: entry.displayName, timeMs: entry.timeMs, isMe: entry.isMe, lapId: entry.lapId }))), ...meta });
   }
