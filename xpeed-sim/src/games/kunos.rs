@@ -1534,7 +1534,7 @@ mod tests {
 
     #[test]
     fn competizione_gives_the_cars_with_world_positions_and_assetto_corsa_gives_none() {
-        let sim = Sim::live("1.8.12");
+        let mut sim = Sim::live("1.8.12");
         sim.gfx_i32(GFX_ACC_ACTIVE_CARS, 3);
         for (i, id) in [101, 202, 303].into_iter().enumerate() {
             sim.gfx_i32(GFX_ACC_CAR_ID + 4 * i, id);
