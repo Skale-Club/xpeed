@@ -9,6 +9,8 @@ export interface LapSummary {
   inLap: boolean | null;
   outLap: boolean | null;
   formatVersion: number;
+  /** The tyre compound as the game wrote it; null when the header has none. */
+  tyreCompound: string | null;
   session: { id: string | null; kind: string | null; weather: string | null; airTempC: number | null; trackTempC: number | null };
 }
 
@@ -44,6 +46,7 @@ export function summarizeLap(lap: LapFile): LapSummary {
     inLap: header.lap.inLap ?? null,
     outLap: header.lap.outLap ?? null,
     formatVersion: lap.version ?? 1,
+    tyreCompound: header.tyreCompound ?? null,
     session: {
       id: header.sessionId ?? null,
       kind: header.sessionKind ?? null,

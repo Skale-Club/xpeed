@@ -119,6 +119,8 @@ async function receive(req: Request): Promise<Response> {
         out_lap: summary.outLap, format_version: summary.formatVersion, session_id: summary.session.id, session_kind: summary.session.kind,
         weather: summary.session.weather, air_temp_c: summary.session.airTempC, track_temp_c: summary.session.trackTempC,
         plausible: plausibility.plausible, plausibility: plausibilityJson(plausibility), recorder: recorderJson(header),
+        // Always sent, even as null: the database reads "key present" as "the header has been looked at" (supabase/migrations/20261119120000_sim_lap_tyres.sql).
+        tyre_compound: summary.tyreCompound,
       },
     });
     if (ingested.error) throw ingested.error;

@@ -393,3 +393,45 @@ export async function gunzipLap(bytes: Uint8Array, options: { maxBytes?: number 
   }
   return unpackLap(unpacked);
 }
+
+/**
+ * Reads only the header of a stored lap (gzip bytes): the unzipping stops as soon as the header is out, so the samples, which are almost
+ * all of the file, are never unpacked. For background jobs that need one header field of many laps (api/sim/_tyres.ts). It checks the
+ * preamble and the header like `unpackLap` does, but not that the file's length matches the header: the rest is never read.
+ */
+export async function gunzipLapHeader(bytes: Uint8Array): Promise<LapHeader> {
+  if (!HOST_IS_LITTLE_ENDIAN) return fail('unsupported', 'Lap files need a little-endian machine.');
+  const reader = streamOf(bytes).pipeThrough(new DecompressionStream('gzip')).getReader();
+  let head = new Uint8Array(0);
+  const need = async (total: number) => {
+    while (head.length < total) {
+      const { done, value } = await reader.read();
+      if (done) return fail('bad_length', 'The file is too short.');
+      const next = new Uint8Array(head.length + value.length);
+      next.set(head); next.set(value, head.length);
+      head = next;
+    }
+  };
+  try {
+    await need(PREAMBLE_BYTES);
+    if (new TextDecoder().decode(head.subarray(0, 4)) !== LAP_MAGIC) return fail('bad_magic', 'Not a lap file.');
+    const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+    if (!(LAP_VERSIONS as readonly number[]).includes(view.getUint16(4, true))) return fail('bad_version', 'Unsupported lap file version.');
+    if (view.getUint16(6, true) !== 0) return fail('bad_flags', 'Unknown flags.');
+    const headerBytes = view.getUint32(8, true);
+    if (headerBytes === 0 || headerBytes % 4 !== 0 || headerBytes > LAP_LIMITS.headerBytes) return fail('bad_length', 'The header length is not valid.');
+    await need(PREAMBLE_BYTES + headerBytes);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(head.subarray(PREAMBLE_BYTES, PREAMBLE_BYTES + headerBytes)));
+    } catch {
+      return fail('bad_header', 'The header is not valid JSON.');
+    }
+    return parseHeader(parsed);
+  } catch (error) {
+    if (error instanceof LapFormatError) throw error;
+    return fail('bad_gzip', 'The file is not valid gzip data.');
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
