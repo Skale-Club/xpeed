@@ -857,6 +857,14 @@ impl Painter {
         self.round(self.r(x, y, w, h), color, Some(BORDER));
     }
 
+    /// How wide (design units) `caps` draws `s` at `size`: its letters as drawn plus the spacing between them, so a
+    /// layout can give a label the room it needs instead of letting it run into its neighbour.
+    pub(super) fn caps_width(&mut self, s: &str, size: f32) -> f32 {
+        let upper = s.to_uppercase();
+        let gaps = upper.chars().count().saturating_sub(1) as f32;
+        self.width_of(&upper, size * 1.18, FW_SEMIBOLD as i32, Face::Label) + 1.3 * gaps
+    }
+
     /// A small upper-case label with its letters spaced out.
     ///
     /// The spacing also follows the last letter, which right or centred alignment would count as text and push the

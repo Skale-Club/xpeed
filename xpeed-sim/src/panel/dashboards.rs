@@ -207,7 +207,7 @@ const RACE_PORTRAIT: &[Row] = &[
     },
     Row {
         h: 262.0,
-        cards: &[(Pane::FuelCalc, 1.1), (Pane::Tyres, 1.0)],
+        cards: &[(Pane::FuelCalc, 0.9), (Pane::Tyres, 1.1)],
     },
     Row {
         h: 230.0,
