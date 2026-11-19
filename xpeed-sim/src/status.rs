@@ -1,14 +1,14 @@
 //! What Xpeed Companion is doing, shared between the thread that records, the thread that sends and the tray icon.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::dash::Live;
 use crate::heartbeat::{self, Heartbeat, View};
 use crate::outbox::Uploader;
 use crate::supervisor::Health;
-use crate::update::UpdateState;
+use crate::update::{CheckState, UpdateState};
 use crate::util::lock;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +79,8 @@ pub enum Notice {
     UpdateBlocked(String),
     /// A check the person asked for found nothing newer (this is the version running).
     UpToDate(String),
+    /// A check the person asked for got no answer.
+    UpdateCheckFailed,
     /// This game's program runs but it shares no data: a setting has to be turned on. The balloon says which one (the
     /// text of `Msg::Setup(id)`). Said once per game in a run (`Shared::set_game`).
     NeedsSetup {
@@ -160,6 +162,10 @@ pub struct Shared {
     workers: Mutex<BTreeMap<&'static str, Health>>,
     /// What the person is told about a new version (the Monitor tab and the tray menu show it).
     update: Mutex<UpdateState>,
+    /// What the last look for a new version said, and how much of a download has arrived (percent, -1 when none): the
+    /// Monitor tab's update card reads them every frame, so they wake nobody.
+    check: Mutex<CheckState>,
+    download_percent: AtomicI32,
     /// What this run did with its laps (the heartbeat's counts) and the game build each game last reported (when it did).
     lap_stats: Mutex<LapStats>,
     game_builds: Mutex<BTreeMap<String, Option<String>>>,
@@ -195,6 +201,8 @@ impl Shared {
             activity: Mutex::new(VecDeque::new()),
             workers: Mutex::new(BTreeMap::new()),
             update: Mutex::new(UpdateState::Nothing),
+            check: Mutex::new(CheckState::Idle),
+            download_percent: AtomicI32::new(-1),
             lap_stats: Mutex::new(LapStats::default()),
             game_builds: Mutex::new(BTreeMap::new()),
             save_failing: AtomicBool::new(false),
@@ -494,6 +502,25 @@ impl Shared {
         }
     }
 
+    /// What the last look for a new version said.
+    pub fn check_state(&self) -> CheckState {
+        lock(&self.check).clone()
+    }
+
+    pub fn set_check(&self, state: CheckState) {
+        *lock(&self.check) = state;
+    }
+
+    /// How much of the update being downloaded has arrived, in percent; `None` when nothing is downloading.
+    pub fn download_percent(&self) -> Option<u8> {
+        u8::try_from(self.download_percent.load(Ordering::Relaxed)).ok()
+    }
+
+    pub fn set_download_percent(&self, percent: Option<u8>) {
+        self.download_percent
+            .store(percent.map_or(-1, |p| i32::from(p.min(100))), Ordering::Relaxed);
+    }
+
     pub fn paused(&self) -> bool {
         self.paused.load(Ordering::SeqCst)
     }
@@ -626,6 +653,15 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(shared.update_state(), available);
         shared.set_update(UpdateState::Downloading { version: "0.6.0".into() });
+        // The card's other half: what the last look said and how much of a download arrived (clamped, `None` when idle).
+        assert_eq!(shared.check_state(), crate::update::CheckState::Idle);
+        shared.set_check(crate::update::CheckState::Failed);
+        assert_eq!(shared.check_state(), crate::update::CheckState::Failed);
+        assert_eq!(shared.download_percent(), None);
+        shared.set_download_percent(Some(140));
+        assert_eq!(shared.download_percent(), Some(100));
+        shared.set_download_percent(None);
+        assert_eq!(shared.download_percent(), None);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 

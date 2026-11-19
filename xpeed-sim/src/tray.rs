@@ -56,6 +56,8 @@ const WM_UPDATE_NOW: u32 = WM_APP + 8;
 const WM_UPDATE_READY: u32 = WM_APP + 9;
 /// The panel's window procedure panicked again and again and stopped drawing: say so once, in a balloon.
 const WM_PANEL_FAILED: u32 = WM_APP + 10;
+/// The person asked to look for a new version now ("Check now" / "Try again" in the panel's update card).
+const WM_CHECK_UPDATES: u32 = WM_APP + 11;
 
 /// Guards the tray's window procedure: a panic must not unwind out of an `extern "system"` function (that aborts the whole
 /// program, recording included).
@@ -421,6 +423,15 @@ impl App {
         self.shared.set_update(self.updater.state());
     }
 
+    /// "Check for updates" (tray menu) or "Check now" (the panel): the card says "Checking…" at once, then what the look
+    /// found; a balloon says it when nothing is newer or no answer came.
+    fn check_now(&mut self) {
+        if self.shared.check_state() != update::CheckState::Checking {
+            self.shared.set_check(update::CheckState::Checking);
+        }
+        self.wake.trigger();
+    }
+
     /// Downloads and checks the installer on a thread of its own; the window is told when it is ready.
     fn start_download(&mut self, offer: update::Offer) {
         let Some(busy) = self.updater.begin() else { return };
@@ -434,8 +445,13 @@ impl App {
         let target = self.hwnd as isize;
         std::thread::spawn(move || {
             let quitting = || shared.quitting();
-            let result = update::download(&update::download_agent(), &offer, &dir, &quitting)
+            // The panel's bar: the share that has arrived, in whole percent.
+            let size = offer.size.max(1);
+            shared.set_download_percent(Some(0));
+            let progress = |bytes: u64| shared.set_download_percent(Some((bytes.min(size) * 100 / size) as u8));
+            let result = update::download_with_progress(&update::download_agent(), &offer, &dir, &quitting, &progress)
                 .and_then(|path| update::verify_or_delete(&path, offer.size, &offer.sha256).map(|()| path));
+            shared.set_download_percent(None);
             let message = match result {
                 Ok(path) => {
                     applog::line(&format!("the update to version {} was downloaded and checked", offer.version));
@@ -551,7 +567,12 @@ impl App {
             );
             let on = win::autostart_enabled(win::RUN_KEY, win::RUN_NAME);
             line(MF_STRING | if on { MF_CHECKED } else { 0 }, CMD_AUTOSTART, say(Msg::MenuAutostart));
-            line(MF_STRING, CMD_CHECK_UPDATES, say(Msg::MenuCheckUpdates));
+            let (check_label, can_check) = present::check_menu_line(self.lang, &self.shared.check_state());
+            line(
+                MF_STRING | if can_check { 0 } else { MF_GRAYED },
+                CMD_CHECK_UPDATES,
+                win::wide(&check_label),
+            );
             line(
                 MF_STRING | if self.updater.automatic() { MF_CHECKED } else { 0 },
                 CMD_AUTO_UPDATE,
@@ -646,7 +667,7 @@ impl App {
                 }
             }
             CMD_UPDATE_NOW => self.update_tick(Trigger::Person),
-            CMD_CHECK_UPDATES => self.wake.trigger(),
+            CMD_CHECK_UPDATES => self.check_now(),
             CMD_AUTO_UPDATE => {
                 let on = !self.updater.automatic();
                 self.set_auto_update(on);
@@ -753,6 +774,10 @@ unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPA
             app.window_failed_balloon();
             0
         }
+        WM_CHECK_UPDATES => {
+            app.check_now();
+            0
+        }
         WM_ACCOUNT => {
             if let Ok(Some(config)) = config::load(&app.config_path) {
                 app.account_label = config.account;
@@ -808,6 +833,13 @@ pub fn set_lang_of_running(lang: Lang) -> bool {
 pub fn update_now_of_running() -> bool {
     let running = find_running();
     !running.is_null() && unsafe { PostMessageW(running, WM_UPDATE_NOW, 0, 0) } != 0
+}
+
+/// Tells the tray of this program that the person asked to look for a new version now. False when there is none (the
+/// panel demo).
+pub fn check_updates_of_running() -> bool {
+    let running = find_running();
+    !running.is_null() && unsafe { PostMessageW(running, WM_CHECK_UPDATES, 0, 0) } != 0
 }
 
 /// Tells the tray of this program that the panel's window failed again and again and stopped drawing, so it shows a
@@ -1027,15 +1059,30 @@ fn start_update_checker(shared: &Arc<Shared>, updater: &Arc<Updater>, wake: &Arc
                     every: update::CHECK_EVERY,
                     wake: &wake,
                     quitting: &|| shared.quitting(),
+                    checking: &|_| shared.set_check(update::CheckState::Checking),
                     fetch: &|| update::check(&agent, &update::server_to_ask(Some(&config_path))),
                     found: &|offer, forced| {
-                        if update::status(running, &offer) == update::Status::UpToDate && forced {
-                            shared.notify(Notice::UpToDate(running.to_string()));
+                        if update::status(running, &offer) == update::Status::UpToDate {
+                            shared.set_check(update::CheckState::UpToDate {
+                                at_ms: crate::util::now_ms(),
+                            });
+                            if forced {
+                                shared.notify(Notice::UpToDate(running.to_string()));
+                            }
+                        } else {
+                            // A newer version: the card says that (from the update state) instead.
+                            shared.set_check(update::CheckState::Idle);
                         }
                         applog::line(&format!("update check: version {} is out, this is {running}", offer.version));
                         updater.offer_found(offer);
                         unsafe {
                             PostMessageW(target as HWND, WM_UPDATE, 0, 0);
+                        }
+                    },
+                    failed: &|forced| {
+                        shared.set_check(update::CheckState::Failed);
+                        if forced {
+                            shared.notify(Notice::UpdateCheckFailed);
                         }
                     },
                     say: &|line| applog::line(&line),

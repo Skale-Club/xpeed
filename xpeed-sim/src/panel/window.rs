@@ -129,6 +129,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         .collect::<Vec<_>>()
         .join(", ");
     let update = ctx.shared.update_state();
+    let check = ctx.shared.check_state();
     let view = View {
         lang: account.lang,
         units: account.units,
@@ -163,6 +164,8 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
         failed: &failed,
         update: &update,
+        check: &check,
+        download_percent: ctx.shared.download_percent(),
         focus: focus_of(&ctx.shared.games()),
     };
     paint(memory, w, h, &view);
@@ -533,6 +536,9 @@ pub(super) unsafe fn window_proc_body(hwnd: HWND, message: u32, wparam: WPARAM, 
                     }
                     Action::UpdateNow => {
                         crate::tray::update_now_of_running();
+                    }
+                    Action::CheckUpdates => {
+                        crate::tray::check_updates_of_running();
                     }
                     Action::CopyDiagnostics => {
                         if copy_diagnostics(hwnd, state) {

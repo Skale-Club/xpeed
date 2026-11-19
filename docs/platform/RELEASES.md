@@ -103,11 +103,14 @@ to know where the files are stored.
 ### The flow
 
 1. **Check.** 30 seconds after it starts, and every 6 hours after that (or when the person picks "Check for updates" in the
-   tray menu), a background thread, looked after by the supervisor like the other workers, asks
+   tray menu or "Check now" / "Try again" on the Monitor tab's Updates card), a background thread, looked after by the supervisor like the other workers, asks
    `GET <server>/api/companion/latest`. `<server>` is the paired server, or `https://xpeed.skale.club` when the computer is
    not paired (`config::DEFAULT_SERVER`, the one place to change when the domain becomes xpeed.app; the pairing's saved
    server always wins). A failure (no network, a status that is not 200, an answer that does not pass the checks below) is
-   one line in `companion.log`; the next try is at the next interval. Nothing is shown and no dialog opens.
+   one line in `companion.log`; the next try is at the next interval. No dialog opens: the Monitor tab's Updates card (always
+   there, as Xdeck's) says "Checking for updates…", "up to date · checked 5 min ago" or "Couldn't check for updates" with
+   "Try again", and a balloon says up to date or failed only for a check the person asked for. While the installer downloads
+   the card shows how much has arrived.
 2. **Trust nothing.** The answer must be at most 64 KB; every field present; `version` and `minVersion` exactly `a.b.c`
    (and `minVersion` not above `version`); `build` and `releasedAt` short text; `sha256` 64 lower-case hex digits; `size` a
    whole number from 1 byte to 200 MB; `signed` true or false; `downloadUrl` an HTTPS address on the same host and port as the

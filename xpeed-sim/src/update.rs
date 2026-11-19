@@ -495,6 +495,21 @@ pub enum UpdateState {
     },
 }
 
+/// What the last look for a new version said, for the Monitor tab's update card (as Xdeck's updater shows it): only
+/// read when no newer version is waiting (`UpdateState::Nothing`), which then says more.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CheckState {
+    /// No look has finished in this run yet: the program looks by itself (30 s after it starts, then every 6 hours).
+    #[default]
+    Idle,
+    /// A look is under way (the program's own, or "Check now").
+    Checking,
+    /// The running version is the newest; looked at this Unix time in ms.
+    UpToDate { at_ms: i64 },
+    /// The last look did not get an answer (no connection, the server down...). The reason is in the log.
+    Failed,
+}
+
 /// What to do about the update that is waiting.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Plan {
@@ -684,28 +699,37 @@ pub struct CheckLoop<'a> {
     pub every: Duration,
     pub wake: &'a Wake,
     pub quitting: &'a dyn Fn() -> bool,
+    /// A look starts; `true` when the person asked for it.
+    pub checking: &'a dyn Fn(bool),
     /// Asks the server. Any problem is one line for the log.
     pub fetch: &'a dyn Fn() -> Result<Offer, String>,
     /// An answer was accepted; `true` when the person asked for this check ("Check for updates").
     pub found: &'a dyn Fn(Offer, bool),
+    /// The look got no answer; `true` when the person asked for it (only then is a balloon said).
+    pub failed: &'a dyn Fn(bool),
     pub say: &'a dyn Fn(String),
 }
 
 /// Checks after `first`, then every `every` (or at once when asked), until the program quits. A check that fails is one
-/// line in the log and the next try is at the next interval: nobody is told, nothing is shown.
+/// line in the log and the next try is at the next interval; the Monitor tab's card says it failed, and a balloon says
+/// so only when the person asked for the check.
 pub fn check_loop(l: &CheckLoop) {
     let mut forced = l.wake.wait(l.first, l.quitting);
     while !(l.quitting)() {
+        (l.checking)(forced);
         match (l.fetch)() {
             Ok(offer) => (l.found)(offer, forced),
-            Err(why) => (l.say)(format!(
-                "could not check for a new version: {why}. Trying again in {}.",
-                if l.every >= Duration::from_secs(3600) {
-                    format!("{} h", l.every.as_secs() / 3600)
-                } else {
-                    format!("{} s", l.every.as_secs().max(1))
-                }
-            )),
+            Err(why) => {
+                (l.failed)(forced);
+                (l.say)(format!(
+                    "could not check for a new version: {why}. Trying again in {}.",
+                    if l.every >= Duration::from_secs(3600) {
+                        format!("{} h", l.every.as_secs() / 3600)
+                    } else {
+                        format!("{} s", l.every.as_secs().max(1))
+                    }
+                ))
+            }
         }
         forced = l.wake.wait(l.every, l.quitting);
     }
@@ -818,7 +842,19 @@ pub fn verify_or_delete(path: &Path, size: u64, sha256: &str) -> Result<(), Down
 /// `ALLOWED_HOSTS` or the server itself, over HTTPS, and each address is checked before it is asked. The bytes go to a
 /// `.part` file that is renamed only after the size and the SHA-256 match; otherwise it is deleted. A file from an earlier
 /// try that still checks out is used as it is.
+#[cfg(test)]
 pub fn download(agent: &ureq::Agent, offer: &Offer, dir: &Path, quitting: &dyn Fn() -> bool) -> Result<PathBuf, DownloadError> {
+    download_with_progress(agent, offer, dir, quitting, &|_| {})
+}
+
+/// `download`, telling `progress` how many bytes of the installer have arrived as they do (for the Monitor tab's bar).
+pub fn download_with_progress(
+    agent: &ureq::Agent,
+    offer: &Offer,
+    dir: &Path,
+    quitting: &dyn Fn() -> bool,
+    progress: &dyn Fn(u64),
+) -> Result<PathBuf, DownloadError> {
     let (server, _) = split_url(&offer.download_url).ok_or_else(|| DownloadError::Refused("the download address is not valid".into()))?;
     std::fs::create_dir_all(dir).map_err(|e| DownloadError::Disk(format!("cannot create {}: {e}", dir.display())))?;
     let file = dir.join(installer_name(&offer.version));
@@ -838,7 +874,7 @@ pub fn download(agent: &ureq::Agent, offer: &Offer, dir: &Path, quitting: &dyn F
             .call()
             .map_err(|error| DownloadError::Network(net::network_problem(&error)))?;
         match response.status().as_u16() {
-            200 => return save(response, offer, &file, &part, quitting),
+            200 => return save(response, offer, &file, &part, quitting, progress),
             301 | 302 | 303 | 307 | 308 => {
                 if hop == MAX_REDIRECTS {
                     return Err(DownloadError::TooManyRedirects);
@@ -864,6 +900,7 @@ fn save(
     file: &Path,
     part: &Path,
     quitting: &dyn Fn() -> bool,
+    progress: &dyn Fn(u64),
 ) -> Result<PathBuf, DownloadError> {
     if let Some(length) = response.body().content_length() {
         if length != offer.size {
@@ -895,6 +932,7 @@ fn save(
                 if let Err(error) = out.write_all(&buffer[..read]) {
                     break Err(disk(error));
                 }
+                progress(total);
             }
             Err(error) => break Err(DownloadError::Network(format!("the download was cut: {error}"))),
         }
@@ -1415,7 +1453,12 @@ mod tests {
         let dir = crate::config::scratch_dir("update-verify-good");
         let stub = Stub::start(|_: &Recorded| Reply::new(200, "abc"));
         let offer = offer_at(&stub.url);
-        let path = download(&download_agent(), &offer, &dir, &|| false).unwrap();
+        let arrived = Mutex::new(Vec::new());
+        let path = download_with_progress(&download_agent(), &offer, &dir, &|| false, &|bytes| {
+            arrived.lock().unwrap().push(bytes)
+        })
+        .unwrap();
+        assert_eq!(arrived.lock().unwrap().last(), Some(&3), "the bar is told how much arrived");
         assert_eq!(path, dir.join("xpeed-companion-setup-0.6.0.exe"));
         assert_eq!(std::fs::read(&path).unwrap(), b"abc");
         assert!(!part_of(&path).exists());
@@ -1688,6 +1731,7 @@ mod tests {
         });
         *own.lock().unwrap() = stub.url.clone();
         let (lines, found) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
+        let looks = Mutex::new(Vec::new());
         let wake = Wake::new();
         let agent = net::agent();
         let (done, quit_at) = (AtomicBool::new(false), Instant::now() + Duration::from_secs(20));
@@ -1696,13 +1740,20 @@ mod tests {
             every: Duration::from_millis(40),
             wake: &wake,
             quitting: &|| done.load(Ordering::SeqCst) || Instant::now() > quit_at,
+            checking: &|forced| looks.lock().unwrap().push(("checking", forced)),
             fetch: &|| check(&agent, &stub.url),
             found: &|offer, forced| {
                 found.lock().unwrap().push((offer.version, forced));
                 done.store(true, Ordering::SeqCst);
             },
+            failed: &|forced| looks.lock().unwrap().push(("failed", forced)),
             say: &|line| lines.lock().unwrap().push(line),
         });
+        // Each look says it starts, and the one that got no answer says it failed (quietly: nobody asked for it).
+        assert_eq!(
+            *looks.lock().unwrap(),
+            [("checking", false), ("failed", false), ("checking", false)]
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 2, "tried again at the next interval");
         let lines = lines.lock().unwrap();
         assert_eq!(lines.len(), 1, "one quiet line for the failure: {lines:?}");
@@ -1719,11 +1770,13 @@ mod tests {
             every: Duration::from_secs(3600),
             wake: &wake,
             quitting: &|| stop.load(Ordering::SeqCst),
+            checking: &|_| {},
             fetch: &|| Ok(offer.clone()),
             found: &|_, forced| {
                 seen.lock().unwrap().push(forced);
                 stop.store(true, Ordering::SeqCst);
             },
+            failed: &|_| {},
             say: &|_| {},
         });
         assert_eq!(*seen.lock().unwrap(), [true]);
@@ -1754,6 +1807,7 @@ mod tests {
                     every: Duration::from_millis(10),
                     wake: &wake,
                     quitting: &|| stop.load(Ordering::SeqCst),
+                    checking: &|_| {},
                     fetch: &|| {
                         if fetches.fetch_add(1, Ordering::SeqCst) == 0 {
                             panic!("the first check blows up");
@@ -1764,6 +1818,7 @@ mod tests {
                         found.lock().unwrap().push(offer.version);
                         stop.store(true, Ordering::SeqCst);
                     },
+                    failed: &|_| {},
                     say: &|_| {},
                 });
             },
