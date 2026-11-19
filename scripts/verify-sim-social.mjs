@@ -34,7 +34,7 @@ Object.assign(process.env, {
 await build({
   entryPoints: {
     pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', tracks: 'api/sim/tracks.ts', v1: 'api/sim/v1.ts', publicshare: 'api/sim/public.ts',
-    plausibility: 'api/sim/_plausibility.ts', social: 'api/sim/_social.ts', shared: 'api/sim/_shared.ts', backend: 'api/_backend.ts', webserver: 'server/index.ts',
+    plausibility: 'api/sim/_plausibility.ts', tyres: 'api/sim/_tyres.ts', social: 'api/sim/_social.ts', shared: 'api/sim/_shared.ts', backend: 'api/_backend.ts', webserver: 'server/index.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', account: 'server/account-route.ts', jobs: 'server/jobs.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
@@ -44,12 +44,13 @@ const load = (name) => import(pathToFileURL(resolve(temp, name)).href);
 const pair = (await load('pair.mjs')).default, laps = (await load('laps.mjs')).default;
 const codes = (await load('codes.mjs')).default, v1 = (await load('v1.mjs')).default, simPublic = (await load('publicshare.mjs')).default;
 const { checkPlausibility, PLAUSIBILITY, CHECKS, recheckLaps } = await load('plausibility.mjs');
-const { runPlausibilityRecheck, enabledJobs } = await load('jobs.mjs');
+const { runPlausibilityRecheck, runTyreBackfill, enabledJobs } = await load('jobs.mjs');
+const { backfillTyres } = await load('tyres.mjs');
 const { RESERVED_HANDLES, readHandle, readDisplayName } = await load('social.mjs');
 const { createXpeedServer } = await load('webserver.mjs');
 const { forgetLimits } = await load('shared.mjs');
 const { getPool } = await load('serverdb.mjs');
-const { gzipLap, gunzipLap } = await load('lapfile.mjs');
+const { gzipLap, gunzipLap, gunzipLapHeader } = await load('lapfile.mjs');
 const { useKeysForTesting } = await load('identity.mjs');
 const { createAccountRoute } = await load('account.mjs');
 const { openBackend } = await load('backend.mjs');
@@ -612,7 +613,7 @@ try {
     await put('A', { track: 'Board Ring', car: 'Other Board Car', timeMs: 60_000 }); // another car never mixes
     const r = await board('C', 'lmu', T.track, T.car);
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual(Object.keys(r.body).sort(), ['car', 'entries', 'game', 'nextCursor', 'scope', 'track']);
+    assert.deepEqual(Object.keys(r.body).sort(), ['car', 'entries', 'game', 'nextCursor', 'scope', 'track', 'tyre']);
     assert.deepEqual([r.body.game, r.body.scope, r.body.track.name, r.body.track.lengthM, r.body.car.name, r.body.nextCursor], ['lmu', 'public', 'Board Ring', 5000, 'Board Car', null]);
     assert.deepEqual(entryHandles(r), [ha, hb, hc, hf], 'D (implausible), E (private) and the invalid lap are not there; the tie is in the order of the laps');
     assert.deepEqual(r.body.entries.map((e) => [e.rank, e.timeMs, e.gapMs]), [[1, 90_000, 0], [2, 91_000, 1000], [2, 91_000, 1000], [4, 92_000, 2000]], 'ties share a rank, the next is 4');
@@ -1160,6 +1161,241 @@ try {
     assert.deepEqual(await runPlausibilityRecheck({ recheck: async () => ({ checked: 0, plausible: 0, implausible: 0, remaining: 0 }) }), { checked: 0, plausible: 0, implausible: 0, remaining: 0 }, 'and the next one runs again');
   });
 
+  // ================================================================== tyre boards
+
+  await check('tyre: the compound is stored from the header, boards filter by it (list, me, paging), and the old board is unchanged without it', async () => {
+    const T = { track: 'Tyre Ring', car: 'Tyre Car' };
+    const ha = (await profileOf('A')).handle, hb = (await profileOf('B')).handle, hc = (await profileOf('C')).handle;
+    const aSoft = await put('A', { ...T, timeMs: 90_000, tyreCompound: 'Soft' });
+    await put('A', { ...T, timeMs: 92_000, tyreCompound: 'Medium' });
+    const bSoft = await put('B', { ...T, timeMs: 91_000, tyreCompound: 'Soft' });
+    await put('B', { ...T, timeMs: 89_000, tyreCompound: 'Medium' });
+    const cNone = await put('C', { ...T, timeMs: 95_000 });                          // a lap with no compound in its header
+    await put('D', { ...T, timeMs: 70_000, tyreCompound: 'Soft', tScale: 1.1 });       // not believable
+    await put('E', { ...T, timeMs: 85_000, tyreCompound: 'Soft' });                    // private below
+    await setVisibility('E', 'private');
+    assert.deepEqual([(await lapRow(aSoft)).tyre_compound, (await lapRow(aSoft)).tyre_read], ['Soft', true]);
+    assert.deepEqual([(await lapRow(cNone)).tyre_compound, (await lapRow(cNone)).tyre_read], [null, true], 'no compound: looked at, nothing to store');
+
+    const all = await board('C', 'lmu', T.track, T.car);
+    assert.deepEqual([all.body.tyre, entryHandles(all)], [null, [hb, ha, hc]], 'every tyre: B 89 s (medium), A 90 s (soft), C 95 s (none)');
+    const soft = await board('C', 'lmu', T.track, T.car, '&tyre=Soft');
+    assert.deepEqual([soft.status, soft.body.tyre, entryHandles(soft)], [200, 'Soft', [ha, hb]]);
+    assert.deepEqual(soft.body.entries.map((e) => [e.rank, e.timeMs, e.gapMs]), [[1, 90_000, 0], [2, 91_000, 1000]], 'ranks and gaps are of this tyre only');
+    const medium = await board('C', 'lmu', T.track, T.car, '&tyre=Medium');
+    assert.deepEqual([entryHandles(medium), medium.body.entries.map((e) => e.timeMs)], [[hb, ha], [89_000, 92_000]], 'a driver\'s best lap on this tyre, not their best lap');
+    assert.deepEqual((await board('C', 'lmu', T.track, T.car, '&tyre=Hard')).body.entries, [], 'a compound nobody used');
+    assert.deepEqual((await board('C', 'lmu', T.track, T.car, '&tyre=soft')).body.entries, [], 'compared as written: no case folding');
+    assert.deepEqual(entryHandles(await board('C', 'lmu', T.track, T.car, '&tyre=')), [hb, ha, hc], 'an empty tyre is no filter');
+    // The filter and the cursor work together, and the rows are the same as the unfiltered board's.
+    const first = await board('C', 'lmu', T.track, T.car, '&tyre=Soft&limit=1');
+    assert.equal(first.body.entries[0].handle, ha);
+    const second = await board('C', 'lmu', T.track, T.car, `&tyre=Soft&limit=1&cursor=${first.body.nextCursor}`);
+    assert.deepEqual([second.body.entries[0].handle, second.body.nextCursor], [hb, null]);
+    assert.equal(soft.body.entries[0].lapId, aSoft);
+    assert.equal(soft.body.entries[1].lapId, bSoft);
+    // "Me" follows the tyre: B is second on soft, C is not listed on it.
+    const c = await catalog('lmu', T.track, T.car);
+    const meSoft = await api.B(`/leaderboard/me?track=${c.track}&car=${c.car}&tyre=Soft`);
+    assert.deepEqual([meSoft.body.tyre, meSoft.body.total, meSoft.body.me.rank, meSoft.body.me.timeMs, meSoft.body.neighbours.above.map((e) => e.handle)], ['Soft', 2, 2, 91_000, [ha]]);
+    const noneSoft = await api.C(`/leaderboard/me?track=${c.track}&car=${c.car}&tyre=Soft`);
+    assert.deepEqual([noneSoft.body.total, noneSoft.body.me, noneSoft.body.reason], [2, null, 'not_listed']);
+    assert.equal((await api.B(`/leaderboard/me?track=${c.track}&car=${c.car}`)).body.total, 3, 'without the tyre it is the whole board');
+    // The SQL functions still answer the call they had before the tyre existed.
+    const legacy = (await direct.query('SELECT public.sim_leaderboard($1, $2, $3, $4) AS r', [ids.C, c.track, c.car, 'public'])).rows[0].r;
+    assert.deepEqual(legacy.map((e) => e.handle), [hb, ha, hc]);
+
+    // Errors.
+    for (const bad of ['x'.repeat(41), 'bell%07', 'tab%09here']) {
+      problem(await api.C(`/leaderboard?track=${c.track}&car=${c.car}&tyre=${bad}`), 400, 'invalid_tyre');
+      problem(await api.C(`/leaderboard/me?track=${c.track}&car=${c.car}&tyre=${bad}`), 400, 'invalid_tyre');
+    }
+    assert.equal((await api.C(`/leaderboard?track=${c.track}&car=${c.car}&tyre=${'x'.repeat(40)}`)).status, 200, '40 characters are fine');
+    assert.equal((await api.C(`/leaderboard?track=${c.track}&car=${c.car}&tyre=${encodeURIComponent('Slick Soft (S) é')}`)).status, 200);
+  });
+
+  await check('tyre conditions: the compounds with their drivers, and the theoretical best only when every counted lap has the same sectors', async () => {
+    const T = { track: 'Cond Ring', car: 'Cond Car' };
+    const ha = (await profileOf('A')).handle, hb = (await profileOf('B')).handle;
+    // A: soft 90 s [31, 29, 30], medium 92 s [30, 31, 31]. B: soft 91 s [30, 30.5, 30.5], medium 89 s [29, 30, 30].
+    await put('A', { ...T, timeMs: 90_000, tyreCompound: 'Soft', sectorsMs: [31_000, 29_000, 30_000] });
+    await put('A', { ...T, timeMs: 92_000, tyreCompound: 'Medium', sectorsMs: [30_000, 31_000, 31_000] });
+    await put('B', { ...T, timeMs: 91_000, tyreCompound: 'Soft', sectorsMs: [30_000, 30_500, 30_500] });
+    await put('B', { ...T, timeMs: 89_000, tyreCompound: 'Medium', sectorsMs: [29_000, 30_000, 30_000] });
+    // Left out of everything: a private driver, an implausible lap, a hidden lap, an invalid lap, all with sectors that would win.
+    await put('E', { ...T, timeMs: 80_000, tyreCompound: 'Soft', sectorsMs: [20_000, 30_000, 30_000] });
+    await setVisibility('E', 'private');
+    await put('D', { ...T, timeMs: 70_000, tyreCompound: 'Hard', sectorsMs: [10_000, 30_000, 30_000], tScale: 1.1 });
+    const hidden = await put('A', { ...T, timeMs: 80_000, tyreCompound: 'Hard', sectorsMs: [10_000, 35_000, 35_000] });
+    await direct.query('UPDATE public.sim_laps SET hidden = true WHERE id = $1', [hidden]);
+    await put('A', { ...T, timeMs: 75_000, tyreCompound: 'Hard', sectorsMs: [5_000, 35_000, 35_000], valid: false });
+    const c = await catalog('lmu', T.track, T.car);
+    const cond = (who, extra = '') => api[who](`/leaderboards/conditions?track=${c.track}&car=${c.car}${extra}`);
+
+    const r = await cond('C');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(Object.keys(r.body).sort(), ['car', 'game', 'scope', 'theoreticalBest', 'track', 'tyre', 'tyres']);
+    assert.deepEqual([r.body.game, r.body.scope, r.body.tyre, r.body.track.name, r.body.car.name], ['lmu', 'public', null, 'Cond Ring', 'Cond Car']);
+    assert.deepEqual(r.body.tyres, [{ compound: 'Medium', drivers: 2 }, { compound: 'Soft', drivers: 2 }], 'the private, implausible, hidden and invalid laps add no compound');
+    // The fastest of each sector over every counted lap: 29 s (B, medium), 29 s (A, soft), 30 s (tie: the earlier lap, A on soft).
+    assert.deepEqual(r.body.theoreticalBest, { timeMs: 88_000, sectors: [{ index: 1, ms: 29_000, handle: hb }, { index: 2, ms: 29_000, handle: ha }, { index: 3, ms: 30_000, handle: ha }] });
+    // One tyre: the chips stay, the theoretical best is of that tyre.
+    const soft = await cond('C', '&tyre=Soft');
+    assert.deepEqual([soft.body.tyre, soft.body.tyres], ['Soft', r.body.tyres]);
+    assert.deepEqual(soft.body.theoreticalBest, { timeMs: 89_000, sectors: [{ index: 1, ms: 30_000, handle: hb }, { index: 2, ms: 29_000, handle: ha }, { index: 3, ms: 30_000, handle: ha }] });
+    assert.equal((await cond('C', '&tyre=Hard')).body.theoreticalBest, null, 'a tyre with no laps has no best');
+    assert.deepEqual((await cond('C', '&tyre=Hard')).body.tyres, r.body.tyres);
+
+    // The board's own rules: friends scope sees the viewer and accepted friends only.
+    const own = await cond('A', '&scope=friends');
+    assert.deepEqual(own.body.tyres, [{ compound: 'Medium', drivers: 1 }, { compound: 'Soft', drivers: 1 }]);
+    assert.deepEqual(own.body.theoreticalBest, { timeMs: 89_000, sectors: [{ index: 1, ms: 30_000, handle: ha }, { index: 2, ms: 29_000, handle: ha }, { index: 3, ms: 30_000, handle: ha }] });
+    await befriend('A', 'B');
+    assert.deepEqual((await cond('A', '&scope=friends')).body, { ...r.body, scope: 'friends' }, 'with B a friend the friends board is the public one');
+    // A block hides the person in both directions; a hidden profile and a friends-only profile are not on the public board.
+    assert.equal((await api.A(`/friends/${hb}/block`, { method: 'POST' })).status, 200);
+    assert.deepEqual((await cond('A')).body.tyres, [{ compound: 'Medium', drivers: 1 }, { compound: 'Soft', drivers: 1 }]);
+    assert.deepEqual((await cond('B')).body.theoreticalBest.sectors.map((s) => s.handle), [hb, hb, hb], 'B sees only their own laps: A blocked them');
+    await direct.query('DELETE FROM public.sim_friendships');
+    await direct.query('UPDATE public.sim_profiles SET hidden = true WHERE user_id = $1', [ids.A]);
+    assert.deepEqual((await cond('C')).body.tyres, [{ compound: 'Medium', drivers: 1 }, { compound: 'Soft', drivers: 1 }]);
+    await direct.query('UPDATE public.sim_profiles SET hidden = false WHERE user_id = $1', [ids.A]);
+    await setVisibility('B', 'friends');
+    assert.deepEqual((await cond('C')).body.theoreticalBest.sectors.map((s) => s.handle), [ha, ha, ha], 'friends-only is not public');
+    await setVisibility('B', 'public');
+    // The drivers of the board are the drivers the compounds count.
+    assert.deepEqual(entryHandles(await board('C', 'lmu', T.track, T.car)).sort(), [ha, hb].sort());
+
+    // Null unless every counted lap has the same number of sectors (at least two, all above zero).
+    assert.ok((await cond('C')).body.theoreticalBest);
+    const two = await put('C', { ...T, timeMs: 96_000, tyreCompound: 'Soft', sectorsMs: [40_000, 56_000] });
+    assert.equal((await cond('C')).body.theoreticalBest, null, 'a lap with two sectors among laps with three');
+    assert.notEqual((await cond('C', '&tyre=Medium')).body.theoreticalBest, null, 'the medium laps all have three');
+    assert.equal((await cond('C', '&tyre=Soft')).body.theoreticalBest, null);
+    await direct.query('DELETE FROM public.sim_laps WHERE id = $1', [two]);
+    await put('C', { ...T, timeMs: 97_000, tyreCompound: 'Soft', sectorsMs: false });
+    assert.equal((await cond('C')).body.theoreticalBest, null, 'a lap with no sectors');
+    assert.deepEqual((await cond('C')).body.tyres, [{ compound: 'Soft', drivers: 3 }, { compound: 'Medium', drivers: 2 }], 'most drivers first');
+    // A board of two-sector laps works too.
+    const T2 = { track: 'Cond Ring 2', car: 'Cond Car' };
+    await put('A', { ...T2, timeMs: 90_000, sectorsMs: [40_000, 50_000] });
+    await put('B', { ...T2, timeMs: 91_000, sectorsMs: [39_000, 52_000] });
+    const c2 = await catalog('lmu', T2.track, T2.car);
+    const two2 = await api.C(`/leaderboards/conditions?track=${c2.track}&car=${c2.car}`);
+    assert.deepEqual(two2.body.tyres, [], 'no compound in those headers');
+    assert.deepEqual(two2.body.theoreticalBest, { timeMs: 89_000, sectors: [{ index: 1, ms: 39_000, handle: hb }, { index: 2, ms: 50_000, handle: ha }] });
+    // A board with no laps it can show.
+    await direct.query('UPDATE public.sim_laps SET hidden = true WHERE track_id = $1', [c2.track]);
+    const empty = await api.C(`/leaderboards/conditions?track=${c2.track}&car=${c2.car}`);
+    assert.deepEqual([empty.body.tyres, empty.body.theoreticalBest], [[], null]);
+  });
+
+  await check('tyre conditions: parameters, errors, methods and the rate limit', async () => {
+    const T = { track: 'Cond Err Ring', car: 'Cond Err Car' };
+    await put('A', { ...T, timeMs: 90_000, tyreCompound: 'Soft' });
+    const c = await catalog('lmu', T.track, T.car);
+    const cond = (who, query) => api[who](`/leaderboards/conditions?${query}`);
+    problem(await cond('A', `car=${c.car}`), 400, 'invalid_track');
+    problem(await cond('A', `track=${c.track}`), 400, 'invalid_car');
+    problem(await cond('A', `track=zzz&car=${c.car}`), 400, 'invalid_track');
+    problem(await cond('A', `track=${c.track}&car=zzz`), 400, 'invalid_car');
+    problem(await cond('A', `track=${c.track}&car=${c.car}&scope=everyone`), 400, 'invalid_scope');
+    problem(await cond('A', `track=${c.track}&car=${c.car}&tyre=${'x'.repeat(41)}`), 400, 'invalid_tyre');
+    problem(await cond('A', `track=${c.track}&car=${c.car}&tyre=a%00b`), 400, 'invalid_tyre');
+    problem(await cond('A', `track=${c.track}&car=${c.car}&game=acc`), 400, 'invalid_game');
+    problem(await cond('A', `track=00000000-0000-4000-8000-000000000000&car=${c.car}`), 404, 'track_not_found');
+    problem(await cond('A', `track=${c.track}&car=00000000-0000-4000-8000-000000000000`), 404, 'car_not_found');
+    problem(await call(v1, `/api/sim/v1/leaderboards/conditions?track=${c.track}&car=${c.car}`), 401, 'unauthorized');
+    problem(await call(v1, `/api/sim/v1/leaderboards/conditions?track=${c.track}&car=${c.car}`, { bearer: rigs.A.token }), 401, 'unauthorized');
+    const post = await api.A(`/leaderboards/conditions?track=${c.track}&car=${c.car}`, { method: 'POST' });
+    problem(post, 405, 'method_not_allowed');
+    assert.equal(post.headers.get('allow'), 'GET');
+    problem(await api.A('/leaderboards/conditions/extra'), 404, 'not_found');
+    // Like the catalog: 60 a minute per person, and one person's use does not use up another's.
+    let last;
+    for (let i = 0; i < 61; i++) last = await cond('C', `track=${c.track}&car=${c.car}`);
+    problem(last, 429, 'too_many_requests');
+    assert.ok(Number(last.headers.get('retry-after')) > 0);
+    assert.equal((await cond('B', `track=${c.track}&car=${c.car}`)).status, 200);
+  });
+
+  await check('tyre backfill: reads only the headers of laps not read yet, oldest first, in batches, resumes after a stop, and is a job of the schedule', async () => {
+    const T = { track: 'Backfill Ring', car: 'Backfill Car' };
+    const backend = openBackend();
+    const unread = async () => (await direct.query('SELECT count(*)::int AS n FROM public.sim_laps WHERE NOT tyre_read')).rows[0].n;
+    // Laps that other checks made straight in the database wait too; they are file version 1 or lost, so this settles them first.
+    await runTyreBackfill({ backfill: (limit) => backfillTyres(backend, limit) });
+    assert.equal(await unread(), 0, 'nothing waits before this check');
+    // Header-only: a file cut off after its header still gives the compound, and a whole read of it fails.
+    const whole = await makeLap({ ...T, tyreCompound: 'Cut', timeMs: 120_000, rate: 20 });
+    const cut = whole.subarray(0, whole.length - 40);
+    await assert.rejects(gunzipLap(cut));
+    assert.equal((await gunzipLapHeader(cut)).tyreCompound, 'Cut');
+    await assert.rejects(gunzipLapHeader(new Uint8Array([1, 2, 3, 4, 5])), /gzip/i);
+    assert.equal((await gunzipLapHeader(await makeLap({ ...T, weather: 'Dry' }))).tyreCompound, undefined, 'a header without one');
+
+    // Six laps from before the column: two soft, one medium, one marked file version 1, one with a header that says nothing, one lost file.
+    const made = [];
+    for (const spec of [{ tyreCompound: 'Soft' }, { tyreCompound: 'Medium' }, { tyreCompound: 'Soft' }, { tyreCompound: 'Ignored' }, { weather: 'Dry' }]) made.push(await put('A', { ...T, timeMs: 90_000 + made.length, ...spec }));
+    made.push((await direct.query(
+      `INSERT INTO public.sim_laps (user_id, identity, game, track_name, car_name, lap_number, time_ms, valid, started_at, sample_count, size_bytes, storage_path, format_version)
+       VALUES ($1, 'tyre-lost', 'lmu', $2, $3, 1, 80000, true, now(), 3, 100, $4, 2) RETURNING id`, [ids.D, T.track, T.car, `${ids.D}/gone-${Math.random()}.xlap.gz`])).rows[0].id);
+    const expected = ['Soft', 'Medium', 'Soft', null, null, null];
+    await direct.query('UPDATE public.sim_laps SET tyre_compound = NULL, tyre_read = false WHERE id = ANY($1)', [made.slice(0, 5)]);
+    assert.equal(await unread(), 6);
+    // A lap stored as file version 1 has no compound field: its file is not opened, even though this one carries a compound.
+    await direct.query('UPDATE public.sim_laps SET format_version = 1 WHERE id = $1', [made[3]]);
+
+    const sizes = [];
+    const done = await runTyreBackfill({ backfill: (limit) => { sizes.push(limit); return backfillTyres(backend, limit); }, batch: 4 });
+    assert.deepEqual(sizes, [4, 4], 'batches of 4: 4 + 2, the second finds the end');
+    assert.deepEqual(done, { read: 6, withTyre: 3, remaining: 0 });
+    assert.deepEqual((await Promise.all(made.map(lapRow))).map((row) => row.tyre_compound), expected);
+    assert.equal(await unread(), 0);
+    // The board now filters by the filled-in compound.
+    const c = await catalog('lmu', T.track, T.car);
+    assert.equal((await api.C(`/leaderboard?track=${c.track}&car=${c.car}&tyre=Soft`)).body.entries.length, 1);
+    assert.deepEqual((await api.C(`/leaderboards/conditions?track=${c.track}&car=${c.car}`)).body.tyres, [{ compound: 'Medium', drivers: 1 }, { compound: 'Soft', drivers: 1 }]);
+    // Nothing is read twice: a run with nothing to do ends after one look.
+    const calls = [];
+    assert.deepEqual(await runTyreBackfill({ backfill: (limit) => { calls.push(limit); return backfillTyres(backend, limit); } }), { read: 0, withTyre: 0, remaining: 0 });
+    assert.equal(calls.length, 1);
+    // A lap that has been read is not touched by a late call.
+    await direct.query('SELECT public.sim_set_tyre($1, $2)', [made[0], 'Changed']);
+    assert.equal((await lapRow(made[0])).tyre_compound, 'Soft');
+
+    // The budget stops it between batches, and the next run carries on with the rest, oldest first.
+    const more = [];
+    for (let i = 0; i < 6; i++) more.push(await put('B', { ...T, timeMs: 95_000 + i, tyreCompound: i % 2 ? 'Hard' : 'Soft' }));
+    await direct.query('UPDATE public.sim_laps SET tyre_compound = NULL, tyre_read = false WHERE id = ANY($1)', [more]);
+    let clock = 0, batches = 0;
+    const partial = await runTyreBackfill({ backfill: (limit) => { batches++; clock += 120_000; return backfillTyres(backend, limit); }, batch: 2, budgetMs: 180_000, now: () => clock });
+    assert.equal(batches, 2);
+    assert.deepEqual([partial.read, partial.remaining], [4, 2]);
+    assert.deepEqual((await Promise.all(more.map(lapRow))).map((row) => row.tyre_read), [true, true, true, true, false, false], 'the oldest four were done, the rest waits');
+    const job = enabledJobs(process.env).find((j) => j.name === 'tyre_backfill');
+    assert.ok(job, 'on by default');
+    assert.deepEqual(await job.run(), { read: 2, withTyre: 2, remaining: 0 });
+    assert.deepEqual((await Promise.all(more.map(lapRow))).map((row) => row.tyre_compound), ['Soft', 'Hard', 'Soft', 'Hard', 'Soft', 'Hard']);
+    assert.equal(enabledJobs({ ...process.env, TYRE_BACKFILL: 'false' }).find((j) => j.name === 'tyre_backfill'), undefined, 'off with TYRE_BACKFILL=false');
+    assert.equal(enabledJobs({ DATABASE_URL: 'postgres://x' }, {}).find((j) => j.name === 'tyre_backfill'), undefined, 'only where it is offered');
+
+    // An older server that sends no tyre_compound key leaves the lap for the backfill; one that sends the key (even null) has looked.
+    let n = 0;
+    const lapJson = (identity, extra = {}) => JSON.stringify({ identity, game: 'lmu', track_name: T.track, track_length_m: 5000, car_name: T.car, lap_number: 1, time_ms: 99_000,
+      valid: true, started_at: new Date(Date.parse('2026-12-01T00:00:00Z') + ++n * 600_000).toISOString(), sample_count: 3, size_bytes: 100, storage_path: `fake/${identity}`, format_version: 2, ...extra });
+    const ingest = async (extra, identity) => (await direct.query('SELECT public.sim_ingest_lap($1, NULL, $2::jsonb, 1000000) AS r', [ids.F, lapJson(identity, extra)])).rows[0].r;
+    const old = await ingest({}, 'old-server'), fresh = await ingest({ tyre_compound: null }, 'new-server'), typed = await ingest({ tyre_compound: 'Wet' }, 'typed');
+    assert.deepEqual([old, fresh, typed].map((r) => r.status), ['created', 'created', 'created']);
+    assert.deepEqual((await Promise.all([old.id, fresh.id, typed.id].map(lapRow))).map((row) => [row.tyre_compound, row.tyre_read]), [[null, false], [null, true], ['Wet', true]]);
+    // The column refuses an empty or a 41-character compound.
+    // (a refused statement is caught inside the database: the test connection does not survive a client-side error)
+    for (const bad of ["''", "repeat('x', 41)"]) {
+      await direct.query(`DO $$ BEGIN UPDATE public.sim_laps SET tyre_compound = ${bad} WHERE id = '${typed.id}'; RAISE EXCEPTION 'accepted'; EXCEPTION WHEN check_violation THEN NULL; END $$`);
+    }
+    await direct.query('DELETE FROM public.sim_laps WHERE id = ANY($1)', [[old.id, fresh.id, typed.id]]);
+  });
+
   // ================================================================== privacy rights
 
   await check('export: one JSON file with every kind of the person\'s data and links to their files, and nothing of anyone else', async () => {
@@ -1339,7 +1575,8 @@ try {
       `SELECT public.sim_leaderboard('${ids.B}', '${ids.B}', '${ids.B}', 'public')`, `SELECT public.sim_export_me('${ids.B}')`, `SELECT public.sim_delete_my_data('${ids.B}')`,
       `SELECT public.sim_admin_reports('all')`, `SELECT public.sim_share_view('x')`, `SELECT public.sim_set_plausibility('${ids.B}', true, '{}')`,
       `SELECT public.sim_friend_request('${ids.B}', 'x')`, `SELECT public.sim_ensure_profile('${ids.B}')`,
-      `SELECT public.sim_leaderboard_catalog('${ids.B}', 'track')`, `SELECT public.sim_share_list('${ids.B}')`, `SELECT public.sim_friend_request_count('${ids.B}')`]) {
+      `SELECT public.sim_leaderboard_catalog('${ids.B}', 'track')`, `SELECT public.sim_leaderboard_conditions('${ids.B}', '${ids.B}', '${ids.B}', 'public')`,
+      `SELECT * FROM public.sim_board_laps('${ids.B}', '${ids.B}', '${ids.B}', 'public')`, `SELECT public.sim_tyre_unread_laps(5)`, `SELECT public.sim_set_tyre('${ids.B}', 'x')`, `SELECT public.sim_share_list('${ids.B}')`, `SELECT public.sim_friend_request_count('${ids.B}')`]) {
       await assert.rejects(asPerson('uid-a', sql), /permission denied|row-level security/, sql);
     }
     // The new columns of the laps are the owner's own like the rest of the row.
@@ -1626,6 +1863,7 @@ try {
       const columns = (await client.query('SELECT plausible, plausibility, hidden FROM public.sim_laps ORDER BY identity')).rows;
       assert.deepEqual(columns.map((c) => [c.plausible, c.plausibility, c.hidden]), [[null, null, false], [null, null, false], [null, null, false]], 'old laps: no verdict yet, not hidden');
       assert.equal((await client.query('SELECT count(*)::int AS n FROM public.sim_profiles')).rows[0].n, 0, 'no profile is made by the migration');
+      assert.deepEqual((await client.query('SELECT tyre_compound, tyre_read FROM public.sim_laps ORDER BY identity')).rows.map((r) => [r.tyre_compound, r.tyre_read]), [[null, false], [null, false], [null, false]], 'old laps wait for the tyre backfill');
 
       // The ingest keeps working, now with the verdict and a profile.
       const made = (await client.query('SELECT public.sim_ingest_lap($1, NULL, $2::jsonb, 1000000) AS r', [u1, lapJson('new-1', 89_000, { started_at: '2026-11-11T10:00:00.000Z', plausible: true, plausibility: { v: 1, failed: [] } })])).rows[0].r;

@@ -145,6 +145,14 @@ of a crashed run is removed the next time that lap is processed.
 plausibility checks (`plausible IS NULL`) get their verdict from their files, 200 at a time, for at most 3 minutes a run; first run 1 to 5 minutes after
 start, then daily. One `job_done` line with `checked`, `plausible`, `implausible`, `remaining`. See `API-V1.md` (Plausibility).
 
+## Tyre backfill
+
+`tyre_backfill` (on by default; `TYRE_BACKFILL=false` turns it off) fills `sim_laps.tyre_compound` for laps that arrived before the server stored it
+(`tyre_read = false`). It works oldest first, 200 at a time, for at most 3 minutes a run; first run 2 to 6 minutes after start, then daily. It reads
+the header only: the stored file is downloaded but only its first bytes are unzipped (`gunzipLapHeader`), and a lap of file version 1 (which has no
+compound field) is marked read without opening its file. Every lap is marked as soon as it is read (an unreadable file too, with no compound), so a
+stop loses nothing and the next run resumes. One `job_done` line with `read`, `withTyre`, `remaining`.
+
 ## Tests
 
 `npm run test:storage` (`scripts/verify-storage.mjs`, in CI after `test:sim`): the S3 driver against an in-process fake
