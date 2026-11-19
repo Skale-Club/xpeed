@@ -475,6 +475,8 @@ pub(super) struct LapRow {
     pub(super) time_role: Role,
     pub(super) gap: String,
     pub(super) gap_role: Role,
+    /// How far behind the best lap a lap done was, 0..1 of `LAP_GAP_FULL_S`: a short bar beside its gap.
+    pub(super) gap_bar: Option<f32>,
     /// Sector 1, 2 and 3: nothing for a sector not done yet.
     pub(super) sectors: [Option<(String, Role)>; 3],
 }
@@ -710,8 +712,8 @@ pub(super) fn sector_text(ms: u32) -> String {
 }
 
 /// The laps table: the lap being driven first, then the laps saved, newest first. The fastest lap that counted says
-/// "best", the others their gap to it; a lap that did not count says so. A sector is in the best colour where it is
-/// the fastest sector of any lap that counted, and the sector of the lap being driven is green where it is faster.
+/// "best", the others their gap to it (and how far behind, for a bar); a lap that did not count says so. Sectors take the
+/// timing colours: purple the fastest of any lap that counted, green faster than the best lap there, yellow slower.
 fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time: &Elem, delta: &Elem) -> LapsModel {
     let lang = ctx.lang;
     let say = |msg: Msg| text(lang, &msg);
@@ -726,16 +728,28 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
         .min();
     let best_sector: [Option<u32>; 3] =
         std::array::from_fn(|i| saved.iter().filter(|l| l.valid).filter_map(|l| l.sectors_ms.get(i).copied()).min());
+    // The sectors of the best lap, to say where another lap was faster (green) or slower (yellow) than it.
+    let best_lap_sector: [Option<u32>; 3] = std::array::from_fn(|i| {
+        let best_lap = best_ms.and_then(|best| saved.iter().find(|l| l.valid && l.time_ms == best));
+        best_lap.and_then(|l| l.sectors_ms.get(i).copied())
+    });
+    // Timing colours (owner-approved module 4, 2026-11-19): purple the fastest sector of any lap that counted, green
+    // faster than the best lap there, yellow slower; with nothing to compare, `plain`.
+    let sector_role = |i: usize, ms: u32, plain: Role| -> Role {
+        match (best_sector[i], best_lap_sector[i]) {
+            (Some(best), _) if ms <= best => Role::Best,
+            (_, Some(lap)) if ms < lap => Role::Good,
+            (_, Some(lap)) if ms > lap => Role::Warn,
+            _ => plain,
+        }
+    };
     let steady = if fresh { Show::Shown } else { Show::Dimmed };
     let mut rows = Vec::new();
     // The lap being driven: only while there is a lap to number (not in a menu).
     if slots.lap_time && (live.driving || live.phase == crate::game::Phase::Paused) {
         let sectors = std::array::from_fn(|i| {
             let done = live.sectors_ms.get(i).copied().flatten();
-            done.map(|ms| {
-                let faster = best_sector[i].is_some_and(|best| ms < best);
-                (sector_text(ms), if faster { Role::Good } else { Role::Primary })
-            })
+            done.map(|ms| (sector_text(ms), sector_role(i, ms, Role::Primary)))
         });
         rows.push(LapRow {
             kind: LapKind::Live,
@@ -749,6 +763,7 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
             time_role: Role::Primary,
             gap: if delta.visible() { delta.text.clone() } else { "–".to_owned() },
             gap_role: if delta.visible() { delta.role } else { Role::Muted },
+            gap_bar: None,
             sectors,
         });
     }
@@ -764,16 +779,25 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
             (_, Some(best)) => (format!("+{:.3}", f64::from(lap.time_ms.saturating_sub(best)) / 1000.0), Role::Muted),
             (_, None) => ("–".to_owned(), Role::Muted),
         };
+        // A lap that did not count is never coloured: it sets nothing.
         let sectors = std::array::from_fn(|i| {
             lap.sectors_ms.get(i).map(|&ms| {
-                let role = if kind != LapKind::Invalid && best_sector[i] == Some(ms) {
-                    Role::Best
-                } else {
+                let role = if kind == LapKind::Invalid {
                     Role::Text
+                } else {
+                    sector_role(i, ms, Role::Text)
                 };
                 (sector_text(ms), role)
             })
         });
+        // How far behind the best: a short bar of blocks, full at `LAP_GAP_FULL_S`.
+        let gap_bar = match (kind, best_ms) {
+            (LapKind::Done, Some(best)) => {
+                let behind = f64::from(lap.time_ms.saturating_sub(best)) / 1000.0;
+                Some((behind / f64::from(LAP_GAP_FULL_S)).clamp(0.0, 1.0) as f32)
+            }
+            _ => None,
+        };
         rows.push(LapRow {
             kind,
             show: steady,
@@ -786,6 +810,7 @@ fn laps_model(live: &Live, ctx: &ModelCtx, slots: &Slots, fresh: bool, lap_time:
             },
             gap,
             gap_role,
+            gap_bar,
             sectors,
         });
     }

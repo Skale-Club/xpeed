@@ -924,6 +924,21 @@ fn writes_the_design_preview_page() {
             "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"1920\" height=\"1080\"></figure>\n"
         ));
     }
+    // Laps with sectors: purple the fastest, green faster than the best lap, yellow slower, and the gap bars.
+    let mut timed = rich_laps();
+    for (number, s) in [(4, [27_880, 45_000, 52_000]), (5, [27_850, 44_800, 52_600])] {
+        timed.push(SavedLap {
+            valid: true,
+            sectors_ms: s.to_vec(),
+            time_ms: s.iter().sum(),
+            ..saved_lap(number, 0)
+        });
+    }
+    let mut sectors_view = view(&f, Some(&rich), Tab::Dash, 1.0, Lang::En);
+    sectors_view.recent_laps = &timed;
+    let pixels = render(&sectors_view, 1920, 1080);
+    save(&pixels, 1920, 1080, "preview-laps-sectors.png");
+    figures.push_str("<figure><figcaption>Laps with sectors: purple the fastest, green faster than the best lap, yellow slower (1920 × 1080)</figcaption><img data-src=\"preview-laps-sectors.png\" width=\"1920\" height=\"1080\"></figure>\n");
     let covers = CoverArt::load(None);
     let mut hover = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     let [_, _, _, full_button, _] = header_hits(960, 1.0);
@@ -1768,19 +1783,41 @@ fn the_laps_table_is_newest_first_with_the_best_the_gaps_and_the_sectors() {
     let live_row = &m.laps.rows[0];
     assert_eq!(live_row.time_role, Role::Primary);
     assert_eq!(live_row.gap, "-0.270");
+    // Timing colours (module 4): purple the fastest of any lap, green faster than the best lap, yellow slower.
     assert_eq!(
         live_row.sectors[0],
-        Some(("27.811".to_owned(), Role::Good)),
-        "faster than the best first sector"
+        Some(("27.811".to_owned(), Role::Best)),
+        "faster than every first sector so far: purple"
     );
-    assert_eq!(live_row.sectors[1], Some(("44.597".to_owned(), Role::Good)));
+    assert_eq!(live_row.sectors[1], Some(("44.597".to_owned(), Role::Best)));
     assert_eq!(live_row.sectors[2], None);
+    assert_eq!(live_row.gap_bar, None, "the lap being driven has its delta, not a bar");
     let best = &m.laps.rows[1];
-    assert_eq!((best.gap.as_str(), best.time_role), ("Best", Role::Best));
+    assert_eq!((best.gap.as_str(), best.time_role, best.gap_bar), ("Best", Role::Best, None));
     assert!(best.sectors.iter().all(|s| s.as_ref().is_some_and(|(_, role)| *role == Role::Best)));
     let done = &m.laps.rows[2];
     assert_eq!(done.gap, "+0.419");
-    assert_eq!(done.sectors[0].as_ref().map(|s| s.1), Some(Role::Text));
+    let roles: Vec<Role> = done.sectors.iter().map(|s| s.as_ref().unwrap().1).collect();
+    assert_eq!(roles, [Role::Warn; 3], "every sector slower than the best lap's: yellow");
+    assert!((done.gap_bar.unwrap() - 0.419 / LAP_GAP_FULL_S).abs() < 0.001);
+    // Lap 5 is faster than the best lap (lap 3, 27.903) in the first sector but not the fastest there (lap 6, 27.850):
+    // green; lap 6 holds the fastest first sector: purple. Both are slower laps overall.
+    let mut more = rich_laps();
+    for (number, s) in [(5, [27_880, 45_000, 52_000]), (6, [27_850, 44_800, 52_000])] {
+        more.push(SavedLap {
+            valid: true,
+            sectors_ms: s.to_vec(),
+            time_ms: s.iter().sum(),
+            ..saved_lap(number, 0)
+        });
+    }
+    let rows = model_with(&live, Default::default(), &more).laps.rows;
+    let roles_of = |n: &str| -> Vec<Role> {
+        let row = rows.iter().find(|r| r.number == n && r.kind != LapKind::Live).unwrap();
+        row.sectors.iter().map(|s| s.as_ref().unwrap().1).collect()
+    };
+    assert_eq!(roles_of("5"), [Role::Good, Role::Warn, Role::Warn]);
+    assert_eq!(roles_of("6"), [Role::Best, Role::Warn, Role::Warn]);
     let invalid = &m.laps.rows[3];
     assert_eq!(
         (invalid.gap.as_str(), invalid.time_role, invalid.gap_role),

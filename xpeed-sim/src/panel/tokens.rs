@@ -100,6 +100,10 @@ pub(super) const LIGHT_TILE_H: f32 = 40.0;
 pub(super) const LIGHT_TILE_MIN_H: f32 = 20.0;
 /// A drawn tyre is this wide for its height (seen from above).
 pub(super) const TYRE_ASPECT: f32 = 0.5;
+/// The laps table's gap bar (owner-approved module 4, 2026-11-19): a lap this many seconds or more behind the best
+/// fills it; it is this tall.
+pub(super) const LAP_GAP_FULL_S: f32 = 2.0;
+pub(super) const LAP_GAP_BAR_H: f32 = 5.0;
 /// The track card's lap progress bar: how tall it is.
 pub(super) const LAP_BAR_H: f32 = 8.0;
 /// A tyre tile's wear bar: how far under the row above it starts, and how tall it is.

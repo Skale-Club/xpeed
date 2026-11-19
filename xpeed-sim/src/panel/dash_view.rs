@@ -511,8 +511,9 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
 }
 
 /// The laps table, newest first: the lap being driven in the accent colour with its sectors so far, then each lap done
-/// with its time, its gap to the best and (when the game gives them) its sectors. The best lap and the best sectors are in
-/// the best colour; a lap that did not count is quiet with its time struck through.
+/// with its time, its gap to the best (and a short bar of how far behind) and, when the game gives them, its sectors in
+/// the timing colours: purple the fastest, green faster than the best lap, yellow slower. The best lap is in the best
+/// colour; a lap that did not count is quiet with its time struck through.
 pub(super) fn laps_card(g: &mut Painter, d: &Dash, card: Area) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let laps = &d.m.laps;
@@ -560,6 +561,16 @@ pub(super) fn laps_card(g: &mut Painter, d: &Dash, card: Area) {
                 line(g, 0, &row.number, number_colour, false);
                 line(g, 1, &row.time, row.time_role.colour(), row.kind == LapKind::Invalid);
                 line(g, 2, &row.gap, row.gap_role.colour(), false);
+                // A lap behind the best: a short bar of blocks on the left of its gap, longer the further behind.
+                if let Some(behind) = row.gap_bar {
+                    let (cx, cw) = cols[2];
+                    let text_w = g.tabular_width(&row.gap, T_BODY, semi);
+                    let bar_w = cw - S2 - text_w - S3;
+                    if bar_w >= 24.0 {
+                        let bar_y = ry + (LAP_ROW_H - LAP_GAP_BAR_H) / 2.0;
+                        g.solid_bar((x + cx + S2, bar_y, bar_w - S2, LAP_GAP_BAR_H), behind, WARN);
+                    }
+                }
                 for (s, sector) in row.sectors.iter().enumerate() {
                     if cols.len() > 3 + s {
                         match sector {
