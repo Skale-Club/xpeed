@@ -717,7 +717,7 @@ impl Painter {
         let (fill, edge, ink) = alert_look(light);
         self.round(self.r(x, y, w, h), fill, edge);
         let r = self.r(x, y, w, h);
-        self.caps(&light.word, r, T_CAPTION, ink, DT_CENTER);
+        self.caps_fit(&light.word, r, T_CAPTION, S2, ink, DT_CENTER);
     }
 
     /// One line of text in a box, cut with "…" when it does not fit.
@@ -931,6 +931,29 @@ impl Painter {
     /// `ink_span` of an upper-case label as `caps` draws it.
     pub(super) fn caps_ink_span(&mut self, s: &str, size: f32, box_h: f32) -> Option<(f32, f32)> {
         self.ink_span(&s.to_uppercase(), size * CAPS_SCALE, FW_SEMIBOLD as i32, Face::Label, box_h)
+    }
+
+    /// `caps` at `size`, or smaller (never under `T_LABEL_MIN`) when the label would not fit the box's width less `pad`
+    /// on each side: a word never runs out of its tile (owner, 2026-11-19).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn caps_fit(&mut self, s: &str, r: RECT, size: f32, pad: f32, color: COLORREF, align: u32) {
+        let room = ((r.right - r.left) as f32 / self.s - 2.0 * pad).max(1.0);
+        let size = self.caps_fit_size(s, size, room);
+        self.caps(s, r, size, color, align);
+    }
+
+    /// The size `caps_fit` draws `s` at to fit `room` design units, from `size` down to `T_LABEL_MIN`.
+    pub(super) fn caps_fit_size(&mut self, s: &str, size: f32, room: f32) -> f32 {
+        let mut fit = size;
+        for _ in 0..6 {
+            let wide = self.caps_width(s, fit);
+            if wide <= room || fit <= T_LABEL_MIN {
+                break;
+            }
+            // In proportion, then a little more while it still runs out (glyph widths round to whole pixels).
+            fit = (fit * (room / wide).min(0.97)).max(T_LABEL_MIN);
+        }
+        fit
     }
 
     /// The width of an upper-case label as `caps` draws it, in design units.

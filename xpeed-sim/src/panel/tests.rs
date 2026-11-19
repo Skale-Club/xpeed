@@ -1819,6 +1819,45 @@ fn the_laps_table_is_newest_first_with_the_best_the_gaps_and_the_sectors() {
     assert_eq!(sector_text(27_811), "27.811");
 }
 
+/// The owner's lights card (2026-11-19): no light's name runs out of its tile, in any language. A short name first, and
+/// the font shrinks (never under `T_LABEL_MIN`) for what is still too wide.
+#[test]
+fn every_light_name_fits_its_tile_in_every_language() {
+    let names = [
+        Msg::AlertPit,
+        Msg::AlertAbs,
+        Msg::AlertTc,
+        Msg::LightDrs,
+        Msg::AlertHeadlights,
+        Msg::AlertFuel,
+        Msg::AlertEngine,
+        Msg::AlertHandbrake,
+        Msg::LightFlag,
+        Msg::PanelFlagGreen,
+        Msg::PanelFlagYellow,
+        Msg::PanelFlagBlue,
+        Msg::PanelFlagWhite,
+        Msg::PanelFlagBlack,
+        Msg::PanelFlagChequered,
+    ];
+    // The narrowest tile of the grid in a real layout, less its padding.
+    let room = 96.0 - 2.0 * S2;
+    let mut misses = Vec::new();
+    painted_by(10, 10, |g| {
+        for lang in Lang::ALL {
+            for msg in &names {
+                let word = text(lang, msg);
+                assert!(word.chars().count() <= 10, "{lang:?}: {word} is not a short name");
+                let size = g.caps_fit_size(&word, T_CAPTION, room);
+                if g.caps_width(&word, size) > room || size < T_LABEL_MIN {
+                    misses.push(format!("{lang:?} {word} at {size}"));
+                }
+            }
+        }
+    });
+    assert!(misses.is_empty(), "these run out of a light's tile: {misses:?}");
+}
+
 /// The owner's lights card (2026-11-19): every light the game can give keeps its place, lit or not.
 #[test]
 fn every_light_the_game_gives_keeps_its_place_lit_or_not() {
@@ -1835,7 +1874,7 @@ fn every_light_the_game_gives_keeps_its_place_lit_or_not() {
         .or(Caps::PIT_LIMITER);
     let m = model(&live, Lang::En);
     let words: Vec<&str> = m.alerts.iter().map(|a| a.word.as_str()).collect();
-    assert_eq!(words, ["Pit limiter", "ABS", "DRS", "Headlights", "Flag"], "all there, all off");
+    assert_eq!(words, ["Limiter", "ABS", "DRS", "Lights", "Flag"], "all there, all off");
     assert!(m.alerts.iter().all(|a| a.glow == Glow::Off));
     live.state.abs_active = Some(true);
     live.state.drs = Some(Drs::Available);
@@ -1847,18 +1886,18 @@ fn every_light_the_game_gives_keeps_its_place_lit_or_not() {
     assert_eq!(
         looks,
         [
-            ("Pit limiter", Glow::Off),
-            ("ABS active", Glow::On),
-            ("DRS available", Glow::Ready),
-            ("Headlights", Glow::Off),
-            ("Yellow flag", Glow::On),
+            ("Limiter", Glow::Off),
+            ("ABS", Glow::On),
+            ("DRS", Glow::Ready),
+            ("Lights", Glow::Off),
+            ("Yellow", Glow::On),
         ],
-        "the same places, the lit ones say what is happening"
+        "the same places and names; the lit ones in their colour"
     );
     assert!(m.alerts.iter().all(|a| a.show == Show::Shown));
     live.state.drs = Some(Drs::Open);
-    assert!(model(&live, Lang::En).alerts.iter().any(|a| a.word == "DRS open"));
-    assert_eq!(model(&live, Lang::Pt).alerts[1].word, "ABS atuando");
+    assert!(model(&live, Lang::En).alerts.iter().any(|a| a.word == "DRS" && a.glow == Glow::On));
+    assert_eq!(model(&live, Lang::Pt).alerts[0].word, "Limitador");
     // The grid: nine lights are three rows of three; with no room for it, none.
     let cells = light_grid((0.0, 0.0, 300.0, 120.0), 9).unwrap();
     assert_eq!((cells[2].1, cells[3].1 > cells[2].1, cells[8].0), (0.0, true, cells[2].0));
@@ -1882,7 +1921,7 @@ fn every_light_the_game_gives_keeps_its_place_lit_or_not() {
         let at = painted_by(80, 30, |g| g.alert_tile(&light, (0.0, 0.0, 80.0, 30.0)));
         assert!(near(at(6, 4), fill) && near(at(40, 0), edge), "{glow:?}");
     }
-    // Pit limiter, engine, fuel low and handbrake have their words too.
+    // The limiter, engine, fuel and handbrake have their names too.
     live.caps = live.caps.or(Caps::ENGINE_WARNING).or(Caps::HANDBRAKE).or(Caps::FUEL);
     live.state.pit_limiter = Some(true);
     live.state.engine_warning = Some(true);
@@ -1890,7 +1929,7 @@ fn every_light_the_game_gives_keeps_its_place_lit_or_not() {
     live.fuel_per_lap_l = Some(2.9);
     live.fuel_l = 3.0;
     let words: Vec<String> = model(&live, Lang::En).alerts.into_iter().map(|a| a.word).collect();
-    for want in ["Pit limiter", "Engine", "Fuel low", "Handbrake"] {
+    for want in ["Limiter", "Engine", "Fuel", "Handbrake"] {
         assert!(words.iter().any(|w| w == want), "{want} in {words:?}");
     }
     // Out of the car they are the last known, dimmed.

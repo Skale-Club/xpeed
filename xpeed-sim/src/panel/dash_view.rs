@@ -694,7 +694,7 @@ pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
             shown(g, cell.show, |g| {
                 g.round(g.r(cx, bottom - elec_h, cw, elec_h), BACKGROUND, Some(BORDER));
                 let r = g.r(cx + S2, bottom - elec_h + 6.0, cw - S3, 14.0);
-                g.caps(&cell.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+                g.caps_fit(&cell.label, r, T_CAPTION, 0.0, MUTED_TEXT, DT_LEFT);
                 let size = g.fitted(&cell.value, cw - S3, T_VALUE, T_BODY, semi, Face::Num);
                 let r = g.r(cx + S2 - 1.0, bottom - elec_h + 22.0, cw - S3 + 2.0, 24.0);
                 g.text(&cell.value, r, size, semi, Face::Num, cell.role.colour(), DT_LEFT);

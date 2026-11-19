@@ -96,7 +96,7 @@ pub(super) const TYRE_SIDEWALL: COLORREF = rgb(0x0b, 0x0b, 0x0c);
 /// `LIGHT_COLUMNS` columns, off dark with its name, on filled in its colour, ready outlined. A light that lights never
 /// moves another. Tiles are `LIGHT_TILE_H` tall, never under `LIGHT_TILE_MIN_H` (with less room, only the lit ones show).
 pub(super) const LIGHT_COLUMNS: usize = 4;
-pub(super) const LIGHT_TILE_H: f32 = 30.0;
+pub(super) const LIGHT_TILE_H: f32 = 40.0;
 pub(super) const LIGHT_TILE_MIN_H: f32 = 20.0;
 /// A drawn tyre is this wide for its height (seen from above).
 pub(super) const TYRE_ASPECT: f32 = 0.5;
@@ -169,6 +169,9 @@ pub(super) fn tint(base: COLORREF, colour: COLORREF, amount: f32) -> COLORREF {
 
 /// Captions, labels, notes and units.
 pub(super) const T_CAPTION: f32 = 12.0;
+/// The one exception to `T_CAPTION`: a label in a tile of fixed width (a light, a setting) shrinks to fit it, down to
+/// this, rather than run out of the tile (owner, 2026-11-19). `Painter::caps_fit`.
+pub(super) const T_LABEL_MIN: f32 = 9.0;
 /// Body text and buttons.
 pub(super) const T_BODY: f32 = 14.0;
 /// A heading or a small figure.

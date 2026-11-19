@@ -1043,7 +1043,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
     let lit = |on: bool| if on { Glow::On } else { Glow::Off };
     // The word of a light: what it says when lit, its plain name when off.
-    let named = |on: bool, lit_word: Msg, off_word: Msg| if on { lit_word } else { off_word };
+    // Every light says its short name, lit or not: the colour says it is on (a long word would not fit its tile).
     if caps.has(Caps::PIT_LIMITER) {
         alert(
             PillKind::Pit,
@@ -1054,32 +1054,30 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         );
     }
     if caps.has(Caps::ABS_ACTIVE) {
-        let on = s.abs_active == Some(true);
         alert(
             PillKind::Abs,
-            lit(on),
+            lit(s.abs_active == Some(true)),
             None,
-            named(on, Msg::AlertAbs, Msg::LightAbs),
+            Msg::AlertAbs,
             s.abs_active.is_some(),
         );
     }
     if caps.has(Caps::TC_ACTIVE) {
-        let on = s.tc_active == Some(true);
         alert(
             PillKind::Tc,
-            lit(on),
+            lit(s.tc_active == Some(true)),
             None,
-            named(on, Msg::AlertTc, Msg::LightTc),
+            Msg::AlertTc,
             s.tc_active.is_some(),
         );
     }
     if caps.has(Caps::DRS) {
-        let (glow, word) = match s.drs {
-            Some(Drs::Open) => (Glow::On, Msg::AlertDrsOpen),
-            Some(Drs::Available) => (Glow::Ready, Msg::AlertDrsAvailable),
-            _ => (Glow::Off, Msg::LightDrs),
+        let glow = match s.drs {
+            Some(Drs::Open) => Glow::On,
+            Some(Drs::Available) => Glow::Ready,
+            _ => Glow::Off,
         };
-        alert(PillKind::Drs, glow, None, word, s.drs.is_some());
+        alert(PillKind::Drs, glow, None, Msg::LightDrs, s.drs.is_some());
     }
     if caps.has(Caps::HEADLIGHTS) {
         alert(
@@ -1091,8 +1089,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         );
     }
     if caps.has(Caps::FUEL) {
-        let word = named(low, Msg::AlertFuel, Msg::LightFuel);
-        alert(PillKind::Fuel, lit(low), None, word, laps_left_val.is_some());
+        alert(PillKind::Fuel, lit(low), None, Msg::AlertFuel, laps_left_val.is_some());
     }
     if caps.has(Caps::ENGINE_WARNING) {
         alert(
