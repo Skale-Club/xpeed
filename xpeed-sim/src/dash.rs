@@ -469,7 +469,12 @@ impl Tracker {
         self.remember(frame);
         self.official = frame.last_lap_s;
         // The distance into the lap: the game's, else the speed added up (`session.rs` decides which).
-        let dist_m = step.sample.map(|s| s.dist_m);
+        // While the line is told from a restart (`Step::held`), the lap clock is back near zero either way: show the lap
+        // starting over.
+        let dist_m = step
+            .sample
+            .map(|s| s.dist_m)
+            .or_else(|| step.held.then(|| frame.dist_m.unwrap_or(0.0)));
         if frame.driving {
             self.called_invalid |= frame.lap_valid == Some(false);
         }
