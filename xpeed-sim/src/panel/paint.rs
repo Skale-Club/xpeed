@@ -58,10 +58,16 @@ pub(super) fn pill_color(kind: PillKind) -> COLORREF {
     }
 }
 
-/// How a lit alert looks: its fill, an outline when it needs one and the ink of its words. Every alert is a solid tile in
-/// its colour with dark ink; a black flag is dark with a light edge and light ink.
+/// How a light looks: its fill, an outline when it needs one and the ink of its words. Off, it is dark with a quiet
+/// name; ready (DRS allowed), outlined and named in its colour; on, a solid tile in its colour with dark ink (a black
+/// flag is dark with a light edge and light ink).
 pub(super) fn alert_look(light: &Light) -> (COLORREF, Option<COLORREF>, COLORREF) {
     use crate::game::Flag;
+    match light.glow {
+        Glow::Off => return (BACKGROUND, Some(BORDER), LIGHT_OFF_INK),
+        Glow::Ready => return (BACKGROUND, Some(pill_color(light.kind)), pill_color(light.kind)),
+        Glow::On => {}
+    }
     match (light.kind, light.flag) {
         (PillKind::Flag, Some(Flag::Green)) => (SUCCESS, None, ON_PRIMARY),
         (PillKind::Flag, Some(Flag::Yellow)) => (PRIMARY, None, ON_PRIMARY),
@@ -705,7 +711,8 @@ impl Painter {
         }
     }
 
-    /// An alert that is lit: a solid tile in its colour with its words in dark ink (light ink on a black flag).
+    /// A light's tile, as `alert_look` says: off dark with its quiet name, ready outlined in its colour, on a solid tile
+    /// in its colour with dark ink (light ink on a black flag).
     pub(super) fn alert_tile(&mut self, light: &Light, (x, y, w, h): Area) {
         let (fill, edge, ink) = alert_look(light);
         self.round(self.r(x, y, w, h), fill, edge);

@@ -663,6 +663,27 @@ pub(super) fn banner_box(target: Area, content_w: f32, content_h: f32) -> Area {
     (tx + (tw - w) / 2.0, ty + (th - h) / 2.0, w, h)
 }
 
+/// The cells of the lights card's grid for `n` lights in `region`: rows of at most `LIGHT_COLUMNS`, balanced (nine lights
+/// are three rows of three, not two of four and one alone), tiles `LIGHT_TILE_H` tall or less to fit. `None` when even
+/// `LIGHT_TILE_MIN_H` does not fit, or there is nothing to place.
+pub(super) fn light_grid((x, y, w, h): Area, n: usize) -> Option<Vec<Area>> {
+    if n == 0 {
+        return None;
+    }
+    let rows = n.div_ceil(LIGHT_COLUMNS);
+    let cols = n.div_ceil(rows);
+    let tile_h = ((h - S2 * (rows as f32 - 1.0)) / rows as f32).min(LIGHT_TILE_H);
+    if tile_h < LIGHT_TILE_MIN_H {
+        return None;
+    }
+    let tile_w = (w - S2 * (cols as f32 - 1.0)) / cols as f32;
+    let cell = |i: usize| {
+        let (col, row) = ((i % cols) as f32, (i / cols) as f32);
+        (x + col * (tile_w + S2), y + row * (tile_h + S2), tile_w, tile_h)
+    };
+    Some((0..n).map(cell).collect())
+}
+
 /// The four tyre tiles of a tyres card: two by two (front left, front right, rear left, rear right), under the caption.
 /// A card much wider than it is tall puts them in one row.
 pub(super) fn tyre_tiles(card: Area) -> [Area; 4] {

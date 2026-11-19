@@ -666,8 +666,9 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
     }
 }
 
-/// The alerts card: only the alerts that are lit, as solid tiles with their words; then one row of the electronics'
-/// settings and a short damage line. An alert that is off is not drawn at all.
+/// The alerts card: every light the game can give in a fixed grid (off dark with its name, on filled in its colour,
+/// ready outlined; owner decision 2026-11-19), then one row of the electronics' settings and a short damage line. With
+/// too little room for the grid, only the lit lights show, side by side.
 pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let m = d.m;
@@ -708,11 +709,22 @@ pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
         g.text(&m.no_alerts, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
         return;
     }
-    let tile_h = 28.0;
-    let widths: Vec<f32> = m.alerts.iter().map(|a| g.caps_width(&a.word, T_CAPTION) + S4 + S2).collect();
-    for (alert, place) in m.alerts.iter().zip(flow(region, &widths, tile_h, S2)) {
+    if let Some(cells) = light_grid(region, m.alerts.len()) {
+        for (light, area) in m.alerts.iter().zip(cells) {
+            shown(g, light.show, |g| g.alert_tile(light, area));
+        }
+        return;
+    }
+    let lit: Vec<&Light> = m.alerts.iter().filter(|a| a.glow != Glow::Off).collect();
+    if lit.is_empty() {
+        let r = g.r(x, top, w, 20.0);
+        g.text(&m.no_alerts, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
+        return;
+    }
+    let widths: Vec<f32> = lit.iter().map(|a| g.caps_width(&a.word, T_CAPTION) + S4 + S2).collect();
+    for (light, place) in lit.into_iter().zip(flow(region, &widths, LIGHT_TILE_MIN_H, S2)) {
         if let Some(area) = place {
-            shown(g, alert.show, |g| g.alert_tile(alert, area));
+            shown(g, light.show, |g| g.alert_tile(light, area));
         }
     }
 }

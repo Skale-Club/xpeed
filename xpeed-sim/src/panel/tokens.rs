@@ -92,6 +92,12 @@ pub(super) const TYRE_HEAT_STOPS: [(f32, COLORREF); 8] = [
 ];
 /// The rubber around a tyre's tread when it is drawn from above (its sidewalls).
 pub(super) const TYRE_SIDEWALL: COLORREF = rgb(0x0b, 0x0b, 0x0c);
+/// The lights card (owner decision 2026-11-19): every light the game can give keeps its place in a grid of at most
+/// `LIGHT_COLUMNS` columns, off dark with its name, on filled in its colour, ready outlined. A light that lights never
+/// moves another. Tiles are `LIGHT_TILE_H` tall, never under `LIGHT_TILE_MIN_H` (with less room, only the lit ones show).
+pub(super) const LIGHT_COLUMNS: usize = 4;
+pub(super) const LIGHT_TILE_H: f32 = 30.0;
+pub(super) const LIGHT_TILE_MIN_H: f32 = 20.0;
 /// A drawn tyre is this wide for its height (seen from above).
 pub(super) const TYRE_ASPECT: f32 = 0.5;
 /// A tyre tile's wear bar: how far under the row above it starts, and how tall it is.
@@ -134,6 +140,8 @@ pub(super) const BACKDROP_BOTTOM: COLORREF = mix(BACKGROUND, rgb(0, 0, 0), 0.35)
 pub(super) const ROAD_LINE: COLORREF = mix(SECONDARY, FOREGROUND, 0.5);
 /// The cover of a game that has not arrived yet.
 pub(super) const COVER_PLACEHOLDER: COLORREF = mix(BACKGROUND, CARD, 0.8);
+/// The name of a light that is off: present but quiet, well under the muted text.
+pub(super) const LIGHT_OFF_INK: COLORREF = mix(CARD, MUTED_TEXT, 0.45);
 /// The row under the mouse in the language list.
 pub(super) const ROW_HOVER: COLORREF = mix(CARD, FOREGROUND, 0.07);
 /// What the make marks stand on (the logos are drawn for a light ground).

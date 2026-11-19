@@ -344,8 +344,8 @@ pub(super) struct Banner {
     pub(super) note: String,
 }
 
-/// An alert that is lit: its kind (for its colour), the words it says and how it is shown. Alerts that are not lit are
-/// not in the model at all.
+/// A light of the lights card: its kind (for its colour), whether it is off, on or ready, the words it says and how it is
+/// shown. Every light the game can give is in the model, lit or not, so each keeps its place.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Light {
     pub(super) kind: PillKind,
@@ -547,7 +547,7 @@ pub(super) struct DashModel {
     pub(super) progress: Elem,
     pub(super) distance: Elem,
     pub(super) alerts_title: String,
-    /// Only the alerts that are lit.
+    /// Every light the game can give, in a fixed order, lit or not.
     pub(super) alerts: Vec<Light>,
     pub(super) no_alerts: String,
     /// The driver's settings: TC, ABS, engine map, brake bias.
@@ -1028,21 +1028,22 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         _ => (Elem::hidden(), Elem::hidden()),
     };
 
-    // The alerts: only those that are lit. A light the game cannot give is not there at all; one it can give and has no
-    // value for now is not lit.
+    // The lights: every light the game can give, always in the same order and place (owner decision 2026-11-19), off
+    // with its name, on in its colour, ready (DRS allowed) outlined. A light the game cannot give is not there at all;
+    // one it can give and has no value for now is off.
     let mut alerts = Vec::new();
     let mut alert = |kind: PillKind, glow: Glow, flag: Option<crate::game::Flag>, word: Msg, present: bool| {
-        if glow != Glow::Off {
-            alerts.push(Light {
-                kind,
-                glow,
-                flag,
-                word: say(word),
-                show: reading(live_now, present),
-            });
-        }
+        alerts.push(Light {
+            kind,
+            glow,
+            flag,
+            word: say(word),
+            show: reading(live_now, present),
+        });
     };
     let lit = |on: bool| if on { Glow::On } else { Glow::Off };
+    // The word of a light: what it says when lit, its plain name when off.
+    let named = |on: bool, lit_word: Msg, off_word: Msg| if on { lit_word } else { off_word };
     if caps.has(Caps::PIT_LIMITER) {
         alert(
             PillKind::Pit,
@@ -1053,20 +1054,22 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         );
     }
     if caps.has(Caps::ABS_ACTIVE) {
+        let on = s.abs_active == Some(true);
         alert(
             PillKind::Abs,
-            lit(s.abs_active == Some(true)),
+            lit(on),
             None,
-            Msg::AlertAbs,
+            named(on, Msg::AlertAbs, Msg::LightAbs),
             s.abs_active.is_some(),
         );
     }
     if caps.has(Caps::TC_ACTIVE) {
+        let on = s.tc_active == Some(true);
         alert(
             PillKind::Tc,
-            lit(s.tc_active == Some(true)),
+            lit(on),
             None,
-            Msg::AlertTc,
+            named(on, Msg::AlertTc, Msg::LightTc),
             s.tc_active.is_some(),
         );
     }
@@ -1074,7 +1077,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         let (glow, word) = match s.drs {
             Some(Drs::Open) => (Glow::On, Msg::AlertDrsOpen),
             Some(Drs::Available) => (Glow::Ready, Msg::AlertDrsAvailable),
-            _ => (Glow::Off, Msg::AlertDrsAvailable),
+            _ => (Glow::Off, Msg::LightDrs),
         };
         alert(PillKind::Drs, glow, None, word, s.drs.is_some());
     }
@@ -1088,7 +1091,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         );
     }
     if caps.has(Caps::FUEL) {
-        alert(PillKind::Fuel, lit(low), None, Msg::AlertFuel, laps_left_val.is_some());
+        let word = named(low, Msg::AlertFuel, Msg::LightFuel);
+        alert(PillKind::Fuel, lit(low), None, word, laps_left_val.is_some());
     }
     if caps.has(Caps::ENGINE_WARNING) {
         alert(
@@ -1119,6 +1123,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 crate::game::Flag::Chequered => Msg::PanelFlagChequered,
             };
             alert(PillKind::Flag, Glow::On, Some(flag), word, true);
+        } else {
+            alert(PillKind::Flag, Glow::Off, None, Msg::LightFlag, true);
         }
     }
 
