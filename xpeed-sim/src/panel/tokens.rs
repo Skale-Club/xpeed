@@ -94,8 +94,9 @@ pub(super) const TYRE_HEAT_STOPS: [(f32, COLORREF); 8] = [
 pub(super) const TYRE_SIDEWALL: COLORREF = rgb(0x0b, 0x0b, 0x0c);
 /// A drawn tyre is this wide for its height (seen from above).
 pub(super) const TYRE_ASPECT: f32 = 0.5;
-/// The height of a capital letter for its type size, to line a shape up with the top of a label's letters.
-pub(super) const TYRE_CAP_HEIGHT: f32 = 0.7;
+/// A tyre tile's wear bar: how far under the row above it starts, and how tall it is.
+pub(super) const WEAR_BAR_TOP: f32 = 2.0;
+pub(super) const WEAR_BAR_H: f32 = 3.0;
 /// The distance between two grooves across a drawn tread.
 pub(super) const TYRE_GROOVE_PITCH: f32 = 10.0;
 

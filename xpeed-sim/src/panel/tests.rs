@@ -1517,6 +1517,33 @@ fn a_tyre_is_drawn_in_the_colours_of_its_temperatures() {
     assert!((5..35).all(|x| at(x, 5) == WARN), "a solid tyre has no bands");
 }
 
+/// The owner's tyre tile (2026-11-19): the drawn tyre runs from the top of the F of "FL" to the bottom of the wear bar,
+/// and the tyre with its words sits in the middle of the tile, not at its top.
+#[test]
+fn a_tyre_tile_groups_the_tyre_with_its_words_in_the_middle() {
+    let tiles = model(&rich_reading(), Lang::En).tyres.unwrap().tiles;
+    let (w, h) = (220, 200);
+    let at = painted_by(w, h, |g| {
+        tyre_tile_view(g, &tiles[0], "Brake", (0.0, 0.0, w as f32, h as f32), true);
+    });
+    let rows = |x0: i32, x1: i32, hit: &dyn Fn(COLORREF) -> bool| -> Vec<i32> {
+        (4..h - 2).filter(|y| (x0..x1).any(|x| hit(at(x, *y)))).collect()
+    };
+    let tyre = rows(18, 22, &|c| c != BACKGROUND);
+    let (tyre_top, tyre_bottom) = (tyre[0], *tyre.last().unwrap());
+    // The words start past the tyre: the first column on the right of it that is not background is the F.
+    let tyre_right = (18..w).find(|x| at(*x, tyre_top + 5) == BACKGROUND).unwrap();
+    let head = tyre_top - 2..tyre_top + 12;
+    let words_x = (tyre_right..w).find(|x| head.clone().any(|y| at(*x, y) != BACKGROUND)).unwrap();
+    let corner_top = rows(words_x, words_x + 18, &|c| c != BACKGROUND)[0];
+    let bar = rows(words_x, words_x + 4, &|c| c == FOREGROUND_2 || c == SECONDARY);
+    let bar_bottom = *bar.last().unwrap();
+    assert!(tyre_top.abs_diff(corner_top) <= 1, "tyre top {tyre_top}, top of FL {corner_top}");
+    assert!(tyre_bottom.abs_diff(bar_bottom) <= 1, "tyre bottom {tyre_bottom}, wear bar bottom {bar_bottom}");
+    let (above, below) = (tyre_top - STROKE_ACCENT as i32, h - 1 - tyre_bottom);
+    assert!(above.abs_diff(below) <= 2, "centred in the tile: {above} px above, {below} px below");
+}
+
 // ---- Stage 2: the cards of the rebuilt dashboard ----
 
 fn inside_box(a: Area, x: f32, y: f32, w: f32, h: f32) -> bool {

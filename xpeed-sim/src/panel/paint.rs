@@ -868,7 +868,7 @@ impl Painter {
             SetTextCharacterExtra(self.hdc, extra);
         }
         // Chakra Petch's capitals are small for their size: drawn a little bigger to read like the old labels.
-        let size = size * 1.18;
+        let size = size * CAPS_SCALE;
         let width = (self.width_of(&upper, size, FW_SEMIBOLD as i32, Face::Label) * self.s).round() as i32 - extra;
         let left = if align == DT_RIGHT {
             r.right - width
@@ -884,6 +884,48 @@ impl Painter {
         }
     }
 
+    /// Where the ink of `s` (its letters and figures, not dots or signs) falls when `text` draws it in a box `box_h`
+    /// design units tall: its top and bottom, in design units from the box's top. Figures (`Face::Num`) are centred on
+    /// their ink, other faces on the font's line, exactly as `text` places them. Nothing without a letter or figure.
+    pub(super) fn ink_span(&mut self, s: &str, size: f32, weight: i32, face: Face, box_h: f32) -> Option<(f32, f32)> {
+        let font = self.font(size, weight, face);
+        let identity = MAT2 {
+            eM11: FIXED { fract: 0, value: 1 },
+            eM12: FIXED { fract: 0, value: 0 },
+            eM21: FIXED { fract: 0, value: 0 },
+            eM22: FIXED { fract: 0, value: 1 },
+        };
+        let (mut ink, mut metrics): (Option<(i32, i32)>, TEXTMETRICW) = (None, unsafe { std::mem::zeroed() });
+        let have_metrics = unsafe {
+            let old = SelectObject(self.hdc, font);
+            for c in s.chars().filter(|c| c.is_alphanumeric()) {
+                let mut glyph: GLYPHMETRICS = std::mem::zeroed();
+                if GetGlyphOutlineW(self.hdc, c as u32, GGO_METRICS, &mut glyph, 0, null_mut(), &identity) == u32::MAX {
+                    continue;
+                }
+                let above = glyph.gmptGlyphOrigin.y;
+                let below = above - glyph.gmBlackBoxY as i32;
+                ink = Some(ink.map_or((above, below), |(a, b)| (a.max(above), b.min(below))));
+            }
+            let have = GetTextMetricsW(self.hdc, &mut metrics) != 0;
+            SelectObject(self.hdc, old);
+            have
+        };
+        let (above, below) = ink.filter(|_| have_metrics)?;
+        let box_px = self.px(box_h);
+        let baseline = if face == Face::Num {
+            box_px / 2 + (above + below) / 2
+        } else {
+            (box_px - metrics.tmHeight) / 2 + metrics.tmAscent
+        };
+        Some(((baseline - above) as f32 / self.s, (baseline - below) as f32 / self.s))
+    }
+
+    /// `ink_span` of an upper-case label as `caps` draws it.
+    pub(super) fn caps_ink_span(&mut self, s: &str, size: f32, box_h: f32) -> Option<(f32, f32)> {
+        self.ink_span(&s.to_uppercase(), size * CAPS_SCALE, FW_SEMIBOLD as i32, Face::Label, box_h)
+    }
+
     /// The width of an upper-case label as `caps` draws it, in design units.
     pub(super) fn caps_width(&mut self, s: &str, size: f32) -> f32 {
         let upper = s.to_uppercase();
@@ -891,7 +933,7 @@ impl Painter {
         unsafe {
             SetTextCharacterExtra(self.hdc, extra);
         }
-        let width = self.width_of(&upper, size * 1.18, FW_SEMIBOLD as i32, Face::Label);
+        let width = self.width_of(&upper, size * CAPS_SCALE, FW_SEMIBOLD as i32, Face::Label);
         unsafe {
             SetTextCharacterExtra(self.hdc, 0);
         }
@@ -987,6 +1029,9 @@ pub(super) fn fit_size(measured: f32, size: f32, room: f32, floor: f32) -> f32 {
 /// into premultiplied 32-bit pixels at 120 x 96 (`*.bgra`, made from the SVGs with headless Chrome; `*.png` are the
 /// same pixels to look at).
 pub(super) const FLAG_W: i32 = 120;
+
+/// Chakra Petch's capitals are small for their size: `caps` draws its labels this much bigger.
+pub(super) const CAPS_SCALE: f32 = 1.18;
 
 pub(super) const FLAG_H: i32 = 96;
 
