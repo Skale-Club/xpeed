@@ -959,7 +959,12 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
             let (vars, buf) = image.values(0);
             let (frame, _) = frame_from(&Values { vars: &vars, buf: &buf }, &session, &mut Path::default(), 0.0);
             assert_eq!(
-                (frame.race_position, frame.class_position, frame.session_time_left_s, frame.session_laps),
+                (
+                    frame.race_position,
+                    frame.class_position,
+                    frame.session_time_left_s,
+                    frame.session_laps
+                ),
                 match name {
                     "SessionTimeRemain" => (Some(2), Some(1), None, Some(20)),
                     "SessionLapsTotal" => (Some(2), Some(1), Some(1500.5), None),
@@ -976,7 +981,13 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
         let (vars, buf) = image.values(0);
         let (frame, _) = frame_from(&Values { vars: &vars, buf: &buf }, &Session::default(), &mut Path::default(), 0.0);
         assert_eq!(
-            (frame.race_position, frame.class_position, frame.cars, frame.session_time_left_s, frame.session_laps),
+            (
+                frame.race_position,
+                frame.class_position,
+                frame.cars,
+                frame.session_time_left_s,
+                frame.session_laps
+            ),
             (None, None, None, None, None)
         );
     }
