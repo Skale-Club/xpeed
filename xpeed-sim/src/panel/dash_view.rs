@@ -578,7 +578,7 @@ pub(super) fn laps_card(g: &mut Painter, d: &Dash, card: Area) {
 /// The live track card: an upward-facing car and the next corners in a local perspective.
 /// Recorded movement drives the camera directly; the site keeps the top-down lap-study map.
 pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
-    let (normal, semi) = (FW_NORMAL as i32, FW_SEMIBOLD as i32);
+    let normal = FW_NORMAL as i32;
     let m = d.m;
     let (x, y, w, h) = inner(card);
     shown(g, m.map, |g| {
@@ -607,41 +607,26 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
                     crate::perspective::mirrored_ground(d.live.game),
                 )
             });
-        let msg = if !has_map(d.live) {
-            Msg::PanelTrackLearning
-        } else if d.live.pos.is_none() {
-            Msg::PanelTrackPosition
-        } else if !rendered {
-            Msg::PanelTrackDirection
-        } else if let Some(road) = &d.live.road {
-            match road.kind {
-                crate::perspective::RoadKind::AiEnvelope => Msg::PanelTrackRoad,
-                crate::perspective::RoadKind::Asphalt => Msg::PanelTrackAsphalt,
-                crate::perspective::RoadKind::WhiteLine => Msg::PanelTrackLimits,
-                crate::perspective::RoadKind::Estimated => Msg::PanelTrackEstimated,
-            }
-        } else {
-            Msg::PanelTrackPaths
-        };
-        let note = text(d.view.lang, &msg);
+        // Drawn, the view says nothing about where its road came from (owner, 2026-11-19: no "recorded path · road edges"
+        // note); not drawn, one line says why.
         let (mx, my, mw, mh) = map_box;
-        let r = if rendered {
-            g.r(mx + S1, my + S1, mw - 2.0 * S1, 16.0)
+        let why = if !has_map(d.live) {
+            Some(Msg::PanelTrackLearning)
+        } else if d.live.pos.is_none() {
+            Some(Msg::PanelTrackPosition)
+        } else if !rendered {
+            Some(Msg::PanelTrackDirection)
         } else {
-            g.r(mx + S2, my + mh / 2.0 - 12.0, mw - 2.0 * S2, 24.0)
+            None
         };
-        let size = g.fitted(&note, mw - 2.0 * S2, T_CAPTION, 9.0, normal, Face::Ui);
-        g.text(
-            &note,
-            r,
-            size,
-            normal,
-            Face::Ui,
-            MUTED_TEXT,
-            if rendered { DT_LEFT } else { DT_CENTER },
-        );
+        if let Some(msg) = why {
+            let note = text(d.view.lang, &msg);
+            let r = g.r(mx + S2, my + mh / 2.0 - 12.0, mw - 2.0 * S2, 24.0);
+            let size = g.fitted(&note, mw - 2.0 * S2, T_CAPTION, 9.0, normal, Face::Ui);
+            g.text(&note, r, size, normal, Face::Ui, MUTED_TEXT, DT_CENTER);
+        }
         if rendered && d.live.reference.is_some() {
-            let r = g.r(mx + S1, my + S1 + 17.0, mw - 2.0 * S1, 16.0);
+            let r = g.r(mx + S1, my + S1, mw - 2.0 * S1, 16.0);
             g.text(
                 &text(d.view.lang, &Msg::PanelTrackSessionBest),
                 r,
@@ -653,13 +638,20 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
             );
         }
     });
+    // Where in the lap: a progress bar of blocks (owner, 2026-11-19: a bar, not "40% of the lap"), the metres beside it.
     if m.progress.visible() {
         shown(g, m.progress.show, |g| {
-            let r = g.r(x, y + h - line_h, w, line_h);
-            g.text(&m.progress.text, r, T_BODY, semi, Face::Ui, FOREGROUND, DT_LEFT);
-            let used = g.width_of(&m.progress.text, T_BODY, semi, Face::Ui);
-            if m.distance.visible() && used + g.tabular_width(&m.distance.text, T_BODY, normal) + S4 <= w {
-                let r = g.r(x, y + h - line_h, w, line_h);
+            let line_y = y + h - line_h;
+            let dist_w = if m.distance.visible() {
+                g.tabular_width(&m.distance.text, T_BODY, normal) + S3
+            } else {
+                0.0
+            };
+            let bar_w = (w - dist_w).max(1.0);
+            let bar_y = line_y + (line_h - LAP_BAR_H) / 2.0;
+            g.solid_bar((x, bar_y, bar_w, LAP_BAR_H), m.progress.frac, PRIMARY);
+            if dist_w > 0.0 {
+                let r = g.r(x, line_y, w, line_h);
                 g.text(&m.distance.text, r, T_BODY, normal, Face::Num, MUTED_TEXT, DT_RIGHT);
             }
         });
