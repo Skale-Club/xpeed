@@ -1421,7 +1421,10 @@ mod tests {
                 assert_eq!(g.size, if pack.is_some() { 4900 } else { GRAPHICS_BYTES }, "pack {pack:?}");
                 assert_eq!(page_len(g.size), page_len(GRAPHICS_BYTES));
                 assert_eq!(page_len(g.size), 2 * PAGE);
-                assert_eq!(g.offset("car_ids"), if pack.is_some() { gfx::CAR_IDS_PACK4 } else { gfx::CAR_IDS_NATURAL });
+                assert_eq!(
+                    g.offset("car_ids"),
+                    if pack.is_some() { gfx::CAR_IDS_PACK4 } else { gfx::CAR_IDS_NATURAL }
+                );
                 assert_eq!(g.offset("car_coordinates") + 12 * gfx::MAX_CARS, g.offset("gap_ahead"));
                 assert_eq!(gfx::CAR_IDS_END, GRAPHICS_BYTES);
             }

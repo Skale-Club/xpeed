@@ -754,7 +754,9 @@ mod tests {
         assert_eq!(pits, [false, true, false]);
         let last: Vec<Option<f64>> = cars.iter().map(|c| c.last_lap_s).collect();
         assert_eq!(last, [Some(210.5), Some(240.0), Some(211.0)]);
-        assert!(cars.iter().all(|c| c.position.is_none() && c.class_position.is_none() && c.world.is_none()));
+        assert!(cars
+            .iter()
+            .all(|c| c.position.is_none() && c.class_position.is_none() && c.world.is_none()));
         let player: Vec<bool> = cars.iter().map(|c| c.is_player).collect();
         assert_eq!(player, [false, false, true]);
         // No track length: no share of the lap.

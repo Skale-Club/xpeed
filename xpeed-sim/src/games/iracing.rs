@@ -304,7 +304,10 @@ fn parse_vars(bytes: &[u8], count: usize, buf_len: usize) -> HashMap<String, Var
             continue;
         };
         let elements = usize_of(page.i32_at(base + at::V_COUNT)).filter(|&c| c >= 1).unwrap_or(1);
-        if offset.checked_add(kind.size().saturating_mul(elements)).is_none_or(|end| end > buf_len) {
+        if offset
+            .checked_add(kind.size().saturating_mul(elements))
+            .is_none_or(|end| end > buf_len)
+        {
             continue;
         }
         let name = page.ascii_at(base + at::V_NAME, at::V_NAME_LEN);
@@ -1158,7 +1161,8 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
     }
 
     /// Three racers (the player is index 2), the pace car and a spectator.
-    const RACE_SESSION: &str = "---\nWeekendInfo:\n TrackName: spa 2024 gp\n TrackLength: 6.93 km\nDriverInfo:\n DriverCarIdx: 2\n Drivers:\n \
+    const RACE_SESSION: &str =
+        "---\nWeekendInfo:\n TrackName: spa 2024 gp\n TrackLength: 6.93 km\nDriverInfo:\n DriverCarIdx: 2\n Drivers:\n \
 - CarIdx: 0\n   UserName: Pace Car\n   CarIsPaceCar: 1\n \
 - CarIdx: 1\n   UserName: Leader\n   CarClassShortName: GT3\n \
 - CarIdx: 2\n   UserName: Me\n   CarClassShortName: GT3\n \

@@ -334,9 +334,13 @@ mod tests {
         assert!(field.cars.iter().all(|c| c.lap_share == Some(0.5) && c.laps_done == Some(2)));
         assert!(first.filled().has(Caps::RIVALS) && !first.filled().has(Caps::RIVALS_WORLD));
         // 0.1 s later: inside the 200 ms, no field. 0.3 s after the first: the same cars again.
-        let soon = framer.frame_with_rivals(Some(&telemetry(100.1, 2, 60.0, SPEED)), None, None).expect("a frame");
+        let soon = framer
+            .frame_with_rivals(Some(&telemetry(100.1, 2, 60.0, SPEED)), None, None)
+            .expect("a frame");
         assert!(soon.field.is_none());
-        let later = framer.frame_with_rivals(Some(&telemetry(100.3, 2, 60.0, SPEED)), None, None).expect("a frame");
+        let later = framer
+            .frame_with_rivals(Some(&telemetry(100.3, 2, 60.0, SPEED)), None, None)
+            .expect("a frame");
         assert_eq!(later.field.expect("the cars again").cars.len(), 3);
         // A game with no scoring list gives no field.
         let mut bare = Framer::default();

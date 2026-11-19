@@ -1556,7 +1556,14 @@ mod tests {
         let player: Vec<bool> = cars.iter().map(|c| c.is_player).collect();
         assert_eq!(player, [false, true, false]);
         let world: Vec<Option<[f32; 3]>> = cars.iter().map(|c| c.world).collect();
-        assert_eq!(world, [Some([0.0, 1.0, 2.0]), Some([1000.0, 1001.0, 1002.0]), Some([2000.0, 2001.0, 2002.0])]);
+        assert_eq!(
+            world,
+            [
+                Some([0.0, 1.0, 2.0]),
+                Some([1000.0, 1001.0, 1002.0]),
+                Some([2000.0, 2001.0, 2002.0])
+            ]
+        );
         // Only the player's own car has a place, laps and a last lap.
         let places: Vec<Option<u16>> = cars.iter().map(|c| c.position).collect();
         assert_eq!(places, [None, Some(3), None]);
