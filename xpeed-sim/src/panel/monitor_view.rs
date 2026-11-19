@@ -48,10 +48,17 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
     };
     let code_h = if code.is_some() { 40.0 } else { 0.0 };
     let account_need = 104.0 + code_h + line_count * button_h + (line_count - 1.0).max(0.0) * button_gap + 20.0;
-    // A new version waiting gets a card of its own between the games and the account.
-    let update = present::update_line(view.lang, view.update);
+    // Updates: a card of its own between the games and the account, always there (as Xdeck's Updates area).
+    let update = present::update_card(
+        view.lang,
+        env!("CARGO_PKG_VERSION"),
+        view.update,
+        view.check,
+        view.download_percent,
+        view.now_ms,
+    );
     let update_h = 82.0;
-    let update_need = if update.is_some() { update_h + gap } else { 0.0 };
+    let update_need = update_h + gap;
     let games = view.games.len().max(1);
     let (games_h, row_h, max_scroll) = games_layout(games, area_h - gap - account_need - update_need);
     let offset = view.games_scroll.clamp(0.0, max_scroll);
@@ -119,34 +126,70 @@ pub(super) fn monitor(g: &mut Painter, body: RECT, view: &View) {
         }));
     }
 
-    // A new version: what it is and, when it can be, the button that installs it. Red when it is required.
-    if let Some(line) = &update {
+    // Updates: this version and what the updater is doing, a bar while something is under way, and the one button that
+    // fits (Update now, Check now, Try again). Red when the running version must be replaced.
+    {
         let uy = games_h + gap;
         g.tile(0.0, uy, col, update_h, CARD);
         g.label(&text(view.lang, &Msg::PanelUpdate), 20.0, uy + S4, col - 40.0);
-        let button_text = text(view.lang, &Msg::UpdateNow);
-        let button_w = if line.button {
-            (g.width_of(&button_text, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0)
-        } else {
-            0.0
+        let button = update.button.map(|b| (b, b.label(view.lang)));
+        let button_w = button
+            .as_ref()
+            .map_or(0.0, |(_, label)| (g.width_of(label, T_BODY, semi, Face::Ui) + 36.0).min(col - 40.0));
+        let dot = match update.tone {
+            present::CardTone::Quiet => GREY,
+            present::CardTone::Good => SUCCESS,
+            present::CardTone::Brand => PRIMARY,
+            present::CardTone::Warn => WARN,
+            present::CardTone::Danger => DESTRUCTIVE,
         };
-        g.fill(g.r(20.0, uy + 54.0, 10.0, 10.0), if line.required { DESTRUCTIVE } else { PRIMARY });
-        let room = (col - 60.0 - if line.button { button_w + 14.0 } else { 0.0 }).max(40.0);
-        let r = g.r(40.0, uy + 44.0, room, 30.0);
+        g.fill(g.r(20.0, uy + 50.0, 10.0, 10.0), dot);
+        let room = (col - 60.0 - if button.is_some() { button_w + 14.0 } else { 0.0 }).max(40.0);
+        let ink = if update.tone == present::CardTone::Danger {
+            DESTRUCTIVE
+        } else {
+            FOREGROUND
+        };
         g.text(
-            &line.headline,
-            r,
+            &update.status,
+            g.r(40.0, uy + 40.0, room, 30.0),
             T_BODY,
             semi,
             Face::Ui,
-            if line.required { DESTRUCTIVE } else { FOREGROUND },
+            ink,
             DT_LEFT,
         );
-        if line.button {
-            let r = g.r(col - 20.0 - button_w, uy + 34.0, button_w, 36.0);
-            g.round(r, R_TILE, PRIMARY, None);
-            g.text(&button_text, r, T_BODY, semi, Face::Ui, ON_PRIMARY, DT_CENTER);
-            view.buttons.borrow_mut().push((Action::UpdateNow, r));
+        // The bar under the line: how much of the download arrived, or a short piece sliding while it is not known.
+        let (bx, by, bw, bh) = (40.0, uy + 66.0, room, 4.0);
+        match update.bar {
+            present::CardBar::None => {}
+            present::CardBar::Percent(p) => {
+                g.round(g.r(bx, by, bw, bh), R_XS, SECONDARY, None);
+                let filled = bw * f32::from(p.min(100)) / 100.0;
+                if filled > 0.5 {
+                    g.round(g.r(bx, by, filled, bh), R_XS, PRIMARY, None);
+                }
+            }
+            present::CardBar::Busy => {
+                g.round(g.r(bx, by, bw, bh), R_XS, SECONDARY, None);
+                let t = (view.now_ms.rem_euclid(1100)) as f32 / 1100.0;
+                let piece = bw * 0.35;
+                let start = (-piece + (bw + piece) * t).max(0.0);
+                let end = (-piece + (bw + piece) * t + piece).min(bw);
+                if end - start > 0.5 {
+                    g.round(g.r(bx + start, by, end - start, bh), R_XS, PRIMARY, None);
+                }
+            }
+        }
+        if let Some((kind, label)) = button {
+            let r = g.r(col - 20.0 - button_w, uy + 30.0, button_w, 36.0);
+            let (fill, edge, ink, action) = match kind {
+                present::CardButton::UpdateNow => (PRIMARY, None, ON_PRIMARY, Action::UpdateNow),
+                present::CardButton::CheckNow | present::CardButton::TryAgain => (CARD, Some(BORDER), FOREGROUND, Action::CheckUpdates),
+            };
+            g.round(r, R_TILE, fill, edge);
+            g.text(&label, r, T_BODY, semi, Face::Ui, ink, DT_CENTER);
+            view.buttons.borrow_mut().push((action, r));
         }
     }
 

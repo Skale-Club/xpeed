@@ -211,6 +211,7 @@ pub(super) fn activity_message(event: Activity) -> Msg {
         Activity::Notice(Notice::Updated(version)) => Msg::NoticeUpdated(version),
         Activity::Notice(Notice::UpdateBlocked(version)) => Msg::NoticeUpdateBlocked(version),
         Activity::Notice(Notice::UpToDate(version)) => Msg::NoticeUpToDate(version),
+        Activity::Notice(Notice::UpdateCheckFailed) => Msg::NoticeUpdateCheckFailed,
         Activity::Notice(Notice::NeedsSetup { id, name }) => Msg::NoticeNeedsSetup(id, name),
     }
 }

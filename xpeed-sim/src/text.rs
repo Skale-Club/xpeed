@@ -105,6 +105,24 @@ pub enum Msg {
     NoticeUpdated(String),
     NoticeUpdateBlocked(String),
     NoticeUpToDate(String),
+    /// A check the person asked for got no answer.
+    NoticeUpdateCheckFailed,
+    /// The update card when nothing newer is waiting (Xdeck's states): the version and what the last look said.
+    UpdateChecksOnItsOwn(String),
+    UpdateChecking,
+    /// The version, and when it was looked (`AgoJustNow`, `AgoMinutes`...).
+    UpdateUpToDate(String, String),
+    UpdateCheckFailed,
+    /// The version being downloaded and how much has arrived.
+    UpdateDownloadingPercent(String, u8),
+    /// The card's buttons when nothing is waiting.
+    UpdateCheckNow,
+    UpdateTryAgain,
+    /// How long ago, short.
+    AgoJustNow,
+    AgoMinutes(u64),
+    AgoHours(u64),
+    AgoDays(u64),
     PanelTabDash,
     PanelTabMonitor,
     PanelOnTop,
@@ -474,6 +492,42 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             format!("O Xpeed Companion está atualizado ({version})"),
             format!("Xpeed Companion está al día ({version})"),
         ),
+        NoticeUpdateCheckFailed => t(
+            s("Couldn't check for updates. Check your internet connection and try again."),
+            s("Não foi possível verificar atualizações. Confira sua conexão e tente de novo."),
+            s("No se pudieron buscar actualizaciones. Revisa tu conexión e inténtalo de nuevo."),
+        ),
+        UpdateChecksOnItsOwn(version) => t(
+            format!("Version {version} · checks for updates on its own"),
+            format!("Versão {version} · procura atualizações sozinho"),
+            format!("Versión {version} · busca actualizaciones sola"),
+        ),
+        UpdateChecking => t(
+            s("Checking for updates…"),
+            s("Verificando atualizações…"),
+            s("Buscando actualizaciones…"),
+        ),
+        UpdateUpToDate(version, ago) => t(
+            format!("Version {version} is up to date · checked {ago}"),
+            format!("Versão {version} está atualizada · verificado {ago}"),
+            format!("La versión {version} está al día · comprobado {ago}"),
+        ),
+        UpdateCheckFailed => t(
+            s("Couldn't check for updates"),
+            s("Não foi possível verificar atualizações"),
+            s("No se pudieron buscar actualizaciones"),
+        ),
+        UpdateDownloadingPercent(version, percent) => t(
+            format!("Downloading {version}… {percent}%"),
+            format!("Baixando {version}… {percent}%"),
+            format!("Descargando {version}… {percent}%"),
+        ),
+        UpdateCheckNow => t(s("Check now"), s("Verificar agora"), s("Buscar ahora")),
+        UpdateTryAgain => t(s("Try again"), s("Tentar de novo"), s("Reintentar")),
+        AgoJustNow => t(s("just now"), s("agora mesmo"), s("ahora mismo")),
+        AgoMinutes(n) => t(format!("{n} min ago"), format!("há {n} min"), format!("hace {n} min")),
+        AgoHours(n) => t(format!("{n} h ago"), format!("há {n} h"), format!("hace {n} h")),
+        AgoDays(n) => t(format!("{n} d ago"), format!("há {n} d"), format!("hace {n} d")),
         PanelTabDash => t(s("Dashboard"), s("Painel"), s("Panel")),
         PanelTabMonitor => t(s("Monitor"), s("Monitor"), s("Monitor")),
         PanelOnTop => t(s("Always on top"), s("Sempre por cima"), s("Siempre encima")),
@@ -845,6 +899,18 @@ mod tests {
             Msg::NoticeUpdated("0.6.0".into()),
             Msg::NoticeUpdateBlocked("0.6.0".into()),
             Msg::NoticeUpToDate("0.6.0".into()),
+            Msg::NoticeUpdateCheckFailed,
+            Msg::UpdateChecksOnItsOwn("0.6.0".into()),
+            Msg::UpdateChecking,
+            Msg::UpdateUpToDate("0.6.0".into(), "just now".into()),
+            Msg::UpdateCheckFailed,
+            Msg::UpdateDownloadingPercent("0.6.0".into(), 42),
+            Msg::UpdateCheckNow,
+            Msg::UpdateTryAgain,
+            Msg::AgoJustNow,
+            Msg::AgoMinutes(5),
+            Msg::AgoHours(2),
+            Msg::AgoDays(3),
             Msg::PanelTabDash,
             Msg::PanelTabMonitor,
             Msg::PanelOnTop,
@@ -987,6 +1053,9 @@ mod tests {
                 Msg::NoticeUpdated("0.6.0".into()),
                 Msg::NoticeUpdateBlocked("0.6.0".into()),
                 Msg::NoticeUpToDate("0.6.0".into()),
+                Msg::UpdateChecksOnItsOwn("0.6.0".into()),
+                Msg::UpdateUpToDate("0.6.0".into(), "x".into()),
+                Msg::UpdateDownloadingPercent("0.6.0".into(), 42),
             ] {
                 assert!(text(lang, &msg).contains("0.6.0"));
             }

@@ -338,6 +338,8 @@ struct Fixture {
     laps: Vec<SavedLap>,
     log: Vec<(String, String)>,
     update: crate::update::UpdateState,
+    check: crate::update::CheckState,
+    percent: Option<u8>,
 }
 
 fn fixture() -> Fixture {
@@ -392,6 +394,8 @@ fn fixture() -> Fixture {
             ("21:40".into(), "Connected as RIG".into()),
         ],
         update: crate::update::UpdateState::Nothing,
+        check: crate::update::CheckState::Idle,
+        percent: None,
     }
 }
 
@@ -430,6 +434,8 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         copied: false,
         failed: "",
         update: &f.update,
+        check: &f.check,
+        download_percent: f.percent,
         focus: None,
     }
 }
@@ -585,8 +591,10 @@ fn the_monitor_shows_a_card_for_a_new_version_with_the_button_that_installs_it()
         let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
         (pixels, buttons)
     };
-    // Nothing waiting: no card, no button.
-    assert!(!with(&f, Lang::En, 1280, 800).1.iter().any(|(a, _)| *a == Action::UpdateNow));
+    // Nothing waiting: no "Update now"; the card offers "Check now" instead (it is always there, as in Xdeck).
+    let idle = with(&f, Lang::En, 1280, 800).1;
+    assert!(!idle.iter().any(|(a, _)| *a == Action::UpdateNow));
+    assert!(idle.iter().any(|(a, _)| *a == Action::CheckUpdates));
     // Available: the button is drawn, inside the window, clear of the other buttons, and the account card still fits.
     f.update = UpdateState::Available {
         version: "0.6.0".into(),
@@ -2499,5 +2507,59 @@ fn every_preview_state_paints_at_every_shape() {
             save(&pixels, w, h, &format!("state-{state}-{shape}.png"));
             assert!(has_color(&pixels, CARD) > 1000, "{state} {shape}: cards are drawn");
         }
+    }
+}
+
+#[test]
+fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy() {
+    use crate::update::{CheckState, UpdateState};
+    let mut f = fixture();
+    let buttons_of = |f: &Fixture, w: i32, h: i32| {
+        let v = view(f, None, Tab::Monitor, 1.0, Lang::Pt);
+        let pixels = render(&v, w, h);
+        let buttons: Vec<(Action, RECT)> = v.buttons.borrow().iter().map(|(a, r)| (*a, *r)).collect();
+        (pixels, buttons)
+    };
+    // Up to date and failed: "Check now" / "Try again", inside the window and clear of the other buttons.
+    for check in [CheckState::Idle, CheckState::UpToDate { at_ms: 0 }, CheckState::Failed] {
+        f.check = check.clone();
+        for (w, h) in [(1280, 800), (720, 480), (430, 900)] {
+            let (pixels, buttons) = buttons_of(&f, w, h);
+            if (w, h) == (1280, 800) && check == CheckState::Failed {
+                save(&pixels, w, h, "panel-monitor-update-failed.png");
+            }
+            let check_button = buttons
+                .iter()
+                .find(|(a, _)| *a == Action::CheckUpdates)
+                .unwrap_or_else(|| panic!("{check:?} {w}x{h}: the check button is drawn"))
+                .1;
+            assert!(check_button.left >= 0 && check_button.right <= w && check_button.bottom <= h);
+            for (action, r) in &buttons {
+                if *action != Action::CheckUpdates {
+                    let apart = r.right <= check_button.left
+                        || r.left >= check_button.right
+                        || r.bottom <= check_button.top
+                        || r.top >= check_button.bottom;
+                    assert!(apart, "{check:?} {w}x{h}: {action:?} does not touch the check button");
+                }
+            }
+        }
+    }
+    // Checking, or downloading: no button, and a yellow bar under the line.
+    f.check = CheckState::Idle;
+    let quiet_yellow = has_color(&buttons_of(&f, 1280, 800).0, PRIMARY);
+    for (update, check, percent) in [
+        (UpdateState::Nothing, CheckState::Checking, None),
+        (UpdateState::Downloading { version: "0.6.0".into() }, CheckState::Idle, Some(60)),
+    ] {
+        f.update = update;
+        f.check = check;
+        f.percent = percent;
+        let (pixels, buttons) = buttons_of(&f, 1280, 800);
+        if percent.is_some() {
+            save(&pixels, 1280, 800, "panel-monitor-update-downloading.png");
+        }
+        assert!(!buttons.iter().any(|(a, _)| matches!(a, Action::CheckUpdates | Action::UpdateNow)));
+        assert!(has_color(&pixels, PRIMARY) > quiet_yellow, "the bar is drawn in yellow");
     }
 }

@@ -21,6 +21,8 @@ pub enum Action {
     CopyDiagnostics,
     /// Installs the new version that is waiting (never while a game is running: the tray decides).
     UpdateNow,
+    /// Looks for a new version now ("Check now", "Try again").
+    CheckUpdates,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +88,9 @@ pub struct View<'a> {
     pub failed: &'a str,
     /// A new version of Xpeed Companion that is waiting, downloading or not there: the Monitor tab shows a card for it.
     pub update: &'a crate::update::UpdateState,
+    /// What the last look for a new version said, and how much of a download has arrived: the rest of the update card.
+    pub check: &'a crate::update::CheckState,
+    pub download_percent: Option<u8>,
     /// The game that is open, when one is (its id, name and state): the waiting screen is about it, not the list.
     pub focus: Option<(&'static str, &'static str, Game)>,
     /// The games list's scroll bar as drawn in this frame, when the list is longer than its card.
