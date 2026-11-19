@@ -246,8 +246,10 @@ mod tests {
         assert_eq!(primary(8, 18), PRIMARY);
         assert_eq!(secondary(8, 18), SECONDARY);
         assert_eq!(off(8, 18), CARD);
-        // The rounded corner shows the card behind it.
-        assert_eq!(primary(0, 0), CARD);
+        // The panel's near-square corner (`R_CORNER`): the very corner pixel is cut, two pixels in is already the button.
+        let near = |a: COLORREF, b: COLORREF| (0..3).all(|i| ((a >> (8 * i)) & 0xff).abs_diff((b >> (8 * i)) & 0xff) <= 12);
+        assert_ne!(primary(0, 0), PRIMARY);
+        assert!(near(primary(2, 1), PRIMARY), "the main button's corner is rounder than R_CORNER");
     }
 
     #[test]
