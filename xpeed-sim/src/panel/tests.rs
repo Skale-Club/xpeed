@@ -1024,6 +1024,52 @@ fn writes_the_design_preview_page() {
 "
         ));
     }
+    // The catalog's later widgets, on the dashboards that hold them: a reading that fills every one (a yellow flag, the
+    // fuel and tyre figures per lap, the sectors), and the Race dashboard on a phone held upright.
+    let full = full_reading();
+    let full_laps = rich_laps();
+    for (file, caption, dash, w, h) in [
+        (
+            "preview-race.png",
+            "Race: the digiflag (a yellow flag), the fuel strategy and the tyre wear (1920 × 1080)",
+            DashboardId::Race,
+            1920,
+            1080,
+        ),
+        (
+            "preview-qualifying.png",
+            "Qualifying: the sectors with the theoretical best, and the delta bar (1920 × 1080)",
+            DashboardId::Qualifying,
+            1920,
+            1080,
+        ),
+        (
+            "preview-time-trial.png",
+            "Time trial: the delta bar on top, the sectors, the laps (1920 × 1080)",
+            DashboardId::TimeTrial,
+            1920,
+            1080,
+        ),
+        (
+            "preview-race-portrait.png",
+            "Race in Portrait, one column with pairs (540 × 1080)",
+            DashboardId::Race,
+            540,
+            1080,
+        ),
+    ] {
+        let mut v = view(&f, Some(&full), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(dash);
+        v.recent_laps = &full_laps;
+        if file == "preview-race-portrait.png" {
+            v.layout.set(Some(Layout::Portrait));
+        }
+        let pixels = render(&v, w, h);
+        save(&pixels, w, h, file);
+        figures.push_str(&format!(
+            "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
+        ));
+    }
     let mut phone_monitor = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
     phone_monitor.covers = &covers;
     let pixels = render(&phone_monitor, 430, 900);
@@ -1407,6 +1453,8 @@ fn the_tokens_are_the_one_place_for_colours_sizes_radii_and_spacing() {
     // Nothing outside the tokens writes a colour: no `rgb(` and no `mix(` of its own (the damage gradient is the one mix).
     for (file, source) in [
         ("dash_view.rs", include_str!("dash_view.rs")),
+        ("widgets_view.rs", include_str!("widgets_view.rs")),
+        ("widgets.rs", include_str!("widgets.rs")),
         ("monitor_view.rs", include_str!("monitor_view.rs")),
         ("waiting_view.rs", include_str!("waiting_view.rs")),
         ("chrome.rs", include_str!("chrome.rs")),
@@ -1442,6 +1490,7 @@ fn one_near_square_corner() {
     // No view brings a second corner back: no radius of the site's scale, no rounded shape outside the painter.
     for (file, source) in [
         ("dash_view.rs", include_str!("dash_view.rs")),
+        ("widgets_view.rs", include_str!("widgets_view.rs")),
         ("monitor_view.rs", include_str!("monitor_view.rs")),
         ("waiting_view.rs", include_str!("waiting_view.rs")),
         ("chrome.rs", include_str!("chrome.rs")),
@@ -2320,7 +2369,8 @@ fn every_layout_puts_every_card_the_game_can_fill_inside_the_canvas_without_over
         ] {
             let plan = layout.plan(&s);
             if layout != Layout::Classic {
-                assert_eq!(plan.cards.len(), s.cards.len(), "{layout:?}: every card has a place");
+                let first_seven = s.cards.iter().filter(|c| catalog::ALL[..7].iter().any(|w| w.pane == **c)).count();
+                assert_eq!(plan.cards.len(), first_seven, "{layout:?}: every card of Practice has a place");
             }
             for (i, (card, area)) in plan.cards.iter().enumerate() {
                 assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{layout:?} {card:?} inside the canvas");
@@ -2409,11 +2459,11 @@ fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
                 continue;
             }
             edges += 1;
-            let mut current = Some(pick_layout_sticky(pair[0] - 4.0, bh, &s, None));
+            let mut current = Some(pick_layout_sticky(DashboardId::Practice, pair[0] - 4.0, bh, &s, None));
             let mut plain = current;
             for step in 0..40 {
                 let width = pair[1] + if step % 2 == 0 { 4.0 } else { -6.0 };
-                let next = pick_layout_sticky(width, bh, &s, current);
+                let next = pick_layout_sticky(DashboardId::Practice, width, bh, &s, current);
                 sticky_flips += usize::from(Some(next) != current);
                 current = Some(next);
                 let best = pick_layout(width, bh, &s);
@@ -2427,9 +2477,9 @@ fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
         plain_flips > sticky_flips * 3,
         "the margin stops the flipping: {sticky_flips} against {plain_flips}"
     );
-    assert_eq!(pick_layout_sticky(1920.0, 1080.0, &s, None), pick_layout(1920.0, 1080.0, &s));
+    assert_eq!(pick_layout_sticky(DashboardId::Practice, 1920.0, 1080.0, &s, None), pick_layout(1920.0, 1080.0, &s));
     // The smallest layout is left as soon as another one reads.
-    assert_eq!(pick_layout_sticky(1888.0, 998.0, &s, Some(Layout::Classic)), Layout::Wide);
+    assert_eq!(pick_layout_sticky(DashboardId::Practice, 1888.0, 998.0, &s, Some(Layout::Classic)), Layout::Wide);
 }
 
 #[test]
@@ -2732,7 +2782,13 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
 #[test]
 fn the_widget_ids_are_a_contract() {
     let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
-    assert_eq!(ids, ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"]);
+    assert_eq!(ids.len(), 12);
+    assert_eq!(
+        ids[..7],
+        ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
+        "the first seven never change"
+    );
+    assert_eq!(ids[7..], ["flag", "fuel_calc", "tyre_trend", "sectors", "delta_bar"]);
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
         assert_eq!(catalog::id_of(w.pane), w.id);
@@ -2801,24 +2857,6 @@ fn the_choice_is_kept_per_game_and_a_damaged_file_means_automatic() {
 }
 
 #[test]
-fn every_built_in_dashboard_draws_the_same_plan_for_now() {
-    let s = slots(live_reading().caps);
-    for layout in [
-        Layout::Classic,
-        Layout::Ultrawide,
-        Layout::Wide,
-        Layout::Square,
-        Layout::Portrait,
-        Layout::Stack,
-    ] {
-        let base = layout.plan_for(&s, 3);
-        for d in DashboardId::ALL {
-            assert_eq!(layout.plan_in(d, &s, 3), base);
-        }
-    }
-}
-
-#[test]
 fn the_dashboard_model_serialises_for_the_phone() {
     let f = fixture();
     let live = live_reading();
@@ -2852,4 +2890,456 @@ fn the_header_names_the_dashboard_in_use() {
     v.dashboard = Some(DashboardId::TimeTrial);
     assert_eq!(v.dashboard_in_use(), DashboardId::TimeTrial);
     assert!(dashboard_hit(1536, 1.0).is_some(), "there is room for the name in a normal window");
+}
+
+// The catalog's later widgets: the flag, the fuel strategy, the tyre wear, the sectors and the delta bar.
+
+/// The six layouts, for the tests that go through all of them.
+const ALL_LAYOUTS: [Layout; 6] = [
+    Layout::Classic,
+    Layout::Ultrawide,
+    Layout::Wide,
+    Layout::Square,
+    Layout::Portrait,
+    Layout::Stack,
+];
+
+/// The least height a card of the later widgets needs, 0 for the first seven.
+fn least_height(pane: Pane) -> f32 {
+    match pane {
+        Pane::Flag => FLAG_NEED_H,
+        Pane::FuelCalc => FUEL_CALC_NEED_H,
+        Pane::TyreTrend => TYRE_TREND_NEED_H,
+        Pane::Sectors => SECTORS_NEED_H,
+        Pane::DeltaBar => DELTA_NEED_H,
+        _ => 0.0,
+    }
+}
+
+/// A reading that fills every widget: the sectors, the fuel and tyre figures per lap, a yellow flag.
+fn full_reading() -> Live {
+    let mut live = rich_reading();
+    live.fuel_last_lap_l = Some(3.1);
+    live.tyre_wear_per_lap = Some([0.018, 0.02, 0.026, 0.031]);
+    live.last_sectors_ms = [Some(28_100), Some(44_900)];
+    live
+}
+
+#[test]
+fn the_fuel_table_adds_a_lap_of_margin_and_says_how_much_to_put_in() {
+    let rows = fuel_plan_rows(Some(20.0), Some(2.0));
+    let laps: Vec<u32> = rows.iter().map(|r| r.laps).collect();
+    assert_eq!(laps, [5, 10, 15, 20]);
+    let needed: Vec<Option<f32>> = rows.iter().map(|r| r.needed_l).collect();
+    assert_eq!(needed, [Some(12.0), Some(22.0), Some(32.0), Some(42.0)], "(laps + 1) x 2 l");
+    let to_add: Vec<Option<f32>> = rows.iter().map(|r| r.to_add_l).collect();
+    assert_eq!(to_add, [Some(0.0), Some(2.0), Some(12.0), Some(22.0)], "never less than nothing");
+    // Without a use per lap there are no figures at all.
+    for per in [None, Some(0.0), Some(-1.0), Some(f32::NAN)] {
+        let rows = fuel_plan_rows(Some(20.0), per);
+        assert!(rows.iter().all(|r| r.needed_l.is_none() && r.to_add_l.is_none()), "{per:?}");
+    }
+    // Without a fuel reading the need is known and the amount to add is not.
+    let blind = fuel_plan_rows(None, Some(2.0));
+    assert!(blind.iter().all(|r| r.needed_l.is_some() && r.to_add_l.is_none()));
+}
+
+#[test]
+fn the_fuel_strategy_card_writes_the_average_the_last_lap_the_laps_left_and_the_table() {
+    let mut live = live_reading();
+    live.fuel_l = 38.6;
+    live.fuel_per_lap_l = Some(2.9);
+    live.fuel_last_lap_l = Some(3.1);
+    let card = model(&live, Lang::En).fuel_calc.expect("the game gives the fuel");
+    assert_eq!(card.title, "Fuel strategy");
+    let values: Vec<&str> = card.stats.iter().map(|c| c.value.as_str()).collect();
+    assert_eq!(values, ["2.9 L", "3.1 L", "13.3"]);
+    let laps: Vec<&str> = card.rows.iter().map(|r| r.laps.as_str()).collect();
+    assert_eq!(laps, ["5", "10", "15", "20"]);
+    assert_eq!((card.rows[0].needed.as_str(), card.rows[0].to_add.as_str()), ("17.4 L", "0.0 L"));
+    assert_eq!((card.rows[3].needed.as_str(), card.rows[3].to_add.as_str()), ("60.9 L", "22.3 L"));
+    assert_eq!((card.rows[0].role, card.rows[3].role), (Role::Good, Role::Warn));
+    assert!(card.note.contains("session"), "{}", card.note);
+    // No use per lap known yet: a dash, never a made-up figure.
+    live.fuel_per_lap_l = None;
+    live.fuel_last_lap_l = None;
+    let card = model(&live, Lang::En).fuel_calc.unwrap();
+    assert!(card.stats.iter().all(|c| c.value == "–"));
+    assert!(card.rows.iter().all(|r| r.needed == "–" && r.to_add == "–" && r.role == Role::Muted));
+    // In gallons the figures follow the units the person picked.
+    live.fuel_per_lap_l = Some(3.785_412);
+    let units = crate::config::Units {
+        fuel: crate::config::FuelUnit::Gallon,
+        ..Default::default()
+    };
+    let card = model_with(&live, units, &[]).fuel_calc.unwrap();
+    assert_eq!(card.stats[0].value, "1.0 gal");
+}
+
+#[test]
+fn the_laps_left_on_a_tyre_are_its_tread_over_its_wear_and_the_worst_tyre_is_found() {
+    assert_eq!(tyre_laps_left(0.5, 0.0625), Some(8.0));
+    assert_eq!(tyre_laps_left(0.0, 0.0625), Some(0.0));
+    assert_eq!(tyre_laps_left(0.5, 0.0), None, "a tyre that does not wear has no laps left");
+    assert_eq!(tyre_laps_left(f32::NAN, 0.0625), None);
+    assert_eq!(tyre_laps_left(0.5, f32::NAN), None);
+    assert_eq!(worst_tyre(&[Some(25.0), Some(9.5), None, Some(12.0)]), Some(1));
+    assert_eq!(worst_tyre(&[None; 4]), None);
+}
+
+#[test]
+fn the_tyre_wear_card_has_the_wear_per_lap_the_laps_left_and_marks_the_worst_tyre() {
+    let mut live = live_reading();
+    live.tyre_wear_per_lap = Some([0.02, 0.02, 0.025, 0.03]);
+    let card = model(&live, Lang::En).tyre_trend.expect("the game gives the tread");
+    assert_eq!(card.title, "Tyre wear");
+    assert_eq!(card.rows.len(), 4);
+    assert_eq!((card.rows[0].corner.as_str(), card.rows[3].corner.as_str()), ("FL", "RR"));
+    assert_eq!((card.rows[0].wear.as_str(), card.rows[3].wear.as_str()), ("2.0%", "3.0%"));
+    // The rear right has 0.84 of its tread left and wears 3 % a lap: 28 laps, the fewest.
+    assert_eq!(card.rows[3].laps_left, "28");
+    assert_eq!(card.rows[3].role, Role::Text);
+    assert!(card.rows[3].worst && card.rows.iter().filter(|r| r.worst).count() == 1);
+    assert_eq!(card.rows[3].tread, Some(0.84));
+    assert!(card.note.is_none());
+    // Wearing fast: the laps left press, then run out.
+    live.tyre_wear_per_lap = Some([0.2; 4]);
+    let card = model(&live, Lang::En).tyre_trend.unwrap();
+    assert!(card.rows.iter().all(|r| r.role == Role::Danger));
+    // A tyre with no wear figure has dashes; no figure at all says why.
+    live.tyre_wear_per_lap = Some([0.02, f32::NAN, 0.02, 0.02]);
+    let card = model(&live, Lang::En).tyre_trend.unwrap();
+    assert_eq!((card.rows[1].wear.as_str(), card.rows[1].laps_left.as_str()), ("–", "–"));
+    assert!(!card.rows[1].worst && card.note.is_none());
+    live.tyre_wear_per_lap = None;
+    let card = model(&live, Lang::En).tyre_trend.unwrap();
+    assert!(card.rows.iter().all(|r| r.wear == "–" && r.laps_left == "–" && !r.worst));
+    assert!(card.rows.iter().all(|r| r.tread.is_some()), "the tread left is still known");
+    assert!(card.note.is_some());
+}
+
+#[test]
+fn the_sectors_come_from_the_lap_being_driven_and_the_lap_before_and_the_best_of_the_run() {
+    let saved = rich_laps();
+    let last = [Some(28_000), Some(44_800), Some(51_300)];
+    // The lap being driven has done S1 in 27.950: faster than the lap before (28.000), not the best (27.903).
+    let reads = sector_reads(&saved, [Some(27_950), None, None], last);
+    assert_eq!((reads[0].ms, reads[0].from_last_lap, reads[0].tone), (Some(27_950), false, SectorTone::Faster));
+    // S2 and S3 are not reached: the lap before's times, quiet.
+    assert_eq!((reads[1].ms, reads[1].from_last_lap, reads[1].tone), (Some(44_800), true, SectorTone::Plain));
+    assert_eq!((reads[2].ms, reads[2].from_last_lap, reads[2].tone), (Some(51_300), true, SectorTone::Plain));
+    // A new best is purple; slower than the lap before is yellow.
+    let reads = sector_reads(&saved, [Some(27_800), None, None], last);
+    assert_eq!((reads[0].tone, reads[0].best_ms), (SectorTone::Best, Some(27_800)));
+    let reads = sector_reads(&saved, [Some(28_300), None, None], last);
+    assert_eq!((reads[0].tone, reads[0].best_ms), (SectorTone::Slower, Some(27_903)));
+    // The sectors of a lap that did not count are never a best.
+    assert_eq!(best_sectors(&saved, [None; 3]), [Some(27_903), Some(44_721), Some(51_288)]);
+    let invalid = [SavedLap {
+        valid: false,
+        sectors_ms: vec![1, 1, 1],
+        ..saved_lap(1, 0)
+    }];
+    assert_eq!(best_sectors(&invalid, [None; 3]), [None; 3]);
+    // The theoretical best adds the three best sectors; the third sector is the lap less the first two.
+    assert_eq!(theoretical_best(&[Some(27_903), Some(44_721), Some(51_288)]), Some(123_912));
+    assert_eq!(theoretical_best(&[Some(1), None, Some(3)]), None);
+    assert_eq!(third_sector(Some(123_912), Some(27_903), Some(44_721)), Some(51_288));
+    assert_eq!(third_sector(None, Some(1), Some(1)), None);
+    assert_eq!(third_sector(Some(10), Some(8), Some(5)), None, "the sectors cannot be longer than the lap");
+    assert_eq!(third_sector(Some(10), Some(5), Some(5)), None, "a third sector of nothing is not a time");
+}
+
+#[test]
+fn the_sectors_card_writes_the_rows_the_theoretical_best_and_the_gap_to_the_best_lap() {
+    let mut live = rich_reading();
+    live.last_sectors_ms = [Some(28_100), Some(44_900)];
+    let card = model_with(&live, Default::default(), &rich_laps()).sectors.expect("the game gives sectors");
+    assert_eq!(card.title, "Sectors");
+    let times: Vec<&str> = card.rows.iter().map(|r| r.time.as_str()).collect();
+    // S3 is the last lap (124.331) less its S1 and S2.
+    assert_eq!(times, ["27.811", "44.597", "51.331"]);
+    assert_eq!(
+        card.rows.iter().map(|r| r.from_last_lap).collect::<Vec<_>>(),
+        [false, false, true]
+    );
+    assert_eq!(card.rows.iter().map(|r| r.tone).collect::<Vec<_>>(), [SectorTone::Best, SectorTone::Best, SectorTone::Plain]);
+    assert_eq!(card.rows[2].best, "51.288");
+    // 27.811 + 44.597 + 51.288, and the best lap (123.912) is 0.216 slower than that.
+    assert_eq!(card.theoretical, clock(123_696));
+    assert_eq!(card.gap.as_deref(), Some("-0.216"));
+    // Before any sector: the laps saved still give the best of each, nothing for the lap being driven.
+    live.sectors_ms = [None, None];
+    live.last_sectors_ms = [None, None];
+    live.last_lap_s = None;
+    let card = model_with(&live, Default::default(), &rich_laps()).sectors.unwrap();
+    assert!(card.rows.iter().all(|r| r.time == "–" && r.tone == SectorTone::Plain));
+    assert_eq!(card.rows[0].best, "27.903");
+    assert_eq!(card.theoretical, clock(123_912));
+}
+
+#[test]
+fn the_delta_bar_is_centred_on_zero_runs_two_seconds_either_side_and_never_leaves_the_bar() {
+    assert_eq!(DELTA_BAR_RANGE_S, 2.0);
+    assert_eq!(delta_bar_frac(None), 0.5);
+    assert_eq!(delta_bar_frac(Some(0.0)), 0.5);
+    assert_eq!(delta_bar_frac(Some(-1.0)), 0.25, "faster: the fill goes left of the middle");
+    assert_eq!(delta_bar_frac(Some(1.0)), 0.75, "slower: to the right");
+    assert_eq!((delta_bar_frac(Some(-2.0)), delta_bar_frac(Some(2.0))), (0.0, 1.0));
+    assert_eq!((delta_bar_frac(Some(-9.0)), delta_bar_frac(Some(9.0))), (0.0, 1.0), "past the scale the bar is full");
+    assert_eq!(delta_bar_frac(Some(f64::NAN)), 0.5);
+    let mut live = live_reading();
+    let card = model(&live, Lang::En).delta_bar.expect("the game gives the delta's inputs");
+    assert_eq!((card.value.as_str(), card.role, card.caption.as_str()), ("-0.270", Role::Good, "vs best lap"));
+    assert!((card.frac - (0.5 - 0.27 / 4.0)).abs() < 1e-4, "{}", card.frac);
+    live.delta_s = Some(0.5);
+    let card = model(&live, Lang::En).delta_bar.unwrap();
+    assert_eq!((card.value.as_str(), card.role), ("+0.500", Role::Danger));
+    assert!(card.frac > 0.5);
+    live.delta_s = None;
+    let card = model(&live, Lang::En).delta_bar.unwrap();
+    assert_eq!((card.value.as_str(), card.frac, card.show), ("–", 0.5, Show::Dimmed));
+}
+
+#[test]
+fn the_flag_card_names_the_flag_or_says_there_is_none() {
+    use crate::game::Flag;
+    let mut live = live_reading();
+    let card = model(&live, Lang::En).flag.expect("the game gives flags");
+    assert_eq!((card.kind, card.word.as_str(), card.show), (Some(FlagKind::Yellow), "YELLOW FLAG", Show::Shown));
+    assert_eq!(model(&live, Lang::Pt).flag.unwrap().word, "BANDEIRA AMARELA");
+    for (flag, kind) in [
+        (Flag::Green, FlagKind::Green),
+        (Flag::Yellow, FlagKind::Yellow),
+        (Flag::Blue, FlagKind::Blue),
+        (Flag::White, FlagKind::White),
+        (Flag::Black, FlagKind::Black),
+        (Flag::Chequered, FlagKind::Chequered),
+    ] {
+        live.state.flag = Some(flag);
+        assert_eq!(model(&live, Lang::En).flag.unwrap().kind, Some(kind));
+    }
+    live.state.flag = None;
+    let card = model(&live, Lang::En).flag.unwrap();
+    assert_eq!((card.kind, card.word.as_str(), card.show), (None, "NO FLAG", Show::Dimmed));
+}
+
+#[test]
+fn a_card_the_game_cannot_fill_is_not_there() {
+    use crate::game::Caps;
+    let cards = |caps: Caps| slots(caps).cards;
+    assert_eq!(cards(Caps::FLAG), [Pane::Alerts, Pane::Flag]);
+    assert_eq!(cards(Caps::FUEL), [Pane::Fuel, Pane::Alerts, Pane::FuelCalc]);
+    assert_eq!(cards(Caps::TYRE_WEAR), [Pane::Tyres, Pane::TyreTrend]);
+    assert_eq!(cards(Caps::SECTORS), [Pane::Sectors]);
+    assert_eq!(cards(Caps::LAP_TIME), [Pane::Times, Pane::Laps], "no delta without the distance");
+    assert_eq!(cards(Caps::LAP_TIME.or(Caps::DIST)), [Pane::Times, Pane::Laps, Pane::DeltaBar]);
+    assert!(cards(Caps::NONE).is_empty());
+    // The model has a part for a card exactly when the card is there.
+    let mut live = live_reading();
+    live.caps = Caps::GEAR.or(Caps::LAP_TIME);
+    let m = model(&live, Lang::En);
+    assert!(m.flag.is_none() && m.fuel_calc.is_none() && m.tyre_trend.is_none() && m.sectors.is_none() && m.delta_bar.is_none());
+    live.caps = every_cap();
+    let m = model(&live, Lang::En);
+    assert!(m.flag.is_some() && m.fuel_calc.is_some() && m.tyre_trend.is_some() && m.sectors.is_some() && m.delta_bar.is_some());
+}
+
+#[test]
+fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
+    let wide = builtin(DashboardId::Practice).rows_for(Layout::Wide);
+    assert_eq!(wide.len(), 2);
+    assert_eq!(
+        wide[0].cards,
+        [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)]
+    );
+    assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
+    let new_five = [Pane::Flag, Pane::FuelCalc, Pane::TyreTrend, Pane::Sectors, Pane::DeltaBar];
+    for layout in ALL_LAYOUTS {
+        assert!(
+            std::ptr::eq(builtin(DashboardId::Practice).rows_for(layout), layout.default_rows()),
+            "{layout:?}: Practice has the rows it always had"
+        );
+        let mut used: Vec<Pane> = Vec::new();
+        for dash in DashboardId::ALL {
+            let rows = builtin(dash).rows_for(layout);
+            assert!(!rows.is_empty(), "{dash:?} {layout:?} has rows");
+            let mut seen: Vec<Pane> = Vec::new();
+            for row in rows {
+                assert!(row.h > 0.0 && !row.cards.is_empty(), "{dash:?} {layout:?}");
+                for (pane, share) in row.cards {
+                    assert!(catalog::ALL.iter().any(|w| w.pane == *pane), "{dash:?} {layout:?}: {pane:?} is not in the catalog");
+                    assert!(*share > 0.0);
+                    assert!(!seen.contains(pane), "{dash:?} {layout:?}: {pane:?} twice");
+                    seen.push(*pane);
+                }
+            }
+            used.extend(seen);
+        }
+        for pane in new_five {
+            // Classic, the smallest window, leaves the tyre wear out.
+            if layout == Layout::Classic && pane == Pane::TyreTrend {
+                continue;
+            }
+            assert!(used.contains(&pane), "{layout:?}: {pane:?} is on some dashboard");
+        }
+    }
+    // The Wide rows of the three dashboards, by widget id.
+    let ids = |dash: DashboardId, row: usize| -> Vec<&'static str> {
+        builtin(dash).rows_for(Layout::Wide)[row]
+            .cards
+            .iter()
+            .map(|(p, _)| catalog::id_of(*p))
+            .collect()
+    };
+    assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "flag", "tyres"]);
+    assert_eq!(ids(DashboardId::Race, 1), ["fuel_calc", "tyre_trend", "track", "alerts"]);
+    assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "sectors", "tyres"]);
+    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "track", "flag"]);
+    assert_eq!(ids(DashboardId::TimeTrial, 0), ["delta_bar"]);
+    assert_eq!(ids(DashboardId::TimeTrial, 1), ["times", "centre", "sectors", "tyres"]);
+    assert_eq!(ids(DashboardId::TimeTrial, 2), ["laps", "track"]);
+}
+
+#[test]
+fn every_dashboard_puts_its_cards_in_the_canvas_without_overlap_and_tall_enough_in_every_layout() {
+    for caps in [every_cap(), evo_like_caps()] {
+        let s = slots(caps);
+        for layout in ALL_LAYOUTS {
+            for dash in DashboardId::ALL {
+                let plan = layout.plan_in(dash, &s, usize::MAX);
+                let wanted = builtin(dash)
+                    .rows_for(layout)
+                    .iter()
+                    .flat_map(|row| row.cards.iter())
+                    .filter(|(pane, _)| s.cards.contains(pane))
+                    .count();
+                assert_eq!(plan.cards.len(), wanted, "{dash:?} {layout:?}: every card the game can fill has a place");
+                for (i, (card, area)) in plan.cards.iter().enumerate() {
+                    assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{dash:?} {layout:?} {card:?} inside the canvas");
+                    assert!(area.3 + 0.01 >= least_height(*card), "{dash:?} {layout:?}: {card:?} is {} tall", area.3);
+                    for (other, b) in &plan.cards[i + 1..] {
+                        assert!(!overlap(*area, *b), "{dash:?} {layout:?}: {card:?} over {other:?}");
+                    }
+                }
+            }
+        }
+    }
+    // A dashboard none of whose widgets the game can fill is only the header.
+    for dash in DashboardId::ALL {
+        let s = slots(crate::game::Caps::NONE);
+        assert_eq!(Layout::Wide.plan_in(dash, &s, 3).h, CARDS_TOP);
+    }
+    // A row whose widgets are all missing is dropped and the next row moves up.
+    let s = slots(crate::game::Caps::SECTORS.or(crate::game::Caps::TYRE_WEAR));
+    let plan = Layout::Wide.plan_in(DashboardId::Qualifying, &s, 3);
+    let (sectors, tyres) = (plan.area(Pane::Sectors).unwrap(), plan.area(Pane::Tyres).unwrap());
+    assert_eq!(plan.cards.len(), 2);
+    assert_eq!(sectors.1, CARDS_TOP, "the second row has nothing the game can fill and is gone");
+    assert_eq!(tyres.1, CARDS_TOP);
+}
+
+#[test]
+fn the_layout_is_picked_from_the_dashboard_in_use() {
+    let s = slots(every_cap());
+    // A phone held upright: the Time trial dashboard is taller than Practice, so it has its own canvas.
+    let (practice, trial) = (Layout::Stack.size_in(DashboardId::Practice, &s), Layout::Stack.size_in(DashboardId::TimeTrial, &s));
+    assert_ne!(practice, trial);
+    for dash in DashboardId::ALL {
+        let layout = pick_layout_in(dash, 1888.0, 998.0, &s);
+        assert_eq!(layout, pick_layout_sticky(dash, 1888.0, 998.0, &s, None));
+        assert_eq!(pick_layout_sticky(dash, 1888.0, 998.0, &s, Some(Layout::Classic)), layout);
+    }
+}
+
+#[test]
+fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
+    let live = full_reading();
+    let json = serde_json::to_value(model_with(&live, Default::default(), &rich_laps())).unwrap();
+    for key in ["flag", "fuelCalc", "tyreTrend", "sectors", "deltaBar"] {
+        assert!(json[key].is_object(), "{key} is in the model's JSON");
+    }
+    assert_eq!(json["flag"]["kind"], "yellow");
+    assert_eq!(json["flag"]["show"], "shown");
+    assert_eq!(json["fuelCalc"]["stats"][0]["label"], "Avg / lap");
+    assert!(json["fuelCalc"]["rows"][0]["toAdd"].is_string());
+    assert!(json["tyreTrend"]["rows"][3]["lapsLeft"].is_string());
+    assert_eq!(json["tyreTrend"]["rows"][3]["worst"], true);
+    assert_eq!(json["sectors"]["rows"][0]["tone"], "best");
+    assert_eq!(json["sectors"]["rows"][2]["fromLastLap"], true);
+    assert_eq!(json["deltaBar"]["role"], "good");
+}
+
+/// The dashboard `dash` painted on a 1920 × 1080 screen for `live` and the recent laps `laps`.
+fn dashboard_pixels(dash: DashboardId, live: &Live, laps: &[SavedLap]) -> Vec<u8> {
+    let f = fixture();
+    let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
+    v.dashboard = Some(dash);
+    v.recent_laps = laps;
+    render(&v, 1920, 1080)
+}
+
+#[test]
+fn the_flag_card_is_a_block_of_the_flags_colour_and_the_chequered_flag_is_a_checker_pattern() {
+    use crate::game::Flag;
+    let laps = rich_laps();
+    let mut live = full_reading();
+    live.state.flag = Some(Flag::Green);
+    let green = dashboard_pixels(DashboardId::Race, &live, &laps);
+    live.state.flag = Some(Flag::Blue);
+    let blue = dashboard_pixels(DashboardId::Race, &live, &laps);
+    save(&blue, 1920, 1080, "panel-flag-blue.png");
+    assert!(
+        has_color(&blue, INFO) > has_color(&green, INFO) + 20_000,
+        "a blue flag fills its card with blue: {} against {}",
+        has_color(&blue, INFO),
+        has_color(&green, INFO)
+    );
+    live.state.flag = Some(Flag::Chequered);
+    let chequered = dashboard_pixels(DashboardId::Race, &live, &laps);
+    save(&chequered, 1920, 1080, "panel-flag-chequered.png");
+    assert!(has_color(&chequered, FLAG_BLACK) > 10_000, "black squares: {}", has_color(&chequered, FLAG_BLACK));
+    assert!(has_color(&chequered, FLAG_WHITE) > 10_000, "white squares: {}", has_color(&chequered, FLAG_WHITE));
+    assert!(has_color(&green, FLAG_BLACK) < 2_000, "no checkers on a green flag");
+    // No flag: the card keeps the card surface, there is no block.
+    live.state.flag = None;
+    let none = dashboard_pixels(DashboardId::Race, &live, &laps);
+    assert!(has_color(&none, INFO) < has_color(&blue, INFO) - 20_000);
+}
+
+#[test]
+fn the_delta_bar_fills_toward_the_side_of_the_delta() {
+    let laps = rich_laps();
+    let mut live = full_reading();
+    live.delta_s = Some(-1.5);
+    let faster = dashboard_pixels(DashboardId::TimeTrial, &live, &laps);
+    save(&faster, 1920, 1080, "panel-time-trial.png");
+    live.delta_s = Some(1.5);
+    let slower = dashboard_pixels(DashboardId::TimeTrial, &live, &laps);
+    assert!(
+        has_color(&faster, SUCCESS) > has_color(&slower, SUCCESS) + 5_000,
+        "a delta of -1.5 s lights green blocks: {} against {}",
+        has_color(&faster, SUCCESS),
+        has_color(&slower, SUCCESS)
+    );
+    assert!(
+        has_color(&slower, DESTRUCTIVE) > has_color(&faster, DESTRUCTIVE) + 5_000,
+        "a delta of +1.5 s lights red blocks"
+    );
+}
+
+#[test]
+fn every_dashboard_paints_at_every_shape() {
+    let laps = rich_laps();
+    let live = full_reading();
+    let f = fixture();
+    for dash in DashboardId::ALL {
+        for (w, h) in [(2560, 1080), (1920, 1080), (1536, 864), (1024, 768), (1280, 1024), (960, 600), (540, 1080), (430, 900)] {
+            let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+            v.dashboard = Some(dash);
+            v.recent_laps = &laps;
+            let pixels = render(&v, w, h);
+            assert!(has_color(&pixels, CARD) > 1000, "{dash:?} {w}x{h}: cards are drawn");
+        }
+    }
 }

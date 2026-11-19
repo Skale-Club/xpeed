@@ -53,6 +53,31 @@ pub(super) const ALL: &[Widget] = &[
         pane: Pane::Alerts,
         needs: "lights, electronics settings, flags or damage",
     },
+    Widget {
+        id: "flag",
+        pane: Pane::Flag,
+        needs: "the flag the game shows",
+    },
+    Widget {
+        id: "fuel_calc",
+        pane: Pane::FuelCalc,
+        needs: "the fuel in the tank",
+    },
+    Widget {
+        id: "tyre_trend",
+        pane: Pane::TyreTrend,
+        needs: "the tread left on the tyres",
+    },
+    Widget {
+        id: "sectors",
+        pane: Pane::Sectors,
+        needs: "the sector times",
+    },
+    Widget {
+        id: "delta_bar",
+        pane: Pane::DeltaBar,
+        needs: "the delta to the best lap",
+    },
 ];
 
 /// The widget with this id.

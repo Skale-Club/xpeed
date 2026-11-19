@@ -42,14 +42,16 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         m: &m,
         slots: &slots,
     };
+    let in_use = view.dashboard_in_use();
     let layout = pick_layout_sticky(
+        in_use,
         (body.right - body.left) as f32,
         (body.bottom - body.top) as f32,
         &slots,
         view.layout.get(),
     );
     view.layout.set(Some(layout));
-    let plan = layout.plan_in(view.dashboard_in_use(), &slots, m.laps.rows.len());
+    let plan = layout.plan_in(in_use, &slots, m.laps.rows.len());
     let (s, ox, oy) = canvas_fit_wh(body, plan.w, plan.h);
     g.place(s, ox, oy);
     header(g, &d, plan.w);
@@ -63,6 +65,11 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
             Pane::Laps => laps_card(g, &d, area),
             Pane::Track => track_card(g, &d, area),
             Pane::Alerts => alerts_card(g, &d, area),
+            Pane::Flag => digiflag_card(g, &d, area),
+            Pane::FuelCalc => fuel_strategy_card(g, &d, area),
+            Pane::TyreTrend => tyre_wear_card(g, &d, area),
+            Pane::Sectors => sector_times_card(g, &d, area),
+            Pane::DeltaBar => delta_card(g, &d, area),
         }
     }
     if let Some(target) = banner_target(&plan) {

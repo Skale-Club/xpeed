@@ -209,6 +209,38 @@ pub enum Msg {
     PanelFlagWhite,
     PanelFlagBlack,
     PanelFlagChequered,
+    /// The flag card's caption.
+    PanelFlagTitle,
+    /// The flag card when the game shows no flag.
+    PanelNoFlag,
+    /// The fuel strategy card's caption.
+    PanelFuelStrategy,
+    /// The fuel used per lap, averaged.
+    PanelFuelAverage,
+    /// The fuel the last lap used.
+    PanelFuelLast,
+    /// Laps left in the tank, or on a set of tyres.
+    PanelLapsLeft,
+    /// The fuel table's head: the fuel needed for the laps.
+    PanelFuelNeed,
+    /// The fuel table's head: the fuel to put in.
+    PanelFuelAdd,
+    /// The tyre wear card's caption.
+    PanelTyreWear,
+    /// The tyre wear card's head: the tread lost per lap.
+    PanelTyreWearPerLap,
+    /// The sectors card's caption.
+    PanelSectors,
+    /// The best sectors added up.
+    PanelSectorTheoretical,
+    /// The delta card's caption.
+    PanelDeltaTitle,
+    /// Beside the delta and under the theoretical best.
+    PanelVsBestLap,
+    /// Under the fuel table: why there is no row for the end of the session yet.
+    PanelFuelToEndNote,
+    /// Under the tyre wear rows while no clean lap is known.
+    PanelTyreWearWait,
     /// The words of the alerts that are lit.
     AlertAbs,
     AlertTc,
@@ -641,6 +673,30 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelFlagWhite => t(s("White flag"), s("Bandeira branca"), s("Bandera blanca")),
         PanelFlagBlack => t(s("Black flag"), s("Bandeira preta"), s("Bandera negra")),
         PanelFlagChequered => t(s("Chequered flag"), s("Bandeira quadriculada"), s("Bandera a cuadros")),
+        PanelFlagTitle => t(s("Flag"), s("Bandeira"), s("Bandera")),
+        PanelNoFlag => t(s("No flag"), s("Sem bandeira"), s("Sin bandera")),
+        PanelFuelStrategy => t(s("Fuel strategy"), s("Estratégia de combustível"), s("Estrategia de combustible")),
+        PanelFuelAverage => t(s("Avg / lap"), s("Méd. / volta"), s("Media / vuelta")),
+        PanelFuelLast => t(s("Last lap"), s("Última volta"), s("Última vuelta")),
+        PanelLapsLeft => t(s("Laps left"), s("Voltas restantes"), s("Vueltas restantes")),
+        PanelFuelNeed => t(s("Need"), s("Precisa"), s("Necesita")),
+        PanelFuelAdd => t(s("To add"), s("Abastecer"), s("Añadir")),
+        PanelTyreWear => t(s("Tyre wear"), s("Desgaste dos pneus"), s("Desgaste de neumáticos")),
+        PanelTyreWearPerLap => t(s("Wear / lap"), s("Desgaste / volta"), s("Desgaste / vuelta")),
+        PanelSectors => t(s("Sectors"), s("Setores"), s("Sectores")),
+        PanelSectorTheoretical => t(s("Theoretical best"), s("Melhor teórica"), s("Mejor teórica")),
+        PanelDeltaTitle => t(s("Delta"), s("Diferença"), s("Diferencia")),
+        PanelVsBestLap => t(s("vs best lap"), s("vs melhor volta"), s("vs mejor vuelta")),
+        PanelFuelToEndNote => t(
+            s("Fuel to the end of the session shows once the game's session data is read."),
+            s("O combustível até o fim da sessão aparece quando os dados da sessão do jogo forem lidos."),
+            s("El combustible hasta el final de la sesión aparece cuando se lean los datos de sesión del juego."),
+        ),
+        PanelTyreWearWait => t(
+            s("Wear per lap shows after a clean lap without a pit stop."),
+            s("O desgaste por volta aparece depois de uma volta limpa, sem parada no pit."),
+            s("El desgaste por vuelta aparece tras una vuelta limpia, sin parada en boxes."),
+        ),
         AlertAbs => t(s("ABS active"), s("ABS atuando"), s("ABS actuando")),
         AlertTc => t(s("TC active"), s("TC atuando"), s("TC actuando")),
         AlertDrsAvailable => t(s("DRS available"), s("DRS liberado"), s("DRS disponible")),
@@ -997,6 +1053,22 @@ mod tests {
             Msg::PanelFlagWhite,
             Msg::PanelFlagBlack,
             Msg::PanelFlagChequered,
+            Msg::PanelFlagTitle,
+            Msg::PanelNoFlag,
+            Msg::PanelFuelStrategy,
+            Msg::PanelFuelAverage,
+            Msg::PanelFuelLast,
+            Msg::PanelLapsLeft,
+            Msg::PanelFuelNeed,
+            Msg::PanelFuelAdd,
+            Msg::PanelTyreWear,
+            Msg::PanelTyreWearPerLap,
+            Msg::PanelSectors,
+            Msg::PanelSectorTheoretical,
+            Msg::PanelDeltaTitle,
+            Msg::PanelVsBestLap,
+            Msg::PanelFuelToEndNote,
+            Msg::PanelTyreWearWait,
             Msg::AlertAbs,
             Msg::AlertTc,
             Msg::AlertDrsAvailable,

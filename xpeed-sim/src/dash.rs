@@ -245,6 +245,11 @@ pub struct Live {
     pub state: crate::game::CarState,
     /// Fuel used per lap (litres), from the laps driven in this run; `None` until one full lap is known.
     pub fuel_per_lap_l: Option<f32>,
+    /// The fuel the last complete clean lap used (litres); `None` until one is known.
+    pub fuel_last_lap_l: Option<f32>,
+    /// The share of the tread each tyre (front left, front right, rear left, rear right) wears per lap, averaged over the
+    /// last clean laps; a tyre the game gives no wear for is NaN. `None` until one clean lap is known.
+    pub tyre_wear_per_lap: Option<[f32; 4]>,
     /// The size of the tank, as far as it is known (for the panel's fuel gauge);  until a fuel reading is seen.
     pub fuel_tank_l: Option<f32>,
     /// The track as the car has driven it (the best lap's path, or the first full lap's until there is a best one),
@@ -337,6 +342,13 @@ pub struct Tracker {
     fuel_tank: f32,
     /// The fuel used by the last complete laps (at most `FUEL_LAPS`), oldest first.
     fuel_laps: Vec<f32>,
+    /// The tread left on each tyre when the lap being driven began (a lap joined midway or after a pit has none).
+    tyre_lap_start: Option<[f32; 4]>,
+    /// The last reading of the tread on this lap.
+    tyre_prev: Option<[f32; 4]>,
+    /// The tread each tyre lost over the last complete clean laps (at most `TYRE_WEAR_LAPS`), oldest first; a tyre the
+    /// game gave no reading for is NaN.
+    tyre_wear_laps: Vec<[f32; 4]>,
     /// What the source says its game can give (`set_caps`), and what the frames of this run filled.
     caps: Caps,
     caps_seen: Caps,
@@ -348,6 +360,10 @@ pub struct Tracker {
 
 /// How many of the last laps the fuel per lap averages.
 const FUEL_LAPS: usize = 3;
+/// How many of the last clean laps the tyres' wear per lap averages.
+const TYRE_WEAR_LAPS: usize = 3;
+/// A tyre whose tread went up by more than this over a lap was changed: that lap says nothing about wear.
+const TYRE_SET_CHANGED: f32 = 0.02;
 /// A lap that uses more than this share of the tank is not a lap's fuel use (a refuel the readings missed).
 const FUEL_MAX_SHARE: f32 = 0.3;
 /// A rise in the fuel above this (litres) between two readings is a refuel, not noise.
@@ -532,6 +548,8 @@ impl Tracker {
             tyres: frame.tyres,
             state: frame.state,
             fuel_per_lap_l: (!self.fuel_laps.is_empty()).then(|| self.fuel_laps.iter().sum::<f32>() / self.fuel_laps.len() as f32),
+            fuel_last_lap_l: self.fuel_laps.last().copied(),
+            tyre_wear_per_lap: tyre_wear_average(&self.tyre_wear_laps),
             fuel_tank_l: (self.fuel_tank > 0.0).then_some(self.fuel_tank),
             map: self.map.clone().or_else(|| self.partial_map.clone()),
             map_complete: self.map.is_some(),
@@ -627,6 +645,7 @@ impl Tracker {
     /// reading of it held, when that is above 0 and below `FUEL_MAX_SHARE` of the tank. The next lap starts with this
     /// frame's fuel.
     fn fuel_lap_ended(&mut self, frame: &Frame, advanced: bool) {
+        self.tyre_lap_ended(frame, advanced);
         if let (true, true, Some(start), Some(end)) = (advanced, self.fuel_clean, self.fuel_lap_start, self.fuel_prev) {
             let used = start - end;
             if used > 0.0 && used < FUEL_MAX_SHARE * self.fuel_tank {
@@ -643,6 +662,23 @@ impl Tracker {
         self.fuel_prev = fuel;
     }
 
+    /// A lap ended: when it was clean (the fuel logic's `fuel_clean`: no pit lane, no refuel, never out of the car) and
+    /// began where this run saw it begin, the tread each tyre lost counts toward the wear per lap. The next lap starts with
+    /// this frame's tread.
+    fn tyre_lap_ended(&mut self, frame: &Frame, advanced: bool) {
+        if let (true, true, Some(start), Some(end)) = (advanced, self.fuel_clean, self.tyre_lap_start, self.tyre_prev) {
+            if let Some(worn) = tyre_wear(start, end) {
+                self.tyre_wear_laps.push(worn);
+                if self.tyre_wear_laps.len() > TYRE_WEAR_LAPS {
+                    self.tyre_wear_laps.remove(0);
+                }
+            }
+        }
+        let tread = tread_left(frame);
+        self.tyre_lap_start = tread.filter(|_| advanced && frame.driving && !frame.in_pits);
+        self.tyre_prev = tread;
+    }
+
     /// The tank: the game's own capacity when it gives one, else the biggest fuel reading seen.
     fn see_tank(&mut self, frame: &Frame, fuel: f32) {
         self.fuel_tank = match frame.fuel_capacity_l.filter(|c| c.is_finite() && *c > 0.0) {
@@ -655,6 +691,9 @@ impl Tracker {
     fn fuel_seen(&mut self, frame: &Frame) {
         if !frame.driving || frame.in_pits {
             self.fuel_clean = false;
+        }
+        if let Some(tread) = tread_left(frame) {
+            self.tyre_prev = Some(tread);
         }
         if frame.fuel_l.is_finite() {
             if self.fuel_prev.is_some_and(|prev| frame.fuel_l > prev + REFUEL_LITRES) {
@@ -716,6 +755,41 @@ impl Tracker {
             }
         }
     }
+}
+
+/// The tread left on each tyre, when the game gives it for at least one of them (NaN for the others).
+fn tread_left(frame: &Frame) -> Option<[f32; 4]> {
+    let tread = frame.tyres?.map(|t| t.left);
+    tread.iter().any(|t| t.is_finite()).then_some(tread)
+}
+
+/// The tread each tyre lost between the start of a lap and its end (NaN for a tyre with no reading at either); `None`
+/// when no tyre has one, or when a tyre's tread went up (a new set: the lap says nothing about wear).
+fn tyre_wear(start: [f32; 4], end: [f32; 4]) -> Option<[f32; 4]> {
+    let mut changed = false;
+    let worn: [f32; 4] = std::array::from_fn(|i| {
+        if start[i].is_finite() && end[i].is_finite() {
+            let lost = start[i] - end[i];
+            changed |= lost < -TYRE_SET_CHANGED;
+            lost.max(0.0)
+        } else {
+            f32::NAN
+        }
+    });
+    (!changed && worn.iter().any(|w| w.is_finite())).then_some(worn)
+}
+
+/// Each tyre's wear per lap, averaged over the laps that gave one for it; NaN for a tyre none did, `None` without laps.
+fn tyre_wear_average(laps: &[[f32; 4]]) -> Option<[f32; 4]> {
+    let average: [f32; 4] = std::array::from_fn(|i| {
+        let known: Vec<f32> = laps.iter().map(|lap| lap[i]).filter(|w| w.is_finite()).collect();
+        if known.is_empty() {
+            f32::NAN
+        } else {
+            known.iter().sum::<f32>() / known.len() as f32
+        }
+    });
+    average.iter().any(|w| w.is_finite()).then_some(average)
 }
 
 /// From near the line to (when the length is known) most of the way round.
@@ -849,6 +923,78 @@ mod tests {
         let live = drive_fuel(&mut tracker, 7, 33.5, 31.0);
         let want = (2.5 + 3.0 + 3.5) / 3.0;
         assert!((live.fuel_per_lap_l.unwrap() - want).abs() < 1e-5, "{:?}", live.fuel_per_lap_l);
+    }
+
+    /// Drives lap `lap` with every tyre's tread going from `from` to `to`, `pits` of it in the pit lane.
+    fn drive_tread(tracker: &mut Tracker, lap: i32, from: f32, to: f32, pits: bool) -> Live {
+        let mut last = None;
+        for i in 0..=100 {
+            let mut f = at(lap, f64::from(i) * 9.0, f64::from(i) / 10.0, None);
+            let left = from + (to - from) * i as f32 / 100.0;
+            f.tyres = Some(
+                [crate::game::Tyre {
+                    brake_c: f32::NAN,
+                    temp_c: f32::NAN,
+                    pressure_kpa: f32::NAN,
+                    left,
+                    tread_c: None,
+                }; 4],
+            );
+            f.in_pits = pits && (50..60).contains(&i);
+            last = Some(tracker.on_frame("Test", &f, 0));
+        }
+        last.unwrap()
+    }
+
+    #[test]
+    fn the_tyre_wear_per_lap_is_the_average_of_the_last_clean_laps() {
+        let mut tracker = Tracker::default();
+        // Lap 1 is joined from the start of the run, not seen beginning: it does not count.
+        let live = drive_tread(&mut tracker, 1, 1.0, 0.98, false);
+        assert_eq!(live.tyre_wear_per_lap, None);
+        let live = drive_tread(&mut tracker, 2, 0.98, 0.96, false);
+        assert_eq!(live.tyre_wear_per_lap, None, "lap 2 is not over until lap 3 starts");
+        let live = drive_tread(&mut tracker, 3, 0.96, 0.93, false);
+        let wear = live.tyre_wear_per_lap.expect("lap 2 was clean");
+        assert!(wear.iter().all(|w| (w - 0.02).abs() < 1e-5), "{wear:?}");
+        let live = drive_tread(&mut tracker, 4, 0.93, 0.90, true);
+        let wear = live.tyre_wear_per_lap.unwrap();
+        assert!(wear.iter().all(|w| (w - 0.025).abs() < 1e-5), "laps 2 and 3: {wear:?}");
+        // Lap 4 had a pit stop: lap 5 and 6 are clean, lap 4 is left out.
+        drive_tread(&mut tracker, 5, 0.90, 0.88, false);
+        let live = drive_tread(&mut tracker, 6, 0.88, 0.86, false);
+        let wear = live.tyre_wear_per_lap.unwrap();
+        let want = (0.02 + 0.03 + 0.02) / 3.0;
+        assert!(wear.iter().all(|w| (w - want).abs() < 1e-5), "laps 2, 3 and 5: {wear:?}");
+        // A new track starts it over.
+        let mut other = at(1, 0.0, 0.0, None);
+        other.track = "Imola".into();
+        assert_eq!(tracker.on_frame("Test", &other, 0).tyre_wear_per_lap, None);
+    }
+
+    #[test]
+    fn a_game_without_tyre_wear_has_no_wear_per_lap_and_the_last_fuel_lap_is_the_newest() {
+        let mut tracker = Tracker::default();
+        for lap in 1..=4 {
+            let live = drive_fuel(&mut tracker, lap, 50.0 - 2.0 * (lap - 1) as f32, 48.0 - 2.0 * (lap - 1) as f32);
+            assert_eq!(live.tyre_wear_per_lap, None);
+        }
+        let live = drive_fuel(&mut tracker, 5, 42.0, 39.0);
+        assert_eq!(live.fuel_last_lap_l, Some(2.0), "lap 4 used 2 l; lap 5 is not over");
+        let live = drive_fuel(&mut tracker, 6, 39.0, 36.0);
+        assert_eq!(live.fuel_last_lap_l, Some(3.0), "lap 5 used 3 l");
+    }
+
+    #[test]
+    fn tyre_wear_is_what_the_tread_lost_and_a_new_set_is_not_a_lap() {
+        let worn = tyre_wear([0.9, 0.8, f32::NAN, 0.7], [0.88, 0.77, 0.6, 0.7]).unwrap();
+        assert!((worn[0] - 0.02).abs() < 1e-6 && (worn[1] - 0.03).abs() < 1e-6 && worn[2].is_nan() && worn[3] == 0.0);
+        assert_eq!(tyre_wear([0.5; 4], [0.9; 4]), None, "the tread went up: the tyres were changed");
+        assert_eq!(tyre_wear([f32::NAN; 4], [0.5; 4]), None);
+        let average = tyre_wear_average(&[[0.02, 0.04, f32::NAN, 0.01], [0.04, 0.04, f32::NAN, 0.03]]).unwrap();
+        assert!((average[0] - 0.03).abs() < 1e-6 && (average[1] - 0.04).abs() < 1e-6);
+        assert!(average[2].is_nan() && (average[3] - 0.02).abs() < 1e-6);
+        assert_eq!(tyre_wear_average(&[]), None);
     }
 
     #[test]

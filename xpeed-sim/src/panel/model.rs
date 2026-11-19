@@ -576,6 +576,12 @@ pub(super) struct DashModel {
     pub(super) laps: LapsModel,
     pub(super) map: Show,
     pub(super) map_title: String,
+    /// The catalog's later widgets: each is there only when its card is (`slots.cards`), the game filling what it needs.
+    pub(super) flag: Option<FlagCardModel>,
+    pub(super) fuel_calc: Option<FuelCalcModel>,
+    pub(super) tyre_trend: Option<TyreTrendModel>,
+    pub(super) sectors: Option<SectorsModel>,
+    pub(super) delta_bar: Option<DeltaBarModel>,
 }
 
 /// What the model needs besides the reading.
@@ -1219,6 +1225,23 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
 
     let laps = laps_model(live, ctx, &slots, fresh, &lap_time, &delta);
 
+    let has = |pane: Pane| slots.cards.contains(&pane);
+    let flag_card = has(Pane::Flag).then(|| flag_model(lang, s.flag, reading(live_now, s.flag.is_some())));
+    let fuel_calc = has(Pane::FuelCalc).then(|| {
+        fuel_calc_model(&FuelCalcInput {
+            lang,
+            units,
+            live,
+            fuel_l: fuel_val,
+            laps_left: laps_left_val,
+            laps_role: role,
+            show: fuel_show,
+        })
+    });
+    let tyre_trend = has(Pane::TyreTrend).then(|| tyre_trend_model(lang, live, fresh));
+    let sectors = has(Pane::Sectors).then(|| sectors_model(lang, live, ctx.laps, fresh));
+    let delta_bar = has(Pane::DeltaBar).then(|| delta_bar_model(lang, live, &delta));
+
     DashModel {
         status,
         banner,
@@ -1267,6 +1290,11 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         laps,
         map,
         map_title: say(Msg::PanelTrack),
+        flag: flag_card,
+        fuel_calc,
+        tyre_trend,
+        sectors,
+        delta_bar,
     }
 }
 

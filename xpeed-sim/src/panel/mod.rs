@@ -87,6 +87,8 @@ mod tests;
 mod tokens;
 mod view;
 mod waiting_view;
+mod widgets;
+mod widgets_view;
 mod window;
 
 use art::*;
@@ -100,6 +102,8 @@ use paint::*;
 use tokens::*;
 use view::*;
 use waiting_view::*;
+use widgets::*;
+use widgets_view::*;
 use window::*;
 
 pub(crate) use coach_look::*;

@@ -34,6 +34,26 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     frame.clutch = 0.0;
     frame.steer = (0.6 * (TAU * dist / 600.0).sin()) as f32;
     frame.fuel_l = fuel;
+    // The tread wears about 1.4 % a lap, more on the rear tyres and on the right side.
+    let worn = 0.014 * (f64::from(lap - 1) + dist / DEMO_TRACK_M);
+    frame.tyres = Some([(84.0, 1.0), (88.0, 1.1), (97.0, 1.25), (101.0, 1.35)].map(|(temp, rate): (f32, f64)| crate::game::Tyre {
+        brake_c: temp * 3.4,
+        temp_c: temp,
+        pressure_kpa: 186.0 + (temp - 90.0) * 0.8,
+        left: (1.0 - worn * rate).max(0.0) as f32,
+        tread_c: None,
+    }));
+    // The first two sectors are 800 m each, a little different on every lap.
+    let sector = (800.0 / (48.0 * pace) * 1000.0).round();
+    let first = (sector + 120.0 * (f64::from(lap) * 2.3).sin()).round() as u32;
+    let second = (sector * 1.05 + 90.0 * (f64::from(lap) * 1.3).sin()).round() as u32;
+    frame.sectors_ms = [(dist >= 800.0).then_some(first), (dist >= 1600.0).then_some(second)];
+    // A yellow flag now and then, the green flag the rest of the lap.
+    frame.state.flag = Some(if (lap_time / 10.0).floor() as i64 % 4 == 3 {
+        crate::game::Flag::Yellow
+    } else {
+        crate::game::Flag::Green
+    });
     frame
 }
 
@@ -48,6 +68,8 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
         let shared = shared.clone();
         std::thread::spawn(move || {
             let mut tracker = crate::dash::Tracker::default();
+            // What the demo's car gives, from the start: the cards of the sectors and the flag are there from the first frame.
+            tracker.set_caps(demo_frame(1, 2000.0, 30.0, Some(50.0), 60.0, 1.0).filled());
             let (mut lap, mut dist, mut lap_time, mut last, mut fuel) = (1, 0.0, 0.0, None, 60.0f32);
             let start = Instant::now();
             let mut previous = Duration::ZERO;

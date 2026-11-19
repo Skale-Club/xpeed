@@ -1,8 +1,9 @@
 //! The dashboards: which widgets the panel shows and where, as data.
 //!
 //! A dashboard is an id and, per window shape (`Layout`), its rows of widgets with the share of the row each takes. The
-//! four built-ins use the same rows for now; they are separate so each can grow its own widgets later. Which one is on
-//! screen is picked from the session (`pick`), or by hand with `D`, remembered per game in `dashboards.json`.
+//! Practice keeps the original seven cards; Race, Qualifying and Time trial each hold their own mix of the catalog's
+//! widgets (the flag, the fuel strategy, the tyre wear, the sectors, the delta bar). Which one is on screen is picked from
+//! the session (`pick`), or by hand with `D`, remembered per game in `dashboards.json`.
 
 use super::*;
 use std::collections::BTreeMap;
@@ -67,11 +68,11 @@ impl Dashboard {
 
 const RACE: Dashboard = Dashboard {
     id: DashboardId::Race,
-    rows: builtin_rows,
+    rows: race_rows,
 };
 const QUALIFYING: Dashboard = Dashboard {
     id: DashboardId::Qualifying,
-    rows: builtin_rows,
+    rows: qualifying_rows,
 };
 const PRACTICE: Dashboard = Dashboard {
     id: DashboardId::Practice,
@@ -79,7 +80,7 @@ const PRACTICE: Dashboard = Dashboard {
 };
 const TIME_TRIAL: Dashboard = Dashboard {
     id: DashboardId::TimeTrial,
-    rows: builtin_rows,
+    rows: time_trial_rows,
 };
 
 /// The built-in dashboard with this id.
@@ -92,10 +93,390 @@ pub(super) fn builtin(id: DashboardId) -> &'static Dashboard {
     }
 }
 
-/// Today's rows, which every built-in uses until each gets its own.
+/// Practice: the rows the panel always had.
 fn builtin_rows(layout: Layout) -> &'static [Row] {
     layout.default_rows()
 }
+
+fn race_rows(layout: Layout) -> &'static [Row] {
+    match layout {
+        Layout::Classic => RACE_CLASSIC,
+        Layout::Ultrawide => RACE_ULTRAWIDE,
+        Layout::Wide => RACE_WIDE,
+        Layout::Square => RACE_SQUARE,
+        Layout::Portrait => RACE_PORTRAIT,
+        Layout::Stack => RACE_STACK,
+    }
+}
+
+fn qualifying_rows(layout: Layout) -> &'static [Row] {
+    match layout {
+        Layout::Classic => FLYING_CLASSIC,
+        Layout::Ultrawide => QUALIFYING_ULTRAWIDE,
+        Layout::Wide => QUALIFYING_WIDE,
+        Layout::Square => QUALIFYING_SQUARE,
+        Layout::Portrait => QUALIFYING_PORTRAIT,
+        Layout::Stack => QUALIFYING_STACK,
+    }
+}
+
+fn time_trial_rows(layout: Layout) -> &'static [Row] {
+    match layout {
+        Layout::Classic => FLYING_CLASSIC,
+        Layout::Ultrawide => TIME_TRIAL_ULTRAWIDE,
+        Layout::Wide => TIME_TRIAL_WIDE,
+        Layout::Square => TIME_TRIAL_SQUARE,
+        Layout::Portrait => TIME_TRIAL_PORTRAIT,
+        Layout::Stack => TIME_TRIAL_STACK,
+    }
+}
+
+// Race: the times, the centre, the flag, the tyres; the fuel strategy, the tyre wear, the track and the alerts.
+
+const RACE_WIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8), (Pane::Tyres, 1.05)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[
+            (Pane::FuelCalc, 1.1),
+            (Pane::TyreTrend, 1.1),
+            (Pane::Track, 1.0),
+            (Pane::Alerts, 1.0),
+        ],
+    },
+];
+
+const RACE_ULTRAWIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 1.2),
+            (Pane::Flag, 0.8),
+            (Pane::Tyres, 1.1),
+            (Pane::Alerts, 1.0),
+        ],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::FuelCalc, 1.2), (Pane::TyreTrend, 1.2), (Pane::Track, 1.0)],
+    },
+];
+
+const RACE_SQUARE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::FuelCalc, 1.2), (Pane::TyreTrend, 1.2)],
+    },
+    Row {
+        h: 232.0,
+        cards: &[(Pane::Track, 1.0), (Pane::Alerts, 1.0)],
+    },
+];
+
+const RACE_CLASSIC: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::FuelCalc, 1.2), (Pane::Track, 0.8)],
+    },
+];
+
+const RACE_PORTRAIT: &[Row] = &[
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 120.0,
+        cards: &[(Pane::Flag, 1.0)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::FuelCalc, 1.1), (Pane::Tyres, 1.0)],
+    },
+    Row {
+        h: 230.0,
+        cards: &[(Pane::TyreTrend, 1.0), (Pane::Track, 1.0)],
+    },
+    Row {
+        h: 240.0,
+        cards: &[(Pane::Alerts, 1.0)],
+    },
+];
+
+const RACE_STACK: &[Row] = &[
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 120.0,
+        cards: &[(Pane::Flag, 1.0)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::FuelCalc, 1.0)],
+    },
+    Row {
+        h: 270.0,
+        cards: &[(Pane::Tyres, 1.0)],
+    },
+    Row {
+        h: 230.0,
+        cards: &[(Pane::TyreTrend, 1.0)],
+    },
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Track, 1.0)],
+    },
+    Row {
+        h: 240.0,
+        cards: &[(Pane::Alerts, 1.0)],
+    },
+];
+
+// Qualifying: the times, the sectors, the delta bar, the centre, the tyres, the track and the flag.
+
+const QUALIFYING_WIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Tyres, 1.05)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::DeltaBar, 2.25), (Pane::Track, 1.0), (Pane::Flag, 1.05)],
+    },
+];
+
+const QUALIFYING_ULTRAWIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 1.2),
+            (Pane::Sectors, 1.3),
+            (Pane::Tyres, 1.1),
+            (Pane::Flag, 0.8),
+        ],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::DeltaBar, 2.6), (Pane::Track, 1.0)],
+    },
+];
+
+const QUALIFYING_SQUARE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.2)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::Track, 1.0), (Pane::Flag, 0.9)],
+    },
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+];
+
+const QUALIFYING_PORTRAIT: &[Row] = &[
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 232.0,
+        cards: &[(Pane::Sectors, 1.0)],
+    },
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 250.0,
+        cards: &[(Pane::Tyres, 1.1), (Pane::Flag, 0.9)],
+    },
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Track, 1.0)],
+    },
+];
+
+const QUALIFYING_STACK: &[Row] = &[
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 232.0,
+        cards: &[(Pane::Sectors, 1.0)],
+    },
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 270.0,
+        cards: &[(Pane::Tyres, 1.0)],
+    },
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Track, 1.0)],
+    },
+    Row {
+        h: 120.0,
+        cards: &[(Pane::Flag, 1.0)],
+    },
+];
+
+// Time trial: the delta bar on top, then the times, the sectors, the centre, the tyres, the laps and the track.
+
+const TIME_TRIAL_WIDE: &[Row] = &[
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Tyres, 1.05)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Laps, 2.25), (Pane::Track, 1.0)],
+    },
+];
+
+const TIME_TRIAL_ULTRAWIDE: &[Row] = &[
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3), (Pane::Tyres, 1.1)],
+    },
+    Row {
+        h: 262.0,
+        cards: &[(Pane::Laps, 2.6), (Pane::Track, 1.0)],
+    },
+];
+
+const TIME_TRIAL_SQUARE: &[Row] = &[
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.2)],
+    },
+    Row {
+        h: 232.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::Track, 1.0)],
+    },
+    Row {
+        h: 206.0,
+        cards: &[(Pane::Laps, 1.0)],
+    },
+];
+
+const TIME_TRIAL_PORTRAIT: &[Row] = &[
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 232.0,
+        cards: &[(Pane::Sectors, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 250.0,
+        cards: &[(Pane::Tyres, 1.1), (Pane::Track, 0.9)],
+    },
+    Row {
+        h: 200.0,
+        cards: &[(Pane::Laps, 1.0)],
+    },
+];
+
+const TIME_TRIAL_STACK: &[Row] = &[
+    Row {
+        h: 140.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 232.0,
+        cards: &[(Pane::Sectors, 1.0)],
+    },
+    Row {
+        h: 280.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 270.0,
+        cards: &[(Pane::Tyres, 1.0)],
+    },
+    Row {
+        h: 200.0,
+        cards: &[(Pane::Laps, 1.0)],
+    },
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Track, 1.0)],
+    },
+];
+
+/// Qualifying and Time trial in the smallest window (Classic): three cards over three, the delta bar among them.
+const FLYING_CLASSIC: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Sectors, 1.3)],
+    },
+    Row {
+        h: 230.0,
+        cards: &[(Pane::Tyres, 1.2), (Pane::DeltaBar, 1.3), (Pane::Track, 0.8)],
+    },
+];
 
 /// The dashboard to show: the person's choice, else the one that fits the session. Time trial is only ever chosen by
 /// hand (no game's session kind says it yet).

@@ -84,6 +84,16 @@ pub(super) enum Pane {
     Track,
     /// The alerts that are lit, the electronics' settings and the damage.
     Alerts,
+    /// The digiflag: the flag the game shows as a block of its colour.
+    Flag,
+    /// The fuel strategy: the use per lap, the laps left and what a number of laps needs.
+    FuelCalc,
+    /// The tyre wear per lap and the laps left on each tyre.
+    TyreTrend,
+    /// The sector times against the best ones, and the theoretical best lap.
+    Sectors,
+    /// The delta to the best lap as a wide bar.
+    DeltaBar,
 }
 
 /// The dashboard's layouts, one per shape of window. Each is a canvas in design units made of rows of cards, scaled whole
@@ -269,6 +279,11 @@ pub(super) fn need_h(card: Pane, lap_rows: usize, row_h: f32) -> f32 {
         Pane::Laps => laps_card_h(lap_rows.min(lap_rows_fit(row_h)).max(1)).min(row_h),
         Pane::Track => TRACK_NEED_H.min(row_h),
         Pane::Alerts => ALERTS_NEED_H.min(row_h),
+        Pane::Flag => FLAG_NEED_H.min(row_h),
+        Pane::FuelCalc => FUEL_CALC_NEED_H.min(row_h),
+        Pane::TyreTrend => TYRE_TREND_NEED_H.min(row_h),
+        Pane::Sectors => SECTORS_NEED_H.min(row_h),
+        Pane::DeltaBar => DELTA_NEED_H.min(row_h),
         _ => row_h,
     }
 }
@@ -277,6 +292,15 @@ pub(super) fn need_h(card: Pane, lap_rows: usize, row_h: f32) -> f32 {
 /// lines of alerts, the electronics' row and the damage line).
 pub(super) const TRACK_NEED_H: f32 = 210.0;
 pub(super) const ALERTS_NEED_H: f32 = 232.0;
+
+/// The least height of the cards of the catalog's later widgets: the flag (a block with its word), the fuel strategy (the
+/// caption, three figures, a table of four rows and a note), the tyre wear (the caption, the heads and four rows), the
+/// sectors (three rows and the theoretical best) and the delta (the number and its bar).
+pub(super) const FLAG_NEED_H: f32 = 110.0;
+pub(super) const FUEL_CALC_NEED_H: f32 = 256.0;
+pub(super) const TYRE_TREND_NEED_H: f32 = 212.0;
+pub(super) const SECTORS_NEED_H: f32 = 228.0;
+pub(super) const DELTA_NEED_H: f32 = 130.0;
 
 /// The height of a laps card with `rows` rows: its padding, caption, head and the rows.
 pub(super) fn laps_card_h(rows: usize) -> f32 {
@@ -339,12 +363,14 @@ impl Layout {
 
     /// The cards of this layout that the game can fill, with their places, as they are when the laps table is full; the
     /// canvas is as tall as its rows need.
+    #[cfg(test)]
     pub(super) fn plan(self, slots: &Slots) -> Plan {
         self.plan_for(slots, usize::MAX)
     }
 
     /// The same with `lap_rows` rows in the laps table: the table's row takes only the height it needs and the row above
     /// it takes the rest, so the canvas keeps its size and a few laps never leave a tall, empty card.
+    #[cfg(test)]
     pub(super) fn plan_for(self, slots: &Slots, lap_rows: usize) -> Plan {
         self.plan_in(DashboardId::Practice, slots, lap_rows)
     }
@@ -388,9 +414,15 @@ impl Layout {
         }
     }
 
-    /// The canvas size.
+    /// The canvas size of the Practice dashboard.
+    #[cfg(test)]
     pub(super) fn size(self, slots: &Slots) -> (f32, f32) {
-        let plan = self.plan(slots);
+        self.size_in(DashboardId::Practice, slots)
+    }
+
+    /// The canvas size of a dashboard.
+    pub(super) fn size_in(self, dashboard: DashboardId, slots: &Slots) -> (f32, f32) {
+        let plan = self.plan_in(dashboard, slots, usize::MAX);
         (plan.w, plan.h)
     }
 
@@ -413,11 +445,12 @@ fn fit_of(bw: f32, bh: f32, (w, h): (f32, f32)) -> (f32, f32) {
 }
 
 /// The layout that fills a body of `bw` x `bh` pixels best while staying readable; between two that fill it about as
-/// well, the one that shows more. Classic, the smallest, is for when none of the others reads well.
-pub(super) fn pick_layout(bw: f32, bh: f32, slots: &Slots) -> Layout {
+/// well, the one that shows more. Classic, the smallest, is for when none of the others reads well. `dashboard` is the
+/// one on screen: each has its own rows, so its own canvas.
+pub(super) fn pick_layout_in(dashboard: DashboardId, bw: f32, bh: f32, slots: &Slots) -> Layout {
     let order = [Layout::Wide, Layout::Ultrawide, Layout::Square, Layout::Portrait, Layout::Stack];
     let fill = |l: Layout| {
-        let (s, f) = fit_of(bw, bh, l.size(slots));
+        let (s, f) = fit_of(bw, bh, l.size_in(dashboard, slots));
         (s >= l.min_scale()).then_some(f)
     };
     let best = order.iter().filter_map(|&l| fill(l)).fold(f32::NEG_INFINITY, f32::max);
@@ -425,6 +458,12 @@ pub(super) fn pick_layout(bw: f32, bh: f32, slots: &Slots) -> Layout {
         .into_iter()
         .find(|&l| fill(l).is_some_and(|f| f >= best - 0.03))
         .unwrap_or(Layout::Classic)
+}
+
+/// `pick_layout_in` for the Practice dashboard.
+#[cfg(test)]
+pub(super) fn pick_layout(bw: f32, bh: f32, slots: &Slots) -> Layout {
+    pick_layout_in(DashboardId::Practice, bw, bh, slots)
 }
 
 /// The inside of the window as it opens (pixels), for a screen whose work area is `work_w` x `work_h`: 16:9, about
@@ -444,13 +483,13 @@ const SCALE_SLACK: f32 = 0.06;
 
 /// `pick_layout`, but the layout already in use stays unless another one fills the window clearly better, or the one in
 /// use no longer reads at all. Classic is only a fallback: it is left as soon as another layout reads.
-pub(super) fn pick_layout_sticky(bw: f32, bh: f32, slots: &Slots, current: Option<Layout>) -> Layout {
-    let best = pick_layout(bw, bh, slots);
+pub(super) fn pick_layout_sticky(dashboard: DashboardId, bw: f32, bh: f32, slots: &Slots, current: Option<Layout>) -> Layout {
+    let best = pick_layout_in(dashboard, bw, bh, slots);
     let Some(current) = current.filter(|c| *c != best && *c != Layout::Classic) else {
         return best;
     };
     let fill = |l: Layout, slack: f32| {
-        let (s, f) = fit_of(bw, bh, l.size(slots));
+        let (s, f) = fit_of(bw, bh, l.size_in(dashboard, slots));
         (s >= l.min_scale() - slack).then_some(f)
     };
     match (fill(current, SCALE_SLACK), fill(best, 0.0)) {
@@ -849,6 +888,11 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
         (Pane::Laps, s.lap_time || s.last),
         (Pane::Track, s.map || s.progress),
         (Pane::Alerts, alerts),
+        (Pane::Flag, caps.has(Caps::FLAG)),
+        (Pane::FuelCalc, caps.has(Caps::FUEL)),
+        (Pane::TyreTrend, caps.has(Caps::TYRE_WEAR)),
+        (Pane::Sectors, caps.has(Caps::SECTORS)),
+        (Pane::DeltaBar, s.delta),
     ]
     .into_iter()
     .filter(|(_, on)| *on)
