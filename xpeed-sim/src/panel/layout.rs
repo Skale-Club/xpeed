@@ -898,7 +898,10 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
         (Pane::TyreTrend, caps.has(Caps::TYRE_WEAR)),
         (Pane::Sectors, caps.has(Caps::SECTORS)),
         (Pane::DeltaBar, s.delta),
-        (Pane::Session, any(&[Caps::RACE_POSITION, Caps::SESSION_TIME_LEFT, Caps::SESSION_LAPS])),
+        (
+            Pane::Session,
+            any(&[Caps::RACE_POSITION, Caps::SESSION_TIME_LEFT, Caps::SESSION_LAPS]),
+        ),
     ]
     .into_iter()
     .filter(|(_, on)| *on)

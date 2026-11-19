@@ -2794,7 +2794,11 @@ fn the_widget_ids_are_a_contract() {
         ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
         "the first seven never change"
     );
-    assert_eq!(ids[7..12], ["flag", "fuel_calc", "tyre_trend", "sectors", "delta_bar"], "the five of phase 2 keep their order");
+    assert_eq!(
+        ids[7..12],
+        ["flag", "fuel_calc", "tyre_trend", "sectors", "delta_bar"],
+        "the five of phase 2 keep their order"
+    );
     assert_eq!(ids[12], "session");
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
@@ -3203,7 +3207,14 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
         [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)]
     );
     assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
-    let new_six = [Pane::Flag, Pane::FuelCalc, Pane::TyreTrend, Pane::Sectors, Pane::DeltaBar, Pane::Session];
+    let new_six = [
+        Pane::Flag,
+        Pane::FuelCalc,
+        Pane::TyreTrend,
+        Pane::Sectors,
+        Pane::DeltaBar,
+        Pane::Session,
+    ];
     for layout in ALL_LAYOUTS {
         assert!(
             std::ptr::eq(builtin(DashboardId::Practice).rows_for(layout), layout.default_rows()),
@@ -3339,7 +3350,10 @@ fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
     assert_eq!(json["sessionCard"]["classLine"], "P1 in class");
     assert_eq!(json["sessionCard"]["remainingNote"], "left");
     assert_eq!(json["fuelCalc"]["toEnd"]["addLabel"], "add");
-    assert!(json["fuelCalc"]["note"].is_null(), "the line about the end is there, so the note is not");
+    assert!(
+        json["fuelCalc"]["note"].is_null(),
+        "the line about the end is there, so the note is not"
+    );
 }
 
 /// The dashboard `dash` painted on a 1920 × 1080 screen for `live` and the recent laps `laps`.
@@ -3459,7 +3473,11 @@ fn the_laps_to_go_follow_the_session_laps_or_the_time_left() {
     live.best_lap_s = Some(107.204);
     assert_eq!(laps_to_go(&live), Some(6.0), "ceil(539 / 107.918) + 1");
     live.last_lap_s = None;
-    assert_eq!(laps_to_go(&live), Some(7.0), "the best lap's pace when there is no last lap: ceil(539 / 107.204) + 1");
+    assert_eq!(
+        laps_to_go(&live),
+        Some(7.0),
+        "the best lap's pace when there is no last lap: ceil(539 / 107.204) + 1"
+    );
     live.best_lap_s = None;
     assert_eq!(laps_to_go(&live), None, "a timed session without a lap time to go by");
     live.last_lap_s = Some(f64::NAN);
@@ -3481,8 +3499,16 @@ fn the_fuel_to_the_end_is_the_laps_to_go_and_a_lap_of_margin_less_the_tank() {
     let end = fuel_to_end(Some(10.0), Some(20.0), Some(2.0)).unwrap();
     assert_eq!((end.needed_l, end.to_add_l), (22.0, Some(2.0)), "(10 + 1) x 2 l, 20 l in the tank");
     assert_eq!(fuel_to_end(Some(10.0), Some(30.0), Some(2.0)).unwrap().to_add_l, Some(0.0));
-    assert_eq!(fuel_to_end(Some(10.0), None, Some(2.0)).unwrap().to_add_l, None, "no fuel reading, no amount to add");
-    assert_eq!(fuel_to_end(Some(0.0), Some(1.0), Some(2.0)).unwrap().needed_l, 2.0, "the margin lap alone");
+    assert_eq!(
+        fuel_to_end(Some(10.0), None, Some(2.0)).unwrap().to_add_l,
+        None,
+        "no fuel reading, no amount to add"
+    );
+    assert_eq!(
+        fuel_to_end(Some(0.0), Some(1.0), Some(2.0)).unwrap().needed_l,
+        2.0,
+        "the margin lap alone"
+    );
     for per in [None, Some(0.0), Some(-1.0), Some(f32::NAN)] {
         assert_eq!(fuel_to_end(Some(10.0), Some(20.0), per), None, "{per:?}");
     }
@@ -3501,7 +3527,10 @@ fn the_fuel_card_says_the_fuel_to_the_end_when_it_can_and_keeps_the_caption_when
     let end = card.to_end.expect("the laps and the use per lap are known");
     assert_eq!((end.label.as_str(), end.add_label.as_str()), ("To the end", "add"));
     // 20 - 3 laps less 40 % of this one, and a lap of margin, at 2.9 l: 51.0 l, of which 12.4 l are to add.
-    assert_eq!((end.needed.as_str(), end.to_add.as_deref(), end.role), ("51.0 L", Some("12.4 L"), Role::Warn));
+    assert_eq!(
+        (end.needed.as_str(), end.to_add.as_deref(), end.role),
+        ("51.0 L", Some("12.4 L"), Role::Warn)
+    );
     assert!(card.note.is_none(), "the line replaces the caption");
     // Enough in the tank: green, nothing to add.
     live.session_laps = Some(5);
@@ -3552,7 +3581,10 @@ fn the_session_card_writes_the_place_the_class_and_what_is_left() {
     assert_eq!(card.title, "Session");
     assert_eq!((card.position.as_deref(), card.of_cars.as_deref()), (Some("P3"), Some("/ 24")));
     assert_eq!(card.class_line.as_deref(), Some("P1 in class"));
-    assert_eq!((card.remaining.as_deref(), card.remaining_note.as_deref()), (Some("23:00"), Some("left")));
+    assert_eq!(
+        (card.remaining.as_deref(), card.remaining_note.as_deref()),
+        (Some("23:00"), Some("left"))
+    );
     assert_eq!(card.show, Show::Shown);
     // Over an hour.
     live.session_time_left_s = Some(3_725.0);
@@ -3562,11 +3594,17 @@ fn the_session_card_writes_the_place_the_class_and_what_is_left() {
     live.session_laps = Some(20);
     live.lap = 5;
     let card = model(&live, Lang::En).session_card.unwrap();
-    assert_eq!((card.remaining.as_deref(), card.remaining_note.as_deref()), (Some("Lap 5 / 20"), Some("15 to go")));
+    assert_eq!(
+        (card.remaining.as_deref(), card.remaining_note.as_deref()),
+        (Some("Lap 5 / 20"), Some("15 to go"))
+    );
     // The lap never runs past the session's laps.
     live.lap = 22;
     let card = model(&live, Lang::En).session_card.unwrap();
-    assert_eq!((card.remaining.as_deref(), card.remaining_note.as_deref()), (Some("Lap 20 / 20"), Some("0 to go")));
+    assert_eq!(
+        (card.remaining.as_deref(), card.remaining_note.as_deref()),
+        (Some("Lap 20 / 20"), Some("0 to go"))
+    );
     // The time wins when the game gives both.
     live.session_time_left_s = Some(61.0);
     assert_eq!(model(&live, Lang::En).session_card.unwrap().remaining.as_deref(), Some("01:01"));
@@ -3599,7 +3637,10 @@ fn the_session_card_is_there_when_the_game_gives_the_place_the_time_or_the_laps(
     assert_eq!(cards(Caps::RACE_POSITION), [Pane::Session]);
     assert_eq!(cards(Caps::SESSION_TIME_LEFT), [Pane::Session]);
     assert_eq!(cards(Caps::SESSION_LAPS), [Pane::Session]);
-    assert!(cards(Caps::CLASS_POSITION).is_empty(), "the class place alone is not a session card");
+    assert!(
+        cards(Caps::CLASS_POSITION).is_empty(),
+        "the class place alone is not a session card"
+    );
     assert!(cards(Caps::CARS).is_empty(), "nor is the number of cars");
     assert!(!cards(Caps::GEAR.or(Caps::LAP_TIME)).contains(&Pane::Session));
 }
@@ -3616,13 +3657,23 @@ fn race_and_qualifying_hold_the_session_in_every_layout_and_the_tyres_never_get_
             let session = a
                 .area(Pane::Session)
                 .unwrap_or_else(|| panic!("{dash:?} {layout:?}: the session is on the dashboard"));
-            assert!(session.3 + 0.01 >= SESSION_NEED_H, "{dash:?} {layout:?}: the session is {} tall", session.3);
+            assert!(
+                session.3 + 0.01 >= SESSION_NEED_H,
+                "{dash:?} {layout:?}: the session is {} tall",
+                session.3
+            );
             assert!(b.area(Pane::Session).is_none());
             let (tyres_with, tyres_without) = (a.area(Pane::Tyres).unwrap(), b.area(Pane::Tyres).unwrap());
-            assert!(tyres_with.2 + 0.01 >= tyres_without.2, "{dash:?} {layout:?}: the tyres lose room to the session");
+            assert!(
+                tyres_with.2 + 0.01 >= tyres_without.2,
+                "{dash:?} {layout:?}: the tyres lose room to the session"
+            );
         }
         for dash in [DashboardId::Practice, DashboardId::TimeTrial] {
-            assert!(layout.plan_in(dash, &with, usize::MAX).area(Pane::Session).is_none(), "{dash:?} {layout:?}");
+            assert!(
+                layout.plan_in(dash, &with, usize::MAX).area(Pane::Session).is_none(),
+                "{dash:?} {layout:?}"
+            );
         }
     }
 }
