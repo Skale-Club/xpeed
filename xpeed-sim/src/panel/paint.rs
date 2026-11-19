@@ -688,6 +688,70 @@ impl Painter {
         }
     }
 
+    /// The delta along the lap (owner-approved module 5, 2026-11-19): a zero line across the middle, the area between the
+    /// delta and zero in green where the lap is ahead (under the line) and red where it is behind (over it), the delta as
+    /// a light line, and a yellow mark where the car is. `trace` is (share of the lap 0..1, seconds); the graph spans the
+    /// whole lap, so it grows from left to right. The scale is the largest delta, `DELTA_TRACE_MIN_S`..`DELTA_TRACE_MAX_S`.
+    pub(super) fn delta_trace(&self, (x, y, w, h): Area, trace: &[(f32, f32)]) {
+        let r = self.r(x, y, w, h);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let zero = (py + ph / 2.0).round();
+        self.fill(rect(r.left, zero as i32, r.right, zero as i32 + 1), SECONDARY);
+        if trace.len() < 2 {
+            return;
+        }
+        let largest = trace.iter().fold(0.0_f32, |m, &(_, d)| m.max(d.abs()));
+        let span = largest.clamp(DELTA_TRACE_MIN_S, DELTA_TRACE_MAX_S);
+        let half = ph / 2.0 - 1.0;
+        let to = |&(at, d): &(f32, f32)| PointF {
+            X: px + pw * at.clamp(0.0, 1.0),
+            Y: zero - d.clamp(-span, span) / span * half,
+        };
+        let points: Vec<PointF> = trace.iter().map(to).collect();
+        let (ahead, behind) = (tint(CARD, SUCCESS, DELTA_TRACE_FILL), tint(CARD, DESTRUCTIVE, DELTA_TRACE_FILL));
+        let line_w = (1.5 * self.s).max(1.0);
+        smooth(self.hdc, |graphics| unsafe {
+            let quad = |corners: [PointF; 4], colour: COLORREF| {
+                let mut path = null_mut();
+                GdipCreatePath(FillModeAlternate, &mut path);
+                GdipAddPathLine2(path, corners.as_ptr(), 4);
+                GdipClosePathFigure(path);
+                let mut brush = null_mut();
+                GdipCreateSolidFill(argb(colour), &mut brush);
+                GdipFillPath(graphics, brush.cast(), path);
+                GdipDeleteBrush(brush.cast());
+                GdipDeletePath(path);
+            };
+            let base = |x: f32| PointF { X: x, Y: zero };
+            let shade = |d: f32| if d < 0.0 { ahead } else { behind };
+            for (p, t) in points.windows(2).zip(trace.windows(2)) {
+                let (a, b, da, db) = (p[0], p[1], t[0].1, t[1].1);
+                if da * db < 0.0 {
+                    // The delta crosses zero here: each side of the crossing in its own colour.
+                    let cross = a.X + (b.X - a.X) * (da / (da - db));
+                    let mid = PointF { X: cross, Y: zero };
+                    quad([base(a.X), a, mid, mid], shade(da));
+                    quad([mid, mid, b, base(b.X)], shade(db));
+                } else {
+                    quad([base(a.X), a, b, base(b.X)], shade(da + db));
+                }
+            }
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(FOREGROUND), line_w, UnitPixel, &mut pen);
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+            let now = points[points.len() - 1].X;
+            let mut mark = null_mut();
+            GdipCreatePen1(argb(PRIMARY), line_w, UnitPixel, &mut mark);
+            GdipDrawLine(graphics, mark, now, py, now, py + ph);
+            GdipDeletePen(mark);
+        });
+    }
+
     /// A tyre seen from above (owner decision 2026-11-19, `TyreShape`): dark sidewalls around the tread, and the tread as
     /// one block or three bands a hair apart, each in the colour of its temperature, with thin grooves across.
     pub(super) fn tyre_shape(&self, (x, y, w, h): Area, shape: TyreShape) {

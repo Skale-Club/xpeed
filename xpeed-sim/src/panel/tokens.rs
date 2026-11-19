@@ -100,6 +100,14 @@ pub(super) const LIGHT_TILE_H: f32 = 40.0;
 pub(super) const LIGHT_TILE_MIN_H: f32 = 20.0;
 /// A drawn tyre is this wide for its height (seen from above).
 pub(super) const TYRE_ASPECT: f32 = 0.5;
+/// The times card's projected lap line and the delta graph under it (owner-approved module 5, 2026-11-19).
+pub(super) const PROJECTED_H: f32 = 18.0;
+pub(super) const DELTA_TRACE_H: f32 = 40.0;
+/// The delta graph's scale: at least this many seconds either side of zero, never more than `DELTA_TRACE_MAX_S`.
+pub(super) const DELTA_TRACE_MIN_S: f32 = 0.5;
+pub(super) const DELTA_TRACE_MAX_S: f32 = 2.0;
+/// How much of its colour the area between the delta line and zero takes.
+pub(super) const DELTA_TRACE_FILL: f32 = 0.28;
 /// The laps table's gap bar (owner-approved module 4, 2026-11-19): a lap this many seconds or more behind the best
 /// fills it; it is this tall.
 pub(super) const LAP_GAP_FULL_S: f32 = 2.0;

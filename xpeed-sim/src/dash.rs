@@ -254,6 +254,9 @@ pub struct Live {
     pub road: Option<Arc<crate::perspective::Road>>,
     /// Actual recent positions, independent of the saved circuit and of a reference lap.
     pub trail: Arc<Vec<(f32, f32)>>,
+    /// The delta along the lap being driven: (share of the lap 0..1, seconds against the best lap), a point every
+    /// `1 / DELTA_TRACE_POINTS` of the lap; empty until there is a delta. Shared, as it grows by one point at a time.
+    pub delta_trace: Arc<Vec<(f32, f32)>>,
     /// A valid best path from this session, shown only for an explicit practice/qualifying context.
     pub reference: Option<Arc<Vec<(f32, f32)>>>,
     /// Forward direction inferred from recent live movement, never from replay progression.
@@ -318,6 +321,8 @@ pub struct Tracker {
     partial_map: Option<Arc<Path>>,
     road: Option<Arc<crate::perspective::Road>>,
     trail: Arc<Path>,
+    /// The delta along the lap being driven (see `Live::delta_trace`).
+    delta_trace: Arc<Vec<(f32, f32)>>,
     heading: crate::perspective::MotionHeading,
     best_path: Option<Arc<Path>>,
     best: Option<(f64, Profile)>,
@@ -360,6 +365,8 @@ const MAP_STEP_METRES: f32 = 4.0;
 /// Two points of the path further apart than this are not one drive (points are kept every `MAP_STEP_METRES`): a
 /// restart, a return to the pits or a teleport. The map is not drawn across it, and such a lap is not a map.
 pub const MAP_JUMP_METRES: f32 = 40.0;
+/// How many points the delta along a lap keeps at most (one every 0.5% of the lap).
+pub const DELTA_TRACE_POINTS: usize = 200;
 /// A path shorter than this is not a map yet.
 const MAP_MIN_POINTS: usize = 30;
 /// A finished lap must cover this share of the track (when its length is known) to be a full lap.
@@ -410,6 +417,7 @@ impl Tracker {
                 Event::LapStarted { number, from_line, .. } => {
                     self.lap = *number;
                     self.current_from_line = *from_line;
+                    self.delta_trace = Arc::default();
                 }
                 Event::SessionStarted { .. } => {}
             }
@@ -499,6 +507,17 @@ impl Tracker {
             }
             _ => None,
         };
+        // The delta along the lap: a point each time the car is another share of the lap further on.
+        if let (Some(delta), Some(sample)) = (delta_s, step.sample) {
+            let best_length = self.best.as_ref().and_then(|(_, best)| best.last().map(|&(d, _)| d));
+            if let Some(length) = frame.track_length_m.or(best_length).filter(|l| *l > 0.0) {
+                let at = (sample.dist_m / length).clamp(0.0, 1.0) as f32;
+                let step_share = 1.0 / DELTA_TRACE_POINTS as f32;
+                if self.delta_trace.last().is_none_or(|&(last, _)| at >= last + step_share) {
+                    Arc::make_mut(&mut self.delta_trace).push((at, delta as f32));
+                }
+            }
+        }
         Live {
             game,
             track: frame.track.clone(),
@@ -537,6 +556,7 @@ impl Tracker {
             map_complete: self.map.is_some(),
             road: self.road.clone(),
             trail: self.trail.clone(),
+            delta_trace: self.delta_trace.clone(),
             reference: matches!(frame.session_kind, Some(SessionKind::Practice | SessionKind::Qualifying))
                 .then(|| self.best_path.clone())
                 .flatten(),
@@ -592,6 +612,7 @@ impl Tracker {
     /// a long time away): nothing of it becomes a best lap, a delta, a path or a fuel use.
     fn lap_lost(&mut self, frame: &Frame) {
         self.current.clear();
+        self.delta_trace = Arc::default();
         self.path.clear();
         self.partial_map = None;
         self.trail = Arc::default();

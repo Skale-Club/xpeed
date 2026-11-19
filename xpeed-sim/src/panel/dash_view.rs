@@ -262,6 +262,16 @@ pub(super) fn times_card(g: &mut Painter, d: &Dash, card: Area) {
                 g.text(&m.delta_vs, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
                 g.centred_bar(plan.bar, delta.frac, delta.role.colour(), FOREGROUND);
             });
+            // Under the delta: the lap time this lap is heading for, and the delta along the lap so far.
+            if let Some((tx, ty, tw, _)) = plan.trace {
+                shown(g, delta.show, |g| {
+                    if let Some(projected) = &m.projected {
+                        let r = g.r(tx, ty, tw, PROJECTED_H);
+                        g.text(projected, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
+                    }
+                    g.delta_trace((tx, ty + PROJECTED_H + S1, tw, DELTA_TRACE_H), &d.live.delta_trace);
+                });
+            }
         } else if let Some(note) = &m.delta_note {
             shown(g, Show::Dimmed, |g| {
                 g.wrapped(note, x, gy, w, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT, 20.0);

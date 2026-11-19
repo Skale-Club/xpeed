@@ -519,6 +519,8 @@ pub(super) struct DashModel {
     pub(super) delta_vs: String,
     /// On the first lap, where the delta will be: why it is not there yet.
     pub(super) delta_note: Option<String>,
+    /// `Projected 1:46.934`: the best lap plus the delta now, while there is a delta.
+    pub(super) projected: Option<String>,
     pub(super) gear: Elem,
     pub(super) gear_below: Elem,
     pub(super) gear_above: Elem,
@@ -970,6 +972,11 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
     // Before there is a best lap to compare with, the delta's place says when it will come.
     let delta_note = (slots.delta && !delta.visible() && !best_lap.visible()).then(|| say(Msg::PanelDeltaFirstLap));
+    // The lap time this lap is heading for: the best lap plus the delta now (owner-approved module 5, 2026-11-19).
+    let projected = match (delta.visible(), live.best_lap_s, live.delta_s) {
+        (true, Some(best), Some(d)) => lap_clock(Some(best + d)).map(|t| say(Msg::PanelProjected(t))),
+        _ => None,
+    };
 
     // Fuel.
     let fuel_now = fuel_reading(live);
@@ -1249,6 +1256,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         delta,
         delta_vs: say(Msg::PanelVsBest),
         delta_note,
+        projected,
         gear,
         gear_below: neighbour(below),
         gear_above: neighbour(above),

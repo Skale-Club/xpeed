@@ -308,6 +308,16 @@ fn live_reading() -> Live {
     live.map_complete = true;
     live.best_lap_s = Some(107.204);
     live.delta_s = Some(-0.27);
+    // The delta along the lap so far: 40% of the lap, a little behind early on, ending 0.27 s ahead.
+    live.delta_trace = Arc::new(
+        (0..=80)
+            .map(|i| {
+                let at = i as f32 * 0.005;
+                let k = at / 0.4;
+                (at, 0.12 * (at * 40.0).sin() * (1.0 - k) - 0.27 * k)
+            })
+            .collect(),
+    );
     live.fuel_per_lap_l = Some(2.9);
     live.state = crate::game::CarState {
         pit_limiter: Some(false),
@@ -1530,6 +1540,35 @@ fn a_tyre_is_drawn_in_the_colours_of_its_temperatures() {
     // Solid: one colour across the whole tread.
     let at = painted_by(40, 80, |g| g.tyre_shape((0.0, 0.0, 40.0, 80.0), TyreShape::Solid(WARN)));
     assert!((5..35).all(|x| at(x, 5) == WARN), "a solid tyre has no bands");
+}
+
+/// The owner's times card (module 5, 2026-11-19): the lap this lap is heading for, and the delta along the lap drawn
+/// green under zero where ahead, red over it where behind, with a yellow mark where the car is.
+#[test]
+fn the_times_card_shows_the_projected_lap_and_the_delta_along_it() {
+    let live = live_reading();
+    let m = model(&live, Lang::En);
+    assert_eq!(m.projected.as_deref(), Some("Projected 1:46.934"), "best less 0.270");
+    assert_eq!(model(&live, Lang::Pt).projected.as_deref(), Some("Projetada 1:46.934"));
+    let mut first = live.clone();
+    first.delta_s = None;
+    assert_eq!(model(&first, Lang::En).projected, None, "no delta, no projection");
+    // A tall card has room for it, under the delta and over the last and best laps.
+    let plan = times_plan((0.0, 0.0, 424.0, 432.0), &slots(live.caps));
+    let trace = plan.trace.expect("room for the delta along the lap");
+    assert!(trace.1 > plan.bar.1 && trace.1 + trace.3 < plan.records.1);
+    // Drawn: ahead (under zero) in green, the car's place in yellow.
+    let (w, h) = (300, 60);
+    let at = painted_by(w, h, |g| {
+        g.delta_trace((0.0, 0.0, w as f32, h as f32), &[(0.0, 0.0), (0.2, -0.3), (0.4, -0.3)]);
+    });
+    let zero = h / 2;
+    let green = tint(CARD, SUCCESS, DELTA_TRACE_FILL);
+    assert_eq!(at(90, zero + 4), green, "ahead: green under the line");
+    assert_eq!(at(90, zero - 4), 0, "nothing over the line where the lap is ahead");
+    let yellowish = |c: COLORREF| (c & 0xff) > 0x90 && (c >> 8 & 0xff) > 0x80 && (c >> 16 & 0xff) < 0x70;
+    assert!(yellowish(at(120, 2)) || yellowish(at(119, 2)), "the car's place on the lap");
+    assert_eq!(at(200, zero), SECONDARY, "the rest of the lap is only the zero line");
 }
 
 /// The owner's tyre tile (2026-11-19): the drawn tyre runs from the top of the F of "FL" to the bottom of the wear bar,

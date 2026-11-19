@@ -581,6 +581,8 @@ pub(super) struct TimesPlan {
     pub(super) lap: Area,
     pub(super) delta: Area,
     pub(super) bar: Area,
+    /// The projected lap and, under it, the delta along the lap (owner-approved module 5): only with room for it.
+    pub(super) trace: Option<Area>,
     /// The line over the last and the best lap, and where they are (caption and figure together).
     pub(super) rule: Option<Area>,
     pub(super) records: Area,
@@ -598,20 +600,33 @@ pub(super) fn times_plan(card: Area, slots: &Slots) -> TimesPlan {
     let has_delta = slots.delta;
     let has_records = slots.last || slots.best;
     let records_h = CAPTION_H + S1 + value_h;
+    let top = y + CAPTION_H + S1;
     let mut heights = vec![hero_h];
     if has_delta {
         heights.push(delta_h + S2 + STEER_BAR_H);
     }
+    // The delta along the lap goes under the delta only when the card has room for it with every gap at least `S3`.
+    let trace_h = PROJECTED_H + S1 + DELTA_TRACE_H;
+    let others: f32 = heights.iter().sum::<f32>() + if has_records { records_h } else { 0.0 };
+    let gaps = (heights.len() + usize::from(has_records)) as f32 * S3;
+    let has_trace = has_delta && y + h - top - others - gaps >= trace_h;
+    if has_trace {
+        heights.push(trace_h);
+    }
     if has_records {
         heights.push(records_h);
     }
-    let top = y + CAPTION_H + S1;
     let tops = stack(top, y + h - top, &heights, S3, S8);
     let mut next = tops.iter().skip(1);
     let delta_top = if has_delta { next.next().copied() } else { None };
+    let trace_top = if has_trace { next.next().copied() } else { None };
     let records_top = if has_records { next.next().copied() } else { None };
     let rule = records_top.map(|t| {
-        let above = delta_top.map_or(tops[0] + hero_h, |d| d + delta_h + S2 + STEER_BAR_H);
+        let above = match (trace_top, delta_top) {
+            (Some(tt), _) => tt + trace_h,
+            (None, Some(d)) => d + delta_h + S2 + STEER_BAR_H,
+            (None, None) => tops[0] + hero_h,
+        };
         (x, (above + t) / 2.0, w, STROKE_HAIR)
     });
     let dt = delta_top.unwrap_or(tops[0] + hero_h);
@@ -620,6 +635,7 @@ pub(super) fn times_plan(card: Area, slots: &Slots) -> TimesPlan {
         lap: (x, tops[0], w, hero_h),
         delta: (x, dt, w, delta_h),
         bar: (x, dt + delta_h + S2, w, STEER_BAR_H),
+        trace: trace_top.map(|tt| (x, tt, w, trace_h)),
         rule,
         records: (x, records_top.unwrap_or(y + h), w, records_h),
     }
