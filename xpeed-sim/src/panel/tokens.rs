@@ -122,7 +122,8 @@ pub(super) const INPUT_BLOCK_H: f32 = 5.0;
 /// so the trace reads like a chart without the lines competing with it.
 pub(super) const INPUT_GRID_INK: COLORREF = rgb(0x1c, 0x1d, 0x21);
 /// The gear takes at least this share of the centre card's inside height (owner, 2026-11-19: it is read from afar;
-/// nothing else may shrink it).
+/// nothing else may shrink it). The layout test pins it.
+#[cfg(test)]
 pub(super) const GEAR_MIN_SHARE: f32 = 0.5;
 /// The fuel card's stint planner: the runs it counts (owner-approved module 6, 2026-11-19).
 pub(super) const FUEL_PLAN_LAPS: [u32; 2] = [10, 20];
