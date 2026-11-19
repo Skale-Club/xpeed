@@ -20,6 +20,12 @@ export const PLAUSIBILITY = {
   /** The sample count is within this fraction of what the sample rate and the lap time give (but never less than `sampleCountSlack` samples). */
   sampleCountTolerance: 0.15,
   sampleCountSlack: 3,
+  /**
+   * Not one of the checks below (it never makes a lap implausible): a lap whose header says TC or ABS was off (level 0) may show that aid
+   * acting (`tc_active` / `abs_active` set) in at most this many samples. A game can flicker the flag for a frame or two, so one blip is
+   * not a lie about the whole lap; more than this contradicts the claim and the lap leaves the aid boards (api/sim/_aids.ts).
+   */
+  aidActiveSamples: 5,
 } as const;
 
 export const CHECKS = ['sector_sum', 'elapsed_time', 'distance', 'speed_range', 'sample_count', 'time_gap'] as const;
