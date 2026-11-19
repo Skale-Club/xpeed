@@ -407,10 +407,13 @@ fn car_at(field: &crate::field::Field, place: u16) -> Option<&crate::field::Car>
     field.cars.iter().find(|c| !c.is_player && c.position == Some(place))
 }
 
+/// A neighbour by place: its slot and the gap to it in seconds.
+type GapSide = (u16, f64);
+
 /// Who is one place ahead and one behind, with the gap to each as the cars' own fields give it (ahead: the player's gap
 /// to the car ahead; behind: that car's gap to the player): the car's slot and the seconds. A side has nothing when there
 /// is no car, the car is in the pits or the gap is not known.
-fn gap_sides(field: &crate::field::Field) -> (Option<(u16, f64)>, Option<(u16, f64)>) {
+fn gap_sides(field: &crate::field::Field) -> (Option<GapSide>, Option<GapSide>) {
     let (ahead, behind) = place_neighbours(field);
     let side = |car: Option<&crate::field::Car>, gap: Option<f64>| -> Option<(u16, f64)> {
         let car = car.filter(|c| !c.in_pits)?;
