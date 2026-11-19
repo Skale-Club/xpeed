@@ -1434,6 +1434,51 @@ fn one_near_square_corner() {
     }
 }
 
+/// The owner's bars: square blocks a hair apart (2026-11-12, ac5c6b5). The stage-2 rebuild (37cc6fc, 2026-11-16) turned
+/// them into one rounded fill and nothing failed; this test is why that cannot happen again.
+#[test]
+fn bars_are_square_blocks() {
+    assert_eq!((BAR_BLOCKS, BAR_BLOCK_GAP, BAR_BLOCK_MIN_W), (20, 1.5, 6.0));
+    assert_eq!(bar_block_count(300.0), 20);
+    assert_eq!(bar_block_count(60.0), 10, "a short bar has fewer blocks, never slivers");
+    let spans = block_spans(0, 300, 20, 2);
+    assert_eq!((spans.len(), spans[0].0, spans[19].1), (20, 0, 300));
+    assert!(spans.windows(2).all(|p| p[1].0 - p[0].1 == 2), "every gap is the same: {spans:?}");
+    // Drawn: a bar half full is lit square from its very first pixel, dark at its end, with black hairs between blocks.
+    let (w, h) = (300, 9);
+    let pixels = unsafe {
+        let hdc = CreateCompatibleDC(null_mut());
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..std::mem::zeroed()
+        };
+        let mut bits: *mut std::ffi::c_void = null_mut();
+        let bitmap = CreateDIBSection(hdc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+        let old = SelectObject(hdc, bitmap);
+        Painter::new(hdc, 1.0).solid_bar((0.0, 0.0, w as f32, h as f32), 0.5, PRIMARY);
+        GdiFlush();
+        let pixels = std::slice::from_raw_parts(bits.cast::<u8>(), (w * h * 4) as usize).to_vec();
+        SelectObject(hdc, old);
+        DeleteObject(bitmap);
+        DeleteDC(hdc);
+        pixels
+    };
+    let at = |x: i32, y: i32| {
+        let i = ((y * w + x) * 4) as usize;
+        u32::from(pixels[i]) << 16 | u32::from(pixels[i + 1]) << 8 | u32::from(pixels[i + 2])
+    };
+    assert_eq!(at(0, 0), PRIMARY, "the first block is square: its corner pixel is lit");
+    assert_eq!(at(w - 1, h - 1), SECONDARY, "the last block is dark and square");
+    let hairs = (0..w).filter(|x| at(*x, h / 2) == 0).count();
+    assert_eq!(hairs, 19 * 2, "19 hairs of 2 px between 20 blocks");
+}
+
 // ---- Stage 2: the cards of the rebuilt dashboard ----
 
 fn inside_box(a: Area, x: f32, y: f32, w: f32, h: f32) -> bool {

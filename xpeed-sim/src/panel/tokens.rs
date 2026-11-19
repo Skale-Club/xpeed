@@ -165,11 +165,22 @@ pub(super) const GEAR_FILL: f32 = 0.93;
 /// rounded everything again.
 ///
 /// Every rounded shape of the panel and of the Coach window uses it: card, tile, button, tab, pill, chip, popover,
-/// tooltip, input, switch, bar. There is no second radius and none may be added: `Painter::round` takes no radius,
-/// and a shape thinner than twice the corner simply takes half its short side (`rounded_path`). The site's scale
+/// tooltip, input, switch (bars are square blocks: `BAR_BLOCKS`). There is no second radius and none may be added:
+/// `Painter::round` takes no radius, and a shape thinner than twice the corner takes half its short side
+/// (`rounded_path`). The site's scale
 /// (`rounded-md` and friends) and the spacing tokens are never a corner here. `tests::one_near_square_corner` pins
 /// it; changing it is an owner decision, recorded in the journal before the code.
 pub(super) const R_CORNER: f32 = 2.5;
+
+/// Every bar (fuel, delta, throttle, brake, clutch, wheel, tread wear, progress) is a row of square blocks a hair
+/// apart, never one continuous rounded fill. Owner decision: the segmented bars of 2026-11-12 (ac5c6b5) were the right
+/// ones; the stage-2 rebuild of 2026-11-16 (37cc6fc) swapped them for solid rounded bars, restored 2026-11-19.
+/// `Painter::blocks` draws them; `tests::bars_are_square_blocks` pins it.
+pub(super) const BAR_BLOCKS: usize = 20;
+/// The hair between two blocks.
+pub(super) const BAR_BLOCK_GAP: f32 = 1.5;
+/// The narrowest block: a short bar has fewer blocks rather than slivers.
+pub(super) const BAR_BLOCK_MIN_W: f32 = 6.0;
 
 /// Spacing, on a 4 px grid.
 pub(super) const S1: f32 = 4.0;

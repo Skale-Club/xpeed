@@ -139,6 +139,29 @@ pub(super) unsafe fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -
     path
 }
 
+/// How many blocks a bar `w` design pixels wide has: `BAR_BLOCKS`, fewer on a short bar so a block is never narrower
+/// than `BAR_BLOCK_MIN_W`.
+pub(super) fn bar_block_count(w: f32) -> usize {
+    ((w / BAR_BLOCK_MIN_W).floor() as usize).clamp(1, BAR_BLOCKS)
+}
+
+/// The left and right pixel of each of `count` blocks between `left` and `right`, `gap` whole pixels apart, so every
+/// gap is the same and the last block ends on `right`.
+pub(super) fn block_spans(left: i32, right: i32, count: usize, gap: i32) -> Vec<(i32, i32)> {
+    let count = count.max(1);
+    let pitch = ((right - left + gap) as f32 / count as f32).max(1.0);
+    // Each block starts on a rounded pitch and ends a whole gap before the next one starts: the gaps are exact, a block
+    // may be a pixel wider than its neighbour.
+    let start = |i: usize| left + (i as f32 * pitch).round() as i32;
+    (0..count)
+        .map(|i| {
+            let l = start(i);
+            let r = if i + 1 == count { right } else { start(i + 1) - gap };
+            (l, r.max(l + 1))
+        })
+        .collect()
+}
+
 pub(super) fn inside(r: &RECT, x: i32, y: i32) -> bool {
     x >= r.left && x < r.right && y >= r.top && y < r.bottom
 }
@@ -610,27 +633,31 @@ impl Painter {
         });
     }
 
-    /// A solid bar: a rounded trough with `frac` (0..1) of it filled from the left in `color`. Nothing is filled for a
-    /// value that is not there (or a hair above nothing); a fill is never shorter than the bar is tall, so it stays a
-    /// rounded end and not a sliver.
-    pub(super) fn solid_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
-        self.round(self.r(x, y, w, h), SECONDARY, None);
-        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
-        if frac > 0.005 {
-            self.round(self.r(x, y, (w * frac).max(h.min(w)), h), color, None);
+    /// Every bar of the panel: a row of square blocks a hair apart (`BAR_BLOCKS`, `BAR_BLOCK_GAP`), a block lit in
+    /// `color` when its middle falls between `from` and `to` (shares of the width), dark otherwise. Owner decision
+    /// (see `tokens::BAR_BLOCKS`): bars are never one continuous rounded fill.
+    fn blocks(&self, (x, y, w, h): Area, from: f32, to: f32, color: COLORREF) {
+        let area = self.r(x, y, w, h);
+        let count = bar_block_count(w);
+        let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
+        for (i, (left, right)) in block_spans(area.left, area.right, count, gap).into_iter().enumerate() {
+            let middle = (i as f32 + 0.5) / count as f32;
+            let lit = from.is_finite() && to.is_finite() && middle >= from && middle <= to;
+            self.fill(rect(left, area.top, right, area.bottom), if lit { color } else { SECONDARY });
         }
     }
 
-    /// A bar with its zero in the middle: the fill runs from the middle to `frac` (0..1, a half is the middle), with a
-    /// tick of `tick` at the middle.
+    /// A bar filled from the left: the blocks up to `frac` (0..1) are lit; nothing is lit without a value.
+    pub(super) fn solid_bar(&self, area: Area, frac: f32, color: COLORREF) {
+        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
+        self.blocks(area, 0.0, frac, color);
+    }
+
+    /// A bar with its zero in the middle: the blocks from the middle to `frac` (0..1, a half is the middle) are lit,
+    /// with a tick of `tick` at the middle.
     pub(super) fn centred_bar(&self, (x, y, w, h): Area, frac: f32, color: COLORREF, tick: COLORREF) {
-        self.round(self.r(x, y, w, h), SECONDARY, None);
         let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.5 };
-        let (from, to) = (frac.min(0.5), frac.max(0.5));
-        let len = (to - from) * w;
-        if len >= 1.0 {
-            self.round(self.r(x + from * w, y, len, h), color, None);
-        }
+        self.blocks((x, y, w, h), frac.min(0.5), frac.max(0.5), color);
         self.fill(self.r(x + w / 2.0 - 1.0, y - 3.0, 2.0, h + 6.0), tick);
     }
 
@@ -641,14 +668,11 @@ impl Painter {
         self.centred_bar(area, 0.5 + steer_share(steer) / 2.0, PRIMARY, tick);
     }
 
-    /// The tank: a trough filled `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the
-    /// whole) so each tick is one lap's worth of fuel. Ticks closer than three pixels are left out.
+    /// The tank: blocks lit `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the whole)
+    /// so each tick is one lap's worth of fuel. Ticks closer than three pixels are left out.
     pub(super) fn tank_bar(&self, (x, y, w, h): Area, share: f32, tick: Option<f32>, color: COLORREF) {
-        self.round(self.r(x, y, w, h), SECONDARY, None);
         let share = if share.is_finite() { share.clamp(0.0, 1.0) } else { 0.0 };
-        if share > 0.005 {
-            self.round(self.r(x, y, (w * share).max(R_CORNER * 2.0).min(w), h), color, None);
-        }
+        self.blocks((x, y, w, h), 0.0, share, color);
         if let Some(tick) = tick.filter(|t| t.is_finite() && *t > 0.0 && t * w * self.s >= 3.0) {
             let mut at = tick;
             while at < 0.999 {
