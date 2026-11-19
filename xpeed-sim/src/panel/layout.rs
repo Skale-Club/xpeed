@@ -501,16 +501,17 @@ pub(super) fn centre_plan(card: Area, slots: &Slots) -> Centre {
     let (x, y, w, h) = inner(card);
     let pedal_count = [slots.throttle, slots.brake, slots.clutch].iter().filter(|p| **p).count();
     // The heights of what is under the gear, from the bottom up.
-    let steer_h = if slots.steer { STEER_BAR_H + S3 } else { 0.0 };
+    // Even, generous gaps between the rows (owner, 2026-11-19: "everything is squeezed").
+    let steer_h = if slots.steer { STEER_BAR_H + CENTRE_GAP } else { 0.0 };
     let pedals_h = if pedal_count > 0 {
-        PEDAL_LINE_H + S1 + PEDAL_BAR_H + S3
+        PEDAL_LINE_H + S1 + PEDAL_BAR_H + CENTRE_GAP
     } else {
         0.0
     };
-    let speed_h = if slots.speed { 44.0 + 4.0 + 14.0 + S2 } else { 0.0 };
-    let shift_h = if slots.rev && slots.gear { SHIFT_LIGHT_H + S2 } else { 0.0 };
+    let speed_h = if slots.speed { 44.0 + 4.0 + 14.0 + CENTRE_GAP } else { 0.0 };
+    let shift_h = if slots.rev && slots.gear { SHIFT_LIGHT_H + CENTRE_GAP } else { 0.0 };
     // The input trace takes its room only while the gear keeps at least `GEAR_MIN_WITH_TRACE`.
-    let trace_h = INPUT_TRACE_H + S2;
+    let trace_h = INPUT_TRACE_H + CENTRE_GAP;
     let rest = steer_h + pedals_h + speed_h + shift_h;
     let inputs_on = (slots.throttle || slots.brake) && (!slots.gear || h - rest - trace_h >= GEAR_MIN_WITH_TRACE);
     let inputs_h = if inputs_on { trace_h } else { 0.0 };

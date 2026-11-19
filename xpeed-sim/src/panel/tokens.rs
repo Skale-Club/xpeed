@@ -118,10 +118,12 @@ pub(super) const SHIFT_LIGHTS: usize = 15;
 pub(super) const SHIFT_LIGHTS_FROM: f32 = 0.80;
 pub(super) const SHIFT_LIGHT_H: f32 = 9.0;
 pub(super) const SHIFT_LIGHT_INSET: f32 = 0.2;
-/// The centre card's input trace (module 7): a compact strip with its label inside (owner's choice, 2026-11-19), and
-/// the least the gear keeps beside it.
-pub(super) const INPUT_TRACE_H: f32 = 24.0;
+/// The centre card's input trace (module 7): a compact strip, no label (its green and red are the pedals'; owner's
+/// choice, 2026-11-19), and the least the gear keeps beside it.
+pub(super) const INPUT_TRACE_H: f32 = 20.0;
 pub(super) const GEAR_MIN_WITH_TRACE: f32 = 80.0;
+/// The gap between the rows of the centre card under the gear (owner, 2026-11-19: room to breathe).
+pub(super) const CENTRE_GAP: f32 = 14.0;
 /// The fuel card's stint planner: the runs it counts (owner-approved module 6, 2026-11-19).
 pub(super) const FUEL_PLAN_LAPS: [u32; 2] = [10, 20];
 /// The fuel card's rows: the use tiles, a planner row, and a temperature's bar.

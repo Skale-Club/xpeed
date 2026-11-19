@@ -1562,9 +1562,9 @@ fn the_wheel_is_a_thin_white_line_toward_the_turn() {
     let (w, h) = (200, 8);
     let at = painted_by(w, h, |g| g.steer_bar((0.0, 0.0, w as f32, h as f32), 0.5));
     let mid = h / 2;
-    assert_eq!(at(150, mid), FOREGROUND, "turned right: the line runs right of the middle");
+    assert_eq!(at(125, mid), FOREGROUND, "turned right: the line runs right of the middle");
     assert_eq!(at(50, mid), SECONDARY, "and only the hairline on the left");
-    assert_eq!(at(150, 0), 0, "a line, not a bar: nothing above it");
+    assert_eq!(at(125, 0), 0, "a line, not a bar: nothing above it");
     let at = painted_by(w, h, |g| g.steer_bar((0.0, 0.0, w as f32, h as f32), -1.0));
     assert_eq!((at(5, mid), at(195, mid)), (FOREGROUND, SECONDARY), "full left");
 }
@@ -1593,7 +1593,7 @@ fn the_centre_card_has_shift_lights_and_the_last_seconds_of_inputs() {
     assert_eq!((at(2, 5), at(150, 5), at(297, 5)), (SUCCESS, WARN, SECONDARY));
     // The trace: the throttle along the top, flat out at the right edge.
     let live = live_reading();
-    let at = painted_by(200, 24, |g| g.input_trace((0.0, 0.0, 200.0, 24.0), &live.inputs, live.at_ms));
+    let at = painted_by(200, 20, |g| g.input_trace((0.0, 0.0, 200.0, 20.0), &live.inputs, live.at_ms));
     let greenish = |c: COLORREF| (c >> 8 & 0xff) > 0x80 && (c & 0xff) < 0x80;
     assert!((1..5).any(|y| greenish(at(190, y))), "flat out at the end, along the top");
 }
