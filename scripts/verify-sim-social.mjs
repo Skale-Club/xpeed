@@ -176,7 +176,7 @@ try {
    * speed is steady, and the header's sample rate matches the number of samples. The options bend one thing at a time.
    */
   const makeLap = ({ number = ++lapNumber, timeMs = 90_000, valid = true, startedAt = nextStart(), track = 'Test Track', car = 'Test Car', game = 'lmu', trackLength = 5000,
-    rate = 2, headerRate, count, sectorsMs, tScale = 1, distScale = 1, speed, speedAt, noSpeed = false, noLength = false, tweakT, ...header } = {}) => {
+    rate = 2, headerRate, count, sectorsMs, tScale = 1, distScale = 1, speed, speedAt, noSpeed = false, noLength = false, tweakT, tcActive, absActive, ...header } = {}) => {
     const samples = count ?? Math.round(rate * timeMs / 1000) + 1;
     const t = new Float32Array(samples), dist = new Float32Array(samples), spd = new Float32Array(samples);
     for (let i = 0; i < samples; i++) {
@@ -186,15 +186,18 @@ try {
     }
     for (const [i, value] of Object.entries(speedAt ?? {})) spd[i] = value;
     tweakT?.(t);
+    // tcActive / absActive: how many samples of the lap have that aid acting (the flag channels); left out when not given.
+    const flag = (n) => Float32Array.from({ length: samples }, (_v, i) => (i < n ? 1 : 0));
     const third = Math.floor(timeMs / 3);
     const sectors = sectorsMs === false ? undefined : sectorsMs ?? [third, third, timeMs - 2 * third];
-    const channels = [{ id: 't', unit: 's' }, { id: 'dist', unit: 'm' }, ...(noSpeed ? [] : [{ id: 'speed', unit: 'm/s' }])];
+    const channels = [{ id: 't', unit: 's' }, { id: 'dist', unit: 'm' }, ...(noSpeed ? [] : [{ id: 'speed', unit: 'm/s' }]),
+      ...(tcActive !== undefined ? [{ id: 'tc_active', unit: 'flag' }] : []), ...(absActive !== undefined ? [{ id: 'abs_active', unit: 'flag' }] : [])];
     return gzipLap({
       header: {
         game, track: { name: track, ...(noLength ? {} : { lengthM: trackLength }) }, car: { name: car },
         lap: { number, timeMs, valid, ...(sectors ? { sectorsMs: sectors } : {}) }, startedAt, sampleRateHz: headerRate ?? rate, sampleCount: samples, channels, ...header,
       },
-      data: { t, dist, ...(noSpeed ? {} : { speed: spd }) },
+      data: { t, dist, ...(noSpeed ? {} : { speed: spd }), ...(tcActive !== undefined ? { tc_active: flag(tcActive) } : {}), ...(absActive !== undefined ? { abs_active: flag(absActive) } : {}) },
     });
   };
   const rigs = {};
@@ -613,12 +616,12 @@ try {
     await put('A', { track: 'Board Ring', car: 'Other Board Car', timeMs: 60_000 }); // another car never mixes
     const r = await board('C', 'lmu', T.track, T.car);
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual(Object.keys(r.body).sort(), ['car', 'entries', 'game', 'nextCursor', 'scope', 'track', 'tyre']);
+    assert.deepEqual(Object.keys(r.body).sort(), ['aids', 'car', 'entries', 'game', 'nextCursor', 'scope', 'track', 'tyre']);
     assert.deepEqual([r.body.game, r.body.scope, r.body.track.name, r.body.track.lengthM, r.body.car.name, r.body.nextCursor], ['lmu', 'public', 'Board Ring', 5000, 'Board Car', null]);
     assert.deepEqual(entryHandles(r), [ha, hb, hc, hf], 'D (implausible), E (private) and the invalid lap are not there; the tie is in the order of the laps');
     assert.deepEqual(r.body.entries.map((e) => [e.rank, e.timeMs, e.gapMs]), [[1, 90_000, 0], [2, 91_000, 1000], [2, 91_000, 1000], [4, 92_000, 2000]], 'ties share a rank, the next is 4');
     assert.deepEqual(r.body.entries.map((e) => e.isMe), [false, false, true, false]);
-    assert.deepEqual(Object.keys(r.body.entries[0]).sort(), ['achievedAt', 'displayName', 'gapMs', 'handle', 'isMe', 'lapId', 'rank', 'timeMs']);
+    assert.deepEqual(Object.keys(r.body.entries[0]).sort(), ['achievedAt', 'aids', 'displayName', 'gapMs', 'handle', 'isMe', 'lapId', 'rank', 'timeMs']); // aids: null for a lap with none
     assert.equal((await lapRow(r.body.entries[1].lapId)).time_ms, 91_000, 'the lap id is the lap that counts');
     assert.match(r.body.entries[0].achievedAt, /^\d{4}-\d{2}-\d{2}T/);
     // The same board for everybody except the "isMe" flag.
@@ -1234,7 +1237,7 @@ try {
 
     const r = await cond('C');
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual(Object.keys(r.body).sort(), ['car', 'game', 'scope', 'theoreticalBest', 'track', 'tyre', 'tyres']);
+    assert.deepEqual(Object.keys(r.body).sort(), ['aidBoard', 'aids', 'car', 'game', 'scope', 'theoreticalBest', 'track', 'tyre', 'tyres']);
     assert.deepEqual([r.body.game, r.body.scope, r.body.tyre, r.body.track.name, r.body.car.name], ['lmu', 'public', null, 'Cond Ring', 'Cond Car']);
     assert.deepEqual(r.body.tyres, [{ compound: 'Medium', drivers: 2 }, { compound: 'Soft', drivers: 2 }], 'the private, implausible, hidden and invalid laps add no compound');
     // The fastest of each sector over every counted lap: 29 s (B, medium), 29 s (A, soft), 30 s (tie: the earlier lap, A on soft).
@@ -1317,6 +1320,137 @@ try {
     problem(last, 429, 'too_many_requests');
     assert.ok(Number(last.headers.get('retry-after')) > 0);
     assert.equal((await cond('B', `track=${c.track}&car=${c.car}`)).status, 200);
+  });
+
+  // ================================================================== aid boards
+
+  // Shared by the aid checks: one board, laps of every class, and the viewer D (who has a lap with no aids in its header).
+  //   A  none        90 s  Soft  {tc 0, abs 0, stability 0, autoShift false, idealLine false}      and any 84 s Medium {tc 2, abs 1}
+  //   B  no_tc_abs   89 s  Soft  {tc 0, abs 0, autoShift true}
+  //   C  any         85 s  Medium {tc 3, abs 2}                                   and none 100 s Hard with 5 samples of TC acting (tolerated)
+  //   F  unknown     80 s  claims tc 0 / abs 0 but TC acts in 50 samples (contradiction: class unknown, still ranks on the open board)
+  //   D  unknown     95 s  no aids in the header (every lap from before the Companion wrote them)
+  const AID = { track: 'Aid Ring', car: 'Aid Car' };
+  const aidIds = {};
+  const aidSetup = async () => {
+    if (aidIds.done) return;
+    aidIds.aNone = await put('A', { ...AID, timeMs: 90_000, tyreCompound: 'Soft', aids: { tcMax: 0, absMax: 0, stability: 0, autoShift: false, idealLine: false } });
+    aidIds.aAny = await put('A', { ...AID, timeMs: 84_000, tyreCompound: 'Medium', aids: { tcMax: 2, absMax: 1 } });
+    aidIds.bNo = await put('B', { ...AID, timeMs: 89_000, tyreCompound: 'Soft', aids: { tcMax: 0, absMax: 0, autoShift: true } });
+    aidIds.cAny = await put('C', { ...AID, timeMs: 85_000, tyreCompound: 'Medium', aids: { tcMax: 3, absMax: 2 } });
+    aidIds.cFlicker = await put('C', { ...AID, timeMs: 100_000, tyreCompound: 'Hard', aids: { tcMax: 0, absMax: 0 }, tcActive: 5, absActive: 0 });
+    aidIds.fLie = await put('F', { ...AID, timeMs: 80_000, tyreCompound: 'Soft', aids: { tcMax: 0, absMax: 0 }, tcActive: 50 });
+    aidIds.dOld = await put('D', { ...AID, timeMs: 95_000, tyreCompound: 'Soft' });
+    aidIds.done = true;
+  };
+
+  await check('aids: the class is worked out at ingest from the header, a contradiction moves a lap to unknown without making it implausible', async () => {
+    await aidSetup();
+    const cls = async (id) => (({ aid_class, aids, plausible }) => [aid_class, aids, plausible])(await lapRow(id));
+    assert.deepEqual(await cls(aidIds.aNone), ['none', { tcMax: 0, absMax: 0, stability: 0, autoShift: false, idealLine: false }, true]);
+    assert.deepEqual(await cls(aidIds.aAny), ['any', { tcMax: 2, absMax: 1 }, true]);
+    assert.deepEqual(await cls(aidIds.bNo), ['no_tc_abs', { tcMax: 0, absMax: 0, autoShift: true }, true]);
+    assert.deepEqual(await cls(aidIds.cFlicker), ['none', { tcMax: 0, absMax: 0 }, true], 'five stray samples are tolerated');
+    assert.equal((await lapRow(aidIds.cFlicker)).plausibility.aids, undefined, 'a consistent lap carries no aids note');
+    assert.deepEqual(await cls(aidIds.dOld), ['unknown', null, true], 'no aids in the header');
+    // The contradiction: more than PLAUSIBILITY.aidActiveSamples samples of TC acting while the header says TC 0.
+    assert.equal(PLAUSIBILITY.aidActiveSamples, 5);
+    const lie = await lapRow(aidIds.fLie);
+    assert.deepEqual([lie.aid_class, lie.aids, lie.plausible, lie.plausibility.failed], ['unknown', null, true, []], 'still plausible, so it still ranks on the open board');
+    assert.deepEqual(lie.plausibility.aids, { consistent: false, tcActiveSamples: 50, absActiveSamples: null, limit: 5, claimed: { tcMax: 0, absMax: 0 } });
+    // What the moderator sees.
+    const detail = await api.E(`/admin/laps/${aidIds.fLie}`);
+    assert.equal(detail.status, 200, detail.text);
+    assert.equal(detail.body.lap.plausible, true);
+    assert.deepEqual(detail.body.lap.plausibility.aids.consistent, false);
+    assert.equal(detail.body.lap.plausibility.aids.tcActiveSamples, 50);
+    // A lap from before the migration (or an older server) is class unknown: the column defaults to it.
+    const col = (await direct.query(`SELECT column_default, is_nullable FROM information_schema.columns WHERE table_name = 'sim_laps' AND column_name = 'aid_class'`)).rows[0];
+    assert.deepEqual([col.column_default, col.is_nullable], ["'unknown'::text", 'NO']);
+    assert.equal((await direct.query("SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'sim_laps_aid_class_values'")).rows[0].n, 1, 'the class is a closed list');
+  });
+
+  await check('aids: the three boards (list, rows, paging, me) and old laps only on the open board', async () => {
+    await aidSetup();
+    const ha = (await profileOf('A')).handle, hb = (await profileOf('B')).handle, hc = (await profileOf('C')).handle;
+    const hd = (await profileOf('D')).handle, hf = (await profileOf('F')).handle;
+    const all = await board('D', 'lmu', AID.track, AID.car);
+    assert.deepEqual([all.body.aids, entryHandles(all)], ['all', [hf, ha, hc, hb, hd]], 'the open board: every class, the unknown ones too');
+    assert.deepEqual(all.body.entries.map((e) => e.aids), [null, { tcMax: 2, absMax: 1 }, { tcMax: 3, absMax: 2 }, { tcMax: 0, absMax: 0, autoShift: true }, null],
+      'each row carries the aids of its lap; null for a lap with none or a contradicted claim');
+    assert.deepEqual(entryHandles(await board('D', 'lmu', AID.track, AID.car, '&aids=all')), [hf, ha, hc, hb, hd]);
+    assert.deepEqual(entryHandles(await board('D', 'lmu', AID.track, AID.car, '&aids=')), [hf, ha, hc, hb, hd], 'an empty aids is no filter');
+
+    const noTcAbs = await board('D', 'lmu', AID.track, AID.car, '&aids=no_tc_abs');
+    assert.deepEqual([noTcAbs.body.aids, entryHandles(noTcAbs)], ['no_tc_abs', [hb, ha, hc]], 'classes no_tc_abs and none; each driver\'s best lap of those');
+    assert.deepEqual(noTcAbs.body.entries.map((e) => [e.rank, e.timeMs, e.gapMs]), [[1, 89_000, 0], [2, 90_000, 1000], [3, 100_000, 11_000]], 'ranks and gaps are of this board only (A\'s faster lap with TC is not on it)');
+    const none = await board('D', 'lmu', AID.track, AID.car, '&aids=none');
+    assert.deepEqual([none.body.aids, entryHandles(none), none.body.entries.map((e) => e.timeMs)], ['none', [ha, hc], [90_000, 100_000]]);
+    assert.deepEqual(none.body.entries[0].aids, { tcMax: 0, absMax: 0, stability: 0, autoShift: false, idealLine: false });
+    for (const r of [noTcAbs, none]) assert.ok(!entryHandles(r).includes(hd) && !entryHandles(r).includes(hf), 'unknown laps (no aids, a contradiction) are never on an aid board');
+
+    // With a tyre: the best lap on that tyre on that aid board.
+    assert.deepEqual(entryHandles(await board('D', 'lmu', AID.track, AID.car, '&aids=no_tc_abs&tyre=Soft')), [hb, ha]);
+    assert.deepEqual(entryHandles(await board('D', 'lmu', AID.track, AID.car, '&aids=none&tyre=Hard')), [hc]);
+    assert.deepEqual((await board('D', 'lmu', AID.track, AID.car, '&aids=none&tyre=Medium')).body.entries, [], 'A\'s medium lap has TC on');
+
+    // Paging keeps the filter.
+    const first = await board('D', 'lmu', AID.track, AID.car, '&aids=no_tc_abs&limit=2');
+    assert.deepEqual([entryHandles(first), first.body.nextCursor !== null], [[hb, ha], true]);
+    const second = await board('D', 'lmu', AID.track, AID.car, `&aids=no_tc_abs&limit=2&cursor=${first.body.nextCursor}`);
+    assert.deepEqual([entryHandles(second), second.body.nextCursor], [[hc], null]);
+
+    // "Me" follows the board: C is third on no TC and ABS, second on no aids; D is not listed on either.
+    const c = await catalog('lmu', AID.track, AID.car);
+    const me = await api.C(`/leaderboard/me?track=${c.track}&car=${c.car}&aids=none`);
+    assert.deepEqual([me.body.aids, me.body.total, me.body.me.rank, me.body.me.timeMs, me.body.me.aids, me.body.neighbours.above.map((e) => e.handle)], ['none', 2, 2, 100_000, { tcMax: 0, absMax: 0 }, [ha]]);
+    assert.equal((await api.C(`/leaderboard/me?track=${c.track}&car=${c.car}&aids=no_tc_abs`)).body.me.rank, 3);
+    const dMe = await api.D(`/leaderboard/me?track=${c.track}&car=${c.car}&aids=no_tc_abs`);
+    assert.deepEqual([dMe.body.me, dMe.body.reason, dMe.body.total], [null, 'not_listed', 3]);
+    assert.equal((await api.D(`/leaderboard/me?track=${c.track}&car=${c.car}`)).body.me.rank, 5, 'on the open board D is last');
+    assert.equal((await api.D(`/leaderboard/me?track=${c.track}&car=${c.car}`)).body.aids, 'all');
+  });
+
+  await check('aids: the conditions give the drivers of each aid board (honouring the tyre), and the theoretical best follows the aids', async () => {
+    await aidSetup();
+    const ha = (await profileOf('A')).handle, hb = (await profileOf('B')).handle, hf = (await profileOf('F')).handle;
+    const c = await catalog('lmu', AID.track, AID.car);
+    const cond = (who, extra = '') => api[who](`/leaderboards/conditions?track=${c.track}&car=${c.car}${extra}`);
+    const r = await cond('D');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual([r.body.aidBoard, r.body.aids], ['all', [{ class: 'no_tc_abs', drivers: 3 }, { class: 'none', drivers: 2 }]], 'no_tc_abs counts the none laps too: A, B, C against A, C');
+    assert.deepEqual(r.body.tyres, [{ compound: 'Soft', drivers: 4 }, { compound: 'Medium', drivers: 2 }, { compound: 'Hard', drivers: 1 }], 'the tyre chips cover the whole board');
+    assert.deepEqual((await cond('D', '&tyre=Soft')).body.aids, [{ class: 'no_tc_abs', drivers: 2 }, { class: 'none', drivers: 1 }], 'with the tyre: A and B on soft, A on soft');
+    assert.deepEqual((await cond('D', '&tyre=Hard')).body.aids, [{ class: 'no_tc_abs', drivers: 1 }, { class: 'none', drivers: 1 }]);
+    assert.deepEqual((await cond('D', '&tyre=Medium')).body.aids, [{ class: 'no_tc_abs', drivers: 0 }, { class: 'none', drivers: 0 }], 'both classes are always listed');
+    // Choosing an aid board does not change the chips.
+    const chosen = await cond('D', '&aids=none');
+    assert.deepEqual([chosen.body.aidBoard, chosen.body.aids, chosen.body.tyres], ['none', r.body.aids, r.body.tyres]);
+    // The theoretical best: the best of each sector over the laps of that board (the default sectors are thirds of the lap time).
+    assert.deepEqual(r.body.theoreticalBest, { timeMs: 80_000, sectors: [{ index: 1, ms: 26_666, handle: hf }, { index: 2, ms: 26_666, handle: hf }, { index: 3, ms: 26_668, handle: hf }] }, 'open board: F\'s 80 s lap is on it');
+    const tcAbs = (await cond('D', '&aids=no_tc_abs')).body.theoreticalBest;
+    assert.deepEqual([tcAbs.timeMs, tcAbs.sectors.map((s) => s.handle)], [89_000, [hb, hb, hb]], 'no TC and ABS: B\'s 89 s lap is the best of each sector');
+    const noAids = (await cond('D', '&aids=none')).body.theoreticalBest;
+    assert.deepEqual([noAids.timeMs, noAids.sectors.map((s) => s.handle)], [90_000, [ha, ha, ha]]);
+    assert.equal((await cond('D', '&aids=none&tyre=Medium')).body.theoreticalBest, null, 'nothing on that board');
+  });
+
+  await check('aids: a bad aids is 400 invalid_aids on the board, me and conditions, and every route echoes the board', async () => {
+    await aidSetup();
+    const c = await catalog('lmu', AID.track, AID.car);
+    for (const bad of ['bogus', 'ALL', 'any', 'unknown', 'none,all', 'no%20aids']) {
+      problem(await api.D(`/leaderboard?track=${c.track}&car=${c.car}&aids=${bad}`), 400, 'invalid_aids');
+      problem(await api.D(`/leaderboard/me?track=${c.track}&car=${c.car}&aids=${bad}`), 400, 'invalid_aids');
+      problem(await api.D(`/leaderboards/conditions?track=${c.track}&car=${c.car}&aids=${bad}`), 400, 'invalid_aids');
+    }
+    assert.equal((await api.D(`/leaderboard/me?track=${c.track}&car=${c.car}&aids=none`)).body.aids, 'none');
+    assert.equal((await api.D(`/leaderboards/conditions?track=${c.track}&car=${c.car}&aids=no_tc_abs`)).body.aidBoard, 'no_tc_abs');
+    // The SQL functions still answer the call they had before aids existed (four, five or the paging arguments, no p_aids).
+    const viewer = (await direct.query('SELECT id FROM public.app_accounts LIMIT 1')).rows[0].id;
+    const old = await direct.query('SELECT public.sim_leaderboard_me($1, $2, $3, $4) AS r', [viewer, c.track, c.car, 'public']);
+    assert.equal(old.rows[0].r.total, 5);
+    const oldBoard = await direct.query('SELECT count(*)::int AS n FROM public.sim_board($1, $2, $3, $4, $5)', [viewer, c.track, c.car, 'public', 'Soft']);
+    assert.equal(oldBoard.rows[0].n, 4);
   });
 
   await check('tyre backfill: reads only the headers of laps not read yet, oldest first, in batches, resumes after a stop, and is a job of the schedule', async () => {
