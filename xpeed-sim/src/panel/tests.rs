@@ -1418,7 +1418,17 @@ fn one_near_square_corner() {
         ("art.rs", include_str!("art.rs")),
         ("tokens.rs", include_str!("tokens.rs")),
     ] {
-        for other in ["R_XS", "R_SM", "R_MD", "R_LG", "R_CARD", "R_TILE", "rounded_path(", "RoundRect(", "GdipAddPathArc"] {
+        for other in [
+            "R_XS",
+            "R_SM",
+            "R_MD",
+            "R_LG",
+            "R_CARD",
+            "R_TILE",
+            "rounded_path(",
+            "RoundRect(",
+            "GdipAddPathArc",
+        ] {
             assert!(!source.contains(other), "{file} draws a corner of its own ({other})");
         }
     }
