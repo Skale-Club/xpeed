@@ -1223,6 +1223,12 @@ mod tests {
         want.z = -300.75;
         want.fuel_l = 42.5;
         want.fuel_capacity_l = Some(80.0);
+        // The race: third of twelve, second in class, 1500.5 s left of a 20-lap race.
+        want.race_position = Some(3);
+        want.class_position = Some(2);
+        want.cars = Some(12);
+        want.session_time_left_s = Some(1500.5);
+        want.session_laps = Some(20);
         want.tyres = Some([
             Tyre {
                 brake_c: 450.0,
