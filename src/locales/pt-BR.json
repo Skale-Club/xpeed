@@ -122,7 +122,15 @@
       "youLead": "Você lidera",
       "analyzeMine": "Analisar minha volta",
       "alone": "Só você neste ranking por enquanto.",
-      "aloneHelp": "Copie o link deste ranking e desafie seus amigos."
+      "aloneHelp": "Copie o link deste ranking e desafie seus amigos.",
+      "tyre": "Pneu",
+      "tyreGroup": "Filtrar por pneu",
+      "tyreAll": "Todos",
+      "tyreDrivers": "Pilotos: {{count}}",
+      "emptyTyre": "Ainda não há voltas neste pneu para esta pista e este carro.",
+      "notListedTyre": "Você não aparece aqui porque não tem uma volta válida com {{tyre}} nesta pista e neste carro, ou seu perfil é privado.",
+      "theoreticalBest": "Melhor teórica",
+      "sectorShort": "S{{n}}"
     },
     "visibility": {
       "label": "Quem pode ver seu perfil",

@@ -122,7 +122,15 @@
       "youLead": "You lead",
       "analyzeMine": "Analyze my lap",
       "alone": "Only you on this board so far.",
-      "aloneHelp": "Copy the link to this board and challenge your friends."
+      "aloneHelp": "Copy the link to this board and challenge your friends.",
+      "tyre": "Tyre",
+      "tyreGroup": "Filter by tyre",
+      "tyreAll": "All",
+      "tyreDrivers": "Drivers: {{count}}",
+      "emptyTyre": "No laps on this tyre for this track and car yet.",
+      "notListedTyre": "You are not listed here because you have no valid lap on {{tyre}} for this track and car, or your profile is private.",
+      "theoreticalBest": "Theoretical best",
+      "sectorShort": "S{{n}}"
     },
     "visibility": {
       "label": "Who can see your profile",

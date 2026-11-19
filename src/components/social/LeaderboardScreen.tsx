@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadMore, QueryGate } from '@/components/sim/SimStates';
-import { useLeaderboard, useLeaderboardMe, type BoardQuery, type Scope } from '@/lib/sim/social-client';
+import { useBoardConditions, useLeaderboard, useLeaderboardMe, type BoardQuery, type Scope } from '@/lib/sim/social-client';
 import { useTracks } from '@/lib/sim/v1-client';
 import { BoardHero } from './BoardHero';
 import { BoardPlace } from './BoardPlace';
 import { BoardPodium } from './BoardPodium';
 import { BoardTable } from './BoardTable';
+import { TheoreticalBestLine, TyreChips } from './BoardConditions';
 import { BoardCrumbs, GameBoards, TrackBoards } from './board-browse';
 
 const SCOPES: readonly Scope[] = ['public', 'friends'];
@@ -28,11 +29,18 @@ export function LeaderboardScreen() {
   const track = params.get('track');
   const car = params.get('car');
   const game = params.get('game');
+  // The tyre filter lives in the address like the rest, so a link to a filtered board opens filtered. An empty value is no filter.
+  const tyre = params.get('tyre') || null;
 
-  if (track && car) return <Board query={{ track, car, scope, game }} onScope={(next) => {
+  if (track && car) return <Board query={{ track, car, scope, game, tyre }} onScope={(next) => {
     const out = new URLSearchParams(params);
     if (next === 'friends') out.set('scope', 'friends');
     else out.delete('scope');
+    setParams(out, { replace: true });
+  }} onTyre={(next) => {
+    const out = new URLSearchParams(params);
+    if (next) out.set('tyre', next);
+    else out.delete('tyre');
     setParams(out, { replace: true });
   }} />;
   if (track) return <div data-testid="leaderboards"><TrackBoards game={game} trackId={track} scope={scope} /></div>;
@@ -63,10 +71,13 @@ function NothingDriven() {
 }
 
 /** The board of one track and car. */
-function Board({ query, onScope }: { query: BoardQuery & { track: string; car: string }; onScope: (scope: Scope) => void }) {
+function Board({ query, onScope, onTyre }: { query: BoardQuery & { track: string; car: string }; onScope: (scope: Scope) => void; onTyre: (tyre: string | null) => void }) {
   const { t } = useTranslation();
+  // The table, the podium and "your position" all read the same query, so they follow the tyre together.
   const board = useLeaderboard(query);
   const me = useLeaderboardMe(query);
+  const conditions = useBoardConditions(query);
+  const tyre = query.tyre ?? null;
   // The tracks you drove carry the circuit's layout, for the map in the hero.
   const tracks = useTracks();
   const driven = tracks.items.find((entry) => entry.id === query.track);
@@ -103,6 +114,8 @@ function Board({ query, onScope }: { query: BoardQuery & { track: string; car: s
         scopeTabs={scopeTabs}
       />
 
+      <TyreChips conditions={conditions.data} tyre={tyre} onTyre={onTyre} />
+
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="order-2 min-w-0 space-y-4 lg:order-1 lg:col-span-8">
           <QueryGate
@@ -110,21 +123,24 @@ function Board({ query, onScope }: { query: BoardQuery & { track: string; car: s
             empty={empty}
             emptyNode={
               <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground" data-testid="board-empty">
-                {query.scope === 'public'
-                  ? t('social.leaderboard.emptyPublic', 'No public laps for this track and car yet.')
-                  : t('social.leaderboard.emptyFriends', 'No laps from you or your friends for this track and car yet.')}
+                {tyre
+                  ? t('social.leaderboard.emptyTyre', 'No laps on this tyre for this track and car yet.')
+                  : query.scope === 'public'
+                    ? t('social.leaderboard.emptyPublic', 'No public laps for this track and car yet.')
+                    : t('social.leaderboard.emptyFriends', 'No laps from you or your friends for this track and car yet.')}
               </div>
             }
             skeleton={<Skeleton className="h-72 w-full rounded-xl" />}
           >
             <BoardPodium entries={board.entries} />
+            <TheoreticalBestLine best={conditions.data?.theoreticalBest} />
             <BoardTable entries={board.entries} />
             <LoadMore hasNextPage={!!board.hasNextPage} isFetchingNextPage={board.isFetchingNextPage} onClick={() => void board.fetchNextPage()} />
           </QueryGate>
         </div>
         <div className="order-1 min-w-0 space-y-4 lg:order-2 lg:col-span-4">
           <div className="lg:sticky lg:top-4">
-            <BoardPlace me={me} scope={query.scope} entries={board.entries} />
+            <BoardPlace me={me} scope={query.scope} entries={board.entries} tyre={tyre} />
           </div>
         </div>
       </div>

@@ -37,6 +37,14 @@ export function gameParam(params: URLSearchParams): string | null {
   if (!GAME.test(value)) throw new Invalid('invalid_game');
   return value;
 }
+/** A tyre compound as the game writes it: 1 to 40 characters, no control characters (the same rule as the lap file header). Null when absent. */
+export function tyreParam(params: URLSearchParams): string | null {
+  const value = params.get('tyre');
+  if (value === null || value === '') return null;
+  const chars = [...value];
+  if (chars.length > 40 || chars.some((ch) => ch.charCodeAt(0) <= 0x1f || ch.charCodeAt(0) === 0x7f)) throw new Invalid('invalid_tyre');
+  return value;
+}
 /** 1 to 100, 50 when absent; a number above 100 is read as 100. */
 export function limitParam(params: URLSearchParams): number {
   const value = params.get('limit');

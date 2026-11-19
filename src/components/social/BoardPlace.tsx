@@ -66,16 +66,18 @@ function PlaceSentence({ me, entries, total }: { me: LeaderboardEntry; entries: 
 }
 
 /** Why the person is not on the board they are looking at. */
-function NotListed({ scope }: { scope: Scope }) {
+function NotListed({ scope, tyre }: { scope: Scope; tyre: string | null }) {
   const { t } = useTranslation();
   return (
     <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm" role="status" data-testid="board-not-listed">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="space-y-1">
         <p>
-          {scope === 'public'
-            ? t('social.leaderboard.notListedPublic', 'You are not listed because your profile is private, or your lap is not valid.')
-            : t('social.leaderboard.notListedFriends', 'You are not listed here because you have no valid lap on this track and car.')}
+          {tyre
+            ? t('social.leaderboard.notListedTyre', 'You are not listed here because you have no valid lap on {{tyre}} for this track and car, or your profile is private.', { tyre })
+            : scope === 'public'
+              ? t('social.leaderboard.notListedPublic', 'You are not listed because your profile is private, or your lap is not valid.')
+              : t('social.leaderboard.notListedFriends', 'You are not listed here because you have no valid lap on this track and car.')}
         </p>
         <p className="text-xs text-muted-foreground">
           {t('social.leaderboard.notListedHelp', 'Only valid laps count. Public boards also need a public profile.')}{' '}
@@ -90,9 +92,11 @@ function NotListed({ scope }: { scope: Scope }) {
  * Your position card: where you stand in one sentence (place, the gap to the podium and to the leader), your time, a line that shows the
  * spread of the field with you on it, and the drivers just above and below you. When you are not on the board, why.
  */
-export function BoardPlace({ me, scope, entries }: {
+export function BoardPlace({ me, scope, entries, tyre = null }: {
   me: { isPending: boolean; isError: boolean; data: LeaderboardMe | undefined };
   scope: Scope;
+  /** The tyre the board is filtered to; it changes only the reason given when you are not listed. */
+  tyre?: string | null;
   entries: readonly LeaderboardEntry[];
 }) {
   const { t } = useTranslation();
@@ -102,7 +106,7 @@ export function BoardPlace({ me, scope, entries }: {
 
   if (me.isPending) return <Skeleton className="h-40 w-full rounded-xl" data-testid="board-me-loading" />;
   if (me.isError || !data) return null;
-  if (!data.me) return <NotListed scope={scope} />;
+  if (!data.me) return <NotListed scope={scope} tyre={tyre} />;
   const mine = data.me;
   const alone = data.total <= 1;
   const analyze = (

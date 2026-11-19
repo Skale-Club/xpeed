@@ -112,6 +112,8 @@ export interface LeaderboardEntry {
 export interface LeaderboardMeta {
   game: string;
   scope: Scope;
+  /** The tyre compound the board is filtered to; null for every tyre. */
+  tyre?: string | null;
   track: { id: string; name: string; lengthM: number | null };
   car: { id: string; name: string; class: string | null };
 }
@@ -202,6 +204,19 @@ export function cleanName(name: string | null | undefined): string | null {
 
 export const handlePath = (handle: string) => encodeURIComponent(handle);
 /** The page of a driver. */
+/** A tyre compound that has laps on a board (as the game writes it) and how many drivers have one there. */
+export interface BoardTyre { compound: string; drivers: number }
+/** The fastest of each sector over a board and who drove it (`index` counts from 1); the time is their sum, which no lap has to equal. */
+export interface TheoreticalBest { timeMs: number; sectors: Array<{ index: number; ms: number; handle: string }> }
+/** What a board is made of (`GET /leaderboards/conditions`): its compounds, and its theoretical best (null unless every lap has the same sectors). */
+export interface BoardConditions {
+  game: string;
+  scope: Scope;
+  tyre: string | null;
+  tyres: BoardTyre[];
+  theoreticalBest: TheoreticalBest | null;
+}
+
 export const driverPath = (handle: string) => `/virtual/drivers/${handlePath(handle)}`;
 /** The address that people open for a shared lap or session. */
 export const sharePagePath = (token: string) => `/s/${encodeURIComponent(token)}`;
@@ -258,6 +273,7 @@ export const socialKeys = {
   friends: (userId: string | null, status: FriendStatus) => ['sim-v1', userId, 'social', 'friends', status] as const,
   shares: (userId: string | null) => ['sim-v1', userId, 'social', 'shares'] as const,
   board: (userId: string | null, query: BoardQuery) => ['sim-v1', userId, 'social', 'board', query] as const,
+  boardConditions: (userId: string | null, query: BoardQuery) => ['sim-v1', userId, 'social', 'board-conditions', query] as const,
   boardMe: (userId: string | null, query: BoardQuery) => ['sim-v1', userId, 'social', 'board-me', query] as const,
   catalog: (userId: string | null, query: CatalogQuery) => ['sim-v1', userId, 'social', 'catalog', query] as const,
   requestCount: (userId: string | null) => ['sim-v1', userId, 'social', 'friends', 'request-count'] as const,
@@ -292,6 +308,7 @@ export function useUpdateProfile() {
       client.setQueryData(socialKeys.profile(userId), profile);
       // The name on every board and page may have changed.
       void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'board'] });
+      void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'board-conditions'] });
       void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'driver'] });
     },
   });
@@ -338,6 +355,7 @@ function useAfterFriendChange() {
     void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'driver'] });
     void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'board'] });
     void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'board-me'] });
+    void client.invalidateQueries({ queryKey: [...v1Keys.account(userId), 'social', 'board-conditions'] });
   };
 }
 
@@ -442,8 +460,9 @@ export function usePublicShare(token: string | null) {
 
 // ---------------------------------------------------------------------------------------------------------------- leaderboards
 
-export interface BoardQuery { track: string | null; car: string | null; scope: Scope; game: string | null }
-const boardParams = (query: BoardQuery) => ({ track: query.track, car: query.car, scope: query.scope, game: query.game });
+/** `tyre` is a compound as the game writes it; absent or null is every tyre. */
+export interface BoardQuery { track: string | null; car: string | null; scope: Scope; game: string | null; tyre?: string | null }
+const boardParams = (query: BoardQuery) => ({ track: query.track, car: query.car, scope: query.scope, game: query.game, tyre: query.tyre ?? null });
 
 /** The ranked table of a track and a car, a page at a time; `meta` is what the first page says about the board. */
 export function useLeaderboard(query: BoardQuery) {
@@ -464,6 +483,20 @@ export function useLeaderboard(query: BoardQuery) {
   });
   const entries = result.data?.pages.flatMap((page) => page.entries) ?? [];
   return { ...result, entries, meta: result.data?.pages[0]?.meta ?? null };
+}
+
+/**
+ * The tyre compounds a board has (with how many drivers each) and its theoretical best. The compounds always cover the whole board, so the
+ * chips stay put while one is chosen; the theoretical best follows `query.tyre`.
+ */
+export function useBoardConditions(query: BoardQuery) {
+  const userId = useUserId();
+  return useQuery({
+    queryKey: socialKeys.boardConditions(userId, query),
+    queryFn: () => v1Get<BoardConditions>('/leaderboards/conditions', boardParams(query)),
+    enabled: !!userId && !!query.track && !!query.car,
+    staleTime: STALE.list,
+  });
 }
 
 /**
