@@ -777,6 +777,50 @@ mod tests {
     }
 
     #[test]
+    fn assetto_corsa_starting_its_clock_over_before_it_counts_the_lap_is_the_line_not_a_restart() {
+        // Assetto Corsa: at the line the lap clock reads zero a reading or two before `completedLaps` goes up. Every
+        // lap used to be thrown away there as a restart.
+        for early_frames in 1..=3 {
+            let mut cutter = LapCutter::new("test");
+            let (_, mut clock) = drive(&mut cutter, 0.0, 1, 0.0, 30.0, None);
+            let session = cutter.session.id().unwrap().to_owned();
+            let mut laps = Vec::new();
+            for lap in 1..=2 {
+                // The new lap's clock, still under the old lap number.
+                let (early, after) = drive(&mut cutter, clock, lap, 0.0, early_frames as f64 / 20.0, None);
+                laps.extend(early);
+                let lap_t0 = early_frames as f64 / 20.0;
+                // Each lap's official time, different each lap so it is seen arriving.
+                let official = if lap == 1 { 30.0 } else { 29.9 };
+                let (done, after) = drive(&mut cutter, after, lap + 1, lap_t0, 30.0 - lap_t0, Some(official));
+                laps.extend(done);
+                clock = after;
+            }
+            let got: Vec<(u32, u32, bool)> = laps.iter().map(|l| (l.lap_number, l.time_ms, l.valid)).collect();
+            assert_eq!(got, [(1, 30_000, true), (2, 29_900, true)], "{early_frames} early frames");
+            assert_eq!(cutter.session.id(), Some(session.as_str()), "the line does not end the session");
+            assert!(
+                cutter.take_drops().is_empty(),
+                "nothing dropped at the line ({early_frames} early frames)"
+            );
+        }
+    }
+
+    #[test]
+    fn a_clock_back_near_zero_that_no_new_lap_number_follows_is_a_restart_and_the_next_lap_is_kept() {
+        // A real restart (or Assetto Corsa's hotlap, whose clock starts at the line while the count stays at zero).
+        let mut cutter = LapCutter::new("test");
+        let (_, clock) = drive(&mut cutter, 0.0, 1, 0.0, 20.0, None);
+        let before = cutter.session.id().unwrap().to_owned();
+        let (none, clock) = drive(&mut cutter, clock, 1, 0.0, 30.0, None);
+        assert!(none.is_empty());
+        assert_ne!(cutter.session.id(), Some(before.as_str()), "a restart is a new session");
+        let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0));
+        assert_eq!(laps.len(), 1, "the lap after the restart is seen from its start and kept");
+        assert_eq!((laps[0].lap_number, laps[0].time_ms, laps[0].valid), (1, 30_000, true));
+    }
+
+    #[test]
     fn a_new_track_a_new_car_or_a_new_kind_of_session_makes_a_new_session_id() {
         let id_of = |cutter: &LapCutter| cutter.session.id().unwrap().to_owned();
         let mut cutter = LapCutter::new("test");
@@ -1076,7 +1120,11 @@ mod tests {
         let (laps, _) = drive(&mut cutter, clock, 2, 0.0, 1.0, Some(30.0));
         assert_eq!(laps.len(), 1);
         assert_eq!((laps[0].lap_number, laps[0].time_ms, laps[0].valid), (1, 30_000, true));
-        assert_eq!(laps[0].sample_count(), 600, "the 20 s before the restart are not in it");
+        // The 20 s before the restart are not in it; nor the first moments after it, while the restart was told apart
+        // from the line (`LINE_WAIT_SECONDS`).
+        let first_t = laps[0].channel("t").unwrap().values[0];
+        assert!((0.75..0.85).contains(&first_t), "{first_t}");
+        assert!((580..600).contains(&laps[0].sample_count()), "{}", laps[0].sample_count());
         assert_eq!(cutter.take_session_ends(), [EndReason::Restart]);
     }
 

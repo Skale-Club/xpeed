@@ -12,7 +12,9 @@
 //! * A session ends, and a new one begins at once, when the car or the track (or its layout) changes, when the kind of
 //!   session changes (practice, then qualifying), when the lap number goes back, or when the lap clock jumps back on the
 //!   same lap (a restart: the clock by more than a second, or the distance by more than 50 m while the clock also goes
-//!   back, which is what a restart that keeps the lap number looks like).
+//!   back, which is what a restart that keeps the lap number looks like). A lap clock that goes back near zero is
+//!   called a restart only when the lap number has not gone up within `LINE_WAIT_SECONDS`: Assetto Corsa starts its
+//!   clock over at the line a reading before it counts the lap, and that is the line, not a restart.
 //! * A lap ends when the lap number goes up by one (`LapClosed`, then `LapStarted`). A number that jumps further means
 //!   frames were missed: the lap in progress is lost (`LapReset(JoinedMidway)`) and the new one is joined where it is.
 //! * A car that moves more than `TELEPORT_METRES` in one sample is not driving there: it was put back on the track or
@@ -43,6 +45,11 @@ const RESTART_CLOCK_BACK_SECONDS: f64 = 1.0;
 const RESTART_DIST_BACK_METRES: f64 = 50.0;
 /// The lap clock moving back by up to this is jitter of the game's clock, not a restart.
 const CLOCK_JITTER_SECONDS: f64 = 0.05;
+/// How long the lap clock may sit back near zero on the same lap before that is called a restart. Assetto Corsa starts
+/// its lap clock over at the line a reading before it counts the lap: the lap number that follows within this time
+/// makes it the line, not a restart. Shorter than `PARTIAL_START_SECONDS`, so the lap after a real restart is still seen
+/// from its start.
+const LINE_WAIT_SECONDS: f64 = 0.75;
 /// A move of more than this in one sample (and more than the car's speed explains) is a teleport.
 pub const TELEPORT_METRES: f64 = 200.0;
 /// Time not driving (and not paused) after which the lap in progress is dropped.
@@ -116,6 +123,18 @@ pub struct Step {
     pub events: Vec<Event>,
     /// `Some` for a `Driving` frame, after the events it caused have been applied.
     pub sample: Option<Sample>,
+    /// The lap clock is back near zero and the next frames will tell the line from a restart: a lap starts over either
+    /// way, but no lap takes this frame (`sample` is `None`).
+    pub held: bool,
+}
+
+/// What `check_lap` decided about a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LapCheck {
+    /// Go on: the frame belongs to the lap that is (now) in progress.
+    Go,
+    /// Wait: the frame belongs to no lap until the next frames tell the line from a restart.
+    Hold,
 }
 
 struct LapRun {
@@ -141,6 +160,8 @@ pub struct Session {
     lap: Option<LapRun>,
     /// The clock of the first frame of the time spent away from driving.
     away_since: Option<f64>,
+    /// The clock of the first frame whose lap clock went back near zero on the same lap (see `LINE_WAIT_SECONDS`).
+    line_wait: Option<f64>,
 }
 
 impl Session {
@@ -170,7 +191,11 @@ impl Session {
                     self.drop_lap(ResetReason::Away, &mut events);
                 }
             }
-            return Step { events, sample: None };
+            return Step {
+                events,
+                sample: None,
+                held: false,
+            };
         }
         if let Some(since) = self.away_since.take() {
             if frame.clock_s - since > AWAY_SECONDS {
@@ -178,7 +203,14 @@ impl Session {
             }
         }
         self.check_identity(frame, &mut events);
-        self.check_lap(frame, &mut events);
+        if self.check_lap(frame, &mut events) == LapCheck::Hold {
+            // The line or a restart: the next frames tell. Neither lap takes this frame.
+            return Step {
+                events,
+                sample: None,
+                held: true,
+            };
+        }
         self.ensure_session(frame, &mut events);
         if self.lap.is_none() {
             // Joined: the first frame of a lap this machine did not see begin.
@@ -191,10 +223,15 @@ impl Session {
             self.lap = Some(LapRun::begin(frame));
         }
         let sample = self.lap.as_mut().map(|run| run.sample(frame));
-        Step { events, sample }
+        Step {
+            events,
+            sample,
+            held: false,
+        }
     }
 
     fn drop_lap(&mut self, reason: ResetReason, events: &mut Vec<Event>) {
+        self.line_wait = None;
         if self.lap.take().is_some() {
             events.push(Event::LapReset { reason });
         }
@@ -252,9 +289,9 @@ impl Session {
         }
     }
 
-    /// Restarts, teleports and the lap number going up.
-    fn check_lap(&mut self, frame: &Frame, events: &mut Vec<Event>) {
-        let Some(run) = &self.lap else { return };
+    /// Restarts, teleports and the lap number going up. `Hold` while a lap clock back near zero waits to be told apart.
+    fn check_lap(&mut self, frame: &Frame, events: &mut Vec<Event>) -> LapCheck {
+        let Some(run) = &self.lap else { return LapCheck::Go };
         let same_lap = frame.lap == run.number;
         let clock_back = same_lap
             && matches!((frame.lap_time_s, run.last_lap_time), (Some(now), Some(before)) if now + RESTART_CLOCK_BACK_SECONDS < before);
@@ -263,17 +300,26 @@ impl Session {
         let dist_back = same_lap
             && clock_went_back
             && matches!((frame.dist_m, run.last_game_dist), (Some(now), Some(before)) if now + RESTART_DIST_BACK_METRES < before);
+        // Back near zero on the same lap can be the line read a frame early (the lap number comes next): wait a moment.
+        let near_zero = frame.lap_time_s.is_some_and(|t| t < PARTIAL_START_SECONDS);
+        if (clock_back || dist_back) && near_zero {
+            let since = *self.line_wait.get_or_insert(frame.clock_s);
+            if frame.clock_s - since <= LINE_WAIT_SECONDS {
+                return LapCheck::Hold;
+            }
+        }
+        self.line_wait = None;
         if frame.lap < run.number || clock_back || dist_back {
             // The lap in progress goes with the session it belonged to.
             self.drop_lap(ResetReason::Restart, events);
             self.end(EndReason::Restart, events);
-            return;
+            return LapCheck::Go;
         }
         if same_lap {
             if teleported(frame, run) {
                 self.drop_lap(ResetReason::Teleport, events);
             }
-            return;
+            return LapCheck::Go;
         }
         let number = run.number;
         if frame.lap == number + 1 {
@@ -288,6 +334,7 @@ impl Session {
             // Frames were missed: this lap is joined where it is.
             self.drop_lap(ResetReason::JoinedMidway, events);
         }
+        LapCheck::Go
     }
 
     fn ensure_session(&mut self, frame: &Frame, events: &mut Vec<Event>) {
@@ -464,10 +511,26 @@ mod tests {
         let mut s = Session::new();
         let (_, clock) = drive(&mut s, 0.0, 1, 0.0, 20.0);
         let before = s.id().unwrap().to_owned();
+        // Back near zero: it could be the line read early, so nothing is decided and no lap takes the frame.
         let step = s.feed(&frame(clock, 1, Some(0.5), Some(25.0)));
+        assert_eq!((kinds(&step.events).len(), step.sample), (0, None));
+        assert_eq!(s.id(), Some(before.as_str()));
+        // No new lap number within `LINE_WAIT_SECONDS`: a restart.
+        let step = s.feed(&frame(clock + 0.8, 1, Some(1.3), Some(65.0)));
         assert_eq!(kinds(&step.events), ["reset-restart", "ended", "started", "lap"]);
         assert_ne!(s.id().unwrap(), before);
-        assert_eq!(step.sample.unwrap().dist_m, 25.0, "the lap begins again from here");
+        assert_eq!(step.sample.unwrap().dist_m, 65.0, "the lap begins again from here");
+    }
+
+    #[test]
+    fn the_lap_clock_back_near_zero_followed_by_the_next_lap_number_is_the_line() {
+        let mut s = Session::new();
+        let (_, clock) = drive(&mut s, 0.0, 1, 0.0, 20.0);
+        let before = s.id().unwrap().to_owned();
+        assert!(s.feed(&frame(clock, 1, Some(0.0), Some(0.0))).events.is_empty());
+        let step = s.feed(&frame(clock + 0.02, 2, Some(0.02), Some(1.0)));
+        assert_eq!(kinds(&step.events), ["closed", "lap"]);
+        assert_eq!(s.id(), Some(before.as_str()));
     }
 
     #[test]
