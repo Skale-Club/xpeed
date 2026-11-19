@@ -295,11 +295,14 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
         });
     }
     // Under the wheel: the throttle and brake of the last seconds.
-    if let Some(((lx, ly, lw, lh), graph)) = plan.inputs {
+    if let Some(strip) = plan.inputs {
         shown(g, m.throttle.show, |g| {
-            let r = g.r(lx, ly, lw, lh);
-            g.caps(&text(d.view.lang, &Msg::PanelInputs), r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-            g.input_trace(graph, &d.live.inputs, d.live.at_ms);
+            g.input_trace(strip, &d.live.inputs, d.live.at_ms);
+            // The label inside the strip, top left, over the lines.
+            let (sx, sy, sw, _) = strip;
+            let r = g.r(sx + S1, sy + 1.0, sw - S2, 12.0);
+            let label = text(d.view.lang, &Msg::PanelInputs);
+            g.caps_fit(&label, r, T_LABEL_MIN, 0.0, MUTED_TEXT, DT_LEFT);
         });
     }
     shown(g, m.gear.show, |g| {

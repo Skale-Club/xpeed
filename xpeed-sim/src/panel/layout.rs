@@ -485,8 +485,9 @@ pub(super) struct Centre {
     pub(super) steer: Area,
     /// The shift lights over the gear (owner-approved module 7, 2026-11-19), when the game gives the RPM.
     pub(super) shift: Option<Area>,
-    /// The throttle and brake of the last seconds under the wheel: its label line and the graph, when there is room.
-    pub(super) inputs: Option<(Area, Area)>,
+    /// The throttle and brake of the last seconds under the wheel: a compact strip with its label inside (owner's
+    /// choice, 2026-11-19), when the gear keeps at least `GEAR_MIN_WITH_TRACE`.
+    pub(super) inputs: Option<Area>,
 }
 
 /// The tallest the gear is drawn: a tall centre card gives its spare height to the gear until here.
@@ -509,7 +510,7 @@ pub(super) fn centre_plan(card: Area, slots: &Slots) -> Centre {
     let speed_h = if slots.speed { 44.0 + 4.0 + 14.0 + S2 } else { 0.0 };
     let shift_h = if slots.rev && slots.gear { SHIFT_LIGHT_H + S2 } else { 0.0 };
     // The input trace takes its room only while the gear keeps at least `GEAR_MIN_WITH_TRACE`.
-    let trace_h = INPUT_LABEL_H + S1 + INPUT_TRACE_H + S3;
+    let trace_h = INPUT_TRACE_H + S2;
     let rest = steer_h + pedals_h + speed_h + shift_h;
     let inputs_on = (slots.throttle || slots.brake) && (!slots.gear || h - rest - trace_h >= GEAR_MIN_WITH_TRACE);
     let inputs_h = if inputs_on { trace_h } else { 0.0 };
@@ -552,9 +553,7 @@ pub(super) fn centre_plan(card: Area, slots: &Slots) -> Centre {
     }
     let steer = (x, pedals_y + pedals_h, w, STEER_BAR_H);
     let inputs_y = pedals_y + pedals_h + steer_h;
-    let label = (x, inputs_y, w, INPUT_LABEL_H);
-    let graph = (x, inputs_y + INPUT_LABEL_H + S1, w, INPUT_TRACE_H);
-    let inputs = inputs_on.then_some((label, graph));
+    let inputs = inputs_on.then_some((x, inputs_y, w, INPUT_TRACE_H));
     Centre {
         gear,
         below,

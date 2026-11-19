@@ -1567,16 +1567,19 @@ fn the_centre_card_has_shift_lights_and_the_last_seconds_of_inputs() {
     let plan = centre_plan((0.0, 0.0, 552.0, 432.0), &slots(every_cap()));
     let shift = plan.shift.expect("shift lights over the gear");
     assert!(shift.1 + shift.3 <= plan.gear.1, "over the gear");
-    let (_, graph) = plan.inputs.expect("room for the inputs under the wheel");
-    assert!(graph.1 > plan.steer.1 && plan.gear.3 >= GEAR_MIN_WITH_TRACE);
-    let short = centre_plan((0.0, 0.0, 552.0, 260.0), &slots(every_cap()));
+    let strip = plan.inputs.expect("room for the inputs under the wheel");
+    assert!(strip.1 > plan.steer.1 && plan.gear.3 >= GEAR_MIN_WITH_TRACE);
+    // The full-HD row (300 design pixels): the compact strip fits with the gear still at least `GEAR_MIN_WITH_TRACE`.
+    let hd = centre_plan((0.0, 0.0, 430.0, 300.0), &slots(every_cap()));
+    assert!(hd.inputs.is_some() && hd.gear.3 >= GEAR_MIN_WITH_TRACE, "{hd:?}");
+    let short = centre_plan((0.0, 0.0, 552.0, 200.0), &slots(every_cap()));
     assert!(short.inputs.is_none(), "a short card keeps its gear and drops the trace");
     // Drawn: eight lights on at 0.885, green first and red last unlit.
     let at = painted_by(300, 10, |g| g.shift_lights((0.0, 0.0, 300.0, 10.0), 8, false, true));
     assert_eq!((at(2, 5), at(150, 5), at(297, 5)), (SUCCESS, WARN, SECONDARY));
     // The trace: the throttle along the top, flat out at the right edge.
     let live = live_reading();
-    let at = painted_by(200, 40, |g| g.input_trace((0.0, 0.0, 200.0, 40.0), &live.inputs, live.at_ms));
+    let at = painted_by(200, 24, |g| g.input_trace((0.0, 0.0, 200.0, 24.0), &live.inputs, live.at_ms));
     let greenish = |c: COLORREF| (c >> 8 & 0xff) > 0x80 && (c & 0xff) < 0x80;
     assert!((1..5).any(|y| greenish(at(190, y))), "flat out at the end, along the top");
 }
