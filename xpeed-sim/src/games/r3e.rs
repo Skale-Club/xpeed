@@ -26,7 +26,8 @@
 //!   copies the part it reads twice, a few microseconds apart, and uses the copy only when both are byte-for-byte the
 //!   same (the same guard as the rFactor 1 reader). This cannot prove a copy is whole if the game's thread is stopped by
 //!   the system in the middle of its writes, which is why every value is also range-checked.
-//! * Only the first `at::NUM_CARS` bytes are copied: every field read sits before the array of all drivers.
+//! * Only the first `at::NUM_CARS` + 4 bytes are copied (up to and including `num_cars`): every field read sits before
+//!   the array of all drivers.
 //! * Versions: `open` refuses a memory whose `version_major` is not 3, or whose `all_drivers_offset` (the game's own
 //!   "offset to num_cars") is not the one this layout gives (2008). The second check proves at run time that everything
 //!   before the drivers array is where this reader expects it, whatever the minor version; the minor version itself is
@@ -61,6 +62,10 @@
 //!   whose `name` is the driver's), only the ids of the car model and class (`vehicle_info.model_id`, `class_id`); the
 //!   car is written as `R3E model <id>` and the class as `R3E class <id>`. The names behind those ids are in
 //!   `r3e-data.json` of the r3e-spectator-overlay repository, which the API's README points to.
+//! * The race: `position` and `position_class` (1 is first), `num_cars`, `session_time_remaining` (seconds) and
+//!   `number_of_laps` (the session's length in laps), each through `norm` (0, -1 and anything past the field are "not
+//!   given"). Offsets worked out from the same header by `the_offsets_follow_from_the_sizes_in_the_header`; what the game
+//!   writes in a timed or a lap-based session is not seen live (ASSUMED: -1 for the one that does not apply).
 //! * The clock is the program's own (the game's `game_simulation_time` belongs to the session and can start again).
 //!
 //! Never read: another process's memory. Only the game's own shared memory, read-only and copied out.
@@ -78,8 +83,8 @@ const MEMORY_NAME: &str = "$R3E";
 const VERSION_MAJOR: i32 = 3;
 /// `sizeof(r3e_shared)` with `#pragma pack(1)` (version 3.6).
 const SIZE: usize = 44_024;
-/// The part of the memory copied: everything before `num_cars` and the drivers array.
-const HEAD: usize = at::NUM_CARS;
+/// The part of the memory copied: everything up to and including `num_cars`, before the drivers array.
+const HEAD: usize = at::NUM_CARS + 4;
 const STRING_LENGTH: usize = 64;
 /// `sizeof(r3e_tire_temp)`: `current_temp[3]` and the optimal, cold and hot temperatures.
 const TIRE_TEMP_SIZE: usize = 24;
@@ -98,7 +103,14 @@ mod at {
     pub const LAYOUT_NAME: usize = 664;
     pub const LAYOUT_LENGTH: usize = 736;
     pub const SESSION_PHASE: usize = 796;
+    /// `int number_of_laps`: the length of the session in laps (-1 N/A).
+    pub const NUMBER_OF_LAPS: usize = 812;
+    /// `float session_time_remaining`, seconds (-1 N/A).
+    pub const SESSION_TIME_REMAINING: usize = 820;
     pub const IN_PITLANE: usize = 848;
+    /// `int position` (1 is first) and `int position_class`, right after `flags`.
+    pub const POSITION: usize = 988;
+    pub const POSITION_CLASS: usize = 992;
     pub const COMPLETED_LAPS: usize = 1028;
     pub const LAP_DISTANCE: usize = 1040;
     pub const LAP_TIME_PREVIOUS_SELF: usize = 1084;
@@ -126,6 +138,7 @@ mod at {
     pub const TIRE_TEMP: usize = 1744;
     /// `r3e_brake_temp brake_temp[4]`: the first float of each is `current_temp`, °C (-1 N/A).
     pub const BRAKE_TEMP: usize = 1856;
+    /// `int num_cars`: the cars in the session; the drivers array follows it.
     pub const NUM_CARS: usize = 2008;
 
     // The car's state. `r3e_flags` (from 932): the ints `blue`, `black`, `green`, `checkered`, `white` and
@@ -445,6 +458,11 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track_variant = Some(page.ascii_at(at::LAYOUT_NAME, STRING_LENGTH)).filter(|s| !s.is_empty());
     let length = within(page.f32_at(at::LAYOUT_LENGTH), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
+    frame.cars = norm::cars(page.i32_at(at::NUM_CARS));
+    frame.race_position = norm::place(page.i32_at(at::POSITION), frame.cars);
+    frame.class_position = norm::place(page.i32_at(at::POSITION_CLASS), frame.cars);
+    frame.session_time_left_s = norm::time_left_s(f64::from(page.f32_at(at::SESSION_TIME_REMAINING)));
+    frame.session_laps = norm::race_laps(page.i32_at(at::NUMBER_OF_LAPS));
     // Every frame the reader tests make is held to the caps and the phase invariant.
     #[cfg(test)]
     crate::game::assert_frame_within_caps(&frame, CAPS, "r3e");
@@ -492,7 +510,12 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::DAMAGE_BODY)
     .or(Caps::DAMAGE_ENGINE)
     .or(Caps::DAMAGE_GEARBOX)
-    .or(Caps::DAMAGE_SUSPENSION);
+    .or(Caps::DAMAGE_SUSPENSION)
+    .or(Caps::RACE_POSITION)
+    .or(Caps::CLASS_POSITION)
+    .or(Caps::CARS)
+    .or(Caps::SESSION_TIME_LEFT)
+    .or(Caps::SESSION_LAPS);
 
 /// A three-way int of the header (-1 no data, 0 no, 1 yes) as a bool; 2 and the rest are not given.
 fn yes_no(v: i32) -> Option<bool> {
@@ -684,6 +707,12 @@ mod tests {
             i.text(at::TRACK_NAME, "Nürburgring");
             i.text(at::LAYOUT_NAME, "Grand Prix");
             i.f32(at::LAYOUT_LENGTH, 5148.0);
+            // Third of twelve, second in the class, 25 minutes left and a 20-lap length (both set here, a real session has one).
+            i.i32(at::POSITION, 3);
+            i.i32(at::POSITION_CLASS, 2);
+            i.i32(at::NUM_CARS, 12);
+            i.f32(at::SESSION_TIME_REMAINING, 1500.5);
+            i.i32(at::NUMBER_OF_LAPS, 20);
             i
         }
     }
@@ -1089,6 +1118,10 @@ mod tests {
             ("layout_name", at::LAYOUT_NAME),
             ("layout_length", at::LAYOUT_LENGTH),
             ("session_phase", at::SESSION_PHASE),
+            ("number_of_laps", at::NUMBER_OF_LAPS),
+            ("session_time_remaining", at::SESSION_TIME_REMAINING),
+            ("position", at::POSITION),
+            ("position_class", at::POSITION_CLASS),
             ("in_pitlane", at::IN_PITLANE),
             ("completed_laps", at::COMPLETED_LAPS),
             ("lap_distance", at::LAP_DISTANCE),
@@ -1155,7 +1188,7 @@ mod tests {
             (at::DAMAGE_ENGINE + 4, at::DAMAGE_ENGINE + 8, at::DAMAGE_ENGINE + 12)
         );
         assert_eq!(at::FLAG_BLACK_AND_WHITE + 4, offset_of(&o, "flags") + flags);
-        assert_eq!(HEAD, offset_of(&o, "num_cars"));
+        assert_eq!(HEAD, offset_of(&o, "num_cars") + 4);
         const { assert!(at::TIRE_TEMP + 4 * TIRE_TEMP_SIZE <= HEAD) };
         const { assert!(at::BRAKE_TEMP + 4 * BRAKE_TEMP_SIZE <= HEAD) };
         // The mapping is rounded up to whole pages; what `open_named` asks of it still holds the struct.
@@ -1259,6 +1292,35 @@ mod tests {
         }
         assert!((frame.rpm - 7500.0).abs() < 0.01, "rpm {}", frame.rpm);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_race_values_are_read_and_what_the_game_calls_not_available_is_not_given() {
+        let frame = frame_from(&Image::on_track().0, 0.0).unwrap();
+        assert_eq!(
+            (frame.race_position, frame.class_position, frame.cars),
+            (Some(3), Some(2), Some(12))
+        );
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (Some(1500.5), Some(20)));
+        // A lap-based session: no time (-1); a timed one: no laps (-1).
+        let mut image = Image::on_track();
+        image.f32(at::SESSION_TIME_REMAINING, -1.0);
+        image.i32(at::NUMBER_OF_LAPS, -1);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (None, None));
+        // A place past the field, no place yet, a field of none and a time that is no time are not given.
+        image.i32(at::POSITION, 13);
+        image.i32(at::POSITION_CLASS, 0);
+        image.f32(at::SESSION_TIME_REMAINING, f32::NAN);
+        image.i32(at::NUMBER_OF_LAPS, 5000);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!((frame.race_position, frame.class_position, frame.cars), (None, None, Some(12)));
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (None, None));
+        image.i32(at::NUM_CARS, 0);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().cars, None);
+        // Nothing written yet.
+        let frame = frame_from(&Image::new().0, 0.0).unwrap();
+        assert_eq!((frame.race_position, frame.cars, frame.session_laps), (None, None, None));
     }
 
     #[test]
@@ -1533,7 +1595,7 @@ mod tests {
         assert_eq!(reader.next(NOW).unwrap().speed_ms, 60.0);
         assert!(reader.next(NOW).is_none());
         // A change past the copied part (the drivers array) is not a new reading.
-        rig.image.i32(at::NUM_CARS, 12);
+        rig.image.i32(at::NUM_CARS + 4, 12);
         rig.publish();
         assert!(reader.next(NOW).is_none());
     }

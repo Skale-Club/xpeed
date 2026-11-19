@@ -57,6 +57,11 @@
 //!   `last_laptime_ms` / 1000 when it is a real time.
 //! * `lap_valid`: `is_valid_lap` and `timing_state.is_invalid` (a lap is not valid when either says so).
 //! * `in_pits`: `is_in_pit_lane` or `is_in_pit_box`.
+//! * The race: `current_pos` (1 is first) and `total_drivers` (the cars), `session_state.time_left_ms` (milliseconds left;
+//!   negative or past a day is not given) and `session_state.total_lap` (the session's length in laps; 0 is not
+//!   lap-based). Not `total_lap_count`: that is the laps this car has completed (see `lap`). All four are `i32`s whose
+//!   offsets follow from the layout test; what the game writes in them in each kind of session is not seen live (ASSUMED).
+//!   No class position: the page has none.
 //! * `dist_m` is left `None`, so the lap cutter integrates the speed (`npos` is a spline fraction and is not used).
 //! * Pedals, gear (physics: 0 reverse, 1 neutral, 2 first, so minus one), `rpms`, `speedKmh` / 3.6, `steerAngle`, `fuel`
 //!   (litres) from the physics page. The clutch is turned around (`1 - clutch`): the game writes 1 = engaged, the
@@ -168,11 +173,17 @@ mod gfx {
     pub const FLAG: usize = 2404;
     pub const GLOBAL_FLAG: usize = 2408;
     pub const TOTAL_LAP_COUNT: usize = 2384;
+    /// `int current_pos` (1 is first) and `int total_drivers`, right after `total_lap_count`.
+    pub const CURRENT_POS: usize = 2388;
+    pub const TOTAL_DRIVERS: usize = 2392;
     pub const LAST_LAPTIME_MS: usize = 2396;
     /// `max_gears`: 16 bytes after `last_laptime_ms` (`best_laptime_ms`, `flag`, `global_flag`, then this).
     pub const MAX_GEARS: usize = 2412;
     /// `session_state.lap_length_km` (`session_state` at 2476, the field 84 bytes in).
     pub const SESSION_LAP_LENGTH_KM: usize = 2560;
+    /// `session_state.time_left_ms` (48 bytes in) and `session_state.total_lap` (68 bytes in).
+    pub const SESSION_TIME_LEFT_MS: usize = 2524;
+    pub const SESSION_TOTAL_LAP: usize = 2544;
     /// `timing_state.is_invalid` (`timing_state` at 2732, the field 117 bytes in).
     pub const TIMING_IS_INVALID: usize = 2849;
     pub const CAR_MODEL: usize = 3086;
@@ -456,6 +467,10 @@ const CAPS: Caps = {
         .or(Caps::ABS_LEVEL)
         .or(Caps::ENGINE_MAP)
         .or(Caps::BRAKE_BIAS)
+        .or(Caps::RACE_POSITION)
+        .or(Caps::CARS)
+        .or(Caps::SESSION_TIME_LEFT)
+        .or(Caps::SESSION_LAPS)
 };
 
 /// Text of the pages: empty when it holds a control character (garbled).
@@ -660,6 +675,10 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     let session = f64::from(g.f32_at(gfx::SESSION_LAP_LENGTH_KM)) * 1000.0;
     let agrees = !(session.is_finite() && session > 0.0) || (session - length).abs() <= 0.02 * length;
     f.track_length_m = (length.is_finite() && (200.0..=100_000.0).contains(&length) && agrees).then_some(length);
+    f.cars = norm::cars(g.i32_at(gfx::TOTAL_DRIVERS));
+    f.race_position = norm::place(g.i32_at(gfx::CURRENT_POS), f.cars);
+    f.session_time_left_s = norm::seconds_ms(g.i32_at(gfx::SESSION_TIME_LEFT_MS), true);
+    f.session_laps = norm::race_laps(g.i32_at(gfx::SESSION_TOTAL_LAP));
     // Paused or in a menu the page is zeroed: a zero gear would read as reverse and the zero clutch (1 - 0) as a full pedal.
     f.withhold_car_values_unless_driving();
     // Every frame the reader tests make is held to the caps and the phase invariant.
@@ -1248,6 +1267,8 @@ mod tests {
                     ("status", gfx::STATUS),
                     ("current_lap_time_ms", gfx::CURRENT_LAP_TIME_MS),
                     ("total_lap_count", gfx::TOTAL_LAP_COUNT),
+                    ("current_pos", gfx::CURRENT_POS),
+                    ("total_drivers", gfx::TOTAL_DRIVERS),
                     ("last_laptime_ms", gfx::LAST_LAPTIME_MS),
                     ("max_gears", gfx::MAX_GEARS),
                     ("tc_active", gfx::TC_ACTIVE),
@@ -1271,6 +1292,14 @@ mod tests {
                 assert_eq!(
                     g.offset("session_state") + session(pack, pads).offset("lap_length_km"),
                     gfx::SESSION_LAP_LENGTH_KM
+                );
+                assert_eq!(
+                    g.offset("session_state") + session(pack, pads).offset("time_left_ms"),
+                    gfx::SESSION_TIME_LEFT_MS
+                );
+                assert_eq!(
+                    g.offset("session_state") + session(pack, pads).offset("total_lap"),
+                    gfx::SESSION_TOTAL_LAP
                 );
                 assert_eq!(
                     g.offset("timing_state") + timing(pack, pads).offset("is_invalid"),
@@ -1381,6 +1410,11 @@ mod tests {
             i.graphics.i32(gfx::LAST_LAPTIME_MS, 90_500);
             i.graphics.i32(gfx::MAX_GEARS, 6);
             i.graphics.f32(gfx::SESSION_LAP_LENGTH_KM, 5.793);
+            // Second of fourteen; 20 minutes 0.5 s left and a 12-lap length (both set here, a real session has one).
+            i.graphics.i32(gfx::CURRENT_POS, 2);
+            i.graphics.i32(gfx::TOTAL_DRIVERS, 14);
+            i.graphics.i32(gfx::SESSION_TIME_LEFT_MS, 1_200_500);
+            i.graphics.i32(gfx::SESSION_TOTAL_LAP, 12);
             i.graphics.f32(gfx::MAX_FUEL, 80.0);
             i.graphics.0[gfx::IS_VALID_LAP] = 1;
             // The car's state: limiter on, ABS acting, headlights on, a handbrake half up, the wing open, a green
@@ -1496,6 +1530,10 @@ mod tests {
         want.track = "monza".into();
         want.track_variant = Some("gp".into());
         want.track_length_m = Some(5793.0);
+        want.race_position = Some(2);
+        want.cars = Some(14);
+        want.session_time_left_s = Some(1200.5);
+        want.session_laps = Some(12);
         want.state = CarState {
             pit_limiter: Some(true),
             abs_active: Some(true),
@@ -1803,6 +1841,25 @@ mod tests {
             image.statics.f32(stat::TRACK_LENGTH_M, length);
             assert_eq!(image.frame().unwrap().track_length_m, None, "length {length}");
         }
+        // The race values: a place past the field, no cars, a negative time and no lap count are not given.
+        let mut image = Image::on_track();
+        image.graphics.i32(gfx::CURRENT_POS, 15);
+        image.graphics.i32(gfx::SESSION_TIME_LEFT_MS, -1);
+        image.graphics.i32(gfx::SESSION_TOTAL_LAP, 0);
+        let frame = image.frame().unwrap();
+        assert_eq!(
+            (frame.race_position, frame.cars, frame.session_time_left_s, frame.session_laps),
+            (None, Some(14), None, None)
+        );
+        image.graphics.i32(gfx::TOTAL_DRIVERS, 0);
+        image.graphics.i32(gfx::CURRENT_POS, 0);
+        image.graphics.i32(gfx::SESSION_TIME_LEFT_MS, i32::MAX);
+        image.graphics.i32(gfx::SESSION_TOTAL_LAP, 100_000);
+        let frame = image.frame().unwrap();
+        assert_eq!(
+            (frame.race_position, frame.cars, frame.session_time_left_s, frame.session_laps),
+            (None, None, None, None)
+        );
         // Names: an empty variant is not given; a control character makes a text empty.
         let mut image = Image::on_track();
         image.statics.text(stat::TRACK_CONFIGURATION, stat::TEXT_LEN, "");

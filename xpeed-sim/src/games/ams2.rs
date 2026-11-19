@@ -24,6 +24,13 @@
 //! * Units are the lap file's already: metres, seconds, metres per second, `mGear` -1 / 0 / 1.. (as the header says),
 //!   pedals 0..1, steering -1..1, `mFuelLevel` a fraction of `mFuelCapacity` litres.
 //!
+//! The race (all three games: the fields lie in Project CARS 2's struct): the viewed participant's `mRacePosition`
+//! (participant, 84; 1 is first, unset 0), `mNumParticipants` (24, unset -1) as the cars, `mEventTimeRemaining` (6740,
+//! seconds, unset -1) and `mLapsInEvent` (6572, 0 for a session that is not lap-based). Each goes through `norm`, so
+//! an unset value is "not given". There is no class position in the header. Not seen live (ASSUMED: the header's
+//! "unset" values are what a session without a time limit or a lap count writes); every offset is proved by the
+//! offsets test.
+//!
 //! What version 2 of the lap file takes from Automobilista 2 (`ams2` only: the two Project CARS games are not asked for
 //! any of it), every offset proved against the real header by the offsets test:
 //!
@@ -127,6 +134,8 @@ mod at {
     /// Inside a `ParticipantInfo`.
     pub const P_WORLD_POSITION: usize = 68;
     pub const P_CURRENT_LAP_DISTANCE: usize = 80;
+    /// `unsigned int mRacePosition`: 1 is first, unset 0.
+    pub const P_RACE_POSITION: usize = 84;
     pub const P_LAPS_COMPLETED: usize = 88;
     /// `int mCurrentSector`: the sector the car is in, counting from 0.
     pub const P_CURRENT_SECTOR: usize = 96;
@@ -137,6 +146,8 @@ mod at {
     pub const UNFILTERED_CLUTCH: usize = 6440;
     pub const CAR_NAME: usize = 6444;
     pub const CAR_CLASS_NAME: usize = 6508;
+    /// `unsigned int mLapsInEvent`: the length of the session in laps, 0 when it is not lap-based.
+    pub const LAPS_IN_EVENT: usize = 6572;
     pub const TRACK_LOCATION: usize = 6576;
     pub const TRACK_VARIATION: usize = 6640;
     pub const TRACK_LENGTH: usize = 6704;
@@ -145,6 +156,8 @@ mod at {
     pub const LAP_INVALIDATED: usize = 6712;
     pub const LAST_LAP_TIME: usize = 6720;
     pub const CURRENT_TIME: usize = 6724;
+    /// `float mEventTimeRemaining`, seconds, unset -1.
+    pub const EVENT_TIME_REMAINING: usize = 6740;
     /// `float mCurrentSector1Time` and `float mCurrentSector2Time`, seconds, unset -1.
     pub const CURRENT_SECTOR_1_TIME: usize = 6752;
     pub const CURRENT_SECTOR_2_TIME: usize = 6756;
@@ -477,6 +490,10 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
     frame.tyres = tyres_from(&page);
     frame.state = state_from(&page);
+    frame.cars = norm::cars(page.i32_at(at::NUM_PARTICIPANTS));
+    frame.race_position = norm::place(page.u32_at(me + at::P_RACE_POSITION), frame.cars);
+    frame.session_time_left_s = norm::time_left_s(f64::from(page.f32_at(at::EVENT_TIME_REMAINING)));
+    frame.session_laps = norm::race_laps(page.u32_at(at::LAPS_IN_EVENT));
     if kind.id == AMS2.id {
         version_2_from(&mut frame, &page, me);
     }
@@ -527,7 +544,11 @@ fn caps_of(kind: Kind) -> Caps {
         .or(Caps::BRAKE_BIAS)
         .or(Caps::DAMAGE_BODY)
         .or(Caps::DAMAGE_ENGINE)
-        .or(Caps::DAMAGE_SUSPENSION);
+        .or(Caps::DAMAGE_SUSPENSION)
+        .or(Caps::RACE_POSITION)
+        .or(Caps::CARS)
+        .or(Caps::SESSION_TIME_LEFT)
+        .or(Caps::SESSION_LAPS);
     if kind.id == AMS2.id {
         shared
             .or(Caps::SESSION_KIND)
@@ -749,6 +770,11 @@ mod tests {
         fn on_track() -> Image {
             let mut i = Image::new();
             i.participant(0, [100.5, 2.25, -300.75], 1234.5, 3);
+            // Third of twelve; 25 minutes left and a 20-lap length (both set here, a real session has one).
+            i.i32(at::NUM_PARTICIPANTS, 12);
+            i.u32(at::PARTICIPANTS + at::P_RACE_POSITION, 3);
+            i.f32(at::EVENT_TIME_REMAINING, 1500.5);
+            i.u32(at::LAPS_IN_EVENT, 20);
             i.f32(at::SPEED, 55.5);
             i.f32(at::RPM, 7250.0);
             i.i32(at::GEAR, 4);
@@ -869,6 +895,7 @@ mod tests {
         assert_eq!(p_size, PARTICIPANT_SIZE);
         assert_eq!(offset_of(&p, "mWorldPosition"), at::P_WORLD_POSITION);
         assert_eq!(offset_of(&p, "mCurrentLapDistance"), at::P_CURRENT_LAP_DISTANCE);
+        assert_eq!(offset_of(&p, "mRacePosition"), at::P_RACE_POSITION);
         assert_eq!(offset_of(&p, "mLapsCompleted"), at::P_LAPS_COMPLETED);
         assert_eq!(offset_of(&p, "mCurrentSector"), at::P_CURRENT_SECTOR);
 
@@ -1045,6 +1072,8 @@ mod tests {
             ("mUnfilteredClutch", at::UNFILTERED_CLUTCH),
             ("mCarName", at::CAR_NAME),
             ("mCarClassName", at::CAR_CLASS_NAME),
+            ("mLapsInEvent", at::LAPS_IN_EVENT),
+            ("mEventTimeRemaining", at::EVENT_TIME_REMAINING),
             ("mTrackLocation", at::TRACK_LOCATION),
             ("mTrackVariation", at::TRACK_VARIATION),
             ("mTrackLength", at::TRACK_LENGTH),
@@ -1097,6 +1126,8 @@ mod tests {
         for end in [
             at::SESSION_STATE + 4,
             at::P_CURRENT_SECTOR + 4,
+            at::P_RACE_POSITION + 4,
+            at::EVENT_TIME_REMAINING + 4,
             at::CURRENT_SECTOR_2_TIME + 4,
             at::LOCAL_ACCELERATION + 12,
             at::RAIN_DENSITY + 4,
@@ -1271,6 +1302,48 @@ mod tests {
     }
 
     #[test]
+    fn the_race_values_are_read_for_every_game_of_the_format_and_unset_is_not_given() {
+        for kind in [AMS2, PCARS2, PCARS3] {
+            let mut image = Image::on_track();
+            image.u32(at::VERSION, if kind.id == AMS2.id { VERSION } else { 9 });
+            let frame = frame_of(kind, &image.0[..kind.size], 0.0).unwrap();
+            assert_eq!(
+                (frame.race_position, frame.class_position, frame.cars),
+                (Some(3), None, Some(12)),
+                "{}",
+                kind.id
+            );
+            assert_eq!(
+                (frame.session_time_left_s, frame.session_laps),
+                (Some(1500.5), Some(20)),
+                "{}",
+                kind.id
+            );
+        }
+        // The header's unset: no place (0), no time (-1), not lap-based (0), no count (-1).
+        let mut image = Image::on_track();
+        image.u32(at::PARTICIPANTS + at::P_RACE_POSITION, 0);
+        image.f32(at::EVENT_TIME_REMAINING, -1.0);
+        image.u32(at::LAPS_IN_EVENT, 0);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!(
+            (frame.race_position, frame.session_time_left_s, frame.session_laps),
+            (None, None, None)
+        );
+        // A place past the field, a time that is not a number and a lap count that is garbage are not given.
+        image.u32(at::PARTICIPANTS + at::P_RACE_POSITION, 13);
+        image.f32(at::EVENT_TIME_REMAINING, f32::NAN);
+        image.u32(at::LAPS_IN_EVENT, u32::MAX);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!(
+            (frame.race_position, frame.session_time_left_s, frame.session_laps),
+            (None, None, None)
+        );
+        image.i32(at::NUM_PARTICIPANTS, -1);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().cars, None, "no participants given");
+    }
+
+    #[test]
     fn reads_a_moment_on_track_into_exact_frame_values() {
         let mut rig = Rig::new("happy", Image::on_track());
         rig.publish();
@@ -1305,6 +1378,10 @@ mod tests {
         want.track = "Interlagos".into();
         want.track_variant = Some("Grand Prix".into());
         want.track_length_m = Some(4309.0);
+        want.race_position = Some(3);
+        want.cars = Some(12);
+        want.session_time_left_s = Some(1500.5);
+        want.session_laps = Some(20);
         want.session_kind = Some(SessionKind::Qualifying);
         want.sectors_ms = [Some(31_250), Some(28_500)];
         want.g_lat = Some(4.903_325 / 9.806_65);

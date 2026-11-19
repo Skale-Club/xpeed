@@ -37,6 +37,13 @@
 //! radians, positive turning left; the lap file wants -1 (full left) .. 1 (full right), so it is
 //! `-SteeringWheelAngle / SteeringWheelAngleMax`.
 //!
+//! The race: `PlayerCarPosition` and `PlayerCarClassPosition` (1 is first, 0 none), `SessionTimeRemain` (seconds; an
+//! unlimited session writes about a week, which is past a day and so not given) and `SessionLapsTotal` (the SDK's
+//! "unlimited" is 32767, past the lap limit, so not given), all looked up by name like every variable: a build that
+//! does not publish one gives none. The cars are counted from the session info, not from a variable: the entries of
+//! `DriverInfo: Drivers` that are not the pace car (`CarIsPaceCar: 1`, or the user name "Pace Car", as the test fixture
+//! has it) and not a spectator (`IsSpectator: 1`).
+//!
 //! `driving` is `IsOnTrack` (the player is in the car and its physics run) and not `IsReplayPlaying`.
 //!
 //! # Phase
@@ -70,7 +77,9 @@
 //!   A gap too large for drift (over a tenth of the track) is left alone.
 //!
 //! **Not checked against the sim yet:** the sign of `Yaw` and of `VelocityY` (a wrong one draws the track mirrored),
-//! the clutch and steering conventions above, and the program name. They come from the SDK's descriptions and from
+//! the clutch and steering conventions above, the program name, and the race values (the four variable names and
+//! what they hold in a lap-based, a timed and an unlimited session, and the pace car and spectator markers in
+//! `DriverInfo`). They come from the SDK's descriptions and from
 //! the tools that read it; the first real session confirms or corrects them.
 //!
 //! Never read: another process's memory. Only the sim's own shared memory, read-only and copied out.
@@ -317,6 +326,33 @@ struct Session {
     length_m: Option<f64>,
     car: String,
     car_class: Option<String>,
+    /// The cars in the session, from the driver list.
+    cars: Option<u16>,
+}
+
+/// The cars of the driver list that are racing: every entry of `Drivers` but the pace car and the spectators.
+fn count_cars(drivers: &[&str]) -> Option<u16> {
+    let mut entries: Vec<Vec<&str>> = Vec::new();
+    for line in drivers {
+        if line.trim_start().starts_with("- ") {
+            entries.push(Vec::new());
+        }
+        if let Some(entry) = entries.last_mut() {
+            entry.push(*line);
+        }
+    }
+    let racing = entries
+        .iter()
+        .filter(|entry| {
+            let entry = entry.as_slice();
+            let is = |key: &str| first_value(entry, key).as_deref() == Some("1");
+            first_value(entry, "CarIdx").is_some()
+                && !is("CarIsPaceCar")
+                && !is("IsSpectator")
+                && first_value(entry, "UserName").as_deref() != Some("Pace Car")
+        })
+        .count();
+    norm::cars(racing as i64)
 }
 
 /// The text up to its first zero: UTF-8 when it is valid UTF-8, else Latin-1 (every byte is the character of that
@@ -412,6 +448,7 @@ fn parse_session(yaml: &str) -> Session {
         length_m,
         car,
         car_class,
+        cars: count_cars(&drivers),
     }
 }
 
@@ -531,6 +568,12 @@ fn frame_from(values: &Values, session: &Session, path: &mut Path, clock_s: f64)
     frame.track = session.track.clone();
     frame.track_variant = session.variant.clone();
     frame.track_length_m = session.length_m;
+    frame.cars = session.cars;
+    let whole = |name: &str| values.number(name).map(|v| v as i64);
+    frame.race_position = whole("PlayerCarPosition").and_then(|p| norm::place(p, frame.cars));
+    frame.class_position = whole("PlayerCarClassPosition").and_then(|p| norm::place(p, frame.cars));
+    frame.session_time_left_s = values.number("SessionTimeRemain").and_then(norm::time_left_s);
+    frame.session_laps = whole("SessionLapsTotal").and_then(norm::race_laps);
     // Every frame the reader tests make is held to the caps and the phase invariant.
     #[cfg(test)]
     crate::game::assert_frame_within_caps(&frame, CAPS, "iracing");
@@ -555,7 +598,12 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::FUEL)
     .or(Caps::CAR_CLASS)
     .or(Caps::TRACK_VARIANT)
-    .or(Caps::TRACK_LENGTH);
+    .or(Caps::TRACK_LENGTH)
+    .or(Caps::RACE_POSITION)
+    .or(Caps::CLASS_POSITION)
+    .or(Caps::CARS)
+    .or(Caps::SESSION_TIME_LEFT)
+    .or(Caps::SESSION_LAPS);
 
 /// Spreads the gap between a lap's last position and its first along the lap, by distance, so an estimated path that
 /// drifted closes on itself. A gap over a tenth of the track (or of the lap's distance, when the track length is not
@@ -741,6 +789,10 @@ mod tests {
         ("Yaw", Kind::Float),
         ("VelocityX", Kind::Float),
         ("VelocityY", Kind::Float),
+        ("PlayerCarPosition", Kind::Int),
+        ("PlayerCarClassPosition", Kind::Int),
+        ("SessionTimeRemain", Kind::Double),
+        ("SessionLapsTotal", Kind::Int),
     ];
 
     const SESSION: &str = "---\nWeekendInfo:\n TrackName: spa 2024 gp\n TrackID: 163\n TrackLength: 6.93 km\n \
@@ -867,11 +919,66 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
             ("Yaw", 0.0),
             ("VelocityX", 61.0),
             ("VelocityY", 0.0),
+            // Second overall and first in the class, 25 minutes left and a 20-lap length (both set here).
+            ("PlayerCarPosition", 2.0),
+            ("PlayerCarClassPosition", 1.0),
+            ("SessionTimeRemain", 1500.5),
+            ("SessionLapsTotal", 20.0),
         ] {
             image.set(0, name, v);
         }
         image.tick(0, 10);
         image
+    }
+
+    #[test]
+    fn the_race_values_are_read_by_name_and_the_pace_car_is_not_counted() {
+        let image = driving_image();
+        let (vars, buf) = image.values(0);
+        let values = Values { vars: &vars, buf: &buf };
+        let session = parse_session(SESSION);
+        assert_eq!(session.cars, Some(2), "the pace car and nobody else is left out");
+        let (frame, _) = frame_from(&values, &session, &mut Path::default(), 0.0);
+        assert_eq!((frame.race_position, frame.class_position, frame.cars), (Some(2), Some(1), Some(2)));
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (Some(1500.5), Some(20)));
+        // The pace car and the spectators by their own markers, whatever the user name.
+        let yaml = "DriverInfo:\n DriverCarIdx: 1\n Drivers:\n- CarIdx: 0\n   UserName: Safety\n   CarIsPaceCar: 1\n \
+- CarIdx: 1\n   UserName: Me\n   CarIsPaceCar: 0\n   IsSpectator: 0\n - CarIdx: 2\n   UserName: Watcher\n   IsSpectator: 1\n \
+- CarIdx: 3\n   UserName: Other\n";
+        assert_eq!(parse_session(yaml).cars, Some(2));
+        assert_eq!(parse_session("WeekendInfo:\n TrackName: x\n").cars, None, "no driver list");
+        // Unlimited and not-given values: a week of seconds, 32767 laps, no position yet, a place past the field.
+        for (name, v) in [
+            ("SessionTimeRemain", 604_800.0),
+            ("SessionLapsTotal", 32_767.0),
+            ("PlayerCarPosition", 0.0),
+            ("PlayerCarClassPosition", 3.0),
+        ] {
+            let mut image = driving_image();
+            image.set(0, name, v);
+            let (vars, buf) = image.values(0);
+            let (frame, _) = frame_from(&Values { vars: &vars, buf: &buf }, &session, &mut Path::default(), 0.0);
+            assert_eq!(
+                (frame.race_position, frame.class_position, frame.session_time_left_s, frame.session_laps),
+                match name {
+                    "SessionTimeRemain" => (Some(2), Some(1), None, Some(20)),
+                    "SessionLapsTotal" => (Some(2), Some(1), Some(1500.5), None),
+                    "PlayerCarPosition" => (None, Some(1), Some(1500.5), Some(20)),
+                    _ => (Some(2), None, Some(1500.5), Some(20)),
+                },
+                "{name}"
+            );
+        }
+        // A build that publishes none of the four variables gives none of them.
+        let mut image = Image::new(&VARS[..VARS.len() - 4], SESSION.as_bytes());
+        image.set(0, "IsOnTrack", 1.0);
+        image.tick(0, 10);
+        let (vars, buf) = image.values(0);
+        let (frame, _) = frame_from(&Values { vars: &vars, buf: &buf }, &Session::default(), &mut Path::default(), 0.0);
+        assert_eq!(
+            (frame.race_position, frame.class_position, frame.cars, frame.session_time_left_s, frame.session_laps),
+            (None, None, None, None, None)
+        );
     }
 
     #[test]

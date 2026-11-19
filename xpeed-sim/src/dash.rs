@@ -92,6 +92,8 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
         let length = (s.session.track_length_m > 0.0).then_some(s.session.track_length_m);
         frame.track_length_m = length;
         frame.session_kind = lmu_session_kind(s.session.session);
+        // Only the number of cars: the generated layout has no place, end time or lap limit (`lmu/layout.rs`).
+        frame.cars = norm::cars(s.session.num_vehicles);
         if !s.session.track_name.is_empty() {
             frame.track = s.session.track_name.clone();
         }
@@ -223,6 +225,13 @@ pub struct Live {
     pub sectors_ms: [Option<u32>; 2],
     pub last_sectors_ms: [Option<u32>; 2],
     pub session_kind: Option<SessionKind>,
+    /// The player's place in the field and in the class, and how many cars are in the session, as the game gives them.
+    pub race_position: Option<u16>,
+    pub class_position: Option<u16>,
+    pub cars: Option<u16>,
+    /// Seconds left in a timed session, and the length of a lap-based one in laps, as the game gives them.
+    pub session_time_left_s: Option<f64>,
+    pub session_laps: Option<u16>,
     /// The compound of the tyres on the car, as the game names it.
     pub tyre_compound: Option<String>,
     pub dist_m: Option<f64>,
@@ -532,6 +541,11 @@ impl Tracker {
             sectors_ms: self.lap_sectors,
             last_sectors_ms: self.last_sectors,
             session_kind: frame.session_kind,
+            race_position: frame.race_position,
+            class_position: frame.class_position,
+            cars: frame.cars,
+            session_time_left_s: frame.session_time_left_s,
+            session_laps: frame.session_laps,
             tyre_compound: frame.tyre_compound.clone(),
             dist_m: frame.dist_m.or(dist_m),
             track_length_m: frame.track_length_m,
@@ -1234,6 +1248,7 @@ mod tests {
                 track_name: "Circuit de la Sarthe".into(),
                 track_length_m: 13_626.0,
                 current_et: 100.0,
+                num_vehicles: 24,
                 in_realtime: true,
                 ..SessionScoring::default()
             },
@@ -1256,6 +1271,10 @@ mod tests {
         assert_eq!(frame.last_lap_s, Some(210.5));
         assert_eq!(frame.track, "Circuit de la Sarthe");
         assert_eq!(frame.car_class.as_deref(), Some("Hypercar"));
+        assert_eq!((frame.cars, frame.race_position, frame.session_laps), (Some(24), None, None));
+        let mut no_cars = scoring.clone();
+        no_cars.session.num_vehicles = -1;
+        assert_eq!(lmu_frame(&t, Some(&no_cars)).cars, None);
 
         // Just over the line, the scoring still shows the end of the last lap.
         let mut just_over = t.clone();
@@ -1272,6 +1291,27 @@ mod tests {
             "no car values until it is known to be driven"
         );
         assert_eq!(alone.fuel_l, 40.0, "fuel stays");
+    }
+
+    #[test]
+    fn the_race_values_of_a_frame_reach_the_live_reading() {
+        let mut tracker = Tracker::default();
+        let mut frame = Frame::empty();
+        frame.driving = true;
+        frame.lap = 2;
+        frame.race_position = Some(3);
+        frame.class_position = Some(1);
+        frame.cars = Some(18);
+        frame.session_time_left_s = Some(912.5);
+        frame.session_laps = Some(30);
+        let live = tracker.on_frame("test", &frame, 0);
+        assert_eq!((live.race_position, live.class_position, live.cars), (Some(3), Some(1), Some(18)));
+        assert_eq!((live.session_time_left_s, live.session_laps), (Some(912.5), Some(30)));
+        let live = tracker.on_frame("test", &Frame::empty(), 100);
+        assert_eq!(
+            (live.race_position, live.cars, live.session_time_left_s, live.session_laps),
+            (None, None, None, None)
+        );
     }
 
     fn lmu_scoring(in_realtime: bool, game_phase: u8) -> ScoringFrame {

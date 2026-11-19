@@ -146,7 +146,8 @@ pub struct ScoringFrame {
 /// `LmuSource::caps` answers. The distance, the last lap, the pit lane, the car class, the track length and the session
 /// kind (from the session number) come from scoring (so they are missing until the first scoring update).
 /// Not given: the lap verdict, the track variant, the sectors (`LmuSource::finish_lap` puts them on the lap from
-/// scoring), the g forces, the weather, the air and track temperatures, the compound,
+/// scoring), the place, the time left and the laps (the generated layout has none of them: only the number of cars is read),
+/// the g forces, the weather, the air and track temperatures, the compound,
 /// the tank's size, the handbrake, and the engine, gearbox and suspension damage (the header has none).
 pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
@@ -183,7 +184,8 @@ pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::ABS_LEVEL)
     .or(Caps::ENGINE_MAP)
     .or(Caps::BRAKE_BIAS)
-    .or(Caps::DAMAGE_BODY);
+    .or(Caps::DAMAGE_BODY)
+    .or(Caps::CARS);
 
 /// What one frame of the game carried.
 #[derive(Debug, Clone, Default, PartialEq)]

@@ -46,6 +46,9 @@
 //!   instead of a stale one.
 //! * `speed_ms` is the magnitude of the car's velocity (what the car really does), not the driveline's speedometer
 //!   value (which a spinning wheel inflates); the speedometer is the fallback.
+//! * The race (lap-based modes only, like the lap data): the player's `position` (Leaderboard, 1 is first), the session's
+//!   `gridSize` as the number of cars and `laps` as the race length in laps, each through `norm` (0 is not given, a place
+//!   past the grid is not given). No time left (`eventLength` is not read: its unit is not documented) and no class.
 //! * Nothing in the packets says a lap is invalid, so `lap_valid` is `None`; there are no pits (`in_pits` false) and
 //!   no fuel (NaN).
 //! * The socket is bound as soon as `open` runs: the game sends only while it runs, so `next` simply waits. If another
@@ -93,6 +96,7 @@ mod layout {
     // Participant::Leaderboard: status u8, trackStatus u8, lapCurrent u16, position u8, health u8, wrecks u16,
     // frags u16, assists u16, score s32, points s32, deltaLeader s32, lapTiming u16, reserved 6.
     pub const LAP_CURRENT_AT: usize = LEADERBOARD + 2;
+    pub const RACE_POSITION_AT: usize = LEADERBOARD + 4;
     pub const LAP_TIMING_AT: usize = LEADERBOARD + 24;
 
     // Participant::Timing: lapTimeCurrent u32, lapTimePenaltyCurrent u32, lapTimeLast u32, lapTimeBest u32,
@@ -145,6 +149,7 @@ mod layout {
     pub const TRACK_NAME_LEN: usize = 96;
     pub const TRACK_LENGTH_AT: usize = SESSION + 160;
     pub const LAPS_AT: usize = SESSION + 164;
+    pub const GRID_SIZE_AT: usize = SESSION + 168;
     pub const SECTOR_COUNT_AT: usize = SESSION + 170;
     pub const GAME_MODE_AT: usize = SESSION + 179;
 
@@ -201,6 +206,8 @@ struct Main {
     player_status: u16,
     lap_current: u16,
     lap_timing: u16,
+    position: u8,
+    grid_size: u8,
     lap_time_current_ms: u32,
     lap_time_last_ms: u32,
     lap_progress: f32,
@@ -266,6 +273,8 @@ impl Main {
             player_status: p.u16_at(PLAYER_STATUS_AT),
             lap_current: p.u16_at(LAP_CURRENT_AT),
             lap_timing: p.u16_at(LAP_TIMING_AT),
+            position: p.u8_at(RACE_POSITION_AT),
+            grid_size: p.u8_at(GRID_SIZE_AT),
             lap_time_current_ms: p.u32_at(LAP_TIME_CURRENT_AT),
             lap_time_last_ms: p.u32_at(LAP_TIME_LAST_AT),
             lap_progress: p.f32_at(LAP_PROGRESS_AT),
@@ -402,6 +411,9 @@ impl Main {
                 f.dist_m = Some(f64::from(self.lap_progress.clamp(0.0, 1.0)) * f64::from(self.track_length));
                 f.track_length_m = Some(f64::from(self.track_length));
             }
+            f.cars = norm::cars(self.grid_size);
+            f.race_position = norm::place(self.position, f.cars);
+            f.session_laps = norm::race_laps(self.laps);
         }
         let [vx, vy, vz] = self.velocity;
         let speed = (vx * vx + vy * vy + vz * vz).sqrt();
@@ -472,7 +484,10 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::DAMAGE_ENGINE)
     .or(Caps::DAMAGE_GEARBOX)
     .or(Caps::DAMAGE_SUSPENSION)
-    .or(Caps::DAMAGE_BODY);
+    .or(Caps::DAMAGE_BODY)
+    .or(Caps::RACE_POSITION)
+    .or(Caps::CARS)
+    .or(Caps::SESSION_LAPS);
 
 /// The open door: a UDP socket the game sends its telemetry to.
 pub struct Wreckfest2 {
@@ -835,7 +850,7 @@ mod tests {
         let car = at(&main_packet(), "carPlayer");
         let ses = at(&main_packet(), "session");
         let in_car = |part: &str, field: &Fields, name: &str| car + at(&car_full(), part) + at(field, name);
-        let checks: [(usize, usize, &str); 29] = [
+        let checks: [(usize, usize, &str); 31] = [
             (SIGNATURE_AT, at(&header(), "signature"), "signature"),
             (TYPE_AT, at(&header(), "packetType"), "packetType"),
             (GAME_STATUS_AT, at(&header(), "statusFlags"), "statusFlags"),
@@ -861,6 +876,8 @@ mod tests {
             (TRACK_NAME_AT, ses + at(&session(), "trackName"), "trackName"),
             (TRACK_LENGTH_AT, ses + at(&session(), "trackLength"), "trackLength"),
             (LAPS_AT, ses + at(&session(), "laps"), "laps"),
+            (GRID_SIZE_AT, ses + at(&session(), "gridSize"), "gridSize"),
+            (RACE_POSITION_AT, lb + at(&leaderboard(), "position"), "position"),
             (SECTOR_COUNT_AT, ses + at(&session(), "sectorCount"), "sectorCount"),
             (GAME_MODE_AT, ses + at(&session(), "gameMode"), "gameMode"),
             (PLAYER_STATUS_AT, at(&main_packet(), "playerStatusFlags"), "playerStatusFlags"),
@@ -939,6 +956,34 @@ mod tests {
         fn junk(&mut self, n: usize) {
             self.0.extend(std::iter::repeat_n(0xA5, n));
         }
+    }
+
+    #[test]
+    fn the_race_values_are_read_in_lap_modes_and_the_implausible_are_not_given() {
+        // The builder writes position 3 and a grid of 12; the scene has a 5-lap race.
+        let f = parse_frame(&Scene::racing());
+        assert_eq!((f.race_position, f.class_position, f.cars), (Some(3), None, Some(12)));
+        assert_eq!((f.session_laps, f.session_time_left_s), (Some(5), None));
+        // A place past the grid, no place, no grid and no lap count are not given.
+        let mut bytes = build_main(&Scene::racing());
+        bytes[layout::RACE_POSITION_AT] = 13;
+        let f = Main::parse(&bytes).unwrap().to_frame(0.0);
+        assert_eq!((f.race_position, f.cars), (None, Some(12)));
+        bytes[layout::RACE_POSITION_AT] = 0;
+        bytes[layout::GRID_SIZE_AT] = 0;
+        let f = Main::parse(&bytes).unwrap().to_frame(0.0);
+        assert_eq!((f.race_position, f.cars), (None, None));
+        for laps in [0i16, -1, 5000] {
+            let f = parse_frame(&Scene { laps, ..Scene::racing() });
+            assert_eq!(f.session_laps, None, "laps {laps}");
+        }
+        // A derby has no laps and no race values.
+        let f = parse_frame(&Scene {
+            game_mode: 3,
+            sector_count: 0,
+            ..Scene::racing()
+        });
+        assert_eq!((f.race_position, f.cars, f.session_laps), (None, None, None));
     }
 
     #[derive(Clone)]

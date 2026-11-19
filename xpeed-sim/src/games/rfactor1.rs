@@ -53,6 +53,10 @@
 //! * The player's scoring entry is the one with `isPlayer` set. From it: `lastLapTime` (-1 while there is no
 //!   completed lap), `lapDist` (the distance around the track, which the lap file calls `dist`), `inPits` and
 //!   `vehicleClass`. The header exports no vehicle name: the class string stands for the car.
+//! * The race: `place` of the player's scoring entry (1 is first), `numVehicles` (the cars in the session),
+//!   `endET - currentET` (seconds left, only while `endET` is above 0) and `maxLaps`, each through `norm` (a place past
+//!   the field, a session with no end time and a `maxLaps` that is the game's "unlimited" are not given). There is no class
+//!   place: the plugin exports none. Not seen live (ASSUMED: `endET` 0 or very large when the session has no time limit).
 //! * The top-level `lapDist` is the track length in metres (the ISI `ScoringInfo.mLapDist` is the distance around the
 //!   track), not the player's position on it.
 //!
@@ -125,6 +129,9 @@ mod at {
     pub const OVERHEATING: usize = 233;
     pub const DENT_SEVERITY: usize = 235;
     pub const CURRENT_ET: usize = 535;
+    /// `float endET` (when the session ends, on the `currentET` clock) and `long maxLaps`, right after `currentET`.
+    pub const END_ET: usize = 539;
+    pub const MAX_LAPS: usize = 543;
     pub const LAP_DIST: usize = 547;
     pub const NUM_VEHICLES: usize = 551;
     pub const GAME_PHASE: usize = 555;
@@ -136,6 +143,8 @@ mod at {
     pub const V_IS_PLAYER: usize = 84;
     pub const V_CONTROL: usize = 85;
     pub const V_IN_PITS: usize = 86;
+    /// `unsigned char place`, the position in the race (1 is first).
+    pub const V_PLACE: usize = 87;
     pub const V_VEHICLE_CLASS: usize = 88;
 }
 
@@ -299,6 +308,15 @@ fn lap_time(current_et: f32, lap_start_et: f32) -> Option<f64> {
     (-1.0..=86_400.0).contains(&t).then(|| t.max(0.0))
 }
 
+/// The time left in the session: the clock at its end minus the clock now. An end of 0 (or less) is "no time limit"; a
+/// negative difference (the end has passed) or one past a day is not given.
+fn session_time_left(end_et: f32, current_et: f32) -> Option<f64> {
+    if !(end_et.is_finite() && end_et > 0.0 && current_et.is_finite()) {
+        return None;
+    }
+    norm::time_left_s(f64::from(end_et) - f64::from(current_et))
+}
+
 /// The slot of the player's car in the scoring array: the first car the plugin marks `isPlayer`.
 fn player_slot(page: &Page, count: usize) -> Option<usize> {
     (0..count).find(|slot| page.u8_at(at::VEHICLES + slot * VEHICLE_SIZE + at::V_IS_PLAYER) == 1)
@@ -378,6 +396,10 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     frame.track = page.ascii_at(at::TRACK_NAME, TRACK_NAME_LENGTH);
     let length = within(page.f32_at(at::LAP_DIST), 0.0, 1_000_000.0);
     frame.track_length_m = (length > 0.0).then(|| f64::from(length));
+    frame.cars = norm::cars(vehicles);
+    frame.race_position = norm::place(page.u8_at(me + at::V_PLACE), frame.cars);
+    frame.session_time_left_s = session_time_left(page.f32_at(at::END_ET), page.f32_at(at::CURRENT_ET));
+    frame.session_laps = norm::race_laps(page.i32_at(at::MAX_LAPS));
     // The telemetry is written only while the player is in the car: out of it (the monitor, a pause between
     // sessions) the memory holds the last values, which are stale. No car values outside `Driving`.
     frame.withhold_car_values_unless_driving();
@@ -388,7 +410,7 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
 }
 
 /// What a frame can fill. The plugin exports no lights, flags, aids, brake bias, tyres, or engine and gearbox damage
-/// (the car's dents are the body damage), no tank size and no session or weather data.
+/// (the car's dents are the body damage), no tank size, no class place and no weather data.
 const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
@@ -406,7 +428,11 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::ENGINE_WARNING)
     .or(Caps::WATER_TEMP)
     .or(Caps::OIL_TEMP)
-    .or(Caps::DAMAGE_BODY);
+    .or(Caps::DAMAGE_BODY)
+    .or(Caps::RACE_POSITION)
+    .or(Caps::CARS)
+    .or(Caps::SESSION_TIME_LEFT)
+    .or(Caps::SESSION_LAPS);
 
 /// The overheating light, the temperatures and the dents. The plugin exports no lights, flags, aids, brake bias or
 /// engine and gearbox damage, so those are not given.
@@ -622,6 +648,7 @@ mod tests {
             ("isPlayer", at::V_IS_PLAYER),
             ("control", at::V_CONTROL),
             ("inPits", at::V_IN_PITS),
+            ("place", at::V_PLACE),
             ("vehicleClass", at::V_VEHICLE_CLASS),
         ] {
             assert_eq!(offset_of(&v, name), want, "vehicle.{name}");
@@ -700,6 +727,8 @@ mod tests {
             ("overheating", at::OVERHEATING),
             ("dentSeverity", at::DENT_SEVERITY),
             ("currentET", at::CURRENT_ET),
+            ("endET", at::END_ET),
+            ("maxLaps", at::MAX_LAPS),
             ("lapDist", at::LAP_DIST),
             ("numVehicles", at::NUM_VEHICLES),
             ("gamePhase", at::GAME_PHASE),
@@ -748,6 +777,7 @@ mod tests {
         want.track = "Interlagos".into();
         want.track_variant = None;
         want.track_length_m = Some(4309.0);
+        want.cars = Some(3);
         want.state = CarState {
             engine_warning: Some(true),
             water_c: Some(92.5),
@@ -757,6 +787,33 @@ mod tests {
         };
         assert_eq!(frame, want);
         assert!(reader.alive());
+    }
+
+    #[test]
+    fn the_race_values_come_from_the_players_entry_and_the_session() {
+        let mut image = Image::on_track();
+        image.0[Image::vehicle(PLAYER) + at::V_PLACE] = 2;
+        image.0[Image::vehicle(0) + at::V_PLACE] = 1;
+        image.f32(at::END_ET, 2863.75); // 1063.75 now: 1800 s to go
+        image.i32(at::MAX_LAPS, 12);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!((frame.race_position, frame.class_position, frame.cars), (Some(2), None, Some(3)));
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (Some(1800.0), Some(12)));
+        // No end time (0), the end already passed, and an "unlimited" number of laps are not given.
+        image.f32(at::END_ET, 0.0);
+        image.i32(at::MAX_LAPS, i32::MAX);
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        assert_eq!((frame.session_time_left_s, frame.session_laps), (None, None));
+        image.f32(at::END_ET, 900.0);
+        image.i32(at::MAX_LAPS, 0);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().session_time_left_s, None);
+        image.f32(at::END_ET, 1.0e9);
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().session_time_left_s, None);
+        // A place past the three cars is not given, nor is 0 (no place yet).
+        image.0[Image::vehicle(PLAYER) + at::V_PLACE] = 4;
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().race_position, None);
+        image.0[Image::vehicle(PLAYER) + at::V_PLACE] = 0;
+        assert_eq!(frame_from(&image.0, 0.0).unwrap().race_position, None);
     }
 
     #[test]
