@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Tyre};
+use crate::game::{AidSettings, Caps, CarState, Drs, Flag, Frame, Phase, Tyre};
 use crate::lapfile::SessionKind;
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
 use crate::maps::Store;
@@ -80,6 +80,12 @@ pub fn lmu_frame(t: &PlayerTelemetry, scoring: Option<&ScoringFrame>) -> Frame {
     });
     frame.tyres = tyres.iter().any(Tyre::known).then_some(tyres);
     frame.state = lmu_state(t, scoring.and_then(|s| s.player.as_ref()));
+    // A maximum of 0 is a car without the aid (`lmu_state` gives no level for it); the lap file then says 0, not unknown.
+    frame.aids = AidSettings {
+        tc_absent: t.tc_max == 0,
+        abs_absent: t.abs_max == 0,
+        ..AidSettings::UNKNOWN
+    };
     frame.car = t.vehicle_name.clone();
     frame.track = t.track_name.clone();
     if let Some(s) = scoring {
@@ -1281,6 +1287,10 @@ mod tests {
                 damage_suspension: None,
             }
         );
+        // The aids for the lap file: this car has TC (maximum 10) and no ABS (maximum 0, so the lap says 0 for it).
+        let aids = lmu_frame(&t, Some(&scoring(6, false))).aids;
+        assert_eq!((aids.tc_absent, aids.abs_absent), (false, true));
+        assert_eq!(aids.stability, None, "the game gives no other aid");
         assert_eq!(lmu_frame(&t, Some(&scoring(0, true))).state.flag, Some(Flag::Yellow));
         assert_eq!(lmu_frame(&t, Some(&scoring(0, false))).state.flag, None);
         assert_eq!(

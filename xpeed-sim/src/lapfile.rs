@@ -140,6 +140,89 @@ impl Recorder {
     }
 }
 
+/// The driving aids a lap was driven with (the optional `aids` object of the header, version 2, added without a version
+/// bump like `recorder`). Each value is the HIGHEST setting seen at any moment of the lap, so a driver who turned
+/// traction control off for the last corner still has TC on for that lap. A field is `None` (and left out of the file)
+/// when the game does not give that aid, or did not give it on every moment of the lap: "unknown" is never written as
+/// "off". A car without the aid (its maximum is 0) writes 0. The whole object is left out when nothing is known.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Aids {
+    /// Highest traction control setting (0 is off), 0 to 100.
+    pub tc_max: Option<u8>,
+    /// Highest ABS setting, 0 to 100.
+    pub abs_max: Option<u8>,
+    /// Highest stability control, 0 (off) to 1 (full).
+    pub stability: Option<f64>,
+    pub auto_shift: Option<bool>,
+    pub auto_clutch: Option<bool>,
+    pub auto_blip: Option<bool>,
+    pub ideal_line: Option<bool>,
+}
+
+/// The highest TC or ABS setting a header takes.
+pub const MAX_AID_LEVEL: u8 = 100;
+
+impl Aids {
+    /// Nothing known: the header leaves the object out.
+    pub fn is_empty(&self) -> bool {
+        *self == Aids::default()
+    }
+
+    fn valid(&self) -> bool {
+        self.tc_max.into_iter().chain(self.abs_max).all(|level| level <= MAX_AID_LEVEL)
+            && self.stability.is_none_or(|v| v.is_finite() && (0.0..=1.0).contains(&v))
+    }
+
+    /// The JSON object text, keys in the one fixed order of the TypeScript writer.
+    fn json(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(level) = self.tc_max {
+            parts.push(format!("\"tcMax\":{level}"));
+        }
+        if let Some(level) = self.abs_max {
+            parts.push(format!("\"absMax\":{level}"));
+        }
+        if let Some(share) = self.stability {
+            parts.push(format!("\"stability\":{}", number(share)));
+        }
+        for (key, value) in [
+            ("autoShift", self.auto_shift),
+            ("autoClutch", self.auto_clutch),
+            ("autoBlip", self.auto_blip),
+            ("idealLine", self.ideal_line),
+        ] {
+            if let Some(on) = value {
+                parts.push(format!("\"{key}\":{on}"));
+            }
+        }
+        format!("{{{}}}", parts.join(","))
+    }
+
+    /// Reads the object leniently (a wrong type is "not given"): the app checks it strictly, this reader only needs
+    /// the laps this program wrote.
+    fn from_json(object: &serde_json::Value) -> Option<Aids> {
+        let object = object.as_object()?;
+        let level = |key: &str| {
+            object
+                .get(key)
+                .and_then(|v| v.as_u64())
+                .and_then(|n| u8::try_from(n).ok())
+                .filter(|n| *n <= MAX_AID_LEVEL)
+        };
+        let switch = |key: &str| object.get(key).and_then(|v| v.as_bool());
+        let aids = Aids {
+            tc_max: level("tcMax"),
+            abs_max: level("absMax"),
+            stability: object.get("stability").and_then(|v| v.as_f64()).filter(|v| (0.0..=1.0).contains(v)),
+            auto_shift: switch("autoShift"),
+            auto_clutch: switch("autoClutch"),
+            auto_blip: switch("autoBlip"),
+            ideal_line: switch("idealLine"),
+        };
+        (!aids.is_empty()).then_some(aids)
+    }
+}
+
 /// `text` trimmed and cut to `max` UTF-16 units, or `None` when nothing usable is left.
 fn label(text: &str, max: usize) -> Option<String> {
     let clean: String = text.trim().chars().filter(|c| *c as u32 > 0x1f && *c as u32 != 0x7f).collect();
@@ -184,6 +267,8 @@ pub struct Lap {
     pub out_lap: Option<bool>,
     /// Version 2: who recorded the lap (`sanity::prepare` fills it when a reader left it empty).
     pub recorder: Option<Recorder>,
+    /// Version 2: the aids the lap was driven with, highest setting seen on the lap; `None` when nothing is known.
+    pub aids: Option<Aids>,
     /// Version 2: the ids of the data checks (`sanity`) the lap failed; empty when it passed all of them.
     pub checks: Vec<String>,
     pub channels: Vec<Channel>,
@@ -313,6 +398,9 @@ fn header_json(lap: &Lap, sample_count: usize, version: u16) -> String {
         }
     }
     if version >= 2 {
+        if let Some(aids) = lap.aids.as_ref().filter(|aids| !aids.is_empty()) {
+            session.push_str(&format!(",\"aids\":{}", aids.json()));
+        }
         if let Some(recorder) = &lap.recorder {
             let mut object = format!(
                 "\"app\":{},\"version\":{},\"build\":{},\"source\":{}",
@@ -429,6 +517,9 @@ pub fn pack_as(lap: &Lap, version: u16) -> Result<Vec<u8>, LapError> {
                 return err("the recorder must be short plain labels");
             }
         }
+        if lap.aids.as_ref().is_some_and(|aids| !aids.valid()) {
+            return err("the aids must be settings 0 to 100 and a stability 0 to 1");
+        }
         if lap.checks.len() > 16 || lap.checks.iter().any(|id| !is_id(id)) {
             return err("the checks must be up to 16 ids");
         }
@@ -542,6 +633,7 @@ pub fn unpack(bytes: &[u8]) -> Result<Lap, LapError> {
         tyre_compound: text(&header["tyreCompound"]),
         in_lap: header["lap"]["inLap"].as_bool(),
         out_lap: header["lap"]["outLap"].as_bool(),
+        aids: Aids::from_json(&header["aids"]),
         recorder: header["recorder"].as_object().map(|object| {
             let get = |key: &str| object.get(key).and_then(|v| v.as_str()).map(str::to_owned);
             Recorder {
@@ -616,6 +708,7 @@ mod tests {
             in_lap: Some(false),
             out_lap: Some(true),
             recorder: None,
+            aids: None,
             checks: Vec::new(),
             channels: vec![
                 channel("t", "s", [0.0, 0.5, 1.0]),
@@ -1090,6 +1183,119 @@ mod tests {
         let mut ids = stamped_lap();
         ids.checks = vec!["Not An Id".into()];
         assert!(pack(&ids).is_err());
+    }
+
+    fn aided_lap() -> Lap {
+        Lap {
+            aids: Some(Aids {
+                tc_max: Some(4),
+                abs_max: Some(0),
+                stability: Some(0.5),
+                auto_shift: Some(false),
+                auto_clutch: Some(true),
+                auto_blip: Some(false),
+                ideal_line: Some(true),
+            }),
+            ..golden_v2_lap()
+        }
+    }
+
+    #[test]
+    fn the_aids_of_a_lap_are_written_in_the_header_and_read_back() {
+        let bytes = pack(&aided_lap()).unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_string();
+        // The same text the TypeScript test of the app expects, so the two writers agree on the order of the keys.
+        assert!(text.contains(
+            "\"aids\":{\"tcMax\":4,\"absMax\":0,\"stability\":0.5,\"autoShift\":false,\"autoClutch\":true,\"autoBlip\":false,\"idealLine\":true},\"channels\""
+        ));
+        assert_eq!(
+            &bytes[4..6],
+            &2u16.to_le_bytes(),
+            "still version 2: the field was added without a bump"
+        );
+        assert_eq!(unpack(&bytes).unwrap().aids, aided_lap().aids);
+        assert_eq!(gunzip(&gzip(&aided_lap()).unwrap(), MAX_UNPACKED).unwrap().aids, aided_lap().aids);
+        // Version 1 has no aids.
+        let v1 = String::from_utf8_lossy(&pack_as(&aided_lap(), 1).unwrap()).to_string();
+        assert!(!v1.contains("aids"));
+    }
+
+    #[test]
+    fn a_lap_with_no_known_aid_writes_no_aids_object_and_old_files_still_read() {
+        for aids in [None, Some(Aids::default())] {
+            let lap = Lap { aids, ..golden_v2_lap() };
+            let bytes = pack(&lap).unwrap();
+            assert!(!String::from_utf8_lossy(&bytes).contains("aids"));
+            assert_eq!(unpack(&bytes).unwrap().aids, None);
+            // The golden vectors of the format (written before the field existed) are byte for byte what they were.
+            assert_eq!(bytes, pack(&golden_v2_lap()).unwrap());
+        }
+        assert_eq!(unpack(&from_hex(GOLDEN_HEX)).unwrap().aids, None);
+        assert_eq!(unpack(&from_hex(GOLDEN_V2_HEX)).unwrap().aids, None);
+    }
+
+    #[test]
+    fn only_the_known_aids_are_written() {
+        let lap = Lap {
+            aids: Some(Aids {
+                tc_max: Some(0),
+                ideal_line: Some(false),
+                ..Aids::default()
+            }),
+            ..golden_v2_lap()
+        };
+        let text = String::from_utf8_lossy(&pack(&lap).unwrap()).to_string();
+        assert!(
+            text.contains("\"aids\":{\"tcMax\":0,\"idealLine\":false},"),
+            "tcMax 0 is a known \"off\""
+        );
+        assert_eq!(unpack(&pack(&lap).unwrap()).unwrap().aids, lap.aids);
+    }
+
+    #[test]
+    fn refuses_aids_the_app_would_refuse() {
+        for aids in [
+            Aids {
+                tc_max: Some(101),
+                ..Aids::default()
+            },
+            Aids {
+                abs_max: Some(255),
+                ..Aids::default()
+            },
+            Aids {
+                stability: Some(1.5),
+                ..Aids::default()
+            },
+            Aids {
+                stability: Some(-0.1),
+                ..Aids::default()
+            },
+            Aids {
+                stability: Some(f64::NAN),
+                ..Aids::default()
+            },
+        ] {
+            assert!(
+                pack(&Lap {
+                    aids: Some(aids.clone()),
+                    ..golden_v2_lap()
+                })
+                .is_err(),
+                "{aids:?}"
+            );
+        }
+        let edge = Aids {
+            tc_max: Some(100),
+            abs_max: Some(100),
+            stability: Some(1.0),
+            ..Aids::default()
+        };
+        assert!(pack(&Lap {
+            aids: Some(edge),
+            ..golden_v2_lap()
+        })
+        .is_ok());
     }
 
     #[test]
