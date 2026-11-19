@@ -1,6 +1,6 @@
 # Companion dashboards: a widget catalog, dashboards per session, and the phone view
 
-Status (2026-11-19): **approved, nothing built yet.** The owner decided: a modular catalog, dashboards made from it, no OBS
+Status (2026-11-19): **approved; phases 1 and 2 built** on `feat/dashboard-catalog` (CI green, not merged, not released). The owner decided: a modular catalog, dashboards made from it, no OBS
 overlays, the phone view as a PWA planned in parallel, and **every game the Companion reads is in scope, not only iRacing**. The
 proposals under "Owner decisions" were accepted as written ("tudo ok", 2026-11-19).
 
