@@ -1253,14 +1253,13 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
         assert_eq!(field.cars[0].gap_leader_s, Some(0.0), "the gaps are the layer's estimate");
         // A car that left (no place, no laps, no share) is dropped; the player's own stays.
         let mut gone = race_image();
-        for i in [1, 3] {
-            gone.set_at(0, "CarIdxPosition", i, 0.0);
-            gone.set_at(0, "CarIdxLapCompleted", i, -1.0);
-            gone.set_at(0, "CarIdxLapDistPct", i, -1.0);
-        }
+        gone.set_at(0, "CarIdxPosition", 3, 0.0);
+        gone.set_at(0, "CarIdxLapCompleted", 3, -1.0);
+        gone.set_at(0, "CarIdxLapDistPct", 3, -1.0);
         let (vars, buf) = gone.values(0);
         let field = field_from(&Values { vars: &vars, buf: &buf }, &session, 0.0, None).unwrap();
-        assert_eq!(field.cars.len(), 2);
+        let names: Vec<&str> = field.cars.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Leader", "Me"]);
         assert!(field.player().is_some());
         // A build with no per-car arrays gives no field.
         let image = driving_image_of(VARS, RACE_SESSION);
