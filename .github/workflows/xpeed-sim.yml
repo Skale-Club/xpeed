@@ -211,11 +211,20 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           if (-not $env:PUBLIC_URL) { throw 'XPEED_PUBLIC_URL is required before Companion publication.' }
+          # The server is compatible when it runs this commit or a later main commit that contains it (a push that
+          # touched only the server or the tests deploys after this one, and its build must not withhold this release).
+          function Test-Compatible([string] $version) {
+            if ($version -eq $env:EXPECTED_SHA) { return $true }
+            if ($version -notmatch '^[0-9a-f]{40}$') { return $false }
+            git fetch --quiet origin main 2>$null
+            git merge-base --is-ancestor $env:EXPECTED_SHA $version 2>$null
+            return $LASTEXITCODE -eq 0
+          }
           for ($attempt = 1; $attempt -le 120; $attempt++) {
             try {
               $health = Invoke-RestMethod -Uri "$($env:PUBLIC_URL)/api/health" -TimeoutSec 10
-              if ($health.version -eq $env:EXPECTED_SHA -and $health.database -eq 'ok' -and $health.storage -eq 'ok') {
-                Write-Host "Compatible server is healthy at $env:EXPECTED_SHA."
+              if ($health.database -eq 'ok' -and $health.storage -eq 'ok' -and (Test-Compatible "$($health.version)")) {
+                Write-Host "Compatible server is healthy at $($health.version) (contains $env:EXPECTED_SHA)."
                 exit 0
               }
             } catch { }
