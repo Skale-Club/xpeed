@@ -2353,7 +2353,10 @@ fn blocks_are_stacked_with_an_even_gap_and_centred_never_with_a_hole() {
         assert_eq!(fuel_rows(card, 74.0, true, 3, false).temps, None);
     }
     let tall = fuel_rows((0.0, 0.0, 400.0, 460.0), 74.0, true, 3, true);
-    assert!(tall.stats.is_some() && tall.planner.is_some(), "a tall card has room for everything");
+    assert!(
+        tall.stats.is_some() && tall.planner.is_some(),
+        "a tall card has room for everything"
+    );
     let short = fuel_rows((0.0, 0.0, 400.0, 262.0), 74.0, true, 3, true);
     assert!(short.planner.is_none(), "the planner goes first");
 }
