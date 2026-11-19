@@ -667,11 +667,21 @@ impl Painter {
         self.fill(self.r(x + w / 2.0 - 1.0, y - 3.0, 2.0, h + 6.0), tick);
     }
 
-    /// The wheel as a slim bar with a tick at the centre and a yellow fill from the centre toward the side the wheel is
-    /// turned to (-1 full left .. 1 full right; straight, and a muted tick, without a value).
-    pub(super) fn steer_bar(&self, area: Area, steer: f32) {
-        let tick = if steer.is_finite() { FOREGROUND } else { MUTED_TEXT };
-        self.centred_bar(area, 0.5 + steer_share(steer) / 2.0, PRIMARY, tick);
+    /// The wheel (owner, 2026-11-19): the one bar that is a line, not blocks. A faint hairline across, a short mark at
+    /// the middle, and a thin white line from the middle toward the side the wheel is turned to (-1 full left .. 1 full
+    /// right; straight, and a muted mark, without a value). Subtle on purpose.
+    pub(super) fn steer_bar(&self, (x, y, w, h): Area, steer: f32) {
+        let mid = y + h / 2.0;
+        self.fill(self.r(x, mid - STROKE_HAIR / 2.0, w, STROKE_HAIR), SECONDARY);
+        let share = steer_share(steer);
+        let half = w / 2.0;
+        let len = half * share.abs();
+        if len >= 0.5 {
+            let from = if share > 0.0 { x + half } else { x + half - len };
+            self.fill(self.r(from, mid - STEER_LINE_H / 2.0, len, STEER_LINE_H), FOREGROUND);
+        }
+        let mark = if steer.is_finite() { FOREGROUND_2 } else { MUTED_TEXT };
+        self.fill(self.r(x + half - STROKE_HAIR / 2.0, y, STROKE_HAIR, h), mark);
     }
 
     /// The tank: blocks lit `share` (0..1) of the way in `color`, with a thin tick every `tick` (a share of the whole)

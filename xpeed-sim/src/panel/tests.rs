@@ -1555,6 +1555,20 @@ fn a_tyre_is_drawn_in_the_colours_of_its_temperatures() {
     assert!((5..35).all(|x| at(x, 5) == WARN), "a solid tyre has no bands");
 }
 
+/// The owner's wheel (2026-11-19): not blocks and not a turning wheel, just a thin white line from the middle toward
+/// the side the car is turning, over a faint hairline.
+#[test]
+fn the_wheel_is_a_thin_white_line_toward_the_turn() {
+    let (w, h) = (200, 8);
+    let at = painted_by(w, h, |g| g.steer_bar((0.0, 0.0, w as f32, h as f32), 0.5));
+    let mid = h / 2;
+    assert_eq!(at(150, mid), FOREGROUND, "turned right: the line runs right of the middle");
+    assert_eq!(at(50, mid), SECONDARY, "and only the hairline on the left");
+    assert_eq!(at(150, 0), 0, "a line, not a bar: nothing above it");
+    let at = painted_by(w, h, |g| g.steer_bar((0.0, 0.0, w as f32, h as f32), -1.0));
+    assert_eq!((at(5, mid), at(195, mid)), (FOREGROUND, SECONDARY), "full left");
+}
+
 /// The owner's centre card (module 7, 2026-11-19): shift lights over the gear and the throttle and brake of the last
 /// seconds under the wheel.
 #[test]

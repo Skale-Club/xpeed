@@ -257,11 +257,14 @@ pub(super) const GEAR_FILL: f32 = 0.93;
 /// it; changing it is an owner decision, recorded in the journal before the code.
 pub(super) const R_CORNER: f32 = 2.5;
 
-/// Every bar (fuel, delta, throttle, brake, clutch, wheel, tread wear, progress) is a row of square blocks a hair
-/// apart, never one continuous rounded fill. Owner decision: the segmented bars of 2026-11-12 (ac5c6b5) were the right
-/// ones; the stage-2 rebuild of 2026-11-16 (37cc6fc) swapped them for solid rounded bars, restored 2026-11-19.
+/// Every bar (fuel, delta, throttle, brake, clutch, tread wear, progress) is a row of square blocks a hair apart, never
+/// one continuous rounded fill; the one exception is the wheel, a thin white line (`STEER_LINE_H`, owner 2026-11-19).
+/// Owner decision: the segmented bars of 2026-11-12 (ac5c6b5) were the right ones; the stage-2 rebuild of 2026-11-16
+/// (37cc6fc) swapped them for solid rounded bars, restored 2026-11-19.
 /// `Painter::blocks` draws them; `tests::bars_are_square_blocks` pins it.
 pub(super) const BAR_BLOCKS: usize = 20;
+/// The wheel's line: how thick (owner, 2026-11-19: "just a line, subtle, minimalist").
+pub(super) const STEER_LINE_H: f32 = 2.0;
 /// The hair between two blocks.
 pub(super) const BAR_BLOCK_GAP: f32 = 1.5;
 /// The narrowest block: a short bar has fewer blocks rather than slivers.
