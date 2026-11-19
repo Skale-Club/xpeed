@@ -402,7 +402,7 @@ pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area) {
             caption(g, compound, (x, y, w, CAPTION_H), DT_RIGHT);
         }
         for (i, (tile, area)) in tyres.tiles.iter().zip(tyre_tiles(card)).enumerate() {
-            tyre_tile_view(g, tile, &tyres.brake_label, area, i % 2 == 0);
+            tyre_tile_view(g, tile, &tyres.brake_label, area, i.is_multiple_of(2));
         }
     });
 }

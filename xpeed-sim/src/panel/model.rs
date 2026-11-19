@@ -672,7 +672,7 @@ fn heat_role(temp_c: f32, warm: f32, hot: f32) -> Role {
 fn tyre_tile(lang: Lang, units: crate::config::Units, index: usize, t: &crate::game::Tyre) -> TyreTile {
     let state = TyreState::of(t.temp_c);
     // `tread_c` is inner, middle, outer; inner faces the car's centre, so a left tyre (FL, RL) shows it on its right.
-    let left_side = index % 2 == 0;
+    let left_side = index.is_multiple_of(2);
     let drawn = t.tread_c.map(|[inner, middle, outer]| {
         if left_side {
             [outer, middle, inner]
