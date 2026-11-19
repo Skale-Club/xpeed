@@ -2748,7 +2748,7 @@ fn the_dashboard_ids_are_a_contract() {
     assert_eq!(ids, ["race", "qualifying", "practice", "time_trial"]);
     for d in DashboardId::ALL {
         assert_eq!(DashboardId::from_id(d.id()), Some(d));
-        assert_eq!(dashboard(d).id, d);
+        assert_eq!(builtin(d).id, d);
     }
     assert_eq!(DashboardId::from_id("nope"), None);
 }

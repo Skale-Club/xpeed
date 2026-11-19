@@ -311,7 +311,7 @@ pub(super) fn row_heights(rows: &[(f32, Vec<Pane>)], lap_rows: usize) -> Vec<f32
 impl Layout {
     /// The canvas width and the rows of `dashboard` in this layout.
     fn spec(self, dashboard: DashboardId) -> (f32, &'static [Row]) {
-        (self.width(), dashboards::dashboard(dashboard).rows_for(self))
+        (self.width(), dashboards::builtin(dashboard).rows_for(self))
     }
 
     /// The canvas width in design units.

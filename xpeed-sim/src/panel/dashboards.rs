@@ -83,7 +83,7 @@ const TIME_TRIAL: Dashboard = Dashboard {
 };
 
 /// The built-in dashboard with this id.
-pub(super) fn dashboard(id: DashboardId) -> &'static Dashboard {
+pub(super) fn builtin(id: DashboardId) -> &'static Dashboard {
     match id {
         DashboardId::Race => &RACE,
         DashboardId::Qualifying => &QUALIFYING,
