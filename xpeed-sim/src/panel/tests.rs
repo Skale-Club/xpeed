@@ -859,7 +859,15 @@ fn writes_the_design_preview_page() {
         ),
     ];
     let mut figures = String::new();
+    let rich = rich_reading();
     for (file, caption, reading, w, h) in [
+        (
+            "preview-tyre-bands.png",
+            "A game that gives the tread (AC, ACC, EVO, R3E, LMU): each tyre in three bands (1920 × 1080)",
+            &rich,
+            1920,
+            1080,
+        ),
         (
             "preview-unknown-state.png",
             "A game that gives no lights, temperatures or damage (1920 × 1080)",
