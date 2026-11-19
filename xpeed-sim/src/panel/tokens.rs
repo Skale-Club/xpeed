@@ -78,6 +78,45 @@ pub(super) const REV_STOPS: [(f32, COLORREF); 4] = [
     (0.8, rgb(0xff, 0x9f, 0x1c)),
     (1.0, rgb(0xff, 0x30, 0x30)),
 ];
+/// A tyre's colour by its temperature (°C): steel while cold, green in its window, amber hot, red over, blending between
+/// them (the thresholds of `TyreState`: 65 / 95 / 105). Owner-approved mockup, 2026-11-19.
+pub(super) const TYRE_HEAT_STOPS: [(f32, COLORREF); 8] = [
+    (40.0, STEEL),
+    (65.0, STEEL),
+    (72.0, SUCCESS),
+    (92.0, SUCCESS),
+    (98.0, WARN),
+    (104.0, WARN),
+    (110.0, DESTRUCTIVE),
+    (140.0, DESTRUCTIVE),
+];
+/// The rubber around a tyre's tread when it is drawn from above (its sidewalls).
+pub(super) const TYRE_SIDEWALL: COLORREF = rgb(0x0b, 0x0b, 0x0c);
+/// The distance between two grooves across a drawn tread.
+pub(super) const TYRE_GROOVE_PITCH: f32 = 10.0;
+
+/// A groove across a drawn tread: its colour, a little darker.
+pub(super) const fn groove_of(c: COLORREF) -> COLORREF {
+    mix(c, TYRE_SIDEWALL, 0.3)
+}
+
+/// The colour of a tyre at `temp_c` along `TYRE_HEAT_STOPS`; a quiet grey without a temperature.
+pub(super) fn heat_colour(temp_c: f32) -> COLORREF {
+    if !temp_c.is_finite() {
+        return SECONDARY;
+    }
+    let stops = TYRE_HEAT_STOPS;
+    if temp_c <= stops[0].0 {
+        return stops[0].1;
+    }
+    for pair in stops.windows(2) {
+        let ((t0, c0), (t1, c1)) = (pair[0], pair[1]);
+        if temp_c <= t1 {
+            return mix(c0, c1, (temp_c - t0) / (t1 - t0));
+        }
+    }
+    stops[stops.len() - 1].1
+}
 /// How many divisions the rev bar has.
 pub(super) const REV_DIVISIONS: usize = 10;
 /// The window's backdrop runs from this at the top to that at the bottom (a gradient around `BACKGROUND`).

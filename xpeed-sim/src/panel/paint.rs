@@ -682,12 +682,26 @@ impl Painter {
         }
     }
 
-    /// Three short bars side by side with a hair between: the tread's inner, middle and outer.
-    pub(super) fn thirds_bar(&self, (x, y, w, h): Area, colors: [COLORREF; 3]) {
-        let gap = S1 / 2.0;
-        let seg = (w - 2.0 * gap) / 3.0;
-        for (i, color) in colors.into_iter().enumerate() {
-            self.round(self.r(x + i as f32 * (seg + gap), y, seg, h), color, None);
+    /// A tyre seen from above (owner decision 2026-11-19, `TyreShape`): dark sidewalls around the tread, and the tread as
+    /// one block or three bands a hair apart, each in the colour of its temperature, with thin grooves across.
+    pub(super) fn tyre_shape(&self, (x, y, w, h): Area, shape: TyreShape) {
+        self.round(self.r(x, y, w, h), TYRE_SIDEWALL, None);
+        let wall = (w * 0.09).max(2.0);
+        let tread = self.r(x + wall, y + wall, (w - 2.0 * wall).max(1.0), (h - 2.0 * wall).max(1.0));
+        let colours: &[COLORREF] = match &shape {
+            TyreShape::Solid(c) => std::slice::from_ref(c),
+            TyreShape::Bands(c) => c,
+        };
+        let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
+        let pitch = (TYRE_GROOVE_PITCH * self.s).round().max(4.0) as i32;
+        let spans = block_spans(tread.left, tread.right, colours.len(), gap);
+        for ((left, right), colour) in spans.into_iter().zip(colours) {
+            self.fill(rect(left, tread.top, right, tread.bottom), *colour);
+            let mut gy = tread.top + pitch;
+            while gy < tread.bottom - 1 {
+                self.fill(rect(left, gy, right, gy + 1), groove_of(*colour));
+                gy += pitch;
+            }
         }
     }
 

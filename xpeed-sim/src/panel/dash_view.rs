@@ -401,29 +401,38 @@ pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area) {
         if let Some(compound) = &tyres.compound {
             caption(g, compound, (x, y, w, CAPTION_H), DT_RIGHT);
         }
-        for (tile, area) in tyres.tiles.iter().zip(tyre_tiles(card)) {
-            tyre_tile_view(g, tile, &tyres.brake_label, area);
+        for (i, (tile, area)) in tyres.tiles.iter().zip(tyre_tiles(card)).enumerate() {
+            tyre_tile_view(g, tile, &tyres.brake_label, area, i % 2 == 0);
         }
     });
 }
 
-/// One tyre's tile: its corner and state word, the temperature in the state's colour, a bar of three across the tread when
-/// the game gives them, the pressure and the brake in a small row, and a thin wear bar when the game gives the wear.
-/// What does not fit the tile's height is left out, the wear first, then the bar across the tread.
-pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, area: Area) {
+/// One tyre's tile: the tyre drawn from above on its outer side (`Painter::tyre_shape`: three bands across the tread
+/// when the game gives them, one block otherwise, in the colours of the temperatures), and beside it its corner and state
+/// word, the temperature, the three readings across the tread, the pressure and the brake in a small row, and a thin
+/// wear bar when the game gives the wear. What does not fit the tile's height is left out, the wear first, then the
+/// readings across the tread.
+pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, area: Area, left_side: bool) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     tile_with_edge(g, area, BACKGROUND, t.role.colour());
     let (x, y, w, h) = area;
     // The rows, by what they need; the padding shrinks before a row goes.
-    let (head_h, temp_h, tread_h, row_h, wear_h) = (16.0, 30.0, 9.0, 18.0, 7.0);
+    let (head_h, temp_h, tread_h, row_h, wear_h) = (16.0, 30.0, 16.0, 18.0, 7.0);
     let base = head_h + temp_h + if t.pressure.is_some() || t.brake.is_some() { row_h } else { 0.0 };
     let pad = if h >= base + tread_h + wear_h + 2.0 * S2 { S2 } else { S1 };
     let room = h - 2.0 * pad;
-    let tread = t.tread.filter(|_| room >= base + tread_h);
+    let tread = t.tread_text.as_ref().filter(|_| room >= base + tread_h);
     let wear = t
         .wear
         .filter(|_| room >= base + if tread.is_some() { tread_h } else { 0.0 } + wear_h);
-    let (ix, iw) = (x + S2, w - 2.0 * S2);
+    // The tyre on the tile's outer side (left for a left tyre), the words beside it.
+    let shape_w = (w * 0.24).clamp(14.0, 40.0);
+    let shape_h = (room - STROKE_ACCENT).min(shape_w * 2.0).max(1.0);
+    let shape_x = if left_side { x + S2 } else { x + w - S2 - shape_w };
+    let shape_y = y + pad + STROKE_ACCENT * 0.5 + (room - STROKE_ACCENT - shape_h) / 2.0;
+    g.tyre_shape((shape_x, shape_y, shape_w, shape_h), t.shape);
+    let iw = (w - 3.0 * S2 - shape_w).max(1.0);
+    let ix = if left_side { x + 2.0 * S2 + shape_w } else { x + S2 };
     let mut at = y + pad + STROKE_ACCENT * 0.5;
     let r = g.r(ix, at, iw, head_h);
     g.caps(&t.corner, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
@@ -434,10 +443,23 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
     at += head_h;
     let size = g.fitted(&t.temp, iw, T_VALUE_L, T_BODY, semi, Face::Num);
     let r = g.r(ix - 1.0, at, iw + 2.0, temp_h);
-    g.text(&t.temp, r, size, semi, Face::Num, t.role.colour(), DT_LEFT);
+    g.text(&t.temp, r, size, semi, Face::Num, t.heat, DT_LEFT);
     at += temp_h;
     if let Some(points) = tread {
-        g.thirds_bar((ix, at + 1.0, iw, 5.0), points.map(Role::colour));
+        // The three readings as the tyre draws them, each in its colour, a quiet dot between.
+        let mut cx = ix;
+        for (k, (number, colour)) in points.iter().enumerate() {
+            if k > 0 {
+                let dot_w = g.width_of("·", T_CAPTION, normal, Face::Ui) + S1;
+                let r = g.r(cx, at, dot_w, tread_h);
+                g.text("·", r, T_CAPTION, normal, Face::Ui, MUTED_TEXT, DT_CENTER);
+                cx += dot_w;
+            }
+            let nw = g.tabular_width(number, T_CAPTION, semi);
+            let r = g.r(cx, at, nw + 2.0, tread_h);
+            g.text(number, r, T_CAPTION, semi, Face::Num, *colour, DT_LEFT);
+            cx += nw;
+        }
         at += tread_h;
     }
     if t.pressure.is_some() || t.brake.is_some() {

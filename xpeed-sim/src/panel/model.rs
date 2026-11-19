@@ -419,13 +419,27 @@ pub(super) struct TyreTile {
     pub(super) word: String,
     pub(super) role: Role,
     pub(super) temp: String,
-    /// Inner, middle and outer, each in the colour of its own state.
-    pub(super) tread: Option<[Role; 3]>,
+    /// The colour of the tyre's temperature (`heat_colour`), for the big number.
+    pub(super) heat: COLORREF,
+    /// The tyre drawn from above, left to right as it sits on the car: three bands (outer, middle, inner on a left
+    /// tyre; inner, middle, outer on a right one) when the game gives the tread, one block otherwise.
+    pub(super) shape: TyreShape,
+    /// The three readings across the tread as drawn (left to right), each with its colour.
+    pub(super) tread_text: Option<[(String, COLORREF); 3]>,
     /// The pressure and its unit.
     pub(super) pressure: Option<(String, &'static str)>,
     pub(super) brake: Option<String>,
     /// How much of the tread is left, 0..1.
     pub(super) wear: Option<f32>,
+}
+
+/// A tyre seen from above, in the colours of its temperatures. Owner decision 2026-11-19: only the tyre (no car), three
+/// vertical bands for a game that gives the readings across the tread (`Caps::TYRE_TREAD`), a solid block otherwise.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum TyreShape {
+    Solid(COLORREF),
+    /// Left to right as drawn.
+    Bands([COLORREF; 3]),
 }
 
 /// The four tyres: what is shown, and the tiles (made from the last values seen when the frame has none).
@@ -595,6 +609,11 @@ pub(super) fn temp_short(c: f32, unit: crate::config::TempUnit) -> String {
     format!("{:.0}°", temp_in(c, unit))
 }
 
+/// `84`: one of the readings across a tread, a bare number (the big figure above it has the degree).
+pub(super) fn temp_number(c: f32, unit: crate::config::TempUnit) -> String {
+    format!("{:.0}", temp_in(c, unit))
+}
+
 /// A tyre's pressure and its unit: psi with a decimal, bar with two, kPa whole.
 pub(super) fn pressure_text(kpa: f32, unit: crate::config::PressureUnit) -> (String, &'static str) {
     use crate::config::PressureUnit;
@@ -652,7 +671,25 @@ fn heat_role(temp_c: f32, warm: f32, hot: f32) -> Role {
 /// One tyre's tile.
 fn tyre_tile(lang: Lang, units: crate::config::Units, index: usize, t: &crate::game::Tyre) -> TyreTile {
     let state = TyreState::of(t.temp_c);
+    // `tread_c` is inner, middle, outer; inner faces the car's centre, so a left tyre (FL, RL) shows it on its right.
+    let left_side = index % 2 == 0;
+    let drawn = t.tread_c.map(|[inner, middle, outer]| {
+        if left_side {
+            [outer, middle, inner]
+        } else {
+            [inner, middle, outer]
+        }
+    });
+    let heat = heat_colour(t.temp_c);
+    let shape = match drawn {
+        Some(points) => TyreShape::Bands(points.map(heat_colour)),
+        None => TyreShape::Solid(heat),
+    };
+    let reading = |c: f32| (temp_number(c, units.temperature), heat_colour(c));
     TyreTile {
+        heat,
+        shape,
+        tread_text: drawn.map(|points| points.map(reading)),
         corner: text(lang, &Msg::PanelTyreCorner(index as u8)),
         word: state.map_or_else(String::new, |s| text(lang, &s.msg())),
         role: state.map_or(Role::Muted, TyreState::role),
@@ -661,9 +698,6 @@ fn tyre_tile(lang: Lang, units: crate::config::Units, index: usize, t: &crate::g
         } else {
             "–".to_owned()
         },
-        tread: t
-            .tread_c
-            .map(|points| points.map(|c| TyreState::of(c).map_or(Role::Muted, TyreState::role))),
         pressure: t.pressure_kpa.is_finite().then(|| pressure_text(t.pressure_kpa, units.pressure)),
         brake: t.brake_c.is_finite().then(|| temp_short(t.brake_c, units.temperature)),
         wear: t.left.is_finite().then(|| t.left.clamp(0.0, 1.0)),

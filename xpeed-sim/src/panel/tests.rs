@@ -1446,6 +1446,15 @@ fn bars_are_square_blocks() {
     assert!(spans.windows(2).all(|p| p[1].0 - p[0].1 == 2), "every gap is the same: {spans:?}");
     // Drawn: a bar half full is lit square from its very first pixel, dark at its end, with black hairs between blocks.
     let (w, h) = (300, 9);
+    let at = painted_by(w, h, |g| g.solid_bar((0.0, 0.0, w as f32, h as f32), 0.5, PRIMARY));
+    assert_eq!(at(0, 0), PRIMARY, "the first block is square: its corner pixel is lit");
+    assert_eq!(at(w - 1, h - 1), SECONDARY, "the last block is dark and square");
+    let hairs = (0..w).filter(|x| at(*x, h / 2) == 0).count();
+    assert_eq!(hairs, 19 * 2, "19 hairs of 2 px between 20 blocks");
+}
+
+/// What `draw` paints on a black bitmap of `w` × `h` at scale 1, read back a pixel at a time as a `COLORREF`.
+fn painted_by(w: i32, h: i32, draw: impl FnOnce(&mut Painter)) -> impl Fn(i32, i32) -> COLORREF {
     let pixels = unsafe {
         let hdc = CreateCompatibleDC(null_mut());
         let mut info: BITMAPINFO = std::mem::zeroed();
@@ -1461,7 +1470,7 @@ fn bars_are_square_blocks() {
         let mut bits: *mut std::ffi::c_void = null_mut();
         let bitmap = CreateDIBSection(hdc, &info, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
         let old = SelectObject(hdc, bitmap);
-        Painter::new(hdc, 1.0).solid_bar((0.0, 0.0, w as f32, h as f32), 0.5, PRIMARY);
+        draw(&mut Painter::new(hdc, 1.0));
         GdiFlush();
         let pixels = std::slice::from_raw_parts(bits.cast::<u8>(), (w * h * 4) as usize).to_vec();
         SelectObject(hdc, old);
@@ -1469,14 +1478,35 @@ fn bars_are_square_blocks() {
         DeleteDC(hdc);
         pixels
     };
-    let at = |x: i32, y: i32| {
+    move |x, y| {
         let i = ((y * w + x) * 4) as usize;
         u32::from(pixels[i]) << 16 | u32::from(pixels[i + 1]) << 8 | u32::from(pixels[i + 2])
-    };
-    assert_eq!(at(0, 0), PRIMARY, "the first block is square: its corner pixel is lit");
-    assert_eq!(at(w - 1, h - 1), SECONDARY, "the last block is dark and square");
-    let hairs = (0..w).filter(|x| at(*x, h / 2) == 0).count();
-    assert_eq!(hairs, 19 * 2, "19 hairs of 2 px between 20 blocks");
+    }
+}
+
+/// The owner's tyres (approved mockup, 2026-11-19): only the tyre, seen from above; three bands across the tread for a
+/// game that gives them, one block otherwise; the colour follows the temperature, steel cold to red over.
+#[test]
+fn a_tyre_is_drawn_in_the_colours_of_its_temperatures() {
+    assert_eq!(heat_colour(50.0), STEEL);
+    assert_eq!(heat_colour(80.0), SUCCESS);
+    assert_eq!(heat_colour(100.0), WARN);
+    assert_eq!(heat_colour(120.0), DESTRUCTIVE);
+    assert_eq!(heat_colour(f32::NAN), SECONDARY, "no temperature: a quiet tyre");
+    let between = heat_colour(68.5);
+    assert!(between != STEEL && between != SUCCESS, "it blends between the steps");
+    // Three bands: each band's middle is its own colour, the sidewall around them is dark.
+    let bands = TyreShape::Bands([STEEL, SUCCESS, DESTRUCTIVE]);
+    let at = painted_by(40, 80, |g| g.tyre_shape((0.0, 0.0, 40.0, 80.0), bands));
+    let tread = (4, 36); // inside the 3.6 px sidewall, so 4 to 36 across
+    let third = (tread.1 - tread.0) / 3;
+    assert_eq!(at(tread.0 + third / 2, 5), STEEL);
+    assert_eq!(at(tread.0 + third + third / 2, 5), SUCCESS);
+    assert_eq!(at(tread.1 - third / 2, 5), DESTRUCTIVE);
+    assert_eq!(at(1, 40), TYRE_SIDEWALL, "the sidewall frames the tread");
+    // Solid: one colour across the whole tread.
+    let at = painted_by(40, 80, |g| g.tyre_shape((0.0, 0.0, 40.0, 80.0), TyreShape::Solid(WARN)));
+    assert!((5..35).all(|x| at(x, 5) == WARN), "a solid tyre has no bands");
 }
 
 // ---- Stage 2: the cards of the rebuilt dashboard ----
@@ -1647,8 +1677,15 @@ fn the_tyre_tiles_say_cold_ok_hot_or_over_and_have_a_bar_only_where_the_game_giv
     assert_eq!(words, ["ok", "ok", "hot", "over"]);
     assert_eq!(tyres.tiles[0].corner, "FL");
     assert_eq!(tyres.tiles[3].role, Role::Danger);
-    assert_eq!(tyres.tiles[0].tread, Some([Role::Good; 3]), "78, 84 and 90: all in the window");
-    assert_eq!(tyres.tiles[2].tread, Some([Role::Good, Role::Warn, Role::Warn]), "91, 97 and 103");
+    // The tyre drawn in three bands, outer to inner on a left tyre (inner faces the car), inner to outer on a right one.
+    let h = heat_colour;
+    let front_left = TyreShape::Bands([h(90.0), h(84.0), h(78.0)]);
+    let front_right = TyreShape::Bands([h(82.0), h(88.0), h(94.0)]);
+    assert_eq!(tyres.tiles[0].shape, front_left, "FL: inner 78 on its right");
+    assert_eq!(tyres.tiles[1].shape, front_right, "FR: inner 82 on its left");
+    let texts = tyres.tiles[2].tread_text.clone().unwrap().map(|(s, _)| s);
+    assert_eq!(texts, ["103", "97", "91"], "RL as drawn");
+    assert_eq!(tyres.tiles[0].heat, h(84.0));
     assert_eq!(tyres.tiles[0].brake.as_deref(), Some("286°"));
     assert_eq!(tyres.tiles[0].wear, Some(0.91));
     let pt = model(&rich_reading(), Lang::Pt).tyres.unwrap();
@@ -1663,7 +1700,11 @@ fn the_tyre_tiles_say_cold_ok_hot_or_over_and_have_a_bar_only_where_the_game_giv
         t.brake_c = f32::NAN;
     }
     let tiles = model(&live, Lang::En).tyres.unwrap().tiles;
-    assert!(tiles.iter().all(|t| t.tread.is_none() && t.wear.is_none() && t.brake.is_none()));
+    assert!(tiles.iter().all(|t| t.tread_text.is_none() && t.wear.is_none() && t.brake.is_none()));
+    assert!(
+        tiles.iter().all(|t| t.shape == TyreShape::Solid(t.heat)),
+        "one temperature per tyre: a solid tyre in its colour"
+    );
     assert!(tiles.iter().all(|t| t.pressure.is_some()));
     // A game without tyres has none, whatever a frame carries.
     live.caps = crate::game::Caps::GEAR;
