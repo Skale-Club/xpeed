@@ -389,9 +389,9 @@ pub(super) fn inputs_card(g: &mut Painter, d: &Dash, card: Area) {
         g.fill(g.r(lx, ly - S1, lw, STROKE_HAIR), BORDER);
         let third = lw / 3.0;
         let mark = (lh * 0.45).round();
-        let fits = share.iter().all(|(word, value)| {
-            g.caps_width(word, T_CAPTION) + S1 + g.tabular_width(value, T_BODY, semi) <= third - S2
-        });
+        let fits = share
+            .iter()
+            .all(|(word, value)| g.caps_width(word, T_CAPTION) + S1 + g.tabular_width(value, T_BODY, semi) <= third - S2);
         for (i, ((word, value), colour)) in share.iter().zip([SUCCESS, DESTRUCTIVE, MUTED_TEXT]).enumerate() {
             let label_w = if fits { g.caps_width(word, T_CAPTION) } else { mark };
             let value_w = g.tabular_width(value, T_BODY, semi);
