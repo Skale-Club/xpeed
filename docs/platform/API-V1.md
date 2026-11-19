@@ -653,20 +653,27 @@ unreadable file is marked `file_unreadable` (implausible) so it is never tried a
 
 ## Leaderboards
 
-### `GET /leaderboard?track&car&scope&game&limit&cursor`
+### `GET /leaderboard?track&car&scope&game&tyre&limit&cursor`
 `track` and `car` are catalog ids (required; a track of another game than `game` is `400 invalid_game`); `scope` is `public` (default) or
 `friends`. The best valid, plausible, visible lap of every driver for that track and car, ranked by time. **Ties share a rank** (1, 2, 2, 4),
 the earlier lap first; `gapMs` is the distance to the leader. Cursor paging, `limit` up to 100.
+
+`tyre` limits the board to laps driven on one tyre compound, as the lap file header wrote it (`tyreCompound`: "Soft", "Medium", "Slick Soft (S)"...),
+compared as the exact text within one game (no case folding, no mapping across games). Each driver's best lap **on that tyre** is ranked, and ranks and
+gaps are of that tyre only. Absent or empty means every tyre (the board as it was). 1 to 40 characters without control characters, else
+`400 invalid_tyre`. A lap whose file had no compound is on the every-tyre board only. A lap's compound is read from its header at upload; laps that arrived
+before the server stored it are filled in by the `tyre_backfill` job (`docs/platform/STORAGE.md`), so a filtered board grows complete as it runs.
 ```
-{ game, scope, track: { id, name, lengthM | null }, car: { id, name, class | null },
+{ game, scope, tyre: string | null, track: { id, name, lengthM | null }, car: { id, name, class | null },
   entries: [{ rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe }], nextCursor }
 ```
 `scope=public`: public profiles only, not hidden, not blocked either way with the caller. `scope=friends`: the caller (whatever their visibility)
 and their accepted friends who are not private or hidden. `lapId` is the lap that counts, for `POST /reports`.
 
-### `GET /leaderboard/me?track&car&scope`
+### `GET /leaderboard/me?track&car&scope&tyre`
+Takes the same `tyre` as the board (and `400 invalid_tyre`): your place, `total` and neighbours are on that tyre's board.
 ```
-{ game, scope, track, car, total, me: { rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe: true } | null,
+{ game, scope, tyre, track, car, total, me: { rank, lapId, handle, displayName, timeMs, gapMs, achievedAt, isMe: true } | null,
   reason: null | "not_listed", neighbours: { above: [Entry], below: [Entry] } }
 ```
 The two drivers above and the two below by position. `me` is `null` (reason `not_listed`) when the caller is not on that board: no valid plausible
@@ -685,6 +692,24 @@ blocked either way with the caller. Alphabetical by name, then id; cursor paging
 ```
 `lapCount` is the number of such laps (not drivers; not the caller's own private ones). It is the only thing said about anybody. `400 invalid_kind`, `invalid_game`,
 `invalid_track`, `invalid_car`, `invalid_limit`, `invalid_cursor`; `429 too_many_requests`. Use the `id`s with `GET /leaderboard`.
+
+### `GET /leaderboards/conditions?track&car&scope&game&tyre`
+What one board is made of: the tyre compounds that have laps on it, and its theoretical best. `track`, `car` (catalog ids, required), `scope`, `game` and `tyre` are
+read exactly as `GET /leaderboard` reads them, and the answer follows **exactly the same visibility rules** as that board (the same SQL function decides which laps
+a board can show): valid, plausible, not hidden laps of profiles that are not hidden; `scope=public` only public profiles not blocked either way, `scope=friends`
+the caller and accepted friends. Limited to 60 reads a minute per person (its own counter, the same limit as the catalog). `400 invalid_track`, `invalid_car`,
+`invalid_scope`, `invalid_game`, `invalid_tyre`; `404 track_not_found`, `car_not_found`; `429 too_many_requests`.
+```
+{ game, scope, tyre: string | null, track: { id, name }, car: { id, name },
+  tyres: [{ compound, drivers }],
+  theoreticalBest: { timeMs, sectors: [{ index, ms, handle }] } | null }
+```
+- `tyres` always covers the whole board, whatever `tyre` says (so a screen can keep its chips while one is chosen): every compound with the number of drivers
+  who have a counted lap on it, most drivers first, then by name. Laps without a compound add nothing here. A screen shows the chips only with two or more.
+- `theoreticalBest` is the fastest of each sector over **every lap the board can show** (not only each driver's best lap, since a best sector is often not on
+  the best lap), limited to `tyre` when it is given, and who drove it (`handle`; a tie goes to the earlier lap). `index` counts sectors from 1 and `timeMs` is
+  the sum of the sector times, which no lap has to equal. It is `null` unless **every** counted lap has the same number of sectors, at least two, all above zero
+  (a lap with no sectors, or a different count, would make the sum meaningless), and `null` when no lap is counted.
 
 ## Reports
 
