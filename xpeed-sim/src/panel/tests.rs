@@ -3371,7 +3371,17 @@ fn the_layout_is_picked_from_the_dashboard_in_use() {
 fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
     let live = full_reading();
     let json = serde_json::to_value(model_with(&live, Default::default(), &rich_laps())).unwrap();
-    for key in ["flag", "fuelCalc", "tyreTrend", "sectors", "deltaBar", "sessionCard", "relative", "standings", "gaps"] {
+    for key in [
+        "flag",
+        "fuelCalc",
+        "tyreTrend",
+        "sectors",
+        "deltaBar",
+        "sessionCard",
+        "relative",
+        "standings",
+        "gaps",
+    ] {
         assert!(json[key].is_object(), "{key} is in the model's JSON");
     }
     assert_eq!(json["flag"]["kind"], "yellow");
@@ -3779,10 +3789,7 @@ fn the_relative_rows_are_the_cars_round_the_player_with_the_time_to_each_across_
     assert_eq!(rows[0].gap.as_deref(), Some("+12.500"));
     assert_eq!(rows[1].gap, None, "the player's own row has no time");
     assert_eq!(rows[2].gap.as_deref(), Some("-12.500"));
-    assert_eq!(
-        rows.iter().map(|r| r.position.as_str()).collect::<Vec<_>>(),
-        ["P2", "P3", "P4"]
-    );
+    assert_eq!(rows.iter().map(|r| r.position.as_str()).collect::<Vec<_>>(), ["P2", "P3", "P4"]);
     assert!(rows[1].is_player && !rows[0].is_player);
     // Nothing is lapping or lapped: 5.0625 against 4.9375 is not a lap.
     assert!(rows.iter().all(|r| r.relation == LapRelation::Level && r.role == Role::Text));
@@ -3795,7 +3802,14 @@ fn the_relative_rows_hold_three_cars_either_side_the_farthest_ahead_first() {
         // Ahead on the track by an eighth of a lap each.
         let share = 0.5 + 0.0625 * f32::from(i);
         cars.push(rival_car(i, &format!("Ahead {i}"), 6 - i, None, 3, share.min(0.99)));
-        cars.push(rival_car(10 + i, &format!("Behind {i}"), 6 + i, None, 3, 0.5 - 0.0625 * f32::from(i)));
+        cars.push(rival_car(
+            10 + i,
+            &format!("Behind {i}"),
+            6 + i,
+            None,
+            3,
+            0.5 - 0.0625 * f32::from(i),
+        ));
     }
     let rows = relative_rows(&hand_field(cars));
     assert_eq!(
@@ -3955,8 +3969,7 @@ fn the_standings_without_classes_follow_the_place_overall_and_mark_the_skipped_p
     assert_eq!(places, ["P1", "P4", "P5", "P6", "P7", "P8"]);
     assert_eq!(rows[0].gap, "Leader");
     assert_eq!(
-        rows[1].gap,
-        "+7.5",
+        rows[1].gap, "+7.5",
         "a leader first overall is 0 behind itself, with a gap of its own or not"
     );
     let skipped: Vec<bool> = rows.iter().map(|r| r.skipped_before).collect();
