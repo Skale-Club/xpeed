@@ -232,6 +232,8 @@ pub struct Live {
     /// Seconds left in a timed session, and the length of a lap-based one in laps, as the game gives them.
     pub session_time_left_s: Option<f64>,
     pub session_laps: Option<u16>,
+    /// The other cars of the session (the rivals layer), as of the last reading the game gave; `None` for a game that gives none.
+    pub field: Option<std::sync::Arc<crate::field::Field>>,
     /// The compound of the tyres on the car, as the game names it.
     pub tyre_compound: Option<String>,
     pub dist_m: Option<f64>,
@@ -361,6 +363,8 @@ pub struct Tracker {
     /// What the source says its game can give (`set_caps`), and what the frames of this run filled.
     caps: Caps,
     caps_seen: Caps,
+    /// The last rivals reading a frame carried (readers publish one every 200 ms, so most frames carry none).
+    field: Option<Arc<crate::field::Field>>,
     /// The first two sector times seen on the lap being driven, and those of the lap before it.
     lap_sectors: [Option<u32>; 2],
     last_sectors: [Option<u32>; 2],
@@ -497,6 +501,9 @@ impl Tracker {
             }
         }
         self.caps_seen = self.caps_seen.or(frame.filled());
+        if let Some(field) = &frame.field {
+            self.field = Some(field.clone());
+        }
         self.remember(frame);
         self.official = frame.last_lap_s;
         // The distance into the lap: the game's, else the speed added up (`session.rs` decides which).
@@ -546,6 +553,7 @@ impl Tracker {
             cars: frame.cars,
             session_time_left_s: frame.session_time_left_s,
             session_laps: frame.session_laps,
+            field: self.field.clone(),
             tyre_compound: frame.tyre_compound.clone(),
             dist_m: frame.dist_m.or(dist_m),
             track_length_m: frame.track_length_m,

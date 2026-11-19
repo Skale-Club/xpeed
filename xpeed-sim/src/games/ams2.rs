@@ -64,9 +64,11 @@
 //! Never read: another process's memory. Only the game's own shared memory, read-only and copied out.
 
 use std::sync::atomic::{fence, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use crate::field::{self, Car, Field, FieldPace};
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, SessionKind, Source, Tyre};
 use crate::norm::{self, pedal, seconds, within};
 use crate::shm::{Mapping, Page};
@@ -131,7 +133,9 @@ mod at {
     pub const VIEWED_PARTICIPANT: usize = 20;
     pub const NUM_PARTICIPANTS: usize = 24;
     pub const PARTICIPANTS: usize = 28;
-    /// Inside a `ParticipantInfo`.
+    /// Inside a `ParticipantInfo`: `bool mIsActive` and `char mName[64]` (the driver's name) come first.
+    pub const P_IS_ACTIVE: usize = 0;
+    pub const P_NAME: usize = 1;
     pub const P_WORLD_POSITION: usize = 68;
     pub const P_CURRENT_LAP_DISTANCE: usize = 80;
     /// `unsigned int mRacePosition`: 1 is first, unset 0.
@@ -200,6 +204,15 @@ mod at {
     pub const AIR_PRESSURE: usize = 7372;
     /// `float mBrakeBias`, 0..1, unset -1: the REAR share of the braking (a Project CARS 2 addition).
     pub const BRAKE_BIAS: usize = 19_380;
+    // The per-participant arrays (index = the participant's slot), all inside what a Project CARS reader copies. Worked out
+    // from the header by the offsets test.
+    /// `float mFastestLapTimes[64]` and `float mLastLapTimes[64]`, seconds, unset -1.
+    pub const FASTEST_LAP_TIMES: usize = 8944;
+    pub const LAST_LAP_TIMES: usize = 9200;
+    /// `unsigned int mPitModes[64]`: the same values as `mPitMode` (0 none).
+    pub const PIT_MODES: usize = 9776;
+    /// `char mCarClassNames[64][64]` (`mCarNames[64][64]` is just before it, at 11056).
+    pub const CAR_CLASS_NAMES: usize = 15_152;
     /// `char mTyreCompound[4][40]`: Automobilista 2's copy only, with `TYRE_COMPOUND_LENGTH` bytes for each tyre.
     pub const TYRE_COMPOUND: usize = 19_388;
     pub const TYRE_COMPOUND_LENGTH: usize = 40;
@@ -276,6 +289,8 @@ struct Ams2 {
     last_change: Instant,
     exited: bool,
     stale_after: Duration,
+    /// When the other cars are read (a few Hz, not on every copy).
+    pace: FieldPace,
 }
 
 impl Ams2 {
@@ -306,6 +321,7 @@ impl Ams2 {
             last_change: now,
             exited: false,
             stale_after: STALE,
+            pace: FieldPace::default(),
         })
     }
 
@@ -340,7 +356,13 @@ impl Ams2 {
             }
             self.last_used = Some(before);
             self.exited = Page(&copy).u32_at(at::GAME_STATE) == GAME_EXITED;
-            return frame_of(self.kind, &copy, self.started.elapsed().as_secs_f64());
+            let mut frame = frame_of(self.kind, &copy, self.started.elapsed().as_secs_f64());
+            if let Some(frame) = frame.as_mut() {
+                if self.pace.due(frame.clock_s) {
+                    frame.field = field_of(&copy, frame);
+                }
+            }
+            return frame;
         }
         None
     }
@@ -503,6 +525,44 @@ fn frame_of(kind: Kind, bytes: &[u8], clock_s: f64) -> Option<Frame> {
     Some(frame)
 }
 
+/// The cars of the session from a consistent copy (the one the frame was made from): the active participants of
+/// `mParticipantInfo[mNumParticipants]` with their `mName`, `mRacePosition`, `mLapsCompleted`, `mCurrentLapDistance` over
+/// `mTrackLength` (the share of the lap), `mWorldPosition`, and from the per-participant arrays the class
+/// (`mCarClassNames`), `mFastestLapTimes`, `mLastLapTimes` and `mPitModes`. The format gives no gaps and no class place:
+/// `field::complete` works both out. The player is the viewed participant.
+fn field_of(bytes: &[u8], frame: &Frame) -> Option<Arc<Field>> {
+    if bytes.len() < PCARS_READ {
+        return None;
+    }
+    let page = Page(bytes);
+    let count = page.i32_at(at::NUM_PARTICIPANTS).clamp(0, PARTICIPANTS_MAX) as usize;
+    let viewed = viewed_slot(&page);
+    let mut cars = Vec::new();
+    for slot in 0..count {
+        let p = at::PARTICIPANTS + slot * PARTICIPANT_SIZE;
+        let name = page.ascii_at(p + at::P_NAME, STRING_LENGTH);
+        if page.u8_at(p + at::P_IS_ACTIVE) != 1 && name.is_empty() {
+            continue;
+        }
+        let mut car = Car::named(slot as u16, &name);
+        car.class = Some(page.ascii_at(at::CAR_CLASS_NAMES + slot * STRING_LENGTH, STRING_LENGTH)).filter(|c| !c.is_empty());
+        car.position = norm::place(page.u32_at(p + at::P_RACE_POSITION), frame.cars);
+        let laps = page.u32_at(p + at::P_LAPS_COMPLETED);
+        car.laps_done = (laps <= 100_000).then_some(laps as i32);
+        if let Some(length) = frame.track_length_m {
+            car.lap_share = field::lap_share(f64::from(page.f32_at(p + at::P_CURRENT_LAP_DISTANCE)), length);
+        }
+        car.in_pits = page.u32_at(at::PIT_MODES + slot * 4) != PIT_MODE_NONE;
+        car.last_lap_s = seconds(page.f32_at(at::LAST_LAP_TIMES + slot * 4), false);
+        car.best_lap_s = seconds(page.f32_at(at::FASTEST_LAP_TIMES + slot * 4), false);
+        let world = [0, 4, 8].map(|d| norm::position(page.f32_at(p + at::P_WORLD_POSITION + d)));
+        car.world = world.iter().all(|c| c.is_finite()).then_some(world);
+        car.is_player = viewed == Some(slot);
+        cars.push(car);
+    }
+    (!cars.is_empty()).then(|| field::publish(cars, frame.clock_s, frame.track_length_m))
+}
+
 /// What a frame of this game of the format can fill (what `frame_of` reads for it, nothing more). The tank's size is `mFuelCapacity`
 /// (also folded into `fuel_l`). None of them gives the engine map, the gearbox damage or a lap verdict
 /// beyond the invalidated flag. Project CARS gives none of what version 2 of the lap file asks of Automobilista 2
@@ -548,7 +608,9 @@ fn caps_of(kind: Kind) -> Caps {
         .or(Caps::RACE_POSITION)
         .or(Caps::CARS)
         .or(Caps::SESSION_TIME_LEFT)
-        .or(Caps::SESSION_LAPS);
+        .or(Caps::SESSION_LAPS)
+        .or(Caps::RIVALS)
+        .or(Caps::RIVALS_WORLD);
     if kind.id == AMS2.id {
         shared
             .or(Caps::SESSION_KIND)
@@ -893,6 +955,7 @@ mod tests {
             ("mCurrentSector", F, 1),
         ]);
         assert_eq!(p_size, PARTICIPANT_SIZE);
+        assert_eq!((offset_of(&p, "mIsActive"), offset_of(&p, "mName")), (at::P_IS_ACTIVE, at::P_NAME));
         assert_eq!(offset_of(&p, "mWorldPosition"), at::P_WORLD_POSITION);
         assert_eq!(offset_of(&p, "mCurrentLapDistance"), at::P_CURRENT_LAP_DISTANCE);
         assert_eq!(offset_of(&p, "mRacePosition"), at::P_RACE_POSITION);
@@ -1093,6 +1156,10 @@ mod tests {
             ("mDrsState", at::DRS_STATE),
             ("mAntiLockSetting", at::ANTI_LOCK_SETTING),
             ("mTractionControlSetting", at::TRACTION_CONTROL_SETTING),
+            ("mFastestLapTimes", at::FASTEST_LAP_TIMES),
+            ("mLastLapTimes", at::LAST_LAP_TIMES),
+            ("mPitModes", at::PIT_MODES),
+            ("mCarClassNames", at::CAR_CLASS_NAMES),
             ("mFuelLevel", at::FUEL_LEVEL),
             ("mFuelCapacity", at::FUEL_CAPACITY),
             ("mSpeed", at::SPEED),
@@ -1124,6 +1191,7 @@ mod tests {
         assert_eq!(offset_of(&o, "mTyreCompound") + 4 * at::TYRE_COMPOUND_LENGTH, 19_548);
         const { assert!(at::TYRE_COMPOUND >= PCARS_READ, "past what a Project CARS reader copies") };
         for end in [
+            at::CAR_CLASS_NAMES + P * STRING_LENGTH,
             at::SESSION_STATE + 4,
             at::P_CURRENT_SECTOR + 4,
             at::P_RACE_POSITION + 4,
@@ -1143,6 +1211,93 @@ mod tests {
         let frame = frame_from(&image.0, 0.0).unwrap();
         assert_frame_within_caps(&frame, caps_of(AMS2), "ams2");
         frame
+    }
+
+    /// Participant `slot` as the rivals read it: active, named, in this place, with its laps, lap distance and class.
+    #[allow(clippy::too_many_arguments)]
+    fn write_rival(i: &mut Image, slot: usize, name: &str, class: &str, place: u32, laps: u32, dist: f32, times: (f32, f32)) {
+        i.participant(slot, [10.0 * (slot + 1) as f32, 1.5, -20.0], dist, laps);
+        let p = at::PARTICIPANTS + slot * PARTICIPANT_SIZE;
+        i.0[p + at::P_NAME..p + at::P_NAME + STRING_LENGTH].fill(0);
+        i.0[p + at::P_NAME..p + at::P_NAME + name.len()].copy_from_slice(name.as_bytes());
+        i.u32(p + at::P_RACE_POSITION, place);
+        let c = at::CAR_CLASS_NAMES + slot * STRING_LENGTH;
+        i.0[c..c + STRING_LENGTH].fill(0);
+        i.0[c..c + class.len()].copy_from_slice(class.as_bytes());
+        i.f32(at::FASTEST_LAP_TIMES + slot * 4, times.0);
+        i.f32(at::LAST_LAP_TIMES + slot * 4, times.1);
+    }
+
+    /// Three cars on a 4309 m track; the player (viewed participant 0) is third, in the pit lane, of the same class as the
+    /// leader; the second car is of another class.
+    fn three_cars() -> Image {
+        let mut i = Image::on_track();
+        i.i32(at::NUM_PARTICIPANTS, 3);
+        write_rival(&mut i, 0, "Some Driver", "GT3", 3, 5, 1077.25, (88.5, 89.5));
+        write_rival(&mut i, 1, "Leader A", "GT3", 1, 5, 2154.5, (87.5, 88.0));
+        write_rival(&mut i, 2, "Second", "LMP", 2, 5, 1500.0, (-1.0, -1.0));
+        i.u32(at::PIT_MODES, 1);
+        i
+    }
+
+    #[test]
+    fn reads_the_other_cars_into_a_field() {
+        let image = three_cars();
+        let frame = ams2_frame(&image);
+        let field = field_of(&image.0, &frame).unwrap();
+        let names: Vec<&str> = field.cars.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Leader A", "Second", "Some Driver"], "sorted by place");
+        let slots: Vec<u16> = field.cars.iter().map(|c| c.slot).collect();
+        assert_eq!(slots, [1, 2, 0]);
+        let positions: Vec<Option<u16>> = field.cars.iter().map(|c| c.position).collect();
+        assert_eq!(positions, [Some(1), Some(2), Some(3)]);
+        let classes: Vec<(Option<&str>, Option<u16>)> = field.cars.iter().map(|c| (c.class.as_deref(), c.class_position)).collect();
+        assert_eq!(classes, [(Some("GT3"), Some(1)), (Some("LMP"), Some(1)), (Some("GT3"), Some(2))]);
+        let shares: Vec<Option<f32>> = field.cars.iter().map(|c| c.lap_share).collect();
+        assert_eq!(shares, [Some(0.5), Some((1500.0f64 / 4309.0) as f32), Some(0.25)]);
+        let laps: Vec<Option<i32>> = field.cars.iter().map(|c| c.laps_done).collect();
+        assert_eq!(laps, [Some(5); 3]);
+        let pits: Vec<bool> = field.cars.iter().map(|c| c.in_pits).collect();
+        assert_eq!(pits, [false, false, true]);
+        let best: Vec<Option<f64>> = field.cars.iter().map(|c| c.best_lap_s).collect();
+        assert_eq!(best, [Some(87.5), None, Some(88.5)]);
+        let last: Vec<Option<f64>> = field.cars.iter().map(|c| c.last_lap_s).collect();
+        assert_eq!(last, [Some(88.0), None, Some(89.5)]);
+        let player: Vec<bool> = field.cars.iter().map(|c| c.is_player).collect();
+        assert_eq!(player, [false, false, true]);
+        assert_eq!(field.player().unwrap().world, Some([10.0, 1.5, -20.0]));
+        // The format gives no gaps: they are estimated from the race distance. The player is a quarter of a lap behind the
+        // leader, on its own best lap of 88.5 s.
+        let gap = field.player().unwrap().gap_leader_s.expect("estimated");
+        assert!((gap - 0.25 * 88.5).abs() < 1e-3, "{gap}");
+    }
+
+    #[test]
+    fn inactive_slots_and_slots_past_the_count_are_left_out() {
+        let mut image = three_cars();
+        image.0[at::PARTICIPANTS + PARTICIPANT_SIZE + at::P_IS_ACTIVE] = 0;
+        let nameless = at::PARTICIPANTS + 2 * PARTICIPANT_SIZE;
+        image.0[nameless + at::P_IS_ACTIVE] = 0;
+        image.0[nameless + at::P_NAME] = 0;
+        let frame = ams2_frame(&image);
+        let field = field_of(&image.0, &frame).unwrap();
+        // The leader is inactive but named (a driver who left keeps a name): kept; the nameless inactive one is dropped.
+        assert_eq!(field.cars.len(), 2);
+        assert!(field_of(&Image::new().0[..100], &frame).is_none(), "too short");
+    }
+
+    #[test]
+    fn the_reader_publishes_the_field_with_a_frame_and_not_on_every_one() {
+        let mut rig = Rig::new("ams2_field", three_cars());
+        rig.publish();
+        let mut reader = rig.reader();
+        let frame = reader.next(NOW).expect("a frame");
+        assert_eq!(frame.field.as_ref().expect("the first reading carries the other cars").cars.len(), 3);
+        assert_frame_within_caps(&frame, caps_of(AMS2), "ams2");
+        assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
+        rig.image.f32(at::SPEED, 60.0);
+        rig.publish();
+        assert!(reader.next(NOW).expect("a frame").field.is_none(), "inside the 200 ms");
     }
 
     #[test]

@@ -47,6 +47,7 @@
 //! | `g_long` | g | positive forward (accelerating is positive, braking negative) |
 //! | `race_position`, `class_position`, `cars` | 1.., 1.., 1.. | the player's place overall (1 is the leader) and in the class, and how many cars are in the session; never above `cars` |
 //! | `session_time_left_s`, `session_laps` | seconds 0 to 86 400, laps 1 to 999 | what is left of a timed session, and the length of a lap-based one; the game's "unlimited" or "none" is not given |
+//! | `field` | `field::Field` (units in `field.rs`) | every other car of the session, read at a few Hz: `None` on the frames between two readings and for a game with no per-car data; never written to a lap file |
 //! | `sectors_ms`, `air_temp_c`, `track_temp_c` | milliseconds, Celsius | the first two sector times of the lap; the air and track temperature |
 //!
 //! ## How each reader maps its game's raw value
@@ -346,6 +347,9 @@ pub struct Frame {
     pub session_time_left_s: Option<f64>,
     /// The length of the session in laps, when it is lap-based and the game says.
     pub session_laps: Option<u16>,
+    /// The other cars of the session (the rivals layer), read at a few Hz: `None` between two readings and for a game
+    /// that gives none. Never written to a lap file.
+    pub field: Option<std::sync::Arc<crate::field::Field>>,
 }
 
 impl Frame {
@@ -426,6 +430,10 @@ impl Frame {
         add(self.cars.is_some(), Caps::CARS);
         add(self.session_time_left_s.is_some(), Caps::SESSION_TIME_LEFT);
         add(self.session_laps.is_some(), Caps::SESSION_LAPS);
+        if let Some(field) = &self.field {
+            add(!field.cars.is_empty(), Caps::RIVALS);
+            add(field.cars.iter().any(|c| c.world.is_some()), Caps::RIVALS_WORLD);
+        }
         let s = &self.state;
         add(s.pit_limiter.is_some(), Caps::PIT_LIMITER);
         add(s.abs_active.is_some(), Caps::ABS_ACTIVE);
@@ -494,6 +502,7 @@ impl Frame {
             cars: None,
             session_time_left_s: None,
             session_laps: None,
+            field: None,
         }
     }
 }
@@ -630,6 +639,11 @@ caps_table! {
     SESSION_TIME_LEFT,
     /// The length of a lap-based session, in laps.
     SESSION_LAPS,
+    // Frame: the rivals layer (`Frame::field`).
+    /// A per-car array of the other cars is filled.
+    RIVALS,
+    /// The cars' world positions are filled.
+    RIVALS_WORLD,
 }
 
 #[allow(dead_code)] // the set operations are used by the tests now and by the panel in step 1b
@@ -801,6 +815,7 @@ mod tests {
         assert!(frame.g_lat.is_none() && frame.g_long.is_none());
         assert!(frame.race_position.is_none() && frame.class_position.is_none() && frame.cars.is_none());
         assert!(frame.session_time_left_s.is_none() && frame.session_laps.is_none());
+        assert!(frame.field.is_none());
     }
 
     #[test]
@@ -895,6 +910,13 @@ mod tests {
         (f.g_lat, f.g_long) = (Some(1.0), Some(1.0));
         (f.race_position, f.class_position, f.cars) = (Some(1), Some(1), Some(2));
         (f.session_time_left_s, f.session_laps) = (Some(1.0), Some(1));
+        f.field = Some(std::sync::Arc::new(crate::field::Field {
+            cars: vec![crate::field::Car {
+                world: Some([0.0; 3]),
+                ..crate::field::Car::named(0, "A")
+            }],
+            at_s: 0.0,
+        }));
         f.state = CarState {
             pit_limiter: Some(true),
             abs_active: Some(true),

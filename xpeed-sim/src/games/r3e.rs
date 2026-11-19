@@ -66,13 +66,21 @@
 //!   `number_of_laps` (the session's length in laps), each through `norm` (0, -1 and anything past the field are "not
 //!   given"). Offsets worked out from the same header by `the_offsets_follow_from_the_sizes_in_the_header`; what the game
 //!   writes in a timed or a lap-based session is not seen live (ASSUMED: -1 for the one that does not apply).
+//! * The rivals (`Frame::field`): the drivers array after `num_cars` (`driver` below), copied at most every 200 ms
+//!   (`FieldPace`) and only as far as `num_cars`. Per car: the name, `class_id` (as `R3E class <id>`), `place`,
+//!   `place_class`, `lap_distance_fraction` (the share of the lap), `completed_laps`, `in_pitlane`, `time_delta_front` (the
+//!   gap to the car ahead; -1 is none), the world `position`, and the last lap as the sum of `sector_time_previous_self`
+//!   (all three given). Not in the header, so left `None`: a car's best lap, and the gap to the leader. The player's car
+//!   is the driver whose `slot_id` is the player's `vehicle_info.slot_id`.
 //! * The clock is the program's own (the game's `game_simulation_time` belongs to the session and can start again).
 //!
 //! Never read: another process's memory. Only the game's own shared memory, read-only and copied out.
 
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use crate::field::{self, Car, Field, FieldPace};
 use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
 use crate::norm::{self, pedal, seconds, within};
 use crate::shm::{Mapping, Page};
@@ -120,6 +128,8 @@ mod at {
     /// Inside an `r3e_driver_info`.
     pub const DI_CLASS_ID: usize = 68;
     pub const DI_MODEL_ID: usize = 72;
+    /// `driver_info.slot_id`.
+    pub const DI_SLOT_ID: usize = 92;
     pub const CONTROL_TYPE: usize = 1388;
     pub const CAR_SPEED: usize = 1392;
     pub const ENGINE_RPS: usize = 1396;
@@ -177,6 +187,38 @@ mod at {
     pub const DAMAGE_SUSPENSION: usize = 1996;
 }
 
+/// The cars of the session: `r3e_driver_data all_drivers_data_1[128]`, right after `num_cars` (so from `at::NUM_CARS + 4`), each
+/// element `driver::SIZE` bytes. Offsets inside one element, worked out from the header by the test
+/// `the_offsets_follow_from_the_sizes_in_the_header`.
+mod driver {
+    /// `sizeof(r3e_driver_data)`.
+    pub const SIZE: usize = 328;
+    /// `R3E_NUM_DRIVERS_MAX`.
+    pub const MAX: usize = 128;
+    /// `driver_info.name` (64 bytes), the first field of the element.
+    pub const NAME: usize = 0;
+    /// `driver_info.class_id`.
+    pub const CLASS_ID: usize = 68;
+    /// `driver_info.slot_id`: the same value as the player's `vehicle_info.slot_id` marks the player's car.
+    pub const SLOT_ID: usize = 92;
+    /// `int place`, `int place_class` (1 is first; 0 or -1 none).
+    pub const PLACE: usize = 132;
+    pub const PLACE_CLASS: usize = 136;
+    /// `float lap_distance_fraction`: 0..1 round the lap (-1 N/A); `lap_distance` (metres) comes just before it.
+    pub const LAP_DISTANCE_FRACTION: usize = 144;
+    /// `r3e_vec3_f32 position`: world space, metres.
+    pub const POSITION: usize = 148;
+    /// `int completed_laps`.
+    pub const COMPLETED_LAPS: usize = 164;
+    /// `float sector_time_previous_self[3]`: the sector times of the lap before this one, seconds (-1 N/A). Their sum is that
+    /// lap's time (the header has no per-car previous or best lap time).
+    pub const SECTOR_TIME_PREVIOUS_SELF: usize = 188;
+    /// `float time_delta_front`: seconds to the car in front (-1 N/A).
+    pub const TIME_DELTA_FRONT: usize = 212;
+    /// `int in_pitlane`.
+    pub const IN_PITLANE: usize = 224;
+}
+
 // `r3e_session_phase`: the phases before the start, in which a lap does not count.
 const PHASE_GARAGE: i32 = 1;
 const PHASE_COUNTDOWN: i32 = 4;
@@ -222,6 +264,8 @@ struct R3e {
     refused: bool,
     /// The pause between the two copies (nothing in tests).
     settle: Duration,
+    /// When the other cars are read (a few Hz, not on every sample).
+    pace: FieldPace,
     /// Runs between the two copies of a pair, so a test can write "while" the reader copies.
     #[cfg(test)]
     between_copies: Option<Box<dyn FnMut()>>,
@@ -251,6 +295,7 @@ impl R3e {
             stale_after: STALE,
             refused: false,
             settle: SETTLE,
+            pace: FieldPace::default(),
             #[cfg(test)]
             between_copies: None,
         })
@@ -283,9 +328,27 @@ impl R3e {
             self.refused = true;
             return None;
         }
-        let frame = frame_from(&copy, self.started.elapsed().as_secs_f64());
+        let mut frame = frame_from(&copy, self.started.elapsed().as_secs_f64());
+        if let Some(frame) = frame.as_mut() {
+            if self.pace.due(frame.clock_s) {
+                frame.field = self.read_field(&copy, frame);
+            }
+        }
         self.last_used = Some(copy);
         frame
+    }
+
+    /// The other cars: one copy of the drivers array (`num_cars` elements, at most 128 of 328 bytes: about 42 kB for a full
+    /// grid), taken only at the pace of `FieldPace`. Not checked twice like the head: each car's values are range-checked
+    /// one by one, and a torn element costs one car for 200 ms.
+    fn read_field(&self, head: &[u8], frame: &Frame) -> Option<Arc<Field>> {
+        let page = Page(head);
+        let cars = usize::try_from(page.i32_at(at::NUM_CARS)).ok()?.min(driver::MAX);
+        if cars == 0 {
+            return None;
+        }
+        let drivers = self.memory.read(at::NUM_CARS + 4, cars * driver::SIZE)?;
+        drivers_field(page.i32_at(at::VEHICLE_INFO + at::DI_SLOT_ID), &drivers, frame)
     }
 }
 
@@ -469,6 +532,46 @@ fn frame_from(bytes: &[u8], clock_s: f64) -> Option<Frame> {
     Some(frame)
 }
 
+/// The cars of the session from a copy of the drivers array. `player_slot` is the player's `vehicle_info.slot_id`; `frame`
+/// is the player's reading of the same moment (it gives the field size, the track length, the clock and the player's own
+/// last lap). A slot with no name and no place is empty and left out; `None` when no car is left.
+fn drivers_field(player_slot: i32, drivers: &[u8], frame: &Frame) -> Option<Arc<Field>> {
+    let mut cars = Vec::new();
+    for (index, bytes) in drivers.chunks_exact(driver::SIZE).take(driver::MAX).enumerate() {
+        let page = Page(bytes);
+        let name = page.ascii_at(driver::NAME, STRING_LENGTH);
+        let position = norm::place(page.i32_at(driver::PLACE), frame.cars);
+        if name.is_empty() && position.is_none() {
+            continue;
+        }
+        let mut car = Car::named(index as u16, &name);
+        let class = page.i32_at(driver::CLASS_ID);
+        car.class = (class >= 0).then(|| format!("R3E class {class}"));
+        car.position = position;
+        car.class_position = norm::place(page.i32_at(driver::PLACE_CLASS), frame.cars);
+        let laps = page.i32_at(driver::COMPLETED_LAPS);
+        car.laps_done = (0..=100_000).contains(&laps).then_some(laps);
+        let share = within(page.f32_at(driver::LAP_DISTANCE_FRACTION), 0.0, 1.05);
+        car.lap_share = share.is_finite().then(|| share.min(1.0));
+        car.in_pits = page.i32_at(driver::IN_PITLANE) == 1;
+        let sectors: Vec<f32> = (0..3).map(|i| page.f32_at(driver::SECTOR_TIME_PREVIOUS_SELF + i * 4)).collect();
+        car.last_lap_s = if sectors.iter().all(|&t| t > 0.0) {
+            seconds(sectors.iter().sum(), false)
+        } else {
+            None
+        };
+        car.gap_ahead_s = seconds(page.f32_at(driver::TIME_DELTA_FRONT), true);
+        let world = [0, 4, 8].map(|d| norm::position(page.f32_at(driver::POSITION + d)));
+        car.world = world.iter().all(|v| v.is_finite()).then_some(world);
+        car.is_player = player_slot >= 0 && page.i32_at(driver::SLOT_ID) == player_slot;
+        if car.is_player {
+            car.last_lap_s = car.last_lap_s.or(frame.last_lap_s);
+        }
+        cars.push(car);
+    }
+    (!cars.is_empty()).then(|| field::publish(cars, frame.clock_s, frame.track_length_m))
+}
+
 /// What a frame can fill. Not given: the handbrake and the engine warning (not in the header), the tread left (no
 /// stated direction), the tank's size, the weather, the session kind, the sectors, the g forces, the air and track
 /// temperatures (none is read).
@@ -515,7 +618,9 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::CLASS_POSITION)
     .or(Caps::CARS)
     .or(Caps::SESSION_TIME_LEFT)
-    .or(Caps::SESSION_LAPS);
+    .or(Caps::SESSION_LAPS)
+    .or(Caps::RIVALS)
+    .or(Caps::RIVALS_WORLD);
 
 /// A three-way int of the header (-1 no data, 0 no, 1 yes) as a bool; 2 and the rest are not given.
 fn yes_no(v: i32) -> Option<bool> {
@@ -900,7 +1005,7 @@ mod tests {
         assert_eq!(driver_info, 128, "sizeof(r3e_driver_info)");
         assert_eq!(offset_of(&di, "class_id"), at::DI_CLASS_ID);
         assert_eq!(offset_of(&di, "model_id"), at::DI_MODEL_ID);
-        let (_, driver_data) = layout(&[
+        let (dd, driver_data) = layout(&[
             ("driver_info", driver_info, 1),
             ("finish_status", I, 1),
             ("place", I, 1),
@@ -940,6 +1045,22 @@ mod tests {
             ("formation_slot", I, 1),
         ]);
         assert_eq!(driver_data, 328, "sizeof(r3e_driver_data), as the 3.6 commit states");
+        assert_eq!((driver::SIZE, driver::MAX), (driver_data, 128));
+        assert_eq!(offset_of(&di, "slot_id"), at::DI_SLOT_ID);
+        assert_eq!(offset_of(&di, "name"), driver::NAME);
+        assert_eq!(offset_of(&di, "class_id"), driver::CLASS_ID);
+        for (name, want) in [
+            ("place", driver::PLACE),
+            ("place_class", driver::PLACE_CLASS),
+            ("lap_distance_fraction", driver::LAP_DISTANCE_FRACTION),
+            ("position", driver::POSITION),
+            ("completed_laps", driver::COMPLETED_LAPS),
+            ("sector_time_previous_self", driver::SECTOR_TIME_PREVIOUS_SELF),
+            ("time_delta_front", driver::TIME_DELTA_FRONT),
+            ("in_pitlane", driver::IN_PITLANE),
+        ] {
+            assert_eq!(offset_of(&dd, name), want, "{name}");
+        }
 
         let (o, size) = layout(&[
             ("version_major", I, 1),
@@ -1604,6 +1725,124 @@ mod tests {
         rig.image.i32(at::NUM_CARS + 4, 12);
         rig.publish();
         assert!(reader.next(NOW).is_none());
+    }
+
+    /// Writes car `index` of the drivers array: name, slot, class, the places (overall, class), the share of the lap and the
+    /// completed laps; the sector times and the time to the car in front are "not available" and the position is made up.
+    fn write_driver(image: &mut Image, index: usize, name: &str, ids: (i32, i32), places: (i32, i32), lap: (f32, i32)) {
+        let base = at::NUM_CARS + 4 + index * driver::SIZE;
+        image.text(base + driver::NAME, name);
+        image.i32(base + driver::SLOT_ID, ids.0);
+        image.i32(base + driver::CLASS_ID, ids.1);
+        image.i32(base + driver::PLACE, places.0);
+        image.i32(base + driver::PLACE_CLASS, places.1);
+        image.f32(base + driver::LAP_DISTANCE_FRACTION, lap.0);
+        image.i32(base + driver::COMPLETED_LAPS, lap.1);
+        for d in 0..3 {
+            image.f32(base + driver::SECTOR_TIME_PREVIOUS_SELF + d * 4, -1.0);
+        }
+        image.f32(base + driver::TIME_DELTA_FRONT, -1.0);
+        image.f32(base + driver::POSITION, 10.0 * (index + 1) as f32);
+        image.f32(base + driver::POSITION + 4, 2.0);
+        image.f32(base + driver::POSITION + 8, -30.0);
+    }
+
+    /// Three cars: the leader, the second (in the pit lane, another class, 4.25 s ahead of the third), and the player (third).
+    fn three_cars() -> Image {
+        let mut image = Image::on_track();
+        image.i32(at::NUM_CARS, 3);
+        image.i32(at::VEHICLE_INFO + at::DI_SLOT_ID, 7);
+        write_driver(&mut image, 0, "Leader A", (5, 1703), (1, 1), (0.75, 4));
+        write_driver(&mut image, 1, "Second", (9, 1704), (2, 1), (0.25, 3));
+        write_driver(&mut image, 2, "Some Driver", (7, 1703), (3, 2), (0.5, 3));
+        let first = at::NUM_CARS + 4;
+        for (d, t) in [30.0, 31.0, 29.5].into_iter().enumerate() {
+            image.f32(first + driver::SECTOR_TIME_PREVIOUS_SELF + d * 4, t);
+        }
+        let second = first + driver::SIZE;
+        image.f32(second + driver::TIME_DELTA_FRONT, 4.25);
+        image.i32(second + driver::IN_PITLANE, 1);
+        let player = second + driver::SIZE;
+        image.f32(player + driver::TIME_DELTA_FRONT, 1.5);
+        for (d, v) in [100.5, 2.25, -300.75].into_iter().enumerate() {
+            image.f32(player + driver::POSITION + d * 4, v);
+        }
+        image
+    }
+
+    #[test]
+    fn reads_the_other_cars_into_a_field() {
+        let image = three_cars();
+        let frame = frame_from(&image.0, 12.5).unwrap();
+        let first = at::NUM_CARS + 4;
+        let field = drivers_field(7, &image.0[first..first + 3 * driver::SIZE], &frame).unwrap();
+        assert_eq!(field.at_s, 12.5);
+        let names: Vec<&str> = field.cars.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Leader A", "Second", "Some Driver"]);
+        let slots: Vec<u16> = field.cars.iter().map(|c| c.slot).collect();
+        assert_eq!(slots, [0, 1, 2]);
+        let positions: Vec<Option<u16>> = field.cars.iter().map(|c| c.position).collect();
+        assert_eq!(positions, [Some(1), Some(2), Some(3)]);
+        let classes: Vec<(Option<&str>, Option<u16>)> = field.cars.iter().map(|c| (c.class.as_deref(), c.class_position)).collect();
+        assert_eq!(
+            classes,
+            [
+                (Some("R3E class 1703"), Some(1)),
+                (Some("R3E class 1704"), Some(1)),
+                (Some("R3E class 1703"), Some(2))
+            ]
+        );
+        let shares: Vec<Option<f32>> = field.cars.iter().map(|c| c.lap_share).collect();
+        assert_eq!(shares, [Some(0.75), Some(0.25), Some(0.5)]);
+        let laps: Vec<Option<i32>> = field.cars.iter().map(|c| c.laps_done).collect();
+        assert_eq!(laps, [Some(4), Some(3), Some(3)]);
+        let pits: Vec<bool> = field.cars.iter().map(|c| c.in_pits).collect();
+        assert_eq!(pits, [false, true, false]);
+        let gaps: Vec<Option<f64>> = field.cars.iter().map(|c| c.gap_ahead_s).collect();
+        assert_eq!(gaps, [None, Some(4.25), Some(1.5)]);
+        // The header has no gap to the leader: it is the gaps ahead added up.
+        let leader: Vec<Option<f64>> = field.cars.iter().map(|c| c.gap_leader_s).collect();
+        assert_eq!(leader, [None, Some(4.25), Some(5.75)]);
+        // The previous sectors add up to the leader's last lap; the player's own last lap is the player's.
+        let last: Vec<Option<f64>> = field.cars.iter().map(|c| c.last_lap_s).collect();
+        assert_eq!(last, [Some(90.5), None, Some(90.5)]);
+        assert!(field.cars.iter().all(|c| c.best_lap_s.is_none()));
+        let player: Vec<bool> = field.cars.iter().map(|c| c.is_player).collect();
+        assert_eq!(player, [false, false, true]);
+        assert_eq!(field.player().unwrap().world, Some([100.5, 2.25, -300.75]));
+        assert_eq!(field.cars[0].world, Some([10.0, 2.0, -30.0]));
+    }
+
+    #[test]
+    fn an_empty_slot_is_left_out_and_no_car_is_no_field() {
+        let mut image = three_cars();
+        let frame = frame_from(&image.0, 0.0).unwrap();
+        let first = at::NUM_CARS + 4;
+        // The second slot has no name and no place.
+        let second = first + driver::SIZE;
+        image.text(second + driver::NAME, "");
+        image.i32(second + driver::PLACE, 0);
+        let field = drivers_field(7, &image.0[first..first + 3 * driver::SIZE], &frame).unwrap();
+        assert_eq!(field.cars.len(), 2);
+        assert!(drivers_field(7, &[0; 3 * driver::SIZE], &frame).is_none());
+        // No player slot known: nobody is marked.
+        let field = drivers_field(-1, &three_cars().0[first..first + 3 * driver::SIZE], &frame).unwrap();
+        assert!(field.player().is_none());
+    }
+
+    #[test]
+    fn the_reader_publishes_the_field_with_a_frame_and_not_on_every_one() {
+        let mut rig = Rig::new("field", three_cars());
+        let mut reader = rig.reader();
+        let frame = reader.next(NOW).unwrap();
+        let field = frame.field.as_ref().expect("the first reading carries the other cars");
+        assert_eq!(field.cars.len(), 3);
+        crate::game::assert_frame_within_caps(&frame, CAPS, "r3e");
+        assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
+        // A reading straight after is inside the 200 ms: no field on it.
+        rig.image.f32(at::CAR_SPEED, 60.0);
+        rig.publish();
+        assert!(reader.next(NOW).unwrap().field.is_none());
     }
 
     #[test]

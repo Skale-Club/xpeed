@@ -33,6 +33,7 @@ mod diagnostics;
 #[cfg(windows)]
 mod engine;
 mod extra;
+mod field;
 mod game;
 #[cfg(windows)]
 mod games;
