@@ -1002,8 +1002,18 @@ fn writes_the_design_preview_page() {
     }
     // The dashboard's name in the header: picked by hand, and picked from the session ("Auto").
     for (file, caption, manual, lang) in [
-        ("preview-dashboard-race.png", "Header: the Race dashboard picked by hand", Some(DashboardId::Race), Lang::En),
-        ("preview-dashboard-auto.png", "Header: the dashboard picked from the session (Auto), Portuguese", None, Lang::Pt),
+        (
+            "preview-dashboard-race.png",
+            "Header: the Race dashboard picked by hand",
+            Some(DashboardId::Race),
+            Lang::En,
+        ),
+        (
+            "preview-dashboard-auto.png",
+            "Header: the dashboard picked from the session (Auto), Portuguese",
+            None,
+            Lang::Pt,
+        ),
     ] {
         let mut v = view(&f, Some(&live), Tab::Dash, 1.0, lang);
         v.dashboard = manual;
@@ -2793,7 +2803,14 @@ fn the_choice_is_kept_per_game_and_a_damaged_file_means_automatic() {
 #[test]
 fn every_built_in_dashboard_draws_the_same_plan_for_now() {
     let s = slots(live_reading().caps);
-    for layout in [Layout::Classic, Layout::Ultrawide, Layout::Wide, Layout::Square, Layout::Portrait, Layout::Stack] {
+    for layout in [
+        Layout::Classic,
+        Layout::Ultrawide,
+        Layout::Wide,
+        Layout::Square,
+        Layout::Portrait,
+        Layout::Stack,
+    ] {
         let base = layout.plan_for(&s, 3);
         for d in DashboardId::ALL {
             assert_eq!(layout.plan_in(d, &s, 3), base);
@@ -2807,7 +2824,19 @@ fn the_dashboard_model_serialises_for_the_phone() {
     let live = live_reading();
     let m = model_with(&live, Default::default(), &f.laps);
     let json = serde_json::to_value(&m).unwrap();
-    for key in ["track", "car", "lap", "lapTime", "gear", "speed", "fuel", "fuelTitle", "alerts", "laps", "mapTitle"] {
+    for key in [
+        "track",
+        "car",
+        "lap",
+        "lapTime",
+        "gear",
+        "speed",
+        "fuel",
+        "fuelTitle",
+        "alerts",
+        "laps",
+        "mapTitle",
+    ] {
         assert!(json.get(key).is_some(), "{key} is in the model's JSON");
     }
     assert!(json["laps"]["rows"].is_array());
