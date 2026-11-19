@@ -94,6 +94,7 @@ USAGE:
     xpeed-companion run                    The tray app (the same as no arguments)
     xpeed-companion panel                  Open the panel (dashboard and monitor) of the running tray app, or start it
     xpeed-companion panel-demo             Open the panel alone with made-up driving, to see it without a game
+    xpeed-companion coach-demo             Open the Coach window alone with a made-up conversation (nothing is sent)
     xpeed-companion probe [--seconds N]    Check the connection to Le Mans Ultimate and show what it sends (default 5 s)
     xpeed-companion record --out DIR       Write every lap to DIR as a .xlap.gz file (Ctrl+C to stop)
         --upload                           Also send each lap to Xpeed (pair first)
@@ -137,6 +138,7 @@ enum Command {
     Run,
     Panel,
     PanelDemo,
+    CoachDemo,
     MakeIcon {
         file: PathBuf,
     },
@@ -183,6 +185,10 @@ fn parse(args: &[String]) -> Result<Command, String> {
             Some(extra) => Err(format!("unexpected argument {extra:?}")),
         },
         Some("help" | "--help" | "-h") => Ok(Command::Help),
+        Some("coach-demo") => match rest.next() {
+            None => Ok(Command::CoachDemo),
+            Some(extra) => Err(format!("unexpected argument {extra:?}")),
+        },
         Some(word @ ("panel" | "panel-demo")) => match rest.next() {
             None if word == "panel" => Ok(Command::Panel),
             None => Ok(Command::PanelDemo),
@@ -702,6 +708,7 @@ fn moves_data(command: &Command) -> bool {
     !matches!(
         command,
         Command::PanelDemo
+            | Command::CoachDemo
             | Command::MakeIcon { .. }
             | Command::Probe { .. }
             | Command::Inspect { .. }
@@ -733,7 +740,7 @@ fn main() -> ExitCode {
     }
     // The program has no console of its own; a command typed in a terminal borrows that terminal's.
     #[cfg(windows)]
-    if !matches!(command, Command::Run | Command::Panel | Command::PanelDemo) {
+    if !matches!(command, Command::Run | Command::Panel | Command::PanelDemo | Command::CoachDemo) {
         win::attach_terminal();
     }
     match command {
@@ -749,8 +756,10 @@ fn main() -> ExitCode {
         }
         #[cfg(windows)]
         Command::PanelDemo => panel::demo(config::home_dir().map_or(text::Lang::En, |home| config::load_lang(&home))),
+        #[cfg(windows)]
+        Command::CoachDemo => coach::demo(config::home_dir().map_or(text::Lang::En, |home| config::load_lang(&home))),
         #[cfg(not(windows))]
-        Command::Run | Command::Panel | Command::PanelDemo => {
+        Command::Run | Command::Panel | Command::PanelDemo | Command::CoachDemo => {
             eprintln!("The tray app needs Windows. `inspect` works everywhere.");
             ExitCode::from(2)
         }
@@ -801,6 +810,7 @@ mod tests {
         assert_eq!(parse(&args(&["run"])), Ok(Command::Run));
         assert_eq!(parse(&args(&["panel"])), Ok(Command::Panel));
         assert_eq!(parse(&args(&["panel-demo"])), Ok(Command::PanelDemo));
+        assert_eq!(parse(&args(&["coach-demo"])), Ok(Command::CoachDemo));
         assert!(parse(&args(&["panel", "x"])).is_err());
         // The old `link` command (the xpeedsim: scheme) is gone.
         assert!(parse(&args(&["link", "xpeedsim://pair?x=1"])).is_err());
@@ -962,6 +972,7 @@ mod tests {
         assert!(moves_data(&Command::Status));
         assert!(moves_data(&Command::Unpair));
         assert!(!moves_data(&Command::PanelDemo));
+        assert!(!moves_data(&Command::CoachDemo));
         assert!(!moves_data(&Command::MakeIcon { file: "a.ico".into() }));
         assert!(!moves_data(&Command::Probe { seconds: 5 }));
         assert!(!moves_data(&Command::Inspect { file: "a.xlap.gz".into() }));

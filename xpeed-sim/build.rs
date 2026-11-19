@@ -67,8 +67,14 @@ fn embed_resources() {
         println!("cargo:warning=xpeed-companion: could not write the icon ({e}); building without resources");
         return;
     }
+    let manifest = out_dir.join("app.manifest");
+    if let Err(e) = std::fs::write(&manifest, rcgen::MANIFEST) {
+        println!("cargo:warning=xpeed-companion: could not write the manifest ({e}); building without resources");
+        return;
+    }
     let rc = out_dir.join("app.rc");
-    if let Err(e) = std::fs::write(&rc, rcgen::resource_script(&version, &ico.display().to_string())) {
+    let script = rcgen::resource_script(&version, &ico.display().to_string(), &manifest.display().to_string());
+    if let Err(e) = std::fs::write(&rc, script) {
         println!("cargo:warning=xpeed-companion: could not write app.rc ({e}); building without resources");
         return;
     }

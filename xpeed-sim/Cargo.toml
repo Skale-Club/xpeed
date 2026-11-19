@@ -1,6 +1,6 @@
 [package]
 name = "xpeed-sim"
-version = "0.13.0"
+version = "0.13.1"
 edition = "2021"
 description = "Reads racing-game telemetry on Windows and writes it as Xpeed lap files."
 publish = false
@@ -36,6 +36,7 @@ windows-sys = { version = "0.61", features = [
   "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
   "Win32_Graphics_GdiPlus",
+  "Win32_UI_Controls",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",

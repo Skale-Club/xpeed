@@ -16,7 +16,7 @@ use crate::util::lock;
 
 mod dialog;
 mod process_job;
-pub(crate) use dialog::{close, show};
+pub(crate) use dialog::{close, demo, show};
 
 const MAX_MESSAGES: usize = 12;
 const PAIR_POLL: Duration = Duration::from_millis(300);

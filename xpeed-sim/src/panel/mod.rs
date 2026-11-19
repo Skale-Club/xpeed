@@ -72,6 +72,7 @@ use crate::win;
 
 mod art;
 mod chrome;
+mod coach_look;
 mod dash_view;
 mod demo;
 mod layout;
@@ -98,6 +99,7 @@ use view::*;
 use waiting_view::*;
 use window::*;
 
+pub(crate) use coach_look::*;
 pub use demo::demo;
 pub use view::{Account, Context};
 pub use window::show;
