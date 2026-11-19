@@ -425,15 +425,22 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
     let wear = t
         .wear
         .filter(|_| room >= base + if tread.is_some() { tread_h } else { 0.0 } + wear_h);
-    // The tyre on the tile's outer side (left for a left tyre), the words beside it.
-    let shape_w = (w * 0.24).clamp(14.0, 40.0);
-    let shape_h = (room - STROKE_ACCENT).min(shape_w * 2.0).max(1.0);
+    let mut at = y + pad + STROKE_ACCENT * 0.5;
+    // The tyre on the tile's outer side (left for a left tyre), the words beside it. It spans exactly the words: its top
+    // on the top of the corner's letters (FL), its bottom on the last row drawn, never the empty rest of the tile.
+    let small_row = t.pressure.is_some() || t.brake.is_some();
+    let words_h = head_h
+        + temp_h
+        + if tread.is_some() { tread_h } else { 0.0 }
+        + if small_row { row_h } else { 0.0 }
+        + if wear.is_some() { wear_h } else { 0.0 };
+    let cap_inset = (head_h - T_CAPTION * TYRE_CAP_HEIGHT) / 2.0;
+    let shape_h = (words_h - 2.0 * cap_inset).max(1.0);
+    let shape_w = (shape_h * TYRE_ASPECT).clamp(14.0, (w * 0.28).max(14.0));
     let shape_x = if left_side { x + S2 } else { x + w - S2 - shape_w };
-    let shape_y = y + pad + STROKE_ACCENT * 0.5 + (room - STROKE_ACCENT - shape_h) / 2.0;
-    g.tyre_shape((shape_x, shape_y, shape_w, shape_h), t.shape);
+    g.tyre_shape((shape_x, at + cap_inset, shape_w, shape_h), t.shape);
     let iw = (w - 3.0 * S2 - shape_w).max(1.0);
     let ix = if left_side { x + 2.0 * S2 + shape_w } else { x + S2 };
-    let mut at = y + pad + STROKE_ACCENT * 0.5;
     let r = g.r(ix, at, iw, head_h);
     g.caps(&t.corner, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
     if !t.word.is_empty() {

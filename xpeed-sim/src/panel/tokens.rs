@@ -92,6 +92,10 @@ pub(super) const TYRE_HEAT_STOPS: [(f32, COLORREF); 8] = [
 ];
 /// The rubber around a tyre's tread when it is drawn from above (its sidewalls).
 pub(super) const TYRE_SIDEWALL: COLORREF = rgb(0x0b, 0x0b, 0x0c);
+/// A drawn tyre is this wide for its height (seen from above).
+pub(super) const TYRE_ASPECT: f32 = 0.5;
+/// The height of a capital letter for its type size, to line a shape up with the top of a label's letters.
+pub(super) const TYRE_CAP_HEIGHT: f32 = 0.7;
 /// The distance between two grooves across a drawn tread.
 pub(super) const TYRE_GROOVE_PITCH: f32 = 10.0;
 
