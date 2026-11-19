@@ -246,7 +246,18 @@ pub(super) fn focus_screen(g: &mut Painter, view: &View, focus: (&'static str, &
     let (title, note) = focus_title_note(view, focus.clone());
     let steps = focus_steps(view.lang, focus);
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
-    let mut y = g.wrapped(&title, 20.0, 0.0, cw - 40.0, T_NUMERAL, semi, Face::Num, FOREGROUND, DT_CENTER, 46.0);
+    let mut y = g.wrapped(
+        &title,
+        20.0,
+        0.0,
+        cw - 40.0,
+        T_NUMERAL,
+        semi,
+        Face::Num,
+        FOREGROUND,
+        DT_CENTER,
+        46.0,
+    );
     y += S6;
     let w = steps_width(cw);
     let wide = focus_wide(cw);
