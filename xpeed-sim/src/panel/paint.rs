@@ -698,6 +698,28 @@ impl Painter {
         }
     }
 
+    /// A tick (a done step, owner-approved module 9, 2026-11-19): two strokes of `color` inside `area`.
+    pub(super) fn tick(&self, (x, y, w, h): Area, color: COLORREF) {
+        let r = self.r(x, y, w, h);
+        let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
+        let at = |fx: f32, fy: f32| PointF {
+            X: px + pw * fx,
+            Y: py + ph * fy,
+        };
+        let points = [at(0.26, 0.52), at(0.44, 0.7), at(0.76, 0.32)];
+        let line_w = (2.2 * self.s).max(1.5);
+        smooth(self.hdc, |graphics| unsafe {
+            let mut pen = null_mut();
+            GdipCreatePen1(argb(color), line_w, UnitPixel, &mut pen);
+            let mut path = null_mut();
+            GdipCreatePath(FillModeAlternate, &mut path);
+            GdipAddPathLine2(path, points.as_ptr(), points.len() as i32);
+            GdipDrawPath(graphics, pen, path);
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+        });
+    }
+
     /// A pedal as a vertical bar of square blocks a hair apart (owner-approved 2026-11-19): as many blocks as the height
     /// holds at `INPUT_BLOCK_H` or more each, eight to thirteen (the owner asked for 30% more steps than ten), lit from
     /// the bottom up to `frac` in `color`.

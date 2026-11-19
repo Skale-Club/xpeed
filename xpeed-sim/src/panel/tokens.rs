@@ -123,6 +123,11 @@ pub(super) const INPUT_BLOCK_H: f32 = 5.0;
 /// so the trace reads like a chart without the lines competing with it.
 /// The gear carousel (owner, 2026-11-19): on a shift the gears slide one place in this long, easing out, the new gear
 /// growing into the middle and the old one shrinking to the side.
+/// The open-game checklist (owner-approved module 9, 2026-11-19): its width beside the cover, the square on the left of
+/// a step, and the inside margin of a step.
+pub(super) const STEPS_W: f32 = 470.0;
+pub(super) const STEP_ICON: f32 = 28.0;
+pub(super) const STEP_PAD: f32 = 12.0;
 pub(super) const GEAR_SLIDE_MS: i64 = 220;
 pub(super) const INPUT_GRID_INK: COLORREF = rgb(0x1c, 0x1d, 0x21);
 /// The gear takes at least this share of the centre card's inside height (owner, 2026-11-19: it is read from afar;

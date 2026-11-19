@@ -1079,6 +1079,11 @@ fn writes_the_design_preview_page() {
             "A game connected, the driver not on track yet",
             Game::Connected,
         ),
+        (
+            "preview-open-unsupported.png",
+            "A game open in a version this build cannot read",
+            Game::Unsupported,
+        ),
     ] {
         let mut open_game = view(&f, None, Tab::Dash, 1.0, Lang::Pt);
         open_game.covers = &covers;
@@ -1636,6 +1641,28 @@ fn the_centre_keeps_a_big_gear_and_the_pedals_have_their_own_card() {
     assert_eq!(at(20, 20), INPUT_GRID_INK, "a faint line at half the travel");
     let abs_x = (0.32 * 200.0) as i32;
     assert!((abs_x - 3..abs_x + 3).any(|x| at(x, 1) == INFO), "the ABS mark where it acted");
+}
+
+/// The open-game checklist (owner-approved module 9, 2026-11-19): the game open, its data on, the driver in the car;
+/// each state of the game lights the right step, and the step to act on says where in the game's menus.
+#[test]
+fn the_open_game_checklist_lights_the_right_step() {
+    use StepState::{Blocked, Done, Later, Now};
+    let states = |game: Game| focus_steps(Lang::En, ("ams2", "Automobilista 2", game)).map(|s| s.state);
+    assert_eq!(states(Game::Silent), [Done, Now, Later]);
+    assert_eq!(states(Game::Loading), [Done, Now, Later]);
+    assert_eq!(states(Game::Unsupported), [Done, Blocked, Later]);
+    assert_eq!(states(Game::Connected), [Done, Done, Now]);
+    assert_eq!(states(Game::Paused), [Done, Done, Now]);
+    let silent = focus_steps(Lang::Pt, ("ams2", "Automobilista 2", Game::Silent));
+    assert_eq!(silent[1].detail, text(Lang::Pt, &Msg::Setup("ams2")), "the menu path of the game");
+    assert_eq!(silent[0].detail, "Automobilista 2 encontrado");
+    assert!(silent[2].tag.is_empty(), "a step not reached has no word");
+    for lang in [Lang::En, Lang::Pt, Lang::Es] {
+        for step in focus_steps(lang, ("f1", "EA SPORTS F1 25", Game::Silent)) {
+            assert!(!step.title.is_empty() && !step.detail.is_empty(), "{lang:?}: {step:?}");
+        }
+    }
 }
 
 /// The gear carousel (owner-approved 2026-11-19): the reader keeps the last shift; on it the gears slide one place in
