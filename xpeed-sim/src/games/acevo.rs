@@ -62,6 +62,14 @@
 //!   lap-based). Not `total_lap_count`: that is the laps this car has completed (see `lap`). All four are `i32`s whose
 //!   offsets follow from the layout test; what the game writes in them in each kind of session is not seen live (ASSUMED).
 //!   No class position: the page has none.
+//! * The rivals (`Frame::field`), at most every 200 ms (`FieldPace`), ASSUMED and never seen live: the first `active_cars`
+//!   (at most 60) of `car_coordinates[60][3]` (floats, in the game's world, x negated like the player's position above)
+//!   are the cars, each with its world position (`RIVALS_WORLD`) and the name `Car <slot + 1>` (the page has no names). A
+//!   slot whose coordinates are all zero or not numbers is left out. The player's own car is the slot whose pair of ids
+//!   in `car_ids` (60 pairs of `uint64_t`, read in a separate copy because it lies past what the frame copies) is
+//!   `player_car_id_a/_b` (else `focused_car_id_a/_b`); `car_ids` sits at 3940 (pack 4) or 3944 (natural), so both are
+//!   tried, and no match means no car is marked. Only the player's car carries a place, laps done, last lap and the pit
+//!   lane (from the frame). Not read: `gap_ahead` and `gap_behind`, whose type and unit the sources do not give.
 //! * `dist_m` is left `None`, so the lap cutter integrates the speed (`npos` is a spline fraction and is not used).
 //! * Pedals, gear (physics: 0 reverse, 1 neutral, 2 first, so minus one), `rpms`, `speedKmh` / 3.6, `steerAngle`, `fuel`
 //!   (litres) from the physics page. The clutch is turned around (`1 - clutch`): the game writes 1 = engaged, the
@@ -97,7 +105,9 @@
 //!
 //! The unit of `wheelsPressure` (taken as psi, the way Assetto Corsa gives it), the tyre temperatures and `brakeTemp`
 //! against what the game shows, `max_fuel` (taken as litres), whether `total_lap_count` really counts completed laps
-//! from zero, whether `is_valid_lap` is filled in every mode, and that the pages are as long as the sources say in every
+//! from zero, whether `is_valid_lap` is filled in every mode, the rivals above (that `car_coordinates` are world positions
+//! in the same frame as `tyreContactPoint`, that `car_ids` holds two `uint64_t` per car, that `player_car_id_*` matches
+//! one of them), and that the pages are as long as the sources say in every
 //! build. The pages carry no sequence lock; the packet id before and after each copy is compared, which cannot catch a
 //! copy torn after the id was written.
 //!
@@ -105,6 +115,9 @@
 
 use std::time::{Duration, Instant};
 
+use std::sync::Arc;
+
+use crate::field::{self, Car, Field, FieldPace};
 use crate::game::{AidSettings, Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
 use crate::norm;
 use crate::shm::{Mapping, Page};
@@ -172,6 +185,18 @@ mod gfx {
     /// `ACEVO_FLAG_TYPE flag` (shown to this driver) and `global_flag` (shown to all).
     pub const FLAG: usize = 2404;
     pub const GLOBAL_FLAG: usize = 2408;
+    /// `uint64_t focused_car_id_a` / `_b` and `player_car_id_a` / `_b`, right after `status`: the same offsets under both packings.
+    pub const FOCUSED_CAR_ID: usize = 8;
+    pub const PLAYER_CAR_ID: usize = 24;
+    /// `float car_coordinates[60][3]` (after `is_valid_lap`), then `gap_ahead`, `gap_behind` (not read) and `uint8_t active_cars`.
+    pub const CAR_COORDINATES: usize = 3124;
+    pub const ACTIVE_CARS: usize = 3852;
+    pub const MAX_CARS: usize = 60;
+    /// `uint64_t car_ids[120]` (60 pairs), the last field: 3940 under `#pragma pack(4)`, 3944 with natural alignment. Not in
+    /// the copy of the frame (`READ_LEN`); `CAR_IDS_END` is the end of the page's struct under natural alignment.
+    pub const CAR_IDS_PACK4: usize = 3940;
+    pub const CAR_IDS_NATURAL: usize = 3944;
+    pub const CAR_IDS_END: usize = CAR_IDS_NATURAL + 16 * MAX_CARS;
     pub const TOTAL_LAP_COUNT: usize = 2384;
     /// `int current_pos` (1 is first) and `int total_drivers`, right after `total_lap_count`.
     pub const CURRENT_POS: usize = 2388;
@@ -329,6 +354,8 @@ struct AcEvo {
     /// The two packet counters (physics, graphics) of the last reading handed out.
     last_ids: Option<(i32, i32)>,
     epoch: Instant,
+    /// When the other cars are read (a few Hz, not on every sample).
+    pace: FieldPace,
 }
 
 pub fn open() -> Option<Box<dyn Source>> {
@@ -360,6 +387,7 @@ impl AcEvo {
             gone: false,
             last_ids: None,
             epoch: Instant::now(),
+            pace: FieldPace::default(),
         })
     }
 
@@ -389,7 +417,11 @@ impl AcEvo {
         if self.last_ids == Some(ids) {
             return None;
         }
-        let frame = frame_from(&p, &g, &s, self.epoch.elapsed().as_secs_f64())?;
+        let mut frame = frame_from(&p, &g, &s, self.epoch.elapsed().as_secs_f64())?;
+        if self.pace.due(frame.clock_s) {
+            let car_ids = pages.graphics.read(gfx::CAR_IDS_PACK4, gfx::CAR_IDS_END - gfx::CAR_IDS_PACK4);
+            frame.field = field_from(&g, car_ids.as_deref(), &frame);
+        }
         self.last_ids = Some(ids);
         Some(frame)
     }
@@ -430,6 +462,57 @@ impl Source for AcEvo {
     }
 }
 
+/// A car's world position from its `car_coordinates` entry, in the project's axes (x negated like the player's own position);
+/// not given when one is not a number or all three are zero.
+fn rival_world(raw: [f32; 3]) -> Option<[f32; 3]> {
+    let [x, y, z] = raw.map(norm::position);
+    (x.is_finite() && y.is_finite() && z.is_finite() && raw != [0.0; 3]).then_some([-x, y, z])
+}
+
+/// The slot of the player's own car: the one whose pair of ids in `car_ids` is `player_car_id_*` (else `focused_car_id_*`).
+/// `ids` is the copy of the page from `CAR_IDS_PACK4`; the table is at one of two offsets (the packing is not known), and
+/// both are tried. `None` when there is no id, no table or no match.
+fn player_slot(g: &Page, ids: &[u8], active: usize) -> Option<usize> {
+    let table = Page(ids);
+    [gfx::PLAYER_CAR_ID, gfx::FOCUSED_CAR_ID].into_iter().find_map(|at| {
+        let wanted = (g.u64_at(at), g.u64_at(at + 8));
+        if wanted == (0, 0) {
+            return None;
+        }
+        [gfx::CAR_IDS_PACK4, gfx::CAR_IDS_NATURAL].into_iter().find_map(|start| {
+            let base = start - gfx::CAR_IDS_PACK4;
+            (0..active).find(|&i| (table.u64_at(base + 16 * i), table.u64_at(base + 16 * i + 8)) == wanted)
+        })
+    })
+}
+
+/// The cars of the session from the graphics page and the copy of `car_ids` (`None` when it could not be had): see the module
+/// comment. `frame` is the player's reading of the same moment.
+fn field_from(g: &Page, car_ids: Option<&[u8]>, frame: &Frame) -> Option<Arc<Field>> {
+    let active = usize::from(g.u8_at(gfx::ACTIVE_CARS)).min(gfx::MAX_CARS);
+    let player = car_ids.and_then(|ids| player_slot(g, ids, active));
+    let mut cars = Vec::new();
+    for slot in 0..active {
+        let at = gfx::CAR_COORDINATES + 12 * slot;
+        let world = rival_world([g.f32_at(at), g.f32_at(at + 4), g.f32_at(at + 8)]);
+        let is_player = player == Some(slot);
+        if world.is_none() && !is_player {
+            continue;
+        }
+        let mut car = Car::named(slot as u16, &format!("Car {}", slot + 1));
+        car.world = world;
+        car.is_player = is_player;
+        if is_player {
+            car.position = frame.race_position;
+            car.laps_done = (frame.lap > 0).then_some(frame.lap - 1);
+            car.last_lap_s = frame.last_lap_s;
+            car.in_pits = frame.in_pits;
+        }
+        cars.push(car);
+    }
+    (!cars.is_empty()).then(|| field::publish(cars, frame.clock_s, frame.track_length_m))
+}
+
 /// What `frame_from` reads. Not given: the tread left, the damage, the engine warning, the weather and temperatures of
 /// the air and track, the session kind, the sectors, the g forces, the car class.
 const CAPS: Caps = {
@@ -454,6 +537,8 @@ const CAPS: Caps = {
         .or(Caps::BRAKE_TEMP)
         .or(Caps::TRACK_VARIANT)
         .or(Caps::TRACK_LENGTH)
+        .or(Caps::RIVALS)
+        .or(Caps::RIVALS_WORLD)
         .or(Caps::PIT_LIMITER)
         .or(Caps::ABS_ACTIVE)
         .or(Caps::TC_ACTIVE)
@@ -1286,6 +1371,10 @@ mod tests {
                     ("is_in_pit_lane", gfx::IS_IN_PIT_LANE),
                     ("is_valid_lap", gfx::IS_VALID_LAP),
                     ("max_fuel", gfx::MAX_FUEL),
+                    ("focused_car_id_a", gfx::FOCUSED_CAR_ID),
+                    ("player_car_id_a", gfx::PLAYER_CAR_ID),
+                    ("car_coordinates", gfx::CAR_COORDINATES),
+                    ("active_cars", gfx::ACTIVE_CARS),
                 ] {
                     assert_eq!(g.offset(name), want, "graphics {name}, pack {pack:?}");
                 }
@@ -1332,7 +1421,9 @@ mod tests {
                 assert_eq!(g.size, if pack.is_some() { 4900 } else { GRAPHICS_BYTES }, "pack {pack:?}");
                 assert_eq!(page_len(g.size), page_len(GRAPHICS_BYTES));
                 assert_eq!(page_len(g.size), 2 * PAGE);
-                assert_eq!(g.offset("car_ids"), if pack.is_some() { 3940 } else { 3944 });
+                assert_eq!(g.offset("car_ids"), if pack.is_some() { gfx::CAR_IDS_PACK4 } else { gfx::CAR_IDS_NATURAL });
+                assert_eq!(g.offset("car_coordinates") + 12 * gfx::MAX_CARS, g.offset("gap_ahead"));
+                assert_eq!(gfx::CAR_IDS_END, GRAPHICS_BYTES);
             }
         }
         // The pads of the two crates differ and still give the same layout.
@@ -1366,6 +1457,9 @@ mod tests {
         }
         fn f32(&mut self, at: usize, v: f32) {
             self.0[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        fn u64(&mut self, at: usize, v: u64) {
+            self.0[at..at + 8].copy_from_slice(&v.to_le_bytes());
         }
         fn text(&mut self, at: usize, len: usize, s: &str) {
             self.0[at..at + len].fill(0);
@@ -1497,6 +1591,79 @@ mod tests {
     }
 
     const NOW: Duration = Duration::from_millis(0);
+
+    /// Three cars: the player's ids are (7, 8), the second slot's; the table is at `table`.
+    fn three_cars(label: &str, table: usize) -> Rig {
+        let mut rig = Rig::new(label);
+        let g = &mut rig.image.graphics;
+        g.0[gfx::ACTIVE_CARS] = 3;
+        for (slot, (x, y, z)) in [(10.0, 1.0, 20.0), (30.0, 2.0, 40.0), (50.0, 3.0, 60.0)].into_iter().enumerate() {
+            for (d, v) in [x, y, z].into_iter().enumerate() {
+                g.f32(gfx::CAR_COORDINATES + 12 * slot + 4 * d, v);
+            }
+            g.u64(table + 16 * slot, 100 + slot as u64);
+            g.u64(table + 16 * slot + 8, 200 + slot as u64);
+        }
+        g.u64(gfx::PLAYER_CAR_ID, 101);
+        g.u64(gfx::PLAYER_CAR_ID + 8, 201);
+        rig.write_all();
+        rig
+    }
+
+    #[test]
+    fn reads_the_cars_with_their_world_positions_and_finds_the_player_under_either_packing() {
+        for (label, table) in [("rivals_natural", gfx::CAR_IDS_NATURAL), ("rivals_pack4", gfx::CAR_IDS_PACK4)] {
+            let rig = three_cars(label, table);
+            let mut reader = rig.reader();
+            let frame = reader.next(NOW).expect("a frame");
+            assert_frame_within_caps(&frame, CAPS, "acevo");
+            assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
+            let field = frame.field.as_ref().expect("the first reading carries the cars");
+            let mut cars = field.cars.clone();
+            cars.sort_by_key(|c| c.slot);
+            let names: Vec<&str> = cars.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names, ["Car 1", "Car 2", "Car 3"], "{label}");
+            let player: Vec<bool> = cars.iter().map(|c| c.is_player).collect();
+            assert_eq!(player, [false, true, false], "{label}");
+            let world: Vec<Option<[f32; 3]>> = cars.iter().map(|c| c.world).collect();
+            assert_eq!(
+                world,
+                [Some([-10.0, 1.0, 20.0]), Some([-30.0, 2.0, 40.0]), Some([-50.0, 3.0, 60.0])],
+                "x is negated like the player's own position"
+            );
+            // Only the player's own car has a place, laps, a last lap; the page has no class and no names.
+            let places: Vec<Option<u16>> = cars.iter().map(|c| c.position).collect();
+            assert_eq!(places, [None, Some(2), None]);
+            let laps: Vec<Option<i32>> = cars.iter().map(|c| c.laps_done).collect();
+            assert_eq!(laps, [None, Some(3), None]);
+            assert_eq!(cars[1].last_lap_s, Some(90.5));
+            assert!(cars.iter().all(|c| c.class.is_none() && c.lap_share.is_none()));
+        }
+    }
+
+    #[test]
+    fn a_car_with_no_position_is_left_out_and_no_matching_id_marks_nobody() {
+        let mut rig = three_cars("rivals_edge", gfx::CAR_IDS_NATURAL);
+        for d in 0..3 {
+            rig.image.graphics.f32(gfx::CAR_COORDINATES + 12 * 2 + 4 * d, 0.0);
+        }
+        rig.image.graphics.u64(gfx::PLAYER_CAR_ID, 999);
+        rig.image.graphics.u64(gfx::FOCUSED_CAR_ID, 0);
+        rig.image.graphics.u64(gfx::FOCUSED_CAR_ID + 8, 0);
+        rig.write_all();
+        let frame = rig.reader().next(NOW).unwrap();
+        let field = frame.field.expect("two cars with a position");
+        assert_eq!(field.cars.len(), 2);
+        assert!(field.player().is_none());
+        // No active car, no field; a reading inside the 200 ms carries none either.
+        let mut rig = three_cars("rivals_pace", gfx::CAR_IDS_NATURAL);
+        let mut reader = rig.reader();
+        assert!(reader.next(NOW).unwrap().field.is_some());
+        rig.step();
+        assert!(reader.next(NOW).unwrap().field.is_none());
+        let quiet = Rig::new("rivals_none");
+        assert!(quiet.reader().next(NOW).unwrap().field.is_none());
+    }
 
     #[test]
     fn reads_a_moment_on_track_into_exact_frame_values() {

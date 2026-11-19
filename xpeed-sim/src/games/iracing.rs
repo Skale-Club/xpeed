@@ -44,6 +44,23 @@
 //! `DriverInfo: Drivers` that are not the pace car (`CarIsPaceCar: 1`, or the user name "Pace Car", as the test fixture
 //! has it) and not a spectator (`IsSpectator: 1`).
 //!
+//! The rivals (`Frame::field`) and the spotter (`Frame::spotter`), all ASSUMED and listed in "to confirm" below. The
+//! rivals are read at most every 200 ms (`FieldPace`):
+//!
+//! * The per-car arrays of the telemetry (up to 64 elements, the index being the `CarIdx` of the driver list):
+//!   `CarIdxPosition` and `CarIdxClassPosition` (1 is first, 0 none), `CarIdxLapCompleted` (laps done, -1 not in the
+//!   world), `CarIdxLapDistPct` (0 to 1 round the lap, -1 off the track), `CarIdxOnPitRoad`, `CarIdxLastLapTime` and
+//!   `CarIdxBestLapTime` (seconds, -1 none) and `CarIdxClass` (a number, used for the class only when the driver list has
+//!   no `CarClassShortName`: then `iRacing class <n>`). The arrays are found by name like every variable, with the
+//!   descriptor's `count` (a variable whose elements would run past the buffer is not read).
+//! * The names and classes come from `DriverInfo: Drivers` (`UserName`, `CarClassShortName`), the cars being the racing
+//!   ones (no pace car, no spectator, the same rule as `cars`); the player's own car is `DriverCarIdx`. A car with no
+//!   place, no laps and no share of the lap (it left the session) is left out, the player's own never.
+//! * No world positions: the SDK gives none for the other cars (`RIVALS`, not `RIVALS_WORLD`). No gap to the car ahead:
+//!   `field::complete` estimates them from the laps and the share of the lap.
+//! * The spotter is `CarLeftRight`, the SDK's `irsdk_CarLeftRight`: 0 off (not given), 1 clear, 2 a car left, 3 a car
+//!   right, 4 cars on both sides, 5 two cars left, 6 two cars right. Given only while driving.
+//!
 //! `driving` is `IsOnTrack` (the player is in the car and its physics run) and not `IsReplayPlaying`.
 //!
 //! # Phase
@@ -80,15 +97,20 @@
 //! the clutch and steering conventions above, the program name, and the race values (the four variable names and
 //! what they hold in a lap-based, a timed and an unlimited session, and the pace car and spectator markers in
 //! `DriverInfo`). They come from the SDK's descriptions and from
-//! the tools that read it; the first real session confirms or corrects them.
+//! the tools that read it; the first real session confirms or corrects them. Also to confirm: the names of the eight
+//! `CarIdx*` arrays and what they hold outside a race (the position arrays are probably 0 in a practice session), that
+//! `CarIdx` of the driver list is the index into them, the `CarLeftRight` numbers, and that `UserName` is the name to
+//! show (`TeamName` is not read).
 //!
 //! Never read: another process's memory. Only the sim's own shared memory, read-only and copied out.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::game::{Caps, Frame, Phase, Source};
+use crate::field::{self, Car, Field, FieldPace};
+use crate::game::{Caps, Frame, Phase, Source, Spotter};
 use crate::lapfile::Lap;
 use crate::norm::{self, pedal, within};
 use crate::shm::{Mapping, Page};
@@ -129,6 +151,7 @@ mod at {
     /// Inside an `irsdk_varHeader`.
     pub const V_TYPE: usize = 0;
     pub const V_OFFSET: usize = 4;
+    pub const V_COUNT: usize = 8;
     pub const V_NAME: usize = 16;
     pub const V_NAME_LEN: usize = 32;
 }
@@ -179,11 +202,13 @@ impl Kind {
     }
 }
 
-/// Where one variable sits inside a telemetry buffer (its first element: every variable read here is a single value).
+/// Where one variable sits inside a telemetry buffer: its first element, and how many it has (1 for a single value, up to
+/// 64 for the per-car arrays).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Var {
     kind: Kind,
     offset: usize,
+    count: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -265,8 +290,8 @@ fn parse_header(bytes: &[u8], mapped: usize) -> Option<Header> {
     })
 }
 
-/// The variables, by name, out of `count` descriptors. A descriptor with a type the SDK does not have, or whose value
-/// would sit past the end of a buffer, is left out.
+/// The variables, by name, out of `count` descriptors. A descriptor with a type the SDK does not have, or whose values
+/// would sit past the end of a buffer, is left out. An element count of 0 or less is read as 1.
 fn parse_vars(bytes: &[u8], count: usize, buf_len: usize) -> HashMap<String, Var> {
     let page = Page(bytes);
     let mut vars = HashMap::with_capacity(count);
@@ -278,12 +303,20 @@ fn parse_vars(bytes: &[u8], count: usize, buf_len: usize) -> HashMap<String, Var
         let Some(offset) = usize_of(page.i32_at(base + at::V_OFFSET)) else {
             continue;
         };
-        if offset.checked_add(kind.size()).is_none_or(|end| end > buf_len) {
+        let elements = usize_of(page.i32_at(base + at::V_COUNT)).filter(|&c| c >= 1).unwrap_or(1);
+        if offset.checked_add(kind.size().saturating_mul(elements)).is_none_or(|end| end > buf_len) {
             continue;
         }
         let name = page.ascii_at(base + at::V_NAME, at::V_NAME_LEN);
         if !name.is_empty() {
-            vars.insert(name, Var { kind, offset });
+            vars.insert(
+                name,
+                Var {
+                    kind,
+                    offset,
+                    count: elements,
+                },
+            );
         }
     }
     vars
@@ -298,13 +331,23 @@ struct Values<'a> {
 impl Values<'_> {
     /// Any numeric variable as a float; `None` when this build does not publish it (or it is not a finite number).
     fn number(&self, name: &str) -> Option<f64> {
+        self.element(name, 0)
+    }
+
+    /// Element `index` of a variable (the per-car arrays) as a float; `None` when this build does not publish the variable,
+    /// it has no such element, or the value is not a finite number.
+    fn element(&self, name: &str, index: usize) -> Option<f64> {
         let var = self.vars.get(name)?;
+        if index >= var.count {
+            return None;
+        }
+        let at = var.offset + index * var.kind.size();
         let page = Page(self.buf);
         let v = match var.kind {
-            Kind::Char | Kind::Bool => f64::from(page.u8_at(var.offset)),
-            Kind::Int | Kind::BitField => f64::from(page.i32_at(var.offset)),
-            Kind::Float => f64::from(page.f32_at(var.offset)),
-            Kind::Double => f64::from_le_bytes(self.buf.get(var.offset..var.offset + 8)?.try_into().ok()?),
+            Kind::Char | Kind::Bool => f64::from(page.u8_at(at)),
+            Kind::Int | Kind::BitField => f64::from(page.i32_at(at)),
+            Kind::Float => f64::from(page.f32_at(at)),
+            Kind::Double => f64::from_le_bytes(self.buf.get(at..at + 8)?.try_into().ok()?),
         };
         v.is_finite().then_some(v)
     }
@@ -328,10 +371,23 @@ struct Session {
     car_class: Option<String>,
     /// The cars in the session, from the driver list.
     cars: Option<u16>,
+    /// The racing cars of the driver list (the rivals layer's names and classes).
+    drivers: Vec<Driver>,
+    /// `DriverCarIdx`: the player's own car in the driver list.
+    player_idx: Option<u16>,
 }
 
-/// The cars of the driver list that are racing: every entry of `Drivers` but the pace car and the spectators.
-fn count_cars(drivers: &[&str]) -> Option<u16> {
+/// One racing car of the driver list.
+#[derive(Clone, Debug, PartialEq)]
+struct Driver {
+    /// `CarIdx`: the index of the car in every per-car array.
+    idx: u16,
+    name: String,
+    class: Option<String>,
+}
+
+/// The entries of `Drivers`, each as its own lines.
+fn driver_entries<'a>(drivers: &[&'a str]) -> Vec<Vec<&'a str>> {
     let mut entries: Vec<Vec<&str>> = Vec::new();
     for line in drivers {
         if line.trim_start().starts_with("- ") {
@@ -341,18 +397,37 @@ fn count_cars(drivers: &[&str]) -> Option<u16> {
             entry.push(*line);
         }
     }
-    let racing = entries
-        .iter()
-        .filter(|entry| {
-            let entry = entry.as_slice();
-            let is = |key: &str| first_value(entry, key).as_deref() == Some("1");
-            first_value(entry, "CarIdx").is_some()
-                && !is("CarIsPaceCar")
-                && !is("IsSpectator")
-                && first_value(entry, "UserName").as_deref() != Some("Pace Car")
-        })
-        .count();
+    entries
+}
+
+/// An entry that is racing: not the pace car and not a spectator.
+fn is_racing(entry: &[&str]) -> bool {
+    let is = |key: &str| first_value(entry, key).as_deref() == Some("1");
+    first_value(entry, "CarIdx").is_some()
+        && !is("CarIsPaceCar")
+        && !is("IsSpectator")
+        && first_value(entry, "UserName").as_deref() != Some("Pace Car")
+}
+
+/// The cars of the driver list that are racing: every entry of `Drivers` but the pace car and the spectators.
+fn count_cars(drivers: &[&str]) -> Option<u16> {
+    let racing = driver_entries(drivers).iter().filter(|entry| is_racing(entry)).count();
     norm::cars(racing as i64)
+}
+
+/// The racing cars with their `CarIdx`, name and class; an entry whose `CarIdx` is not a number is left out.
+fn racing_drivers(drivers: &[&str]) -> Vec<Driver> {
+    driver_entries(drivers)
+        .iter()
+        .filter(|entry| is_racing(entry))
+        .filter_map(|entry| {
+            Some(Driver {
+                idx: first_value(entry, "CarIdx")?.parse().ok()?,
+                name: first_value(entry, "UserName").unwrap_or_default(),
+                class: first_value(entry, "CarClassShortName"),
+            })
+        })
+        .collect()
 }
 
 /// The text up to its first zero: UTF-8 when it is valid UTF-8, else Latin-1 (every byte is the character of that
@@ -421,6 +496,7 @@ fn parse_session(yaml: &str) -> Session {
 
     let drivers = section(yaml, "DriverInfo");
     let player = first_value(&drivers, "DriverCarIdx");
+    let player_idx = player.as_deref().and_then(|p| p.parse().ok());
     let (mut car, mut car_class) = (String::new(), None);
     if let Some(player) = player {
         let mut current: Option<String> = None;
@@ -449,6 +525,8 @@ fn parse_session(yaml: &str) -> Session {
         car,
         car_class,
         cars: count_cars(&drivers),
+        drivers: racing_drivers(&drivers),
+        player_idx,
     }
 }
 
@@ -574,10 +652,72 @@ fn frame_from(values: &Values, session: &Session, path: &mut Path, clock_s: f64)
     frame.class_position = whole("PlayerCarClassPosition").and_then(|p| norm::place(p, frame.cars));
     frame.session_time_left_s = values.number("SessionTimeRemain").and_then(norm::time_left_s);
     frame.session_laps = whole("SessionLapsTotal").and_then(norm::race_laps);
+    frame.spotter = values
+        .number("CarLeftRight")
+        .filter(|_| frame.driving)
+        .and_then(|v| spotter_of(v as i64));
     // Every frame the reader tests make is held to the caps and the phase invariant.
     #[cfg(test)]
     crate::game::assert_frame_within_caps(&frame, CAPS, "iracing");
     (frame, estimated)
+}
+
+/// The SDK's `irsdk_CarLeftRight` as the spotter: 0 is off (not given), 1 clear, 2 a car left, 3 a car right, 4 cars on
+/// both sides, 5 two cars left, 6 two cars right. Anything else is not given.
+fn spotter_of(v: i64) -> Option<Spotter> {
+    Some(match v {
+        1 => Spotter::Clear,
+        2 => Spotter::Left,
+        3 => Spotter::Right,
+        4 => Spotter::Both,
+        5 => Spotter::TwoLeft,
+        6 => Spotter::TwoRight,
+        _ => return None,
+    })
+}
+
+/// A lap time of the per-car arrays: -1 and 0 are "none yet", and a time past a day is not a lap.
+fn lap_time(v: Option<f64>) -> Option<f64> {
+    v.filter(|t| *t > 0.0 && *t <= 86_400.0)
+}
+
+/// The racing cars of the session in the units of the rivals layer, from the per-car arrays (indexed by `CarIdx`) and the
+/// driver list. A car with no place, no laps and no share of the lap is not in the session now and is left out (the
+/// player's own never); `None` when no car is left.
+fn field_from(values: &Values, session: &Session, clock_s: f64, track_length_m: Option<f64>) -> Option<Arc<Field>> {
+    let mut cars = Vec::new();
+    for driver in &session.drivers {
+        let idx = usize::from(driver.idx);
+        let whole = |name: &str| values.element(name, idx).map(|v| v as i64);
+        let name = if driver.name.is_empty() {
+            format!("Car {}", driver.idx)
+        } else {
+            driver.name.clone()
+        };
+        let mut car = Car::named(driver.idx, &name);
+        car.class = driver
+            .class
+            .clone()
+            .or_else(|| whole("CarIdxClass").filter(|c| *c >= 0).map(|c| format!("iRacing class {c}")));
+        car.position = whole("CarIdxPosition").and_then(|p| norm::place(p, session.cars));
+        car.class_position = whole("CarIdxClassPosition").and_then(|p| norm::place(p, session.cars));
+        car.laps_done = whole("CarIdxLapCompleted")
+            .and_then(|l| i32::try_from(l).ok())
+            .filter(|l| (0..=100_000).contains(l));
+        car.lap_share = values
+            .element("CarIdxLapDistPct", idx)
+            .filter(|p| (0.0..=1.05).contains(p))
+            .map(|p| p.min(1.0) as f32);
+        car.in_pits = values.element("CarIdxOnPitRoad", idx).is_some_and(|v| v != 0.0);
+        car.last_lap_s = lap_time(values.element("CarIdxLastLapTime", idx));
+        car.best_lap_s = lap_time(values.element("CarIdxBestLapTime", idx));
+        car.is_player = session.player_idx == Some(driver.idx);
+        if !car.is_player && car.position.is_none() && car.laps_done.is_none() && car.lap_share.is_none() {
+            continue;
+        }
+        cars.push(car);
+    }
+    (!cars.is_empty()).then(|| field::publish(cars, clock_s, track_length_m))
 }
 
 /// What a frame can fill. The position is the SDK's `Lat`/`Lon` when the build publishes them, else the path worked out
@@ -603,7 +743,9 @@ const CAPS: Caps = Caps::LAP_TIME
     .or(Caps::CLASS_POSITION)
     .or(Caps::CARS)
     .or(Caps::SESSION_TIME_LEFT)
-    .or(Caps::SESSION_LAPS);
+    .or(Caps::SESSION_LAPS)
+    .or(Caps::RIVALS)
+    .or(Caps::SPOTTER);
 
 /// Spreads the gap between a lap's last position and its first along the lap, by distance, so an estimated path that
 /// drifted closes on itself. A gap over a tenth of the track (or of the lap's distance, when the track length is not
@@ -646,6 +788,8 @@ struct IRacing {
     path: Path,
     /// Whether the last positions were estimated (and so a finished lap is closed).
     estimated: bool,
+    /// When the other cars are read (a few Hz, not on every sample).
+    pace: FieldPace,
 }
 
 impl IRacing {
@@ -666,6 +810,7 @@ impl IRacing {
             connected: false,
             path: Path::default(),
             estimated: true,
+            pace: FieldPace::default(),
         })
     }
 
@@ -675,6 +820,7 @@ impl IRacing {
         self.session_update = None;
         self.last_tick = None;
         self.path.last_t = None;
+        self.pace = FieldPace::default();
         if !self.connected {
             return None;
         }
@@ -717,7 +863,10 @@ impl IRacing {
             vars: &self.vars,
             buf: &buf,
         };
-        let (frame, estimated) = frame_from(&values, &self.session, &mut self.path, self.started.elapsed().as_secs_f64());
+        let (mut frame, estimated) = frame_from(&values, &self.session, &mut self.path, self.started.elapsed().as_secs_f64());
+        if self.pace.due(frame.clock_s) {
+            frame.field = field_from(&values, &self.session, frame.clock_s, frame.track_length_m);
+        }
         self.estimated = estimated;
         Some(frame)
     }
@@ -823,11 +972,17 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
 
     impl Image {
         fn new(vars: &[(&'static str, Kind)], session: &[u8]) -> Image {
+            let sized: Vec<(&'static str, Kind, usize)> = vars.iter().map(|&(name, kind)| (name, kind, 1)).collect();
+            Image::sized(&sized, session)
+        }
+
+        /// The same with a count of elements per variable (the per-car arrays have 64).
+        fn sized(vars: &[(&'static str, Kind, usize)], session: &[u8]) -> Image {
             let mut offsets = HashMap::new();
             let mut offset: usize = 0;
-            for &(name, kind) in vars {
+            for &(name, kind, count) in vars {
                 offsets.insert(name, (kind, offset));
-                offset += 8;
+                offset += (kind.size() * count).next_multiple_of(8);
             }
             let buf_len = offset.next_multiple_of(16);
             let var_headers = HEADER_SIZE;
@@ -855,11 +1010,11 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
                     (buf_base + slot * buf_len) as i32,
                 );
             }
-            for (i, &(name, kind)) in vars.iter().enumerate() {
+            for (i, &(name, kind, count)) in vars.iter().enumerate() {
                 let base = var_headers + i * VAR_HEADER_SIZE;
                 image.put_i32(base + at::V_TYPE, code_of(kind));
                 image.put_i32(base + at::V_OFFSET, image.vars[name].1 as i32);
-                image.put_i32(base + 8, 1);
+                image.put_i32(base + at::V_COUNT, count as i32);
                 image.bytes[base + at::V_NAME..base + at::V_NAME + name.len()].copy_from_slice(name.as_bytes());
             }
             image.bytes[session_at..session_at + session.len()].copy_from_slice(session);
@@ -871,8 +1026,13 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
         }
 
         fn set(&mut self, slot: usize, name: &str, v: f64) {
+            self.set_at(slot, name, 0, v);
+        }
+
+        /// Element `index` of an array variable.
+        fn set_at(&mut self, slot: usize, name: &str, index: usize, v: f64) {
             let (kind, offset) = self.vars[name];
-            let at = self.buf_base + slot * self.buf_len + offset;
+            let at = self.buf_base + slot * self.buf_len + offset + index * kind.size();
             match kind {
                 Kind::Char | Kind::Bool => self.bytes[at] = v as u8,
                 Kind::Int | Kind::BitField => self.put_i32(at, v as i32),
@@ -899,7 +1059,12 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
     }
 
     fn driving_image() -> Image {
-        let mut image = Image::new(VARS, SESSION.as_bytes());
+        driving_image_of(VARS, SESSION)
+    }
+
+    /// The driving moment with the variables of `vars` (which hold the ones of `VARS`) and a session text.
+    fn driving_image_of(vars: &[(&'static str, Kind)], session: &str) -> Image {
+        let mut image = Image::new(vars, session.as_bytes());
         for (name, v) in [
             ("SessionTime", 120.25),
             ("IsOnTrack", 1.0),
@@ -990,6 +1155,167 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
             ),
             (None, None, None, None, None)
         );
+    }
+
+    /// Three racers (the player is index 2), the pace car and a spectator.
+    const RACE_SESSION: &str = "---\nWeekendInfo:\n TrackName: spa 2024 gp\n TrackLength: 6.93 km\nDriverInfo:\n DriverCarIdx: 2\n Drivers:\n \
+- CarIdx: 0\n   UserName: Pace Car\n   CarIsPaceCar: 1\n \
+- CarIdx: 1\n   UserName: Leader\n   CarClassShortName: GT3\n \
+- CarIdx: 2\n   UserName: Me\n   CarClassShortName: GT3\n \
+- CarIdx: 3\n   UserName: Slower\n   CarClassShortName: MX5 Cup\n \
+- CarIdx: 4\n   UserName: Watcher\n   IsSpectator: 1\n\n...\n";
+
+    const ARRAYS: &[(&str, Kind)] = &[
+        ("CarIdxPosition", Kind::Int),
+        ("CarIdxClassPosition", Kind::Int),
+        ("CarIdxLapCompleted", Kind::Int),
+        ("CarIdxLapDistPct", Kind::Float),
+        ("CarIdxOnPitRoad", Kind::Bool),
+        ("CarIdxLastLapTime", Kind::Float),
+        ("CarIdxBestLapTime", Kind::Float),
+        ("CarIdxClass", Kind::Int),
+    ];
+
+    /// `VARS`, `CarLeftRight` and the per-car arrays of 64, filled for three cars: the leader (1), the player (2, in the pit
+    /// lane) and a slower car of another class (3).
+    fn race_image() -> Image {
+        let mut vars: Vec<(&'static str, Kind, usize)> = VARS.iter().map(|&(n, k)| (n, k, 1)).collect();
+        vars.push(("CarLeftRight", Kind::Int, 1));
+        vars.extend(ARRAYS.iter().map(|&(n, k)| (n, k, 64)));
+        let mut image = Image::sized(&vars, RACE_SESSION.as_bytes());
+        for (name, v) in [("SessionTime", 120.25), ("IsOnTrack", 1.0), ("Lap", 5.0), ("LapDist", 2210.0)] {
+            image.set(0, name, v);
+        }
+        // (index, position, class position, laps, share, in pits, last, best, class)
+        for (i, pos, cpos, laps, share, pit, last, best, class) in [
+            (1, 1, 1, 4, 0.75, 0, 140.5, 139.0, 11),
+            (2, 2, 2, 4, 0.5, 1, 141.0, 140.0, 11),
+            (3, 3, 1, 3, 0.25, 0, 160.0, 158.0, 12),
+        ] {
+            for (name, v) in [
+                ("CarIdxPosition", f64::from(pos)),
+                ("CarIdxClassPosition", f64::from(cpos)),
+                ("CarIdxLapCompleted", f64::from(laps)),
+                ("CarIdxLapDistPct", share),
+                ("CarIdxOnPitRoad", f64::from(pit)),
+                ("CarIdxLastLapTime", last),
+                ("CarIdxBestLapTime", best),
+                ("CarIdxClass", f64::from(class)),
+            ] {
+                image.set_at(0, name, i, v);
+            }
+        }
+        // The pace car, the spectator and the empty slots: not in the world.
+        for i in [0, 4, 5] {
+            image.set_at(0, "CarIdxLapCompleted", i, -1.0);
+            image.set_at(0, "CarIdxLapDistPct", i, -1.0);
+        }
+        image.tick(0, 10);
+        image
+    }
+
+    #[test]
+    fn the_per_car_arrays_become_the_field_with_the_names_of_the_driver_list() {
+        let image = race_image();
+        let (vars, buf) = image.values(0);
+        assert_eq!(vars["CarIdxPosition"].count, 64);
+        let session = parse_session(RACE_SESSION);
+        assert_eq!((session.cars, session.player_idx), (Some(3), Some(2)));
+        let ids: Vec<u16> = session.drivers.iter().map(|d| d.idx).collect();
+        assert_eq!(ids, [1, 2, 3], "no pace car, no spectator");
+        let field = field_from(&Values { vars: &vars, buf: &buf }, &session, 7.5, Some(6930.0)).expect("a field");
+        assert_eq!(field.at_s, 7.5);
+        let names: Vec<&str> = field.cars.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Leader", "Me", "Slower"]);
+        let slots: Vec<u16> = field.cars.iter().map(|c| c.slot).collect();
+        assert_eq!(slots, [1, 2, 3]);
+        let places: Vec<(Option<u16>, Option<u16>)> = field.cars.iter().map(|c| (c.position, c.class_position)).collect();
+        assert_eq!(places, [(Some(1), Some(1)), (Some(2), Some(2)), (Some(3), Some(1))]);
+        let classes: Vec<Option<&str>> = field.cars.iter().map(|c| c.class.as_deref()).collect();
+        assert_eq!(classes, [Some("GT3"), Some("GT3"), Some("MX5 Cup")]);
+        let laps: Vec<Option<i32>> = field.cars.iter().map(|c| c.laps_done).collect();
+        assert_eq!(laps, [Some(4), Some(4), Some(3)]);
+        let shares: Vec<Option<f32>> = field.cars.iter().map(|c| c.lap_share).collect();
+        assert_eq!(shares, [Some(0.75), Some(0.5), Some(0.25)]);
+        let pits: Vec<bool> = field.cars.iter().map(|c| c.in_pits).collect();
+        assert_eq!(pits, [false, true, false]);
+        let last: Vec<Option<f64>> = field.cars.iter().map(|c| c.last_lap_s).collect();
+        assert_eq!(last, [Some(140.5), Some(141.0), Some(160.0)]);
+        let best: Vec<Option<f64>> = field.cars.iter().map(|c| c.best_lap_s).collect();
+        assert_eq!(best, [Some(139.0), Some(140.0), Some(158.0)]);
+        let player: Vec<bool> = field.cars.iter().map(|c| c.is_player).collect();
+        assert_eq!(player, [false, true, false]);
+        assert!(field.cars.iter().all(|c| c.world.is_none()), "the SDK gives no world positions");
+        assert_eq!(field.cars[0].gap_leader_s, Some(0.0), "the gaps are the layer's estimate");
+        // A car that left (no place, no laps, no share) is dropped; the player's own stays.
+        let mut gone = race_image();
+        for i in [1, 3] {
+            gone.set_at(0, "CarIdxPosition", i, 0.0);
+            gone.set_at(0, "CarIdxLapCompleted", i, -1.0);
+            gone.set_at(0, "CarIdxLapDistPct", i, -1.0);
+        }
+        let (vars, buf) = gone.values(0);
+        let field = field_from(&Values { vars: &vars, buf: &buf }, &session, 0.0, None).unwrap();
+        assert_eq!(field.cars.len(), 2);
+        assert!(field.player().is_some());
+        // A build with no per-car arrays gives no field.
+        let image = driving_image_of(VARS, RACE_SESSION);
+        let (vars, buf) = image.values(0);
+        assert!(field_from(&Values { vars: &vars, buf: &buf }, &session, 0.0, None).is_none());
+    }
+
+    #[test]
+    fn the_spotter_follows_car_left_right() {
+        let vars: Vec<(&'static str, Kind)> = VARS.iter().copied().chain([("CarLeftRight", Kind::Int)]).collect();
+        let session = Session::default();
+        for (raw, want) in [
+            (0.0, None),
+            (1.0, Some(Spotter::Clear)),
+            (2.0, Some(Spotter::Left)),
+            (3.0, Some(Spotter::Right)),
+            (4.0, Some(Spotter::Both)),
+            (5.0, Some(Spotter::TwoLeft)),
+            (6.0, Some(Spotter::TwoRight)),
+            (7.0, None),
+            (-1.0, None),
+        ] {
+            let mut image = driving_image_of(&vars, SESSION);
+            image.set(0, "CarLeftRight", raw);
+            let (v, buf) = image.values(0);
+            let (frame, _) = frame_from(&Values { vars: &v, buf: &buf }, &session, &mut Path::default(), 0.0);
+            assert_eq!(frame.spotter, want, "{raw}");
+            if want.is_some() {
+                assert!(frame.filled().has(Caps::SPOTTER));
+            }
+            // Not while the player is not in the car.
+            image.set(0, "IsOnTrack", 0.0);
+            let (v, buf) = image.values(0);
+            let (frame, _) = frame_from(&Values { vars: &v, buf: &buf }, &session, &mut Path::default(), 0.0);
+            assert_eq!(frame.spotter, None, "{raw} out of the car");
+        }
+        // A build that does not publish it gives none.
+        let image = driving_image();
+        let (v, buf) = image.values(0);
+        let (frame, _) = frame_from(&Values { vars: &v, buf: &buf }, &session, &mut Path::default(), 0.0);
+        assert_eq!(frame.spotter, None);
+    }
+
+    #[test]
+    fn the_reader_publishes_the_field_with_a_frame_and_not_on_every_one() {
+        let mut image = race_image();
+        let fake = FakeMemory::new("iracing-field", image.bytes.len());
+        fake.write(0, &image.bytes);
+        let mut reader = IRacing::open_named(&fake.name).expect("opens");
+        let frame = reader.next(Duration::ZERO).expect("a frame");
+        let field = frame.field.as_ref().expect("the first reading carries the other cars");
+        assert_eq!(field.cars.len(), 3);
+        crate::game::assert_frame_within_caps(&frame, CAPS, "iracing");
+        assert!(frame.filled().has(Caps::RIVALS) && !frame.filled().has(Caps::RIVALS_WORLD));
+        // The next reading is inside the 200 ms: no field on it.
+        image.set(1, "IsOnTrack", 1.0);
+        image.tick(1, 11);
+        fake.write(0, &image.bytes);
+        assert!(reader.next(Duration::ZERO).expect("a frame").field.is_none());
     }
 
     #[test]

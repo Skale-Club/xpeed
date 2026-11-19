@@ -15,9 +15,10 @@
 //!   which belong to the lap that was just closed, so `finish_lap` puts them on that lap when its official time is the
 //!   one scoring shows.
 
+use crate::field::FieldPace;
 use crate::game::Frame;
 use crate::lapfile::Lap;
-use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
+use crate::lmu::snapshot::{field_of, PlayerTelemetry, Rival, ScoringFrame};
 
 /// Scoring's lap start and telemetry's agree within this when scoring has caught up with the lap.
 const LAP_START_MATCH_SECONDS: f64 = 0.05;
@@ -36,6 +37,10 @@ fn ms(seconds: f64) -> u32 {
 #[derive(Default)]
 pub struct Framer {
     scoring: Option<ScoringFrame>,
+    /// Every car of the last scoring update (the rivals layer).
+    rivals: Vec<Rival>,
+    /// When the other cars are published (a few Hz, not on every telemetry reading).
+    pace: FieldPace,
     /// The lap number, the distance and the session clock of the last frame that had a distance.
     last: Option<(i32, f64, f64)>,
 }
@@ -64,6 +69,25 @@ impl Framer {
             _ => {}
         }
         self.last = frame.dist_m.map(|d| (t.lap_number, d, t.elapsed_time));
+        Some(frame)
+    }
+
+    /// `frame`, and the rivals layer: `rivals` are the cars of a scoring update that came with this one (when it did). The
+    /// field is carried on the frames at the pace of `FieldPace`.
+    pub fn frame_with_rivals(
+        &mut self,
+        telemetry: Option<&PlayerTelemetry>,
+        scoring: Option<ScoringFrame>,
+        rivals: Option<Vec<Rival>>,
+    ) -> Option<Frame> {
+        if let Some(rivals) = rivals {
+            self.rivals = rivals;
+        }
+        let mut frame = self.frame(telemetry, scoring)?;
+        if self.pace.due(frame.clock_s) {
+            let length = self.scoring.as_ref().map_or(0.0, |s| s.session.track_length_m);
+            frame.field = field_of(&self.rivals, length, frame.clock_s);
+        }
         Some(frame)
     }
 
@@ -138,7 +162,8 @@ mod reader {
                 return None;
             }
             let snapshot = self.reader.read()?;
-            self.framer.frame(snapshot.telemetry.as_ref(), snapshot.scoring)
+            self.framer
+                .frame_with_rivals(snapshot.telemetry.as_ref(), snapshot.scoring, snapshot.rivals)
         }
 
         /// The memory stays mapped while the game is closed; whether the game still runs is the engine's to look at when
@@ -162,10 +187,10 @@ mod reader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::Phase;
+    use crate::game::{Caps, Phase};
     use crate::lapcut::LapCutter;
     use crate::lapfile::SessionKind;
-    use crate::lmu::snapshot::{SessionScoring, VehicleScoring};
+    use crate::lmu::snapshot::{Rival, SessionScoring, VehicleScoring};
 
     const TRACK: &str = "Test Ring";
     const CAR: &str = "Test Car #1";
@@ -280,6 +305,43 @@ mod tests {
             done.extend(self.update(&telemetry(start + 60.02, lap + 1, start + 60.0, SPEED), None));
             done
         }
+    }
+
+    #[test]
+    fn the_framer_carries_the_rivals_at_the_pace_of_the_field() {
+        let rival = |id: i32, name: &str, is_player: bool| Rival {
+            id,
+            name: name.into(),
+            class: "Hyper".into(),
+            total_laps: 2,
+            lap_dist: 1500.0,
+            last_lap_time: 61.0,
+            is_player,
+            ..Rival::default()
+        };
+        let rivals = vec![rival(1, "A", false), rival(2, "Me", true), rival(3, "C", false)];
+        let mut framer = Framer::default();
+        let first = framer
+            .frame_with_rivals(
+                Some(&telemetry(100.0, 2, 60.0, SPEED)),
+                Some(scoring(100.0, 1500.0, 60.0, 61.0, false)),
+                Some(rivals),
+            )
+            .expect("a frame");
+        let field = first.field.as_ref().expect("the first reading carries the cars");
+        assert_eq!(field.cars.len(), 3);
+        assert_eq!(field.cars.iter().filter(|c| c.is_player).count(), 1);
+        assert!(field.cars.iter().all(|c| c.lap_share == Some(0.5) && c.laps_done == Some(2)));
+        assert!(first.filled().has(Caps::RIVALS) && !first.filled().has(Caps::RIVALS_WORLD));
+        // 0.1 s later: inside the 200 ms, no field. 0.3 s after the first: the same cars again.
+        let soon = framer.frame_with_rivals(Some(&telemetry(100.1, 2, 60.0, SPEED)), None, None).expect("a frame");
+        assert!(soon.field.is_none());
+        let later = framer.frame_with_rivals(Some(&telemetry(100.3, 2, 60.0, SPEED)), None, None).expect("a frame");
+        assert_eq!(later.field.expect("the cars again").cars.len(), 3);
+        // A game with no scoring list gives no field.
+        let mut bare = Framer::default();
+        let frame = bare.frame_with_rivals(Some(&telemetry(100.0, 2, 60.0, SPEED)), None, None).unwrap();
+        assert!(frame.field.is_none());
     }
 
     #[test]

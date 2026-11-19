@@ -48,6 +48,7 @@
 //! | `race_position`, `class_position`, `cars` | 1.., 1.., 1.. | the player's place overall (1 is the leader) and in the class, and how many cars are in the session; never above `cars` |
 //! | `session_time_left_s`, `session_laps` | seconds 0 to 86 400, laps 1 to 999 | what is left of a timed session, and the length of a lap-based one; the game's "unlimited" or "none" is not given |
 //! | `field` | `field::Field` (units in `field.rs`) | every other car of the session, read at a few Hz: `None` on the frames between two readings and for a game with no per-car data; never written to a lap file |
+//! | `spotter` | `Spotter` | the game's own spotter signal (clear, one or two cars on the left, on the right, or both sides), where the game gives one; `None` otherwise |
 //! | `sectors_ms`, `air_temp_c`, `track_temp_c` | milliseconds, Celsius | the first two sector times of the lap; the air and track temperature |
 //!
 //! ## How each reader maps its game's raw value
@@ -164,6 +165,23 @@ pub enum Flag {
     White,
     Black,
     Chequered,
+}
+
+/// What the game's own spotter says about the cars beside the player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spotter {
+    /// Nobody beside the car.
+    Clear,
+    /// A car on the left.
+    Left,
+    /// A car on the right.
+    Right,
+    /// A car on each side.
+    Both,
+    /// Two cars on the left.
+    TwoLeft,
+    /// Two cars on the right.
+    TwoRight,
 }
 
 /// The rear wing's state where the car has DRS (or a push to pass the game reports the same way).
@@ -350,6 +368,8 @@ pub struct Frame {
     /// The other cars of the session (the rivals layer), read at a few Hz: `None` between two readings and for a game
     /// that gives none. Never written to a lap file.
     pub field: Option<std::sync::Arc<crate::field::Field>>,
+    /// The game's own spotter (cars beside the player), where it gives one.
+    pub spotter: Option<Spotter>,
 }
 
 impl Frame {
@@ -434,6 +454,7 @@ impl Frame {
             add(!field.cars.is_empty(), Caps::RIVALS);
             add(field.cars.iter().any(|c| c.world.is_some()), Caps::RIVALS_WORLD);
         }
+        add(self.spotter.is_some(), Caps::SPOTTER);
         let s = &self.state;
         add(s.pit_limiter.is_some(), Caps::PIT_LIMITER);
         add(s.abs_active.is_some(), Caps::ABS_ACTIVE);
@@ -503,6 +524,7 @@ impl Frame {
             session_time_left_s: None,
             session_laps: None,
             field: None,
+            spotter: None,
         }
     }
 }
@@ -644,6 +666,8 @@ caps_table! {
     RIVALS,
     /// The cars' world positions are filled.
     RIVALS_WORLD,
+    /// The game's own spotter (`Frame::spotter`).
+    SPOTTER,
 }
 
 #[allow(dead_code)] // the set operations are used by the tests now and by the panel in step 1b
@@ -815,7 +839,7 @@ mod tests {
         assert!(frame.g_lat.is_none() && frame.g_long.is_none());
         assert!(frame.race_position.is_none() && frame.class_position.is_none() && frame.cars.is_none());
         assert!(frame.session_time_left_s.is_none() && frame.session_laps.is_none());
-        assert!(frame.field.is_none());
+        assert!(frame.field.is_none() && frame.spotter.is_none());
     }
 
     #[test]
@@ -917,6 +941,7 @@ mod tests {
             }],
             at_s: 0.0,
         }));
+        f.spotter = Some(Spotter::Clear);
         f.state = CarState {
             pit_limiter: Some(true),
             abs_active: Some(true),

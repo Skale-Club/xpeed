@@ -2,9 +2,13 @@
 //!
 //! `Snapshot::from_memory` reads a buffer laid out like the shared memory (see `layout.rs`). The
 //! reader fills that buffer from the game under the game's lock; the tests fill it by hand.
-//! Only the player's car is read, and the driver's name is never kept.
+//! The player's car is read in full. The other cars of the scoring list are read only for the rivals layer (`Rival`: their
+//! name, class, laps, distance round the lap, last lap and pit lane), which lives in memory and is never written to a lap file.
+
+use std::sync::Arc;
 
 use super::layout::*;
+use crate::field::{self, Car, Field};
 use crate::game::Caps;
 use crate::shm::Page;
 
@@ -136,6 +140,83 @@ pub struct VehicleScoring {
     pub under_yellow: bool,
 }
 
+/// One car of the scoring list, for the rivals layer. The generated layout has no place, no best lap, no gap and no world
+/// position for a car, so none is read.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Rival {
+    /// `mID`: the slot the game gives the car, the same number as the telemetry's `mID` for the player.
+    pub id: i32,
+    pub name: String,
+    pub class: String,
+    pub total_laps: i16,
+    /// Distance around the track, meters.
+    pub lap_dist: f64,
+    pub last_lap_time: f64,
+    pub in_pits: bool,
+    pub is_player: bool,
+}
+
+/// The cars of the scoring list (`count` of them, already clamped to the list) as rivals. The player can be listed more than
+/// once, so a car whose `mID` was already seen is skipped, and the player is the car whose `mID` is the player's telemetry
+/// `mID` (`player_id`); when that is not known, or matches no car, it is the first car scoring flags as the player's own.
+pub fn parse_rivals(memory: &[u8], count: usize, player_id: Option<i32>) -> Vec<Rival> {
+    let mut rivals: Vec<Rival> = Vec::new();
+    let mut flagged = Vec::new();
+    for i in 0..count.min(MAX_VEHICLES) {
+        let at = SCORING_VEHICLES + i * VEHICLE_SCORING_SIZE;
+        let vehicle = &memory[at..at + VEHICLE_SCORING_SIZE];
+        let id = i32_at(vehicle, VS_ID);
+        if rivals.iter().any(|r| r.id == id) {
+            continue;
+        }
+        flagged.push(is_player(vehicle));
+        rivals.push(Rival {
+            id,
+            name: text_at(vehicle, VS_DRIVER_NAME, 32),
+            class: text_at(vehicle, VS_VEHICLE_CLASS, 32),
+            total_laps: i16_at(vehicle, VS_TOTAL_LAPS),
+            lap_dist: f64_at(vehicle, VS_LAP_DIST),
+            last_lap_time: f64_at(vehicle, VS_LAST_LAP_TIME),
+            in_pits: vehicle[VS_IN_PITS] != 0,
+            is_player: false,
+        });
+    }
+    let me = player_id
+        .and_then(|id| rivals.iter().position(|r| r.id == id))
+        .or_else(|| flagged.iter().position(|f| *f));
+    if let Some(me) = me {
+        rivals[me].is_player = true;
+    }
+    rivals
+}
+
+/// The rivals as the cars of the layer. `track_length_m` turns the distance into a share of the lap (0 or less: no share).
+/// No place: the layout has none, so the cars have no position, no class position and no estimated gap.
+pub fn field_of(rivals: &[Rival], track_length_m: f64, at_s: f64) -> Option<Arc<Field>> {
+    let length = Some(track_length_m).filter(|l| l.is_finite() && *l > 1.0);
+    let cars: Vec<Car> = rivals
+        .iter()
+        .enumerate()
+        .map(|(index, r)| {
+            let slot = u16::try_from(r.id).unwrap_or(index as u16);
+            let name = if r.name.is_empty() {
+                format!("Car {}", index + 1)
+            } else {
+                r.name.clone()
+            };
+            let mut car = Car::named(slot, &name);
+            car.class = Some(r.class.clone()).filter(|c| !c.is_empty());
+            car.laps_done = Some(i32::from(r.total_laps)).filter(|l| (0..=100_000).contains(l));
+            car.lap_share = length.and_then(|len| field::lap_share(r.lap_dist, len));
+            car.in_pits = r.in_pits;
+            car.last_lap_s = Some(r.last_lap_time).filter(|t| t.is_finite() && *t > 0.0 && *t <= 86_400.0);
+            car.is_player = r.is_player;
+            car
+        })
+        .collect();
+    (!cars.is_empty()).then(|| field::publish(cars, at_s, length))
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ScoringFrame {
     pub session: SessionScoring,
@@ -148,7 +229,8 @@ pub struct ScoringFrame {
 /// Not given: the lap verdict, the track variant, the sectors (`LmuSource::finish_lap` puts them on the lap from
 /// scoring), the place, the time left and the laps (the generated layout has none of them: only the number of cars is read),
 /// the g forces, the weather, the air and track temperatures, the compound,
-/// the tank's size, the handbrake, and the engine, gearbox and suspension damage (the header has none).
+/// the tank's size, the handbrake, and the engine, gearbox and suspension damage (the header has none). The rivals layer
+/// (`RIVALS`) carries no place and no world position: the layout has neither.
 pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::LAST_LAP)
     .or(Caps::DIST)
@@ -185,7 +267,8 @@ pub const LMU_CAPS: Caps = Caps::LAP_TIME
     .or(Caps::ENGINE_MAP)
     .or(Caps::BRAKE_BIAS)
     .or(Caps::DAMAGE_BODY)
-    .or(Caps::CARS);
+    .or(Caps::CARS)
+    .or(Caps::RIVALS);
 
 /// What one frame of the game carried.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -195,6 +278,8 @@ pub struct Snapshot {
     pub telemetry: Option<PlayerTelemetry>,
     /// Scoring, when it was updated.
     pub scoring: Option<ScoringFrame>,
+    /// Every car of the scoring list (the rivals layer), when scoring was updated.
+    pub rivals: Option<Vec<Rival>>,
 }
 
 pub fn parse_telemetry(info: &[u8]) -> PlayerTelemetry {
@@ -318,6 +403,13 @@ impl Snapshot {
                 .map(|i| &memory[SCORING_VEHICLES + i * VEHICLE_SCORING_SIZE..SCORING_VEHICLES + (i + 1) * VEHICLE_SCORING_SIZE])
                 .find(|vehicle| is_player(vehicle))
                 .map(parse_vehicle);
+            let player_id = telemetry_range(
+                memory[TELEMETRY_ACTIVE_VEHICLES],
+                memory[TELEMETRY_PLAYER_INDEX],
+                memory[TELEMETRY_PLAYER_HAS_VEHICLE] != 0,
+            )
+            .map(|r| i32_at(memory, r.start + TI_ID));
+            snapshot.rivals = Some(parse_rivals(memory, count, player_id));
             snapshot.scoring = Some(ScoringFrame { session, player });
         }
         snapshot
@@ -597,6 +689,96 @@ mod tests {
         let frame = Snapshot::from_memory(&memory.0).scoring.unwrap();
         assert_eq!(frame.session, session);
         assert_eq!(frame.player, Some(mine));
+    }
+
+    /// Four scoring entries (ids 10, 11, 12 and 12 again: the player is listed twice), the scoring flag on the first.
+    fn rivals_memory() -> Memory {
+        let mut memory = Memory::new();
+        memory.set_events(&[SME_UPDATE_SCORING, SME_UPDATE_TELEMETRY]);
+        let session = SessionScoring {
+            track_length_m: 5000.0,
+            num_vehicles: 4,
+            ..SessionScoring::default()
+        };
+        let entry = |class: &str, laps: i16, dist: f64, last: f64, pits: bool| VehicleScoring {
+            vehicle_class: class.into(),
+            total_laps: laps,
+            lap_dist: dist,
+            last_lap_time: last,
+            in_pits: pits,
+            ..VehicleScoring::default()
+        };
+        let cars = [
+            entry("Hypercar", 4, 3750.0, 210.5, false),
+            entry("LMGT3", 3, 1250.0, 240.0, true),
+            entry("Hypercar", 4, 2500.0, 211.0, false),
+            entry("Hypercar", 4, 2500.0, 211.0, false),
+        ];
+        memory.scoring(&session, &cars, Some(0));
+        for (i, (id, name)) in [(10, "Leader"), (11, "Slow GT"), (12, "Me"), (12, "Me")].into_iter().enumerate() {
+            let at = SCORING_VEHICLES + i * VEHICLE_SCORING_SIZE;
+            memory.put_i32(at + VS_ID, id);
+            memory.put_text(at + VS_DRIVER_NAME, 32, name);
+        }
+        memory
+    }
+
+    #[test]
+    fn the_scoring_list_becomes_rivals_and_the_player_is_the_telemetry_car() {
+        let mut memory = rivals_memory();
+        // The player's telemetry is the car with id 12, whatever scoring flags.
+        memory.telemetry(0, 1, &car());
+        memory.put_i32(TELEMETRY_INFO + TI_ID, 12);
+        let snapshot = Snapshot::from_memory(&memory.0);
+        let rivals = snapshot.rivals.expect("scoring was updated");
+        let ids: Vec<i32> = rivals.iter().map(|r| r.id).collect();
+        assert_eq!(ids, [10, 11, 12], "the player listed twice is one car");
+        let names: Vec<&str> = rivals.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["Leader", "Slow GT", "Me"]);
+        let player: Vec<bool> = rivals.iter().map(|r| r.is_player).collect();
+        assert_eq!(player, [false, false, true]);
+
+        let field = field_of(&rivals, 5000.0, 12.5).expect("a field");
+        assert_eq!(field.at_s, 12.5);
+        let mut cars = field.cars.clone();
+        cars.sort_by_key(|c| c.slot);
+        let slots: Vec<u16> = cars.iter().map(|c| c.slot).collect();
+        assert_eq!(slots, [10, 11, 12]);
+        let classes: Vec<Option<&str>> = cars.iter().map(|c| c.class.as_deref()).collect();
+        assert_eq!(classes, [Some("Hypercar"), Some("LMGT3"), Some("Hypercar")]);
+        let laps: Vec<Option<i32>> = cars.iter().map(|c| c.laps_done).collect();
+        assert_eq!(laps, [Some(4), Some(3), Some(4)]);
+        let shares: Vec<Option<f32>> = cars.iter().map(|c| c.lap_share).collect();
+        assert_eq!(shares, [Some(0.75), Some(0.25), Some(0.5)]);
+        let pits: Vec<bool> = cars.iter().map(|c| c.in_pits).collect();
+        assert_eq!(pits, [false, true, false]);
+        let last: Vec<Option<f64>> = cars.iter().map(|c| c.last_lap_s).collect();
+        assert_eq!(last, [Some(210.5), Some(240.0), Some(211.0)]);
+        assert!(cars.iter().all(|c| c.position.is_none() && c.class_position.is_none() && c.world.is_none()));
+        let player: Vec<bool> = cars.iter().map(|c| c.is_player).collect();
+        assert_eq!(player, [false, false, true]);
+        // No track length: no share of the lap.
+        let bare = field_of(&rivals, 0.0, 0.0).unwrap();
+        assert!(bare.cars.iter().all(|c| c.lap_share.is_none()));
+        assert!(field_of(&[], 5000.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn without_telemetry_the_player_is_the_car_scoring_flags() {
+        let mut memory = rivals_memory();
+        memory.set_events(&[SME_UPDATE_SCORING]);
+        let rivals = Snapshot::from_memory(&memory.0).rivals.unwrap();
+        let player: Vec<bool> = rivals.iter().map(|r| r.is_player).collect();
+        assert_eq!(player, [true, false, false]);
+        // A telemetry id that matches no car falls back to the flag too.
+        let mut memory = rivals_memory();
+        memory.telemetry(0, 1, &car());
+        memory.put_i32(TELEMETRY_INFO + TI_ID, 99);
+        let rivals = Snapshot::from_memory(&memory.0).rivals.unwrap();
+        assert!(rivals[0].is_player);
+        // Scoring not updated: no rivals.
+        memory.set_events(&[SME_UPDATE_TELEMETRY]);
+        assert_eq!(Snapshot::from_memory(&memory.0).rivals, None);
     }
 
     #[test]
