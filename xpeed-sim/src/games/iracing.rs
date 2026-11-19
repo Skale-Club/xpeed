@@ -689,7 +689,10 @@ fn lap_time(v: Option<f64>) -> Option<f64> {
 /// player's own never); `None` when no car is left.
 fn field_from(values: &Values, session: &Session, clock_s: f64, track_length_m: Option<f64>) -> Option<Arc<Field>> {
     // A build without the per-car arrays has no field at all (not a field of the player alone).
-    if ["CarIdxPosition", "CarIdxLapCompleted", "CarIdxLapDistPct"].iter().all(|name| values.element(name, 0).is_none()) {
+    if ["CarIdxPosition", "CarIdxLapCompleted", "CarIdxLapDistPct"]
+        .iter()
+        .all(|name| values.element(name, 0).is_none())
+    {
         return None;
     }
     let mut cars = Vec::new();
