@@ -1031,14 +1031,14 @@ fn writes_the_design_preview_page() {
     for (file, caption, dash, w, h) in [
         (
             "preview-race.png",
-            "Race: the digiflag (a yellow flag), the fuel strategy and the tyre wear (1920 × 1080)",
+            "Race: the digiflag (a yellow flag), the relative, standings and gaps, the fuel strategy and the tyre wear (1920 × 1080)",
             DashboardId::Race,
             1920,
             1080,
         ),
         (
             "preview-qualifying.png",
-            "Qualifying: the sectors with the theoretical best, and the delta bar (1920 × 1080)",
+            "Qualifying: the sectors with the theoretical best, the delta bar and the standings (1920 × 1080)",
             DashboardId::Qualifying,
             1920,
             1080,
@@ -1070,6 +1070,18 @@ fn writes_the_design_preview_page() {
             "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
         ));
     }
+    // A game that gives no rivals (AC): the Race dashboard's middle row keeps only the session.
+    let mut no_rivals = full.clone();
+    no_rivals.caps = every_cap().minus(crate::game::Caps::RIVALS.or(crate::game::Caps::RIVALS_WORLD));
+    no_rivals.field = None;
+    no_rivals.gap_trend = None;
+    let mut v = view(&f, Some(&no_rivals), Tab::Dash, 1.0, Lang::En);
+    v.dashboard = Some(DashboardId::Race);
+    v.recent_laps = &full_laps;
+    let pixels = render(&v, 1920, 1080);
+    save(&pixels, 1920, 1080, "preview-race-no-rivals.png");
+    figures.push_str("<figure><figcaption>Race, no rivals (AC): the middle row keeps only the session (1920 × 1080)</figcaption><img data-src=\"preview-race-no-rivals.png\" width=\"1920\" height=\"1080\"></figure>
+");
     let mut phone_monitor = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
     phone_monitor.covers = &covers;
     let pixels = render(&phone_monitor, 430, 900);
@@ -2788,7 +2800,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
 #[test]
 fn the_widget_ids_are_a_contract() {
     let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
-    assert_eq!(ids.len(), 13);
+    assert_eq!(ids.len(), 16);
     assert_eq!(
         ids[..7],
         ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
@@ -2800,6 +2812,7 @@ fn the_widget_ids_are_a_contract() {
         "the five of phase 2 keep their order"
     );
     assert_eq!(ids[12], "session");
+    assert_eq!(ids[13..], ["relative", "standings", "gaps"], "the rivals widgets of phase 4");
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
         assert_eq!(catalog::id_of(w.pane), w.id);
@@ -2924,17 +2937,24 @@ fn least_height(pane: Pane) -> f32 {
         Pane::Sectors => SECTORS_NEED_H,
         Pane::DeltaBar => DELTA_NEED_H,
         Pane::Session => SESSION_NEED_H,
+        Pane::Relative => RELATIVE_NEED_H,
+        Pane::Standings => STANDINGS_NEED_H,
+        Pane::Gaps => GAPS_NEED_H,
         _ => 0.0,
     }
 }
 
-/// A reading that fills every widget: the sectors, the fuel and tyre figures per lap, a yellow flag, third of 24 (first in
-/// the class) with 23 minutes left.
+/// A reading that fills every widget: the sectors, the fuel and tyre figures per lap, a yellow flag, the demo's field of 14
+/// cars (fifth, third in the class), the gaps' trends and 23 minutes left.
 fn full_reading() -> Live {
     let mut live = rich_reading();
-    live.race_position = Some(3);
-    live.class_position = Some(1);
-    live.cars = Some(24);
+    // The demo's field: P5 of 14, third in the GT3 class, a car lapping the player and a lapped one.
+    let field = super::demo::demo_field(3, 1200.0, 0.0);
+    live.race_position = field.player().and_then(|p| p.position);
+    live.class_position = field.player().and_then(|p| p.class_position);
+    live.cars = u16::try_from(field.cars.len()).ok();
+    live.field = Some(field);
+    live.gap_trend = Some((Some(0.3), Some(-0.2)));
     live.session_time_left_s = Some(1_380.0);
     live.fuel_last_lap_l = Some(3.1);
     live.tyre_wear_per_lap = Some([0.018, 0.02, 0.026, 0.031]);
@@ -3186,15 +3206,29 @@ fn a_card_the_game_cannot_fill_is_not_there() {
     assert_eq!(cards(Caps::LAP_TIME), [Pane::Times, Pane::Laps], "no delta without the distance");
     assert_eq!(cards(Caps::LAP_TIME.or(Caps::DIST)), [Pane::Times, Pane::Laps, Pane::DeltaBar]);
     assert!(cards(Caps::NONE).is_empty());
+    assert_eq!(cards(Caps::RIVALS), [Pane::Relative, Pane::Standings, Pane::Gaps]);
+    assert!(
+        cards(Caps::RIVALS_WORLD).is_empty(),
+        "the cars' positions alone are not a rivals card"
+    );
     // The model has a part for a card exactly when the card is there.
     let mut live = live_reading();
     live.caps = Caps::GEAR.or(Caps::LAP_TIME);
     let m = model(&live, Lang::En);
     assert!(m.flag.is_none() && m.fuel_calc.is_none() && m.tyre_trend.is_none() && m.sectors.is_none() && m.delta_bar.is_none());
     assert!(m.session_card.is_none());
+    assert!(m.relative.is_none() && m.standings.is_none() && m.gaps.is_none());
     live.caps = every_cap();
     let m = model(&live, Lang::En);
     assert!(m.flag.is_some() && m.fuel_calc.is_some() && m.tyre_trend.is_some() && m.sectors.is_some() && m.delta_bar.is_some());
+    assert!(m.session_card.is_some());
+    assert!(m.relative.is_some() && m.standings.is_some() && m.gaps.is_some());
+    live.caps = every_cap().minus(Caps::RIVALS);
+    let m = model(&live, Lang::En);
+    assert!(
+        m.relative.is_none() && m.standings.is_none() && m.gaps.is_none(),
+        "no rivals, no rivals cards"
+    );
     assert!(m.session_card.is_some());
 }
 
@@ -3207,13 +3241,16 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
         [(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)]
     );
     assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
-    let new_six = [
+    let later_nine = [
         Pane::Flag,
         Pane::FuelCalc,
         Pane::TyreTrend,
         Pane::Sectors,
         Pane::DeltaBar,
         Pane::Session,
+        Pane::Relative,
+        Pane::Standings,
+        Pane::Gaps,
     ];
     for layout in ALL_LAYOUTS {
         assert!(
@@ -3239,9 +3276,9 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             }
             used.extend(seen);
         }
-        for pane in new_six {
-            // Classic, the smallest window, leaves the tyre wear out.
-            if layout == Layout::Classic && pane == Pane::TyreTrend {
+        for pane in later_nine {
+            // Classic, the smallest window, leaves the tyre wear and the rivals out.
+            if layout == Layout::Classic && matches!(pane, Pane::TyreTrend | Pane::Relative | Pane::Standings | Pane::Gaps) {
                 continue;
             }
             assert!(used.contains(&pane), "{layout:?}: {pane:?} is on some dashboard");
@@ -3256,9 +3293,10 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             .collect()
     };
     assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "flag", "tyres"]);
-    assert_eq!(ids(DashboardId::Race, 1), ["session", "fuel_calc", "tyre_trend", "track", "alerts"]);
+    assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "session"]);
+    assert_eq!(ids(DashboardId::Race, 2), ["fuel_calc", "tyre_trend", "track", "alerts"]);
     assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "sectors", "tyres"]);
-    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "session", "track", "flag"]);
+    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "standings", "session", "flag"]);
     assert_eq!(ids(DashboardId::TimeTrial, 0), ["delta_bar"]);
     assert_eq!(ids(DashboardId::TimeTrial, 1), ["times", "centre", "sectors", "tyres"]);
     assert_eq!(ids(DashboardId::TimeTrial, 2), ["laps", "track"]);
@@ -3333,7 +3371,7 @@ fn the_layout_is_picked_from_the_dashboard_in_use() {
 fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
     let live = full_reading();
     let json = serde_json::to_value(model_with(&live, Default::default(), &rich_laps())).unwrap();
-    for key in ["flag", "fuelCalc", "tyreTrend", "sectors", "deltaBar", "sessionCard"] {
+    for key in ["flag", "fuelCalc", "tyreTrend", "sectors", "deltaBar", "sessionCard", "relative", "standings", "gaps"] {
         assert!(json[key].is_object(), "{key} is in the model's JSON");
     }
     assert_eq!(json["flag"]["kind"], "yellow");
@@ -3345,15 +3383,30 @@ fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
     assert_eq!(json["sectors"]["rows"][0]["tone"], "best");
     assert_eq!(json["sectors"]["rows"][2]["fromLastLap"], true);
     assert_eq!(json["deltaBar"]["role"], "good");
-    assert_eq!(json["sessionCard"]["position"], "P3");
-    assert_eq!(json["sessionCard"]["ofCars"], "/ 24");
-    assert_eq!(json["sessionCard"]["classLine"], "P1 in class");
+    assert_eq!(json["sessionCard"]["position"], "P5");
+    assert_eq!(json["sessionCard"]["ofCars"], "/ 14");
+    assert_eq!(json["sessionCard"]["classLine"], "P3 in class");
     assert_eq!(json["sessionCard"]["remainingNote"], "left");
     assert_eq!(json["fuelCalc"]["toEnd"]["addLabel"], "add");
     assert!(
         json["fuelCalc"]["note"].is_null(),
         "the line about the end is there, so the note is not"
     );
+    // The rivals: the cars round the player, the player's class and the two sides.
+    assert_eq!(json["relative"]["rows"].as_array().map(Vec::len), Some(7));
+    assert_eq!(json["relative"]["rows"][3]["isPlayer"], true);
+    assert_eq!(json["relative"]["rows"][1]["relation"], "lapping");
+    assert_eq!(json["relative"]["rows"][1]["role"], "info");
+    assert_eq!(json["relative"]["rows"][6]["relation"], "lapped");
+    assert!(json["relative"]["rows"][3]["gap"].is_null());
+    assert_eq!(json["standings"]["className"], "GT3");
+    assert_eq!(json["standings"]["rows"][0]["gap"], "Leader");
+    assert!(json["standings"]["rows"][2]["skippedBefore"].is_boolean());
+    assert_eq!(json["gaps"]["ahead"]["label"], "Ahead");
+    assert_eq!(json["gaps"]["ahead"]["car"]["trend"]["dir"], "closing");
+    assert_eq!(json["gaps"]["behind"]["car"]["trend"]["dir"], "opening");
+    assert_eq!(json["gaps"]["behind"]["car"]["trend"]["role"], "good");
+    assert!(json["gaps"]["note"].is_null());
 }
 
 /// The dashboard `dash` painted on a 1920 × 1080 screen for `live` and the recent laps `laps`.
@@ -3674,6 +3727,504 @@ fn race_and_qualifying_hold_the_session_in_every_layout_and_the_tyres_never_get_
                 layout.plan_in(dash, &with, usize::MAX).area(Pane::Session).is_none(),
                 "{dash:?} {layout:?}"
             );
+        }
+    }
+}
+
+// The rivals: the relative card, the standings and the gaps.
+
+/// A car of a hand-made field: its slot, name, place overall, class, laps done and how far round the current lap it is. Its
+/// best lap is 100 seconds, so a share of a lap of 0.125 is 12.5 seconds.
+fn rival_car(slot: u16, name: &str, position: u16, class: Option<&str>, laps: i32, share: f32) -> crate::field::Car {
+    crate::field::Car {
+        position: Some(position),
+        class: class.map(str::to_owned),
+        laps_done: Some(laps),
+        lap_share: Some(share),
+        best_lap_s: Some(100.0),
+        ..crate::field::Car::named(slot, name)
+    }
+}
+
+fn the_player(car: crate::field::Car) -> crate::field::Car {
+    crate::field::Car { is_player: true, ..car }
+}
+
+fn hand_field(cars: Vec<crate::field::Car>) -> crate::field::Field {
+    crate::field::Field { cars, at_s: 0.0 }
+}
+
+/// The reading `live_reading` is, with a field.
+fn live_with_field(field: crate::field::Field) -> Live {
+    let mut live = live_reading();
+    live.field = Some(Arc::new(field));
+    live
+}
+
+fn row_names(rows: &[RelativeRow]) -> Vec<&str> {
+    rows.iter().map(|r| r.name.as_str()).collect()
+}
+
+#[test]
+fn the_relative_rows_are_the_cars_round_the_player_with_the_time_to_each_across_the_line() {
+    // The player is 15/16 of the way round lap 5. A car just across the line is ahead of it (by 1/8 of a lap, 12.5 s), not
+    // 7/8 of a lap behind; the car on the straight behind is 12.5 s back.
+    let field = hand_field(vec![
+        rival_car(1, "Across", 2, None, 5, 0.0625),
+        the_player(rival_car(0, "You", 3, None, 4, 0.9375)),
+        rival_car(2, "Behind", 4, None, 4, 0.8125),
+    ]);
+    let rows = relative_rows(&field);
+    assert_eq!(row_names(&rows), ["Across", "You", "Behind"]);
+    assert_eq!(rows[0].gap.as_deref(), Some("+12.500"));
+    assert_eq!(rows[1].gap, None, "the player's own row has no time");
+    assert_eq!(rows[2].gap.as_deref(), Some("-12.500"));
+    assert_eq!(
+        rows.iter().map(|r| r.position.as_str()).collect::<Vec<_>>(),
+        ["P2", "P3", "P4"]
+    );
+    assert!(rows[1].is_player && !rows[0].is_player);
+    // Nothing is lapping or lapped: 5.0625 against 4.9375 is not a lap.
+    assert!(rows.iter().all(|r| r.relation == LapRelation::Level && r.role == Role::Text));
+}
+
+#[test]
+fn the_relative_rows_hold_three_cars_either_side_the_farthest_ahead_first() {
+    let mut cars = vec![the_player(rival_car(0, "You", 6, None, 3, 0.5))];
+    for i in 1..=5_u16 {
+        // Ahead on the track by an eighth of a lap each.
+        let share = 0.5 + 0.0625 * f32::from(i);
+        cars.push(rival_car(i, &format!("Ahead {i}"), 6 - i, None, 3, share.min(0.99)));
+        cars.push(rival_car(10 + i, &format!("Behind {i}"), 6 + i, None, 3, 0.5 - 0.0625 * f32::from(i)));
+    }
+    let rows = relative_rows(&hand_field(cars));
+    assert_eq!(
+        row_names(&rows),
+        ["Ahead 3", "Ahead 2", "Ahead 1", "You", "Behind 1", "Behind 2", "Behind 3"]
+    );
+}
+
+#[test]
+fn a_car_a_lap_ahead_is_blue_a_lapped_car_is_quiet_and_the_same_lap_is_plain() {
+    // The player has done 4 laps and half of the fifth (4.5).
+    let me = the_player(rival_car(0, "You", 5, None, 4, 0.5));
+    let other = |laps: i32, share: f32| rival_car(1, "X", 1, None, laps, share);
+    assert_eq!(lap_relation(&me, &other(5, 0.5625)), LapRelation::Lapping, "1.0625 laps ahead");
+    assert_eq!(lap_relation(&me, &other(5, 0.5)), LapRelation::Lapping, "exactly a lap ahead");
+    assert_eq!(lap_relation(&me, &other(5, 0.4375)), LapRelation::Level, "just under a lap ahead");
+    assert_eq!(lap_relation(&me, &other(3, 0.4375)), LapRelation::Lapped, "1.0625 laps behind");
+    assert_eq!(lap_relation(&me, &other(3, 0.5)), LapRelation::Lapped, "exactly a lap behind");
+    assert_eq!(lap_relation(&me, &other(3, 0.5625)), LapRelation::Level);
+    assert_eq!(lap_relation(&me, &other(4, 0.5625)), LapRelation::Level);
+    let unknown = crate::field::Car {
+        laps_done: None,
+        ..other(9, 0.5)
+    };
+    assert_eq!(lap_relation(&me, &unknown), LapRelation::Level, "no laps, no verdict");
+    // In the rows: the car a lap ahead is blue (`Info`), the lapped one muted, wherever they are on the track.
+    let field = hand_field(vec![
+        rival_car(1, "Lapping", 1, None, 5, 0.5625),
+        rival_car(2, "Same lap", 2, None, 4, 0.5625),
+        me,
+        rival_car(3, "Lapped", 6, None, 3, 0.4375),
+    ]);
+    let rows = relative_rows(&field);
+    let role = |name: &str| rows.iter().find(|r| r.name == name).map(|r| r.role);
+    assert_eq!(role("Lapping"), Some(Role::Info));
+    assert_eq!(role("Same lap"), Some(Role::Text));
+    assert_eq!(role("Lapped"), Some(Role::Muted));
+    assert_eq!(role("You"), Some(Role::Text));
+}
+
+#[test]
+fn the_relative_model_says_why_it_is_empty_and_follows_the_reading() {
+    let mut live = live_reading();
+    live.field = None;
+    let m = model(&live, Lang::En).relative.expect("the game gives rivals");
+    assert_eq!(m.title, "Relative");
+    assert!(m.rows.is_empty() && m.note.is_some());
+    let live = live_with_field(hand_field(vec![
+        rival_car(1, "Ahead", 1, None, 4, 0.5625),
+        the_player(rival_car(0, "You", 2, None, 4, 0.5)),
+    ]));
+    let m = model(&live, Lang::En).relative.unwrap();
+    assert_eq!(m.rows.len(), 2);
+    assert!(m.note.is_none());
+    assert_eq!(m.show, Show::Shown);
+    // The player alone, or a player with no share of the lap, is no relative yet.
+    let alone = live_with_field(hand_field(vec![the_player(rival_car(0, "You", 1, None, 4, 0.5))]));
+    assert!(model(&alone, Lang::En).relative.unwrap().note.is_some());
+    // A reading that is no longer live is dimmed.
+    let late = dashboard(&live, &ctx_of(Lang::En, live.at_ms + STALE_MS + 1));
+    assert_eq!(late.relative.unwrap().show, Show::Dimmed);
+    // Portuguese.
+    assert_eq!(model(&live, Lang::Pt).relative.unwrap().title, "Relativo");
+}
+
+#[test]
+fn the_standings_pick_the_leader_the_player_and_the_cars_round_it() {
+    assert_eq!(standings_pick(0, 0, 6), Vec::<usize>::new());
+    assert_eq!(standings_pick(1, 0, 6), [0]);
+    assert_eq!(standings_pick(3, 1, 6), [0, 1, 2], "a small class is shown whole");
+    assert_eq!(standings_pick(6, 4, 6), [0, 1, 2, 3, 4, 5]);
+    // In the middle: the leader, two ahead, the player, two behind; the places in between are skipped.
+    assert_eq!(standings_pick(10, 5, 6), [0, 3, 4, 5, 6, 7]);
+    // The player leads: the rows go to the cars behind.
+    assert_eq!(standings_pick(10, 0, 6), [0, 1, 2, 3, 4, 5]);
+    assert_eq!(standings_pick(10, 1, 6), [0, 1, 2, 3, 4, 5]);
+    // Near the front the window reaches the leader.
+    assert_eq!(standings_pick(10, 3, 6), [0, 1, 2, 3, 4, 5]);
+    assert_eq!(standings_pick(7, 3, 6), [0, 1, 2, 3, 4, 5]);
+    // Last, or nearly: the rows go to the cars ahead.
+    assert_eq!(standings_pick(10, 9, 6), [0, 5, 6, 7, 8, 9]);
+    assert_eq!(standings_pick(10, 8, 6), [0, 5, 6, 7, 8, 9]);
+    // Never more than wanted, never a repeat, always in order.
+    for len in 0..14 {
+        for player in 0..len.max(1) {
+            let picked = standings_pick(len, player, STANDINGS_ROWS);
+            assert!(picked.len() <= STANDINGS_ROWS.max(1).min(len.max(1)), "{len} {player}: {picked:?}");
+            assert!(picked.windows(2).all(|w| w[0] < w[1]), "{len} {player}: {picked:?}");
+            assert!(len == 0 || picked.contains(&player), "{len} {player}: the player is in {picked:?}");
+            assert!(len == 0 || picked[0] == 0, "{len} {player}: the leader is first in {picked:?}");
+        }
+    }
+}
+
+/// A car of a hand-made class table: its class place, the gap to the overall leader and its last lap.
+fn classed(slot: u16, name: &str, position: u16, class: &str, class_position: u16, behind: f64, last: f64) -> crate::field::Car {
+    crate::field::Car {
+        class_position: Some(class_position),
+        gap_leader_s: Some(behind),
+        last_lap_s: Some(last),
+        ..rival_car(slot, name, position, Some(class), 4, 0.5)
+    }
+}
+
+#[test]
+fn the_standings_show_only_the_players_class_with_the_gap_to_the_class_leader() {
+    // Two classes: the GT3 leader is second overall, 4.0 s behind the GTE leader.
+    let field = hand_field(vec![
+        classed(1, "Gte One", 1, "GTE", 1, 0.0, 99.0),
+        classed(2, "Gt3 One", 2, "GT3", 1, 4.0, 101.0),
+        classed(3, "Gte Two", 3, "GTE", 2, 8.0, 99.5),
+        classed(4, "Gt3 Two", 4, "GT3", 2, 10.0, 107.918),
+        the_player(classed(0, "You", 6, "GT3", 3, 15.5, 102.25)),
+        classed(5, "Gte Three", 5, "GTE", 3, 12.0, 100.0),
+        classed(6, "Gt3 Four", 7, "GT3", 4, 18.0, 103.0),
+    ]);
+    let rows = standings_rows(&field, "Leader", STANDINGS_ROWS);
+    let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Gt3 One", "Gt3 Two", "You", "Gt3 Four"],
+        "the GTE cars are not in the table"
+    );
+    let places: Vec<&str> = rows.iter().map(|r| r.position.as_str()).collect();
+    assert_eq!(places, ["P1", "P2", "P3", "P4"], "class places");
+    let gaps: Vec<&str> = rows.iter().map(|r| r.gap.as_str()).collect();
+    assert_eq!(gaps, ["Leader", "+6.0", "+11.5", "+14.0"], "less the class leader's own 4.0 s");
+    assert_eq!(rows[1].last, "1:47.918");
+    assert_eq!(rows[2].last, "1:42.250");
+    assert!(rows[2].is_player && rows.iter().filter(|r| r.is_player).count() == 1);
+    assert!(rows.iter().all(|r| !r.skipped_before), "a small class skips no place");
+    // The model names the class and heads the columns.
+    let live = live_with_field(field);
+    let m = model(&live, Lang::En).standings.unwrap();
+    assert_eq!(m.class_name.as_deref(), Some("GT3"));
+    assert_eq!(
+        (m.title.as_str(), m.heads[0].as_str(), m.heads[1].as_str()),
+        ("Standings", "Gap", "Last")
+    );
+    assert_eq!(m.rows.len(), 4);
+    assert!(m.note.is_none());
+    assert_eq!(model(&live, Lang::Pt).standings.unwrap().rows[0].gap, "Líder");
+}
+
+#[test]
+fn the_standings_without_classes_follow_the_place_overall_and_mark_the_skipped_places() {
+    // Ten cars, no classes: the player is sixth (index 5), the leader has no gap of its own.
+    let car = |slot: u16, position: u16, gap: Option<f64>| crate::field::Car {
+        gap_leader_s: gap,
+        ..rival_car(slot, &format!("Car {position}"), position, None, 4, 0.5)
+    };
+    let mut cars: Vec<crate::field::Car> = (1..=10).map(|p| car(p, p, Some(f64::from(p - 1) * 2.5))).collect();
+    cars[0].gap_leader_s = None;
+    cars[5].is_player = true;
+    let rows = standings_rows(&hand_field(cars), "Leader", STANDINGS_ROWS);
+    let places: Vec<&str> = rows.iter().map(|r| r.position.as_str()).collect();
+    assert_eq!(places, ["P1", "P4", "P5", "P6", "P7", "P8"]);
+    assert_eq!(rows[0].gap, "Leader");
+    assert_eq!(
+        rows[1].gap,
+        "+7.5",
+        "a leader first overall is 0 behind itself, with a gap of its own or not"
+    );
+    let skipped: Vec<bool> = rows.iter().map(|r| r.skipped_before).collect();
+    assert_eq!(
+        skipped,
+        [false, true, false, false, false, false],
+        "a divider over the row after the skipped places"
+    );
+    assert_eq!(rows[1].last, "–", "no last lap, no time");
+    // The player leads: the leader is the player and the rows go behind it.
+    let mut cars: Vec<crate::field::Car> = (1..=10).map(|p| car(p, p, Some(f64::from(p - 1) * 2.0))).collect();
+    cars[0].is_player = true;
+    let rows = standings_rows(&hand_field(cars), "Leader", STANDINGS_ROWS);
+    assert_eq!(rows.len(), 6);
+    assert!(rows[0].is_player && rows[0].gap == "Leader");
+    assert_eq!(rows[5].position, "P6");
+    // The player is last: the rows go ahead of it.
+    let mut cars: Vec<crate::field::Car> = (1..=10).map(|p| car(p, p, Some(f64::from(p - 1) * 2.0))).collect();
+    cars[9].is_player = true;
+    let rows = standings_rows(&hand_field(cars), "Leader", STANDINGS_ROWS);
+    let places: Vec<&str> = rows.iter().map(|r| r.position.as_str()).collect();
+    assert_eq!(places, ["P1", "P6", "P7", "P8", "P9", "P10"]);
+    assert!(rows[5].is_player && rows[5].gap == "+18.0");
+    // No gaps from the game: a dash, never a made-up number.
+    let cars: Vec<crate::field::Car> = (1..=3)
+        .map(|p| crate::field::Car {
+            is_player: p == 2,
+            ..car(p, p, None)
+        })
+        .collect();
+    let rows = standings_rows(&hand_field(cars), "Leader", STANDINGS_ROWS);
+    assert_eq!((rows[1].gap.as_str(), rows[2].gap.as_str()), ("–", "–"));
+}
+
+#[test]
+fn a_reading_without_a_player_or_a_field_has_empty_standings_and_a_note() {
+    let mut live = live_reading();
+    live.field = None;
+    let m = model(&live, Lang::En).standings.unwrap();
+    assert!(m.rows.is_empty() && m.note.is_some() && m.class_name.is_none());
+    let nobody = live_with_field(hand_field(vec![rival_car(1, "A", 1, None, 4, 0.5)]));
+    assert!(model(&nobody, Lang::En).standings.unwrap().rows.is_empty());
+}
+
+#[test]
+fn the_gaps_write_the_car_ahead_and_behind_with_the_gap_now_and_the_trend() {
+    let mut live = live_with_field(hand_field(vec![
+        crate::field::Car {
+            gap_ahead_s: Some(2.0),
+            ..rival_car(1, "Ahead", 4, None, 4, 0.6)
+        },
+        the_player(crate::field::Car {
+            gap_ahead_s: Some(1.234),
+            ..rival_car(0, "You", 5, None, 4, 0.5)
+        }),
+        crate::field::Car {
+            gap_ahead_s: Some(0.876),
+            ..rival_car(2, "Behind", 6, None, 4, 0.4)
+        },
+        rival_car(3, "Far", 9, None, 4, 0.1),
+    ]));
+    live.gap_trend = Some((Some(0.3), Some(-0.2)));
+    let m = model(&live, Lang::En).gaps.expect("the game gives rivals");
+    assert_eq!(
+        (m.title.as_str(), m.ahead.label.as_str(), m.behind.label.as_str()),
+        ("Gaps", "Ahead", "Behind")
+    );
+    let (ahead, behind) = (m.ahead.car.unwrap(), m.behind.car.unwrap());
+    assert_eq!(
+        (ahead.name.as_str(), ahead.position.as_str(), ahead.gap.as_str()),
+        ("Ahead", "P4", "+1.234")
+    );
+    assert_eq!(
+        (behind.name.as_str(), behind.position.as_str(), behind.gap.as_str()),
+        ("Behind", "P6", "-0.876")
+    );
+    // The car ahead is closing (good), the one behind is opening (good for the player).
+    let (closing, opening) = (ahead.trend.unwrap(), behind.trend.unwrap());
+    assert_eq!(
+        (closing.dir, closing.text.as_str(), closing.role),
+        (TrendDir::Closing, "closing 0.3 s/lap", Role::Good)
+    );
+    assert_eq!(
+        (opening.dir, opening.text.as_str(), opening.role),
+        (TrendDir::Opening, "opening 0.2 s/lap", Role::Good)
+    );
+    assert!(m.note.is_none());
+    // Portuguese.
+    let pt = model(&live, Lang::Pt).gaps.unwrap();
+    assert_eq!(pt.ahead.label, "À frente");
+    assert_eq!(pt.ahead.car.unwrap().trend.unwrap().text, "aproximando 0.3 s/volta");
+    assert_eq!(pt.behind.car.unwrap().trend.unwrap().text, "afastando 0.2 s/volta");
+}
+
+#[test]
+fn a_gap_trend_is_closing_opening_or_steady_and_what_it_means_depends_on_the_side() {
+    assert_eq!(trend_dir(0.3), TrendDir::Closing);
+    assert_eq!(trend_dir(-0.3), TrendDir::Opening);
+    assert_eq!(trend_dir(0.04), TrendDir::Steady);
+    assert_eq!(trend_dir(-0.04), TrendDir::Steady);
+    assert_eq!(trend_dir(0.0), TrendDir::Steady);
+    assert_eq!(trend_dir(f64::NAN), TrendDir::Steady);
+    // The car ahead: closing is good, opening bad. The car behind: closing is bad, opening good.
+    assert_eq!(trend_role(true, TrendDir::Closing), Role::Good);
+    assert_eq!(trend_role(true, TrendDir::Opening), Role::Danger);
+    assert_eq!(trend_role(false, TrendDir::Closing), Role::Danger);
+    assert_eq!(trend_role(false, TrendDir::Opening), Role::Good);
+    assert_eq!(trend_role(true, TrendDir::Steady), Role::Muted);
+    assert_eq!(trend_role(false, TrendDir::Steady), Role::Muted);
+    let behind_closing = gap_trend_model(Lang::En, false, 0.46);
+    assert_eq!(
+        (behind_closing.text.as_str(), behind_closing.role),
+        ("closing 0.5 s/lap", Role::Danger)
+    );
+    let steady = gap_trend_model(Lang::En, true, 0.02);
+    assert_eq!((steady.text.as_str(), steady.dir), ("steady", TrendDir::Steady));
+}
+
+#[test]
+fn the_leader_has_nobody_ahead_and_a_gap_the_game_does_not_give_is_a_dash() {
+    let live = live_with_field(hand_field(vec![
+        the_player(crate::field::Car {
+            gap_ahead_s: Some(0.0),
+            ..rival_car(0, "You", 1, None, 4, 0.5)
+        }),
+        rival_car(1, "Behind", 2, None, 4, 0.4),
+    ]));
+    let m = model(&live, Lang::En).gaps.unwrap();
+    assert!(m.ahead.car.is_none(), "nobody ahead of the leader");
+    let behind = m.behind.car.unwrap();
+    assert_eq!(behind.gap, "–");
+    assert!(behind.trend.is_none(), "no trend without two laps");
+    // No field: both sides are empty and a note says why.
+    let mut empty = live_reading();
+    empty.field = None;
+    let m = model(&empty, Lang::En).gaps.unwrap();
+    assert!(m.ahead.car.is_none() && m.behind.car.is_none() && m.note.is_some());
+}
+
+#[test]
+fn the_demo_field_is_two_classes_with_the_player_fifth_and_third_in_its_class() {
+    let field = super::demo::demo_field(3, 1200.0, 0.0);
+    assert_eq!(field.cars.len(), 14);
+    let player = field.player().expect("the player is in the field");
+    assert_eq!((player.position, player.class_position), (Some(5), Some(3)));
+    assert_eq!(player.class.as_deref(), Some("GT3"));
+    let classes: HashSet<&str> = field.cars.iter().filter_map(|c| c.class.as_deref()).collect();
+    assert_eq!(classes, HashSet::from(["GT3", "GTE"]));
+    let places: Vec<u16> = field.cars.iter().filter_map(|c| c.position).collect();
+    assert_eq!(places, (1..=14).collect::<Vec<u16>>());
+    // The relative card: three cars either side, a car a lap ahead among them and a lapped one.
+    let rows = relative_rows(&field);
+    assert_eq!(
+        row_names(&rows),
+        ["S. Okafor", "T. Kessler", "A. Dumont", "You", "J. Brandt", "M. Silva", "C. Rossi"]
+    );
+    assert_eq!(rows[1].relation, LapRelation::Lapping);
+    assert_eq!(rows[6].relation, LapRelation::Lapped);
+    assert!(rows[..3].iter().all(|r| r.gap.as_deref().is_some_and(|g| g.starts_with('+'))));
+    assert!(rows[4..].iter().all(|r| r.gap.as_deref().is_some_and(|g| g.starts_with('-'))));
+    // The gaps drift from lap to lap, the places stay.
+    let later = super::demo::demo_field(4, 1200.0, 0.0);
+    let gap = |f: &crate::field::Field| f.player().and_then(|p| p.gap_ahead_s);
+    assert_ne!(gap(&field), gap(&later));
+    assert_eq!(later.player().and_then(|p| p.position), Some(5));
+    // The first lap, with the cars behind still on the line, is a field all the same.
+    assert_eq!(super::demo::demo_field(1, 0.0, 0.0).cars.len(), 14);
+}
+
+#[test]
+fn the_rivals_cards_are_on_race_and_qualifying_and_in_no_other_dashboard() {
+    use crate::game::Caps;
+    let with = slots(every_cap());
+    let without = slots(every_cap().minus(Caps::RIVALS));
+    let rivals = [Pane::Relative, Pane::Standings, Pane::Gaps];
+    for layout in ALL_LAYOUTS {
+        for dash in DashboardId::ALL {
+            let (a, b) = (layout.plan_in(dash, &with, usize::MAX), layout.plan_in(dash, &without, usize::MAX));
+            for pane in rivals {
+                assert!(b.area(pane).is_none(), "{dash:?} {layout:?}: {pane:?} needs the game's rivals");
+                let wanted = match (dash, pane) {
+                    (DashboardId::Race, _) => layout != Layout::Classic,
+                    (DashboardId::Qualifying, Pane::Standings) => layout != Layout::Classic,
+                    _ => false,
+                };
+                assert_eq!(a.area(pane).is_some(), wanted, "{dash:?} {layout:?}: {pane:?}");
+                if let Some(area) = a.area(pane) {
+                    assert!(
+                        area.3 + 0.01 >= least_height(pane),
+                        "{dash:?} {layout:?}: {pane:?} is {} tall",
+                        area.3
+                    );
+                }
+            }
+            // The rivals take no room from the tyres.
+            if matches!(dash, DashboardId::Race | DashboardId::Qualifying) {
+                let (tyres_with, tyres_without) = (a.area(Pane::Tyres).unwrap(), b.area(Pane::Tyres).unwrap());
+                assert!(
+                    tyres_with.2 + 0.01 >= tyres_without.2,
+                    "{dash:?} {layout:?}: the tyres lose room to the rivals"
+                );
+            }
+        }
+    }
+    // The Wide Race dashboard: the rivals and the session in the middle row, which holds only the session without rivals.
+    let plan = Layout::Wide.plan_in(DashboardId::Race, &without, usize::MAX);
+    assert!(plan.area(Pane::Session).is_some());
+    let plan = Layout::Wide.plan_in(DashboardId::Race, &with, usize::MAX);
+    let (relative, standings, gaps, session) = (
+        plan.area(Pane::Relative).unwrap(),
+        plan.area(Pane::Standings).unwrap(),
+        plan.area(Pane::Gaps).unwrap(),
+        plan.area(Pane::Session).unwrap(),
+    );
+    assert!(relative.1 == standings.1 && standings.1 == gaps.1 && gaps.1 == session.1, "one row");
+    assert!(
+        relative.0 < standings.0 && standings.0 < gaps.0 && gaps.0 < session.0,
+        "in that order"
+    );
+}
+
+#[test]
+fn the_race_dashboard_lights_the_players_row_and_the_edge_of_a_trend() {
+    let laps = rich_laps();
+    let live = full_reading();
+    let mut none = live.clone();
+    none.field = None;
+    none.gap_trend = None;
+    let with = dashboard_pixels(DashboardId::Race, &live, &laps);
+    save(&with, 1920, 1080, "panel-race-rivals.png");
+    let without = dashboard_pixels(DashboardId::Race, &none, &laps);
+    assert!(
+        has_color(&with, PRIMARY) > has_color(&without, PRIMARY) + 100,
+        "the player's row is lit in the relative and in the standings: {} against {}",
+        has_color(&with, PRIMARY),
+        has_color(&without, PRIMARY)
+    );
+    assert!(
+        has_color(&with, SUCCESS) > has_color(&without, SUCCESS) + 100,
+        "the gaps' two sides have a green edge: {} against {}",
+        has_color(&with, SUCCESS),
+        has_color(&without, SUCCESS)
+    );
+    // Without rivals the dashboard still paints, the middle row holding only the session.
+    let mut ac = full_reading();
+    ac.caps = every_cap().minus(crate::game::Caps::RIVALS);
+    ac.field = None;
+    let pixels = dashboard_pixels(DashboardId::Race, &ac, &laps);
+    assert!(has_color(&pixels, CARD) > 1000);
+}
+
+#[test]
+fn the_rivals_cards_paint_in_every_shape_with_and_without_the_cars() {
+    let f = fixture();
+    let laps = rich_laps();
+    let with = full_reading();
+    let mut none = with.clone();
+    none.field = None;
+    none.gap_trend = None;
+    for dash in [DashboardId::Race, DashboardId::Qualifying] {
+        for live in [&with, &none] {
+            for (w, h) in [(2560, 1080), (1920, 1080), (1024, 768), (540, 1080), (430, 900), (960, 600)] {
+                let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::Pt);
+                v.dashboard = Some(dash);
+                v.recent_laps = &laps;
+                let pixels = render(&v, w, h);
+                assert!(has_color(&pixels, CARD) > 1000, "{dash:?} {w}x{h}");
+            }
         }
     }
 }

@@ -5,6 +5,65 @@ pub(super) const DEMO_TRACK_M: f64 = 2400.0;
 /// The length of the demo's timed session: 25 minutes.
 const DEMO_SESSION_S: f64 = 1500.0;
 
+/// The player's class in the demo's field.
+const DEMO_CLASS: &str = "GT3";
+
+/// Thirteen rivals in two classes, GT3 and GTE: with the player (GT3) the field is P5 overall and P3 in the class. Each is its name,
+/// its class, how far ahead of the player it is in laps (negative: behind) and how long its laps take. The first is a lap ahead
+/// (it is lapping the player), the last a lap down.
+const DEMO_RIVALS: [(&str, &str, f64, f64); 13] = [
+    ("T. Kessler", "GTE", 1.045, 48.9),
+    ("L. Moretti", "GT3", 0.10, 50.2),
+    ("S. Okafor", "GTE", 0.06, 49.4),
+    ("A. Dumont", "GT3", 0.025, 50.4),
+    ("J. Brandt", "GT3", -0.02, 50.6),
+    ("M. Silva", "GT3", -0.06, 50.9),
+    ("K. Tanaka", "GTE", -0.11, 49.8),
+    ("P. Novak", "GT3", -0.15, 51.1),
+    ("E. Lund", "GTE", -0.25, 50.1),
+    ("D. Costa", "GT3", -0.35, 51.4),
+    ("H. Weber", "GTE", -0.55, 50.3),
+    ("N. Ito", "GT3", -0.80, 51.7),
+    ("C. Rossi", "GTE", -1.075, 50.6),
+];
+
+/// The demo's field for a player `dist` metres into lap `lap`: the rivals keep their places a little ahead of or behind the
+/// player and drift a few tenths of a second from lap to lap, so the gaps move. The places, the class places and the gaps are
+/// completed in the one shared place (`field::publish`).
+pub(super) fn demo_field(lap: i32, dist: f64, clock_s: f64) -> std::sync::Arc<crate::field::Field> {
+    let me = f64::from(lap - 1) + dist / DEMO_TRACK_M;
+    let car = |slot: u16, name: &str, class: &str, raced: f64, lap_s: f64| crate::field::Car {
+        class: Some(class.to_owned()),
+        laps_done: Some(raced.floor() as i32),
+        lap_share: Some(raced.fract() as f32),
+        last_lap_s: Some(lap_s),
+        best_lap_s: Some(lap_s * 0.985),
+        ..crate::field::Car::named(slot, name)
+    };
+    let player = crate::field::Car {
+        is_player: true,
+        ..car(0, "You", DEMO_CLASS, me, 50.0)
+    };
+    let mut cars = vec![(me, player)];
+    for (i, (name, class, offset_laps, lap_s)) in DEMO_RIVALS.iter().enumerate() {
+        // Each one drifts a few thousandths of a lap round its place, at a pace of its own.
+        let drift = 0.004 * (me * 2.0 * (1.0 + 0.37 * i as f64)).sin();
+        // Before the first lap is done the cars behind sit on the line.
+        let raced = (me + offset_laps + drift).max(0.0);
+        cars.push((raced, car(i as u16 + 1, name, class, raced, *lap_s)));
+    }
+    cars.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let cars = cars
+        .into_iter()
+        .enumerate()
+        .map(|(i, (_, car))| crate::field::Car {
+            position: Some(i as u16 + 1),
+            ..car
+        })
+        .collect();
+    crate::field::publish(cars, clock_s, Some(DEMO_TRACK_M))
+}
+
 /// Made-up driving on a 2.4 km track, as one game would give it.
 pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, fuel: f32, pace: f64) -> crate::game::Frame {
     use std::f64::consts::TAU;
@@ -59,10 +118,13 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     } else {
         crate::game::Flag::Green
     });
-    // Third of 24 (first in its class) in a 25-minute session that counts down, a lap taking about 50 seconds.
-    frame.race_position = Some(3);
-    frame.class_position = Some(1);
-    frame.cars = Some(24);
+    // Fifth of 14 (third in its class) in a 25-minute session that counts down, a lap taking about 50 seconds.
+    let field = demo_field(lap, dist, f64::from(lap - 1) * 50.0 + lap_time);
+    let player = field.player();
+    frame.race_position = player.and_then(|p| p.position);
+    frame.class_position = player.and_then(|p| p.class_position);
+    frame.cars = u16::try_from(field.cars.len()).ok();
+    frame.field = Some(field);
     frame.session_time_left_s = Some((DEMO_SESSION_S - (f64::from(lap - 1) * 50.0 + lap_time)).max(0.0));
     frame
 }

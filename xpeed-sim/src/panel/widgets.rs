@@ -4,6 +4,7 @@
 //! tyres, the best sectors, the delta bar's fill) are small pure functions with tests.
 
 use super::*;
+use crate::field::{Car, Field};
 
 // The flag.
 
@@ -601,5 +602,354 @@ pub(super) fn session_model(lang: Lang, live: &Live, fresh: bool) -> SessionCard
         class_line: place(live.class_position).map(|n| format!("P{n} {in_class}")),
         remaining,
         remaining_note,
+    }
+}
+
+// The rivals: the cars around the player (`Live::field`).
+
+/// The cars shown on each side of the player in the relative card.
+pub(super) const RELATIVE_SIDE: usize = 3;
+
+/// The rows the standings card holds: the class leader, two cars ahead of the player, the player and two behind (when the
+/// player is near either end of the table the rest of the rows go to that side).
+pub(super) const STANDINGS_ROWS: usize = 6;
+
+/// A gap trend under this many seconds a lap (either way) is "steady".
+pub(super) const GAP_STEADY_S: f64 = 0.05;
+
+/// How a car stands to the player in race distance (laps done plus the share of the lap): a lap or more ahead is lapping the
+/// player, a lap or more behind is lapped, anything else is on the same lap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum LapRelation {
+    Level,
+    Lapping,
+    Lapped,
+}
+
+impl LapRelation {
+    /// The ink of a row: blue for a car lapping the player, quiet for a lapped one.
+    fn role(self) -> Role {
+        match self {
+            LapRelation::Level => Role::Text,
+            LapRelation::Lapping => Role::Info,
+            LapRelation::Lapped => Role::Muted,
+        }
+    }
+}
+
+/// How far a car has raced, in laps: the laps done plus the share of the lap. Nothing when either is not known.
+fn raced_laps(car: &Car) -> Option<f64> {
+    Some(f64::from(car.laps_done?) + f64::from(car.lap_share?))
+}
+
+pub(super) fn lap_relation(player: &Car, other: &Car) -> LapRelation {
+    match (raced_laps(player), raced_laps(other)) {
+        (Some(mine), Some(theirs)) if theirs - mine >= 1.0 => LapRelation::Lapping,
+        (Some(mine), Some(theirs)) if mine - theirs >= 1.0 => LapRelation::Lapped,
+        _ => LapRelation::Level,
+    }
+}
+
+/// `P7`, or `–` for a car with no place.
+fn place_text(place: Option<u16>) -> String {
+    place.filter(|p| *p >= 1).map_or_else(|| "–".to_owned(), |p| format!("P{p}"))
+}
+
+/// One car of the relative card.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RelativeRow {
+    /// `P7`.
+    pub(super) position: String,
+    pub(super) name: String,
+    /// The time on the track to the player: `+1.234` for a car ahead, `-0.876` for one behind; nothing for the player's own row.
+    pub(super) gap: Option<String>,
+    /// Blue for a car lapping the player, quiet for a lapped one, plain otherwise.
+    pub(super) role: Role,
+    pub(super) relation: LapRelation,
+    pub(super) is_player: bool,
+}
+
+/// The relative card: up to three cars ahead of the player on the track and three behind, the player in the middle.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RelativeModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    /// From the farthest ahead to the farthest behind.
+    pub(super) rows: Vec<RelativeRow>,
+    /// Said while the game has not given the cars around the player.
+    pub(super) note: Option<String>,
+}
+
+pub(super) fn relative_rows(field: &Field) -> Vec<RelativeRow> {
+    let player = field.player();
+    crate::field::relative(field, RELATIVE_SIDE, RELATIVE_SIDE)
+        .into_iter()
+        .map(|(car, seconds)| {
+            let relation = match player {
+                Some(me) if !car.is_player => lap_relation(me, car),
+                _ => LapRelation::Level,
+            };
+            RelativeRow {
+                position: place_text(car.position),
+                name: car.name.clone(),
+                gap: if car.is_player { None } else { delta_text(Some(seconds)) },
+                role: relation.role(),
+                relation,
+                is_player: car.is_player,
+            }
+        })
+        .collect()
+}
+
+pub(super) fn relative_model(lang: Lang, live: &Live, fresh: bool) -> RelativeModel {
+    let rows = live.field.as_deref().map(relative_rows).unwrap_or_default();
+    RelativeModel {
+        show: if fresh { Show::Shown } else { Show::Dimmed },
+        title: text(lang, &Msg::PanelRelativeTitle),
+        note: (rows.len() < 2).then(|| text(lang, &Msg::PanelRivalsWait)),
+        rows,
+    }
+}
+
+// The standings.
+
+/// Which of `len` cars (the player at index `player`, the leader at 0) the standings show, at most `want`: the leader, then
+/// the two cars ahead of the player, the player and the two behind; when that leaves room (the player is near an end, or the
+/// class is small) it goes to the cars behind the player first, then to those ahead. In order, without repeats.
+pub(super) fn standings_pick(len: usize, player: usize, want: usize) -> Vec<usize> {
+    if len <= want.max(1) {
+        return (0..len).collect();
+    }
+    let player = player.min(len - 1);
+    let (mut lo, mut hi) = (player.saturating_sub(2), (player + 2).min(len - 1));
+    // The leader is one more row whenever the block round the player does not start at it.
+    let rows = |lo: usize, hi: usize| hi - lo + 1 + usize::from(lo > 0);
+    while rows(lo, hi) < want {
+        if hi < len - 1 {
+            hi += 1;
+        } else if lo > 0 {
+            lo -= 1;
+        } else {
+            break;
+        }
+    }
+    let mut picked = Vec::with_capacity(want);
+    if lo > 0 {
+        picked.push(0);
+    }
+    picked.extend(lo..=hi);
+    picked
+}
+
+/// The player's class, ordered by class place (by the place overall where the game has no classes), and where the player is in it.
+fn class_table(field: &Field) -> Option<(Vec<&Car>, usize)> {
+    let player = field.player()?;
+    let mut cars: Vec<&Car> = field.cars.iter().filter(|c| c.class == player.class).collect();
+    cars.sort_by_key(|c| c.class_position.or(c.position).unwrap_or(u16::MAX));
+    let at = cars.iter().position(|c| c.is_player)?;
+    Some((cars, at))
+}
+
+/// The time behind the class leader, `+12.3`: the gap to the overall leader less the class leader's own (a leader that is
+/// first overall is 0 behind itself). Nothing when either gap is not known.
+fn class_gap_text(leader: &Car, car: &Car) -> Option<String> {
+    let base = leader.gap_leader_s.or_else(|| (leader.position == Some(1)).then_some(0.0))?;
+    let gap = (car.gap_leader_s? - base).max(0.0);
+    gap.is_finite().then(|| format!("+{gap:.1}"))
+}
+
+/// One car of the standings card.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct StandingsRow {
+    /// The place in the class, `P3`.
+    pub(super) position: String,
+    pub(super) name: String,
+    /// The time behind the class leader (`+12.3`), the word for the leader itself, or `–`.
+    pub(super) gap: String,
+    /// The car's last lap, `1:47.918`, or `–`.
+    pub(super) last: String,
+    pub(super) is_player: bool,
+    /// Places were skipped between the row before and this one: a thin divider goes over it.
+    pub(super) skipped_before: bool,
+}
+
+/// The standings card: the player's class only, the leader first, then the rows around the player.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct StandingsModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    /// The player's class, written on the right of the title.
+    pub(super) class_name: Option<String>,
+    /// The heads of the gap and the last lap columns.
+    pub(super) heads: [String; 2],
+    pub(super) rows: Vec<StandingsRow>,
+    pub(super) note: Option<String>,
+}
+
+pub(super) fn standings_rows(field: &Field, leader_word: &str, want: usize) -> Vec<StandingsRow> {
+    let Some((cars, player)) = class_table(field) else {
+        return Vec::new();
+    };
+    let picks = standings_pick(cars.len(), player, want);
+    let none = || "–".to_owned();
+    picks
+        .iter()
+        .enumerate()
+        .map(|(n, &i)| {
+            let car = cars[i];
+            StandingsRow {
+                position: place_text(car.class_position.or(car.position)),
+                name: car.name.clone(),
+                gap: if i == 0 {
+                    leader_word.to_owned()
+                } else {
+                    class_gap_text(cars[0], car).unwrap_or_else(none)
+                },
+                last: lap_clock(car.last_lap_s).unwrap_or_else(none),
+                is_player: car.is_player,
+                skipped_before: n > 0 && i > picks[n - 1] + 1,
+            }
+        })
+        .collect()
+}
+
+pub(super) fn standings_model(lang: Lang, live: &Live, fresh: bool) -> StandingsModel {
+    let say = |msg: Msg| text(lang, &msg);
+    let field = live.field.as_deref();
+    let leader_word = say(Msg::PanelStandingsLeader);
+    let rows = field.map(|f| standings_rows(f, &leader_word, STANDINGS_ROWS)).unwrap_or_default();
+    let class_name = field.and_then(|f| f.player()).and_then(|p| p.class.clone());
+    StandingsModel {
+        show: if fresh { Show::Shown } else { Show::Dimmed },
+        title: say(Msg::PanelStandingsTitle),
+        class_name: class_name.filter(|c| !c.trim().is_empty()),
+        heads: [say(Msg::PanelColGap), say(Msg::PanelColLast)],
+        note: rows.is_empty().then(|| say(Msg::PanelRivalsWait)),
+        rows,
+    }
+}
+
+// The gaps.
+
+/// Where a gap is heading: closing (shrinking), opening (growing) or hardly changing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum TrendDir {
+    Closing,
+    Opening,
+    Steady,
+}
+
+/// `seconds_per_lap` is positive while the gap shrinks.
+pub(super) fn trend_dir(seconds_per_lap: f64) -> TrendDir {
+    if !seconds_per_lap.is_finite() || seconds_per_lap.abs() < GAP_STEADY_S {
+        TrendDir::Steady
+    } else if seconds_per_lap > 0.0 {
+        TrendDir::Closing
+    } else {
+        TrendDir::Opening
+    }
+}
+
+/// The meaning of a trend for the player: the car ahead closing is good, opening bad; the car behind closing is bad,
+/// opening good. Steady is quiet.
+pub(super) fn trend_role(car_ahead: bool, dir: TrendDir) -> Role {
+    match (dir, car_ahead) {
+        (TrendDir::Steady, _) => Role::Muted,
+        (TrendDir::Closing, true) | (TrendDir::Opening, false) => Role::Good,
+        (TrendDir::Opening, true) | (TrendDir::Closing, false) => Role::Danger,
+    }
+}
+
+/// How a gap changed over the last laps: `closing 0.3 s/lap`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct GapTrendModel {
+    pub(super) dir: TrendDir,
+    pub(super) text: String,
+    pub(super) role: Role,
+}
+
+pub(super) fn gap_trend_model(lang: Lang, car_ahead: bool, seconds_per_lap: f64) -> GapTrendModel {
+    let dir = trend_dir(seconds_per_lap);
+    let amount = format!("{:.1}", seconds_per_lap.abs());
+    let msg = match dir {
+        TrendDir::Closing => Msg::PanelGapClosing(amount),
+        TrendDir::Opening => Msg::PanelGapOpening(amount),
+        TrendDir::Steady => Msg::PanelGapSteady,
+    };
+    GapTrendModel {
+        dir,
+        text: text(lang, &msg),
+        role: trend_role(car_ahead, dir),
+    }
+}
+
+/// The car on one side of the player.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct GapCarModel {
+    pub(super) position: String,
+    pub(super) name: String,
+    /// The gap now, in seconds: `+1.234` for the car ahead, `-0.876` for the one behind; `–` when the game gives none.
+    pub(super) gap: String,
+    /// Said once two laps have been seen with the same car there.
+    pub(super) trend: Option<GapTrendModel>,
+}
+
+/// One side of the gaps card.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct GapSideModel {
+    /// `Ahead` or `Behind`.
+    pub(super) label: String,
+    /// Nothing for a side without a car (the leader has nobody ahead).
+    pub(super) car: Option<GapCarModel>,
+}
+
+/// The gaps card: the car one place ahead and the car one place behind (overall), the gap to each and how it is changing.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct GapsModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    pub(super) ahead: GapSideModel,
+    pub(super) behind: GapSideModel,
+    /// Said while the game has not given the cars yet.
+    pub(super) note: Option<String>,
+}
+
+pub(super) fn gaps_model(lang: Lang, live: &Live, fresh: bool) -> GapsModel {
+    let say = |msg: Msg| text(lang, &msg);
+    let field = live.field.as_deref().filter(|f| f.player().is_some());
+    let (near_ahead, near_behind) = field.map_or((None, None), crate::dash::place_neighbours);
+    let player_gap = field.and_then(|f| f.player()).and_then(|p| p.gap_ahead_s);
+    let (trend_ahead, trend_behind) = live.gap_trend.unwrap_or((None, None));
+    let side = |label: Msg, car: Option<&Car>, gap: Option<f64>, trend: Option<f64>, ahead: bool| GapSideModel {
+        label: say(label),
+        car: car.map(|car| GapCarModel {
+            position: place_text(car.position),
+            name: car.name.clone(),
+            gap: delta_text(gap.map(|g| if ahead { g } else { -g })).unwrap_or_else(|| "–".to_owned()),
+            trend: trend.map(|t| gap_trend_model(lang, ahead, t)),
+        }),
+    };
+    GapsModel {
+        show: if fresh { Show::Shown } else { Show::Dimmed },
+        title: say(Msg::PanelGapsTitle),
+        ahead: side(Msg::PanelGapAhead, near_ahead, player_gap, trend_ahead, true),
+        behind: side(
+            Msg::PanelGapBehind,
+            near_behind,
+            near_behind.and_then(|c| c.gap_ahead_s),
+            trend_behind,
+            false,
+        ),
+        note: field.is_none().then(|| say(Msg::PanelRivalsWait)),
     }
 }

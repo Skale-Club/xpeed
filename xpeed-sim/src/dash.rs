@@ -234,6 +234,9 @@ pub struct Live {
     pub session_laps: Option<u16>,
     /// The other cars of the session (the rivals layer), as of the last reading the game gave; `None` for a game that gives none.
     pub field: Option<std::sync::Arc<crate::field::Field>>,
+    /// How the gap to the car one place ahead and to the one behind changed over the last laps, in seconds per lap
+    /// (positive: the gap is shrinking); `None` until a side has two laps to compare. See `GapTrack`.
+    pub gap_trend: Option<(Option<f64>, Option<f64>)>,
     /// The compound of the tyres on the car, as the game names it.
     pub tyre_compound: Option<String>,
     pub dist_m: Option<f64>,
@@ -365,6 +368,11 @@ pub struct Tracker {
     caps_seen: Caps,
     /// The last rivals reading a frame carried (readers publish one every 200 ms, so most frames carry none).
     field: Option<Arc<crate::field::Field>>,
+    /// The gap to the car one place ahead and to the one behind at the end of each lap.
+    gap_ahead: GapTrack,
+    gap_behind: GapTrack,
+    /// The car was in the pit lane at some point of the lap being driven.
+    lap_pitted: bool,
     /// The first two sector times seen on the lap being driven, and those of the lap before it.
     lap_sectors: [Option<u32>; 2],
     last_sectors: [Option<u32>; 2],
@@ -381,6 +389,78 @@ const TYRE_SET_CHANGED: f32 = 0.02;
 const FUEL_MAX_SHARE: f32 = 0.3;
 /// A rise in the fuel above this (litres) between two readings is a refuel, not noise.
 const REFUEL_LITRES: f32 = 0.2;
+/// How many of the last laps the trend of a gap to a neighbour averages.
+const GAP_TREND_LAPS: usize = 3;
+
+/// The cars one place ahead of the player and one place behind (by overall position), nothing for a side without one.
+pub fn place_neighbours(field: &crate::field::Field) -> (Option<&crate::field::Car>, Option<&crate::field::Car>) {
+    let Some(place) = field.player().and_then(|p| p.position) else {
+        return (None, None);
+    };
+    (
+        place.checked_sub(1).filter(|p| *p >= 1).and_then(|p| car_at(field, p)),
+        place.checked_add(1).and_then(|p| car_at(field, p)),
+    )
+}
+
+fn car_at(field: &crate::field::Field, place: u16) -> Option<&crate::field::Car> {
+    field.cars.iter().find(|c| !c.is_player && c.position == Some(place))
+}
+
+/// Who is one place ahead and one behind, with the gap to each as the cars' own fields give it (ahead: the player's gap
+/// to the car ahead; behind: that car's gap to the player): the car's slot and the seconds. A side has nothing when there
+/// is no car, the car is in the pits or the gap is not known.
+fn gap_sides(field: &crate::field::Field) -> (Option<(u16, f64)>, Option<(u16, f64)>) {
+    let (ahead, behind) = place_neighbours(field);
+    let side = |car: Option<&crate::field::Car>, gap: Option<f64>| -> Option<(u16, f64)> {
+        let car = car.filter(|c| !c.in_pits)?;
+        let gap = gap.filter(|g| g.is_finite() && *g >= 0.0)?;
+        Some((car.slot, gap))
+    };
+    (
+        side(ahead, field.player().and_then(|p| p.gap_ahead_s)),
+        side(behind, behind.and_then(|c| c.gap_ahead_s)),
+    )
+}
+
+/// The gap to one neighbour as it was at the end of the last laps (at most `GAP_TREND_LAPS + 1` readings, oldest first),
+/// for how it changes from lap to lap. A different car in that place, a lap with a pit stop or a side with no car starts it
+/// over: two readings of different cars say nothing about a trend.
+#[derive(Debug, Default)]
+struct GapTrack {
+    slot: Option<u16>,
+    gaps: Vec<f64>,
+}
+
+impl GapTrack {
+    fn restart(&mut self) {
+        *self = GapTrack::default();
+    }
+
+    /// A lap ended with `now` (the neighbour's slot and the gap) on this side; `clean` is false for a lap with a pit stop.
+    fn lap_ended(&mut self, now: Option<(u16, f64)>, clean: bool) {
+        let Some((slot, gap)) = now.filter(|_| clean) else {
+            self.restart();
+            return;
+        };
+        if self.slot != Some(slot) {
+            self.restart();
+            self.slot = Some(slot);
+        }
+        self.gaps.push(gap);
+        if self.gaps.len() > GAP_TREND_LAPS + 1 {
+            self.gaps.remove(0);
+        }
+    }
+
+    /// Seconds per lap the gap shrank by over the readings kept (positive: closing, negative: opening); nothing with fewer
+    /// than two.
+    fn trend(&self) -> Option<f64> {
+        let (first, last) = (self.gaps.first()?, self.gaps.last()?);
+        let laps = self.gaps.len().checked_sub(1).filter(|n| *n > 0)?;
+        Some((first - last) / laps as f64)
+    }
+}
 
 /// A first reading further than this from the line means the lap was joined midway.
 const FROM_LINE_METRES: f64 = 50.0;
@@ -428,13 +508,21 @@ impl Tracker {
             }
         }
         let step = self.session.feed(frame);
+        let mut lap_ended = false;
         for event in &step.events {
             match event {
-                Event::SessionEnded { .. } => self.new_session(),
-                Event::LapReset { .. } => self.lap_lost(frame),
+                Event::SessionEnded { .. } => {
+                    self.new_session();
+                    lap_ended = false;
+                }
+                Event::LapReset { .. } => {
+                    self.lap_lost(frame);
+                    lap_ended = false;
+                }
                 Event::LapClosed { .. } => {
                     self.last_sectors = std::mem::take(&mut self.lap_sectors);
                     self.lap_closed(frame);
+                    lap_ended = true;
                 }
                 Event::LapStarted { number, from_line, .. } => {
                     self.lap = *number;
@@ -504,6 +592,14 @@ impl Tracker {
         if let Some(field) = &frame.field {
             self.field = Some(field.clone());
         }
+        self.lap_pitted |= frame.in_pits;
+        if lap_ended {
+            let (ahead, behind) = self.field.as_deref().map(gap_sides).unwrap_or_default();
+            let clean = !self.lap_pitted;
+            self.gap_ahead.lap_ended(ahead, clean);
+            self.gap_behind.lap_ended(behind, clean);
+            self.lap_pitted = frame.in_pits;
+        }
         self.remember(frame);
         self.official = frame.last_lap_s;
         // The distance into the lap: the game's, else the speed added up (`session.rs` decides which).
@@ -554,6 +650,10 @@ impl Tracker {
             session_time_left_s: frame.session_time_left_s,
             session_laps: frame.session_laps,
             field: self.field.clone(),
+            gap_trend: {
+                let trend = (self.gap_ahead.trend(), self.gap_behind.trend());
+                (trend.0.is_some() || trend.1.is_some()).then_some(trend)
+            },
             tyre_compound: frame.tyre_compound.clone(),
             dist_m: frame.dist_m.or(dist_m),
             track_length_m: frame.track_length_m,
@@ -640,6 +740,9 @@ impl Tracker {
         self.called_invalid = false;
         self.current_from_line = false;
         self.lap_sectors = [None; 2];
+        self.gap_ahead.restart();
+        self.gap_behind.restart();
+        self.lap_pitted = false;
         self.fuel_lap_ended(frame, false);
     }
 
@@ -1962,5 +2065,140 @@ mod tests {
         (f.x, f.z) = (3000.0, 0.0);
         let live = tracker.on_frame("Test", &f, 0);
         assert_eq!(live.delta_s, None, "the lap is not one any more");
+    }
+
+    fn rival(slot: u16, position: u16, gap_ahead: Option<f64>) -> crate::field::Car {
+        crate::field::Car {
+            position: Some(position),
+            gap_ahead_s: gap_ahead,
+            ..crate::field::Car::named(slot, "Rival")
+        }
+    }
+
+    /// A field with the player (slot 1) in `place` and the other cars given.
+    fn field_with_player(place: u16, gap_ahead: Option<f64>, mut cars: Vec<crate::field::Car>) -> crate::field::Field {
+        cars.push(crate::field::Car {
+            is_player: true,
+            ..rival(1, place, gap_ahead)
+        });
+        crate::field::Field { cars, at_s: 10.0 }
+    }
+
+    #[test]
+    fn a_gap_trend_is_the_change_per_lap_over_the_last_three_laps() {
+        let near = |a: Option<f64>, b: f64| assert!((a.unwrap() - b).abs() < 1e-9, "{a:?} is not {b}");
+        let mut track = GapTrack::default();
+        assert_eq!(track.trend(), None);
+        track.lap_ended(Some((7, 3.0)), true);
+        assert_eq!(track.trend(), None, "one reading is no trend");
+        track.lap_ended(Some((7, 2.5)), true);
+        near(track.trend(), 0.5);
+        track.lap_ended(Some((7, 2.0)), true);
+        track.lap_ended(Some((7, 1.0)), true);
+        near(track.trend(), 2.0 / 3.0);
+        // Only the last three laps count: 3.0 is dropped, 2.5 to 1.5 over three laps.
+        track.lap_ended(Some((7, 1.5)), true);
+        near(track.trend(), 1.0 / 3.0);
+        // A gap that grows is a negative trend.
+        let mut growing = GapTrack::default();
+        growing.lap_ended(Some((4, 1.0)), true);
+        growing.lap_ended(Some((4, 1.4)), true);
+        near(growing.trend(), -0.4);
+    }
+
+    #[test]
+    fn a_gap_trend_starts_over_with_another_car_a_pit_lap_or_no_car() {
+        let mut track = GapTrack::default();
+        track.lap_ended(Some((7, 3.0)), true);
+        track.lap_ended(Some((7, 2.0)), true);
+        assert!(track.trend().is_some());
+        // Another car in that place: its gap is the first reading of a new trend.
+        track.lap_ended(Some((9, 1.0)), true);
+        assert_eq!(track.trend(), None);
+        track.lap_ended(Some((9, 0.5)), true);
+        assert!(track.trend().is_some());
+        // A lap with a pit stop.
+        track.lap_ended(Some((9, 0.4)), false);
+        assert_eq!(track.trend(), None);
+        track.lap_ended(Some((9, 0.4)), true);
+        track.lap_ended(Some((9, 0.3)), true);
+        assert!(track.trend().is_some());
+        // No car on that side.
+        track.lap_ended(None, true);
+        assert_eq!(track.trend(), None);
+        track.lap_ended(Some((9, 0.3)), true);
+        assert_eq!(track.trend(), None, "the reading before the gap in the order is gone");
+    }
+
+    #[test]
+    fn the_neighbours_are_the_cars_one_place_ahead_and_behind_with_the_gap_to_each() {
+        let cars = vec![rival(2, 4, Some(9.0)), rival(3, 6, Some(0.8)), rival(4, 7, Some(2.0))];
+        let field = field_with_player(5, Some(1.2), cars.clone());
+        assert_eq!(gap_sides(&field), (Some((2, 1.2)), Some((3, 0.8))));
+        let (ahead, behind) = place_neighbours(&field);
+        assert_eq!((ahead.map(|c| c.slot), behind.map(|c| c.slot)), (Some(2), Some(3)));
+        // The leader has nobody ahead, the last car nobody behind.
+        let leader = field_with_player(1, None, vec![rival(3, 2, Some(0.8))]);
+        assert_eq!(gap_sides(&leader), (None, Some((3, 0.8))));
+        let last = field_with_player(3, Some(2.0), vec![rival(2, 2, Some(1.0)), rival(4, 1, None)]);
+        assert_eq!(gap_sides(&last), (Some((2, 2.0)), None));
+        // A car in the pits, or a gap not known, leaves its side empty.
+        let mut pitting = cars.clone();
+        pitting[1].in_pits = true;
+        assert_eq!(gap_sides(&field_with_player(5, Some(1.2), pitting)).1, None);
+        assert_eq!(gap_sides(&field_with_player(5, None, cars)).0, None);
+        // No player: no neighbours.
+        let nobody = crate::field::Field {
+            cars: vec![rival(2, 4, Some(1.0))],
+            at_s: 0.0,
+        };
+        assert_eq!(gap_sides(&nobody), (None, None));
+    }
+
+    /// Drives lap `lap` as `drive_fuel` does, the rivals' reading arriving just before the line; `pit` puts the car in the
+    /// pit lane for a moment.
+    fn drive_with_field(tracker: &mut Tracker, lap: i32, field: &Arc<crate::field::Field>, pit: bool) -> Live {
+        let mut last = None;
+        for i in 0..=100 {
+            let mut f = at(lap, f64::from(i) * 9.0, f64::from(i) / 10.0, None);
+            if i == 99 {
+                f.field = Some(field.clone());
+            }
+            f.in_pits = pit && i == 50;
+            last = Some(tracker.on_frame("Test", &f, 0));
+        }
+        last.unwrap()
+    }
+
+    #[test]
+    fn the_live_reading_carries_the_gap_trends_from_the_end_of_each_lap() {
+        let mut tracker = Tracker::default();
+        let field_at = |ahead: f64| {
+            Arc::new(field_with_player(
+                5,
+                Some(ahead),
+                vec![rival(2, 4, Some(9.0)), rival(3, 6, Some(1.0))],
+            ))
+        };
+        let live = drive_with_field(&mut tracker, 1, &field_at(3.0), false);
+        assert_eq!(live.gap_trend, None);
+        // Lap 1 ended with 3.0 behind a car: one reading, no trend yet.
+        let live = drive_with_field(&mut tracker, 2, &field_at(2.5), false);
+        assert_eq!(live.gap_trend, None);
+        let live = drive_with_field(&mut tracker, 3, &field_at(2.0), false);
+        assert_eq!(
+            live.gap_trend,
+            Some((Some(0.5), Some(0.0))),
+            "3.0 to 2.5 a lap; the car behind stays 1.0"
+        );
+        let live = drive_with_field(&mut tracker, 4, &field_at(1.5), true);
+        assert_eq!(
+            live.gap_trend,
+            Some((Some(0.5), Some(0.0))),
+            "laps 1 to 3 are over; lap 4 is under way"
+        );
+        // Lap 4 had a pit stop: ending it starts both sides over.
+        let live = drive_with_field(&mut tracker, 5, &field_at(1.5), false);
+        assert_eq!(live.gap_trend, None);
     }
 }

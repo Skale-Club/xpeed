@@ -255,6 +255,22 @@ pub enum Msg {
     PanelFuelAddShort,
     /// Under the tyre wear rows while no clean lap is known.
     PanelTyreWearWait,
+    /// The captions of the rivals cards: the cars around the player on the track, the class's table, the cars either side.
+    PanelRelativeTitle,
+    PanelStandingsTitle,
+    PanelGapsTitle,
+    /// The gaps card's two sides.
+    PanelGapAhead,
+    PanelGapBehind,
+    /// In the standings: the gap column of the class leader, and the head of the last lap's column.
+    PanelStandingsLeader,
+    PanelColLast,
+    /// The trend of a gap, with the seconds per lap in front of the unit: `closing 0.3 s/lap`.
+    PanelGapClosing(String),
+    PanelGapOpening(String),
+    PanelGapSteady,
+    /// Under a rivals card while the game has not given the cars yet.
+    PanelRivalsWait,
     /// The words of the alerts that are lit.
     AlertAbs,
     AlertTc,
@@ -713,6 +729,29 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelSessionToGo => t(s("to go"), s("para o fim"), s("para el final")),
         PanelFuelToEnd => t(s("To the end"), s("Até o fim"), s("Hasta el final")),
         PanelFuelAddShort => t(s("add"), s("abastecer"), s("añadir")),
+        PanelRelativeTitle => t(s("Relative"), s("Relativo"), s("Relativo")),
+        PanelStandingsTitle => t(s("Standings"), s("Classificação"), s("Clasificación")),
+        PanelGapsTitle => t(s("Gaps"), s("Diferenças"), s("Diferencias")),
+        PanelGapAhead => t(s("Ahead"), s("À frente"), s("Delante")),
+        PanelGapBehind => t(s("Behind"), s("Atrás"), s("Detrás")),
+        PanelStandingsLeader => t(s("Leader"), s("Líder"), s("Líder")),
+        PanelColLast => t(s("Last"), s("Última"), s("Última")),
+        PanelGapClosing(n) => t(
+            format!("closing {n} s/lap"),
+            format!("aproximando {n} s/volta"),
+            format!("acercándose {n} s/vuelta"),
+        ),
+        PanelGapOpening(n) => t(
+            format!("opening {n} s/lap"),
+            format!("afastando {n} s/volta"),
+            format!("alejándose {n} s/vuelta"),
+        ),
+        PanelGapSteady => t(s("steady"), s("estável"), s("estable")),
+        PanelRivalsWait => t(
+            s("The other cars show once the game gives their positions."),
+            s("Os outros carros aparecem quando o jogo der as posições deles."),
+            s("Los demás coches aparecen cuando el juego dé sus posiciones."),
+        ),
         PanelTyreWearWait => t(
             s("Wear per lap shows after a clean lap without a pit stop."),
             s("O desgaste por volta aparece depois de uma volta limpa, sem parada no pit."),
@@ -1097,6 +1136,17 @@ mod tests {
             Msg::PanelFuelToEnd,
             Msg::PanelFuelAddShort,
             Msg::PanelTyreWearWait,
+            Msg::PanelRelativeTitle,
+            Msg::PanelStandingsTitle,
+            Msg::PanelGapsTitle,
+            Msg::PanelGapAhead,
+            Msg::PanelGapBehind,
+            Msg::PanelStandingsLeader,
+            Msg::PanelColLast,
+            Msg::PanelGapClosing("0.3".into()),
+            Msg::PanelGapOpening("0.2".into()),
+            Msg::PanelGapSteady,
+            Msg::PanelRivalsWait,
             Msg::AlertAbs,
             Msg::AlertTc,
             Msg::AlertDrsAvailable,

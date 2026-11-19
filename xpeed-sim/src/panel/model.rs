@@ -583,6 +583,10 @@ pub(super) struct DashModel {
     pub(super) sectors: Option<SectorsModel>,
     pub(super) delta_bar: Option<DeltaBarModel>,
     pub(super) session_card: Option<SessionCardModel>,
+    /// The rivals widgets: there when the game gives the other cars (`Caps::RIVALS`).
+    pub(super) relative: Option<RelativeModel>,
+    pub(super) standings: Option<StandingsModel>,
+    pub(super) gaps: Option<GapsModel>,
 }
 
 /// What the model needs besides the reading.
@@ -1243,6 +1247,9 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let sectors = has(Pane::Sectors).then(|| sectors_model(lang, live, ctx.laps, fresh));
     let delta_bar = has(Pane::DeltaBar).then(|| delta_bar_model(lang, live, &delta));
     let session_card = has(Pane::Session).then(|| session_model(lang, live, fresh));
+    let relative = has(Pane::Relative).then(|| relative_model(lang, live, fresh));
+    let standings = has(Pane::Standings).then(|| standings_model(lang, live, fresh));
+    let gaps = has(Pane::Gaps).then(|| gaps_model(lang, live, fresh));
 
     DashModel {
         status,
@@ -1298,6 +1305,9 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         sectors,
         delta_bar,
         session_card,
+        relative,
+        standings,
+        gaps,
     }
 }
 

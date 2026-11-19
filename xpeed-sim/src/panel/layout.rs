@@ -96,6 +96,12 @@ pub(super) enum Pane {
     DeltaBar,
     /// The place in the race and the class, and what is left of the session (time, or laps).
     Session,
+    /// The cars ahead of and behind the player on the track, with the time to each.
+    Relative,
+    /// The player's class: the leader and the cars around the player, with the gap to the leader and the last lap.
+    Standings,
+    /// The car one place ahead and the one behind, with the gap to each and whether it is closing or opening.
+    Gaps,
 }
 
 /// The dashboard's layouts, one per shape of window. Each is a canvas in design units made of rows of cards, scaled whole
@@ -287,6 +293,9 @@ pub(super) fn need_h(card: Pane, lap_rows: usize, row_h: f32) -> f32 {
         Pane::Sectors => SECTORS_NEED_H.min(row_h),
         Pane::DeltaBar => DELTA_NEED_H.min(row_h),
         Pane::Session => SESSION_NEED_H.min(row_h),
+        Pane::Relative => RELATIVE_NEED_H.min(row_h),
+        Pane::Standings => STANDINGS_NEED_H.min(row_h),
+        Pane::Gaps => GAPS_NEED_H.min(row_h),
         _ => row_h,
     }
 }
@@ -306,6 +315,11 @@ pub(super) const SECTORS_NEED_H: f32 = 228.0;
 pub(super) const DELTA_NEED_H: f32 = 130.0;
 /// The session card: the caption, the place (big), the class line and the time (or laps) left.
 pub(super) const SESSION_NEED_H: f32 = 168.0;
+/// The rivals cards: the caption and seven rows of the relative card (three cars either side of the player), the caption,
+/// the heads and six rows of the standings, and the caption and the two sides of the gaps card.
+pub(super) const RELATIVE_NEED_H: f32 = 244.0;
+pub(super) const STANDINGS_NEED_H: f32 = 242.0;
+pub(super) const GAPS_NEED_H: f32 = 200.0;
 
 /// The height of a laps card with `rows` rows: its padding, caption, head and the rows.
 pub(super) fn laps_card_h(rows: usize) -> f32 {
@@ -902,6 +916,9 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
             Pane::Session,
             any(&[Caps::RACE_POSITION, Caps::SESSION_TIME_LEFT, Caps::SESSION_LAPS]),
         ),
+        (Pane::Relative, caps.has(Caps::RIVALS)),
+        (Pane::Standings, caps.has(Caps::RIVALS)),
+        (Pane::Gaps, caps.has(Caps::RIVALS)),
     ]
     .into_iter()
     .filter(|(_, on)| *on)

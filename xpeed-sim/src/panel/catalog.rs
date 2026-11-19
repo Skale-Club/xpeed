@@ -83,6 +83,21 @@ pub(super) const ALL: &[Widget] = &[
         pane: Pane::Session,
         needs: "the place in the race, or the time or laps left",
     },
+    Widget {
+        id: "relative",
+        pane: Pane::Relative,
+        needs: "the other cars of the session, with how far round the lap each is",
+    },
+    Widget {
+        id: "standings",
+        pane: Pane::Standings,
+        needs: "the other cars of the session, with their places",
+    },
+    Widget {
+        id: "gaps",
+        pane: Pane::Gaps,
+        needs: "the other cars of the session, with their places and the gaps",
+    },
 ];
 
 /// The widget with this id.
