@@ -73,11 +73,14 @@ export function aidsVerdict(lap: LapFile): AidsVerdict {
   return { aidClass: classifyAids(claimed), aids: claimed ?? null, consistency };
 }
 
+/** What the `plausibility` column says about a lap that contradicts its own aids. */
+export interface AidsNote { consistent: false; tcActiveSamples: number | null; absActiveSamples: number | null; limit: number; claimed: LapAids | null }
+
 /**
  * The `plausibility` column: the checks that failed, as before, plus an `aids` key only when the lap contradicts its own aids (what
  * GET /v1/admin/laps/<id> shows). `plausible` and the failed checks are not touched by it.
  */
-export function plausibilityWithAids(result: PlausibilityResult, verdict: AidsVerdict, claimed: LapAids | undefined) {
+export function plausibilityWithAids(result: PlausibilityResult, verdict: AidsVerdict, claimed: LapAids | undefined): ReturnType<typeof plausibilityJson> & { aids?: AidsNote } {
   const base = plausibilityJson(result);
   if (verdict.consistency.consistent) return base;
   const { tcActiveSamples, absActiveSamples } = verdict.consistency;

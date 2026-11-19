@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { formatLapTime } from '@/lib/sim/analysis';
 import { driverPath, type BoardConditions as Conditions } from '@/lib/sim/social-client';
 import { cn } from '@/lib/utils';
-import { atHandle } from './social-utils';
+import { atHandle, showTyreChips } from './social-utils';
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
@@ -19,7 +19,7 @@ const sectorText = (ms: number) => (ms / 1000).toFixed(3);
 export function TyreChips({ conditions, tyre, onTyre }: { conditions: Conditions | undefined; tyre: string | null; onTyre: (tyre: string | null) => void }) {
   const { t } = useTranslation();
   const tyres = conditions?.tyres ?? [];
-  if (!conditions || (tyres.length < 2 && !tyre)) return null;
+  if (!conditions || !showTyreChips(conditions, tyre)) return null;
   // A tyre the address names but the board does not have (an old link): shown, so that it is clear what is filtering.
   const listed = tyre && !tyres.some((entry) => entry.compound === tyre) ? [...tyres, { compound: tyre, drivers: 0 }] : tyres;
   const chip = (active: boolean) => cn(
