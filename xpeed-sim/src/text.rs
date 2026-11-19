@@ -186,6 +186,21 @@ pub enum Msg {
     PanelFuelPerLapTick(String),
     /// Under the tank bar when it has no ticks: `2.6 L per lap`.
     PanelFuelPerLapPlain(String),
+    /// The fuel card's use numbers and its stint planner (owner-approved module 6, 2026-11-19).
+    FuelAvgLap,
+    FuelLastLap,
+    FuelThisLap,
+    /// How long the fuel left lasts at the recent lap time: `~24 min`.
+    FuelMinutes(String),
+    FuelPlanTitle,
+    /// The use the plan counts with: `at 2.90 L/lap`.
+    FuelPlanAt(String),
+    FuelPlanLaps(u32),
+    FuelFullTank,
+    /// A run the fuel in the car covers: `29.0 L · you have it`.
+    FuelYouHaveIt(String),
+    /// A run that needs more: `58.0 L · add 19.4 L`.
+    FuelAdd(String, String),
     /// On the first lap, where the delta will be.
     PanelDeltaFirstLap,
     PanelVsBest,
@@ -608,6 +623,16 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             format!("{n} por vuelta \u{b7} cada marca = 1 vuelta"),
         ),
         PanelFuelPerLapPlain(n) => t(format!("{n} per lap"), format!("{n} por volta"), format!("{n} por vuelta")),
+        FuelAvgLap => t(s("Avg / lap"), s("Média / volta"), s("Media / vuelta")),
+        FuelLastLap => t(s("Last lap"), s("Última volta"), s("Última vuelta")),
+        FuelThisLap => t(s("This lap"), s("Esta volta"), s("Esta vuelta")),
+        FuelMinutes(n) => format!("~{n} min"),
+        FuelPlanTitle => t(s("Plan a run"), s("Planejar stint"), s("Planear tanda")),
+        FuelPlanAt(n) => t(format!("at {n}/lap"), format!("a {n}/volta"), format!("a {n}/vuelta")),
+        FuelPlanLaps(n) => t(format!("{n} laps"), format!("{n} voltas"), format!("{n} vueltas")),
+        FuelFullTank => t(s("Full tank"), s("Tanque cheio"), s("Depósito lleno")),
+        FuelYouHaveIt(n) => t(format!("{n} · you have it"), format!("{n} · você tem"), format!("{n} · lo tienes")),
+        FuelAdd(n, more) => t(format!("{n} · add {more}"), format!("{n} · pôr {more}"), format!("{n} · añadir {more}")),
         PanelDeltaFirstLap => t(
             s("The delta shows after your first full lap."),
             s("A diferença aparece depois da primeira volta completa."),
@@ -959,6 +984,16 @@ mod tests {
             Msg::PanelOfTank("60 L".into()),
             Msg::PanelFuelPerLapTick("2.6 L".into()),
             Msg::PanelFuelPerLapPlain("2.6 L".into()),
+            Msg::FuelAvgLap,
+            Msg::FuelLastLap,
+            Msg::FuelThisLap,
+            Msg::FuelMinutes("24".into()),
+            Msg::FuelPlanTitle,
+            Msg::FuelPlanAt("2.90 L".into()),
+            Msg::FuelPlanLaps(10),
+            Msg::FuelFullTank,
+            Msg::FuelYouHaveIt("29.0 L".into()),
+            Msg::FuelAdd("58.0 L".into(), "19.4 L".into()),
             Msg::PanelDeltaFirstLap,
             Msg::PanelVsBest,
             Msg::PanelProjected("1:46.934".into()),

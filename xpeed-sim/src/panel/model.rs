@@ -362,6 +362,29 @@ pub(super) struct Cell {
     pub(super) value: String,
     pub(super) role: Role,
     pub(super) show: Show,
+    /// How far towards its limit the value is (0..1), for a bar of blocks under it; none for a plain readout.
+    pub(super) frac: Option<f32>,
+}
+
+/// One of the fuel card's use numbers: a small caps label, the figure, and a short note in its own colour (owner-approved
+/// module 6, 2026-11-19).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct FuelStat {
+    pub(super) label: String,
+    pub(super) value: String,
+    pub(super) note: String,
+    pub(super) note_role: Role,
+}
+
+/// The fuel card's stint planner: how much fuel a run of so many laps takes at the average use, against what is in
+/// the car, and how far a full tank goes (owner-approved module 6, 2026-11-19).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct FuelPlanner {
+    pub(super) title: String,
+    /// `at 2.90 L/lap`.
+    pub(super) at: String,
+    /// What the run is, what it needs, and the colour of that.
+    pub(super) rows: Vec<(String, String, Role)>,
 }
 
 /// Where a tyre's temperature is, against what a racing tyre likes (°C, a guide: each game and compound has its own
@@ -544,6 +567,11 @@ pub(super) struct DashModel {
     pub(super) fuel_tank: Elem,
     /// `2.6 L per lap · each tick = 1 lap`.
     pub(super) fuel_per_lap: Elem,
+    /// `~24 min`: how long the fuel left lasts at the recent lap time.
+    pub(super) fuel_minutes: Option<String>,
+    /// The average use a lap, the last lap against it, and this lap so far (those the run knows).
+    pub(super) fuel_stats: Vec<FuelStat>,
+    pub(super) fuel_planner: Option<FuelPlanner>,
     pub(super) fuel_low: bool,
     /// The water and the oil, when the game gives them.
     pub(super) engine: Vec<Cell>,
@@ -640,6 +668,11 @@ pub(super) fn fuel_in(litres: f32, unit: crate::config::FuelUnit) -> f32 {
 /// The fuel as a number with a decimal.
 pub(super) fn fuel_text(litres: f32, unit: crate::config::FuelUnit) -> String {
     format!("{:.1}", fuel_in(litres, unit))
+}
+
+/// A fuel use, a lap's worth or less, with two decimals: `2.90`.
+pub(super) fn fuel_use_text(litres: f32, unit: crate::config::FuelUnit) -> String {
+    format!("{:.2}", fuel_in(litres, unit))
 }
 
 /// The tank's size, with its unit: `60 L` (whole when it is), `15.9 gal`.
@@ -1029,6 +1062,80 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         _ => Elem::hidden(),
     };
 
+    // The fuel card's use numbers, minutes and stint planner (owner-approved module 6, 2026-11-19).
+    let amount = |l: f32| fuel_use_text(l, units.fuel);
+    let with_unit = |l: f32| format!("{} {}", fuel_text(l, units.fuel), units.fuel.label());
+    let mut fuel_stats = Vec::new();
+    if slots.fuel {
+        if let Some(avg) = per_lap {
+            fuel_stats.push(FuelStat {
+                label: say(Msg::FuelAvgLap),
+                value: amount(avg),
+                note: String::new(),
+                note_role: Role::Muted,
+            });
+            if let Some(last) = live.fuel_last_lap_l.filter(|l| l.is_finite() && *l > 0.0) {
+                let diff = last - avg;
+                // Under the average: green with a minus; over it: red with a plus.
+                let (sign, note_role) = if diff < 0.0 { ('-', Role::Good) } else { ('+', Role::Danger) };
+                let note = if diff.abs() < 0.005 {
+                    String::new()
+                } else {
+                    format!("{sign}{}", amount(diff.abs()))
+                };
+                fuel_stats.push(FuelStat {
+                    label: say(Msg::FuelLastLap),
+                    value: amount(last),
+                    note,
+                    note_role,
+                });
+            }
+        }
+        if let Some(this) = live.fuel_this_lap_l.filter(|l| l.is_finite() && *l >= 0.0) {
+            let note = match (live.dist_m, live.track_length_m) {
+                (Some(d), Some(l)) if l > 0.0 => format!("{:.0}%", (d / l).clamp(0.0, 1.0) * 100.0),
+                _ => String::new(),
+            };
+            fuel_stats.push(FuelStat {
+                label: say(Msg::FuelThisLap),
+                value: amount(this),
+                note,
+                note_role: Role::Muted,
+            });
+        }
+    }
+    let lap_s = live.last_lap_s.or(live.best_lap_s).filter(|s| s.is_finite() && *s > 0.0);
+    let fuel_minutes = match (slots.fuel, laps_left_val, lap_s) {
+        (true, Some(laps), Some(lap)) => Some(say(Msg::FuelMinutes(format!("{:.0}", f64::from(laps) * lap / 60.0)))),
+        _ => None,
+    };
+    let tank_l = live.fuel_tank_l.filter(|t| t.is_finite() && *t > 0.0);
+    let fuel_planner = match (slots.fuel, per_lap, fuel_val, tank_l) {
+        (true, Some(per), Some(have), Some(tank)) => {
+            let mut rows: Vec<(String, String, Role)> = FUEL_PLAN_LAPS
+                .iter()
+                .map(|&laps| {
+                    let need = per * laps as f32;
+                    let (value, role) = if need <= have {
+                        (say(Msg::FuelYouHaveIt(with_unit(need))), Role::Good)
+                    } else {
+                        let role = if need > tank { Role::Warn } else { Role::Text };
+                        (say(Msg::FuelAdd(with_unit(need), with_unit(need - have))), role)
+                    };
+                    (say(Msg::FuelPlanLaps(laps)), value, role)
+                })
+                .collect();
+            let full = format!("{:.1} {}", tank / per, say(Msg::PanelLapsWord));
+            rows.push((say(Msg::FuelFullTank), full, Role::Text));
+            Some(FuelPlanner {
+                title: say(Msg::FuelPlanTitle),
+                at: say(Msg::FuelPlanAt(with_unit(per))),
+                rows,
+            })
+        }
+        _ => None,
+    };
+
     // The water and oil, in the fuel card.
     let temp_cell = |on: bool, now: Option<f32>, last: Option<f32>, msg: Msg, warm: f32, hot: f32| {
         on.then(|| {
@@ -1039,6 +1146,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 value: val.map_or_else(|| "–".to_owned(), |t| temp_text(t, units.temperature)),
                 role: val.map_or(Role::Muted, |t| heat_role(t, warm, hot)),
                 show: if fresh && t.is_some() { Show::Shown } else { Show::Dimmed },
+                frac: val.map(|t| (t / hot).clamp(0.0, 1.0)),
             }
         })
     };
@@ -1167,6 +1275,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
                 show: if fresh && value.is_some() { Show::Shown } else { Show::Dimmed },
                 value: value.unwrap_or_else(|| "–".to_owned()),
                 role: Role::Text,
+                frac: None,
             });
         }
     };
@@ -1272,6 +1381,9 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         fuel_laps,
         fuel_tank,
         fuel_per_lap,
+        fuel_minutes,
+        fuel_stats,
+        fuel_planner,
         fuel_low: low,
         engine,
         progress,

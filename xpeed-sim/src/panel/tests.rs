@@ -319,6 +319,8 @@ fn live_reading() -> Live {
             .collect(),
     );
     live.fuel_per_lap_l = Some(2.9);
+    live.fuel_last_lap_l = Some(2.84);
+    live.fuel_this_lap_l = Some(1.12);
     live.state = crate::game::CarState {
         pit_limiter: Some(false),
         abs_active: Some(true),
@@ -1542,6 +1544,47 @@ fn a_tyre_is_drawn_in_the_colours_of_its_temperatures() {
     assert!((5..35).all(|x| at(x, 5) == WARN), "a solid tyre has no bands");
 }
 
+/// The owner's fuel card (module 6, 2026-11-19): the use as three numbers, how long the fuel lasts, and a stint plan.
+#[test]
+fn the_fuel_card_shows_the_use_the_minutes_and_a_stint_plan() {
+    let live = live_reading();
+    let m = model(&live, Lang::En);
+    let stats: Vec<(&str, &str, &str)> = m
+        .fuel_stats
+        .iter()
+        .map(|s| (s.label.as_str(), s.value.as_str(), s.note.as_str()))
+        .collect();
+    assert_eq!(
+        stats,
+        [
+            ("Avg / lap", "2.90", ""),
+            ("Last lap", "2.84", "-0.06"),
+            ("This lap", "1.12", "40%"),
+        ]
+    );
+    assert_eq!(m.fuel_stats[1].note_role, Role::Good, "under the average: green");
+    assert_eq!(m.fuel_minutes.as_deref(), Some("~24 min"), "13.3 laps at 1:47.918");
+    let plan = m.fuel_planner.expect("a stint plan");
+    assert_eq!(plan.at, "at 2.9 L/lap");
+    let rows: Vec<(&str, &str, Role)> = plan.rows.iter().map(|(a, b, r)| (a.as_str(), b.as_str(), *r)).collect();
+    assert_eq!(
+        rows,
+        [
+            ("10 laps", "29.0 L · you have it", Role::Good),
+            ("20 laps", "58.0 L · add 19.4 L", Role::Warn),
+            ("Full tank", "13.3 laps", Role::Text),
+        ],
+        "20 laps need more than the tank holds: amber"
+    );
+    // A last lap over the average is red with a plus; without a use per lap there is no plan.
+    let mut thirsty = live.clone();
+    thirsty.fuel_last_lap_l = Some(2.97);
+    let m = model(&thirsty, Lang::En);
+    assert_eq!((m.fuel_stats[1].note.as_str(), m.fuel_stats[1].note_role), ("+0.07", Role::Danger));
+    thirsty.fuel_per_lap_l = None;
+    assert!(model(&thirsty, Lang::En).fuel_planner.is_none());
+}
+
 /// The owner's times card (module 5, 2026-11-19): the lap this lap is heading for, and the delta along the lap drawn
 /// green under zero where ahead, red over it where behind, with a yellow mark where the car is.
 #[test]
@@ -2291,20 +2334,28 @@ fn blocks_are_stacked_with_an_even_gap_and_centred_never_with_a_hole() {
         let rule = p.rule.expect("the line over the records");
         assert!(rule.1 > p.bar.1 + p.bar.3 && rule.1 < p.records.1);
     }
-    // The fuel card: the group and the temperatures, close together and centred.
+    // The fuel card (module 6): the group, the use tiles, the planner and the temperatures, in that order with even
+    // gaps; a short card drops the planner first, then the tiles, never the fuel or the temperatures.
     for h in [262.0, 300.0, 460.0] {
         let card = (0.0, 0.0, 400.0, h);
-        let p = fuel_plan(card, 98.0, true);
+        let p = fuel_rows(card, 74.0, true, 3, true);
         let t = p.temps.unwrap();
         let (x, y, w, ih) = inner(card);
         assert!(inside_box(p.group, x, y + CAPTION_H, w, ih - CAPTION_H) && inside_box(t, x, y, w, ih));
-        assert!(
-            t.1 - (p.group.1 + p.group.3) <= S8 + 0.01,
-            "h {h}: the water and oil follow the fuel"
-        );
-        assert!(!overlap(p.group, t));
-        assert_eq!(fuel_plan(card, 98.0, false).temps, None);
+        let mut order = vec![p.group];
+        order.extend(p.stats);
+        order.extend(p.planner);
+        order.push(t);
+        for pair in order.windows(2) {
+            let gap = pair[1].1 - (pair[0].1 + pair[0].3);
+            assert!((S3 - 0.01..=S8 + 0.01).contains(&gap), "h {h}: an even gap ({gap})");
+        }
+        assert_eq!(fuel_rows(card, 74.0, true, 3, false).temps, None);
     }
+    let tall = fuel_rows((0.0, 0.0, 400.0, 460.0), 74.0, true, 3, true);
+    assert!(tall.stats.is_some() && tall.planner.is_some(), "a tall card has room for everything");
+    let short = fuel_rows((0.0, 0.0, 400.0, 262.0), 74.0, true, 3, true);
+    assert!(short.planner.is_none(), "the planner goes first");
 }
 
 #[test]

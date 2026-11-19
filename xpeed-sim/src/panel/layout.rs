@@ -641,26 +641,61 @@ pub(super) fn times_plan(card: Area, slots: &Slots) -> TimesPlan {
     }
 }
 
-/// Where the parts of the fuel card go under its caption: the fuel group (the hero, the tank bar, the line under it) and the
-/// water and oil temperatures, stacked and centred.
+/// Where the rows of the fuel card go under its caption (owner-approved module 6, 2026-11-19): the fuel group (the
+/// hero and the tank bar), the use tiles, the stint planner and the water and oil, stacked with an even gap and centred.
+/// A row that does not fit with every gap at least `S3` is left out: the planner first, then the use tiles.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct FuelPlan {
+pub(super) struct FuelRows {
     pub(super) group: Area,
+    pub(super) stats: Option<Area>,
+    pub(super) planner: Option<Area>,
     pub(super) temps: Option<Area>,
 }
 
-pub(super) fn fuel_plan(card: Area, group_h: f32, temps: bool) -> FuelPlan {
+/// The height of the fuel card's stint planner with `rows` runs in it.
+pub(super) fn fuel_planner_h(rows: usize) -> f32 {
+    CAPTION_H + S1 + rows as f32 * FUEL_PLAN_ROW_H + 2.0 * S2
+}
+
+pub(super) fn fuel_rows(card: Area, group_h: f32, stats: bool, planner_rows: usize, temps: bool) -> FuelRows {
     let (x, y, w, h) = inner(card);
-    let temps_h = CAPTION_H + S1 + 28.0;
-    let mut heights = vec![group_h];
-    if temps {
-        heights.push(temps_h);
-    }
     let top = y + CAPTION_H + S2;
-    let tops = stack(top, y + h - top, &heights, S4, S8);
-    FuelPlan {
-        group: (x, tops[0], w, group_h),
-        temps: temps.then(|| (x, tops[1], w, temps_h)),
+    let room = y + h - top;
+    let temps_h = CAPTION_H + S1 + FUEL_TEMP_BAR_H;
+    let planner_h = fuel_planner_h(planner_rows);
+    let blocks = |stats: bool, planner: bool| -> Vec<f32> {
+        let mut heights = vec![group_h];
+        if stats {
+            heights.push(FUEL_STAT_H);
+        }
+        if planner {
+            heights.push(planner_h);
+        }
+        if temps {
+            heights.push(temps_h);
+        }
+        heights
+    };
+    let fits = |heights: &[f32]| heights.iter().sum::<f32>() + S3 * (heights.len() as f32 - 1.0) <= room;
+    let mut keep_planner = planner_rows > 0;
+    let mut keep_stats = stats;
+    if !fits(&blocks(keep_stats, keep_planner)) {
+        keep_planner = false;
+    }
+    if !fits(&blocks(keep_stats, keep_planner)) {
+        keep_stats = false;
+    }
+    let tops = stack(top, room, &blocks(keep_stats, keep_planner), S3, S8);
+    let mut next = tops.into_iter();
+    let group = (x, next.next().unwrap_or(top), w, group_h);
+    let stats = keep_stats.then(|| (x, next.next().unwrap_or(top), w, FUEL_STAT_H));
+    let planner = keep_planner.then(|| (x, next.next().unwrap_or(top), w, planner_h));
+    let temps = temps.then(|| (x, next.next().unwrap_or(top), w, temps_h));
+    FuelRows {
+        group,
+        stats,
+        planner,
+        temps,
     }
 }
 

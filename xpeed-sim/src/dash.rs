@@ -247,6 +247,9 @@ pub struct Live {
     pub fuel_per_lap_l: Option<f32>,
     /// The size of the tank, as far as it is known (for the panel's fuel gauge);  until a fuel reading is seen.
     pub fuel_tank_l: Option<f32>,
+    /// The fuel the last counted lap used (litres), and what the lap being driven has used so far while it is clean.
+    pub fuel_last_lap_l: Option<f32>,
+    pub fuel_this_lap_l: Option<f32>,
     /// The track as the car has driven it (the best lap's path, or the first full lap's until there is a best one),
     /// in the game's x and z; shared, as it changes once a lap at most.
     pub map: Option<Arc<Vec<(f32, f32)>>>,
@@ -552,6 +555,12 @@ impl Tracker {
             state: frame.state,
             fuel_per_lap_l: (!self.fuel_laps.is_empty()).then(|| self.fuel_laps.iter().sum::<f32>() / self.fuel_laps.len() as f32),
             fuel_tank_l: (self.fuel_tank > 0.0).then_some(self.fuel_tank),
+            fuel_last_lap_l: self.fuel_laps.last().copied(),
+            fuel_this_lap_l: self
+                .fuel_lap_start
+                .zip(self.fuel_prev)
+                .filter(|_| self.fuel_clean)
+                .map(|(start, now)| (start - now).max(0.0)),
             map: self.map.clone().or_else(|| self.partial_map.clone()),
             map_complete: self.map.is_some(),
             road: self.road.clone(),

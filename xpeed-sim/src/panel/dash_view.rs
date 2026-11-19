@@ -327,21 +327,26 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
     shown(g, m.steer.show, |g| g.steer_bar(plan.steer, m.steer.frac));
 }
 
-/// The fuel card: the laps of fuel left as the hero (green, amber under five laps, red under two, while driving), the
-/// litres and the tank's size beside it, a tank bar with a tick for each lap's worth of fuel and what a lap takes under
-/// it; the water and oil temperatures at the bottom when the game gives them.
+/// The fuel card (owner-approved module 6, 2026-11-19): the laps of fuel left as the hero (green, amber under five laps,
+/// red under two, while driving), the litres, the tank and how long it lasts beside it, a tank bar with a tick for each
+/// lap's worth of fuel; then the use as three tiles (the average a lap, the last lap against it, this lap so far), a
+/// stint planner, and the water and oil with their bars. Rows that do not fit are left out (`fuel_rows`). Without a use
+/// per lap yet, the litres are the hero and the per-lap line says nothing more.
 pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
-    let semi = FW_SEMIBOLD as i32;
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let m = d.m;
-    let (x, y, w, h) = inner(card);
+    let (x, y, w, _) = inner(card);
     caption(g, &m.fuel_title, (x, y, w, CAPTION_H), DT_LEFT);
     let cells = &m.engine;
     let hero_h = 52.0;
     let bar_h = if m.fuel_share.is_some() { S2 + 14.0 } else { 0.0 };
-    let line_h = if m.fuel_per_lap.visible() { S2 + 16.0 } else { 0.0 };
-    // The fuel group and the temperatures are one stack under the caption, grouped and centred (`fuel_plan`).
-    let plan = fuel_plan(card, hero_h + bar_h + line_h, !cells.is_empty());
-    let gy = plan.group.1;
+    // The per-lap line only while there are no use tiles to say it.
+    let has_stats = !m.fuel_stats.is_empty();
+    let line_h = if m.fuel_per_lap.visible() && !has_stats { S2 + 16.0 } else { 0.0 };
+    let planner_rows = m.fuel_planner.as_ref().map_or(0, |p| p.rows.len());
+    let group_h = hero_h + bar_h + line_h;
+    let rows = fuel_rows(card, group_h, has_stats, planner_rows, !cells.is_empty());
+    let gy = rows.group.1;
     if m.fuel.visible() {
         shown(g, m.fuel.show, |g| {
             let half = w / 2.0;
@@ -358,8 +363,13 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
                 let r = g.r(x + half, gy + 2.0, half + 1.0, 30.0);
                 g.text(&litres, r, size, semi, Face::Num, FOREGROUND, DT_RIGHT);
                 if m.fuel_tank.visible() {
+                    // `of 60 L · ~24 min`: the tank, and how long the fuel left lasts.
+                    let line = match &m.fuel_minutes {
+                        Some(minutes) => format!("{} · {}", m.fuel_tank.text, minutes),
+                        None => m.fuel_tank.text.clone(),
+                    };
                     let r = g.r(x + half, gy + 32.0, half + 1.0, 18.0);
-                    g.text(&m.fuel_tank.text, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
+                    g.text(&line, r, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_RIGHT);
                 }
             } else {
                 // No laps (the use per lap is not known yet): the litres are the hero.
@@ -382,21 +392,68 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
                 g.tank_bar((x, at + S2, w, 14.0), share, m.fuel_tick, colour);
                 at += bar_h;
             }
-            if m.fuel_per_lap.visible() {
+            if line_h > 0.0 {
                 let r = g.r(x, at + S2, w, 16.0);
                 g.text(&m.fuel_per_lap.text, r, T_CAPTION, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT);
             }
         });
     }
-    let col = w / cells.len().max(1) as f32;
-    let temps_y = plan.temps.map_or(y + h, |t| t.1);
-    for (i, cell) in cells.iter().enumerate() {
-        let cx = x + i as f32 * col;
-        shown(g, cell.show, |g| {
-            caption(g, &cell.label, (cx, temps_y, col, CAPTION_H), DT_LEFT);
-            let r = g.r(cx - 1.0, temps_y + CAPTION_H + S1, col, 28.0);
-            g.text(&cell.value, r, T_VALUE, semi, Face::Num, cell.role.colour(), DT_LEFT);
+    // The use: the average a lap, the last lap against it, this lap so far.
+    if let Some((sx, sy, sw, sh)) = rows.stats {
+        shown(g, m.fuel.show, |g| {
+            let n = m.fuel_stats.len().max(1) as f32;
+            let tw = (sw - S2 * (n - 1.0)) / n;
+            for (i, stat) in m.fuel_stats.iter().enumerate() {
+                let tx = sx + i as f32 * (tw + S2);
+                g.round(g.r(tx, sy, tw, sh), BACKGROUND, Some(BORDER));
+                let r = g.r(tx + S2, sy + 5.0, tw - S3, 14.0);
+                g.caps_fit(&stat.label, r, T_CAPTION, 0.0, MUTED_TEXT, DT_LEFT);
+                let size = g.fitted(&stat.value, tw - S3, T_VALUE, T_BODY, semi, Face::Num);
+                let r = g.r(tx + S2 - 1.0, sy + 20.0, tw - S3, 22.0);
+                g.text(&stat.value, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+                let used = g.tabular_width(&stat.value, size, semi) + S1;
+                if !stat.note.is_empty() && used + S4 < tw - S3 {
+                    let r = g.r(tx + S2 + used, sy + 20.0, tw - S3 - used, 22.0);
+                    g.text(&stat.note, r, T_CAPTION, semi, Face::Num, stat.note_role.colour(), DT_LEFT);
+                }
+            }
         });
+    }
+    // The stint planner: a dark box with a blue edge, its title and use, and a row a run.
+    if let (Some((px, py, pw, ph)), Some(plan)) = (rows.planner, &m.fuel_planner) {
+        shown(g, m.fuel.show, |g| {
+            g.round(g.r(px, py, pw, ph), BACKGROUND, Some(BORDER));
+            g.fill(g.r(px, py, STROKE_BAR, ph), INFO);
+            let (ix, iw) = (px + S3, pw - S3 - S2);
+            let head = g.r(ix, py + S2, iw, CAPTION_H);
+            let at_w = g.caps_width(&plan.at, T_CAPTION);
+            g.caps_fit(&plan.at, head, T_CAPTION, 0.0, INFO, DT_RIGHT);
+            let title = g.r(ix, py + S2, (iw - at_w - S2).max(1.0), CAPTION_H);
+            g.caps_fit(&plan.title, title, T_CAPTION, 0.0, MUTED_TEXT, DT_LEFT);
+            for (i, (label, value, role)) in plan.rows.iter().enumerate() {
+                let ry = py + S2 + CAPTION_H + S1 + i as f32 * FUEL_PLAN_ROW_H;
+                let r = g.r(ix, ry, iw, FUEL_PLAN_ROW_H);
+                g.text(label, r, T_BODY, normal, Face::Ui, FOREGROUND_2, DT_LEFT);
+                g.text(value, r, T_BODY, semi, Face::Ui, role.colour(), DT_RIGHT);
+            }
+        });
+    }
+    // The water and oil: the name and the figure on one line, a bar of blocks under them in the colour of how hot.
+    if let Some((_, ty, _, _)) = rows.temps {
+        let n = cells.len().max(1) as f32;
+        let col = (w - S4 * (n - 1.0)) / n;
+        for (i, cell) in cells.iter().enumerate() {
+            let cx = x + i as f32 * (col + S4);
+            shown(g, cell.show, |g| {
+                let r = g.r(cx, ty, col, CAPTION_H);
+                g.caps(&cell.label, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+                g.text(&cell.value, r, T_BODY, semi, Face::Num, cell.role.colour(), DT_RIGHT);
+                if let Some(frac) = cell.frac {
+                    let colour = if cell.role == Role::Text { SUCCESS } else { cell.role.colour() };
+                    g.solid_bar((cx, ty + CAPTION_H + S1, col, FUEL_TEMP_BAR_H), frac, colour);
+                }
+            });
+        }
     }
 }
 

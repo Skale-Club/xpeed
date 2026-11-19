@@ -112,6 +112,12 @@ pub(super) const DELTA_TRACE_FILL: f32 = 0.28;
 /// fills it; it is this tall.
 pub(super) const LAP_GAP_FULL_S: f32 = 2.0;
 pub(super) const LAP_GAP_BAR_H: f32 = 5.0;
+/// The fuel card's stint planner: the runs it counts (owner-approved module 6, 2026-11-19).
+pub(super) const FUEL_PLAN_LAPS: [u32; 2] = [10, 20];
+/// The fuel card's rows: the use tiles, a planner row, and a temperature's bar.
+pub(super) const FUEL_STAT_H: f32 = 46.0;
+pub(super) const FUEL_PLAN_ROW_H: f32 = 20.0;
+pub(super) const FUEL_TEMP_BAR_H: f32 = 6.0;
 /// The track card's lap progress bar: how tall it is.
 pub(super) const LAP_BAR_H: f32 = 8.0;
 /// A tyre tile's wear bar: how far under the row above it starts, and how tall it is.
