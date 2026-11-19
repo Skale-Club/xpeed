@@ -1,6 +1,8 @@
 # Condition-aware leaderboards (aids and tyres)
 
-Status: proposed (2026-11-19). Nothing here is built yet.
+Status (2026-11-19): phases 1 to 3 are built on branch `feat/condition-boards`, tested, and not released. The three owner
+decisions below were taken as proposed. Still open: the lap's aids on the driver's own lap page (phase 3, item 5); live captures
+that confirm each game's aid mapping (`xpeed-sim/fixtures/README.md`); the Companion release that starts writing `aids`; phase 4.
 
 ## Why
 
