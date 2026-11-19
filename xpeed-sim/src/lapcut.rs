@@ -29,11 +29,14 @@
 //!   - the sector times, when the frames carry the first two (`Frame::sectors_ms`): the third is the official lap time
 //!     minus them, and only a lap whose official time came (and matches the clock) gets sectors;
 //!   - the weather, the temperatures and the tyre compound, as the game last said them during the lap, and the
-//!     channels of `extra.rs`.
+//!     channels of `extra.rs`;
+//!   - the aids (`Aids`): the HIGHEST setting seen on any frame of the lap (TC on for one corner is TC on for the lap),
+//!     and a key only when the game gave it on EVERY frame of the lap, so a reading that comes and goes is "unknown",
+//!     never "off". A car the game says has no TC or ABS records 0 for it (`AidSettings::tc_absent`).
 
 use crate::extra::Extras;
-use crate::game::Frame;
-use crate::lapfile::{Channel, Lap, SessionKind, STANDARD_UNITS};
+use crate::game::{AidSettings, Frame};
+use crate::lapfile::{Aids, Channel, Lap, SessionKind, STANDARD_UNITS};
 use crate::session::{EndReason, Event, Sample, Session};
 use crate::status::LapDrop;
 use crate::util::iso_utc;
@@ -90,6 +93,101 @@ fn degrees(c: f32) -> Option<f64> {
     (c.is_finite() && (-100.0..=200.0).contains(&tenth)).then_some(tenth)
 }
 
+/// The highest value of one aid over a lap, and whether any frame of it did not give the value.
+#[derive(Clone, Copy)]
+struct Highest<T> {
+    max: Option<T>,
+    missing: bool,
+}
+
+impl<T: PartialOrd + Copy> Highest<T> {
+    const NEW: Highest<T> = Highest { max: None, missing: false };
+
+    fn push(&mut self, value: Option<T>) {
+        match value {
+            Some(v) => {
+                if self.max.is_none_or(|m| v > m) {
+                    self.max = Some(v);
+                }
+            }
+            None => self.missing = true,
+        }
+    }
+
+    /// The highest value, or `None` when a frame did not give it (or no frame did).
+    fn known(&self) -> Option<T> {
+        if self.missing {
+            None
+        } else {
+            self.max
+        }
+    }
+}
+
+/// The aids over the frames of one lap; `lap.aids` is what `Lap::aids` becomes.
+#[derive(Clone, Copy)]
+struct AidTracker {
+    tc: Highest<u8>,
+    abs: Highest<u8>,
+    stability: Highest<f32>,
+    auto_shift: Highest<bool>,
+    auto_clutch: Highest<bool>,
+    auto_blip: Highest<bool>,
+    ideal_line: Highest<bool>,
+}
+
+impl AidTracker {
+    const NEW: AidTracker = AidTracker {
+        tc: Highest::NEW,
+        abs: Highest::NEW,
+        stability: Highest::NEW,
+        auto_shift: Highest::NEW,
+        auto_clutch: Highest::NEW,
+        auto_blip: Highest::NEW,
+        ideal_line: Highest::NEW,
+    };
+
+    fn push(&mut self, frame: &Frame) {
+        let AidSettings {
+            tc_absent,
+            abs_absent,
+            stability,
+            auto_shift,
+            auto_clutch,
+            auto_blip,
+            ideal_line,
+        } = frame.aids;
+        // A car without the aid cannot have had it on: 0, not unknown.
+        self.tc.push(if tc_absent { Some(0) } else { frame.state.tc_level });
+        self.abs.push(if abs_absent { Some(0) } else { frame.state.abs_level });
+        self.stability.push(stability.filter(|v| v.is_finite()));
+        self.auto_shift.push(auto_shift);
+        self.auto_clutch.push(auto_clutch);
+        self.auto_blip.push(auto_blip);
+        self.ideal_line.push(ideal_line);
+    }
+
+    /// The header's `aids`, or `None` when no aid is known.
+    fn aids(&self) -> Option<Aids> {
+        let aids = Aids {
+            // A level the file would refuse (above 100) is not a setting: left out rather than cut to the limit.
+            tc_max: self.tc.known().filter(|v| *v <= crate::lapfile::MAX_AID_LEVEL),
+            abs_max: self.abs.known().filter(|v| *v <= crate::lapfile::MAX_AID_LEVEL),
+            // To a hundredth, as a person sets it; a share outside 0..1 is not one.
+            stability: self
+                .stability
+                .known()
+                .filter(|v| (0.0..=1.0).contains(v))
+                .map(|v| (f64::from(v) * 100.0).round() / 100.0),
+            auto_shift: self.auto_shift.known(),
+            auto_clutch: self.auto_clutch.known(),
+            auto_blip: self.auto_blip.known(),
+            ideal_line: self.ideal_line.known(),
+        };
+        (!aids.is_empty()).then_some(aids)
+    }
+}
+
 struct InProgress {
     number: i32,
     session: String,
@@ -101,6 +199,7 @@ struct InProgress {
     air_temp_c: Option<f64>,
     track_temp_c: Option<f64>,
     tyre_compound: Option<String>,
+    aids: AidTracker,
     extras: Extras,
     first_wall_ms: i64,
     /// The official time showing when the lap began (the one before it): a different one means this lap's has come.
@@ -249,6 +348,7 @@ impl LapCutter {
             air_temp_c: None,
             track_temp_c: None,
             tyre_compound: None,
+            aids: AidTracker::NEW,
             extras: Extras::default(),
             first_wall_ms: wall_ms,
             official_at_start: frame.last_lap_s.filter(|o| *o > 0.0),
@@ -283,6 +383,7 @@ impl LapCutter {
         }
         lap.air_temp_c = frame.air_temp_c.and_then(degrees).or(lap.air_temp_c);
         lap.track_temp_c = frame.track_temp_c.and_then(degrees).or(lap.track_temp_c);
+        lap.aids.push(frame);
         lap.extras.push(frame);
         // A name the game gave late (or a length) completes what the first frame lacked.
         let meta = &mut lap.meta;
@@ -421,6 +522,7 @@ impl LapCutter {
             in_lap: Some(lap.last_in_pits),
             out_lap: Some(lap.started_in_pits),
             recorder: None,
+            aids: lap.aids.aids(),
             checks: Vec::new(),
             channels,
         })
@@ -979,6 +1081,111 @@ mod tests {
             ),
             (None, None, None, None, None)
         );
+    }
+
+    #[test]
+    fn the_aids_of_a_lap_are_the_highest_setting_seen_on_it() {
+        // TC is 4 for the first third of the lap, off for the rest; ABS goes 1, 3, 2; the stability and the switches change too.
+        let (laps, _, _) = three_laps(|f, i| {
+            f.state.tc_level = Some(if i < 200 { 4 } else { 0 });
+            f.state.abs_level = Some([1, 3, 2][i * 3 / 600]);
+            f.aids.stability = Some(if i == 300 { 0.504 } else { 0.25 });
+            f.aids.auto_shift = Some(false);
+            f.aids.auto_clutch = Some(i > 500);
+            f.aids.auto_blip = Some(true);
+            f.aids.ideal_line = Some(i == 10);
+        });
+        assert_eq!(
+            laps[0].aids,
+            Some(Aids {
+                tc_max: Some(4),
+                abs_max: Some(3),
+                stability: Some(0.5),
+                auto_shift: Some(false),
+                auto_clutch: Some(true),
+                auto_blip: Some(true),
+                ideal_line: Some(true),
+            })
+        );
+        // Every lap has its own: the maximum starts over with each one.
+        let (per_lap, _, _) = three_laps(|f, i| {
+            f.state.tc_level = Some(if f.lap == 1 && i == 5 { 7 } else { 1 });
+        });
+        assert_eq!(per_lap[0].aids.as_ref().unwrap().tc_max, Some(7));
+        assert_eq!(per_lap[1].aids.as_ref().unwrap().tc_max, Some(1));
+        // The strict reader takes the lap, and the settings come back.
+        let back = crate::lapfile::gunzip(&crate::lapfile::gzip(&laps[0]).unwrap(), crate::lapfile::MAX_UNPACKED).unwrap();
+        assert_eq!(back.aids, laps[0].aids);
+    }
+
+    #[test]
+    fn an_aid_the_game_did_not_give_on_one_frame_is_left_out() {
+        let (laps, _, _) = three_laps(|f, i| {
+            // TC is missing on one frame only; ABS on all but one; the line is known all the time.
+            f.state.tc_level = (i != 123).then_some(3);
+            f.state.abs_level = (i == 7).then_some(2);
+            f.aids.ideal_line = Some(false);
+            f.aids.stability = (i != 599).then_some(1.0);
+        });
+        assert_eq!(
+            laps[0].aids,
+            Some(Aids {
+                ideal_line: Some(false),
+                ..Aids::default()
+            }),
+            "unknown is never written as off"
+        );
+        // Nothing known at all: no object.
+        let (bare, _, _) = three_laps(|_, _| {});
+        assert_eq!(bare[0].aids, None);
+        let text = String::from_utf8_lossy(&crate::lapfile::pack(&bare[0]).unwrap()).to_string();
+        assert!(!text.contains("aids"));
+    }
+
+    #[test]
+    fn a_car_without_the_aid_records_zero_not_unknown() {
+        let (laps, _, _) = three_laps(|f, _| {
+            f.aids.tc_absent = true;
+            f.aids.abs_absent = true;
+            // Even a stale level next to it does not make it known: the car has none.
+            f.state.abs_level = Some(5);
+        });
+        assert_eq!(
+            laps[0].aids,
+            Some(Aids {
+                tc_max: Some(0),
+                abs_max: Some(0),
+                ..Aids::default()
+            })
+        );
+        // A car with ABS but no TC: the TC is 0, the ABS is what was seen.
+        let (mixed, _, _) = three_laps(|f, _| {
+            f.aids.tc_absent = true;
+            f.state.abs_level = Some(2);
+        });
+        assert_eq!(
+            (mixed[0].aids.as_ref().unwrap().tc_max, mixed[0].aids.as_ref().unwrap().abs_max),
+            (Some(0), Some(2))
+        );
+    }
+
+    #[test]
+    fn values_the_header_would_refuse_are_left_out_so_they_never_cost_the_lap() {
+        let (laps, _, _) = three_laps(|f, _| {
+            f.state.tc_level = Some(200);
+            f.state.abs_level = Some(100);
+            f.aids.stability = Some(7.0);
+        });
+        assert_eq!(
+            laps[0].aids,
+            Some(Aids {
+                abs_max: Some(100),
+                ..Aids::default()
+            })
+        );
+        assert!(crate::lapfile::pack(&laps[0]).is_ok());
+        let (nan, _, _) = three_laps(|f, _| f.aids.stability = Some(f32::NAN));
+        assert_eq!(nan[0].aids, None, "a stability that is not a number is not given");
     }
 
     #[test]

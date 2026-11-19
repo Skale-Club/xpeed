@@ -100,7 +100,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::game::{Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
+use crate::game::{AidSettings, Caps, CarState, Drs, Flag, Frame, Phase, Source, Tyre};
 use crate::norm;
 use crate::shm::{Mapping, Page};
 
@@ -529,6 +529,18 @@ fn state_from(g: &Page) -> CarState {
     state
 }
 
+/// The car has no traction control or ABS at all: the electronics page holds a level of 0 and a maximum of 0 for it.
+/// That is the lap file's "no such aid, so 0", not "unknown" (`state_from` gives no level for such a car). Both must be
+/// 0, so a page the game has not written yet is not taken as a car without the aids. ASSUMED: never seen live.
+fn aids_from(g: &Page) -> AidSettings {
+    let none = |at: usize| g.u8_at(gfx::ELECTRONICS + at) == 0 && g.u8_at(gfx::ELECTRONICS_MAX_LIMIT + at) == 0;
+    AidSettings {
+        tc_absent: none(gfx::E_TC_LEVEL),
+        abs_absent: none(gfx::E_ABS_LEVEL),
+        ..AidSettings::UNKNOWN
+    }
+}
+
 /// The four tyres, front left to rear right, from the physics page. A value outside what a tyre can be is dropped to
 /// "not given" (never pinned to a limit). The temperature is the tread (the mean of the inner, middle and outer, when
 /// all three are believable) and else the core. The pressure is psi in the page, as in Assetto Corsa. The tread left
@@ -638,6 +650,7 @@ fn frame_from(p: &Page, g: &Page, s: &Page, clock_s: f64) -> Option<Frame> {
     f.tyres = tyres(p);
     f.fuel_capacity_l = Some(g.f32_at(gfx::MAX_FUEL)).filter(|c| c.is_finite() && (1.0..=1000.0).contains(c));
     f.state = state_from(g);
+    f.aids = aids_from(g);
 
     f.car = text(g, gfx::CAR_MODEL, CAR_TEXT_LEN);
     f.track = text(s, stat::TRACK, stat::TEXT_LEN);
@@ -1597,6 +1610,16 @@ mod tests {
             (None, None, None, None)
         );
         assert_eq!(state.abs_level, Some(2));
+        // For the lap file that car has no TC at all (0, not unknown); it does have ABS. A page with a level but a
+        // maximum of 0, or a maximum but no level, is not "none".
+        let aids = image.frame().unwrap().aids;
+        assert_eq!((aids.tc_absent, aids.abs_absent), (true, false));
+        image.graphics.0[gfx::ELECTRONICS + gfx::E_TC_LEVEL] = 2;
+        assert!(!image.frame().unwrap().aids.tc_absent);
+        image.graphics.0[gfx::ELECTRONICS + gfx::E_TC_LEVEL] = 0;
+        image.graphics.0[gfx::ELECTRONICS_MAX_LIMIT + gfx::E_TC_LEVEL] = 8;
+        assert!(!image.frame().unwrap().aids.tc_absent);
+        image.graphics.0[gfx::ELECTRONICS_MAX_LIMIT + gfx::E_TC_LEVEL] = 0;
         // No flag for this driver: the one shown to all drivers counts; a red flag is not one `Flag` has.
         image.graphics.i32(gfx::FLAG, 0);
         image.graphics.i32(gfx::GLOBAL_FLAG, 5);

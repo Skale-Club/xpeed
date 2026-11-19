@@ -38,6 +38,7 @@
 //! | `CarState::pit_limiter` | bool | the pit lane limiter is on |
 //! | `CarState::abs_active`, `tc_active` | bool | the aid is acting right now, not just switched on |
 //! | `CarState::tc_level`, `abs_level` | 0 and up | the driver's setting as the dash shows it, 0 is off, more is more intervention |
+//! | `Frame::aids` (`AidSettings`) | see `AidSettings` | the driver's other aid settings, and "the car has no TC / ABS at all"; they reach the lap file's `aids` header, not the dash |
 //! | `CarState::engine_map` | 0 and up | the number the dash shows for the engine map |
 //! | `CarState::brake_bias` | 0 to 1 | the FRONT share of the braking (0.56 is 56 % front); a game that gives the rear share is turned around |
 //! | `CarState::damage_*` | 0 to 1 | 0 is none, 1 is destroyed; body is the bodywork and aero, engine, gearbox, and suspension is the worst of the four |
@@ -77,6 +78,17 @@
 //! | Forza | none | none | none | none | none |
 //! | Wreckfest 2 | none | assist levels 0 off, 1 half, 2 full: ASSUMED | the worst damage state of the group over the terminal state: ASSUMED | none | none |
 //! | Le Mans Ultimate | `mRearBrakeBias` is the REAR share, so 1 minus it: ASSUMED | `mTC`, `mABS` where the car has the aid: ASSUMED | bodywork from the eight dents: ASSUMED | scoring `mInPits`: ASSUMED | `mPressure` in kPa: ASSUMED |
+//!
+//! Aids for the lap file's `aids` header (`Frame::aids`, `AidSettings`; the cutter keeps the highest value seen on the lap).
+//! The TC and ABS levels come from the table above; this one lists what else is read and when a car "has no such aid".
+//!
+//! | Reader | `stability` | `auto_shift` | `auto_clutch`, `auto_blip` | `ideal_line` | TC / ABS "car has none" |
+//! |--------|-------------|--------------|----------------------------|--------------|-------------------------|
+//! | Assetto Corsa | static `aidStability` (0..1, the stability control's strength): ASSUMED | physics `autoShifterOn` (0 or 1): ASSUMED | static `aidAutoclutch`, `aidAutoBlip` (0 or 1): ASSUMED | graphics `idealLineOn` (0 or 1; offset 272 taken from Assetto Corsa's own struct, which has no `penalty` between `flag` and it, unlike Competizione's): ASSUMED | not given: its physics `tc` and `abs` floats are "acting now", and the TC / ABS settings stay unknown |
+//! | Competizione | none | none | none | none | the graphics page's TC and ABS levels as the settings (0 is off); no "has none" |
+//! | Assetto Corsa EVO | none | none | none | none | level 0 with a maximum of 0: ASSUMED |
+//! | Le Mans Ultimate | none | none | none | none | maximum of 0 (`mTCMax`, `mABSMax`): ASSUMED |
+//! | every other reader | none | none | none | none | none |
 //!
 //! The places where the readers contradict each other, and what would settle each, are the "what to verify per game"
 //! list of `fixtures/README.md`: no reader was changed to guess which one is right.
@@ -219,6 +231,40 @@ impl CarState {
     };
 }
 
+/// The driver's aid settings beyond TC and ABS levels (which stay in `CarState`), and whether the car has TC or ABS at all.
+/// Every value is `None` when the game does not give it: the lap cutter writes a key in the lap's `aids` header only
+/// when it knew the value on every driving frame of the lap, so "not given" is never written as "off".
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AidSettings {
+    /// The game says the car has no traction control (its maximum is 0). Then the lap's `tcMax` is 0, not unknown: the
+    /// car could not have had the aid.
+    pub tc_absent: bool,
+    /// The same for ABS.
+    pub abs_absent: bool,
+    /// Stability control, 0 (off) to 1 (full).
+    pub stability: Option<f32>,
+    /// The game shifts for the driver.
+    pub auto_shift: Option<bool>,
+    pub auto_clutch: Option<bool>,
+    /// Automatic blip on downshifts.
+    pub auto_blip: Option<bool>,
+    /// The racing line is drawn on the track.
+    pub ideal_line: Option<bool>,
+}
+
+impl AidSettings {
+    /// Nothing known.
+    pub const UNKNOWN: AidSettings = AidSettings {
+        tc_absent: false,
+        abs_absent: false,
+        stability: None,
+        auto_shift: None,
+        auto_clutch: None,
+        auto_blip: None,
+        ideal_line: None,
+    };
+}
+
 /// One reading of the player's car.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
@@ -261,6 +307,8 @@ pub struct Frame {
     pub tyres: Option<[Tyre; 4]>,
     /// Dashboard lights, engine temperatures, electronics settings and damage.
     pub state: CarState,
+    /// The driver's other aid settings, for the lap file; not part of what the panel shows (so not in `Caps`).
+    pub aids: AidSettings,
     pub car: String,
     pub car_class: Option<String>,
     pub track: String,
@@ -409,6 +457,7 @@ impl Frame {
             fuel_capacity_l: None,
             tyres: None,
             state: CarState::UNKNOWN,
+            aids: AidSettings::UNKNOWN,
             car: String::new(),
             car_class: None,
             track: String::new(),

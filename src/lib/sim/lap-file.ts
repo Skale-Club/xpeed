@@ -83,6 +83,25 @@ export interface LapRecorder {
   coordinateFrame?: string;
 }
 
+/**
+ * Version 2, optional. The driving aids the lap was driven with. Each value is the HIGHEST setting seen at any moment of
+ * the lap (a driver who turned TC off for the last corner still has TC on that lap). A key is left out when the game does
+ * not give that aid, or did not give it on every moment of the lap: a missing key means "unknown", never "off". A car
+ * without the aid writes 0. The whole object is left out when nothing is known.
+ */
+export interface LapAids {
+  /** Highest traction control setting, 0 (off) to 100. */
+  tcMax?: number;
+  /** Highest ABS setting, 0 (off) to 100. */
+  absMax?: number;
+  /** Highest stability control, 0 (off) to 1 (full). */
+  stability?: number;
+  autoShift?: boolean;
+  autoClutch?: boolean;
+  autoBlip?: boolean;
+  idealLine?: boolean;
+}
+
 export interface LapHeader {
   /** Lowercase id of the game the lap was driven in ("lmu", "acc"...). */
   game: string;
@@ -117,6 +136,8 @@ export interface LapHeader {
   trackTempC?: number;
   /** Version 2. The compound of the tyres on the car, as the game names it. */
   tyreCompound?: string;
+  /** Version 2. The aids the lap was driven with. Files from a Companion before aids were recorded do not have it. */
+  aids?: LapAids;
   /** Version 2. Who recorded the lap. Old files do not have it. */
   recorder?: LapRecorder;
   /** Version 2. Ids of the Companion's automatic data checks the lap failed ("clutch_stuck"...); left out when it passed all of them. */
@@ -154,6 +175,35 @@ function parseRecorder(input: unknown): LapRecorder {
   return { app: app as string, version: version as string, build: build as string, source: source as string, ...(gameBuild !== undefined ? { gameBuild: gameBuild as string } : {}), ...(coordinateFrame !== undefined ? { coordinateFrame: coordinateFrame as string } : {}) };
 }
 
+const AID_KEYS = ['tcMax', 'absMax', 'stability', 'autoShift', 'autoClutch', 'autoBlip', 'idealLine'] as const;
+/** The highest TC or ABS setting a header takes. */
+const MAX_AID_LEVEL = 100;
+/**
+ * The aids object, strictly: a key it does not know is a bad header (unlike the recorder, whose unknown keys are ignored),
+ * because a setting is read as a fact about the lap. An object with no key says nothing and is read as no aids.
+ */
+function parseAids(input: unknown): LapAids | undefined {
+  if (!isRecord(input)) return fail('bad_header', 'aids must be an object.');
+  for (const key of Object.keys(input)) if (!(AID_KEYS as readonly string[]).includes(key)) fail('bad_header', `aids.${key} is not a known aid.`);
+  const { tcMax, absMax, stability, autoShift, autoClutch, autoBlip, idealLine } = input;
+  if (tcMax !== undefined && !isInt(tcMax, 0, MAX_AID_LEVEL)) fail('bad_header', `aids.tcMax must be a whole number, 0 to ${MAX_AID_LEVEL}.`);
+  if (absMax !== undefined && !isInt(absMax, 0, MAX_AID_LEVEL)) fail('bad_header', `aids.absMax must be a whole number, 0 to ${MAX_AID_LEVEL}.`);
+  if (stability !== undefined && !(typeof stability === 'number' && Number.isFinite(stability) && stability >= 0 && stability <= 1)) fail('bad_header', 'aids.stability must be 0 to 1.');
+  for (const [key, value] of [['autoShift', autoShift], ['autoClutch', autoClutch], ['autoBlip', autoBlip], ['idealLine', idealLine]] as const) {
+    if (value !== undefined && typeof value !== 'boolean') fail('bad_header', `aids.${key} must be true or false.`);
+  }
+  const aids: LapAids = {
+    ...(tcMax !== undefined ? { tcMax: tcMax as number } : {}),
+    ...(absMax !== undefined ? { absMax: absMax as number } : {}),
+    ...(stability !== undefined ? { stability: stability as number } : {}),
+    ...(autoShift !== undefined ? { autoShift: autoShift as boolean } : {}),
+    ...(autoClutch !== undefined ? { autoClutch: autoClutch as boolean } : {}),
+    ...(autoBlip !== undefined ? { autoBlip: autoBlip as boolean } : {}),
+    ...(idealLine !== undefined ? { idealLine: idealLine as boolean } : {}),
+  };
+  return Object.keys(aids).length > 0 ? aids : undefined;
+}
+
 const isTemperature = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= -100 && value <= 200;
 function fail(code: LapFormatCode, message: string): never {
   throw new LapFormatError(code, message);
@@ -162,7 +212,7 @@ function fail(code: LapFormatCode, message: string): never {
 /** Checks an untrusted header (parsed JSON) and returns it typed, or throws a LapFormatError. */
 export function parseHeader(input: unknown): LapHeader {
   if (!isRecord(input)) return fail('bad_header', 'The header is not an object.');
-  const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels, sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, recorder, checks } = input;
+  const { game, track, car, lap, startedAt, sampleRateHz, sampleCount, channels, sessionId, sessionKind, weather, airTempC, trackTempC, tyreCompound, aids, recorder, checks } = input;
 
   if (typeof game !== 'string' || !GAME_ID.test(game)) fail('bad_header', 'game must be a lowercase id.');
   if (!isRecord(track) || !isText(track.name, 120)) return fail('bad_header', 'track.name is missing or too long.');
@@ -191,6 +241,7 @@ export function parseHeader(input: unknown): LapHeader {
   if (trackTempC !== undefined && !isTemperature(trackTempC)) fail('bad_header', 'trackTempC must be -100 to 200.');
   if (tyreCompound !== undefined && !isLabel(tyreCompound, 40)) fail('bad_header', 'tyreCompound must be a short text.');
 
+  const parsedAids = aids !== undefined ? parseAids(aids) : undefined;
   const parsedRecorder = recorder !== undefined ? parseRecorder(recorder) : undefined;
   if (checks !== undefined && !(Array.isArray(checks) && checks.length <= MAX_CHECKS && checks.every((id) => typeof id === 'string' && CHECK_ID.test(id)))) {
     fail('bad_header', `checks must be up to ${MAX_CHECKS} ids.`);
@@ -230,6 +281,7 @@ export function parseHeader(input: unknown): LapHeader {
     ...(airTempC !== undefined ? { airTempC: airTempC as number } : {}),
     ...(trackTempC !== undefined ? { trackTempC: trackTempC as number } : {}),
     ...(tyreCompound !== undefined ? { tyreCompound: tyreCompound as string } : {}),
+    ...(parsedAids !== undefined ? { aids: parsedAids } : {}),
     ...(parsedRecorder !== undefined ? { recorder: parsedRecorder } : {}),
     ...(checks !== undefined ? { checks: checks as string[] } : {}),
     channels: parsedChannels,
@@ -252,6 +304,7 @@ function serializeHeader(header: LapHeader): string {
     airTempC: header.airTempC,
     trackTempC: header.trackTempC,
     tyreCompound: header.tyreCompound,
+    aids: header.aids === undefined || Object.keys(header.aids).length === 0 ? undefined : { tcMax: header.aids.tcMax, absMax: header.aids.absMax, stability: header.aids.stability, autoShift: header.aids.autoShift, autoClutch: header.aids.autoClutch, autoBlip: header.aids.autoBlip, idealLine: header.aids.idealLine },
     recorder: header.recorder === undefined ? undefined : { app: header.recorder.app, version: header.recorder.version, build: header.recorder.build, source: header.recorder.source, gameBuild: header.recorder.gameBuild, coordinateFrame: header.recorder.coordinateFrame },
     checks: header.checks !== undefined && header.checks.length > 0 ? header.checks : undefined,
     channels: header.channels.map((channel) => ({ id: channel.id, unit: channel.unit })),
@@ -261,7 +314,7 @@ function serializeHeader(header: LapHeader): string {
 function hasVersion2Fields(header: LapHeader): boolean {
   return header.sessionId !== undefined || header.sessionKind !== undefined || header.weather !== undefined
     || header.airTempC !== undefined || header.trackTempC !== undefined || header.tyreCompound !== undefined
-    || header.lap.inLap !== undefined || header.lap.outLap !== undefined || header.recorder !== undefined || header.checks !== undefined;
+    || header.lap.inLap !== undefined || header.lap.outLap !== undefined || header.aids !== undefined || header.recorder !== undefined || header.checks !== undefined;
 }
 
 /** Lays a lap out as bytes (not yet compressed). Throws a LapFormatError if the lap is not valid. */
