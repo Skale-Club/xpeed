@@ -1843,7 +1843,7 @@ fn every_light_name_fits_its_tile_in_every_language() {
     // The narrowest tile of the grid in a real layout, less its padding.
     let room = 96.0 - 2.0 * S2;
     let mut misses = Vec::new();
-    painted_by(10, 10, |g| {
+    let _ = painted_by(10, 10, |g| {
         for lang in Lang::ALL {
             for msg in &names {
                 let word = text(lang, msg);
