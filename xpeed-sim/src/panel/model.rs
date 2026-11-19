@@ -46,19 +46,6 @@ pub(super) fn lights_lit(share: f32) -> (usize, bool) {
     (lit.clamp(0.0, LIGHTS as f32) as usize, false)
 }
 
-/// How many of the centre card's shift lights are lit at `share` of the top RPM, and whether they flash (owner-approved
-/// module 7, 2026-11-19): none under `SHIFT_LIGHTS_FROM`, all and flashing from `SHIFT_AT`.
-pub(super) fn shift_lit(share: f32) -> (usize, bool) {
-    if !share.is_finite() {
-        return (0, false);
-    }
-    if share >= SHIFT_AT {
-        return (SHIFT_LIGHTS, true);
-    }
-    let lit = ((share - SHIFT_LIGHTS_FROM) / (SHIFT_AT - SHIFT_LIGHTS_FROM) * SHIFT_LIGHTS as f32).ceil();
-    (lit.clamp(0.0, SHIFT_LIGHTS as f32) as usize, false)
-}
-
 /// The fastest lap that counted, in milliseconds; an invalid lap is never the fastest.
 pub(super) fn fastest_valid(laps: &[SavedLap]) -> Option<u32> {
     laps.iter().filter(|l| l.valid).map(|l| l.time_ms).min()
@@ -557,6 +544,14 @@ pub(super) struct DashModel {
     pub(super) delta_note: Option<String>,
     /// `Projected 1:46.934`: the best lap plus the delta now, while there is a delta.
     pub(super) projected: Option<String>,
+    /// This lap's highest and lowest speed in the panel's unit, for the centre card's corners.
+    pub(super) lap_top: Option<String>,
+    pub(super) lap_min: Option<String>,
+    /// The inputs card's caption, whether the game marks ABS and TC on its trace, and this lap's time flat out, braking
+    /// and on neither pedal (`62%`), each with its word.
+    pub(super) inputs_title: String,
+    pub(super) aids: (bool, bool),
+    pub(super) lap_share: Option<[(String, String); 3]>,
     pub(super) gear: Elem,
     pub(super) gear_below: Elem,
     pub(super) gear_above: Elem,
@@ -1018,6 +1013,8 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
     // Before there is a best lap to compare with, the delta's place says when it will come.
     let delta_note = (slots.delta && !delta.visible() && !best_lap.visible()).then(|| say(Msg::PanelDeltaFirstLap));
+    // This lap's highest and lowest speed, for the centre card's corners.
+    let lap_speed = live.lap_speed_ms.filter(|_| slots.speed);
     // The lap time this lap is heading for: the best lap plus the delta now (owner-approved module 5, 2026-11-19).
     let projected = match (delta.visible(), live.best_lap_s, live.delta_s) {
         (true, Some(best), Some(d)) => lap_clock(Some(best + d)).map(|t| say(Msg::PanelProjected(t))),
@@ -1379,6 +1376,14 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         delta_vs: say(Msg::PanelVsBest),
         delta_note,
         projected,
+        lap_top: lap_speed.map(|(top, _)| speed_text(top, units.speed)),
+        lap_min: lap_speed.map(|(_, min)| speed_text(min, units.speed)),
+        inputs_title: say(Msg::PanelInputsTitle),
+        aids: (caps.has(Caps::ABS_ACTIVE), caps.has(Caps::TC_ACTIVE)),
+        lap_share: live.lap_inputs.map(|share| {
+            let words = [say(Msg::InputsFull), say(Msg::InputsBrake), say(Msg::InputsCoast)];
+            std::array::from_fn(|k| (words[k].clone(), format!("{:.0}%", share[k] * 100.0)))
+        }),
         gear,
         gear_below: neighbour(below),
         gear_above: neighbour(above),

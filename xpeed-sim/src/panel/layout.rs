@@ -63,8 +63,11 @@ pub(super) type Area = (f32, f32, f32, f32);
 pub(super) enum Pane {
     /// The lap time, the delta to the best lap, the last and the best lap.
     Times,
-    /// The gear, the speed, the pedals and the wheel.
+    /// The gear, the speed and the wheel, with this lap's top and lowest speed.
     Centre,
+    /// The pedals and the last seconds of them (owner-approved 2026-11-19): the old centre card's place is shared by the
+    /// two, the centre the wider.
+    Inputs,
     /// The fuel (and the water and oil temperatures).
     Fuel,
     Tyres,
@@ -105,7 +108,13 @@ pub(super) struct Row {
 const WIDE_ROWS: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.3), (Pane::Fuel, 0.95), (Pane::Tyres, 1.05)],
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 0.74),
+            (Pane::Inputs, 0.56),
+            (Pane::Fuel, 0.95),
+            (Pane::Tyres, 1.05),
+        ],
     },
     Row {
         h: 262.0,
@@ -118,7 +127,8 @@ const ULTRAWIDE_ROWS: &[Row] = &[
         h: 300.0,
         cards: &[
             (Pane::Times, 1.0),
-            (Pane::Centre, 1.2),
+            (Pane::Centre, 0.68),
+            (Pane::Inputs, 0.52),
             (Pane::Fuel, 1.0),
             (Pane::Tyres, 1.1),
             (Pane::Alerts, 1.0),
@@ -133,7 +143,12 @@ const ULTRAWIDE_ROWS: &[Row] = &[
 const SQUARE_ROWS: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Fuel, 1.0)],
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 0.68),
+            (Pane::Inputs, 0.52),
+            (Pane::Fuel, 1.0),
+        ],
     },
     Row {
         h: 260.0,
@@ -152,7 +167,7 @@ const PORTRAIT_ROWS: &[Row] = &[
     },
     Row {
         h: 280.0,
-        cards: &[(Pane::Centre, 1.0)],
+        cards: &[(Pane::Centre, 0.57), (Pane::Inputs, 0.43)],
     },
     Row {
         h: 250.0,
@@ -176,6 +191,10 @@ const STACK_ROWS: &[Row] = &[
     Row {
         h: 280.0,
         cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 230.0,
+        cards: &[(Pane::Inputs, 1.0)],
     },
     Row {
         h: 190.0,
@@ -202,7 +221,12 @@ const STACK_ROWS: &[Row] = &[
 const CLASSIC_ROWS: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Fuel, 1.0)],
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 0.68),
+            (Pane::Inputs, 0.52),
+            (Pane::Fuel, 1.0),
+        ],
     },
     Row {
         h: 230.0,
@@ -469,103 +493,109 @@ pub(super) fn inner((x, y, w, h): Area) -> Area {
 /// The height of a card's caption line, and the space under it.
 pub(super) const CAPTION_H: f32 = 16.0;
 
-/// Where the parts of the centre card go: the gear (and the gears either side of it), the speed with its unit, the
-/// pedals, and the wheel, from the top down; a part the game cannot fill gives its height to the gear.
+/// Where the parts of the centre card go (owner-approved 2026-11-19): this lap's top and lowest speed as two small labels
+/// in the top corners, the gear (the biggest thing on the dashboard: it takes all the height the rest leaves, up to
+/// `GEAR_MAX_H`), the speed with its unit, and the wheel's line at the bottom. A part the game cannot fill gives its
+/// height to the gear; the gears either side sit at the card's edges, clear of the gear.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Centre {
     pub(super) gear: Area,
-    /// Where the gear below and the gear above are drawn (the gear's own height, a narrow box each).
+    /// Where the gear below and the gear above are drawn (a narrow box each, at the card's left and right edges).
     pub(super) below: Area,
     pub(super) above: Area,
     pub(super) speed: Area,
     pub(super) unit: Area,
-    /// A pedal, left to right: throttle, brake, clutch. Each is the line over its bar (its name and its percentage) and the
-    /// bar.
-    pub(super) pedals: [Option<(Area, Area)>; 3],
     pub(super) steer: Area,
-    /// The shift lights over the gear (owner-approved module 7, 2026-11-19), when the game gives the RPM.
-    pub(super) shift: Option<Area>,
-    /// The throttle and brake of the last seconds under the wheel: a compact strip with its label inside (owner's
-    /// choice, 2026-11-19), when the gear keeps at least `GEAR_MIN_WITH_TRACE`.
-    pub(super) inputs: Option<Area>,
+    /// The line of TOP (left) and MIN (right), when the game gives the speed.
+    pub(super) corners: Option<Area>,
 }
 
 /// The tallest the gear is drawn: a tall centre card gives its spare height to the gear until here.
 pub(super) const GEAR_MAX_H: f32 = 230.0;
 
 pub(super) const PEDAL_LINE_H: f32 = 16.0;
-pub(super) const PEDAL_BAR_H: f32 = 8.0;
 pub(super) const STEER_BAR_H: f32 = 6.0;
 
 pub(super) fn centre_plan(card: Area, slots: &Slots) -> Centre {
     let (x, y, w, h) = inner(card);
-    let pedal_count = [slots.throttle, slots.brake, slots.clutch].iter().filter(|p| **p).count();
-    // The heights of what is under the gear, from the bottom up.
-    // Even, generous gaps between the rows (owner, 2026-11-19: "everything is squeezed").
-    let steer_h = if slots.steer { STEER_BAR_H + CENTRE_GAP } else { 0.0 };
-    let pedals_h = if pedal_count > 0 {
-        PEDAL_LINE_H + S1 + PEDAL_BAR_H + CENTRE_GAP
-    } else {
-        0.0
-    };
-    let speed_h = if slots.speed { 44.0 + 4.0 + 14.0 + CENTRE_GAP } else { 0.0 };
-    let shift_h = if slots.rev && slots.gear { SHIFT_LIGHT_H + CENTRE_GAP } else { 0.0 };
-    // The input trace takes its room only while the gear keeps at least `GEAR_MIN_WITH_TRACE`.
-    let trace_h = INPUT_TRACE_H + CENTRE_GAP;
-    let rest = steer_h + pedals_h + speed_h + shift_h;
-    let inputs_on = (slots.throttle || slots.brake) && (!slots.gear || h - rest - trace_h >= GEAR_MIN_WITH_TRACE);
-    let inputs_h = if inputs_on { trace_h } else { 0.0 };
+    let corners_h = if slots.speed { CAPTION_H + S2 } else { 0.0 };
+    let speed_h = if slots.speed { S1 + 44.0 + 4.0 + 14.0 } else { 0.0 };
+    let steer_h = if slots.steer { S4 + STEER_BAR_H } else { 0.0 };
+    let room = h - corners_h;
     let gear_h = if slots.gear {
-        (h - rest - inputs_h).clamp(40.0, GEAR_MAX_H)
+        (room - speed_h - steer_h).clamp(40.0, GEAR_MAX_H)
     } else {
         0.0
     };
-    // Anything the gear cannot use is left over; the block under it is pushed to the bottom so the card has no hole.
-    let used = shift_h + gear_h + speed_h + pedals_h + steer_h + inputs_h;
-    let first = y + ((h - used) / 2.0).max(0.0);
-    let (shift_x, shift_w) = (x + w * SHIFT_LIGHT_INSET, w * (1.0 - 2.0 * SHIFT_LIGHT_INSET));
-    let shift = (shift_h > 0.0).then_some((shift_x, first, shift_w, SHIFT_LIGHT_H));
-    let top = first + shift_h;
+    // The corners stay at the top; the gear, the speed and the wheel are one group centred in the rest.
+    let used = gear_h + speed_h + steer_h;
+    let top = y + corners_h + ((room - used) / 2.0).max(0.0);
+    let corners = (corners_h > 0.0).then_some((x, y, w, CAPTION_H));
     let gear = (x, top, w, gear_h);
-    let side = (w * 0.3).min(120.0);
     let nb = (40.0_f32, 36.0_f32);
-    let cx = x + w / 2.0;
     let mid = top + gear_h / 2.0 - nb.1 / 2.0;
-    let below = (cx - side - nb.0 / 2.0, mid, nb.0, nb.1);
-    let above = (cx + side - nb.0 / 2.0, mid, nb.0, nb.1);
+    let below = (x, mid, nb.0, nb.1);
+    let above = (x + w - nb.0, mid, nb.0, nb.1);
     let speed_y = top + gear_h + S1;
     let speed = (x, speed_y, w, 44.0);
     let unit = (x, speed_y + 44.0, w, 14.0);
-    let pedals_y = top + gear_h + speed_h;
-    let mut pedals = [None; 3];
-    if pedal_count > 0 {
-        let gap = S3;
-        let col = (w - gap * (pedal_count as f32 - 1.0)) / pedal_count as f32;
-        let mut at = x;
-        for (i, on) in [slots.throttle, slots.brake, slots.clutch].into_iter().enumerate() {
-            if on {
-                pedals[i] = Some((
-                    (at, pedals_y, col, PEDAL_LINE_H),
-                    (at, pedals_y + PEDAL_LINE_H + S1, col, PEDAL_BAR_H),
-                ));
-                at += col + gap;
-            }
-        }
-    }
-    let steer = (x, pedals_y + pedals_h, w, STEER_BAR_H);
-    let inputs_y = pedals_y + pedals_h + steer_h;
-    let inputs = inputs_on.then_some((x, inputs_y, w, INPUT_TRACE_H));
+    let steer = (x, top + gear_h + speed_h + S4, w, STEER_BAR_H);
     Centre {
         gear,
         below,
         above,
         speed,
         unit,
-        pedals,
         steer,
-        shift,
-        inputs,
+        corners,
     }
+}
+
+/// Where the parts of the inputs card go (owner-approved 2026-11-19): its caption line (the aids it marks on the right),
+/// the last seconds of throttle and brake, the pedals as vertical bars of blocks (each with its percentage over it and its
+/// name under it), and one line of this lap's time flat out, braking and on neither pedal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct InputsPlan {
+    pub(super) head: Area,
+    pub(super) trace: Option<Area>,
+    /// Throttle, brake, clutch: the percentage line, the bar, the name line.
+    pub(super) pedals: [Option<(Area, Area, Area)>; 3],
+    pub(super) lap: Area,
+}
+
+pub(super) fn inputs_plan(card: Area, slots: &Slots) -> InputsPlan {
+    let (x, y, w, h) = inner(card);
+    let head = (x, y, w, CAPTION_H);
+    let lap = (x, y + h - INPUT_LAP_H, w, INPUT_LAP_H);
+    let top = y + CAPTION_H + S2;
+    let trace_on = slots.throttle || slots.brake;
+    let trace_h = if trace_on {
+        ((h - CAPTION_H) * INPUT_TRACE_SHARE).clamp(28.0, 110.0)
+    } else {
+        0.0
+    };
+    let trace = trace_on.then_some((x, top, w, trace_h));
+    let bars_top = top + if trace_on { trace_h + S3 } else { 0.0 };
+    let bars_bottom = lap.1 - S3;
+    let on = [slots.throttle, slots.brake, slots.clutch];
+    let count = on.iter().filter(|p| **p).count();
+    let mut pedals = [None; 3];
+    if count > 0 {
+        let col = (w - S3 * (count as f32 - 1.0)) / count as f32;
+        let bar_h = (bars_bottom - bars_top - PEDAL_LINE_H - 14.0 - 2.0 * S1).max(8.0);
+        let bar_w = (col * INPUT_BAR_WIDTH).min(64.0);
+        let mut at = x;
+        for (i, present) in on.into_iter().enumerate() {
+            if present {
+                let pct = (at, bars_top, col, PEDAL_LINE_H);
+                let bar = (at + (col - bar_w) / 2.0, bars_top + PEDAL_LINE_H + S1, bar_w, bar_h);
+                let name = (at, bar.1 + bar_h + S1, col, 14.0);
+                pedals[i] = Some((pct, bar, name));
+                at += col + S3;
+            }
+        }
+    }
+    InputsPlan { head, trace, pedals, lap }
 }
 
 /// Where blocks of `heights` go, top to bottom, in a room `room_h` tall from `room_y`: grouped with an even gap between them
@@ -902,7 +932,8 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
     ]);
     let cards: Vec<Pane> = [
         (Pane::Times, s.lap_time || s.last || s.best),
-        (Pane::Centre, s.gear || s.speed || s.brake || s.throttle || s.clutch || s.steer),
+        (Pane::Centre, s.gear || s.speed || s.steer),
+        (Pane::Inputs, s.brake || s.throttle || s.clutch),
         (Pane::Fuel, s.fuel || s.water || s.oil),
         (Pane::Tyres, s.tyres),
         (Pane::Laps, s.lap_time || s.last),

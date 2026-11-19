@@ -320,17 +320,24 @@ fn live_reading() -> Live {
     );
     live.fuel_per_lap_l = Some(2.9);
     live.fuel_last_lap_l = Some(2.84);
-    // The throttle and brake of the last 5 s: flat out, a brake into a corner, then back on the throttle.
+    // The throttle and brake of the last 5 s: flat out, a brake into a corner with ABS acting at its start, then back
+    // on the throttle with a touch of TC.
     live.inputs = Arc::new(
         (0..=125)
             .map(|i| {
                 let k = i as f32 / 125.0;
-                let throttle = if (0.3..0.5).contains(&k) { 0.0 } else { 1.0 };
-                let brake = if (0.3..0.42).contains(&k) { 0.9 } else { 0.0 };
-                (live.at_ms - 5_000 + i as i64 * 40, throttle, brake)
+                crate::dash::InputPoint {
+                    at_ms: live.at_ms - 5_000 + i as i64 * 40,
+                    throttle: if (0.3..0.5).contains(&k) { 0.0 } else { 1.0 },
+                    brake: if (0.3..0.42).contains(&k) { 0.9 } else { 0.0 },
+                    abs: (0.3..0.34).contains(&k),
+                    tc: (0.5..0.53).contains(&k),
+                }
             })
             .collect(),
     );
+    live.lap_speed_ms = Some((78.9, 25.6));
+    live.lap_inputs = Some([0.62, 0.14, 0.03]);
     live.fuel_this_lap_l = Some(1.12);
     live.state = crate::game::CarState {
         pit_limiter: Some(false),
@@ -1569,33 +1576,52 @@ fn the_wheel_is_a_thin_white_line_toward_the_turn() {
     assert_eq!((at(5, mid), at(195, mid)), (FOREGROUND, SECONDARY), "full left");
 }
 
-/// The owner's centre card (module 7, 2026-11-19): shift lights over the gear and the throttle and brake of the last
-/// seconds under the wheel.
+/// The owner's centre and inputs cards (2026-11-19): the old centre card's place is shared by the two, the centre the
+/// wider; the gear keeps most of its card's height (it is read from afar); the pedals, their last seconds, the aids and
+/// this lap's time flat out, braking and coasting are in the inputs card.
 #[test]
-fn the_centre_card_has_shift_lights_and_the_last_seconds_of_inputs() {
-    assert_eq!(shift_lit(0.5), (0, false));
-    assert_eq!(shift_lit(SHIFT_LIGHTS_FROM), (0, false));
-    assert_eq!(shift_lit(0.885), (8, false));
-    assert_eq!(shift_lit(0.97), (SHIFT_LIGHTS, true), "the shift point: all, flashing");
-    assert_eq!(shift_lit(f32::NAN), (0, false));
-    let plan = centre_plan((0.0, 0.0, 552.0, 432.0), &slots(every_cap()));
-    let shift = plan.shift.expect("shift lights over the gear");
-    assert!(shift.1 + shift.3 <= plan.gear.1, "over the gear");
-    let strip = plan.inputs.expect("room for the inputs under the wheel");
-    assert!(strip.1 > plan.steer.1 && plan.gear.3 >= GEAR_MIN_WITH_TRACE);
-    // The full-HD row (300 design pixels): the compact strip fits with the gear still at least `GEAR_MIN_WITH_TRACE`.
-    let hd = centre_plan((0.0, 0.0, 430.0, 300.0), &slots(every_cap()));
-    assert!(hd.inputs.is_some() && hd.gear.3 >= GEAR_MIN_WITH_TRACE, "{hd:?}");
-    let short = centre_plan((0.0, 0.0, 552.0, 200.0), &slots(every_cap()));
-    assert!(short.inputs.is_none(), "a short card keeps its gear and drops the trace");
-    // Drawn: eight lights on at 0.885, green first and red last unlit.
-    let at = painted_by(300, 10, |g| g.shift_lights((0.0, 0.0, 300.0, 10.0), 8, false, true));
-    assert_eq!((at(2, 5), at(150, 5), at(297, 5)), (SUCCESS, WARN, SECONDARY));
-    // The trace: the throttle along the top, flat out at the right edge.
+fn the_centre_keeps_a_big_gear_and_the_pedals_have_their_own_card() {
+    let s = slots(every_cap());
+    assert!(s.cards.contains(&Pane::Centre) && s.cards.contains(&Pane::Inputs));
+    let layouts = [
+        Layout::Wide,
+        Layout::Ultrawide,
+        Layout::Square,
+        Layout::Classic,
+        Layout::Portrait,
+        Layout::Stack,
+    ];
+    for layout in layouts {
+        let plan = layout.plan(&s);
+        let centre = plan.area(Pane::Centre).expect("a centre card");
+        let inputs = plan.area(Pane::Inputs).expect("an inputs card");
+        if (centre.1 - inputs.1).abs() < 0.5 {
+            assert!(centre.2 > inputs.2, "{layout:?}: side by side, the centre is the wider");
+        }
+        let cp = centre_plan(centre, &s);
+        let (_, _, _, ih) = inner(centre);
+        assert!(
+            cp.gear.3 >= GEAR_MIN_SHARE * ih,
+            "{layout:?}: the gear keeps at least half its card ({} of {ih})",
+            cp.gear.3
+        );
+    }
+    // The model: this lap's top and lowest speed in the panel's unit, the lap's shares, the aids the game marks.
     let live = live_reading();
-    let at = painted_by(200, 20, |g| g.input_trace((0.0, 0.0, 200.0, 20.0), &live.inputs, live.at_ms));
+    let m = model(&live, Lang::En);
+    assert_eq!((m.lap_top.as_deref(), m.lap_min.as_deref()), (Some("284"), Some("92")));
+    let share: Vec<(&str, &str)> = m.lap_share.iter().flatten().map(|(w, v)| (w.as_str(), v.as_str())).collect();
+    assert_eq!(share, [("Full", "62%"), ("Brake", "14%"), ("Coast", "3%")]);
+    assert_eq!(model(&live, Lang::Pt).inputs_title, "Comandos");
+    // Drawn: a pedal bar of six to ten blocks lit from the bottom; the trace's throttle along the top at the end, and
+    // the ABS mark along the top where it acted.
+    let at = painted_by(30, 100, |g| g.vertical_blocks((0.0, 0.0, 30.0, 100.0), 0.5, SUCCESS));
+    assert_eq!((at(15, 98), at(15, 2)), (SUCCESS, SECONDARY), "half full: lit at the bottom");
+    let at = painted_by(200, 40, |g| g.input_trace((0.0, 0.0, 200.0, 40.0), &live.inputs, live.at_ms));
     let greenish = |c: COLORREF| (c >> 8 & 0xff) > 0x80 && (c & 0xff) < 0x80;
-    assert!((1..5).any(|y| greenish(at(190, y))), "flat out at the end, along the top");
+    assert!((1..6).any(|y| greenish(at(190, y))), "flat out at the end, along the top");
+    let abs_x = (0.32 * 200.0) as i32;
+    assert!((abs_x - 3..abs_x + 3).any(|x| at(x, 1) == INFO), "the ABS mark where it acted");
 }
 
 /// The owner's fuel card (module 6, 2026-11-19): the use as three numbers, how long the fuel lasts, and a stint plan.
@@ -2172,7 +2198,7 @@ fn a_game_without_a_clutch_or_sectors_or_a_best_lap_hides_exactly_those() {
     no_clutch.caps = no_clutch.caps.minus(Caps::CLUTCH);
     let m = model(&no_clutch, Lang::En);
     assert!(!m.clutch.visible() && m.brake.visible());
-    let plan = centre_plan((0.0, 0.0, 400.0, 300.0), &slots(no_clutch.caps));
+    let plan = inputs_plan((0.0, 0.0, 300.0, 300.0), &slots(no_clutch.caps));
     assert_eq!(plan.pedals.iter().filter(|p| p.is_some()).count(), 2);
     assert!(plan.pedals[2].is_none());
     // The first lap: the delta says why it is not there, the best lap is hidden, the places stay.
@@ -2417,7 +2443,7 @@ fn blocks_are_stacked_with_an_even_gap_and_centred_never_with_a_hole() {
 
 #[test]
 fn the_pedals_are_throttle_brake_clutch_from_left_to_right() {
-    let plan = centre_plan((0.0, 0.0, 576.0, 300.0), &slots(every_cap()));
+    let plan = inputs_plan((0.0, 0.0, 300.0, 300.0), &slots(every_cap()));
     let [Some(throttle), Some(brake), Some(clutch)] = plan.pedals else {
         panic!("three pedals");
     };
@@ -2435,8 +2461,8 @@ fn the_pedals_are_throttle_brake_clutch_from_left_to_right() {
     let layout = pick_layout((body.right - body.left) as f32, (body.bottom - body.top) as f32, &s);
     let plan_all = layout.plan_for(&s, model_with(&live, Default::default(), &f.laps).laps.rows.len());
     let (scale, ox, oy) = canvas_fit_wh(body, plan_all.w, plan_all.h);
-    let card = plan_all.area(Pane::Centre).unwrap();
-    let cp = centre_plan(card, &s);
+    let card = plan_all.area(Pane::Inputs).unwrap();
+    let cp = inputs_plan(card, &s);
     let px = |a: Area| {
         (
             ox + (a.0 * scale) as i32,
@@ -2715,10 +2741,7 @@ fn the_centre_card_keeps_its_parts_apart_and_inside_it() {
         let plan = centre_plan(card, &slots(every_cap()));
         let (x, y, w, h) = inner(card);
         let mut parts = vec![plan.gear, plan.speed, plan.unit, plan.steer];
-        for (label, bar) in plan.pedals.iter().flatten() {
-            parts.push(*label);
-            parts.push(*bar);
-        }
+        parts.extend(plan.corners);
         for (i, a) in parts.iter().enumerate() {
             assert!(inside_box(*a, x, y, w, h), "{a:?} inside the card {card:?}");
             for b in &parts[i + 1..] {
@@ -2727,10 +2750,10 @@ fn the_centre_card_keeps_its_parts_apart_and_inside_it() {
         }
         // The gears either side stay in the gear's row and clear of the gear's own glyph.
         assert!(inside_box(plan.below, x, y, w, h) && inside_box(plan.above, x, y, w, h));
-        assert!(plan.below.0 + plan.below.2 < x + w / 2.0 - 50.0 && plan.above.0 > x + w / 2.0 + 50.0);
+        assert!(plan.below.0 + plan.below.2 < x + w / 2.0 - 40.0 && plan.above.0 > x + w / 2.0 + 40.0);
         assert!(plan.gear.3 >= 40.0 && plan.speed.1 >= plan.gear.1 + plan.gear.3);
     }
-    // Without the pedals and the wheel the gear takes their room.
+    // Without the wheel the gear takes its room.
     let with = centre_plan((0.0, 0.0, 420.0, 300.0), &slots(every_cap()));
     let bare = centre_plan(
         (0.0, 0.0, 420.0, 300.0),

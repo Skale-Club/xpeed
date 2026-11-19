@@ -698,51 +698,55 @@ impl Painter {
         }
     }
 
-    /// The shift lights (owner-approved module 7, 2026-11-19): `SHIFT_LIGHTS` square blocks a hair apart, green, amber
-    /// then red from left to right, the first `lit` of them on; at the shift point they all flash red (`flash_on` is the
-    /// blink's bright half).
-    pub(super) fn shift_lights(&self, (x, y, w, h): Area, lit: usize, flashing: bool, flash_on: bool) {
+    /// A pedal as a vertical bar of square blocks a hair apart (owner-approved 2026-11-19): as many blocks as the height
+    /// holds at `INPUT_BLOCK_H` or more each, six to ten, lit from the bottom up to `frac` in `color`.
+    pub(super) fn vertical_blocks(&self, (x, y, w, h): Area, frac: f32, color: COLORREF) {
         let area = self.r(x, y, w, h);
         let gap = (BAR_BLOCK_GAP * self.s).round().max(1.0) as i32;
-        let n = SHIFT_LIGHTS;
-        for (i, (left, right)) in block_spans(area.left, area.right, n, gap).into_iter().enumerate() {
-            let blink = if flash_on { DESTRUCTIVE } else { SECONDARY };
-            let colour = if flashing {
-                blink
-            } else if i >= lit {
-                SECONDARY
-            } else if i < n / 3 {
-                SUCCESS
-            } else if i < 2 * n / 3 {
-                WARN
-            } else {
-                DESTRUCTIVE
-            };
-            self.fill(rect(left, area.top, right, area.bottom), colour);
+        let n = (((h + BAR_BLOCK_GAP) / (INPUT_BLOCK_H + BAR_BLOCK_GAP)).floor() as usize).clamp(6, 10);
+        let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
+        for (i, (top, bottom)) in block_spans(area.top, area.bottom, n, gap).into_iter().enumerate() {
+            // The spans run top down; the bar fills from the bottom.
+            let from_bottom = n - 1 - i;
+            let lit = (from_bottom as f32 + 0.5) / n as f32 <= frac;
+            self.fill(rect(area.left, top, area.right, bottom), if lit { color } else { SECONDARY });
         }
     }
 
     /// The throttle (green) and the brake (red) of the last `INPUT_TRACE_MS` as two lines on a dark strip, the newest at
-    /// the right edge (`now_ms`), full at the top (owner-approved module 7, 2026-11-19).
-    pub(super) fn input_trace(&self, (x, y, w, h): Area, inputs: &[(i64, f32, f32)], now_ms: i64) {
+    /// the right edge (`now_ms`), full at the top; a short mark along the top where ABS (blue) or TC (amber) acted
+    /// (owner-approved 2026-11-19).
+    pub(super) fn input_trace(&self, (x, y, w, h): Area, inputs: &[crate::dash::InputPoint], now_ms: i64) {
         let r = self.r(x, y, w, h);
         self.round(r, BACKGROUND, None);
         let (px, py, pw, ph) = (r.left as f32, r.top as f32, (r.right - r.left) as f32, (r.bottom - r.top) as f32);
         let from = now_ms - crate::dash::INPUT_TRACE_MS;
-        let point = |t: i64, v: f32| PointF {
-            X: px + pw * ((t - from) as f32 / crate::dash::INPUT_TRACE_MS as f32).clamp(0.0, 1.0),
-            Y: py + 2.0 + (ph - 4.0) * (1.0 - v.clamp(0.0, 1.0)),
-        };
-        let recent: Vec<&(i64, f32, f32)> = inputs.iter().filter(|(t, _, _)| *t >= from && *t <= now_ms).collect();
+        let at_x = |t: i64| px + pw * ((t - from) as f32 / crate::dash::INPUT_TRACE_MS as f32).clamp(0.0, 1.0);
+        let at_y = |v: f32| py + 2.0 + (ph - 4.0) * (1.0 - v.clamp(0.0, 1.0));
+        let recent: Vec<&crate::dash::InputPoint> = inputs.iter().filter(|p| p.at_ms >= from && p.at_ms <= now_ms).collect();
         if recent.len() < 2 {
             return;
         }
+        // The aids first, under the lines: a mark the width of a point's step, along the top.
+        let mark_h = self.px(4.0);
+        let step = (pw * crate::dash::INPUT_TRACE_STEP_MS as f32 / crate::dash::INPUT_TRACE_MS as f32).max(1.0);
+        for p in &recent {
+            for (on, colour) in [(p.abs, INFO), (p.tc, WARN)] {
+                if on {
+                    let left = at_x(p.at_ms) as i32;
+                    self.fill(rect(left, r.top, left + step.ceil() as i32, r.top + mark_h), colour);
+                }
+            }
+        }
         let line_w = (1.6 * self.s).max(1.0);
         smooth(self.hdc, |graphics| unsafe {
-            for (colour, pick) in [(DESTRUCTIVE, 2usize), (SUCCESS, 1usize)] {
+            for (colour, brake) in [(DESTRUCTIVE, true), (SUCCESS, false)] {
                 let points: Vec<PointF> = recent
                     .iter()
-                    .map(|&&(t, throttle, brake)| point(t, if pick == 1 { throttle } else { brake }))
+                    .map(|p| PointF {
+                        X: at_x(p.at_ms),
+                        Y: at_y(if brake { p.brake } else { p.throttle }),
+                    })
                     .collect();
                 let mut pen = null_mut();
                 GdipCreatePen1(argb(colour), line_w, UnitPixel, &mut pen);

@@ -58,6 +58,7 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
         match card {
             Pane::Times => times_card(g, &d, area),
             Pane::Centre => centre_card(g, &d, area),
+            Pane::Inputs => inputs_card(g, &d, area),
             Pane::Fuel => fuel_card(g, &d, area),
             Pane::Tyres => tyres_card(g, &d, area),
             Pane::Laps => laps_card(g, &d, area),
@@ -280,23 +281,33 @@ pub(super) fn times_card(g: &mut Painter, d: &Dash, card: Area) {
     }
 }
 
-/// The centre card: the gear big with the gears either side of it quiet, the speed under it with its unit, the pedals as
-/// three solid bars with their names and percentages over them, and the wheel under them.
+/// The centre card (owner-approved 2026-11-19): this lap's top and lowest speed small in the top corners, the gear as
+/// big as the card allows with the gears either side of it quiet at the edges, the speed under it with its unit, and
+/// the wheel's thin white line at the bottom. The pedals have their own card (`inputs_card`).
 pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
-    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let semi = FW_SEMIBOLD as i32;
     let (m, slots) = (d.m, d.slots);
     let plan = centre_plan(card, slots);
-    // The shift lights over the gear: green, amber, red as the revs rise, all flashing red at the shift point.
-    if let Some(area) = plan.shift {
-        shown(g, m.rev.show, |g| {
-            let share = if m.rev.show == Show::Shown { m.rev.frac } else { f32::NAN };
-            let (lit, flashing) = shift_lit(share);
-            g.shift_lights(area, lit, flashing, d.view.now_ms / 120 % 2 == 0);
+    if let Some((cx, cy, cw, ch)) = plan.corners {
+        shown(g, m.speed.show, |g| {
+            // TOP and its figure on the left, MIN and its figure on the right.
+            for (word, value, left) in [("TOP", &m.lap_top, true), ("MIN", &m.lap_min, false)] {
+                let Some(value) = value else {
+                    continue;
+                };
+                let word_w = g.caps_width(word, T_CAPTION);
+                let value_w = g.tabular_width(value, T_BODY, semi);
+                let (word_x, value_x) = if left {
+                    (cx, cx + word_w + S1)
+                } else {
+                    (cx + cw - value_w - S1 - word_w, cx + cw - value_w)
+                };
+                let r = g.r(word_x, cy, word_w + S1, ch);
+                g.caps(word, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+                let r = g.r(value_x, cy, value_w + 2.0, ch);
+                g.text(value, r, T_BODY, semi, Face::Num, FOREGROUND_2, DT_LEFT);
+            }
         });
-    }
-    // Under the wheel: the throttle and brake of the last seconds.
-    if let Some(strip) = plan.inputs {
-        shown(g, m.throttle.show, |g| g.input_trace(strip, &d.live.inputs, d.live.at_ms));
     }
     shown(g, m.gear.show, |g| {
         let (gx, gy, gw, gh) = plan.gear;
@@ -317,26 +328,70 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
         let r = g.r(ux, uy, uw, uh);
         g.caps(m.speed.unit, r, T_CAPTION, MUTED_TEXT, DT_CENTER);
     });
+    shown(g, m.steer.show, |g| g.steer_bar(plan.steer, m.steer.frac));
+}
+
+/// The inputs card (owner-approved 2026-11-19): its caption with the aids it marks on the right (ABS in blue, TC in
+/// amber), the last five seconds of throttle and brake with the marks of the aids along the top, the pedals as vertical
+/// bars of blocks with their percentage over them and their name under them, and this lap's time flat out, braking and
+/// on neither pedal along the bottom.
+pub(super) fn inputs_card(g: &mut Painter, d: &Dash, card: Area) {
+    let semi = FW_SEMIBOLD as i32;
+    let (m, slots) = (d.m, d.slots);
+    let plan = inputs_plan(card, slots);
+    let (hx, hy, hw, hh) = plan.head;
+    caption(g, &m.inputs_title, plan.head, DT_LEFT);
+    // The aids' names on the right of the caption line, in the colours of their marks.
+    let mut right = hx + hw;
+    for (word, on, colour) in [("TC", m.aids.1, WARN), ("ABS", m.aids.0, INFO)] {
+        if on {
+            let w = g.caps_width(word, T_CAPTION);
+            let r = g.r(right - w, hy, w + S1, hh);
+            g.caps(word, r, T_CAPTION, colour, DT_LEFT);
+            right -= w + S2;
+        }
+    }
+    if let Some(trace) = plan.trace {
+        shown(g, m.throttle.show, |g| g.input_trace(trace, &d.live.inputs, d.live.at_ms));
+    }
     for (elem, place) in [&m.throttle, &m.brake, &m.clutch].into_iter().zip(plan.pedals) {
-        let Some(((lx, ly, lw, lh), bar)) = place else {
+        let Some((pct, bar, name)) = place else {
             continue;
         };
         shown(g, elem.show, |g| {
-            // The name left and the percentage right; a name that does not fit with it gives way to its short one.
-            let pct = g.tabular_width(&elem.text, T_CAPTION, normal);
-            let name = if g.caps_width(&elem.label, T_CAPTION) + pct + S2 <= lw {
+            let r = g.r(pct.0, pct.1, pct.2, pct.3);
+            g.text(&elem.text, r, T_CAPTION, semi, Face::Num, FOREGROUND_2, DT_CENTER);
+            g.vertical_blocks(bar, elem.frac, elem.role.colour());
+            let label = if g.caps_width(&elem.label, T_CAPTION) <= name.2 {
                 &elem.label
             } else {
                 &elem.short
             };
-            let r = g.r(lx, ly, lw, lh);
-            g.caps(name, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
-            let r = g.r(lx, ly, lw, lh);
-            g.text(&elem.text, r, T_CAPTION, normal, Face::Num, FOREGROUND_2, DT_RIGHT);
-            g.solid_bar(bar, elem.frac, elem.role.colour());
+            let r = g.r(name.0, name.1, name.2, name.3);
+            g.caps_fit(label, r, T_CAPTION, 0.0, MUTED_TEXT, DT_CENTER);
         });
     }
-    shown(g, m.steer.show, |g| g.steer_bar(plan.steer, m.steer.frac));
+    // This lap: FULL 62%   BRAKE 14%   COAST 3%, over a hairline.
+    if let Some(share) = &m.lap_share {
+        let (lx, ly, lw, lh) = plan.lap;
+        g.fill(g.r(lx, ly - S1, lw, STROKE_HAIR), BORDER);
+        let third = lw / 3.0;
+        for (i, (word, value)) in share.iter().enumerate() {
+            let x = lx + i as f32 * third;
+            let word_w = g.caps_width(word, T_CAPTION);
+            let value_w = g.tabular_width(value, T_BODY, semi);
+            let total = word_w + S1 + value_w;
+            let start = match i {
+                0 => x,
+                1 => x + (third - total) / 2.0,
+                _ => x + third - total,
+            };
+            let r = g.r(start, ly, word_w + S1, lh);
+            g.caps(word, r, T_CAPTION, MUTED_TEXT, DT_LEFT);
+            let r = g.r(start + word_w + S1, ly, value_w + 2.0, lh);
+            g.text(value, r, T_BODY, semi, Face::Num, FOREGROUND, DT_LEFT);
+        }
+    }
 }
 
 /// The fuel card (owner-approved module 6, 2026-11-19): the laps of fuel left as the hero (green, amber under five laps,
