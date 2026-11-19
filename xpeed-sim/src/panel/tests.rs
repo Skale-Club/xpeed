@@ -1700,7 +1700,8 @@ fn the_tyre_tiles_say_cold_ok_hot_or_over_and_have_a_bar_only_where_the_game_giv
         t.brake_c = f32::NAN;
     }
     let tiles = model(&live, Lang::En).tyres.unwrap().tiles;
-    assert!(tiles.iter().all(|t| t.tread_text.is_none() && t.wear.is_none() && t.brake.is_none()));
+    let bare = |t: &TyreTile| t.tread_text.is_none() && t.wear.is_none() && t.brake.is_none();
+    assert!(tiles.iter().all(bare));
     assert!(
         tiles.iter().all(|t| t.shape == TyreShape::Solid(t.heat)),
         "one temperature per tyre: a solid tyre in its colour"
