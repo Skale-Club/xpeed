@@ -2840,7 +2840,7 @@ fn the_dashboard_model_serialises_for_the_phone() {
         assert!(json.get(key).is_some(), "{key} is in the model's JSON");
     }
     assert!(json["laps"]["rows"].is_array());
-    assert_eq!(json["gear"]["show"], "Shown");
+    assert_eq!(json["gear"]["show"], "shown", "enum values are camelCase too");
 }
 
 #[test]
