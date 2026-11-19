@@ -1944,7 +1944,10 @@ mod tests {
             assert_eq!(slots, [0, 2, 1]);
             let positions: Vec<Option<u16>> = field.cars.iter().map(|c| c.position).collect();
             assert_eq!(positions, [Some(1), Some(2), Some(3)]);
-            assert!(field.cars.iter().all(|c| c.class.is_none() && c.class_position.is_none()), "one class");
+            assert!(
+                field.cars.iter().all(|c| c.class.is_none() && c.class_position.is_none()),
+                "one class"
+            );
             let shares: Vec<Option<f32>> = field.cars.iter().map(|c| c.lap_share).collect();
             assert_eq!(shares, [Some(0.5), Some((2000.0f64 / 5793.0) as f32), Some(0.25)]);
             let laps: Vec<Option<i32>> = field.cars.iter().map(|c| c.laps_done).collect();
@@ -1996,7 +1999,15 @@ mod tests {
         d.feed(&session, 1.0);
         d.feed(&lap, 1.0);
         d.feed(&participants_in(y, 1, 1), 1.0);
-        let named: Vec<String> = d.feed(&tele, 2.5).unwrap().field.unwrap().cars.iter().map(|c| c.name.clone()).collect();
+        let named: Vec<String> = d
+            .feed(&tele, 2.5)
+            .unwrap()
+            .field
+            .unwrap()
+            .cars
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
         assert!(named.iter().all(|n| n.starts_with("Car ")), "{named:?}");
     }
 
@@ -2011,7 +2022,10 @@ mod tests {
         assert_eq!(lap.iter().sum::<usize>(), F1_25.lap_car);
         assert_eq!(F1_25.lap_data_size(), 1285);
         assert_eq!(field_offsets(&lap)[10], F1_25.lap.distance);
-        assert_eq!((field_offsets(&lap)[6], field_offsets(&lap)[8]), (F1_25.lap.delta_front, F1_25.lap.delta_leader));
+        assert_eq!(
+            (field_offsets(&lap)[6], field_offsets(&lap)[8]),
+            (F1_25.lap.delta_front, F1_25.lap.delta_leader)
+        );
         assert_eq!(field_offsets(&lap)[14], F1_25.lap.lap_num);
 
         // ParticipantData (+ numActiveCars): name[32], techLevel, numColours, liveryColours[4] of 3 bytes.

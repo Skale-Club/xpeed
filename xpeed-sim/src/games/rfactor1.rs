@@ -1085,7 +1085,10 @@ mod tests {
         let mut rig = Rig::new("rf1_field", three_cars());
         let mut reader = rig.reader();
         let frame = reader.next(NOW).unwrap();
-        assert_eq!(frame.field.as_ref().expect("the first reading carries the other cars").cars.len(), 3);
+        assert_eq!(
+            frame.field.as_ref().expect("the first reading carries the other cars").cars.len(),
+            3
+        );
         crate::game::assert_frame_within_caps(&frame, CAPS, "rfactor1");
         assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
         rig.image.f32(at::FUEL, 40.0);

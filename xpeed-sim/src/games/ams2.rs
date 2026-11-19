@@ -1292,7 +1292,10 @@ mod tests {
         rig.publish();
         let mut reader = rig.reader();
         let frame = reader.next(NOW).expect("a frame");
-        assert_eq!(frame.field.as_ref().expect("the first reading carries the other cars").cars.len(), 3);
+        assert_eq!(
+            frame.field.as_ref().expect("the first reading carries the other cars").cars.len(),
+            3
+        );
         assert_frame_within_caps(&frame, caps_of(AMS2), "ams2");
         assert!(frame.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
         rig.image.f32(at::SPEED, 60.0);

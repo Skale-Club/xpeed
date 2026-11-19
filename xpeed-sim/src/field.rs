@@ -254,7 +254,12 @@ mod tests {
 
     #[test]
     fn the_gap_to_the_leader_adds_up_the_gaps_ahead() {
-        let mut cars = vec![car(0, "A", 1, None), car(1, "B", 2, None), car(2, "C", 3, None), car(3, "D", 4, None)];
+        let mut cars = vec![
+            car(0, "A", 1, None),
+            car(1, "B", 2, None),
+            car(2, "C", 3, None),
+            car(3, "D", 4, None),
+        ];
         cars[1].gap_ahead_s = Some(1.5);
         cars[2].gap_ahead_s = Some(0.25);
         let mut field = Field { cars, at_s: 0.0 };
@@ -462,11 +467,7 @@ mod tests {
     #[test]
     fn the_relative_list_wraps_at_the_line() {
         // The player has just passed the line; a car at 0.98 is 2 s behind, one at 0.03 is 2 s ahead... and the other way.
-        let f = field(vec![
-            on_track(0, 0.01, true),
-            on_track(1, 0.98, false),
-            on_track(2, 0.04, false),
-        ]);
+        let f = field(vec![on_track(0, 0.01, true), on_track(1, 0.98, false), on_track(2, 0.04, false)]);
         let got: Vec<(u16, i64)> = relative(&f, 3, 3).iter().map(|(c, s)| (c.slot, s.round() as i64)).collect();
         assert_eq!(got, [(2, 3), (0, 0), (1, -3)]);
         let f = field(vec![on_track(0, 0.99, true), on_track(1, 0.02, false), on_track(2, 0.96, false)]);
