@@ -1,18 +1,34 @@
 //! A modeless Win32 window owned by the Monitor. Only the window thread
 //! touches its HWNDs; workers return bounded data through channels.
+//!
+//! The controls stay native (focus, keyboard, screen readers, text
+//! editing); the window paints them in the panel's look (`panel::coach_*`):
+//! its backdrop and cards, custom-drawn buttons and switch, a painted session
+//! picker and dark edits and scroll bars.
 
 use super::*;
 use crate::net::MAX_COACH_QUESTION_UNITS;
+use crate::panel::{self, CoachButton, CoachState};
 use crate::win;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr::{null, null_mut};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows_sys::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, GetStockObject, MonitorFromWindow, COLOR_BTNFACE, DEFAULT_GUI_FONT, HBRUSH, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateSolidBrush, DeleteDC, DeleteObject, EndPaint, GetMonitorInfoW,
+    InvalidateRect, MonitorFromWindow, SelectObject, SetBkColor, SetTextColor, HBRUSH, HDC, HFONT, HGDIOBJ, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, SRCCOPY,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Controls::{
+    GetComboBoxInfo, SetWindowTheme, BST_CHECKED, CDDS_PREPAINT, CDIS_DISABLED, CDIS_FOCUS, CDIS_HOT, CDIS_SELECTED, CDRF_SKIPDEFAULT,
+    COMBOBOXINFO, DRAWITEMSTRUCT, EM_LIMITTEXT, EM_SCROLLCARET, EM_SETSEL, MEASUREITEMSTRUCT, NMCUSTOMDRAW, NMHDR, NM_CUSTOMDRAW,
+    ODS_COMBOBOXEDIT, ODS_SELECTED, ODT_COMBOBOX, ODT_STATIC,
+};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetKeyState, SetFocus, VK_ESCAPE, VK_SHIFT, VK_TAB};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    EnableWindow, GetFocus, GetKeyState, IsWindowEnabled, SetFocus, VK_ESCAPE, VK_SHIFT, VK_TAB,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const CLASS: &str = "XpeedCompanionCoach";
@@ -30,14 +46,42 @@ const WEBSITE: u16 = 107;
 const CLOSE: u16 = 108;
 const TRANSCRIPT: u16 = 109;
 const DRAFT: u16 = 110;
-// WinUser.h edit messages are in the optional Controls feature, which the
-// Companion does not otherwise need.
-const EDIT_LIMIT: u32 = 0x00c5;
-const EDIT_SELECT: u32 = 0x00b1;
-const EDIT_SCROLL_CARET: u32 = 0x00b7;
+const STATUS: u16 = 111;
+const LABEL: u16 = 112;
 const CHECKED: usize = 1;
+/// `SS_OWNERDRAW` (WinUser.h): a static the window paints. Its constant is in a feature the Companion does not use.
+const SS_OWNERDRAW: u32 = 0x0d;
 const MAX_TRANSCRIPT_UNITS: usize = 48_000;
 const MAX_MESSAGE_DISPLAY_UNITS: usize = 16_000;
+
+// The window's measures, in design pixels (96 DPI), on the panel's 4 px grid.
+const MARGIN: i32 = 16;
+const PAD: i32 = 16;
+const GAP: i32 = 12;
+const ROW: i32 = 36;
+const LABEL_H: i32 = 16;
+const NOTE_H: i32 = 40;
+const DRAFT_H: i32 = 84;
+const BUTTON_GAP: i32 = 8;
+/// The session picker's rows, open and closed.
+const PICK_ROW: i32 = 34;
+/// The size the window opens at and the smallest it can be made.
+const OPEN_SIZE: (i32, i32) = (820, 760);
+const MIN_SIZE: (i32, i32) = (680, 620);
+
+/// The scale of a window: its DPI over 96.
+unsafe fn scale_of(hwnd: HWND) -> f32 {
+    GetDpiForWindow(hwnd).max(96) as f32 / 96.0
+}
+
+/// What the window paints under its controls, kept from the last layout.
+#[derive(Clone, Copy, Default)]
+struct Frame {
+    cards: [RECT; 2],
+    /// The draft's box.
+    draft: RECT,
+    rules: [RECT; 2],
+}
 
 #[derive(Clone, Copy)]
 struct Controls {
@@ -59,45 +103,58 @@ struct Controls {
 }
 
 impl Controls {
-    unsafe fn create(owner: HWND) -> Option<Self> {
-        let enable = button(owner, ENABLE, "Enable Coach here", BS_AUTOCHECKBOX as u32)?;
-        let website = button(owner, WEBSITE, "Open website", BS_PUSHBUTTON as u32)?;
-        let status = child(owner, "STATIC", "", 0, 0, 0)?;
-        let session_label = child(owner, "STATIC", "Session", 0, 0, 0)?;
+    unsafe fn create(owner: HWND, font: HFONT) -> Option<Self> {
+        let enable = button(owner, font, ENABLE, "Enable Coach here", BS_AUTOCHECKBOX as u32)?;
+        let website = button(owner, font, WEBSITE, "Open website", BS_PUSHBUTTON as u32)?;
+        let status = child(owner, font, "STATIC", "", STATUS, SS_OWNERDRAW, 0)?;
+        let session_label = child(owner, font, "STATIC", "Session", LABEL, SS_OWNERDRAW, 0)?;
         let sessions = child(
             owner,
+            font,
             "COMBOBOX",
             "",
             SESSIONS,
-            WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
+            WS_TABSTOP | WS_VSCROLL | (CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS) as u32,
             0,
         )?;
-        let refresh = button(owner, REFRESH, "Refresh", BS_PUSHBUTTON as u32)?;
-        let transcript_label = child(owner, "STATIC", "Conversation", 0, 0, 0)?;
+        let refresh = button(owner, font, REFRESH, "Refresh", BS_PUSHBUTTON as u32)?;
+        let transcript_label = child(owner, font, "STATIC", "Conversation", LABEL, SS_OWNERDRAW, 0)?;
         let transcript = child(
             owner,
+            font,
             "EDIT",
             "",
             TRANSCRIPT,
             WS_TABSTOP | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY) as u32,
-            WS_EX_CLIENTEDGE,
+            0,
         )?;
-        let draft_label = child(owner, "STATIC", "Question draft", 0, 0, 0)?;
+        let draft_label = child(owner, font, "STATIC", "Question draft", LABEL, SS_OWNERDRAW, 0)?;
         let draft = child(
             owner,
+            font,
             "EDIT",
             "",
             DRAFT,
             WS_TABSTOP | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32,
-            WS_EX_CLIENTEDGE,
+            0,
         )?;
-        let send = button(owner, SEND, "Send", BS_PUSHBUTTON as u32)?;
-        let record = button(owner, RECORD, "Record", BS_PUSHBUTTON as u32)?;
-        let speak = button(owner, SPEAK, "Speak answer", BS_PUSHBUTTON as u32)?;
-        let stop = button(owner, STOP, "Stop voice", BS_PUSHBUTTON as u32)?;
-        let close = button(owner, CLOSE, "Close", BS_PUSHBUTTON as u32)?;
-        SendMessageW(draft, EDIT_LIMIT, MAX_COACH_QUESTION_UNITS, 0);
-        Some(Self {
+        let send = button(owner, font, SEND, "Send", BS_PUSHBUTTON as u32)?;
+        let record = button(owner, font, RECORD, "Record", BS_PUSHBUTTON as u32)?;
+        let speak = button(owner, font, SPEAK, "Speak answer", BS_PUSHBUTTON as u32)?;
+        let stop = button(owner, font, STOP, "Stop voice", BS_PUSHBUTTON as u32)?;
+        let close = button(owner, font, CLOSE, "Close", BS_PUSHBUTTON as u32)?;
+        SendMessageW(draft, EM_LIMITTEXT, MAX_COACH_QUESTION_UNITS, 0);
+        // Dark scroll bars on the edits and on the picker's open list (Windows 10 1809 and later; older versions
+        // keep their own and ignore the name).
+        let dark = win::wide("DarkMode_Explorer");
+        SetWindowTheme(transcript, dark.as_ptr(), null());
+        SetWindowTheme(draft, dark.as_ptr(), null());
+        let mut info: COMBOBOXINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<COMBOBOXINFO>() as u32;
+        if GetComboBoxInfo(sessions, &mut info) != 0 && !info.hwndList.is_null() {
+            SetWindowTheme(info.hwndList, dark.as_ptr(), null());
+        }
+        let controls = Self {
             enable,
             website,
             status,
@@ -113,48 +170,120 @@ impl Controls {
             speak,
             stop,
             close,
-        })
+        };
+        controls.fit_picker(owner);
+        Some(controls)
     }
 
-    unsafe fn layout(self, hwnd: HWND) {
-        let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-        let px = |value: i32| (value * dpi + 48) / 96;
+    fn all(self) -> [HWND; 15] {
+        [
+            self.enable,
+            self.website,
+            self.status,
+            self.session_label,
+            self.sessions,
+            self.refresh,
+            self.transcript_label,
+            self.transcript,
+            self.draft_label,
+            self.draft,
+            self.send,
+            self.record,
+            self.speak,
+            self.stop,
+            self.close,
+        ]
+    }
+
+    /// Gives every control `font` (after a DPI change) and sizes the picker's rows again.
+    unsafe fn set_font(self, owner: HWND, font: HFONT) {
+        for control in self.all() {
+            SendMessageW(control, WM_SETFONT, font as usize, 1);
+        }
+        self.fit_picker(owner);
+    }
+
+    /// The picker's closed height and its rows follow the DPI (an owner-drawn list does not size itself).
+    unsafe fn fit_picker(self, owner: HWND) {
+        let px = |value: i32| (value as f32 * scale_of(owner)).round() as i32;
+        SendMessageW(self.sessions, CB_SETITEMHEIGHT, usize::MAX, (px(ROW) - 6).max(1) as isize);
+        SendMessageW(self.sessions, CB_SETITEMHEIGHT, 0, px(PICK_ROW).max(1) as isize);
+    }
+
+    /// Places the controls and returns what the window paints under them.
+    unsafe fn layout(self, hwnd: HWND) -> Frame {
+        let scale = scale_of(hwnd);
+        let px = |value: i32| (value as f32 * scale).round() as i32;
         let mut client = RECT::default();
         if GetClientRect(hwnd, &mut client) == 0 {
-            return;
+            return Frame::default();
         }
         let (w, h) = (client.right - client.left, client.bottom - client.top);
-        let margin = px(14);
-        let right = w - margin;
-        let body = w - 2 * margin;
-        let left = margin;
         let row = |control: HWND, x: i32, y: i32, width: i32, height: i32| {
             MoveWindow(control, x, y, width.max(1), height.max(1), 1);
         };
-        row(self.enable, left, px(11), px(210), px(26));
-        row(self.website, right - px(138), px(11), px(138), px(26));
-        row(self.status, left, px(42), body, px(42));
-        row(self.session_label, left, px(89), px(58), px(23));
-        row(self.sessions, left + px(62), px(85), body - px(161), px(285));
-        SendMessageW(self.sessions, CB_SETDROPPEDWIDTH, (body - px(62)).max(1) as usize, 0);
-        row(self.refresh, right - px(90), px(85), px(90), px(26));
-        row(self.transcript_label, left, px(123), body, px(20));
-        let buttons_y = h - px(40);
-        let draft_y = buttons_y - px(66);
-        let draft_label_y = draft_y - px(22);
-        row(self.transcript, left, px(144), body, draft_label_y - px(153));
-        row(self.draft_label, left, draft_label_y, body, px(20));
-        row(self.draft, left, draft_y, body, px(57));
+        let rect = |left: i32, top: i32, right: i32, bottom: i32| RECT { left, top, right, bottom };
+        let (card_left, card_right) = (px(MARGIN), w - px(MARGIN));
+        let (left, right) = (card_left + px(PAD), card_right - px(PAD));
+        let body = right - left;
+        let hair = px(1).max(1);
+
+        // The first card: the switch and the website button, what the Coach is doing, then the session.
+        let top = px(MARGIN);
+        let mut y = top + px(PAD);
+        row(self.enable, left, y, px(280).min(body), px(ROW));
+        row(self.website, right - px(150), y, px(150), px(ROW));
+        y += px(ROW) + px(8);
+        row(self.status, left, y, body, px(NOTE_H));
+        y += px(NOTE_H) + px(GAP);
+        let first_rule = rect(left, y, right, y + hair);
+        y += hair + px(GAP);
+        row(self.session_label, left, y, body, px(LABEL_H));
+        y += px(LABEL_H) + px(8);
+        let refresh_w = px(104);
+        row(self.sessions, left, y, body - refresh_w - px(BUTTON_GAP), px(PICK_ROW * 9));
+        SendMessageW(self.sessions, CB_SETDROPPEDWIDTH, body.max(1) as usize, 0);
+        row(self.refresh, right - refresh_w, y, refresh_w, px(ROW));
+        y += px(ROW) + px(PAD);
+        let first = rect(card_left, top, card_right, y);
+
+        // The second card: the conversation, then the draft and its buttons at the bottom.
+        let top = y + px(GAP);
+        let bottom = (h - px(MARGIN)).max(top + px(PAD) * 2);
+        let buttons_y = bottom - px(PAD) - px(ROW);
         let mut x = left;
-        for (control, width) in [(self.send, 75), (self.record, 82), (self.speak, 111), (self.stop, 92)] {
-            row(control, x, buttons_y, px(width), px(27));
-            x += px(width + 8);
+        for (control, width) in [(self.send, 104), (self.record, 104), (self.speak, 140), (self.stop, 120)] {
+            row(control, x, buttons_y, px(width), px(ROW));
+            x += px(width + BUTTON_GAP);
         }
-        row(self.close, right - px(75), buttons_y, px(75), px(27));
+        row(self.close, right - px(104), buttons_y, px(104), px(ROW));
+        let draft_box = rect(left, buttons_y - px(GAP) - px(DRAFT_H), right, buttons_y - px(GAP));
+        let inset = px(10);
+        row(
+            self.draft,
+            draft_box.left + inset,
+            draft_box.top + px(8),
+            body - 2 * inset,
+            draft_box.bottom - draft_box.top - px(16),
+        );
+        let draft_label_y = draft_box.top - px(8) - px(LABEL_H);
+        row(self.draft_label, left, draft_label_y, body, px(LABEL_H));
+        let second_rule_y = draft_label_y - px(GAP) - hair;
+        let second_rule = rect(left, second_rule_y, right, second_rule_y + hair);
+        let label_y = top + px(PAD);
+        row(self.transcript_label, left, label_y, body, px(LABEL_H));
+        let transcript_y = label_y + px(LABEL_H) + px(8);
+        row(self.transcript, left, transcript_y, body, second_rule_y - px(GAP) - transcript_y);
+        let second = rect(card_left, top, card_right, bottom);
+        Frame {
+            cards: [first, second],
+            draft: draft_box,
+            rules: [first_rule, second_rule],
+        }
     }
 }
 
-unsafe fn child(owner: HWND, class: &str, label: &str, id: u16, style: u32, extended: u32) -> Option<HWND> {
+unsafe fn child(owner: HWND, font: HFONT, class: &str, label: &str, id: u16, style: u32, extended: u32) -> Option<HWND> {
     let control = CreateWindowExW(
         extended,
         win::wide(class).as_ptr(),
@@ -172,10 +301,11 @@ unsafe fn child(owner: HWND, class: &str, label: &str, id: u16, style: u32, exte
     if control.is_null() {
         return None;
     }
-    SendMessageW(control, WM_SETFONT, GetStockObject(DEFAULT_GUI_FONT) as usize, 1);
+    SendMessageW(control, WM_SETFONT, font as usize, 1);
     if style & WS_TABSTOP != 0 {
         // The tray keeps its ordinary message loop. Handle tab traversal only
         // in the controls of this window, without a thread-wide keyboard hook.
+        // The session picker also paints itself here.
         let previous = GetWindowLongPtrW(control, GWLP_WNDPROC);
         let saved = previous != 0 && SetPropW(control, OLD_PROC.as_ptr(), previous as _) != 0;
         if saved && SetWindowLongPtrW(control, GWLP_WNDPROC, control_proc as *const () as isize) == 0 {
@@ -185,14 +315,82 @@ unsafe fn child(owner: HWND, class: &str, label: &str, id: u16, style: u32, exte
     Some(control)
 }
 
-unsafe fn button(owner: HWND, id: u16, label: &str, style: u32) -> Option<HWND> {
-    child(owner, "BUTTON", label, id, WS_TABSTOP | style, 0)
+unsafe fn button(owner: HWND, font: HFONT, id: u16, label: &str, style: u32) -> Option<HWND> {
+    child(owner, font, "BUTTON", label, id, WS_TABSTOP | style, 0)
+}
+
+unsafe fn control_text(control: HWND) -> String {
+    let mut text = [0u16; 512];
+    let len = GetWindowTextW(control, text.as_mut_ptr(), text.len() as i32).max(0) as usize;
+    String::from_utf16_lossy(&text[..len])
+}
+
+/// Paints the closed session picker: an input box with the chosen session and a chevron, as the site's select.
+unsafe fn paint_picker(hwnd: HWND) {
+    let mut paint: PAINTSTRUCT = std::mem::zeroed();
+    let hdc = BeginPaint(hwnd, &mut paint);
+    if hdc.is_null() {
+        return;
+    }
+    let mut client = RECT::default();
+    GetClientRect(hwnd, &mut client);
+    let state = CoachState {
+        disabled: IsWindowEnabled(hwnd) == 0,
+        focus: GetFocus() == hwnd,
+        ..CoachState::default()
+    };
+    let open = SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
+    let scale = scale_of(hwnd);
+    buffered(hdc, client, |dc, r| {
+        panel::coach_select(dc, r, &control_text(hwnd), state, open, scale)
+    });
+    EndPaint(hwnd, &paint);
+}
+
+/// Draws into an off-screen bitmap the size of `area`, then copies it to `hdc` at once (no flicker). `draw` gets the
+/// bitmap and `area` moved to its origin (GDI+ would not follow a moved viewport).
+unsafe fn buffered(hdc: HDC, area: RECT, draw: impl FnOnce(HDC, RECT)) {
+    let (w, h) = ((area.right - area.left).max(1), (area.bottom - area.top).max(1));
+    let memory = CreateCompatibleDC(hdc);
+    let bitmap = CreateCompatibleBitmap(hdc, w, h);
+    if memory.is_null() || bitmap.is_null() {
+        if !bitmap.is_null() {
+            DeleteObject(bitmap);
+        }
+        if !memory.is_null() {
+            DeleteDC(memory);
+        }
+        draw(hdc, area);
+        return;
+    }
+    let old = SelectObject(memory, bitmap);
+    draw(
+        memory,
+        RECT {
+            left: 0,
+            top: 0,
+            right: w,
+            bottom: h,
+        },
+    );
+    BitBlt(hdc, area.left, area.top, w, h, memory, 0, 0, SRCCOPY);
+    SelectObject(memory, old);
+    DeleteObject(bitmap);
+    DeleteDC(memory);
 }
 
 unsafe extern "system" fn control_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let previous = GetPropW(hwnd, OLD_PROC.as_ptr());
     if previous.is_null() {
         return DefWindowProcW(hwnd, message, wparam, lparam);
+    }
+    let picker = GetDlgCtrlID(hwnd) == SESSIONS as i32;
+    if picker && message == WM_PAINT {
+        paint_picker(hwnd);
+        return 0;
+    }
+    if picker && message == WM_ERASEBKGND {
+        return 1;
     }
     if message == WM_KEYDOWN && wparam == VK_TAB as usize {
         let next = GetNextDlgTabItem(GetParent(hwnd), hwnd, i32::from(GetKeyState(VK_SHIFT as i32) < 0));
@@ -205,7 +403,7 @@ unsafe extern "system" fn control_proc(hwnd: HWND, message: u32, wparam: WPARAM,
         return 0;
     }
     if message == WM_KEYDOWN && wparam == VK_ESCAPE as usize {
-        let combo_open = GetDlgCtrlID(hwnd) == SESSIONS as i32 && SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
+        let combo_open = picker && SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
         if !combo_open {
             PostMessageW(GetParent(hwnd), WM_CLOSE, 0, 0);
             return 0;
@@ -215,7 +413,81 @@ unsafe extern "system" fn control_proc(hwnd: HWND, message: u32, wparam: WPARAM,
         RemovePropW(hwnd, OLD_PROC.as_ptr());
     }
     let original: WNDPROC = std::mem::transmute(previous);
-    CallWindowProcW(original, hwnd, message, wparam, lparam)
+    let result = CallWindowProcW(original, hwnd, message, wparam, lparam);
+    if picker && matches!(message, WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE) {
+        InvalidateRect(hwnd, null(), 0);
+    }
+    result
+}
+
+/// Paints a button, the switch or the picker's open list (`NM_CUSTOMDRAW`): needs no state, only the control.
+unsafe fn custom_draw(draw: &NMCUSTOMDRAW) -> LRESULT {
+    if draw.dwDrawStage != CDDS_PREPAINT {
+        return 0;
+    }
+    let control = draw.hdr.hwndFrom;
+    let scale = scale_of(control);
+    let items = draw.uItemState;
+    let state = CoachState {
+        disabled: items & CDIS_DISABLED != 0 || IsWindowEnabled(control) == 0,
+        pressed: items & CDIS_SELECTED != 0,
+        hot: items & CDIS_HOT != 0,
+        focus: items & CDIS_FOCUS != 0,
+    };
+    let label = control_text(control);
+    buffered(draw.hdc, draw.rc, |dc, r| match draw.hdr.idFrom as u16 {
+        ENABLE => {
+            let on = SendMessageW(control, BM_GETCHECK, 0, 0) as usize == BST_CHECKED as usize;
+            panel::coach_switch(dc, r, &label, on, state, scale);
+        }
+        id => {
+            let kind = if matches!(id, SEND | WEBSITE) {
+                CoachButton::Primary
+            } else {
+                CoachButton::Secondary
+            };
+            panel::coach_button(dc, r, &label, kind, state, scale);
+        }
+    });
+    CDRF_SKIPDEFAULT as LRESULT
+}
+
+/// Paints a label, the status line or a row of the picker's open list (`WM_DRAWITEM`).
+unsafe fn draw_item(item: &DRAWITEMSTRUCT) {
+    let scale = scale_of(item.hwndItem);
+    match item.CtlType {
+        ODT_STATIC => {
+            let text = control_text(item.hwndItem);
+            buffered(item.hDC, item.rcItem, |dc, r| {
+                if item.CtlID == u32::from(STATUS) {
+                    panel::coach_note(dc, r, &text, scale);
+                } else {
+                    panel::coach_label(dc, r, &text, scale);
+                }
+            });
+        }
+        // The picker draws its closed box itself (`paint_picker`): send its own redraws of that box there.
+        ODT_COMBOBOX if item.itemID == u32::MAX || item.itemState & ODS_COMBOBOXEDIT != 0 => {
+            InvalidateRect(item.hwndItem, null(), 0);
+        }
+        ODT_COMBOBOX => {
+            let len = SendMessageW(item.hwndItem, CB_GETLBTEXTLEN, item.itemID as usize, 0);
+            let mut text = vec![0u16; len.max(0) as usize + 1];
+            let copied = SendMessageW(item.hwndItem, CB_GETLBTEXT, item.itemID as usize, text.as_mut_ptr() as isize);
+            let text = String::from_utf16_lossy(&text[..copied.max(0) as usize]);
+            buffered(item.hDC, item.rcItem, |dc, r| {
+                panel::coach_list_row(dc, r, &text, item.itemState & ODS_SELECTED != 0, scale);
+            });
+        }
+        _ => {}
+    }
+}
+
+/// The colours of the edits and of the picker's open list (`WM_CTLCOLOR*`).
+unsafe fn control_colour(hdc: HDC, background: COLORREF, text: COLORREF, brush: HBRUSH) -> LRESULT {
+    SetTextColor(hdc, text);
+    SetBkColor(hdc, background);
+    brush as LRESULT
 }
 
 unsafe fn set_text(control: HWND, value: &str) {
@@ -305,6 +577,12 @@ unsafe fn work_area(window: HWND) -> Option<RECT> {
 
 struct State {
     controls: Option<Controls>,
+    /// What the window paints under its controls, from the last layout.
+    frame: Frame,
+    /// The controls' font and the brushes behind the edits, made for the window's DPI and deleted with it.
+    font: HFONT,
+    card_brush: HBRUSH,
+    input_brush: HBRUSH,
     watch: Option<PairingWatch>,
     pairing: PublicPairing,
     scope: Arc<AtomicU64>,
@@ -316,12 +594,68 @@ struct State {
     questions: UncertainQuestions,
     network: Option<NetworkJob>,
     speech: Option<SpeechJob>,
+    /// The window stands alone (`coach-demo`): closing it ends the message loop.
+    quit_on_close: bool,
 }
 
 impl State {
     unsafe fn status(&self, message: &str) {
         if let Some(c) = self.controls {
             set_text(c.status, message);
+            InvalidateRect(c.status, null(), 0);
+        }
+    }
+
+    /// The font and brushes for the window's present DPI (the old ones are deleted).
+    unsafe fn make_resources(&mut self, hwnd: HWND) {
+        self.free_resources();
+        self.font = panel::coach_font(scale_of(hwnd));
+        self.card_brush = CreateSolidBrush(panel::COACH_CARD);
+        self.input_brush = CreateSolidBrush(panel::COACH_INPUT);
+    }
+
+    unsafe fn free_resources(&mut self) {
+        for object in [self.font as HGDIOBJ, self.card_brush as HGDIOBJ, self.input_brush as HGDIOBJ] {
+            if !object.is_null() {
+                DeleteObject(object);
+            }
+        }
+        self.font = null_mut();
+        self.card_brush = null_mut();
+        self.input_brush = null_mut();
+    }
+
+    unsafe fn layout(&mut self, hwnd: HWND) {
+        if let Some(controls) = self.controls {
+            self.frame = controls.layout(hwnd);
+            InvalidateRect(hwnd, null(), 0);
+        }
+    }
+
+    unsafe fn paint(&self, hwnd: HWND) {
+        let mut paint: PAINTSTRUCT = std::mem::zeroed();
+        let hdc = BeginPaint(hwnd, &mut paint);
+        if hdc.is_null() {
+            return;
+        }
+        let mut client = RECT::default();
+        GetClientRect(hwnd, &mut client);
+        let scale = scale_of(hwnd);
+        let frame = self.frame;
+        let typing = self.controls.is_some_and(|c| GetFocus() == c.draft);
+        buffered(hdc, client, |dc, r| {
+            panel::coach_backdrop(dc, r.right, r.bottom, scale, &frame.cards, &[(frame.draft, typing)], &frame.rules);
+        });
+        EndPaint(hwnd, &paint);
+    }
+
+    /// The colours of an edit or of the picker's open list.
+    unsafe fn colour(&self, message: u32, hdc: HDC, control: HWND) -> LRESULT {
+        let Some(c) = self.controls else { return 0 };
+        match message {
+            WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => control_colour(hdc, panel::COACH_INPUT, panel::COACH_TEXT, self.input_brush),
+            _ if control == c.draft => control_colour(hdc, panel::COACH_INPUT, panel::COACH_TEXT_OFF, self.input_brush),
+            _ => control_colour(hdc, panel::COACH_CARD, panel::COACH_TEXT, self.card_brush),
         }
     }
 
@@ -360,8 +694,10 @@ impl State {
         let text = history.map(transcript).unwrap_or_default();
         set_text(c.transcript, &text);
         let end = text.encode_utf16().count();
-        SendMessageW(c.transcript, EDIT_SELECT, end, end as isize);
-        SendMessageW(c.transcript, EDIT_SCROLL_CARET, 0, 0);
+        SendMessageW(c.transcript, EM_SETSEL, end, end as isize);
+        SendMessageW(c.transcript, EM_SCROLLCARET, 0, 0);
+        // A read-only edit without focus may not follow its caret: scroll it to the last message as well.
+        SendMessageW(c.transcript, WM_VSCROLL, SB_BOTTOM as usize, 0);
     }
 
     unsafe fn render_sessions(&self) {
@@ -644,7 +980,7 @@ impl State {
                 let draft = truncate_utf16(&draft, MAX_COACH_QUESTION_UNITS);
                 set_text(c.draft, &draft);
                 let end = draft.encode_utf16().count();
-                SendMessageW(c.draft, EDIT_SELECT, end, end as isize);
+                SendMessageW(c.draft, EM_SETSEL, end, end as isize);
                 SetFocus(c.draft);
                 self.status(if shortened {
                     "Dictation shortened to fit. Review the draft before sending."
@@ -750,6 +1086,8 @@ impl State {
 impl Drop for State {
     fn drop(&mut self) {
         self.cancel_work();
+        // The window and its controls are gone (this runs on WM_NCDESTROY): nothing uses the font or brushes now.
+        unsafe { self.free_resources() };
     }
 }
 
@@ -774,7 +1112,8 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
             let initial = &mut *(create.lpCreateParams as *mut Create);
             let Some(state) = initial.0.take() else { return 0 };
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
-            return 1;
+            // The default handling sets the window's title.
+            return DefWindowProcW(hwnd, message, wparam, lparam);
         }
         WM_NCDESTROY => {
             let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
@@ -790,9 +1129,40 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
         }
         WM_DESTROY => {
             KillTimer(hwnd, TIMER);
+            let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const State;
+            if state.as_ref().is_some_and(|state| state.quit_on_close) {
+                PostQuitMessage(0);
+            }
             return 0;
         }
+        WM_ERASEBKGND => return 1,
+        WM_NOTIFY => {
+            let header = &*(lparam as *const NMHDR);
+            if header.code == NM_CUSTOMDRAW && GetParent(header.hwndFrom) == hwnd {
+                return custom_draw(&*(lparam as *const NMCUSTOMDRAW));
+            }
+            return DefWindowProcW(hwnd, message, wparam, lparam);
+        }
+        WM_DRAWITEM => {
+            draw_item(&*(lparam as *const DRAWITEMSTRUCT));
+            return 1;
+        }
+        WM_MEASUREITEM => {
+            let item = &mut *(lparam as *mut MEASUREITEMSTRUCT);
+            if item.CtlType == ODT_COMBOBOX {
+                let px = |value: i32| (value as f32 * scale_of(hwnd)).round() as i32;
+                item.itemHeight = if item.itemID == u32::MAX { px(ROW) - 6 } else { px(PICK_ROW) }.max(1) as u32;
+            }
+            return 1;
+        }
         WM_DPICHANGED => {
+            let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
+            if let Some(state) = state.as_mut() {
+                state.make_resources(hwnd);
+                if let Some(controls) = state.controls {
+                    controls.set_font(hwnd, state.font);
+                }
+            }
             let bounds = &*(lparam as *const RECT);
             SetWindowPos(
                 hwnd,
@@ -808,8 +1178,8 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
         WM_GETMINMAXINFO => {
             let info = &mut *(lparam as *mut MINMAXINFO);
             let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-            info.ptMinTrackSize.x = 565 * dpi / 96;
-            info.ptMinTrackSize.y = 430 * dpi / 96;
+            info.ptMinTrackSize.x = MIN_SIZE.0 * dpi / 96;
+            info.ptMinTrackSize.y = MIN_SIZE.1 * dpi / 96;
             if let Some(bounds) = work_area(hwnd) {
                 info.ptMinTrackSize.x = info.ptMinTrackSize.x.min(bounds.right - bounds.left);
                 info.ptMinTrackSize.y = info.ptMinTrackSize.y.min(bounds.bottom - bounds.top);
@@ -820,6 +1190,16 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
             // Programmatic changes to edit/combobox controls can send other
             // notifications synchronously. Ignore them before borrowing State.
             let (id, code) = (wparam as u16, (wparam >> 16) as u16);
+            if id == SESSIONS && (code == CBN_DROPDOWN as u16 || code == CBN_CLOSEUP as u16) && lparam != 0 {
+                // The picker's chevron turns while its list is open.
+                InvalidateRect(lparam as HWND, null(), 0);
+                return 0;
+            }
+            if id == DRAFT && (code == EN_SETFOCUS as u16 || code == EN_KILLFOCUS as u16) {
+                // The draft's box has a yellow edge while it is typed in.
+                InvalidateRect(hwnd, null(), 0);
+                return 0;
+            }
             let handled = if id == SESSIONS {
                 code == CBN_SELCHANGE as u16
             } else {
@@ -829,7 +1209,7 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
                 return 0;
             }
         }
-        WM_CREATE | WM_SIZE | WM_TIMER => {}
+        WM_CREATE | WM_SIZE | WM_TIMER | WM_PAINT | WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC | WM_CTLCOLORLISTBOX => {}
         _ => return DefWindowProcW(hwnd, message, wparam, lparam),
     }
     let state = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
@@ -838,25 +1218,30 @@ unsafe fn window_message(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARA
     };
     match message {
         WM_CREATE => {
-            let Some(controls) = Controls::create(hwnd) else { return -1 };
+            state.make_resources(hwnd);
+            let Some(controls) = Controls::create(hwnd, state.font) else {
+                return -1;
+            };
             state.controls = Some(controls);
             state.render_sessions();
-            state.status(if state.watch.is_some() {
+            state.status(if state.quit_on_close {
+                "Demo: made-up sessions and answers. Nothing is sent."
+            } else if state.watch.is_some() {
                 "Coach is off. Checking this computer's pairing…"
             } else {
                 "The computer pairing is unavailable. You can still use the Companion monitor."
             });
             state.update_controls();
-            controls.layout(hwnd);
+            state.layout(hwnd);
+            // After the layout, so the conversation opens scrolled to its last message.
+            state.render_transcript();
             if SetTimer(hwnd, TIMER, TICK_MS, None) == 0 {
                 return -1;
             }
         }
-        WM_SIZE => {
-            if let Some(controls) = state.controls {
-                controls.layout(hwnd);
-            }
-        }
+        WM_SIZE => state.layout(hwnd),
+        WM_PAINT => state.paint(hwnd),
+        WM_CTLCOLOREDIT | WM_CTLCOLORSTATIC | WM_CTLCOLORLISTBOX => return state.colour(message, wparam as HDC, lparam as HWND),
         WM_TIMER if wparam == TIMER => state.tick(),
         WM_COMMAND => state.command(hwnd, wparam as u16),
         _ => {}
@@ -888,25 +1273,12 @@ pub(crate) fn show(owner: HWND, existing: HWND, lang: Lang, icons: [HICON; 2]) -
             SetForegroundWindow(existing);
             return existing;
         }
-        let class = win::wide(CLASS);
-        let instance = GetModuleHandleW(null());
-        let window = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            style: 0,
-            lpfnWndProc: Some(window_proc),
-            cbClsExtra: 0,
-            cbWndExtra: 0,
-            hInstance: instance,
-            hIcon: icons[0],
-            hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-            hbrBackground: (COLOR_BTNFACE + 1) as usize as HBRUSH,
-            lpszMenuName: null(),
-            lpszClassName: class.as_ptr(),
-            hIconSm: icons[1],
-        };
-        RegisterClassExW(&window);
         let state = Box::new(State {
             controls: None,
+            frame: Frame::default(),
+            font: null_mut(),
+            card_brush: null_mut(),
+            input_brush: null_mut(),
             watch: config::default_path().and_then(|path| PairingWatch::start(path).ok()),
             pairing: PublicPairing::default(),
             scope: Arc::new(AtomicU64::new(1)),
@@ -918,44 +1290,180 @@ pub(crate) fn show(owner: HWND, existing: HWND, lang: Lang, icons: [HICON; 2]) -
             questions: UncertainQuestions::default(),
             network: None,
             speech: None,
+            quit_on_close: false,
         });
-        let mut creation = Create(Some(state));
-        let previous_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let dpi = GetDpiForWindow(owner).max(96) as i32;
-        let (mut width, mut height) = (790 * dpi / 96, 650 * dpi / 96);
-        let (x, y) = if let Some(bounds) = work_area(owner) {
-            let (area_w, area_h) = (bounds.right - bounds.left, bounds.bottom - bounds.top);
-            width = width.min(area_w);
-            height = height.min(area_h);
-            (bounds.left + (area_w - width) / 2, bounds.top + (area_h - height) / 2)
-        } else {
-            (CW_USEDEFAULT, CW_USEDEFAULT)
-        };
-        let hwnd = CreateWindowExW(
-            0,
-            class.as_ptr(),
-            win::wide("Xpeed Session Coach").as_ptr(),
-            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-            x,
-            y,
-            width,
-            height,
-            owner,
-            null_mut(),
-            instance,
-            (&mut creation as *mut Create).cast(),
-        );
-        if !previous_context.is_null() {
-            SetThreadDpiAwarenessContext(previous_context);
-        }
-        if !hwnd.is_null() {
-            SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icons[0] as isize);
-            SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icons[1] as isize);
-            ShowWindow(hwnd, SW_SHOWNORMAL);
-            SetForegroundWindow(hwnd);
-        }
-        hwnd
+        open(owner, state, icons)
     }
+}
+
+/// Opens the Coach window alone with made-up sessions and a made-up conversation, so it can be seen without an account.
+/// Nothing is read from the pairing and nothing is sent: with no pairing watch no request can start.
+pub(crate) fn demo(lang: Lang) -> std::process::ExitCode {
+    let session = |id: &str, track: &str, car: &str, game: &str, kind: &str, at: &str| CoachSession {
+        id: id.into(),
+        track: track.into(),
+        car: car.into(),
+        game: game.into(),
+        kind: kind.into(),
+        started_at: at.into(),
+    };
+    let message = |role, content: &str| CoachMessage {
+        role,
+        content: content.into(),
+    };
+    let state = Box::new(State {
+        controls: None,
+        frame: Frame::default(),
+        font: null_mut(),
+        card_brush: null_mut(),
+        input_brush: null_mut(),
+        watch: None,
+        pairing: PublicPairing {
+            revision: 1,
+            server: Some("https://xpeed.skale.club".into()),
+        },
+        scope: Arc::new(AtomicU64::new(1)),
+        enabled: true,
+        permit_required: false,
+        lang,
+        sessions: vec![
+            session(
+                "demo-1",
+                "Spa-Francorchamps",
+                "Porsche 911 GT3 R",
+                "Le Mans Ultimate",
+                "Practice",
+                "2026-11-18T19:42:00Z",
+            ),
+            session(
+                "demo-2",
+                "Monza",
+                "Ferrari 296 GT3",
+                "Assetto Corsa Competizione",
+                "Race",
+                "2026-11-16T21:05:00Z",
+            ),
+            session(
+                "demo-3",
+                "Interlagos",
+                "Ginetta G55",
+                "Automobilista 2",
+                "Qualifying",
+                "2026-11-12T18:30:00Z",
+            ),
+        ],
+        conversation: Some(Conversation {
+            session_id: "demo-1".into(),
+            history: Some(CoachHistory {
+                conversation_id: Some("demo".into()),
+                pending_request: None,
+                messages: vec![
+                    message(CoachRole::User, "Where am I losing the most time on this lap?"),
+                    message(
+                        CoachRole::Assistant,
+                        "Mostly in sector 2. Into Les Combes you brake about 15 m earlier than on your best lap and carry 6 km/h \
+                         less to the apex. On Pouhon you lift twice; one smooth lift is worth about 0.3 s.",
+                    ),
+                    message(CoachRole::User, "How should I take Eau Rouge?"),
+                    message(
+                        CoachRole::Assistant,
+                        "Flat in this car if the line is right: keep to the left on the way in, let the car run wide at the top \
+                         and do not touch the brake. Your fastest laps all had full throttle there.",
+                    ),
+                ],
+            }),
+        }),
+        questions: UncertainQuestions::default(),
+        network: None,
+        speech: None,
+        quit_on_close: true,
+    });
+    let icons = crate::tray::program_icons();
+    let hwnd = unsafe { open(null_mut(), state, icons) };
+    if !hwnd.is_null() {
+        unsafe {
+            let mut message: MSG = std::mem::zeroed();
+            while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+    }
+    unsafe {
+        DestroyIcon(icons[0]);
+        DestroyIcon(icons[1]);
+    }
+    if hwnd.is_null() {
+        std::process::ExitCode::FAILURE
+    } else {
+        std::process::ExitCode::SUCCESS
+    }
+}
+
+unsafe fn open(owner: HWND, state: Box<State>, icons: [HICON; 2]) -> HWND {
+    let class = win::wide(CLASS);
+    let instance = GetModuleHandleW(null());
+    let window = WNDCLASSEXW {
+        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        style: 0,
+        lpfnWndProc: Some(window_proc),
+        cbClsExtra: 0,
+        cbWndExtra: 0,
+        hInstance: instance,
+        hIcon: icons[0],
+        hCursor: LoadCursorW(null_mut(), IDC_ARROW),
+        hbrBackground: null_mut(),
+        lpszMenuName: null(),
+        lpszClassName: class.as_ptr(),
+        hIconSm: icons[1],
+    };
+    RegisterClassExW(&window);
+    let mut creation = Create(Some(state));
+    let previous_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    let anchor = if owner.is_null() { GetDesktopWindow() } else { owner };
+    let dpi = if owner.is_null() {
+        96
+    } else {
+        GetDpiForWindow(owner).max(96) as i32
+    };
+    let (mut width, mut height) = (OPEN_SIZE.0 * dpi / 96, OPEN_SIZE.1 * dpi / 96);
+    let (x, y) = if let Some(bounds) = work_area(anchor) {
+        let (area_w, area_h) = (bounds.right - bounds.left, bounds.bottom - bounds.top);
+        width = width.min(area_w);
+        height = height.min(area_h);
+        (bounds.left + (area_w - width) / 2, bounds.top + (area_h - height) / 2)
+    } else {
+        (CW_USEDEFAULT, CW_USEDEFAULT)
+    };
+    let hwnd = CreateWindowExW(
+        0,
+        class.as_ptr(),
+        win::wide("Xpeed Session Coach").as_ptr(),
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        x,
+        y,
+        width,
+        height,
+        owner,
+        null_mut(),
+        instance,
+        (&mut creation as *mut Create).cast(),
+    );
+    if !previous_context.is_null() {
+        SetThreadDpiAwarenessContext(previous_context);
+    }
+    if !hwnd.is_null() {
+        // A dark title bar in the window's colour, as the panel's (Windows 11; older versions ignore it).
+        let dark: i32 = 1;
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE as u32, (&dark as *const i32).cast(), 4);
+        let caption = panel::COACH_BACKGROUND;
+        DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR as u32, (&caption as *const COLORREF).cast(), 4);
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icons[0] as isize);
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icons[1] as isize);
+        ShowWindow(hwnd, SW_SHOWNORMAL);
+        SetForegroundWindow(hwnd);
+    }
+    hwnd
 }
 
 #[cfg(test)]
