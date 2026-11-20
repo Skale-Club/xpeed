@@ -200,12 +200,7 @@ const RACE_SQUARE: &[Row] = &[
     },
     Row {
         h: 250.0,
-        cards: &[
-            (Pane::Relative, 1.1),
-            (Pane::Standings, 1.3),
-            (Pane::Gaps, 0.9),
-            (Pane::Radar, 0.9),
-        ],
+        cards: &[(Pane::Relative, 1.1), (Pane::Standings, 1.3), (Pane::Gaps, 0.9), (Pane::Radar, 0.9)],
     },
     Row {
         h: 232.0,

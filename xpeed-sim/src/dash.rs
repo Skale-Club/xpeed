@@ -2182,9 +2182,16 @@ mod tests {
         let mut frame = at(1, 100.0, 5.0, None);
         assert_eq!(tracker.on_frame("iracing", &frame, 0).spotter, None);
         frame.spotter = Some(crate::game::Spotter::TwoLeft);
-        assert_eq!(tracker.on_frame("iracing", &frame, 100).spotter, Some(crate::game::Spotter::TwoLeft));
+        assert_eq!(
+            tracker.on_frame("iracing", &frame, 100).spotter,
+            Some(crate::game::Spotter::TwoLeft)
+        );
         frame.spotter = None;
-        assert_eq!(tracker.on_frame("iracing", &frame, 200).spotter, None, "not kept once the game stops giving it");
+        assert_eq!(
+            tracker.on_frame("iracing", &frame, 200).spotter,
+            None,
+            "not kept once the game stops giving it"
+        );
     }
 
     #[test]

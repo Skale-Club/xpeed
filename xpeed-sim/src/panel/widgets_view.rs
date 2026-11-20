@@ -637,7 +637,12 @@ pub(super) fn radar_card(g: &mut Painter, d: &Dash, card: Area) {
                 for (bars, side) in [(m.left_bars, -1.0_f32), (m.right_bars, 1.0)] {
                     for n in 0..bars {
                         let out = half.0 + S1 + bar_half_w + f32::from(n) * (2.0 * bar_half_w + S1);
-                        radar_rect(g, (centre.0 + side * out, centre.1), (bar_half_w, half.1 * 1.5), Role::Danger.colour());
+                        radar_rect(
+                            g,
+                            (centre.0 + side * out, centre.1),
+                            (bar_half_w, half.1 * 1.5),
+                            Role::Danger.colour(),
+                        );
                     }
                 }
             }
