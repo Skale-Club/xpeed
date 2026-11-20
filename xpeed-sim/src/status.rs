@@ -544,6 +544,17 @@ impl Shared {
         }
     }
 
+    /// A layout may finish while its reader is quiet. Update only the snapshot of that exact layout,
+    /// without changing telemetry freshness or making it take focus from another game.
+    pub(crate) fn refresh_live_layout(&self, key: &crate::tracks::auto::Seen, layout: &crate::maps::LayoutView) {
+        if let Some(live) = lock(&self.live)
+            .as_mut()
+            .filter(|live| live.game_id == key.game && live.track == key.track && live.track_variant == key.variant)
+        {
+            live.layout = layout.clone();
+        }
+    }
+
     /// The latest reading, with the reference laps when they are for the track and car it shows (a car just changed has none until the
     /// fetcher has looked).
     pub fn live(&self) -> Option<Live> {

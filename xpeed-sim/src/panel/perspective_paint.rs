@@ -25,10 +25,10 @@ struct PathKey {
 
 // Retaining the immutable source prevents its allocation address from being reused while its geometry is cached.
 type PreparedEntry = Option<(PathKey, Arc<Vec<Point>>, Rc<PreparedPath>)>;
-type PathCache = [PreparedEntry; 3];
+type PathCache = [PreparedEntry; 2];
 
 thread_local! {
-    static PATHS: RefCell<PathCache> = const { RefCell::new([None, None, None]) };
+    static PATHS: RefCell<PathCache> = const { RefCell::new([None, None]) };
 }
 
 fn prepared(slot: usize, path: &Arc<Vec<Point>>, complete: bool) -> Rc<PreparedPath> {
@@ -83,8 +83,7 @@ impl Painter {
     pub(super) fn track_perspective(
         &self,
         area: (f32, f32, f32, f32),
-        path: &Arc<Vec<Point>>,
-        complete: bool,
+        path: &PreparedPath,
         road: Option<&Road>,
         trail: &Arc<Vec<Point>>,
         reference: Option<&Arc<Vec<Point>>>,
@@ -100,9 +99,8 @@ impl Painter {
         {
             return false;
         }
-        let path = prepared(0, path, complete);
-        let trail = prepared(1, trail, false);
-        let reference = reference.map(|p| prepared(2, p, true));
+        let trail = prepared(0, trail, false);
+        let reference = reference.map(|p| prepared(1, p, true));
         let camera = Camera {
             width: w,
             height: h,
@@ -110,8 +108,8 @@ impl Painter {
             heading,
             mirrored,
         };
-        let scene = perspective::scene(camera, &path, road, &trail, reference.as_deref());
-        if scene.center.is_empty() && scene.road.is_empty() && scene.trail.is_empty() && scene.reference.is_empty() {
+        let scene = perspective::scene(camera, path, road, &trail, reference.as_deref());
+        if !scene.has_layout() {
             return false;
         }
         let to_px = |p: Point| PointF {

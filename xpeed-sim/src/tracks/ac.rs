@@ -22,6 +22,8 @@
 //! middle between its two edges, and the original line is kept as the `fast` line. Valid source bases preserve explicit
 //! sampled side-envelope coordinates in XTRK v2. Mods without usable bases retain the v1 tangent approximation with a warning.
 
+use std::fs::{self, File, Metadata};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use super::*;
@@ -30,6 +32,9 @@ const POINT_BYTES: usize = 20;
 const DETAIL_BYTES: usize = 72;
 const HEADER_BYTES: usize = 16;
 pub const SOURCE: &str = "fast_lane.ai";
+pub(super) const PIT_SOURCE: &str = "pit_lane.ai";
+pub(super) const MAX_AI_FILE_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_METADATA_BYTES: usize = 1024 * 1024;
 
 /// How far the whole stored distance may be from the sum of the straight pieces between the points.
 const DIST_RATIO: (f64, f64) = (0.95, 1.05);
@@ -60,8 +65,7 @@ fn i32_at(bytes: &[u8], at: usize) -> i32 {
     i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
-/// Reads a `.ai` file. Only structure is checked here (sizes, version, indices); `analyse` checks the geometry.
-pub fn parse_ai(bytes: &[u8]) -> Result<Vec<AiPoint>, Refusal> {
+fn point_count(bytes: &[u8]) -> Result<usize, Refusal> {
     if bytes.len() < HEADER_BYTES {
         return refuse(
             "ai_stub",
@@ -83,8 +87,18 @@ pub fn parse_ai(bytes: &[u8]) -> Result<Vec<AiPoint>, Refusal> {
     if n > MAX_POINTS {
         return refuse("ai_too_many", format!("{n} points, more than the {MAX_POINTS} allowed"));
     }
+    Ok(n)
+}
+
+fn geometry_bytes(n: usize) -> usize {
+    HEADER_BYTES + n * (POINT_BYTES + DETAIL_BYTES) + 4
+}
+
+/// Reads a `.ai` file. Only structure is checked here (sizes, version, indices); `analyse` checks the geometry.
+pub fn parse_ai(bytes: &[u8]) -> Result<Vec<AiPoint>, Refusal> {
+    let n = point_count(bytes)?;
     let details_at = HEADER_BYTES + n * POINT_BYTES;
-    let need = details_at + 4 + n * DETAIL_BYTES;
+    let need = geometry_bytes(n);
     if bytes.len() < need {
         return refuse(
             "ai_truncated",
@@ -476,8 +490,7 @@ pub fn layout_of_ai_dir(ai_dir: &Path) -> Option<Layout> {
     })
 }
 
-/// The `ui_track.json` and `map.ini` of a layout, as far as they exist and can be read.
-pub fn read_outside(layout: &Layout) -> Outside {
+fn ui_candidates(layout: &Layout) -> Vec<PathBuf> {
     let track_dir = if layout.variant.is_some() {
         layout.dir.parent().map(Path::to_path_buf).unwrap_or_else(|| layout.dir.clone())
     } else {
@@ -488,15 +501,41 @@ pub fn read_outside(layout: &Layout) -> Outside {
         candidates.push(track_dir.join("ui").join(v).join("ui_track.json"));
     }
     candidates.push(track_dir.join("ui").join("ui_track.json"));
-    let text = candidates
+    candidates
+}
+
+fn map_ini_path(layout: &Layout) -> PathBuf {
+    layout.dir.join("data").join("map.ini")
+}
+
+/// Include optional inputs even when absent. Their appearance can change validation and the exported title.
+pub(super) fn dependencies(layout: &Layout) -> Vec<PathBuf> {
+    let mut sources = vec![layout.ai_dir.join(SOURCE), layout.ai_dir.join(PIT_SOURCE), map_ini_path(layout)];
+    sources.extend(ui_candidates(layout));
+    sources
+}
+
+fn read_file(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(limit as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > limit {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "source file exceeds its size limit"));
+    }
+    Ok(bytes)
+}
+
+/// The `ui_track.json` and `map.ini` of a layout, as far as they exist and can be read.
+pub fn read_outside(layout: &Layout) -> Outside {
+    let text = ui_candidates(layout)
         .iter()
-        .find_map(|p| std::fs::read(p).ok())
+        .find_map(|p| read_file(p, MAX_METADATA_BYTES).ok())
         .map(|b| String::from_utf8_lossy(&b).trim_start_matches('\u{feff}').to_owned());
     Outside {
         ui_title: text.as_deref().and_then(|t| json_field(t, "name")).filter(|n| is_text(n, 120)),
         ui_length_raw: text.as_deref().and_then(|t| json_field(t, "length")),
-        map: std::fs::read_to_string(layout.dir.join("data").join("map.ini"))
+        map: read_file(&map_ini_path(layout), MAX_METADATA_BYTES)
             .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
             .and_then(|t| parse_map_ini(&t)),
     }
 }
@@ -505,13 +544,16 @@ pub fn read_outside(layout: &Layout) -> Outside {
 // From the files to a track
 // ---------------------------------------------------------------------------------------------
 
-/// How far the pit lane may be from the track's line before it is thought to belong to another layout, in metres.
-const PIT_MAX_DISTANCE_M: f64 = 300.0;
-
 /// Turns the bytes of `fast_lane.ai` (and, when there is one, `pit_lane.ai`) into a track. `outside` is what the
 /// game's other files say about the same layout; it is how the result is cross-checked.
-pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Option<&str>, outside: &Outside) -> Result<Extracted, Refusal> {
-    let points = parse_ai(fast)?;
+pub fn extract_bytes(
+    fast_bytes: &[u8],
+    pit: Option<&[u8]>,
+    track: &str,
+    variant: Option<&str>,
+    outside: &Outside,
+) -> Result<Extracted, Refusal> {
+    let points = parse_ai(fast_bytes)?;
     let geometry = analyse(&points)?;
     let mut report = Report::default();
     let n = points.len();
@@ -677,7 +719,11 @@ pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Opti
     let dist: Vec<f32> = points.iter().map(|p| p.dist).collect();
 
     let pitlane = match pit {
-        Some(bytes) => match extract_pit(bytes, &fast) {
+        Some(bytes) if bytes == fast_bytes => {
+            report.warnings.push("pit lane left out: identical to the main AI line".into());
+            None
+        }
+        Some(bytes) => match extract_pit(bytes, &fast, &geometry) {
             Ok((pit, note)) => {
                 report.notes.push(note);
                 Some(pit)
@@ -722,7 +768,7 @@ pub fn extract_bytes(fast: &[u8], pit: Option<&[u8]>, track: &str, variant: Opti
     Ok(Extracted { track: result, report })
 }
 
-fn extract_pit(bytes: &[u8], main: &Fast) -> Result<(Pitlane, String), String> {
+fn extract_pit(bytes: &[u8], main: &Fast, geometry: &Geometry) -> Result<(Pitlane, String), String> {
     let points = parse_ai(bytes).map_err(|r| r.to_string())?;
     if points.len() < 2 {
         return Err("fewer than 2 points".into());
@@ -731,27 +777,26 @@ fn extract_pit(bytes: &[u8], main: &Fast) -> Result<(Pitlane, String), String> {
         return Err("a point is not a number".into());
     }
     let (x, z): (Vec<f32>, Vec<f32>) = points.iter().map(|p| (p.x, p.z)).unzip();
+    if x == main.x && z == main.z {
+        return Err("the pit and main AI line use the same coordinates".into());
+    }
     let length = path_length(&x, &z);
     if length < 20.0 {
         return Err(format!("only {length:.0} m long"));
     }
-    // The pit lane must lie by the road: every point near some point of the line, or the file is of another layout.
-    let far = (0..x.len())
-        .map(|i| {
-            (0..main.x.len())
-                .map(|j| (f64::from(x[i]) - f64::from(main.x[j])).hypot(f64::from(z[i]) - f64::from(main.z[j])))
-                .fold(f64::INFINITY, f64::min)
-        })
-        .fold(0.0, f64::max);
-    if far > PIT_MAX_DISTANCE_M {
-        return Err(format!("a point is {far:.0} m from the track's line: it belongs to another layout"));
+    let last = x.len() - 1;
+    let gap = f64::from(x[0] - x[last]).hypot(f64::from(z[0] - z[last]));
+    if geometry.closed && gap <= CLOSED_GAP_M && length >= 0.8 * geometry.length_m {
+        return Err("source describes a near-full closed loop, without an open pit branch".into());
     }
+    let coords = |(&x, &z): (&f32, &f32)| (f64::from(x), f64::from(z));
+    check_pit_near_main(main.x.iter().zip(&main.z).map(coords), x.iter().zip(&z).map(coords))?;
     let widths = clean_widths(
         &points.iter().map(|p| p.side_left).collect::<Vec<_>>(),
         &points.iter().map(|p| p.side_right).collect::<Vec<_>>(),
     );
     let note = format!(
-        "pit lane: {} points, {length:.0} m, at most {far:.0} m from the line, width {}",
+        "pit lane: {} points, {length:.0} m, within {PIT_MAX_DISTANCE_M:.0} m of the line, width {}",
         x.len(),
         if widths.kept {
             format!("median {:.1} m", widths.median_m)
@@ -770,14 +815,49 @@ fn extract_pit(bytes: &[u8], main: &Fast) -> Result<(Pitlane, String), String> {
     ))
 }
 
+/// Only the header, point records, detail count and detail records are needed.
+/// Preserve a short or malformed prefix for the parser to classify normally.
+fn read_ai_geometry(path: &Path) -> Result<Vec<u8>, Refusal> {
+    let io_error = |error| Refusal {
+        code: "io",
+        message: format!("cannot read {}: {error}", path.display()),
+    };
+    let check_file = |metadata: &Metadata| {
+        if !metadata.is_file() {
+            return refuse("io", format!("{} is not a regular AI file", path.display()));
+        }
+        if metadata.len() > MAX_AI_FILE_BYTES {
+            return refuse(
+                "ai_too_large",
+                format!(
+                    "{} is {} bytes, over the {MAX_AI_FILE_BYTES}-byte AI source limit",
+                    path.display(),
+                    metadata.len()
+                ),
+            );
+        }
+        Ok(())
+    };
+    check_file(&fs::metadata(path).map_err(io_error)?)?;
+    let mut file = File::open(path).map_err(io_error)?;
+    let metadata = file.metadata().map_err(io_error)?;
+    check_file(&metadata)?;
+
+    let mut bytes = Vec::with_capacity(HEADER_BYTES);
+    (&mut file).take(HEADER_BYTES as u64).read_to_end(&mut bytes).map_err(io_error)?;
+    if let Ok(n) = point_count(&bytes) {
+        let remaining = geometry_bytes(n).min(metadata.len() as usize).saturating_sub(bytes.len());
+        bytes.reserve_exact(remaining);
+        (&mut file).take(remaining as u64).read_to_end(&mut bytes).map_err(io_error)?;
+        check_file(&file.metadata().map_err(io_error)?)?;
+    }
+    Ok(bytes)
+}
+
 /// Reads the files of a layout and extracts its track.
 pub fn extract(layout: &Layout) -> Result<Extracted, Refusal> {
-    let fast_path = layout.ai_dir.join(SOURCE);
-    let fast = std::fs::read(&fast_path).map_err(|e| Refusal {
-        code: "io",
-        message: format!("cannot read {}: {e}", fast_path.display()),
-    })?;
-    let pit = std::fs::read(layout.ai_dir.join("pit_lane.ai")).ok();
+    let fast = read_ai_geometry(&layout.ai_dir.join(SOURCE))?;
+    let pit = read_ai_geometry(&layout.ai_dir.join(PIT_SOURCE)).ok();
     extract_bytes(
         &fast,
         pit.as_deref(),
@@ -1034,6 +1114,31 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn reads_only_the_geometry_of_an_ai_file_with_a_large_tail() {
+        let root = crate::config::scratch_dir("ac-spline-geometry-prefix");
+        let path = root.join(SOURCE);
+        let small = circle();
+        fs::write(&path, &small).unwrap();
+        let file = File::options().write(true).open(&path).unwrap();
+        file.set_len(super::super::MAX_UNPACKED as u64 + 1).unwrap();
+        let prefix = read_ai_geometry(&path).unwrap();
+        assert_eq!(prefix, small[..geometry_bytes(600)]);
+        let track = extract_bytes(&prefix, None, "circle", None, &Outside::default()).unwrap().track;
+        assert_eq!(track.centerline.x.len(), 600);
+
+        file.set_len(MAX_AI_FILE_BYTES + 1).unwrap();
+        assert_eq!(read_ai_geometry(&path).unwrap_err().code, "ai_too_large");
+        file.set_len(HEADER_BYTES as u64 - 4).unwrap();
+        let stub = read_ai_geometry(&path).unwrap();
+        assert_eq!(parse_ai(&stub).unwrap_err().code, "ai_stub");
+        fs::write(&path, &small[..geometry_bytes(600) - 1]).unwrap();
+        let truncated = read_ai_geometry(&path).unwrap();
+        assert_eq!(parse_ai(&truncated).unwrap_err().code, "ai_truncated");
+        drop(file);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn the_length_in_ui_track_json_and_the_map_picture_confirm_or_refuse() {
         let bytes = circle();
         let outside = |length: Option<&str>, map: Option<MapIni>| Outside {
@@ -1145,6 +1250,32 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn leaves_out_duplicate_and_shadow_full_loop_pit_splines() {
+        let main = synthetic(48_000, 1_000.0, std::f64::consts::TAU, 3.0, 3.0);
+        let found = extract_bytes(&main, Some(&main), "traffic", None, &Outside::default()).unwrap();
+        assert!(found.track.pitlane.is_none());
+        assert!(found.report.warnings.iter().any(|warning| warning.contains("identical")));
+
+        let main = circle();
+        let loop_pit = synthetic(400, 105.0, std::f64::consts::TAU, 2.0, 2.0);
+        let found = extract_bytes(&main, Some(&loop_pit), "circle", None, &Outside::default()).unwrap();
+        assert!(found.track.pitlane.is_none());
+        assert!(found
+            .report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("near-full closed loop")));
+    }
+
+    #[test]
+    fn pit_proximity_checks_neighbor_cells_and_stops_at_the_work_limit() {
+        assert!(check_pit_near_main([(301.0, -1.0)], [(299.0, 1.0)]).is_ok());
+        let dense_corner = std::iter::repeat_n((-299.0, -299.0), 10_000).chain([(0.0, 0.0)]);
+        let error = check_pit_near_main(dense_corner, [(0.0, 0.0); 201]).unwrap_err();
+        assert!(error.contains("work limit"));
+    }
+
+    #[test]
     fn finds_the_track_and_the_layout_from_a_folder() {
         let root = std::env::temp_dir().join(format!("xpeed-ac-layout-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1175,12 +1306,50 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[test]
+    #[ignore = "reads five installed High Force layout prefixes; validation must refuse zero progress"]
+    fn installed_high_force_reads_large_ai_prefixes_and_refuses_zero_progress() {
+        let track_dir = crate::tracks::dump::game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content/tracks")
+            .iter()
+            .map(|root| root.join("highforce"))
+            .find(|dir| dir.join("high_force/ai/fast_lane.ai").is_file())
+            .expect("the High Force mod is installed");
+        for variant in ["high_force", "langdon_beck", "middleton", "saint_johns_chapel", "stanhope"] {
+            let dir = track_dir.join(variant);
+            let layout = Layout {
+                ai_dir: dir.join("ai"),
+                dir,
+                track: "highforce".into(),
+                variant: Some(variant.into()),
+            };
+            let source = layout.ai_dir.join(SOURCE);
+            let file_bytes = fs::metadata(&source).unwrap().len();
+            assert!(file_bytes > MAX_UNPACKED as u64);
+            let prefix = read_ai_geometry(&source).unwrap_or_else(|error| panic!("{variant}: {error}"));
+            let points = parse_ai(&prefix).unwrap_or_else(|error| panic!("{variant}: {error}"));
+            let zero_progress = points.iter().filter(|point| point.dist == 0.0).count();
+            let code = match extract(&layout) {
+                Ok(_) => "accepted",
+                Err(refusal) => refusal.code,
+            };
+            eprintln!(
+                "highforce/{variant}: {file_bytes} file bytes, {} geometry bytes, {} points, {zero_progress} zero-progress points, {code}",
+                prefix.len(),
+                points.len()
+            );
+            assert_eq!(points.len(), 66_468, "{variant}");
+            assert_eq!(prefix.len(), geometry_bytes(points.len()), "{variant}");
+            assert_eq!(zero_progress, points.len(), "{variant}");
+            assert_eq!(code, "ai_dist_zero", "{variant}");
+        }
+    }
+
     /// Every `fast_lane.ai` of the installed game, checked and tallied. Run it with
     /// `cargo test -- --ignored --nocapture validates_every_installed_ac_track`; it does nothing when the game is not installed.
     #[test]
     #[ignore = "reads the installed game; run by hand"]
     fn exports_representative_installed_ac_cross_sections() {
-        let Some(root) = crate::tracks::dump::game_folders("XPEED_AC_DIR", "assettocorsa", "content/tracks")
+        let Some(root) = crate::tracks::dump::game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content/tracks")
             .into_iter()
             .find(|p| p.is_dir())
         else {
@@ -1210,7 +1379,7 @@ pub(crate) mod tests {
     #[ignore = "reads the installed game; run by hand"]
     fn validates_every_installed_ac_track() {
         use std::collections::BTreeMap;
-        let Some(root) = crate::tracks::dump::game_folders("XPEED_AC_DIR", "assettocorsa", "content/tracks")
+        let Some(root) = crate::tracks::dump::game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content/tracks")
             .into_iter()
             .find(|p| p.is_dir())
         else {

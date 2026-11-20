@@ -1593,6 +1593,7 @@ SessionInfo:\n Sessions:\n - SessionNum: 0\n   SessionType: Practice\nDriverInfo
         let mut reader = IRacing::open_named(&fake.name).expect("opens");
         assert_eq!((reader.game_id(), reader.game_name()), ("iracing", "iRacing"));
         let frame = reader.next(Duration::ZERO).expect("a frame");
+        crate::engine::assert_live_source_frame(&reader, &frame, ("iracing", "iRacing"), Some(-10.0));
         assert!(frame.driving && frame.lap == 3);
         assert_eq!(frame.car, "Mazda MX-5 Cup");
         assert!(reader.next(Duration::ZERO).is_none(), "the same tick is not read twice");

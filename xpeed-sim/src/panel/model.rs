@@ -75,11 +75,6 @@ pub(super) fn fastest_valid(laps: &[SavedLap]) -> Option<u32> {
     laps.iter().filter(|l| l.valid).map(|l| l.time_ms).min()
 }
 
-/// The track map is drawn once the car has driven enough of a path.
-pub(super) fn has_map(live: &Live) -> bool {
-    live.map.as_ref().is_some_and(|m| m.len() >= 30)
-}
-
 /// Under this many laps of fuel, while driving, the fuel warns.
 pub(super) const FUEL_LOW_LAPS: f32 = 2.0;
 
@@ -1428,7 +1423,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     });
     let map = if !slots.map {
         Show::Hidden
-    } else if fresh && has_map(live) {
+    } else if fresh && matches!(&live.layout, crate::maps::LayoutView::Ready(_)) {
         Show::Shown
     } else {
         Show::Dimmed

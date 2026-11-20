@@ -1674,6 +1674,7 @@ mod tests {
         let mut reader = rig.reader();
         assert_eq!((reader.game_id(), reader.game_name()), ("acevo", "Assetto Corsa EVO"));
         let frame = reader.next(NOW).expect("a frame");
+        crate::engine::assert_live_source_frame(&reader, &frame, ("acevo", "Assetto Corsa EVO"), Some(10.0));
         let mut want = Frame::empty();
         want.clock_s = frame.clock_s;
         assert_frame_within_caps(&frame, reader.caps(), "acevo");

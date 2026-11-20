@@ -19,7 +19,7 @@ use crate::persistence::{with_saver, Saver as AsyncSaver};
 use crate::session::EndReason;
 use crate::status::{Game, SavedLap, Shared};
 use crate::supervisor::{self, supervise, Ended, Policy};
-use crate::tracks::auto::{self, Folders, Seen};
+use crate::tracks::auto::{self, Folders, Request};
 use crate::util::{clock, file_safe, iso_utc, now_ms};
 use crate::watch::{detect, quiet_state, Watch};
 
@@ -300,10 +300,14 @@ fn handle_frame(
     tracker: &mut Tracker,
     shared: &Shared,
     saved: &dyn Fn(&lapfile::Lap),
+    tracks: Option<&mpsc::Sender<Request>>,
 ) {
     tracker.set_caps(source.caps());
-    shared.offer_live(tracker.on_frame(source.game_name(), frame, now_ms()));
-    for mut lap in cutter.on_frame(frame, now_ms()) {
+    let game = source.game_id();
+    tracker.layout.observe(tracks, game, frame, Instant::now());
+    let at_ms = now_ms();
+    shared.offer_live(tracker.on_game_frame(game, source.game_name(), frame, at_ms));
+    for mut lap in cutter.on_frame(frame, at_ms) {
         source.finish_lap(&mut lap);
         saved(&lap);
     }
@@ -316,6 +320,41 @@ fn handle_frame(
         .any(|reason| matches!(reason, EndReason::CarChanged | EndReason::TrackChanged))
     {
         shared.clear_recent_laps();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn assert_live_source_frame(source: &dyn Source, frame: &Frame, identity: (&str, &str), right_x: Option<f32>) {
+    let shared = Shared::new(false);
+    let mut cutter = LapCutter::new(source.game_id());
+    let mut tracker = Tracker::default();
+    handle_frame(frame, source, &mut cutter, &mut tracker, &shared, &|_| {}, None);
+    let live = shared.live().unwrap();
+    assert_eq!((live.game_id, live.game), identity);
+    assert_eq!((&live.track, &live.track_variant), (&frame.track, &frame.track_variant));
+    let position = (frame.x.is_finite() && frame.z.is_finite()).then_some((frame.x, frame.z));
+    assert_eq!(live.pos, position);
+
+    if let Some(right_x) = right_x {
+        use crate::perspective::Camera;
+        let car = live.pos.unwrap();
+        let camera = Camera {
+            width: 736.0,
+            height: 400.0,
+            car,
+            heading: (0.0, 1.0),
+            mirrored: live.mirrored_ground(),
+        };
+        let [left, right] = [-right_x, right_x].map(|offset| {
+            camera
+                .segment((car.0 + offset, car.1 + 40.0), (car.0 + offset, car.1 + 50.0))
+                .unwrap()
+                .1
+        });
+        assert!(
+            left.0 < camera.anchor().0 && right.0 > camera.anchor().0,
+            "{identity:?}: left {left:?}, right {right:?}"
+        );
     }
 }
 
@@ -410,19 +449,6 @@ fn running_now() -> Vec<String> {
     list
 }
 
-/// A panel tracker that keeps each track's map in `maps` (under the Xpeed Companion folder) and takes the built layout from
-/// the outbox in `out`; with no Xpeed Companion folder the maps are just not kept.
-fn tracker_for(game: &'static str, out: &Path) -> crate::dash::Tracker {
-    match crate::maps::default_dir() {
-        Some(maps) => crate::dash::Tracker::stored(crate::maps::Store {
-            maps,
-            layouts: out.join(auto::TRACKS_DIR),
-            game,
-        }),
-        None => crate::dash::Tracker::default(),
-    }
-}
-
 /// Reads the other games, one thread for each family of readers, each under the supervisor on its own: a panic in one
 /// family (a reader fed bytes it did not expect) restarts that family only, after a wait that grows; a family that keeps
 /// failing is given up on and shown as failed while every other family goes on; and a reader that blocks holds up nobody
@@ -432,7 +458,7 @@ pub fn run_readers(
     out: &Path,
     shared: &Shared,
     say: &(dyn Fn(String) + Sync),
-    tracks: Option<&mpsc::Sender<Seen>>,
+    tracks: Option<&mpsc::Sender<Request>>,
     grace: Duration,
     policy: &Policy,
 ) {
@@ -442,7 +468,7 @@ pub fn run_readers(
                 with_saver(out, shared, say, |saver| {
                     let name = format!("{} reader", reader.family);
                     let ended = watched_as(shared, reader.family, &name, policy, say, || {
-                        games_loop(std::slice::from_ref(reader), saver, out, shared, say, tracks, grace)
+                        games_loop(std::slice::from_ref(reader), saver, shared, say, tracks, grace)
                     });
                     if ended == Ended::GaveUp {
                         // Its games are no longer read: the panel must not go on showing them as connected.
@@ -458,30 +484,26 @@ pub fn run_readers(
     });
 }
 
-/// Reads whichever of `readers` is running (all in this thread), and writes its laps like Le Mans Ultimate's. Each track a
-/// game is driven on is told to `tracks` once (and again when it changes), for its layout to be built. A game that runs
-/// without data is shown as loading for `grace`, then as open without data.
+/// Reads whichever of `readers` is running (all in this thread), and writes its laps like Le Mans Ultimate's.
+/// A game that runs without data is shown as loading for `grace`, then as open without data.
 #[cfg(test)]
 pub fn run_games(
     readers: &[Reader],
     out: &Path,
     shared: &Shared,
     say: &(dyn Fn(String) + Sync),
-    tracks: Option<&mpsc::Sender<Seen>>,
+    tracks: Option<&mpsc::Sender<Request>>,
     grace: Duration,
 ) {
-    with_saver(out, shared, say, |saver| {
-        games_loop(readers, saver, out, shared, say, tracks, grace)
-    });
+    with_saver(out, shared, say, |saver| games_loop(readers, saver, shared, say, tracks, grace));
 }
 
 fn games_loop(
     readers: &[Reader],
     saver: &AsyncSaver,
-    out: &Path,
     shared: &Shared,
     say: &(dyn Fn(String) + Sync),
-    tracks: Option<&mpsc::Sender<Seen>>,
+    tracks: Option<&mpsc::Sender<Request>>,
     grace: Duration,
 ) {
     struct Live {
@@ -491,7 +513,6 @@ fn games_loop(
         cutter: LapCutter,
         last_frame: Instant,
         lap_shown: i32,
-        track_told: Option<(String, Option<String>)>,
         /// The panel's view of this game (the delta to the best lap).
         tracker: crate::dash::Tracker,
         /// A frame has arrived. A source that only listens (`Source::listens`) is "open, no data yet" until then.
@@ -606,7 +627,6 @@ fn games_loop(
                         }
                         shared.set_game(source.game_id(), source.game_name(), Game::Connected);
                     }
-                    let game_id = source.game_id();
                     live.push(Live {
                         heard: !listens,
                         quiet,
@@ -619,8 +639,7 @@ fn games_loop(
                         source,
                         last_frame: Instant::now(),
                         lap_shown: 0,
-                        track_told: None,
-                        tracker: tracker_for(game_id, out),
+                        tracker: Tracker::default(),
                     });
                 }
             }
@@ -631,7 +650,13 @@ fn games_loop(
         }
         let slice = Duration::from_millis((40 / live.len() as u64).clamp(5, 40));
         for l in live.iter_mut() {
-            if let Some(frame) = l.source.next(slice) {
+            let frame = l.source.next(slice);
+            if frame.is_none() && l.tracker.layout.poll(tracks, Instant::now()) {
+                if let Some((key, layout)) = l.tracker.layout.current() {
+                    shared.refresh_live_layout(key, layout);
+                }
+            }
+            if let Some(frame) = frame {
                 l.last_frame = Instant::now();
                 if !l.heard {
                     // The first packet: the game shares after all.
@@ -652,8 +677,7 @@ fn games_loop(
                     shared.set_game(l.cutter.game(), l.source.game_name(), Game::Waiting);
                     say(format!("Now reading {}.", l.source.game_name()));
                     flush(std::mem::replace(&mut l.cutter, LapCutter::new(game)), &*l.source, shared, &saved);
-                    l.tracker = tracker_for(game, out);
-                    l.track_told = None;
+                    l.tracker = Tracker::default();
                     l.lap_shown = 0;
                 }
                 if frame.driving && frame.lap > 0 && frame.lap != l.lap_shown {
@@ -665,21 +689,8 @@ fn games_loop(
                     Game::Connected
                 };
                 shared.set_game(l.source.game_id(), l.source.game_name(), state);
-                if let Some(tracks) = tracks.filter(|_| frame.driving && !frame.track.is_empty()) {
-                    // Compared without copying: this runs for every frame.
-                    let here = (frame.track.as_str(), frame.track_variant.as_deref());
-                    if l.track_told.as_ref().map(|(t, v)| (t.as_str(), v.as_deref())) != Some(here) {
-                        // A send never blocks; if the other thread is gone, there is just no layout.
-                        let _ = tracks.send(Seen {
-                            game: l.source.game_id().to_owned(),
-                            track: frame.track.clone(),
-                            variant: frame.track_variant.clone(),
-                        });
-                        l.track_told = Some((frame.track.clone(), frame.track_variant.clone()));
-                    }
-                }
                 note_game_driven(shared, l.source.game_id());
-                handle_frame(&frame, &*l.source, &mut l.cutter, &mut l.tracker, shared, &saved);
+                handle_frame(&frame, &*l.source, &mut l.cutter, &mut l.tracker, shared, &saved, tracks);
             } else if !l.heard {
                 // Open, nothing heard yet: loading for the grace period, then "no data" for as long as its program runs
                 // (and after a pause).
@@ -889,7 +900,7 @@ fn run_lmu_loop(
         let mut source = LmuSource::new(reader);
         let mut cutter = LapCutter::new(LMU_ID);
         // The panel reads the same frames as the cutter.
-        let mut tracker = tracker_for(LMU_ID, out);
+        let mut tracker = Tracker::default();
         let mut silent_waits = 0;
         let mut lap_shown = 0;
         let mut gone = false;
@@ -925,7 +936,7 @@ fn run_lmu_loop(
                 shared.set_game(LMU_ID, LMU_NAME, Game::Recording(lap_shown as u32));
             }
             note_game_driven(shared, LMU_ID);
-            handle_frame(&frame, &source, &mut cutter, &mut tracker, shared, &saved);
+            handle_frame(&frame, &source, &mut cutter, &mut tracker, shared, &saved, None);
         }
         // The reader is let go (paused, told to quit, or the game is gone): a lap that still waited for its official
         // time is written as it stands.
@@ -1282,7 +1293,7 @@ mod tests {
                 f.last_lap_s = last;
                 f.dist_m = Some((from + i as f64 / 20.0) * 50.0);
                 f.speed_ms = 50.0;
-                handle_frame(&f, &source, &mut cutter, &mut tracker, &shared, &count);
+                handle_frame(&f, &source, &mut cutter, &mut tracker, &shared, &count, None);
                 clock += 0.05;
             }
         }
@@ -1630,15 +1641,7 @@ mod tests {
             shared.quit();
         });
         assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
-        // 640 frames on one track: the track is told once, for its layout.
-        assert_eq!(
-            seen.try_iter().collect::<Vec<_>>(),
-            [Seen {
-                game: "fake".into(),
-                track: "Test Ring".into(),
-                variant: None
-            }]
-        );
+        assert!(seen.try_recv().is_err(), "a game without a layout adapter skips the worker");
         let written: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
@@ -1654,6 +1657,83 @@ mod tests {
         // Version 2: the lap carries the id of the session it was driven in, and says it is neither an out nor an in lap.
         assert_eq!(lap.session_id.as_deref().map(str::len), Some(32));
         assert_eq!((lap.out_lap, lap.in_lap), (Some(false), Some(false)));
+    }
+
+    #[test]
+    fn a_parked_readers_layout_appears_without_another_frame_or_a_lap() {
+        use crate::maps::{Layout, LayoutView};
+        use crate::perspective::PreparedPath;
+        use std::sync::Arc;
+
+        struct Parked(Option<Frame>);
+        impl Source for Parked {
+            fn game_id(&self) -> &'static str {
+                "ac"
+            }
+            fn game_name(&self) -> &'static str {
+                "Assetto Corsa"
+            }
+            fn next(&mut self, timeout: Duration) -> Option<Frame> {
+                if self.0.is_none() {
+                    std::thread::sleep(timeout);
+                }
+                self.0.take()
+            }
+            fn alive(&self) -> bool {
+                true
+            }
+            fn caps(&self) -> crate::game::Caps {
+                crate::game::Caps::NONE
+            }
+        }
+
+        let readers = [Reader {
+            family: "parked",
+            title: "Assetto Corsa",
+            ids: &["ac"],
+            programs: &[],
+            open: || {
+                let mut frame = Frame::empty();
+                frame.set_phase(crate::game::Phase::Garage);
+                frame.track = "Park".into();
+                frame.track_variant = Some("short".into());
+                Some(Box::new(Parked(Some(frame))))
+            },
+        }];
+        let dir = crate::config::scratch_dir("engine-layout-quiet");
+        let shared = Shared::new(false);
+        let (worker, requests) = mpsc::channel();
+        let wait_for = |predicate: &dyn Fn(&LayoutView) -> bool| {
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(3) {
+                if let Some(live) = shared.live().filter(|live| predicate(&live.layout)) {
+                    return Some(live);
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            None
+        };
+        let (initial, completed) = std::thread::scope(|scope| {
+            scope.spawn(|| run_games(&readers, &dir, &shared, &|_| {}, Some(&worker), LOADING_GRACE));
+            let initial = wait_for(&|view| matches!(view, LayoutView::Loading));
+            let completed = requests.recv_timeout(Duration::from_secs(1)).ok().and_then(|request| {
+                request
+                    .reply
+                    .send(Ok(Layout {
+                        path: Arc::new(PreparedPath::native(&[(0.0, 0.0), (0.0, 10.0)], false)),
+                        road: None,
+                    }))
+                    .ok()?;
+                wait_for(&|view| matches!(view, LayoutView::Ready(_)))
+            });
+            shared.quit();
+            (initial, completed)
+        });
+        let initial = initial.expect("parked identity starts the layout lookup");
+        let completed = completed.expect("the reply reaches the live snapshot without another frame");
+        assert_eq!(completed.at_ms, initial.at_ms);
+        assert_eq!((completed.game_id, completed.track_variant.as_deref()), ("ac", Some("short")));
+        assert_eq!(shared.snapshot().laps_saved, 0);
     }
 
     #[test]

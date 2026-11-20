@@ -1511,6 +1511,7 @@ mod tests {
         let mut source = open_sim(&sim, processes(&["acs.exe"]));
         let f = source.next(SOON).expect("a frame");
         assert_frame_within_caps(&f, source.caps(), "assetto corsa");
+        crate::engine::assert_live_source_frame(&source, &f, ("ac", "Assetto Corsa"), Some(-10.0));
         assert_eq!(f.fuel_capacity_l, Some(80.0), "the static page's maxFuel");
         assert_eq!(
             f.state,
@@ -1555,6 +1556,7 @@ mod tests {
         let mut source = open_sim(&sim, processes(&["AC2-Win64-Shipping.exe"]));
         let f = source.next(SOON).expect("a frame");
         assert_frame_within_caps(&f, source.caps(), "competizione");
+        crate::engine::assert_live_source_frame(&source, &f, ("acc", "Assetto Corsa Competizione"), None);
         assert!(f.filled().has(Caps::RIVALS.or(Caps::RIVALS_WORLD)));
         let field = f.field.as_ref().expect("the first reading carries the cars");
         let mut cars = field.cars.clone();
@@ -1670,6 +1672,7 @@ mod tests {
         let mut source = open_sim(&sim, processes(&["acr.exe"]));
         let f = source.next(SOON).expect("a frame");
         assert_eq!(source.game_id(), "acr");
+        crate::engine::assert_live_source_frame(&source, &f, ("acr", "Assetto Corsa Rally"), None);
         assert_frame_within_caps(&f, source.caps(), "rally");
         assert!(f.driving && !f.in_pits);
         assert_eq!((f.lap, f.lap_valid, f.track_variant, f.track_length_m), (5, None, None, None));

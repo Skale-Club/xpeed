@@ -1,204 +1,286 @@
-//! The track map the panel draws, kept between sessions: the path the car drove on a track is saved when it becomes
-//! the map, and read back the next time the car is on that track, so the map is there from the first frame.
-//!
-//! Source-attested AC/SCE layouts take priority over learned trajectories; their
-//! AI corridors remain distinct from asphalt. EVO's verified asphalt is loaded
-//! from its private cache, outside the layouts upload outbox.
-//!
-//! Files are small (8 bytes a point) and written beside their name and renamed, like the covers.
+//! Live layout state. Only validated simulator geometry reaches the track card.
+//! Extraction and file validation run on the native-track worker.
 
-use std::path::PathBuf;
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 
-use crate::tracks::{self, auto};
-use crate::util::file_safe;
+use crate::game::{Frame, Phase};
+use crate::perspective::{Point, PreparedPath, Road};
+use crate::tracks::auto::{self, Request, Seen, SourceFailure, SourceResult};
+use crate::tracks::Track;
 
-/// A path as the panel draws it: (x, z) in the game's world, in metres.
-pub type Path2 = Vec<(f32, f32)>;
-
-const MAGIC: &[u8; 4] = b"XMP1";
-const EXTENSION: &str = ".map";
-/// More points than this is not a map this program wrote.
-const MAX_POINTS: usize = 200_000;
-
-/// Where maps and layouts are, and which game the tracker is reading (the reader's id: `ac`, `rfactor1`, `lmu`...).
-#[derive(Debug, Clone)]
-pub struct Store {
-    pub maps: PathBuf,
-    pub layouts: PathBuf,
-    pub game: &'static str,
+#[derive(Clone, Debug, PartialEq)]
+pub struct Layout {
+    pub path: Arc<PreparedPath>,
+    pub road: Option<Arc<Road>>,
 }
 
-impl Store {
-    /// The real layout when this computer has it, else the saved driven path of this track.
-    pub fn start(&self, track: &str, variant: Option<&str>) -> Option<Path2> {
-        self.layout(track, variant).or_else(|| self.load(track, variant))
-    }
-
-    /// The built layout's centre line, including private current-source EVO geometry. Its axes are
-    /// the game's own world, the one telemetry reports, so the car is drawn on it as it is.
-    pub fn layout(&self, track: &str, variant: Option<&str>) -> Option<Path2> {
-        let track = self.layout_track(track, variant)?;
-        let line = &track.centerline;
-        let mut points: Path2 = line.x.iter().copied().zip(line.z.iter().copied()).collect();
-        if track.closed {
-            points.extend(points.first().copied());
+impl Layout {
+    /// Called on the worker, after the source and its complete XTRK payload have been validated.
+    pub fn from_track(track: &Track) -> Option<Self> {
+        let (x, z) = (&track.centerline.x, &track.centerline.z);
+        if x.len() < 2 || x.len() != z.len() || x.iter().chain(z).any(|p| !p.is_finite()) {
+            return None;
         }
-        (points.len() >= 2 && points.iter().all(|p| p.0.is_finite() && p.1.is_finite())).then_some(points)
-    }
-
-    /// Preserve the game's actual widths for the live local view; a driven path has no road widths.
-    pub fn road(&self, track: &str, variant: Option<&str>) -> Option<crate::perspective::Road> {
-        crate::perspective::Road::from_track(&self.layout_track(track, variant)?)
-    }
-
-    fn layout_track(&self, track: &str, variant: Option<&str>) -> Option<tracks::Track> {
-        if self.game == "acevo" {
-            return tracks::local::load(&self.layouts.parent()?.join(tracks::local::DIRECTORY), self.game, track, variant);
+        let points: Vec<Point> = x.iter().copied().zip(z.iter().copied()).collect();
+        let path = PreparedPath::native(&points, track.closed);
+        if path.is_empty() {
+            return None;
         }
-        let file_game = auto::file_game(self.game)?;
-        let hash = auto::hash_hex(auto::track_key(file_game, track, variant).as_bytes());
-        let ending = format!("_{}{}", &hash[..8], auto::EXTENSION);
-        let prefix = format!("{}_", file_safe(file_game));
-        let name = std::fs::read_dir(&self.layouts)
-            .ok()?
-            .flatten()
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .find(|name| name.starts_with(&prefix) && name.ends_with(&ending))?;
-        let found = tracks::fresh::load(&self.layouts.join(name))?;
-        (auto::track_key(&found.game, &found.name, found.variant.as_deref()) == auto::track_key(file_game, track, variant)).then_some(found)
-    }
-
-    fn file(&self, track: &str, variant: Option<&str>) -> PathBuf {
-        let key = auto::track_key(self.game, track, variant);
-        let variant = variant.map(|v| format!("_{}", file_safe(v))).unwrap_or_default();
-        self.maps.join(format!(
-            "{}_{}{variant}_{}{EXTENSION}",
-            file_safe(self.game),
-            file_safe(track),
-            &auto::hash_hex(key.as_bytes())[..8]
-        ))
-    }
-
-    /// The saved path of this track, if there is a good one.
-    pub fn load(&self, track: &str, variant: Option<&str>) -> Option<Path2> {
-        decode(&std::fs::read(self.file(track, variant)).ok()?)
-    }
-
-    /// Keeps `path` as this track's map (through a `.part` file, so a cut write never replaces a good copy).
-    pub fn save(&self, track: &str, variant: Option<&str>, path: &[(f32, f32)]) -> std::io::Result<()> {
-        let file = self.file(track, variant);
-        std::fs::create_dir_all(&self.maps)?;
-        let part = file.with_extension("map.part");
-        std::fs::write(&part, encode(path))?;
-        std::fs::rename(&part, &file)
+        Some(Self {
+            path: Arc::new(path),
+            road: Road::from_track(track).map(Arc::new),
+        })
     }
 }
 
-fn encode(path: &[(f32, f32)]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(8 + path.len() * 8);
-    bytes.extend_from_slice(MAGIC);
-    bytes.extend_from_slice(&(path.len() as u32).to_le_bytes());
-    for &(x, z) in path {
-        bytes.extend_from_slice(&x.to_le_bytes());
-        bytes.extend_from_slice(&z.to_le_bytes());
-    }
-    bytes
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum LayoutView {
+    #[default]
+    WaitingForIdentity,
+    Loading,
+    Unavailable,
+    Invalid,
+    Retrying,
+    Ready(Layout),
 }
 
-fn decode(bytes: &[u8]) -> Option<Path2> {
-    let rest = bytes.strip_prefix(MAGIC)?;
-    let (count, body) = rest.split_first_chunk::<4>()?;
-    let count = u32::from_le_bytes(*count) as usize;
-    if count > MAX_POINTS || body.len() != count * 8 {
-        return None;
-    }
-    let (pairs, _) = body.as_chunks::<8>();
-    let float = |b: [u8; 4]| f32::from_le_bytes(b);
-    let path: Path2 = pairs
-        .iter()
-        .map(|c| (float([c[0], c[1], c[2], c[3]]), float([c[4], c[5], c[6], c[7]])))
-        .collect();
-    path.iter().all(|p| p.0.is_finite() && p.1.is_finite()).then_some(path)
+/// A lookup belongs to one active simulator/track/variant, independently of laps, cars and sessions.
+/// Each request has its own reply channel. Changing identities drops the old receiver, including A → B → A.
+#[derive(Default)]
+pub(crate) struct Lookup {
+    key: Option<Seen>,
+    reply: Option<mpsc::Receiver<SourceResult>>,
+    view: LayoutView,
+    retry_at: Option<Instant>,
+    retries: usize,
+    phase: Phase,
 }
 
-/// The folder maps are kept in: `maps` under where Xpeed Companion keeps its files.
-pub fn default_dir() -> Option<PathBuf> {
-    crate::config::home_dir().map(|home| home.join("maps"))
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(8)];
+
+fn has_session_identity(phase: Phase) -> bool {
+    matches!(phase, Phase::Driving | Phase::Paused | Phase::Garage | Phase::Loading)
+}
+
+impl Lookup {
+    pub(crate) fn current(&self) -> Option<(&Seen, &LayoutView)> {
+        Some((self.key.as_ref()?, &self.view))
+    }
+
+    pub(crate) fn view(&self) -> &LayoutView {
+        &self.view
+    }
+
+    pub(crate) fn observe(&mut self, worker: Option<&mpsc::Sender<Request>>, game: &str, frame: &Frame, now: Instant) {
+        let track = frame.track.as_str();
+        let variant = frame.track_variant.as_deref();
+        if track.trim().is_empty() {
+            *self = Self::default();
+            return;
+        }
+        if self
+            .key
+            .as_ref()
+            .is_none_or(|key| (key.game.as_str(), key.track.as_str(), key.variant.as_deref()) != (game, track, variant))
+        {
+            *self = Self {
+                key: Some(Seen {
+                    game: game.into(),
+                    track: track.into(),
+                    variant: variant.map(str::to_owned),
+                }),
+                ..Self::default()
+            };
+        }
+        if worker.is_none() || (game != "acevo" && auto::file_game(game).is_none()) {
+            self.view = LayoutView::Unavailable;
+            return;
+        }
+        let phase = if frame.driving { Phase::Driving } else { frame.phase };
+        let new_session = !has_session_identity(self.phase) || (phase == Phase::Loading && self.phase != phase);
+        self.phase = phase;
+        // Menus and replays can still expose a previous session's static identity.
+        if has_session_identity(phase)
+            && (matches!(self.view, LayoutView::WaitingForIdentity)
+                || (new_session && self.retry_at.is_none() && matches!(self.view, LayoutView::Unavailable | LayoutView::Invalid)))
+        {
+            self.retries = 0;
+            self.request(worker);
+        }
+        self.poll(worker, now);
+    }
+
+    /// Nonblocking and safe to call even when the source is between packets.
+    /// The caller can refresh just the layout in the published snapshot.
+    pub(crate) fn poll(&mut self, worker: Option<&mpsc::Sender<Request>>, now: Instant) -> bool {
+        let result = self.reply.as_ref().and_then(|reply| match reply.try_recv() {
+            Ok(result) => Some(result),
+            Err(mpsc::TryRecvError::Disconnected) => Some(Err(SourceFailure::Retryable("layout worker disconnected".into()))),
+            Err(mpsc::TryRecvError::Empty) => None,
+        });
+        if let Some(result) = result {
+            self.reply = None;
+            self.view = match result {
+                Ok(layout) => LayoutView::Ready(layout),
+                Err(SourceFailure::Invalid(_)) => LayoutView::Invalid,
+                Err(SourceFailure::Unavailable(_)) => {
+                    self.schedule_retry(now);
+                    LayoutView::Unavailable
+                }
+                Err(SourceFailure::Retryable(_)) => {
+                    self.schedule_retry(now);
+                    if self.retry_at.is_some() {
+                        LayoutView::Retrying
+                    } else {
+                        LayoutView::Unavailable
+                    }
+                }
+            };
+            return true;
+        }
+        if self.retry_at.is_some_and(|retry_at| now >= retry_at) {
+            self.retry_at = None;
+            self.request(worker);
+            return true;
+        }
+        false
+    }
+
+    fn schedule_retry(&mut self, now: Instant) {
+        self.retry_at = RETRY_DELAYS.get(self.retries).map(|&delay| now + delay);
+        self.retries += 1;
+    }
+
+    fn request(&mut self, worker: Option<&mpsc::Sender<Request>>) {
+        let (Some(worker), Some(seen)) = (worker, self.key.clone()) else {
+            self.view = LayoutView::Unavailable;
+            return;
+        };
+        let (reply, receiver) = mpsc::channel();
+        if worker.send(Request { seen, reply }).is_ok() {
+            self.reply = Some(receiver);
+            self.view = LayoutView::Loading;
+        } else {
+            self.view = LayoutView::Unavailable;
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::scratch_dir;
-    use crate::tracks::auto::{Built, Folders, Seen};
 
-    fn store(dir: &std::path::Path, game: &'static str) -> Store {
-        Store {
-            maps: dir.join("maps"),
-            layouts: dir.join("tracks"),
-            game,
+    fn identity(track: &str, variant: &str, phase: Phase) -> Frame {
+        let mut frame = Frame::empty();
+        frame.track = track.into();
+        frame.track_variant = Some(variant.into());
+        frame.set_phase(phase);
+        frame
+    }
+
+    fn layout() -> Layout {
+        Layout {
+            path: Arc::new(PreparedPath::native(&[(0.0, 0.0), (0.0, 10.0)], false)),
+            road: None,
         }
     }
 
     #[test]
-    fn saves_and_loads_a_path_by_game_track_and_layout() {
-        let dir = scratch_dir("maps-save");
-        let s = store(&dir, "lmu");
-        let path: Vec<(f32, f32)> = (0..500).map(|i| (i as f32 * 4.0, -(i as f32))).collect();
-        assert_eq!(s.load("Sarthe", None), None);
-        s.save("Sarthe", None, &path).unwrap();
-        assert_eq!(s.load("Sarthe", None), Some(path.clone()));
-        assert_eq!(s.load("  SARTHE", None), Some(path.clone()), "the key is trimmed and lower case");
-        assert_eq!(s.load("Sarthe", Some("short")), None, "another layout is another map");
-        assert_eq!(s.load("Spa", None), None);
-        assert_eq!(store(&dir, "ac").load("Sarthe", None), None, "another game is another map");
-        assert!(std::fs::read_dir(&s.maps)
-            .unwrap()
-            .flatten()
-            .all(|e| !e.file_name().to_string_lossy().ends_with(".part")));
-        // A cut or damaged file is no map.
-        let file = std::fs::read_dir(&s.maps).unwrap().next().unwrap().unwrap().path();
-        let bytes = std::fs::read(&file).unwrap();
-        std::fs::write(&file, &bytes[..bytes.len() - 3]).unwrap();
-        assert_eq!(s.load("Sarthe", None), None);
-        std::fs::write(&file, b"nonsense").unwrap();
-        assert_eq!(s.load("Sarthe", None), None);
+    fn trusted_identity_starts_while_parked_and_readiness_needs_no_lap() {
+        let mut lookup = Lookup::default();
+        let (worker, requests) = mpsc::channel();
+        let now = Instant::now();
+        let mut frame = identity("park", "gp", Phase::Menu);
+        lookup.observe(Some(&worker), "ac", &frame, now);
+        assert_eq!(lookup.view(), &LayoutView::WaitingForIdentity);
+        assert!(requests.try_recv().is_err(), "menu metadata may belong to the previous session");
+
+        frame.set_phase(Phase::Garage);
+        lookup.observe(Some(&worker), "ac", &frame, now);
+        assert_eq!(lookup.view(), &LayoutView::Loading);
+        let request = requests.try_recv().unwrap();
+        assert_eq!(request.seen.variant.as_deref(), Some("gp"));
+        assert_eq!(frame.lap, 0);
+        request.reply.send(Ok(layout())).unwrap();
+        assert!(lookup.poll(Some(&worker), now));
+        assert!(matches!(lookup.view(), LayoutView::Ready(_)));
+        assert!(!lookup.poll(Some(&worker), now));
     }
 
     #[test]
-    fn the_built_layout_is_the_map_when_its_copy_is_in_the_outbox() {
-        let dir = scratch_dir("maps-layout");
-        let tracks = dir.join("game");
-        std::fs::create_dir_all(tracks.join("circle").join("ai")).unwrap();
-        std::fs::write(
-            tracks.join("circle").join("ai").join(crate::tracks::ac::SOURCE),
-            crate::tracks::ac::tests::synthetic(600, 100.0, std::f64::consts::TAU, 9.0, 3.0),
-        )
-        .unwrap();
-        let s = store(&dir, "ac");
-        assert_eq!(s.start("circle", None), None, "no layout and no saved path yet");
-        let seen = Seen {
-            game: "ac".into(),
-            track: "circle".into(),
-            variant: None,
-        };
-        let folders = Folders {
-            ac: vec![tracks],
-            sce: vec![],
-        };
-        let Built::Written(_) = crate::tracks::auto::build(&seen, &folders, &s.layouts).unwrap() else {
-            panic!("the layout should be written");
-        };
-        let map = s.start("Circle", None).expect("the layout is there");
-        assert!(map.len() > 100);
-        let radius = f64::from(map[10].0).hypot(f64::from(map[10].1));
-        // The ideal line is at radius 100 with 9 m to one edge and 3 m to the other: the road's middle is 103 m out.
-        assert!((radius - 103.0).abs() < 0.1, "the centre line, in the game's own world: {radius}");
-        assert_eq!(map.first(), map.last(), "a closed track closes");
-        // It wins over a driven path, and only for its own track and game.
-        s.save("circle", None, &[(1.0, 1.0), (2.0, 2.0)]).unwrap();
-        assert!(s.start("circle", None).unwrap().len() > 100);
-        assert_eq!(s.layout("other", None), None);
-        assert_eq!(store(&dir, "lmu").layout("circle", None), None, "a game with no built layouts");
+    fn switching_variants_drops_stale_replies_even_when_returning_to_the_previous_variant() {
+        let mut lookup = Lookup::default();
+        let (worker, requests) = mpsc::channel();
+        let now = Instant::now();
+        let gp = identity("park", "gp", Phase::Driving);
+        let club = identity("park", "club", Phase::Driving);
+        lookup.observe(Some(&worker), "ac", &gp, now);
+        let pending_gp = requests.try_recv().unwrap();
+        lookup.observe(Some(&worker), "ac", &club, now);
+        let pending_club = requests.try_recv().unwrap();
+        lookup.observe(Some(&worker), "ac", &gp, now);
+        let active = requests.try_recv().unwrap();
+        assert!(pending_gp.reply.send(Ok(layout())).is_err());
+        assert!(pending_club.reply.send(Ok(layout())).is_err());
+        assert_eq!(lookup.view(), &LayoutView::Loading);
+        active.reply.send(Ok(layout())).unwrap();
+        assert!(lookup.poll(Some(&worker), now));
+        assert!(matches!(lookup.view(), LayoutView::Ready(_)));
+    }
+
+    #[test]
+    fn transient_worker_failures_retry_at_bounded_intervals_and_invalid_geometry_is_refused() {
+        let mut lookup = Lookup::default();
+        let (worker, requests) = mpsc::channel();
+        let now = Instant::now();
+        let frame = identity("park", "gp", Phase::Paused);
+        lookup.observe(Some(&worker), "ac", &frame, now);
+        drop(requests.try_recv().unwrap());
+        assert!(lookup.poll(Some(&worker), now));
+        assert_eq!(lookup.view(), &LayoutView::Retrying);
+        assert!(!lookup.poll(Some(&worker), now + Duration::from_secs(1)));
+        let first_retry = now + RETRY_DELAYS[0];
+        assert!(lookup.poll(Some(&worker), first_retry));
+        requests
+            .try_recv()
+            .unwrap()
+            .reply
+            .send(Err(SourceFailure::Unavailable("no source".into())))
+            .unwrap();
+        lookup.poll(Some(&worker), first_retry);
+        assert_eq!(lookup.view(), &LayoutView::Unavailable);
+        let last_retry = first_retry + RETRY_DELAYS[1];
+        assert!(lookup.poll(Some(&worker), last_retry));
+        requests
+            .try_recv()
+            .unwrap()
+            .reply
+            .send(Err(SourceFailure::Retryable("game files changed".into())))
+            .unwrap();
+        lookup.poll(Some(&worker), last_retry);
+        assert_eq!(lookup.view(), &LayoutView::Unavailable);
+        assert!(!lookup.poll(Some(&worker), last_retry + Duration::from_secs(60)));
+
+        let next = identity("park", "short", Phase::Paused);
+        lookup.observe(Some(&worker), "ac", &next, now);
+        requests
+            .try_recv()
+            .unwrap()
+            .reply
+            .send(Err(SourceFailure::Invalid("corrupt source".into())))
+            .unwrap();
+        lookup.poll(Some(&worker), now);
+        assert_eq!(lookup.view(), &LayoutView::Invalid);
+        assert!(!lookup.poll(Some(&worker), last_retry));
+
+        let mut reenter = next;
+        reenter.set_phase(Phase::Menu);
+        lookup.observe(Some(&worker), "ac", &reenter, last_retry);
+        reenter.set_phase(Phase::Garage);
+        lookup.observe(Some(&worker), "ac", &reenter, last_retry);
+        requests.try_recv().unwrap().reply.send(Ok(layout())).unwrap();
+        assert!(lookup.poll(Some(&worker), last_retry));
+        assert!(matches!(lookup.view(), LayoutView::Ready(_)));
     }
 }

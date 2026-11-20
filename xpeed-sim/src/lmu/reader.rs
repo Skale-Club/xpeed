@@ -634,6 +634,19 @@ mod tests {
     }
 
     #[test]
+    fn lmu_source_keeps_its_identity_in_the_live_snapshot() {
+        use crate::game::Source;
+        use crate::lmu::source::LmuSource;
+        use std::time::Duration;
+
+        let game = FakeGame::new(LAYOUT_SIZE, true);
+        game.write_frame(&full_frame());
+        let mut source = LmuSource::new(LmuReader::open(&game.names).unwrap());
+        let frame = source.next(Duration::from_millis(100)).expect("a frame");
+        crate::engine::assert_live_source_frame(&source, &frame, ("lmu", "Le Mans Ultimate"), None);
+    }
+
+    #[test]
     fn copies_only_what_the_frame_updated() {
         let game = FakeGame::new(LAYOUT_SIZE, true);
         let mut memory = full_frame();

@@ -8,11 +8,14 @@ use std::time::UNIX_EPOCH;
 
 use sha2::{Digest, Sha256};
 
+use super::auto::SourceFailure;
 use super::{acevo, auto, dump, Track, MAX_UNPACKED};
 
 pub const DIRECTORY: &str = "native-tracks";
 const MAX_MANIFEST: usize = 32 * 1024;
-const CACHE_SCHEMA: u32 = 2;
+const CACHE_SCHEMA: u32 = 3;
+// Bump when EVO's extraction or coordinate contract changes.
+const EXTRACTOR_GENERATION: u32 = 1;
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -76,21 +79,20 @@ fn same_identity(track: &Track, game: &str, name: &str, variant: Option<&str>) -
     auto::track_key(&track.game, &track.name, track.variant.as_deref()) == auto::track_key(game, name, variant)
 }
 
-/// Load only the exact identity, extractor version, payload digest and source
+/// Load only the exact identity, extractor generation, payload digest and source
 /// generation that were validated together. Stale files may stay on disk but
 /// cannot become a displayed road after an update, move or interrupted write.
-pub fn load(directory: &Path, game: &str, name: &str, variant: Option<&str>) -> Option<Track> {
+fn load_current(directory: &Path, game: &str, name: &str, variant: Option<&str>, source: &serde_json::Value) -> Option<Track> {
     let (file, manifest_file) = names(directory, game, name, variant);
     let m: serde_json::Value = serde_json::from_slice(&read_limit(&manifest_file, MAX_MANIFEST).ok()?).ok()?;
     if m["schema"] != CACHE_SCHEMA
-        || m["extractorVersion"] != env!("CARGO_PKG_VERSION")
+        || m["extractorGeneration"] != EXTRACTOR_GENERATION
         || m["distribution"] != "local-only"
         || m["identity"] != auto::track_key(game, name, variant)
+        || &m["source"] != source
+        || m["verifiedGameBuild"] != acevo::VERIFIED_BUILD
+        || m["idealSourceSha256"] != acevo::VERIFIED_IDEAL_SHA256
     {
-        return None;
-    }
-    let source = Path::new(m["source"]["requestedPath"].as_str()?);
-    if stamp(source).ok()? != m["source"] {
         return None;
     }
     let bytes = read_limit(&file, MAX_UNPACKED).ok()?;
@@ -98,10 +100,22 @@ pub fn load(directory: &Path, game: &str, name: &str, variant: Option<&str>) -> 
         return None;
     }
     let track = super::gunzip(&bytes, MAX_UNPACKED).ok()?;
-    if track.source == "mesh_asphalt" && m["surfaceManifest"] != super::acevo_surface::MANIFEST_VERSION {
+    if m["sourceKind"] != track.source
+        || m["frame"] != track.frame
+        || m["pitSourceSha256"] != serde_json::json!(track.pitlane.as_ref().map(|_| acevo::VERIFIED_PIT_SHA256))
+        || (track.source == "mesh_asphalt" && m["surfaceManifest"] != super::acevo_surface::MANIFEST_VERSION)
+    {
         return None;
     }
     same_identity(&track, game, name, variant).then_some(track)
+}
+
+#[cfg(test)]
+fn load(directory: &Path, game: &str, name: &str, variant: Option<&str>) -> Option<Track> {
+    let (_, file) = names(directory, game, name, variant);
+    let manifest: serde_json::Value = serde_json::from_slice(&read_limit(&file, MAX_MANIFEST).ok()?).ok()?;
+    let requested_path = Path::new(manifest["source"]["requestedPath"].as_str()?);
+    load_current(directory, game, name, variant, &stamp(requested_path).ok()?)
 }
 
 fn publish(directory: &Path, source: &Path, track: &Track, before: serde_json::Value) -> Result<PathBuf, String> {
@@ -110,7 +124,7 @@ fn publish(directory: &Path, source: &Path, track: &Track, before: serde_json::V
     }
     let bytes = dump::gzip_checked(track)?;
     let manifest = serde_json::json!({
-        "schema":CACHE_SCHEMA,"extractorVersion":env!("CARGO_PKG_VERSION"),
+        "schema":CACHE_SCHEMA,"extractorGeneration":EXTRACTOR_GENERATION,
         "identity":auto::track_key(&track.game,&track.name,track.variant.as_deref()),
         "source":before,"sourceKind":track.source,"frame":track.frame,
         "verifiedGameBuild":acevo::VERIFIED_BUILD,
@@ -141,35 +155,54 @@ fn publish(directory: &Path, source: &Path, track: &Track, before: serde_json::V
 
 /// Called on the geometry worker, never the 100 Hz reader. The verified EVO
 /// pilot is selected by telemetry identity; other circuits remain unsupported.
-pub fn ensure_evo(directory: &Path, roots: &[PathBuf], name: &str, variant: Option<&str>) -> Result<bool, String> {
+pub(super) fn prepare_evo(directory: &Path, roots: &[PathBuf], name: &str, variant: Option<&str>) -> Result<(bool, Track), SourceFailure> {
     if auto::track_key("acevo", name, variant) != "acevo|laguna seca|gp" {
-        return Err("native EVO source is not validated for this track/layout".into());
+        return Err(SourceFailure::Invalid(
+            "native EVO source is not validated for this track/layout".into(),
+        ));
     }
-    if load(directory, "acevo", name, variant).is_some() {
-        return Ok(false);
-    }
-    let source = roots
+    let game = roots
         .iter()
-        .map(|root| root.join("content.kspkg"))
-        .find(|p| p.is_file())
-        .ok_or("installed EVO package not found")?;
-    if dump::inside(directory, source.parent().ok_or("EVO package has no parent")?) {
-        return Err("refusing to create a native cache inside the installed game".into());
+        .find(|root| root.join("content.kspkg").is_file())
+        .ok_or_else(|| SourceFailure::Unavailable("installed EVO package not found".into()))?;
+    let source = game.join("content.kspkg");
+    if dump::inside(directory, game) {
+        return Err(SourceFailure::Invalid(
+            "refusing to create a native cache inside the installed game".into(),
+        ));
     }
-    let before = stamp(&source)?;
+    let before = stamp(&source).map_err(SourceFailure::Retryable)?;
     if before["gameBuild"].as_str().is_some_and(|build| build != acevo::VERIFIED_BUILD) {
-        return Err("EVO game build changed; native source/coordinate revalidation is required".into());
+        return Err(SourceFailure::Invalid(
+            "EVO game build changed; native source/coordinate revalidation is required".into(),
+        ));
     }
-    let found = acevo::extract_package_asphalt(&source).map_err(|e| e.to_string())?;
+    if let Some(track) = load_current(directory, "acevo", name, variant, &before) {
+        return Ok((false, track));
+    }
+    let found = acevo::extract_package_asphalt(&source).map_err(|error| {
+        if error.code == "io" || error.code == "evo_package" {
+            SourceFailure::Retryable(error.to_string())
+        } else {
+            SourceFailure::Invalid(error.to_string())
+        }
+    })?;
     if !same_identity(&found.track, "acevo", name, variant) {
-        return Err("native EVO source identity differs from telemetry".into());
+        return Err(SourceFailure::Invalid("native EVO source identity differs from telemetry".into()));
     }
-    publish(directory, &source, &found.track, before)?;
-    Ok(true)
+    publish(directory, &source, &found.track, before).map_err(SourceFailure::Retryable)?;
+    Ok((true, found.track))
+}
+
+#[cfg(test)]
+fn ensure_evo(directory: &Path, roots: &[PathBuf], name: &str, variant: Option<&str>) -> Result<bool, String> {
+    prepare_evo(directory, roots, name, variant)
+        .map(|(written, _)| written)
+        .map_err(|error| error.to_string())
 }
 
 pub fn evo_roots() -> Vec<PathBuf> {
-    dump::game_folders("XPEED_EVO_DIR", "Assetto Corsa EVO", "")
+    dump::game_folders("XPEED_EVO_DIR", 3_058_630, "Assetto Corsa EVO", "")
 }
 
 #[cfg(test)]
@@ -281,16 +314,11 @@ mod tests {
         let track = load(&dir, "acevo", "Laguna Seca", Some("GP")).unwrap();
         assert_eq!(track.centerline.x.len(), 2135);
         assert_eq!(track.pitlane.as_ref().unwrap().x.len(), 552);
-        let store = crate::maps::Store {
-            maps: out.join("maps"),
-            layouts: out.join(auto::TRACKS_DIR),
-            game: "acevo",
-        };
-        let map = store.layout("Laguna Seca", Some("GP")).unwrap();
-        assert_eq!(map.len(), 2136);
-        assert_eq!(map.first(), map.last());
-        assert!(store.road("Laguna Seca", Some("GP")).is_some());
-        assert!(store.layout("Laguna Seca", None).is_none());
+        let layout = crate::maps::Layout::from_track(&track).unwrap();
+        assert!(!layout.path.is_empty());
+        assert!(track.closed);
+        assert!(layout.road.is_some());
+        assert!(load(&dir, "acevo", "Laguna Seca", None).is_none());
         assert!(!out.join(auto::TRACKS_DIR).exists());
         cleanup(out);
     }
@@ -320,7 +348,7 @@ mod tests {
         fs::write(&manifest, format!("\"buildid\" \"{}\"\n", acevo::VERIFIED_BUILD)).unwrap();
         let (_, meta) = names(&directory, "acevo", "Laguna Seca", Some("GP"));
         let mut metadata: serde_json::Value = serde_json::from_slice(&fs::read(&meta).unwrap()).unwrap();
-        metadata["extractorVersion"] = serde_json::json!("obsolete");
+        metadata["extractorGeneration"] = serde_json::json!(EXTRACTOR_GENERATION + 1);
         fs::write(meta, serde_json::to_vec(&metadata).unwrap()).unwrap();
         assert!(load(&directory, "acevo", "Laguna Seca", Some("GP")).is_none());
         assert!(ensure_evo(&game.join("new-cache"), &[game], "Laguna Seca", Some("GP"))

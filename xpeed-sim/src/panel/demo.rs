@@ -231,6 +231,11 @@ pub(super) fn demo_caps() -> crate::game::Caps {
 pub(super) fn feed(shared: &Shared, game: (&'static str, &'static str), caps: Option<crate::game::Caps>, log: bool) {
     use std::time::{Duration, Instant};
     let mut tracker = crate::dash::Tracker::default();
+    let points: Vec<_> = (0..600).map(|i| demo_pose(f64::from(i) * DEMO_TRACK_M / 600.0).0).collect();
+    let layout = crate::maps::LayoutView::Ready(crate::maps::Layout {
+        path: Arc::new(crate::perspective::PreparedPath::native(&points, true)),
+        road: None,
+    });
     shared.set_references(Some(Arc::new(demo_references())));
     let shown = caps.map_or(demo_caps(), |caps| demo_caps().minus(demo_caps().minus(caps)));
     tracker.set_caps(shown);
@@ -277,7 +282,9 @@ pub(super) fn feed(shared: &Shared, game: (&'static str, &'static str), caps: Op
         if let Some(caps) = caps {
             frame.keep_only(caps);
         }
-        shared.offer_live(tracker.on_frame(game.1, &frame, now_ms()));
+        let mut live = tracker.on_game_frame("demo", game.1, &frame, now_ms());
+        live.layout = layout.clone();
+        shared.offer_live(live);
     }
 }
 

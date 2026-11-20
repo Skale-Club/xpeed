@@ -22,13 +22,13 @@
 //! XTRK v2 preserves the sampled source side envelope directly; neither edge nor dry line flattens banked vectors.
 
 use super::*;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub const SOURCE: &str = "aiw";
 const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 /// How far the length of the waypoints may be from the `lap_length` the file states.
 const LENGTH_TOLERANCE: f64 = 0.01;
-const PIT_MAX_DISTANCE_M: f64 = 300.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Waypoint {
@@ -463,20 +463,40 @@ pub fn extract_text(text: &str, name: &str, title: Option<&str>) -> Result<Extra
     Ok(Extracted { track, report })
 }
 
-/// The pit lane: the longest chain of path waypoints that are on a branch other than the main one.
-fn extract_pit(wps: &[Waypoint], main_pos: &[[f64; 3]]) -> Result<(Pitlane, String), String> {
-    let pit = |w: &Waypoint| w.branch >= 1 && is_path(w);
-    let in_pit: Vec<bool> = wps.iter().map(pit).collect();
-    let mut best: Vec<usize> = Vec::new();
+fn longest_pit_chain(wps: &[Waypoint]) -> Result<Vec<usize>, String> {
+    let in_pit: Vec<bool> = wps.iter().map(|w| w.branch >= 1 && is_path(w)).collect();
+    // Use a visit marker per start without allocating or clearing the graph per
+    // chain. Broken links can fan many starts into one tail, so also cap visits.
+    let mut visited_from = vec![usize::MAX; wps.len()];
+    let mut remaining = wps.len() * 4;
+    let mut best = Vec::new();
     for (i, w) in wps.iter().enumerate() {
         let starts_here = in_pit[i] && !(w.prev >= 0 && in_pit.get(w.prev as usize).copied().unwrap_or(false));
-        if starts_here {
-            let (chain, _) = follow(wps, i, &pit);
-            if chain.len() > best.len() {
-                best = chain;
+        if !starts_here {
+            continue;
+        }
+        let mut chain = Vec::new();
+        let mut at = i;
+        while at < wps.len() && in_pit[at] {
+            remaining = remaining.checked_sub(1).ok_or("pit branch traversal exceeded its work limit")?;
+            if visited_from[at] == i {
+                chain.clear();
+                break;
             }
+            visited_from[at] = i;
+            chain.push(at);
+            at = usize::try_from(wps[at].next).unwrap_or(usize::MAX);
+        }
+        if chain.len() > best.len() {
+            best = chain;
         }
     }
+    Ok(best)
+}
+
+/// The pit lane: the longest open chain of path waypoints on a branch other than the main one.
+fn extract_pit(wps: &[Waypoint], main_pos: &[[f64; 3]]) -> Result<(Pitlane, String), String> {
+    let best = longest_pit_chain(wps)?;
     if best.len() < 2 {
         return Err("no pit lane path (no branch other than the main path)".into());
     }
@@ -486,24 +506,14 @@ fn extract_pit(wps: &[Waypoint], main_pos: &[[f64; 3]]) -> Result<(Pitlane, Stri
     if length < 20.0 {
         return Err(format!("only {length:.0} m long"));
     }
-    let far = best
-        .iter()
-        .map(|&i| {
-            main_pos
-                .iter()
-                .map(|m| (m[0] - wps[i].pos[0]).hypot(m[2] - wps[i].pos[2]))
-                .fold(f64::INFINITY, f64::min)
-        })
-        .fold(0.0, f64::max);
-    if far > PIT_MAX_DISTANCE_M {
-        return Err(format!("a point is {far:.0} m from the main path"));
-    }
+    let xz = |p: &[f64; 3]| (p[0], p[2]);
+    check_pit_near_main(main_pos.iter().map(xz), best.iter().map(|&i| xz(&wps[i].pos)))?;
     let widths = clean_widths(
         &best.iter().map(|&i| wps[i].width[0] as f32).collect::<Vec<_>>(),
         &best.iter().map(|&i| wps[i].width[1] as f32).collect::<Vec<_>>(),
     );
     let note = format!(
-        "pit lane: {} waypoints, {length:.0} m, at most {far:.0} m from the main path, width {}",
+        "pit lane: {} waypoints, {length:.0} m, within {PIT_MAX_DISTANCE_M:.0} m of the main path, width {}",
         best.len(),
         if widths.kept {
             format!("median {:.1} m", widths.median_m)
@@ -534,26 +544,41 @@ pub fn gdb_title(text: &str) -> Option<String> {
     })
 }
 
+pub(super) fn read_gdb_title(path: &Path) -> std::io::Result<Option<String>> {
+    const MAX_GDB_BYTES: usize = 1024 * 1024;
+    let file = match std::fs::File::open(path.with_extension("gdb")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut bytes = Vec::new();
+    file.take(MAX_GDB_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_GDB_BYTES {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "GDB exceeds its size limit"));
+    }
+    // Match the AIW decoder's byte-to-character mapping.
+    Ok(gdb_title(&bytes.into_iter().map(char::from).collect::<String>()))
+}
+
 /// Reads an AIW file (and the `.gdb` beside it for the track's title) and extracts its track.
 pub fn extract(path: &Path) -> Result<Extracted, Refusal> {
     let io = |e: std::io::Error| Refusal {
         code: "io",
         message: format!("cannot read {}: {e}", path.display()),
     };
-    let size = std::fs::metadata(path).map_err(io)?.len();
-    if size > MAX_FILE_BYTES {
-        return refuse(
-            "aiw_too_large",
-            format!("{size} bytes is more than the {MAX_FILE_BYTES} an AIW can be"),
-        );
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(io)?
+        .take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return refuse("aiw_too_large", format!("file exceeds the {MAX_FILE_BYTES}-byte AIW limit"));
     }
-    let bytes = std::fs::read(path).map_err(io)?;
     // The files are Windows-1252 text; only ASCII matters for what is read.
     let text: String = bytes.iter().map(|&b| char::from(b)).collect();
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let title = std::fs::read(path.with_extension("gdb"))
-        .ok()
-        .and_then(|b| gdb_title(&b.iter().map(|&c| char::from(c)).collect::<String>()));
+    let title = read_gdb_title(path).ok().flatten();
     extract_text(&text, &stem, title.as_deref())
 }
 
@@ -581,6 +606,22 @@ pub fn list(root: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_pit_branch_cycles_and_caps_overlapping_paths() {
+        let mut waypoints = parse_aiw(&synthetic(300, 4.0, 10.0, -2.0, true)).unwrap().waypoints;
+        let starts_at = 300;
+        assert_eq!(longest_pit_chain(&waypoints).unwrap().len(), 12);
+        waypoints.last_mut().unwrap().next = starts_at as i64;
+        assert!(longest_pit_chain(&waypoints).unwrap().is_empty(), "pit branch must have an exit");
+
+        let mut joined_paths = vec![waypoints[starts_at].clone(); 200];
+        for (i, point) in joined_paths.iter_mut().enumerate() {
+            point.prev = if i < 100 { -1 } else { 0 };
+            point.next = if i < 100 { 100 } else { i as i64 + 1 };
+        }
+        assert!(longest_pit_chain(&joined_paths).unwrap_err().contains("work limit"));
+    }
 
     /// An AIW text laid out line by line: a square-ish loop of `n` waypoints on a circle of 100 m (clockwise seen with x
     /// across and z down), 4.55 m apart as in the real files, with a pit lane of 12 waypoints beside it.
@@ -836,7 +877,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore = "reads the installed game; run by hand"]
     fn exports_representative_installed_sce_cross_sections() {
-        let Some(root) = crate::tracks::dump::game_folders("XPEED_SCE_DIR", "Stock Car Extreme", "GameData/Locations")
+        let Some(root) = crate::tracks::dump::game_folders("XPEED_SCE_DIR", 273_840, "Stock Car Extreme", "GameData/Locations")
             .into_iter()
             .find(|p| p.is_dir())
         else {
@@ -864,7 +905,7 @@ pub(crate) mod tests {
     #[test]
     #[ignore = "reads the installed game; run by hand"]
     fn validates_every_installed_sce_track() {
-        let Some(root) = crate::tracks::dump::game_folders("XPEED_SCE_DIR", "Stock Car Extreme", "GameData/Locations")
+        let Some(root) = crate::tracks::dump::game_folders("XPEED_SCE_DIR", 273_840, "Stock Car Extreme", "GameData/Locations")
             .into_iter()
             .find(|p| p.is_dir())
         else {

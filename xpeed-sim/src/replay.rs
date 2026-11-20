@@ -349,7 +349,7 @@ pub fn run(player: &mut Player) -> Report {
             if cutter.game() != game {
                 cutter = LapCutter::new(game);
             }
-            tracker.on_frame(player.game_name(), &frame, wall_ms);
+            tracker.on_game_frame(game, player.game_name(), &frame, wall_ms);
             for mut lap in cutter.on_frame(&frame, wall_ms) {
                 finish_lap(player, &framer, &mut lap);
                 laps.push(lap);
