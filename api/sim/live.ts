@@ -106,14 +106,14 @@ async function stream(req: Request, answer: (body: unknown, status?: number, ext
   const encoder = new TextEncoder();
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let subscription: { close(): void } | null = null;
-  let ping: ReturnType<typeof setInterval> | undefined;
-  let lifetime: ReturnType<typeof setTimeout> | undefined;
+  // The ping and the stream's lifetime, set once the stream is admitted; `end` may run before that.
+  const timers: { ping?: ReturnType<typeof setInterval>; lifetime?: ReturnType<typeof setTimeout> } = {};
   let ended = false;
   const end = () => {
     if (ended) return;
     ended = true;
-    clearInterval(ping);
-    clearTimeout(lifetime);
+    clearInterval(timers.ping);
+    clearTimeout(timers.lifetime);
     subscription?.close();
     req.signal.removeEventListener('abort', end);
     try { controller.close(); } catch { /* already closed or cancelled */ }
@@ -138,10 +138,10 @@ async function stream(req: Request, answer: (body: unknown, status?: number, ext
   }
   if (req.signal.aborted) { end(); return new Response(null, { status: 499 }); }
   req.signal.addEventListener('abort', end, { once: true });
-  ping = setInterval(() => write(': ping\n\n'), PING_EVERY_MS);
-  lifetime = setTimeout(end, STREAM_LIFETIME_MS);
-  unref(ping);
-  unref(lifetime);
+  timers.ping = setInterval(() => write(': ping\n\n'), PING_EVERY_MS);
+  timers.lifetime = setTimeout(end, STREAM_LIFETIME_MS);
+  unref(timers.ping);
+  unref(timers.lifetime);
 
   return new Response(body, {
     status: 200,
