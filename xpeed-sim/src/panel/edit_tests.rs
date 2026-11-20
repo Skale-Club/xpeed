@@ -520,7 +520,7 @@ fn a_swap_changes_places_and_a_beside_puts_the_card_next_to_the_other() {
     assert_eq!(&panes(&right, 1)[2..4], &[Pane::Gaps, Pane::Times]);
     assert_eq!(left.rows[0].cards.len(), 4);
     // Past six cards a row refuses.
-    let full = SavedView::default_for(DashboardId::Race, Layout::Ultrawide);
+    let full = SavedView::default_for(DashboardId::Practice, Layout::Ultrawide);
     assert_eq!(full.rows[0].cards.len(), 6);
     assert_eq!(
         move_card(
@@ -546,7 +546,14 @@ fn a_swap_changes_places_and_a_beside_puts_the_card_next_to_the_other() {
 #[test]
 fn the_view_never_has_more_than_twelve_rows_or_loses_its_last_card() {
     let layout = Layout::Stack;
-    let view = SavedView::default_for(DashboardId::Race, layout);
+    // Race's own stack has room for two more rows: with them it is a full house.
+    let mut view = SavedView::default_for(DashboardId::Race, layout);
+    for pane in [Pane::Flag, Pane::TyreTrend] {
+        view.rows.push(OwnedRow {
+            h: 240.0,
+            cards: vec![(pane, 1.0)],
+        });
+    }
     assert_eq!(view.rows.len(), VIEW_MAX_ROWS);
     // A card of a row of one into a new row somewhere: the same number of rows. Into a full house from a row with company: no.
     let beside = move_card(

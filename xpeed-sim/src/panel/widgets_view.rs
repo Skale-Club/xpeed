@@ -90,6 +90,34 @@ pub(super) fn digiflag_card(g: &mut Painter, d: &Dash, card: Area) {
     });
 }
 
+/// The flag as a band across an alerts card (a dashboard with no flag card) while it is an alert: a block of its colour with
+/// its word in the middle (the chequered flag a checker pattern, its word on a plate).
+pub(super) fn flag_band(g: &mut Painter, f: &FlagCardModel, (x, y, w, h): Area) {
+    let semi = FW_SEMIBOLD as i32;
+    let big = type_step(h * 0.5);
+    let Some(kind) = f.kind else {
+        return;
+    };
+    shown(g, f.show, |g| {
+        let (fill, edge, ink) = flag_look(kind);
+        g.round(g.r(x, y, w, h), fill, edge);
+        let size = g.fitted(&f.word, w - 2.0 * S3, big.min(T_DISPLAY), T_CAPTION, semi, Face::Num);
+        if kind == FlagKind::Chequered {
+            chequered_pattern(g, (x, y, w, h));
+            let word_h = size * 1.25;
+            let plate_w = (g.tabular_width(&f.word, size, semi) + 2.0 * S4).min(w - 2.0 * S2);
+            let plate_h = (word_h + S2).min(h - 2.0 * S1);
+            let (px, py) = (x + (w - plate_w) / 2.0, y + (h - plate_h) / 2.0);
+            g.round(g.r(px, py, plate_w, plate_h), FLAG_WHITE, Some(FLAG_BLACK));
+            let r = g.r(px, py, plate_w, plate_h);
+            g.text(&f.word, r, size, semi, Face::Num, ink, DT_CENTER);
+        } else {
+            let r = g.r(x, y, w, h);
+            g.text(&f.word, r, size, semi, Face::Num, ink, DT_CENTER);
+        }
+    });
+}
+
 /// A pattern of black squares over the white block of the chequered flag: whole squares, as many as fit, centred, with a
 /// margin of white round them.
 fn chequered_pattern(g: &mut Painter, (x, y, w, h): Area) {

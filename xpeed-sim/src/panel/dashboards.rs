@@ -184,9 +184,9 @@ fn time_trial_rows(layout: Layout) -> &'static [Row] {
     }
 }
 
-// Race: the times, the centre, the flag, the tyres; the rivals (relative, standings, gaps, radar) with the session; the fuel
-// strategy, the tyre wear, the track and the alerts. The radar is left out of Classic (the smallest window holds no rivals) and
-// of Stack (one narrow column, no room for a card beside the gaps).
+// Race: the times, the centre, the pedals, the tyres and the alerts; the rivals (relative, standings, gaps) with the session; the
+// fuel strategy and the track. Owner decision 2026-11-20: no flag card (the alerts card carries the flag as a band), no tyre wear
+// card (the tyres card carries the laps left on each tyre) and no radar.
 
 const RACE_WIDE: &[Row] = &[
     Row {
@@ -195,39 +195,6 @@ const RACE_WIDE: &[Row] = &[
             (Pane::Times, 1.0),
             (Pane::Centre, 1.2),
             (Pane::Inputs, 0.7),
-            (Pane::Flag, 0.8),
-            (Pane::Tyres, 1.05),
-        ],
-    },
-    Row {
-        h: 262.0,
-        cards: &[
-            (Pane::Relative, 1.2),
-            (Pane::Standings, 1.3),
-            (Pane::Gaps, 0.85),
-            (Pane::Radar, 0.85),
-            (Pane::Session, 0.8),
-        ],
-    },
-    Row {
-        h: 256.0,
-        cards: &[
-            (Pane::FuelCalc, 1.1),
-            (Pane::TyreTrend, 1.05),
-            (Pane::Track, 0.9),
-            (Pane::Alerts, 1.0),
-        ],
-    },
-];
-
-const RACE_ULTRAWIDE: &[Row] = &[
-    Row {
-        h: 300.0,
-        cards: &[
-            (Pane::Times, 1.0),
-            (Pane::Centre, 1.2),
-            (Pane::Inputs, 0.7),
-            (Pane::Flag, 0.8),
             (Pane::Tyres, 1.1),
             (Pane::Alerts, 1.0),
         ],
@@ -238,39 +205,64 @@ const RACE_ULTRAWIDE: &[Row] = &[
             (Pane::Relative, 1.2),
             (Pane::Standings, 1.3),
             (Pane::Gaps, 0.9),
-            (Pane::Radar, 0.9),
             (Pane::Session, 0.8),
         ],
     },
     Row {
         h: 256.0,
-        cards: &[(Pane::FuelCalc, 1.2), (Pane::TyreTrend, 1.2), (Pane::Track, 1.0)],
+        cards: &[(Pane::FuelCalc, 1.1), (Pane::Track, 1.0)],
+    },
+];
+
+const RACE_ULTRAWIDE: &[Row] = &[
+    Row {
+        h: 300.0,
+        cards: &[
+            (Pane::Times, 1.0),
+            (Pane::Centre, 1.2),
+            (Pane::Inputs, 0.7),
+            (Pane::Tyres, 1.15),
+            (Pane::Alerts, 1.0),
+        ],
+    },
+    Row {
+        h: 262.0,
+        cards: &[
+            (Pane::Relative, 1.2),
+            (Pane::Standings, 1.3),
+            (Pane::Gaps, 0.9),
+            (Pane::Session, 0.8),
+        ],
+    },
+    Row {
+        h: 256.0,
+        cards: &[(Pane::FuelCalc, 1.2), (Pane::Track, 1.0)],
     },
 ];
 
 const RACE_SQUARE: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8)],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Alerts, 0.9)],
     },
     Row {
         h: 260.0,
-        cards: &[(Pane::Tyres, 1.2), (Pane::FuelCalc, 1.2), (Pane::TyreTrend, 1.2)],
+        cards: &[(Pane::Tyres, 1.2), (Pane::FuelCalc, 1.2)],
     },
     Row {
         h: 250.0,
-        cards: &[(Pane::Relative, 1.1), (Pane::Standings, 1.3), (Pane::Gaps, 0.9), (Pane::Radar, 0.9)],
+        cards: &[(Pane::Relative, 1.1), (Pane::Standings, 1.3), (Pane::Gaps, 0.9)],
     },
     Row {
         h: 232.0,
-        cards: &[(Pane::Session, 0.8), (Pane::Track, 1.0), (Pane::Alerts, 1.0)],
+        cards: &[(Pane::Session, 0.8), (Pane::Track, 1.0)],
     },
 ];
 
 const RACE_CLASSIC: &[Row] = &[
     Row {
         h: 300.0,
-        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Flag, 0.8), (Pane::Session, 0.8)],
+        cards: &[(Pane::Times, 1.0), (Pane::Centre, 1.2), (Pane::Alerts, 0.9), (Pane::Session, 0.8)],
     },
     Row {
         h: 262.0,
@@ -278,16 +270,15 @@ const RACE_CLASSIC: &[Row] = &[
     },
 ];
 
-// A phone held upright: what a race needs most, so the canvas stays short enough to read (tyre wear, the track and the
-// alerts are on the bigger layouts).
+// A phone held upright: what a race needs most, so the canvas stays short enough to read (the track is on the bigger layouts).
 const RACE_PORTRAIT: &[Row] = &[
     Row {
         h: 220.0,
         cards: &[(Pane::Times, 1.0)],
     },
     Row {
-        h: 170.0,
-        cards: &[(Pane::Session, 1.0), (Pane::Flag, 1.0)],
+        h: 220.0,
+        cards: &[(Pane::Session, 1.0), (Pane::Alerts, 1.0)],
     },
     Row {
         h: 244.0,
@@ -295,7 +286,7 @@ const RACE_PORTRAIT: &[Row] = &[
     },
     Row {
         h: 200.0,
-        cards: &[(Pane::Gaps, 1.0), (Pane::Radar, 1.0)],
+        cards: &[(Pane::Gaps, 1.0)],
     },
     Row {
         h: 242.0,
@@ -337,8 +328,8 @@ const RACE_STACK: &[Row] = &[
         cards: &[(Pane::Centre, 1.0)],
     },
     Row {
-        h: 120.0,
-        cards: &[(Pane::Flag, 1.0)],
+        h: 300.0,
+        cards: &[(Pane::Alerts, 1.0)],
     },
     Row {
         h: 262.0,
@@ -349,16 +340,8 @@ const RACE_STACK: &[Row] = &[
         cards: &[(Pane::Tyres, 1.0)],
     },
     Row {
-        h: 230.0,
-        cards: &[(Pane::TyreTrend, 1.0)],
-    },
-    Row {
         h: 210.0,
         cards: &[(Pane::Track, 1.0)],
-    },
-    Row {
-        h: 240.0,
-        cards: &[(Pane::Alerts, 1.0)],
     },
 ];
 

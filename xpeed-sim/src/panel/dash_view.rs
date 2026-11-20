@@ -61,24 +61,27 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
     header(g, &d, plan.w);
     for &(card, area) in &plan.cards {
         card_frame(g, area);
-        draw_pane(g, &d, card, area);
+        draw_pane(g, &d, card, area, &plan.cards);
     }
     if let Some(target) = banner_target(&plan) {
         banner(g, &d, target);
     }
 }
 
-/// Draws one card's content (its frame is the caller's).
-pub(super) fn draw_pane(g: &mut Painter, d: &Dash, card: Pane, area: Area) {
+/// Draws one card's content (its frame is the caller's). `on_dash` is every card of the dashboard: the alerts card carries
+/// the flag when there is no flag card, and the tyres card the laps left when there is no tyre wear card (owner decision
+/// 2026-11-20).
+pub(super) fn draw_pane(g: &mut Painter, d: &Dash, card: Pane, area: Area, on_dash: &[(Pane, Area)]) {
+    let has = |pane: Pane| on_dash.iter().any(|(c, _)| *c == pane);
     match card {
         Pane::Times => times_card(g, d, area),
         Pane::Centre => centre_card(g, d, area),
         Pane::Inputs => inputs_card(g, d, area),
         Pane::Fuel => fuel_card(g, d, area),
-        Pane::Tyres => tyres_card(g, d, area),
+        Pane::Tyres => tyres_card(g, d, area, !has(Pane::TyreTrend)),
         Pane::Laps => laps_card(g, d, area),
         Pane::Track => track_card(g, d, area),
-        Pane::Alerts => alerts_card(g, d, area),
+        Pane::Alerts => alerts_card(g, d, area, !has(Pane::Flag)),
         Pane::Flag => digiflag_card(g, d, area),
         Pane::FuelCalc => fuel_strategy_card(g, d, area),
         Pane::TyreTrend => tyre_wear_card(g, d, area),
@@ -566,8 +569,9 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
     }
 }
 
-/// The tyres card: the compound in its header, and a tile for each tyre in a grid of two by two.
-pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area) {
+/// The tyres card: the compound in its header, and a tile for each tyre in a grid of two by two; `with_laps` puts the laps
+/// left on each tyre beside its wear bar.
+pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area, with_laps: bool) {
     let Some(tyres) = &d.m.tyres else {
         return;
     };
@@ -578,7 +582,12 @@ pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area) {
             caption(g, compound, (x, y, w, CAPTION_H), DT_RIGHT);
         }
         for (i, (tile, area)) in tyres.tiles.iter().zip(tyre_tiles(card)).enumerate() {
-            tyre_tile_view(g, tile, &tyres.brake_label, area, i.is_multiple_of(2));
+            let laps = tile
+                .laps_left
+                .as_ref()
+                .filter(|_| with_laps)
+                .map(|(n, role)| (n.as_str(), tyres.laps_word.as_str(), *role));
+            tyre_tile_view(g, tile, &tyres.brake_label, laps, area, i.is_multiple_of(2));
         }
     });
 }
@@ -586,14 +595,23 @@ pub(super) fn tyres_card(g: &mut Painter, d: &Dash, card: Area) {
 /// One tyre's tile: the tyre drawn from above on its outer side (`Painter::tyre_shape`: three bands across the tread
 /// when the game gives them, one block otherwise, in the colours of the temperatures), and beside it its corner and state
 /// word, the temperature, the three readings across the tread, the pressure and the brake in a small row, and a thin
-/// wear bar when the game gives the wear. What does not fit the tile's height is left out, the wear first, then the
-/// readings across the tread.
-pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, area: Area, left_side: bool) {
+/// wear bar when the game gives the wear, with the laps left at its end (`laps`: the number, its word and how pressing it
+/// is). What does not fit the tile's height is left out, the wear first, then the readings across the tread.
+pub(super) fn tyre_tile_view(
+    g: &mut Painter,
+    t: &TyreTile,
+    brake_label: &str,
+    laps: Option<(&str, &str, Role)>,
+    area: Area,
+    left_side: bool,
+) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     tile_with_edge(g, area, BACKGROUND, t.role.colour());
     let (x, y, w, h) = area;
-    // The rows, by what they need; the padding shrinks before a row goes.
-    let (head_h, temp_h, tread_h, row_h, wear_h) = (16.0, 30.0, 16.0, 18.0, 7.0);
+    // The rows, by what they need; the padding shrinks before a row goes. With the laps left, the wear row is a line of text.
+    let laps = laps.filter(|_| t.wear.is_some());
+    let (head_h, temp_h, tread_h, row_h) = (16.0, 30.0, 16.0, 18.0);
+    let wear_h = if laps.is_some() { TYRE_LAPS_ROW_H } else { 7.0 };
     let base = head_h + temp_h + if t.pressure.is_some() || t.brake.is_some() { row_h } else { 0.0 };
     let pad = if h >= base + tread_h + wear_h + 2.0 * S2 { S2 } else { S1 };
     let room = h - 2.0 * pad;
@@ -607,7 +625,9 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
     let small_row = t.pressure.is_some() || t.brake.is_some();
     let rows_h = head_h + temp_h + if tread.is_some() { tread_h } else { 0.0 } + if small_row { row_h } else { 0.0 };
     let ink_top = g.caps_ink_span(&t.corner, T_CAPTION, head_h).map_or(0.0, |(top, _)| top);
-    let ink_bottom = if wear.is_some() {
+    let ink_bottom = if wear.is_some() && laps.is_some() {
+        rows_h + wear_h
+    } else if wear.is_some() {
         rows_h + WEAR_BAR_TOP + WEAR_BAR_H
     } else if let Some((num, _)) = t.pressure.as_ref().filter(|_| small_row) {
         rows_h - row_h + g.ink_span(num, T_BODY, semi, Face::Num, row_h).map_or(row_h, |(_, bottom)| bottom)
@@ -681,8 +701,26 @@ pub(super) fn tyre_tile_view(g: &mut Painter, t: &TyreTile, brake_label: &str, a
         }
         at += row_h;
     }
-    if let Some(wear) = wear {
-        g.solid_bar((ix, at + WEAR_BAR_TOP, iw, WEAR_BAR_H), wear, FOREGROUND_2);
+    match (wear, laps) {
+        (Some(wear), Some((number, word, role))) => {
+            // The laps left at the end of the bar, the word dropped when the bar would get too short.
+            let full = format!("{number} {word}");
+            let room = iw - TYRE_LAPS_BAR_MIN_W - S2;
+            let label = if g.width_of(&full, T_CAPTION, semi, Face::Num) <= room {
+                full
+            } else {
+                number.to_owned()
+            };
+            let lw = g.width_of(&label, T_CAPTION, semi, Face::Num).min(iw);
+            let r = g.r(ix + iw - lw - 2.0, at, lw + 2.0, wear_h);
+            g.text(&label, r, T_CAPTION, semi, Face::Num, role.colour(), DT_RIGHT);
+            let bar_w = iw - lw - S2;
+            if bar_w >= TYRE_LAPS_BAR_MIN_W {
+                g.solid_bar((ix, at + (wear_h - WEAR_BAR_H) / 2.0, bar_w, WEAR_BAR_H), wear, FOREGROUND_2);
+            }
+        }
+        (Some(wear), None) => g.solid_bar((ix, at + WEAR_BAR_TOP, iw, WEAR_BAR_H), wear, FOREGROUND_2),
+        _ => {}
     }
 }
 
@@ -847,8 +885,10 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
 
 /// The alerts card: every light the game can give in a fixed grid (off dark with its name, on filled in its colour,
 /// ready outlined; owner decision 2026-11-19), then one row of the electronics' settings and a short damage line. With
-/// too little room for the grid, only the lit lights show, side by side.
-pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
+/// too little room for the grid, only the lit lights show, side by side. `with_flag` (a dashboard with no flag card) takes the
+/// flag out of the grid and shows it as an alert: a band of its colour on top while a flag that matters is out (any but
+/// green; green only for a moment after it is given), nothing otherwise (owner decision 2026-11-20).
+pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area, with_flag: bool) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let m = d.m;
     let (x, y, w, h) = inner(card);
@@ -881,20 +921,35 @@ pub(super) fn alerts_card(g: &mut Painter, d: &Dash, card: Area) {
         }
         bottom -= elec_h + S2;
     }
-    let top = y + CAPTION_H + S2;
+    let mut top = y + CAPTION_H + S2;
+    let band = m.flag.as_ref().filter(|f| with_flag && f.alerting && f.kind.is_some());
+    let lights: Vec<&Light> = m.alerts.iter().filter(|a| !with_flag || a.kind != PillKind::Flag).collect();
+    if let Some(f) = band {
+        let room = (bottom - top).max(0.0);
+        let band_h = if lights.is_empty() {
+            room.min(FLAG_BAND_MAX_H * 2.0)
+        } else {
+            (room * 0.45).clamp(FLAG_BAND_MIN_H, FLAG_BAND_MAX_H).min(room)
+        };
+        flag_band(g, f, (x, top, w, band_h));
+        top += band_h + S2;
+        if lights.is_empty() {
+            return;
+        }
+    }
     let region = (x, top, w, (bottom - top).max(0.0));
-    if m.alerts.is_empty() {
+    if lights.is_empty() {
         let r = g.r(x, top, w, 20.0);
         g.text(&m.no_alerts, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);
         return;
     }
-    if let Some(cells) = light_grid(region, m.alerts.len()) {
-        for (light, area) in m.alerts.iter().zip(cells) {
+    if let Some(cells) = light_grid(region, lights.len()) {
+        for (light, area) in lights.iter().zip(cells) {
             shown(g, light.show, |g| g.alert_tile(light, area));
         }
         return;
     }
-    let lit: Vec<&Light> = m.alerts.iter().filter(|a| a.glow != Glow::Off).collect();
+    let lit: Vec<&Light> = lights.into_iter().filter(|a| a.glow != Glow::Off).collect();
     if lit.is_empty() {
         let r = g.r(x, top, w, 20.0);
         g.text(&m.no_alerts, r, T_BODY, normal, Face::Ui, MUTED_TEXT, DT_LEFT);

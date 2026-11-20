@@ -151,6 +151,13 @@ pub(super) const LAP_BAR_H: f32 = 8.0;
 /// A tyre tile's wear bar: how far under the row above it starts, and how tall it is.
 pub(super) const WEAR_BAR_TOP: f32 = 2.0;
 pub(super) const WEAR_BAR_H: f32 = 3.0;
+/// A tyre tile's wear row when it carries the laps left: a line of small text with the bar beside it, the bar never shorter
+/// than this.
+pub(super) const TYRE_LAPS_ROW_H: f32 = 14.0;
+pub(super) const TYRE_LAPS_BAR_MIN_W: f32 = 16.0;
+/// The flag's band on an alerts card: its height, between these, out of the room under the caption.
+pub(super) const FLAG_BAND_MIN_H: f32 = 44.0;
+pub(super) const FLAG_BAND_MAX_H: f32 = 84.0;
 /// The distance between two grooves across a drawn tread.
 pub(super) const TYRE_GROOVE_PITCH: f32 = 10.0;
 

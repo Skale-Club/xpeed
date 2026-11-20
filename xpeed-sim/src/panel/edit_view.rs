@@ -19,7 +19,7 @@ pub(super) fn edit_screen(g: &mut Painter, body: RECT, d: &Dash, ui: &EditUi) {
     for &(pane, area) in &plan.cards {
         if d.slots.cards.contains(&pane) {
             card_frame(g, area);
-            draw_pane(g, d, pane, area);
+            draw_pane(g, d, pane, area, &plan.cards);
         } else {
             missing_card(g, d, pane, area);
         }

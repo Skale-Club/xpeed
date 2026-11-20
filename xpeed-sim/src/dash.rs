@@ -291,6 +291,9 @@ pub struct Live {
     pub lap_inputs: Option<[f32; 3]>,
     /// The gear before the last shift and when the shift was seen (ms): the panel slides the gears from it.
     pub gear_shift: Option<(f32, i64)>,
+    /// When the flag shown now (`state.flag`) was first seen (ms); nothing with no flag. The panel shows the green flag as an
+    /// alert only for a moment after it is given.
+    pub flag_since_ms: Option<i64>,
     /// A valid best path from this session, shown only for an explicit practice/qualifying context.
     pub reference: Option<Arc<Vec<(f32, f32)>>>,
     /// Forward direction inferred from recent live movement, never from replay progression.
@@ -376,6 +379,8 @@ pub struct Tracker {
     /// The gear of the last reading that had one, and the last shift (the gear before it, when it was seen).
     last_gear: Option<f32>,
     gear_shift: Option<(f32, i64)>,
+    /// The flag shown now and when it was first seen.
+    flag_seen: Option<(crate::game::Flag, i64)>,
     /// The fuel (litres) when the lap being driven began, when this run saw it begin (a lap joined midway has none).
     fuel_lap_start: Option<f32>,
     /// The last fuel reading of this lap.
@@ -673,6 +678,11 @@ impl Tracker {
         }
         self.see_gear(frame.gear);
         self.see_shift(frame.gear, at_ms);
+        self.flag_seen = match (frame.state.flag, self.flag_seen) {
+            (Some(now), Some((was, since))) if now == was => Some((was, since)),
+            (Some(now), _) => Some((now, at_ms)),
+            (None, _) => None,
+        };
         let delta_s = match (&self.best, step.sample, frame.lap_time_s) {
             (Some((_, best)), Some(sample), Some(_)) if self.current_from_line => {
                 time_at(best, sample.dist_m).map(|best_t| sample.t_s - best_t)
@@ -796,6 +806,7 @@ impl Tracker {
                 [0, 1, 2].map(|k| (self.lap_input_ms[k] / all) as f32)
             }),
             gear_shift: self.gear_shift,
+            flag_since_ms: self.flag_seen.map(|(_, since)| since),
             reference: matches!(frame.session_kind, Some(SessionKind::Practice | SessionKind::Qualifying))
                 .then(|| self.best_path.clone())
                 .flatten(),

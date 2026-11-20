@@ -1180,7 +1180,8 @@ fn writes_the_design_preview_page() {
     spotter_only.caps = every_cap().minus(Caps::RIVALS_WORLD);
     spotter_only.field = full.field.as_deref().map(|f| Arc::new(without_world(f)));
     spotter_only.spotter = Some(Spotter::Left);
-    let mut v = view(&f, Some(&spotter_only), Tab::Dash, 1.0, Lang::En);
+    let radar_f = race_with_radar();
+    let mut v = view(&radar_f, Some(&spotter_only), Tab::Dash, 1.0, Lang::En);
     v.dashboard = Some(DashboardId::Race);
     v.recent_laps = &full_laps;
     let pixels = render(&v, 1920, 1080);
@@ -2121,7 +2122,7 @@ fn a_tyre_tile_groups_the_tyre_with_its_words_in_the_middle() {
     let tiles = model(&rich_reading(), Lang::En).tyres.unwrap().tiles;
     let (w, h) = (220, 200);
     let at = painted_by(w, h, |g| {
-        tyre_tile_view(g, &tiles[0], "Brake", (0.0, 0.0, w as f32, h as f32), true);
+        tyre_tile_view(g, &tiles[0], "Brake", None, (0.0, 0.0, w as f32, h as f32), true);
     });
     let rows = |x0: i32, x1: i32, hit: &dyn Fn(COLORREF) -> bool| -> Vec<i32> {
         (4..h - 2).filter(|y| (x0..x1).any(|x| hit(at(x, *y)))).collect()
@@ -4058,8 +4059,12 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
         for pane in later_nine {
             // Classic, the smallest window, leaves the tyre wear and the rivals out; a phone held upright, the tyre wear.
             let left_out = match layout {
-                Layout::Classic => matches!(pane, Pane::TyreTrend | Pane::Relative | Pane::Standings | Pane::Gaps),
+                Layout::Classic => matches!(pane, Pane::TyreTrend | Pane::Relative | Pane::Standings | Pane::Gaps | Pane::Flag),
                 Layout::Portrait => pane == Pane::TyreTrend,
+                // Race carries the flag in its alerts card and the tyre wear in its tyres card (owner decision 2026-11-20): the flag card is
+                // on no wide dashboard and the tyre wear card on no square or stacked one.
+                Layout::Wide => pane == Pane::Flag,
+                Layout::Square | Layout::Stack => pane == Pane::TyreTrend,
                 _ => false,
             };
             if left_out {
@@ -4076,9 +4081,9 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             .map(|(p, _)| catalog::id_of(*p))
             .collect()
     };
-    assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "inputs", "flag", "tyres"]);
-    assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "radar", "session"]);
-    assert_eq!(ids(DashboardId::Race, 2), ["fuel_calc", "tyre_trend", "track", "alerts"]);
+    assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "inputs", "tyres", "alerts"]);
+    assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "session"]);
+    assert_eq!(ids(DashboardId::Race, 2), ["fuel_calc", "track"]);
     assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "inputs", "sectors", "tyres"]);
     assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "delta_ref", "standings", "session"]);
     assert_eq!(ids(DashboardId::TimeTrial, 0), ["delta_bar"]);
@@ -4214,40 +4219,153 @@ fn dashboard_pixels(dash: DashboardId, live: &Live, laps: &[SavedLap]) -> Vec<u8
     render(&v, 1920, 1080)
 }
 
+/// The Race dashboard with the radar beside the gaps in every layout, as a driver who added it in the editor has it (the
+/// built-in Race has no radar since 2026-11-20; the radar stays in the catalog).
+fn race_with_radar() -> Fixture {
+    let mut f = fixture();
+    for layout in ALL_LAYOUTS {
+        let mut view = SavedView::default_for(DashboardId::Race, layout);
+        if let Some(row) = view.rows.iter_mut().find(|r| r.cards.iter().any(|c| c.0 == Pane::Gaps)) {
+            let at = row.cards.iter().position(|c| c.0 == Pane::Gaps).unwrap();
+            row.cards.insert(at + 1, (Pane::Radar, 0.9));
+        }
+        f.views.set(DashboardId::Race, layout, view);
+    }
+    f
+}
+
+/// The Race dashboard with the radar, painted at 1920 x 1080.
+fn radar_race_pixels(live: &Live, laps: &[SavedLap]) -> Vec<u8> {
+    let f = race_with_radar();
+    let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
+    v.dashboard = Some(DashboardId::Race);
+    v.recent_laps = laps;
+    render(&v, 1920, 1080)
+}
+
 #[test]
-fn the_flag_card_is_a_block_of_the_flags_colour_and_the_chequered_flag_is_a_checker_pattern() {
+fn the_race_alerts_card_shows_a_flag_as_an_alert_band_and_the_green_flag_only_when_it_is_given() {
     use crate::game::Flag;
     let laps = rich_laps();
     let mut live = full_reading();
+    live.state.flag = None;
+    let none = dashboard_pixels(DashboardId::Race, &live, &laps);
+    {
+        // The ultrawide window with no flag out: the alerts card is only its lights.
+        let f = fixture();
+        let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(DashboardId::Race);
+        v.recent_laps = &laps;
+        save(&render(&v, 2560, 1080), 2560, 1080, "panel-race-ultrawide-no-flag.png");
+    }
+    // A green flag that has been out a while is no alert: nothing is drawn for it (owner decision 2026-11-20).
     live.state.flag = Some(Flag::Green);
-    let green = dashboard_pixels(DashboardId::Race, &live, &laps);
+    live.flag_since_ms = Some(live.at_ms - GREEN_FLAG_ALERT_MS - 1_000);
+    let old_green = dashboard_pixels(DashboardId::Race, &live, &laps);
+    assert!(
+        has_color(&old_green, SUCCESS) < has_color(&none, SUCCESS) + 2_000,
+        "a standing green flag draws no band: {} against {}",
+        has_color(&old_green, SUCCESS),
+        has_color(&none, SUCCESS)
+    );
+    // Just given, it shows for a moment.
+    live.flag_since_ms = Some(live.at_ms);
+    let new_green = dashboard_pixels(DashboardId::Race, &live, &laps);
+    save(&new_green, 1920, 1080, "panel-flag-green-given.png");
+    assert!(
+        has_color(&new_green, SUCCESS) > has_color(&none, SUCCESS) + 10_000,
+        "a green flag just given is a band: {} against {}",
+        has_color(&new_green, SUCCESS),
+        has_color(&none, SUCCESS)
+    );
+    // Any other flag is a band while it is out.
     live.state.flag = Some(Flag::Blue);
+    live.flag_since_ms = Some(live.at_ms - 60_000);
     let blue = dashboard_pixels(DashboardId::Race, &live, &laps);
     save(&blue, 1920, 1080, "panel-flag-blue.png");
     assert!(
-        has_color(&blue, INFO) > has_color(&green, INFO) + 20_000,
-        "a blue flag fills its card with blue: {} against {}",
+        has_color(&blue, INFO) > has_color(&none, INFO) + 10_000,
+        "a blue flag is a blue band: {} against {}",
         has_color(&blue, INFO),
-        has_color(&green, INFO)
+        has_color(&none, INFO)
     );
     live.state.flag = Some(Flag::Chequered);
     let chequered = dashboard_pixels(DashboardId::Race, &live, &laps);
     save(&chequered, 1920, 1080, "panel-flag-chequered.png");
     assert!(
-        has_color(&chequered, FLAG_BLACK) > 10_000,
+        has_color(&chequered, FLAG_BLACK) > has_color(&none, FLAG_BLACK) + 3_000,
         "black squares: {}",
         has_color(&chequered, FLAG_BLACK)
     );
     assert!(
-        has_color(&chequered, FLAG_WHITE) > 10_000,
+        has_color(&blue, FLAG_BLACK) < has_color(&none, FLAG_BLACK) + 500,
+        "no checkers on a blue flag"
+    );
+}
+
+#[test]
+fn a_flag_card_is_a_block_of_the_flags_colour_and_the_chequered_flag_is_a_checker_pattern() {
+    use crate::game::Flag;
+    let laps = rich_laps();
+    let mut live = full_reading();
+    let pixels = |live: &Live| {
+        let f = fixture();
+        let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(DashboardId::Qualifying);
+        v.recent_laps = &laps;
+        render(&v, 1024, 768)
+    };
+    live.state.flag = Some(Flag::Green);
+    let green = pixels(&live);
+    live.state.flag = Some(Flag::Blue);
+    let blue = pixels(&live);
+    assert!(
+        has_color(&blue, INFO) > has_color(&green, INFO) + 10_000,
+        "a blue flag fills its card with blue: {} against {}",
+        has_color(&blue, INFO),
+        has_color(&green, INFO)
+    );
+    live.state.flag = Some(Flag::Chequered);
+    let chequered = pixels(&live);
+    assert!(
+        has_color(&chequered, FLAG_BLACK) > 3_000,
+        "black squares: {}",
+        has_color(&chequered, FLAG_BLACK)
+    );
+    assert!(
+        has_color(&chequered, FLAG_WHITE) > 3_000,
         "white squares: {}",
         has_color(&chequered, FLAG_WHITE)
     );
-    assert!(has_color(&green, FLAG_BLACK) < 2_000, "no checkers on a green flag");
-    // No flag: the card keeps the card surface, there is no block.
-    live.state.flag = None;
-    let none = dashboard_pixels(DashboardId::Race, &live, &laps);
-    assert!(has_color(&none, INFO) < has_color(&blue, INFO) - 20_000);
+}
+
+#[test]
+fn the_green_flag_is_an_alert_only_just_after_it_is_given() {
+    use crate::game::Flag;
+    assert!(!flag_alerting(None, None, 10_000));
+    assert!(flag_alerting(Some(Flag::Green), Some(10_000), 10_000 + GREEN_FLAG_ALERT_MS - 1));
+    assert!(!flag_alerting(Some(Flag::Green), Some(10_000), 10_000 + GREEN_FLAG_ALERT_MS));
+    assert!(!flag_alerting(Some(Flag::Green), None, 10_000));
+    for flag in [Flag::Yellow, Flag::Blue, Flag::White, Flag::Black, Flag::Chequered] {
+        assert!(flag_alerting(Some(flag), Some(0), 1_000_000), "{flag:?}");
+    }
+}
+
+#[test]
+fn the_race_tyres_card_carries_the_laps_left_on_each_tyre() {
+    let live = full_reading();
+    let tyres = model(&live, Lang::En).tyres.unwrap();
+    let laps = tyre_laps_left_all(&live);
+    assert!(laps.iter().any(Option::is_some), "the reading gives a wear per lap");
+    for (tile, laps) in tyres.tiles.iter().zip(laps) {
+        assert_eq!(tile.laps_left.as_ref().map(|(n, _)| n.clone()), laps.map(laps_left_text));
+    }
+    assert_eq!(tyres.laps_word, "laps");
+    // Race has no tyre wear card of its own, so the tiles draw it; with the wear card beside them they do not.
+    assert!(!builtin(DashboardId::Race)
+        .rows_for(Layout::Wide)
+        .iter()
+        .any(|row| row.cards.iter().any(|(p, _)| *p == Pane::TyreTrend)));
 }
 
 #[test]
@@ -5281,64 +5399,46 @@ fn the_radar_scale_keeps_the_boxs_aspect_and_crops_the_longer_axis() {
 }
 
 #[test]
-fn the_radar_is_on_race_only_beside_the_gaps_and_in_no_other_dashboard() {
+fn the_radar_is_on_no_built_in_dashboard_and_sits_beside_the_gaps_when_a_driver_adds_it() {
     use crate::game::Caps;
     let with = slots(every_cap());
     let no_radar = slots(every_cap().minus(Caps::RIVALS_WORLD.or(Caps::SPOTTER)));
     assert!(!no_radar.cards.contains(&Pane::Radar));
+    assert!(catalog::by_id("radar").is_some(), "the radar stays in the catalog");
+    let f = race_with_radar();
     for layout in ALL_LAYOUTS {
         for dash in DashboardId::ALL {
-            let plan = layout.plan_in(dash, &with, usize::MAX);
-            let wanted = dash == DashboardId::Race && !matches!(layout, Layout::Classic | Layout::Stack);
-            assert_eq!(plan.area(Pane::Radar).is_some(), wanted, "{dash:?} {layout:?}");
-            assert!(layout.plan_in(dash, &no_radar, usize::MAX).area(Pane::Radar).is_none());
-            if let Some(radar) = plan.area(Pane::Radar) {
-                assert!(radar.3 + 0.01 >= RADAR_NEED_H, "{dash:?} {layout:?}: the radar is {} tall", radar.3);
-                assert!(radar.2 >= 150.0, "{dash:?} {layout:?}: the radar is {} wide", radar.2);
-                // The radar sits in the rivals' row, after the gaps.
-                let gaps = plan.area(Pane::Gaps).unwrap();
-                assert!(near(gaps.1, radar.1) && gaps.0 < radar.0, "{dash:?} {layout:?}");
-            }
+            // Owner decision 2026-11-20: the radar is on no built-in dashboard.
+            assert!(
+                layout.plan_in(dash, &with, usize::MAX).area(Pane::Radar).is_none(),
+                "{dash:?} {layout:?}"
+            );
         }
+        let plan = layout.plan_with(&f.views, DashboardId::Race, &with, usize::MAX);
+        assert!(layout
+            .plan_with(&f.views, DashboardId::Race, &no_radar, usize::MAX)
+            .area(Pane::Radar)
+            .is_none());
+        if matches!(layout, Layout::Classic | Layout::Stack) {
+            continue;
+        }
+        let radar = plan
+            .area(Pane::Radar)
+            .unwrap_or_else(|| panic!("{layout:?}: the radar added is there"));
+        assert!(radar.3 + 0.01 >= RADAR_NEED_H, "{layout:?}: the radar is {} tall", radar.3);
+        assert!(radar.2 >= 150.0, "{layout:?}: the radar is {} wide", radar.2);
+        let gaps = plan.area(Pane::Gaps).unwrap();
+        assert!(near(gaps.1, radar.1) && gaps.0 < radar.0, "{layout:?}");
     }
-    // The rows.
-    let wide = builtin(DashboardId::Race).rows_for(Layout::Wide)[1].cards;
-    assert_eq!(
-        wide,
-        [
-            (Pane::Relative, 1.2),
-            (Pane::Standings, 1.3),
-            (Pane::Gaps, 0.85),
-            (Pane::Radar, 0.85),
-            (Pane::Session, 0.8),
-        ]
-    );
-    let portrait = builtin(DashboardId::Race).rows_for(Layout::Portrait);
-    assert!(portrait.iter().any(|row| row.cards == [(Pane::Gaps, 1.0), (Pane::Radar, 1.0)]));
-    assert_eq!(
-        portrait.iter().map(|row| row.h).sum::<f32>(),
-        220.0 + 170.0 + 244.0 + 200.0 + 242.0 + 280.0 + 262.0
-    );
-    // Without the radar the phone's gaps card takes the whole row, as before.
+    // Without the radar's data the phone's gaps card takes the whole row.
     let gaps_width = |s: &Slots| {
         Layout::Portrait
-            .plan_in(DashboardId::Race, s, usize::MAX)
+            .plan_with(&f.views, DashboardId::Race, s, usize::MAX)
             .area(Pane::Gaps)
             .unwrap()
             .2
     };
     assert!(gaps_width(&no_radar) > gaps_width(&with));
-    // The tyres lose no room to it, in any layout.
-    for layout in ALL_LAYOUTS {
-        let (a, b) = (
-            layout.plan_in(DashboardId::Race, &with, usize::MAX),
-            layout.plan_in(DashboardId::Race, &no_radar, usize::MAX),
-        );
-        assert!(
-            a.area(Pane::Tyres).unwrap().2 + 0.01 >= b.area(Pane::Tyres).unwrap().2,
-            "{layout:?}"
-        );
-    }
     // A phone held upright still gets the phone layout.
     assert_eq!(pick_layout_in(DashboardId::Race, 540.0, 1014.0, &with), Layout::Portrait);
 }
@@ -5401,10 +5501,7 @@ fn the_radar_paints_red_for_a_car_alongside_amber_for_a_close_one_and_bars_for_t
     let mut flat = with.clone();
     flat.caps = every_cap().minus(crate::game::Caps::RIVALS_WORLD);
     flat.field = with.field.as_deref().map(|f| Arc::new(without_world(f)));
-    let (a, b) = (
-        dashboard_pixels(DashboardId::Race, &with, &laps),
-        dashboard_pixels(DashboardId::Race, &flat, &laps),
-    );
+    let (a, b) = (radar_race_pixels(&with, &laps), radar_race_pixels(&flat, &laps));
     save(&a, 1920, 1080, "panel-race-radar.png");
     for (colour, what) in [(DESTRUCTIVE, "the car alongside"), (WARN, "the close car")] {
         assert!(
@@ -5418,7 +5515,7 @@ fn the_radar_paints_red_for_a_car_alongside_amber_for_a_close_one_and_bars_for_t
     let red = |signal: Spotter| {
         let mut live = flat.clone();
         live.spotter = Some(signal);
-        has_color(&dashboard_pixels(DashboardId::Race, &live, &laps), DESTRUCTIVE)
+        has_color(&radar_race_pixels(&live, &laps), DESTRUCTIVE)
     };
     let (clear, left, two) = (red(Spotter::Clear), red(Spotter::Left), red(Spotter::TwoLeft));
     assert!(left > clear + 50, "a bar for the car on the left: {left} against {clear}");
@@ -5428,12 +5525,12 @@ fn the_radar_paints_red_for_a_car_alongside_amber_for_a_close_one_and_bars_for_t
     let mut waiting = with.clone();
     waiting.heading = None;
     waiting.caps = every_cap().minus(crate::game::Caps::SPOTTER);
-    assert!(has_color(&dashboard_pixels(DashboardId::Race, &waiting, &laps), CARD) > 1000);
+    assert!(has_color(&radar_race_pixels(&waiting, &laps), CARD) > 1000);
 }
 
 #[test]
 fn the_radar_paints_in_every_shape_with_every_kind_of_reading() {
-    let f = fixture();
+    let f = race_with_radar();
     let laps = rich_laps();
     let with = full_reading();
     let mut spotter = with.clone();
@@ -5620,9 +5717,9 @@ fn the_reference_card_serialises_for_the_phone_in_camel_case() {
 fn race_rows_for_the_phone() -> Vec<Vec<&'static str>> {
     vec![
         vec!["times"],
-        vec!["session", "flag"],
+        vec!["session", "alerts"],
         vec!["relative"],
-        vec!["gaps", "radar"],
+        vec!["gaps"],
         vec!["standings"],
         vec!["centre"],
         vec!["fuel_calc", "tyres"],
@@ -5638,19 +5735,20 @@ fn the_phone_gets_the_portrait_rows_as_widget_ids_with_the_pairs_kept_and_only_t
     let frame = build_frame(&live, "lmu", &ctx_of(Lang::En, live.at_ms), None).unwrap();
     assert_eq!(frame.dashboard, "race");
     assert_eq!(frame.rows, race_rows_for_the_phone());
-    // Without the radar's data the gaps card is alone in its row.
+    // The built-in Race has no radar (owner decision 2026-11-20): the gaps card is alone in its row either way.
     live.caps = every_cap().minus(Caps::RIVALS_WORLD).minus(Caps::SPOTTER);
     let frame = build_frame(&live, "lmu", &ctx_of(Lang::En, live.at_ms), None).unwrap();
     assert_eq!(frame.rows[3], ["gaps"]);
     assert_eq!(frame.rows.len(), 7);
-    // Without the rivals and the flag, the rows with nothing left are gone and the others keep what they have.
+    // Without the rivals and the flag, the rows with nothing left are gone and the others keep what they have (the alerts card
+    // stays: it has more than the flag).
     live.caps = every_cap()
         .minus(Caps::RIVALS)
         .minus(Caps::RIVALS_WORLD)
         .minus(Caps::SPOTTER)
         .minus(Caps::FLAG);
     let frame = build_frame(&live, "lmu", &ctx_of(Lang::En, live.at_ms), None).unwrap();
-    let kept = [vec!["times"], vec!["session"], vec!["centre"], vec!["fuel_calc", "tyres"]];
+    let kept = [vec!["times"], vec!["session", "alerts"], vec!["centre"], vec!["fuel_calc", "tyres"]];
     assert_eq!(frame.rows, kept);
     // Every id is the catalog's, and the rows fit what the server takes.
     for dash in DashboardId::ALL {
@@ -5709,7 +5807,7 @@ fn the_frame_is_the_panels_own_model_in_the_apps_language_and_goes_out_as_the_co
     assert_eq!((json["v"].as_i64(), json["seq"].as_i64()), (Some(1), Some(12)));
     assert_eq!((json["game"].as_str(), json["dashboard"].as_str()), (Some("ac"), Some("race")));
     assert_eq!(json["rows"].as_array().map(Vec::len), Some(race_rows_for_the_phone().len()));
-    assert_eq!(json["rows"][1], serde_json::json!(["session", "flag"]));
+    assert_eq!(json["rows"][1], serde_json::json!(["session", "alerts"]));
     assert_eq!(json["model"]["gear"]["show"], "shown");
     assert!(json["model"]["speed"].is_object() && json["model"]["laps"]["rows"].is_array());
 }

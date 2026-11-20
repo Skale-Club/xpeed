@@ -505,6 +505,9 @@ pub(super) struct TyreTile {
     pub(super) brake: Option<String>,
     /// How much of the tread is left, 0..1.
     pub(super) wear: Option<f32>,
+    /// The laps the tread lasts and how pressing that is, on a dashboard with no tyre wear card of its own (the tyres card
+    /// then carries the wear; owner decision 2026-11-20).
+    pub(super) laps_left: Option<(String, Role)>,
 }
 
 /// A tyre seen from above, in the colours of its temperatures. Owner decision 2026-11-19: only the tyre (no car), three
@@ -527,6 +530,8 @@ pub(super) struct TyresModel {
     pub(super) compound: Option<String>,
     /// The word before a brake's temperature.
     pub(super) brake_label: String,
+    /// The word after a tile's laps left (`68 laps`).
+    pub(super) laps_word: String,
 }
 
 /// What a row of the laps table is.
@@ -820,6 +825,7 @@ fn tyre_tile(lang: Lang, units: crate::config::Units, index: usize, t: &crate::g
         pressure: t.pressure_kpa.is_finite().then(|| pressure_text(t.pressure_kpa, units.pressure)),
         brake: t.brake_c.is_finite().then(|| temp_short(t.brake_c, units.temperature)),
         wear: t.left.is_finite().then(|| t.left.clamp(0.0, 1.0)),
+        laps_left: None,
     }
 }
 
@@ -1401,7 +1407,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     };
 
     // The tyres and the map.
-    let tyres = slots.tyres.then(|| {
+    let mut tyres = slots.tyres.then(|| {
         let now = live.tyres.filter(|t| t.iter().any(crate::game::Tyre::known));
         let unknown = crate::game::Tyre {
             brake_c: f32::NAN,
@@ -1417,6 +1423,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
             title: say(Msg::PanelTyres),
             compound: live.tyre_compound.clone().filter(|c| !c.trim().is_empty()),
             brake_label: say(Msg::PanelBrake),
+            laps_word: say(Msg::PanelLapsWord),
         }
     });
     let map = if !slots.map {
@@ -1430,7 +1437,17 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let laps = laps_model(live, ctx, &slots, fresh, &lap_time, &delta);
 
     let has = |pane: Pane| slots.cards.contains(&pane);
-    let flag_card = has(Pane::Flag).then(|| flag_model(lang, s.flag, reading(live_now, s.flag.is_some())));
+    // The flag is also the band of an alerts card on a dashboard with no flag card (owner decision 2026-11-20).
+    let flag_card = has(Pane::Flag).then(|| {
+        let alerting = flag_alerting(s.flag, live.flag_since_ms, ctx.now_ms);
+        flag_model(lang, s.flag, reading(live_now, s.flag.is_some()), alerting)
+    });
+    // The laps left on each tyre: the tyres card shows them on a dashboard with no tyre wear card (owner decision 2026-11-20).
+    if let Some(tyres) = tyres.as_mut() {
+        for (tile, laps) in tyres.tiles.iter_mut().zip(tyre_laps_left_all(live)) {
+            tile.laps_left = laps.map(|n| (laps_left_text(n), tyre_laps_role(Some(n))));
+        }
+    }
     let fuel_calc = has(Pane::FuelCalc).then(|| {
         fuel_calc_model(&FuelCalcInput {
             lang,

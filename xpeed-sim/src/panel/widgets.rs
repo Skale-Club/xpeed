@@ -55,9 +55,24 @@ pub(super) struct FlagCardModel {
     pub(super) kind: Option<FlagKind>,
     /// The flag's short word in capitals (`YELLOW`, the lights card's), or `NO FLAG`.
     pub(super) word: String,
+    /// The flag is one to show as an alert now: any flag but green, and green only for `GREEN_FLAG_ALERT_MS` after it is
+    /// given (owner decision 2026-11-20: a flag is an alert, not a standing display).
+    pub(super) alerting: bool,
 }
 
-pub(super) fn flag_model(lang: Lang, flag: Option<crate::game::Flag>, show: Show) -> FlagCardModel {
+/// How long the green flag shows as an alert after it is given (the start, the end of a yellow).
+pub(super) const GREEN_FLAG_ALERT_MS: i64 = 5_000;
+
+/// Whether the flag shown now is one to show as an alert: any flag but green, green only just after it was given.
+pub(super) fn flag_alerting(flag: Option<crate::game::Flag>, since_ms: Option<i64>, now_ms: i64) -> bool {
+    match flag {
+        None => false,
+        Some(crate::game::Flag::Green) => since_ms.is_some_and(|since| now_ms - since < GREEN_FLAG_ALERT_MS),
+        Some(_) => true,
+    }
+}
+
+pub(super) fn flag_model(lang: Lang, flag: Option<crate::game::Flag>, show: Show, alerting: bool) -> FlagCardModel {
     let kind = flag.map(FlagKind::of);
     let word = match kind {
         Some(kind) => text(lang, &kind.word()),
@@ -68,6 +83,7 @@ pub(super) fn flag_model(lang: Lang, flag: Option<crate::game::Flag>, show: Show
         title: text(lang, &Msg::PanelFlagTitle),
         kind,
         word: word.to_uppercase(),
+        alerting,
     }
 }
 
@@ -291,7 +307,7 @@ pub(super) const TYRE_PRESSING_LAPS: f32 = 10.0;
 pub(super) const TYRE_LOW_LAPS: f32 = 5.0;
 
 /// Laps left written: a decimal while they are few, whole laps otherwise.
-fn laps_left_text(laps: f32) -> String {
+pub(super) fn laps_left_text(laps: f32) -> String {
     if laps < TYRE_PRESSING_LAPS {
         format!("{laps:.1}")
     } else {
@@ -328,14 +344,37 @@ pub(super) struct TyreTrendModel {
     pub(super) note: Option<String>,
 }
 
-pub(super) fn tyre_trend_model(lang: Lang, live: &Live, fresh: bool) -> TyreTrendModel {
-    let say = |msg: Msg| text(lang, &msg);
+/// The tread left (0..1) and the wear per lap of each tyre, as far as the game gives them.
+fn tread_and_wear(live: &Live) -> ([Option<f32>; 4], [Option<f32>; 4]) {
     let now = live.tyres.filter(|t| t.iter().any(crate::game::Tyre::known));
     let tyres = now.or(live.last_seen.tyres);
     let known = |v: Option<f32>| v.filter(|v| v.is_finite());
-    let tread: [Option<f32>; 4] = std::array::from_fn(|i| known(tyres.map(|t| t[i].left)).map(|left| left.clamp(0.0, 1.0)));
-    let wear: [Option<f32>; 4] = std::array::from_fn(|i| known(live.tyre_wear_per_lap.map(|w| w[i])).map(|per| per.max(0.0)));
-    let laps_left: [Option<f32>; 4] = std::array::from_fn(|i| tread[i].zip(wear[i]).and_then(|(left, per)| tyre_laps_left(left, per)));
+    let tread = std::array::from_fn(|i| known(tyres.map(|t| t[i].left)).map(|left| left.clamp(0.0, 1.0)));
+    let wear = std::array::from_fn(|i| known(live.tyre_wear_per_lap.map(|w| w[i])).map(|per| per.max(0.0)));
+    (tread, wear)
+}
+
+/// The laps each tyre's tread lasts at its wear per lap.
+pub(super) fn tyre_laps_left_all(live: &Live) -> [Option<f32>; 4] {
+    let (tread, wear) = tread_and_wear(live);
+    std::array::from_fn(|i| tread[i].zip(wear[i]).and_then(|(left, per)| tyre_laps_left(left, per)))
+}
+
+/// How pressing a tyre's laps left are: red under `TYRE_LOW_LAPS`, amber under `TYRE_PRESSING_LAPS`.
+pub(super) fn tyre_laps_role(laps_left: Option<f32>) -> Role {
+    match laps_left {
+        Some(n) if n < TYRE_LOW_LAPS => Role::Danger,
+        Some(n) if n < TYRE_PRESSING_LAPS => Role::Warn,
+        Some(_) => Role::Text,
+        None => Role::Muted,
+    }
+}
+
+pub(super) fn tyre_trend_model(lang: Lang, live: &Live, fresh: bool) -> TyreTrendModel {
+    let say = |msg: Msg| text(lang, &msg);
+    let now = live.tyres.filter(|t| t.iter().any(crate::game::Tyre::known));
+    let (tread, wear) = tread_and_wear(live);
+    let laps_left = tyre_laps_left_all(live);
     let worst = worst_tyre(&laps_left);
     let rows = (0..4)
         .map(|i| TyreTrendRow {
@@ -343,12 +382,7 @@ pub(super) fn tyre_trend_model(lang: Lang, live: &Live, fresh: bool) -> TyreTren
             tread: tread[i],
             wear: wear[i].map_or_else(|| "–".to_owned(), |w| format!("{:.1}%", w * 100.0)),
             laps_left: laps_left[i].map_or_else(|| "–".to_owned(), laps_left_text),
-            role: match laps_left[i] {
-                Some(n) if n < TYRE_LOW_LAPS => Role::Danger,
-                Some(n) if n < TYRE_PRESSING_LAPS => Role::Warn,
-                Some(_) => Role::Text,
-                None => Role::Muted,
-            },
+            role: tyre_laps_role(laps_left[i]),
             worst: worst == Some(i),
         })
         .collect();
