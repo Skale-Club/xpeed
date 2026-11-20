@@ -29,7 +29,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.api.json && tsc --noEmit -p tsconfig.server.json",
     "check:edge": "node scripts/check-edge-functions.mjs",
-    "test:sql": "node scripts/verify-processing-sql.mjs && node scripts/verify-processing-sql.mjs --bootstrap && npm run test:auth-sql",
+    "test:sql": "node scripts/verify-processing-sql.mjs && node scripts/verify-processing-sql.mjs --bootstrap && npm run test:auth-sql && node scripts/verify-catalog-titles-sql.mjs",
     "preview": "vite preview",
     "supabase:keepalive": "node scripts/supabase-keepalive.mjs",
     "supabase:keepalive:verify": "node scripts/supabase-keepalive-verify.mjs",
