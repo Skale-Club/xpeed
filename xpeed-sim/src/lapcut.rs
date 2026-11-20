@@ -507,6 +507,8 @@ impl LapCutter {
                 lap.meta.car
             },
             car_class: lap.meta.car_class,
+            track_title: None,
+            car_title: None,
             lap_number: lap.number.max(0) as u32,
             time_ms: ms(time_s),
             valid,
