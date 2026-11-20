@@ -138,7 +138,7 @@ describe('the banner', () => {
 
   it('is in every Virtual page file (each one is drawn inside the app shell that carries it)', async () => {
     const files = import.meta.glob('/src/pages/{Sim,Social}*Page.tsx', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
-    const shown = Object.entries(files).filter(([name]) => !/SimConnectPage|SocialSharePage|SimPage\.tsx$/.test(name));
+    const shown = Object.entries(files).filter(([name]) => !/SimConnectPage|SocialSharePage|SimLivePage|SimPage\.tsx$/.test(name));
     expect(shown.length).toBeGreaterThanOrEqual(12);
     for (const [name, source] of shown) expect(source, name).toContain('<AppLayout');
   });

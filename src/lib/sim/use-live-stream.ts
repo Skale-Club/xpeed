@@ -63,6 +63,8 @@ export function useLiveStream(enabled = true): LiveStream {
       if (next === null) {
         if (flushTimer) clearTimeout(flushTimer);
         flush();
+        // The first frame after a pause shows at once.
+        flushedAt = 0;
         return;
       }
       if (flushTimer) return;
