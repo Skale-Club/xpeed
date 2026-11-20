@@ -650,3 +650,41 @@ pub(super) fn radar_card(g: &mut Painter, d: &Dash, card: Area) {
         g.unclip();
     });
 }
+
+// The reference lap.
+
+/// The height of one of the reference card's lines, and of its figures.
+const REF_LINE_H: f32 = 20.0;
+const REF_NUMBER_H: f32 = 52.0;
+
+/// The reference card: the delta to the reference lap as a big number (green when faster, red when slower), a line naming that lap
+/// and a smaller one for the person's own best when it is another lap. A part that is missing is not drawn; with no reference lap
+/// the card says why.
+pub(super) fn delta_ref_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.delta_ref else {
+        return;
+    };
+    let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S1;
+        if let Some(note) = &m.note {
+            rival_note(g, note, (x, top + S1, w), y + h);
+            return;
+        }
+        let size = g.fitted(&m.value, w, T_HERO, T_VALUE, semi, Face::Num);
+        let r = g.r(x, top, w, REF_NUMBER_H);
+        g.text(&m.value, r, size, semi, Face::Num, m.role.colour(), DT_CENTER);
+        let mut line_top = top + REF_NUMBER_H + S1;
+        for (line, size, ink) in [(&m.line, T_BODY, FOREGROUND_2), (&m.personal_line, T_CAPTION, MUTED_TEXT)] {
+            let Some(line) = line.as_ref().filter(|_| line_top + REF_LINE_H <= y + h + 0.5) else {
+                continue;
+            };
+            let size = g.fitted(line, w, size, T_CAPTION, normal, Face::Ui);
+            let r = g.r(x, line_top, w, REF_LINE_H);
+            g.text(line, r, size, normal, Face::Ui, ink, DT_CENTER);
+            line_top += REF_LINE_H;
+        }
+    });
+}

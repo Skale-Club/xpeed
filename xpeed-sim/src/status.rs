@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use crate::dash::Live;
 use crate::heartbeat::{self, Heartbeat, View};
 use crate::outbox::Uploader;
+use crate::reference::{References, Worker as ReferenceWorker};
 use crate::supervisor::Health;
 use crate::update::{CheckState, UpdateState};
 use crate::util::lock;
@@ -151,6 +152,9 @@ pub struct Shared {
     /// only when that changes).
     heartbeat: Mutex<Option<Heartbeat>>,
     heartbeat_view: Mutex<View>,
+    /// The thread that fetches the reference laps, and what it last found for the car on the panel.
+    references_worker: Mutex<Option<ReferenceWorker>>,
+    references: Mutex<Option<Arc<References>>>,
     /// The latest reading of the car, for the panel. Not a change worth waking the tray for.
     live: Mutex<Option<Live>>,
     /// The last laps saved in this run, newest last.
@@ -195,6 +199,8 @@ impl Shared {
             uploader: Mutex::new(None),
             heartbeat: Mutex::new(None),
             heartbeat_view: Mutex::new(View::WAITING),
+            references_worker: Mutex::new(None),
+            references: Mutex::new(None),
             live: Mutex::new(None),
             recent_laps: Mutex::new(VecDeque::new()),
             recent_generation: AtomicU64::new(0),
@@ -480,8 +486,24 @@ impl Shared {
         }
     }
 
+    /// The latest reading, with the reference laps when they are for the track and car it shows (a car just changed has none until the
+    /// fetcher has looked).
     pub fn live(&self) -> Option<Live> {
-        lock(&self.live).clone()
+        let mut live = lock(&self.live).clone()?;
+        live.references = lock(&self.references)
+            .clone()
+            .filter(|found| found.track == live.track && found.car == live.car);
+        Some(live)
+    }
+
+    /// What the fetcher found for the car it is looking at (or nothing).
+    pub fn set_references(&self, references: Option<Arc<References>>) {
+        *lock(&self.references) = references;
+    }
+
+    /// Puts the reference fetcher in place (or takes it away); the old one is told to finish.
+    pub fn set_references_worker(&self, worker: Option<ReferenceWorker>) {
+        *lock(&self.references_worker) = worker;
     }
 
     /// What the person is told about a new version.

@@ -56,6 +56,7 @@ mod perspective;
 mod present;
 #[cfg(test)]
 mod rcgen;
+mod reference;
 #[cfg(windows)]
 mod replay;
 mod sanity;

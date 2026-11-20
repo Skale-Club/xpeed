@@ -260,6 +260,15 @@ fn start_heartbeat(shared: &Arc<Shared>, dir: &Path, config: Config) {
         say: Arc::new(|line| applog::line(&line)),
         worker: Arc::new(move |health| for_worker.set_worker(supervisor::HEARTBEAT, health)),
     };
+    // The reference laps for the panel's delta card come from the same account, in the folder the covers live beside.
+    let for_references = shared.clone();
+    let reference_hooks = heartbeat::Hooks {
+        say: Arc::new(|line| applog::line(&line)),
+        worker: Arc::new(move |health| for_references.set_worker(supervisor::REFERENCES, health)),
+    };
+    shared.set_references_worker(config::home_dir().and_then(|home| {
+        crate::reference::Worker::start_if_paired(Some(config.clone()), home.join("references"), shared.clone(), reference_hooks)
+    }));
     shared.set_heartbeat(heartbeat::Heartbeat::start_if_paired(
         Some(config),
         dir.to_path_buf(),
@@ -524,6 +533,8 @@ impl App {
                 self.account_label = None;
                 self.shared.set_uploader(None);
                 self.shared.set_heartbeat(None);
+                self.shared.set_references_worker(None);
+                self.shared.set_references(None);
                 self.shared.update(|s| s.cloud = Cloud::NotPaired);
             }
         }
@@ -1032,6 +1043,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         let _ = recorder.join();
         shared.set_uploader(None);
         shared.set_heartbeat(None);
+        shared.set_references_worker(None);
         drop(Box::from_raw(app));
         if let Some(staged) = install {
             hand_over_to_installer(&home, only_copy, &staged);

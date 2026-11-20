@@ -303,7 +303,8 @@ const RACE_STACK: &[Row] = &[
     },
 ];
 
-// Qualifying: the times, the sectors, the delta bar, the session, the centre, the tyres, the track and the flag.
+// Qualifying: the times, the sectors, the delta bar and the reference lap, the session, the centre, the tyres, the track and the flag
+// (the flag is not on the wide window's second row: the reference card has its place).
 
 const QUALIFYING_WIDE: &[Row] = &[
     Row {
@@ -313,10 +314,10 @@ const QUALIFYING_WIDE: &[Row] = &[
     Row {
         h: 262.0,
         cards: &[
-            (Pane::DeltaBar, 1.4),
-            (Pane::Standings, 1.3),
+            (Pane::DeltaBar, 1.3),
+            (Pane::DeltaRef, 1.0),
+            (Pane::Standings, 1.2),
             (Pane::Session, 0.8),
-            (Pane::Flag, 0.8),
         ],
     },
 ];
@@ -335,7 +336,8 @@ const QUALIFYING_ULTRAWIDE: &[Row] = &[
     Row {
         h: 262.0,
         cards: &[
-            (Pane::DeltaBar, 1.6),
+            (Pane::DeltaBar, 1.5),
+            (Pane::DeltaRef, 1.0),
             (Pane::Standings, 1.3),
             (Pane::Session, 0.9),
             (Pane::Track, 1.0),
@@ -354,7 +356,12 @@ const QUALIFYING_SQUARE: &[Row] = &[
     },
     Row {
         h: 242.0,
-        cards: &[(Pane::DeltaBar, 1.2), (Pane::Standings, 1.5), (Pane::Session, 0.9)],
+        cards: &[
+            (Pane::DeltaBar, 1.1),
+            (Pane::DeltaRef, 1.0),
+            (Pane::Standings, 1.4),
+            (Pane::Session, 0.9),
+        ],
     },
 ];
 
@@ -378,6 +385,10 @@ const QUALIFYING_PORTRAIT: &[Row] = &[
     Row {
         h: 140.0,
         cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 160.0,
+        cards: &[(Pane::DeltaRef, 1.0)],
     },
     Row {
         h: 280.0,
@@ -415,6 +426,10 @@ const QUALIFYING_STACK: &[Row] = &[
         cards: &[(Pane::DeltaBar, 1.0)],
     },
     Row {
+        h: 160.0,
+        cards: &[(Pane::DeltaRef, 1.0)],
+    },
+    Row {
         h: 280.0,
         cards: &[(Pane::Centre, 1.0)],
     },
@@ -445,7 +460,7 @@ const TIME_TRIAL_WIDE: &[Row] = &[
     },
     Row {
         h: 262.0,
-        cards: &[(Pane::Laps, 2.25), (Pane::Track, 1.0)],
+        cards: &[(Pane::Laps, 2.0), (Pane::DeltaRef, 1.0), (Pane::Track, 0.9)],
     },
 ];
 
@@ -460,7 +475,7 @@ const TIME_TRIAL_ULTRAWIDE: &[Row] = &[
     },
     Row {
         h: 262.0,
-        cards: &[(Pane::Laps, 2.6), (Pane::Track, 1.0)],
+        cards: &[(Pane::Laps, 2.3), (Pane::DeltaRef, 1.0), (Pane::Track, 1.0)],
     },
 ];
 
@@ -475,7 +490,7 @@ const TIME_TRIAL_SQUARE: &[Row] = &[
     },
     Row {
         h: 232.0,
-        cards: &[(Pane::Tyres, 1.2), (Pane::Track, 1.0)],
+        cards: &[(Pane::Tyres, 1.1), (Pane::DeltaRef, 1.0), (Pane::Track, 0.9)],
     },
     Row {
         h: 206.0,
@@ -487,6 +502,10 @@ const TIME_TRIAL_PORTRAIT: &[Row] = &[
     Row {
         h: 140.0,
         cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 160.0,
+        cards: &[(Pane::DeltaRef, 1.0)],
     },
     Row {
         h: 220.0,
@@ -514,6 +533,10 @@ const TIME_TRIAL_STACK: &[Row] = &[
     Row {
         h: 140.0,
         cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 160.0,
+        cards: &[(Pane::DeltaRef, 1.0)],
     },
     Row {
         h: 220.0,

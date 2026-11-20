@@ -234,6 +234,9 @@ pub struct Live {
     pub session_laps: Option<u16>,
     /// The other cars of the session (the rivals layer), as of the last reading the game gave; `None` for a game that gives none.
     pub field: Option<std::sync::Arc<crate::field::Field>>,
+    /// The reference laps of the Xpeed server for this game, track and car (`reference.rs`), when the computer is paired and the server
+    /// has them. Not made by the `Tracker`: `Shared::live` adds them to the reading it hands out.
+    pub references: Option<Arc<crate::reference::References>>,
     /// What the game's own spotter says about the cars beside the player, where the game gives one (iRacing); `None` otherwise.
     pub spotter: Option<crate::game::Spotter>,
     /// How the gap to the car one place ahead and to the one behind changed over the last laps, in seconds per lap
@@ -655,6 +658,7 @@ impl Tracker {
             session_time_left_s: frame.session_time_left_s,
             session_laps: frame.session_laps,
             field: self.field.clone(),
+            references: None,
             spotter: frame.spotter,
             gap_trend: {
                 let trend = (self.gap_ahead.trend(), self.gap_behind.trend());

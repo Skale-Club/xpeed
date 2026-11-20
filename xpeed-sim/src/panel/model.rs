@@ -589,6 +589,9 @@ pub(super) struct DashModel {
     pub(super) gaps: Option<GapsModel>,
     /// The radar: there when the game gives the cars' positions or its own left and right signal.
     pub(super) radar: Option<RadarModel>,
+    /// The delta to the reference lap from the server: there when the game gives the distance into the lap (the card says why when there
+    /// is no reference lap).
+    pub(super) delta_ref: Option<DeltaRefModel>,
 }
 
 /// What the model needs besides the reading.
@@ -1253,6 +1256,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let standings = has(Pane::Standings).then(|| standings_model(lang, live, fresh));
     let gaps = has(Pane::Gaps).then(|| gaps_model(lang, live, fresh));
     let radar = has(Pane::Radar).then(|| radar_model(lang, live, fresh));
+    let delta_ref = has(Pane::DeltaRef).then(|| delta_ref_model(lang, live, fresh));
 
     DashModel {
         status,
@@ -1312,6 +1316,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         standings,
         gaps,
         radar,
+        delta_ref,
     }
 }
 

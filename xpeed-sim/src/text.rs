@@ -274,6 +274,12 @@ pub enum Msg {
     /// The radar card's caption, and its note while the car is not moving or the game has given no positions yet.
     PanelRadarTitle,
     PanelRadarWait,
+    /// The reference card: its caption, the words before the reference lap's time (the Xpeed board's best, the person's own) and its
+    /// note while there is no reference lap yet.
+    PanelRefTitle,
+    PanelRefBest,
+    PanelRefYours,
+    PanelRefWait,
     /// The words of the alerts that are lit.
     AlertAbs,
     AlertTc,
@@ -761,6 +767,14 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("O radar aparece quando o carro estiver em movimento e o jogo der as posições dos outros carros."),
             s("El radar aparece cuando el coche se mueva y el juego dé las posiciones de los demás coches."),
         ),
+        PanelRefTitle => t(s("Reference"), s("Referência"), s("Referencia")),
+        PanelRefBest => t(s("Xpeed best"), s("Melhor da Xpeed"), s("Mejor de Xpeed")),
+        PanelRefYours => t(s("Your best"), s("Seu melhor"), s("Tu mejor")),
+        PanelRefWait => t(
+            s("Reference laps come from your Xpeed account once this computer is connected."),
+            s("As voltas de referência vêm da sua conta Xpeed quando este computador estiver conectado."),
+            s("Las vueltas de referencia vienen de tu cuenta Xpeed cuando este equipo esté conectado."),
+        ),
         PanelTyreWearWait => t(
             s("Wear per lap shows after a clean lap without a pit stop."),
             s("O desgaste por volta aparece depois de uma volta limpa, sem parada no pit."),
@@ -1158,6 +1172,10 @@ mod tests {
             Msg::PanelRivalsWait,
             Msg::PanelRadarTitle,
             Msg::PanelRadarWait,
+            Msg::PanelRefTitle,
+            Msg::PanelRefBest,
+            Msg::PanelRefYours,
+            Msg::PanelRefWait,
             Msg::AlertAbs,
             Msg::AlertTc,
             Msg::AlertDrsAvailable,

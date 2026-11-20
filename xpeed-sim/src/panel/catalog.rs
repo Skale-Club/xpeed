@@ -103,6 +103,11 @@ pub(super) const ALL: &[Widget] = &[
         pane: Pane::Radar,
         needs: "the other cars' world positions, or the game's own left and right signal",
     },
+    Widget {
+        id: "delta_ref",
+        pane: Pane::DeltaRef,
+        needs: "the lap time and the distance into the lap, and a reference lap from the Xpeed server",
+    },
 ];
 
 /// The widget with this id.

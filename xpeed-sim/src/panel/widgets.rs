@@ -1139,3 +1139,59 @@ pub(super) fn radar_model(lang: Lang, live: &Live, fresh: bool) -> RadarModel {
         note: (mode == RadarMode::Waiting).then(|| text(lang, &Msg::PanelRadarWait)),
     }
 }
+
+// The delta to the reference lap.
+
+/// The reference card: the delta to the lap the Xpeed board shows as the best (or, with none, to the person's own best) in big figures,
+/// a line naming that lap and, when the person's own best is another lap, a second smaller line with its time and the delta to it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DeltaRefModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    /// `-0.054`, or `–` while there is no delta (no reference lap, or no distance into the lap yet).
+    pub(super) value: String,
+    pub(super) role: Role,
+    /// `Xpeed best · L. Moretti · 2:01.234`, or `Your best · 2:02.100` when the lap is the person's own.
+    pub(super) line: Option<String>,
+    /// `Your best · 2:02.100 · -0.054`, only when the person's own best is not the lap above.
+    pub(super) personal_line: Option<String>,
+    /// Said while there is no reference lap.
+    pub(super) note: Option<String>,
+}
+
+pub(super) fn delta_ref_model(lang: Lang, live: &Live, fresh: bool) -> DeltaRefModel {
+    use crate::reference::{Kind, Reference};
+    let say = |msg: Msg| text(lang, &msg);
+    let found = live.references.as_deref();
+    let (best, personal) = (found.and_then(|r| r.best.as_ref()), found.and_then(|r| r.personal.as_ref()));
+    let main = best.or(personal);
+    // The time on this lap against a reference lap at the same distance; nothing before the game gives both.
+    let delta_to = |reference: &Reference| live.dist_m.zip(live.lap_time_s).and_then(|(dist, time)| reference.delta(dist, time));
+    let delta = main.and_then(delta_to).filter(|d| d.is_finite());
+    let time_of = |reference: &Reference| lap_clock(Some(f64::from(reference.time_ms) / 1000.0)).unwrap_or_default();
+    let line = main.map(|reference| match (reference.kind, reference.driver.as_deref()) {
+        (Kind::Best, Some(driver)) => format!("{} · {driver} · {}", say(Msg::PanelRefBest), time_of(reference)),
+        (Kind::Best, None) => format!("{} · {}", say(Msg::PanelRefBest), time_of(reference)),
+        (Kind::Personal, _) => format!("{} · {}", say(Msg::PanelRefYours), time_of(reference)),
+    });
+    let personal_line = personal
+        .filter(|own| main.is_some_and(|lap| lap.lap_id != own.lap_id))
+        .map(|own| match delta_text(delta_to(own)) {
+            Some(delta) => format!("{} · {} · {delta}", say(Msg::PanelRefYours), time_of(own)),
+            None => format!("{} · {}", say(Msg::PanelRefYours), time_of(own)),
+        });
+    DeltaRefModel {
+        show: if fresh && delta.is_some() { Show::Shown } else { Show::Dimmed },
+        title: say(Msg::PanelRefTitle),
+        value: delta_text(delta).unwrap_or_else(|| "–".to_owned()),
+        role: match delta {
+            Some(d) if d < 0.0 => Role::Good,
+            Some(_) => Role::Danger,
+            None => Role::Muted,
+        },
+        line,
+        personal_line,
+        note: main.is_none().then(|| say(Msg::PanelRefWait)),
+    }
+}

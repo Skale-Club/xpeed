@@ -1071,6 +1071,30 @@ fn writes_the_design_preview_page() {
         ));
     }
     use crate::game::{Caps, Spotter};
+    // Nothing from the Xpeed server yet (not connected, or no lap on the board): the reference card says where its laps come from.
+    let mut no_reference = full.clone();
+    no_reference.references = None;
+    for (file, caption, dash) in [
+        (
+            "preview-qualifying-no-reference.png",
+            "Qualifying with no reference lap yet: the reference card says where it comes from (1920 × 1080)",
+            DashboardId::Qualifying,
+        ),
+        (
+            "preview-time-trial-no-reference.png",
+            "Time trial with no reference lap yet (1920 × 1080)",
+            DashboardId::TimeTrial,
+        ),
+    ] {
+        let mut v = view(&f, Some(&no_reference), Tab::Dash, 1.0, Lang::En);
+        v.dashboard = Some(dash);
+        v.recent_laps = &full_laps;
+        let pixels = render(&v, 1920, 1080);
+        save(&pixels, 1920, 1080, file);
+        figures.push_str(&format!(
+            "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"1920\" height=\"1080\"></figure>\n"
+        ));
+    }
     // A game that gives no rivals (AC): the Race dashboard's middle row keeps only the session.
     let mut no_rivals = full.clone();
     no_rivals.caps = every_cap().minus(Caps::RIVALS.or(Caps::RIVALS_WORLD).or(Caps::SPOTTER));
@@ -2813,7 +2837,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
 #[test]
 fn the_widget_ids_are_a_contract() {
     let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
-    assert_eq!(ids.len(), 17);
+    assert_eq!(ids.len(), 18);
     assert_eq!(
         ids[..7],
         ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
@@ -2827,6 +2851,7 @@ fn the_widget_ids_are_a_contract() {
     assert_eq!(ids[12], "session");
     assert_eq!(ids[13..16], ["relative", "standings", "gaps"], "the rivals widgets of phase 4");
     assert_eq!(ids[16], "radar", "the radar follows them");
+    assert_eq!(ids[17], "delta_ref", "the reference card of phase 5 comes last");
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
         assert_eq!(catalog::id_of(w.pane), w.id);
@@ -2955,6 +2980,7 @@ fn least_height(pane: Pane) -> f32 {
         Pane::Standings => STANDINGS_NEED_H,
         Pane::Gaps => GAPS_NEED_H,
         Pane::Radar => RADAR_NEED_H,
+        Pane::DeltaRef => DELTA_REF_NEED_H,
         _ => 0.0,
     }
 }
@@ -2977,7 +3003,42 @@ fn full_reading() -> Live {
     live.fuel_last_lap_l = Some(3.1);
     live.tyre_wear_per_lap = Some([0.018, 0.02, 0.026, 0.031]);
     live.last_sectors_ms = [Some(28_100), Some(44_900)];
+    // The Xpeed board's best and the person's own, which are at 41.802 s and 41.586 s where this reading is (2310 m) at 41.532 s.
+    live.references = Some(Arc::new(crate::reference::References {
+        track: live.track.clone(),
+        car: live.car.clone(),
+        best: Some(reference_lap(
+            crate::reference::Kind::Best,
+            "lap-best",
+            Some("L. Moretti"),
+            121_234,
+            41.802,
+        )),
+        personal: Some(reference_lap(crate::reference::Kind::Personal, "lap-own", None, 122_100, 41.586)),
+    }));
     live
+}
+
+/// A reference lap on `live_reading`'s track (5793 m) that is `total_ms` long and has reached `at_s` seconds at 2310 m.
+fn reference_lap(
+    kind: crate::reference::Kind,
+    lap_id: &str,
+    driver: Option<&str>,
+    total_ms: u32,
+    at_s: f64,
+) -> crate::reference::Reference {
+    let length = 5793.0_f64;
+    let power = (at_s * 1000.0 / f64::from(total_ms)).ln() / (2310.0 / length).ln();
+    crate::reference::Reference {
+        kind,
+        lap_id: lap_id.to_owned(),
+        time_ms: total_ms,
+        driver: driver.map(str::to_owned),
+        step_m: 5.0,
+        points: (0..=(length / 5.0) as usize)
+            .map(|i| (f64::from(total_ms) * (i as f64 * 5.0 / length).powf(power)).round() as u32)
+            .collect(),
+    }
 }
 
 #[test]
@@ -3335,10 +3396,10 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
     assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "radar", "session"]);
     assert_eq!(ids(DashboardId::Race, 2), ["fuel_calc", "tyre_trend", "track", "alerts"]);
     assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "sectors", "tyres"]);
-    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "standings", "session", "flag"]);
+    assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "delta_ref", "standings", "session"]);
     assert_eq!(ids(DashboardId::TimeTrial, 0), ["delta_bar"]);
     assert_eq!(ids(DashboardId::TimeTrial, 1), ["times", "centre", "sectors", "tyres"]);
-    assert_eq!(ids(DashboardId::TimeTrial, 2), ["laps", "track"]);
+    assert_eq!(ids(DashboardId::TimeTrial, 2), ["laps", "delta_ref", "track"]);
 }
 
 #[test]
@@ -3421,6 +3482,7 @@ fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
         "standings",
         "gaps",
         "radar",
+        "deltaRef",
     ] {
         assert!(json[key].is_object(), "{key} is in the model's JSON");
     }
@@ -4706,4 +4768,161 @@ fn the_radar_paints_in_every_shape_with_every_kind_of_reading() {
             assert!(has_color(&pixels, CARD) > 1000, "{w}x{h}");
         }
     }
+}
+
+// The reference lap from the Xpeed server: the delta card.
+
+#[test]
+fn the_reference_card_gives_the_delta_to_the_best_and_the_persons_own_best_when_it_is_another_lap() {
+    let card = model(&full_reading(), Lang::En)
+        .delta_ref
+        .expect("the game gives the distance into the lap");
+    assert_eq!(card.title, "Reference");
+    assert_eq!((card.value.as_str(), card.role, card.show), ("-0.270", Role::Good, Show::Shown));
+    assert_eq!(card.line.as_deref(), Some("Xpeed best · L. Moretti · 2:01.234"));
+    assert_eq!(card.personal_line.as_deref(), Some("Your best · 2:02.100 · -0.054"));
+    assert_eq!(card.note, None);
+    // Slower than the reference: red, and with a plus.
+    let mut slower = full_reading();
+    slower.lap_time_s = Some(42.0);
+    let card = model(&slower, Lang::En).delta_ref.unwrap();
+    assert_eq!((card.value.as_str(), card.role), ("+0.198", Role::Danger));
+    // The board's best that fell back to the person's own is said so, and is not shown twice.
+    let mut own = full_reading();
+    let refs = own.references.as_deref().cloned().unwrap();
+    own.references = Some(Arc::new(crate::reference::References {
+        best: refs.personal.clone(),
+        ..refs.clone()
+    }));
+    let card = model(&own, Lang::En).delta_ref.unwrap();
+    assert_eq!(card.line.as_deref(), Some("Your best · 2:02.100"));
+    assert_eq!(card.value, "-0.054");
+    assert_eq!(card.personal_line, None, "the same lap");
+    // Only the person's own, and no driver name on a best lap that has none.
+    let mut only = full_reading();
+    only.references = Some(Arc::new(crate::reference::References {
+        best: None,
+        ..refs.clone()
+    }));
+    assert_eq!(
+        model(&only, Lang::En).delta_ref.unwrap().line.as_deref(),
+        Some("Your best · 2:02.100")
+    );
+    let mut nameless = full_reading();
+    let mut best = refs.best.clone().unwrap();
+    best.driver = None;
+    nameless.references = Some(Arc::new(crate::reference::References { best: Some(best), ..refs }));
+    assert_eq!(
+        model(&nameless, Lang::En).delta_ref.unwrap().line.as_deref(),
+        Some("Xpeed best · 2:01.234")
+    );
+}
+
+#[test]
+fn the_reference_card_without_a_distance_or_a_reference_draws_no_figures_and_says_why() {
+    let mut no_distance = full_reading();
+    no_distance.dist_m = None;
+    let card = model(&no_distance, Lang::En).delta_ref.unwrap();
+    assert_eq!((card.value.as_str(), card.role, card.show), ("–", Role::Muted, Show::Dimmed));
+    assert!(card.line.is_some() && card.note.is_none(), "the laps are named, the figure waits");
+    let mut none = full_reading();
+    none.references = None;
+    for lang in [Lang::En, Lang::Pt, Lang::Es] {
+        let card = model(&none, lang).delta_ref.unwrap();
+        assert_eq!((card.value.as_str(), card.show), ("–", Show::Dimmed));
+        assert!(card.line.is_none() && card.personal_line.is_none());
+        assert!(card.note.as_deref().is_some_and(|n| n.contains("Xpeed")), "{lang:?}");
+    }
+    assert_eq!(model(&none, Lang::Pt).delta_ref.unwrap().title, "Referência");
+}
+
+#[test]
+fn the_reference_card_is_there_when_the_game_gives_the_distance_or_the_speed_and_the_lap_time() {
+    use crate::game::Caps;
+    let has = |caps: Caps| slots(caps).cards.contains(&Pane::DeltaRef);
+    assert!(has(Caps::LAP_TIME.or(Caps::DIST)));
+    assert!(has(Caps::LAP_TIME.or(Caps::SPEED)));
+    assert!(!has(Caps::LAP_TIME));
+    assert!(!has(Caps::DIST.or(Caps::SPEED)));
+    assert!(has(every_cap()) && !has(Caps::NONE));
+}
+
+#[test]
+fn the_reference_card_is_on_qualifying_and_time_trial_in_every_layout_but_classic() {
+    let s = slots(every_cap());
+    for layout in ALL_LAYOUTS {
+        for dash in DashboardId::ALL {
+            let plan = layout.plan_in(dash, &s, usize::MAX);
+            let area = plan.area(Pane::DeltaRef);
+            let wanted = matches!(dash, DashboardId::Qualifying | DashboardId::TimeTrial) && layout != Layout::Classic;
+            assert_eq!(area.is_some(), wanted, "{dash:?} {layout:?}");
+            if let Some(area) = area {
+                assert!(
+                    area.3 + 0.01 >= DELTA_REF_NEED_H,
+                    "{dash:?} {layout:?}: the reference card is {} tall",
+                    area.3
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_reference_card_paints_green_when_ahead_and_red_when_behind() {
+    let laps = rich_laps();
+    let mut ahead = full_reading();
+    // Only the reference card has a delta to colour: the delta bar and the times card have none.
+    ahead.delta_s = None;
+    let mut behind = ahead.clone();
+    behind.lap_time_s = Some(43.0);
+    let green = dashboard_pixels(DashboardId::Qualifying, &ahead, &laps);
+    let red = dashboard_pixels(DashboardId::Qualifying, &behind, &laps);
+    save(&green, 1920, 1080, "panel-qualifying-reference.png");
+    assert!(
+        has_color(&green, SUCCESS) > has_color(&red, SUCCESS) + 200,
+        "ahead of the reference: green figures"
+    );
+    assert!(
+        has_color(&red, DESTRUCTIVE) > has_color(&green, DESTRUCTIVE) + 200,
+        "behind it: red figures"
+    );
+}
+
+#[test]
+fn the_reference_card_paints_in_every_shape_with_and_without_a_reference() {
+    let laps = rich_laps();
+    let f = fixture();
+    let with = full_reading();
+    let mut without = with.clone();
+    without.references = None;
+    for live in [&with, &without] {
+        for dash in [DashboardId::Qualifying, DashboardId::TimeTrial] {
+            for (w, h) in [
+                (2560, 1080),
+                (1920, 1080),
+                (1536, 864),
+                (1024, 768),
+                (1280, 1024),
+                (960, 600),
+                (540, 1080),
+                (430, 900),
+            ] {
+                let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::En);
+                v.dashboard = Some(dash);
+                v.recent_laps = &laps;
+                let pixels = render(&v, w, h);
+                assert!(has_color(&pixels, CARD) > 1000, "{dash:?} {w}x{h}: cards are drawn");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_reference_card_serialises_for_the_phone_in_camel_case() {
+    let json = serde_json::to_value(model(&full_reading(), Lang::En)).unwrap();
+    assert_eq!(json["deltaRef"]["value"], "-0.270");
+    assert_eq!(json["deltaRef"]["role"], "good");
+    assert_eq!(json["deltaRef"]["line"], "Xpeed best · L. Moretti · 2:01.234");
+    assert_eq!(json["deltaRef"]["personalLine"], "Your best · 2:02.100 · -0.054");
+    assert!(json["deltaRef"]["note"].is_null());
 }

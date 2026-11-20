@@ -181,6 +181,45 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     frame
 }
 
+/// A reference lap on the demo's track, as the server gives one: the time at every 5 m of a lap driven at `pace` (the demo's own
+/// laps run at about 1.0, a little either side). Only the label says the minutes a real lap would take; the points follow the demo's
+/// lap so the delta moves round zero.
+fn demo_reference(
+    kind: crate::reference::Kind,
+    lap_id: &str,
+    driver: Option<&str>,
+    time_ms: u32,
+    pace: f64,
+) -> crate::reference::Reference {
+    const STEP_M: f64 = 5.0;
+    let mut seconds = 0.0;
+    let mut points = vec![0];
+    for i in 0..(DEMO_TRACK_M / STEP_M) as usize {
+        let middle = (i as f64 + 0.5) * STEP_M;
+        seconds += STEP_M / f64::from(demo_frame(1, middle, 0.0, None, 60.0, pace).speed_ms).max(1.0);
+        points.push((seconds * 1000.0).round() as u32);
+    }
+    crate::reference::Reference {
+        kind,
+        lap_id: lap_id.to_owned(),
+        time_ms,
+        driver: driver.map(str::to_owned),
+        step_m: STEP_M,
+        points,
+    }
+}
+
+/// The demo's reference laps: the Xpeed board's best (L. Moretti, 2:01.234) and the person's own (2:02.100), a little slower.
+pub(super) fn demo_references() -> crate::reference::References {
+    use crate::reference::Kind;
+    crate::reference::References {
+        track: "Demo Ring".into(),
+        car: "Demo GT3".into(),
+        best: Some(demo_reference(Kind::Best, "demo-best", Some("L. Moretti"), 121_234, 1.010)),
+        personal: Some(demo_reference(Kind::Personal, "demo-own", None, 122_100, 0.995)),
+    }
+}
+
 /// Opens the panel alone, fed with made-up driving, so it can be seen without a game. Nothing is recorded or sent.
 pub fn demo(lang: Lang) -> std::process::ExitCode {
     use std::time::{Duration, Instant};
@@ -192,6 +231,7 @@ pub fn demo(lang: Lang) -> std::process::ExitCode {
         let shared = shared.clone();
         std::thread::spawn(move || {
             let mut tracker = crate::dash::Tracker::default();
+            shared.set_references(Some(Arc::new(demo_references())));
             // What the demo's car gives, from the start: the cards of the sectors and the flag are there from the first frame.
             tracker.set_caps(demo_frame(1, 2000.0, 30.0, Some(50.0), 60.0, 1.0).filled());
             let (mut lap, mut dist, mut lap_time, mut last, mut fuel) = (1, 0.0, 0.0, None, 60.0f32);
