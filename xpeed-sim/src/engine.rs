@@ -754,6 +754,67 @@ fn lmu_quiet_action(program_running: bool) -> QuietAction {
     }
 }
 
+/// What a memory named `LMU_Data` that cannot be read means, given whether the game's program runs.
+#[derive(Debug, PartialEq, Eq)]
+enum Unreadable {
+    /// The program is not running, so the memory is not the game's (another program made one under its name, or still
+    /// holds a closed game's open). It is waited out as if there were no memory: never "this version cannot be read".
+    NotTheGame,
+    /// The program runs and its memory is not complete yet (it is being made, or taken down: the events are missing). It is
+    /// waited for like a game that is loading.
+    Incomplete,
+    /// The program runs and its memory is not the size this build knows: another version of the game.
+    OtherVersion,
+}
+
+/// `wrong_size`: the memory is smaller than, or not the size of, the layout this build knows.
+fn lmu_unreadable(program_running: bool, wrong_size: bool) -> Unreadable {
+    match (program_running, wrong_size) {
+        (false, _) => Unreadable::NotTheGame,
+        (true, false) => Unreadable::Incomplete,
+        (true, true) => Unreadable::OtherVersion,
+    }
+}
+
+/// Handles a memory `LMU_Data` the reader cannot use (`why`, for the log; each line is logged once until it changes).
+/// Ends the loop with the reason only for `stop_on_unsupported` and the running game being another version.
+fn on_unreadable(
+    shared: &Shared,
+    say: &(dyn Fn(String) + Sync),
+    watch: &mut Watch,
+    said: &mut Option<String>,
+    why: String,
+    wrong_size: bool,
+    stop_on_unsupported: bool,
+) -> Result<(), String> {
+    let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
+    let verdict = lmu_unreadable(running, wrong_size);
+    let line = match verdict {
+        Unreadable::NotTheGame => format!("{why} Le Mans Ultimate is not running, so this memory is not the game's: still waiting."),
+        _ => why.clone(),
+    };
+    if said.as_deref() != Some(line.as_str()) {
+        say(line.clone());
+        *said = Some(line);
+    }
+    match verdict {
+        Unreadable::OtherVersion => {
+            if stop_on_unsupported {
+                return Err(why);
+            }
+            watch.forget(LMU_ID);
+            shared.set_game(LMU_ID, LMU_NAME, Game::Unsupported);
+            rest(shared, Duration::from_secs(30));
+        }
+        Unreadable::NotTheGame | Unreadable::Incomplete => {
+            let state = watch.without_data(LMU_ID, running, Instant::now(), LOADING_GRACE);
+            shared.set_game(LMU_ID, LMU_NAME, state);
+            rest(shared, Duration::from_secs(2));
+        }
+    }
+    Ok(())
+}
+
 fn run_lmu(out: &Path, shared: &Shared, say: &(dyn Fn(String) + Sync), stop_on_unsupported: bool) -> Result<(), String> {
     with_saver(out, shared, say, |saver| run_lmu_loop(out, shared, say, stop_on_unsupported, saver))
 }
@@ -772,6 +833,8 @@ fn run_lmu_loop(
     let mut told_silent = false;
     // When the game's program was first seen running without its memory.
     let mut watch = Watch::default();
+    // The last line logged about a memory that could not be read (so a memory that stays unreadable is logged once).
+    let mut said: Option<String> = None;
     while !shared.quitting() {
         if shared.paused() {
             shared.set_game(LMU_ID, LMU_NAME, Game::Paused);
@@ -785,6 +848,7 @@ fn run_lmu_loop(
                     say("Waiting for Le Mans Ultimate ('Enable external plugins' must be on)...".into());
                     waiting = true;
                 }
+                said = None;
                 // No memory. With the game's program running, it is open and not sharing: the panel says how to switch
                 // that on. Without it, the game is simply not there.
                 let running = crate::win::any_running(&crate::win::running_programs(), LMU_PROGRAMS);
@@ -799,13 +863,9 @@ fn run_lmu_loop(
                 continue;
             }
             Err(error) => {
-                let why = explain(&error);
-                say(why.clone());
-                if stop_on_unsupported {
-                    return Err(why);
-                }
-                shared.set_game(LMU_ID, LMU_NAME, Game::Unsupported);
-                rest(shared, Duration::from_secs(30));
+                // Only a memory of the wrong size says "another version"; missing events say it is not complete.
+                let wrong_size = matches!(error, OpenError::TooSmall { .. });
+                on_unreadable(shared, say, &mut watch, &mut said, explain(&error), wrong_size, stop_on_unsupported)?;
                 continue;
             }
         };
@@ -815,16 +875,15 @@ fn run_lmu_loop(
                 reader.mapped_bytes(),
                 LAYOUT_SIZE
             );
-            say(why.clone());
-            if stop_on_unsupported {
-                return Err(why);
-            }
-            shared.set_game(LMU_ID, LMU_NAME, Game::Unsupported);
-            rest(shared, Duration::from_secs(30));
+            // Let the memory go before waiting: holding it open would keep a closed game's memory alive.
+            drop(reader);
+            on_unreadable(shared, say, &mut watch, &mut said, why, true, stop_on_unsupported)?;
             continue;
         }
         waiting = false;
         told_silent = false;
+        said = None;
+        watch.forget(LMU_ID);
         say(format!("Connected to Le Mans Ultimate at {}.", iso_utc(now_ms())));
         shared.set_game(LMU_ID, LMU_NAME, Game::Connected);
         let mut source = LmuSource::new(reader);
@@ -890,6 +949,17 @@ mod tests {
         assert_eq!(lmu_quiet_action(false), QuietAction::Reconnect);
         // 50 waits of 200 ms are the 10 s quiet period.
         assert_eq!(LMU_QUIET_WAITS * 200, 10_000);
+    }
+
+    #[test]
+    fn an_unreadable_lmu_memory_without_the_game_running_is_never_another_version() {
+        // Seen on the owner's PC: a memory named LMU_Data, without its events, came and went with the game closed, and the
+        // panel said "Le Mans Ultimate is open / this version cannot be read yet".
+        assert_eq!(lmu_unreadable(false, false), Unreadable::NotTheGame);
+        assert_eq!(lmu_unreadable(false, true), Unreadable::NotTheGame);
+        // With the game running, missing events are a memory still being made; only the wrong size is another version.
+        assert_eq!(lmu_unreadable(true, false), Unreadable::Incomplete);
+        assert_eq!(lmu_unreadable(true, true), Unreadable::OtherVersion);
     }
     use crate::lapfile::{Channel, Lap};
 
