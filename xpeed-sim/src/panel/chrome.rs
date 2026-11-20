@@ -230,7 +230,7 @@ pub(super) fn pin_icon(g: &mut Painter, r: RECT, color: COLORREF) {
 /// The header's Edit button, when it is on offer: the dashboard tab shows a game's dashboard, and nothing is being edited.
 pub(super) fn edit_button(width: i32, view: &View) -> Option<RECT> {
     let on = view.tab == Tab::Dash && view.edit.is_none() && dashboard_shown(view.live, &view.snapshot.game, view.now_ms);
-    edit_hit(width, view.scale).filter(|_| on)
+    edit_button_hit(width, view.scale).filter(|_| on)
 }
 
 /// A pencil on a line in a box (pixels), upright and square like the other icons: its body runs up to the right, its point

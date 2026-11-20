@@ -48,7 +48,7 @@ pub(super) fn version_hit(width: i32, scale: f32) -> Option<RECT> {
 
 /// Where the header's "Edit layout" button sits (pixels): a square button left of the language button, when the window is wide
 /// enough to have it beside the tabs and the dashboard's name.
-pub(super) fn edit_hit(width: i32, scale: f32) -> Option<RECT> {
+pub(super) fn edit_button_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
     let [_, _, lang, _, _] = header_hits(width, scale);
     let (side, gap) = (p(38.0), p(8.0));
@@ -58,7 +58,7 @@ pub(super) fn edit_hit(width: i32, scale: f32) -> Option<RECT> {
 /// The left edge of the header's right-hand buttons (pixels): what the version and the pills keep clear of.
 fn header_edge(width: i32, scale: f32) -> i32 {
     let [_, _, lang, _, _] = header_hits(width, scale);
-    edit_hit(width, scale).map_or(lang.left, |edit| edit.left)
+    edit_button_hit(width, scale).map_or(lang.left, |edit| edit.left)
 }
 
 /// Where the dashboard's name sits in the header (pixels): after the tabs, when the window leaves room before the

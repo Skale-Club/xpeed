@@ -255,7 +255,8 @@ fn reset_needs_a_second_click_within_three_seconds() {
 fn after_a_reset_the_session_goes_on_from_the_built_in_rows() {
     let mut ui = race_wide();
     let at = middle(area(&ui, 0, 0));
-    drag(&mut ui, at, middle(area(&ui, 2, 0)), 0);
+    let to = middle(area(&ui, 2, 0));
+    drag(&mut ui, at, to, 0);
     assert!(ui.is_modified());
     ui.restart(SavedView::default_for(DashboardId::Race, Layout::Wide));
     assert!(!ui.is_modified() && !ui.session.is_dirty());
@@ -267,7 +268,8 @@ fn escape_cancels_with_the_original_back_and_enter_or_ctrl_s_save() {
     let original = SavedView::default_for(DashboardId::Race, Layout::Wide);
     let mut ui = race_wide();
     let at = middle(area(&ui, 0, 0));
-    drag(&mut ui, at, middle(area(&ui, 2, 0)), 0);
+    let to = middle(area(&ui, 2, 0));
+    drag(&mut ui, at, to, 0);
     let edited = ui.session.current.clone();
     assert_ne!(edited, original);
     assert_eq!(ui.key(EditKey::Enter), Some(EditEnd::Save));
@@ -518,7 +520,8 @@ fn saving_writes_the_view_and_a_missing_folder_is_an_error_that_changes_nothing(
     let dir = scratch("save");
     let mut ui = race_wide();
     let at = middle(area(&ui, 0, 0));
-    drag(&mut ui, at, middle(area(&ui, 2, 0)), 0);
+    let to = middle(area(&ui, 2, 0));
+    drag(&mut ui, at, to, 0);
     let before = Views::default();
     assert!(save_edit(&before, &ui.session, None).is_err(), "no settings folder: an error");
     let saved = save_edit(&before, &ui.session, Some(&dir)).unwrap();

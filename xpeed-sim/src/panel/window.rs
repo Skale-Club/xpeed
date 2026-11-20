@@ -986,7 +986,7 @@ fn edit_start_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> bool
     state.tab == Tab::Dash
         && state.edit.is_none()
         && !waiting_now(state)
-        && edit_hit(width, scale_of(hwnd)).is_some_and(|r| inside(&r, x, y))
+        && edit_button_hit(width, scale_of(hwnd)).is_some_and(|r| inside(&r, x, y))
 }
 
 /// What the point is in edit mode, and where it is on the canvas (design units; the transform frozen at the press while

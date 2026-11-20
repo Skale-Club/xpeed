@@ -5769,7 +5769,7 @@ fn leaving_edit_mode_draws_the_dashboard_exactly_as_before() {
 
 #[test]
 fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
-    let edit = edit_hit(1536, 1.0).expect("room in a normal window");
+    let edit = edit_button_hit(1536, 1.0).expect("room in a normal window");
     let [_, _, lang, _, _] = header_hits(1536, 1.0);
     assert!(
         edit.right < lang.left && edit.right - edit.left == lang.right - lang.left,
@@ -5779,7 +5779,7 @@ fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
     assert!(version.right <= edit.left, "the version does not run into it");
     let name = dashboard_hit(1536, 1.0).unwrap();
     assert!(name.right < edit.left, "nor does the dashboard's name");
-    assert!(edit_hit(540, 1.0).is_none(), "a narrow window has the E key and no button");
+    assert!(edit_button_hit(540, 1.0).is_none(), "a narrow window has the E key and no button");
     // Shown only while the dashboard is, and not while editing.
     let f = fixture();
     let live = live_reading();
