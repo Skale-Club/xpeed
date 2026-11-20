@@ -261,7 +261,11 @@ pub fn refresh(dir: &Path, config: &Config, agent: &ureq::Agent, key: &Key) -> P
                     Some(reference)
                 }
                 None => {
-                    fail(&mut pass, "the server answered a reference lap this app does not understand".into(), None);
+                    fail(
+                        &mut pass,
+                        "the server answered a reference lap this app does not understand".into(),
+                        None,
+                    );
                     cached
                 }
             },
@@ -388,7 +392,9 @@ impl Notes {
             return None;
         }
         self.failing = true;
-        Some(format!("references: could not get a reference lap ({reason}); trying again quietly."))
+        Some(format!(
+            "references: could not get a reference lap ({reason}); trying again quietly."
+        ))
     }
 }
 
@@ -554,18 +560,36 @@ mod tests {
     #[test]
     fn an_answer_is_a_reference_only_when_every_part_is_in_order() {
         let lap = reference();
-        assert_eq!((lap.kind, lap.lap_id.as_str(), lap.time_ms, lap.step_m), (Kind::Best, "lap-1", 20_000, 5.0));
+        assert_eq!(
+            (lap.kind, lap.lap_id.as_str(), lap.time_ms, lap.step_m),
+            (Kind::Best, "lap-1", 20_000, 5.0)
+        );
         assert_eq!(lap.driver.as_deref(), Some("Ana"));
         assert_eq!(parse(&body("personal", "lap-2", None)).unwrap().driver, None);
         for (what, text) in [
             ("not json", "<html>".to_owned()),
             ("a kind the app does not know", body("fastest", "a", None)),
             ("an id with a quote", body("best", "a\"b", None)),
-            ("no points", r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":5,"points":[]}"#.into()),
-            ("one point", r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":5,"points":[0]}"#.into()),
-            ("points that go back", r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":5,"points":[0,9,4]}"#.into()),
-            ("a step of nothing", r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":0,"points":[0,1]}"#.into()),
-            ("no time", r#"{"kind":"best","lapId":"a","timeMs":0,"stepM":5,"points":[0,1]}"#.into()),
+            (
+                "no points",
+                r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":5,"points":[]}"#.into(),
+            ),
+            (
+                "one point",
+                r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":5,"points":[0]}"#.into(),
+            ),
+            (
+                "points that go back",
+                r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":5,"points":[0,9,4]}"#.into(),
+            ),
+            (
+                "a step of nothing",
+                r#"{"kind":"best","lapId":"a","timeMs":1,"stepM":0,"points":[0,1]}"#.into(),
+            ),
+            (
+                "no time",
+                r#"{"kind":"best","lapId":"a","timeMs":0,"stepM":5,"points":[0,1]}"#.into(),
+            ),
         ] {
             assert_eq!(parse(&text), None, "{what}");
         }
@@ -582,7 +606,10 @@ mod tests {
             variant: Some("Short".into()),
             ..key.clone()
         };
-        assert_eq!(other.file_name(Kind::Best), format!("{}.json", net::sha256_hex(b"lmu|Test Track|Short|Test Car|best")));
+        assert_eq!(
+            other.file_name(Kind::Best),
+            format!("{}.json", net::sha256_hex(b"lmu|Test Track|Short|Test Car|best"))
+        );
         let dir = scratch_dir("reference-cache").join("references");
         assert_eq!(load(&dir, &key).best, None, "nothing yet");
         let text = body("best", "lap-1", Some("Ana"));
@@ -605,10 +632,20 @@ mod tests {
             Duration::from_secs(2),
             Backoff::default(),
         );
-        let (a, b) = (key(), Key { car: "Other Car".into(), ..key() });
+        let (a, b) = (
+            key(),
+            Key {
+                car: "Other Car".into(),
+                ..key()
+            },
+        );
         assert_eq!(schedule.due(0, None), None, "nothing to look at");
         assert_eq!(schedule.due(1_000, Some(&a)), None, "just seen");
-        assert_eq!(schedule.due(2_000, Some(&b)), None, "a flicker to another car starts the settling over");
+        assert_eq!(
+            schedule.due(2_000, Some(&b)),
+            None,
+            "a flicker to another car starts the settling over"
+        );
         assert_eq!(schedule.due(4_000, Some(&a)), None);
         assert_eq!(schedule.due(7_000, Some(&a)), Some(a.clone()), "stayed for 3 s");
         schedule.done(7_000);
@@ -637,14 +674,20 @@ mod tests {
     fn the_log_says_when_asking_starts_to_fail_and_when_it_works_again_and_nothing_else() {
         let mut notes = Notes::default();
         assert_eq!(notes.success(), None);
-        assert!(notes.failure("cannot reach the server").unwrap().contains("cannot reach the server"));
+        assert!(notes
+            .failure("cannot reach the server")
+            .unwrap()
+            .contains("cannot reach the server"));
         assert_eq!(notes.failure("again"), None);
         assert!(notes.success().is_some());
         assert_eq!(notes.success(), None);
     }
 
     fn asks(stub: &Stub) -> Vec<Recorded> {
-        stub.requests().into_iter().filter(|r| r.path.starts_with("/api/sim/reference?")).collect()
+        stub.requests()
+            .into_iter()
+            .filter(|r| r.path.starts_with("/api/sim/reference?"))
+            .collect()
     }
 
     fn kind_of(request: &Recorded) -> &'static str {
@@ -662,7 +705,14 @@ mod tests {
                 return Reply::new(304, "");
             }
             let kind = kind_of(request);
-            Reply::new(200, &body(kind, if kind == "best" { "lap-1" } else { "lap-2" }, (kind == "best").then_some("Ana")))
+            Reply::new(
+                200,
+                &body(
+                    kind,
+                    if kind == "best" { "lap-1" } else { "lap-2" },
+                    (kind == "best").then_some("Ana"),
+                ),
+            )
         });
         let dir = scratch_dir("reference-pass").join("references");
         let config = config_for(&stub.url);
@@ -713,9 +763,8 @@ mod tests {
         assert_eq!(asks(&refused).len(), 1, "no second request after a refusal");
         assert!(pass.references.best.is_some(), "what was kept still shows");
 
-        let limited = Stub::start(|_: &Recorded| {
-            Reply::new(429, r#"{"error":"too_many_requests","retryable":true}"#).header("Retry-After", "42")
-        });
+        let limited =
+            Stub::start(|_: &Recorded| Reply::new(429, r#"{"error":"too_many_requests","retryable":true}"#).header("Retry-After", "42"));
         let pass = refresh(&dir, &config_for(&limited.url), &net::agent(), &key());
         let (reason, after) = pass.failure.expect("a failure");
         assert!(reason.contains("429"), "{reason}");
@@ -773,7 +822,9 @@ mod tests {
         live.track = "Test Track".into();
         live.car = "Test Car".into();
         shared.offer_live(live.clone());
-        wait_until("the references", || shared.live().is_some_and(|l| l.references.is_some_and(|r| r.best.is_some())));
+        wait_until("the references", || {
+            shared.live().is_some_and(|l| l.references.is_some_and(|r| r.best.is_some()))
+        });
         let published = shared.live().unwrap().references.unwrap();
         assert_eq!(published.best.as_ref().map(|r| r.lap_id.as_str()), Some("lap-1"));
         assert_eq!(asks(&stub).len(), 2);
