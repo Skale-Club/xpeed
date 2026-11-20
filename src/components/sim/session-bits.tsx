@@ -12,13 +12,19 @@ export function KindBadge({ kind }: { kind: SessionKind }) {
   return <Badge variant="secondary" data-testid="session-kind">{label}</Badge>;
 }
 
-/** The game: its cover and its name. */
-export function GameBadge({ game }: { game: string }) {
+/**
+ * The game as a solid tag that reads before the smaller pills around it: its cover and its name. Where the full-size cover is already on
+ * screen next to it (a session row, a car card), pass `cover={false}` so the same picture is not repeated as a tiny thumbnail.
+ */
+export function GameBadge({ game, cover = true }: { game: string; cover?: boolean }) {
   const games = useGames();
   return (
-    <Badge variant="outline" className="gap-1.5" data-testid="session-game">
-      <GameCover game={game} className="w-3 rounded-[3px] border-0" />
-      {games.name(game)}
-    </Badge>
+    <span
+      className={`inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-muted py-1 pr-2.5 text-sm font-semibold leading-5 text-foreground ${cover ? 'pl-1' : 'pl-2.5'}`}
+      data-testid="session-game"
+    >
+      {cover && <GameCover game={game} className="w-5 self-center rounded-[3px] border-0" />}
+      <span className="truncate">{games.name(game)}</span>
+    </span>
   );
 }

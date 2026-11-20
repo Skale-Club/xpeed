@@ -56,13 +56,13 @@ describe('the list', () => {
     expect(race.getByTestId('session-conditions')).toHaveTextContent('Rain · air 18 °C · track 22 °C');
     expect(race.getByTestId('session-lap-count')).toHaveTextContent('12');
     expect(race.getByTestId('session-best')).toHaveTextContent('1:39.480');
-    expect(race.getByTestId('session-origin')).toHaveTextContent('From Xpeed Companion');
+    // Where a session came from is told on the session page, not in the list.
+    expect(race.queryByTestId('session-origin')).toBeNull();
 
     const practice = within(cards[1]);
     expect(practice.getByTestId('session-game')).toHaveTextContent('Assetto Corsa');
     expect(practice.getByTestId('session-kind')).toHaveTextContent('Practice');
     expect(practice.getByTestId('session-best')).toHaveTextContent('–'); // no valid lap
-    expect(practice.getByTestId('session-origin')).toHaveTextContent('Grouped by Xpeed');
     expect(practice.queryByTestId('session-conditions')).not.toBeInTheDocument();
 
     // A session is a link to its page.
