@@ -666,10 +666,11 @@ const FLYING_CLASSIC: &[Row] = &[
     },
 ];
 
-/// The dashboard to show: the person's choice, else the one that fits the session. Time trial is only ever chosen by
-/// hand (no game's session kind says it yet).
-pub(super) fn pick(session: Option<SessionKind>, manual: Option<DashboardId>) -> DashboardId {
+/// The dashboard to show: the person's choice, else the one that fits the session. A hot lap or time attack (the
+/// game's `time_trial`) gets Hot lap, though its session kind is practice.
+pub(super) fn pick(session: Option<SessionKind>, time_trial: bool, manual: Option<DashboardId>) -> DashboardId {
     manual.unwrap_or(match session {
+        _ if time_trial => DashboardId::TimeTrial,
         Some(SessionKind::Race) => DashboardId::Race,
         Some(SessionKind::Qualifying) => DashboardId::Qualifying,
         Some(SessionKind::Practice | SessionKind::Unknown) | None => DashboardId::Practice,

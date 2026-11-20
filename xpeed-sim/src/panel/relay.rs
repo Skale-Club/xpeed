@@ -51,7 +51,7 @@ pub(super) fn build_frame_with(
     if !phone::valid_game(game) || !fresh(live, ctx.now_ms) {
         return None;
     }
-    let in_use = pick(live.session_kind, manual);
+    let in_use = pick(live.session_kind, live.time_trial, manual);
     let model = serde_json::to_value(dashboard(live, ctx)).ok()?;
     Some(phone::Frame {
         game: game.to_owned(),

@@ -1098,7 +1098,7 @@ fn begin_edit(state: &mut State) {
     let (Some(layout), Some(live)) = (state.layout, dash_feed(state).live()) else {
         return;
     };
-    let dashboard = pick(live.session_kind, dash_choices(state).get(live.game));
+    let dashboard = pick(live.session_kind, live.time_trial, dash_choices(state).get(live.game));
     state.edit = Some(EditUi::new(dashboard, layout, state.views.rows_for(dashboard, layout)));
     close_workspace(state);
 }
@@ -1115,7 +1115,13 @@ fn workspace_pill_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> 
 fn workspace_menu_now(hwnd: HWND, state: &State, width: i32) -> Option<WorkspaceMenu> {
     let live = dash_feed(state).live()?;
     let manual = dash_choices(state).get(live.game);
-    workspace_menu(width, scale_of(hwnd), manual, pick(live.session_kind, manual), &state.views)
+    workspace_menu(
+        width,
+        scale_of(hwnd),
+        manual,
+        pick(live.session_kind, live.time_trial, manual),
+        &state.views,
+    )
 }
 
 /// Whether the point is on a row of the open workspace menu that a click acts on.
@@ -1158,7 +1164,7 @@ unsafe fn workspace_press(hwnd: HWND, state: &mut State, x: i32, y: i32) {
         WorkspaceAct::Reset => {
             close_workspace(state);
             if let Some(live) = live {
-                let in_use = pick(live.session_kind, dash_choices(state).get(live.game));
+                let in_use = pick(live.session_kind, live.time_trial, dash_choices(state).get(live.game));
                 match reset_edit(&state.views, in_use, crate::config::home_dir().as_deref()) {
                     Ok(views) => state.views = views,
                     Err(why) => {

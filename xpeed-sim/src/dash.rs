@@ -225,6 +225,8 @@ pub struct Live {
     pub sectors_ms: [Option<u32>; 2],
     pub last_sectors_ms: [Option<u32>; 2],
     pub session_kind: Option<SessionKind>,
+    /// A hot lap or time attack (see `Frame::time_trial`).
+    pub time_trial: bool,
     /// The player's place in the field and in the class, and how many cars are in the session, as the game gives them.
     pub race_position: Option<u16>,
     pub class_position: Option<u16>,
@@ -748,6 +750,7 @@ impl Tracker {
             sectors_ms: self.lap_sectors,
             last_sectors_ms: self.last_sectors,
             session_kind: frame.session_kind,
+            time_trial: frame.time_trial,
             race_position: frame.race_position,
             class_position: frame.class_position,
             cars: frame.cars,

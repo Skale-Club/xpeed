@@ -3533,13 +3533,20 @@ fn the_dashboard_ids_are_a_contract() {
 #[test]
 fn a_dashboard_follows_the_session_unless_picked_by_hand() {
     use crate::lapfile::SessionKind as K;
-    assert_eq!(pick(Some(K::Practice), None), DashboardId::Practice);
-    assert_eq!(pick(Some(K::Qualifying), None), DashboardId::Qualifying);
-    assert_eq!(pick(Some(K::Race), None), DashboardId::Race);
-    assert_eq!(pick(Some(K::Unknown), None), DashboardId::Practice);
-    assert_eq!(pick(None, None), DashboardId::Practice);
-    assert_eq!(pick(Some(K::Race), Some(DashboardId::TimeTrial)), DashboardId::TimeTrial);
-    assert_eq!(pick(None, Some(DashboardId::Race)), DashboardId::Race);
+    assert_eq!(pick(Some(K::Practice), false, None), DashboardId::Practice);
+    assert_eq!(pick(Some(K::Qualifying), false, None), DashboardId::Qualifying);
+    assert_eq!(pick(Some(K::Race), false, None), DashboardId::Race);
+    assert_eq!(pick(Some(K::Unknown), false, None), DashboardId::Practice);
+    assert_eq!(pick(None, false, None), DashboardId::Practice);
+    assert_eq!(pick(Some(K::Race), false, Some(DashboardId::TimeTrial)), DashboardId::TimeTrial);
+    assert_eq!(pick(None, false, Some(DashboardId::Race)), DashboardId::Race);
+    // Assetto Corsa's hotlap is practice to the lap file, but the panel shows it as a hot lap.
+    assert_eq!(pick(Some(K::Practice), true, None), DashboardId::TimeTrial);
+    assert_eq!(
+        pick(Some(K::Practice), true, Some(DashboardId::Race)),
+        DashboardId::Race,
+        "a hand pick still wins"
+    );
 }
 
 #[test]
@@ -3607,7 +3614,7 @@ fn the_header_names_the_dashboard_in_use() {
     let f = fixture();
     let live = live_reading();
     let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
-    assert_eq!(v.dashboard_in_use(), pick(live.session_kind, None));
+    assert_eq!(v.dashboard_in_use(), pick(live.session_kind, live.time_trial, None));
     v.dashboard = Some(DashboardId::TimeTrial);
     assert_eq!(v.dashboard_in_use(), DashboardId::TimeTrial);
     assert!(dashboard_hit(1536, 1.0).is_some(), "there is room for the name in a normal window");
@@ -5741,7 +5748,7 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     shared.set_game("ac", "Assetto Corsa", Game::Connected);
     let frame = relay.frame(&shared, Lang::En, Default::default(), now).expect("a live game");
     assert_eq!(frame.game, "ac");
-    assert_eq!(frame.dashboard, pick(live.session_kind, None).id());
+    assert_eq!(frame.dashboard, pick(live.session_kind, live.time_trial, None).id());
     let stale = relay.frame(&shared, Lang::En, Default::default(), now + STALE_MS + 1);
     assert!(stale.is_none(), "a stale reading");
     // The panel's `D` writes the file; the phone follows within a second.
@@ -5751,7 +5758,7 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     let early = relay.frame(&shared, Lang::En, Default::default(), now + 500).unwrap();
     assert_eq!(
         early.dashboard,
-        pick(live.session_kind, None).id(),
+        pick(live.session_kind, live.time_trial, None).id(),
         "the file is read again once a second"
     );
     let later = relay.frame(&shared, Lang::En, Default::default(), now + 1_000).unwrap();
@@ -5759,7 +5766,7 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     choices.set("Assetto Corsa", None);
     choices.save(&home).unwrap();
     let back = relay.frame(&shared, Lang::En, Default::default(), now + 2_100).unwrap();
-    assert_eq!(back.dashboard, pick(live.session_kind, None).id());
+    assert_eq!(back.dashboard, pick(live.session_kind, live.time_trial, None).id());
 }
 
 #[test]

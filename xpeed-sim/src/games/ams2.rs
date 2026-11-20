@@ -643,6 +643,8 @@ fn version_2_from(frame: &mut Frame, page: &Page, me: usize) {
         4 | 5 => Some(SessionKind::Race),
         _ => None,
     };
+    // 6 is time attack: timed laps alone, shown as a hot lap.
+    frame.time_trial = page.u32_at(at::SESSION_STATE) == 6;
 
     // A sector's time is believed once the car is past that sector, and only on a track with three.
     if page.i32_at(at::NUM_SECTORS) == 3 {

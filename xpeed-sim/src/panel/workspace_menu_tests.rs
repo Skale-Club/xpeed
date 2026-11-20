@@ -232,7 +232,7 @@ fn choosing_a_workspace_sets_the_manual_choice_of_that_game_and_automatic_clears
         assert_eq!(choices.get("lmu"), Some(dashboard));
         assert_eq!(choices.get("ac"), None, "another game keeps its own");
         // The same as `D` would have chosen.
-        assert_eq!(pick(None, choices.get("lmu")), dashboard);
+        assert_eq!(pick(None, false, choices.get("lmu")), dashboard);
     }
     let (auto, _) = click(&menu, WorkspaceItem::Auto, 0, 0);
     assert!(workspace_apply(auto, &mut choices, "lmu"));

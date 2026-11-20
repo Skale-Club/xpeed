@@ -123,7 +123,11 @@ pub struct View<'a> {
 impl View<'_> {
     /// The dashboard on screen: the manual choice, else the one that fits the session.
     pub(super) fn dashboard_in_use(&self) -> DashboardId {
-        pick(self.live.and_then(|l| l.session_kind), self.dashboard)
+        pick(
+            self.live.and_then(|l| l.session_kind),
+            self.live.is_some_and(|l| l.time_trial),
+            self.dashboard,
+        )
     }
 }
 
