@@ -88,7 +88,8 @@ const unref = (timer: unknown) => { (timer as { unref?: () => void })?.unref?.()
 export interface LiveHubOptions { now?: () => number; maxOwners?: number; maxStreamsPerOwner?: number }
 
 export function createLiveHub(options: LiveHubOptions = {}) {
-  const now = options.now ?? Date.now;
+  // Read the clock on every call (not a saved reference to Date.now), so a test clock or a patched Date applies.
+  const now = options.now ?? (() => Date.now());
   const maxOwners = options.maxOwners ?? MAX_OWNERS;
   const maxStreams = options.maxStreamsPerOwner ?? MAX_STREAMS_PER_OWNER;
   // Map order is the least recently used first: an owner that publishes or subscribes is moved to the end.
