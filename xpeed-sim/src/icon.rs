@@ -76,22 +76,39 @@ fn inside_mark(u: f32, v: f32) -> bool {
     inside
 }
 
-/// The colour of one point of the icon, with its alpha (0 outside the square).
-fn sample(u: f32, v: f32, light: Option<Light>) -> Rgba {
+/// With a status dot, the logo takes this much of the icon from its top-left corner, so the dot can sit on the logo's
+/// bottom-right corner and stick out past it, like a badge (owner, 2026-11-20: "more outside the icon, right and down").
+const LOGO_WITH_DOT: f32 = 0.88;
+/// The dot's centre (on both axes, in 0..1 of the whole icon), its coloured radius and the radius of its white ring.
+const DOT_CENTER: f32 = 0.815;
+const DOT_RADIUS: f32 = 0.135;
+const DOT_RING: f32 = 0.18;
+
+/// The colour of the logo at one point (0..1 of the logo's own square), with its alpha (0 outside the square).
+fn logo(u: f32, v: f32) -> Rgba {
     if !inside_rounded_square(u, v) {
         return [0.0; 4];
     }
-    let mut color = if inside_mark(u, v) { MARK_COLOR } else { SQUARE };
-    if let Some(light) = light {
-        let to_dot = ((u - 0.8).powi(2) + (v - 0.8).powi(2)).sqrt();
-        if to_dot <= 0.19 {
-            color = WHITE;
-        }
-        if to_dot <= 0.14 {
-            color = light_color(light);
-        }
+    if inside_mark(u, v) {
+        MARK_COLOR
+    } else {
+        SQUARE
     }
-    color
+}
+
+/// The colour of one point of the icon, with its alpha.
+fn sample(u: f32, v: f32, light: Option<Light>) -> Rgba {
+    let Some(light) = light else {
+        return logo(u, v);
+    };
+    let to_dot = ((u - DOT_CENTER).powi(2) + (v - DOT_CENTER).powi(2)).sqrt();
+    if to_dot <= DOT_RADIUS {
+        light_color(light)
+    } else if to_dot <= DOT_RING {
+        WHITE
+    } else {
+        logo(u / LOGO_WITH_DOT, v / LOGO_WITH_DOT)
+    }
 }
 
 /// `size` x `size` pixels, B G R A, top row first, not premultiplied. `None` draws the plain logo, with no dot.
@@ -218,9 +235,29 @@ mod tests {
         assert_eq!(green, [113, 204, 46, 255]);
         assert_eq!(red, [77, 72, 229, 255]);
         assert_ne!(pixel(64, Some(Light::Amber), 0.8, 0.8), pixel(64, Some(Light::Grey), 0.8, 0.8));
-        for (x, y) in [(0.32, 0.32), (0.672, 0.32), (0.32, 0.672), (0.08, 0.5)] {
-            assert_eq!(pixel(64, G, x, y), pixel(64, None, x, y), "({x}, {y})");
+        // The logo is still whole, only smaller, in the top-left of the icon.
+        let s = LOGO_WITH_DOT;
+        for (x, y) in [(0.32, 0.32), (0.672, 0.32), (0.32, 0.672), (0.5, 0.5)] {
+            assert_eq!(pixel(256, G, x * s, y * s), MARK_BGRA, "({x}, {y})");
         }
+        assert_eq!(pixel(256, G, 0.08 * s, 0.5 * s), SQUARE_BGRA);
+        // Right of and below the logo there is nothing but the dot.
+        assert_eq!(pixel(256, G, 0.95, 0.2)[3], 0);
+        assert_eq!(pixel(256, G, 0.2, 0.95)[3], 0);
+    }
+
+    /// The dot sits out on the logo's bottom-right corner: its centre is past the point where the plain logo had it,
+    /// right and down, and it reaches beyond the logo's square, but never past the icon's own edge.
+    #[test]
+    fn the_dot_sticks_out_past_the_logo_corner() {
+        const {
+            assert!(DOT_CENTER / LOGO_WITH_DOT > 0.9, "the centre is out on the logo's corner");
+            assert!(DOT_CENTER + DOT_RADIUS > LOGO_WITH_DOT, "the colour reaches past the logo");
+            assert!(DOT_CENTER + DOT_RING <= 1.0, "the ring stays inside the icon");
+        }
+        // A point of the dot outside the logo's square is the dot's colour.
+        let out = (LOGO_WITH_DOT + 0.03).min(DOT_CENTER + DOT_RADIUS - 0.02);
+        assert_eq!(pixel(256, G, DOT_CENTER, out), [113, 204, 46, 255]);
     }
 
     fn repo_file(name: &str) -> String {
