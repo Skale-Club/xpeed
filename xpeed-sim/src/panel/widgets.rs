@@ -1167,7 +1167,11 @@ pub(super) fn delta_ref_model(lang: Lang, live: &Live, fresh: bool) -> DeltaRefM
     let (best, personal) = (found.and_then(|r| r.best.as_ref()), found.and_then(|r| r.personal.as_ref()));
     let main = best.or(personal);
     // The time on this lap against a reference lap at the same distance; nothing before the game gives both.
-    let delta_to = |reference: &Reference| live.dist_m.zip(live.lap_time_s).and_then(|(dist, time)| reference.delta(dist, time));
+    let delta_to = |reference: &Reference| {
+        live.dist_m
+            .zip(live.lap_time_s)
+            .and_then(|(dist, time)| reference.delta(dist, time))
+    };
     let delta = main.and_then(delta_to).filter(|d| d.is_finite());
     let time_of = |reference: &Reference| lap_clock(Some(f64::from(reference.time_ms) / 1000.0)).unwrap_or_default();
     let line = main.map(|reference| match (reference.kind, reference.driver.as_deref()) {
@@ -1175,12 +1179,13 @@ pub(super) fn delta_ref_model(lang: Lang, live: &Live, fresh: bool) -> DeltaRefM
         (Kind::Best, None) => format!("{} · {}", say(Msg::PanelRefBest), time_of(reference)),
         (Kind::Personal, _) => format!("{} · {}", say(Msg::PanelRefYours), time_of(reference)),
     });
-    let personal_line = personal
-        .filter(|own| main.is_some_and(|lap| lap.lap_id != own.lap_id))
-        .map(|own| match delta_text(delta_to(own)) {
-            Some(delta) => format!("{} · {} · {delta}", say(Msg::PanelRefYours), time_of(own)),
-            None => format!("{} · {}", say(Msg::PanelRefYours), time_of(own)),
-        });
+    let personal_line =
+        personal
+            .filter(|own| main.is_some_and(|lap| lap.lap_id != own.lap_id))
+            .map(|own| match delta_text(delta_to(own)) {
+                Some(delta) => format!("{} · {} · {delta}", say(Msg::PanelRefYours), time_of(own)),
+                None => format!("{} · {}", say(Msg::PanelRefYours), time_of(own)),
+            });
     DeltaRefModel {
         show: if fresh && delta.is_some() { Show::Shown } else { Show::Dimmed },
         title: say(Msg::PanelRefTitle),
