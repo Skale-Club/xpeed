@@ -198,7 +198,10 @@ fn check_view_names_each_limit_that_is_broken() {
     assert!(broken(|v| v.rows[0].h = 100.0), "a row shorter than its cards need");
     assert!(broken(|v| v.rows[0].h = 901.0), "a row taller than the limit");
     assert!(broken(|v| v.rows[0].h = f32::INFINITY), "a height that is not a number");
-    assert!(broken(|v| v.rows[0].cards[1].1 = 0.3), "the centre card narrower than its least width");
+    assert!(
+        broken(|v| v.rows[0].cards[1].1 = 0.3),
+        "the centre card narrower than its least width"
+    );
     let mut many = base.clone();
     while many.rows.len() <= VIEW_MAX_ROWS {
         many.rows.push(OwnedRow {
@@ -268,12 +271,20 @@ fn the_file_format_is_the_documented_one() {
 fn the_manual_choices_and_the_views_share_one_file_without_losing_each_other() {
     let home = crate::config::scratch_dir("views-and-choices");
     let mut views = Views::default();
-    views.set(DashboardId::Qualifying, Layout::Square, edited(DashboardId::Qualifying, Layout::Square));
+    views.set(
+        DashboardId::Qualifying,
+        Layout::Square,
+        edited(DashboardId::Qualifying, Layout::Square),
+    );
     let mut choices = Choices::default();
     choices.set("ac", Some(DashboardId::Race));
     choices.save(&home).unwrap();
     views.save(&home).unwrap();
-    assert_eq!(Choices::load(&home).get("ac"), Some(DashboardId::Race), "the choice survives a views save");
+    assert_eq!(
+        Choices::load(&home).get("ac"),
+        Some(DashboardId::Race),
+        "the choice survives a views save"
+    );
     assert_eq!(Views::load(&home), views);
     choices.set("lmu", Some(DashboardId::TimeTrial));
     choices.save(&home).unwrap();
@@ -299,7 +310,10 @@ fn reset_goes_back_to_the_built_in_rows_for_one_shape_or_all() {
     views.reset(dash, Some(Layout::Wide));
     assert_eq!(views.rows_for(dash, Layout::Wide), SavedView::default_for(dash, Layout::Wide));
     assert!(!views.is_modified_in(dash, Layout::Wide));
-    assert!(views.is_modified_in(dash, Layout::Square) && views.is_modified(dash), "the other shapes stay");
+    assert!(
+        views.is_modified_in(dash, Layout::Square) && views.is_modified(dash),
+        "the other shapes stay"
+    );
     views.reset(dash, None);
     assert!(!views.is_modified(dash));
     for (layout, _) in LAYOUT_KEYS {
@@ -374,10 +388,7 @@ fn a_damaged_file_never_fails_and_every_view_it_leaves_passes_the_checks() {
 fn a_damaged_file_is_read_as_much_as_it_can_be() {
     let read = |text: &str| Views::parse(text).rows_for(DashboardId::Race, Layout::Wide);
     let rows = |h: f32, cards: &[(Pane, f32)]| SavedView {
-        rows: vec![OwnedRow {
-            h,
-            cards: cards.to_vec(),
-        }],
+        rows: vec![OwnedRow { h, cards: cards.to_vec() }],
     };
     let wrap = |row: &str| format!(r#"{{"views":{{"race":{{"wide":{{"rows":[{row}]}}}}}}}}"#);
     let default = SavedView::default_for(DashboardId::Race, Layout::Wide);
@@ -397,12 +408,20 @@ fn a_damaged_file_is_read_as_much_as_it_can_be() {
     }
     // Heights: raised to what the cards need, clamped to the limit; a missing or odd one is the least.
     let times_h = card_min_h(Pane::Times);
-    for (h, want) in [("0", times_h), ("-50", times_h), ("1e9", ROW_H_MAX), ("\"x\"", times_h), ("350", 350.0)] {
+    for (h, want) in [
+        ("0", times_h),
+        ("-50", times_h),
+        ("1e9", ROW_H_MAX),
+        ("\"x\"", times_h),
+        ("350", 350.0),
+    ] {
         let got = read(&wrap(&format!(r#"{{"h":{h},"cards":[["times",1]]}}"#)));
         assert_eq!(got, rows(want, &[(Pane::Times, 1.0)]), "h = {h}");
     }
     // Shares that are not numbers become 1, huge ones are held at the limit (then the row keeps every card its least width).
-    let got = read(&wrap(r#"{"h":300,"cards":[["times",0],["centre",-3],["fuel","x"],["tyres",1e30]]}"#));
+    let got = read(&wrap(
+        r#"{"h":300,"cards":[["times",0],["centre",-3],["fuel","x"],["tyres",1e30]]}"#,
+    ));
     assert_eq!(got.rows.len(), 1);
     assert_eq!(got.panes(), [Pane::Times, Pane::Centre, Pane::Fuel, Pane::Tyres]);
     // Nineteen cards in a row are split into rows; nineteen rows are cut to twelve.
@@ -410,7 +429,10 @@ fn a_damaged_file_is_read_as_much_as_it_can_be() {
     let packed = read(&wrap(&format!(r#"{{"h":300,"cards":[{}]}}"#, all.join(","))));
     assert_eq!(packed.panes().len(), 19);
     assert!(packed.rows.iter().all(|r| r.cards.len() <= VIEW_MAX_CARDS));
-    let singles: Vec<String> = catalog::ALL.iter().map(|w| format!(r#"{{"h":300,"cards":[["{}",1]]}}"#, w.id)).collect();
+    let singles: Vec<String> = catalog::ALL
+        .iter()
+        .map(|w| format!(r#"{{"h":300,"cards":[["{}",1]]}}"#, w.id))
+        .collect();
     let tall = read(&wrap(&singles.join(",")));
     assert_eq!(tall.rows.len(), VIEW_MAX_ROWS);
 }
@@ -501,12 +523,23 @@ fn a_swap_changes_places_and_a_beside_puts_the_card_next_to_the_other() {
     let full = SavedView::default_for(DashboardId::Race, Layout::Ultrawide);
     assert_eq!(full.rows[0].cards.len(), 6);
     assert_eq!(
-        move_card(&full, Layout::Ultrawide, Pos { row: 2, card: 0 }, Target::Beside(Pos { row: 0, card: 2 }, Side::Left)),
+        move_card(
+            &full,
+            Layout::Ultrawide,
+            Pos { row: 2, card: 0 },
+            Target::Beside(Pos { row: 0, card: 2 }, Side::Left)
+        ),
         Err(Refused::RowFull)
     );
     // Wrong places are refused.
-    assert_eq!(move_card(&view, layout, Pos { row: 9, card: 0 }, Target::Swap(a)), Err(Refused::NoSuchCard));
-    assert_eq!(move_card(&view, layout, a, Target::Swap(Pos { row: 0, card: 9 })), Err(Refused::NoSuchCard));
+    assert_eq!(
+        move_card(&view, layout, Pos { row: 9, card: 0 }, Target::Swap(a)),
+        Err(Refused::NoSuchCard)
+    );
+    assert_eq!(
+        move_card(&view, layout, a, Target::Swap(Pos { row: 0, card: 9 })),
+        Err(Refused::NoSuchCard)
+    );
     assert_eq!(move_card(&view, layout, a, Target::NewRow(99)), Err(Refused::NoSuchRow));
 }
 
@@ -516,7 +549,13 @@ fn the_view_never_has_more_than_twelve_rows_or_loses_its_last_card() {
     let view = SavedView::default_for(DashboardId::Race, layout);
     assert_eq!(view.rows.len(), VIEW_MAX_ROWS);
     // A card of a row of one into a new row somewhere: the same number of rows. Into a full house from a row with company: no.
-    let beside = move_card(&view, layout, Pos { row: 0, card: 0 }, Target::Beside(Pos { row: 1, card: 0 }, Side::Right)).unwrap();
+    let beside = move_card(
+        &view,
+        layout,
+        Pos { row: 0, card: 0 },
+        Target::Beside(Pos { row: 1, card: 0 }, Side::Right),
+    )
+    .unwrap();
     assert_eq!(beside.rows.len(), VIEW_MAX_ROWS - 1);
     assert_eq!(
         move_card(&beside, layout, Pos { row: 0, card: 1 }, Target::NewRow(0)).map(|v| v.rows.len()),
@@ -596,7 +635,10 @@ fn a_split_moves_width_between_the_neighbours_only_and_stops_at_the_least_width(
     assert!((width_of(&wider, 0, 0) - width_of(&view, 0, 0) - 60.0).abs() < 0.1);
     assert!((width_of(&wider, 0, 1) - width_of(&view, 0, 1) + 60.0).abs() < 0.1);
     for card in 2..5 {
-        assert!((width_of(&wider, 0, card) - width_of(&view, 0, card)).abs() < 0.1, "card {card} keeps its width");
+        assert!(
+            (width_of(&wider, 0, card) - width_of(&view, 0, card)).abs() < 0.1,
+            "card {card} keeps its width"
+        );
     }
     // Dragged a very long way: the centre card keeps its least width, the other the same.
     let squeezed = resize_split(&view, layout, 0, 0, 5_000.0).unwrap();
@@ -604,7 +646,11 @@ fn a_split_moves_width_between_the_neighbours_only_and_stops_at_the_least_width(
     assert!(width_of(&squeezed, 0, 1) + 0.01 >= CENTRE_W_MIN);
     let squeezed_back = resize_split(&view, layout, 0, 0, -5_000.0).unwrap();
     assert!(width_of(&squeezed_back, 0, 0) + 0.01 >= CARD_W_MIN);
-    assert_eq!(resize_split(&view, layout, 0, 4, 10.0), Err(Refused::NoSuchCard), "nothing after the last card");
+    assert_eq!(
+        resize_split(&view, layout, 0, 4, 10.0),
+        Err(Refused::NoSuchCard),
+        "nothing after the last card"
+    );
     assert_eq!(resize_split(&view, layout, 9, 0, 10.0), Err(Refused::NoSuchRow));
     assert_eq!(resize_split(&view, layout, 0, 0, f32::NAN), Err(Refused::BadNumber));
 }
@@ -694,7 +740,12 @@ fn thousands_of_random_edits_keep_every_limit_and_cancel_restores_the_view() {
     let views = every_view();
     let mut total = 0_usize;
     let mut applied = 0_usize;
-    for seed in [0x9E37_79B9_7F4A_7C15_u64, 0xD1B5_4A32_D192_ED03, 0x2545_F491_4F6C_DD1D, 0x1234_5678_9ABC_DEF1] {
+    for seed in [
+        0x9E37_79B9_7F4A_7C15_u64,
+        0xD1B5_4A32_D192_ED03,
+        0x2545_F491_4F6C_DD1D,
+        0x1234_5678_9ABC_DEF1,
+    ] {
         let mut rng = Rng(seed);
         for session in 0..50 {
             let (dash, layout, original) = views[rng.below(views.len())].clone();
@@ -711,7 +762,12 @@ fn thousands_of_random_edits_keep_every_limit_and_cancel_restores_the_view() {
                     }
                 }
                 total += 1;
-                assert_good(&edit.current, layout, &s, &format!("seed {seed:x} session {session} step {step}: {op:?}"));
+                assert_good(
+                    &edit.current,
+                    layout,
+                    &s,
+                    &format!("seed {seed:x} session {session} step {step}: {op:?}"),
+                );
             }
             assert_eq!(edit.is_dirty(), edit.current != original);
             assert_eq!(edit.cancel(), original, "cancel gives back exactly the original");
@@ -758,7 +814,10 @@ fn the_gear_stays_big_whatever_is_done_to_the_centre_card() {
         assert!(area.3 >= CENTRE_H_MIN - 0.01 && area.2 >= CENTRE_W_MIN - 0.01, "{tag}: {area:?}");
         let (_, _, _, inside_h) = inner(area);
         let gear = centre_plan(area, &s).gear.3;
-        assert!(gear >= (GEAR_MIN_SHARE * inside_h).min(GEAR_MAX_H) - 0.01, "{tag}: the gear is half the card");
+        assert!(
+            gear >= (GEAR_MIN_SHARE * inside_h).min(GEAR_MAX_H) - 0.01,
+            "{tag}: the gear is half the card"
+        );
     }
 }
 
@@ -841,7 +900,11 @@ fn a_drop_in_a_gap_above_or_below_makes_a_new_row_and_one_between_two_cards_does
         h: 110.0,
         cards: Vec::new(),
     };
-    assert_eq!(target_at(&empty, 500.0, 500.0), Some(Target::NewRow(0)), "an empty plan takes a first row");
+    assert_eq!(
+        target_at(&empty, 500.0, 500.0),
+        Some(Target::NewRow(0)),
+        "an empty plan takes a first row"
+    );
 }
 
 #[test]
@@ -850,10 +913,18 @@ fn the_boundaries_are_found_within_the_tolerance_and_the_nearest_wins() {
     let at = |x, y, tol| boundary_at(&plan, x, y, tol);
     // Between Times and Centre the line is at 306; between Centre and Inputs at 618.
     assert_eq!(at(306.0, 200.0, 4.0), Some(Boundary::Split { row: 0, left: 0 }));
-    assert_eq!(at(310.0, 200.0, 4.0), Some(Boundary::Split { row: 0, left: 0 }), "the tolerance is inclusive");
+    assert_eq!(
+        at(310.0, 200.0, 4.0),
+        Some(Boundary::Split { row: 0, left: 0 }),
+        "the tolerance is inclusive"
+    );
     assert_eq!(at(311.0, 200.0, 4.0), None);
     assert_eq!(at(618.0, 300.0, 4.0), Some(Boundary::Split { row: 0, left: 1 }));
-    assert_eq!(at(306.0, 111.0, 4.0), Some(Boundary::Split { row: 0, left: 0 }), "along the card's whole height");
+    assert_eq!(
+        at(306.0, 111.0, 4.0),
+        Some(Boundary::Split { row: 0, left: 0 }),
+        "along the card's whole height"
+    );
     assert_eq!(at(306.0, 450.0, 4.0), None, "a row of one card has no split");
     // Under the rows: the middle of the gap, 416 and 628.
     assert_eq!(at(500.0, 416.0, 4.0), Some(Boundary::RowBottom(0)));
@@ -863,7 +934,11 @@ fn the_boundaries_are_found_within_the_tolerance_and_the_nearest_wins() {
     assert_eq!(at(-1.0, 416.0, 4.0), None, "outside the canvas");
     // A corner: the nearest line, and the split on a tie.
     assert_eq!(at(306.0, 410.0, 10.0), Some(Boundary::Split { row: 0, left: 0 }));
-    assert_eq!(at(306.0, 416.0, 4.0), Some(Boundary::RowBottom(0)), "out of the row's band, only the bottom line is near");
+    assert_eq!(
+        at(306.0, 416.0, 4.0),
+        Some(Boundary::RowBottom(0)),
+        "out of the row's band, only the bottom line is near"
+    );
     assert_eq!(at(500.0, 200.0, 4.0), None);
 }
 
@@ -885,6 +960,10 @@ fn on_a_real_edit_plan_every_card_is_found_and_every_row_gap_takes_a_new_row() {
             assert_eq!(target_at(&plan, plan.w / 2.0, top - GAP / 2.0), Some(Target::NewRow(i)), "{tag}");
         }
         assert_eq!(target_at(&plan, plan.w / 2.0, CARDS_TOP - 5.0), Some(Target::NewRow(0)), "{tag}");
-        assert_eq!(target_at(&plan, plan.w / 2.0, plan.h + 5.0), Some(Target::NewRow(view.rows.len())), "{tag}");
+        assert_eq!(
+            target_at(&plan, plan.w / 2.0, plan.h + 5.0),
+            Some(Target::NewRow(view.rows.len())),
+            "{tag}"
+        );
     }
 }

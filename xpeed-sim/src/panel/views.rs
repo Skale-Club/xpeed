@@ -273,10 +273,7 @@ pub(super) fn sanitise(rows: Vec<OwnedRow>, layout: Layout) -> Option<SavedView>
             }
         }
         if !spill.is_empty() {
-            queue.push_front(OwnedRow {
-                h: row.h,
-                cards: spill,
-            });
+            queue.push_front(OwnedRow { h: row.h, cards: spill });
         }
         let h = if row.h.is_finite() {
             row.h.clamp(ROW_H_MIN, ROW_H_MAX)
