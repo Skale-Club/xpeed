@@ -534,9 +534,18 @@ impl Painter {
                 ],
             );
         });
-        // The name, upper case, one word a line, in the middle.
+        // The name, upper case, one word a line, in the middle; smaller when its longest word would not fit inside the
+        // card with a margin (owner, 2026-11-19: the name never runs past the cover's edges).
         let words: Vec<String> = name.split_whitespace().map(str::to_uppercase).collect();
-        let size = (T_VALUE * scale).max(T_CAPTION);
+        let mut size = (T_VALUE * scale).max(T_CAPTION);
+        let room = w / self.s * 0.84;
+        let widest = words
+            .iter()
+            .map(|word| self.width_of(word, size, FW_SEMIBOLD as i32, Face::Num))
+            .fold(0.0, f32::max);
+        if widest > room {
+            size = (size * room / widest).max(T_LABEL_MIN);
+        }
         let line = size * 1.1 * self.s;
         let top = y + h * 0.58 - line * words.len() as f32 / 2.0;
         for (i, word) in words.iter().enumerate() {

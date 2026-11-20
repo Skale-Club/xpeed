@@ -1643,6 +1643,21 @@ fn the_centre_keeps_a_big_gear_and_the_pedals_have_their_own_card() {
     assert!((abs_x - 3..abs_x + 3).any(|x| at(x, 1) == INFO), "the ABS mark where it acted");
 }
 
+/// A cover drawn without its image keeps the game's name inside it (owner, 2026-11-19): a long word gets a smaller
+/// font instead of running past the edges.
+#[test]
+fn a_cover_card_keeps_the_name_inside() {
+    for name in ["Automobilista 2", "RaceRoom Racing Experience", "Assetto Corsa Competizione"] {
+        let at = painted_by(160, 160, |g| g.cover_card((30.0, 0.0, 100.0, 150.0), name, 1.1));
+        let outside = at(0, 0);
+        for y in 0..150 {
+            for x in (0..29).chain(131..160) {
+                assert_eq!(at(x, y), outside, "{name}: ink at ({x}, {y}) outside the card");
+            }
+        }
+    }
+}
+
 /// The open-game checklist (owner-approved module 9, 2026-11-19): the game open, its data on, the driver in the car;
 /// each state of the game lights the right step, and the step to act on says where in the game's menus.
 #[test]
