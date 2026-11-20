@@ -23,6 +23,12 @@ pub(super) const fn mix(a: COLORREF, b: COLORREF, t: f32) -> COLORREF {
     channel(a, b, t, 0) | channel(a, b, t, 8) | channel(a, b, t, 16)
 }
 
+/// The ink of one gear in the carousel: yellow in the middle (`place` 0), grey at an edge (1), then fading into the card
+/// (`fade` 0..1) past an edge.
+pub(super) fn gear_carousel_ink(place: f32, fade: f32) -> COLORREF {
+    mix(mix(PRIMARY, GREY, place), CARD, fade)
+}
+
 // Surfaces.
 
 /// The window's background (`--background`, #101113).

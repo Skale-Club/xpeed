@@ -224,6 +224,9 @@ const PORTRAIT_ROWS: &[Row] = &[
     },
 ];
 
+/// One column for a phone held upright: with the few cards a game gives (times, centre, inputs, laps) it stays under about
+/// 915 design units, so a 390 x 844 phone shows it at a scale where the smallest text is still 10 px. The inputs card is
+/// short here (no trace, `INPUTS_TRACE_MIN_H`) and the laps table keeps two rows; the gear's card keeps its height.
 const STACK_ROWS: &[Row] = &[
     Row {
         h: 220.0,
@@ -234,7 +237,7 @@ const STACK_ROWS: &[Row] = &[
         cards: &[(Pane::Centre, 1.0)],
     },
     Row {
-        h: 230.0,
+        h: 142.0,
         cards: &[(Pane::Inputs, 1.0)],
     },
     Row {
@@ -246,7 +249,7 @@ const STACK_ROWS: &[Row] = &[
         cards: &[(Pane::Tyres, 1.0)],
     },
     Row {
-        h: 200.0,
+        h: 124.0,
         cards: &[(Pane::Laps, 1.0)],
     },
     Row {
@@ -488,7 +491,7 @@ impl Layout {
         match self {
             Layout::Classic => 0.0,
             Layout::Portrait => 0.5,
-            Layout::Stack => 0.85,
+            Layout::Stack => 0.83,
             Layout::Square => 0.7,
             Layout::Wide | Layout::Ultrawide => 0.75,
         }
@@ -667,12 +670,15 @@ pub(super) struct InputsPlan {
     pub(super) lap: Area,
 }
 
+/// The least inside height at which the inputs card draws the trace of the last seconds: under it the pedals keep the room.
+pub(super) const INPUTS_TRACE_MIN_H: f32 = 140.0;
+
 pub(super) fn inputs_plan(card: Area, slots: &Slots) -> InputsPlan {
     let (x, y, w, h) = inner(card);
     let head = (x, y, w, CAPTION_H);
     let lap = (x, y + h - INPUT_LAP_H, w, INPUT_LAP_H);
     let top = y + CAPTION_H + S2;
-    let trace_on = slots.throttle || slots.brake;
+    let trace_on = (slots.throttle || slots.brake) && h >= INPUTS_TRACE_MIN_H;
     let trace_h = if trace_on {
         ((h - CAPTION_H) * INPUT_TRACE_SHARE).clamp(28.0, 110.0)
     } else {

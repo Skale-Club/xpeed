@@ -339,7 +339,7 @@ pub(super) fn centre_card(g: &mut Painter, d: &Dash, card: Area) {
             let lerp = |a: f32, b: f32| a + (b - a) * t;
             let (x, w) = (lerp(gx + gw / 2.0, ex + ew / 2.0), lerp(gw, ew));
             let fade = ((place.abs() - 1.0) * 2.0).clamp(0.0, 1.0);
-            let ink = mix(mix(PRIMARY, GREY, t), CARD, fade);
+            let ink = gear_carousel_ink(t, fade);
             let r = g.r(x - w / 2.0, lerp(gy, ey), w, lerp(gh, eh));
             g.text(text, r, lerp(gh * GEAR_FILL, T_VALUE_L), semi, Face::Num, ink, DT_CENTER);
         }

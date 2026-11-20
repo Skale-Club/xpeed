@@ -53,7 +53,7 @@ pub(super) struct FlagCardModel {
     pub(super) title: String,
     /// The flag being shown; `None` when the game shows none.
     pub(super) kind: Option<FlagKind>,
-    /// The flag's word in capitals (`YELLOW FLAG`), or `NO FLAG`.
+    /// The flag's short word in capitals (`YELLOW`, the lights card's), or `NO FLAG`.
     pub(super) word: String,
 }
 

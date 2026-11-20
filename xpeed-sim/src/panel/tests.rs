@@ -2797,10 +2797,12 @@ fn the_banner_is_painted_over_the_dimmed_cards_without_moving_them() {
                 assert!(!overlap(target, *other), "{w}x{h}: the banner stays off {pane:?}");
             }
         }
+        // The box grows with the lines of its note (the silent one has three on a narrow centre card) and stays centred, so
+        // its title may sit anywhere from near the top to the middle: the band spans that.
         let b = banner_box(target, 200.0, 70.0);
         let middle = (
             ox + (b.0 * scale) as i32,
-            oy + ((b.1 + b.3 * 0.2) * scale) as i32,
+            oy + ((b.1 + b.3 * 0.06) * scale) as i32,
             ox + ((b.0 + b.2) * scale) as i32,
             oy + ((b.1 + b.3 * 0.6) * scale) as i32,
         );
@@ -3696,9 +3698,9 @@ fn the_flag_card_names_the_flag_or_says_there_is_none() {
     let card = model(&live, Lang::En).flag.expect("the game gives flags");
     assert_eq!(
         (card.kind, card.word.as_str(), card.show),
-        (Some(FlagKind::Yellow), "YELLOW FLAG", Show::Shown)
+        (Some(FlagKind::Yellow), "YELLOW", Show::Shown)
     );
-    assert_eq!(model(&live, Lang::Pt).flag.unwrap().word, "BANDEIRA AMARELA");
+    assert_eq!(model(&live, Lang::Pt).flag.unwrap().word, "AMARELA");
     for (flag, kind) in [
         (Flag::Green, FlagKind::Green),
         (Flag::Yellow, FlagKind::Yellow),
