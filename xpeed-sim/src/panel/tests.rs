@@ -2056,6 +2056,8 @@ fn a_shift_slides_the_gears_like_a_carousel() {
     let mut live = live_reading();
     let at = live.at_ms;
     live.gear_shift = Some((live.gear - 1.0, at));
+    // A 6-speed car (the reading alone has only been seen in 5th, so no 6th would be shown).
+    live.gears = Some(6);
     let places = |now: i64| dashboard(&live, &ctx_of(Lang::En, now)).gear_track;
     let rest = [("4".to_owned(), -1.0), ("5".to_owned(), 0.0), ("6".to_owned(), 1.0)];
     assert_eq!(
@@ -2107,13 +2109,45 @@ fn the_fuel_card_shows_the_use_the_minutes_and_a_stint_plan() {
         ],
         "20 laps need more than the tank holds: amber"
     );
-    // A last lap over the average is red with a plus; without a use per lap there is no plan.
+    // A last lap over the average is red with a plus.
     let mut thirsty = live.clone();
     thirsty.fuel_last_lap_l = Some(2.97);
     let m = model(&thirsty, Lang::En);
     assert_eq!((m.fuel_stats[1].note.as_str(), m.fuel_stats[1].note_role), ("+0.07", Role::Danger));
-    thirsty.fuel_per_lap_l = None;
-    assert!(model(&thirsty, Lang::En).fuel_planner.is_none());
+    assert!(!m.fuel_planner.expect("a stint plan").waiting);
+}
+
+/// Early in a run (no use per lap yet, the lap joined midway) the fuel card keeps its shape: the three use tiles with a
+/// dash, and the stint planner with its rows waiting, saying it fills in after one full lap (owner, 2026-11-20: the
+/// card was a big empty box in practice).
+#[test]
+fn the_fuel_card_keeps_its_shape_before_the_use_is_known() {
+    let mut early = live_reading();
+    early.fuel_per_lap_l = None;
+    early.fuel_last_lap_l = None;
+    early.fuel_this_lap_l = None;
+    let m = model(&early, Lang::En);
+    let stats: Vec<(&str, &str, &str)> = m
+        .fuel_stats
+        .iter()
+        .map(|s| (s.label.as_str(), s.value.as_str(), s.note.as_str()))
+        .collect();
+    assert_eq!(stats, [("Avg / lap", "–", ""), ("Last lap", "–", ""), ("This lap", "–", "")]);
+    let plan = m.fuel_planner.expect("the planner waits");
+    assert!(plan.waiting);
+    assert_eq!(plan.at, "after 1 lap");
+    assert!(
+        plan.rows.iter().all(|(_, value, role)| value == "–" && *role == Role::Muted),
+        "{:?}",
+        plan.rows
+    );
+    assert_eq!(plan.rows.last().map(|(label, _, _)| label.as_str()), Some("Full tank"));
+    let pixels = dashboard_pixels(DashboardId::Practice, &early, &rich_laps());
+    save(&pixels, 1920, 1080, "panel-practice-fuel-early.png");
+    // A last lap with no average yet shows, with no note to compare it with.
+    early.fuel_last_lap_l = Some(2.84);
+    let m = model(&early, Lang::En);
+    assert_eq!((m.fuel_stats[1].value.as_str(), m.fuel_stats[1].note.as_str()), ("2.84", ""));
 }
 
 /// The owner's times card (module 5, 2026-11-19): the lap this lap is heading for, and the delta along the lap drawn
@@ -4040,9 +4074,10 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             (Pane::Times, 1.0),
             (Pane::Centre, 0.74),
             (Pane::Inputs, 0.56),
-            (Pane::Fuel, 0.95),
-            (Pane::Tyres, 1.05),
-        ]
+            (Pane::Fuel, 0.8),
+            (Pane::Tyres, 1.2),
+        ],
+        "in practice the fuel card gives some width to the tyres (owner, 2026-11-20)"
     );
     assert_eq!(wide[1].cards, [(Pane::Laps, 2.25), (Pane::Track, 1.0), (Pane::Alerts, 1.05)]);
     let extra_row = [(Pane::Sectors, 1.0), (Pane::TyreTrend, 1.0), (Pane::DeltaRef, 1.0)];

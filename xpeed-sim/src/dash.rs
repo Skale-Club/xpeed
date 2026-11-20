@@ -253,7 +253,8 @@ pub struct Live {
     /// The highest RPM seen in this run with this car: the top of the rev bar (the games do not all give the limit).
     pub rpm_top: f32,
     pub gear: f32,
-    /// How many forward gears the car has: the game's own count, else the top gear seen to be left (see `Tracker`).
+    /// The highest forward gear the carousel may show: the game's own count, else the highest gear seen with this car (a
+    /// gear that may not exist is never shown; see `Tracker`).
     pub gears: Option<u8>,
     pub throttle: f32,
     pub brake: f32,
@@ -372,9 +373,8 @@ pub struct Tracker {
     /// The official time of the last lap as the previous reading showed it.
     official: Option<f64>,
     rpm_top: f32,
-    /// The highest forward gear seen with this car, and whether the car was seen in a lower one afterwards.
+    /// The highest forward gear seen with this car.
     top_gear: u8,
-    top_gear_left: bool,
     /// The gear of the last reading that had one, and the last shift (the gear before it, when it was seen).
     last_gear: Option<f32>,
     gear_shift: Option<(f32, i64)>,
@@ -770,7 +770,7 @@ impl Tracker {
             rpm: frame.rpm,
             rpm_top: self.rpm_top,
             gear: frame.gear,
-            gears: frame.gears.or_else(|| self.top_gear_left.then_some(self.top_gear)),
+            gears: frame.gears.or_else(|| (self.top_gear > 0).then_some(self.top_gear)),
             throttle: frame.throttle,
             brake: frame.brake,
             clutch: frame.clutch,
@@ -954,8 +954,6 @@ impl Tracker {
         }
     }
 
-    /// Remembers the highest forward gear. It only counts as the car's top gear once the car has been seen in a lower
-    /// one after it: just reaching a gear says nothing about whether there is another above it.
     /// Remembers the last shift: the gear before it and when it was seen.
     fn see_shift(&mut self, gear: f32, at_ms: i64) {
         if !gear.is_finite() {
@@ -968,17 +966,14 @@ impl Tracker {
         self.last_gear = Some(gear);
     }
 
+    /// Remembers the highest forward gear: with no count from the game, nothing above it is shown, since reaching a gear
+    /// says nothing about whether there is another above it (a 5-speed car in 5th showed a 6th that was not there).
     fn see_gear(&mut self, gear: f32) {
         if !gear.is_finite() || !(1.0..=30.0).contains(&gear.round()) {
             return;
         }
         let g = gear.round() as u8;
-        if g > self.top_gear {
-            self.top_gear = g;
-            self.top_gear_left = false;
-        } else if g < self.top_gear {
-            self.top_gear_left = true;
-        }
+        self.top_gear = self.top_gear.max(g);
     }
 
     fn offer_best(&mut self, time: f64, profile: Profile, path: Path, invalid: bool) {
@@ -1427,7 +1422,7 @@ mod tests {
     }
 
     #[test]
-    fn the_gear_count_is_the_games_or_the_top_gear_seen_once_it_was_left() {
+    fn the_gear_count_is_the_games_or_the_top_gear_seen() {
         let mut tracker = Tracker::default();
         let mut frame = at(1, 0.0, 0.0, None);
         let mut gears = |tracker: &mut Tracker, gear: f32, count: Option<u8>| {
@@ -1435,12 +1430,12 @@ mod tests {
             frame.gears = count;
             tracker.on_frame("Test", &frame, 0).gears
         };
-        // Climbing through the gears says nothing yet: there may be one more above.
-        assert_eq!(gears(&mut tracker, 1.0, None), None);
-        assert_eq!(gears(&mut tracker, 2.0, None), None);
-        assert_eq!(gears(&mut tracker, 6.0, None), None);
-        assert_eq!(gears(&mut tracker, 0.0, None), None, "neutral is not a lower gear");
-        // Back from 6th to 5th: 6 is the highest seen, and the car has been below it since.
+        // With no count from the game, nothing above the highest gear seen: in 5th of a 5-speed car there is no 6th to show.
+        assert_eq!(gears(&mut tracker, 1.0, None), Some(1));
+        assert_eq!(gears(&mut tracker, 2.0, None), Some(2));
+        assert_eq!(gears(&mut tracker, 5.0, None), Some(5));
+        assert_eq!(gears(&mut tracker, 0.0, None), Some(5), "neutral keeps what was seen");
+        assert_eq!(gears(&mut tracker, 6.0, None), Some(6));
         assert_eq!(gears(&mut tracker, 5.0, None), Some(6));
         assert_eq!(gears(&mut tracker, 6.0, None), Some(6));
         // The game's own count wins.
@@ -1460,6 +1455,7 @@ mod tests {
             tracker.on_frame("Test", &frame, 0);
         }
         frame.car = "Other".into();
+        frame.gear = f32::NAN;
         assert_eq!(tracker.on_frame("Test", &frame, 0).gears, None);
     }
 

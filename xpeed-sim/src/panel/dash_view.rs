@@ -440,7 +440,8 @@ pub(super) fn inputs_card(g: &mut Painter, d: &Dash, card: Area) {
 /// red under two, while driving), the litres, the tank and how long it lasts beside it, a tank bar with a tick for each
 /// lap's worth of fuel; then the use as three tiles (the average a lap, the last lap against it, this lap so far), a
 /// stint planner, and the water and oil with their bars. Rows that do not fit are left out (`fuel_rows`). Without a use
-/// per lap yet, the litres are the hero and the per-lap line says nothing more.
+/// per lap yet, the litres are the hero, and the tiles and the planner keep their places with a dash (the card keeps its
+/// shape from the start of a run).
 pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
     let (semi, normal) = (FW_SEMIBOLD as i32, FW_NORMAL as i32);
     let m = d.m;
@@ -517,11 +518,19 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
                 g.round(g.r(tx, sy, tw, sh), BACKGROUND, Some(BORDER));
                 let r = g.r(tx + S2, sy + 5.0, tw - S3, 14.0);
                 g.caps_fit(&stat.label, r, T_CAPTION, 0.0, MUTED_TEXT, DT_LEFT);
-                let size = g.fitted(&stat.value, tw - S3, T_VALUE, T_BODY, semi, Face::Num);
+                // The number gives up some size for its note (`-0.06`) before the note is cut or left out.
+                let note_w = if stat.note.is_empty() {
+                    0.0
+                } else {
+                    g.tabular_width(&stat.note, T_CAPTION, semi) + S1
+                };
+                let room = if tw - S3 - note_w >= S8 { tw - S3 - note_w } else { tw - S3 };
+                let size = g.fitted(&stat.value, room, T_VALUE, T_BODY, semi, Face::Num);
                 let r = g.r(tx + S2 - 1.0, sy + 20.0, tw - S3, 22.0);
-                g.text(&stat.value, r, size, semi, Face::Num, FOREGROUND, DT_LEFT);
+                let ink = if stat.value == FUEL_WAITING { MUTED_TEXT } else { FOREGROUND };
+                g.text(&stat.value, r, size, semi, Face::Num, ink, DT_LEFT);
                 let used = g.tabular_width(&stat.value, size, semi) + S1;
-                if !stat.note.is_empty() && used + S4 < tw - S3 {
+                if !stat.note.is_empty() && used + note_w <= tw - S3 + S1 {
                     let r = g.r(tx + S2 + used, sy + 20.0, tw - S3 - used, 22.0);
                     g.text(&stat.note, r, T_CAPTION, semi, Face::Num, stat.note_role.colour(), DT_LEFT);
                 }
@@ -536,7 +545,14 @@ pub(super) fn fuel_card(g: &mut Painter, d: &Dash, card: Area) {
             let (ix, iw) = (px + S3, pw - S3 - S2);
             let head = g.r(ix, py + S2, iw, CAPTION_H);
             let at_w = g.caps_width(&plan.at, T_CAPTION);
-            g.caps_fit(&plan.at, head, T_CAPTION, 0.0, INFO, DT_RIGHT);
+            g.caps_fit(
+                &plan.at,
+                head,
+                T_CAPTION,
+                0.0,
+                if plan.waiting { MUTED_TEXT } else { INFO },
+                DT_RIGHT,
+            );
             let title = g.r(ix, py + S2, (iw - at_w - S2).max(1.0), CAPTION_H);
             g.caps_fit(&plan.title, title, T_CAPTION, 0.0, MUTED_TEXT, DT_LEFT);
             for (i, (label, value, role)) in plan.rows.iter().enumerate() {
