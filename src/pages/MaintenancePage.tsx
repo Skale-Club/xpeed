@@ -183,8 +183,7 @@ function MaintenanceScreen() {
   return (
     <AppLayout refreshDisabled={isAddOpen || saving}>
       <div className="space-y-6">
-        <PageHeader
-          icon={Wrench}
+        <PageHeader size="lg"
           title={t('maint.title', 'Service history')}
           description={selectedCar?.name}
           actions={

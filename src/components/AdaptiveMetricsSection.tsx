@@ -91,14 +91,15 @@ export function AdaptiveMetricsSection({ engineType, latestSession }: AdaptiveMe
           return (
             <Card
               key={metric.canonical_key}
-              className={`bg-card border ${
+              className={`rounded-panel bg-card border ${
                 tone === 'critical' ? 'border-destructive/60' : tone === 'warn' ? 'border-warn/50' : 'border-border'
               }`}
             >
-              <CardContent className="px-3 py-2.5">
-                <p className="text-xs text-muted-foreground truncate">{t(`dashboard.metric.${metric.canonical_key}`, metric.label)}</p>
+              {/* Dashboards 2027, phase 4: uppercase label, the reading in the display face; the colour still means warn / critical. */}
+              <CardContent className="px-4 py-3.5">
+                <p className="truncate text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">{t(`dashboard.metric.${metric.canonical_key}`, metric.label)}</p>
                 <p
-                  className={`text-xl font-bold mt-0.5 ${
+                  className={`mt-1 font-display text-2xl font-semibold tabular-nums ${
                     tone === 'critical' ? 'text-destructive' : tone === 'warn' ? 'text-warn' : 'text-foreground'
                   }`}
                 >

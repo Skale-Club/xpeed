@@ -18,7 +18,7 @@ vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   BarChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
   LineChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
-  Bar: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
+  Bar: () => null, Cell: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
 }));
 
 const monza = ref('Monza');
@@ -203,7 +203,8 @@ describe('what to work on', () => {
     expect(files.sort()).toEqual(mine.sort());
     // The overview, the dashboard's numbers and the session are read; no list of laps is.
     // (The server is asked first: this one has no insights endpoint, so it answers 404 and the files are read.)
-    expect(state.requests.map((request) => request.path).filter((path) => !path.endsWith('/file')).sort()).toEqual(['/overview', `/sessions/${session.id}/insights`, `/sessions/${session.id}`, '/stats'].sort());
+    // (The track drawings of the Progress and Where blocks, /tracks/<id>, are not lap reads and are left out here.)
+    expect(state.requests.map((request) => request.path).filter((path) => !path.endsWith('/file') && !path.startsWith('/tracks/')).sort()).toEqual(['/overview', `/sessions/${session.id}/insights`, `/sessions/${session.id}`, '/stats'].sort());
   });
 
   it('shows a skeleton while it is being worked out', async () => {
@@ -297,7 +298,8 @@ describe('what to work on, from the server', () => {
     expect(within(card).getByTestId('work-on-session')).toHaveTextContent('5 laps analysed');
     expect(within(card).getByTestId('work-on-open')).toHaveAttribute('href', `/virtual/sessions/${session.id}`);
     // Nothing but the overview, the dashboard's numbers and the one answer: no session detail, no lap file.
-    expect(state.requests.map((request) => request.path).sort()).toEqual(['/overview', `/sessions/${session.id}/insights`, '/stats'].sort());
+    // (Track drawings, /tracks/<id>, are no session detail and no lap file.)
+    expect(state.requests.map((request) => request.path).filter((path) => !path.startsWith('/tracks/')).sort()).toEqual(['/overview', `/sessions/${session.id}/insights`, '/stats'].sort());
   });
 
   it('says them in the language of the person', async () => {

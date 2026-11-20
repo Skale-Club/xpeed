@@ -1,7 +1,10 @@
 import { temperatureValue, temperatureLabel } from '@/lib/temperature';
 import { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Bar, ComposedChart } from 'recharts';
+import { Activity, Fuel, Gauge, SlidersHorizontal, Thermometer, Wind, Zap, type LucideIcon } from 'lucide-react';
+import { Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, Bar, ComposedChart } from 'recharts';
+import { Panel } from '@/components/ui/panel';
+import { AreaGradient, ChartLegend } from '@/components/ui/chart-kit';
+import { CHART_AXIS, CHART_BAR, CHART_GRID, CHART_LINE, CHART_TOOLTIP, type Accent } from '@/lib/chart-theme';
 import { useTranslation } from 'react-i18next';
 import { formatTripDate } from '@/lib/trips';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -35,6 +38,17 @@ interface ChartConfig {
     yAxisId?: string;
   }[];
 }
+
+/** Each chart's icon and colour in its panel header (Dashboards 2027: colour in breaks, one per block). */
+const LOOK: Record<string, { icon: LucideIcon; accent: Accent }> = {
+  speed: { icon: Gauge, accent: 'blue' },
+  temperature: { icon: Thermometer, accent: 'red' },
+  voltage: { icon: Zap, accent: 'green' },
+  engine: { icon: Activity, accent: 'purple' },
+  fuel_trim: { icon: SlidersHorizontal, accent: 'amber' },
+  fuel_econ: { icon: Fuel, accent: 'green' },
+  emissions: { icon: Wind, accent: 'pink' },
+};
 
 // Definition of available charts and their sensor mappings
 const AVAILABLE_CHARTS: ChartConfig[] = [
@@ -240,128 +254,57 @@ export default function DashboardCharts({ sessions, engineType }: DashboardChart
   // The speed chart is converted to the chosen distance unit above; label it to match.
   const unitOf = (chart: ChartConfig) => (chart.id === 'speed' && distanceUnit === 'mi' ? 'mph' : temperatureLabel(chart.yAxisUnit ?? '', temperatureUnit));
 
+  // Dashboards 2027, phase 4 (owner approved 2026-11-20): each chart is a feature panel with its own colour and icon, the legend as chips in
+  // its header, thin lines with no dot on each value, a fading area under the main series and a faint horizontal grid (lib/chart-theme).
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {activeCharts.map(chart => (
-        <Card key={chart.id} className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">
-                {t(`dashboard.charts.${chart.id}`, chart.title)} {unitOf(chart) ? `(${unitOf(chart)})` : ''}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px] w-full">
+    <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2" data-testid="home-charts">
+      {activeCharts.map((chart) => {
+        const series = chart.series.filter((s) => processedData.some((d) => d[s.key] != null));
+        const look = LOOK[chart.id] ?? LOOK.speed;
+        const unit = unitOf(chart);
+        const right = chart.type === 'composed';
+        return (
+          <Panel
+            key={chart.id}
+            variant="feature"
+            title={t(`dashboard.charts.${chart.id}`, chart.title)}
+            description={unit || undefined}
+            icon={look.icon}
+            accent={look.accent}
+            action={<ChartLegend items={series.map((s) => ({ label: t(`dashboard.series.${s.key}`, s.label), color: s.color }))} />}
+            testId={`home-chart-${chart.id}`}
+          >
+            <div className="h-60 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                {chart.type === 'composed' ? (
-                  <ComposedChart data={processedData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} unit="%" />
-                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--muted-foreground))' }} />
-                    <Legend />
-                    {chart.series.map(s => {
-                      if (s.type === 'bar') {
-                        return (
-                          <Bar 
-                            key={s.key}
-                            yAxisId={s.yAxisId || 'left'}
-                            dataKey={s.key} 
-                            name={t(`dashboard.series.${s.key}`, s.label)} 
-                            fill={s.color} 
-                            radius={[4, 4, 0, 0]}
-                            hide={!processedData.some(d => d[s.key] != null)}
-                          />
-                        );
-                      }
-                      // Default to line for ComposedChart if not specified as bar
-                      return (
-                        <Line
-                          key={s.key}
-                          yAxisId={s.yAxisId || 'left'}
-                          type="monotone"
-                          dataKey={s.key}
-                          name={t(`dashboard.series.${s.key}`, s.label)}
-                          stroke={s.color}
-                          strokeWidth={2}
-                          dot={{ r: 4, fill: s.color }}
-                          hide={!processedData.some(d => d[s.key] != null)}
-                        />
-                      );
-                    })}
-                  </ComposedChart>
-                ) : chart.type === 'line' ? (
-                  <LineChart data={processedData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis 
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={12} 
-                        tickLine={false} 
-                        axisLine={false} 
-                        unit={unitOf(chart) ? ` ${unitOf(chart)}` : ''} 
-                        domain={chart.yAxisDomain || ['auto', 'auto']}
-                    />
-                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--muted-foreground))' }} />
-                    <Legend />
-                    {chart.series.map(s => (
-                      <Line 
-                        key={s.key}
-                        type="monotone" 
-                        dataKey={s.key} 
-                        name={t(`dashboard.series.${s.key}`, s.label)} 
-                        stroke={s.color} 
-                        strokeWidth={2}
-                        dot={{ r: 4, fill: s.color }}
-                        connectNulls={true}
-                        hide={!processedData.some(d => d[s.key] != null)}
-                      />
-                    ))}
-                  </LineChart>
-                ) : (
-                  // Default to Area/Line (AreaChart can handle lines too if fill is transparent)
-                  <AreaChart data={processedData}>
-                    <defs>
-                      {chart.series.map((s, i) => (
-                        <linearGradient key={s.key} id={`color-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={s.color} stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor={s.color} stopOpacity={0}/>
-                        </linearGradient>
-                      ))}
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="formattedDate" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis 
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={12} 
-                        tickLine={false} 
-                        axisLine={false} 
-                        unit={unitOf(chart) ? ` ${unitOf(chart)}` : ''} 
-                        domain={chart.yAxisDomain || ['auto', 'auto']}
-                    />
-                    <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} labelStyle={{ color: 'hsl(var(--muted-foreground))' }} />
-                    <Legend />
-                    {chart.series.map(s => (
-                      <Area 
-                        key={s.key}
-                        type="monotone" 
-                        dataKey={s.key} 
-                        name={t(`dashboard.series.${s.key}`, s.label)} 
-                        stroke={s.color} 
-                        fill={s.type === 'area' ? `url(#color-${s.key})` : 'transparent'} 
-                        fillOpacity={1}
-                        strokeWidth={2}
-                        connectNulls={true}
-                        hide={!processedData.some(d => d[s.key] != null)}
-                      />
-                    ))}
-                  </AreaChart>
-                )}
+                <ComposedChart data={processedData} margin={{ top: 8, right: right ? 0 : 8, bottom: 0, left: -4 }}>
+                  <defs>
+                    {series.filter((s) => s.type === 'area').map((s) => <AreaGradient key={s.key} id={`home-${chart.id}-${s.key}`} color={s.color} />)}
+                  </defs>
+                  <CartesianGrid {...CHART_GRID} />
+                  <XAxis dataKey="formattedDate" {...CHART_AXIS} interval="preserveStartEnd" minTickGap={32} />
+                  {right ? (
+                    <>
+                      <YAxis yAxisId="left" {...CHART_AXIS} width={44} />
+                      <YAxis yAxisId="right" orientation="right" {...CHART_AXIS} width={40} unit="%" />
+                    </>
+                  ) : (
+                    // The unit is under the panel title, so the ticks stay short numbers.
+                    <YAxis yAxisId="left" {...CHART_AXIS} width={40} domain={chart.yAxisDomain || ['auto', 'auto']} />
+                  )}
+                  <Tooltip {...CHART_TOOLTIP} />
+                  {series.map((s) => {
+                    const name = t(`dashboard.series.${s.key}`, s.label);
+                    const axis = right ? s.yAxisId || 'left' : 'left';
+                    if (s.type === 'bar') return <Bar key={s.key} yAxisId={axis} dataKey={s.key} name={name} fill={s.color} {...CHART_BAR} maxBarSize={28} />;
+                    if (s.type === 'area') return <Area key={s.key} yAxisId={axis} dataKey={s.key} name={name} {...CHART_LINE} stroke={s.color} fill={`url(#home-${chart.id}-${s.key})`} connectNulls />;
+                    return <Line key={s.key} yAxisId={axis} dataKey={s.key} name={name} {...CHART_LINE} stroke={s.color} connectNulls />;
+                  })}
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
-          </CardContent>
-        </Card>
-      ))}
+          </Panel>
+        );
+      })}
     </div>
   );
 }

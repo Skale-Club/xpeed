@@ -1,0 +1,701 @@
+<title>Xpeed Painéis 2027</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one long study column; the app mockup is the centrepiece, wide and switchable (Real / Virtual / RC). */
+:root{
+  color-scheme: dark;
+  /* study page */
+  --page:#0b0c0e; --ink:#eceef2; --mute:#9aa0aa; --faint:#6b717c; --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
+  --brand:#F5E663; --brand-ink:#111214;
+  /* app (Xpeed tokens: graphite #111214, card #18191c, yellow #F5E663) */
+  --app-bg:#111214; --app-inset:#141518; --app-card:#191a1e; --app-raised:#202126; --app-hi:rgba(255,255,255,.035);
+  --blue:#4f9bf2; --green:#30b97a; --red:#e85656; --amber:#f6ae2d; --purple:#a77fe8;
+  --f-body:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --f-display:'Chakra Petch','Inter',system-ui,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  --num:var(--f-display);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.55 var(--f-body);-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(ellipse 70% 30% at 50% -6%,rgba(245,230,99,.07),transparent 70%)}
+.wrap{max-width:1240px;margin:0 auto;padding-block:56px 96px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:72px}
+h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.02em}
+p{margin:0}
+.eyebrow{font:600 11px/1 var(--f-body);letter-spacing:.14em;text-transform:uppercase;color:var(--brand)}
+.lede{color:var(--mute);font-size:16px;max-width:66ch}
+section{display:grid;gap:24px;min-width:0}
+.sec-head{display:grid;gap:10px;max-width:760px}
+.sec-head h2{font:600 28px/1.15 var(--f-display);letter-spacing:-.01em}
+.sec-head p{color:var(--mute)}
+code,.mono{font-family:var(--f-mono);font-size:12px}
+a{color:var(--brand)}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* hero */
+.hero{display:grid;gap:22px}
+.hero-top{display:flex;align-items:center;gap:12px}
+.hero-top img{width:36px;height:36px}
+.hero-top span{font:600 13px var(--f-body);color:var(--mute)}
+.hero h1{font:700 clamp(34px,5.4vw,60px)/1.02 var(--f-display);max-width:16ch}
+.hero h1 em{font-style:normal;color:var(--brand)}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill{border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--mute)}
+
+/* diagnosis */
+.diag{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.diag article{border:1px solid var(--line);border-radius:16px;padding:20px;background:rgba(255,255,255,.015);display:grid;gap:8px;align-content:start}
+.diag h3{font:600 15px var(--f-body)}
+.diag p{color:var(--mute);font-size:13.5px}
+.diag .where{font:500 11px var(--f-mono);color:var(--faint)}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:16px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:13px}
+th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);background:rgba(255,255,255,.02)}
+tr:last-child td{border-bottom:0}
+td.good{color:var(--ink)} td.weak{color:var(--mute)}
+td b{color:var(--brand);font-weight:600}
+
+/* principles */
+.princ{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.princ div{background:var(--page);padding:20px;display:grid;gap:6px;align-content:start}
+.princ h3{font:600 15px var(--f-display);letter-spacing:0}
+.princ p{color:var(--mute);font-size:13px}
+
+/* ---------- APP MOCKUP ---------- */
+.mock-ctl{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px}
+.seg{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line-2);border-radius:12px;background:rgba(255,255,255,.02)}
+.seg button{all:unset;cursor:pointer;padding:7px 14px;border-radius:9px;font:600 13px var(--f-body);color:var(--mute)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--page)}
+.seg button:focus-visible{outline:2px solid var(--brand)}
+.ctl-label{font-size:12px;color:var(--faint)}
+.mock-scroll{overflow-x:auto;border-radius:20px}
+.app{min-width:1120px;display:grid;grid-template-columns:236px 1fr;background:var(--app-bg);border:1px solid var(--line);border-radius:20px;padding:8px 8px 8px 0;font-family:var(--f-body);color:var(--ink);box-shadow:0 40px 90px -40px rgba(0,0,0,.9)}
+/* sidebar */
+.sb{display:flex;flex-direction:column;gap:14px;padding:12px 12px 8px}
+.sb-brand{display:flex;align-items:center;gap:10px;padding:4px 6px}
+.sb-brand img{width:30px;height:30px}
+.sb-brand b{font:700 15px var(--f-body);letter-spacing:-.01em}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:3px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--line)}
+.modes button{all:unset;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;height:30px;border-radius:9px;font:600 12px var(--f-body);color:var(--mute)}
+.modes button svg{width:14px;height:14px}
+.modes button[aria-pressed="true"]{background:var(--app-raised);color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 2px 6px -2px rgba(0,0,0,.6)}
+.modes button[aria-pressed="true"] svg{color:var(--brand)}
+.ctx{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:var(--app-card);border:1px solid var(--line)}
+.ctx .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:rgba(245,230,99,.1);color:var(--brand);flex:none}
+.ctx .ic svg{width:18px;height:18px}
+.ctx div{min-width:0;flex:1}
+.ctx b{display:block;font:600 13px var(--f-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctx small{display:block;font-size:11.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctx > svg{width:14px;height:14px;color:var(--faint)}
+.nav{display:grid;gap:14px;flex:1;align-content:start}
+.nav-g{display:grid;gap:2px}
+.nav-g h4{margin:0 0 4px;padding:0 10px;font:600 10.5px var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.nav-i{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:9px;font:500 13.5px var(--f-body);color:#b9bec7}
+.nav-i svg{width:16px;height:16px;color:var(--faint)}
+.nav-i.on{background:var(--app-raised);color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.nav-i.on svg{color:var(--brand)}
+.nav-i .badge{margin-left:auto;min-width:20px;height:18px;padding:0 6px;border-radius:999px;background:rgba(232,86,86,.16);color:#ff8a8a;font:600 11px/18px var(--f-body);text-align:center}
+.nav-i .new{margin-left:auto;font:600 10px var(--f-body);color:var(--brand);letter-spacing:.06em}
+.me{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;border:1px solid var(--line)}
+.av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2a2c33,#1d1e22);display:grid;place-items:center;font:600 11px var(--f-body);color:var(--ink);border:1px solid var(--line-2);flex:none}
+.me div{min-width:0;flex:1}
+.me b{display:block;font:600 12.5px var(--f-body)}
+.me small{display:block;font-size:11px;color:var(--faint)}
+.me svg{width:14px;height:14px;color:var(--faint)}
+/* inset content */
+.inset{background:var(--app-inset);border:1px solid var(--line);border-radius:16px;box-shadow:inset 0 1px 0 var(--app-hi);display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.top{display:flex;align-items:center;gap:12px;height:52px;padding:0 20px;border-bottom:1px solid var(--line)}
+.crumbs{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--faint)}
+.crumbs b{color:var(--ink);font-weight:600}
+.crumbs svg{width:12px;height:12px}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;width:280px;white-space:nowrap;overflow:hidden;height:32px;padding:0 10px;border-radius:9px;background:rgba(255,255,255,.03);border:1px solid var(--line);color:var(--faint);font-size:12.5px}
+.search svg{width:14px;height:14px}
+.search kbd{margin-left:auto;font:500 10.5px var(--f-mono);padding:1px 5px;border-radius:5px;border:1px solid var(--line-2)}
+.status{display:flex;align-items:center;gap:7px;height:32px;padding:0 11px;border-radius:999px;border:1px solid var(--line);font:600 12px var(--f-body);color:#c9cdd4;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(48,185,122,.18)}
+.dot.off{background:var(--faint);box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+.dot.warn{background:var(--amber);box-shadow:0 0 0 3px rgba(246,174,45,.18)}
+.iconbtn{position:relative;width:32px;height:32px;border-radius:9px;border:1px solid var(--line);display:grid;place-items:center;color:#c9cdd4}
+.iconbtn svg{width:15px;height:15px}
+.iconbtn i{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;border-radius:999px;background:var(--red);color:#fff;font:700 9.5px/16px var(--f-body);font-style:normal;text-align:center;border:2px solid var(--app-inset)}
+.content{padding:28px;display:grid;gap:20px}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.ph .k{font:600 11px var(--f-body);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.ph h3{font:600 30px/1.1 var(--f-body);letter-spacing:-.025em;margin-top:6px}
+.ph p{color:var(--mute);font-size:13.5px;margin-top:6px}
+.range{display:inline-flex;gap:2px;padding:3px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid var(--line)}
+.range span{padding:5px 11px;border-radius:7px;font:500 12px var(--f-body);color:var(--mute)}
+.range span.on{background:var(--app-raised);color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+/* bento */
+.bento{display:grid;grid-template-columns:1.35fr 1fr 1fr;grid-template-rows:auto auto;gap:14px}
+.card{background:var(--app-card);border:1px solid var(--line);border-radius:16px;box-shadow:inset 0 1px 0 var(--app-hi);position:relative;overflow:hidden;min-width:0}
+.kpi{padding:18px 20px;display:grid;gap:6px;align-content:start}
+.kpi .lb{display:flex;align-items:center;justify-content:space-between;font:500 11.5px var(--f-body);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.kpi .lb svg{width:15px;height:15px}
+.kpi .v{font:600 30px/1.05 var(--num);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi .v small{font-size:.5em;color:var(--mute);margin-left:4px;font-weight:500;letter-spacing:0}
+.kpi .s{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)}
+.chip{display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 7px;border-radius:999px;font:600 11px var(--f-body);background:rgba(255,255,255,.06);color:#c9cdd4}
+.chip.up{background:rgba(48,185,122,.13);color:#5fd6a0}
+.chip.down{background:rgba(232,86,86,.13);color:#ff8a8a}
+.chip.y{background:rgba(245,230,99,.12);color:var(--brand)}
+.kpi.hero{grid-row:span 2;padding:22px 24px 0;gap:8px;grid-template-rows:auto auto auto 1fr}
+.kpi.hero .v{font-size:56px}
+.kpi.hero .spark{margin:10px -24px 0;align-self:end}
+.kpi .spark{display:block;width:100%}
+.kpi.sm .spark{height:28px;margin-top:6px}
+/* panels */
+.row{display:grid;grid-template-columns:1.7fr 1fr;gap:14px}
+.panel{padding:20px;display:grid;gap:14px;align-content:start}
+.p-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.p-head h5{margin:0;font:600 14px var(--f-body)}
+.p-head p{font-size:12px;color:var(--faint);margin-top:3px}
+.legend{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.legend span{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;border:1px solid var(--line);font:500 11.5px var(--f-body);color:#c9cdd4}
+.legend i{width:8px;height:8px;border-radius:2px}
+.chart{display:block;width:100%;height:auto}
+.list{display:grid}
+.li{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.li:first-child{border-top:0;padding-top:2px}
+.li .lg{width:32px;height:32px;border-radius:9px;background:var(--app-raised);display:grid;place-items:center;font:700 10px var(--f-body);color:var(--mute);border:1px solid var(--line);flex:none}
+.li div{min-width:0;flex:1}
+.li b{display:block;font:600 13px var(--f-body)}
+.li small{display:block;font-size:11.5px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .t{font:600 15px var(--num);font-variant-numeric:tabular-nums}
+.li .d{font:600 12px var(--num);color:#5fd6a0;margin-right:6px}
+.gauge{display:flex;align-items:center;gap:18px}
+.gauge svg{flex:none}
+.gauge .g-t{display:grid;gap:4px}
+.gauge .g-t b{font:600 13px var(--f-body)}
+.gauge .g-t p{font-size:12px;color:var(--mute)}
+.bars{display:grid;gap:10px}
+.bar-r{display:grid;grid-template-columns:96px 1fr 56px;gap:10px;align-items:center;font-size:12px;color:var(--mute)}
+.bar-r .tr{height:8px;border-radius:999px;background:rgba(255,255,255,.05);overflow:hidden}
+.bar-r .tr i{display:block;height:100%;border-radius:999px}
+.bar-r b{font:600 12.5px var(--num);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.note{font-size:11.5px;color:var(--faint)}
+.ex{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;border:1px dashed rgba(245,230,99,.4);color:var(--brand);font:600 10.5px var(--f-body);letter-spacing:.06em;text-transform:uppercase}
+
+/* before / after */
+.ba{display:grid;gap:16px}
+.ba-row{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px;align-items:stretch}
+.ba-row > h3{font:600 14px var(--f-body);padding-top:28px}
+.ba-row > h3 small{display:block;font-weight:400;color:var(--faint);font-size:12px;margin-top:4px}
+.ba-cell{display:grid;gap:8px;min-width:0}
+.ba-cell > span{font:600 10.5px var(--f-body);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.ba-cell.new > span{color:var(--brand)}
+.stage{background:var(--app-bg);border:1px solid var(--line);border-radius:14px;padding:18px;min-height:150px;display:grid;align-content:center}
+/* "before" replicas of the current look */
+.old-nav{display:grid;gap:2px;width:200px}
+.old-nav div{display:flex;align-items:center;gap:8px;height:36px;padding:0 8px;font-size:14px;color:#d0d4da;position:relative}
+.old-nav div svg{width:16px;height:16px}
+.old-nav .on{color:var(--brand);font-weight:600}
+.old-nav .on::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:3px;border-radius:9px;background:var(--brand)}
+.old-tile{width:200px;background:#18191c;border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:12px;display:grid;gap:6px}
+.old-tile p{font-size:12px;color:#9aa0aa;font-weight:500}
+.old-tile .v{font:600 20px var(--f-mono);color:#eceef2}
+.old-tile .s{font-size:12px;color:#9aa0aa}
+.new-nav{display:grid;gap:2px;width:210px}
+.new-tile{width:220px}
+
+/* tokens */
+.tok{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.tok article{border:1px solid var(--line);border-radius:16px;padding:20px;display:grid;gap:12px;align-content:start}
+.tok h3{font:600 15px var(--f-display);letter-spacing:0}
+.tok dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px}
+.tok dt{color:var(--mute)}
+.tok dd{margin:0;text-align:right;font-family:var(--f-mono);font-size:12px;color:var(--ink)}
+.kept{font-size:12px;color:var(--faint);border-top:1px solid var(--line);padding-top:10px}
+.kept b{color:var(--brand);font-weight:600}
+
+/* phases */
+.phases{display:grid;gap:0;border-left:1px solid var(--line-2);margin-left:8px}
+.phase{position:relative;padding:0 0 28px 28px;display:grid;gap:6px}
+.phase::before{content:"";position:absolute;left:-6px;top:4px;width:11px;height:11px;border-radius:50%;background:var(--page);border:2px solid var(--brand)}
+.phase:last-child{padding-bottom:0}
+.phase h3{font:600 16px var(--f-body)}
+.phase h3 span{font:500 12px var(--f-mono);color:var(--faint);margin-left:8px}
+.phase p{color:var(--mute);font-size:13.5px;max-width:78ch}
+
+/* decisions */
+.dec{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.dec article{border:1px solid var(--line-2);border-radius:16px;padding:22px;display:grid;gap:10px;align-content:start;background:linear-gradient(180deg,rgba(245,230,99,.04),transparent 60%)}
+.dec h3{font:600 16px var(--f-body)}
+.dec p{color:var(--mute);font-size:13.5px}
+.dec .rec{font-size:13px;color:var(--ink)}
+.dec .rec b{color:var(--brand)}
+.numdemo{display:flex;gap:24px;flex-wrap:wrap;padding:14px 0 2px}
+.numdemo div{display:grid;gap:2px}
+.numdemo small{font-size:11px;color:var(--faint)}
+.numdemo strong{font-size:34px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+
+footer{color:var(--faint);font-size:12.5px;border-top:1px solid var(--line);padding-top:20px}
+
+@media (max-width:760px){
+  .ba-row{grid-template-columns:1fr}
+  .ba-row > h3{padding-top:0}
+  .wrap{gap:56px;padding-block:36px 72px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .content{animation:fade .35s ease-out both}
+  @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+}
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-top"><img src="logo.svg" alt="Xpeed"><span>Estudo de interface · 20 nov 2026</span></div>
+    <h1>Um painel só para <em>Real</em>, <em>Virtual</em> e <em>RC</em></h1>
+    <p class="lede">Hoje o Xpeed tem dois jeitos de montar tela: o modo Real, mais espaçoso e organizado, e o Virtual, mais apertado e com cara de rascunho. Este estudo junta os dois num sistema único, usa o Real como ponto de partida e já deixa o lugar do futuro painel do carro RC. A moldura (barra lateral e barra do topo) muda junto.</p>
+    <div class="pills"><span class="pill">Mantém o amarelo #F5E663 e o grafite #111214</span><span class="pill">Mantém a logo real</span><span class="pill">Não mexe no painel do Companion</span><span class="pill">Nada no código ainda</span></div>
+  </header>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Diagnóstico</span>
+      <h2>Por que o visual parece simples demais</h2>
+      <p>Lido no código e nas duas capturas que você mandou. Nenhum ponto é grave sozinho; juntos, deixam a tela sem hierarquia e sem acabamento.</p>
+    </div>
+    <div class="diag">
+      <article><h3>Tudo tem o mesmo peso</h3><p>Seis cartões iguais em fila, mesmo tamanho de número, mesmo rótulo. Nada diz qual é o número principal da tela.</p><span class="where">overview/KpiTiles.tsx · grid de 6</span></article>
+      <article><h3>Pouco respiro no Virtual</h3><p>Cartões com 12 px de recheio e 12 px entre eles. O Real usa 24 px nos dois e por isso parece mais caro.</p><span class="where">ui/stat-tile.tsx p-3 · DashboardCharts gap-6</span></article>
+      <article><h3>A barra do topo está vazia</h3><p>56 px de altura para um botão de recolher e um ponto verde. Não diz onde você está nem oferece busca ou atalhos.</p><span class="where">AppLayout.tsx · header h-14</span></article>
+      <article><h3>Barra lateral sem estrutura</h3><p>Uma lista única com o rótulo "Menu". O item ativo é só texto amarelo; o usuário no rodapé é um ícone genérico; o idioma ocupa uma linha inteira.</p><span class="where">AppSidebar.tsx</span></article>
+      <article><h3>O seletor de modo grita</h3><p>O bloco amarelo cheio de Real | Virtual é o elemento mais forte da tela, mais que o título da página. Com o RC entrando, viram três blocos.</p><span class="where">ModeSwitch.tsx</span></article>
+      <article><h3>Gráficos com cara de padrão</h3><p>Ponto em cada valor, legenda colorida embaixo, barras finas de 7 dias perdidas no meio do espaço, cores diferentes em cada painel sem um motivo.</p><span class="where">overview/Activity.tsx · DashboardCharts.tsx</span></article>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Peça</th><th>Real hoje</th><th>Virtual hoje</th><th>Proposta (as duas)</th></tr></thead>
+        <tbody>
+          <tr><td>Topo da página</td><td class="good">"Oi, nome", título 30 px, foto do carro</td><td class="weak">Ícone + "Overview" 20 px</td><td><b>Contexto + título 30 px + uma frase de resumo + período</b></td></tr>
+          <tr><td>Recheio do cartão</td><td class="good">24 px</td><td class="weak">12 px (números) · 16 px (painéis)</td><td><b>20 px em tudo</b></td></tr>
+          <tr><td>Espaço entre cartões</td><td class="good">20 a 24 px</td><td class="weak">12 a 16 px</td><td><b>14 px no grid · 20 px entre blocos</b></td></tr>
+          <tr><td>Título do cartão</td><td class="weak">14 px cinza</td><td class="weak">14 px branco</td><td><b>14 px branco + subtítulo + legenda em chips</b></td></tr>
+          <tr><td>Altura do gráfico</td><td class="good">250 px</td><td class="weak">~190 px</td><td><b>240 px (principal) · 64 px (mini)</b></td></tr>
+          <tr><td>Componente</td><td class="weak">CardHeader do shadcn</td><td class="weak">Panel próprio</td><td><b>Um Panel só, um StatTile só</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Princípios</span>
+      <h2>Cinco regras que valem para os três modos</h2>
+    </div>
+    <div class="princ">
+      <div><h3>Mesmo molde, outro conteúdo</h3><p>Real, Virtual e RC usam a mesma moldura, o mesmo topo de página, os mesmos cartões. Muda o que está dentro, nunca o desenho.</p></div>
+      <div><h3>Um número herói</h3><p>Cada painel abre com o número que importa em tamanho grande. Os outros ficam menores ao lado.</p></div>
+      <div><h3>Respiro de produto pago</h3><p>20 px por dentro, 14 px entre cartões, título de página de verdade. Espaço é o que separa simples de chique.</p></div>
+      <div><h3>Gráfico limpo</h3><p>Linha fina sem pontos, área em degradê, grade quase invisível, legenda no topo. O dado aparece; o enfeite some.</p></div>
+      <div><h3>Amarelo com parcimônia</h3><p>O amarelo marca o lugar onde você está e o que é recorde. Não pinta botões grandes nem séries inteiras.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Proposta</span>
+      <h2>A mesma moldura nos três modos</h2>
+      <p>Troque o modo abaixo. A barra lateral, o topo e os cartões ficam iguais; só o conteúdo muda. Os números do Real e do Virtual vêm das suas capturas; os do RC são de exemplo, porque o carro ainda não tem firmware.</p>
+    </div>
+    <div class="mock-ctl">
+      <div class="seg" role="group" aria-label="Modo do painel">
+        <button type="button" id="m-virtual" data-mode="virtual" aria-pressed="true">Virtual</button>
+        <button type="button" id="m-real" data-mode="real" aria-pressed="false">Real</button>
+        <button type="button" id="m-rc" data-mode="rc" aria-pressed="false">RC</button>
+      </div>
+      <div class="seg" role="group" aria-label="Fonte dos números">
+        <button type="button" id="f-chakra" data-font="chakra" aria-pressed="true">Números em Chakra Petch</button>
+        <button type="button" id="f-inter" data-font="inter" aria-pressed="false">Números em Inter</button>
+      </div>
+      <span class="ctl-label">Arraste para o lado no celular.</span>
+    </div>
+    <div class="mock-scroll"><div class="app" id="app"></div></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Peça por peça</span>
+      <h2>Hoje e proposta, lado a lado</h2>
+    </div>
+    <div class="ba" id="ba"></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Tokens</span>
+      <h2>Os valores que viram regra</h2>
+      <p>Depois de aprovados, cada valor ganha um token com data e motivo e um teste que o prende, como manda a regra dos visuais aprovados.</p>
+    </div>
+    <div class="tok">
+      <article><h3>Superfícies</h3><dl>
+        <dt>Página e barra lateral</dt><dd>#111214</dd>
+        <dt>Área de conteúdo (inset)</dt><dd>#141518 + borda 8%</dd>
+        <dt>Cartão</dt><dd>#191A1E</dd>
+        <dt>Item ativo, controle ligado</dt><dd>#202126</dd>
+        <dt>Brilho no topo do cartão</dt><dd>branco 3,5%</dd>
+      </dl><p class="kept">Fica igual: <b>#111214</b> e <b>#F5E663</b>.</p></article>
+      <article><h3>Espaço e forma</h3><dl>
+        <dt>Recheio de cartão</dt><dd>20 px</dd>
+        <dt>Entre cartões</dt><dd>14 px</dd>
+        <dt>Entre blocos da página</dt><dd>20 px</dd>
+        <dt>Margem do conteúdo</dt><dd>28 px · 16 px no celular</dd>
+        <dt>Raio: moldura, cartão</dt><dd>16 px</dd>
+        <dt>Raio: controles, itens</dt><dd>9 a 12 px</dd>
+      </dl><p class="kept">O canto de 2,5 px do Companion continua só no Companion.</p></article>
+      <article><h3>Tipografia</h3><dl>
+        <dt>Título da página</dt><dd>30 / 600 / −0,025em</dd>
+        <dt>Título do cartão</dt><dd>14 / 600</dd>
+        <dt>Rótulo</dt><dd>11,5 / caixa alta / +0,06em</dd>
+        <dt>Número herói</dt><dd>56 / tabular</dd>
+        <dt>Número de cartão</dt><dd>30 / tabular</dd>
+        <dt>Texto</dt><dd>Inter 13,5 a 14</dd>
+      </dl></article>
+      <article><h3>Gráficos</h3><dl>
+        <dt>Linha</dt><dd>2 px, sem pontos</dd>
+        <dt>Ponto</dt><dd>só no último e no hover</dd>
+        <dt>Área</dt><dd>degradê 22% → 0</dd>
+        <dt>Grade</dt><dd>só horizontal, 6%</dd>
+        <dt>Barras</dt><dd>topo com raio 4, dia vazio fantasma</dd>
+        <dt>Legenda</dt><dd>chips no cabeçalho</dd>
+        <dt>Série principal</dt><dd>azul · recorde em amarelo</dd>
+      </dl></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Plano</span>
+      <h2>Como chegar lá sem quebrar nada</h2>
+      <p>Cada fase sai numa prévia (a página /admin/design ou imagens do CI) e só segue depois do seu OK.</p>
+    </div>
+    <div class="phases">
+      <div class="phase"><h3>Fundação <span>tokens + componentes</span></h3><p>Novos tokens no index.css. Um único Panel, StatTile (com variante herói), PageHeader com contexto e frase de resumo, e um tema de gráfico compartilhado (Recharts) com as regras de linha, área, barra e legenda. Tudo visível em /admin/design antes de tocar em qualquer tela.</p></div>
+      <div class="phase"><h3>Moldura <span>sidebar + topo</span></h3><p>Barra lateral no estilo inset (o conteúdo vira um cartão flutuante), grupos com título, item ativo com fundo, contador de problemas, usuário com iniciais e idioma dentro do menu dele. Seletor de modo compacto pronto para três modos. Topo com trilha (Virtual / Overview), busca com Ctrl K, status do carro ou do Companion e notificações. A barra de abas do celular segue a mesma linguagem.</p></div>
+      <div class="phase"><h3>Virtual <span>Overview, Sessions, Leaderboards, Tracks, Cars</span></h3><p>A Overview ganha o número herói, o grid em bento e os gráficos novos; as outras telas trocam para os componentes da fundação.</p></div>
+      <div class="phase"><h3>Real <span>Home, Live, Fuel, Car health, Trips</span></h3><p>O Real já está perto: ganha a mesma moldura, os cartões de 20 px e o tema de gráfico (sai o ponto em cada valor e a legenda colorida embaixo).</p></div>
+      <div class="phase"><h3>RC <span>quando o firmware existir</span></h3><p>Entra direto no molde: mesmo topo, mesmos cartões, mesmo seletor. Só o conteúdo é novo (volta, bateria, latência, corrida).</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">Suas decisões</span>
+      <h2>Três escolhas antes de começar</h2>
+    </div>
+    <div class="dec">
+      <article>
+        <h3>Fonte dos números</h3>
+        <p>Inter (como hoje) ou Chakra Petch, a mesma do painel do Companion. Teste no seletor da maquete.</p>
+        <div class="numdemo"><div><small>Chakra Petch</small><strong style="font-family:var(--f-display)">1:49.024</strong></div><div><small>Inter</small><strong style="font-family:var(--f-body)">1:49.024</strong></div></div>
+        <p class="rec">Recomendo <b>Chakra Petch só nos números grandes e tempos de volta</b>. Liga o site ao Companion e dá o ar de telemetria sem mudar o texto.</p>
+      </article>
+      <article>
+        <h3>Seletor de modo</h3>
+        <p>Botões compactos com Real · Virtual · RC sempre à vista, ou um cartão único que abre uma lista.</p>
+        <p class="rec">Recomendo <b>os botões compactos</b>, com o cartão de contexto logo abaixo (o carro no Real, o PC e o jogo no Virtual, o carrinho no RC). Para quem tem um modo só, nada aparece, como hoje.</p>
+      </article>
+      <article>
+        <h3>Cor por modo</h3>
+        <p>Dar uma cor de destaque para cada modo (por exemplo azul no Virtual) ou manter o amarelo em todos.</p>
+        <p class="rec">Recomendo <b>o amarelo em todos</b>. Coerência é justamente o pedido; o ícone e o cartão de contexto já dizem em que modo você está.</p>
+      </article>
+    </div>
+  </section>
+
+  <footer>Estudo feito a partir do código da branch feat/dashboard-preview (AppLayout, AppSidebar, ModeSwitch, ui/stat-tile, ui/panel, overview/*, DashboardCharts) e das capturas de 20 nov 2026. Nada foi alterado no app.</footer>
+</div>
+
+<script>
+(function(){
+  /* ---------- icons (simple strokes) ---------- */
+  const P = {
+    grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    timer:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/>',
+    trophy:'<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+    users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>',
+    flag:'<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+    car:'<path d="M5 17h14M4 17v-4l2-5h12l2 5v4"/><circle cx="7.5" cy="17" r="1.8"/><circle cx="16.5" cy="17" r="1.8"/>',
+    gauge:'<path d="M3.5 17a9 9 0 1 1 17 0"/><path d="M12 13l4-4"/>',
+    pulse:'<path d="M3 12h4l2-6 4 12 2-6h6"/>',
+    fuel:'<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10"/><path d="M14 8l3 3v6a1.5 1.5 0 0 0 3 0V8l-3-3"/>',
+    heart:'<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+    alert:'<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+    scan:'<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3"/>',
+    route:'<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h6a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h6"/>',
+    wrench:'<path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3z"/><path d="M14.5 6.5L17 4"/>',
+    settings:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
+    pad:'<rect x="2.5" y="7" width="19" height="11" rx="4"/><path d="M7 11v3M5.5 12.5h3M15.5 12h.01M18 13.5h.01"/>',
+    rc:'<rect x="4" y="9" width="16" height="7" rx="2"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/><path d="M14 9V4l3 1"/>',
+    battery:'<rect x="2.5" y="7" width="17" height="10" rx="2"/><path d="M22 11v2M6 10v4M9.5 10v4"/>',
+    signal:'<path d="M4 18h.01M8 18v-3M12 18v-6M16 18V9M20 18V6"/>',
+    search:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>',
+    bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+    chev:'<path d="M9 6l6 6-6 6"/>',
+    updown:'<path d="M8 9l4-4 4 4M8 15l4 4 4-4"/>',
+    dots:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
+    shield:'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+    road:'<path d="M7 21L10 3M17 21L14 3M12 7v2M12 13v2M12 19v1"/>',
+    bolt:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+    temp:'<path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/>',
+    star:'<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>'
+  };
+  const I = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]||''}</svg>`;
+  const C = { blue:'#4f9bf2', green:'#30b97a', red:'#e85656', amber:'#f6ae2d', purple:'#a77fe8', yellow:'#F5E663', mute:'#6b717c' };
+
+  /* ---------- charts ---------- */
+  let uid = 0;
+  function spark(vals, color, h, opts){
+    opts = opts || {};
+    const id = 'g' + (++uid), w = 300, max = Math.max.apply(null, vals) || 1, min = Math.min.apply(null, vals);
+    const pad = 6, rng = (max - min) || 1;
+    const pts = vals.map((v,i) => [ (i/(vals.length-1))*w, pad + (h-2*pad) * (1 - (v-min)/rng) ]);
+    const line = pts.map((p,i) => (i?'L':'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const last = pts[pts.length-1];
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="height:${h}px" aria-hidden="true">
+      <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity="${opts.strong?.32:.22}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+      <path d="${line} L${w} ${h} L0 ${h} Z" fill="url(#${id})"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+      ${opts.dot ? `<circle cx="${last[0]-3}" cy="${last[1]}" r="3.5" fill="${color}" stroke="#191a1e" stroke-width="2"/>` : ''}
+    </svg>`;
+  }
+  const AX = 'font-family="Inter,system-ui,sans-serif" font-size="11" fill="#6b717c"';
+  function frame(w, h, l, r, t, b, ticks, fmt){
+    const ih = h - t - b; let g = '';
+    ticks.forEach((tv, i) => {
+      const y = t + ih * (1 - i/(ticks.length-1));
+      g += `<line x1="${l}" x2="${w-r}" y1="${y}" y2="${y}" stroke="rgba(255,255,255,${i===0?.1:.05})" ${i===0?'':'stroke-dasharray="3 4"'}/>`;
+      g += `<text x="${l-10}" y="${y+4}" text-anchor="end" ${AX}>${fmt(tv)}</text>`;
+    });
+    return g;
+  }
+  function barChart(o){
+    const w = 640, h = 240, l = 40, r = 8, t = 16, b = 28, iw = w-l-r, ih = h-t-b;
+    const n = o.values.length, max = o.max, slot = iw/n, bw = Math.min(46, slot*0.56);
+    let s = frame(w,h,l,r,t,b,o.ticks,o.fmt);
+    const id = 'b' + (++uid);
+    s += `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${o.color}"/><stop offset="1" stop-color="${o.color}" stop-opacity=".55"/></linearGradient></defs>`;
+    o.values.forEach((v,i) => {
+      const x = l + slot*i + (slot-bw)/2;
+      if (v === 0){ s += `<rect x="${x}" y="${t+ih-4}" width="${bw}" height="4" rx="2" fill="rgba(255,255,255,.06)"/>`; }
+      else {
+        const bh = ih * v/max, y = t + ih - bh, hi = i === o.highlight;
+        s += `<path d="M${x} ${t+ih} V${y+5} Q${x} ${y} ${x+5} ${y} H${x+bw-5} Q${x+bw} ${y} ${x+bw} ${y+5} V${t+ih} Z" fill="${hi?C.yellow:`url(#${id})`}"/>`;
+        if (hi) s += `<text x="${x+bw/2}" y="${y-8}" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="600" fill="${C.yellow}">${o.hiLabel}</text>`;
+      }
+      if (o.labels[i]) s += `<text x="${l+slot*i+slot/2}" y="${h-8}" text-anchor="middle" ${AX}>${o.labels[i]}</text>`;
+    });
+    return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${o.alt}">${s}</svg>`;
+  }
+  function lineChart(o){
+    const w = 640, h = 240, l = 46, r = 12, t = 16, b = 28, iw = w-l-r, ih = h-t-b;
+    let s = frame(w,h,l,r,t,b,o.ticks,o.fmt);
+    const min = o.ticks[0], max = o.ticks[o.ticks.length-1];
+    const X = (i,n) => l + iw * i/(n-1), Y = (v) => t + ih * (1 - (v-min)/(max-min));
+    o.series.forEach((se, k) => {
+      const n = se.values.length;
+      const pts = se.values.map((v,i) => [X(i,n), Y(v)]);
+      let d = 'M' + pts[0][0] + ' ' + pts[0][1];
+      for (let i = 1; i < pts.length; i++){
+        const p0 = pts[i-1], p1 = pts[i], cx = (p0[0]+p1[0])/2;
+        d += ` C${cx} ${p0[1]} ${cx} ${p1[1]} ${p1[0]} ${p1[1]}`;
+      }
+      if (se.area){
+        const id = 'a' + (++uid);
+        s += `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${se.color}" stop-opacity=".22"/><stop offset="1" stop-color="${se.color}" stop-opacity="0"/></linearGradient></defs>`;
+        s += `<path d="${d} L${pts[n-1][0]} ${t+ih} L${pts[0][0]} ${t+ih} Z" fill="url(#${id})"/>`;
+      }
+      s += `<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2" ${se.dash?'stroke-dasharray="4 4"':''} stroke-linejoin="round" stroke-linecap="round" opacity="${se.dim?.75:1}"/>`;
+      const lp = pts[n-1];
+      s += `<circle cx="${lp[0]}" cy="${lp[1]}" r="4" fill="${se.color}" stroke="#191a1e" stroke-width="2.5"/>`;
+      if (se.best != null){
+        const bp = pts[se.best];
+        s += `<circle cx="${bp[0]}" cy="${bp[1]}" r="5" fill="${C.yellow}" stroke="#191a1e" stroke-width="2.5"/><text x="${bp[0]}" y="${bp[1]+20}" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="600" fill="${C.yellow}">${se.bestLabel}</text>`;
+      }
+    });
+    o.labels.forEach((lb, i) => { if (lb) s += `<text x="${X(i,o.labels.length)}" y="${h-8}" text-anchor="${i===0?'start':i===o.labels.length-1?'end':'middle'}" ${AX}>${lb}</text>`; });
+    return `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img" aria-label="${o.alt}">${s}</svg>`;
+  }
+  function ring(pct, color, label){
+    const r = 38, c = 2*Math.PI*r, off = c*(1-pct/100);
+    return `<svg width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="${label}">
+      <circle cx="48" cy="48" r="${r}" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="8"/>
+      <circle cx="48" cy="48" r="${r}" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 48 48)"/>
+      <text x="48" y="54" text-anchor="middle" style="font:600 20px var(--num)" fill="#eceef2">${pct}%</text></svg>`;
+  }
+
+  /* ---------- data per mode ---------- */
+  const MODES = {
+    virtual: {
+      crumb:'Virtual', page:'Overview',
+      ctx:{ icon:'pad', title:'Assetto Corsa', sub:'VANILDO-PC · Companion 0.15' },
+      status:{ cls:'', text:'Companion online' }, bell:0,
+      nav:[
+        { g:'Pilotagem', items:[['grid','Overview',1],['timer','Sessions'],['pulse','Live',0,0,'NOVO']] },
+        { g:'Comunidade', items:[['trophy','Leaderboards'],['users','Friends']] },
+        { g:'Garagem', items:[['flag','Tracks'],['car','Game cars']] },
+        { g:'', items:[['settings','Settings']] }
+      ],
+      ph:{ k:'Visão geral · últimos 7 dias', t:'Overview', p:'6 voltas em 3 sessões, 4 recordes pessoais. Melhor dia: 20 nov, com 3 voltas.' },
+      hero:{ lb:'Voltas', ic:'flag', v:'6', s:'<span class="chip up">↑ 500%</span>67% válidas', spark:[0,0,3,0,0,0,3], color:C.blue },
+      kpis:[
+        { lb:'Tempo na pista', ic:'timer', v:'11', u:'min', s:'<span class="chip up">↑ 327%</span>', spark:[0,0,5,0,0,0,6] },
+        { lb:'Distância', ic:'road', v:'21,9', u:'km', s:'<span class="chip">sem comparação</span>', spark:[0,0,10,0,0,0,12] },
+        { lb:'Sessões', ic:'pad', v:'3', s:'<span class="chip up">↑ 200%</span>', spark:[0,0,1,0,0,0,2] },
+        { lb:'Recordes pessoais', ic:'star', v:'4', s:'<span class="chip y">2 hoje</span>', spark:[0,0,1,0,0,0,3] }
+      ],
+      main:{ h:'Atividade', p:'Voltas por dia', legend:[[C.blue,'Voltas'],[C.yellow,'Melhor dia']],
+        chart:() => barChart({ values:[0,0,3,0,0,0,3], labels:['14 nov','15 nov','16 nov','17 nov','18 nov','19 nov','20 nov'], max:3, ticks:[0,1,2,3], fmt:v=>v, color:C.blue, highlight:6, hiLabel:'3 voltas', alt:'Voltas por dia, 14 a 20 de novembro: 3 no dia 16 e 3 no dia 20.' }) },
+      side:{ h:'Consistência', p:'Voltas limpas no período', html:() => `<div class="gauge">${ring(58, C.green, '58% de voltas limpas')}<div class="g-t"><b>58% limpas</b><p>Faça 3 voltas limpas numa sessão para ver a variação entre elas.</p></div></div>` },
+      list:{ h:'Onde você ficou mais rápido', p:'Por pista e carro', rows:[
+        ['PO','Laguna Seca','Porsche Macan Turbo · 20 nov','<span class="chip y">1ª volta válida</span>','1:57.794'],
+        ['HY','Circuito Raul Boesel','Hyundai Copa HB20 · 16 nov','<span class="d">−3,277 s</span>','1:49.024']
+      ]},
+      side2:{ h:'Onde você corre', p:'3 pistas · 3 carros', html:() => bars([['Laguna Seca',3,3,C.blue],['Raul Boesel',2,3,C.blue],['Brands Hatch',1,3,C.blue]],'voltas') }
+    },
+    real: {
+      crumb:'Real', page:'Home',
+      ctx:{ icon:'car', title:'2010 Toyota Prius', sub:'Placa e VIN · Trocar de carro' },
+      status:{ cls:'off', text:'Carro desconectado' }, bell:2,
+      nav:[
+        { g:'Carro', items:[['gauge','Home',1],['pulse','Live'],['alert','Problems',0,2],['heart','Car health'],['scan','Read fault codes']] },
+        { g:'Registros', items:[['route','Trips'],['fuel','Fuel'],['wrench','Maintenance']] },
+        { g:'Garagem', items:[['car','My cars']] },
+        { g:'', items:[['settings','Settings']] }
+      ],
+      ph:{ k:'Oi, Vanildo · últimas viagens', t:'2010 Toyota Prius', p:'2 problemas abertos. Bateria estável em 14,4 V nas últimas 20 viagens.' },
+      hero:{ lb:'Saúde do carro', ic:'heart', v:'2', u:'problemas', s:'<span class="chip down">Atenção</span>Veja em Problems', spark:[0,0,1,1,1,2,2], color:C.amber },
+      kpis:[
+        { lb:'Bateria (máx.)', ic:'bolt', v:'14,4', u:'V', s:'<span class="chip up">Normal</span>', spark:[14.3,14.2,14.3,14.1,14.5,14.5,14.4,14.6] },
+        { lb:'Velocidade máx.', ic:'gauge', v:'115', u:'km/h', s:'<span class="chip">29 out</span>', spark:[48,85,115,60,30,62,40,72] },
+        { lb:'Rotação máx.', ic:'pulse', v:'3.800', u:'rpm', s:'<span class="chip">média 2.100</span>', spark:[2600,2200,3800,2500,1900,1700,2400,2100] },
+        { lb:'Catalisador', ic:'temp', v:'590', u:'°C', s:'<span class="chip up">Na faixa</span>', spark:[580,650,730,680,540,390,560,630,590] }
+      ],
+      main:{ h:'Velocidade', p:'Por viagem, km/h', legend:[[C.blue,'Máxima'],[C.purple,'Média']],
+        chart:() => lineChart({ series:[{ values:[50,84,118,70,36,28,62,60,18,40,0,58,60,62,54,74], color:C.blue, area:true },{ values:[5,70,60,32,22,30,14,26,10,48,2,52,46,16,14,32], color:C.purple, dim:true }], ticks:[0,30,60,90,120], fmt:v=>v, labels:['29 out','','','30 out','','','','31 out','','','','','','','','17 nov'], alt:'Velocidade máxima e média por viagem, de 29 de outubro a 17 de novembro.' }) },
+      side:{ h:'Temperaturas', p:'Última viagem', html:() => bars([['Arrefecimento',86,120,C.red],['Ar de admissão',34,120,C.amber],['Ar externo',21,120,C.green],['Óleo',0,120,C.mute]],'°C',{3:'sem leitura'}) },
+      list:{ h:'Problemas abertos', p:'Do mais urgente ao menos', rows:[
+        ['!','Problema 1','Detectado na última viagem','<span class="chip down">Urgente</span>','Ver'],
+        ['!','Problema 2','Aberto há 3 dias','<span class="chip">Acompanhar</span>','Ver']
+      ]},
+      side2:{ h:'Combustível', p:'Últimos abastecimentos', html:() => `<p class="note">Mesmo cartão, conteúdo do Fuel: consumo médio, custo por km e o próximo abastecimento.</p>` }
+    },
+    rc: {
+      crumb:'RC', page:'Overview',
+      ctx:{ icon:'rc', title:'Losi Micro-T 1/28', sub:'ESP32-S3 · Wi-Fi da pista' },
+      status:{ cls:'warn', text:'Placa sem firmware' }, bell:0,
+      nav:[
+        { g:'Corrida', items:[['grid','Overview',1],['flag','Race'],['timer','Laps']] },
+        { g:'Carro', items:[['pulse','Telemetry'],['wrench','Setup'],['pad','Pilot page']] },
+        { g:'', items:[['settings','Settings']] }
+      ],
+      ph:{ k:'Visão geral · treino de hoje', t:'Overview', p:'Exemplo de como o RC entra no mesmo molde: 24 voltas, melhor em 18,42 s.' , ex:true },
+      hero:{ lb:'Melhor volta', ic:'timer', v:'18,42', u:'s', s:'<span class="chip up">−0,61 s</span>vs. treino anterior', spark:[21.2,20.4,19.8,20.1,19.3,19.0,18.8,18.42], color:C.blue },
+      kpis:[
+        { lb:'Voltas', ic:'flag', v:'24', s:'<span class="chip">3 baterias</span>', spark:[0,8,8,16,16,24] },
+        { lb:'Bateria 2S', ic:'battery', v:'7,6', u:'V', s:'<span class="chip up">68%</span>', spark:[8.4,8.2,8.0,7.9,7.8,7.6] },
+        { lb:'Latência do vídeo', ic:'signal', v:'110', u:'ms', s:'<span class="chip">80–150</span>', spark:[95,120,105,140,110,100,110] },
+        { lb:'Velocidade máx.', ic:'gauge', v:'21', u:'km/h', s:'<span class="chip">volta 19</span>', spark:[16,18,19,18,20,21,20] }
+      ],
+      main:{ h:'Tempos de volta', p:'Treino de hoje, segundos', legend:[[C.blue,'Volta'],[C.yellow,'Recorde']],
+        chart:() => lineChart({ series:[{ values:[22.8,21.4,20.9,21.6,20.2,20.5,19.9,19.6,20.3,19.4,19.1,19.5,18.9,19.2,18.8,18.42,18.9,19.3], color:C.blue, area:true, best:15, bestLabel:'18,42 s' }], ticks:[18,19.5,21,22.5,24], fmt:v=>v.toString().replace('.',','), labels:['volta 1','','','','','','','','volta 9','','','','','','','','','volta 18'], alt:'Tempos de volta do treino de exemplo, de 22,8 s caindo até o recorde de 18,42 s na volta 16.' }) },
+      side:{ h:'Classificação', p:'Corrida local · exemplo', html:() => bars([['Você',18.42,24,C.yellow],['Piloto 2',18.95,24,C.blue],['Piloto 3',19.70,24,C.blue]],'s',null,true) },
+      list:{ h:'Últimas baterias', p:'Cada carga é uma série', rows:[
+        ['B3','Bateria 3','8 voltas · 6 min','<span class="chip y">Recorde</span>','18.42'],
+        ['B2','Bateria 2','8 voltas · 6 min','<span class="d">−0,40 s</span>','19.03']
+      ]},
+      side2:{ h:'Saúde do carro', p:'Motor, servo e rádio', html:() => `<p class="note">Mesmo cartão do Real: temperatura do motor, corrente do ESC e o rádio de emergência.</p>` }
+    }
+  };
+
+  function bars(rows, unit, notes, lowerIsBetter){
+    return `<div class="bars">${rows.map((r,i) => {
+      const pct = lowerIsBetter ? Math.max(18, 100 - (r[1]-rows[0][1])*60) : (r[1]/r[2])*100;
+      const val = notes && notes[i] ? notes[i] : (String(r[1]).replace('.',',') + ' ' + unit);
+      return `<div class="bar-r"><span>${r[0]}</span><div class="tr"><i style="width:${pct}%;background:${r[3]}"></i></div><b>${val}</b></div>`;
+    }).join('')}</div>`;
+  }
+
+  /* ---------- render app ---------- */
+  const app = document.getElementById('app');
+  let mode = 'virtual';
+  function render(){
+    const m = MODES[mode];
+    const modeBtns = [['real','car','Real'],['virtual','pad','Virtual'],['rc','rc','RC']].map(b =>
+      `<button type="button" data-mode="${b[0]}" aria-pressed="${b[0]===mode}">${I(b[1])}${b[2]}</button>`).join('');
+    const nav = m.nav.map(g => `<div class="nav-g">${g.g?`<h4>${g.g}</h4>`:''}${g.items.map(it =>
+      `<div class="nav-i${it[2]?' on':''}">${I(it[0])}<span>${it[1]}</span>${it[3]?`<span class="badge">${it[3]}</span>`:''}${it[4]?`<span class="new">${it[4]}</span>`:''}</div>`).join('')}</div>`).join('');
+    const k = m.kpis.map(x => `<div class="card kpi sm"><div class="lb">${x.lb}${I(x.ic)}</div><div class="v">${x.v}${x.u?`<small>${x.u}</small>`:''}</div><div class="s">${x.s}</div>${spark(x.spark, m.hero.color === C.amber ? C.blue : m.hero.color, 28)}</div>`).join('');
+    const legend = m.main.legend.map(l => `<span><i style="background:${l[0]}"></i>${l[1]}</span>`).join('');
+    const rows = m.list.rows.map(r => `<div class="li"><span class="lg">${r[0]}</span><div><b>${r[1]}</b><small>${r[2]}</small></div>${r[3]}<span class="t">${r[4]}</span></div>`).join('');
+    app.innerHTML = `
+      <aside class="sb">
+        <div class="sb-brand"><img src="logo.svg" alt="Xpeed"><b>Xpeed</b></div>
+        <div class="modes" role="group" aria-label="Modo">${modeBtns}</div>
+        <div class="ctx"><span class="ic">${I(m.ctx.icon)}</span><div><b>${m.ctx.title}</b><small>${m.ctx.sub}</small></div>${I('updown')}</div>
+        <nav class="nav">${nav}</nav>
+        <div class="nav-g"><div class="nav-i">${I('shield')}<span>Admin</span></div></div>
+        <div class="me"><span class="av">SC</span><div><b>Skale Club</b><small>Conta · Idioma: English</small></div>${I('dots')}</div>
+      </aside>
+      <div class="inset">
+        <div class="top">
+          <div class="crumbs">${m.crumb}${I('chev')}<b>${m.page}</b></div>
+          <div class="search">${I('search')}Buscar sessões, pistas, carros<kbd>Ctrl K</kbd></div>
+          <div class="status"><span class="dot ${m.status.cls}"></span>${m.status.text}</div>
+          <div class="iconbtn">${I('bell')}${m.bell?`<i>${m.bell}</i>`:''}</div>
+        </div>
+        <div class="content" key="${mode}">
+          <div class="ph">
+            <div><div class="k">${m.ph.k}</div><h3>${m.ph.t}</h3><p>${m.ph.p} ${m.ph.ex?'<span class="ex">Exemplo</span>':''}</p></div>
+            <div class="range"><span class="on">7 dias</span><span>30 dias</span><span>90 dias</span><span>12 meses</span><span>Tudo</span></div>
+          </div>
+          <div class="bento">
+            <div class="card kpi hero"><div class="lb">${m.hero.lb}${I(m.hero.ic)}</div><div class="v">${m.hero.v}${m.hero.u?`<small>${m.hero.u}</small>`:''}</div><div class="s">${m.hero.s}</div>${spark(m.hero.spark, m.hero.color, 92, {dot:true, strong:true})}</div>
+            ${k}
+          </div>
+          <div class="row">
+            <div class="card panel"><div class="p-head"><div><h5>${m.main.h}</h5><p>${m.main.p}</p></div><div class="legend">${legend}</div></div>${m.main.chart()}</div>
+            <div class="card panel"><div class="p-head"><div><h5>${m.side.h}</h5><p>${m.side.p}</p></div></div>${m.side.html()}</div>
+          </div>
+          <div class="row">
+            <div class="card panel"><div class="p-head"><div><h5>${m.list.h}</h5><p>${m.list.p}</p></div></div><div class="list">${rows}</div></div>
+            <div class="card panel"><div class="p-head"><div><h5>${m.side2.h}</h5><p>${m.side2.p}</p></div></div>${m.side2.html()}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  function setMode(next){
+    mode = next;
+    document.querySelectorAll('.mock-ctl [data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    render();
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (b) setMode(b.dataset.mode);
+    const f = e.target.closest('[data-font]');
+    if (f){
+      document.querySelectorAll('[data-font]').forEach(x => x.setAttribute('aria-pressed', String(x === f)));
+      document.documentElement.style.setProperty('--num', f.dataset.font === 'inter' ? 'var(--f-body)' : 'var(--f-display)');
+    }
+  });
+  render();
+
+  /* ---------- before / after ---------- */
+  const oldNav = `<div class="old-nav"><div class="on">${I('grid')}Overview</div><div>${I('timer')}Sessions</div><div>${I('trophy')}Leaderboards</div></div>`;
+  const newNav = `<div class="new-nav"><div class="nav-g"><h4>Pilotagem</h4><div class="nav-i on">${I('grid')}<span>Overview</span></div><div class="nav-i">${I('timer')}<span>Sessions</span></div></div><div class="nav-g" style="margin-top:10px"><h4>Comunidade</h4><div class="nav-i">${I('trophy')}<span>Leaderboards</span><span class="badge" style="background:rgba(245,230,99,.12);color:#F5E663">3</span></div></div></div>`;
+  const oldTile = `<div class="old-tile"><p>Laps</p><div class="v">6</div><div class="s">67% valid</div><div class="s">↑ 500%</div><svg viewBox="0 0 160 24" style="width:100%;height:24px"><polyline points="0,22 30,22 50,6 70,22 110,22 130,22 160,4" fill="none" stroke="#4f9bf2" stroke-width="1.5"/><circle cx="158" cy="4" r="2" fill="#4f9bf2"/></svg></div>`;
+  const newTile = `<div class="new-tile card kpi sm"><div class="lb">Voltas${I('flag')}</div><div class="v">6</div><div class="s"><span class="chip up">↑ 500%</span>67% válidas</div>${spark([0,0,3,0,0,0,3], C.blue, 28)}</div>`;
+  const oldChart = `<svg viewBox="0 0 300 120" style="width:100%;height:auto" role="img" aria-label="Gráfico atual com ponto em cada valor"><g stroke="rgba(255,255,255,.08)" stroke-dasharray="3 3"><line x1="30" x2="295" y1="20" y2="20"/><line x1="30" x2="295" y1="50" y2="50"/><line x1="30" x2="295" y1="80" y2="80"/></g><polyline points="30,40 55,30 80,22 105,32 130,58 155,72 180,48 205,40 230,44 255,30 280,36" fill="none" stroke="#a77fe8" stroke-width="2"/>${[[30,40],[55,30],[80,22],[105,32],[130,58],[155,72],[180,48],[205,40],[230,44],[255,30],[280,36]].map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="#a77fe8"/>`).join('')}<polyline points="30,96 55,95 80,96 105,95 130,97 155,96 180,95 205,96 230,95 255,96 280,97" fill="none" stroke="#e85656" stroke-width="2"/>${[30,55,80,105,130,155,180,205,230,255,280].map(x=>`<circle cx="${x}" cy="96" r="3.5" fill="#e85656"/>`).join('')}<text x="80" y="116" font-size="10" fill="#e85656" font-family="Inter,sans-serif">• Coolant</text><text x="150" y="116" font-size="10" fill="#a77fe8" font-family="Inter,sans-serif">• Catalyst</text></svg>`;
+  const newChart = lineChart({ series:[{ values:[580,650,730,680,540,390,560,630,610,640,590], color:C.blue, area:true },{ values:[88,90,89,90,84,80,86,88,87,89,86], color:C.red, dim:true }], ticks:[0,200,400,600,800], fmt:v=>v, labels:['29 out','','','','','','','','','','17 nov'], alt:'Gráfico proposto: catalisador e arrefecimento, linhas finas e área em degradê.' });
+  const ba = [
+    ['Item do menu','Ativo com fundo, grupos com título, contador', oldNav, newNav],
+    ['Cartão de número','Rótulo em caixa alta, número maior, variação em chip, área no rodapé', oldTile, newTile],
+    ['Gráfico','Sem ponto em cada valor, área em degradê, legenda no topo', oldChart, `<div><div class="legend" style="justify-content:flex-start;margin-bottom:8px"><span><i style="background:${C.blue}"></i>Catalisador</span><span><i style="background:${C.red}"></i>Arrefecimento</span></div>${newChart}</div>`]
+  ];
+  document.getElementById('ba').innerHTML = ba.map(r => `<div class="ba-row"><h3>${r[0]}<small>${r[1]}</small></h3><div class="ba-cell"><span>Hoje</span><div class="stage">${r[2]}</div></div><div class="ba-cell new"><span>Proposta</span><div class="stage">${r[3]}</div></div></div>`).join('');
+})();
+</script>

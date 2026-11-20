@@ -27,3 +27,18 @@ describe('PageHeader', () => {
     expect(screen.queryByRole('link')).toBeNull();
   });
 });
+
+describe('PageHeader, Dashboards 2027 lg size (proposed 2026-11-20)', () => {
+  it('puts the eyebrow above a 30 px title, the summary under it and the actions beside', () => {
+    render(<PageHeader size="lg" eyebrow="Overview · last 7 days" title="Overview" description="6 laps in 3 sessions." actions={<button>7 days</button>} testId="h" />);
+    expect(screen.getByTestId('h-eyebrow')).toHaveTextContent('Overview · last 7 days');
+    expect(screen.getByRole('heading', { level: 2, name: 'Overview' })).toHaveClass('text-[30px]');
+    expect(screen.getByText('6 laps in 3 sessions.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '7 days' })).toBeInTheDocument();
+  });
+
+  it('keeps the 20 px title by default', () => {
+    render(<PageHeader title="Overview" />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Overview' })).toHaveClass('text-xl');
+  });
+});

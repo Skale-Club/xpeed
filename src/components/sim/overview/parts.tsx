@@ -1,9 +1,15 @@
 // The small pieces the dashboard blocks share: a card with a title, a sparkline, and the quiet "nothing here" line.
 import { useMemo, type ReactNode } from 'react';
 import { sparklinePath } from '@/lib/sim/dashboard';
+import { Panel as BasePanel, type PanelProps } from '@/components/ui/panel';
 
-/** A block of the dashboard: the shared `Panel` (a card with a title and, on the right, a link or a control). */
-export { Panel } from '@/components/ui/panel';
+/**
+ * A block of the dashboard: the shared `Panel` (a card with a title and, on the right, a link or a control), in its Dashboards 2027
+ * `feature` look (16 px corner, 20 px inside; phase 3, owner approved 2026-11-20). A block may still pass its own icon and accent.
+ */
+export function Panel(props: PanelProps) {
+  return <BasePanel variant="feature" {...props} />;
+}
 
 /** What a block says when it has nothing to show: quiet, one line. */
 export function Quiet({ children, testId }: { children: ReactNode; testId?: string }) {

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CalendarDays } from 'lucide-react';
+import { ChartLegend } from '@/components/ui/chart-kit';
+import { CHART_AXIS, CHART_BAR, CHART_GRID, CHART_TOOLTIP, GHOST_BAR, accentColor } from '@/lib/chart-theme';
 import { CHART_PALETTE } from '@/lib/chart-palette';
 import { activityOf, heatmapGrid, streakText, type HeatCell } from '@/lib/sim/dashboard';
 import type { V1Stats } from '@/lib/sim/v1-client';
@@ -98,7 +101,14 @@ export function ActivityPanel({ stats }: { stats: V1Stats }) {
       });
 
   return (
-    <Panel title={t('modes.overview.dash.activity', 'Activity')} testId="overview-activity">
+    <Panel
+      title={t('modes.overview.dash.activity', 'Activity')}
+      description={title}
+      icon={CalendarDays}
+      accent="blue"
+      action={activity.total > 0 ? <ChartLegend items={[{ label: t('modes.overview.dash.lapsName', 'Laps'), color: accentColor('blue') }, ...(activity.busiest ? [{ label: t('modes.overview.dash.busiestName', 'Busiest'), color: accentColor('yellow') }] : [])]} /> : undefined}
+      testId="overview-activity"
+    >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" data-testid="activity-facts">
         <span data-testid="streak-current">{t(streak.current.key, streak.current.values)}</span>
         {streak.best && <span className="text-muted-foreground" data-testid="streak-best">{t(streak.best.key, streak.best.values)}</span>}
@@ -113,20 +123,26 @@ export function ActivityPanel({ stats }: { stats: V1Stats }) {
         <Quiet testId="activity-empty">{t('modes.overview.dash.activityEmpty', 'No laps in this period. Try a longer one.')}</Quiet>
       ) : (
         <div>
-          <p className="mb-1 text-xs text-muted-foreground">{title}</p>
-          <div className="h-40" role="img" aria-label={alt} data-testid="activity-chart">
+          <div className="h-56" role="img" aria-label={alt} data-testid="activity-chart">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="start" tick={AXIS} tickFormatter={(value: string) => format.day(value)} interval="preserveStartEnd" minTickGap={28} tickLine={false} />
-                <YAxis tick={AXIS} width={28} allowDecimals={false} domain={[0, (max: number) => Math.max(1, max)]} tickLine={false} axisLine={false} />
+                <CartesianGrid {...CHART_GRID} />
+                <XAxis dataKey="start" {...CHART_AXIS} tickFormatter={(value: string) => format.day(value)} interval="preserveStartEnd" minTickGap={28} />
+                <YAxis {...CHART_AXIS} width={28} allowDecimals={false} domain={[0, (max: number) => Math.max(1, max)]} />
                 <Tooltip
-                  cursor={{ fill: 'hsl(var(--muted) / 0.5)' }}
-                  contentStyle={TOOLTIP}
+                  {...CHART_TOOLTIP}
                   labelFormatter={(_, payload) => (payload?.[0]?.payload ? label(payload[0].payload as { start: string; end: string }) : '')}
                   formatter={(value: number) => [value, t('modes.overview.dash.lapsName', 'Laps')]}
                 />
-                <Bar dataKey="laps" fill={CHART_PALETTE.blue} radius={[3, 3, 0, 0]} maxBarSize={18} isAnimationActive={false} />
+                {/* The busiest day is the one yellow bar (a record); a day with no laps keeps its place as a faint stub. */}
+                <Bar dataKey="laps" {...CHART_BAR} maxBarSize={activity.points.length > 14 ? 18 : 46} minPointSize={3}>
+                  {data.map((point) => (
+                    <Cell
+                      key={point.start}
+                      fill={point.laps === 0 ? GHOST_BAR : point.start === activity.busiest?.start ? accentColor('yellow') : accentColor('blue')}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

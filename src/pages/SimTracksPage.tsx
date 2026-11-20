@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Flag } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { TrackLayouts } from '@/components/sim/TrackLayouts';
@@ -14,7 +13,7 @@ export default function SimTracksPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader icon={Flag} title={t('modes.nav.tracks', 'Tracks')} />
+        <PageHeader size="lg" title={t('modes.nav.tracks', 'Tracks')} />
         <TracksList />
         <details className="rounded-lg border border-border p-3" data-testid="layouts-fold" onToggle={(event) => setOpen(event.currentTarget.open)}>
           <summary className="cursor-pointer text-sm font-medium">{t('modes.tracks.layoutsFold', 'Track layouts kept on this device')}</summary>

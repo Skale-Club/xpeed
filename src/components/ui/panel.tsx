@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { accentColor, type Accent } from "@/lib/chart-theme";
 import { cn } from "@/lib/utils";
 
 export interface PanelProps {
@@ -13,14 +15,51 @@ export interface PanelProps {
   padded?: boolean;
   className?: string;
   testId?: string;
+  /**
+   * `default` is today's panel. `feature` is the Dashboards 2027 panel (proposed 2026-11-20, pending the owner's approval on /admin/design):
+   * 16 px corner, 20 px inside, the title with an optional accent icon, a chart legend (`ChartLegend`) as the `action`.
+   */
+  variant?: "default" | "feature";
+  /** `feature`: a small icon before the title, in the panel's accent. */
+  icon?: LucideIcon;
+  accent?: Accent;
 }
 
 /**
  * The card a block of a screen lives in: small title, optional description and action, then the content. Use it for every titled block;
  * for a titled sub-block inside one, use `PanelSection`.
  */
-export function Panel({ title, description, action, children, padded = true, className, testId }: PanelProps) {
+export function Panel({ title, description, action, children, padded = true, className, testId, variant = "default", icon: Icon, accent }: PanelProps) {
   const hasHeader = title != null || description != null || action != null;
+  if (variant === "feature") {
+    return (
+      <Card className={cn("rounded-panel bg-card", className)} data-testid={testId} data-variant="feature">
+        <div className={cn("space-y-4", padded ? "p-5" : "p-0")}>
+          {hasHeader && (
+            <div className={cn("flex items-start justify-between gap-3", !padded && "p-5 pb-0")}>
+              <div className="flex min-w-0 items-start gap-2.5">
+                {Icon && (
+                  <span
+                    className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-muted-foreground"
+                    style={accent ? { background: accentColor(accent, 0.14), color: accentColor(accent) } : undefined}
+                    aria-hidden="true"
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                )}
+                <div className="min-w-0 space-y-0.5">
+                  {title != null && <h3 className="text-sm font-semibold leading-snug">{title}</h3>}
+                  {description != null && <p className="text-xs text-muted-foreground">{description}</p>}
+                </div>
+              </div>
+              {action}
+            </div>
+          )}
+          {children}
+        </div>
+      </Card>
+    );
+  }
   return (
     <Card className={cn("bg-card", className)} data-testid={testId}>
       <CardContent className={cn("space-y-3", padded ? "p-4" : "p-0")}>

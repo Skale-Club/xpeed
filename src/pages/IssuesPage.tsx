@@ -128,7 +128,7 @@ function CarIssues() {
   return (
     <AppLayout>
       <div className="space-y-5">
-        <PageHeader title={t('problems.title', 'Problems')} description={selectedCar.name} />
+        <PageHeader size="lg" title={t('problems.title', 'Problems')} description={selectedCar.name} />
         <ReadCodesButton />
 
         {loadFailed && (

@@ -20,7 +20,7 @@ export default function SimPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader icon={Icon} title={t(entry.i18nKey)} />
+        <PageHeader size="lg" title={t(entry.i18nKey)} />
         <Card className="bg-card border-border">
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">

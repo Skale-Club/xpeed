@@ -154,7 +154,7 @@ export default function ScannerPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader title={t('scanner.title', 'OBD2 Scanner')} description={selectedCar?.name} />
+        <PageHeader size="lg" title={t('scanner.title', 'OBD2 Scanner')} description={selectedCar?.name} />
 
         {status === 'unsupported' && (
           <Alert variant="destructive">

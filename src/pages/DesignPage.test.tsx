@@ -9,7 +9,7 @@ const admin = vi.hoisted(() => ({ status: { isAdmin: true, loading: false } }));
 vi.mock('@/hooks/use-admin-status', () => ({ useAdminStatus: () => admin.status }));
 vi.mock('@/components/AppLayout', () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 
-const SECTION_TITLES = ['Colours', 'Type', 'Radius & elevation', 'Buttons', 'Badges & chips', 'Stats', 'Navigation', 'Filters', 'States', 'Form controls'];
+const SECTION_TITLES = ['Dashboards 2027', 'Colours', 'Type', 'Radius & elevation', 'Buttons', 'Badges & chips', 'Stats', 'Navigation', 'Filters', 'States', 'Form controls'];
 
 const renderPage = () => render(<MemoryRouter><DesignPage /></MemoryRouter>);
 
@@ -30,6 +30,16 @@ describe('DesignPage', () => {
     expect(screen.getByText('Could not load sessions')).toBeTruthy();
     expect(screen.getByRole('switch', { name: 'Example switch' })).toBeTruthy();
   });
+
+  it('shows the Dashboards 2027 preview on the Virtual Overview only, with no mode switch and nothing of the RC car', async () => {
+    renderPage();
+    // The preview loads the chart library on its own; under a full test run that can take a while.
+    await screen.findByTestId('d27-preview', {}, { timeout: 15000 });
+    expect(screen.getByTestId('d27-hero')).toHaveAttribute('data-size', 'hero');
+    expect(screen.getByTestId('d27-hero-value')).toHaveTextContent('6');
+    expect(screen.queryByRole('radiogroup', { name: 'Sample mode' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'RC' })).toBeNull();
+  }, 20000);
 
   it('renders nothing of the page for a non-admin', () => {
     admin.status = { isAdmin: false, loading: false };

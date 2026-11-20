@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, LayoutDashboard } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { loadRange, saveRange } from '@/lib/sim/dashboard';
 import { useOverview, useStats, useUserId, type StatsRange, type V1Overview, type V1Stats } from '@/lib/sim/v1-client';
@@ -58,7 +58,7 @@ function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: 
     );
   }
   return (
-    <div className={`space-y-4 transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing || undefined} data-testid="overview-dashboard">
+    <div className={`space-y-5 transition-opacity ${refreshing ? 'opacity-60' : ''}`} aria-busy={refreshing || undefined} data-testid="overview-dashboard">
       <KpiTiles stats={stats} />
       <ActivityPanel stats={stats} />
       <div className="grid gap-4 lg:grid-cols-12">
@@ -79,6 +79,9 @@ function Dashboard({ stats, overview, refreshing }: { stats: V1Stats; overview: 
     </div>
   );
 }
+
+/** The key suffix of the line above the title, per period. */
+const EYEBROW: Record<StatsRange, string> = { '7d': '7d', '30d': '30d', '90d': '90d', '1y': '1y', all: 'All' };
 
 /**
  * Virtual > Overview: a racing dashboard. A header with the period (remembered per person) and the Companion's status; six tiles with their change
@@ -101,14 +104,25 @@ export function SimOverview() {
   const hasLaps = (overview?.lapsPerGame.length ?? 0) > 0;
   const statsQuery = useStats(range, { enabled: hasLaps });
   const paired = (overview?.companion.devices.length ?? 0) > 0;
+  // One sentence under the title with the period's numbers (Dashboards 2027): "6 laps in 3 sessions and 4 personal bests."
+  const totals = hasLaps ? statsQuery.data?.totals : undefined;
+  const summary = totals && totals.laps > 0
+    ? t('modes.overview.dash.summary', '{{laps}} in {{sessions}} and {{bests}}.', {
+        laps: t('modes.overview.dash.summaryLaps', '{{count}} laps', { count: totals.laps }),
+        sessions: t('modes.overview.dash.summarySessions', '{{count}} sessions', { count: totals.sessions }),
+        bests: t('modes.overview.dash.summaryBests', '{{count}} personal bests', { count: totals.personalBests }),
+      })
+    : undefined;
   // Laps came in but none counts (all flagged not valid): the dashboard is mostly dashes, so the example is offered here too.
   const noValidLaps = hasLaps && (overview?.lapsPerGame.every((game) => game.validLaps === 0) ?? false);
 
   return (
-    <div className="space-y-4" data-testid="overview">
+    <div className="space-y-5" data-testid="overview">
       <PageHeader
-        icon={LayoutDashboard}
+        size="lg"
+        eyebrow={t(`modes.overview.dash.eyebrow${EYEBROW[range]}`, 'Your driving')}
         title={t('modes.nav.overview', 'Overview')}
+        description={summary}
         actions={
           <div className="w-full sm:w-auto">
             <RangeSelect value={range} onChange={choose} busy={statsQuery.isFetching && statsQuery.isPlaceholderData} />

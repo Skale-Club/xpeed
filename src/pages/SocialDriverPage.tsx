@@ -1,4 +1,3 @@
-import { UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { ExampleGate } from '@/components/sim/Example';
@@ -11,7 +10,7 @@ export default function SocialDriverPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader icon={UserRound} title={t('social.driver.title', 'Driver')} />
+        <PageHeader size="lg" title={t('social.driver.title', 'Driver')} />
         <ExampleGate><DriverPage /></ExampleGate>
       </div>
     </AppLayout>

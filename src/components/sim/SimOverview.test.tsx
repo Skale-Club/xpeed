@@ -19,7 +19,7 @@ vi.mock('recharts', () => ({
   LineChart: ({ data, children }: { data: unknown[]; children: ReactNode }) => <figure data-testid="line-chart" data-rows={JSON.stringify(data)}>{children}</figure>,
   Bar: ({ dataKey }: { dataKey: string }) => <i data-testid="series" data-key={dataKey} />,
   Line: ({ dataKey }: { dataKey: string }) => <i data-testid="series" data-key={dataKey} />,
-  XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
+  Cell: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
 }));
 
 beforeEach(async () => {

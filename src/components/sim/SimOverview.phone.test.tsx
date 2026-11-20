@@ -17,7 +17,7 @@ vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   BarChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
   LineChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
-  Bar: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
+  Bar: () => null, Cell: () => null, Line: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null,
 }));
 
 const monza = ref('Monza');

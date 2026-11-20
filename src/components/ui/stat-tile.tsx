@@ -3,7 +3,9 @@ import type { LucideIcon } from "lucide-react";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
+import { accentColor, type Accent } from "@/lib/chart-theme";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TrendChip } from "@/components/ui/trend-chip";
 import { cn } from "@/lib/utils";
 
 export type StatTone = "default" | "brand" | "success" | "warn" | "critical" | "info";
@@ -28,8 +30,24 @@ export interface StatTileProps {
   icon?: LucideIcon;
   /** Colours the value. */
   tone?: StatTone;
-  /** `label` is the sentence for screen readers and the tooltip ("12% more than last week"); `meaning` colours the arrow (more driving is neutral). */
-  trend?: { direction: "up" | "down" | "flat"; label: string; meaning?: "good" | "bad" | "neutral" };
+  /**
+   * `label` is the sentence for screen readers and the tooltip ("12% more than last week"); `meaning` colours the arrow (more driving is neutral).
+   * `text` is the short visible change ("12%"), shown in a chip by the `feature` and `hero` sizes.
+   */
+  trend?: { direction: "up" | "down" | "flat"; label: string; meaning?: "good" | "bad" | "neutral"; text?: string };
+  /**
+   * `compact` is today's tile. `feature` and `hero` are the Dashboards 2027 tiles (proposed 2026-11-20, pending the owner's approval on
+   * /admin/design): 20 px inside, an uppercase label, the number in the display face; `hero` is the one big number a screen opens with.
+   */
+  size?: "compact" | "feature" | "hero";
+  /** `feature` / `hero`: the tile's colour (icon, glow in the corner, the sparkline you pass with `accentColor`). Yellow is for records only. */
+  accent?: Accent;
+  /** A small unit after the value ("km", "min"), quieter than the number. */
+  unit?: ReactNode;
+  /** `feature` / `hero`: something small before the hint, in its row (a change chip a screen draws itself). */
+  badge?: ReactNode;
+  /** Classes for the tile's list item (a column or row span in a bento). */
+  itemClassName?: string;
   /** Anything small at the bottom (a sparkline). */
   footer?: ReactNode;
   /** What the number means, as a tooltip on the tile. */
@@ -47,7 +65,12 @@ export interface StatTileProps {
  * One number of a screen: small label, big tabular value, a quiet hint and an optional trend. Use it inside a `StatGrid` for a row of KPIs;
  * the tile is a list item so the grid reads as a list. `testId` is the tile's; the value is `${testId}-value`.
  */
-export function StatTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, title, loading = false, testId, valueTestId, subTestId }: StatTileProps) {
+export function StatTile(props: StatTileProps) {
+  if (props.size === "feature" || props.size === "hero") return <FeatureTile {...props} />;
+  return <CompactTile {...props} />;
+}
+
+function CompactTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, title, loading = false, testId, valueTestId, subTestId, unit }: StatTileProps) {
   const valueId = valueTestId ?? (testId ? `${testId}-value` : undefined);
   const TrendIcon = trend ? TREND_ICON[trend.direction] : null;
   return (
@@ -62,6 +85,7 @@ export function StatTile({ label, value, hint, icon: Icon, tone = "default", tre
         ) : (
           <p className={cn("truncate font-mono text-xl font-semibold leading-tight tabular-nums", TONE[tone])} data-testid={valueId}>
             {value}
+            {unit != null && <span className="ml-1 text-xs font-medium text-muted-foreground">{unit}</span>}
           </p>
         )}
         {!loading && (hint != null || trend) && (
@@ -90,6 +114,59 @@ export function StatTile({ label, value, hint, icon: Icon, tone = "default", tre
   );
 }
 
+/** The Dashboards 2027 tile: accent icon and corner glow, uppercase label, the number in the display face, the change as a chip, a sparkline at the foot. */
+function FeatureTile({ label, value, hint, icon: Icon, tone = "default", trend, footer, title, loading = false, testId, valueTestId, subTestId, unit, size, accent, badge, itemClassName }: StatTileProps) {
+  const hero = size === "hero";
+  const valueId = valueTestId ?? (testId ? `${testId}-value` : undefined);
+  return (
+    <li className={cn("min-w-0", hero && "sm:row-span-2", itemClassName)}>
+      <Card
+        className={cn("relative flex h-full flex-col overflow-hidden rounded-panel bg-card", hero ? "gap-2 px-6 pt-6" : "gap-1.5 p-5", hero && !footer && "pb-6")}
+        data-testid={testId}
+        data-size={size}
+        data-accent={accent}
+        title={title}
+      >
+        {accent && (
+          <span
+            className="pointer-events-none absolute inset-0"
+            style={{ background: `radial-gradient(120% 70% at 100% 0%, ${accentColor(accent, hero ? 0.12 : 0.08)}, transparent 60%)` }}
+            aria-hidden="true"
+          />
+        )}
+        <div className="relative flex items-center justify-between gap-2">
+          <p className="truncate text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+          {Icon && (
+            <span
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-muted-foreground"
+              style={accent ? { background: accentColor(accent, 0.14), color: accentColor(accent) } : undefined}
+              aria-hidden="true"
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </span>
+          )}
+        </div>
+        {loading ? (
+          <Skeleton className={hero ? "h-14 w-28" : "h-8 w-20"} data-testid={valueId ? `${valueId}-loading` : undefined} />
+        ) : (
+          <p className={cn("relative truncate font-display font-semibold leading-none tracking-tight tabular-nums", hero ? "text-[56px]" : "text-[30px]", TONE[tone])} data-testid={valueId}>
+            {value}
+            {unit != null && <span className="ml-1.5 align-baseline text-[0.45em] font-medium tracking-normal text-muted-foreground">{unit}</span>}
+          </p>
+        )}
+        {!loading && (hint != null || trend || badge != null) && (
+          <div className="relative flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {badge}
+            {trend && <TrendChip direction={trend.direction} label={trend.label} text={trend.text} meaning={trend.meaning} testId={testId ? `${testId}-trend` : undefined} />}
+            {hint != null && <span className="min-w-0 truncate" data-testid={subTestId ?? (testId ? `${testId}-sub` : undefined)}>{hint}</span>}
+          </div>
+        )}
+        {footer && <div className={cn("relative mt-auto", hero ? "-mx-6 pt-3" : "pt-2")}>{footer}</div>}
+      </Card>
+    </li>
+  );
+}
+
 type Cols = { base?: 1 | 2; sm?: 2 | 3 | 4; lg?: 3 | 4 | 6 | null; xl?: 4 | 6 };
 
 // Full class names so Tailwind can see them.
@@ -105,6 +182,18 @@ export function StatGrid({ children, columns, className, testId }: { children: R
   const lg = columns && "lg" in columns ? columns.lg : xl ? null : 6;
   return (
     <ul className={cn("grid gap-3", BASE[base], SM[sm], lg && LG[lg], xl && XL[xl], className)} data-testid={testId}>
+      {children}
+    </ul>
+  );
+}
+
+/**
+ * Dashboards 2027 (proposed 2026-11-20): the opening row of a dashboard. One `hero` tile on the left, two rows of `feature` tiles beside it;
+ * one column on a phone, the hero on its own row on a tablet.
+ */
+export function StatBento({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
+  return (
+    <ul className={cn("grid gap-3.5 sm:grid-cols-2 lg:grid-cols-[1.35fr_1fr_1fr]", className)} data-testid={testId}>
       {children}
     </ul>
   );

@@ -9,7 +9,7 @@ import { formatValue } from '@/lib/obd/format';
 import { formatAppDate } from '@/lib/app-date';
 import { useTranslation } from 'react-i18next';
 import {
-  Activity, Bluetooth, BluetoothOff, Loader2, Maximize, Minimize, Circle, Square, Settings2, ArrowUp, ArrowDown, Trash2, Plus, RotateCcw,
+  Bluetooth, BluetoothOff, Loader2, Maximize, Minimize, Circle, Square, Settings2, ArrowUp, ArrowDown, Trash2, Plus, RotateCcw,
 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -150,8 +150,7 @@ export default function LivePage() {
   return (
     <AppLayout>
       <div ref={containerRef} className={`space-y-4 ${fullscreen ? 'bg-background p-4 overflow-auto h-screen' : ''}`}>
-        <PageHeader
-          icon={Activity}
+        <PageHeader size="lg"
           title={<>
             {t('live.title', 'Live panel')}
             {(live ? obd.connectedCarName : selectedCar?.name) && <span className="text-muted-foreground font-normal"> — {live ? obd.connectedCarName : selectedCar?.name}</span>}

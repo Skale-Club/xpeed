@@ -24,6 +24,10 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { lazyChart } from '@/components/LazyChart';
+
+// Dashboards 2027 (proposed 2026-11-20): the new dashboard look, with charts, loaded on its own so the rest of the page does not wait for the chart library.
+const Dashboards2027Preview = lazyChart(() => import('@/components/design/Dashboards2027Preview'), 'h-[56rem]');
 
 /** Token names are read by hand from the :root block of src/index.css; keep both in step. `alpha` marks derived tints (no CSS variable of their own). */
 interface Token { name: string; cls: string; alpha?: number }
@@ -58,7 +62,7 @@ const COLOUR_GROUPS: Array<{ title: string; tokens: Token[] }> = [
 ];
 
 const SECTIONS = [
-  { id: 'colours', label: 'Colours' }, { id: 'type', label: 'Type' }, { id: 'radius', label: 'Radius & elevation' }, { id: 'buttons', label: 'Buttons' },
+  { id: 'dash2027', label: 'Dashboards 2027' }, { id: 'colours', label: 'Colours' }, { id: 'type', label: 'Type' }, { id: 'radius', label: 'Radius & elevation' }, { id: 'buttons', label: 'Buttons' },
   { id: 'badges', label: 'Badges & chips' }, { id: 'stats', label: 'Stats' }, { id: 'navigation', label: 'Navigation' }, { id: 'filters', label: 'Filters' },
   { id: 'states', label: 'States' }, { id: 'forms', label: 'Form controls' },
 ] as const;
@@ -155,6 +159,29 @@ export default function DesignPage() {
             </TabsList>
           </Tabs>
         </nav>
+
+        <section id="dash2027" className="scroll-mt-14">
+          <Panel
+            title="Dashboards 2027"
+            description="Proposed 2026-11-20, waiting for the owner's approval; no screen uses it yet. Drawn here on a sample of the Virtual Overview; Real and Virtual stay separate dashboards. The content as an inset card, a 30 px header with a one-sentence summary, one hero number, feature tiles and panels with a colour of their own, charts with thin lines, a fading area, a faint grid and the legend as chips. Yellow marks only where you are and records."
+          >
+            <Dashboards2027Preview />
+            <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Demo title="StatTile size" note="compact is today's tile; feature (20 px inside, display-face number, change as a chip, sparkline at the foot) and hero (56 px number) are new. accent picks the tile's colour.">
+                <code className="text-xs text-muted-foreground">size="hero" accent="blue"</code>
+              </Demo>
+              <Demo title="Panel variant" note="feature: 16 px corner, 20 px inside, an accent icon before the title and the ChartLegend as its action.">
+                <code className="text-xs text-muted-foreground">variant="feature" icon accent</code>
+              </Demo>
+              <Demo title="PageHeader size" note="lg: eyebrow (where and when), 30 px title, the description as a summary sentence, actions at the title's foot.">
+                <code className="text-xs text-muted-foreground">size="lg" eyebrow</code>
+              </Demo>
+              <Demo title="chart-kit" note="Constants in @/lib/chart-theme (CHART_AXIS, CHART_GRID, CHART_TOOLTIP, CHART_LINE, CHART_BAR, GHOST_BAR, accentColor); components AreaGradient, ChartLegend, AreaSparkline.">
+                <code className="text-xs text-muted-foreground">@/components/ui/chart-kit</code>
+              </Demo>
+            </div>
+          </Panel>
+        </section>
 
         <section id="colours" className="scroll-mt-14">
           <Panel title="Colours" description="Every token of :root in src/index.css. Use the Tailwind class, never a raw hex or hsl().">

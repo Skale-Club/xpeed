@@ -185,8 +185,7 @@ export default function CarsPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <PageHeader
-          icon={Car}
+        <PageHeader size="lg"
           title={t('vehicle.myCars', 'My cars')}
           actions={
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>

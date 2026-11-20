@@ -48,7 +48,7 @@ vi.mock('recharts', () => ({
   BarChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
   LineChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
   AreaChart: ({ children }: { children: ReactNode }) => <figure>{children}</figure>,
-  Bar: () => null, Line: () => null, Area: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null, ReferenceLine: () => null,
+  Bar: () => null, Cell: () => null, Line: () => null, Area: () => null, XAxis: () => null, YAxis: () => null, CartesianGrid: () => null, Tooltip: () => null, ReferenceLine: () => null,
 }));
 
 beforeEach(async () => {

@@ -43,7 +43,7 @@ export default function TrendsPage() {
   const display = data.map((bucket) => ({ ...bucket, avg: bucket.avg == null ? null : temperatureValue(bucket.avg * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit), min: bucket.min == null ? null : temperatureValue(bucket.min * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit), max: bucket.max == null ? null : temperatureValue(bucket.max * (mph ? 0.621371 : 1), metric?.unit ?? '', temperatureUnit) }));
   const format = (value: number | null) => value == null ? '—' : new Intl.NumberFormat(i18n.resolvedLanguage, { maximumFractionDigits: 1 }).format(value);
   return <AppLayout><div className="space-y-4">
-    <PageHeader
+    <PageHeader size="lg"
       title={<>{t('trends.heading', 'How your car is changing')}{selectedCar && ` — ${selectedCar.name}`}</>}
       description={t('trends.hint', 'Compare fuel use, temperatures and other readings across your trips to spot changes over time.')}
     />

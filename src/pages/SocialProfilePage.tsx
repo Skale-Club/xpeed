@@ -1,4 +1,3 @@
-import { UserRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import AppLayout from '@/components/AppLayout';
 import { ExampleGate } from '@/components/sim/Example';
@@ -11,7 +10,7 @@ export default function SocialProfilePage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <PageHeader icon={UserRound} title={t('social.nav.profile', 'Profile')} />
+        <PageHeader size="lg" title={t('social.nav.profile', 'Profile')} />
         <ExampleGate><ProfileSettings /></ExampleGate>
       </div>
     </AppLayout>
