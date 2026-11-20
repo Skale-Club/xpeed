@@ -98,6 +98,11 @@ pub(super) const ALL: &[Widget] = &[
         pane: Pane::Gaps,
         needs: "the other cars of the session, with their places and the gaps",
     },
+    Widget {
+        id: "radar",
+        pane: Pane::Radar,
+        needs: "the other cars' world positions, or the game's own left and right signal",
+    },
 ];
 
 /// The widget with this id.

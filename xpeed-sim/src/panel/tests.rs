@@ -1070,9 +1070,10 @@ fn writes_the_design_preview_page() {
             "<figure><figcaption>{caption}</figcaption><img data-src=\"{file}\" width=\"{w}\" height=\"{h}\"></figure>\n"
         ));
     }
+    use crate::game::{Caps, Spotter};
     // A game that gives no rivals (AC): the Race dashboard's middle row keeps only the session.
     let mut no_rivals = full.clone();
-    no_rivals.caps = every_cap().minus(crate::game::Caps::RIVALS.or(crate::game::Caps::RIVALS_WORLD));
+    no_rivals.caps = every_cap().minus(Caps::RIVALS.or(Caps::RIVALS_WORLD).or(Caps::SPOTTER));
     no_rivals.field = None;
     no_rivals.gap_trend = None;
     let mut v = view(&f, Some(&no_rivals), Tab::Dash, 1.0, Lang::En);
@@ -1082,6 +1083,18 @@ fn writes_the_design_preview_page() {
     save(&pixels, 1920, 1080, "preview-race-no-rivals.png");
     figures.push_str("<figure><figcaption>Race, no rivals (AC): the middle row keeps only the session (1920 × 1080)</figcaption><img data-src=\"preview-race-no-rivals.png\" width=\"1920\" height=\"1080\"></figure>
 ");
+    // A game that only gives the spotter's left and right signal (iRacing): the radar is the player's car with a bar on the side a
+    // car is on, here the left; the rivals' cards are there, without positions.
+    let mut spotter_only = full.clone();
+    spotter_only.caps = every_cap().minus(Caps::RIVALS_WORLD);
+    spotter_only.field = full.field.as_deref().map(|f| Arc::new(without_world(f)));
+    spotter_only.spotter = Some(Spotter::Left);
+    let mut v = view(&f, Some(&spotter_only), Tab::Dash, 1.0, Lang::En);
+    v.dashboard = Some(DashboardId::Race);
+    v.recent_laps = &full_laps;
+    let pixels = render(&v, 1920, 1080);
+    save(&pixels, 1920, 1080, "preview-race-radar-spotter.png");
+    figures.push_str("<figure><figcaption>Radar, iRacing spotter only: a car on the left (Race, 1920 × 1080)</figcaption><img data-src=\"preview-race-radar-spotter.png\" width=\"1920\" height=\"1080\"></figure>\n");
     let mut phone_monitor = view(&unpaired, None, Tab::Monitor, 1.0, Lang::En);
     phone_monitor.covers = &covers;
     let pixels = render(&phone_monitor, 430, 900);
@@ -2800,7 +2813,7 @@ fn the_update_card_is_always_there_with_check_now_try_again_and_a_bar_while_busy
 #[test]
 fn the_widget_ids_are_a_contract() {
     let ids: Vec<&str> = catalog::ALL.iter().map(|w| w.id).collect();
-    assert_eq!(ids.len(), 16);
+    assert_eq!(ids.len(), 17);
     assert_eq!(
         ids[..7],
         ["times", "centre", "fuel", "tyres", "laps", "track", "alerts"],
@@ -2812,7 +2825,8 @@ fn the_widget_ids_are_a_contract() {
         "the five of phase 2 keep their order"
     );
     assert_eq!(ids[12], "session");
-    assert_eq!(ids[13..], ["relative", "standings", "gaps"], "the rivals widgets of phase 4");
+    assert_eq!(ids[13..16], ["relative", "standings", "gaps"], "the rivals widgets of phase 4");
+    assert_eq!(ids[16], "radar", "the radar follows them");
     for w in catalog::ALL {
         assert_eq!(catalog::by_id(w.id), Some(w.pane));
         assert_eq!(catalog::id_of(w.pane), w.id);
@@ -2940,6 +2954,7 @@ fn least_height(pane: Pane) -> f32 {
         Pane::Relative => RELATIVE_NEED_H,
         Pane::Standings => STANDINGS_NEED_H,
         Pane::Gaps => GAPS_NEED_H,
+        Pane::Radar => RADAR_NEED_H,
         _ => 0.0,
     }
 }
@@ -2948,8 +2963,11 @@ fn least_height(pane: Pane) -> f32 {
 /// cars (fifth, third in the class), the gaps' trends and 23 minutes left.
 fn full_reading() -> Live {
     let mut live = rich_reading();
-    // The demo's field: P5 of 14, third in the GT3 class, a car lapping the player and a lapped one.
-    let field = super::demo::demo_field(3, 1200.0, 0.0);
+    // The demo's field: P5 of 14, third in the GT3 class, a car lapping the player and a lapped one; the cars that sit round the
+    // player on the radar are placed round this reading's own car and heading (one alongside on the left, one 6 m behind on the
+    // right, one 25 m ahead).
+    let pose = (live.pos.unwrap(), live.heading.unwrap());
+    let field = super::demo::demo_field_at(3, 1200.0, 0.0, pose);
     live.race_position = field.player().and_then(|p| p.position);
     live.class_position = field.player().and_then(|p| p.class_position);
     live.cars = u16::try_from(field.cars.len()).ok();
@@ -3207,28 +3225,31 @@ fn a_card_the_game_cannot_fill_is_not_there() {
     assert_eq!(cards(Caps::LAP_TIME.or(Caps::DIST)), [Pane::Times, Pane::Laps, Pane::DeltaBar]);
     assert!(cards(Caps::NONE).is_empty());
     assert_eq!(cards(Caps::RIVALS), [Pane::Relative, Pane::Standings, Pane::Gaps]);
-    assert!(
-        cards(Caps::RIVALS_WORLD).is_empty(),
-        "the cars' positions alone are not a rivals card"
-    );
+    assert_eq!(cards(Caps::RIVALS_WORLD), [Pane::Radar], "the cars' positions alone are only the radar");
+    assert_eq!(cards(Caps::SPOTTER), [Pane::Radar], "so is the game's own spotter");
+    assert_eq!(cards(Caps::RIVALS_WORLD.or(Caps::SPOTTER)), [Pane::Radar]);
+    assert_eq!(cards(Caps::RIVALS.or(Caps::RIVALS_WORLD)), [Pane::Relative, Pane::Standings, Pane::Gaps, Pane::Radar]);
     // The model has a part for a card exactly when the card is there.
     let mut live = live_reading();
     live.caps = Caps::GEAR.or(Caps::LAP_TIME);
     let m = model(&live, Lang::En);
     assert!(m.flag.is_none() && m.fuel_calc.is_none() && m.tyre_trend.is_none() && m.sectors.is_none() && m.delta_bar.is_none());
     assert!(m.session_card.is_none());
-    assert!(m.relative.is_none() && m.standings.is_none() && m.gaps.is_none());
+    assert!(m.relative.is_none() && m.standings.is_none() && m.gaps.is_none() && m.radar.is_none());
     live.caps = every_cap();
     let m = model(&live, Lang::En);
     assert!(m.flag.is_some() && m.fuel_calc.is_some() && m.tyre_trend.is_some() && m.sectors.is_some() && m.delta_bar.is_some());
     assert!(m.session_card.is_some());
-    assert!(m.relative.is_some() && m.standings.is_some() && m.gaps.is_some());
+    assert!(m.relative.is_some() && m.standings.is_some() && m.gaps.is_some() && m.radar.is_some());
     live.caps = every_cap().minus(Caps::RIVALS);
     let m = model(&live, Lang::En);
     assert!(
         m.relative.is_none() && m.standings.is_none() && m.gaps.is_none(),
         "no rivals, no rivals cards"
     );
+    assert!(m.radar.is_some(), "the radar needs the positions or the spotter, not the rivals' places");
+    live.caps = every_cap().minus(Caps::RIVALS_WORLD.or(Caps::SPOTTER));
+    assert!(model(&live, Lang::En).radar.is_none(), "neither the positions nor the spotter: no radar");
     assert!(m.session_card.is_some());
 }
 
@@ -3298,7 +3319,7 @@ fn practice_keeps_its_rows_and_every_dashboard_holds_only_catalog_widgets() {
             .collect()
     };
     assert_eq!(ids(DashboardId::Race, 0), ["times", "centre", "flag", "tyres"]);
-    assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "session"]);
+    assert_eq!(ids(DashboardId::Race, 1), ["relative", "standings", "gaps", "radar", "session"]);
     assert_eq!(ids(DashboardId::Race, 2), ["fuel_calc", "tyre_trend", "track", "alerts"]);
     assert_eq!(ids(DashboardId::Qualifying, 0), ["times", "centre", "sectors", "tyres"]);
     assert_eq!(ids(DashboardId::Qualifying, 1), ["delta_bar", "standings", "session", "flag"]);
@@ -3386,6 +3407,7 @@ fn the_new_widgets_serialise_for_the_phone_in_camel_case() {
         "relative",
         "standings",
         "gaps",
+        "radar",
     ] {
         assert!(json[key].is_object(), "{key} is in the model's JSON");
     }
@@ -4252,4 +4274,398 @@ fn a_race_with_rivals_keeps_the_phone_layout_on_a_phone_held_upright() {
     // Too tall a canvas falls back to Classic, which has no rivals: the race rows for a phone must stay short enough.
     let s = slots(full_reading().caps);
     assert_eq!(pick_layout_in(DashboardId::Race, 540.0, 1014.0, &s), Layout::Portrait);
+}
+
+// The radar: the cars alongside and close, from the cars' world positions or the game's own spotter.
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() < 1e-3
+}
+
+fn near_at(got: Option<(f32, f32)>, want: (f32, f32)) -> bool {
+    got.is_some_and(|(right, ahead)| near(right, want.0) && near(ahead, want.1))
+}
+
+/// A car with a world position (x and z; the height does not matter).
+fn world_car(slot: u16, name: &str, x: f32, z: f32) -> crate::field::Car {
+    crate::field::Car {
+        world: Some([x, 0.0, z]),
+        ..crate::field::Car::named(slot, name)
+    }
+}
+
+/// `field` with no world positions.
+fn without_world(field: &crate::field::Field) -> crate::field::Field {
+    crate::field::Field {
+        cars: field
+            .cars
+            .iter()
+            .map(|car| crate::field::Car {
+                world: None,
+                ..car.clone()
+            })
+            .collect(),
+        at_s: field.at_s,
+    }
+}
+
+/// A field with the player at `(100, 200)` and cars round it: one alongside on the left, one 6 m behind, one 25 m ahead, one far
+/// ahead (out of range) and one with no position. The player faces north (+z), the game's ground not mirrored.
+fn radar_field() -> crate::field::Field {
+    hand_field(vec![
+        crate::field::Car {
+            is_player: true,
+            ..world_car(0, "You", 100.0, 200.0)
+        },
+        world_car(1, "Left", 96.4, 200.0),
+        world_car(2, "Behind", 100.0, 194.0),
+        world_car(3, "Ahead", 100.0, 225.0),
+        world_car(4, "Far", 100.0, 260.0),
+        crate::field::Car::named(5, "Nowhere"),
+    ])
+}
+
+const NORTH: (f32, f32) = (0.0, 1.0);
+
+#[test]
+fn a_car_is_put_where_the_players_heading_says_it_is() {
+    let me = [100.0, 0.0, 200.0];
+    let at = |x: f32, z: f32, heading: (f32, f32), mirrored: bool| radar_offset(me, [x, 0.0, z], heading, mirrored);
+    // Facing north, with x east: ahead is +z, right is +x.
+    assert!(near_at(at(100.0, 210.0, NORTH, false), (0.0, 10.0)), "straight ahead");
+    assert!(near_at(at(100.0, 195.0, NORTH, false), (0.0, -5.0)), "behind");
+    assert!(near_at(at(97.0, 200.0, NORTH, false), (-3.0, 0.0)), "alongside on the left");
+    assert!(near_at(at(103.0, 200.0, NORTH, false), (3.0, 0.0)), "alongside on the right");
+    // A game whose ground has the other handedness (iRacing, Assetto Corsa) swaps the sides, never ahead and behind.
+    assert!(near_at(at(97.0, 200.0, NORTH, true), (3.0, 0.0)), "mirrored: the left is the right");
+    assert!(near_at(at(103.0, 200.0, NORTH, true), (-3.0, 0.0)));
+    assert!(near_at(at(100.0, 210.0, NORTH, true), (0.0, 10.0)), "mirrored: ahead stays ahead");
+    // Turned 90 degrees, to face east: +x is ahead and north (+z) is the left.
+    let east = (1.0, 0.0);
+    assert!(near_at(at(107.0, 200.0, east, false), (0.0, 7.0)));
+    assert!(near_at(at(100.0, 205.0, east, false), (-5.0, 0.0)), "facing east, north is on the left");
+    assert!(near_at(at(100.0, 205.0, east, true), (5.0, 0.0)));
+    // The length of the heading does not matter, and a heading that is not a direction gives nothing.
+    assert!(near_at(at(107.0, 200.0, (4.0, 0.0), false), (0.0, 7.0)));
+    assert_eq!(at(107.0, 200.0, (0.0, 0.0), false), None);
+    assert_eq!(at(107.0, 200.0, (f32::NAN, 1.0), false), None);
+    assert_eq!(at(f32::NAN, 200.0, NORTH, false), None);
+}
+
+#[test]
+fn the_radar_covers_12_m_each_side_30_ahead_and_20_behind() {
+    for inside in [(0.0, 0.0), (12.0, 30.0), (-12.0, -20.0), (-3.0, 29.9)] {
+        assert!(radar_in_range(inside), "{inside:?}");
+    }
+    for outside in [(0.0, 30.1), (0.0, -20.1), (12.1, 0.0), (-12.1, 5.0), (0.0, 80.0)] {
+        assert!(!radar_in_range(outside), "{outside:?}");
+    }
+}
+
+#[test]
+fn a_car_overlapping_the_players_close_beside_it_is_alongside_and_one_within_8_m_is_close() {
+    use RadarThreat::{Alongside, Clear, Near};
+    // Alongside: the centres less than a car length (4.6 m) apart lengthways and less than 3 m between the two cars' sides
+    // (1.9 m wide each, so a centre distance under 4.9 m).
+    assert_eq!(radar_threat((-3.6, 0.0)), Alongside, "the next lane, level");
+    assert_eq!(radar_threat((3.6, 4.0)), Alongside);
+    assert_eq!(radar_threat((-4.8, -4.5)), Alongside);
+    assert_eq!(radar_threat((0.0, 2.0)), Alongside, "on top of it");
+    assert_eq!(radar_threat((5.0, 0.0)), Near, "two lanes over, level: 3.1 m between the sides");
+    assert_eq!(radar_threat((-3.6, 4.6)), Near, "a car length ahead no longer overlaps");
+    assert_eq!(radar_threat((0.0, -6.0)), Near);
+    assert_eq!(radar_threat((0.0, 8.0)), Near, "8 m is still close");
+    assert_eq!(radar_threat((0.0, 8.1)), Clear);
+    assert_eq!(radar_threat((-10.0, -20.0)), Clear);
+    // Red is more urgent than amber, amber than quiet.
+    assert!(Alongside > Near && Near > Clear);
+    assert_eq!((Clear.role(), Near.role(), Alongside.role()), (Role::Muted, Role::Warn, Role::Danger));
+}
+
+#[test]
+fn the_radar_lists_the_cars_in_range_the_most_urgent_last() {
+    let cars = radar_cars(&radar_field(), NORTH, false).expect("the player has a position");
+    let seen: Vec<(RadarThreat, f32, f32)> = cars.iter().map(|c| (c.threat, c.right_m, c.ahead_m)).collect();
+    assert_eq!(cars.len(), 3, "the far car and the car with no position are left out: {seen:?}");
+    assert_eq!(cars[0].threat, RadarThreat::Clear);
+    assert!(near(cars[0].right_m, 0.0) && near(cars[0].ahead_m, 25.0));
+    assert_eq!(cars[1].threat, RadarThreat::Near);
+    assert!(near(cars[1].right_m, 0.0) && near(cars[1].ahead_m, -6.0));
+    assert_eq!(cars[2].threat, RadarThreat::Alongside);
+    assert!(near(cars[2].right_m, -3.6) && near(cars[2].ahead_m, 0.0));
+    // The other handedness mirrors the sides.
+    let mirrored = radar_cars(&radar_field(), NORTH, true).unwrap();
+    assert!(near(mirrored[2].right_m, 3.6));
+    // No position for the player, or no heading: nothing to draw.
+    let mut nobody = radar_field();
+    nobody.cars[0].world = None;
+    assert_eq!(radar_cars(&nobody, NORTH, false), None);
+    assert_eq!(radar_cars(&radar_field(), (0.0, 0.0), false), None);
+    assert_eq!(radar_cars(&hand_field(vec![world_car(1, "Only", 0.0, 0.0)]), NORTH, false), None);
+}
+
+#[test]
+fn the_radar_measures_every_car_from_the_player_in_the_same_field_never_from_the_live_position() {
+    let mut live = live_reading();
+    live.caps = crate::game::Caps::RIVALS_WORLD;
+    live.heading = Some(NORTH);
+    live.field = Some(Arc::new(radar_field()));
+    live.pos = Some((100.0, 200.0));
+    let cars = |live: &Live| model(live, Lang::En).radar.expect("the radar is there").cars;
+    let before = cars(&live);
+    assert_eq!(before.len(), 3);
+    // The player has driven 60 m since the field was read: the live position is far ahead of the player's car in the field.
+    live.pos = Some((100.0, 260.0));
+    assert_eq!(cars(&live), before, "the live position is not used");
+    // A field read somewhere else on the ground is the same picture.
+    let moved = crate::field::Field {
+        cars: radar_field()
+            .cars
+            .into_iter()
+            .map(|c| crate::field::Car {
+                world: c.world.map(|[x, y, z]| [x + 500.0, y, z - 300.0]),
+                ..c
+            })
+            .collect(),
+        at_s: 0.0,
+    };
+    live.field = Some(Arc::new(moved));
+    for (a, b) in cars(&live).iter().zip(&before) {
+        assert!(near(a.right_m, b.right_m) && near(a.ahead_m, b.ahead_m) && a.threat == b.threat);
+    }
+}
+
+#[test]
+fn the_radar_follows_the_games_handedness_and_the_players_heading() {
+    let mut live = live_reading();
+    live.caps = crate::game::Caps::RIVALS_WORLD;
+    live.field = Some(Arc::new(radar_field()));
+    live.heading = Some(NORTH);
+    let left_of = |live: &Live| model(live, Lang::En).radar.unwrap().cars.last().map(|c| c.right_m);
+    live.game = "acc";
+    assert!(left_of(&live).is_some_and(|r| near(r, -3.6)));
+    live.game = "iracing";
+    assert!(left_of(&live).is_some_and(|r| near(r, 3.6)), "the same mirror as the track camera");
+    live.game = "ac";
+    assert!(left_of(&live).is_some_and(|r| near(r, 3.6)));
+    // Facing west (-x), the car 3.6 m to the west of the player is ahead of it, not beside it.
+    live.game = "acc";
+    live.heading = Some((-1.0, 0.0));
+    let radar = model(&live, Lang::En).radar.unwrap();
+    assert!(radar.cars.iter().any(|c| near(c.ahead_m, 3.6) && near(c.right_m, 0.0)), "{:?}", radar.cars);
+}
+
+#[test]
+fn the_radar_draws_the_cars_the_spotter_or_a_note_by_what_the_game_gives() {
+    use crate::game::{Caps, Spotter};
+    let mut live = live_reading();
+    live.heading = Some(NORTH);
+    // The cars' positions.
+    live.caps = Caps::RIVALS_WORLD;
+    live.field = Some(Arc::new(radar_field()));
+    let radar = model(&live, Lang::En).radar.unwrap();
+    assert_eq!((radar.mode, radar.cars.len(), radar.note.as_deref()), (RadarMode::Map, 3, None));
+    assert_eq!((radar.title.as_str(), radar.show), ("Radar", Show::Shown));
+    // The positions are there but the car has no direction yet: neither picture, and the card says why.
+    live.heading = None;
+    let radar = model(&live, Lang::En).radar.unwrap();
+    assert_eq!((radar.mode, radar.cars.len()), (RadarMode::Waiting, 0));
+    assert!(radar.note.as_deref().is_some_and(|n| n.contains("moving")));
+    // Only the spotter (iRacing): no positions, bars by the signal.
+    live.caps = Caps::SPOTTER;
+    live.field = None;
+    for (signal, bars) in [
+        (None, (0, 0)),
+        (Some(Spotter::Clear), (0, 0)),
+        (Some(Spotter::Left), (1, 0)),
+        (Some(Spotter::Right), (0, 1)),
+        (Some(Spotter::Both), (1, 1)),
+        (Some(Spotter::TwoLeft), (2, 0)),
+        (Some(Spotter::TwoRight), (0, 2)),
+    ] {
+        live.spotter = signal;
+        let radar = model(&live, Lang::En).radar.unwrap();
+        assert_eq!(radar.mode, RadarMode::Spotter, "{signal:?}");
+        assert_eq!((radar.left_bars, radar.right_bars), bars, "{signal:?}");
+        assert!(radar.cars.is_empty() && radar.note.is_none());
+    }
+    // A game that gives both (the positions win) and a stale reading dims the card.
+    live.caps = Caps::SPOTTER.or(Caps::RIVALS_WORLD);
+    live.heading = Some(NORTH);
+    live.field = Some(Arc::new(radar_field()));
+    assert_eq!(model(&live, Lang::En).radar.unwrap().mode, RadarMode::Map);
+    let stale = dashboard(&live, &ctx_of(Lang::Pt, live.at_ms + 60_000));
+    assert_eq!(stale.radar.map(|r| (r.show, r.title)), Some((Show::Dimmed, "Radar".to_owned())));
+}
+
+#[test]
+fn the_radar_scale_keeps_the_boxs_aspect_and_crops_the_longer_axis() {
+    // A box with the radar's own aspect (24 m by 50 m) shows all of it.
+    assert!(near(radar_scale(240.0, 500.0), 10.0));
+    // A square box is cropped lengthways to 30 m, so the cars are as big as a 30 m view makes them.
+    assert!(near(radar_scale(200.0, 200.0), 200.0 / 30.0));
+    // A narrow box is cropped sideways.
+    assert!(near(radar_scale(100.0, 500.0), 10.0));
+    // A very wide one never shows less than 30 m of length.
+    assert!(near(radar_scale(2000.0, 150.0), 5.0));
+    assert!(radar_scale(0.0, 0.0) > 0.0);
+}
+
+#[test]
+fn the_radar_is_on_race_only_beside_the_gaps_and_in_no_other_dashboard() {
+    use crate::game::Caps;
+    let with = slots(every_cap());
+    let no_radar = slots(every_cap().minus(Caps::RIVALS_WORLD.or(Caps::SPOTTER)));
+    assert!(!no_radar.cards.contains(&Pane::Radar));
+    for layout in ALL_LAYOUTS {
+        for dash in DashboardId::ALL {
+            let plan = layout.plan_in(dash, &with, usize::MAX);
+            let wanted = dash == DashboardId::Race && !matches!(layout, Layout::Classic | Layout::Stack);
+            assert_eq!(plan.area(Pane::Radar).is_some(), wanted, "{dash:?} {layout:?}");
+            assert!(layout.plan_in(dash, &no_radar, usize::MAX).area(Pane::Radar).is_none());
+            if let Some(radar) = plan.area(Pane::Radar) {
+                assert!(radar.3 + 0.01 >= RADAR_NEED_H, "{dash:?} {layout:?}: the radar is {} tall", radar.3);
+                assert!(radar.2 >= 150.0, "{dash:?} {layout:?}: the radar is {} wide", radar.2);
+                // The radar sits in the rivals' row, after the gaps.
+                let gaps = plan.area(Pane::Gaps).unwrap();
+                assert!(near(gaps.1, radar.1) && gaps.0 < radar.0, "{dash:?} {layout:?}");
+            }
+        }
+    }
+    // The rows.
+    let wide = builtin(DashboardId::Race).rows_for(Layout::Wide)[1].cards;
+    assert_eq!(
+        wide,
+        [
+            (Pane::Relative, 1.2),
+            (Pane::Standings, 1.3),
+            (Pane::Gaps, 0.85),
+            (Pane::Radar, 0.85),
+            (Pane::Session, 0.8),
+        ]
+    );
+    let portrait = builtin(DashboardId::Race).rows_for(Layout::Portrait);
+    assert!(portrait.iter().any(|row| row.cards == [(Pane::Gaps, 1.0), (Pane::Radar, 1.0)]));
+    assert_eq!(portrait.iter().map(|row| row.h).sum::<f32>(), 220.0 + 170.0 + 244.0 + 200.0 + 242.0 + 280.0 + 262.0);
+    // Without the radar the phone's gaps card takes the whole row, as before.
+    let gaps_width = |s: &Slots| Layout::Portrait.plan_in(DashboardId::Race, s, usize::MAX).area(Pane::Gaps).unwrap().2;
+    assert!(gaps_width(&no_radar) > gaps_width(&with));
+    // The tyres lose no room to it, in any layout.
+    for layout in ALL_LAYOUTS {
+        let (a, b) = (
+            layout.plan_in(DashboardId::Race, &with, usize::MAX),
+            layout.plan_in(DashboardId::Race, &no_radar, usize::MAX),
+        );
+        assert!(a.area(Pane::Tyres).unwrap().2 + 0.01 >= b.area(Pane::Tyres).unwrap().2, "{layout:?}");
+    }
+    // A phone held upright still gets the phone layout.
+    assert_eq!(pick_layout_in(DashboardId::Race, 540.0, 1014.0, &with), Layout::Portrait);
+}
+
+#[test]
+fn the_radar_serialises_for_the_phone_in_camel_case() {
+    let live = full_reading();
+    let json = serde_json::to_value(model_with(&live, Default::default(), &rich_laps())).unwrap();
+    assert_eq!(json["radar"]["mode"], "map");
+    assert_eq!(json["radar"]["show"], "shown");
+    assert_eq!(json["radar"]["title"], "Radar");
+    // The demo's three cars round the player: one 25 m ahead (quiet), one 6 m behind (close), one alongside on the left.
+    let cars = json["radar"]["cars"].as_array().unwrap();
+    assert_eq!(cars.len(), 3);
+    assert_eq!(cars[0]["threat"], "clear");
+    assert_eq!(cars[1]["threat"], "near");
+    assert_eq!(cars[2]["threat"], "alongside");
+    assert!(cars[2]["rightM"].as_f64().unwrap() < -3.0 && cars[2]["aheadM"].as_f64().unwrap().abs() < 0.1);
+    assert!(cars[1]["aheadM"].as_f64().unwrap() < -5.0);
+    assert_eq!(json["radar"]["leftBars"], 0);
+    assert!(json["radar"]["note"].is_null());
+    let mut spotter = live.clone();
+    spotter.caps = every_cap().minus(crate::game::Caps::RIVALS_WORLD);
+    spotter.field = live.field.as_deref().map(|f| Arc::new(without_world(f)));
+    spotter.spotter = Some(crate::game::Spotter::TwoRight);
+    let json = serde_json::to_value(model_with(&spotter, Default::default(), &rich_laps())).unwrap();
+    assert_eq!((json["radar"]["mode"].as_str(), json["radar"]["rightBars"].as_u64()), (Some("spotter"), Some(2)));
+}
+
+#[test]
+fn the_demo_puts_three_cars_round_the_player_and_they_move_a_little() {
+    let field = super::demo::demo_field(3, 1200.0, 0.0);
+    let pose = super::demo::demo_pose(1200.0);
+    assert!(field.player().and_then(|p| p.world).is_some());
+    let cars = |t: f64| radar_cars(&super::demo::demo_field(3, 1200.0, t), pose.1, false).unwrap();
+    let (a, b) = (cars(0.0), cars(3.0));
+    assert_eq!((a.len(), b.len()), (3, 3));
+    assert!(a.iter().zip(&b).any(|(x, y)| !near(x.ahead_m, y.ahead_m)), "the cars move");
+    for t in [0.0, 1.0, 2.0, 3.5, 7.0, 11.0] {
+        let cars = cars(t);
+        assert!(cars.iter().any(|c| c.threat == RadarThreat::Alongside), "t = {t}");
+        assert!(cars.iter().any(|c| c.threat == RadarThreat::Near), "t = {t}");
+        assert!(cars.iter().any(|c| c.threat == RadarThreat::Clear), "t = {t}");
+    }
+    // The demo's frame carries its position, so the live heading comes out of its driving, and a spotter that cycles.
+    let seen: HashSet<String> = (0..20)
+        .map(|i| format!("{:?}", demo_frame(2, 100.0, f64::from(i) * 2.0, Some(55.0), 40.0, 1.0).spotter))
+        .collect();
+    assert_eq!(seen.len(), 6, "every state of the spotter: {seen:?}");
+}
+
+#[test]
+fn the_radar_paints_red_for_a_car_alongside_amber_for_a_close_one_and_bars_for_the_spotter() {
+    use crate::game::Spotter;
+    let laps = rich_laps();
+    let with = full_reading();
+    let mut flat = with.clone();
+    flat.caps = every_cap().minus(crate::game::Caps::RIVALS_WORLD);
+    flat.field = with.field.as_deref().map(|f| Arc::new(without_world(f)));
+    let (a, b) = (
+        dashboard_pixels(DashboardId::Race, &with, &laps),
+        dashboard_pixels(DashboardId::Race, &flat, &laps),
+    );
+    save(&a, 1920, 1080, "panel-race-radar.png");
+    for (colour, what) in [(DESTRUCTIVE, "the car alongside"), (WARN, "the close car")] {
+        assert!(
+            has_color(&a, colour) > has_color(&b, colour) + 100,
+            "{what} is drawn: {} against {}",
+            has_color(&a, colour),
+            has_color(&b, colour)
+        );
+    }
+    // The spotter: nothing extra while clear, one bar for a car on the left, two for two.
+    let red = |signal: Spotter| {
+        let mut live = flat.clone();
+        live.spotter = Some(signal);
+        has_color(&dashboard_pixels(DashboardId::Race, &live, &laps), DESTRUCTIVE)
+    };
+    let (clear, left, two) = (red(Spotter::Clear), red(Spotter::Left), red(Spotter::TwoLeft));
+    assert!(left > clear + 50, "a bar for the car on the left: {left} against {clear}");
+    assert!(two > left + 50, "two bars for two cars: {two} against {left}");
+    assert!(red(Spotter::Right) > clear + 50, "and on the right");
+    // A reading that gives nothing for the radar yet draws the note and still paints.
+    let mut waiting = with.clone();
+    waiting.heading = None;
+    waiting.caps = every_cap().minus(crate::game::Caps::SPOTTER);
+    assert!(has_color(&dashboard_pixels(DashboardId::Race, &waiting, &laps), CARD) > 1000);
+}
+
+#[test]
+fn the_radar_paints_in_every_shape_with_every_kind_of_reading() {
+    let f = fixture();
+    let laps = rich_laps();
+    let with = full_reading();
+    let mut spotter = with.clone();
+    spotter.caps = every_cap().minus(crate::game::Caps::RIVALS_WORLD);
+    spotter.field = None;
+    spotter.spotter = Some(crate::game::Spotter::Both);
+    let mut waiting = with.clone();
+    waiting.heading = None;
+    waiting.caps = every_cap().minus(crate::game::Caps::SPOTTER);
+    for live in [&with, &spotter, &waiting] {
+        for (w, h) in [(2560, 1080), (1920, 1080), (1024, 768), (540, 1080), (430, 900), (960, 600)] {
+            let mut v = view(&f, Some(live), Tab::Dash, 1.0, Lang::Es);
+            v.dashboard = Some(DashboardId::Race);
+            v.recent_laps = &laps;
+            let pixels = render(&v, w, h);
+            assert!(has_color(&pixels, CARD) > 1000, "{w}x{h}");
+        }
+    }
 }

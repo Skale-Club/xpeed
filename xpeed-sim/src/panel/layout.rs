@@ -102,6 +102,8 @@ pub(super) enum Pane {
     Standings,
     /// The car one place ahead and the one behind, with the gap to each and whether it is closing or opening.
     Gaps,
+    /// The cars alongside and close, seen from above (the other cars' positions), or the game's own left and right signal.
+    Radar,
 }
 
 /// The dashboard's layouts, one per shape of window. Each is a canvas in design units made of rows of cards, scaled whole
@@ -296,6 +298,7 @@ pub(super) fn need_h(card: Pane, lap_rows: usize, row_h: f32) -> f32 {
         Pane::Relative => RELATIVE_NEED_H.min(row_h),
         Pane::Standings => STANDINGS_NEED_H.min(row_h),
         Pane::Gaps => GAPS_NEED_H.min(row_h),
+        Pane::Radar => RADAR_NEED_H.min(row_h),
         _ => row_h,
     }
 }
@@ -320,6 +323,8 @@ pub(super) const SESSION_NEED_H: f32 = 168.0;
 pub(super) const RELATIVE_NEED_H: f32 = 244.0;
 pub(super) const STANDINGS_NEED_H: f32 = 242.0;
 pub(super) const GAPS_NEED_H: f32 = 200.0;
+/// The radar card: the caption and a box tall enough for the car and the cars close to it.
+pub(super) const RADAR_NEED_H: f32 = 200.0;
 
 /// The height of a laps card with `rows` rows: its padding, caption, head and the rows.
 pub(super) fn laps_card_h(rows: usize) -> f32 {
@@ -919,6 +924,7 @@ pub(super) fn slots(caps: crate::game::Caps) -> Slots {
         (Pane::Relative, caps.has(Caps::RIVALS)),
         (Pane::Standings, caps.has(Caps::RIVALS)),
         (Pane::Gaps, caps.has(Caps::RIVALS)),
+        (Pane::Radar, any(&[Caps::RIVALS_WORLD, Caps::SPOTTER])),
     ]
     .into_iter()
     .filter(|(_, on)| *on)

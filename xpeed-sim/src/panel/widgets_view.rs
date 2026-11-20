@@ -1,5 +1,5 @@
 //! The cards of the catalog's later widgets, drawn from the models of `widgets.rs`: the digiflag, the fuel strategy, the tyre
-//! wear, the sectors, the delta bar, the session and the rivals (relative, standings, gaps). They use the same pieces as the
+//! wear, the sectors, the delta bar, the session and the rivals (relative, standings, gaps, radar). They use the same pieces as the
 //! first seven cards (the card caption, the tokens' type sizes and colours, the panel's one corner and the square-block bars) and add no colour or corner of their own.
 
 use super::*;
@@ -583,5 +583,65 @@ pub(super) fn gaps_card(g: &mut Painter, d: &Dash, card: Area) {
             let note_top = top + 2.0 * side_h + S2 + S2;
             rival_note(g, note, (x, note_top, w), y + h);
         }
+    });
+}
+
+// The radar.
+
+/// A filled rectangle of half its width and half its length `half`, centred on `at`: a car of the radar, which is drawn
+/// heading-up, so every car (taken to point the way the player does) is the same upright rectangle.
+fn radar_rect(g: &Painter, (cx, cy): (f32, f32), (half_w, half_l): (f32, f32), colour: COLORREF) {
+    g.fill(g.r(cx - half_w, cy - half_l, 2.0 * half_w, 2.0 * half_l), colour);
+}
+
+/// The radar card: a box seen from above with the player's car in yellow, the cars of the field round it (quiet, amber within
+/// 8 m ahead or behind, red alongside) and a faint line along each side of the player's car. For a game that only gives a left
+/// and right signal, the player's car with a red bar along each side a car is on (two bars for two cars); nothing extra when
+/// the spotter says clear. Before there is anything to draw, the card says why.
+pub(super) fn radar_card(g: &mut Painter, d: &Dash, card: Area) {
+    let Some(m) = &d.m.radar else {
+        return;
+    };
+    let (x, y, w, h) = inner(card);
+    shown(g, m.show, |g| {
+        caption(g, &m.title, (x, y, w, CAPTION_H), DT_LEFT);
+        let top = y + CAPTION_H + S2;
+        if m.mode == RadarMode::Waiting {
+            if let Some(note) = &m.note {
+                rival_note(g, note, (x, top, w), y + h);
+            }
+            return;
+        }
+        let box_h = (y + h - top).max(1.0);
+        g.round(g.r(x, top, w, box_h), BACKGROUND, Some(BORDER));
+        let scale = radar_scale(w, box_h);
+        let half = ((RADAR_CAR_W_M * scale / 2.0).max(1.5), RADAR_CAR_L_M * scale / 2.0);
+        let across = x + w / 2.0;
+        g.clip(g.r(x + 1.0, top + 1.0, w - 2.0, box_h - 2.0));
+        match m.mode {
+            RadarMode::Map => {
+                // The player is a little below the middle, as the radar sees farther ahead (30 m) than behind (20 m).
+                let centre = (across, top + box_h * RADAR_AHEAD_M / (RADAR_AHEAD_M + RADAR_BEHIND_M));
+                g.fill(g.r(centre.0 - half.0 - STROKE_HAIR, top, STROKE_HAIR, box_h), BORDER);
+                g.fill(g.r(centre.0 + half.0, top, STROKE_HAIR, box_h), BORDER);
+                for car in &m.cars {
+                    let at = (centre.0 + car.right_m * scale, centre.1 - car.ahead_m * scale);
+                    radar_rect(g, at, half, car.threat.role().colour());
+                }
+                radar_rect(g, centre, half, PRIMARY);
+            }
+            RadarMode::Spotter | RadarMode::Waiting => {
+                let centre = (across, top + box_h / 2.0);
+                radar_rect(g, centre, half, PRIMARY);
+                let bar_half_w = (half.0 * 0.3).max(STROKE_BAR / 2.0);
+                for (bars, side) in [(m.left_bars, -1.0_f32), (m.right_bars, 1.0)] {
+                    for n in 0..bars {
+                        let out = half.0 + S1 + bar_half_w + f32::from(n) * (2.0 * bar_half_w + S1);
+                        radar_rect(g, (centre.0 + side * out, centre.1), (bar_half_w, half.1 * 1.5), Role::Danger.colour());
+                    }
+                }
+            }
+        }
+        g.unclip();
     });
 }

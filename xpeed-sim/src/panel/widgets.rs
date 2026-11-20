@@ -953,3 +953,189 @@ pub(super) fn gaps_model(lang: Lang, live: &Live, fresh: bool) -> GapsModel {
         note: field.is_none().then(|| say(Msg::PanelRivalsWait)),
     }
 }
+
+// The radar: the cars alongside and close, seen from above.
+
+/// What the radar covers round the player's car, in metres: to each side, ahead and behind.
+pub(super) const RADAR_SIDE_M: f32 = 12.0;
+pub(super) const RADAR_AHEAD_M: f32 = 30.0;
+pub(super) const RADAR_BEHIND_M: f32 = 20.0;
+/// Every car is drawn this wide and this long, in metres (the games give positions, not sizes).
+pub(super) const RADAR_CAR_W_M: f32 = 1.9;
+pub(super) const RADAR_CAR_L_M: f32 = 4.6;
+/// A car is alongside while it overlaps the player's lengthways and the gap between the two cars' sides is under this.
+pub(super) const RADAR_ALONGSIDE_GAP_M: f32 = 3.0;
+/// A car whose centre is within this many metres ahead or behind (lengthways) is close.
+pub(super) const RADAR_NEAR_M: f32 = 8.0;
+/// A box that is wide for its height shows at least this many metres of the radar's length (the longer axis is cropped, never
+/// shrunk to a sliver).
+pub(super) const RADAR_LEAST_LENGTH_M: f32 = 30.0;
+
+/// What the radar draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum RadarMode {
+    /// The cars round the player, from their world positions.
+    Map,
+    /// The player's car with a bar on the side the game's own spotter says a car is on.
+    Spotter,
+    /// Neither yet: the card says why.
+    Waiting,
+}
+
+/// How a car stands to the player on the radar, the most urgent last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum RadarThreat {
+    Clear,
+    /// Within `RADAR_NEAR_M` ahead or behind.
+    Near,
+    /// Overlapping the player's car lengthways, with less than `RADAR_ALONGSIDE_GAP_M` between the sides.
+    Alongside,
+}
+
+impl RadarThreat {
+    /// The ink of a car: quiet, amber, red.
+    pub(super) fn role(self) -> Role {
+        match self {
+            RadarThreat::Clear => Role::Muted,
+            RadarThreat::Near => Role::Warn,
+            RadarThreat::Alongside => Role::Danger,
+        }
+    }
+}
+
+/// A car of the radar, in metres from the player's car, in the player's own frame (the player points up).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RadarCar {
+    /// To the right of the player (negative: to the left).
+    pub(super) right_m: f32,
+    /// Ahead of the player (negative: behind).
+    pub(super) ahead_m: f32,
+    pub(super) threat: RadarThreat,
+}
+
+/// The radar card: from above and heading-up, the player's car in the middle and the cars of the field round it; or, for a game
+/// that only gives a left and right signal, the player's car with a bar (two for two cars) along each side a car is on.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RadarModel {
+    pub(super) show: Show,
+    pub(super) title: String,
+    pub(super) mode: RadarMode,
+    /// The cars in range, the most urgent last (`Map` only).
+    pub(super) cars: Vec<RadarCar>,
+    /// The bars on the left and on the right of the car, 0 to 2 (`Spotter` only).
+    pub(super) left_bars: u8,
+    pub(super) right_bars: u8,
+    /// Said while there is nothing to draw yet.
+    pub(super) note: Option<String>,
+}
+
+/// The heading as a unit vector, or nothing for one that is not a direction.
+fn unit_heading((x, z): (f32, f32)) -> Option<(f32, f32)> {
+    let length = x.hypot(z);
+    if length.is_finite() && length > 1e-3 {
+        Some((x / length, z / length))
+    } else {
+        None
+    }
+}
+
+/// Where `other` is from `player` in the player's frame, in metres: `(right, ahead)`. Both positions are the game's
+/// `(x, y, z)` (the ground is x and z), `heading` is the player's direction on the ground as `Live::heading` gives it, and
+/// `mirrored` says the game's ground has the opposite handedness (`perspective::mirrored_ground`), exactly as the track
+/// camera uses it. Nothing for a heading that is not a direction or a position that is not a number.
+pub(super) fn radar_offset(player: [f32; 3], other: [f32; 3], heading: (f32, f32), mirrored: bool) -> Option<(f32, f32)> {
+    let (tx, tz) = unit_heading(heading)?;
+    let (dx, dz) = (other[0] - player[0], other[2] - player[2]);
+    let (right, ahead) = (dx * tz - dz * tx, dx * tx + dz * tz);
+    let right = if mirrored { -right } else { right };
+    (right.is_finite() && ahead.is_finite()).then_some((right, ahead))
+}
+
+/// Whether a car at `(right, ahead)` is in the radar's range.
+pub(super) fn radar_in_range((right, ahead): (f32, f32)) -> bool {
+    right.abs() <= RADAR_SIDE_M && (-RADAR_BEHIND_M..=RADAR_AHEAD_M).contains(&ahead)
+}
+
+/// How a car at `(right, ahead)` stands to the player. Every car is taken to point the way the player does (the games give
+/// positions, not headings), so the cars are all the same rectangle and overlap lengthways while their centres are less than a
+/// car's length apart.
+pub(super) fn radar_threat((right, ahead): (f32, f32)) -> RadarThreat {
+    if ahead.abs() < RADAR_CAR_L_M && right.abs() - RADAR_CAR_W_M < RADAR_ALONGSIDE_GAP_M {
+        RadarThreat::Alongside
+    } else if ahead.abs() <= RADAR_NEAR_M {
+        RadarThreat::Near
+    } else {
+        RadarThreat::Clear
+    }
+}
+
+/// The cars of `field` in the radar's range, the most urgent last. Every offset is the car's position less the position of the
+/// player's own car *in this same field*, never the live position (which is newer by up to a field's interval: the cars would
+/// all shift by the metres the player has driven since). Nothing when the field has no position for the player, or the heading
+/// is not a direction.
+pub(super) fn radar_cars(field: &Field, heading: (f32, f32), mirrored: bool) -> Option<Vec<RadarCar>> {
+    unit_heading(heading)?;
+    let mine = field.player()?.world?;
+    let mut cars: Vec<RadarCar> = field
+        .cars
+        .iter()
+        .filter(|car| !car.is_player)
+        .filter_map(|car| radar_offset(mine, car.world?, heading, mirrored))
+        .filter(|at| radar_in_range(*at))
+        .map(|at| RadarCar {
+            right_m: at.0,
+            ahead_m: at.1,
+            threat: radar_threat(at),
+        })
+        .collect();
+    cars.sort_by_key(|car| car.threat);
+    Some(cars)
+}
+
+/// The bars the spotter lights on the left and on the right.
+pub(super) fn radar_bars(spotter: crate::game::Spotter) -> (u8, u8) {
+    use crate::game::Spotter;
+    match spotter {
+        Spotter::Clear => (0, 0),
+        Spotter::Left => (1, 0),
+        Spotter::Right => (0, 1),
+        Spotter::Both => (1, 1),
+        Spotter::TwoLeft => (2, 0),
+        Spotter::TwoRight => (0, 2),
+    }
+}
+
+/// How many design units a metre is in a drawing box `w` by `h`: the box keeps its own aspect and the radar's longer axis is
+/// cropped to it, with never less than `RADAR_LEAST_LENGTH_M` of length in view.
+pub(super) fn radar_scale(w: f32, h: f32) -> f32 {
+    let whole = (w / (2.0 * RADAR_SIDE_M)).max(h / (RADAR_AHEAD_M + RADAR_BEHIND_M));
+    whole.min(h / RADAR_LEAST_LENGTH_M).max(0.01)
+}
+
+pub(super) fn radar_model(lang: Lang, live: &Live, fresh: bool) -> RadarModel {
+    let mirrored = crate::perspective::mirrored_ground(live.game);
+    let map = live
+        .field
+        .as_deref()
+        .zip(live.heading)
+        .and_then(|(field, heading)| radar_cars(field, heading, mirrored));
+    let has_spotter = live.caps.has(crate::game::Caps::SPOTTER);
+    let (mode, cars, bars) = match map {
+        Some(cars) => (RadarMode::Map, cars, (0, 0)),
+        None if has_spotter => (RadarMode::Spotter, Vec::new(), live.spotter.map_or((0, 0), radar_bars)),
+        None => (RadarMode::Waiting, Vec::new(), (0, 0)),
+    };
+    RadarModel {
+        show: if fresh { Show::Shown } else { Show::Dimmed },
+        title: text(lang, &Msg::PanelRadarTitle),
+        mode,
+        cars,
+        left_bars: bars.0,
+        right_bars: bars.1,
+        note: (mode == RadarMode::Waiting).then(|| text(lang, &Msg::PanelRadarWait)),
+    }
+}

@@ -74,6 +74,7 @@ pub(super) fn dashboard_screen(g: &mut Painter, body: RECT, view: &View) {
             Pane::Relative => relative_card(g, &d, area),
             Pane::Standings => standings_card(g, &d, area),
             Pane::Gaps => gaps_card(g, &d, area),
+            Pane::Radar => radar_card(g, &d, area),
         }
     }
     if let Some(target) = banner_target(&plan) {

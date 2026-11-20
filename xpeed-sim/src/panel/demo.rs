@@ -27,10 +27,45 @@ const DEMO_RIVALS: [(&str, &str, f64, f64); 13] = [
     ("C. Rossi", "GTE", -1.075, 50.6),
 ];
 
+/// Where the demo's car is and which way it points on the ground (x, z), `dist` metres into a lap: the demo drives round a
+/// circle the length of its track, anticlockwise, so its heading is the circle's tangent.
+pub(super) type DemoPose = ((f32, f32), (f32, f32));
+
+pub(super) fn demo_pose(dist: f64) -> DemoPose {
+    let radius = DEMO_TRACK_M / std::f64::consts::TAU;
+    let angle = std::f64::consts::TAU * dist / DEMO_TRACK_M;
+    let (sin, cos) = angle.sin_cos();
+    (((radius * cos) as f32, (radius * sin) as f32), (-sin as f32, cos as f32))
+}
+
+/// The world position of a car `ahead` metres ahead of and `right` metres to the right of a car at `pose` (the demo's ground
+/// is not mirrored: see `widgets::radar_offset`, which this undoes).
+fn demo_world(((x, z), (tx, tz)): DemoPose, ahead: f32, right: f32) -> [f32; 3] {
+    [x + ahead * tx + right * tz, 0.0, z + ahead * tz - right * tx]
+}
+
+/// The three rivals that sit round the player on the radar, by their place in `DEMO_RIVALS`, and where each is (metres ahead,
+/// metres to the right) at `t` seconds: one alongside on the left, one a few metres behind on the right, one well ahead. Each
+/// moves a little round its place.
+fn demo_radar_spot(rival: usize, t: f64) -> Option<(f32, f32)> {
+    let wobble = |amount: f64, pace: f64| (amount * (t * pace).sin()) as f32;
+    match rival {
+        3 => Some((wobble(1.5, 0.7), -3.6 + wobble(0.3, 0.9))),
+        4 => Some((-6.0 + wobble(1.0, 0.5), 3.6 + wobble(0.3, 0.6))),
+        2 => Some((25.0 + wobble(3.0, 0.4), wobble(0.8, 0.3))),
+        _ => None,
+    }
+}
+
 /// The demo's field for a player `dist` metres into lap `lap`: the rivals keep their places a little ahead of or behind the
 /// player and drift a few tenths of a second from lap to lap, so the gaps move. The places, the class places and the gaps are
-/// completed in the one shared place (`field::publish`).
+/// completed in the one shared place (`field::publish`). Three rivals have world positions round the player.
 pub(super) fn demo_field(lap: i32, dist: f64, clock_s: f64) -> std::sync::Arc<crate::field::Field> {
+    demo_field_at(lap, dist, clock_s, demo_pose(dist))
+}
+
+/// `demo_field` with the player at `pose` (a preview fixture whose car is elsewhere on the ground puts the radar's cars round it).
+pub(super) fn demo_field_at(lap: i32, dist: f64, clock_s: f64, pose: DemoPose) -> std::sync::Arc<crate::field::Field> {
     let me = f64::from(lap - 1) + dist / DEMO_TRACK_M;
     let car = |slot: u16, name: &str, class: &str, raced: f64, lap_s: f64| crate::field::Car {
         class: Some(class.to_owned()),
@@ -42,6 +77,7 @@ pub(super) fn demo_field(lap: i32, dist: f64, clock_s: f64) -> std::sync::Arc<cr
     };
     let player = crate::field::Car {
         is_player: true,
+        world: Some(demo_world(pose, 0.0, 0.0)),
         ..car(0, "You", DEMO_CLASS, me, 50.0)
     };
     let mut cars = vec![(me, player)];
@@ -50,7 +86,14 @@ pub(super) fn demo_field(lap: i32, dist: f64, clock_s: f64) -> std::sync::Arc<cr
         let drift = 0.004 * (me * 2.0 * (1.0 + 0.37 * i as f64)).sin();
         // Before the first lap is done the cars behind sit on the line.
         let raced = (me + offset_laps + drift).max(0.0);
-        cars.push((raced, car(i as u16 + 1, name, class, raced, *lap_s)));
+        let world = demo_radar_spot(i, clock_s).map(|(ahead, right)| demo_world(pose, ahead, right));
+        cars.push((
+            raced,
+            crate::field::Car {
+                world,
+                ..car(i as u16 + 1, name, class, raced, *lap_s)
+            },
+        ));
     }
     cars.sort_by(|a, b| b.0.total_cmp(&a.0));
     let cars = cars
@@ -79,6 +122,9 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     frame.track = "Demo Ring".into();
     frame.car = "Demo GT3".into();
     frame.track_length_m = Some(DEMO_TRACK_M);
+    let ((x, z), _) = demo_pose(dist);
+    frame.x = x;
+    frame.z = z;
     frame.speed_ms = speed as f32;
     let gear = (1.0 + speed / 14.0).floor().min(6.0);
     frame.gear = gear as f32;
@@ -125,6 +171,12 @@ pub(super) fn demo_frame(lap: i32, dist: f64, lap_time: f64, last: Option<f64>, 
     frame.class_position = player.and_then(|p| p.class_position);
     frame.cars = u16::try_from(field.cars.len()).ok();
     frame.field = Some(field);
+    // The game's own spotter says something different every couple of seconds, so the radar shows each of its states.
+    const SPOTTER_STATES: [crate::game::Spotter; 8] = {
+        use crate::game::Spotter::{Both, Clear, Left, Right, TwoLeft, TwoRight};
+        [Clear, Left, Clear, Right, Both, TwoLeft, Clear, TwoRight]
+    };
+    frame.spotter = Some(SPOTTER_STATES[(lap_time / 2.0).max(0.0) as usize % SPOTTER_STATES.len()]);
     frame.session_time_left_s = Some((DEMO_SESSION_S - (f64::from(lap - 1) * 50.0 + lap_time)).max(0.0));
     frame
 }

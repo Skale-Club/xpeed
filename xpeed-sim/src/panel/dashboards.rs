@@ -132,8 +132,9 @@ fn time_trial_rows(layout: Layout) -> &'static [Row] {
     }
 }
 
-// Race: the times, the centre, the flag, the tyres; the rivals (relative, standings, gaps) with the session; the fuel strategy,
-// the tyre wear, the track and the alerts.
+// Race: the times, the centre, the flag, the tyres; the rivals (relative, standings, gaps, radar) with the session; the fuel
+// strategy, the tyre wear, the track and the alerts. The radar is left out of Classic (the smallest window holds no rivals) and
+// of Stack (one narrow column, no room for a card beside the gaps).
 
 const RACE_WIDE: &[Row] = &[
     Row {
@@ -143,9 +144,10 @@ const RACE_WIDE: &[Row] = &[
     Row {
         h: 262.0,
         cards: &[
-            (Pane::Relative, 1.3),
-            (Pane::Standings, 1.4),
-            (Pane::Gaps, 0.9),
+            (Pane::Relative, 1.2),
+            (Pane::Standings, 1.3),
+            (Pane::Gaps, 0.85),
+            (Pane::Radar, 0.85),
             (Pane::Session, 0.8),
         ],
     },
@@ -177,6 +179,7 @@ const RACE_ULTRAWIDE: &[Row] = &[
             (Pane::Relative, 1.2),
             (Pane::Standings, 1.3),
             (Pane::Gaps, 0.9),
+            (Pane::Radar, 0.9),
             (Pane::Session, 0.8),
         ],
     },
@@ -197,7 +200,12 @@ const RACE_SQUARE: &[Row] = &[
     },
     Row {
         h: 250.0,
-        cards: &[(Pane::Relative, 1.2), (Pane::Standings, 1.4), (Pane::Gaps, 1.0)],
+        cards: &[
+            (Pane::Relative, 1.1),
+            (Pane::Standings, 1.3),
+            (Pane::Gaps, 0.9),
+            (Pane::Radar, 0.9),
+        ],
     },
     Row {
         h: 232.0,
@@ -233,7 +241,7 @@ const RACE_PORTRAIT: &[Row] = &[
     },
     Row {
         h: 200.0,
-        cards: &[(Pane::Gaps, 1.0)],
+        cards: &[(Pane::Gaps, 1.0), (Pane::Radar, 1.0)],
     },
     Row {
         h: 242.0,

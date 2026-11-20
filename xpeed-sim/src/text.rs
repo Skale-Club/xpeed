@@ -271,6 +271,9 @@ pub enum Msg {
     PanelGapSteady,
     /// Under a rivals card while the game has not given the cars yet.
     PanelRivalsWait,
+    /// The radar card's caption, and its note while the car is not moving or the game has given no positions yet.
+    PanelRadarTitle,
+    PanelRadarWait,
     /// The words of the alerts that are lit.
     AlertAbs,
     AlertTc,
@@ -752,6 +755,12 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Os outros carros aparecem quando o jogo der as posições deles."),
             s("Los demás coches aparecen cuando el juego dé sus posiciones."),
         ),
+        PanelRadarTitle => t(s("Radar"), s("Radar"), s("Radar")),
+        PanelRadarWait => t(
+            s("The radar shows once the car is moving and the game gives the other cars' positions."),
+            s("O radar aparece quando o carro estiver em movimento e o jogo der as posições dos outros carros."),
+            s("El radar aparece cuando el coche se mueva y el juego dé las posiciones de los demás coches."),
+        ),
         PanelTyreWearWait => t(
             s("Wear per lap shows after a clean lap without a pit stop."),
             s("O desgaste por volta aparece depois de uma volta limpa, sem parada no pit."),
@@ -1147,6 +1156,8 @@ mod tests {
             Msg::PanelGapOpening("0.2".into()),
             Msg::PanelGapSteady,
             Msg::PanelRivalsWait,
+            Msg::PanelRadarTitle,
+            Msg::PanelRadarWait,
             Msg::AlertAbs,
             Msg::AlertTc,
             Msg::AlertDrsAvailable,

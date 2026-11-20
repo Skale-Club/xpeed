@@ -234,6 +234,8 @@ pub struct Live {
     pub session_laps: Option<u16>,
     /// The other cars of the session (the rivals layer), as of the last reading the game gave; `None` for a game that gives none.
     pub field: Option<std::sync::Arc<crate::field::Field>>,
+    /// What the game's own spotter says about the cars beside the player, where the game gives one (iRacing); `None` otherwise.
+    pub spotter: Option<crate::game::Spotter>,
     /// How the gap to the car one place ahead and to the one behind changed over the last laps, in seconds per lap
     /// (positive: the gap is shrinking); `None` until a side has two laps to compare. See `GapTrack`.
     pub gap_trend: Option<(Option<f64>, Option<f64>)>,
@@ -653,6 +655,7 @@ impl Tracker {
             session_time_left_s: frame.session_time_left_s,
             session_laps: frame.session_laps,
             field: self.field.clone(),
+            spotter: frame.spotter,
             gap_trend: {
                 let trend = (self.gap_ahead.trend(), self.gap_behind.trend());
                 (trend.0.is_some() || trend.1.is_some()).then_some(trend)
@@ -2171,6 +2174,17 @@ mod tests {
             last = Some(tracker.on_frame("Test", &f, 0));
         }
         last.unwrap()
+    }
+
+    #[test]
+    fn the_live_reading_carries_the_games_spotter_as_it_is_now() {
+        let mut tracker = Tracker::default();
+        let mut frame = at(1, 100.0, 5.0, None);
+        assert_eq!(tracker.on_frame("iracing", &frame, 0).spotter, None);
+        frame.spotter = Some(crate::game::Spotter::TwoLeft);
+        assert_eq!(tracker.on_frame("iracing", &frame, 100).spotter, Some(crate::game::Spotter::TwoLeft));
+        frame.spotter = None;
+        assert_eq!(tracker.on_frame("iracing", &frame, 200).spotter, None, "not kept once the game stops giving it");
     }
 
     #[test]

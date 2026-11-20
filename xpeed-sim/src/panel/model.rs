@@ -587,6 +587,8 @@ pub(super) struct DashModel {
     pub(super) relative: Option<RelativeModel>,
     pub(super) standings: Option<StandingsModel>,
     pub(super) gaps: Option<GapsModel>,
+    /// The radar: there when the game gives the cars' positions or its own left and right signal.
+    pub(super) radar: Option<RadarModel>,
 }
 
 /// What the model needs besides the reading.
@@ -1250,6 +1252,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
     let relative = has(Pane::Relative).then(|| relative_model(lang, live, fresh));
     let standings = has(Pane::Standings).then(|| standings_model(lang, live, fresh));
     let gaps = has(Pane::Gaps).then(|| gaps_model(lang, live, fresh));
+    let radar = has(Pane::Radar).then(|| radar_model(lang, live, fresh));
 
     DashModel {
         status,
@@ -1308,6 +1311,7 @@ pub(super) fn dashboard(live: &Live, ctx: &ModelCtx) -> DashModel {
         relative,
         standings,
         gaps,
+        radar,
     }
 }
 
