@@ -2021,6 +2021,8 @@ fn a_shift_slides_the_gears_like_a_carousel() {
     let mut live = live_reading();
     let at = live.at_ms;
     live.gear_shift = Some((live.gear - 1.0, at));
+    // A 6-speed car (the reading alone has only been seen in 5th, so no 6th would be shown).
+    live.gears = Some(6);
     let places = |now: i64| dashboard(&live, &ctx_of(Lang::En, now)).gear_track;
     let rest = [("4".to_owned(), -1.0), ("5".to_owned(), 0.0), ("6".to_owned(), 1.0)];
     assert_eq!(

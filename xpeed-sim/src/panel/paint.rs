@@ -418,6 +418,16 @@ impl Painter {
                 GdipDrawLine(graphics, pen, lx, dome_top(py, side, t) - 2.0, lx, py + ph);
             }
             GdipDeletePen(pen);
+            // The half steps between them: thinner and see-through, so the tenths still read first.
+            let mut pen = null_mut();
+            let half_ink = argb(BACKGROUND) & 0x00ff_ffff | REV_HALF_STEP_ALPHA << 24;
+            GdipCreatePen1(half_ink, (REV_HALF_STEP_W * self.s).max(1.0), UnitPixel, &mut pen);
+            for i in 0..REV_DIVISIONS {
+                let t = (i as f32 + 0.5) / REV_DIVISIONS as f32;
+                let lx = px + pw * t;
+                GdipDrawLine(graphics, pen, lx, dome_top(py, side, t) - 2.0, lx, py + ph);
+            }
+            GdipDeletePen(pen);
         });
         if !drawn {
             self.fill(self.r(x, y + h * 0.45, w, h * 0.55), SECONDARY);
