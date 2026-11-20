@@ -3283,7 +3283,7 @@ fn a_card_the_game_cannot_fill_is_not_there() {
     assert_eq!(cards(Caps::TYRE_WEAR), [Pane::Tyres, Pane::TyreTrend]);
     assert_eq!(cards(Caps::SECTORS), [Pane::Sectors]);
     assert_eq!(cards(Caps::LAP_TIME), [Pane::Times, Pane::Laps], "no delta without the distance");
-    assert_eq!(cards(Caps::LAP_TIME.or(Caps::DIST)), [Pane::Times, Pane::Laps, Pane::DeltaBar]);
+    assert_eq!(cards(Caps::LAP_TIME.or(Caps::DIST)), [Pane::Times, Pane::Laps, Pane::DeltaBar, Pane::DeltaRef]);
     assert!(cards(Caps::NONE).is_empty());
     assert_eq!(cards(Caps::RIVALS), [Pane::Relative, Pane::Standings, Pane::Gaps]);
     assert_eq!(
