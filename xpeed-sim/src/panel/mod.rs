@@ -110,7 +110,7 @@ use widgets_view::*;
 use window::*;
 
 pub(crate) use coach_look::*;
-pub(crate) use relay::Relay;
 pub use demo::demo;
+pub(crate) use relay::Relay;
 pub use view::{Account, Context};
 pub use window::show;

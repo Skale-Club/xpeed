@@ -5050,7 +5050,10 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     let mut relay = Relay::new(Some(home.clone()));
     assert!(relay.frame(&shared, Lang::En, Default::default(), now).is_none(), "no reading");
     shared.offer_live(live.clone());
-    assert!(relay.frame(&shared, Lang::En, Default::default(), now).is_none(), "no game id to say");
+    assert!(
+        relay.frame(&shared, Lang::En, Default::default(), now).is_none(),
+        "no game id to say"
+    );
     shared.set_game("ac", "Assetto Corsa", Game::Connected);
     let frame = relay.frame(&shared, Lang::En, Default::default(), now).expect("a live game");
     assert_eq!(frame.game, "ac");
@@ -5062,7 +5065,11 @@ fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
     choices.set("Assetto Corsa", Some(DashboardId::Qualifying));
     choices.save(&home).unwrap();
     let early = relay.frame(&shared, Lang::En, Default::default(), now + 500).unwrap();
-    assert_eq!(early.dashboard, pick(live.session_kind, None).id(), "the file is read again once a second");
+    assert_eq!(
+        early.dashboard,
+        pick(live.session_kind, None).id(),
+        "the file is read again once a second"
+    );
     let later = relay.frame(&shared, Lang::En, Default::default(), now + 1_000).unwrap();
     assert_eq!(later.dashboard, "qualifying");
     choices.set("Assetto Corsa", None);
