@@ -675,11 +675,25 @@ fn viewers_in(body: &str) -> u32 {
     u32::try_from(viewers).unwrap_or(u32::MAX)
 }
 
+/// The screen of the phone watching, from the answer to a frame (`screen: { w, h, dpr }`, CSS pixels); none when the answer has
+/// none (no phone, or an older server) or a part of it is not a sane number.
+pub(crate) fn screen_in(body: &str) -> Option<crate::phone::Screen> {
+    let value: Value = serde_json::from_str(body).ok()?;
+    let screen = value.get("screen")?;
+    let side = |key: &str| screen.get(key).and_then(Value::as_u64).filter(|n| (1..=10_000).contains(n)).map(|n| n as u32);
+    let dpr = screen.get("dpr").and_then(Value::as_f64).filter(|d| d.is_finite() && *d > 0.0 && *d <= 8.0).unwrap_or(1.0);
+    Some(crate::phone::Screen {
+        w: side("w")?,
+        h: side("h")?,
+        dpr: dpr as f32,
+    })
+}
+
 /// Sends one frame of the phone view (`POST /api/sim/live`, contract in `ENVIO-DE-VOLTAS.md`, section 2f) with the device key and
 /// gives back how many phones are watching. Judged by the status: a refused key is `Unauthorized`; a frame the server will not take
 /// (too big, not valid) is `Rejected`; a rate limit (with its `Retry-After`), a busy, older or unreachable server is a later try. The
 /// frame is never in a message: only the status and the server's own word.
-pub fn post_live(agent: &ureq::Agent, config: &Config, body: &str) -> Result<u32, SendError> {
+pub fn post_live(agent: &ureq::Agent, config: &Config, body: &str) -> Result<(u32, Option<crate::phone::Screen>), SendError> {
     let response = agent
         .post(format!("{}/api/sim/live", config.server))
         .header("Authorization", format!("Bearer {}", config.token))
@@ -691,7 +705,7 @@ pub fn post_live(agent: &ureq::Agent, config: &Config, body: &str) -> Result<u32
         })?;
     let reply = read_reply(response);
     match reply.status {
-        200..=299 => Ok(viewers_in(&reply.body)),
+        200..=299 => Ok((viewers_in(&reply.body), screen_in(&reply.body))),
         401 | 403 => Err(SendError::Unauthorized),
         400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused the frame"))),
         404 | 405 | 501 => Err(SendError::Later {

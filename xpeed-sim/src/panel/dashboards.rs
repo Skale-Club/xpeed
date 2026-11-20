@@ -751,3 +751,166 @@ impl Choices {
         write_key(home, "manual", serde_json::Value::Object(manual))
     }
 }
+
+// The phone view's own layouts: how each dashboard sits on a phone held upright and on one on its side. The Companion draws the
+// panel itself with them (its header, its cards, its fonts: nothing of the look changes) and sends the picture (`relay`). Not a
+// `Layout`: the PC never picks them for its window. Each is sized so that, scaled to the phone's screen, the panel's smallest text
+// is still about 9 px; what does not fit at that size is left out.
+
+/// How the phone is held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PhoneShape {
+    Upright,
+    Sideways,
+}
+
+impl PhoneShape {
+    #[cfg(test)]
+    pub(super) const ALL: [PhoneShape; 2] = [PhoneShape::Upright, PhoneShape::Sideways];
+
+    /// The shape of a screen `w` x `h`: on its side when wider than tall.
+    pub(super) fn of(w: f32, h: f32) -> PhoneShape {
+        if w > h {
+            PhoneShape::Sideways
+        } else {
+            PhoneShape::Upright
+        }
+    }
+
+    /// The canvas width in design units: upright, one column (pairs of the narrow cards), as wide as Stack; on its side, one row
+    /// of four cards, each about as wide as on the PC's wide window (the panel's cards need it: the fuel strategy's table, the
+    /// times).
+    pub(super) fn width(self) -> f32 {
+        match self {
+            PhoneShape::Upright => 400.0,
+            PhoneShape::Sideways => 1100.0,
+        }
+    }
+
+    /// The room a phone gives the picture, in CSS pixels: a 390 x 844 phone with the page's header and margins taken off.
+    #[cfg(test)]
+    pub(super) fn room(self) -> (f32, f32) {
+        match self {
+            PhoneShape::Upright => (374.0, 737.0),
+            PhoneShape::Sideways => (828.0, 330.0),
+        }
+    }
+}
+
+/// The least scale a phone layout is shown at in that room: the panel's caption (12 units) at about 9 px.
+#[cfg(test)]
+pub(super) const PHONE_MIN_SCALE: f32 = 0.75;
+
+/// The rows of a dashboard on the phone, held as `shape` says.
+pub(super) fn phone_shape_rows(id: DashboardId, shape: PhoneShape) -> &'static [Row] {
+    match (id, shape) {
+        (DashboardId::Race, PhoneShape::Upright) => RACE_PHONE_UPRIGHT,
+        (DashboardId::Qualifying, PhoneShape::Upright) => QUALIFYING_PHONE_UPRIGHT,
+        (DashboardId::TimeTrial, PhoneShape::Upright) => TIME_TRIAL_PHONE_UPRIGHT,
+        (DashboardId::Practice, PhoneShape::Upright) => PRACTICE_PHONE_UPRIGHT,
+        (DashboardId::Race, PhoneShape::Sideways) => RACE_PHONE_SIDEWAYS,
+        (DashboardId::Qualifying, PhoneShape::Sideways) => QUALIFYING_PHONE_SIDEWAYS,
+        (DashboardId::TimeTrial, PhoneShape::Sideways) => TIME_TRIAL_PHONE_SIDEWAYS,
+        (DashboardId::Practice, PhoneShape::Sideways) => PRACTICE_PHONE_SIDEWAYS,
+    }
+}
+
+// Upright: the times and the place, the flag, the cars around, the gear.
+const RACE_PHONE_UPRIGHT: &[Row] = &[
+    Row {
+        h: 220.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Session, 1.0)],
+    },
+    Row {
+        h: 110.0,
+        cards: &[(Pane::Flag, 1.0)],
+    },
+    Row {
+        h: 244.0,
+        cards: &[(Pane::Relative, 1.0)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+];
+
+const QUALIFYING_PHONE_UPRIGHT: &[Row] = &[
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Times, 1.0), (Pane::Session, 1.0)],
+    },
+    Row {
+        h: 130.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 228.0,
+        cards: &[(Pane::Sectors, 1.0)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+];
+
+const TIME_TRIAL_PHONE_UPRIGHT: &[Row] = &[
+    Row {
+        h: 130.0,
+        cards: &[(Pane::DeltaBar, 1.0)],
+    },
+    Row {
+        h: 210.0,
+        cards: &[(Pane::Times, 1.0), (Pane::DeltaRef, 1.0)],
+    },
+    Row {
+        h: 228.0,
+        cards: &[(Pane::Sectors, 1.0)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+];
+
+// Practice upright: the panel's fuel card needs the whole width; the tyres are on the sideways layout.
+const PRACTICE_PHONE_UPRIGHT: &[Row] = &[
+    Row {
+        h: 230.0,
+        cards: &[(Pane::Times, 1.0)],
+    },
+    Row {
+        h: 190.0,
+        cards: &[(Pane::Fuel, 1.0)],
+    },
+    Row {
+        h: 260.0,
+        cards: &[(Pane::Centre, 1.0)],
+    },
+    Row {
+        h: 124.0,
+        cards: &[(Pane::Laps, 1.0)],
+    },
+];
+
+// On its side: one row of cards under the panel's header.
+// Race on its side: no room for a fifth card at a size the panel's cards read at; the flag is on the upright layout.
+const RACE_PHONE_SIDEWAYS: &[Row] = &[Row {
+    h: 280.0,
+    cards: &[(Pane::Times, 1.05), (Pane::Centre, 0.85), (Pane::Relative, 0.95), (Pane::FuelCalc, 1.15)],
+}];
+
+const QUALIFYING_PHONE_SIDEWAYS: &[Row] = &[Row {
+    h: 280.0,
+    cards: &[(Pane::Times, 1.0), (Pane::DeltaBar, 1.0), (Pane::Centre, 1.0), (Pane::Sectors, 1.0)],
+}];
+
+const TIME_TRIAL_PHONE_SIDEWAYS: &[Row] = &[Row {
+    h: 280.0,
+    cards: &[(Pane::DeltaBar, 1.0), (Pane::Times, 1.0), (Pane::Centre, 1.0), (Pane::Sectors, 1.0)],
+}];
+
+const PRACTICE_PHONE_SIDEWAYS: &[Row] = &[Row {
+    h: 280.0,
+    cards: &[(Pane::Times, 1.0), (Pane::Centre, 0.8), (Pane::Fuel, 1.0), (Pane::Tyres, 1.2)],
+}];

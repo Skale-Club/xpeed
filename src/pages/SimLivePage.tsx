@@ -1,9 +1,11 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, Radio } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { BrandLogo } from '@/components/BrandLogo';
 import { LiveDashboard } from '@/components/sim/live/LiveDashboard';
 import { useScreenWakeLock } from '@/hooks/use-wake-lock';
+import type { LiveScreen } from '@/lib/sim/live-frame';
 import { useLiveStream, type LiveState } from '@/lib/sim/use-live-stream';
 import { cn } from '@/lib/utils';
 
@@ -19,11 +21,47 @@ const humanise = (id: string) => (id.charAt(0).toUpperCase() + id.slice(1)).repl
 /**
  * Virtual > the phone view (`/virtual/live`): the dashboard Xpeed Companion is drawing on the PC, live, relayed by the server. Full screen, dark,
  * for a phone held upright (two columns when wide). Only the signed-in person's own stream is read. The screen stays awake while frames flow.
+ * The page tells the server the room it has for the panel, so Xpeed Companion 0.16+ draws the panel itself for this screen (held upright or on
+ * its side) and the page shows that picture as it is.
  */
+/** The room an element gives, in CSS pixels, settled for a moment (a rotation fires several resizes) and with the screen's pixel ratio. */
+function useRoom() {
+  const ref = useRef<HTMLElement>(null);
+  const [room, setRoom] = useState<LiveScreen | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const look = () => {
+      const style = getComputedStyle(el);
+      const w = el.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
+      const h = el.clientHeight - parseFloat(style.paddingTop || '0') - parseFloat(style.paddingBottom || '0');
+      if (w < 50 || h < 50) return;
+      const next = { w: Math.round(w), h: Math.round(h), dpr: window.devicePixelRatio || 1 };
+      setRoom((was) => (was && was.w === next.w && was.h === next.h && was.dpr === next.dpr ? was : next));
+    };
+    const settle = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(look, 300);
+    };
+    look();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(settle);
+    observer?.observe(el);
+    window.addEventListener('resize', settle);
+    return () => {
+      if (timer) clearTimeout(timer);
+      observer?.disconnect();
+      window.removeEventListener('resize', settle);
+    };
+  }, []);
+  return [ref, room] as const;
+}
+
 export default function SimLivePage() {
   const { t } = useTranslation();
   const location = useLocation();
-  const { state, frame } = useLiveStream();
+  const [mainRef, room] = useRoom();
+  const { state, frame } = useLiveStream(true, room);
   useScreenWakeLock(state === 'live');
 
   if (state === 'signin') return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
@@ -57,7 +95,7 @@ export default function SimLivePage() {
         </div>
       ) : null}
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {showFrame ? <LiveDashboard frame={frame} /> : (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center" data-testid="live-waiting">
             <Radio className="h-8 w-8 text-muted-foreground" aria-hidden="true" />

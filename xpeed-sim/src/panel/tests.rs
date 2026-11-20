@@ -6253,3 +6253,130 @@ fn the_example_says_so_in_the_header_and_each_game_shows_its_own_cards() {
     assert!(!example_live(Some("fh5")).caps.has(crate::game::Caps::FUEL));
     assert!(example_live(None).caps.has(crate::game::Caps::FUEL));
 }
+
+// The phone view's picture: the panel itself, drawn with the phone's own layouts (`PhoneShape`, `phone_plan`).
+
+#[test]
+fn every_phone_layout_fits_a_phone_at_a_size_text_reads_at_and_places_its_cards_like_the_panel() {
+    for caps in [every_cap(), evo_like_caps()] {
+        let s = slots(caps);
+        for dash in DashboardId::ALL {
+            for shape in PhoneShape::ALL {
+                let plan = phone_plan(dash, shape, &s, usize::MAX);
+                assert!(!plan.cards.is_empty(), "{dash:?} {shape:?}");
+                assert_eq!(plan.w, shape.width());
+                let (room_w, room_h) = shape.room();
+                let scale = (room_w / plan.w).min(room_h / plan.h);
+                assert!(
+                    scale >= PHONE_MIN_SCALE,
+                    "{dash:?} {shape:?}: {} x {} shows at {scale} (caption {} px)",
+                    plan.w,
+                    plan.h,
+                    scale * T_CAPTION
+                );
+                for (i, (pane, area)) in plan.cards.iter().enumerate() {
+                    assert!(s.cards.contains(pane), "{dash:?} {shape:?}: {pane:?} is not one the game fills");
+                    assert!(area.1 + 0.01 >= CARDS_TOP, "{dash:?} {shape:?}: {pane:?} under the panel's header");
+                    assert!(inside_box(*area, 0.0, 0.0, plan.w, plan.h), "{dash:?} {shape:?}: {pane:?} inside");
+                    assert!(area.3 + 0.01 >= card_min_h(*pane), "{dash:?} {shape:?}: {pane:?} is {} tall", area.3);
+                    assert!(area.2 + 0.01 >= card_min_w(*pane), "{dash:?} {shape:?}: {pane:?} is {} wide", area.2);
+                    for (other, b) in &plan.cards[i + 1..] {
+                        assert!(!overlap(*area, *b), "{dash:?} {shape:?}: {pane:?} over {other:?}");
+                    }
+                }
+            }
+        }
+    }
+    let ids = |dash, shape| -> Vec<&'static str> {
+        phone_plan(dash, shape, &slots(every_cap()), usize::MAX)
+            .cards
+            .iter()
+            .map(|(pane, _)| catalog::id_of(*pane))
+            .collect()
+    };
+    use PhoneShape::{Sideways, Upright};
+    assert_eq!(ids(DashboardId::Race, Upright), ["times", "session", "flag", "relative", "centre"]);
+    assert_eq!(ids(DashboardId::Qualifying, Upright), ["times", "session", "delta_bar", "sectors", "centre"]);
+    assert_eq!(ids(DashboardId::TimeTrial, Upright), ["delta_bar", "times", "delta_ref", "sectors", "centre"]);
+    assert_eq!(ids(DashboardId::Practice, Upright), ["times", "fuel", "centre", "laps"]);
+    assert_eq!(ids(DashboardId::Race, Sideways), ["times", "centre", "relative", "fuel_calc"]);
+    assert_eq!(ids(DashboardId::Qualifying, Sideways), ["times", "delta_bar", "centre", "sectors"]);
+    assert_eq!(ids(DashboardId::TimeTrial, Sideways), ["delta_bar", "times", "centre", "sectors"]);
+    assert_eq!(ids(DashboardId::Practice, Sideways), ["times", "centre", "fuel", "tyres"]);
+}
+
+#[test]
+fn a_phone_layout_leaves_out_what_the_game_cannot_fill_and_the_rest_share_the_row() {
+    use crate::game::Caps;
+    let no_rivals = slots(every_cap().minus(Caps::RIVALS));
+    let plan = phone_plan(DashboardId::Race, PhoneShape::Sideways, &no_rivals, usize::MAX);
+    assert_eq!(plan.cards.len(), 3);
+    assert!(plan.cards.iter().all(|(pane, a)| *pane != Pane::Relative && a.1 == CARDS_TOP));
+    assert_eq!(plan.h, CARDS_TOP + 280.0);
+    let (_, first) = plan.cards[0];
+    let (_, second) = plan.cards[1];
+    assert!((second.0 - (first.0 + first.2) - GAP).abs() < 0.01, "the panel's gap between them");
+    let (_, last) = *plan.cards.last().unwrap();
+    assert!((last.0 + last.2 - PhoneShape::Sideways.width()).abs() < 0.01, "to the right edge");
+}
+
+#[test]
+fn the_picture_is_the_panel_drawn_for_the_phones_screen_sized_to_it_and_only_while_a_phone_watches() {
+    let mut live = live_reading();
+    live.session_kind = Some(crate::lapfile::SessionKind::Race);
+    live.caps = every_cap();
+    let ctx = ctx_of(Lang::En, live.at_ms);
+    let sideways = crate::phone::Screen { w: 828, h: 330, dpr: 3.0 };
+    let upright = crate::phone::Screen { w: 374, h: 737, dpr: 3.0 };
+    for (screen, shape) in [(sideways, PhoneShape::Sideways), (upright, PhoneShape::Upright)] {
+        let plan = phone_plan(DashboardId::Race, shape, &slots(live.caps), usize::MAX);
+        let (w, h, s) = picture_size(&plan, screen);
+        // At 1.5 pixels per CSS pixel at most, filling the room on one side.
+        let (room_w, room_h) = (screen.w as f32 * 1.5, screen.h as f32 * 1.5);
+        assert!((w as f32 - room_w).abs() <= 1.0 || (h as f32 - room_h).abs() <= 1.0, "{shape:?}: {w} x {h}");
+        assert!(w as f32 <= room_w + 1.0 && h as f32 <= room_h + 1.0, "{shape:?}: {w} x {h}");
+        assert!((s - w as f32 / plan.w).abs() < 0.01);
+        let (pixels, pw, ph) =
+            phone_pixels(&live, &ctx, DashboardId::Race, &Views::default(), &[], screen).expect("a picture");
+        assert_eq!((pw, ph), (w, h));
+        assert!(has_color(&pixels, CARD) > 1000, "{shape:?}: the panel's cards");
+    }
+    let frame = build_frame_with(&live, "lmu", &ctx, None, &Views::default(), Some((sideways, &[]))).unwrap();
+    let image = frame.image.as_deref().expect("a picture while a phone watches");
+    assert!(image.starts_with("data:image/jpeg;base64,/9j/"), "a JPEG");
+    let text = crate::phone::body(1, 1_763_550_000_000, &frame).expect("under the server's limit");
+    assert!(text.len() < crate::phone::MAX_BYTES, "{} bytes", text.len());
+    // No phone watching: no picture, the rest as before.
+    let plain = build_frame(&live, "lmu", &ctx, None).unwrap();
+    assert!(plain.image.is_none());
+    assert_eq!(plain.rows, frame.rows);
+}
+
+#[test]
+fn writes_the_phone_pictures() {
+    // Saved to look at when XPEED_SIM_PANEL_PNG names a folder: every dashboard, upright and on its side.
+    let mut live = full_reading();
+    live.caps = every_cap();
+    let laps = rich_laps();
+    let ctx = ModelCtx {
+        lang: Lang::En,
+        now_ms: live.at_ms,
+        units: Default::default(),
+        laps: &laps,
+    };
+    for dash in DashboardId::ALL {
+        for (name, screen) in [
+            ("sideways", crate::phone::Screen { w: 828, h: 330, dpr: 2.0 }),
+            ("upright", crate::phone::Screen { w: 374, h: 737, dpr: 2.0 }),
+        ] {
+            let (pixels, w, h) = phone_pixels(&live, &ctx, dash, &Views::default(), &[], screen).unwrap();
+            save(&pixels, w, h, &format!("phone-{}-{name}.png", dash.id()));
+            // The JPEG the phone gets, to look at and to weigh (the screens harness streams these).
+            let jpeg = phone_jpeg(&live, &ctx, dash, &Views::default(), &[], screen).unwrap();
+            assert!(jpeg.len() < 150 * 1024, "{} {name}: {} KB", dash.id(), jpeg.len() / 1024);
+            if let Some(dir) = std::env::var_os("XPEED_SIM_PANEL_PNG") {
+                std::fs::write(std::path::Path::new(&dir).join(format!("phone-{}-{name}.jpg", dash.id())), &jpeg).unwrap();
+            }
+        }
+    }
+}

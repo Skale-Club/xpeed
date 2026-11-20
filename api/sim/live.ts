@@ -1,7 +1,8 @@
 // The live relay between Xpeed Companion (the PC) and the phone view (a PWA page on the site), through this server.
 //
 //   POST /api/sim/live          device key (Authorization: Bearer <device key>), like the other Companion routes; not a browser: no CORS headers.
-//                               { v: 1, seq, sentAt, game, dashboard, rows, model } (at most 64 KB) -> 200 { viewers }
+//                               { v: 1, seq, sentAt, game, dashboard, rows, image?, model } (at most 256 KB) -> 200 { viewers, screen }
+//                               (`screen`: the newest watching phone's { w, h, dpr }, so the Companion draws the panel's picture for it)
 //   GET  /api/sim/live/stream   the signed-in person (the web app's bearer token, as every signed-in /api/sim route): Server-Sent Events.
 //   GET  /api/sim/live          the signed-in person: the latest frame (no older than 30 s) as JSON, else 204.
 //
@@ -12,7 +13,7 @@ import { openBackend, type Backend } from '../_backend';
 import { bearer, browserHeaders, refuse, reply, sha256Hex, tooMany } from './_shared';
 import { authenticateDevice, type DeviceAuth } from './_upload';
 import { person } from './laps';
-import { FRAME_TTL_MS, liveHub, MAX_LIVE_BYTES, readFrame } from './_live';
+import { FRAME_TTL_MS, liveHub, MAX_LIVE_BYTES, readFrame, readScreen } from './_live';
 
 /** Frames one device may send in a second (the Companion sends about 10). */
 export const LIVE_FRAMES_PER_SECOND = 25;
@@ -68,7 +69,7 @@ async function receive(req: Request): Promise<Response> {
 
     const done = liveHub.publish(device.userId, device.deviceId, read.value);
     if (!done) return refuse({ error: 'busy' }, 503, true, { 'Retry-After': '5' });
-    return reply({ viewers: done.viewers });
+    return reply({ viewers: done.viewers, screen: done.screen });
   } catch (error) {
     failed('sim_live_failed', error);
     return refuse({ error: 'unavailable' }, 503, true);
@@ -126,11 +127,14 @@ async function stream(req: Request, answer: (body: unknown, status?: number, ext
 
   // The first bytes make the headers leave at once; `retry` tells the page how soon to reconnect.
   write('retry: 2000\n\n');
+  // The page says the room it has for the panel (`?w=&h=&dpr=`, CSS pixels): the Companion draws the picture for it.
+  const params = new URL(req.url).searchParams;
+  const screen = readScreen(params.get('w'), params.get('h'), params.get('dpr'));
   subscription = liveHub.subscribe(who.userId, (event) => {
     // A phone that cannot keep up misses frames (only the latest matters); it never makes the server hold them.
     if (event.event === 'frame' && (controller.desiredSize ?? 1) <= 0) return;
     write(`event: ${event.event}\ndata: ${event.data}\n\n`);
-  });
+  }, screen);
   if (!subscription) {
     ended = true;
     try { controller.close(); } catch { /* nothing to close */ }
