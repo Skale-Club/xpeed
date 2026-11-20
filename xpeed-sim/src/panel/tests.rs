@@ -5703,7 +5703,10 @@ fn edit_mode_paints_at_every_shape_with_its_toolbar_and_a_cross_on_every_card() 
                 let (x0, y0) = (ox + (x * scale) as i32, oy + (y * scale) as i32);
                 let (x1, y1) = (ox + ((x + size) * scale) as i32, oy + ((y + size) * scale) as i32);
                 if x1 < w && y1 < h {
-                    assert!(has_color(&region_of(&pixels, w, (x0, y0, x1, y1)), SURFACE) > 0, "{what}: the x of {pane:?}");
+                    assert!(
+                        has_color(&region_of(&pixels, w, (x0, y0, x1, y1)), SURFACE) > 0,
+                        "{what}: the x of {pane:?}"
+                    );
                 }
             }
             v.edit = None;
