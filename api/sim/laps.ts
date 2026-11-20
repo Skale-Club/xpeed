@@ -129,6 +129,7 @@ async function receive(req: Request): Promise<Response> {
     });
     if (ingested.error) throw ingested.error;
     const result = ingested.data as { status?: string; id?: string } | null;
+    if (result?.status === 'created' || result?.status === 'duplicate') await nameCatalog(backend, lap.header);
     forgetOverview(userId);
     if (result?.status === 'created' && result.id) {
       stored = null;
@@ -146,6 +147,24 @@ async function receive(req: Request): Promise<Response> {
   } finally {
     // A failure leaves nothing visible (no row: the transaction rolled back) and no file behind.
     if (stored) await discardFile(backend, stored);
+  }
+}
+
+/**
+ * The names people read for the lap's track and car, when the Companion sent them beside the game's own (Assetto Corsa's folder names:
+ * `ks_laguna_seca` -> "Laguna Seca"). The catalog row keeps its aliases; only its display name changes, once (supabase/migrations/
+ * 20261120120000_sim_catalog_titles.sql). Never a reason to refuse a lap: a failure is logged and the old name stays.
+ */
+async function nameCatalog(backend: Backend, header: LapFile['header']): Promise<void> {
+  if (!header.track.title && !header.car.title) return;
+  try {
+    const named = await backend.service.rpc('sim_title_catalog', {
+      p_game: header.game, p_track_name: header.track.name, p_track_title: header.track.title ?? null,
+      p_car_name: header.car.name, p_car_title: header.car.title ?? null,
+    });
+    if (named.error) failed('sim_title_failed', named.error);
+  } catch (error) {
+    failed('sim_title_failed', error);
   }
 }
 

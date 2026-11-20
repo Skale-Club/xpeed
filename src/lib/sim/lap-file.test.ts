@@ -398,6 +398,13 @@ describe('checking the version 2 header fields', () => {
   it('ignores a key it does not know', () => {
     expect(parseHeader(header({ somethingFromVersion3: true }))).toEqual(HEADER_V2);
   });
+  it('keeps the titles of the track and the car beside their names, which stay the identity', () => {
+    const named = header({ track: { ...HEADER_V2.track, title: 'Laguna Seca' }, car: { ...HEADER_V2.car, title: 'Porsche Macan Turbo' } });
+    const parsed = parseHeader(named);
+    expect([parsed.track.name, parsed.track.title, parsed.car.name, parsed.car.title]).toEqual([HEADER_V2.track.name, 'Laguna Seca', HEADER_V2.car.name, 'Porsche Macan Turbo']);
+    expect(codeOf(() => parseHeader(header({ track: { ...HEADER_V2.track, title: '' } })))).toBe('bad_header');
+    expect(codeOf(() => parseHeader(header({ car: { ...HEADER_V2.car, title: 'x'.repeat(121) } })))).toBe('bad_header');
+  });
 });
 
 describe('the driving aids of the lap (version 2, optional)', () => {

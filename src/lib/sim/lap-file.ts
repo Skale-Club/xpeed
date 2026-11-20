@@ -105,8 +105,10 @@ export interface LapAids {
 export interface LapHeader {
   /** Lowercase id of the game the lap was driven in ("lmu", "acc"...). */
   game: string;
-  track: { name: string; variant?: string; lengthM?: number };
-  car: { name: string; class?: string };
+  /** `name` is the game's own (Assetto Corsa: the folder, `ks_laguna_seca`) and identifies the track; `title` (version 2) is the
+   * name people know it by ("Laguna Seca"), sent when the two differ. */
+  track: { name: string; title?: string; variant?: string; lengthM?: number };
+  car: { name: string; title?: string; class?: string };
   lap: {
     number: number;
     timeMs: number;
@@ -216,9 +218,11 @@ export function parseHeader(input: unknown): LapHeader {
 
   if (typeof game !== 'string' || !GAME_ID.test(game)) fail('bad_header', 'game must be a lowercase id.');
   if (!isRecord(track) || !isText(track.name, 120)) return fail('bad_header', 'track.name is missing or too long.');
+  if (track.title !== undefined && !isText(track.title, 120)) fail('bad_header', 'track.title is too long.');
   if (track.variant !== undefined && !isText(track.variant, 120)) fail('bad_header', 'track.variant is too long.');
   if (track.lengthM !== undefined && !(typeof track.lengthM === 'number' && Number.isFinite(track.lengthM) && track.lengthM > 0 && track.lengthM <= 100_000)) fail('bad_header', 'track.lengthM must be 0 to 100000.');
   if (!isRecord(car) || !isText(car.name, 120)) return fail('bad_header', 'car.name is missing or too long.');
+  if (car.title !== undefined && !isText(car.title, 120)) fail('bad_header', 'car.title is too long.');
   if (car.class !== undefined && !isText(car.class, 60)) fail('bad_header', 'car.class is too long.');
 
   if (!isRecord(lap)) return fail('bad_header', 'lap is missing.');
@@ -264,8 +268,8 @@ export function parseHeader(input: unknown): LapHeader {
 
   return {
     game: game as string,
-    track: { name: track.name as string, ...(track.variant !== undefined ? { variant: track.variant as string } : {}), ...(track.lengthM !== undefined ? { lengthM: track.lengthM as number } : {}) },
-    car: { name: car.name as string, ...(car.class !== undefined ? { class: car.class as string } : {}) },
+    track: { name: track.name as string, ...(track.title !== undefined ? { title: track.title as string } : {}), ...(track.variant !== undefined ? { variant: track.variant as string } : {}), ...(track.lengthM !== undefined ? { lengthM: track.lengthM as number } : {}) },
+    car: { name: car.name as string, ...(car.title !== undefined ? { title: car.title as string } : {}), ...(car.class !== undefined ? { class: car.class as string } : {}) },
     lap: {
       number: lap.number as number, timeMs: lap.timeMs as number, valid: lap.valid as boolean,
       ...(lap.sectorsMs !== undefined ? { sectorsMs: lap.sectorsMs as number[] } : {}),
@@ -292,8 +296,8 @@ export function parseHeader(input: unknown): LapHeader {
 function serializeHeader(header: LapHeader): string {
   return JSON.stringify({
     game: header.game,
-    track: { name: header.track.name, variant: header.track.variant, lengthM: header.track.lengthM },
-    car: { name: header.car.name, class: header.car.class },
+    track: { name: header.track.name, title: header.track.title, variant: header.track.variant, lengthM: header.track.lengthM },
+    car: { name: header.car.name, title: header.car.title, class: header.car.class },
     lap: { number: header.lap.number, timeMs: header.lap.timeMs, valid: header.lap.valid, sectorsMs: header.lap.sectorsMs, inLap: header.lap.inLap, outLap: header.lap.outLap },
     startedAt: header.startedAt,
     sampleRateHz: header.sampleRateHz,
@@ -314,7 +318,8 @@ function serializeHeader(header: LapHeader): string {
 function hasVersion2Fields(header: LapHeader): boolean {
   return header.sessionId !== undefined || header.sessionKind !== undefined || header.weather !== undefined
     || header.airTempC !== undefined || header.trackTempC !== undefined || header.tyreCompound !== undefined
-    || header.lap.inLap !== undefined || header.lap.outLap !== undefined || header.aids !== undefined || header.recorder !== undefined || header.checks !== undefined;
+    || header.lap.inLap !== undefined || header.lap.outLap !== undefined || header.aids !== undefined || header.recorder !== undefined || header.checks !== undefined
+    || header.track.title !== undefined || header.car.title !== undefined;
 }
 
 /** Lays a lap out as bytes (not yet compressed). Throws a LapFormatError if the lap is not valid. */
