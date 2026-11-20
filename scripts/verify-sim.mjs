@@ -34,7 +34,7 @@ Object.assign(process.env, {
 
 await build({
   entryPoints: {
-    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', games: 'api/sim/games.ts', shared: 'api/sim/_shared.ts', upload: 'api/sim/_upload.ts', health: 'server/health.ts', webserver: 'server/index.ts',
+    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', games: 'api/sim/games.ts', reference: 'api/sim/reference.ts', shared: 'api/sim/_shared.ts', upload: 'api/sim/_upload.ts', health: 'server/health.ts', webserver: 'server/index.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', dbroute: 'server/db-route.ts', account: 'server/account-route.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
@@ -47,6 +47,7 @@ const tracks = (await load('tracks.mjs')).default;
 const link = (await load('link.mjs')).default;
 const me = (await load('me.mjs')).default;
 const games = (await load('games.mjs')).default;
+const reference = (await load('reference.mjs')).default;
 const { uploadsInFlight } = await load('upload.mjs');
 const { forgetDeepHealth } = await load('health.mjs');
 const { createXpeedServer } = await load('webserver.mjs');
@@ -1087,6 +1088,64 @@ try {
     assert.equal(last.status, 429);
     assert.ok(Number(last.headers.get('retry-after')) >= 1);
     await direct.query('DELETE FROM public.sim_devices WHERE user_id = $1', [ids.B]);
+  });
+
+  await check('GET /api/sim/reference: personal best, the board best within the leaderboard rules, fallback, 404, ETag and the rate limit', async () => {
+    const [a, b] = [await deviceFor(A, 'ref A'), await deviceFor(B, 'ref B')];
+    const lap = (number, timeMs) => lapBytes(number, { track: { name: 'Ref Ring', lengthM: 20 }, car: { name: 'Ref Car' }, lap: { number, timeMs, valid: true } });
+    for (const [key, number, timeMs] of [[a.token, 1, 2000], [a.token, 2, 1800], [b.token, 3, 1500]]) assert.equal((await upload(key, await lap(number, timeMs))).status, 201);
+    const rows = (await direct.query("SELECT id, user_id, time_ms FROM public.sim_laps WHERE track_name = 'Ref Ring'")).rows;
+    const lapOf = (user, ms) => rows.find((r) => r.user_id === user && r.time_ms === ms).id;
+    await direct.query("UPDATE public.sim_laps SET plausible = true WHERE track_name = 'Ref Ring'");
+    const ask = (key, query = '', extra = {}) => call(reference, `/api/sim/reference?game=lmu&track=Ref%20Ring&car=Ref%20Car${query}`, { bearer: key, ...extra });
+    const setPublic = (user, visibility) => direct.query("UPDATE public.sim_profiles SET visibility = $2 WHERE user_id = $1", [user, visibility]);
+
+    assert.equal((await call(reference, '/api/sim/reference?game=lmu&track=Ref%20Ring&car=Ref%20Car')).status, 401);
+    assert.equal((await ask('xpd_nope')).status, 401);
+    assert.equal((await ask(a.token, '&kind=other')).status, 400);
+
+    // personal: the owner's fastest valid lap, no driver name
+    const mine = await ask(a.token, '&kind=personal');
+    assert.equal(mine.status, 200, JSON.stringify(mine.body));
+    assert.equal(mine.body.lapId, lapOf(ids.A, 1800));
+    assert.equal(mine.body.kind, 'personal');
+    assert.equal(mine.body.driver, null);
+    assert.equal(mine.body.stepM, 5);
+    assert.deepEqual(mine.body.points, [0, 250, 500, 750, 1000]);
+    assert.equal(mine.headers.get('etag'), `"${mine.body.lapId}"`);
+    assert.equal(mine.headers.get('cache-control'), 'private, max-age=300');
+    assert.equal((await ask(a.token, '&kind=personal', { headers: { 'if-none-match': mine.headers.get('etag') } })).status, 304);
+
+    // best: a private driver's faster lap is not returned to someone else; the fallback is the owner's personal best
+    await setPublic(ids.A, 'private'); await setPublic(ids.B, 'private');
+    const hidden = await ask(a.token);
+    assert.equal(hidden.body.lapId, lapOf(ids.A, 1800));
+    assert.equal(hidden.body.kind, 'personal');
+    // a public driver's lap is returned, with the display name
+    await setPublic(ids.B, 'public');
+    const shared = await ask(a.token);
+    assert.equal(shared.body.lapId, lapOf(ids.B, 1500));
+    assert.equal(shared.body.kind, 'best');
+    const name = (await direct.query('SELECT display_name FROM public.sim_profiles WHERE user_id = $1', [ids.B])).rows[0].display_name;
+    assert.equal(shared.body.driver, name);
+    // the owner's own lap on the board has no driver name
+    assert.equal((await ask(b.token)).body.driver, null);
+    // a lap the plausibility checks failed, and an invalid or hidden one, are never references
+    await direct.query('UPDATE public.sim_laps SET plausible = false WHERE id = $1', [lapOf(ids.B, 1500)]);
+    assert.equal((await ask(a.token)).body.lapId, lapOf(ids.A, 1800));
+    assert.equal((await ask(b.token)).status, 404);
+    await direct.query('UPDATE public.sim_laps SET plausible = true, valid = false WHERE id = $1', [lapOf(ids.B, 1500)]);
+    assert.equal((await ask(b.token, '&kind=personal')).status, 404);
+    // a name nobody uploaded has no reference (and nothing is created for it)
+    assert.equal((await ask(a.token)).status, 200);
+    assert.equal((await call(reference, '/api/sim/reference?game=lmu&track=Nowhere&car=Ref%20Car', { bearer: a.token })).status, 404);
+
+    // 30 a minute per device
+    forgetLimits();
+    for (let i = 0; i < 30; i++) assert.equal((await ask(a.token, '&kind=personal')).status, 200);
+    const limited = await ask(a.token, '&kind=personal');
+    assert.equal(limited.status, 429);
+    assert.ok(Number(limited.headers.get('retry-after')) > 0);
   });
 
   // The real Xpeed Sim against these handlers, when its program is given (XPEED_SIM_EXE=...\xpeed-sim.exe): it pairs,

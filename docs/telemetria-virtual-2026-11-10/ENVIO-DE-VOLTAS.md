@@ -148,6 +148,42 @@ Content-Type: application/json
 - **O servidor** confere a chave (revogada ou desconhecida: `401`), conta 10 por minuto por aparelho, calcula a própria impressão digital (mensagem e primeiro quadro do rastro, sem os números, mais o `worker`) e agrupa; quem vê é o admin, em "Problemas". Ocorrências ficam 30 dias.
 - **Respostas:** `200 { "ok": true }`; `400`/`413` (`invalid_json`, `invalid_version`, `invalid_worker`, `invalid_message`, `invalid_backtrace`, `invalid_os`, `too_large`: o relatório é descartado); `401`; `429` com `Retry-After`; `404`/`405`/`501` (servidor antigo) e `5xx`: o relatório espera até a próxima abertura.
 
+## 2e. Volta de referência (`GET /api/sim/reference`)
+
+O Xpeed Companion pede ao servidor a volta contra a qual compara a volta atual (o "delta para a referência" do painel). Chave do aparelho, como o envio; sem CORS.
+
+```
+GET /api/sim/reference?game=lmu&track=<nome da pista>&car=<nome do carro>[&variant=<layout>]&kind=best|personal
+Authorization: Bearer xpd_…
+```
+
+- `kind=personal`: a volta **mais rápida válida da própria dona do aparelho** naquele jogo, pista e carro.
+- `kind=best` (padrão): a volta mais rápida do **placar público como a dona o enxerga** (as mesmas regras do placar, `sim_board`: perfil privado, oculto ou bloqueado nunca aparece; volta inválida, reprovada na plausibilidade ou oculta não conta). Se o placar não tem nenhuma volta visível, volta a melhor volta pessoal dela.
+- Os nomes são casados como o envio os casa (apelidos do catálogo, só pelo nome da pista e do carro); nada é criado no catálogo. `variant` é lido e validado, mas não entra na busca: a volta é arquivada só pelo nome da pista.
+- Parâmetros: `game` `^[a-z][a-z0-9_]{0,31}$`; `track` e `car` de 1 a 120 caracteres, sem caracteres de controle; `variant` opcional, mesma regra; `kind` `best` ou `personal`.
+
+`200`:
+
+```
+{ "kind": "best" | "personal", "lapId": "<uuid>", "timeMs": 91234, "driver": "Ana" | null, "recordedAt": "2026-11-10T12:00:00.000Z",
+  "stepM": 5, "points": [0, 412, 819, …] }
+```
+
+`points[i]` é o tempo da volta, em ms, aos `i × 5` m de distância desde a linha, até o fim da volta (uns 1200 inteiros numa pista de 6 km). Vem dos canais `t` e `dist` do arquivo da volta (`FORMATO-DE-VOLTA.md`) por interpolação linear; amostra sem número (NaN) ou cuja distância ou tempo volta para trás é ignorada, então a sequência sempre cresce; se a volta começa depois dos 0 m, os primeiros pontos valem o tempo da primeira amostra. `kind` é o da volta que veio (um `best` que caiu para a melhor pessoal diz `personal`); `driver` é o nome de exibição (ou o handle) do piloto público, e `null` quando a volta é da própria dona.
+
+| Resposta | Significado |
+| --- | --- |
+| `200` | A referência, com `ETag: "<lapId>"` e `Cache-Control: private, max-age=300`. |
+| `304` | `If-None-Match` já é o `ETag` da volta; sem corpo, e o arquivo nem é lido. |
+| `400` | `invalid_game`, `invalid_track`, `invalid_car`, `invalid_variant` ou `invalid_kind`. |
+| `401` | Chave ausente, desconhecida ou revogada. |
+| `404` `no_reference` | Nenhuma volta serve (nome nunca enviado, nada válido, arquivo sumido ou sem distância utilizável). |
+| `405` | Só `GET`. |
+| `429` (com `Retry-After`) | Mais de **30 por minuto por aparelho**. |
+| `5xx` | Problema passageiro (`retryable: true`). |
+
+Toda recusa traz `{ "error": "…", "retryable": true|false }`. Código: `api/sim/reference.ts` (rota), `api/sim/_reference.ts` (os pontos), função `sim_reference_lap` (`supabase/migrations/20261119140000_sim_reference_lap.sql`, só leitura). Testes: `src/lib/sim/sim-reference.test.ts` e `npm run test:sim`.
+
 ## 3. O que o Xpeed Sim guarda e o que ele nunca faz
 
 - **A pasta de voltas é a fila.** Uma volta só é pendente se estiver na pasta e não constar em `.xpeed-upload.json`, ao lado dela, que lista o que já foi enviado ou recusado (com o endereço do servidor; se a pessoa parear com outro servidor, a lista de enviadas recomeça). Se o computador desligar no meio, a próxima execução continua de onde parou. Nenhum arquivo de volta é apagado, movido nem alterado pelo envio.

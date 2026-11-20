@@ -507,6 +507,14 @@ invalid_game | invalid_pending_laps`, `413 too_large`, `429 too_many_requests` (
 A change of state or game drops the person's overview cache, so it shows at once. The site treats a computer as online when `lastSeenAt` is within
 3 minutes. `GET /api/sim/devices` lists the same facts as `companion_version`, `last_state`, `last_game`, `last_state_at`. Checks: `npm run test:sim-v1`.
 
+### Reference lap: `GET /api/sim/reference` (device key)
+`?game&track&car[&variant]&kind=best|personal` (names, not ids). Answers the lap Xpeed Companion compares against, as `{ kind, lapId, timeMs, driver, recordedAt, stepM: 5, points }`
+where `points[i]` is the lap's time in ms at `i * 5` m (from the stored file's `t` and `dist`). `personal` is the owner's fastest valid, plausible, not hidden lap;
+`best` is the leader of the public board as the owner sees it (`sim_board`, so private, hidden and blocked drivers and failed or invalid laps never appear), else the personal best
+(`kind` then says `personal`). `driver` is the public display name, `null` for the owner's own lap. `ETag: "<lapId>"`, `Cache-Control: private, max-age=300`, `304` on a matching
+`If-None-Match`; `400 invalid_game | invalid_track | invalid_car | invalid_variant | invalid_kind`, `401`, `404 no_reference`, `429` (30 a minute per device), `503`.
+One read-only function, `sim_reference_lap` (migration `20261119140000_sim_reference_lap.sql`). Contract: `ENVIO-DE-VOLTAS.md` section 2e. Checks: `npm run test:sim`, `src/lib/sim/sim-reference.test.ts`.
+
 # Social side (profiles, friends, shares, leaderboards, reports, privacy rights)
 
 Same base path, same rules as above (sign-in token only, `{ "error", "retryable" }`, cursor paging, CORS for the app: the allowed

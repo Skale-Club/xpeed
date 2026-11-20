@@ -30,6 +30,9 @@ test('container serves the SPA, API guards, OAuth metadata and bounded requests'
   assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',body:'{}'})).status,401);
   assert.equal((await fetch(base+'/api/sim/heartbeat',{method:'POST',headers:{authorization:'Bearer xpd_x'},body:'x'.repeat(5000)})).status,413);
   assert.equal((await fetch(base+'/api/sim/heartbeat')).status,405);
+  // The reference lap route: a stranger is 401, only GET.
+  assert.equal((await fetch(base+'/api/sim/reference?game=lmu&track=T&car=C')).status,401);
+  assert.equal((await fetch(base+'/api/sim/reference',{method:'POST',headers:{authorization:'Bearer xpd_x'}})).status,405);
   // First-party error tracking: Companion's report needs the device key, both reports are cut off over 32 KB while read, and only POST (the browser's also OPTIONS).
   assert.equal((await fetch(base+'/api/sim/companion-errors',{method:'POST',body:'{}'})).status,401);
   assert.equal((await fetch(base+'/api/sim/companion-errors',{method:'POST',headers:{authorization:'Bearer xpd_x'},body:'x'.repeat(40000)})).status,413);
