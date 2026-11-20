@@ -1243,7 +1243,13 @@ fn writes_the_design_preview_page() {
         v.mouse = mouse;
         render(&v, w, h)
     };
-    let race_wide = || EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+    let race_wide = || {
+        EditUi::new(
+            DashboardId::Race,
+            Layout::Wide,
+            SavedView::default_for(DashboardId::Race, Layout::Wide),
+        )
+    };
     let mut idle = race_wide();
     idle.hover = Hover::Card(Pos { row: 1, card: 0 });
     let mut carrying = race_wide();
@@ -5708,8 +5714,16 @@ fn edit_mode_paints_at_every_shape_with_its_toolbar_and_a_cross_on_every_card() 
 fn a_card_the_game_cannot_fill_is_on_the_edit_canvas_all_the_same() {
     let f = fixture();
     let mut live = full_reading();
-    live.caps = every_cap().minus(crate::game::Caps::RIVALS.or(crate::game::Caps::RIVALS_WORLD).or(crate::game::Caps::SPOTTER));
-    let ui = EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+    live.caps = every_cap().minus(
+        crate::game::Caps::RIVALS
+            .or(crate::game::Caps::RIVALS_WORLD)
+            .or(crate::game::Caps::SPOTTER),
+    );
+    let ui = EditUi::new(
+        DashboardId::Race,
+        Layout::Wide,
+        SavedView::default_for(DashboardId::Race, Layout::Wide),
+    );
     let mut v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     v.dashboard = Some(DashboardId::Race);
     let normal = render(&v, 1920, 1080);
@@ -5737,7 +5751,11 @@ fn leaving_edit_mode_draws_the_dashboard_exactly_as_before() {
             render(&v, w, h)
         };
         let before = frame(None);
-        let mut ui = EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+        let mut ui = EditUi::new(
+            DashboardId::Race,
+            Layout::Wide,
+            SavedView::default_for(DashboardId::Race, Layout::Wide),
+        );
         let at = middle_of(&ui, 0, 0);
         ui.press(EditHit::Canvas(at.0, at.1), (1.0, 0, 0), 0);
         ui.mouse_moved(EditHit::Canvas(at.0 + 90.0, at.1 + 200.0), (at.0 + 90.0, at.1 + 200.0));
@@ -5753,7 +5771,10 @@ fn leaving_edit_mode_draws_the_dashboard_exactly_as_before() {
 fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
     let edit = edit_hit(1536, 1.0).expect("room in a normal window");
     let [_, _, lang, _, _] = header_hits(1536, 1.0);
-    assert!(edit.right < lang.left && edit.right - edit.left == lang.right - lang.left, "a square button before the language");
+    assert!(
+        edit.right < lang.left && edit.right - edit.left == lang.right - lang.left,
+        "a square button before the language"
+    );
     let version = version_hit(1536, 1.0).unwrap();
     assert!(version.right <= edit.left, "the version does not run into it");
     let name = dashboard_hit(1536, 1.0).unwrap();
@@ -5764,9 +5785,16 @@ fn the_edit_button_sits_before_the_version_and_the_pills_keep_clear_of_it() {
     let live = live_reading();
     let v = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     assert_eq!(edit_button(1536, &v).map(|r| (r.left, r.top)), Some((edit.left, edit.top)));
-    assert!(edit_button(1536, &view(&f, None, Tab::Dash, 1.0, Lang::En)).is_none(), "no game, no edit");
+    assert!(
+        edit_button(1536, &view(&f, None, Tab::Dash, 1.0, Lang::En)).is_none(),
+        "no game, no edit"
+    );
     assert!(edit_button(1536, &view(&f, Some(&live), Tab::Monitor, 1.0, Lang::En)).is_none());
-    let ui = EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide));
+    let ui = EditUi::new(
+        DashboardId::Race,
+        Layout::Wide,
+        SavedView::default_for(DashboardId::Race, Layout::Wide),
+    );
     let mut editing = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
     editing.edit = Some(&ui);
     assert!(edit_button(1536, &editing).is_none());

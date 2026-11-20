@@ -246,5 +246,8 @@ pub(super) fn pencil_icon(g: &mut Painter, r: RECT, color: COLORREF) {
     // The point and the line it writes.
     g.fill(rect(cx + g.px(-7.5), cy + g.px(5.5), cx + g.px(-4.5), cy + g.px(8.5)), color);
     let line_top = cy + g.px(7.0);
-    g.fill(rect(cx + g.px(-2.0), line_top, cx + g.px(8.0), (cy + g.px(8.5)).max(line_top + 1)), color);
+    g.fill(
+        rect(cx + g.px(-2.0), line_top, cx + g.px(8.0), (cy + g.px(8.5)).max(line_top + 1)),
+        color,
+    );
 }

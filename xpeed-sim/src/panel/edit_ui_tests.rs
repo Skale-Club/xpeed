@@ -7,7 +7,11 @@ use super::*;
 const XF: Xf = (1.0, 0, 0);
 
 fn race_wide() -> EditUi {
-    EditUi::new(DashboardId::Race, Layout::Wide, SavedView::default_for(DashboardId::Race, Layout::Wide))
+    EditUi::new(
+        DashboardId::Race,
+        Layout::Wide,
+        SavedView::default_for(DashboardId::Race, Layout::Wide),
+    )
 }
 
 fn area(ui: &EditUi, row: usize, card: usize) -> Area {
@@ -30,7 +34,10 @@ fn drag(ui: &mut EditUi, from: (f32, f32), to: (f32, f32), now: i64) {
 fn a_card_dragged_to_every_kind_of_target_is_moved_there_and_shows_where_it_would_land() {
     let original = SavedView::default_for(DashboardId::Race, Layout::Wide);
     let last = original.rows.len() - 1;
-    assert!(original.rows.len() >= 3 && original.rows[0].cards.len() >= 3, "the Race/Wide view has rows to play with");
+    assert!(
+        original.rows.len() >= 3 && original.rows[0].cards.len() >= 3,
+        "the Race/Wide view has rows to play with"
+    );
     let from = Pos { row: 0, card: 0 };
     let probe = race_wide();
     let (a, b, c) = (area(&probe, 0, 2), area(&probe, last, 0), area(&probe, 0, 0));
@@ -54,7 +61,10 @@ fn a_card_dragged_to_every_kind_of_target_is_moved_there_and_shows_where_it_woul
         let mut ui = race_wide();
         let start = middle(c);
         ui.press(EditHit::Canvas(start.0, start.1), XF, 0);
-        assert!(matches!(ui.drag, Some(Drag::Card { moved: false, .. })), "{what}: a press on a card takes it");
+        assert!(
+            matches!(ui.drag, Some(Drag::Card { moved: false, .. })),
+            "{what}: a press on a card takes it"
+        );
         assert_eq!(ui.frozen, Some(XF), "{what}: the transform is frozen while dragging");
         ui.mouse_moved(EditHit::Canvas(to.0, to.1), to);
         assert_eq!(ui.drop_target(), Some(target), "{what}: the indicator says where it would land");
@@ -127,7 +137,11 @@ fn a_row_bottom_follows_the_total_delta_and_stops_at_what_its_cards_need() {
     ui.mouse_moved(EditHit::Canvas(x, y + 15.0), (x, y + 15.0));
     assert_eq!(ui.session.current.rows[0].h, h + 15.0, "not added up");
     ui.mouse_moved(EditHit::Canvas(x, y - 5000.0), (x, y - 5000.0));
-    assert_eq!(ui.session.current.rows[0].h, row_min_h(&original.rows[0].cards), "never under what the cards need");
+    assert_eq!(
+        ui.session.current.rows[0].h,
+        row_min_h(&original.rows[0].cards),
+        "never under what the cards need"
+    );
     ui.released((x, y - 5000.0), 0);
     assert!(ui.drag.is_none());
 }
@@ -189,9 +203,16 @@ fn the_add_list_opens_closes_and_adds() {
     ui.press(EditHit::ListItem(pane), XF, 0);
     assert!(!ui.add_open);
     assert!(ui.session.current.panes().contains(&pane), "the panel is added");
-    assert_eq!(ui.session.current, add(&SavedView::default_for(DashboardId::Race, Layout::Wide), Layout::Wide, pane).unwrap());
+    assert_eq!(
+        ui.session.current,
+        add(&SavedView::default_for(DashboardId::Race, Layout::Wide), Layout::Wide, pane).unwrap()
+    );
     ui.press(EditHit::ListItem(pane), XF, 50);
-    assert_eq!(ui.note_at(50), Some(EditNote::Refused(Refused::AlreadyInView)), "a card twice is refused");
+    assert_eq!(
+        ui.note_at(50),
+        Some(EditNote::Refused(Refused::AlreadyInView)),
+        "a card twice is refused"
+    );
 }
 
 #[test]
@@ -279,11 +300,23 @@ fn every_refusal_has_a_message_in_every_language() {
             assert!(!text(lang, &note.msg()).trim().is_empty(), "{note:?} {lang:?}");
         }
     }
-    assert_eq!(text(Lang::En, &EditNote::Refused(Refused::TooNarrow).msg()), "Not enough room in that row");
+    assert_eq!(
+        text(Lang::En, &EditNote::Refused(Refused::TooNarrow).msg()),
+        "Not enough room in that row"
+    );
     assert_eq!(text(Lang::En, &EditNote::Refused(Refused::RowFull).msg()), "That row is full");
-    assert_eq!(text(Lang::En, &EditNote::Refused(Refused::TooManyRows).msg()), "Twelve rows at most");
-    assert_eq!(text(Lang::En, &EditNote::Refused(Refused::LastCard).msg()), "A dashboard keeps at least one panel");
-    assert_eq!(text(Lang::En, &EditNote::Refused(Refused::AlreadyInView).msg()), "Already on this dashboard");
+    assert_eq!(
+        text(Lang::En, &EditNote::Refused(Refused::TooManyRows).msg()),
+        "Twelve rows at most"
+    );
+    assert_eq!(
+        text(Lang::En, &EditNote::Refused(Refused::LastCard).msg()),
+        "A dashboard keeps at least one panel"
+    );
+    assert_eq!(
+        text(Lang::En, &EditNote::Refused(Refused::AlreadyInView).msg()),
+        "Already on this dashboard"
+    );
 }
 
 #[test]
@@ -304,10 +337,16 @@ fn the_edit_plan_has_every_card_of_the_view_in_the_views_rows() {
             let rows = edit_rows(&view, &plan);
             for (row, cards) in view.rows.iter().zip(&rows) {
                 assert_eq!(row.cards.len(), cards.len());
-                assert!(cards.iter().all(|(_, a)| a.3 == row.h), "a row is as tall as the view says, never shrunk");
+                assert!(
+                    cards.iter().all(|(_, a)| a.3 == row.h),
+                    "a row is as tall as the view says, never shrunk"
+                );
             }
             assert!(plan.h > CARDS_TOP);
-            assert_eq!(card_at(&plan, plan.cards[0].1 .0 + 1.0, plan.cards[0].1 .1 + 1.0), Some(Pos { row: 0, card: 0 }));
+            assert_eq!(
+                card_at(&plan, plan.cards[0].1 .0 + 1.0, plan.cards[0].1 .1 + 1.0),
+                Some(Pos { row: 0, card: 0 })
+            );
         }
     }
 }
@@ -350,15 +389,24 @@ fn the_toolbar_fits_in_every_window_width_and_its_buttons_do_not_overlap() {
             assert!(bar.band.top >= (HEADER_H * scale).round() as i32, "under the header");
             assert!(bar.title.right >= bar.title.left, "{width}: the title has room");
             for (i, (_, r)) in bar.buttons.iter().enumerate() {
-                assert!(r.left >= bar.band.left && r.right <= bar.band.right, "{width} button {i} inside the band");
-                assert!(r.top >= bar.band.top && r.bottom <= bar.band.bottom, "{width} button {i} inside the band");
+                assert!(
+                    r.left >= bar.band.left && r.right <= bar.band.right,
+                    "{width} button {i} inside the band"
+                );
+                assert!(
+                    r.top >= bar.band.top && r.bottom <= bar.band.bottom,
+                    "{width} button {i} inside the band"
+                );
                 assert!(r.right > r.left, "{width} button {i} has width");
                 if i > 0 {
                     assert!(bar.buttons[i - 1].1.right <= r.left, "{width}: left to right, no overlap");
                 }
             }
             if design_w >= EDIT_ONE_ROW_W {
-                assert!(bar.title.right <= bar.buttons[0].1.left, "{width}: one row, the title before the buttons");
+                assert!(
+                    bar.title.right <= bar.buttons[0].1.left,
+                    "{width}: one row, the title before the buttons"
+                );
             } else {
                 assert!(bar.title.bottom <= bar.buttons[0].1.top, "{width}: two rows");
             }
@@ -421,7 +469,10 @@ fn a_point_of_the_window_is_a_button_a_row_a_cross_a_canvas_point_or_the_header(
     ui.add_open = true;
     let list = edit_list(&bar, (w, h), scale, addable(&ui.session.current).len());
     let first = list.items[0];
-    assert_eq!(hit(&ui, first.left + 3, first.top + 3), EditHit::ListItem(addable(&ui.session.current)[0]));
+    assert_eq!(
+        hit(&ui, first.left + 3, first.top + 3),
+        EditHit::ListItem(addable(&ui.session.current)[0])
+    );
     assert_eq!(hit(&ui, list.outer.left + 1, list.outer.top + 1), EditHit::ListInside);
     let add_button = bar.buttons[0].1;
     assert_eq!(hit(&ui, add_button.left + 3, add_button.top + 3), EditHit::Button(EditButton::Add));
@@ -472,11 +523,18 @@ fn saving_writes_the_view_and_a_missing_folder_is_an_error_that_changes_nothing(
     assert!(save_edit(&before, &ui.session, None).is_err(), "no settings folder: an error");
     let saved = save_edit(&before, &ui.session, Some(&dir)).unwrap();
     assert!(saved.is_modified(DashboardId::Race));
-    assert_eq!(Views::load(&dir).rows_for(DashboardId::Race, Layout::Wide), ui.session.current, "it reads back as saved");
+    assert_eq!(
+        Views::load(&dir).rows_for(DashboardId::Race, Layout::Wide),
+        ui.session.current,
+        "it reads back as saved"
+    );
     assert!(!before.is_modified(DashboardId::Race), "the views handed in are not touched");
     let reset = reset_edit(&saved, DashboardId::Race, Some(&dir)).unwrap();
     assert!(!reset.is_modified(DashboardId::Race));
-    assert!(!Views::load(&dir).is_modified(DashboardId::Race), "the file has no saved view of it any more");
+    assert!(
+        !Views::load(&dir).is_modified(DashboardId::Race),
+        "the file has no saved view of it any more"
+    );
     assert!(reset_edit(&saved, DashboardId::Race, None).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }

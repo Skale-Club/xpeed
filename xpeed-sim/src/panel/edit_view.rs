@@ -40,7 +40,18 @@ fn missing_card(g: &mut Painter, d: &Dash, pane: Pane, area: Area) {
     shown(g, Show::Dimmed, |g| {
         caption(g, &pane_title(pane, lang), (x, y, w, h), DT_LEFT);
         let note = text(lang, &Msg::EditNotGiven);
-        g.wrapped(&note, x, y + CAPTION_H + S2, w, T_BODY, FW_NORMAL as i32, Face::Ui, MUTED_TEXT, DT_LEFT, 20.0);
+        g.wrapped(
+            &note,
+            x,
+            y + CAPTION_H + S2,
+            w,
+            T_BODY,
+            FW_NORMAL as i32,
+            Face::Ui,
+            MUTED_TEXT,
+            DT_LEFT,
+            20.0,
+        );
     });
 }
 
@@ -100,7 +111,11 @@ fn canvas_overlay(g: &mut Painter, d: &Dash, ui: &EditUi, plan: &Plan) {
         if let Some((_, _, w, h)) = card_area(view, plan, from) {
             let ghost = g.r(mx - w / 2.0, my - h / 2.0, w, h);
             g.outline(ghost, FOREGROUND_2, STROKE_ACCENT);
-            let name = view.rows.get(from.row).and_then(|r| r.cards.get(from.card)).map(|c| pane_title(c.0, d.view.lang));
+            let name = view
+                .rows
+                .get(from.row)
+                .and_then(|r| r.cards.get(from.card))
+                .map(|c| pane_title(c.0, d.view.lang));
             g.text(&name.unwrap_or_default(), ghost, T_LEAD, semi, Face::Ui, FOREGROUND_2, DT_CENTER);
         }
     }
@@ -161,6 +176,14 @@ fn add_list(g: &mut Painter, d: &Dash, ui: &EditUi, bar: &Toolbar, size: (i32, i
         }
         let label = rect(r.left + g.px(S3), r.top, r.right - g.px(S2), r.bottom);
         let ink = if d.slots.cards.contains(pane) { FOREGROUND } else { MUTED_TEXT };
-        g.text(&pane_title(*pane, view.lang), label, T_BODY, FW_SEMIBOLD as i32, Face::Ui, ink, DT_LEFT);
+        g.text(
+            &pane_title(*pane, view.lang),
+            label,
+            T_BODY,
+            FW_SEMIBOLD as i32,
+            Face::Ui,
+            ink,
+            DT_LEFT,
+        );
     }
 }

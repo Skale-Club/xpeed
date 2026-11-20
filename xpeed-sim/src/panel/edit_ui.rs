@@ -350,10 +350,7 @@ impl EditUi {
     /// nothing); a line that was dragged already has its new place.
     pub(super) fn released(&mut self, pt: (f32, f32), now: i64) {
         self.frozen = None;
-        if let Some(Drag::Card {
-            from, at, moved: true, ..
-        }) = self.drag.take()
-        {
+        if let Some(Drag::Card { from, at, moved: true, .. }) = self.drag.take() {
             let here = if pt.0.is_finite() && pt.1.is_finite() { pt } else { at };
             if let Some(target) = target_at(&self.plan(), here.0, here.1) {
                 self.apply(EditOp::Move(from, target), now);
