@@ -26,13 +26,17 @@ export const isOutage = (error: unknown): boolean => error instanceof V1Error &&
 
 // ---------------------------------------------------------------------------------------------------------------- objects
 
-export interface V1Ref { id: string; name: string }
+export interface V1Ref { id: string; name: string; sourceName?: string | null }
+export interface V1TrackRef extends V1Ref {
+  /** Null for a recorded default layout, omitted for legacy rows without variant evidence. */
+  variant?: string | null;
+}
 export type SessionKind = 'practice' | 'qualifying' | 'race' | 'unknown';
 
 export interface V1Lap {
   id: string;
   game: string;
-  track: V1Ref | null;
+  track: V1TrackRef | null;
   car: V1Ref | null;
   sessionId: string | null;
   lapNumber: number;
@@ -70,7 +74,7 @@ export interface V1Session {
 
 export interface V1Pb {
   game: string;
-  track: V1Ref;
+  track: V1TrackRef;
   car: V1Ref;
   bestMs: number;
   lapId: string;
@@ -81,20 +85,22 @@ export interface V1Pb {
   improvedByMs: number | null;
 }
 
-export interface V1TrackItem {
-  id: string;
+export interface V1TrackLookup extends V1TrackRef {
   game: string;
-  name: string;
   lengthM: number | null;
+  /** Whether Xpeed Companion sent a layout (the shape of the circuit) for this track, and its id. Absent from a server that predates it. */
+  hasLayout?: boolean;
+  layoutId?: string | null;
+  layoutUpdatedAt?: string | null;
+}
+
+export interface V1TrackItem extends V1TrackLookup {
   lapCount: number;
   validLapCount: number;
   sessionCount: number;
   carCount: number;
   bestLapMs: number | null;
   lastDrivenAt: string;
-  /** Whether Xpeed Companion sent a layout (the shape of the circuit) for this track, and its id. Absent from a server that predates it. */
-  hasLayout?: boolean;
-  layoutId?: string | null;
 }
 
 export interface V1CarItem {
@@ -114,7 +120,7 @@ export interface V1CarItem {
 export interface V1DayCount { day: string; laps: number; validLaps: number }
 
 export interface V1TrackDetail {
-  track: { id: string; game: string; name: string; lengthM: number | null; hasLayout?: boolean; layoutId?: string | null };
+  track: V1TrackLookup;
   totals: { lapCount: number; validLapCount: number; sessionCount: number; carCount: number; bestLapMs: number | null; lastDrivenAt: string | null };
   progress: { bestPerDay: Array<{ day: string; bestMs: number; lapId: string; car: V1Ref }>; lapsPerDay: V1DayCount[] };
   bestPerCar: Array<{ car: V1Ref & { class: string | null }; lapCount: number; validLapCount: number; bestMs: number | null; lapId: string | null; achievedAt: string | null }>;

@@ -402,18 +402,21 @@ sweeper. The overview cache of the person is dropped.
 
 ### `GET /tracks?game&cursor&limit` and `GET /cars?game&cursor&limit`
 The tracks (cars) the person has driven, most recently driven first.
-Track item: `{ id, game, name, lengthM | null, lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt, hasLayout: boolean,
-layoutId: uuid | null }`. `hasLayout` is true when the person's Xpeed Companion has sent a track layout (`/api/sim/tracks`) for that track, and `layoutId` is that
-layout (`GET /api/sim/tracks/<id>/file`; the newest when several match). The match is made by the database, by game and name like the site does
-(`sim_layout_id`, `src/lib/sim/track-layout-match.ts`): same game (`rfactor1` laps match layouts filed under `sce`) and the track's name equal, ignoring case,
-accents and punctuation, to the layout's track name, its track name with the layout variant, or its title. Only the person's own layouts count.
+Track item: `{ id, game, name, sourceName, variant | null, lengthM | null, lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt, hasLayout: boolean,
+layoutId: uuid | null, layoutRevision: string | null }`. `name` is the display title; `sourceName` and `variant` retain the simulator identity.
+`hasLayout` binds the person's uploaded geometry to this catalog UUID through `sim_layout_id`, using the game, raw source identity and variant.
+`rfactor1` laps can use layouts filed under `sce`. Title-only collisions and ambiguous legacy identities produce no match.
+`layoutId` identifies `GET /api/sim/tracks/<id>/file`; `layoutRevision` preserves the database timestamp's microsecond precision as an opaque string for cache refresh.
+Only the person's own layouts count. Clients validate the downloaded header and the recorded coordinate alignment before placing a lap over the road.
+Migration `20261120160000_sim_track_identity.sql` separates newly ingested named variants, including their sessions, personal bests and references.
+Historical laps without a proven variant remain separate; this migration does not guess their variant or regroup their history.
 Car item: `{ id, game, name, brand | null, class | null, lapCount, validLapCount, sessionCount, trackCount, bestLapMs | null, lastDrivenAt }`.
 Answers `{ tracks: [...], nextCursor }` and `{ cars: [...], nextCursor }`.
 
 ### `GET /tracks/<id>`
 Any track in the catalog (a track the person never drove has zero totals and empty lists):
 ```
-{ track: { id, game, name, lengthM | null, hasLayout: boolean, layoutId: uuid | null },   // the two layout fields as in a track item
+{ track: { id, game, name, sourceName, variant | null, lengthM | null, hasLayout: boolean, layoutId: uuid | null, layoutRevision: string | null },
   totals: { lapCount, validLapCount, sessionCount, carCount, bestLapMs | null, lastDrivenAt | null },
   progress: { bestPerDay: [{ day, bestMs, lapId, car: {id, name} }],   // fastest valid lap of each day, oldest first
               lapsPerDay: [{ day, laps, validLaps }] },                  // oldest first; the latest 1000 days with laps

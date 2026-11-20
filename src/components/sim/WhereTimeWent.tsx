@@ -8,15 +8,18 @@ import { insightText } from '@/lib/sim/insight-text';
 import type { Study } from '@/lib/sim/lap-study-client';
 import type { LapStudy } from '@/lib/sim/lap-study-core';
 import { cn } from '@/lib/utils';
+import type { CornerComparison } from '@/lib/sim/corner-compare';
 
 const SEVERITY_DOT = { high: 'bg-destructive', medium: 'bg-warn', low: 'bg-muted-foreground' } as const;
 
 /** The reason a pair of laps could not be put corner by corner, in words. */
-export function WhyNotComparable({ reason }: { reason: 'length' | 'channels' | 'ok' }) {
+export function WhyNotComparable({ reason }: { reason: CornerComparison['reason'] }) {
   const { t } = useTranslation();
   return (
     <p className="text-sm text-muted-foreground" data-testid="where-unavailable">
-      {reason === 'length'
+      {reason === 'coordinates'
+        ? t('modes.analysis.notComparableCoordinates', 'These recordings use incompatible coordinates, so their corners cannot be compared.')
+        : reason === 'length' || reason === 'identity'
         ? t('modes.analysis.notComparableLength', 'These laps are not on the same track layout, so their corners cannot be compared.')
         : t('modes.analysis.notComparableChannels', 'These laps cannot be compared corner by corner.')}
     </p>

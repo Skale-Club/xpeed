@@ -3,7 +3,8 @@
 //!
 //! Only reads the game's folders. The files stay on this computer.
 
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 use super::*;
@@ -18,20 +19,34 @@ pub struct Request {
 
 /// The Steam library folders of this computer (where games are installed), from Steam's own list.
 pub fn steam_libraries() -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut roots: Vec<_> = crate::installed::steam_path().into_iter().collect();
     for var in ["ProgramFiles(x86)", "ProgramFiles"] {
         if let Some(base) = std::env::var_os(var) {
             roots.push(PathBuf::from(base).join("Steam"));
         }
     }
-    let mut libraries = roots.clone();
-    for root in &roots {
-        if let Ok(text) = std::fs::read_to_string(root.join("steamapps").join("libraryfolders.vdf")) {
-            libraries.extend(vdf_paths(&text));
+    let mut libraries = Vec::new();
+    for root in roots {
+        if libraries.contains(&root) {
+            continue;
+        }
+        let folders = steam_text(&root.join("steamapps").join("libraryfolders.vdf"), 2 * 1024 * 1024);
+        libraries.push(root);
+        if let Some(text) = folders {
+            for path in vdf_paths(&text) {
+                if !libraries.contains(&path) {
+                    libraries.push(path);
+                }
+            }
         }
     }
-    libraries.dedup();
     libraries
+}
+
+fn steam_text(file: &Path, limit: u64) -> Option<String> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(file).ok()?.take(limit + 1).read_to_end(&mut bytes).ok()?;
+    (bytes.len() as u64 <= limit).then(|| String::from_utf8(bytes).ok()).flatten()
 }
 
 /// The `"path"  "F:\\SteamLibrary"` values of Steam's `libraryfolders.vdf`.
@@ -44,14 +59,42 @@ pub fn vdf_paths(text: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `<library>/steamapps/common/<game folder>/<below>` for every library, then the folder named by `env` (if set) first.
-pub(crate) fn game_folders(env: &str, folder: &str, below: &str) -> Vec<PathBuf> {
+fn manifest_install_dir(text: &str) -> Option<&str> {
+    let folder = text.lines().find_map(|line| {
+        let mut fields = line.split('"').skip(1).step_by(2);
+        fields.next()?.eq_ignore_ascii_case("installdir").then(|| fields.next()).flatten()
+    })?;
+    let mut components = Path::new(folder).components();
+    (matches!(components.next(), Some(Component::Normal(_)))
+        && components.next().is_none()
+        && !folder.contains(['/', '\\', ':', '<', '>', '|', '?', '*'])
+        && !folder.ends_with(['.', ' '])
+        && !folder.chars().any(char::is_control))
+    .then_some(folder)
+}
+
+/// Explicit game root first, then Steam's install directory for the title in each library.
+pub(crate) fn game_folders(env: &str, app_id: u32, folder: &str, below: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    if let Some(dir) = std::env::var_os(env) {
+    let mut fallback = Vec::new();
+    if let Some(dir) = std::env::var_os(env).filter(|dir| !dir.is_empty()) {
         out.push(PathBuf::from(dir).join(below));
     }
     for library in steam_libraries() {
-        out.push(library.join("steamapps").join("common").join(folder).join(below));
+        let steamapps = library.join("steamapps");
+        let manifest = steam_text(&steamapps.join(format!("appmanifest_{app_id}.acf")), 64 * 1024);
+        let installed = manifest.as_deref().and_then(manifest_install_dir);
+        let path = steamapps.join("common").join(installed.unwrap_or(folder)).join(below);
+        if installed.is_none() {
+            fallback.push(path);
+        } else if !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    for path in fallback {
+        if !out.contains(&path) {
+            out.push(path);
+        }
     }
     out
 }
@@ -100,7 +143,7 @@ pub fn resolve_ac(spec: &str) -> Result<ac::Layout, String> {
         return ac_from_dir(path);
     }
     let relative = spec.replace('\\', "/");
-    let roots = game_folders("XPEED_AC_DIR", "assettocorsa", "content/tracks");
+    let roots = game_folders("XPEED_AC_DIR", 244_210, "assettocorsa", "content/tracks");
     for root in &roots {
         let dir = root.join(&relative);
         if dir.is_dir() {
@@ -168,7 +211,7 @@ pub fn resolve_sce(spec: &str) -> Result<PathBuf, String> {
         }
         return pick_aiw(aiw::list(path), &path.display().to_string());
     }
-    let roots = game_folders("XPEED_SCE_DIR", "Stock Car Extreme", "GameData/Locations");
+    let roots = game_folders("XPEED_SCE_DIR", 273_840, "Stock Car Extreme", "GameData/Locations");
     for root in &roots {
         let found = sce_named(root, spec);
         if !found.is_empty() {
@@ -332,6 +375,15 @@ mod tests {
             vec![PathBuf::from("C:\\Program Files (x86)\\Steam"), PathBuf::from("F:\\SteamLibrary")]
         );
         assert!(vdf_paths("nothing here").is_empty());
+    }
+
+    #[test]
+    fn parses_custom_steam_install_folder_and_refuses_non_leaf_paths() {
+        let manifest = |folder| format!("\"AppState\"\n{{\n  \"installdir\" \"{folder}\"\n}}");
+        assert_eq!(manifest_install_dir(&manifest("AC Custom Install")), Some("AC Custom Install"));
+        for path in ["../outside", "X:\\outside", "a/b", "..", "alias.", "alias ", ""] {
+            assert_eq!(manifest_install_dir(&manifest(path)), None, "{path:?}");
+        }
     }
 
     #[test]

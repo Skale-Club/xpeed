@@ -36,6 +36,31 @@ describe('the track map', () => {
     expect(line[2][1]).toBeGreaterThan(line[1][1]);
   });
 
+  it('places the inspection marker in the recorded world without mirroring', () => {
+    const { rerender } = render(<TrackMap lap={lap} cursor={{ x: 0, z: 0 }} />);
+    const marker = () => screen.getByTestId('map-cursor');
+    const firstX = Number(marker().getAttribute('cx'));
+    const firstY = Number(marker().getAttribute('cy'));
+    rerender(<TrackMap lap={lap} cursor={{ x: 20, z: 20 }} />);
+    expect(Number(marker().getAttribute('cx'))).toBeGreaterThan(firstX);
+    expect(Number(marker().getAttribute('cy'))).toBeGreaterThan(firstY);
+    rerender(<TrackMap lap={lap} cursor={{ x: Number.NaN, z: 20 }} />);
+    expect(screen.queryByTestId('map-cursor')).not.toBeInTheDocument();
+  });
+
+  it('keeps the inspected position visible when moving along a zoomed lap', () => {
+    const { rerender } = render(<TrackMap lap={lap} cursor={{ x: 0, z: 0 }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    rerender(<TrackMap lap={lap} cursor={{ x: 20, z: 20 }} />);
+    const [x, z, width, height] = screen.getByTestId('track-map').getAttribute('viewBox')!.split(' ').map(Number);
+    const marker = screen.getByTestId('map-cursor');
+    expect(Number(marker.getAttribute('cx'))).toBeGreaterThanOrEqual(x);
+    expect(Number(marker.getAttribute('cx'))).toBeLessThanOrEqual(x + width);
+    expect(Number(marker.getAttribute('cy'))).toBeGreaterThanOrEqual(z);
+    expect(Number(marker.getAttribute('cy'))).toBeLessThanOrEqual(z + height);
+    expect(screen.getByTestId('track-map')).toHaveAttribute('data-zoom', '2');
+  });
+
   it('draws the road, the ideal line and the pit lane under the lap', () => {
     const layout = makeLayout({ points: circle(50, 40), width: 6, ideal: true, pit: [[0, 60], [30, 60], [60, 60]] });
     const { container } = render(<TrackMap lap={lap} layout={layout} />);

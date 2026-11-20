@@ -101,7 +101,20 @@ pub struct PreparedPath {
 }
 
 impl PreparedPath {
-    pub fn new(points: &[Point], complete: bool) -> Self {
+    pub fn new(points: &[Point], closed: bool) -> Self {
+        Self::prepare(points, closed, Some(GAP))
+    }
+
+    /// A validated source declares its topology and bounds its closing segment in the XTRK contract.
+    pub(crate) fn native(points: &[Point], closed: bool) -> Self {
+        Self::prepare(points, closed, None)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+
+    fn prepare(points: &[Point], closed: bool, jump_gap: Option<f32>) -> Self {
         let mut runs = Vec::new();
         let mut nodes: Vec<Node> = Vec::new();
         let mut previous = None;
@@ -130,7 +143,7 @@ impl PreparedPath {
             }
             if let Some(p) = previous {
                 let step = distance(p, point);
-                if step > GAP {
+                if !step.is_finite() || jump_gap.is_some_and(|gap| step > gap) {
                     finish(&mut runs, &mut nodes);
                     arc = 0.0;
                     uninterrupted = false;
@@ -139,17 +152,25 @@ impl PreparedPath {
                 }
             }
             previous = Some(point);
-            if nodes.last().is_none_or(|n| arc - n.arc >= 1.0) {
+            // Keep the actual native endpoint when thinning close neighbours, so the closing limit uses its coordinates.
+            let source_endpoint = jump_gap.is_none() && source + 1 == points.len();
+            if nodes
+                .last()
+                .is_none_or(|n| arc - n.arc >= 1.0 || (source_endpoint && n.point != point))
+            {
                 nodes.push(Node { point, arc, source });
             }
         }
         finish(&mut runs, &mut nodes);
-        if complete && uninterrupted && runs.len() == 1 {
+        if closed && uninterrupted && runs.len() == 1 {
             let run = &mut runs[0];
-            let gap = distance(run.nodes[0].point, run.nodes.last().unwrap().point);
-            if gap <= GAP && run.length > 2.0 {
+            let (first, last) = (run.nodes[0].point, run.nodes.last().unwrap().point);
+            let gap = (f64::from(first.0) - f64::from(last.0)).hypot(f64::from(first.1) - f64::from(last.1));
+            let close_gap = jump_gap.map_or(crate::tracks::MAX_CLOSE_GAP_M, f64::from);
+            let min_length = if jump_gap.is_some() { 2.0 } else { 0.0 };
+            if gap <= close_gap && run.length > min_length {
                 run.closed = true;
-                run.length += gap;
+                run.length += gap as f32;
             }
         }
         let mut grid: HashMap<(i32, i32), Vec<Location>> = HashMap::new();
@@ -312,7 +333,7 @@ impl Road {
             } else {
                 RoadKind::Estimated
             },
-            path: PreparedPath::new(&points, track.closed),
+            path: PreparedPath::native(&points, track.closed),
             edges,
             unknown_prefix,
         })
@@ -330,8 +351,8 @@ impl Road {
 ///   is in the same world as the AI line. Without the mirror, right-hand corners were drawn as left-hand ones.
 ///
 /// Assetto Corsa EVO is turned into x east, z north in its reader (x negated), so it needs no mirror here.
-pub fn mirrored_ground(game: &str) -> bool {
-    matches!(game, "iracing" | "ac")
+pub fn mirrored_ground(game_id: &str) -> bool {
+    matches!(game_id, "iracing" | "ac")
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -434,6 +455,12 @@ pub struct Scene {
     pub arrow: Vec<Point>,
 }
 
+impl Scene {
+    pub(crate) fn has_layout(&self) -> bool {
+        !(self.center.is_empty() && self.road.is_empty() && self.edges.is_empty())
+    }
+}
+
 pub fn scene(camera: Camera, path: &PreparedPath, road: Option<&Road>, trail: &PreparedPath, reference: Option<&PreparedPath>) -> Scene {
     let line = |path: &PreparedPath| {
         path.local(camera.car, camera.heading)
@@ -443,8 +470,6 @@ pub fn scene(camera: Camera, path: &PreparedPath, road: Option<&Road>, trail: &P
     };
     let mut result = Scene {
         center: line(path),
-        trail: line(trail),
-        reference: reference.map_or_else(Vec::new, line),
         ..Scene::default()
     };
     if let Some(road) = road {
@@ -471,6 +496,11 @@ pub fn scene(camera: Camera, path: &PreparedPath, road: Option<&Road>, trail: &P
                     .extend([camera.segment(al, bl), camera.segment(ar, br)].into_iter().flatten());
             }
         }
+    }
+    // A car away from the source's coverage can still have a driving trail. There is no layout to draw there.
+    if result.has_layout() {
+        result.trail = line(trail);
+        result.reference = reference.map_or_else(Vec::new, line);
     }
     let (x, y) = camera.anchor();
     result.arrow = vec![(x, y - 19.0), (x + 12.0, y + 15.0), (x, y + 8.0), (x - 12.0, y + 15.0)];
@@ -691,8 +721,8 @@ mod tests {
                 (100.0 * a.cos(), 100.0 * a.sin())
             })
             .collect();
-        let closed = PreparedPath::new(&points, true);
-        let open = PreparedPath::new(&points, false);
+        let closed = PreparedPath::native(&points, true);
+        let open = PreparedPath::native(&points, false);
         let car = points[358];
         let heading = unit((-car.1, car.0)).unwrap();
         let c = closed.local(car, heading);
@@ -700,6 +730,48 @@ mod tests {
         assert!(c.iter().any(|p| p.1 > 50.0));
         assert!(!o.iter().any(|p| p.1 > 50.0));
         assert!(c.len() <= MAX_VERTICES);
+    }
+
+    #[test]
+    fn native_closure_uses_the_source_format_threshold() {
+        let points = [(0.0, 0.0), (0.0, 15.0), (0.0, 30.0), (0.0, 45.0)];
+        assert!(PreparedPath::native(&points, true).runs[0].closed);
+        assert!(!PreparedPath::native(&points, false).runs[0].closed);
+        assert!(!PreparedPath::new(&points, true).runs[0].closed);
+
+        let beyond_bound = [(0.0, 0.0), (0.0, 50.0), (0.0, 50.5)];
+        let run = &PreparedPath::native(&beyond_bound, true).runs[0];
+        assert_eq!(run.nodes.last().unwrap().point, beyond_bound[2]);
+        assert!(!run.closed);
+    }
+
+    #[test]
+    fn native_keeps_authored_long_segments_while_telemetry_splits_jumps() {
+        let points = [(0.0, 0.0), (0.0, 10.0), (0.0, 70.0), (0.0, 80.0)];
+        let native = PreparedPath::native(&points, false);
+        assert_eq!(native.runs.len(), 1);
+        let display_edge = |path: &PreparedPath| path.local((0.0, 38.0), (0.0, 1.0)).windows(2).any(|edge| edge == &points[1..3]);
+        assert!(display_edge(&native));
+
+        let telemetry = PreparedPath::new(&points, false);
+        assert_eq!(telemetry.runs.len(), 2);
+        assert!(!display_edge(&telemetry));
+    }
+
+    #[test]
+    fn a_driving_trail_cannot_replace_layout_coverage() {
+        let camera = Camera {
+            width: 600.0,
+            height: 400.0,
+            car: (0.0, 0.0),
+            heading: (0.0, 1.0),
+            mirrored: false,
+        };
+        let distant_layout = PreparedPath::native(&[(0.0, 500.0), (0.0, 510.0)], false);
+        let driven = PreparedPath::new(&[(0.0, 0.0), (0.0, 10.0)], false);
+        let scene = scene(camera, &distant_layout, None, &driven, Some(&driven));
+        assert!(!scene.has_layout());
+        assert!(scene.trail.is_empty() && scene.reference.is_empty());
     }
     #[test]
     fn missing_positions_and_teleports_never_become_chords() {

@@ -304,8 +304,10 @@ fn live_reading() -> Live {
     let length = direction.0.hypot(direction.1);
     live.heading = Some((direction.0 / length, direction.1 / length));
     live.trail = Arc::new(track[150..=160].to_vec());
-    live.map = Some(std::sync::Arc::new(track));
-    live.map_complete = true;
+    live.layout = crate::maps::LayoutView::Ready(crate::maps::Layout {
+        path: Arc::new(crate::perspective::PreparedPath::native(&track, true)),
+        road: None,
+    });
     live.best_lap_s = Some(107.204);
     live.delta_s = Some(-0.27);
     // The delta along the lap so far: 40% of the lap, a little behind early on, ending 0.27 s ahead.
@@ -525,8 +527,10 @@ fn real_laguna_positions_move_the_native_perspective_and_keep_the_arrow() {
         }
         let mut live = live.unwrap();
         assert!(live.heading.is_some(), "real movement establishes a forward direction");
-        live.map = Some(positions.clone());
-        live.map_complete = true;
+        live.layout = crate::maps::LayoutView::Ready(crate::maps::Layout {
+            path: Arc::new(crate::perspective::PreparedPath::native(&positions, true)),
+            road: None,
+        });
         let mut native_view = view(&f, Some(&live), Tab::Dash, 1.0, Lang::En);
         native_view.now_ms = live.at_ms;
         let pixels = render(&native_view, 1280, 800);
@@ -547,8 +551,7 @@ fn native_evo_pilot_replays_real_lap_with_source_boundaries() {
     let track = crate::tracks::gunzip(&std::fs::read(path).unwrap(), crate::tracks::MAX_UNPACKED).unwrap();
     assert_eq!((track.game.as_str(), track.name.as_str()), ("acevo", "Laguna Seca"));
     assert!(track.boundaries.is_some());
-    let road = Arc::new(crate::perspective::Road::from_track(&track).expect("native source road"));
-    let layout = Arc::new(track.centerline.x.iter().copied().zip(track.centerline.z.iter().copied()).collect());
+    let layout = crate::maps::Layout::from_track(&track).expect("native source layout");
     let lap = crate::lapfile::gunzip(
         include_bytes!("../../fixtures/laps/acevo-real-lap-3.xlap.gz"),
         crate::lapfile::MAX_UNPACKED,
@@ -577,11 +580,8 @@ fn native_evo_pilot_replays_real_lap_with_source_boundaries() {
             live = Some(tracker.on_frame("acevo", &frame, (times[i] * 1000.0) as i64));
         }
         let mut live = live.unwrap();
-        live.map = Some(Arc::clone(&layout));
-        live.map_complete = true;
-        live.road = Some(Arc::clone(&road));
         let heading = live.heading.expect("motion provides heading");
-        let points = crate::perspective::PreparedPath::new(&layout, true);
+        live.layout = crate::maps::LayoutView::Ready(layout.clone());
         let camera = crate::perspective::Camera {
             width: 736.0,
             height: 400.0,
@@ -589,7 +589,7 @@ fn native_evo_pilot_replays_real_lap_with_source_boundaries() {
             heading,
             mirrored: false,
         };
-        let scene = crate::perspective::scene(camera, &points, Some(&road), &Default::default(), None);
+        let scene = crate::perspective::scene(camera, &layout.path, layout.road.as_deref(), &Default::default(), None);
         assert!(
             scene.road.len() > 20 && scene.edges.len() > 40,
             "real source boundaries project into view"
@@ -5360,14 +5360,18 @@ fn the_radar_follows_the_games_handedness_and_the_players_heading() {
     live.field = Some(Arc::new(radar_field()));
     live.heading = Some(NORTH);
     let left_of = |live: &Live| model(live, Lang::En).radar.unwrap().cars.last().map(|c| c.right_m);
-    live.game = "acc";
+    live.game = "Assetto Corsa Competizione";
+    live.game_id = "acc";
     assert!(left_of(&live).is_some_and(|r| near(r, -3.6)));
-    live.game = "iracing";
+    live.game = "iRacing";
+    live.game_id = "iracing";
     assert!(left_of(&live).is_some_and(|r| near(r, 3.6)), "the same mirror as the track camera");
-    live.game = "ac";
+    live.game = "Assetto Corsa";
+    live.game_id = "ac";
     assert!(left_of(&live).is_some_and(|r| near(r, 3.6)));
     // Facing west (-x), the car 3.6 m to the west of the player is ahead of it, not beside it.
-    live.game = "acc";
+    live.game = "Assetto Corsa Competizione";
+    live.game_id = "acc";
     live.heading = Some((-1.0, 0.0));
     let radar = model(&live, Lang::En).radar.unwrap();
     assert!(

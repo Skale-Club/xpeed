@@ -117,13 +117,13 @@ fn steam_libraries() -> Vec<PathBuf> {
 }
 
 #[cfg(windows)]
-fn steam_path() -> Option<PathBuf> {
+pub(crate) fn steam_path() -> Option<PathBuf> {
     use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
     registry_text(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath").map(PathBuf::from)
 }
 
 #[cfg(not(windows))]
-fn steam_path() -> Option<PathBuf> {
+pub(crate) fn steam_path() -> Option<PathBuf> {
     None
 }
 

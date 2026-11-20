@@ -9,7 +9,8 @@ import { installFakeIndexedDb, type FakeIdb } from '@/test/fake-idb';
 import { renderGarage, type FakeCatalogItem } from '@/test/garage-render';
 import { makeLapFixtures } from '@/test/lap-fixture';
 import { whereNow } from '@/test/sim-render';
-import { circle, gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
+import { gzipBytes, makeLayout, packLayout } from '@/test/track-fixture';
+import { trackPath } from '@/lib/sim/analysis';
 import { buildCatalog, fakeV1State, ref, v1Lap, v1Session, type FakeV1State } from '@/test/v1-fake-server';
 import { chooseOption, selectOptions } from '@/test/select';
 import { TrackPage } from './TrackPage';
@@ -66,8 +67,9 @@ const openTrack = (id: string, options: { accountTracks?: AccountTrack[]; files?
 
 /** The layout of Monza as the account holds it, gzipped, and the lap file of the best Monza lap (a made-up lap; only its path matters). */
 async function layoutAndLap() {
-  const layout = await gzipBytes(packLayout(makeLayout({ points: circle(300, 80), width: 8, closed: true, game: 'lmu', name: 'Monza', ideal: true })));
-  const [lap] = makeLapFixtures();
+  const [base] = makeLapFixtures();
+  const lap = { ...base, header: { ...base.header, game: 'lmu', track: { ...base.header.track, name: 'Monza' } } };
+  const layout = await gzipBytes(packLayout(makeLayout({ points: trackPath(lap, 3000)!.points, width: 8, closed: true, game: 'lmu', name: 'Monza', ideal: true })));
   return { layout, lap: await gzipLap(lap) };
 }
 
@@ -266,7 +268,7 @@ describe('the layout of the track', () => {
     expect(map.getAttribute('class')).toMatch(/h-72/);
     expect(screen.getByTestId('track-layout')).toBeInTheDocument();
     expect(screen.getByTestId('track-header')).toHaveTextContent('Layout');
-    expect(asked).toContain('/api/sim/tracks/layout-monza/file');
+    expect(asked.some((url) => new URL(url, 'https://xpeed.test').pathname === '/api/sim/tracks/layout-monza/file')).toBe(true);
     expect(state.requests.filter((request) => request.path === `/laps/${best.id}/file`)).toHaveLength(1);
     expect(state.requests.filter((request) => request.path.endsWith('/file'))).toHaveLength(1);
   });
@@ -292,7 +294,7 @@ describe('the layout of the track', () => {
   it('says what will appear, and reads no lap file, when the track has no layout', async () => {
     flag(null);
     const { asked } = openTrack(monza.id);
-    expect(await screen.findByTestId('track-no-layout')).toHaveTextContent('will appear here after you drive this track');
+    expect(await screen.findByTestId('track-no-layout')).toHaveTextContent('No compatible game track geometry is available');
     await screen.findByTestId('best-per-car');
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(state.requests.filter((request) => request.path.endsWith('/file'))).toHaveLength(0);

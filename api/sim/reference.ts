@@ -11,8 +11,8 @@
 //   404 { error: "no_reference" }   304 when If-None-Match is the lap's ETag ("<lapId>").   Cache-Control: private, max-age=300.
 //
 // `kind` in the answer is the kind of the lap that came back: a best that fell back to the owner's personal best says "personal".
-// Names are matched like the upload matches them (the catalog's aliases, by track and car name); `variant` is read and checked but not used, because a
-// lap is filed under the track's name alone. Contract: docs/telemetria-virtual-2026-11-10/ENVIO-DE-VOLTAS.md (2e).
+// Reference lookup uses the lap's raw game, track, variant and car. Older catalog rows
+// lacked the variant, so the stored file's identity is checked before it can be served.
 import { openBackend } from '../_backend';
 import { gunzipLap, LapFormatError, LAP_LIMITS } from '../../src/lib/sim/lap-file';
 import { bearer, refuse, reply, tooMany } from './_shared';
@@ -60,21 +60,20 @@ export default async function reference(req: Request): Promise<Response> {
     const game = params.get('game') ?? '';
     const track = text(params.get('track'));
     const car = text(params.get('car'));
+    const variant = text(params.get('variant'));
     const kind = params.get('kind') || 'best';
     if (!GAME.test(game)) return refuse({ error: 'invalid_game' }, 400, false);
     if (!track) return refuse({ error: 'invalid_track' }, 400, false);
     if (!car) return refuse({ error: 'invalid_car' }, 400, false);
-    if (params.has('variant') && params.get('variant') !== '' && !text(params.get('variant'))) return refuse({ error: 'invalid_variant' }, 400, false);
+    if (params.get('variant') && !variant) return refuse({ error: 'invalid_variant' }, 400, false);
     if (!(KINDS as readonly string[]).includes(kind)) return refuse({ error: 'invalid_kind' }, 400, false);
 
-    const picked = await backend.service.rpc('sim_reference_lap', { p_user: device.userId, p_game: game, p_track: track, p_car: car, p_kind: kind });
+    const picked = await backend.service.rpc('sim_reference_lap', {
+      p_user: device.userId, p_game: game, p_track: track, p_car: car, p_kind: kind, p_variant: variant,
+    });
     if (picked.error) throw picked.error;
     const found = picked.data as Found | null;
     if (!found?.lapId || !found.storagePath) return refuse({ error: 'no_reference' }, 404, false);
-
-    // The lap never changes, so its id is the ETag: a Companion that has it is answered before the file is read.
-    const etag = `"${found.lapId}"`;
-    if (matches(req.headers.get('if-none-match'), etag)) return new Response(null, { status: 304, headers: { ETag: etag, ...HEADERS } });
 
     const file = await backend.service.storage.from(BUCKET).download(found.storagePath);
     if (file.error || !file.data) {
@@ -90,6 +89,14 @@ export default async function reference(req: Request): Promise<Response> {
       if (error instanceof LapFormatError) { failed(error); return refuse({ error: 'no_reference' }, 404, false); }
       throw error;
     }
+    const normalize = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
+    if (lap.header.game !== game || normalize(lap.header.track.name) !== normalize(track)
+      || normalize(lap.header.track.variant) !== normalize(variant) || normalize(lap.header.car.name) !== normalize(car)) {
+      return refuse({ error: 'no_reference' }, 404, false);
+    }
+    const etag = `"${found.lapId}"`;
+    if (matches(req.headers.get('if-none-match'), etag)) return new Response(null, { status: 304, headers: { ETag: etag, ...HEADERS } });
+
     const points = referencePoints(lap.data.t, lap.data.dist, STEP_M);
     if (points.length < 2) return refuse({ error: 'no_reference' }, 404, false);
 

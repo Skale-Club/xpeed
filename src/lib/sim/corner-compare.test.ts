@@ -42,6 +42,15 @@ function shiftLine(lap: LapFile, from: number, to: number, meters: number): LapF
 const without = (lap: LapFile, ...ids: string[]): LapFile => ({ ...lap, data: Object.fromEntries(Object.entries(lap.data).filter(([id]) => !ids.includes(id))) });
 
 describe('comparing two laps corner by corner', () => {
+  it('refuses another game, variant or known incompatible coordinate frame before analysing corners', () => {
+    expect(compareCorners(reference, { ...reference, header: { ...reference.header, game: 'ac' } })).toMatchObject({ comparable: false, reason: 'identity', corners: [] });
+    expect(compareCorners(reference, { ...reference, header: { ...reference.header, track: { ...reference.header.track, variant: 'other' } } })).toMatchObject({ comparable: false, reason: 'identity', corners: [] });
+    const recorder = { app: 'xpeed-companion', version: '0.8.2', build: 'unverified', source: 'acevo' };
+    const original = { ...reference, header: { ...reference.header, game: 'acevo', recorder: { ...recorder, coordinateFrame: 'acevo-original-x-v1' } } };
+    const reflected = { ...reference, header: { ...original.header, recorder: { ...recorder, coordinateFrame: 'acevo-reflected-x-v1' } } };
+    expect(compareCorners(original, reflected)).toMatchObject({ comparable: false, reason: 'coordinates', corners: [] });
+  });
+
   it('attributes a lap that brakes 15 m earlier to brakesEarly', () => {
     const study = lapWith(edit(SPEC.hairpin, { brakeDist: 900 - 15 })).lap;
     const cmp = compareCorners(study, reference);

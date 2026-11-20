@@ -75,7 +75,7 @@ export interface MapFocus {
  *
  * Zoom: buttons, double click, pinch, or + and - on the keyboard; zoomed in, it is dragged (or moved with the arrows).
  */
-export function TrackMap({ lap, reference, layout, focus, highlight, className }: {
+export function TrackMap({ lap, reference, layout, focus, highlight, cursor, referenceCursor, className }: {
   /** Extra classes for the picture (a taller one on a page that makes the map its hero); the height of a lap analysis is the default. */
   className?: string;
   lap: TrackPath;
@@ -84,6 +84,9 @@ export function TrackMap({ lap, reference, layout, focus, highlight, className }
   focus?: MapFocus | null;
   /** A stretch of the lap to mark (the corner being looked at): [x, z] points, drawn over the lap. */
   highlight?: Array<[number, number]> | null;
+  /** The selected recorded position, shared with the distance cursor in the charts. */
+  cursor?: { x: number; z: number } | null;
+  referenceCursor?: { x: number; z: number } | null;
 }) {
   const { t } = useTranslation();
   const [view, setView] = useState<{ k: number; cx: number; cy: number; sig: string } | null>(null);
@@ -123,6 +126,16 @@ export function TrackMap({ lap, reference, layout, focus, highlight, className }
   const cx = keepIn(current?.cx ?? width / 2, vbW, width);
   const cy = keepIn(current?.cy ?? height / 2, vbH, height);
   const toMap = (x: number, z: number) => ({ x: x - minX + margin, y: z - minZ + margin });
+
+  const cursorX = cursor?.x;
+  const cursorZ = cursor?.z;
+  useEffect(() => {
+    if (cursorX == null || cursorZ == null || !Number.isFinite(cursorX) || !Number.isFinite(cursorZ)) return;
+    const cx = cursorX - minX + margin;
+    const cy = cursorZ - minZ + margin;
+    setView((current) => current && current.sig === sig && current.k > 1
+      ? { ...current, cx, cy } : current);
+  }, [cursorX, cursorZ, minX, minZ, margin, sig]);
 
   useEffect(() => {
     if (!focus) return;
@@ -278,6 +291,16 @@ export function TrackMap({ lap, reference, layout, focus, highlight, className }
         )}
         {/* The start keeps its size on screen whatever the zoom. */}
         <circle cx={start.x} cy={start.y} r={Math.max(vbW, vbH) * 0.012} fill={CHART_PALETTE.green} />
+        {referenceCursor && Number.isFinite(referenceCursor.x) && Number.isFinite(referenceCursor.z) && (
+          <circle cx={toMap(referenceCursor.x, referenceCursor.z).x} cy={toMap(referenceCursor.x, referenceCursor.z).y}
+            r={Math.max(vbW, vbH) * 0.019} fill="none" stroke={CHART_PALETTE.blue} strokeWidth={2.5}
+            vectorEffect="non-scaling-stroke" data-testid="map-reference-cursor" />
+        )}
+        {cursor && Number.isFinite(cursor.x) && Number.isFinite(cursor.z) && (
+          <circle cx={toMap(cursor.x, cursor.z).x} cy={toMap(cursor.x, cursor.z).y}
+            r={Math.max(vbW, vbH) * 0.014} fill={CHART_PALETTE.yellow} stroke="currentColor" strokeWidth={2}
+            vectorEffect="non-scaling-stroke" data-testid="map-cursor" />
+        )}
       </svg>
     </div>
   );

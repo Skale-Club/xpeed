@@ -16,6 +16,7 @@
 //! The files are made by hand with `track-dump` ([`dump`]), and by themselves while the person drives ([`auto`]): the
 //! layout of each track a game is on goes to the server once (and again when the game's files change).
 
+use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -238,6 +239,46 @@ pub fn path_length(x: &[f32], z: &[f32]) -> f64 {
     (1..x.len().min(z.len()))
         .map(|i| (f64::from(x[i]) - f64::from(x[i - 1])).hypot(f64::from(z[i]) - f64::from(z[i - 1])))
         .sum()
+}
+
+pub(super) const PIT_MAX_DISTANCE_M: f64 = 300.0;
+const MAX_PIT_PROXIMITY_TESTS: usize = 2_000_000;
+
+/// Check every pit point against nearby main-path cells, including adjoining
+/// cells. The work limit protects the worker even in densely packed bad input.
+fn check_pit_near_main(main: impl IntoIterator<Item = (f64, f64)>, pit: impl IntoIterator<Item = (f64, f64)>) -> Result<(), String> {
+    let cell = |x: f64, z: f64| {
+        let index = |v: f64| (v / PIT_MAX_DISTANCE_M).floor() as i32;
+        (index(x), index(z))
+    };
+    let mut grid: HashMap<_, Vec<_>> = HashMap::new();
+    for (x, z) in main {
+        grid.entry(cell(x, z)).or_default().push((x, z));
+    }
+    let mut tests = 0;
+    let limit_squared = PIT_MAX_DISTANCE_M * PIT_MAX_DISTANCE_M;
+    'pit: for (x, z) in pit {
+        let (cx, cz) = cell(x, z);
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                let key = (cx.saturating_add(dx), cz.saturating_add(dz));
+                for &(mx, mz) in grid.get(&key).into_iter().flatten() {
+                    tests += 1;
+                    if tests > MAX_PIT_PROXIMITY_TESTS {
+                        return Err("pit proximity validation exceeded its work limit".into());
+                    }
+                    let (ex, ez) = (x - mx, z - mz);
+                    if ex * ex + ez * ez <= limit_squared {
+                        continue 'pit;
+                    }
+                }
+            }
+        }
+        return Err(format!(
+            "a point is more than {PIT_MAX_DISTANCE_M:.0} m from the track's line: it belongs to another layout"
+        ));
+    }
+    Ok(())
 }
 
 /// The widest a side is believed to be when it comes from a game file, in metres. Sides up to 146 m were seen, but 99.8%

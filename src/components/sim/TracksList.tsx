@@ -37,7 +37,7 @@ function TrackCard({ track, layout, unit, today }: { track: V1TrackItem; layout:
   const format = useDashFormat();
   const [attach, seen] = useOnScreen<HTMLAnchorElement>();
   const detail = useTrackDetail(track.id, seen);
-  const shape = useTrackLayout(layout ? { game: track.game, name: track.name, layoutId: track.layoutId } : null, seen);
+  const shape = useTrackLayout(layout ? track : null, seen);
   const days = useMemo(() => detail.data?.progress.bestPerDay ?? [], [detail.data]);
   const trend = useMemo(() => pbTrend(days, today), [days, today]);
   const spark = useMemo(() => runningBest(days), [days]);

@@ -1,5 +1,7 @@
 import { detectCorners, matchCorners, type Corner, type CornerOptions, type MatchOptions } from './corners.ts';
 import type { LapFile } from './lap-file.ts';
+import { planarLeftSign } from './ground-frame.ts';
+import { incomparableReason } from './analysis.ts';
 import { MS_TO_KMH, boxSmooth, fillGaps, lapView, makeGrid, median, round, valueAt, type LapView } from './lap-series.ts';
 
 /**
@@ -87,8 +89,8 @@ export interface StraightDelta {
 
 export interface CornerComparison {
   comparable: boolean;
-  /** Why not: the laps differ in length by more than 3%, or lack a channel. */
-  reason: 'ok' | 'length' | 'channels';
+  /** Identity, coordinate compatibility, length and channels are checked before interpreting corners. */
+  reason: 'ok' | 'length' | 'channels' | 'identity' | 'coordinates';
   /** Whole lap, seconds: + the studied lap is slower. */
   lapDelta: number;
   /** The same from the lap times written in the headers. */
@@ -156,7 +158,7 @@ function explain(delta: number, d: Differences, th: CauseThresholds, minDeltaS: 
 }
 
 /** The sideways offset (+ left) of lap A from lap B's path around `apex`, meters; the median over ±15 m. */
-function lineOffset(grid: Float64Array, a: { x: Float64Array; z: Float64Array }, b: { x: Float64Array; z: Float64Array }, apex: number): number {
+function lineOffset(grid: Float64Array, a: { x: Float64Array; z: Float64Array }, b: { x: Float64Array; z: Float64Array }, apex: number, leftSign: 1 | -1): number {
   const n = grid.length;
   const offsets: number[] = [];
   for (let i = 0; i < n; i++) {
@@ -167,8 +169,7 @@ function lineOffset(grid: Float64Array, a: { x: Float64Array; z: Float64Array },
     const tz = b.z[i1] - b.z[i0];
     const length = Math.hypot(tx, tz);
     if (length < 1e-6) continue;
-    // The left of the direction of travel is (-tz, tx) with x east and z north.
-    offsets.push(((a.x[i] - b.x[i]) * -tz + (a.z[i] - b.z[i]) * tx) / length);
+    offsets.push(((a.x[i] - b.x[i]) * tz - (a.z[i] - b.z[i]) * tx) / length * leftSign);
   }
   return median(offsets);
 }
@@ -180,7 +181,7 @@ function positions(view: LapView, grid: Float64Array, scale: number) {
   return x && z ? { x, z } : null;
 }
 
-function emptyComparison(reason: 'length' | 'channels'): CornerComparison {
+function emptyComparison(reason: Exclude<CornerComparison['reason'], 'ok'>): CornerComparison {
   return {
     comparable: false, reason, lapDelta: 0, headerDelta: 0, corners: [], straights: [],
     totals: { cornersS: 0, straightsS: 0, lapS: 0, residualS: 0 }, unmatchedStudy: [], unmatchedReference: [], detected: { study: [], reference: [] },
@@ -193,6 +194,8 @@ function emptyComparison(reason: 'length' | 'channels'): CornerComparison {
  * "a minus b"; time is + where a was slower.
  */
 export function compareCorners(a: LapFile, b: LapFile, options: CornerCompareOptions = {}): CornerComparison {
+  const refusal = incomparableReason(a, b);
+  if (refusal) return emptyComparison(refusal === 'game' || refusal === 'track' ? 'identity' : refusal);
   const th: CauseThresholds = { ...CAUSE_THRESHOLDS, ...options.thresholds };
   const minDeltaS = options.minDeltaS ?? 0.02;
   const stepM = options.stepM ?? 2;
@@ -248,8 +251,9 @@ export function compareCorners(a: LapFile, b: LapFile, options: CornerCompareOpt
     const missing: CornerDelta['missing'] = [];
     if (ca.brakeSource === null || cb.brakeSource === null) missing.push('brake');
     if (!ca.available.throttle || !cb.available.throttle) missing.push('throttle');
-    if (!posA || !posB) missing.push('position');
-    const lineOffsetM = posA && posB ? lineOffset(grid, posA, posB, ca.apexDist) : null;
+    const leftSign = planarLeftSign(a.header);
+    if (!posA || !posB || leftSign === null) missing.push('position');
+    const lineOffsetM = posA && posB && leftSign !== null ? lineOffset(grid, posA, posB, ca.apexDist, leftSign) : null;
     const gearDiffers = ca.gear !== null && cb.gear !== null ? ca.gear !== cb.gear : null;
     const deltaTime = gapAt(end) - gapAt(start);
     const minSpeedKmh = (ca.minSpeed - cb.minSpeed) * MS_TO_KMH;

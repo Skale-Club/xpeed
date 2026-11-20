@@ -1,5 +1,6 @@
 import type { LapFile } from './lap-file.ts';
 import { MS_TO_KMH, boxSmooth, fillGaps, lapView, makeGrid, mean, median, valueAt } from './lap-series.ts';
+import { planarLeftSign } from './ground-frame.ts';
 
 /**
  * Corners found in the speed trace of one lap, and what the driver did in each (brake point, trail braking, throttle
@@ -330,8 +331,8 @@ export function detectCorners(lap: LapFile, options: CornerOptions = {}): Corner
       const bx = x2 - x1;
       const bz = z2 - z1;
       const sine = (ax * bz - az * bx) / (Math.hypot(ax, az) * Math.hypot(bx, bz) || 1);
-      // x east and z north: a positive cross product is a turn to the left.
-      if (Math.abs(sine) >= 0.02) direction = sine > 0 ? 'left' : 'right';
+      const left = planarLeftSign(lap.header);
+      if (left !== null && Math.abs(sine) >= 0.02) direction = sine * left < 0 ? 'left' : 'right';
     }
 
     const gearRaw = view.nearest('gear', apexDist);

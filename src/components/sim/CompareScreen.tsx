@@ -10,6 +10,7 @@ import { compareParams } from '@/lib/sim/compare-url';
 import { forget, loadSaved, remember, setPinned, type SavedComparison } from '@/lib/sim/compare-recent';
 import { useLayoutFinder } from '@/lib/sim/use-track-layouts';
 import { useLapFile } from '@/lib/sim/use-lap-file';
+import { sameTrackIdentity } from '@/lib/sim/track-file';
 import { usePbs, useUserId, type V1Lap } from '@/lib/sim/v1-client';
 import { cn } from '@/lib/utils';
 import { DeltaBlock } from './compare/DeltaBlock';
@@ -44,18 +45,23 @@ export function CompareScreen() {
   const [goalChoice, setGoalChoice] = useState<{ lapId: string | null; goal: ComparisonGoal } | null>(null);
   const goal = goalChoice && goalChoice.lapId === aId ? goalChoice.goal : comparisonGoal(aHeader);
 
-  // The personal best of the lap's track and car (by the names the lap file carries) is the reference unless one was chosen.
+  // The file carries the source identity. Catalog names may have been translated
+  // or renamed. Try exact metadata first and validate the reference file below.
   const pbs = usePbs({ game: aHeader?.game }, { enabled: !!aHeader });
   useReadAllPages(pbs);
   const pb = useMemo(() => {
     if (!aHeader) return null;
-    const same = (x: string, y: string) => x.trim().toLowerCase() === y.trim().toLowerCase();
-    return pbs.items.find((entry) => entry.game === aHeader.game && same(entry.track.name, aHeader.track.name) && same(entry.car.name, aHeader.car.name)) ?? null;
+    const car = aHeader.car.name.trim().toLowerCase();
+    const candidates = pbs.items.filter((entry) => (entry.car.sourceName ?? entry.car.name).trim().toLowerCase() === car && sameTrackIdentity(
+      aHeader,
+      { game: entry.game, track: { name: entry.track.sourceName ?? entry.track.name, variant: entry.track.variant === undefined ? aHeader.track.variant : entry.track.variant } },
+    ));
+    return candidates.find((entry) => entry.track.variant !== undefined) ?? candidates[0] ?? null;
   }, [pbs.items, aHeader]);
   // Race pace is contextual: never silently use an all-time personal best as the race reference.
   const candidateRef = goal !== 'race' && pb && pb.lapId !== aId ? pb.lapId : null;
   const bFile = useLapFile(bParam ?? candidateRef);
-  // PB summaries have no variant: verify the downloaded header before selecting an automatic reference.
+  // Legacy summaries can lack a variant. Verify the downloaded header before selecting a reference.
   const rejectedDefault = !bParam && !!candidateRef && !!aFile.data && !!bFile.data && (incomparableReason(aFile.data, bFile.data) !== null || aFile.data.header.car.name.trim().toLowerCase() !== bFile.data.header.car.name.trim().toLowerCase());
   const defaultRef = candidateRef && bFile.data && !rejectedDefault ? candidateRef : null;
   const bId = bParam ?? defaultRef;
@@ -216,7 +222,7 @@ export function CompareScreen() {
                 {rejectedDefault && <p role="status" className="text-xs text-warn" data-testid="default-reference-refused">{t('modes.referenceContext.defaultRefused')}</p>}
                 {versionContext && <p className="text-xs text-muted-foreground" data-testid="reference-versions">{t('modes.referenceContext.versionPair', { a: aHeader?.recorder?.gameBuild ?? t('modes.referenceContext.unknown'), b: bFile.data?.header.recorder?.gameBuild ?? t('modes.referenceContext.unknown') })} {t(`modes.referenceContext.build_${versionContext.gameBuild}`)}</p>}
                 {versionContext?.coordinatesUnknown && <p className="text-xs text-warn" data-testid="reference-coordinates-unknown">{t('modes.referenceContext.coordinatesUnknown')}</p>}
-                <QuickPickers lapId={aId} referenceId={bId} pb={pb} onChoose={(lapId) => go({ b: lapId })} />
+                <QuickPickers lapId={aId} header={aFile.data.header} referenceId={bId} pb={rejectedDefault ? null : pb} onChoose={(lapId) => go({ b: lapId })} />
               </div>
             )}
 

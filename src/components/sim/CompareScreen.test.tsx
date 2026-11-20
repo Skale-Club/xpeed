@@ -54,6 +54,24 @@ const gapReady = () => waitFor(() => expect(screen.getByTestId('final-gap')).not
 const search = () => whereNow(screen.getByTestId('where')).searchParams;
 
 describe('the reference', () => {
+  it('selects the exact variant after the catalog is renamed, without reading the other layout', async () => {
+    const sourceName = 'sample_source_ring';
+    const lookalike = { ...track, id: otherLap.track!.id, name: 'Same ring title', sourceName, variant: 'Short' };
+    const exact = { ...track, name: lookalike.name, sourceName, variant: 'GP' };
+    const renamedCar = { ...car, name: 'A catalog title', sourceName: mine.header.car.name };
+    state.laps = [
+      { ...myLap, track: exact, car: renamedCar },
+      { ...bestLap, track: exact, car: renamedCar },
+      { ...otherLap, track: lookalike, car: renamedCar, timeMs: bestLap.timeMs - 1000, startedAt: myLap.startedAt },
+    ];
+    state.files.set(myLap.id, await gzipLap({ ...mine, header: { ...mine.header, track: { ...mine.header.track, name: sourceName, variant: 'GP' } } }));
+    state.files.set(bestLap.id, await gzipLap({ ...best, header: { ...best.header, track: { ...best.header.track, name: sourceName, variant: 'GP' } } }));
+    open(`/virtual/compare?a=${myLap.id}`);
+    await gapReady();
+    expect(screen.getByTestId('slot-reference')).toHaveTextContent('Lap 5');
+    expect(fileRequests()).not.toContain(`/laps/${otherLap.id}/file`);
+  });
+
   it('shows different game builds as context while retaining comparison', async () => {
     const recorder = { app: 'xpeed-companion', source: 'sample', version: '0.8.2', build: '9c36958', gameBuild: '0.9.1' };
     state.files.set(myLap.id, await gzipLap({ ...mine, header: { ...mine.header, recorder } }));

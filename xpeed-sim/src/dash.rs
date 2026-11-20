@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::game::{AidSettings, Caps, CarState, Drs, Flag, Frame, Phase, Tyre};
 use crate::lapfile::SessionKind;
 use crate::lmu::snapshot::{PlayerTelemetry, ScoringFrame};
-use crate::maps::Store;
+use crate::maps::{LayoutView, Lookup};
 use crate::norm;
 use crate::session::{Event, Session};
 
@@ -202,8 +202,11 @@ fn lmu_state(t: &PlayerTelemetry, player: Option<&crate::lmu::snapshot::VehicleS
 /// One picture of the car for the panel. Values the game does not give are `NaN` or `None`, like in `Frame`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Live {
+    /// Stable reader ID for coordinate conventions. `game` remains the display name.
+    pub game_id: &'static str,
     pub game: &'static str,
     pub track: String,
+    pub track_variant: Option<String>,
     pub car: String,
     pub driving: bool,
     /// What the player is doing in the game (the panel's view model decides what to show from it).
@@ -273,12 +276,9 @@ pub struct Live {
     /// The fuel the last counted lap used (litres), and what the lap being driven has used so far while it is clean.
     pub fuel_last_lap_l: Option<f32>,
     pub fuel_this_lap_l: Option<f32>,
-    /// The track as the car has driven it (the best lap's path, or the first full lap's until there is a best one),
-    /// in the game's x and z; shared, as it changes once a lap at most.
-    pub map: Option<Arc<Vec<(f32, f32)>>>,
-    /// The game's road widths, when an actual layout is available (a driven map is only a line).
-    pub road: Option<Arc<crate::perspective::Road>>,
-    /// Actual recent positions, independent of the saved circuit and of a reference lap.
+    /// Simulator-owned layout and its readiness, independently of the driver's progress.
+    pub layout: LayoutView,
+    /// Actual recent positions, independent of the native layout and of a reference lap.
     pub trail: Arc<Vec<(f32, f32)>>,
     /// The delta along the lap being driven: (share of the lap 0..1, seconds against the best lap), a point every
     /// `1 / DELTA_TRACE_POINTS` of the lap; empty until there is a delta. Shared, as it grows by one point at a time.
@@ -301,13 +301,16 @@ pub struct Live {
     pub heading: Option<(f32, f32)>,
     /// Where the car is now, in the same x and z.
     pub pos: Option<(f32, f32)>,
-    /// `map` is a whole lap (or the real layout), a closed shape. When false it is the path driven so far, an open
-    /// line, and may hold jumps (`MAP_JUMP_METRES`) the drawing must not join.
-    pub map_complete: bool,
     /// The slow-changing values as last seen, kept while the frames do not carry them (a pause, the menu, the garage).
     pub last_seen: LastSeen,
     /// When this reading arrived (Unix ms), so the panel can tell a stale one.
     pub at_ms: i64,
+}
+
+impl Live {
+    pub(crate) fn mirrored_ground(&self) -> bool {
+        crate::perspective::mirrored_ground(self.game_id)
+    }
 }
 
 /// What was last read of the values that outlive the moment they were read in: the panel shows them dimmed while the
@@ -330,13 +333,9 @@ type Path = Vec<(f32, f32)>;
 /// Keeps what the delta needs: the lap being driven, and the best one so far.
 #[derive(Default)]
 pub struct Tracker {
-    /// Track, car and layout the best lap belongs to; a change starts over (the map included). A new session of the
-    /// same track and car (a restart, practice then qualifying) starts over too, but keeps the map.
-    key: Option<(String, String, Option<String>)>,
-    /// Where maps are kept between sessions; none in tests and the demo.
-    store: Option<Store>,
-    /// The map is the real layout the game's files gave: laps do not replace it.
-    map_is_layout: bool,
+    /// Game, track, car and variant the best lap belongs to.
+    key: Option<(&'static str, String, String, Option<String>)>,
+    pub(crate) layout: Lookup,
     /// What the frames mean (which session, which lap, a restart, a teleport): decided by `session.rs`, the same
     /// machine the lap cutter reads, so the panel and the laps written cannot disagree.
     session: Session,
@@ -351,13 +350,8 @@ pub struct Tracker {
     finished: Option<(Profile, Path, Option<f64>, bool)>,
     /// The current lap's path (x, z), a point every few metres.
     path: Path,
-    /// The current lap's path has a jump in it (a restart, the pits, a teleport): it is not a lap's map.
+    /// The current lap's path has a jump in it (a restart, the pits, a teleport) and cannot be a reference line.
     path_jumped: bool,
-    /// The path shown as the map.
-    map: Option<Arc<Path>>,
-    /// Cached growing path: publishing a stationary frame must not copy/rebuild the whole map.
-    partial_map: Option<Arc<Path>>,
-    road: Option<Arc<crate::perspective::Road>>,
     trail: Arc<Path>,
     /// The delta along the lap being driven (see `Live::delta_trace`).
     delta_trace: Arc<Vec<(f32, f32)>>,
@@ -502,11 +496,10 @@ impl GapTrack {
 
 /// A first reading further than this from the line means the lap was joined midway.
 const FROM_LINE_METRES: f64 = 50.0;
-/// The map keeps a point every this many metres of the car's path.
-const MAP_STEP_METRES: f32 = 4.0;
-/// Two points of the path further apart than this are not one drive (points are kept every `MAP_STEP_METRES`): a
-/// restart, a return to the pits or a teleport. The map is not drawn across it, and such a lap is not a map.
-pub const MAP_JUMP_METRES: f32 = 40.0;
+/// The car's driven path keeps a point every this many metres.
+const PATH_STEP_METRES: f32 = 4.0;
+/// A restart, return to the pits or teleport makes the driven position jump.
+const PATH_JUMP_METRES: f32 = 40.0;
 /// How many points the delta along a lap keeps at most (one every 0.5% of the lap).
 pub const DELTA_TRACE_POINTS: usize = 200;
 /// One point of the inputs trace: when, the throttle and the brake (0..1), and whether ABS or TC was acting.
@@ -522,43 +515,36 @@ pub struct InputPoint {
 /// How far back the throttle and brake trace goes, and how often it takes a point.
 pub const INPUT_TRACE_MS: i64 = 5_000;
 pub const INPUT_TRACE_STEP_MS: i64 = 40;
-/// A path shorter than this is not a map yet.
-const MAP_MIN_POINTS: usize = 30;
+/// Minimum number of samples for a measured lap to be a reference line.
+const REFERENCE_MIN_POINTS: usize = 30;
 /// A finished lap must cover this share of the track (when its length is known) to be a full lap.
 const FULL_LAP_SHARE: f64 = 0.9;
 
 impl Tracker {
-    /// A tracker that keeps each track's map on disk and starts from it (see `maps.rs`).
-    pub fn stored(store: Store) -> Tracker {
-        Tracker {
-            store: Some(store),
-            ..Tracker::default()
-        }
-    }
-
     /// What the source's game can give, set by the engine from `Source::caps` (cheap: it is a number).
     pub fn set_caps(&mut self, caps: Caps) {
         self.caps = caps;
     }
 
+    #[cfg(test)]
     pub fn on_frame(&mut self, game: &'static str, frame: &Frame, at_ms: i64) -> Live {
-        let key = (frame.track.clone(), frame.car.clone(), frame.track_variant.clone());
-        if self.key.as_ref() != Some(&key) {
+        self.on_game_frame("test", game, frame, at_ms)
+    }
+
+    pub fn on_game_frame(&mut self, game_id: &'static str, game: &'static str, frame: &Frame, at_ms: i64) -> Live {
+        let key = (game_id, frame.track.as_str(), frame.car.as_str(), frame.track_variant.as_deref());
+        if self
+            .key
+            .as_ref()
+            .is_none_or(|(id, track, car, variant)| (*id, track.as_str(), car.as_str(), variant.as_deref()) != key)
+        {
             *self = Tracker {
-                key: Some(key),
-                store: self.store.take(),
+                key: Some((game_id, frame.track.clone(), frame.car.clone(), frame.track_variant.clone())),
+                layout: std::mem::take(&mut self.layout),
                 caps: self.caps,
                 caps_seen: self.caps_seen,
                 ..Tracker::default()
             };
-            // A track seen before has its map from the first frame (the real layout when there is one).
-            if let (Some(store), false) = (&self.store, frame.track.is_empty()) {
-                if let Some(path) = store.start(&frame.track, frame.track_variant.as_deref()) {
-                    self.map_is_layout = store.layout(&frame.track, frame.track_variant.as_deref()).is_some();
-                    self.road = store.road(&frame.track, frame.track_variant.as_deref()).map(Arc::new);
-                    self.map = Some(Arc::new(path));
-                }
-            }
         }
         let step = self.session.feed(frame);
         let mut lap_ended = false;
@@ -599,9 +585,9 @@ impl Tracker {
         if let Some(here) = pos.filter(|_| frame.driving) {
             let previous = self.trail.last().copied();
             let distance = previous.map(|p| (p.0 - here.0).hypot(p.1 - here.1));
-            if distance.is_none_or(|d| d >= MAP_STEP_METRES) {
+            if distance.is_none_or(|d| d >= PATH_STEP_METRES) {
                 let trail = Arc::make_mut(&mut self.trail);
-                if distance.is_some_and(|d| d > MAP_JUMP_METRES) {
+                if distance.is_some_and(|d| d > PATH_JUMP_METRES) {
                     trail.clear();
                 }
                 if trail.len() >= 32 {
@@ -612,9 +598,8 @@ impl Tracker {
         } else if pos.is_none() {
             self.trail = Arc::default();
             if frame.driving {
-                // An unknown span is not a measured racing line; start learning a fresh continuous section.
+                // Discard the reference candidate if any part of it is missing.
                 self.path.clear();
-                self.partial_map = None;
                 self.path_jumped = true;
             }
         }
@@ -623,17 +608,16 @@ impl Tracker {
             let far_enough = self
                 .path
                 .last()
-                .is_none_or(|&(x, z)| (x - here.0).hypot(z - here.1) >= MAP_STEP_METRES);
+                .is_none_or(|&(x, z)| (x - here.0).hypot(z - here.1) >= PATH_STEP_METRES);
             if far_enough {
                 if self
                     .path
                     .last()
-                    .is_some_and(|&(x, z)| (x - here.0).hypot(z - here.1) > MAP_JUMP_METRES)
+                    .is_some_and(|&(x, z)| (x - here.0).hypot(z - here.1) > PATH_JUMP_METRES)
                 {
                     self.path_jumped = true;
                 }
                 self.path.push(here);
-                self.partial_map = (self.path.len() >= MAP_MIN_POINTS).then(|| Arc::new(self.path.clone()));
             }
         }
         if frame.lap == self.lap {
@@ -742,8 +726,10 @@ impl Tracker {
             }
         }
         Live {
+            game_id,
             game,
             track: frame.track.clone(),
+            track_variant: frame.track_variant.clone(),
             car: frame.car.clone(),
             driving: frame.driving,
             phase: frame.phase,
@@ -794,9 +780,7 @@ impl Tracker {
                 .zip(self.fuel_prev)
                 .filter(|_| self.fuel_clean)
                 .map(|(start, now)| (start - now).max(0.0)),
-            map: self.map.clone().or_else(|| self.partial_map.clone()),
-            map_complete: self.map.is_some(),
-            road: self.road.clone(),
+            layout: self.layout.view().clone(),
             trail: self.trail.clone(),
             delta_trace: self.delta_trace.clone(),
             inputs: self.inputs.clone(),
@@ -843,16 +827,13 @@ impl Tracker {
 
     /// The session ended (a restart, a new kind of session; a new car or track starts the whole tracker over before it
     /// gets here): the best lap, the fuel per lap, the rev bar's top and the gears belong to the session that is over.
-    /// The map is the track's, not the session's, and stays.
+    /// Preserve the track's native layout through session changes.
     fn new_session(&mut self) {
         *self = Tracker {
             caps: self.caps,
             caps_seen: self.caps_seen,
             key: self.key.take(),
-            store: self.store.take(),
-            map_is_layout: self.map_is_layout,
-            map: self.map.take(),
-            road: self.road.take(),
+            layout: std::mem::take(&mut self.layout),
             session: std::mem::take(&mut self.session),
             ..Tracker::default()
         };
@@ -866,7 +847,6 @@ impl Tracker {
         self.lap_speed = None;
         self.lap_input_ms = [0.0; 4];
         self.path.clear();
-        self.partial_map = None;
         self.trail = Arc::default();
         self.heading.reset();
         self.path_jumped = false;
@@ -883,17 +863,12 @@ impl Tracker {
     /// with the official time that was showing while it was driven (the one before it).
     fn lap_closed(&mut self, frame: &Frame) {
         self.fuel_lap_ended(frame, true);
-        self.look_for_layout();
         let done = std::mem::take(&mut self.current);
         let jumped = std::mem::take(&mut self.path_jumped);
         let done_path = if jumped { Vec::new() } else { std::mem::take(&mut self.path) };
         self.path.clear();
-        self.partial_map = None;
         let full = self.current_from_line && is_full(&done, frame.track_length_m);
         let invalid = std::mem::take(&mut self.called_invalid);
-        if full && self.map.is_none() && done_path.len() >= MAP_MIN_POINTS {
-            self.keep_map(done_path.clone());
-        }
         self.finished = full.then_some((done, done_path, self.official, invalid));
         self.current_from_line = false;
     }
@@ -990,34 +965,7 @@ impl Tracker {
         }
         if self.best.as_ref().is_none_or(|(best, _)| time < *best) {
             self.best = Some((time, profile));
-            self.best_path = (path.len() >= MAP_MIN_POINTS).then(|| Arc::new(path.clone()));
-            if path.len() >= MAP_MIN_POINTS && !self.map_is_layout {
-                self.keep_map(path);
-            }
-        }
-    }
-
-    /// Makes `path` the map and saves it for this track, so the next session starts with it.
-    fn keep_map(&mut self, path: Path) {
-        if let (Some(store), Some((track, _, variant))) = (&self.store, &self.key) {
-            if let Err(error) = store.save(track, variant.as_deref(), &path) {
-                crate::applog::line(&format!("Cannot keep the map of {track}: {error}"));
-            }
-        }
-        self.map = Some(Arc::new(path));
-    }
-
-    /// The layout is built a moment after the game says its track: take it once it is there.
-    fn look_for_layout(&mut self) {
-        if self.map_is_layout {
-            return;
-        }
-        if let (Some(store), Some((track, _, variant))) = (&self.store, &self.key) {
-            if let Some(path) = store.layout(track, variant.as_deref()) {
-                self.map = Some(Arc::new(path));
-                self.road = store.road(track, variant.as_deref()).map(Arc::new);
-                self.map_is_layout = true;
-            }
+            self.best_path = (path.len() >= REFERENCE_MIN_POINTS).then(|| Arc::new(path));
         }
     }
 }
@@ -1080,7 +1028,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn live_camera_uses_motion_and_retains_a_bounded_trail_without_rebuilding_a_stationary_map() {
+    fn live_camera_uses_motion_and_retains_a_bounded_trail() {
         let mut tracker = Tracker::default();
         let mut live = None;
         for i in 0..100 {
@@ -1097,7 +1045,7 @@ mod tests {
         frame.z = 0.0;
         let stopped = tracker.on_frame("ac", &frame, 10000);
         assert_eq!(stopped.heading, live.heading);
-        assert!(Arc::ptr_eq(live.map.as_ref().unwrap(), stopped.map.as_ref().unwrap()));
+        assert!(Arc::ptr_eq(&live.trail, &stopped.trail));
         frame.x = 5000.0;
         let jumped = tracker.on_frame("ac", &frame, 10100);
         assert!(jumped.heading.is_none());
@@ -1753,12 +1701,13 @@ mod tests {
     }
 
     #[test]
-    fn the_map_is_the_first_full_lap_then_the_best_one_and_shows_where_the_car_is() {
+    fn driven_laps_only_supply_trails_and_session_references() {
         let mut tracker = Tracker::default();
         let driven = |tracker: &mut Tracker, lap: i32, last: Option<f64>, wobble: f32| {
             let mut out = Vec::new();
             for i in 0..200 {
                 let mut frame = at(lap, i as f64 * 5.0, i as f64 * 0.1, last);
+                frame.session_kind = Some(SessionKind::Practice);
                 let a = i as f32 / 200.0 * std::f32::consts::TAU;
                 (frame.x, frame.z) = (160.0 * a.cos() + wobble, 160.0 * a.sin());
                 out.push(tracker.on_frame("Test", &frame, 0));
@@ -1766,11 +1715,9 @@ mod tests {
             out
         };
         let first = driven(&mut tracker, 1, None, 0.0);
-        assert!(first[10].map.is_none(), "too few points for a map");
-        assert!(
-            first[199].map.as_ref().is_some_and(|m| m.len() > 100),
-            "the lap being driven, until one is done"
-        );
+        assert!(first.iter().all(|live| matches!(live.layout, LayoutView::WaitingForIdentity)));
+        assert_eq!(first[199].trail.len(), 32);
+        assert!(first[199].reference.is_none());
         assert_eq!(
             first[199].pos,
             Some((
@@ -1779,13 +1726,17 @@ mod tests {
             ))
         );
         let second = driven(&mut tracker, 2, Some(20.0), 50.0);
-        assert_eq!(second[0].map.as_ref().unwrap()[0], (160.0, 0.0), "the first full lap is the map");
+        assert_eq!(second[0].reference.as_ref().unwrap()[0], (160.0, 0.0));
         let third = driven(&mut tracker, 3, Some(19.0), 0.0);
         assert_eq!(
-            third[5].map.as_ref().unwrap()[0],
+            third[5].reference.as_ref().unwrap()[0],
             (210.0, 0.0),
-            "lap 2 (19 s) became the best lap, and its path the map"
+            "lap 2 (19 s) became the best lap and its path the reference"
         );
+        assert!(second
+            .iter()
+            .chain(&third)
+            .all(|live| matches!(live.layout, LayoutView::WaitingForIdentity)));
         let mut tyred = at(3, 1000.0, 20.0, None);
         tyred.tyres = Some(
             [Tyre {
@@ -1820,12 +1771,13 @@ mod tests {
     }
 
     #[test]
-    fn a_jump_in_the_path_is_not_a_lap_s_map_and_a_partial_path_is_not_complete() {
+    fn a_jump_in_the_path_prevents_a_lap_from_becoming_a_reference() {
         let mut tracker = Tracker::default();
         let drive = |tracker: &mut Tracker, lap: i32, last: Option<f64>, jump_at: Option<usize>| {
             let mut out = Vec::new();
             for i in 0..200 {
                 let mut frame = at(lap, i as f64 * 5.0, i as f64 * 0.1, last);
+                frame.session_kind = Some(SessionKind::Practice);
                 let a = i as f32 / 200.0 * std::f32::consts::TAU;
                 let r = if jump_at.is_some_and(|j| i >= j) { 300.0 } else { 160.0 };
                 (frame.x, frame.z) = (r * a.cos(), r * a.sin());
@@ -1834,57 +1786,48 @@ mod tests {
             out
         };
         let first = drive(&mut tracker, 1, None, Some(100));
-        assert!(first.iter().all(|l| !l.map_complete), "a lap being driven is a partial path");
-        // Lap 1 had a teleport: it is no map, even though it was a full lap.
+        assert!(first.iter().all(|l| l.reference.is_none()));
         let second = drive(&mut tracker, 2, Some(20.0), None);
-        assert!(!second[5].map_complete, "a path with a jump is not taken as the map");
-        drive(&mut tracker, 3, Some(20.0), None);
-        let fourth = drive(&mut tracker, 4, Some(20.0), None);
-        assert!(fourth[0].map_complete, "a clean full lap is");
-        assert_eq!(fourth[0].map.as_ref().unwrap()[0], (160.0, 0.0));
+        assert!(second[5].reference.is_none());
+        let third = drive(&mut tracker, 3, Some(19.0), None);
+        assert_eq!(third[0].reference.as_ref().unwrap()[0], (160.0, 0.0));
     }
 
     #[test]
-    fn a_saved_map_is_offered_at_once_for_its_track_only() {
-        let dir = crate::config::scratch_dir("dash-maps");
-        let store = || Store {
-            maps: dir.join("maps"),
-            layouts: dir.join("tracks"),
-            game: "lmu",
-        };
-        let lap = |tracker: &mut Tracker, lap: i32, last: Option<f64>, radius: f32, track: &str| {
-            let mut out = Vec::new();
-            for i in 0..200 {
-                let mut frame = at(lap, i as f64 * 5.0, i as f64 * 0.1, last);
-                frame.track = track.into();
-                let a = i as f32 / 200.0 * std::f32::consts::TAU;
-                (frame.x, frame.z) = (radius * a.cos(), radius * a.sin());
-                out.push(tracker.on_frame("Test", &frame, 0));
-            }
-            out
-        };
-        let mut first = Tracker::stored(store());
-        let one = lap(&mut first, 1, None, 160.0, "Monza");
-        assert!(one[0].map.is_none(), "nothing saved yet");
-        lap(&mut first, 2, Some(20.0), 210.0, "Monza");
-        assert!(
-            store().load("Monza", None).is_some_and(|m| m.len() > 100),
-            "the first full lap was saved"
-        );
-        // Lap 2 (19 s) is the best lap once lap 3 shows its time: its path replaces the first, and the file follows.
-        lap(&mut first, 3, Some(19.0), 160.0, "Monza");
-        assert_eq!(store().load("Monza", None).unwrap()[0], (210.0, 0.0));
+    fn a_ready_layout_survives_car_and_session_changes_on_the_same_track() {
+        use std::sync::mpsc;
+        use std::time::Instant;
 
-        // A new session: the map is there from the first frame, on that track only.
-        let mut next = Tracker::stored(store());
-        let again = lap(&mut next, 1, None, 50.0, "Monza");
-        assert_eq!(again[0].map.as_ref().unwrap()[0], (210.0, 0.0));
-        let mut other = Tracker::stored(store());
-        assert!(lap(&mut other, 1, None, 50.0, "Spa")[0].map.is_none());
-        // Moving to another track on the same tracker drops the old track's map.
-        let mut moved = Tracker::stored(store());
-        lap(&mut moved, 1, None, 50.0, "Monza");
-        assert!(lap(&mut moved, 1, None, 50.0, "Spa")[0].map.is_none());
+        let (worker, requests) = mpsc::channel();
+        let mut tracker = Tracker::default();
+        let mut frame = at(1, 0.0, 0.0, None);
+        let now = Instant::now();
+        tracker.layout.observe(Some(&worker), "ac", &frame, now);
+        let pending = requests.try_recv().unwrap();
+        let path = Arc::new(crate::perspective::PreparedPath::native(&[(0.0, 0.0), (0.0, 10.0)], false));
+        pending
+            .reply
+            .send(Ok(crate::maps::Layout {
+                path: Arc::clone(&path),
+                road: None,
+            }))
+            .unwrap();
+        frame.car = "GT3".into();
+        tracker.layout.observe(Some(&worker), "ac", &frame, now);
+        let live = tracker.on_game_frame("ac", "Assetto Corsa", &frame, 0);
+        let LayoutView::Ready(layout) = live.layout else {
+            panic!("layout is ready before a lap finishes")
+        };
+        assert!(Arc::ptr_eq(&layout.path, &path));
+        tracker.new_session();
+        frame.car = "GT4".into();
+        tracker.layout.observe(Some(&worker), "ac", &frame, now);
+        let live = tracker.on_game_frame("ac", "Assetto Corsa", &frame, 10);
+        let LayoutView::Ready(layout) = live.layout else {
+            panic!("same source layout is still ready")
+        };
+        assert!(Arc::ptr_eq(&layout.path, &path));
+        assert!(requests.try_recv().is_err());
     }
 
     #[test]
@@ -2158,7 +2101,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_session_starts_the_best_lap_the_fuel_and_the_rev_top_over_but_keeps_the_map() {
+    fn a_new_session_starts_the_best_lap_the_fuel_and_the_rev_top_over() {
         use crate::lapfile::SessionKind;
         let mut tracker = Tracker::default();
         let lap = |tracker: &mut Tracker, n: i32, last: Option<f64>, kind: SessionKind| {
@@ -2178,7 +2121,7 @@ mod tests {
         lap(&mut tracker, 3, Some(20.0), SessionKind::Practice);
         let live = lap(&mut tracker, 4, Some(20.0), SessionKind::Practice);
         assert_eq!(live.best_lap_s, Some(20.0));
-        assert!(live.fuel_per_lap_l.is_some() && live.rpm_top > 5000.0 && live.map_complete);
+        assert!(live.fuel_per_lap_l.is_some() && live.rpm_top > 5000.0);
         // Qualifying on the same track and car: another session.
         let mut first = at(1, 0.0, 0.0, Some(20.0));
         first.session_kind = Some(SessionKind::Qualifying);
@@ -2186,7 +2129,6 @@ mod tests {
         let live = tracker.on_frame("Test", &first, 0);
         assert_eq!(live.best_lap_s, None, "the best lap of practice is not the best of qualifying");
         assert_eq!((live.fuel_per_lap_l, live.rpm_top), (None, 3000.0));
-        assert!(live.map_complete, "the track is the same: its map stays");
     }
 
     #[test]

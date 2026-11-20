@@ -1,31 +1,66 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useUserId } from '@/lib/sim/v1-client';
-import { syncAccountTracks } from '@/lib/sim/account-tracks';
-import type { TrackFile } from '@/lib/sim/track-file';
+import { accountLayoutsKey, listAccountTracks, openAccountTrack, TrackRequestError } from '@/lib/sim/account-tracks';
+import { sameTrackIdentity, type TrackFile } from '@/lib/sim/track-file';
 import { findTrack, linkTrack, listTracks, type LibraryTrack } from '@/lib/sim/track-library';
 
 /**
- * Where a screen finds the layout of a track (the real shape of the circuit Xpeed Companion sent to the account): in the copy kept
- * on this device, and, the first time one is missing, after the account's layouts have been copied onto the device once.
+ * Refreshes a single exact layout against the account's directory. The local
+ * library remains available offline, including layouts the user linked by hand.
  */
 export function useLayoutFinder() {
   const userId = useUserId();
-  const synced = useRef<Promise<unknown> | null>(null);
+  const queryClient = useQueryClient();
+  const account = useMemo(() => ({ userId, requests: new Set<AbortController>() }), [userId]);
+  const active = useRef(account);
+  active.current = account;
+  useEffect(() => () => account.requests.forEach((request) => request.abort()), [account]);
   const findLayout = useCallback(
     async (game: string, trackName: string, variant?: string | null): Promise<TrackFile | null> => {
-      if (!userId) return null;
-      const here = await findTrack(userId, game, trackName, variant);
-      if (here) return here;
-      synced.current ??= syncAccountTracks(userId).catch(() => undefined);
-      await synced.current;
-      return findTrack(userId, game, trackName, variant);
+      const { userId: ownerId, requests } = account;
+      if (!ownerId || active.current !== account) return null;
+      const request = new AbortController();
+      const { signal } = request;
+      requests.add(request);
+      try {
+        const local = await findTrack(ownerId, game, trackName, variant);
+        signal.throwIfAborted();
+        const directory = await queryClient.fetchQuery({
+          queryKey: accountLayoutsKey(ownerId),
+          queryFn: ({ signal: directorySignal }) => listAccountTracks({ userId: ownerId, signal: directorySignal }),
+          staleTime: 0,
+          retry: false,
+        }).catch((error: unknown) => {
+          if (local && error instanceof TrackRequestError && (error.status === 0 || error.status >= 500)) return null;
+          throw error;
+        });
+        signal.throwIfAborted();
+        const entry = directory?.find((item) => sameTrackIdentity(
+          { game: item.game, track: { name: item.trackName, variant: item.variant } },
+          { game, track: { name: trackName, variant } },
+        ));
+        if (!entry) return active.current === account ? local : null;
+        const { track } = await openAccountTrack(ownerId, entry, signal);
+        if (!track) throw new TrackRequestError(404);
+        return active.current === account ? track : null;
+      } finally {
+        requests.delete(request);
+      }
     },
-    [userId],
+    [account, queryClient],
   );
-  const listKeptLayouts = useCallback((): Promise<LibraryTrack[]> => (userId ? listTracks(userId) : Promise.resolve([])), [userId]);
+  const listKeptLayouts = useCallback(async (): Promise<LibraryTrack[]> => {
+    const tracks = account.userId ? await listTracks(account.userId) : [];
+    return active.current === account ? tracks : [];
+  }, [account]);
   const linkLayout = useCallback(
-    (game: string, trackName: string, variant: string | null, layoutId: string) => (userId ? linkTrack(userId, game, trackName, variant, layoutId) : Promise.resolve(null)),
-    [userId],
+    async (game: string, trackName: string, variant: string | null, layoutId: string) => {
+      if (!account.userId || active.current !== account) return null;
+      const track = await linkTrack(account.userId, game, trackName, variant, layoutId);
+      return active.current === account ? track : null;
+    },
+    [account],
   );
   return { findLayout, listKeptLayouts, linkLayout };
 }

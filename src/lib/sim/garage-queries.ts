@@ -3,9 +3,9 @@
 // v1-client.ts, so a detail read for a card is the same answer the page of that track or car opens with.
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { downloadAccountTrack } from '@/lib/sim/account-tracks';
+import { downloadAccountTrack, TrackRequestError } from '@/lib/sim/account-tracks';
 import { readTrackFile } from '@/lib/sim/read-track-file';
-import { layoutGame, type TrackFile } from '@/lib/sim/track-file';
+import { layoutGame, sameTrackIdentity, type TrackFile } from '@/lib/sim/track-file';
 import { useLayoutFinder } from '@/lib/sim/use-track-layouts';
 import { STALE, useLaps, usePbs, useUserId, v1Get, v1Keys, type LapFilters, type PbFilters, type V1CarDetail, type V1Lap, type V1Pb, type V1TrackDetail } from '@/lib/sim/v1-client';
 
@@ -85,28 +85,40 @@ export function useAllPbs(filters: PbFilters = {}, enabled = true) {
  * downloaded; without it (an older server) the layout is looked for by game and name on the device and in the account, as the compare screen
  * does. Null when there is none; kept for the visit.
  */
-export function useTrackLayout(track: { game: string; name: string; layoutId?: string | null } | null, enabled: boolean) {
+interface LayoutLookup {
+  id?: string;
+  game: string;
+  name: string;
+  sourceName?: string | null;
+  variant?: string | null;
+  hasLayout?: boolean;
+  layoutId?: string | null;
+  layoutUpdatedAt?: string | null;
+}
+
+export function useTrackLayout(track: LayoutLookup | null, enabled: boolean) {
   const userId = useUserId();
   const { findLayout } = useLayoutFinder();
   return useQuery<TrackFile | null>({
-    queryKey: ['sim-track-layout', userId, track?.layoutId ?? `${track?.game}|${track?.name}`],
-    queryFn: async () => {
-      if (!track) return null;
+    queryKey: ['sim-track-layout', userId, track?.id, track?.game, track?.sourceName ?? track?.name, track?.variant, track?.layoutId, track?.layoutUpdatedAt],
+    queryFn: async ({ signal }) => {
+      if (!track || !userId) return null;
+      const game = layoutGame(track.game);
+      const name = track.sourceName ?? track.name;
       if (track.layoutId) {
-        // The server named the layout: that file is the answer. If it cannot be had or read there is no shape (and no hunting by name).
-        try {
-          const blob = await downloadAccountTrack(track.layoutId);
-          return blob ? await readTrackFile(blob) : null;
-        } catch {
-          return null;
-        }
+        const blob = await downloadAccountTrack(track.layoutId, { userId, signal });
+        if (!blob) return null;
+        const file = await readTrackFile(blob);
+        signal.throwIfAborted();
+        // Verify the file against the raw catalog identity when it is known.
+        return sameTrackIdentity(file.header, { game, track: { name, variant: track.variant } }) ? file : null;
       }
-      return findLayout(layoutGame(track.game), track.name);
+      if (track.hasLayout === false) return null;
+      return findLayout(game, name, track.variant);
     },
     enabled: !!userId && !!track && enabled,
-    staleTime: Infinity,
+    staleTime: (query) => query.state.data ? 60_000 : 0,
     gcTime: 10 * 60_000,
-    retry: false,
-    refetchOnWindowFocus: false,
+    retry: (count, error) => count === 0 && error instanceof TrackRequestError && (error.status === 0 || error.status >= 500),
   });
 }

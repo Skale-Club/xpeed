@@ -819,6 +819,8 @@ pub(super) fn laps_card(g: &mut Painter, d: &Dash, card: Area) {
 /// The live track card: an upward-facing car and the next corners in a local perspective.
 /// Recorded movement drives the camera directly; the site keeps the top-down lap-study map.
 pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
+    use crate::maps::LayoutView;
+
     let normal = FW_NORMAL as i32;
     let m = d.m;
     let (x, y, w, h) = inner(card);
@@ -828,45 +830,34 @@ pub(super) fn track_card(g: &mut Painter, d: &Dash, card: Area) {
     let line_h = if m.progress.visible() { 20.0 } else { 0.0 };
     let map_box = (x, y + CAPTION_H + S1, w, (h - CAPTION_H - S1 - line_h - S1).max(1.0));
     shown(g, m.map, |g| {
-        let rendered = d
-            .live
-            .map
-            .as_ref()
-            .filter(|_| has_map(d.live))
-            .zip(d.live.pos)
-            .zip(d.live.heading)
-            .is_some_and(|((map, car), heading)| {
-                g.track_perspective(
-                    map_box,
-                    map,
-                    d.live.map_complete,
-                    d.live.road.as_deref(),
-                    &d.live.trail,
-                    d.live.reference.as_ref(),
-                    car,
-                    heading,
-                    crate::perspective::mirrored_ground(d.live.game),
-                )
-            });
-        // Drawn, the view says nothing about where its road came from (owner, 2026-11-19: no "recorded path · road edges"
-        // note); not drawn, one line says why.
-        let (mx, my, mw, mh) = map_box;
-        let why = if !has_map(d.live) {
-            Some(Msg::PanelTrackLearning)
-        } else if d.live.pos.is_none() {
-            Some(Msg::PanelTrackPosition)
-        } else if !rendered {
-            Some(Msg::PanelTrackDirection)
-        } else {
-            None
+        let why = match (&d.live.layout, d.live.pos, d.live.heading) {
+            (LayoutView::WaitingForIdentity, _, _) => Some(Msg::PanelTrackIdentity),
+            (LayoutView::Loading, _, _) => Some(Msg::PanelTrackLoading),
+            (LayoutView::Unavailable, _, _) => Some(Msg::PanelTrackUnavailable),
+            (LayoutView::Invalid, _, _) => Some(Msg::PanelTrackInvalid),
+            (LayoutView::Retrying, _, _) => Some(Msg::PanelTrackRetrying),
+            (LayoutView::Ready(_), None, _) => Some(Msg::PanelTrackPosition),
+            (LayoutView::Ready(_), _, None) => Some(Msg::PanelTrackDirection),
+            (LayoutView::Ready(layout), Some(car), Some(heading)) => (!g.track_perspective(
+                map_box,
+                &layout.path,
+                layout.road.as_deref(),
+                &d.live.trail,
+                d.live.reference.as_ref(),
+                car,
+                heading,
+                d.live.mirrored_ground(),
+            ))
+            .then_some(Msg::PanelTrackCoverage),
         };
-        if let Some(msg) = why {
-            let note = text(d.view.lang, &msg);
+        let (mx, my, mw, mh) = map_box;
+        if let Some(msg) = &why {
+            let note = text(d.view.lang, msg);
             let r = g.r(mx + S2, my + mh / 2.0 - 12.0, mw - 2.0 * S2, 24.0);
             let size = g.fitted(&note, mw - 2.0 * S2, T_CAPTION, 9.0, normal, Face::Ui);
             g.text(&note, r, size, normal, Face::Ui, MUTED_TEXT, DT_CENTER);
         }
-        if rendered && d.live.reference.is_some() {
+        if why.is_none() && d.live.reference.is_some() {
             let r = g.r(mx + S1, my + S1, mw - 2.0 * S1, 16.0);
             g.text(
                 &text(d.view.lang, &Msg::PanelTrackSessionBest),

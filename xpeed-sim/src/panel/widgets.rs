@@ -1152,7 +1152,7 @@ pub(super) fn radar_scale(w: f32, h: f32) -> f32 {
 }
 
 pub(super) fn radar_model(lang: Lang, live: &Live, fresh: bool) -> RadarModel {
-    let mirrored = crate::perspective::mirrored_ground(live.game);
+    let mirrored = live.mirrored_ground();
     let map = live
         .field
         .as_deref()

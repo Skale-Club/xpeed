@@ -1,5 +1,5 @@
 import { blobBytes, readTrackFile } from '@/lib/sim/read-track-file';
-import { gunzipTrack, trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
+import { gunzipTrack, sameTrackIdentity, trackKey, trackKeyOf, type TrackFile } from '@/lib/sim/track-file';
 
 /**
  * The track layouts a person keeps on this device, next to their laps but in a database of their own (so adding this
@@ -43,7 +43,10 @@ export interface LibraryTrack {
   addedAt: number;
   size: number;
   summary: TrackSummary;
+  accountVersion?: AccountLayoutVersion;
 }
+
+export interface AccountLayoutVersion { id: string; updatedAt: string }
 
 interface StoredTrack extends Omit<LibraryTrack, 'size'> {
   userId: string;
@@ -133,6 +136,15 @@ async function transact<T>(mode: IDBTransactionMode, work: (store: IDBObjectStor
  */
 export async function addTrackFile(userId: string, file: Blob, fileName?: string): Promise<{ id: string; track: TrackFile; replaced: boolean }> {
   const track = await readTrackFile(file);
+  return storeTrackFile(userId, file, track, fileName);
+}
+
+export async function keepAccountTrack(userId: string, file: Blob, track: TrackFile, version: AccountLayoutVersion, signal?: AbortSignal): Promise<void> {
+  const { name, variant } = track.header.track;
+  await storeTrackFile(userId, file, track, `${[name, variant].filter(Boolean).join('-')}.xtrk.gz`, version, signal);
+}
+
+async function storeTrackFile(userId: string, file: Blob, track: TrackFile, fileName?: string, accountVersion?: AccountLayoutVersion, signal?: AbortSignal) {
   const id = keyFor(userId, track);
   const bytes = await blobBytes(file);
   const gzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
@@ -143,16 +155,23 @@ export async function addTrackFile(userId: string, file: Blob, fileName?: string
     fileName: fileName ?? (file as File).name ?? 'track.xtrk',
     summary: summarizeTrack(track),
     bytes: gzipped ? bytes : await gzipRaw(bytes),
+    ...(accountVersion ? { accountVersion } : {}),
   };
-  const replaced = await transact<boolean>('readwrite', (store, done) => {
+  signal?.throwIfAborted();
+  const result = await transact<{ replaced: boolean; written: boolean }>('readwrite', (store, done) => {
     const existing = store.get(id);
     existing.onsuccess = () => {
-      done(existing.result !== undefined);
-      store.put(stored, id);
+      const previous = existing.result as StoredTrack | undefined;
+      const newer = accountVersion && previous?.accountVersion?.id === accountVersion.id
+        && Date.parse(previous.accountVersion.updatedAt) > Date.parse(accountVersion.updatedAt);
+      const written = !signal?.aborted && !newer;
+      if (written) store.put(stored, id);
+      done({ replaced: previous !== undefined, written });
     };
   });
-  notify();
-  return { id, track, replaced };
+  if (result.written) notify();
+  signal?.throwIfAborted();
+  return { id, track, replaced: result.replaced };
 }
 
 async function gzipRaw(bytes: Uint8Array): Promise<Uint8Array> {
@@ -169,24 +188,33 @@ export async function listTracks(userId: string): Promise<LibraryTrack[]> {
       const cursor = request.result;
       if (!cursor) return;
       const value = cursor.value as StoredTrack;
-      if (ownedBy(userId, cursor.key)) tracks.push({ id: value.id, fileName: value.fileName, addedAt: value.addedAt, size: value.bytes.byteLength, summary: value.summary });
+      if (ownedBy(userId, cursor.key)) tracks.push({
+        id: value.id, fileName: value.fileName, addedAt: value.addedAt, size: value.bytes.byteLength, summary: value.summary,
+        ...(value.accountVersion ? { accountVersion: value.accountVersion } : {}),
+      });
       cursor.continue();
     };
     done(tracks);
   });
 }
 
-async function loadStored(id: string): Promise<TrackFile | null> {
+async function loadStored(id: string, version?: AccountLayoutVersion): Promise<TrackFile | null> {
   const stored = await transact<StoredTrack | undefined>('readonly', (store, done) => {
     const request = store.get(id);
     request.onsuccess = () => done(request.result as StoredTrack | undefined);
   }).catch(() => undefined);
   if (!stored) return null;
+  if (version && (stored.accountVersion?.id !== version.id || stored.accountVersion.updatedAt !== version.updatedAt)) return null;
   try {
     return await gunzipTrack(stored.bytes);
   } catch {
     return null;
   }
+}
+
+export async function loadAccountTrack(userId: string, game: string, name: string, variant: string | null, version: AccountLayoutVersion): Promise<TrackFile | null> {
+  const track = await loadStored(`${userId}|${trackKeyOf(game, name, variant)}`, version);
+  return track && sameTrackIdentity(track.header, { game, track: { name, variant } }) ? track : null;
 }
 
 /** A kept layout by its id (from listTracks); null if it is not there or belongs to another account. */
@@ -201,7 +229,7 @@ export async function loadTrack(userId: string, id: string): Promise<TrackFile |
 export async function findTrack(userId: string, game: string, trackName: string, variant?: string | null): Promise<TrackFile | null> {
   const name = `${userId}|${trackKeyOf(game, trackName, variant)}`;
   const direct = await loadStored(name);
-  if (direct) return direct;
+  if (direct && sameTrackIdentity(direct.header, { game, track: { name: trackName, variant } })) return direct;
   const linked = await transact<string | undefined>('readonly', (store, done) => {
     const request = store.get(name);
     request.onsuccess = () => done(request.result as string | undefined);

@@ -60,7 +60,7 @@ function TrackRow({ entry, userId, unit, onRemove }: { entry: LibraryTrack; user
     return () => {
       live = false;
     };
-  }, [userId, entry.id]);
+  }, [userId, entry.id, entry.addedAt, entry.accountVersion?.updatedAt]);
   const { summary } = entry;
   const games = useGames();
   const title = summary.title ?? summary.trackName;
@@ -99,22 +99,27 @@ export function TrackLayouts() {
   const { distanceUnit } = useSettings();
   const library = useTrackLibrary();
   const [pending, setPending] = useState<LibraryTrack | null>(null);
-  const [account, setAccount] = useState<SyncResult | null>(null);
+  const [synced, setSynced] = useState<{ userId: string; result: SyncResult } | null>(null);
+  const [syncAttempt, setSyncAttempt] = useState(0);
+  const account = synced?.userId === library.userId ? synced.result : null;
+  const selected = pending?.id.startsWith(`${library.userId}|`) ? pending : null;
+  const syncFailed = account && (!account.reached || account.failed > 0);
 
   // The layouts Xpeed Companion sent to the account are copied onto this device when the screen opens.
   useEffect(() => {
-    if (!library.userId) return;
-    let live = true;
-    syncAccountTracks(library.userId).then((result) => live && setAccount(result), () => undefined);
-    return () => {
-      live = false;
-    };
-  }, [library.userId]);
+    const userId = library.userId;
+    if (!userId) return;
+    const request = new AbortController();
+    syncAccountTracks(userId, request.signal).then((result) => {
+      if (!request.signal.aborted) setSynced({ userId, result });
+    }, () => undefined);
+    return () => request.abort();
+  }, [library.userId, syncAttempt]);
 
   const remove = async (entry: LibraryTrack) => {
-    if (!library.userId) return;
+    if (!library.userId || !entry.id.startsWith(`${library.userId}|`)) return;
     const inAccount = account?.byKey.get(entry.id.slice(library.userId.length + 1));
-    if (inAccount && (await deleteAccountTrack(inAccount.id))) {
+    if (inAccount && (await deleteAccountTrack(inAccount.id, { userId: library.userId }))) {
       account?.byKey.delete(entry.id.slice(library.userId.length + 1));
     }
     await removeTracks(library.userId, [entry.id]);
@@ -128,13 +133,22 @@ export function TrackLayouts() {
         {t('modes.tracks.intro', 'The tracks you have driven, with your laps drawn on their map.')}
       </p>
 
+      {syncFailed && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+          <span>{t('modes.compare.layoutFailed', 'Track geometry could not be loaded.')}</span>
+          <Button size="sm" variant="outline" onClick={() => { setSynced(null); setSyncAttempt((attempt) => attempt + 1); }}>
+            {t('common.retry', 'Try again')}
+          </Button>
+        </div>
+      )}
+
       {library.status === 'unavailable' ? (
         <p className="text-sm text-muted-foreground">{t('modes.tracks.unavailable', 'This browser cannot keep track layouts on the device.')}</p>
-      ) : library.status === 'loading' ? (
+      ) : library.status === 'loading' || (!account && !!library.userId && library.tracks.length === 0) ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
           <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading', 'Loading…')}
         </p>
-      ) : sorted.length === 0 ? (
+      ) : sorted.length === 0 ? !syncFailed && (
         <p className="text-sm text-muted-foreground" data-testid="tracks-empty">
           {t('modes.tracks.empty', 'No track maps yet. They arrive by themselves when you drive a track.')}{' '}
           <Link to="/virtual/companion" className="underline">{t('modes.sessions.emptyLink', 'Connect Xpeed Companion')}</Link>
@@ -156,13 +170,13 @@ export function TrackLayouts() {
       )}
 
       <ConfirmDialog
-        open={!!pending}
+        open={!!selected}
         onOpenChange={(open) => !open && setPending(null)}
         title={t('modes.tracks.removeTitle', 'Remove this track layout?')}
         description={t('modes.tracks.removeText', 'The map is removed. Laps on this track are drawn without it until Xpeed Companion sends it again.')}
         confirmLabel={t('modes.tracks.remove', 'Remove')}
         onConfirm={() => {
-          if (pending) void remove(pending).catch(() => undefined);
+          if (selected) void remove(selected).catch(() => undefined);
           setPending(null);
         }}
       />

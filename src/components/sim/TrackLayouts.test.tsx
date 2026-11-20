@@ -9,7 +9,8 @@ import { listTracks } from '@/lib/sim/track-library';
 import type { AccountTrack } from '@/lib/sim/account-tracks';
 import { TrackLayouts } from './TrackLayouts';
 
-vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'ana' } }) }));
+let userId = 'ana';
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: userId } }) }));
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => 'token' }));
 
 /** The layouts Xpeed Companion sent to the account: the list, and the files by id. */
@@ -45,6 +46,7 @@ const renderList = () => render(<MemoryRouter><SettingsProvider><TrackLayouts />
 
 let idb: FakeIdb;
 beforeEach(async () => {
+  userId = 'ana';
   idb = installFakeIndexedDb();
   await i18n.changeLanguage('en');
 });
@@ -55,6 +57,17 @@ afterEach(() => {
 });
 
 describe('the tracks screen', () => {
+  it('clears the old account rows immediately when switching accounts', async () => {
+    serve(await account({ id: 'first', name: 'Monza' }));
+    const { rerender } = renderList();
+    expect(await screen.findByText('Monza')).toBeInTheDocument();
+    serve(await account({ id: 'second', name: 'Spa' }));
+    userId = 'bea';
+    rerender(<MemoryRouter><SettingsProvider><TrackLayouts /></SettingsProvider></MemoryRouter>);
+    expect(screen.queryByText('Monza')).not.toBeInTheDocument();
+    expect(await screen.findByText('Spa')).toBeInTheDocument();
+  });
+
   it('says there are none yet, and that Xpeed Companion sends them', async () => {
     serve(await account());
     renderList();
