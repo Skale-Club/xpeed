@@ -63,7 +63,7 @@ pub struct View<'a> {
     pub coach_available: bool,
     pub recent_laps: &'a [SavedLap],
     /// What happened, in the person's language: `(time as HH:MM, text)`, newest first.
-    pub activity: &'a [(String, String)],
+    pub activity: &'a [(String, String, Role)],
     /// The games and their covers for the waiting screen; empty draws the games' names as chips instead.
     pub covers: &'a [CoverArt],
     pub brands: &'a [BrandArt],

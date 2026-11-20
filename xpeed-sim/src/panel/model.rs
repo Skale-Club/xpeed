@@ -220,6 +220,19 @@ pub(super) fn line_title(title: &str, ids: &[&'static str], here: &[&'static str
 }
 
 /// An activity as a message of the person's language.
+/// The colour of an activity's dot in the Monitor (owner-approved module 10, 2026-11-19): green a lap saved, amber a lap
+/// not valid or something to do, blue a connection, red what failed, grey the rest.
+pub(super) fn activity_tone(event: &Activity) -> Role {
+    match event {
+        Activity::Notice(Notice::LapSaved(lap)) if lap.valid => Role::Good,
+        Activity::Notice(Notice::LapSaved(_) | Notice::NeedsSetup { .. }) | Activity::WorkerRestarting(_) => Role::Warn,
+        Activity::GameConnected(_) | Activity::Notice(Notice::Paired(_) | Notice::LapsSent(_)) => Role::Info,
+        Activity::GameUnsupported(_) | Activity::WorkerFailed(_) => Role::Danger,
+        Activity::Notice(Notice::Refused | Notice::UpdateBlocked(_)) => Role::Danger,
+        _ => Role::Muted,
+    }
+}
+
 pub(super) fn activity_message(event: Activity) -> Msg {
     match event {
         Activity::GameConnected(name) => Msg::ActivityGameConnected(name.to_owned()),

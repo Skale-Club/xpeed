@@ -366,7 +366,7 @@ struct Fixture {
     snapshot: Snapshot,
     games: Vec<GameRow>,
     laps: Vec<SavedLap>,
-    log: Vec<(String, String)>,
+    log: Vec<(String, String, Role)>,
     update: crate::update::UpdateState,
     check: crate::update::CheckState,
     percent: Option<u8>,
@@ -417,11 +417,11 @@ fn fixture() -> Fixture {
             saved_lap(3, 107_918),
         ],
         log: vec![
-            ("21:47".into(), "Lap saved: Lap 3  1:47.918".into()),
-            ("21:45".into(), "Lap saved: Lap 2  1:48.115".into()),
-            ("21:43".into(), "Lap saved: Lap 1  1:49.002".into()),
-            ("21:41".into(), "Assetto Corsa connected".into()),
-            ("21:40".into(), "Connected as RIG".into()),
+            ("21:47".into(), "Lap saved: Lap 3  1:47.918".into(), Role::Good),
+            ("21:45".into(), "Lap saved: Lap 2  1:48.115 (not valid)".into(), Role::Warn),
+            ("21:43".into(), "Lap saved: Lap 1  1:49.002".into(), Role::Good),
+            ("21:41".into(), "Assetto Corsa connected".into(), Role::Info),
+            ("21:40".into(), "Connected as RIG".into(), Role::Info),
         ],
         update: crate::update::UpdateState::Nothing,
         check: crate::update::CheckState::Idle,
@@ -1656,6 +1656,26 @@ fn a_cover_card_keeps_the_name_inside() {
             }
         }
     }
+}
+
+/// The Monitor (owner-approved module 10, 2026-11-19): each game a status word and a line of context, and each activity
+/// a dot in the colour of what it was.
+#[test]
+fn the_monitor_says_each_game_state_and_colours_the_activity() {
+    let say = |m: Msg| text(Lang::En, &m);
+    assert_eq!(say(Msg::MonitorWord(Game::Recording(4))), "RECORDING");
+    assert_eq!(say(Msg::MonitorContext(Game::Recording(4), Some("Monza".into()))), "lap 4 · Monza");
+    assert_eq!(say(Msg::MonitorContext(Game::Unsupported, None)), "version not supported");
+    let lap = |valid| {
+        let mut saved = saved_lap(3, 107_918);
+        saved.valid = valid;
+        Activity::Notice(Notice::LapSaved(saved))
+    };
+    assert_eq!(activity_tone(&lap(true)), Role::Good);
+    assert_eq!(activity_tone(&lap(false)), Role::Warn);
+    assert_eq!(activity_tone(&Activity::GameConnected("Assetto Corsa")), Role::Info);
+    assert_eq!(activity_tone(&Activity::GameUnsupported("Stock Car Extreme")), Role::Danger);
+    assert_eq!(activity_tone(&Activity::GameClosed("iRacing")), Role::Muted);
 }
 
 /// The open-game checklist (owner-approved module 9, 2026-11-19): the game open, its data on, the driver in the car;

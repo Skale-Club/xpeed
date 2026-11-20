@@ -1,7 +1,7 @@
 //! The words the program shows (tray menu, balloons, questions), in the language of Windows.
 //! The command line stays in English.
 
-use crate::status::SavedLap;
+use crate::status::{Game, SavedLap};
 
 /// The program speaks English unless the person picks another language in the tray menu (owner decision,
 /// 2026-11-12: English first; Portuguese and Spanish only when chosen).
@@ -66,6 +66,12 @@ pub enum Msg {
     ConnectNoteExpired,
     /// The key saved on this computer cannot be opened by this Windows user: connect again.
     ConnectNoteReconnect,
+    /// Why to connect, under "not connected" (module 10).
+    ConnectWhy,
+    /// A game's status word in the Monitor's list, and the line of context under its name (module 10); the track of a
+    /// game recording, when it is known.
+    MonitorWord(Game),
+    MonitorContext(Game, Option<String>),
     /// Under the waiting headline: the code the connection page shows, to compare.
     ConnectCodeHint(String),
     /// The Monitor tab's button that copies the support text.
@@ -414,6 +420,40 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Demorou demais. Clique em Conectar de novo."),
             s("Tardó demasiado. Haz clic en Conectar otra vez."),
         ),
+        ConnectWhy => t(
+            s("Your laps stay on this PC until you connect."),
+            s("Suas voltas ficam neste PC até você conectar."),
+            s("Tus vueltas se quedan en este PC hasta que conectes."),
+        ),
+        MonitorWord(game) => match game {
+            Game::Recording(_) => t(s("RECORDING"), s("GRAVANDO"), s("GRABANDO")),
+            Game::Connected => t(s("CONNECTED"), s("CONECTADO"), s("CONECTADO")),
+            Game::Waiting => t(s("WAITING"), s("AGUARDANDO"), s("ESPERANDO")),
+            Game::Silent => t(s("NO DATA"), s("SEM DADOS"), s("SIN DATOS")),
+            Game::Loading => t(s("LOADING"), s("CARREGANDO"), s("CARGANDO")),
+            Game::Paused => t(s("PAUSED"), s("PAUSADO"), s("EN PAUSA")),
+            Game::Unsupported => t(s("UNSUPPORTED"), s("SEM SUPORTE"), s("SIN SOPORTE")),
+        },
+        MonitorContext(game, track) => match game {
+            Game::Recording(lap) => {
+                let at = track.as_ref().map_or(String::new(), |track| format!(" · {track}"));
+                t(format!("lap {lap}{at}"), format!("volta {lap}{at}"), format!("vuelta {lap}{at}"))
+            }
+            Game::Connected => t(
+                s("data arriving · not on track"),
+                s("dados chegando · fora da pista"),
+                s("llegan datos · fuera de pista"),
+            ),
+            Game::Waiting => t(s("not running"), s("não está aberto"), s("no está abierto")),
+            Game::Silent => t(
+                s("open, its data not on yet"),
+                s("aberto, dados ainda desligados"),
+                s("abierto, datos aún desactivados"),
+            ),
+            Game::Loading => t(s("starting up"), s("abrindo"), s("abriendo")),
+            Game::Paused => t(s("recording paused"), s("gravação pausada"), s("grabación en pausa")),
+            Game::Unsupported => t(s("version not supported"), s("versão sem suporte"), s("versión no soportada")),
+        },
         ConnectNoteReconnect => t(
             s("Reconnect this computer."),
             s("Reconecte este computador."),
@@ -960,6 +1000,22 @@ mod tests {
             Msg::NoticeNotPaired,
             Msg::NoticeRefused,
             Msg::ConnectNoteReconnect,
+            Msg::ConnectWhy,
+            Msg::MonitorWord(Game::Recording(4)),
+            Msg::MonitorWord(Game::Connected),
+            Msg::MonitorWord(Game::Waiting),
+            Msg::MonitorWord(Game::Silent),
+            Msg::MonitorWord(Game::Loading),
+            Msg::MonitorWord(Game::Paused),
+            Msg::MonitorWord(Game::Unsupported),
+            Msg::MonitorContext(Game::Recording(4), Some("Monza".into())),
+            Msg::MonitorContext(Game::Recording(4), None),
+            Msg::MonitorContext(Game::Connected, None),
+            Msg::MonitorContext(Game::Waiting, None),
+            Msg::MonitorContext(Game::Silent, None),
+            Msg::MonitorContext(Game::Loading, None),
+            Msg::MonitorContext(Game::Paused, None),
+            Msg::MonitorContext(Game::Unsupported, None),
             Msg::ConnectCodeHint("K7QX".into()),
             Msg::DiagnosticsCopy,
             Msg::DiagnosticsCopied,

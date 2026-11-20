@@ -106,16 +106,18 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         std::sync::atomic::Ordering::Relaxed,
     );
     let recent_laps = ctx.shared.recent_laps();
-    let activity: Vec<(String, String)> = ctx
+    let activity: Vec<(String, String, Role)> = ctx
         .shared
         .activity()
         .into_iter()
         .rev()
         .map(|(ms, event)| {
             let time = local_time(ms);
+            let tone = activity_tone(&event);
             (
                 time.get(..5).unwrap_or(&time).to_owned(),
                 text(account.lang, &activity_message(event)),
+                tone,
             )
         })
         .collect();
