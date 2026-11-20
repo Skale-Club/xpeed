@@ -34,7 +34,7 @@ Object.assign(process.env, {
 
 await build({
   entryPoints: {
-    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', games: 'api/sim/games.ts', reference: 'api/sim/reference.ts', shared: 'api/sim/_shared.ts', upload: 'api/sim/_upload.ts', health: 'server/health.ts', webserver: 'server/index.ts',
+    pair: 'api/sim/pair.ts', laps: 'api/sim/laps.ts', codes: 'api/sim/codes.ts', devices: 'api/sim/devices.ts', link: 'api/sim/link.ts', tracks: 'api/sim/tracks.ts', me: 'api/sim/me.ts', games: 'api/sim/games.ts', reference: 'api/sim/reference.ts', v1: 'api/sim/v1.ts', shared: 'api/sim/_shared.ts', upload: 'api/sim/_upload.ts', health: 'server/health.ts', webserver: 'server/index.ts',
     lapfile: 'src/lib/sim/lap-file.ts', serverdb: 'server/db.ts', identity: 'server/identity.ts', dbroute: 'server/db-route.ts', account: 'server/account-route.ts',
   },
   outdir: temp, bundle: true, splitting: true, platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' },
@@ -48,6 +48,7 @@ const link = (await load('link.mjs')).default;
 const me = (await load('me.mjs')).default;
 const games = (await load('games.mjs')).default;
 const reference = (await load('reference.mjs')).default;
+const v1 = (await load('v1.mjs')).default;
 const { uploadsInFlight } = await load('upload.mjs');
 const { forgetDeepHealth } = await load('health.mjs');
 const { createXpeedServer } = await load('webserver.mjs');
@@ -723,6 +724,10 @@ try {
     assert.deepEqual(body, new Uint8Array(readFileSync(resolve(filesRoot, 'sim-tracks', row.storage_path))));
     assert.equal(sha(Buffer.from(body)), row.sha256);
     assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`, { bearer: B })).status, 404, 'another account\'s layout is not found');
+    const wrongAccount = await call(tracks, `/api/sim/tracks/${row.id}/file?account=${ids.B}`, { bearer: A });
+    assert.deepEqual([wrongAccount.status, wrongAccount.body.error], [401, 'account_changed']);
+    const wrongList = await call(tracks, `/api/sim/tracks?account=${ids.B}`, { bearer: A });
+    assert.deepEqual([wrongList.status, wrongList.body.error], [401, 'account_changed']);
     assert.equal((await call(tracks, `/api/sim/tracks/${row.id}/file`)).status, 401);
     assert.equal((await call(tracks, '/api/sim/tracks/00000000-0000-4000-8000-000000000000/file', { bearer: A })).status, 404);
     assert.equal((await call(tracks, '/api/sim/tracks/not-a-uuid/file', { bearer: A })).status, 404);
@@ -1146,6 +1151,86 @@ try {
     const limited = await ask(a.token, '&kind=personal');
     assert.equal(limited.status, 429);
     assert.ok(Number(limited.headers.get('retry-after')) > 0);
+  });
+
+  await check('XLAP variants survive ingest, sessions, PBs, catalog layout selection and Companion references', async () => {
+    const { token } = await deviceFor(A, 'variant contract');
+    const trackName = 'variant_contract_ring';
+    const title = 'A Circuit';
+    const carName = 'variant_contract_car';
+    const makeLap = (variant, lapNumber, timeMs, lengthM, name = trackName) => lapBytes(lapNumber, {
+      game: 'ac', track: { name, title, variant, lengthM }, car: { name: carName, title: 'A Car' },
+      lap: { number: lapNumber, timeMs, valid: true }, sessionId: 'variant-contract-session',
+    });
+    const put = async (variant, number, ms, length, name) => {
+      const answer = await upload(token, await makeLap(variant, number, ms, length, name));
+      assert.equal(answer.status, 201, JSON.stringify(answer.body));
+      return answer.body.id;
+    };
+    const gp = await put('GP', 1, 2200, 4200);
+    const indy = await put('Indy', 1, 2200, 1800); // identical pre-variant deduplication metadata
+    const gpBest = await put(' gp ', 2, 2000, 4200);
+    const mod = await put('GP', 4, 1600, 4220, 'same_title_mod');
+    await direct.query('UPDATE public.sim_laps SET plausible = true WHERE id = ANY($1::uuid[])', [[gp, indy, gpBest, mod]]);
+
+    const [gpTrack, indyTrack] = await Promise.all(['GP', 'Indy'].map(async (variant) => {
+      const uploaded = await sendTrack(token, trackBytes({ name: trackName, variant, title }));
+      assert.equal(uploaded.status, 201);
+      return uploaded.body.id;
+    }));
+    const row = async (lapId) => {
+      const response = await call(v1, `/api/sim/v1/laps/${lapId}`, { bearer: A });
+      assert.equal(response.status, 200);
+      return response.body.lap ?? response.body;
+    };
+    const [g, i, b, m] = await Promise.all([gp, indy, gpBest, mod].map(row));
+    assert.deepEqual([g.track.sourceName, g.track.variant, i.track.variant, g.car.sourceName], [trackName, 'GP', 'Indy', carName]);
+    assert.equal(g.track.id, b.track.id);
+    assert.equal(g.sessionId, b.sessionId);
+    assert.notEqual(g.track.id, i.track.id);
+    assert.notEqual(g.sessionId, i.sessionId, 'the same Companion session string cannot join different layouts');
+    assert.notEqual(g.track.id, m.track.id);
+    assert.equal(g.track.name, m.track.name, 'same display title, including the variant');
+    assert.equal(g.car.name, 'A Car');
+
+    const list = (await call(v1, '/api/sim/v1/tracks?game=ac&limit=100', { bearer: A })).body.tracks;
+    const geometry = (item) => [item.layoutId, item.lengthM];
+    assert.deepEqual(geometry(list.find((t) => t.id === g.track.id)), [gpTrack, 4200]);
+    assert.deepEqual(geometry(list.find((t) => t.id === i.track.id)), [indyTrack, 1800]);
+    assert.deepEqual(geometry(list.find((t) => t.id === m.track.id)), [null, 4220], 'a same-title catalog row cannot borrow the stock file');
+    const detail = (await call(v1, `/api/sim/v1/tracks/${g.track.id}`, { bearer: A })).body.track;
+    assert.deepEqual([detail.layoutId, detail.variant], [gpTrack, 'GP']);
+    assert.ok(detail.layoutUpdatedAt);
+    const pbs = (await call(v1, `/api/sim/v1/pbs?game=ac&car=${g.car.id}`, { bearer: A })).body.pbs;
+    assert.deepEqual(pbs.map((pb) => pb.lapId).sort(), [gpBest, indy, mod].sort());
+
+    const ask = (variant) => call(reference, `/api/sim/reference?game=ac&track=${trackName}&car=${carName}&kind=personal&variant=${variant}`, { bearer: token });
+    assert.equal((await ask('gp')).body.lapId, gpBest);
+    assert.equal((await ask('Indy')).body.lapId, indy);
+    assert.equal((await ask('')).status, 404);
+    assert.equal((await ask('Other')).status, 404);
+
+    // Simulate an unacknowledged older upload of the same logical lap. Its
+    // stored XLAP, rather than the old database row, establishes the layout.
+    const legacyName = 'older_variant_ring';
+    const legacyGp = await put('GP', 3, 2100, 4200, legacyName);
+    const oldKey = ['ac', legacyName, carName, '2026-11-10T12:00:00.000Z', 3, 2100, 3].join('|');
+    await direct.query('UPDATE public.sim_laps SET identity = $2, track_variant = NULL, track_variant_known = false WHERE id = $1', [legacyGp, oldKey]);
+    const oldTrack = (await row(legacyGp)).track.id;
+    await direct.query('UPDATE public.sim_track_catalog SET source_name = NULL, variant = NULL WHERE id = $1', [oldTrack]);
+    await direct.query("INSERT INTO public.sim_track_alias (game, alias_norm, track_id) VALUES ('ac', public.sim_norm($1), $2)", [legacyName, oldTrack]);
+    let retry = await upload(token, await makeLap('gp', 3, 2100, 4200, legacyName));
+    assert.deepEqual([retry.status, retry.body.id, retry.body.duplicate], [200, legacyGp, true]);
+
+    const distinctDefault = await put(undefined, 3, 2100, 4200, legacyName);
+    assert.notEqual(distinctDefault, legacyGp);
+    const currentDefault = await row(distinctDefault);
+    assert.notEqual(currentDefault.track.id, oldTrack, 'unclassified historical laps cannot join a proven default layout');
+    assert.notEqual(currentDefault.sessionId, (await row(legacyGp)).sessionId);
+    retry = await upload(token, await makeLap(undefined, 3, 2100, 4200, legacyName));
+    assert.deepEqual([retry.status, retry.body.id, retry.body.duplicate], [200, distinctDefault, true]);
+    const distinctIndy = await put('Indy', 3, 2100, 1800, legacyName);
+    assert.notEqual(distinctIndy, legacyGp);
   });
 
   // The real Xpeed Sim against these handlers, when its program is given (XPEED_SIM_EXE=...\xpeed-sim.exe): it pairs,

@@ -28,6 +28,8 @@ import { GameBadge } from './session-bits';
 import { QueryGate } from './SimStates';
 import { TrackMap } from './TrackMap';
 import { useAge } from './use-age';
+import { assertLocalTrackAlignment, localTrackSurface } from '@/lib/sim/local-track';
+import { layoutGame, trackKeyOf } from '@/lib/sim/track-file';
 
 /**
  * The layout of the track, big, with the best lap drawn on it, when Xpeed Companion has sent the layout: one lap file is read (the best lap), nothing
@@ -36,9 +38,18 @@ import { useAge } from './use-age';
 function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: string | null }) {
   const { t } = useTranslation();
   const { track } = detail;
-  const layout = useTrackLayout(track.hasLayout === false ? null : { game: track.game, name: track.name, layoutId: track.layoutId }, true);
+  const layout = useTrackLayout(track.hasLayout === false ? null : track, true);
   const file = useLapFile(layout.data ? bestLapId : null);
   const path = useMemo(() => (file.data ? lapPath(file.data, 3000) : null), [file.data]);
+  const compatible = useMemo(() => {
+    if (!file.data || !layout.data) return false;
+    const lap = file.data;
+    const map = layout.data;
+    if (trackKeyOf(layoutGame(lap.header.game), lap.header.track.name, lap.header.track.variant) !==
+      trackKeyOf(layoutGame(map.header.game), map.header.track.name, map.header.track.variant)) return false;
+    try { assertLocalTrackAlignment(map, lap.data.x ?? [], lap.data.z ?? []); return true; }
+    catch { return false; }
+  }, [file.data, layout.data]);
 
   if (track.hasLayout !== false && layout.isPending) {
     return <Skeleton className="h-56 rounded-lg md:h-72 lg:h-full lg:min-h-72" data-testid="track-layout-loading" />;
@@ -48,17 +59,20 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
       <Panel title={t('modes.trackPage.layout', 'Layout and best lap')} testId="track-no-layout" className="h-full">
         <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border p-4 text-center">
           <MapIcon className="h-8 w-8 text-muted-foreground/60" aria-hidden="true" />
-          <p className="max-w-xs text-sm text-muted-foreground">{t('garageDash.noLayout', 'The track map will appear here after you drive this track.')}</p>
+          <p className="max-w-xs text-sm text-muted-foreground">{layout.isError
+            ? t('modes.compare.layoutFailed', 'Track geometry could not be loaded.')
+            : t('garageDash.noLayout', 'No compatible game track geometry is available for this layout yet.')}</p>
+          {layout.isError && <Button size="sm" variant="outline" onClick={() => void layout.refetch()}>{t('common.retry', 'Try again')}</Button>}
         </div>
       </Panel>
     );
   }
   return (
     <Panel title={t('modes.trackPage.layout', 'Layout and best lap')} testId="track-layout-map" className="h-full">
-      {path ? (
+      {path && compatible ? (
         <>
           <TrackMap lap={path} layout={layout.data} className="h-56 md:h-72" />
-          <p className="text-xs text-muted-foreground">{t('modes.trackPage.layoutHint', 'The road between its edges, with your best valid lap on this track in yellow.')}</p>
+          <p className="text-xs text-muted-foreground">{t('modes.compare.localTrack.mapHint', { surface: t(`modes.compare.localTrack.surface_${localTrackSurface(layout.data)}`) })}</p>
         </>
       ) : bestLapId && file.isPending ? (
         <Skeleton className="h-56 w-full md:h-72" />
@@ -68,7 +82,8 @@ function LayoutPanel({ detail, bestLapId }: { detail: V1TrackDetail; bestLapId: 
             <TrackShape layout={layout.data} className="h-full w-full p-4" testId="track-layout-shape" strokeWidth={3} />
           </div>
           <p className="text-xs text-muted-foreground" data-testid="track-layout-no-lap">
-            {bestLapId ? t('garageDash.layoutLapFailed', 'The road is shown; your best lap could not be drawn on it right now.') : t('garageDash.layoutNoLap', 'The road is shown. Your best valid lap is drawn on it once you have one.')}
+            {file.data && !compatible ? t('modes.compare.layoutLapMismatch', 'This lap does not match the layout and is not overlaid on it.')
+              : bestLapId ? t('garageDash.layoutLapFailed', 'The layout is shown; your best lap could not be drawn on it right now.') : t('garageDash.layoutNoLap', 'The layout is shown. Your best valid lap is drawn on it once you have one.')}
           </p>
         </>
       )}

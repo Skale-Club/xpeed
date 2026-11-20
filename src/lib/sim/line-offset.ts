@@ -8,6 +8,8 @@ export interface IdealLine {
   x: ArrayLike<number>;
   z: ArrayLike<number>;
   closed: boolean;
+  /** Explicit recording handedness. Default retains the XTRK-side convention. */
+  leftSign?: 1 | -1;
 }
 
 /** How many segments either side of the last match are searched before falling back to the whole line. */
@@ -34,7 +36,7 @@ function matchOnSegment(line: IdealLine, segment: number, px: number, pz: number
   const distance = Math.hypot(dx, dz);
   const length = Math.sqrt(lengthSq) || 1;
   // Left of the direction of travel: (t.z, -t.x), as in the track file.
-  const side = (dx * tz - dz * tx) / length;
+  const side = (dx * tz - dz * tx) / length * (line.leftSign ?? 1);
   return { segment, offset: side >= 0 ? distance : -distance, distance };
 }
 

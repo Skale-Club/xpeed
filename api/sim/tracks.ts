@@ -138,6 +138,8 @@ async function person(req: Request, answer: Answer) {
   if (!token) return { refused: answer({ error: 'unauthorized' }, 401) };
   const userId = await backend.userId(token);
   if (!userId) return { refused: answer({ error: 'unauthorized' }, 401) };
+  const expected = new URL(req.url).searchParams.get('account');
+  if (expected !== null && expected !== userId) return { refused: answer({ error: 'account_changed' }, 401) };
   return { backend, token, userId };
 }
 
@@ -161,7 +163,7 @@ async function list(req: Request, answer: Answer): Promise<Response> {
         lengthM: r.length_m === null || r.length_m === undefined ? null : Number(r.length_m),
         size: r.size_bytes, updatedAt: new Date(r.updated_at).toISOString(),
       })),
-    });
+    }, 200, { 'Cache-Control': 'private, no-store' });
   } catch (error) {
     failed('sim_tracks_list_failed', error);
     return answer({ error: 'unavailable' }, 503);

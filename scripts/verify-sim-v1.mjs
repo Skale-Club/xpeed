@@ -800,7 +800,8 @@ try {
     assert.deepEqual(Object.keys(lap).sort(), ['car', 'createdAt', 'deviceName', 'formatVersion', 'fuelUsedL', 'game', 'id', 'inLap', 'lapNumber', 'outLap', 'reduced', 'sampleCount',
       'sectorsMs', 'sessionId', 'sizeBytes', 'startedAt', 'timeMs', 'topSpeedKmh', 'track', 'valid']);
     assert.deepEqual({ ...lap, id: undefined, createdAt: undefined, sessionId: undefined, car: { ...lap.car, id: undefined }, track: { ...lap.track, id: undefined } }, {
-      id: undefined, game: 'lmu', track: { id: undefined, name: 'Fresh Ring' }, car: { id: undefined, name: 'Fresh Car' }, sessionId: undefined, lapNumber: 1, timeMs: 99_000, valid: true,
+      id: undefined, game: 'lmu', track: { id: undefined, name: 'Fresh Ring', sourceName: 'Fresh Ring', variant: null },
+      car: { id: undefined, name: 'Fresh Car', sourceName: 'Fresh Car' }, sessionId: undefined, lapNumber: 1, timeMs: 99_000, valid: true,
       startedAt: '2026-11-12T09:00:00.000Z', sectorsMs: null, topSpeedKmh: 252, fuelUsedL: null, inLap: null, outLap: null, sampleCount: 3, sizeBytes: lap.sizeBytes, reduced: false,
       formatVersion: 2, createdAt: undefined, deviceName: 'Sim PC',
     });
@@ -892,10 +893,11 @@ try {
     const list = await allIds('/tracks', 'tracks');
     assert.deepEqual(list.map((t) => `${t.game}|${t.name}`).sort(), ['acc|Second Ring', 'lmu|Fresh Ring', 'lmu|Paging Ring']);
     const paging = list.find((t) => t.name === 'Paging Ring');
-    assert.deepEqual(Object.keys(paging).sort(), ['bestLapMs', 'carCount', 'game', 'hasLayout', 'id', 'lapCount', 'lastDrivenAt', 'layoutId', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
+    assert.deepEqual(Object.keys(paging).sort(), ['bestLapMs', 'carCount', 'game', 'hasLayout', 'id', 'lapCount', 'lastDrivenAt', 'layoutId', 'layoutUpdatedAt', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
     const mine = seed.filter((l) => l.track === 'Paging Ring');
     assert.deepEqual({ ...paging, id: undefined, lengthM: undefined, lastDrivenAt: undefined }, {
-      id: undefined, game: 'lmu', name: 'Paging Ring', lengthM: undefined, hasLayout: false, layoutId: null, lapCount: 125, validLapCount: mine.filter((l) => l.valid).length, sessionCount: 20, carCount: 2,
+      id: undefined, game: 'lmu', name: 'Paging Ring', lengthM: undefined, hasLayout: false, layoutId: null, layoutUpdatedAt: null,
+      lapCount: 125, validLapCount: mine.filter((l) => l.valid).length, sessionCount: 20, carCount: 2,
       bestLapMs: Math.min(...mine.filter((l) => l.valid).map((l) => l.timeMs)), lastDrivenAt: undefined,
     });
     assert.equal(paging.lastDrivenAt, mine.at(-1).startedAt);
@@ -907,7 +909,7 @@ try {
 
     const detail = (await api(`/tracks/${paging.id}`)).body;
     assert.deepEqual(Object.keys(detail).sort(), ['bestPerCar', 'progress', 'totals', 'track']);
-    assert.deepEqual(detail.track, { id: paging.id, game: 'lmu', name: 'Paging Ring', lengthM: detail.track.lengthM, hasLayout: false, layoutId: null });
+    assert.deepEqual(detail.track, { id: paging.id, game: 'lmu', name: 'Paging Ring', lengthM: detail.track.lengthM, hasLayout: false, layoutId: null, layoutUpdatedAt: null });
     assert.deepEqual(detail.totals, { lapCount: 125, validLapCount: mine.filter((l) => l.valid).length, sessionCount: 20, carCount: 2, bestLapMs: paging.bestLapMs, lastDrivenAt: paging.lastDrivenAt });
     // Laps per day: ten days, 12 or 13 laps of this track a day.
     assert.deepEqual(Object.keys(detail.progress).sort(), ['bestPerDay', 'lapsPerDay']);
@@ -985,14 +987,15 @@ try {
     const paged = [(await api('/pbs?limit=2')).body]; paged.push((await api(`/pbs?limit=2&cursor=${paged[0].nextCursor}`)).body); paged.push((await api(`/pbs?limit=2&cursor=${paged[1].nextCursor}`)).body);
     assert.deepEqual([paged[0].pbs.length, paged[1].pbs.length, paged[2].pbs.length, paged[2].nextCursor], [2, 2, 1, null]);
     assert.deepEqual(paged.flatMap((p) => p.pbs).map((p) => p.lapId), all.map((p) => p.lapId));
-    // A faster lap moves the best, and the API shows it at once.
-    const before = (await api(`/pbs?track=${trackId}`)).body.pbs.find((p) => p.car.name === 'Car One');
+    // A faster lap of the same known layout moves its best, and the API shows it at once.
+    const before = all.find((p) => p.track.name === 'Fresh Ring');
     const rig = await deviceFor(C, 'Sim PC 3');
-    const faster = await put(rig, { track: 'Paging Ring', car: 'Car One', number: 900, timeMs: before.bestMs - 1000, startedAt: '2026-11-20T10:00:00.000Z' });
-    const after = (await api(`/pbs?track=${trackId}`)).body.pbs.find((p) => p.car.name === 'Car One');
-    assert.deepEqual([after.lapId, after.bestMs, after.achievedAt], [faster, before.bestMs - 1000, '2026-11-20T10:00:00.000Z']);
+    const improved = before.bestMs - 100;
+    const faster = await put(rig, { track: 'Fresh Ring', car: 'Fresh Car', number: 900, timeMs: improved, startedAt: '2026-11-20T10:00:00.000Z' });
+    const after = (await api(`/pbs?track=${before.track.id}`)).body.pbs.find((p) => p.car.id === before.car.id);
+    assert.deepEqual([after.lapId, after.bestMs, after.achievedAt], [faster, improved, '2026-11-20T10:00:00.000Z']);
     assert.equal((await api(`/laps/${faster}`, { method: 'DELETE' })).status, 204);
-    assert.equal((await api(`/pbs?track=${trackId}`)).body.pbs.find((p) => p.car.name === 'Car One').lapId, before.lapId, 'deleted again: the old best is back');
+    assert.equal((await api(`/pbs?track=${before.track.id}`)).body.pbs.find((p) => p.car.id === before.car.id).lapId, before.lapId, 'deleted again: the old best is back');
   });
 
   await check('v1 overview: the 5 latest sessions and bests and laps per game, in one call', async () => {
@@ -1779,13 +1782,16 @@ try {
     assert.ok((await api('/pbs?limit=100')).body.pbs.some((p) => p.previousBestMs !== null), 'the seeded person has improvements too');
   });
 
-  await check('v1 track layout flag: hasLayout and layoutId come from the layouts the person\'s Companion sent, matched by game and name like the site does', async () => {
+  await check('v1 track layout flag: bind the account layout to the track UUID, withholding ambiguous and title-only matches', async () => {
     const layout = async (user, game, trackName, { variant = null, title = null, at: updated = '2026-12-05T10:00:00.000Z' } = {}) => (await direct.query(
       `INSERT INTO public.sim_tracks (user_id, track_key, game, track_name, variant, title, length_m, size_bytes, sha256, storage_path, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, 5000, 100, 'x', $7, $8) RETURNING id`,
       [user, `${game}|${trackName}|${variant ?? ''}|${updated}`.toLowerCase(), game, trackName, variant, title, `${user}/${trackName}.xtrk.gz`, updated])).rows[0].id;
     const tracks = async (who = gapToken) => Object.fromEntries((await api('/tracks?limit=100', { bearer: who })).body.tracks.map((t) => [t.name, t]));
-    await gapPut({ track: 'Circuit de Spa-Francorchamps', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:00:00.000Z` });
+    const spaLap = await gapPut({ track: 'Circuit de Spa-Francorchamps', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:00:00.000Z` });
+    // Recreate the information retained by the server before variants were written.
+    await direct.query('UPDATE public.sim_laps SET track_variant_known = false WHERE id = $1', [spaLap]);
+    await direct.query('UPDATE public.sim_track_catalog SET source_name = NULL WHERE id = (SELECT track_id FROM public.sim_laps WHERE id = $1)', [spaLap]);
     await gapPut({ track: 'Sebring Long', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:10:00.000Z` });
     await gapPut({ track: 'LE MANS full', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:20:00.000Z` });
     await gapPut({ track: 'Imola', car: 'Layout Car', number: 1, timeMs: 1000, startedAt: `${DAY}03T10:30:00.000Z` });
@@ -1796,38 +1802,43 @@ try {
     for (const name of ['Circuit de Spa-Francorchamps', 'Sebring Long', 'LE MANS full', 'Imola', 'Old Ring', 'Only Hers', 'No Layout Here']) {
       assert.deepEqual([list[name].hasLayout, list[name].layoutId], [false, null], `${name}: nothing was sent yet`);
     }
-    const spa = await layout(gapId, 'lmu', 'circuit de spa francorchamps');
-    const sebring = await layout(gapId, 'lmu', 'Sebring', { variant: 'Long' });
-    const mans = await layout(gapId, 'lmu', 'Circuit de la Sarthe', { title: 'Le Mans  Full!' });
+    const spa = await layout(gapId, 'lmu', 'circuit de spa-francorchamps');
+    await layout(gapId, 'lmu', 'Sebring', { variant: 'Long' });
+    await layout(gapId, 'lmu', 'Circuit de la Sarthe', { title: 'Le Mans  Full!' });
     await layout(gapId, 'acc', 'Imola');                                  // another game: not this track
     const old = await layout(gapId, 'sce', 'Old Ring');                   // rFactor 1 layouts are filed under sce
     // Somebody else's layout of a track this person drove does not count for them, and theirs does not for anybody else.
     const her = await layout(ids.B, 'lmu', 'Only Hers');
     list = await tracks();
-    assert.deepEqual([list['Circuit de Spa-Francorchamps'].hasLayout, list['Circuit de Spa-Francorchamps'].layoutId], [true, spa], 'case, accents and punctuation do not count');
-    assert.deepEqual([list['Sebring Long'].hasLayout, list['Sebring Long'].layoutId], [true, sebring], 'the track name with the layout variant');
-    assert.deepEqual([list['LE MANS full'].hasLayout, list['LE MANS full'].layoutId], [true, mans], 'the layout title');
+    assert.deepEqual([list['Circuit de Spa-Francorchamps'].hasLayout, list['Circuit de Spa-Francorchamps'].layoutId], [true, spa], 'case does not change a source identity');
+    assert.deepEqual([list['Sebring Long'].hasLayout, list['Sebring Long'].layoutId], [false, null], 'a concatenated name does not establish a variant');
+    assert.deepEqual([list['LE MANS full'].hasLayout, list['LE MANS full'].layoutId], [false, null], 'the layout title cannot identify the source');
     assert.deepEqual([list.Imola.hasLayout, list.Imola.layoutId], [false, null], 'a layout of another game is not a match');
     assert.deepEqual([list['Old Ring'].hasLayout, list['Old Ring'].layoutId], [true, old], 'rfactor1 laps match layouts filed under sce');
     assert.deepEqual([list['Only Hers'].hasLayout, list['Only Hers'].layoutId], [false, null], 'another person\'s layout never counts');
     assert.equal(list['No Layout Here'].hasLayout, false);
-    // The detail says the same, and also for a catalog track the person never drove.
+    // The detail says the same, and an exact catalog identity can be bound before this person drives a lap.
     const detail = (await G(`/tracks/${list['Sebring Long'].id}`)).body;
-    assert.deepEqual([detail.track.hasLayout, detail.track.layoutId], [true, sebring]);
+    assert.deepEqual([detail.track.hasLayout, detail.track.layoutId], [false, null]);
     assert.equal((await G(`/tracks/${list.Imola.id}`)).body.track.hasLayout, false);
     const hersId = (await direct.query("SELECT id FROM public.sim_track_catalog WHERE game = 'lmu' AND name = 'Only Hers'")).rows[0].id;
     const hers = (await api(`/tracks/${hersId}`, { bearer: B })).body;
-    assert.deepEqual([hers.totals.lapCount, hers.track.hasLayout, hers.track.layoutId], [0, true, her], 'a layout for a track the person never drove still shows');
+    assert.deepEqual([hers.totals.lapCount, hers.track.hasLayout, hers.track.layoutId], [0, true, her]);
     assert.equal((await G(`/tracks/${hersId}`)).body.track.hasLayout, false, 'and is theirs only');
-    // The newest layout wins when two match, and deleting it falls back to the other.
+    // An unrelated file with the same title does not replace the exact file.
     const newer = await layout(gapId, 'lmu', 'Spa Francorchamps Circuit', { title: 'Circuit de Spa-Francorchamps', at: '2026-12-06T10:00:00.000Z' });
-    assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, newer);
+    assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, spa);
     await direct.query('DELETE FROM public.sim_tracks WHERE id = $1', [newer]);
+    assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, spa);
+    // An old lap does not prove which layout the same raw track name meant.
+    const alt = await layout(gapId, 'lmu', 'Circuit de Spa-Francorchamps', { variant: 'Short' });
+    assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, null, 'an alternate with that raw name makes the historical lap ambiguous');
+    await direct.query('DELETE FROM public.sim_tracks WHERE id = $1', [alt]);
     assert.equal((await tracks())['Circuit de Spa-Francorchamps'].layoutId, spa);
     await direct.query('DELETE FROM public.sim_tracks WHERE id = $1', [spa]);
     const gone = (await tracks())['Circuit de Spa-Francorchamps'];
     assert.deepEqual([gone.hasLayout, gone.layoutId], [false, null], 'a deleted layout is gone at once');
-    assert.deepEqual(Object.keys(gone).sort(), ['bestLapMs', 'carCount', 'game', 'hasLayout', 'id', 'lapCount', 'lastDrivenAt', 'layoutId', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
+    assert.deepEqual(Object.keys(gone).sort(), ['bestLapMs', 'carCount', 'game', 'hasLayout', 'id', 'lapCount', 'lastDrivenAt', 'layoutId', 'layoutUpdatedAt', 'lengthM', 'name', 'sessionCount', 'validLapCount']);
   });
 
   await check('v1 car detail: bestPerDay is the fastest valid lap of each day on each track, oldest day first, never another person\'s', async () => {
@@ -1900,20 +1911,20 @@ try {
     assert.deepEqual([empty.lapsUsed, empty.summary.bestLapMs, empty.summary.averageMs, empty.findings], [0, null, null, []]);
   });
 
-  await check('the gaps migration is idempotent: applied again it changes no answer, and the new functions and the index are only the server\'s or the caller\'s to run', async () => {
-    const file = listMigrations(MIGRATIONS_DIR).find((name) => name.startsWith('20261113190000'));
-    assert.ok(file, 'the migration exists');
-    const sql = readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
+  await check('the gaps and identity migrations are idempotent in order, and their functions enforce caller permissions', async () => {
+    const files = listMigrations(MIGRATIONS_DIR).filter((name) => /^(20261113190000|20261120160000)/.test(name));
+    assert.equal(files.length, 2, 'both migrations exist');
     const answers = async () => JSON.stringify([(await G('/pbs?limit=100')).body, (await G('/tracks?limit=100')).body, (await G(`/cars/${(await G('/cars?limit=100')).body.cars[0].id}`)).body]);
     const before = await answers();
-    await direct.query(sql);
-    await direct.query(sql);
+    for (let repeat = 0; repeat < 2; repeat++) {
+      for (const file of files) await direct.query(readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8'));
+    }
     assert.equal(await answers(), before);
     const grants = async (name, role) => (await direct.query('SELECT has_function_privilege($1, p.oid, \'EXECUTE\') AS ok FROM pg_proc p WHERE p.proname = $2 AND p.pronamespace = \'public\'::regnamespace', [role, name])).rows[0].ok;
-    for (const name of ['sim_leaderboard_catalog', 'sim_share_list', 'sim_friend_request_count']) {
+    for (const name of ['sim_leaderboard_catalog', 'sim_share_list', 'sim_friend_request_count', 'sim_resolve_lap_track']) {
       assert.deepEqual([await grants(name, 'anon'), await grants(name, 'authenticated'), await grants(name, 'service_role')], [false, false, true], name);
     }
-    for (const name of ['sim_previous_best', 'sim_layout_id']) assert.deepEqual([await grants(name, 'anon'), await grants(name, 'authenticated')], [false, true], name);
+    for (const name of ['sim_previous_best', 'sim_layout_id', 'sim_layout_binding']) assert.deepEqual([await grants(name, 'anon'), await grants(name, 'authenticated')], [false, true], name);
     assert.ok((await direct.query("SELECT 1 FROM pg_indexes WHERE indexname = 'sim_laps_previous_best' AND indexdef LIKE '%valid AND (time_ms > 0)%'")).rowCount === 1, 'the partial index on the laps that can have been a best');
   });
 

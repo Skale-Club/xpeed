@@ -68,9 +68,19 @@ export const verifyCode = (id: string, tokenHash: string) =>
 export const newDeviceKey = () => `xpd_${randomBytes(32).toString('base64url')}`;
 export const bearer = (req: { headers: Headers }) => req.headers.get('authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? '';
 
-/** game|track|car|startedAt|lapNumber|timeMs|sampleCount: the identity the app keeps laps under on the device. */
-export const lapIdentity = (h: LapHeader) =>
+/** The identity used before the server persisted a lap's layout variant. */
+export const legacyLapIdentity = (h: LapHeader) =>
   [h.game, h.track.name, h.car.name, h.startedAt, h.lap.number, h.lap.timeMs, h.sampleCount].join('|');
+
+/** Preserve existing default-layout keys. A named layout has its own identity. */
+export function lapIdentity(h: LapHeader): string {
+  return h.track.variant?.trim() ? layoutLapIdentity(h) : legacyLapIdentity(h);
+}
+
+export function layoutLapIdentity(h: LapHeader): string {
+  const variant = (h.track.variant ?? '').trim().toLowerCase();
+  return `v2:${sha256Hex(JSON.stringify([h.game, h.track.name, variant, h.car.name, h.startedAt, h.lap.number, h.lap.timeMs, h.sampleCount]))}`;
+}
 
 // A small in-memory limiter. One server process answers for the whole app, so this is enough to stop
 // someone guessing pairing codes or flooding uploads; a restart forgets it, which is harmless.

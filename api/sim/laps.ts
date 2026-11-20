@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { openBackend, type Backend } from '../_backend';
 import { gunzipLap, LapFormatError, LAP_LIMITS, type LapFile } from '../../src/lib/sim/lap-file';
-import { bearer, browserHeaders, lapIdentity, LAP_UPLOADS_PER_MINUTE, LEGACY_LIST_LIMIT, MAX_ACCOUNT_BYTES, MAX_LAP_BYTES, refuse, reply, sha256Hex } from './_shared';
+import { bearer, browserHeaders, lapIdentity, layoutLapIdentity, legacyLapIdentity, LAP_UPLOADS_PER_MINUTE, LEGACY_LIST_LIMIT, MAX_ACCOUNT_BYTES, MAX_LAP_BYTES, refuse, reply, sha256Hex } from './_shared';
 import { authenticateDevice, rememberedDevice } from './_upload';
 import { summarizeLap } from './_summary';
 import { checkPlausibility } from './_plausibility';
@@ -92,7 +92,7 @@ async function receive(req: Request): Promise<Response> {
       throw error;
     }
     const header = lap.header;
-    const identity = lapIdentity(header);
+    let identity = lapIdentity(header);
     const summary = summarizeLap(lap);
     // Whether the file can be believed (docs/platform/API-V1.md): stored with the lap, in the same transaction. A lap that fails is kept, but ranks nowhere.
     const plausibility = checkPlausibility(lap);
@@ -100,9 +100,22 @@ async function receive(req: Request): Promise<Response> {
     const aids = aidsVerdict(lap);
 
     // Already here, or no room left: answered before the file is written.
-    const admission = await backend.service.rpc('sim_lap_admission', { p_user_id: userId, p_identity: identity, p_size: bytes.length, p_max_bytes: MAX_ACCOUNT_BYTES });
-    if (admission.error) throw admission.error;
-    const admitted = admission.data as { status?: string; id?: string } | null;
+    const legacy = legacyLapIdentity(header);
+    if (legacy !== identity) {
+      const duplicate = await findLegacyDuplicate(backend, userId, legacy, identity);
+      if (duplicate) return reply({ id: duplicate, duplicate: true });
+    }
+    const admit = async (key: string) => {
+      const result = await backend.service.rpc('sim_lap_admission', { p_user_id: userId, p_identity: key, p_size: bytes.length, p_max_bytes: MAX_ACCOUNT_BYTES });
+      if (result.error) throw result.error;
+      return result.data as { status?: string; id?: string } | null;
+    };
+    let admitted = await admit(identity);
+    if (admitted?.status === 'duplicate' && identity === legacy && !(await findLegacyDuplicate(backend, userId, legacy, layoutLapIdentity(header)))) {
+      // A historical named variant can already occupy the default-layout key.
+      identity = layoutLapIdentity(header);
+      admitted = await admit(identity);
+    }
     if (admitted?.status === 'duplicate' && admitted.id) return reply({ id: admitted.id, duplicate: true });
     if (admitted?.status === 'quota') return refuse({ error: 'quota' }, 422, false);
 
@@ -115,8 +128,10 @@ async function receive(req: Request): Promise<Response> {
     const ingested = await backend.service.rpc('sim_ingest_lap', {
       p_user_id: userId, p_device_id: deviceId, p_max_bytes: MAX_ACCOUNT_BYTES,
       p_lap: {
-        identity, game: header.game, track_name: header.track.name, track_length_m: header.track.lengthM ?? null,
-        car_name: header.car.name, car_class: header.car.class ?? null, lap_number: header.lap.number, time_ms: header.lap.timeMs,
+        identity, game: header.game, track_name: header.track.name, track_variant: header.track.variant ?? null,
+        track_title: header.track.title ?? null, track_length_m: header.track.lengthM ?? null,
+        car_name: header.car.name, car_title: header.car.title ?? null, car_class: header.car.class ?? null,
+        lap_number: header.lap.number, time_ms: header.lap.timeMs,
         valid: header.lap.valid, started_at: header.startedAt, sample_count: header.sampleCount, size_bytes: bytes.length, storage_path: path,
         sector_ms: summary.sectorMs, top_speed_kmh: summary.topSpeedKmh, fuel_used_l: summary.fuelUsedL, in_lap: summary.inLap,
         out_lap: summary.outLap, format_version: summary.formatVersion, session_id: summary.session.id, session_kind: summary.session.kind,
@@ -146,6 +161,25 @@ async function receive(req: Request): Promise<Response> {
   } finally {
     // A failure leaves nothing visible (no row: the transaction rolled back) and no file behind.
     if (stored) await discardFile(backend, stored);
+  }
+}
+
+/** A queued retry from before the variant rollout can already have a row. Its file proves the identity. */
+async function findLegacyDuplicate(backend: Backend, userId: string, legacy: string, identity: string): Promise<string | null> {
+  const previous = await backend.service.from('sim_laps').select('id,storage_path').eq('user_id', userId).eq('identity', legacy).maybeSingle();
+  if (previous.error) throw previous.error;
+  if (!previous.data) return null;
+  const file = await backend.service.storage.from(BUCKET).download(previous.data.storage_path);
+  if (file.error || !file.data) {
+    if ((file.error as { statusCode?: string } | null)?.statusCode === '404') return null;
+    throw file.error ?? new Error('missing legacy lap file');
+  }
+  try {
+    const stored = await gunzipLap(new Uint8Array(await file.data.arrayBuffer()), { maxBytes: LAP_LIMITS.unpackedBytes });
+    return layoutLapIdentity(stored.header) === identity ? previous.data.id : null;
+  } catch (error) {
+    if (error instanceof LapFormatError) return null;
+    throw error;
   }
 }
 

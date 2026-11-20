@@ -154,7 +154,7 @@ describe('the list of tracks', () => {
     expect(within(monzaCard).queryByTestId('track-preview')).not.toBeInTheDocument();
     expect(within(monzaCard).queryByTestId('track-preview-shape')).not.toBeInTheDocument();
     // One small file for the one layout, nothing for the other card.
-    expect(asked.filter((path) => path.includes('/file'))).toEqual(['/api/sim/tracks/layout-spa/file']);
+    expect(asked.filter((path) => path.includes('/file'))).toEqual(['/api/sim/tracks/layout-spa/file?account=ana']);
   });
 
   it('shows the layout badge and a place for the shape, and no shape, when the layout file cannot be read', async () => {

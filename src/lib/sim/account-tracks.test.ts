@@ -7,7 +7,7 @@ import { deleteAccountTrack, syncAccountTracks, type AccountTrack } from './acco
 let token: string | null = 'token';
 vi.mock('@/lib/auth/google', () => ({ getAccessToken: async () => token }));
 
-const layoutBytes = (name: string) => gzipBytes(packLayout(makeLayout({ points: circle(300, 40), width: 8, closed: true, ideal: true, name })));
+const layoutBytes = (name: string, variant?: string) => gzipBytes(packLayout(makeLayout({ points: circle(300, 40), width: 8, closed: true, ideal: true, name, variant })));
 const track = (id: string, trackName: string, updatedAt = '2026-11-11T10:00:00.000Z'): AccountTrack => ({
   id, game: 'ac', trackName, variant: null, title: null, lengthM: 1885, size: 100, updatedAt,
 });
@@ -56,6 +56,18 @@ describe('the layouts in the account', () => {
     await syncAccountTracks('ana');
     account = [track('t1', 'Monza', '2099-01-01T00:00:00.000Z'), track('t2', 'Spa')];
     expect((await syncAccountTracks('ana')).copied).toBe(1);
+    expect((await syncAccountTracks('ana')).copied).toBe(0);
+  });
+
+  it('rejects bytes for the wrong variant without keeping those bytes under another track', async () => {
+    account = [{ ...track('t1', 'Brands'), variant: 'GP' }];
+    files.t1 = await layoutBytes('Brands', 'Indy');
+    expect(await syncAccountTracks('ana')).toMatchObject({ reached: true, copied: 0, failed: 1 });
+    expect(await listTracks('ana')).toEqual([]);
+    files.t1 = await layoutBytes('Brands', 'GP');
+    expect(await syncAccountTracks('ana')).toMatchObject({ reached: true, copied: 1, failed: 0 });
+    expect(await findTrack('ana', 'ac', 'brands', 'gp')).not.toBeNull();
+    expect(await findTrack('ana', 'ac', 'brands', 'indy')).toBeNull();
   });
 
   it('skip one that cannot be downloaded or read, and copy the rest', async () => {

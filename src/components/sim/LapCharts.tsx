@@ -18,12 +18,14 @@ interface Props {
   unit: DistanceUnit;
   /** The stretch of the lap being looked at (meters from the start line); the whole lap when null. The channels given are already that stretch. */
   range?: { fromM: number; toM: number } | null;
+  /** One distance selected on the map; kept in metres regardless of display units. */
+  cursorM?: number | null;
 }
 
 const AXIS = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' } as const;
 const finite = (value: number) => (Number.isFinite(value) ? value : null);
 
-function Chart({ title, data, unit, distance, series, height = 176, zero = false, digits = 0, domain }: {
+function Chart({ title, data, unit, distance, series, height = 176, zero = false, digits = 0, domain, cursor }: {
   title: string;
   data: Array<Record<string, number | null>>;
   unit: string;
@@ -34,6 +36,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
   zero?: boolean;
   digits?: number;
   domain: [number | string, number | string];
+  cursor?: number | null;
 }) {
   const { t } = useTranslation();
   // What the chart says, in words, for a screen reader: where each line goes from and to.
@@ -70,6 +73,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
                 formatter={(value: number) => (Number.isFinite(value) ? value.toFixed(digits === 0 ? 1 : digits) : '–')}
               />
               {zero && <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />}
+              {cursor !== undefined && cursor !== null && <ReferenceLine x={cursor} stroke={CHART_PALETTE.yellow} strokeDasharray="3 3" />}
               {series.map((s) => (
                 <Line
                   key={s.key}
@@ -92,7 +96,7 @@ function Chart({ title, data, unit, distance, series, height = 176, zero = false
 }
 
 /** Speed, pedals and the gap along the lap, one chart each, all by distance. */
-export function LapCharts({ grid, lap, reference, gap, offset, unit, range = null }: Props) {
+export function LapCharts({ grid, lap, reference, gap, offset, unit, range = null, cursorM = null }: Props) {
   const { t } = useTranslation();
   const rows = useMemo(() => {
     const speed = (ms: number) => finite(speedIn(ms, unit));
@@ -115,6 +119,7 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit, range = nul
   const other = { color: CHART_PALETTE.blue, name: t('modes.compare.reference', 'Reference'), dashed: true };
   const pair = (key: string) => [{ key, ...mine }, ...(reference ? [{ key: `${key}Ref`, ...other }] : [])];
   const distance = lengthLabel(unit);
+  const cursor = cursorM === null ? null : lengthIn(cursorM, unit);
   const domain: [number | string, number | string] = range ? [Math.round(lengthIn(range.fromM, unit)), Math.round(lengthIn(range.toM, unit))] : [0, 'dataMax'];
 
   return (
@@ -125,7 +130,7 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit, range = nul
             title={t('modes.compare.gapChart', 'Gap to the reference')}
             unit={t('modes.compare.seconds', 's')}
             distance={distance}
-            data={rows} domain={domain}
+            data={rows} domain={domain} cursor={cursor}
             series={[{ key: 'gap', color: CHART_PALETTE.amber, name: t('modes.compare.gapChart', 'Gap to the reference') }]}
             zero
             digits={2}
@@ -141,7 +146,7 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit, range = nul
             title={t('modes.compare.offsetChart', 'Distance from the ideal line')}
             unit={distance}
             distance={distance}
-            data={rows} domain={domain}
+            data={rows} domain={domain} cursor={cursor}
             series={[
               { key: 'offset', ...mine },
               ...(offset.reference ? [{ key: 'offsetRef', ...other }] : []),
@@ -154,9 +159,9 @@ export function LapCharts({ grid, lap, reference, gap, offset, unit, range = nul
           </p>
         </div>
       )}
-      <Chart title={t('modes.compare.speed', 'Speed')} unit={speedLabel(unit)} distance={distance} data={rows} domain={domain} series={pair('speed')} />
-      <Chart title={t('modes.compare.throttle', 'Throttle')} unit="%" distance={distance} data={rows} domain={domain} series={pair('throttle')} />
-      <Chart title={t('modes.compare.brake', 'Brake')} unit="%" distance={distance} data={rows} domain={domain} series={pair('brake')} />
+      <Chart title={t('modes.compare.speed', 'Speed')} unit={speedLabel(unit)} distance={distance} data={rows} domain={domain} cursor={cursor} series={pair('speed')} />
+      <Chart title={t('modes.compare.throttle', 'Throttle')} unit="%" distance={distance} data={rows} domain={domain} cursor={cursor} series={pair('throttle')} />
+      <Chart title={t('modes.compare.brake', 'Brake')} unit="%" distance={distance} data={rows} domain={domain} cursor={cursor} series={pair('brake')} />
     </div>
   );
 }

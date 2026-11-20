@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/button';
 import { FilterBar } from '@/components/ui/filter-bar';
 import { OptionSelect } from '@/components/ui/option-select';
 import { formatLapTime } from '@/lib/sim/analysis';
+import type { LapHeader } from '@/lib/sim/lap-file';
+import { sameTrackIdentity } from '@/lib/sim/track-file';
 import { bestLapOf } from '@/lib/sim/session-stats';
 import { useLapMeta } from '@/lib/sim/use-lap-meta';
-import { usePbs, useSession, useSessions, type V1Pb } from '@/lib/sim/v1-client';
+import { usePbs, useSession, useSessions, type V1Pb, type V1TrackRef } from '@/lib/sim/v1-client';
 import { useReadAllPages } from '../use-read-all-pages';
 
 /**
@@ -15,7 +17,17 @@ import { useReadAllPages } from '../use-read-all-pages';
  * the best lap of another car you drove on this track. The track, car and session of the lap come from its metadata (the lap file does not carry them), so the
  * last two appear once that is read; a button with nothing behind it is not shown. A choice goes to the address as the reference (`?b=`).
  */
-export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: string; referenceId: string | null; pb: V1Pb | null; onChoose: (lapId: string) => void }) {
+function matchesRecordedLayout(header: LapHeader, game: string, track: V1TrackRef | null) {
+  if (!track) return false;
+  // An old API omitted both fields. New APIs send the raw name on historical
+  // rows too, but leave the variant out when they cannot prove it.
+  if (track.sourceName && track.variant === undefined) return false;
+  return sameTrackIdentity(header, { game, track: { name: track.sourceName ?? track.name, variant: track.variant } });
+}
+
+export function QuickPickers({ lapId, header, referenceId, pb, onChoose }: {
+  lapId: string; header: LapHeader; referenceId: string | null; pb: V1Pb | null; onChoose: (lapId: string) => void;
+}) {
   const { t } = useTranslation();
   const meta = useLapMeta(lapId).data;
   const game = meta?.game;
@@ -31,12 +43,16 @@ export function QuickPickers({ lapId, referenceId, pb, onChoose }: { lapId: stri
     return sessions.items.find((session) => session.id !== meta.sessionId && Date.parse(session.startedAt) < since) ?? null;
   }, [sessions.items, meta]);
   const previous = useSession(previousSession?.id ?? null);
-  const previousBest = useMemo(() => bestLapOf(previous.data?.laps ?? []), [previous.data]);
+  const previousBest = useMemo(() => bestLapOf(
+    (previous.data?.laps ?? []).filter((lap) => matchesRecordedLayout(header, lap.game, lap.track)),
+  ), [previous.data, header]);
 
   // The best lap of every other car on this track.
   const bests = usePbs({ game, track: trackId }, { enabled: !!trackId });
   useReadAllPages(bests);
-  const otherCars = useMemo(() => bests.items.filter((entry) => entry.car.id !== carId).sort((p, q) => p.bestMs - q.bestMs), [bests.items, carId]);
+  const otherCars = useMemo(() => bests.items.filter(
+    (entry) => entry.car.id !== carId && matchesRecordedLayout(header, entry.game, entry.track),
+  ).sort((p, q) => p.bestMs - q.bestMs), [bests.items, carId, header]);
 
   const mineChosen = !!pb && referenceId === pb.lapId;
   const previousChosen = !!previousBest && referenceId === previousBest.id;

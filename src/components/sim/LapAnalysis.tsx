@@ -19,6 +19,7 @@ import { WhereTimeWent } from './WhereTimeWent';
 import { TrackMap, type MapFocus } from '@/components/sim/TrackMap';
 import { offLineStretches, offsetsFromLine, type OffLineStretch } from '@/lib/sim/line-offset';
 import { useSettings } from '@/contexts/SettingsContext';
+import { planarLeftSign } from '@/lib/sim/ground-frame';
 import {
   distanceGrid, formatGap, formatLapTime, gapSeries, incomparableReason, lapLength, lapStats, lengthIn, lengthLabel, resampleLap, sampleAlong, speedIn,
   speedLabel, timeChanges, trackPath, type DistanceUnit,
@@ -107,7 +108,7 @@ function NoLayout({ game, track, listKept, onPick }: { game: string; track: stri
   const name = (entry: LibraryTrack) => [entry.summary.title ?? entry.summary.trackName, entry.summary.variant].filter(Boolean).join(' · ');
   return (
     <div className="mt-2 rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="no-layout">
-      <p>{t('modes.compare.noLayout', 'The map of “{{track}}” will appear after you drive this track.', { track })}</p>
+      <p>{t('modes.compare.noLayout', 'No compatible game track geometry is available for “{{track}}” yet. The line shown is your recorded lap.', { track })}</p>
       {onPick && options.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span id={pickLabelId}>{t('modes.compare.useKeptLayout', 'Or use a layout you kept (the game may name the track differently):')}</span>
@@ -196,7 +197,8 @@ export function LapAnalysis({
 }) {
   const { t } = useTranslation();
   const { distanceUnit } = useSettings();
-  const [kept, setKept] = useState<{ key: string; layout: TrackFile | null } | null>(null);
+  const [kept, setKept] = useState<{ key: string; layout: TrackFile | null; failed?: boolean; finder: typeof findLayout } | null>(null);
+  const [layoutAttempt, setLayoutAttempt] = useState(0);
 
   // The layout of the track of the lap being looked at, from the ones Xpeed Companion sent.
   const wanted = { game: layoutGame(a.lap.header.game), name: a.lap.header.track.name, variant: a.lap.header.track.variant ?? null };
@@ -205,19 +207,20 @@ export function LapAnalysis({
     if (!findLayout) return;
     let live = true;
     findLayout(wanted.game, wanted.name, wanted.variant).then(
-      (layout) => live && setKept({ key: wantedKey, layout }),
-      () => live && setKept({ key: wantedKey, layout: null }),
+      (layout) => live && setKept({ key: wantedKey, layout, finder: findLayout }),
+      () => live && setKept({ key: wantedKey, layout: null, failed: true, finder: findLayout }),
     );
     return () => {
       live = false;
     };
     // `wanted` is rebuilt every render; `wantedKey` says when it really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wantedKey, findLayout]);
-  const [local, setLocal] = useState<{ lap: LapFile; id: string; layout: TrackFile } | null>(null);
+  }, [wantedKey, findLayout, layoutAttempt]);
+  const [local, setLocal] = useState<{ lap: LapFile; id: string; layout: TrackFile; finder: typeof findLayout } | null>(null);
   useEffect(() => { setLocal(null); }, [a.id, a.lap]);
-  const localLayout = local?.lap === a.lap && local.id === a.id ? local.layout : null;
-  const layout = localLayout ?? (kept && kept.key === wantedKey ? kept.layout : null);
+  const localLayout = local?.lap === a.lap && local.id === a.id && local.finder === findLayout ? local.layout : null;
+  const currentKept = kept?.key === wantedKey && kept.finder === findLayout ? kept : null;
+  const selectedLayout = localLayout ?? currentKept?.layout ?? null;
 
   const refusal = b ? incomparableReason(a.lap, b.lap) : null;
   const analysis = useMemo(() => {
@@ -242,10 +245,26 @@ export function LapAnalysis({
     };
   }, [a, b, refusal]);
 
+  // Reject the entire incompatible geometry, not only its offset chart/ideal line.
+  const layoutMatches = useMemo(() => {
+    if (!selectedLayout) return true;
+    try { assertLocalTrackAlignment(selectedLayout, analysis.lap.x, analysis.lap.z); return true; }
+    catch { return false; }
+  }, [selectedLayout, analysis]);
+  const layout = layoutMatches ? selectedLayout : null;
+  const leftSign = planarLeftSign(a.lap.header);
+
+  const [inspection, setInspection] = useState<{ lap: LapFile; m: number } | null>(null);
+  const cursorM = inspection?.lap === a.lap ? inspection.m : null;
+  const cursorIndex = cursorM === null ? null : Math.min(analysis.grid.length - 1,
+    Math.max(0, Math.round(cursorM / (analysis.grid[1] - analysis.grid[0] || 1))));
+  const cursor = cursorIndex === null ? null : { x: analysis.lap.x[cursorIndex], z: analysis.lap.z[cursorIndex] };
+  const referenceCursor = cursorIndex === null || !analysis.reference ? null : { x: analysis.reference.x[cursorIndex], z: analysis.reference.z[cursorIndex] };
+
   // The lap against the game's ideal line, when the layout has one.
   const lineStudy = useMemo(() => {
-    if (!layout?.fast) return null;
-    const line = { x: layout.fast.x, z: layout.fast.z, closed: layout.header.closed };
+    if (!layout?.fast || leftSign === null) return null;
+    const line = { x: layout.fast.x, z: layout.fast.z, closed: layout.header.closed, leftSign };
     const lap = offsetsFromLine(line, analysis.lap.x, analysis.lap.z);
     const known = lap.filter(Number.isFinite).map(Math.abs).sort((p, q) => p - q);
     if (known.length === 0) return null;
@@ -254,7 +273,7 @@ export function LapAnalysis({
     if (known[Math.floor(known.length / 2)] > OFF_LAYOUT_M) return { mismatch: true as const };
     const reference = analysis.reference ? offsetsFromLine(line, analysis.reference.x, analysis.reference.z) : null;
     return { mismatch: false as const, lap, reference, stretches: offLineStretches(analysis.grid, lap, analysis.gap) };
-  }, [analysis, layout]);
+  }, [analysis, layout, leftSign]);
 
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const mapCard = useRef<HTMLDivElement>(null);
@@ -436,9 +455,9 @@ export function LapAnalysis({
     </div>
   );
 
-  const layoutNote = lineStudy?.mismatch && (
+  const layoutNote = (!layoutMatches || lineStudy?.mismatch) && (
     <p role="status" className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="layout-mismatch">
-      {t('modes.compare.layoutMismatch', 'This lap does not match the track map, so the ideal line is not shown.')}
+      {t('modes.compare.layoutMismatch', 'This map does not match the recorded coordinates. Its geometry and ideal line are hidden.')}
     </p>
   );
 
@@ -451,6 +470,7 @@ export function LapAnalysis({
       offset={zoomed ? zoomed.offset : lineStudy && !lineStudy.mismatch ? { lap: lineStudy.lap, reference: lineStudy.reference } : null}
       unit={unit}
       range={zoom?.range ?? null}
+      cursorM={cursorM}
     />
   );
 
@@ -466,25 +486,57 @@ export function LapAnalysis({
   const offLine = lineStudy && !lineStudy.mismatch ? <OffLine items={lineStudy.stretches} unit={unit} onShow={showOnMap} /> : null;
 
   const mapNode = analysis.pathA && (
-    <Card className="bg-card border-border">
+    <Card className="bg-card border-border" data-testid="lap-map-panel">
       <CardHeader className="pb-1">
         <CardTitle className="text-sm font-semibold">{t('modes.compare.mapTitle', 'Track')}</CardTitle>
       </CardHeader>
       <CardContent className="pb-3">
         <div ref={mapCard}>
-          <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} />
+          <TrackMap lap={analysis.pathA} reference={analysis.pathB} layout={layout} focus={focus} highlight={zoomed?.marked ?? null} cursor={cursor} referenceCursor={referenceCursor} className="h-80 md:h-96" />
         </div>
+        <div className="mt-3 space-y-1" data-testid="lap-inspector">
+          <label className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{t('modes.compare.inspectDistance', 'Inspect the lap by distance')}</span>
+            <output className="font-mono tabular-nums" data-testid="inspection-distance">{Math.round(lengthIn(cursorM ?? 0, unit))} {lengthLabel(unit)}</output>
+            <input type="range" min={0} max={lapLengthM} step={analysis.grid[1] - analysis.grid[0] || 1} value={cursorM ?? 0}
+              aria-label={t('modes.compare.inspectDistance', 'Inspect the lap by distance')}
+              className="h-10 w-full accent-primary"
+              onChange={(event) => setInspection({ lap: a.lap, m: Number(event.target.value) })} />
+          </label>
+          {cursorIndex !== null && (
+            <div className="space-y-1 text-xs tabular-nums" data-testid="inspection-values">
+              {[analysis.lap, ...(analysis.reference ? [analysis.reference] : [])].map((values, index) => (
+                <p key={index} className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="font-semibold">{index === 0 ? t('modes.compare.lap', 'Lap') : t('modes.compare.reference', 'Reference')}</span>
+                  {[[t('modes.compare.speed', 'Speed'), speedIn(values.speed[cursorIndex], unit), speedLabel(unit)],
+                    [t('modes.compare.throttle', 'Throttle'), values.throttle[cursorIndex] * 100, '%'],
+                    [t('modes.compare.brake', 'Brake'), values.brake[cursorIndex] * 100, '%']].map(([label, value, suffix]) => (
+                      <span key={String(label)}>{label}: {typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)} ${suffix}` : '–'}</span>
+                    ))}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+        {layoutNote}
         <p className="mt-1 text-xs text-muted-foreground" data-testid="map-hint">
           {layout
             ? t('modes.compare.localTrack.mapHint', { surface: t(`modes.compare.localTrack.surface_${localTrackSurface(layout)}`) })
-            : t('modes.compare.mapHint', 'Solid: the lap. Dashed: the reference. Green dot: the start.')}
+            : t('modes.compare.mapHint', 'Solid: the recorded lap, not road geometry. Dashed: the reference. Green dot: the start.')}
         </p>
+        {findLayout && !currentKept && <p role="status" className="mt-2 text-xs text-muted-foreground">{t('modes.compare.layoutLoading', 'Loading track geometry…')}</p>}
+        {currentKept?.failed && (
+          <div role="status" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{t('modes.compare.layoutFailed', 'Track geometry could not be loaded.')}</span>
+            <Button size="sm" variant="outline" onClick={() => { setKept(null); setLayoutAttempt((value) => value + 1); }}>{t('common.retry', 'Try again')}</Button>
+          </div>
+        )}
         <LocalTrackLayout key={`${a.id}|${wantedKey}`} wanted={wanted} selected={!!localLayout} onLayout={(picked) => {
           if (picked) assertLocalTrackAlignment(picked, analysis.lap.x, analysis.lap.z);
-          setLocal(picked ? { lap: a.lap, id: a.id, layout: picked } : null);
+          setLocal(picked ? { lap: a.lap, id: a.id, layout: picked, finder: findLayout } : null);
         }} />
         {localLayout && <p className="mt-1 text-xs text-muted-foreground" role="status">{t('modes.compare.localTrack.sourceLabel', { source: localLayout.header.source, surface: t(`modes.compare.localTrack.surface_${localTrackSurface(localLayout)}`) })}</p>}
-        {!layout && wanted && wantedKey && findLayout && kept?.key === wantedKey && (
+        {!selectedLayout && wanted && wantedKey && findLayout && currentKept && !currentKept.failed && (
           <NoLayout
             game={wanted.game}
             track={[wanted.name, wanted.variant].filter(Boolean).join(' · ')}
@@ -493,7 +545,7 @@ export function LapAnalysis({
               linkLayout
                 ? (id) =>
                     void linkLayout(wanted.game, wanted.name, wanted.variant, id).then(
-                      (picked) => setKept({ key: wantedKey, layout: picked }),
+                      (picked) => setKept({ key: wantedKey, layout: picked, finder: findLayout }),
                       () => undefined,
                     )
                 : undefined
@@ -516,11 +568,6 @@ export function LapAnalysis({
           <div className={cn('min-w-0', whereCard && 'lg:col-span-6')}>{numbersCard}</div>
           {whereCard && <div className="min-w-0 lg:col-span-6">{whereCard}</div>}
         </div>
-        {stripCard}
-        {cornersCard}
-        {zoomBar}
-        {layoutNote}
-        {charts}
         <div className={cn('grid gap-4', mapNode && (changesCard || offLine) && 'lg:grid-cols-12')}>
           {mapNode && <div className={cn('min-w-0', (changesCard || offLine) && 'lg:col-span-7')}>{mapNode}</div>}
           {(changesCard || offLine) && (
@@ -530,6 +577,10 @@ export function LapAnalysis({
             </div>
           )}
         </div>
+        {stripCard}
+        {cornersCard}
+        {zoomBar}
+        {charts}
       </div>
     );
   }

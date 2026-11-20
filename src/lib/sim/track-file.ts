@@ -289,6 +289,14 @@ export const trackKeyOf = (game: string, name: string, variant?: string | null) 
 
 export const trackKey = (track: TrackFile) => trackKeyOf(track.header.game, track.header.track.name, track.header.track.variant);
 
+type TrackIdentity = { game: string; track: { name: string; variant?: string | null } };
+const identityPart = (part: string | null | undefined) => (part ?? '').trim().toLowerCase();
+
+export function sameTrackIdentity(a: TrackIdentity, b: TrackIdentity): boolean {
+  return identityPart(a.game) === identityPart(b.game) && identityPart(a.track.name) === identityPart(b.track.name)
+    && identityPart(a.track.variant) === identityPart(b.track.variant);
+}
+
 export type Point = [x: number, z: number];
 
 /** The unit vector to the driver's LEFT at each point (spec: tangent from the neighbours, then `(t.z, -t.x)`). */

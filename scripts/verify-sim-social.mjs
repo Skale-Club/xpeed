@@ -227,8 +227,8 @@ try {
        SELECT id, $1::text || '_' || lpad(row_number() OVER ()::text, 3, '0'), 'Fake ' || $1::text, $3 FROM a RETURNING user_id, handle`, [prefix, count, visibility]);
     if (track) {
       await direct.query(
-        `INSERT INTO public.sim_laps (user_id, identity, game, track_name, car_name, lap_number, time_ms, valid, started_at, sample_count, size_bytes, storage_path, plausible, plausibility)
-         SELECT p.user_id, 'fake|' || p.user_id, $1, $2, $3, 1, $4::int + (row_number() OVER (ORDER BY p.handle)) * $5::int, true, now(), 3, 100, 'fake/' || p.user_id, true, '{"v":1,"failed":[]}'::jsonb
+        `INSERT INTO public.sim_laps (user_id, identity, game, track_name, car_name, lap_number, time_ms, valid, started_at, sample_count, size_bytes, storage_path, plausible, plausibility, track_variant_known)
+         SELECT p.user_id, 'fake|' || p.user_id, $1, $2, $3, 1, $4::int + (row_number() OVER (ORDER BY p.handle)) * $5::int, true, now(), 3, 100, 'fake/' || p.user_id, true, '{"v":1,"failed":[]}'::jsonb, true
          FROM public.sim_profiles p WHERE p.handle LIKE $6`, [game, track, car, startMs, step, `${prefix}\\_%`]);
     }
     return made.rows;

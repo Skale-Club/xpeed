@@ -29,4 +29,14 @@ describe('which tracks have a layout Xpeed Companion sent', () => {
   it('reads a game the way its layouts are filed (Stock Car Extreme layouts are filed as sce)', () => {
     expect(hasSyncedLayout([layout({ game: 'sce', trackName: 'Interlagos' })], { game: 'rfactor1', name: 'Interlagos' })).toBe(true);
   });
+
+  it('does not infer a named variant from its bare track name or an ambiguous title', () => {
+    const gp = layout({ game: 'ac', trackName: 'brands', variant: 'GP', title: 'Brands Hatch' });
+    const indy = layout({ id: 'l2', game: 'ac', trackName: 'brands', variant: 'Indy', title: 'Brands Hatch' });
+    expect(hasSyncedLayout([gp], { game: 'ac', name: 'brands' })).toBe(false);
+    expect(hasSyncedLayout([gp, indy], { game: 'ac', name: 'Brands Hatch' })).toBe(false);
+    expect(hasSyncedLayout([gp], { game: 'ac', name: 'Brands Hatch', sourceName: 'other_mod', variant: 'GP' })).toBe(false);
+    expect(hasSyncedLayout([gp], { game: 'ac', name: 'Brands Hatch', sourceName: 'brands', variant: 'Indy' })).toBe(false);
+    expect(hasSyncedLayout([gp, indy], { game: 'ac', name: 'Brands Hatch', sourceName: 'brands', variant: 'GP' })).toBe(true);
+  });
 });
