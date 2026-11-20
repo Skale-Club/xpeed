@@ -1030,9 +1030,7 @@ fn workspace_menu_now(hwnd: HWND, state: &State, width: i32) -> Option<Workspace
 
 /// Whether the point is on a row of the open workspace menu that a click acts on.
 fn workspace_row_hit(hwnd: HWND, state: &State, width: i32, x: i32, y: i32) -> bool {
-    state.workspace_open
-        && workspace_menu_now(hwnd, state, width)
-            .is_some_and(|menu| menu.row_at(x, y).is_some_and(|row| row.enabled))
+    state.workspace_open && workspace_menu_now(hwnd, state, width).is_some_and(|menu| menu.row_at(x, y).is_some_and(|row| row.enabled))
 }
 
 fn close_workspace(state: &mut State) {

@@ -3161,9 +3161,8 @@ fn a_phone_with_few_cards_gets_one_column_at_a_size_text_reads_at() {
 fn the_layout_only_changes_when_the_window_crosses_a_threshold_by_a_margin() {
     let s = slots(every_cap());
     let base = base_views();
-    let sticky = |width: f32, bh: f32, current: Option<Layout>| {
-        pick_layout_sticky_with(&base, DashboardId::Practice, width, bh, &s, current)
-    };
+    let sticky =
+        |width: f32, bh: f32, current: Option<Layout>| pick_layout_sticky_with(&base, DashboardId::Practice, width, bh, &s, current);
     let plain = |bw: f32, bh: f32| pick_layout_with(&base, DashboardId::Practice, bw, bh, &s);
     let (mut sticky_flips, mut plain_flips, mut edges) = (0, 0, 0);
     for bh in [600.0, 760.0, 900.0, 1080.0] {
@@ -5996,7 +5995,15 @@ fn the_workspace_menu_paints_in_every_language_and_size_and_only_where_the_pill_
     let live = live_reading();
     let f = fixture();
     for lang in Lang::ALL {
-        for (w, h) in [(2560, 1080), (1920, 1080), (1536, 864), (1280, 720), (1024, 768), (720, 480), (430, 900)] {
+        for (w, h) in [
+            (2560, 1080),
+            (1920, 1080),
+            (1536, 864),
+            (1280, 720),
+            (1024, 768),
+            (720, 480),
+            (430, 900),
+        ] {
             let mut v = view(&f, Some(&live), Tab::Dash, 1.0, lang);
             v.workspace_reset_until = v.now_ms + 1_000;
             let closed = render(&v, w, h);
