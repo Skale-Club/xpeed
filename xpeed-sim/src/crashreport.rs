@@ -330,6 +330,7 @@ mod tests {
             device_name: "TEST PC".into(),
             account: None,
             auto_update: true,
+            phone_view: false,
         }
     }
 

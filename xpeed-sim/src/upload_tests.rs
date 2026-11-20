@@ -56,6 +56,7 @@ fn config_for(url: &str) -> Config {
         device_name: "RIG".into(),
         account: None,
         auto_update: true,
+        phone_view: false,
     }
 }
 

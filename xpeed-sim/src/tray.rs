@@ -28,6 +28,7 @@ use crate::heartbeat;
 use crate::icon::{self, Light};
 use crate::outbox::{Backoff, Observer, Uploader};
 use crate::panel::{self, Account};
+use crate::phone;
 use crate::present;
 use crate::status::{Cloud, Game, Notice, Shared};
 use crate::supervisor;
@@ -77,6 +78,7 @@ const CMD_PANEL: usize = 6;
 const CMD_UPDATE_NOW: usize = 7;
 const CMD_CHECK_UPDATES: usize = 8;
 const CMD_AUTO_UPDATE: usize = 9;
+const CMD_PHONE_VIEW: usize = 10;
 /// The languages of the menu, in the order of `Lang::ALL`, from this id up.
 const CMD_LANG: usize = 20;
 /// The choices of the units menu, each kind from its own id up, in the order of its `ALL`.
@@ -108,6 +110,8 @@ struct App {
     account: Arc<Mutex<Account>>,
     /// The program's own icon (no state dot), big and small, for the panel's title bar and taskbar button.
     panel_icons: [HICON; 2],
+    /// "Show the panel on my phone" is on (kept in the configuration file once the computer is paired).
+    phone_view: bool,
     /// The new version that is waiting, and the person's choice about installing it by itself.
     updater: Arc<Updater>,
     /// Asks the checker to look now ("Check for updates").
@@ -275,6 +279,27 @@ fn start_heartbeat(shared: &Arc<Shared>, dir: &Path, config: Config) {
         shared.clone(),
         hooks,
     ));
+}
+
+/// Starts the thread that sends the panel to the phone view, or stops it (`on` false). An unpaired computer starts none. The language
+/// and units are the ones the tray knows now (`account`), the lines it says are for the log only.
+fn start_phone_view(shared: &Arc<Shared>, account: &Arc<Mutex<Account>>, config: Config, on: bool) {
+    if !on {
+        shared.set_phone_worker(None);
+        return;
+    }
+    let for_worker = shared.clone();
+    let hooks = heartbeat::Hooks {
+        say: Arc::new(|line| applog::line(&line)),
+        worker: Arc::new(move |health| for_worker.set_worker(supervisor::LIVE, health)),
+    };
+    let relay = Mutex::new(panel::Relay::new(config::home_dir()));
+    let account = account.clone();
+    let build: phone::Build = Arc::new(move |shared: &Shared| {
+        let who = lock(&account).clone();
+        lock(&relay).frame(shared, who.lang, who.units, crate::util::now_ms())
+    });
+    shared.set_phone_worker(phone::Worker::start_if_paired(Some(config), shared.clone(), hooks, build));
 }
 
 /// Asks the server who this computer is connected as (a pairing made the old way never saved it, and an email may have
@@ -511,12 +536,28 @@ impl App {
         self.update_tick(Trigger::Automatic);
     }
 
+    /// "Show the panel on my phone" was switched: kept in the configuration file (with no pairing it lasts until the program closes),
+    /// and the sender starts or stops at once.
+    fn set_phone_view(&mut self, on: bool) {
+        self.phone_view = on;
+        match config::set_phone_view(&self.config_path, on) {
+            Ok(true) => {}
+            Ok(false) => applog::line("phone view: no pairing to keep the choice in; it lasts until the program closes"),
+            Err(why) => applog::line(&why),
+        }
+        match config::load(&self.config_path) {
+            Ok(Some(config)) => start_phone_view(&self.shared, &self.account, config, on),
+            _ => self.shared.set_phone_worker(None),
+        }
+    }
+
     /// Reads the pairing again (a link just changed it) and starts or stops sending to match.
     fn reload_pairing(&mut self) {
         match config::load(&self.config_path) {
             Ok(Some(config)) => {
                 applog::line(&format!("paired with {} as {}", config.server, config.device_name));
                 self.updater.set_automatic(config.auto_update);
+                self.phone_view = config.phone_view;
                 self.updater.set_identity(Some(&config.token));
                 self.server = config.server.clone();
                 self.device = Some(config.device_name.clone());
@@ -526,6 +567,7 @@ impl App {
                     .notify(Notice::Paired(config.account.clone().unwrap_or_else(|| config.device_name.clone())));
                 refresh_account(self.hwnd, &self.config_path, &config);
                 start_heartbeat(&self.shared, &self.laps_dir, config.clone());
+                start_phone_view(&self.shared, &self.account, config.clone(), self.phone_view);
                 start_uploader(&self.shared, &self.laps_dir, config);
             }
             _ => {
@@ -534,6 +576,7 @@ impl App {
                 self.shared.set_uploader(None);
                 self.shared.set_heartbeat(None);
                 self.shared.set_references_worker(None);
+                self.shared.set_phone_worker(None);
                 self.shared.set_references(None);
                 self.shared.update(|s| s.cloud = Cloud::NotPaired);
             }
@@ -588,6 +631,11 @@ impl App {
                 MF_STRING | if self.updater.automatic() { MF_CHECKED } else { 0 },
                 CMD_AUTO_UPDATE,
                 say(Msg::MenuAutoUpdate),
+            );
+            line(
+                MF_STRING | if self.phone_view { MF_CHECKED } else { 0 },
+                CMD_PHONE_VIEW,
+                say(Msg::MenuPhoneView),
             );
             // The language: English unless the person picks another here (each shown in its own words).
             let languages = CreatePopupMenu();
@@ -682,6 +730,10 @@ impl App {
             CMD_AUTO_UPDATE => {
                 let on = !self.updater.automatic();
                 self.set_auto_update(on);
+            }
+            CMD_PHONE_VIEW => {
+                let on = !self.phone_view;
+                self.set_phone_view(on);
             }
             id if (CMD_LANG..CMD_LANG + Lang::ALL.len()).contains(&id) => self.set_lang(Lang::ALL[id - CMD_LANG]),
             id if (CMD_UNIT_SPEED..CMD_UNIT_SPEED + SpeedUnit::ALL.len()).contains(&id) => self.set_units(Units {
@@ -960,6 +1012,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             panel: null_mut(),
             account: Arc::new(Mutex::new(Account::default())),
             panel_icons: program_icons(),
+            phone_view: config.as_ref().is_some_and(|c| c.phone_view),
             updater: updater.clone(),
             wake: wake.clone(),
             install: Arc::new(Mutex::new(None)),
@@ -1002,6 +1055,7 @@ pub fn run(open_panel: bool) -> ExitCode {
             applog::line(&format!("paired with {} as {}", config.server, config.device_name));
             refresh_account(hwnd, &(*app).config_path, &config);
             start_heartbeat(&shared, &laps_dir, config.clone());
+            start_phone_view(&shared, &(*app).account, config.clone(), (*app).phone_view);
             start_uploader(&shared, &laps_dir, config);
         } else {
             shared.notify(Notice::NotPaired);
@@ -1044,6 +1098,7 @@ pub fn run(open_panel: bool) -> ExitCode {
         shared.set_uploader(None);
         shared.set_heartbeat(None);
         shared.set_references_worker(None);
+        shared.set_phone_worker(None);
         drop(Box::from_raw(app));
         if let Some(staged) = install {
             hand_over_to_installer(&home, only_copy, &staged);

@@ -163,6 +163,7 @@ pub(super) unsafe fn paint_window(hwnd: HWND, state: &mut State) {
         carousel_step: Default::default(),
         dashboard: live.as_ref().and_then(|l| state.choices.get(l.game)),
         layout: std::cell::Cell::new(state.layout),
+        phone_viewers: ctx.shared.phone_viewers(),
         lang_open: state.lang_open,
         copied: state.copied_at > 0 && now - state.copied_at < COPIED_FOR_MS,
         failed: &failed,

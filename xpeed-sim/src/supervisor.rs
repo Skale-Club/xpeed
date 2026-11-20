@@ -54,6 +54,7 @@ pub const UPLOADER: &str = "uploader";
 pub const HEARTBEAT: &str = "heartbeat";
 pub const UPDATER: &str = "updater";
 pub const REFERENCES: &str = "references";
+pub const LIVE: &str = "live";
 
 /// What a worker is called in a sentence (the log, the panel, the diagnostics).
 pub fn title(id: &str) -> &'static str {
@@ -64,6 +65,7 @@ pub fn title(id: &str) -> &'static str {
         HEARTBEAT => "heartbeat sender",
         UPDATER => "update checker",
         REFERENCES => "reference lap fetcher",
+        LIVE => "phone view sender",
         // A family of game readers is named after the games it reads.
         family => crate::games::READERS
             .iter()

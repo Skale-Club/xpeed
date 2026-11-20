@@ -50,10 +50,24 @@ pub(super) fn version_hit(width: i32, scale: f32) -> Option<RECT> {
 /// version (or the language button, without the version).
 pub(super) fn dashboard_hit(width: i32, scale: f32) -> Option<RECT> {
     let p = |v: f32| (v * scale).round() as i32;
-    let [_, mon, lang, _, _] = header_hits(width, scale);
-    let limit = version_hit(width, scale).map_or(lang.left - p(14.0), |v| v.left + p(60.0));
+    let [_, mon, _, _, _] = header_hits(width, scale);
     let left = mon.right + p(24.0);
-    (limit - left >= p(150.0)).then(|| rect(left, p(17.0), left + p(150.0), p(47.0)))
+    (header_limit(width, scale) - left >= p(150.0)).then(|| rect(left, p(17.0), left + p(150.0), p(47.0)))
+}
+
+/// How far right the header's pills may reach (pixels): before the version, or the language button without the version.
+fn header_limit(width: i32, scale: f32) -> i32 {
+    let p = |v: f32| (v * scale).round() as i32;
+    let [_, _, lang, _, _] = header_hits(width, scale);
+    version_hit(width, scale).map_or(lang.left - p(14.0), |v| v.left + p(60.0))
+}
+
+/// Where the "Phone" mark sits in the header (pixels): after the dashboard's name, when the window leaves room for both.
+pub(super) fn phone_hit(width: i32, scale: f32) -> Option<RECT> {
+    let p = |v: f32| (v * scale).round() as i32;
+    let name = dashboard_hit(width, scale)?;
+    let left = name.right + p(8.0);
+    (header_limit(width, scale) - left >= p(84.0)).then(|| rect(left, name.top, left + p(84.0), name.bottom))
 }
 
 /// Fits a canvas of `width` x `height` design units in `body`, centred: its scale and where it starts (pixels).

@@ -93,6 +93,8 @@ pub enum Msg {
     MenuLanguage,
     MenuCheckUpdates,
     MenuAutoUpdate,
+    /// The tray's switch for sending the panel to the person's phone, through the Xpeed server.
+    MenuPhoneView,
     /// The button that installs the new version, and the card it is on.
     UpdateNow,
     PanelUpdate,
@@ -132,6 +134,8 @@ pub enum Msg {
     PanelDashTimeTrial,
     /// The mark of a dashboard picked from the session, not by hand.
     PanelDashAuto,
+    /// The mark in the header while a phone is watching the panel.
+    PanelPhone,
     PanelFullScreen,
     PanelExitFullScreen,
     PanelWaitingTitle,
@@ -532,6 +536,11 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
             s("Atualizar automaticamente"),
             s("Actualizar automáticamente"),
         ),
+        MenuPhoneView => t(
+            s("Show the panel on my phone"),
+            s("Mostrar o painel no meu celular"),
+            s("Mostrar el panel en mi móvil"),
+        ),
         UpdateNow => t(s("Update now"), s("Atualizar agora"), s("Actualizar ahora")),
         PanelUpdate => t(s("Update"), s("Atualização"), s("Actualización")),
         UpdateAvailable(version) => t(
@@ -612,6 +621,7 @@ pub fn text(lang: Lang, msg: &Msg) -> String {
         PanelDashPractice => t(s("Practice"), s("Treino"), s("Práctica")),
         PanelDashTimeTrial => t(s("Time trial"), s("Contra o relógio"), s("Contrarreloj")),
         PanelDashAuto => t(s("Auto"), s("Auto"), s("Auto")),
+        PanelPhone => t(s("Phone"), s("Celular"), s("Móvil")),
         PanelOnTop => t(s("Always on top"), s("Sempre por cima"), s("Siempre encima")),
         PanelFullScreen => t(s("Full screen"), s("Tela cheia"), s("Pantalla completa")),
         PanelExitFullScreen => t(s("Exit full screen"), s("Sair da tela cheia"), s("Salir de pantalla completa")),
@@ -1040,6 +1050,7 @@ mod tests {
             Msg::MenuLanguage,
             Msg::MenuCheckUpdates,
             Msg::MenuAutoUpdate,
+            Msg::MenuPhoneView,
             Msg::UpdateNow,
             Msg::PanelUpdate,
             Msg::UpdateAvailable("0.6.0".into()),
@@ -1069,6 +1080,7 @@ mod tests {
             Msg::PanelDashPractice,
             Msg::PanelDashTimeTrial,
             Msg::PanelDashAuto,
+            Msg::PanelPhone,
             Msg::PanelFullScreen,
             Msg::PanelExitFullScreen,
             Msg::PanelWaitingTitle,

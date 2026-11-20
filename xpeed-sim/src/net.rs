@@ -83,6 +83,12 @@ pub fn heartbeat_agent() -> ureq::Agent {
     agent_with(Duration::from_secs(15))
 }
 
+/// The agent of the phone view's frames (about ten a second): the same rules, and its connection is kept between requests. A frame
+/// the server has not taken in 5 s is stale, and the next one is a tenth of a second behind it.
+pub fn live_agent() -> ureq::Agent {
+    agent_with(Duration::from_secs(5))
+}
+
 fn agent_with(global: Duration) -> ureq::Agent {
     let config = ureq::Agent::config_builder()
         .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).build())
@@ -654,6 +660,50 @@ pub fn send_error_report(agent: &ureq::Agent, config: &Config, body: &str) -> Re
         }),
         _ => Err(SendError::Later {
             reason: explain(&reply, "the server could not take the report"),
+            after: reply.after,
+        }),
+    }
+}
+
+/// How long a server that does not know the live route (an older one) is left alone.
+const LIVE_ROUTE_RETRY: Duration = Duration::from_secs(300);
+
+/// How many phones the server says are watching, from the body of an accepted frame (none when it does not say).
+fn viewers_in(body: &str) -> u32 {
+    let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let viewers = value.get("viewers").and_then(Value::as_u64).unwrap_or(0);
+    u32::try_from(viewers).unwrap_or(u32::MAX)
+}
+
+/// Sends one frame of the phone view (`POST /api/sim/live`, contract in `ENVIO-DE-VOLTAS.md`, section 2f) with the device key and
+/// gives back how many phones are watching. Judged by the status: a refused key is `Unauthorized`; a frame the server will not take
+/// (too big, not valid) is `Rejected`; a rate limit (with its `Retry-After`), a busy, older or unreachable server is a later try. The
+/// frame is never in a message: only the status and the server's own word.
+pub fn post_live(agent: &ureq::Agent, config: &Config, body: &str) -> Result<u32, SendError> {
+    let response = agent
+        .post(format!("{}/api/sim/live", config.server))
+        .header("Authorization", format!("Bearer {}", config.token))
+        .content_type("application/json")
+        .send(body)
+        .map_err(|error| SendError::Later {
+            reason: network_problem(&error),
+            after: None,
+        })?;
+    let reply = read_reply(response);
+    match reply.status {
+        200..=299 => Ok(viewers_in(&reply.body)),
+        401 | 403 => Err(SendError::Unauthorized),
+        400 | 413 | 415 | 422 => Err(SendError::Rejected(explain(&reply, "the server refused the frame"))),
+        404 | 405 | 501 => Err(SendError::Later {
+            reason: "this server does not take the phone view yet".into(),
+            after: Some(LIVE_ROUTE_RETRY),
+        }),
+        300..=399 => Err(SendError::Later {
+            reason: "the server moved; pair again with its final address".into(),
+            after: None,
+        }),
+        _ => Err(SendError::Later {
+            reason: explain(&reply, "the server could not take the frame"),
             after: reply.after,
         }),
     }

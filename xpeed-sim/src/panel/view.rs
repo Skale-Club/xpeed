@@ -82,6 +82,8 @@ pub struct View<'a> {
     pub layout: std::cell::Cell<Option<Layout>>,
     /// The dashboard chosen by hand for the game that is open; `None` is automatic (picked from the session).
     pub(super) dashboard: Option<DashboardId>,
+    /// How many phones are watching the panel through the Xpeed server (none unless "Show the panel on my phone" is on).
+    pub phone_viewers: u32,
     /// The language list under the language button is open.
     pub lang_open: bool,
     /// The diagnostics were copied a moment ago: the Monitor tab says so for two seconds.

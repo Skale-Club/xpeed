@@ -164,6 +164,11 @@ pub(super) fn header(g: &mut Painter, width: i32, view: &View) {
             g.round(pill, SURFACE, None);
             g.caps(&label, pill, T_CAPTION, FOREGROUND_2, DT_CENTER);
         }
+        // A phone is watching through the server: a small pill after the name.
+        if let Some(r) = phone_hit(width, view.scale).filter(|_| view.phone_viewers > 0) {
+            g.round(r, SURFACE, None);
+            g.caps(&text(view.lang, &Msg::PanelPhone), r, T_CAPTION, PRIMARY, DT_CENTER);
+        }
     }
     // The version, small, left of the icon buttons, where every tab shows it.
     let version = concat!("v", env!("CARGO_PKG_VERSION"));

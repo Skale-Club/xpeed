@@ -426,6 +426,7 @@ fn view<'a>(f: &'a Fixture, live: Option<&'a Live>, tab: Tab, scale: f32, lang: 
         mouse: None,
         buttons: Default::default(),
         carousel: 0.0,
+        phone_viewers: 0,
         games_scroll: 0.0,
         scroll: Default::default(),
         carousel_step: Default::default(),
@@ -4928,4 +4929,157 @@ fn the_reference_card_serialises_for_the_phone_in_camel_case() {
     assert_eq!(json["deltaRef"]["line"], "Xpeed best · L. Moretti · 2:01.234");
     assert_eq!(json["deltaRef"]["personalLine"], "Your best · 2:02.100 · -0.054");
     assert!(json["deltaRef"]["note"].is_null());
+}
+
+// The phone view: what is sent of the panel (`relay.rs`; `phone.rs` sends it).
+
+fn race_rows_for_the_phone() -> Vec<Vec<&'static str>> {
+    vec![
+        vec!["times"],
+        vec!["session", "flag"],
+        vec!["relative"],
+        vec!["gaps", "radar"],
+        vec!["standings"],
+        vec!["centre"],
+        vec!["fuel_calc", "tyres"],
+    ]
+}
+
+#[test]
+fn the_phone_gets_the_portrait_rows_as_widget_ids_with_the_pairs_kept_and_only_the_cards_the_game_can_fill() {
+    use crate::game::Caps;
+    let mut live = live_reading();
+    live.session_kind = Some(crate::lapfile::SessionKind::Race);
+    live.caps = every_cap();
+    let frame = build_frame(&live, "lmu", &ctx_of(Lang::En, live.at_ms), None).unwrap();
+    assert_eq!(frame.dashboard, "race");
+    assert_eq!(frame.rows, race_rows_for_the_phone());
+    // Without the radar's data the gaps card is alone in its row.
+    live.caps = every_cap().minus(Caps::RIVALS_WORLD).minus(Caps::SPOTTER);
+    let frame = build_frame(&live, "lmu", &ctx_of(Lang::En, live.at_ms), None).unwrap();
+    assert_eq!(frame.rows[3], ["gaps"]);
+    assert_eq!(frame.rows.len(), 7);
+    // Without the rivals and the flag, the rows with nothing left are gone and the others keep what they have.
+    live.caps = every_cap()
+        .minus(Caps::RIVALS)
+        .minus(Caps::RIVALS_WORLD)
+        .minus(Caps::SPOTTER)
+        .minus(Caps::FLAG);
+    let frame = build_frame(&live, "lmu", &ctx_of(Lang::En, live.at_ms), None).unwrap();
+    let kept = [vec!["times"], vec!["session"], vec!["centre"], vec!["fuel_calc", "tyres"]];
+    assert_eq!(frame.rows, kept);
+    // Every id is the catalog's, and the rows fit what the server takes.
+    for dash in DashboardId::ALL {
+        let rows = phone_rows(dash, &slots(every_cap()));
+        assert!(!rows.is_empty() && rows.len() <= 30, "{dash:?}");
+        for row in rows {
+            assert!((1..=12).contains(&row.len()), "{dash:?}");
+            for id in row {
+                assert!(catalog::by_id(id).is_some(), "{dash:?}: {id}");
+                let plain = id.bytes().all(|b| b.is_ascii_lowercase() || b == b'_');
+                assert!(plain && (2..=24).contains(&id.len()), "{id}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_phone_gets_the_dashboard_chosen_by_hand_else_the_one_that_fits_the_session() {
+    use crate::lapfile::SessionKind as K;
+    let mut live = live_reading();
+    let dash = |live: &Live, manual: Option<DashboardId>| build_frame(live, "ac", &ctx_of(Lang::En, live.at_ms), manual).unwrap();
+    for (kind, expected) in [
+        (Some(K::Race), "race"),
+        (Some(K::Qualifying), "qualifying"),
+        (Some(K::Practice), "practice"),
+        (None, "practice"),
+    ] {
+        live.session_kind = kind;
+        assert_eq!(dash(&live, None).dashboard, expected);
+    }
+    live.session_kind = Some(K::Race);
+    let chosen = dash(&live, Some(DashboardId::TimeTrial));
+    assert_eq!(chosen.dashboard, "time_trial", "the choice beats the session");
+    assert_eq!(chosen.rows, phone_rows(DashboardId::TimeTrial, &slots(live.caps)));
+    let practice = dash(&live, Some(DashboardId::Practice));
+    assert_eq!(practice.rows, phone_rows(DashboardId::Practice, &slots(live.caps)));
+    assert!(!practice.rows.is_empty());
+}
+
+#[test]
+fn the_frame_is_the_panels_own_model_in_the_apps_language_and_goes_out_as_the_contract_says() {
+    let mut live = live_reading();
+    live.session_kind = Some(crate::lapfile::SessionKind::Race);
+    let ctx = ctx_of(Lang::Pt, live.at_ms);
+    let frame = build_frame(&live, "ac", &ctx, None).unwrap();
+    let drawn = serde_json::to_value(dashboard(&live, &ctx)).unwrap();
+    assert_eq!(frame.model, drawn, "the model the panel draws");
+    assert_ne!(
+        frame.model,
+        serde_json::to_value(dashboard(&live, &ctx_of(Lang::En, live.at_ms))).unwrap(),
+        "in the language of the app"
+    );
+    let text = crate::phone::body(12, 1_763_550_000_000, &frame).expect("a full dashboard is far under 64 KB");
+    assert!(text.len() < crate::phone::MAX_BYTES / 2, "{} bytes", text.len());
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!((json["v"].as_i64(), json["seq"].as_i64()), (Some(1), Some(12)));
+    assert_eq!((json["game"].as_str(), json["dashboard"].as_str()), (Some("ac"), Some("race")));
+    assert_eq!(json["rows"].as_array().map(Vec::len), Some(race_rows_for_the_phone().len()));
+    assert_eq!(json["rows"][1], serde_json::json!(["session", "flag"]));
+    assert_eq!(json["model"]["gear"]["show"], "shown");
+    assert!(json["model"]["speed"].is_object() && json["model"]["laps"]["rows"].is_array());
+}
+
+#[test]
+fn nothing_is_built_for_a_stale_reading_or_a_game_id_the_server_would_refuse() {
+    let live = live_reading();
+    let (edge, late) = (ctx_of(Lang::En, live.at_ms + STALE_MS), ctx_of(Lang::En, live.at_ms + STALE_MS + 1));
+    assert!(build_frame(&live, "ac", &edge, None).is_some());
+    assert!(build_frame(&live, "ac", &late, None).is_none());
+    for bad in ["", "Assetto Corsa", "AC", "a-c"] {
+        assert!(build_frame(&live, bad, &ctx_of(Lang::En, live.at_ms), None).is_none(), "{bad}");
+    }
+}
+
+#[test]
+fn the_relay_finds_the_game_id_and_follows_the_dashboard_chosen_in_the_panel() {
+    let shared = Shared::new(true);
+    let live = live_reading();
+    let now = live.at_ms;
+    let home = crate::config::scratch_dir("relay-choices");
+    let mut relay = Relay::new(Some(home.clone()));
+    assert!(relay.frame(&shared, Lang::En, Default::default(), now).is_none(), "no reading");
+    shared.offer_live(live.clone());
+    assert!(relay.frame(&shared, Lang::En, Default::default(), now).is_none(), "no game id to say");
+    shared.set_game("ac", "Assetto Corsa", Game::Connected);
+    let frame = relay.frame(&shared, Lang::En, Default::default(), now).expect("a live game");
+    assert_eq!(frame.game, "ac");
+    assert_eq!(frame.dashboard, pick(live.session_kind, None).id());
+    let stale = relay.frame(&shared, Lang::En, Default::default(), now + STALE_MS + 1);
+    assert!(stale.is_none(), "a stale reading");
+    // The panel's `D` writes the file; the phone follows within a second.
+    let mut choices = Choices::default();
+    choices.set("Assetto Corsa", Some(DashboardId::Qualifying));
+    choices.save(&home).unwrap();
+    let early = relay.frame(&shared, Lang::En, Default::default(), now + 500).unwrap();
+    assert_eq!(early.dashboard, pick(live.session_kind, None).id(), "the file is read again once a second");
+    let later = relay.frame(&shared, Lang::En, Default::default(), now + 1_000).unwrap();
+    assert_eq!(later.dashboard, "qualifying");
+    choices.set("Assetto Corsa", None);
+    choices.save(&home).unwrap();
+    let back = relay.frame(&shared, Lang::En, Default::default(), now + 2_100).unwrap();
+    assert_eq!(back.dashboard, pick(live.session_kind, None).id());
+}
+
+#[test]
+fn the_phone_mark_sits_after_the_dashboard_name_when_there_is_room_and_only_then() {
+    let name = dashboard_hit(1536, 1.0).unwrap();
+    let mark = phone_hit(1536, 1.0).expect("room in a normal window");
+    assert!(mark.left > name.right && mark.right - mark.left > 40);
+    assert_eq!((mark.top, mark.bottom), (name.top, name.bottom));
+    let version = version_hit(1536, 1.0).unwrap();
+    assert!(mark.right < version.right, "it does not run into the version");
+    assert!(phone_hit(540, 1.0).is_none(), "a narrow window has no room for it");
+    let tight = (500..1536).find(|w| dashboard_hit(*w, 1.0).is_some()).unwrap();
+    assert!(phone_hit(tight, 1.0).is_none(), "room for the name only");
 }

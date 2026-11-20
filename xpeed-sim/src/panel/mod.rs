@@ -82,6 +82,7 @@ mod model;
 mod monitor_view;
 mod paint;
 mod perspective_paint;
+mod relay;
 #[cfg(test)]
 mod tests;
 mod tokens;
@@ -99,6 +100,8 @@ use layout::*;
 use model::*;
 use monitor_view::*;
 use paint::*;
+#[cfg(test)]
+use relay::*;
 use tokens::*;
 use view::*;
 use waiting_view::*;
@@ -107,6 +110,7 @@ use widgets_view::*;
 use window::*;
 
 pub(crate) use coach_look::*;
+pub(crate) use relay::Relay;
 pub use demo::demo;
 pub use view::{Account, Context};
 pub use window::show;

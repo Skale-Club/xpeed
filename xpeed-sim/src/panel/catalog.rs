@@ -117,7 +117,6 @@ pub(super) fn by_id(id: &str) -> Option<Pane> {
 }
 
 /// The id of a widget.
-#[allow(dead_code)]
 pub(super) fn id_of(pane: Pane) -> &'static str {
     ALL.iter().find(|w| w.pane == pane).map_or("", |w| w.id)
 }

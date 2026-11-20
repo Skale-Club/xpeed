@@ -53,6 +53,7 @@ mod panel;
 #[cfg(windows)]
 mod persistence;
 mod perspective;
+mod phone;
 mod present;
 #[cfg(test)]
 mod rcgen;
@@ -474,6 +475,7 @@ fn pair_command(server: &str, code: &str, name: Option<String>) -> ExitCode {
             account: None,
             // Pairing again keeps the person's choice about updates.
             auto_update: config::auto_update_of(&path),
+            phone_view: config::phone_view_of(&path),
         },
     ) {
         Ok(()) => {

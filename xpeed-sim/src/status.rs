@@ -1,12 +1,13 @@
 //! What Xpeed Companion is doing, shared between the thread that records, the thread that sends and the tray icon.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::dash::Live;
 use crate::heartbeat::{self, Heartbeat, View};
 use crate::outbox::Uploader;
+use crate::phone::Worker as PhoneWorker;
 use crate::reference::{References, Worker as ReferenceWorker};
 use crate::supervisor::Health;
 use crate::update::{CheckState, UpdateState};
@@ -155,6 +156,9 @@ pub struct Shared {
     /// The thread that fetches the reference laps, and what it last found for the car on the panel.
     references_worker: Mutex<Option<ReferenceWorker>>,
     references: Mutex<Option<Arc<References>>>,
+    /// The thread that sends the panel to the phone view, and how many phones it last heard were watching.
+    phone_worker: Mutex<Option<PhoneWorker>>,
+    phone_viewers: AtomicU32,
     /// The latest reading of the car, for the panel. Not a change worth waking the tray for.
     live: Mutex<Option<Live>>,
     /// The last laps saved in this run, newest last.
@@ -201,6 +205,8 @@ impl Shared {
             heartbeat_view: Mutex::new(View::WAITING),
             references_worker: Mutex::new(None),
             references: Mutex::new(None),
+            phone_worker: Mutex::new(None),
+            phone_viewers: AtomicU32::new(0),
             live: Mutex::new(None),
             recent_laps: Mutex::new(VecDeque::new()),
             recent_generation: AtomicU64::new(0),
@@ -504,6 +510,21 @@ impl Shared {
     /// Puts the reference fetcher in place (or takes it away); the old one is told to finish.
     pub fn set_references_worker(&self, worker: Option<ReferenceWorker>) {
         *lock(&self.references_worker) = worker;
+    }
+
+    /// Puts the phone view's sender in place (or takes it away: no phone is watching then); the old one is told to finish.
+    pub fn set_phone_worker(&self, worker: Option<PhoneWorker>) {
+        *lock(&self.phone_worker) = worker;
+        self.set_phone_viewers(0);
+    }
+
+    /// How many phones watched the panel as of the last frame the server took (none when nothing is being sent).
+    pub fn phone_viewers(&self) -> u32 {
+        self.phone_viewers.load(Ordering::Relaxed)
+    }
+
+    pub fn set_phone_viewers(&self, viewers: u32) {
+        self.phone_viewers.store(viewers, Ordering::Relaxed);
     }
 
     /// What the person is told about a new version.
