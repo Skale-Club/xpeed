@@ -36,7 +36,8 @@ export type AiFailure = 'limit_reached' | 'not_configured' | 'context_not_found'
 
 interface VirtualChatRequest {
   mode: 'virtual';
-  sessionId: string;
+  /** Omitted for the general Virtual assistant. */
+  sessionId?: string;
   conversationId: string;
   messageId: string;
 }

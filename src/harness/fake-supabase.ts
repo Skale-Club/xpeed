@@ -252,6 +252,12 @@ export const supabase = {
       }
       if (name === 'chat') {
         const message = String(opts?.body?.message ?? '');
+        // Virtual: the session coach (with a sessionId) or the racing assistant (without one).
+        if (opts?.body?.mode === 'virtual') {
+          return { data: { reply: opts.body.sessionId
+            ? `(resposta de exemplo) Você perguntou: "${message}". Nesta sessão, o setor 2 foi o que mais variou entre as voltas válidas.`
+            : `(resposta de exemplo) Você perguntou: "${message}". Seu melhor em Monza com a Ferrari 499P é 1:39.599; treine a consistência no setor 2 antes de buscar tempo.` }, error: null };
+        }
         return { data: { reply: `(resposta de exemplo) Você perguntou: "${message}". Pelos dados, seu Prius está bem, mas fique de olho na temperatura do motor.` }, error: null };
       }
       return { data: { ok: true }, error: null };

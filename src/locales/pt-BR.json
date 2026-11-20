@@ -441,9 +441,39 @@
     "scanner": "Scanner (avançado)",
     "live": "Ao vivo",
     "navigation": "Menu",
-    "more": "Mais"
+    "more": "Mais",
+    "language": "Idioma",
+    "trail": "Você está aqui",
+    "goTo": "Ir para…",
+    "goToTitle": "Ir para uma página",
+    "goToPlaceholder": "Digite o nome de uma página",
+    "goToEmpty": "Nenhuma página com esse nome.",
+    "groups": {
+      "car": "Seu carro",
+      "health": "Saúde",
+      "records": "Registros",
+      "garage": "Garagem",
+      "driving": "Pilotagem",
+      "community": "Comunidade"
+    }
   },
   "modes": {
+    "assistant": {
+      "title": "Assistente de corrida",
+      "subtitle": "Suas voltas, sessões e o Xpeed Companion",
+      "open": "Perguntar ao assistente de corrida",
+      "welcome": "Pergunte sobre suas corridas",
+      "intro": "Posso olhar suas sessões recentes, seus recordes e suas metas de treino, sugerir o que treinar agora e ajudar com o Xpeed Companion. Para ver uma sessão em detalhe, abra a sessão e use o Treinador da sessão.",
+      "placeholder": "Pergunte sobre suas corridas…",
+      "questions": {
+        "practice": "O que devo treinar agora?",
+        "progress": "Como foram minhas últimas sessões?",
+        "companion": "Minhas voltas não estão chegando. O que eu verifico?"
+      },
+      "contextNotFound": "Esta conversa não está mais disponível.",
+      "notConfigured": "O assistente de corrida ainda não está disponível.",
+      "replyFailed": "O assistente de corrida não conseguiu responder agora. Tente de novo em instantes."
+    },
     "coach": {
       "title": "Treinador da sessão",
       "description": "Pergunte sobre seus tempos de volta e de setor e analise a frenagem e a aceleração quando houver telemetria.",
@@ -859,6 +889,19 @@
         "kpiValidNone": "nenhuma volta ainda",
         "kpiTracksN_one": "{{count}} pista",
         "kpiTracksN_other": "{{count}} pistas",
+        "eyebrow7d": "Sua pilotagem · últimos 7 dias",
+        "eyebrow30d": "Sua pilotagem · últimos 30 dias",
+        "eyebrow90d": "Sua pilotagem · últimos 90 dias",
+        "eyebrow1y": "Sua pilotagem · últimos 12 meses",
+        "eyebrowAll": "Sua pilotagem · todo o período",
+        "summary": "{{laps}} em {{sessions}} e {{bests}}.",
+        "busiestName": "Dia com mais voltas",
+        "summaryLaps_one": "{{count}} volta",
+        "summaryLaps_other": "{{count}} voltas",
+        "summarySessions_one": "{{count}} sessão",
+        "summarySessions_other": "{{count}} sessões",
+        "summaryBests_one": "{{count}} recorde pessoal",
+        "summaryBests_other": "{{count}} recordes pessoais",
         "kpiCarsN_one": "{{count}} carro",
         "kpiCarsN_other": "{{count}} carros",
         "activity": "Atividade",
@@ -1801,7 +1844,8 @@
     "fuelPartial": "Só parte desta viagem foi gravada, então este é o combustível dessa parte.",
     "fuelEconomy": "Média de consumo da viagem",
     "fuelUnavailable": "O carro não informou o consumo nesta viagem.",
-    "fuelCostHint": "Informe o preço do combustível para ver quanto esta viagem custou."
+    "fuelCostHint": "Informe o preço do combustível para ver quanto esta viagem custou.",
+    "fuelAirFlow": "Seu carro não informa o consumo, então isto é calculado pelo fluxo de ar do motor ({{coverage}} da viagem)."
   },
   "tripDash": {
     "seconds": "{{count}} s",
@@ -2638,7 +2682,11 @@
       "invalid": "Escolha uma foto JPG, PNG ou WebP de até 12 MB.",
       "tooLarge": "Esta foto ficou grande demais. Recorte ou tire outra com resolução menor.",
       "failed": "Não foi possível ler a foto. Tente novamente ou preencha os valores manualmente."
-    }
+    },
+    "costAirFlow": "Pelo combustível calculado a partir do fluxo de ar do motor nesta viagem.",
+    "priceFirstSaved": "o primeiro preço que você salvou ({{date}})",
+    "setPriceForCost": "Informe o preço do combustível uma vez e todas as viagens mostram quanto custaram.",
+    "noTripFuel": "Seu carro não informou quanto combustível esta viagem usou, então não dá para calcular o custo. Abastecimentos salvos com tanque cheio e o hodômetro permitem estimar."
   },
   "hybrid": {
     "title": "Sistema híbrido",

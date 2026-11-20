@@ -441,9 +441,39 @@
     "scanner": "Scanner (advanced)",
     "live": "Live",
     "navigation": "Menu",
-    "more": "More"
+    "more": "More",
+    "language": "Language",
+    "trail": "You are here",
+    "goTo": "Go to…",
+    "goToTitle": "Go to a page",
+    "goToPlaceholder": "Type the name of a page",
+    "goToEmpty": "No page with that name.",
+    "groups": {
+      "car": "Your car",
+      "health": "Health",
+      "records": "Records",
+      "garage": "Garage",
+      "driving": "Driving",
+      "community": "Community"
+    }
   },
   "modes": {
+    "assistant": {
+      "title": "Racing assistant",
+      "subtitle": "Your laps, sessions and Xpeed Companion",
+      "open": "Ask the racing assistant",
+      "welcome": "Ask about your racing",
+      "intro": "I can look at your recent sessions, personal bests and training goals, suggest what to practise next and help with Xpeed Companion. To go through one session in detail, open it and use its Session coach.",
+      "placeholder": "Ask about your racing…",
+      "questions": {
+        "practice": "What should I practise next?",
+        "progress": "How have my recent sessions gone?",
+        "companion": "My laps are not arriving. What should I check?"
+      },
+      "contextNotFound": "This conversation is no longer available.",
+      "notConfigured": "The racing assistant isn't available yet.",
+      "replyFailed": "The racing assistant couldn't answer right now. Try again in a moment."
+    },
     "coach": {
       "title": "Session coach",
       "description": "Ask about your lap and sector times, and review braking and throttle when telemetry is available.",
@@ -859,6 +889,19 @@
         "kpiValidNone": "no laps yet",
         "kpiTracksN_one": "{{count}} track",
         "kpiTracksN_other": "{{count}} tracks",
+        "eyebrow7d": "Your driving · last 7 days",
+        "eyebrow30d": "Your driving · last 30 days",
+        "eyebrow90d": "Your driving · last 90 days",
+        "eyebrow1y": "Your driving · last 12 months",
+        "eyebrowAll": "Your driving · all time",
+        "summary": "{{laps}} in {{sessions}} and {{bests}}.",
+        "busiestName": "Busiest day",
+        "summaryLaps_one": "{{count}} lap",
+        "summaryLaps_other": "{{count}} laps",
+        "summarySessions_one": "{{count}} session",
+        "summarySessions_other": "{{count}} sessions",
+        "summaryBests_one": "{{count}} personal best",
+        "summaryBests_other": "{{count}} personal bests",
         "kpiCarsN_one": "{{count}} car",
         "kpiCarsN_other": "{{count}} cars",
         "activity": "Activity",
@@ -1801,7 +1844,8 @@
     "fuelPartial": "Only part of this trip was recorded, so this is the fuel for that part.",
     "fuelEconomy": "Trip fuel economy",
     "fuelUnavailable": "Your car didn't report fuel use on this trip.",
-    "fuelCostHint": "Add a fuel price to see what this trip cost."
+    "fuelCostHint": "Add a fuel price to see what this trip cost.",
+    "fuelAirFlow": "Your car doesn't report fuel use, so this is worked out from the engine's air flow ({{coverage}} of the trip)."
   },
   "tripDash": {
     "seconds": "{{count}} s",
@@ -2638,7 +2682,11 @@
       "invalid": "Choose a JPG, PNG or WebP photo up to 12 MB.",
       "tooLarge": "This photo is too large. Crop it or take another at a lower resolution.",
       "failed": "Could not read the photo. Try again or enter the values manually."
-    }
+    },
+    "costAirFlow": "From the fuel worked out from the engine's air flow on this trip.",
+    "priceFirstSaved": "the first price you saved ({{date}})",
+    "setPriceForCost": "Set your fuel price once and every trip shows what it cost.",
+    "noTripFuel": "Your car didn't report how much fuel this trip used, so its cost can't be worked out. Fill-ups saved with a full tank and the odometer let us estimate it."
   },
   "hybrid": {
     "title": "Hybrid system",

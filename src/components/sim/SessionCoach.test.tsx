@@ -80,9 +80,9 @@ beforeEach(async () => {
   localStorage.clear();
   leaveDemo();
   await i18n.changeLanguage('en');
-  mocks.list.mockImplementation(async ({ sessionId }: ChatScope) => [conversation(sessionId)]);
+  mocks.list.mockImplementation(async ({ sessionId }: ChatScope) => [conversation(String(sessionId))]);
   mocks.create.mockImplementation(async (_title: string, _car: undefined, { sessionId }: ChatScope) => ({
-    ...conversation(sessionId),
+    ...conversation(String(sessionId)),
     id: 'new-conversation',
   }));
   mocks.history.mockImplementation(async (id: string) => [recorded(`History from ${id}`)]);

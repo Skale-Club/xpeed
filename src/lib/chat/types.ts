@@ -23,11 +23,10 @@ export interface Attachment {
     contentType: string;
 }
 
-export interface ChatScope {
-    mode: 'virtual';
-    sessionId: string;
-    label: string;
-}
+/** A Virtual chat: one session's coach (sessionId), or the general Virtual assistant (sessionId null). */
+export type ChatScope =
+    | { mode: 'virtual'; sessionId: string; label: string }
+    | { mode: 'virtual'; sessionId: null };
 
 export interface ChatConversation {
     id: string;

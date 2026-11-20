@@ -1,4 +1,4 @@
-// Shared in-app Real-car assistant and optional Virtual session coach (OpenRouter).
+// Shared in-app Real-car assistant, Virtual racing assistant and optional Virtual session coach (OpenRouter).
 // - Credentials/model/billing are resolved on the server, managed only by super admin.
 // - Platform-funded requests use the daily quota; failed calls return its unit.
 // - The system prompt is built HERE from the database, scoped to the signed-in caller
@@ -12,7 +12,8 @@ import { AiProviderError, personalProviderFailure, resolveAiProvider } from "./a
 import { consumeQuota, getServiceClient, getUserIdFromAuth, refundQuota } from "./quota.ts";
 import { buildSystemPrompt, clampHistory, MAX_USER_MESSAGE_CHARS } from "./chat-prompt.ts";
 import { loadCarPromptData } from "./car-data.ts";
-import { buildVirtualCoachPrompt, loadVirtualCoachContext, VirtualCoachError, type CoachContext } from "./virtual-coach.ts";
+import { buildVirtualCoachPrompt, loadVirtualCoachContext, VirtualCoachError } from "./virtual-coach.ts";
+import { buildVirtualAssistantPrompt, loadVirtualAssistantContext } from "./virtual-assistant.ts";
 
 // S04: validate request shape and bound sizes before doing any work / spending
 // quota. Caps prevent token/cost inflation via huge message or history payloads.
@@ -39,8 +40,9 @@ const ChatBodySchema = z.object({
     .optional(),
 }).superRefine((body, ctx) => {
   if (body.mode === "virtual") {
-    if (!body.sessionId || !body.conversationId || !body.messageId || body.carProfileId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A Virtual session, conversation and saved question are required" });
+    // With a sessionId it is that session's coach; without one, the general Virtual assistant.
+    if (!body.conversationId || !body.messageId || body.carProfileId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A Virtual conversation and saved question are required" });
     }
   } else if (body.sessionId || body.conversationId || body.messageId) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Virtual context requires Virtual mode" });
@@ -99,16 +101,21 @@ export function createChatHandler(authenticate = getUserIdFromAuth) {
 
     // Virtual context is explicit, owner-verified and fixed to the persisted
     // conversation. Fail before spending quota or contacting the provider.
-    let coach: CoachContext | null = null;
+    let virtual: { prompt: (language: string) => string; history: Array<{ role: "user" | "model"; parts: string }> } | null = null;
     if (body.mode === "virtual") {
       // The retired Supabase project and local servers are development. Paid
-      // coaching stays off there; tests use a simulated production provider.
+      // Virtual AI stays off there; tests use a simulated production provider.
       if (Deno.env.get("NODE_ENV") !== "production") {
         return jsonResponse({ error: "Coaching AI is disabled in development", code: "development_disabled" }, 503);
       }
-      coach = await loadVirtualCoachContext(getServiceClient(), userId, {
-        sessionId: body.sessionId!, conversationId: body.conversationId!, messageId: body.messageId!, message: body.message,
-      });
+      const saved = { conversationId: body.conversationId!, messageId: body.messageId!, message: body.message };
+      if (body.sessionId) {
+        const coach = await loadVirtualCoachContext(getServiceClient(), userId, { ...saved, sessionId: body.sessionId });
+        virtual = { prompt: (language) => buildVirtualCoachPrompt(coach.evidence, language), history: coach.history };
+      } else {
+        const assistant = await loadVirtualAssistantContext(getServiceClient(), userId, saved);
+        virtual = { prompt: (language) => buildVirtualAssistantPrompt(assistant.evidence, language), history: assistant.history };
+      }
     } else if (body.carProfileId) {
       const car = await getServiceClient().from("car_profiles").select("id").eq("id", body.carProfileId).eq("user_id", userId).maybeSingle();
       if (car.error) throw new AiProviderError("ai_preferences_unavailable");
@@ -140,14 +147,14 @@ export function createChatHandler(authenticate = getUserIdFromAuth) {
 
     // 5. The car's state, read from the database for THIS user.
     const language = LANGUAGE_NAMES[body.language ?? "en"];
-    const systemPrompt = coach
-      ? buildVirtualCoachPrompt(coach.evidence, language)
+    const systemPrompt = virtual
+      ? virtual.prompt(language)
       : buildSystemPrompt(await loadCarPromptData(getServiceClient(), userId, carHintFrom(body)), language);
 
     // OpenAI-compatible chat messages (OpenRouter). role "model" -> "assistant".
     const messages = [
       { role: "system", content: systemPrompt },
-      ...clampHistory(coach ? coach.history : body.history).map((h) => ({
+      ...clampHistory(virtual ? virtual.history : body.history).map((h) => ({
         role: h.role === "model" ? "assistant" : "user",
         content: h.parts,
       })),
