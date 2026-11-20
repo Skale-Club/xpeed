@@ -117,7 +117,7 @@ function Centre({ m }: { m: DashModel }) {
           </div>
         ) : null}
       </div>
-      {visible(m.rev) || m.rev?.frac ? <Blocks frac={m.rev?.frac} role={m.rev?.role === 'danger' ? 'danger' : 'primary'} n={24} className="mt-3" /> : null}
+      {m.rev && (m.rev.show !== 'hidden' || !!m.rev.frac) ? <Blocks frac={m.rev.frac} role={m.rev.role === 'danger' ? 'danger' : 'primary'} n={24} className="mt-3" /> : null}
       <div className="mt-3 space-y-1.5">
         <Pedal e={m.throttle} />
         <Pedal e={m.brake} />
@@ -280,7 +280,6 @@ function Flag({ m }: { m: DashModel }) {
       <div
         data-flag={f.kind ?? 'none'}
         className={cn(R, 'flex h-24 items-center justify-center border border-border text-center text-2xl font-bold tracking-widest', chequered ? CHEQUERED : f.kind ? FLAG_LOOK[f.kind] : 'bg-surface-raised text-muted-foreground')}
-        style={chequered ? CHEQUERED : undefined}
       >
         {chequered ? <span className={cn(R, 'bg-black px-3 py-1 text-white')}>{f.word}</span> : f.word}
       </div>
